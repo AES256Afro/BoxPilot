@@ -24,6 +24,10 @@ export function serviceGroupId() {
 export const jobIdPattern = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 export const maxJobLogBytes = 4 * 1024 * 1024;
 export const maxJobLogLineBytes = 64 * 1024;
+/** Room kept below the cap for the "truncated" notice and the last lines of a log that reached it. */
+const jobLogTailReserveBytes = 256 * 1024;
+const jobLogTailLines = 200;
+const jobLogTailLineBytes = 1024;
 
 /** End at a UTF-8 boundary when a byte budget cuts through a multi-byte character. */
 function utf8End(buffer, limit) {
@@ -42,7 +46,6 @@ export function createJobLogWriter({ jobId, directory = defaultJobLogDirectory, 
   if (!jobId) return { append: async () => {}, flush: async () => {}, path: null, enabled: false };
   const target = jobLogPath(jobId, directory);
   let prepared = null; let bytes = 0;
-  const pending = new Set();
   async function prepare() {
     await mkdir(directory, { recursive: true, mode: 0o750 });
     if (gid !== null) await chown(directory, 0, gid).catch(() => {});
@@ -58,31 +61,66 @@ export function createJobLogWriter({ jobId, directory = defaultJobLogDirectory, 
     await chmod(target, 0o640).catch(() => {});
     try { bytes = (await stat(target)).size; } catch { bytes = 0; }
   }
-  async function write(line, stream = "stdout") {
-    if (!prepared) prepared = prepare().then(() => true, () => false);
-    if (!await prepared) return false;
-    const budget = Math.min(maxJobLogLineBytes, maxJobLogBytes - bytes);
+  /** One timestamped line, clipped to `limit` bytes at a UTF-8 boundary; null when not even the prefix fits. */
+  function format(line, stream, limit) {
     const prefix = `${now().toISOString()} ${stream === "stderr" ? "! " : "  "}`;
     const marker = " [output truncated]";
-    const available = budget - Buffer.byteLength(prefix + marker + "\n");
-    if (available <= 0) return false;
+    const available = limit - Buffer.byteLength(prefix + marker + "\n");
+    if (available <= 0) return null;
     const raw = String(line);
     // Slice before encoding or stripping controls so a huge line cannot double its allocation.
     const clippedRaw = raw.slice(0, available).replace(/[\uD800-\uDBFF]$/, "");
     const buffer = Buffer.from(clippedRaw.replace(/[\0]/g, ""));
     const end = utf8End(buffer, available);
     const clipped = raw.length > available || end < buffer.length;
-    const text = `${prefix}${buffer.toString("utf8", 0, end)}${clipped ? marker : ""}\n`;
-    bytes += Buffer.byteLength(text);
-    return appendFile(target, text).then(() => true, () => false);
+    return `${prefix}${buffer.toString("utf8", 0, end)}${clipped ? marker : ""}\n`;
   }
+  // Past the cap, the start of the log is kept and so is its end: the error that stopped a long job
+  // is usually the last thing it printed. The tail is held here and written by flush().
+  let truncated = false; let omitted = 0;
+  const tail = [];
+  async function write(line, stream = "stdout") {
+    if (!prepared) prepared = prepare().then(() => true, () => false);
+    if (!await prepared) return false;
+    if (!truncated) {
+      const text = format(line, stream, Math.min(maxJobLogLineBytes, maxJobLogBytes - jobLogTailReserveBytes - bytes));
+      if (text !== null) {
+        bytes += Buffer.byteLength(text);
+        return appendFile(target, text).then(() => true, () => false);
+      }
+      truncated = true;
+      const notice = format(`… log truncated at ${maxJobLogBytes / 1024 / 1024} MiB; the last lines follow when the operation ends`, "stderr", maxJobLogLineBytes);
+      bytes += Buffer.byteLength(notice);
+      await appendFile(target, notice).catch(() => {});
+    }
+    tail.push(format(line, stream, jobLogTailLineBytes));
+    if (tail.length > jobLogTailLines) { tail.shift(); omitted += 1; }
+    return false;
+  }
+  async function writeTail() {
+    if (!tail.length) return;
+    // Oldest first out if the reserve cannot hold them all; the newest lines are the ones that matter.
+    const lines = tail.splice(0);
+    let size = lines.reduce((total, text) => total + Buffer.byteLength(text), 0);
+    while (lines.length && size > maxJobLogBytes - bytes - maxJobLogLineBytes) { size -= Buffer.byteLength(lines.shift()); omitted += 1; }
+    const header = omitted ? format(`… ${omitted} line(s) omitted; the last ${lines.length} follow`, "stderr", maxJobLogLineBytes) : "";
+    const text = header + lines.join("");
+    bytes += Buffer.byteLength(text);
+    omitted = 0;
+    await appendFile(target, text).catch(() => {});
+  }
+  // Appends run one after another on a single chain. Independent appendFile calls finish in any
+  // order, so a burst of output could land in the file shuffled.
+  let chain = Promise.resolve();
   function append(line, stream = "stdout") {
-    const writing = write(line, stream);
-    pending.add(writing);
-    writing.then(() => pending.delete(writing), () => pending.delete(writing));
+    const writing = chain.then(() => write(line, stream), () => write(line, stream));
+    chain = writing.catch(() => false);
     return writing;
   }
-  async function flush() { while (pending.size) await Promise.allSettled([...pending]); }
+  async function flush() {
+    chain = chain.then(writeTail, writeTail);
+    await chain.catch(() => {});
+  }
   return { append, flush, path: target, enabled: true };
 }
 
