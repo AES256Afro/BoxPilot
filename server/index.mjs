@@ -7,7 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { startTlsListener } from "./tls-listener.mjs";
 import { productVersion } from "./version.mjs";
-import { createCatalogService } from "./catalog/index.mjs";
+import { createCatalogService, secretEnvNamesLookup } from "./catalog/index.mjs";
 import { createJobLogReader } from "./job-log.mjs";
 import { createActionCenterService } from "./action-center.mjs";
 import { createAuditLog } from "./audit.mjs";
@@ -129,7 +129,7 @@ function markProfileEdited(job) {
   state.setSetting("firewallProfile", { ...current, editedAt: new Date().toISOString() }, { updatedBy: job.createdBy });
 }
 
-const secretEnvNamesFor = async (appId) => ((await catalogService.get(appId))?.env ?? []).filter((entry) => entry.secret || entry.type === "password").map((entry) => entry.name);
+const secretEnvNamesFor = secretEnvNamesLookup(catalogService);
 const jobs = createJobService(state, helper, {
   onOperationSettled: (job) => invalidateOperationEvidence(job, { registry, inventory, prerequisites, helper }),
   secretEnvNamesFor,

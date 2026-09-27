@@ -161,7 +161,9 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
       if (!["app.install", "app.reconfigure"].includes(step?.operationId)) continue;
       const env = step?.parameters?.values?.env;
       if (!env || typeof env !== "object") continue;
-      const named = await secretEnvNamesFor(step.parameters?.id);
+      // null: the catalog does not know the app (a typo, or an id read from an earlier step), so any
+      // of its settings might be the secret.
+      const named = (await secretEnvNamesFor(step.parameters?.id)) ?? Object.keys(env);
       // values.env takes numbers as well as text, so a PIN typed as a number counts too.
       if (named.some((key) => ![undefined, null, ""].includes(env[key]))) throw new Error(`${registry.get?.(step.operationId)?.title ?? step.operationId} needs a password or key each time, so it cannot be part of a flow`);
     }

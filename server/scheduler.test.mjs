@@ -241,6 +241,18 @@ describe("a schedule that would store an app's secret", () => {
       expect(store.listSchedules()).toHaveLength(0);
     } finally { store.close(); }
   });
+
+  it("is refused when the catalog cannot say which settings of the app are secret", async () => {
+    // A mistyped or retired app id: the catalog answers null, which used to read as "no secrets".
+    const { store, owner } = await setup();
+    try {
+      const jobs = { approveAndStart: vi.fn(), prepareParameters: async (_id, parameters) => parameters };
+      const scheduler = createSchedulerService({ store, jobs, secretEnvNamesFor: async (id) => (id === "cloudflared" ? ["TUNNEL_TOKEN"] : null) });
+      await expect(scheduler.create({ operationId: "app.reconfigure", parameters: { id: "cloudfared", values: { env: { TUNNEL_TOKEN: "eyJ-typo-token" } } }, frequency: "daily", minute: 0, hour: 3, createdBy: owner.id }))
+        .rejects.toThrow("needs a password or key each time");
+      expect(JSON.stringify(store.listSchedules())).not.toContain("eyJ-typo-token");
+    } finally { store.close(); }
+  });
 });
 
 describe("next runs across a daylight-saving change", () => {
