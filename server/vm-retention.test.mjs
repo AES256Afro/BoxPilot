@@ -53,6 +53,17 @@ describe("VM backup retention service", () => {
     expect(selection.kept.find((item) => item.backupId === backup(5).id)?.reasons).toContain("not-restore-tested");
   });
 
+  it("pins every recorded snapshot when forgetting an unrecorded one, however many records exist", () => {
+    const backups = Array.from({ length: 250 }, (_, index) => backup(index + 1));
+    const store = {
+      // The real store clamps a bounded listing to 200 rows.
+      listVmBackups: vi.fn((limit) => backups.slice(0, Math.min(limit, 200))),
+      listAllVmBackups: vi.fn(() => backups),
+    };
+    const service = createVmRetentionService({ store, helper: { request: vi.fn() }, now: () => now });
+    expect(service.prepareForget().knownSnapshotIds).toContain(backup(250).snapshotId);
+  });
+
   it("preserves every backup referenced by a recovery clone", () => {
     const backups = [backup(1), backup(2), backup(3), backup(4)];
     const selection = vmRetentionInternals.selectRetentionCandidates({ backups, recoveries: [{ backupId: backup(4).id }], now });
