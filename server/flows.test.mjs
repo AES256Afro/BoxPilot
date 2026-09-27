@@ -658,3 +658,16 @@ describe("a flow step that would store an app's secret", () => {
       .rejects.toThrow("needs a password or key each time");
   });
 });
+
+describe("editing a flow to carry an app's secret", () => {
+  it("is refused exactly as creating one is", async () => {
+    // create asked the manifest which env values are secrets; update did not, so the same token
+    // could be added by editing the flow after it was saved.
+    const store = fakeStore();
+    const flows = createFlowService({ store, jobs: fakeJobs(store), pollMs: 2, secretEnvNamesFor: async () => ["CLOUDFLARE_API_TOKEN"] });
+    const flow = await flows.create({ name: "Re-key DDNS", steps: [{ operationId: "app.reconfigure", parameters: { id: "cloudflare-ddns", values: { env: { CLOUDFLARE_API_TOKEN: "" } } } }], createdBy: "owner-1" });
+    await expect(flows.update(flow.id, { steps: [{ operationId: "app.reconfigure", parameters: { id: "cloudflare-ddns", values: { env: { CLOUDFLARE_API_TOKEN: "cf-token" } } } }] }, "owner-1"))
+      .rejects.toThrow("needs a password or key each time");
+    expect(JSON.stringify(store.getFlow(flow.id))).not.toContain("cf-token");
+  });
+});
