@@ -3,12 +3,12 @@ id: llmcoach
 name: LLMCoach
 category: AI
 icon: "🎓"
-description: Teach small language models a specific job. Build a searchable knowledge base from your documents and chat with it, generate training data from it, fine-tune a model with LoRA, and score the results side by side, with live logs, loss charts and hardware stats. Runs models through this server's Ollama app, or any OpenAI-compatible server such as llama.cpp or vLLM.
+description: Teach small language models a specific job. Build a knowledge base by dropping files into the chat or a watched folder, chat with it, generate training data, fine-tune with LoRA and compare the results, with live logs and loss charts. A nightly loop retrains and keeps a new model only if it scores better. Uses this server's Ollama or any OpenAI-compatible server.
 website: https://github.com/AES256Afro/LLMCoach
 risk: low
 image:
-  reference: ghcr.io/aes256afro/llmcoach:0.2.0
-  version: "0.2.0"
+  reference: ghcr.io/aes256afro/llmcoach:0.4.0
+  version: "0.4.0"
 ports:
   - id: web
     label: Web UI
@@ -26,6 +26,12 @@ volumes:
     path: cache
     backup: false
     description: Base models downloaded for training and evaluation, often several GB each. Excluded from backups on purpose; they download again on first use.
+  - id: inbox
+    label: Inbox
+    container: /inbox
+    hostPath: /srv/llmcoach-inbox
+    configurable: true
+    description: Folder LLMCoach watches for new documents. Share it over SMB from Storage, or point it at a mounted network share, and files copied into it join the knowledge base. What LLMCoach adds is copied into its data, which is backed up, so this folder isn't.
 env:
   - name: LLMCOACH_USERNAME
     label: Owner username
@@ -50,6 +56,9 @@ env:
     description: Only needed to fine-tune gated base models such as Llama or Gemma. Create a read token at huggingface.co/settings/tokens and accept the model's license there first.
   - name: HF_HOME
     default: /cache/huggingface
+    fixed: true
+  - name: LLMCOACH_INBOX_DIR
+    default: /inbox
     fixed: true
 extraHosts:
   - host.docker.internal:host-gateway
