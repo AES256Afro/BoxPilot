@@ -113,7 +113,8 @@ export function createSchedulerService({ store, jobs, secretEnvNamesFor = async 
     if (operation.minimumRole === "owner" && (store.findOwnerById?.(createdBy)?.role ?? "owner") !== "owner") throw new Error(`Only the owner can schedule ${operation.title}`);
     // A schedule is stored, so a credential given to it would sit in the database and in every backup.
     // An app password or token nested in values.env is a secret too, and a stored one would sit in the database.
-    if (["app.install", "app.reconfigure"].includes(operationId) && (await secretEnvNamesFor(parameters?.id)).some((name) => typeof parameters?.values?.env?.[name] === "string" && parameters.values.env[name])) throw new Error(`${operation.title} needs a password or key each time, so it cannot run unattended`);
+    // values.env takes numbers as well as text, so a PIN typed as a number counts too.
+    if (["app.install", "app.reconfigure"].includes(operationId) && (await secretEnvNamesFor(parameters?.id)).some((name) => ![undefined, null, ""].includes(parameters?.values?.env?.[name]))) throw new Error(`${operation.title} needs a password or key each time, so it cannot run unattended`);
     const secrets = secretFields(operation.parameters).filter((name) => parameters?.[name] !== undefined && parameters?.[name] !== null && parameters?.[name] !== "");
     if (secrets.length) throw new Error(`${operation.title} needs a password or key each time, so it cannot run unattended`);
     // A typed confirmation is a person promising they meant it; a schedule cannot make that promise.

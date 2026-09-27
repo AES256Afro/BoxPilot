@@ -670,4 +670,16 @@ describe("editing a flow to carry an app's secret", () => {
       .rejects.toThrow("needs a password or key each time");
     expect(JSON.stringify(store.getFlow(flow.id))).not.toContain("cf-token");
   });
+
+  it("is refused when the secret is typed as a number", async () => {
+    // The check asked only whether the value was a non-empty string; values.env also takes numbers,
+    // and a stored flow comes back out of GET /flows to anyone who can sign in.
+    const store = fakeStore();
+    const flows = createFlowService({ store, jobs: fakeJobs(store), pollMs: 2, secretEnvNamesFor: async () => ["ADMIN_PIN"] });
+    const steps = (pin) => [{ operationId: "app.reconfigure", parameters: { id: "pinned-app", values: { env: { ADMIN_PIN: pin } } } }];
+    await expect(flows.create({ name: "Re-pin", steps: steps(918273645546372), createdBy: "owner-1" })).rejects.toThrow("needs a password or key each time");
+    const flow = await flows.create({ name: "Re-pin", steps: steps(""), createdBy: "owner-1" });
+    await expect(flows.update(flow.id, { steps: steps(918273645546372) }, "owner-1")).rejects.toThrow("needs a password or key each time");
+    expect(JSON.stringify(store.listFlows())).not.toContain("918273645546372");
+  });
 });

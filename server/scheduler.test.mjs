@@ -229,6 +229,18 @@ describe("a schedule that would store an app's secret", () => {
       .rejects.toThrow("needs a password or key each time");
     expect(store.listSchedules()).toHaveLength(0);
   });
+
+  it("is refused when the secret is typed as a number", async () => {
+    // The check asked only whether the value was a non-empty string; values.env also takes numbers.
+    const { store, owner } = await setup();
+    try {
+      const jobs = { approveAndStart: vi.fn(), prepareParameters: async (_id, parameters) => parameters };
+      const scheduler = createSchedulerService({ store, jobs, secretEnvNamesFor: async () => ["ADMIN_PIN"] });
+      await expect(scheduler.create({ operationId: "app.reconfigure", parameters: { id: "pinned-app", values: { env: { ADMIN_PIN: 918273645546372 } } }, frequency: "daily", minute: 0, hour: 3, createdBy: owner.id }))
+        .rejects.toThrow("needs a password or key each time");
+      expect(store.listSchedules()).toHaveLength(0);
+    } finally { store.close(); }
+  });
 });
 
 describe("next runs across a daylight-saving change", () => {
