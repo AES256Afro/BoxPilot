@@ -117,4 +117,43 @@ describe("Automations", () => {
     // The skipped step fetched nothing: no job, no output.
     expect(fetchMock.mock.calls.map(([input]) => String(input)).filter((url) => url.includes("/jobs/") && !url.includes("j1"))).toEqual([]);
   });
+
+  it("asks before regenerating a webhook or removing a flow, and keeps the new URL until dismissed", async () => {
+    const flow = {
+      id: "flow-1", name: "Nightly", createdBy: "o", risk: "low", running: false, webhookEnabled: true,
+      steps: [{ operationId: "apt.refresh", parameters: {} }],
+      createdAt: "x", updatedAt: "x", lastRunAt: null, lastResult: null, lastJobIds: [],
+      frequency: null, minute: null, hour: null, weekday: null, enabled: true, nextDueAt: null,
+    };
+    const calls: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      const method = init?.method ?? "GET";
+      if (method !== "GET") calls.push(`${method} ${url}`);
+      if (url === "/api/v1/flows/flow-1/webhook" && method === "POST") return json({ token: "t", path: "/api/v1/hooks/flow-1/secret-token" });
+      if (url === "/api/v1/flows") return json({ flows: [flow], palette });
+      if (url.startsWith("/api/v1/flows/")) return json({ flow });
+      return json({ shelf: [], suggestions: {} });
+    }));
+    render(<AutomationsCenter csrfToken="csrf" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Regenerate the webhook" }));
+    expect(calls).toEqual([]);
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    fireEvent.click(screen.getByRole("button", { name: "Regenerate the webhook" }));
+    fireEvent.click(screen.getByRole("button", { name: "Regenerate it" }));
+    const url = await screen.findByLabelText("Webhook URL");
+    expect(url.textContent).toBe(`${window.location.origin}/api/v1/hooks/flow-1/secret-token`);
+    expect(screen.getByRole("button", { name: "Copy the webhook URL" })).toBeTruthy();
+    // Another action does not wipe it.
+    fireEvent.click(screen.getByRole("button", { name: "Run it every Sunday at 03:00" }));
+    await vi.waitFor(() => expect(calls).toContain("PUT /api/v1/flows/flow-1"));
+    expect(screen.getByLabelText("Webhook URL")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+    expect(screen.queryByLabelText("Webhook URL")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+    expect(calls.some((call) => call.startsWith("DELETE"))).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Remove it" }));
+    await vi.waitFor(() => expect(calls).toContain("DELETE /api/v1/flows/flow-1"));
+  });
 });
