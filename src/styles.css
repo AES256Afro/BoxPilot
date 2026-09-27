@@ -3326,6 +3326,12 @@ textarea {
   font-size: 17px;
 }
 
+.approval-parameters { display: grid; gap: 6px; margin: 0 0 12px; font-size: 13px; }
+.approval-parameters dl { display: grid; gap: 4px; margin: 0; }
+.approval-parameters dl div { display: flex; gap: 8px; min-width: 0; }
+.approval-parameters dt { color: var(--text-muted); }
+.approval-parameters dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+
 .approval-box {
   display: grid;
   gap: 9px;

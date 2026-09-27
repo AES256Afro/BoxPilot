@@ -31,6 +31,7 @@ interface Job {
   risk: string;
   error: string | null;
   steps: JobStep[];
+  parameters?: Record<string, unknown>;
   // Optional in truth, not just in principle: a job whose recovery block was missing took the
   // whole Repair Center down, because the type said it could not happen.
   recovery?: { reason?: string; manual?: string };
@@ -270,6 +271,24 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
     }
   };
 
+  // The desk offers whatever job is waiting, which may have been staged on another page or in
+  // another tab. Withdrawing it is as available as approving it.
+  const withdraw = async () => {
+    if (!awaitingApproval) return;
+    setPending(true);
+    setError(null);
+    try {
+      await readJson(await fetch(`/api/v1/jobs/${encodeURIComponent(awaitingApproval.id)}`, { method: "DELETE", headers: { "X-BoxPilot-CSRF": csrfToken } }));
+      setPassword("");
+      setConfirmTyped("");
+      await refresh();
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Could not withdraw the job");
+    } finally {
+      setPending(false);
+    }
+  };
+
   const ready = checks.filter((item) => item.status === "ready").length;
 
   const downloadRecoveryKit = (format: "json" | "markdown") => {
@@ -355,6 +374,14 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
           <h3>{awaitingApproval ? awaitingApproval.title : "Helper connection and logging"}</h3>
           <p>{awaitingApproval ? "Check what this job will do, then approve it." : "Checks the privileged helper connection and writes a small test log. Run this if jobs fail to start or their output is missing."}</p>
           {awaitingApproval && <p className="job-recovery"><strong>{awaitingApproval.risk} risk:</strong> {awaitingApproval.recovery?.reason ?? "Follow the recorded recovery instructions if verification fails."}</p>}
+          {awaitingApproval && (
+            <div className="approval-parameters" aria-label="What this job will run">
+              <span>Operation <code>{awaitingApproval.type.replace(/^op:/, "")}</code></span>
+              {Object.keys(awaitingApproval.parameters ?? {}).length > 0
+                ? <dl>{Object.entries(awaitingApproval.parameters ?? {}).map(([name, value]) => <div key={name}><dt>{name}</dt><dd><code>{typeof value === "string" ? value : JSON.stringify(value)}</code></dd></div>)}</dl>
+                : <span className="muted">No parameters.</span>}
+            </div>
+          )}
           {!awaitingApproval ? (
             <>
               <button className="primary-button" type="button" onClick={() => void runCanary()} disabled={pending}>{pending ? "Checking..." : "Check helper"}</button>
@@ -373,6 +400,7 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
                     {approvalPolicy?.confirmText && <label>Type <code>{approvalPolicy.confirmText}</code> to confirm<input aria-label="Typed confirmation" autoComplete="off" spellCheck="false" value={confirmTyped} onChange={(event) => setConfirmTyped(event.target.value)} /></label>}
                     {passwordRequired && <input aria-label="Approval password" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} />}
                     <button className="primary-button" type="button" onClick={() => void approve()} disabled={pending || (passwordRequired && password.length < 12) || Boolean(approvalPolicy?.confirmText && confirmTyped !== approvalPolicy.confirmText)}>{pending ? "Working..." : tier === "low" && !passwordRequired ? "Run" : "Approve and run"}</button>
+                    <button className="secondary-button" type="button" onClick={() => void withdraw()} disabled={pending}>Withdraw</button>
                   </>
                 );
               })()}
