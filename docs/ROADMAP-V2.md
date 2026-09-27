@@ -1011,7 +1011,7 @@ v1.112.0; the structural half remains.
 The registry masks top-level secret fields; an app's token nested in `values.env` was stored in
 clear until v1.112.0. The lesson generalises.
 
-- **M29.1 Secrets are a shape, not a flag.** A single `secretPaths(operation, parameters)` used by
+- ✅ **M29.1 Secrets are a shape, not a flag** (unreleased): the spec declares where a secret sits (`secret: true`, or `secretEnvOf` for an app's `values.env`) and one registry `secretPaths` serves jobs, the scheduler and flows; `server/secrets-at-rest.test.mjs` walks every secret-bearing operation through every store (the audit log records no parameter values). A single `secretPaths(operation, parameters)` used by
   jobs, scheduler, flows and the audit log, so a new nesting cannot be missed three times.
 - **M29.2 Staged secrets expire.** Thirty minutes unapproved and the staged copy is dropped, with
   the dialog saying so; today they live until the daily prune.
