@@ -4,13 +4,14 @@ name: MinIO
 category: Backup
 icon: "🪣"
 description: "S3-compatible object storage on your own disk. A backup target for Immich, Kopia, Duplicati, and Restic, and a bucket store for anything that speaks S3."
-website: https://min.io
+website: https://github.com/pgsty/minio
 risk: low
 image:
-  # quay.io, not Docker Hub: MinIO withdrew minio/minio from Docker Hub, so the pull fails there
-  # for every release, not just this one. quay.io is MinIO's own registry and carries the same tags.
-  reference: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
-  version: "2025-09-07"
+  # MinIO stopped publishing community images: minio/minio (Docker Hub) and quay.io/minio/minio
+  # both answer 401 now, for every tag. pgsty/minio is a maintained community build of the same
+  # AGPL source (same entrypoint, command and data layout), so existing /srv/minio data keeps working.
+  reference: docker.io/pgsty/minio:RELEASE.2026-08-04T00-00-00Z
+  version: "2026-08-04"
 command: ["server", "/data", "--console-address", ":9001"]
 ports:
   - id: api
@@ -48,4 +49,4 @@ health:
   kind: running
   stableSeconds: 10
   timeoutSeconds: 180
-notes: "Apps connect to http://<this server>:9000 with the access and secret keys from Secrets; the console on port 9001 creates buckets and extra users. Recent community builds keep the console minimal; bucket and user management also works with the mc command-line tool."
+notes: "Apps connect to http://<this server>:9000 with the access and secret keys from Secrets; the console on port 9001 creates buckets and extra users, and the mc command-line tool does the same. This is the pgsty community build of MinIO, because MinIO no longer publishes free images."
