@@ -120,3 +120,14 @@ export function appAddresses(
   }
   return addresses;
 }
+
+/**
+ * How this browser reached BoxPilot, read from its own address bar. The sidebar used to say
+ * "Tailscale HTTPS | Funnel off" whatever the connection was; this claims only what it can see.
+ */
+export function connectionLabel({ protocol, hostname }: Pick<Location, "protocol" | "hostname">) {
+  const scheme = protocol === "https:" ? "HTTPS" : "HTTP";
+  // MagicDNS names, and addresses in the 100.64.0.0/10 range Tailscale hands out.
+  const tailnet = hostname.endsWith(".ts.net") || /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d{1,3}\.\d{1,3}$/.test(hostname);
+  return tailnet ? `Tailscale ${scheme}` : `${scheme} connection`;
+}

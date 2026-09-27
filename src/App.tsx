@@ -9,6 +9,7 @@ import AuthScreen from "./AuthScreen";
 import ActivityDrawer from "./ActivityDrawer";
 import { useTheme } from "./useTheme";
 import { dropElevation, fetchAuthStatus, logoutOwner, type AuthStatus } from "./auth";
+import { connectionLabel } from "./appLinks";
 
 // Every page is its own chunk, fetched the first time it is opened. All eighteen used to ride in
 // the one bundle: 688 KB of JavaScript to show the Overview, about sixty percent of it pages the
@@ -285,7 +286,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
         </nav>
         <div className="private-access">
           <i />
-          <div><strong>Private administration</strong><span>Tailscale HTTPS | Funnel off</span></div>
+          <div><strong>Private administration</strong><span>{connectionLabel(window.location)}</span></div>
         </div>
         <div className="prototype-label">v{__BOXPILOT_VERSION__}</div>
       </aside>
