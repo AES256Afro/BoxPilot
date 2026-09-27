@@ -71,6 +71,13 @@ export async function backupCloudTest(parameters = {}, { run = fixedRun, log = n
   return { reachable: true, writable: true, target, entries, freeBytes };
 }
 
+/**
+ * A snapshot or restore that stops half way leaves `.staging-*` or `.restore-*` beside the machine
+ * snapshots, and a restore stages files for review under `restored/`. Each holds the controller
+ * database and every app's .env unencrypted, so none of them leave the box.
+ */
+const machineSnapshotExcludes = ["--exclude", "/.staging-*/**", "--exclude", "/.restore-*/**", "--exclude", "/restored/**"];
+
 /** Copy every local backup root to the destination. rclone copy never deletes remotely. */
 export async function backupCloudSync(parameters = {}, { run = fixedRun, log = null, secretsDirectory = defaults.secretsDirectory, rclone = defaults.rclone, sources = defaults.sources, now = () => new Date() } = {}) {
   const destination = normalizeCloudDestination(parameters);
@@ -84,7 +91,8 @@ export async function backupCloudSync(parameters = {}, { run = fixedRun, log = n
     const exists = await stat(source.root).then((info) => info.isDirectory(), () => false);
     if (!exists) continue;
     log?.(`$ rclone copy --checksum ${source.root} ${target}/${source.name}`, "stdout");
-    const result = await run(rclone, [...common, "copy", "--checksum", source.root, `${target}/${source.name}`], { timeout: 6 * 60 * 60_000, maxBuffer: 8 * 1024 * 1024 });
+    const excludes = source.name === "machine-snapshots" ? machineSnapshotExcludes : [];
+    const result = await run(rclone, [...common, "copy", "--checksum", ...excludes, source.root, `${target}/${source.name}`], { timeout: 6 * 60 * 60_000, maxBuffer: 8 * 1024 * 1024 });
     const stats = parseRcloneStats(`${result.stdout}\n${result.stderr}`);
     if (!result.ok) throw new Error(`rclone copy failed for ${source.name}: ${tail(result.stderr)}`);
     filesTransferred += stats.filesTransferred; errors += stats.errors;
