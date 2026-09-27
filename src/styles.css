@@ -3150,9 +3150,17 @@ textarea {
 }
 
 .signed-in-user {
+  overflow: hidden;
+  min-width: 0;
+  max-width: 18ch;
   color: var(--text-strong);
   font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
+
+.elevation-lock { white-space: nowrap; }
+.elevation-short { display: none; }
 
 .repair-page {
   display: grid;
@@ -3832,6 +3840,32 @@ textarea {
   .topbar-right .status-pill {
     display: none;
   }
+
+  /* Elevated, the right side holds activity, the lock, the name and Sign out: at phone width it
+     must be allowed to shrink and wrap rather than push the bar wider than the screen. */
+  .topbar {
+    flex-wrap: wrap;
+    gap: 8px 12px;
+  }
+
+  .hostline,
+  .topbar-right {
+    min-width: 0;
+  }
+
+  .topbar-right {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-left: auto;
+  }
+
+  .signed-in-user {
+    max-width: 10ch;
+  }
+
+  .elevation-long { display: none; }
+  .elevation-short { display: inline; }
 
   .content {
     padding: 23px 15px 36px;
