@@ -90,12 +90,12 @@ describe("Home dashboard", () => {
       expect(onNavigate).toHaveBeenLastCalledWith("settings");
     });
 
-    it("says the target did not accept them when one is set", async () => {
+    it("says they have not reached the target yet when one is set", async () => {
       vi.stubGlobal("fetch", watchWith(true, conditions(false)));
       render(<HomeDashboard onNavigate={vi.fn()} />);
       const line = await screen.findByRole("region", { name: "Alerts that reached no one" });
       fireEvent.click(within(line).getByRole("button", { name: "Show" }));
-      expect(within(line).getByText("Your notification target did not accept these. BoxPilot tries again every 15 minutes.")).toBeTruthy();
+      expect(within(line).getByText("These have not reached your notification target yet. BoxPilot tries again every 15 minutes.")).toBeTruthy();
       expect(within(line).getByRole("button", { name: "Check where alerts go" })).toBeTruthy();
     });
 
