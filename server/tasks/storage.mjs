@@ -359,8 +359,10 @@ export async function storageLvmSnapshotRollback({ path: snapshot } = {}, { run 
   const result = await run(binaries.lvconvert, ["--merge", snapshot], { timeout: 5 * 60_000 });
   const output = `${result.stderr}\n${result.stdout}`;
   if (!result.ok) throw new Error(`lvconvert failed: ${tail(output)}`);
-  const deferred = /next activation|Can't merge.*open|will merge/i.test(output) || true;
-  log?.(deferred ? "The merge is scheduled; reboot to apply it. The snapshot is consumed by the merge." : "Merged", "stdout");
+  // An origin that is in use (a mounted /) merges on its next activation, which is a reboot; one that
+  // is not merges now. LVM says which; only a deferred merge needs the reboot.
+  const deferred = /next activation|delaying merge|can't merge|will merge|will occur/i.test(output);
+  log?.(deferred ? "The merge is scheduled; reboot to apply it. The snapshot is consumed by the merge." : "Merged; no reboot is needed. The snapshot was consumed by the merge.", "stdout");
   return { rollbackScheduled: true, path: snapshot, rebootRequired: deferred, detail: output.split("\n").filter(Boolean).slice(-2).join(" ") };
 }
 
