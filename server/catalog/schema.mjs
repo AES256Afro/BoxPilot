@@ -67,10 +67,13 @@ function checkKeys(errors, path, value, allowed, required = []) {
 export function validateManifest(raw) {
   const errors = [];
   if (!isObject(raw)) return { manifest: null, errors: ["manifest: must be a mapping"] };
-  checkKeys(errors, "manifest", raw, ["schemaVersion", "id", "name", "category", "description", "website", "icon", "risk", "image", "ports", "volumes", "env", "health", "capabilities", "devices", "extraHosts", "command", "user", "network", "notes", "uninstall", "sidecars", "setup", "networkVia", "sysctls", "shmSize", "optionalDevices", "signIn", "networkModes", "modelRunner", "connections", "files", "usesVpnProfile"], ["schemaVersion", "id", "name", "category", "description", "image"]);
+  checkKeys(errors, "manifest", raw, ["schemaVersion", "id", "name", "category", "description", "website", "icon", "risk", "image", "ports", "volumes", "env", "health", "capabilities", "devices", "extraHosts", "command", "user", "network", "notes", "uninstall", "sidecars", "setup", "networkVia", "sysctls", "shmSize", "optionalDevices", "signIn", "networkModes", "modelRunner", "connections", "files", "usesVpnProfile", "gpu"], ["schemaVersion", "id", "name", "category", "description", "image"]);
   if (raw.schemaVersion !== 2) fail(errors, "manifest.schemaVersion", "must be 2");
   // Docker gives a container 64 MB of shared memory. Anything decoding video wants far more, and
   // runs out in ways that look like the app is broken rather than out of a resource.
+  // `gpu: optional`: use an NVIDIA GPU when the server has one set up for Docker (driver + NVIDIA
+  // Container Toolkit), and run on the CPU otherwise. Never a reason not to install.
+  if (raw.gpu !== undefined && raw.gpu !== "optional") fail(errors, "manifest.gpu", "must be optional");
   if (raw.shmSize !== undefined && !(typeof raw.shmSize === "string" && /^[1-9][0-9]{0,4}[mg]$/.test(raw.shmSize))) fail(errors, "manifest.shmSize", "must look like 256m or 1g");
   // usesVpnProfile: the app can be routed through the one shared VPN profile instead of its own
   // connection. It needs a networkVia sidecar (a Gluetun container) for the profile to configure.
@@ -253,7 +256,8 @@ export function validateManifest(raw) {
   sidecars.forEach((sidecar, index) => {
     const path = `manifest.sidecars[${index}]`;
     if (!isObject(sidecar)) return fail(errors, path, "must be a mapping");
-    checkKeys(errors, path, sidecar, ["id", "image", "command", "env", "volumes", "capabilities", "devices"], ["id", "image"]);
+    checkKeys(errors, path, sidecar, ["id", "image", "command", "env", "volumes", "capabilities", "devices", "gpu"], ["id", "image"]);
+    if (sidecar.gpu !== undefined && sidecar.gpu !== "optional") fail(errors, `${path}.gpu`, "must be optional");
     if (sidecar.capabilities !== undefined && !(Array.isArray(sidecar.capabilities) && sidecar.capabilities.every((cap) => typeof cap === "string" && /^CAP_[A-Z_]+$/.test(cap)))) fail(errors, `${path}.capabilities`, "entries must look like CAP_NET_ADMIN");
     if (sidecar.devices !== undefined && !(Array.isArray(sidecar.devices) && sidecar.devices.every((device) => typeof device === "string" && /^\/dev\/[A-Za-z0-9._/-]+$/.test(device)))) fail(errors, `${path}.devices`, "entries must be /dev paths");
     if (typeof sidecar.id !== "string" || !keyPattern.test(sidecar.id) || sidecarIds.has(sidecar.id) || sidecar.id === raw.id) fail(errors, `${path}.id`, "must be a unique short slug distinct from the app id"); else sidecarIds.add(sidecar.id);
@@ -391,6 +395,7 @@ export function validateManifest(raw) {
     modelRunner,
     sysctls: raw.sysctls ?? [],
     shmSize: raw.shmSize ?? null,
+    gpu: raw.gpu ?? null,
     sidecars: sidecars.map((sidecar) => ({
       id: sidecar.id,
       image: sidecar.image,
@@ -398,6 +403,7 @@ export function validateManifest(raw) {
       env: sidecar.env ?? {},
       capabilities: sidecar.capabilities ?? [],
       devices: sidecar.devices ?? [],
+      gpu: sidecar.gpu ?? null,
       volumes: (sidecar.volumes ?? []).map((volume) => ({ id: volume.id, container: volume.container, path: volume.path ?? null, hostPath: volume.hostPath ?? null, readOnly: volume.readOnly ?? Boolean(volume.hostPath), backup: volume.hostPath ? false : (volume.backup ?? true) })),
     })),
   });
