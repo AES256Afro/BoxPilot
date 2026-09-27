@@ -1,4 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { firewallProfileApply, firewallRuleAdd, firewallRuleDelete, firewallSet, readWebEnv, validateRule } from "./firewall.mjs";
 
 const okRun = () => vi.fn(async (binary, args) => {
@@ -135,5 +138,85 @@ describe("root firewall tasks", () => {
     await expect(firewallProfileApply({ profile: "fortress" }, { run, ...lanEnv })).rejects.toThrow("Unknown firewall profile");
     await expect(firewallProfileApply({ profile: "home-server", services: ["telnet"] }, { run, ...lanEnv })).rejects.toThrow("Unknown services");
     expect(run).not.toHaveBeenCalled();
+  });
+});
+
+describe("starting from scratch", () => {
+  const { mkdtemp, readFile, writeFile, rm } = fs;
+  const original = {
+    "user.rules": "*filter\n### tuple ### allow tcp 8096 0.0.0.0/0 any 0.0.0.0/0 in comment=4a656c6c7966696e\nCOMMIT\n",
+    "user6.rules": "*filter\nCOMMIT\n",
+    "ufw.conf": "ENABLED=no\nLOGLEVEL=low\n",
+    "before.rules": "*nat\n:POSTROUTING ACCEPT [0:0]\n-A POSTROUTING -s 10.8.0.0/24 -o eth0 -j MASQUERADE\nCOMMIT\n*filter\nCOMMIT\n",
+    "before6.rules": "*filter\n# custom v6\nCOMMIT\n",
+    "after.rules": "*filter\nCOMMIT\n\n# BEGIN BOXPILOT DOCKER RULES (managed by BoxPilot; edits here are overwritten)\n*filter\nCOMMIT\n# END BOXPILOT DOCKER RULES\n",
+    "after6.rules": "*filter\n# custom after6\nCOMMIT\n",
+  };
+  const installDefault = "# installation default\n*filter\nCOMMIT\n";
+
+  async function box({ enabled }) {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-ufw-"));
+    const files = { ...original, "ufw.conf": `ENABLED=${enabled ? "yes" : "no"}\nLOGLEVEL=low\n` };
+    for (const [name, text] of Object.entries(files)) await writeFile(path.join(directory, name), text);
+    const contents = async () => Object.fromEntries(await Promise.all(Object.keys(original).map(async (name) => [name, await readFile(path.join(directory, name), "utf8")])));
+    // `ufw --force reset` puts every rules file back to the installation default and turns ufw off.
+    const reset = async () => {
+      for (const name of Object.keys(original)) await writeFile(path.join(directory, name), name === "ufw.conf" ? "ENABLED=no\nLOGLEVEL=low\n" : installDefault);
+    };
+    return { directory, files, contents, reset, cleanup: () => rm(directory, { recursive: true, force: true }) };
+  }
+
+  function runner({ enabled, reset, failOn = null }) {
+    return vi.fn(async (_binary, args) => {
+      const call = args.join(" ");
+      if (call === "status") return { ok: true, stdout: `Status: ${enabled ? "active" : "inactive"}\n`, stderr: "" };
+      if (call === "status verbose") return { ok: true, stdout: "Status: active\n", stderr: "" };
+      if (call === "--force reset") { await reset(); return { ok: true, stdout: "", stderr: "" }; }
+      if (failOn && call.startsWith(failOn)) return { ok: false, stdout: "", stderr: "ERROR: Could not update running firewall" };
+      return { ok: true, stdout: "", stderr: "" };
+    });
+  }
+
+  it("leaves a firewall that was off turned off when a from-scratch apply fails", async () => {
+    const host = await box({ enabled: false });
+    try {
+      const dockerSync = vi.fn(async ({ enabled }) => ({ synced: true, enabled }));
+      const run = runner({ enabled: false, reset: host.reset, failOn: "allow 53/tcp" });
+      await expect(firewallProfileApply({ profile: "home-server", services: ["dns"], replace: true }, { run, ...lanEnv, dockerSync, ufwDirectory: host.directory }))
+        .rejects.toThrow(/Your previous rules were put back/);
+      const calls = run.mock.calls.map(([, args]) => args.join(" "));
+      expect(calls).not.toContain("--force enable");
+      expect(calls.at(-1)).toBe("--force disable");
+      expect(await host.contents()).toEqual(host.files);
+    } finally { await host.cleanup(); }
+  });
+
+  it("puts back before/after rules, including the Docker block, and re-enables a firewall that was on", async () => {
+    const host = await box({ enabled: true });
+    try {
+      const dockerSync = vi.fn(async ({ enabled }) => ({ synced: true, enabled }));
+      const run = runner({ enabled: true, reset: host.reset, failOn: "allow 53/tcp" });
+      await expect(firewallProfileApply({ profile: "home-server", services: ["dns"], replace: true }, { run, ...lanEnv, dockerSync, ufwDirectory: host.directory }))
+        .rejects.toThrow(/Your previous rules were put back/);
+      expect(await host.contents()).toEqual(host.files);
+      const calls = run.mock.calls.map(([, args]) => args.join(" "));
+      expect(calls.indexOf("--force reset")).toBeLessThan(calls.lastIndexOf("--force enable"));
+      expect(dockerSync).toHaveBeenCalledWith({ enabled: true }, expect.anything());
+    } finally { await host.cleanup(); }
+  });
+
+  it("clears the owner's rules but keeps hand-written before/after rules such as VPN NAT", async () => {
+    const host = await box({ enabled: true });
+    try {
+      const dockerSync = vi.fn(async ({ enabled }) => ({ synced: true, enabled }));
+      const run = runner({ enabled: true, reset: host.reset });
+      await firewallProfileApply({ profile: "home-server", replace: true }, { run, ...lanEnv, dockerSync, ufwDirectory: host.directory });
+      const after = await host.contents();
+      expect(after["user.rules"]).toBe(installDefault);
+      for (const name of ["before.rules", "before6.rules", "after.rules", "after6.rules"]) expect(after[name]).toBe(original[name]);
+      expect(dockerSync).toHaveBeenCalledWith({ enabled: true }, expect.anything());
+      const leftovers = (await fs.readdir(host.directory)).filter((name) => name.endsWith(".boxpilot-pre"));
+      expect(leftovers).toEqual([]);
+    } finally { await host.cleanup(); }
   });
 });

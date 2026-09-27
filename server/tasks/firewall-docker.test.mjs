@@ -136,3 +136,50 @@ describe("when ufw's own rules cannot be read", () => {
     })).rejects.toThrow(/not active/i);
   });
 });
+
+describe("ufw rules that carry a comment", () => {
+  // What `ufw status verbose` prints after a BoxPilot profile apply: every rule BoxPilot adds has a
+  // comment, and ufw appends it after the source column as `# comment`.
+  const commented = [
+    "Status: active",
+    "Logging: on (low)",
+    "Default: allow (incoming), allow (outgoing), deny (routed)",
+    "New profiles: skip",
+    "",
+    "To                         Action      From",
+    "--                         ------      ----",
+    "22/tcp                     LIMIT IN    Anywhere                   # BoxPilot keeps SSH reachable (rate-limited)",
+    "41641/udp                  ALLOW IN    Anywhere                   # BoxPilot keeps Tailscale reachable",
+    "Anywhere on tailscale0     ALLOW IN    Anywhere                   # BoxPilot keeps the tailnet reachable",
+    "5432/tcp                   DENY IN     Anywhere                   # BoxPilot profile: PostgreSQL",
+    "6379/tcp                   DENY IN     Anywhere                   # BoxPilot profile: Redis",
+    "8123/tcp                   ALLOW IN    192.168.1.0/24             # BoxPilot service: Home Assistant",
+    "9000/tcp on eth0           ALLOW IN    Anywhere                   # Portainer",
+    "Anywhere                   ALLOW FWD   Anywhere                   # routed",
+    "22/tcp (v6)                LIMIT IN    Anywhere (v6)              # BoxPilot keeps SSH reachable (rate-limited)",
+    "6379/tcp (v6)              DENY IN     Anywhere (v6)              # BoxPilot profile: Redis",
+    "Anywhere (v6) on tailscale0 ALLOW IN   Anywhere (v6)              # BoxPilot keeps the tailnet reachable",
+    "",
+  ].join("\n");
+
+  it("mirrors commented rules instead of dropping them, and still skips IPv6, interface, and routed rows", () => {
+    const parsed = parseUfwStatus(commented);
+    expect(parsed.defaultIncoming).toBe("allow");
+    expect(parsed.denied).toEqual([{ port: 5432, protocol: "tcp", from: null }, { port: 6379, protocol: "tcp", from: null }]);
+    expect(parsed.allowed).toEqual([
+      { port: 22, protocol: "tcp", from: null }, { port: 41641, protocol: "udp", from: null }, { port: 8123, protocol: "tcp", from: "192.168.1.0/24" },
+    ]);
+  });
+
+  it("drops the trusted-lan risky ports from Docker-published traffic too", () => {
+    const block = renderDockerRules(parseUfwStatus(commented));
+    expect(block).toContain(`-A ${chainName} -p tcp -m conntrack --ctorigdstport 6379 --ctdir ORIGINAL -j DROP`);
+    expect(block).toContain(`-A ${chainName} -p tcp -m conntrack --ctorigdstport 5432 --ctdir ORIGINAL -j DROP`);
+  });
+
+  it("lets ticked services through a deny-default chain", () => {
+    const block = renderDockerRules(parseUfwStatus(commented.replace("Default: allow (incoming)", "Default: deny (incoming)")));
+    expect(block).toContain(`-A ${chainName} -p tcp -s 192.168.1.0/24 -m conntrack --ctorigdstport 8123 --ctdir ORIGINAL -j RETURN`);
+    expect(block).not.toContain("--ctorigdstport 9000 ");
+  });
+});
