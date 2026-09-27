@@ -423,6 +423,34 @@ describe("finding things in a catalog of a hundred-odd apps", () => {
     expect((screen.getByLabelText("Compose file") as HTMLTextAreaElement).value).toBe(compose);
   });
 
+  it("keeps a raw Compose read that starts before the opened dialog's effects have run", async () => {
+    // React commits the opened dialog first and runs its effects in a later task. A cleanup keyed
+    // on the dialog's app ran in that task and aborted a read clicked in between, leaving the
+    // button stuck on "Reading Compose file...": the test above timed out that way under load.
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url === "/api/v1/catalog") return json({ applications: [{ manifest: dockge, live: runningLive }], problems: [], liveError: null, host: { lanAddress: "192.168.1.10" } });
+      if (url.includes("app.serve.inspect")) return json({ result: { available: true, serves: [] } });
+      if (url.includes("app.config.inspect")) return json({ result: { id: "dockge", name: "Dockge", env: [] } });
+      if (url.includes("app.compose.inspect")) return json({ code: "elevation_required" }, 401);
+      return json({ error: `unexpected ${url}` }, 500);
+    }));
+    render(<AppCatalog csrfToken="csrf-token" />);
+    const opener = await screen.findByRole("button", { name: "Config" });
+    // A MutationObserver callback runs straight after the commit that shows the button, before
+    // the task in which React runs that commit's effects: the click lands in between, every time.
+    let clicked = false;
+    const observer = new MutationObserver(() => {
+      const read = screen.queryByRole("button", { name: "Read Compose file" });
+      if (!read) return;
+      observer.disconnect(); fireEvent.click(read); clicked = true;
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+    fireEvent.click(opener);
+    await waitFor(() => expect(clicked).toBe(true));
+    expect(await screen.findByLabelText("Owner password for Compose")).toBeTruthy();
+  });
+
   it("aborts a raw configuration read when its dialog closes", async () => {
     let signal: AbortSignal | undefined;
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, options?: RequestInit) => {
