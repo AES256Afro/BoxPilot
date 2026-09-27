@@ -132,7 +132,9 @@ export function createVmRetentionService({ store, helper, now = () => new Date()
 
   /** Pin the snapshot ids that do have local records, so the browser cannot widen what may go. */
   function prepareForget() {
-    const backups = store.listVmBackups(500).filter((backup) => backup.retained !== false);
+    // The whole table: the bounded listing stops at 200 rows, and a recorded snapshot beyond it
+    // would look unrecorded and become forgettable.
+    const backups = store.listAllVmBackups().filter((backup) => backup.retained !== false);
     return { knownSnapshotIds: [...new Set(backups.map((backup) => backup.snapshotId).filter(Boolean))].sort() };
   }
 
