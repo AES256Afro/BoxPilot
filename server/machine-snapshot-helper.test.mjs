@@ -151,6 +151,25 @@ describe("machine snapshot helper", () => {
     expect((await helper.inspect()).sync.lastSync).toMatchObject({ copiedCount: 0 });
   });
 
+  it("leaves a snapshot's or a restore's working folders out of the mirror", async () => {
+    const { helper, paths } = await fixture();
+    // What a crashed snapshot or restore can leave behind, and what a restore stages for review:
+    // each holds the controller database and every app's .env in the clear.
+    const name = "machine-snapshot-20260821T020000Z-11111111.tar.gz";
+    for (const [relative, body] of [
+      [name, "archive"],
+      [`${name}.meta.json`, "{}"],
+      [`.staging-${snapshotId}/apps/uptime-kuma/.env`, "ADMIN_TOKEN=do-not-lose\n"],
+      [`.restore-${snapshotId}/controller/boxpilot.sqlite3`, "sqlite"],
+      ["restored/20260821T020000Z/controller/boxpilot.sqlite3", "sqlite"],
+    ]) {
+      await mkdir(path.dirname(path.join(paths.snapshotRoot, relative)), { recursive: true });
+      await writeFile(path.join(paths.snapshotRoot, relative), body);
+    }
+    const result = await helper.sync();
+    expect(await readdir(path.join(result.destination, "machine-snapshots"))).toEqual([name, `${name}.meta.json`]);
+  });
+
   it("refuses to sync when the destination is not an independent mount", async () => {
     const { helper } = await fixture({ mounted: false });
     await expect(helper.sync()).rejects.toThrow("Mount an independent filesystem");

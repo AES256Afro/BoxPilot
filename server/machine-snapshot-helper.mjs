@@ -18,6 +18,15 @@ import { fixedRun } from "./exec.mjs";
 import { createControllerBackupHelper } from "./controller-backup-helper.mjs";
 
 const snapshotNamePattern = /^machine-snapshot-\d{8}T\d{6}Z-[a-f0-9]{8}\.tar\.gz$/;
+/**
+ * What a snapshot or restore that stopped half way leaves beside the snapshots (`.staging-*`,
+ * `.restore-*`), and what a restore stages for review (`restored/`). They hold the controller
+ * database and every app's .env unencrypted, and no mirror copies them.
+ */
+const isSnapshotScratch = (relative) => {
+  const [first] = relative.split(path.sep);
+  return first.startsWith(".staging-") || first.startsWith(".restore-") || first === "restored";
+};
 const uuidPattern = /^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
 
 function sha256File(filePath) {
@@ -263,6 +272,7 @@ export function createMachineSnapshotHelper({
     let fileCount = 0; let copiedCount = 0; let copiedBytes = 0;
     for (const source of sources) {
       for (const relative of await walkFiles(source.root)) {
+        if (source.root === resolvedSnapshotRoot && isSnapshotScratch(relative)) continue;
         fileCount += 1;
         const from = path.join(source.root, relative);
         const to = path.join(mirrorRoot, source.name, relative);
