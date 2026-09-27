@@ -470,7 +470,8 @@ api.get("/settings/watch", (_request, response) => json(response, { targetConfig
   ["storage.smart", "A disk reports SMART problems"], ["smart.errors", "A disk's error count is climbing"], ["smart.wear", "An SSD is nearing its write-endurance limit"],
   ["power.ups", "UPS on battery or low"], ["system.services", "System services have failed"], ["system.reboot", "A reboot is required"],
   ["docker.unhealthy", "A container is unhealthy"], ["docker.restarting", "A container keeps restarting (crash-looping)"], ["schedule.overdue", "A scheduled task (such as a backup) has stopped running"],
-].map(([key, label]) => ({ key, label, active: false, details: [] })) }));
+  ["schedule.failed", "A scheduled task failed or did not run"], ["flow.failed", "An automation stopped or did not run"], ["record.failed", "A job ran but its result was not saved"],
+].map(([key, label]) => ({ key, label, active: false, details: [] })), unannouncedCount: 0 }));
 api.get("/settings/approval-mode", (_request, response) => json(response, { mode: "tiered", modes: ["tiered", "always-ask"] }));
 api.get("/settings/vpn-profile", (_request, response) => json(response, {
   profile: { configured: true, provider: "mullvad", type: "wireguard", wireguardAddresses: "10.64.222.21/32", countries: "Sweden, Netherlands", portForwarding: "off", dot: "on", blockMalicious: "on", blockAds: "on", blockSurveillance: "off", dnsAddress: "", outboundSubnets: "192.168.0.0/16, 10.0.0.0/8", healthTargetAddress: "", hasWireguardKey: true, hasOpenvpnPassword: false, updatedAt: ago(48) },
@@ -761,6 +762,13 @@ const troubleRest = {
   "/flows": (body) => ({ ...body, flows: body.flows.map((flow, index) => (index === 0
     ? { ...flow, lastResult: "stopped at step 3 (Install package updates): apt-get upgrade failed: E: Could not get lock /var/lib/dpkg/lock-frontend" }
     : flow)) }),
+  // The same failed flow, and the notification target that did not take it: the Overview's
+  // "could not tell you" line has something to count in the unwell world.
+  "/settings/watch": (body) => {
+    const failed = { title: "Automation stopped: Update night", since: ago(30), announced: false };
+    const conditions = body.conditions.map((condition) => (condition.key === "flow.failed" ? { ...condition, active: true, details: [failed] } : condition));
+    return { ...body, activeCount: 1, unannouncedCount: 1, conditions };
+  },
   // In the unwell world the doctor finds what the owner would: the LAN side dropped by a firewall.
   "/operations/app.reachability.inspect/run": (body) => ({ ...body, result: { ...body.result, addresses: (body.result.addresses ?? []).map((address) => (address.kind === "lan"
     ? { ...address, outcome: "timeout", status: undefined, ms: 4000, verdict: "The connection was silently dropped, which is what a firewall in the path looks like. The probe ran from the server itself, so the block is on this machine or inside the app's own network." }
