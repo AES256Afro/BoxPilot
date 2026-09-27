@@ -466,6 +466,8 @@ export function resolveValues(manifest, raw = {}) {
     const provided = rawVolumes[volume.id];
     if (provided === undefined) { volumes[volume.id] = volume.hostPath; continue; }
     if (typeof provided !== "string" || !/^\/[^\0]*$/.test(provided) || provided.includes("/../") || provided.endsWith("/..") || provided.length > 512) { fail(errors, `values.volumes.${volume.id}`, "must be a clean absolute path"); continue; }
+    // The compose file mounts it as "host:container[:ro]", which a colon in the folder name splits.
+    if (provided.includes(":")) { fail(errors, `values.volumes.${volume.id}`, "cannot contain \":\"; Docker reads it as the end of the folder name. Rename the folder or pick another"); continue; }
     const normalized = provided.replace(/\/+$/, "") || "/";
     // "/./etc", "//etc", "/etc/." would pass a prefix test and still reach the real directory.
     if (normalized.split("/").some((segment, index) => index > 0 && (segment === "" || segment === "." || segment === ".."))) { fail(errors, `values.volumes.${volume.id}`, "must be a clean absolute path (no empty, . or .. segments)"); continue; }
