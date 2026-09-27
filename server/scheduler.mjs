@@ -1,6 +1,7 @@
 import { registry as defaultRegistry } from "./ops/index.mjs";
 import { secretFields } from "./ops/registry.mjs";
 import { overdueScheduleIds } from "./schedule-freshness.mjs";
+import { asSentence } from "./health-alerts.mjs";
 
 /**
  * Operation scheduler (M6.1): runs registered low/medium-risk operations on a cadence,
@@ -104,7 +105,33 @@ export function chooseQuietSlot({ schedules = [], hours = [1, 2, 3, 4, 5], minut
   return { frequency: "weekly", ...best.candidate };
 }
 
-export function createSchedulerService({ store, jobs, secretEnvNamesFor = async () => [], registry = defaultRegistry, now = () => new Date() }) {
+export function createSchedulerService({ store, jobs, secretEnvNamesFor = async () => [], registry = defaultRegistry, now = () => new Date(), alerts = null }) {
+  // Jobs a schedule started, so their outcome is the schedule's to announce (and not also a failed-job
+  // push). An entry stays after the job finishes - null once handled - so the notifier, which sees
+  // the same event, can still tell the job was ours. Bounded like the notifier's own memory.
+  const started = new Map();
+  const remember = (jobId, scheduleId) => {
+    started.set(jobId, scheduleId);
+    if (started.size > 500) started.delete(started.keys().next().value);
+  };
+  const alertKey = (id) => `schedule.failed:${id}`;
+  const label = (schedule) => {
+    const subject = describeParameters(schedule.parameters).subject;
+    return `${registry.get(schedule.operationId)?.title ?? schedule.operationId}${subject ? ` (${subject})` : ""}`;
+  };
+  /**
+   * A schedule that fails every run is one announcement until it next succeeds, through the
+   * health-alert ledger, and kept there as not announced when nothing can be sent.
+   */
+  function announce(schedule, headline, message) {
+    if (!alerts) return;
+    try { Promise.resolve(alerts.raise({ key: alertKey(schedule.id), title: `${headline}: ${label(schedule)}`, message, priority: "high" })).catch(() => {}); } catch { /* the schedule's own record stands */ }
+  }
+  function settle(scheduleId, options) {
+    if (!alerts) return;
+    try { Promise.resolve(alerts.clear(alertKey(scheduleId), options)).catch(() => {}); } catch { /* nothing to clear */ }
+  }
+
   async function create({ operationId, parameters = {}, frequency, minute, hour = null, weekday = null, spread = false, createdBy }) {
     const operation = registry.get(operationId);
     if (!operation) throw new Error("Operation is not registered");
@@ -175,7 +202,9 @@ export function createSchedulerService({ store, jobs, secretEnvNamesFor = async 
 
   function remove(id, actorId) {
     assertMayManage(store.getSchedule(id), actorId);
-    return store.deleteSchedule(id, { actorId });
+    const removed = store.deleteSchedule(id, { actorId });
+    settle(id, { quietly: true }); // deleted, not fixed: nothing to announce, and nothing left to tell
+    return removed;
   }
 
   /** Run everything due. Failures advance the schedule and are recorded — never retried in a loop. */
@@ -195,6 +224,7 @@ export function createSchedulerService({ store, jobs, secretEnvNamesFor = async 
         store.setScheduleEnabled(schedule.id, false, { actorId: schedule.createdBy, nextDueAt: null });
         store.markScheduleRun(schedule.id, { jobId: schedule.lastJobId ?? null, result: "paused: it holds a password, which schedules no longer store", nextDueAt: null });
         store.recordAudit("schedule.paused", { actorId: schedule.createdBy, subjectId: schedule.id, details: { reason: "stored credential" } });
+        announce(schedule, "Scheduled task paused", "It held a password, which schedules no longer store, so it was switched off. Create it again without the password.");
         continue;
       }
       const nextDueAt = computeNextRun(schedule, now()).toISOString();
@@ -209,6 +239,8 @@ export function createSchedulerService({ store, jobs, secretEnvNamesFor = async 
         const creatorRole = creator?.role ?? "owner";
         if (jobs.approvalPolicy && store.getSetting?.("approvalMode", null) === "always-password") throw new Error("Enter the owner password to run this: approvals are set to always ask");
         job = await jobs.createOperationJob(schedule.operationId, schedule.parameters ?? {}, schedule.createdBy, { role: creatorRole });
+        // Before it starts: a job can fail before approveAndStart has even returned.
+        remember(job.id, schedule.id);
         await jobs.approveAndStart(job.id, schedule.createdBy, {});
         store.markScheduleRun(schedule.id, { jobId: job.id, result: "started", nextDueAt });
         store.recordAudit("schedule.run", { actorId: schedule.createdBy, subjectId: schedule.id, details: { operationId: schedule.operationId, jobId: job.id } });
@@ -221,16 +253,53 @@ export function createSchedulerService({ store, jobs, secretEnvNamesFor = async 
         // Keep the pointer to the last real job: it is what the "still running" guard reads next tick.
         store.markScheduleRun(schedule.id, { jobId: job?.id ?? schedule.lastJobId ?? null, result: blocked ? "blocked-by-approval-mode" : `error: ${error.message}`.slice(0, 200), nextDueAt });
         store.recordAudit("schedule.skipped", { actorId: schedule.createdBy, subjectId: schedule.id, details: { operationId: schedule.operationId, reason: blocked ? "always-password approval mode" : error.message } });
+        // No job ran, so no failed job carries the news. A skip under always-ask approvals is a
+        // choice the owner made, but its effect - nothing scheduled runs - is easy to miss.
+        if (job) started.set(job.id, null);
+        announce(schedule, "Scheduled task did not run", blocked
+          ? "Approvals are set to always ask for the owner password, so scheduled tasks cannot start on their own. Change the approval mode in Settings to let them run."
+          : `It could not start: ${asSentence(error.message)} It tries again at its next time.`);
       }
     }
     return due.length;
   }
 
-  function start(intervalMs = 60_000) {
-    const timer = setInterval(() => { tick().catch(() => {}); }, intervalMs);
-    timer.unref?.();
-    return () => clearInterval(timer);
+  /** Job-event listener: a started run that finished decides whether the schedule is failing. */
+  function onJob(job) {
+    const scheduleId = started.get(job?.id);
+    if (!scheduleId || !["completed", "failed", "cancelled"].includes(job.state)) return;
+    started.set(job.id, null); // handled once; the entry stays so owns() still answers
+    const schedule = store.getSchedule(scheduleId);
+    if (!schedule) return;
+    if (job.state === "completed") settle(schedule.id);
+    else if (job.state === "failed") announce(schedule, "Scheduled task failed", `${asSentence(job.error ?? "The job failed")} The job log is in Activity.`);
   }
 
-  return { create, list, setEnabled, remove, tick, start };
+  /** Whether a job was started by a schedule, so its failure is announced here and not twice. */
+  const owns = (jobId) => started.has(jobId);
+
+  /**
+   * Scheduled runs a BoxPilot restart cut off. They were marked failed before anything was
+   * listening, so they are announced here, as their schedule's failure. Returns the job ids taken.
+   */
+  function recover(interrupted = []) {
+    const ids = new Set(interrupted.map((job) => job.id));
+    const taken = [];
+    for (const schedule of store.listSchedules()) {
+      if (!schedule.lastJobId || !ids.has(schedule.lastJobId)) continue;
+      remember(schedule.lastJobId, null);
+      taken.push(schedule.lastJobId);
+      announce(schedule, "Scheduled task was interrupted", "BoxPilot restarted while it was running, so it is marked failed. It may still have finished on its own; check what it changed before running it again.");
+    }
+    return taken;
+  }
+
+  function start(intervalMs = 60_000) {
+    const unsubscribe = typeof store.subscribeJobs === "function" ? store.subscribeJobs(onJob) : () => {};
+    const timer = setInterval(() => { tick().catch(() => {}); }, intervalMs);
+    timer.unref?.();
+    return () => { clearInterval(timer); unsubscribe(); };
+  }
+
+  return { create, list, setEnabled, remove, tick, start, onJob, owns, recover };
 }

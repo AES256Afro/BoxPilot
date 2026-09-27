@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { computeNextRun, createSchedulerService, describeCadence, validateCadence, chooseQuietSlot } from "./scheduler.mjs";
 import { createStateStore } from "./state.mjs";
+import { createHealthAlerts } from "./health-alerts.mjs";
 
 const directories = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true }))); });
@@ -30,7 +31,7 @@ async function setup({ now = () => new Date("2026-08-20T10:30:00") } = {}) {
     validate: (id, parameters) => (id === "app.backup" && !parameters.id ? "requires id" : null),
   };
   const scheduler = createSchedulerService({ store, jobs, registry, now });
-  return { store, jobs, scheduler, owner };
+  return { store, jobs, scheduler, owner, registry };
 }
 
 describe("operation scheduler", () => {
@@ -216,6 +217,119 @@ describe("placing a heavy weekly job", () => {
       expect(slot.hour).toBeLessThanOrEqual(5);
       schedules.push(slot);
     }
+  });
+});
+
+describe("a scheduled task that fails (M27.2)", () => {
+  // The health-alert ledger over the same store the scheduler uses, with a stand-in target.
+  function withLedger(store, { target = { kind: "ntfy" }, send = vi.fn(async () => ({ sent: true })), now }) {
+    const alerts = createHealthAlerts({ inventory: { inspect: async () => ({}) }, notifications: { getTarget: () => target, send }, store, now });
+    // Announcing is fire-and-forget from the scheduler; anything queued after it waits for it.
+    const drained = () => alerts.clear("nothing:pending");
+    return { alerts, send, drained, state: () => store.getSetting("healthAlertsState", {}) };
+  }
+
+  it("is announced once, not once a run, and again only after it has worked", async () => {
+    let clock = new Date("2026-08-20T02:59:00");
+    const { store, jobs, owner, registry } = await setup();
+    const { alerts, send, drained, state } = withLedger(store, { now: () => clock });
+    const scheduler = createSchedulerService({ store, jobs, registry, now: () => clock, alerts });
+    const schedule = await scheduler.create({ operationId: "app.backup", parameters: { id: "jellyfin" }, frequency: "hourly", minute: 0, createdBy: owner.id });
+    const run = async (hour, outcome) => {
+      clock = new Date(`2026-08-20T${hour}:00:30`);
+      await scheduler.tick();
+      const jobId = store.getSchedule(schedule.id).lastJobId;
+      // The notifier asks this before pushing the job, so the job is not announced twice.
+      expect(scheduler.owns(jobId)).toBe(true);
+      store.transitionJob(jobId, "awaiting_approval", outcome, outcome === "failed" ? { error: "tar failed: disk full" } : {});
+      scheduler.onJob(store.getJob(jobId));
+      await drained();
+    };
+
+    await run("03", "failed");
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledWith({ title: "BoxPilot: Scheduled task failed: Back up application data (jellyfin)", message: "tar failed: disk full. The job log is in Activity.", priority: "high" });
+    await run("04", "failed");
+    await run("05", "failed");
+    expect(send).toHaveBeenCalledTimes(1); // three failed runs, one push
+    expect(state()[`schedule.failed:${schedule.id}`]).toMatchObject({ notified: true, since: new Date("2026-08-20T03:00:30").toISOString() });
+
+    await run("06", "completed");
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(send).toHaveBeenLastCalledWith(expect.objectContaining({ title: "BoxPilot: resolved. Scheduled task failed: Back up application data (jellyfin)" }));
+    expect(state()).toEqual({});
+    await run("07", "failed");
+    expect(send).toHaveBeenCalledTimes(3); // failing again after it worked is news again
+    store.close();
+  });
+
+  it("is kept as not announced when there is no target, including runs that never started", async () => {
+    let clock = new Date("2026-08-20T03:00:30");
+    const { store, jobs, owner, registry } = await setup();
+    const { alerts, send, drained, state } = withLedger(store, { target: null, now: () => clock });
+    const scheduler = createSchedulerService({ store, jobs, registry, now: () => clock, alerts });
+    jobs.cancelJob = vi.fn((jobId) => store.transitionJob(jobId, "awaiting_approval", "cancelled", { error: "withdrawn" }));
+    jobs.approveAndStart = vi.fn(async () => { throw new Error("helper is busy"); });
+    const schedule = await scheduler.create({ operationId: "apt.refresh", parameters: {}, frequency: "hourly", minute: 0, createdBy: owner.id });
+    const key = `schedule.failed:${schedule.id}`;
+
+    clock = new Date("2026-08-20T04:00:30");
+    await scheduler.tick();
+    await drained();
+    expect(send).not.toHaveBeenCalled();
+    expect(state()[key]).toMatchObject({ notified: false, title: "Scheduled task did not run: Refresh package lists", since: new Date("2026-08-20T04:00:30").toISOString() });
+    expect(state()[key].message).toContain("helper is busy");
+
+    // Always-ask approvals skip every run: a choice, but one whose effect is easy to miss.
+    jobs.approveAndStart = vi.fn(async () => { throw Object.assign(new Error("Enter the owner password"), { code: "password_required" }); });
+    clock = new Date("2026-08-20T05:00:30");
+    await scheduler.tick();
+    await drained();
+    expect(state()[key]).toMatchObject({ notified: false, since: new Date("2026-08-20T04:00:30").toISOString() }); // still since the first
+    expect(state()[key].message).toContain("always ask");
+
+    // Deleting the schedule is not a fix, and there is nothing left to tell.
+    scheduler.remove(schedule.id, owner.id);
+    await drained();
+    expect(state()).toEqual({});
+    expect(send).not.toHaveBeenCalled();
+    store.close();
+  });
+
+  it("is kept as not announced when the target does not answer", async () => {
+    let clock = new Date("2026-08-20T02:59:00");
+    const { store, jobs, owner, registry } = await setup();
+    const send = vi.fn(async () => { throw new Error("The notification target answered 502"); });
+    const { alerts, drained, state } = withLedger(store, { send, now: () => clock });
+    const scheduler = createSchedulerService({ store, jobs, registry, now: () => clock, alerts });
+    const schedule = await scheduler.create({ operationId: "app.backup", parameters: { id: "immich" }, frequency: "daily", minute: 0, hour: 3, createdBy: owner.id });
+    clock = new Date("2026-08-20T03:00:30");
+    await scheduler.tick();
+    const jobId = store.getSchedule(schedule.id).lastJobId;
+    store.transitionJob(jobId, "awaiting_approval", "failed", { error: "pull failed" });
+    scheduler.onJob(store.getJob(jobId));
+    await drained();
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(state()[`schedule.failed:${schedule.id}`]).toMatchObject({ notified: false, title: "Scheduled task failed: Back up application data (immich)" });
+    store.close();
+  });
+
+  it("announces a scheduled run a restart cut off as its schedule's failure", async () => {
+    let clock = new Date("2026-08-20T02:59:00");
+    const { store, jobs, owner, registry } = await setup();
+    const { alerts, drained, state } = withLedger(store, { target: null, now: () => clock });
+    const scheduler = createSchedulerService({ store, jobs, registry, now: () => clock, alerts });
+    const schedule = await scheduler.create({ operationId: "app.backup", parameters: { id: "jellyfin" }, frequency: "daily", minute: 0, hour: 3, createdBy: owner.id });
+    clock = new Date("2026-08-20T03:00:30");
+    await scheduler.tick();
+    const jobId = store.getSchedule(schedule.id).lastJobId;
+    // A fresh process: nothing remembers starting it, only the schedule's last job pointer.
+    const restarted = createSchedulerService({ store, jobs, registry, now: () => clock, alerts });
+    expect(restarted.recover([{ id: jobId, title: "Back up application data" }, { id: "someone-elses-job", title: "x" }])).toEqual([jobId]);
+    expect(restarted.owns(jobId)).toBe(true);
+    await drained();
+    expect(state()[`schedule.failed:${schedule.id}`]).toMatchObject({ notified: false, title: "Scheduled task was interrupted: Back up application data (jellyfin)" });
+    store.close();
   });
 });
 

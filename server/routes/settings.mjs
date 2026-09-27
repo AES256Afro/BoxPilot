@@ -43,7 +43,9 @@ export function createSettingsRouter({ state, notifications, auth }) {
       (byFamily[family] ??= []).push({ title: entry.title ?? key, since: entry.since ?? null, announced: entry.notified !== false });
     }
     const conditions = Object.entries(healthConditions).map(([key, label]) => ({ key, label, active: Boolean(byFamily[key]?.length), details: byFamily[key] ?? [] }));
-    response.json({ targetConfigured: notifications.describe().configured === true, activeCount: Object.values(byFamily).reduce((sum, list) => sum + list.length, 0), conditions });
+    const live = Object.values(byFamily).flat();
+    // What BoxPilot knew and could not tell anyone (M27.2): the Overview's one-line count.
+    response.json({ targetConfigured: notifications.describe().configured === true, activeCount: live.length, unannouncedCount: live.filter((detail) => !detail.announced).length, conditions });
   });
 
   router.put("/settings/notifications", auth.requireCsrf, async (request, response) => {
