@@ -447,7 +447,7 @@ export function createAppHelper({
       for (const entry of manifest.env) if (entry.fromVpnProfile && connection[entry.name] !== undefined) values.env[entry.name] = connection[entry.name];
       if (manifest.networkVia) sidecarEnvOverrides[manifest.networkVia] = profileSecurityEnv(profile);
     }
-    const rendered = renderCompose(manifest, values, { existingEnv, lanAddress, devices, tailnetAddress: values.exposure === "tailnet" ? await tailnetAddress() : null, sidecarEnvOverrides });
+    const rendered = renderCompose(manifest, values, { existingEnv, lanAddress, devices, tailnetAddress: await tailnetAddressFor(manifest, values), sidecarEnvOverrides });
     await writeFile(path.join(directory, ".env.tmp"), rendered.envFile, { mode: 0o600 });
     await rename(path.join(directory, ".env.tmp"), path.join(directory, ".env"));
     await writeFile(path.join(directory, "compose.yaml.tmp"), rendered.composeYaml, { mode: 0o600 });
@@ -1073,25 +1073,49 @@ export function createAppHelper({
    */
   /**
    * This server's own tailnet address, for ports that have to move somewhere reachable but cannot
-   * go through Serve. Null when Tailscale is absent or not up, which the caller treats as "leave
-   * the port where it was" rather than as a failure.
+   * go through Serve. Null when Tailscale is absent or not up.
+   *
+   * Only an answer is remembered, and only for a minute: the helper usually starts before
+   * Tailscale does, and remembering "no address" from then meant every later deploy treated the
+   * server as having no tailnet at all.
    */
-  let tailnetAddressCache;
+  const tailnetCacheMs = 60_000;
+  const tailnetCache = { address: null, dnsName: null };
+  const cachedTailnet = (key) => (tailnetCache[key] && clock().getTime() - tailnetCache[key].at < tailnetCacheMs ? tailnetCache[key].value : null);
+  const rememberTailnet = (key, value) => { tailnetCache[key] = value ? { value, at: clock().getTime() } : null; return value; };
   async function tailnetAddress() {
-    if (tailnetAddressCache !== undefined) return tailnetAddressCache;
+    const cached = cachedTailnet("address");
+    if (cached) return cached;
     const result = await runCommand(tailscaleBinary, ["ip", "-4"], { timeout: 15_000 }).catch(() => ({ ok: false, stdout: "" }));
     const address = result.ok ? (result.stdout.split("\n").map((line) => line.trim()).find((line) => /^\d{1,3}(\.\d{1,3}){3}$/.test(line)) ?? null) : null;
-    tailnetAddressCache = address;
-    return address;
+    return rememberTailnet("address", address);
+  }
+
+  /**
+   * The tailnet address a compose file for these values binds to. A port that moves to the tailnet
+   * address has nowhere safe to go without one: the renderer would leave it on the LAN, which for
+   * an app the owner set to "tailnet only" publishes it to the whole house. Refuse instead, before
+   * anything is written, so the app stays exactly as it was.
+   */
+  async function tailnetAddressFor(manifest, values) {
+    if (values.exposure !== "tailnet") return null;
+    const address = await tailnetAddress();
+    if (address) return address;
+    const network = (manifest.networkModes ?? [manifest.network]).includes(values.networkMode) ? values.networkMode : manifest.network;
+    if (network === "host" || manifest.network === "host") return null; // no published ports to bind
+    const stranded = (manifest.ports ?? []).filter((port) => port.exposure !== "loopback" && (port.tailnet ?? "serve") === "address");
+    if (stranded.length) throw new Error(`${manifest.name} is set to tailnet only, but this server has no tailnet address right now (is Tailscale up?). ${stranded.map((port) => port.label ?? port.id).join(", ")} would have been left open on the home network, so nothing was changed`);
+    return null;
   }
 
   /** This server's tailnet machine name (homebox.tail...ts.net), or null without Tailscale. */
-  let tailnetDnsNameCache;
   async function tailnetDnsName() {
-    if (tailnetDnsNameCache !== undefined) return tailnetDnsNameCache;
+    const cached = cachedTailnet("dnsName");
+    if (cached) return cached;
     const result = await runCommand(tailscaleBinary, ["status", "--json"], { timeout: 15_000, maxBuffer: 4 * 1024 * 1024 }).catch(() => ({ ok: false, stdout: "" }));
-    try { tailnetDnsNameCache = result.ok ? (JSON.parse(result.stdout).Self?.DNSName ?? "").replace(/\.$/, "") || null : null; } catch { tailnetDnsNameCache = null; }
-    return tailnetDnsNameCache;
+    let dnsName = null;
+    try { dnsName = result.ok ? (JSON.parse(result.stdout).Self?.DNSName ?? "").replace(/\.$/, "") || null : null; } catch { dnsName = null; }
+    return rememberTailnet("dnsName", dnsName);
   }
 
   /**
