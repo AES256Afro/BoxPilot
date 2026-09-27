@@ -63,4 +63,20 @@ describe("VM planner", () => {
     fireEvent.click(screen.getByRole("button", { name: "Continue to approval" }));
     expect(onStage).toHaveBeenCalledWith(plan.input);
   });
+
+  it("takes focus, keeps Tab inside, closes on Escape and hands focus back", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(() => undefined)));
+    const opener = document.createElement("button"); document.body.append(opener); opener.focus();
+    const onClose = vi.fn();
+    const { unmount } = render(<VmPlanner onClose={onClose} onStage={vi.fn()} csrfToken="csrf" />);
+    const dialog = screen.getByRole("dialog");
+    expect(document.activeElement).toBe(dialog);
+    fireEvent.keyDown(document, { key: "Tab" });
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    expect(onClose).toHaveBeenCalled();
+    unmount();
+    expect(document.activeElement).toBe(opener);
+    opener.remove();
+  });
 });

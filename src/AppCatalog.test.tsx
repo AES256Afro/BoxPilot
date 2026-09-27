@@ -274,6 +274,28 @@ describe("App catalog", () => {
     expect(await within(dialog).findByText("Only operators can add schedules")).toBeTruthy();
     await waitFor(() => expect((screen.getByRole("button", { name: "Rehearse weekly" }) as HTMLButtonElement).disabled).toBe(false));
   });
+
+  it("contains focus in the backups dialog and closes it on Escape", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url === "/api/v1/catalog") return json({ applications: [{ manifest, live: { id: "jellyfin", installed: true, dataPresent: true, state: { installedAt: "x", updatedAt: "x", manifestSha256: "abc", image: { reference: "jellyfin/jellyfin:10.10.7", id: "sha256:1" }, values: { ports: { web: 8096 }, env: {}, volumes: {} }, pinnedRollback: false, uninstalledAt: null }, container: { exists: true, running: true, status: "running", health: "healthy", restarts: 0, image: "sha256:1" }, urls: [] } }], problems: [], liveError: null, host: { lanAddress: "192.168.1.10", tailscaleDnsName: null } });
+      if (url.endsWith("/operations/app.backups.inspect/run")) return json({ operation: "app.backups.inspect", result: { id: "jellyfin", directory: "/x", backups: [] } });
+      if (url === "/api/v1/schedules") return json({ schedules: [] });
+      return json({ error: `unexpected ${url}` }, 500);
+    }));
+    render(<AppCatalog csrfToken="csrf-token" />);
+    expect(await screen.findByText("Running")).toBeTruthy();
+    const opener = screen.getByRole("button", { name: "Backups" });
+    opener.focus();
+    fireEvent.click(opener);
+    const dialog = await screen.findByRole("dialog");
+    expect(document.activeElement).toBe(dialog);
+    fireEvent.keyDown(document, { key: "Tab" });
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    fireEvent.keyDown(document.activeElement as Element, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(opener);
+  });
 });
 
 describe("where the Open button sends you", () => {

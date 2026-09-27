@@ -284,6 +284,20 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
     }
   };
   const [secrets, setSecrets] = useState<{ id: string; name: string; items: Array<{ name: string; label: string; value: string }> | null; needsPassword: boolean; password: string; error: string | null; signIn?: boolean; newPassword?: string } | null>(null);
+  // The read-only dialogs contain focus and close on Escape like the configuration dialog does.
+  const logsRef = useRef<HTMLElement | null>(null);
+  const foreignLogsRef = useRef<HTMLElement | null>(null);
+  const reachabilityRef = useRef<HTMLElement | null>(null);
+  const appBackupsRef = useRef<HTMLElement | null>(null);
+  const modelsRef = useRef<HTMLElement | null>(null);
+  const secretsRef = useRef<HTMLElement | null>(null);
+  useDialogFocus(logsRef, Boolean(logs));
+  useDialogFocus(foreignLogsRef, Boolean(foreignLogs));
+  useDialogFocus(reachabilityRef, Boolean(reachability));
+  useDialogFocus(appBackupsRef, Boolean(appBackups));
+  useDialogFocus(modelsRef, Boolean(models));
+  useDialogFocus(secretsRef, Boolean(secrets));
+  const closeOnEscape = (close: () => void) => (event: { key: string; stopPropagation: () => void }) => { if (event.key === "Escape") { event.stopPropagation(); close(); } };
   const [filter, setFilter] = useState("");
   const [search, setSearch] = useState("");
   const [serves, setServes] = useState<Array<{ dnsName: string; port: number; target: string | null }> | null>(null);
@@ -825,7 +839,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
       }} />}
       {logs && (
         <div className="modal-backdrop" role="presentation" onMouseDown={() => setLogs(null)}>
-          <section className="modal" role="dialog" aria-modal="true" aria-labelledby="logs-title" onMouseDown={(event) => event.stopPropagation()}>
+          <section ref={logsRef} tabIndex={-1} className="modal" role="dialog" aria-modal="true" aria-labelledby="logs-title" onKeyDown={closeOnEscape(() => setLogs(null))} onMouseDown={(event) => event.stopPropagation()}>
             <header className="modal-header"><div><span className="eyebrow">Logs</span><h2 id="logs-title">{logs.id}{logs.container ? ` · ${logs.container}` : ""}</h2></div><button className="icon-button" type="button" onClick={() => setLogs(null)} aria-label="Close dialog">X</button></header>
             {(() => {
               const owner = data?.applications.find((entry) => entry.manifest.id === logs.id)?.manifest;
@@ -845,7 +859,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
 
       {foreignLogs && (
         <div className="modal-backdrop" role="presentation" onMouseDown={() => setForeignLogs(null)}>
-          <section className="modal" role="dialog" aria-modal="true" aria-labelledby="foreign-logs-title" onMouseDown={(event) => event.stopPropagation()}>
+          <section ref={foreignLogsRef} tabIndex={-1} className="modal" role="dialog" aria-modal="true" aria-labelledby="foreign-logs-title" onKeyDown={closeOnEscape(() => setForeignLogs(null))} onMouseDown={(event) => event.stopPropagation()}>
             <header className="modal-header"><div><span className="eyebrow">Logs</span><h2 id="foreign-logs-title">{foreignLogs.name}</h2></div><button className="icon-button" type="button" onClick={() => setForeignLogs(null)} aria-label="Close dialog">X</button></header>
             <pre className="app-logs">{foreignLogs.lines.join("\n") || "(no output)"}</pre>
           </section>
@@ -854,7 +868,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
 
       {reachability && (
         <div className="modal-backdrop" role="presentation" onMouseDown={() => setReachability(null)}>
-          <section className="modal" role="dialog" aria-modal="true" aria-labelledby="reach-title" onMouseDown={(event) => event.stopPropagation()}>
+          <section ref={reachabilityRef} tabIndex={-1} className="modal" role="dialog" aria-modal="true" aria-labelledby="reach-title" onKeyDown={closeOnEscape(() => setReachability(null))} onMouseDown={(event) => event.stopPropagation()}>
             <header className="modal-header"><div><span className="eyebrow">Reachability</span><h2 id="reach-title">{reachability.id}</h2></div><button className="icon-button" type="button" onClick={() => setReachability(null)} aria-label="Close dialog">X</button></header>
             {reachability.checking ? <p className="muted">Asking each address, from the server itself...</p> : (
               <div className="reach-report">
@@ -881,7 +895,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
 
       {appBackups && (
         <div className="modal-backdrop" role="presentation" onMouseDown={() => setAppBackups(null)}>
-          <section className="modal" role="dialog" aria-modal="true" aria-labelledby="backups-title" onMouseDown={(event) => event.stopPropagation()}>
+          <section ref={appBackupsRef} tabIndex={-1} className="modal" role="dialog" aria-modal="true" aria-labelledby="backups-title" onKeyDown={closeOnEscape(() => setAppBackups(null))} onMouseDown={(event) => event.stopPropagation()}>
             <header className="modal-header"><div><span className="eyebrow">Backups</span><h2 id="backups-title">{appBackups.name}</h2></div><button className="icon-button" type="button" onClick={() => setAppBackups(null)} aria-label="Close dialog">X</button></header>
             <div className="modal-copy">
               {appBackups.backups.length === 0 && <p>No backups yet. Back up creates a consistent archive of the app's data and configuration.</p>}
@@ -992,7 +1006,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
 
       {models && (
         <div className="modal-backdrop" role="presentation" onMouseDown={() => setModels(null)}>
-          <section className="modal" role="dialog" aria-modal="true" aria-labelledby="models-title" onMouseDown={(event) => event.stopPropagation()}>
+          <section ref={modelsRef} tabIndex={-1} className="modal" role="dialog" aria-modal="true" aria-labelledby="models-title" onKeyDown={closeOnEscape(() => setModels(null))} onMouseDown={(event) => event.stopPropagation()}>
             <header className="modal-header"><div><span className="eyebrow">Models</span><h2 id="models-title">{models.name}</h2></div><button className="icon-button" type="button" onClick={() => setModels(null)} aria-label="Close dialog">X</button></header>
             <div className="modal-copy">
               {models.loading && <p className="muted">Asking {models.name} what it has…</p>}
@@ -1027,7 +1041,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
 
       {secrets && (
         <div className="modal-backdrop" role="presentation" onMouseDown={() => setSecrets(null)}>
-          <section className="modal" role="dialog" aria-modal="true" aria-labelledby="secrets-title" onMouseDown={(event) => event.stopPropagation()}>
+          <section ref={secretsRef} tabIndex={-1} className="modal" role="dialog" aria-modal="true" aria-labelledby="secrets-title" onKeyDown={closeOnEscape(() => setSecrets(null))} onMouseDown={(event) => event.stopPropagation()}>
             <header className="modal-header"><div><span className="eyebrow">{secrets.signIn ? "Sign in" : "Secrets"}</span><h2 id="secrets-title">{secrets.name}</h2></div><button className="icon-button" type="button" onClick={() => setSecrets(null)} aria-label="Close dialog">X</button></header>
             <div className="modal-copy">
               {secrets.signIn && (() => {

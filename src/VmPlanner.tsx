@@ -1,4 +1,5 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useDialogFocus } from "./useDialogFocus";
 import {
   createVmPlan,
   fetchVmPlanningOptions,
@@ -22,6 +23,8 @@ const initialInput: VmPlanInput = {
 };
 
 export default function VmPlanner({ onClose, onStage, csrfToken = "" }: { onClose: () => void; onStage: (input: VmPlanInput) => void; csrfToken?: string }) {
+  const dialogRef = useRef<HTMLElement | null>(null);
+  useDialogFocus(dialogRef);
   const [options, setOptions] = useState<VmPlanningOptions | null>(null);
   const [input, setInput] = useState<VmPlanInput>(initialInput);
   const [plan, setPlan] = useState<VmCreationPlan | null>(null);
@@ -66,10 +69,10 @@ export default function VmPlanner({ onClose, onStage, csrfToken = "" }: { onClos
 
   return (
     <div className="vm-planner-backdrop" role="presentation">
-      <section className="vm-planner-dialog" role="dialog" aria-modal="true" aria-labelledby="vm-planner-title">
+      <section ref={dialogRef} tabIndex={-1} className="vm-planner-dialog" role="dialog" aria-modal="true" aria-labelledby="vm-planner-title" onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); onClose(); } }}>
         <header className="vm-planner-header">
           <div><span className="eyebrow">New virtual machine</span><h2 id="vm-planner-title">Plan a new virtual machine</h2><p>Check there is room and pick an image, then approve the job with your password.</p></div>
-          <button type="button" className="modal-close" aria-label="Close VM planner" onClick={onClose} autoFocus>X</button>
+          <button type="button" className="modal-close" aria-label="Close VM planner" onClick={onClose}>X</button>
         </header>
 
         {loading ? (
