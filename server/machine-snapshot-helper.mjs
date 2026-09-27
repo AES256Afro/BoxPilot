@@ -18,6 +18,18 @@ import { fixedRun } from "./exec.mjs";
 import { createControllerBackupHelper } from "./controller-backup-helper.mjs";
 
 const snapshotNamePattern = /^machine-snapshot-\d{8}T\d{6}Z-[a-f0-9]{8}\.tar\.gz$/;
+/**
+ * What a snapshot or restore that stopped half way leaves beside the snapshots (`.staging-*`,
+ * `.restore-*`), and what a restore stages for review (`restored/`). They hold the controller
+ * database and every app's .env unencrypted, and no mirror copies them.
+ */
+const isSnapshotScratch = (relative) => {
+  const [first] = relative.split(path.sep);
+  return first.startsWith(".staging-") || first.startsWith(".restore-") || first === "restored";
+};
+/** The deployer's own id rule; a snapshot's manifest is only as trustworthy as whoever last held the file. */
+const appIdPattern = /^[a-z0-9][a-z0-9-]{1,62}$/;
+const appBackupNamePattern = /^\d{8}T\d{6}Z\.tar\.gz$/;
 const uuidPattern = /^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
 
 function sha256File(filePath) {
@@ -263,6 +275,7 @@ export function createMachineSnapshotHelper({
     let fileCount = 0; let copiedCount = 0; let copiedBytes = 0;
     for (const source of sources) {
       for (const relative of await walkFiles(source.root)) {
+        if (source.root === resolvedSnapshotRoot && isSnapshotScratch(relative)) continue;
         fileCount += 1;
         const from = path.join(source.root, relative);
         const to = path.join(mirrorRoot, source.name, relative);
@@ -505,6 +518,12 @@ export function createMachineSnapshotHelper({
         if (actual !== file.sha256) throw new Error(`Snapshot content ${file.path} failed verification. Nothing was changed.`);
       }
       const wanted = (manifest.contents?.apps ?? []).filter((app) => selected === "all" ? app.installed : Array.isArray(selected) && selected.includes(app.id));
+      // Each id becomes a directory created and written as root, so one that is not a plain app id
+      // (or resolves anywhere but directly inside the catalog) refuses the whole restore up front.
+      for (const app of wanted) {
+        const valid = typeof app?.id === "string" && appIdPattern.test(app.id) && path.dirname(path.resolve(catalogRoot, app.id)) === path.resolve(catalogRoot);
+        if (!valid) throw new Error(`The snapshot names ${JSON.stringify(String(app?.id).slice(0, 80))}, which is not a valid application id. Nothing was changed.`);
+      }
       for (const app of wanted) {
         const entry = { id: app.id, installed: false, dataRestored: false, alreadyRestored: false, error: null };
         summary.apps.push(entry);
@@ -538,7 +557,10 @@ export function createMachineSnapshotHelper({
           }
           if (restoreData) {
             const listing = await readFile(path.join(staging, "apps", app.id, "backups.json"), "utf8").then(JSON.parse).catch(() => null);
-            const newest = listing?.backups?.[0]?.artifact ?? null;
+            const named = listing?.backups?.[0]?.artifact ?? null;
+            // The name is joined onto backup directories and copied between them, so only a plain
+            // archive name is followed.
+            const newest = typeof named === "string" && appBackupNamePattern.test(named) ? named : null;
             const located = newest ? await locateAppArchive(app.id, newest) : null;
             if (!located) { progress?.(`[${app.id}] no data archive available; installed fresh`, "stderr"); }
             else {

@@ -85,6 +85,21 @@ describe("vm lifecycle operations", () => {
     expect(operations["vm.snapshot.revert"].risk).toBe("high");
   });
 
+  it("reports a snapshot it created as created, with the disk targets it covered", async () => {
+    const run = vi.fn(async (binary, args) => {
+      if (binary === "/usr/bin/qemu-img") return { ok: true, stdout: JSON.stringify({ format: "qcow2" }), stderr: "" };
+      const command = args[2];
+      if (command === "domstate") return { ok: true, stdout: "shut off\n", stderr: "" };
+      if (command === "snapshot-list") return { ok: true, stdout: "", stderr: "" };
+      if (command === "domblklist") return { ok: true, stdout: " Type   Device   Target   Source\n------------------------------\n file   disk     vda      /var/lib/libvirt/images/dev-box.qcow2\n file   cdrom    sda      -\n", stderr: "" };
+      if (command === "snapshot-create-as") return { ok: true, stdout: "", stderr: "" };
+      if (command === "snapshot-info") return { ok: true, stdout: "Current:        yes\nState:          shutoff\nLocation:       internal\n", stderr: "" };
+      return { ok: false, stdout: "", stderr: `unknown ${command}` };
+    });
+    await expect(operations["vm.snapshot.create"].run({ name: "dev-box", snapshotName: "before-upgrade" }, { run }))
+      .resolves.toMatchObject({ created: true, verified: true, diskTargets: ["vda"] });
+  });
+
   it("reads domstats counters per domain for the resource dashboard", async () => {
     const stdout = "Domain: 'lab'\n  state.state=1\n  cpu.time=123000000000\n  vcpu.current=2\n  balloon.current=2097152\n  balloon.maximum=4194304\n  block.count=2\n  block.0.rd.bytes=1000\n  block.0.wr.bytes=500\n  block.1.rd.bytes=1\n  block.1.wr.bytes=1\n  net.count=1\n  net.0.rx.bytes=42\n  net.0.tx.bytes=7\n\nDomain: 'off-box'\n  state.state=5\n";
     expect(parseDomstats(stdout)).toEqual([

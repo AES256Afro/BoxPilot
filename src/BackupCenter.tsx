@@ -286,7 +286,7 @@ export default function BackupCenter({ csrfToken }: { csrfToken: string; onOpenR
         </div>
         {retention?.policy && (
           <div className="recovery-actions">
-            <span className="muted">Retention keeps at least {retention.policy.minimumCopies ?? 3} encrypted copies; {retention.candidates?.length ?? 0} snapshot(s) currently eligible for forgetting.</span>
+            <span className="muted">Retention keeps at least {retention.policy.minimumCopies ?? 3} restore-tested encrypted copies; {retention.candidates?.length ?? 0} snapshot(s) currently eligible for forgetting.</span>
             {(retention.candidates?.length ?? 0) > 0 && <button className="secondary-button" type="button" onClick={() => start({ operationId: "controller.backup.retention.apply", title: "Let go of old database backups", parameters: {}, preview: <span>Removes the record of old backups that are safe to let go, then checks the store is still intact. The files themselves are not deleted and no space is reclaimed yet, so nothing recent is ever at risk.</span> })}>Apply retention</button>}
           </div>
         )}
