@@ -1573,14 +1573,14 @@ export function createAppHelper({
    * start — Pi-hole does — this is also the only place a change sticks. The stored values carry
    * everything but secrets, and the project's .env keeps every other secret as it was.
    */
-  async function setPassword({ id, password }, { progress = null } = {}) {
+  async function setPassword({ id, password, devices = null }, { progress = null } = {}) {
     const manifest = await ensureManifest(id);
     if (!manifest.signIn?.passwordEnv) throw new Error(`${manifest.name} does not have a sign-in password BoxPilot can set`);
     if (typeof password !== "string" || password.length < 8 || password.length > 128) throw new Error("The password must be 8 to 128 characters");
     const state = await readState(id);
     if (!state?.installed) throw new Error(`${manifest.name} is not installed`);
     const stored = sanitizeStoredValues(manifest, state.values ?? {});
-    const result = await reconfigure({ id, values: { ...stored, env: { ...stored.env, [manifest.signIn.passwordEnv]: password } } }, { progress, checkpoint: false });
+    const result = await reconfigure({ id, values: { ...stored, env: { ...stored.env, [manifest.signIn.passwordEnv]: password } }, devices }, { progress, checkpoint: false });
     return { id, changed: true, hostPorts: result.hostPorts };
   }
 
