@@ -4,6 +4,7 @@ import { useOperation } from "./ApproveDialog";
 import { useDialogFocus } from "./useDialogFocus";
 import { inspectOperation } from "./operations";
 import { appUrl, appAddresses } from "./appLinks";
+import { formatBytes } from "./formatBytes";
 
 /** Types mirror server/catalog/schema.mjs (normalized manifest) and server/app-helper.mjs (live state). */
 interface ManifestPort { id: string; label: string; container: number; host: number; protocol: "tcp" | "udp"; exposure: "lan" | "loopback"; fixed: boolean; tailnet?: "serve" | "address" | "unchanged"; containerFollowsHost?: boolean }
@@ -915,7 +916,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
                   </div>
                   <ul className="backup-file-list">
                     {browsing.files.filter((entry) => entry.type !== "directory" && (!browsing.filter || entry.path.toLowerCase().includes(browsing.filter.toLowerCase()))).slice(0, 200).map((entry) => (
-                      <li key={entry.path}><code>{entry.path}</code><span className="muted">{entry.sizeBytes >= 1024 ? `${(entry.sizeBytes / 1024).toFixed(0)} KiB` : `${entry.sizeBytes} B`}</span><button className="text-button" type="button" onClick={() => { const target = appBackups; const file = entry.path; const archive = browsing.backup; setBrowsing(null); setAppBackups(null); start({ operationId: "app.backup.restore-path", title: `Restore ${file} into ${target.name}`, parameters: { id: target.id, backup: archive, path: file }, preview: <span>Takes a checkpoint of {target.name}'s current data, stops it briefly, restores only <code>{file}</code> from this backup over the current one, and starts it again. Everything else is untouched.</span> }); }}>Restore this file</button></li>
+                      <li key={entry.path}><code>{entry.path}</code><span className="muted">{formatBytes(entry.sizeBytes)}</span><button className="text-button" type="button" onClick={() => { const target = appBackups; const file = entry.path; const archive = browsing.backup; setBrowsing(null); setAppBackups(null); start({ operationId: "app.backup.restore-path", title: `Restore ${file} into ${target.name}`, parameters: { id: target.id, backup: archive, path: file }, preview: <span>Takes a checkpoint of {target.name}'s current data, stops it briefly, restores only <code>{file}</code> from this backup over the current one, and starts it again. Everything else is untouched.</span> }); }}>Restore this file</button></li>
                     ))}
                   </ul>
                   {browsing.truncated && <p className="muted">Listing capped; refine the filter.</p>}
@@ -929,7 +930,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
                       {appBackups.backups.map((backup) => (
                         <tr key={backup.artifact}>
                           <td>{backup.createdAt ? new Date(backup.createdAt).toLocaleString() : backup.artifact}</td>
-                          <td>{backup.sizeBytes !== null ? `${(backup.sizeBytes / 1024 / 1024).toFixed(1)} MiB` : "—"}</td>
+                          <td>{formatBytes(backup.sizeBytes)}</td>
                           <td>{offlineFor(backup.downtimeMs)}</td>
                           <td>
                             <div className="recovery-actions">
