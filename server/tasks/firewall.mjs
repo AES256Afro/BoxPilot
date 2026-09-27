@@ -119,7 +119,13 @@ export async function firewallRuleDelete({ action, port, protocol } = {}, { run 
 }
 
 /** The files `ufw --force reset` overwrites; copied aside so a failed apply can put them back. */
-const resetFiles = ["user.rules", "user6.rules", "ufw.conf"];
+const resetFiles = ["user.rules", "user6.rules", "ufw.conf", "before.rules", "before6.rules", "after.rules", "after6.rules"];
+
+/**
+ * Of those, the ones that are not the owner's rule list: hand-written NAT or forwarding, and the
+ * BoxPilot Docker block. "Start from scratch" clears rules, so these go back straight after the reset.
+ */
+const keptThroughReset = new Set(["before.rules", "before6.rules", "after.rules", "after6.rules"]);
 
 /**
  * Apply a profile: the exact argv list comes from buildPlan() so the preview the owner
@@ -128,7 +134,8 @@ const resetFiles = ["user.rules", "user6.rules", "ufw.conf"];
  *
  * "Start from scratch" resets ufw before the new rules are added, and a step failing after that
  * point would otherwise leave the owner with no rules at all and the firewall off. The files the
- * reset overwrites are copied aside first and put back if anything fails.
+ * reset overwrites are copied aside first and put back if anything fails. The firewall is turned
+ * back on only if it was on before: on a box that ran without one, the old rules may not let SSH in.
  */
 export async function firewallProfileApply({ profile, services = [], replace = false, sshRateLimit = false } = {}, { run = fixedRun, log = null, envPath = defaultEnvPath, now = () => new Date(), dockerSync = syncDockerRules, ufwDirectory: rulesDirectory = ufwDirectory, readEnv = undefined } = {}) {
   if (!Array.isArray(services) || services.some((id) => typeof id !== "string")) throw new Error("services must be a list of service ids");
@@ -138,27 +145,49 @@ export async function firewallProfileApply({ profile, services = [], replace = f
   log?.(`Applying firewall profile "${plan.profile.name}" (${plan.steps.length} steps)`, "stdout");
   const completed = [];
   const saved = [];
+  let wasEnabled = false;
   if (replace) {
+    const before = await run(ufw, ["status"], { timeout: 30_000 });
+    wasEnabled = before.ok && /^Status:\s*active/im.test(before.stdout);
+    if (!before.ok) log?.(`Could not tell whether the firewall is on (${tail(before.stderr) || "ufw returned an error"}); if this apply fails it is left off`, "stderr");
     for (const name of resetFiles) {
       const source = path.join(rulesDirectory, name);
       const copy = `${source}.boxpilot-pre`;
-      if (await copyFile(source, copy).then(() => true, () => false)) saved.push({ source, copy });
+      if (await copyFile(source, copy).then(() => true, () => false)) saved.push({ name, source, copy });
     }
     log?.(`Copied ${saved.length} rule file(s) aside so they can be put back if this fails`, "stdout");
   }
   const putBack = async (reason) => {
     if (!saved.length) return "";
     for (const { source, copy } of saved) await copyFile(copy, source).catch(() => {});
+    if (!wasEnabled) {
+      // The reset already turned ufw off; this covers a failure at the enable step itself.
+      await run(ufw, ["--force", "disable"], { timeout: 60_000 });
+      log?.(`Put the previous rules back after ${reason}; the firewall was off before and stays off`, "stderr");
+      return " Your previous rules were put back and the firewall was left off, as it was.";
+    }
     const reloaded = await run(ufw, ["--force", "enable"], { timeout: 60_000 });
     log?.(`Put the previous rules back after ${reason}${reloaded.ok ? "" : " (the firewall could not be re-enabled)"}`, "stderr");
-    return reloaded.ok ? " Your previous rules were put back." : " Your previous rules were put back on disk, but the firewall could not be turned back on.";
+    if (!reloaded.ok) return " Your previous rules were put back on disk, but the firewall could not be turned back on.";
+    // The restored after.rules holds the old Docker block; a sync reattaches its chain without duplicates.
+    await dockerSync({ enabled: true }, { run, log }).catch((error) => log?.(`Docker rules not refreshed: ${error.message}`, "stderr"));
+    return " Your previous rules were put back.";
+  };
+  const keepCustomRules = async () => {
+    for (const { name, source, copy } of saved) {
+      if (keptThroughReset.has(name)) await copyFile(copy, source).catch((error) => log?.(`${name} could not be put back after the reset: ${error.message}`, "stderr"));
+    }
   };
   const discardSaved = async () => { for (const { copy } of saved) await rm(copy, { force: true }).catch(() => {}); };
   try {
     for (const step of plan.steps) {
       log?.(`$ ufw ${step.args.join(" ")}  # ${step.label}`, "stdout");
       const result = await run(ufw, step.args, { timeout: 60_000 });
-      if (result.ok) { completed.push(step.label); continue; }
+      if (result.ok) {
+        completed.push(step.label);
+        if (step.args.includes("reset")) await keepCustomRules();
+        continue;
+      }
       if (step.tolerateFailure) { log?.(`${step.label}: ${tail(result.stderr) || "skipped"}; continuing`, "stderr"); continue; }
       const enabling = step.args.includes("enable");
       const restored = await putBack(`"${step.label}" failed`);
