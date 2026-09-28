@@ -155,7 +155,7 @@ const machineState = {
     { artifact: "machine-snapshot-20260814T020000Z-e5f6a7b8.tar.gz", sizeBytes: 39 * 1024 ** 2, checksumSha256: digest("e"), createdAt: ago(188), contents: { apps: Object.keys(installed).slice(0, 6).map((id) => ({ id, installed: true, projectFiles: 3, backups: ({ vaultwarden: 3, jellyfin: 1 })[id] ?? 0 })), vms: { domains: [] } } },
   ],
   keep: 3,
-  sync: { destination: "/mnt/boxpilot-backup/boxpilot-local-mirror", mount: { mounted: true, freeBytes: 1290 * GiB }, lastSync: { completedAt: ago(20), copiedCount: 12 } },
+  sync: { destination: "/mnt/boxpilot/backup/boxpilot-local-mirror", mount: { mounted: true, freeBytes: 1290 * GiB }, lastSync: { completedAt: ago(20), copiedCount: 12 } },
 };
 
 // Exported so a test can hold these to the operations the interface actually calls: a page whose
@@ -321,7 +321,7 @@ export const inspections = {
         { artifact: "machine-snapshot-20260824T141228Z-5cadc3b5.tar.gz", sizeBytes: 41 * 1024 ** 2, createdAt: ago(26), checksumSha256: "5cadc3b554cd25b0f7b1c1e2a9d4f6b3c8e0a1d2f3b4c5d6e7f8a9b0c1d2e3f4", apps: 9 },
         { artifact: "machine-snapshot-20260817T141228Z-21871c8a.tar.gz", sizeBytes: 39 * 1024 ** 2, createdAt: ago(194), checksumSha256: "21871c8a3ea0e84d9b2f4c6a8e0d2b4f6a8c0e2d4b6f8a0c2e4d6b8f0a2c4e6d", apps: 6 },
       ] },
-      { source: "mirror", root: "/mnt/boxpilot-backup/boxpilot-local-mirror/machine-snapshots", available: true, snapshots: [
+      { source: "mirror", root: "/mnt/boxpilot/backup/boxpilot-local-mirror/machine-snapshots", available: true, snapshots: [
         { artifact: "machine-snapshot-20260824T141228Z-5cadc3b5.tar.gz", sizeBytes: 41 * 1024 ** 2, createdAt: ago(26), checksumSha256: "5cadc3b554cd25b0f7b1c1e2a9d4f6b3c8e0a1d2f3b4c5d6e7f8a9b0c1d2e3f4", apps: 9 },
       ] },
     ],
@@ -746,7 +746,7 @@ const troubleWords = {
   // The key exists but the far end has never been vouched for, so a mirror would refuse to run.
   "backup.remote.inspect": { keyReady: true, hostKeysPinned: 0, rsyncInstalled: false },
   "backup.cloud.inspect": { configured: true, provider: "b2" },
-  "host.snapshot.inspect": { sync: { destination: "/mnt/boxpilot-backup/boxpilot-local-mirror", mount: { mounted: false, freeBytes: 0 }, lastSync: null } },
+  "host.snapshot.inspect": { sync: { destination: "/mnt/boxpilot/backup/boxpilot-local-mirror", mount: { mounted: false, freeBytes: 0 }, lastSync: null } },
   "host.snapshot.sources": { mount: { mounted: false, blocker: "The backup drive is not mounted. Mount it from the Storage page." } },
   "host.snapshot.discover": { locations: [], unanswered: [{ target: "/mnt/backup-drive", source: "//nas.local/backups", error: "EIO" }] },
   "service.list": { counts: { total: 134, active: 88, failed: 3 }, units: [

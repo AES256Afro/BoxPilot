@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { containersOnStaleMounts, detectRemediations, mountFor, nothingCanReachYou, splitDataFolders, failedRehearsals, permissionlessMounts, staleMounts, unwritableShares, vpnLeaks, windowsCannotDiscover, readOnlyRemounts, exfatCheckerMissing, flakyDrives, drivesNeedingCheck, installDriveToolsFix } from "./remediations.mjs";
+import { backupDestinationToMove, containersOnStaleMounts, detectRemediations, mountFor, nothingCanReachYou, splitDataFolders, failedRehearsals, permissionlessMounts, staleMounts, unwritableShares, vpnLeaks, windowsCannotDiscover, readOnlyRemounts, exfatCheckerMissing, flakyDrives, drivesNeedingCheck, installDriveToolsFix } from "./remediations.mjs";
 
 /**
  * The situation each of these was written from, on a real server:
@@ -330,5 +330,27 @@ describe("a USB drive that dropped and has not been checked since", () => {
     // Once it is there, the same finding is the check again; an ext4 drive never needed exfatprogs.
     expect(drivesNeedingCheck({ mounts, devices, usb, tools: { fsckExfat: true }, driveTools })[0].fix.operationId).toBe("storage.check");
     expect(drivesNeedingCheck({ mounts: [{ ...mounts[0], fstype: "ext4" }], devices, usb, tools: { fsckExfat: false }, driveTools })[0].fix.operationId).toBe("storage.check");
+  });
+});
+
+describe("a backup destination still where it used to be", () => {
+  // The helper is given /mnt/boxpilot, not the automount point under it; one left at
+  // /mnt/boxpilot-backup gets no copies until it moves (deploy/boxpilot-helper.service).
+  const fstab = [
+    { device: "UUID=1111-2222", mountpoint: "/mnt/media", managedName: "media" },
+    { device: "//nas.local/backups", mountpoint: "/mnt/boxpilot-backup", managedName: "share-boxpilot-backup" },
+  ];
+
+  it("offers the move, and says what stays the same", () => {
+    const [found] = detectRemediations({ fstab }).findings;
+    expect(found).toMatchObject({ id: "backup-destination-moved", severity: "warning", fix: { operationId: "storage.backup.relocate", parameters: {} } });
+    expect(found.title).toContain("/mnt/boxpilot/backup");
+    expect(found.evidence).toEqual(["//nas.local/backups is mounted at /mnt/boxpilot-backup (share-boxpilot-backup)"]);
+    expect(found.detail).toContain("everything on it stay as they are");
+  });
+
+  it("says nothing once it has moved, or when there is none", () => {
+    expect(backupDestinationToMove({ fstab: [fstab[0], { ...fstab[1], mountpoint: "/mnt/boxpilot/backup" }] })).toEqual([]);
+    expect(backupDestinationToMove({})).toEqual([]);
   });
 });

@@ -1,13 +1,14 @@
 import { access, mkdir, readFile, rmdir, unlink, writeFile } from "node:fs/promises";
 import { fixedRun } from "../exec.mjs";
 import { appendFstabEntry, mountNamePattern, removeManagedEntry } from "./storage.mjs";
+import { mountpointFor, reservedMountNames } from "../backup-mount.mjs";
 
 /**
  * Root-side network-share tasks (SMB/CIFS and NFS) executed by scripts/boxpilot-run.mjs.
  *
- * A share becomes a `# boxpilot:share-<name>` fstab entry at /mnt/<name> with nofail,
- * _netdev, and systemd automount, so a NAS that is off never blocks boot and reconnects by
- * itself. SMB credentials live in /etc/boxpilot/secrets/share-<name>.cred (root, 0600) and
+ * A share becomes a `# boxpilot:share-<name>` fstab entry at /mnt/<name> (the backup destination,
+ * boxpilot-backup, at /mnt/boxpilot/backup: server/backup-mount.mjs) with nofail, _netdev, and
+ * systemd automount, so a NAS that is off never blocks boot and reconnects by itself. SMB credentials live in /etc/boxpilot/secrets/share-<name>.cred (root, 0600) and
  * are referenced from fstab; they never appear on a command line. The server only ever acts
  * as a client here: nothing is exposed to the LAN.
  */
@@ -50,6 +51,7 @@ export function validateShare({ kind, host, share, name, username = null, passwo
   if (!shareKinds.includes(kind)) return "kind must be smb or nfs";
   if (typeof host !== "string" || !hostPattern.test(host)) return "host must be a hostname or IP address";
   if (typeof name !== "string" || !mountNamePattern.test(name)) return "name must be lower-case letters, digits, and hyphens (max 32)";
+  if (reservedMountNames.includes(name)) return `${name} is reserved: /mnt/${name} holds BoxPilot's backup destination`;
   if (kind === "smb" && !validSmbShare(share)) return "share name may use letters, digits, spaces, dot, underscore, hyphen, and / for a folder inside the share";
   if (kind === "nfs" && (typeof share !== "string" || !nfsExportPattern.test(share))) return "export must be an absolute path like /volume1/media";
   if (username !== null && (typeof username !== "string" || !credentialPattern.test(username))) return "username is invalid";
@@ -61,7 +63,7 @@ export function validateShare({ kind, host, share, name, username = null, passwo
 
 /** The fstab line for a share. Pure, so the UI preview and the task agree. */
 export function buildShareEntry({ kind, host, share, name, readOnly = false, guest = true }) {
-  const mountpoint = `/mnt/${name}`;
+  const mountpoint = mountpointFor(name);
   const common = ["nofail", "_netdev", "x-systemd.automount", "x-systemd.idle-timeout=300", "x-systemd.mount-timeout=30"];
   if (kind === "smb") {
     const source = `//${host}/${share.replace(/ /g, "\\040")}`;
@@ -150,7 +152,7 @@ export async function shareUnmount({ name } = {}, { run = fixedRun, log = null, 
   const content = await files.readFile(fstabPath, "utf8");
   const without = removeManagedEntry(content, `share-${name}`);
   if (without === null) throw new Error(`${name} is not a BoxPilot-managed share`);
-  const mountpoint = `/mnt/${name}`;
+  const mountpoint = mountpointFor(name);
   const automount = await unitFor(run, mountpoint, "automount");
   if (automount) await run(binaries.systemctl, ["stop", automount], { timeout: 30_000 }).catch(() => {});
   const mounted = await run(binaries.findmnt, ["-n", mountpoint], { timeout: 15_000 });

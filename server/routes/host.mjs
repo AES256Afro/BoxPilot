@@ -178,6 +178,7 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
       // findmnt knows what is mounted; fstab knows which of those BoxPilot manages and with what
       // options. Only managed mounts are offered a fix, so a hand-made entry is never touched.
       const byMountpoint = new Map((storage.fstab ?? []).map((row) => [row.mountpoint, row]));
+      facts.fstab = (storage.fstab ?? []).map((row) => ({ device: row.device, mountpoint: row.mountpoint, managedName: row.managedName ?? null }));
       facts.mounts = (storage.mounts ?? []).map((mount) => {
         const entry = byMountpoint.get(mount.target);
         return { ...mount, managedName: entry?.managedName ?? null, options: entry?.options ?? null };

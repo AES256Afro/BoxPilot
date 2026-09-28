@@ -9,8 +9,10 @@
 #   2. npm ci, npm run build, npm prune --omit=dev in the staging directory
 #   3. Swaps /opt/boxpilot atomically (previous tree kept as /opt/boxpilot.prev.<stamp>)
 #   4. Installs any changed deploy/*.service and *.timer units (old copies kept as *.pre-<stamp>)
-#   5. daemon-reload, restarts boxpilot-helper and boxpilot, and checks /api/v1/health reports the new version
-#   6. Rolls the directory swap back and restarts the old tree if the health check fails
+#   5. Moves a backup destination still mounted at /mnt/boxpilot-backup to /mnt/boxpilot/backup
+#      (one fstab entry, saved first as /etc/fstab.boxpilot-<stamp>; see scripts/boxpilot-backup-mount-move.mjs)
+#   6. daemon-reload, restarts boxpilot-helper and boxpilot, and checks /api/v1/health reports the new version
+#   7. Rolls the directory swap, the units and that move back and restarts the old tree if the health check fails
 #
 # It does not touch /etc/boxpilot, /var/lib/boxpilot, systemd drop-ins, or the owner account.
 set -eu
@@ -83,6 +85,8 @@ chmod 0755 "$STAGING"
 #
 # Units this run replaced, so a rollback can put the old ones back with the old tree.
 REPLACED_UNITS=""
+# The fstab copy a backup-destination move saved, so a rollback can put the old mount point back.
+BACKUP_MOUNT_UNDO=""
 
 # Put the old BoxPilot back. Safe to fire at any point from the moment the service is stopped: if
 # the swap has not happened yet, the current tree IS the old one and is left where it is; if the
@@ -92,6 +96,16 @@ rollback() {
   trap - EXIT
   log "rolling back to previous tree"
   systemctl stop boxpilot.service 2>/dev/null || true
+  # The old helper looks for the backup destination where it used to be. Undone while the new tree,
+  # which made the move, is still at INSTALL_DIR; the move only ever happens after the swap.
+  if [ -n "$BACKUP_MOUNT_UNDO" ]; then
+    systemctl stop boxpilot-helper.service 2>/dev/null || true
+    if "$NODE_BIN" "${INSTALL_DIR}/scripts/boxpilot-backup-mount-move.mjs" undo "$BACKUP_MOUNT_UNDO"; then
+      log "moved the backup destination back to /mnt/boxpilot-backup"
+    else
+      log "could not move the backup destination back; fstab from before the upgrade is ${BACKUP_MOUNT_UNDO}"
+    fi
+  fi
   if [ -d "$PREVIOUS" ]; then
     if [ -d "$INSTALL_DIR" ]; then
       rm -rf "${INSTALL_DIR}.failed.${STAMP}"
@@ -146,7 +160,25 @@ for unit in "${INSTALL_DIR}"/deploy/*.service "${INSTALL_DIR}"/deploy/*.timer; d
 done
 systemctl daemon-reload
 
-# 5. Restart and verify
+# 5. The backup destination's new place. The helper's sandbox is given /mnt/boxpilot, never an
+# automount point, so a NAS that is off can no longer stop the helper from starting; a destination
+# still at /mnt/boxpilot-backup is moved under it. Nothing to move is the common case. A move that
+# cannot happen (the share is in use) leaves fstab as it was and the upgrade goes on: the helper
+# starts either way, and Repair offers the same move (storage.backup.relocate) for later.
+install -d -o root -g root -m 0755 /mnt/boxpilot
+if [ -f "${INSTALL_DIR}/scripts/boxpilot-backup-mount-move.mjs" ]; then
+  # Restarted just below anyway; stopped first so its own view of the old mount does not hold it.
+  systemctl stop boxpilot-helper.service 2>/dev/null || true
+  if moved="$("$NODE_BIN" "${INSTALL_DIR}/scripts/boxpilot-backup-mount-move.mjs" 2>&1)"; then
+    printf '%s\n' "$moved" | sed 's/^/[boxpilot-upgrade] /'
+    BACKUP_MOUNT_UNDO="$(printf '%s\n' "$moved" | sed -n 's/^fstab-copy=//p' | tail -n 1)"
+  else
+    printf '%s\n' "$moved" | sed 's/^/[boxpilot-upgrade] /'
+    log "the backup destination stays at /mnt/boxpilot-backup for now; Repair offers to move it"
+  fi
+fi
+
+# 6. Restart and verify
 WEB_RESTARTED=0
 systemctl restart boxpilot-helper.service || { [ "$HAD_PREVIOUS" -eq 1 ] && rollback || fail "helper failed to start"; }
 if systemctl is-enabled boxpilot.service >/dev/null 2>&1; then
@@ -174,7 +206,7 @@ trap - EXIT
 # The old unit files are only stale once the new version is answering.
 for name in $REPLACED_UNITS; do rm -f "/etc/systemd/system/${name}.pre-${STAMP}"; done
 
-# 6. Prune old previous trees.
+# 7. Prune old previous trees.
 #
 # Both kinds, because only pruning .prev.* is how this server accumulated sixty-nine leftover
 # trees: every upgrade that failed its health check left a .failed.<stamp> copy behind and nothing

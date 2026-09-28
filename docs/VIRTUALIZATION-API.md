@@ -275,7 +275,7 @@ Content-Type: application/json
 X-BoxPilot-CSRF: <session CSRF token>
 ```
 
-The body is empty. Planning requires a durable local unencrypted export, the fixed restic binary, an exact writable mount at `/mnt/boxpilot-backup`, a filesystem device different from local exports and VM images, a root-owned mode-`0600` non-symlink password file, an initialized readable repository, and at least the export size plus 1 GiB free.
+The body is empty. Planning requires a durable local unencrypted export, the fixed restic binary, an exact writable mount at `/mnt/boxpilot/backup`, a filesystem device different from local exports and VM images, a root-owned mode-`0600` non-symlink password file, an initialized readable repository, and at least the export size plus 1 GiB free.
 
 The immutable input contains only server-generated ids, domain identity, expected manifest checksum, expected logical size, and a destination revision. It contains no path, mount, repository, password, tag, binary, command, or arbitrary restic argument. The output includes exact changes, verification, blockers, warnings, and recovery guidance.
 
