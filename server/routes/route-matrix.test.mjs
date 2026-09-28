@@ -61,6 +61,8 @@ import { createPowerRouter } from "./power.mjs";
 import { createChecklistRouter } from "./checklist.mjs";
 import { createHostRouter } from "./host.mjs";
 import { createOidcAdminRouter, createOidcRouter } from "./oidc.mjs";
+import { createRunbookRouter } from "./runbook.mjs";
+import { createRunbookService } from "../runbook-service.mjs";
 import { createAutoReconnect } from "../auto-reconnect.mjs";
 
 const password = "correct horse battery";
@@ -350,6 +352,28 @@ const dataRoutes = {
   "GET /api/v1/controller-backup-retention": [{ ...open, check: ({ role, body }) => expect(body.retentionRuns.length, role).toBe(1) }],
   "GET /api/v1/audit": [{ ...open, check: ({ role, body }) => expect(body.events.length, role).toBe({ viewer: 0, operator: 1, owner: 2 }[role]) }],
   "GET /api/v1/oidc/clients": [ownerOnly],
+  // The server runbook (M34.4). Generating it needs an operator (ADR-003): it lays out private
+  // paths and is built from operator reads. The full download, which names where every second copy
+  // is kept and carries every account's schedules and alerts, is the owner's, like the recovery kit.
+  "GET /api/v1/runbook": [{
+    ...operatorUp,
+    check: ({ role, body }) => {
+      expect(body.audience, role).toBe(role);
+      expect(body.markdown, role).toContain("## 7. How to restore");
+      // Where the second copy is kept is in the owner's copy only.
+      expect(body.markdown.includes("backup.example:/srv/boxpilot"), role).toBe(role === "owner");
+      expect(body.markdown.includes("This is an operator's copy"), role).toBe(role === "operator");
+    },
+  }],
+  "GET /api/v1/runbook/status": [{ ...operatorUp, check: ({ role, body }) => expect(body.canDownload, role).toBe(role === "owner") }],
+  "GET /api/v1/runbook/download": [{
+    ...ownerOnly,
+    check: ({ role, headers, text }) => {
+      expect(headers.get("content-type"), role).toContain("text/markdown");
+      expect(headers.get("content-disposition"), role).toMatch(/^attachment; filename="boxpilot-runbook-[a-z0-9-]+-\d{4}-\d{2}-\d{2}\.md"$/);
+      expect(text, role).toContain("backup.example:/srv/boxpilot");
+    },
+  }],
 };
 
 // ---- the app, as index.mjs assembles it ----
@@ -411,6 +435,11 @@ beforeAll(async () => {
     collect: async () => ({ devices: [], mounts: [], fstab: [] }),
   });
   routers.createOidcAdminRouter = createOidcAdminRouter({ oidc, auth });
+  const runbook = createRunbookService({
+    store: state, helper, catalogService, inventory, network, notifications, identity, tlsDir,
+    collect: async () => ({ availability: { devices: true, mounts: true, fstab: true }, devices: [], mounts: [], fstab: [], shares: [] }),
+  });
+  routers.createRunbookRouter = createRunbookRouter({ runbook, auth });
   // Mounted at the site root in index.mjs; built here only so its routes can be accounted for.
   routers.createOidcRouter = createOidcRouter({ oidc, auth, store: state });
 
@@ -426,7 +455,7 @@ beforeAll(async () => {
   app.use("/api/v1", (request, response, next) => (["GET", "HEAD", "OPTIONS"].includes(request.method) ? next() : auth.requireCsrf(request, response, next)));
   app.use("/api/v1", apiRolePolicy());
   app.use("/api/v1/people", auth.requireRole("owner"));
-  for (const name of ["createPeopleRouter", "createOperationsRouter", "createJobsRouter", "createVirtualizationRouter", "createSettingsRouter", "createFirewallRouter", "createStorageRouter", "createPowerRouter", "createChecklistRouter", "createHostRouter", "createOidcAdminRouter"]) {
+  for (const name of ["createPeopleRouter", "createOperationsRouter", "createJobsRouter", "createVirtualizationRouter", "createSettingsRouter", "createFirewallRouter", "createStorageRouter", "createPowerRouter", "createChecklistRouter", "createHostRouter", "createOidcAdminRouter", "createRunbookRouter"]) {
     app.use("/api/v1", routers[name]);
   }
   app.use((_request, response) => { response.status(404).json({ error: "Not found" }); });
@@ -477,6 +506,7 @@ beforeAll(async () => {
   state.setSetting("killSwitchDrills", { jellyfin: { held: true, leaked: false, downForMs: 1200, exitAfter: null, at: checkedAt, by: owner.id } });
   state.setSetting("lvmSnapshots", [{ path: "/dev/vg0/data-snap", name: "data-snap", origin: "data", volumeGroup: "vg0", sizeGiB: 5, createdAt: checkedAt, createdBy: owner.id, suffix: "snap" }]);
   state.setSetting("firewallProfile", { id: "home-server", services: [], sshRateLimit: false, appliedAt: checkedAt, appliedBy: owner.id });
+  state.setSetting("backupDestination", { host: "backup.example", port: 22, user: "mirror", path: "/srv/boxpilot" });
   state.setSetting("diskUsageHistory", { "/srv": [0, 1, 2, 3].map((index) => ({ at: new Date(Date.now() - (4 - index) * day).toISOString(), availableBytes: 400e9 - index * 50e9, totalBytes: 1e12 })) });
   state.setSetting("appDataUsageHistory", { "jellyfin:/srv/media": [2, 1].map((ago, index) => ({ appId: "jellyfin", path: "/srv/media", mount: "/srv", bytes: (index + 1) * 1e9, at: new Date(Date.now() - ago * day).toISOString() })) });
   state.setSetting("appDataUsageLastRun", { at: checkedAt, sampled: 1, unmeasured: 0, error: null });
