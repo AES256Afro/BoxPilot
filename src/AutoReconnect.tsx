@@ -71,15 +71,19 @@ export function AutoReconnectToggle({ drive, control, compact = false }: { drive
   if (!status) return null;
   const armed = status.drives[drive] ?? null;
   const mountpoint = `/mnt/${drive}`;
+  // Where "by hand" is: the Repair notice this sits in has the Reconnect button; a drive's row does not.
+  const byHand = compact ? "Reconnect it from Repair Center to start again." : "Reconnecting it here by hand starts it again.";
   const waiting = armed && !armed.enabled
     ? "Paused on Automations."
-    : armed?.held ? `Waiting for you: ${armed.heldBecause ?? "the last automatic reconnect did not work"}. Reconnect it by hand to start again.`
+    : armed?.held ? `Waiting for you: ${armed.heldBecause ?? "the last automatic reconnect did not work"}. ${byHand}`
       : armed?.lastCheckFoundErrors ? "Waiting for you: its last check found errors." : null;
+  // Arming does not reconnect anything now, so the label says when it acts; the name adds which drive.
+  const armLabel = compact ? "Reconnect automatically if it drops" : "Reconnect it automatically next time";
   return (
     <div className="auto-reconnect">
       {armed
-        ? <button className="text-button" type="button" disabled={pending === drive} onClick={() => void control.disarm(drive)} aria-label={`Stop reconnecting ${mountpoint} automatically`}>Stop reconnecting automatically</button>
-        : <button className={compact ? "text-button" : "secondary-button"} type="button" disabled={pending === drive} onClick={() => void control.arm(drive)} aria-label={`Reconnect ${mountpoint} automatically`}>{compact ? "Reconnect automatically" : "Reconnect it automatically next time"}</button>}
+        ? <button className="text-button" type="button" disabled={pending === drive} onClick={() => void control.disarm(drive)} aria-label={`Stop reconnecting automatically: ${mountpoint}`}>Stop reconnecting automatically</button>
+        : <button className={compact ? "text-button" : "secondary-button"} type="button" disabled={pending === drive} onClick={() => void control.arm(drive)} aria-label={`${armLabel}: ${mountpoint}`}>{armLabel}</button>}
       {armed && <span className="muted">{`Reconnects automatically${armed.attempts ? `; ${armed.attempts} of ${status.limits.maxAttempts} used in the last ${status.limits.windowHours === 24 ? "day" : `${status.limits.windowHours} hours`}` : ""}.`}</span>}
       {waiting && <span className="auto-reconnect-waiting">{waiting}</span>}
       {!compact && <p className="muted">{autoReconnectRule(status.limits)}</p>}
