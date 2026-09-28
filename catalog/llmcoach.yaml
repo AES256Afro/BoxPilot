@@ -3,12 +3,12 @@ id: llmcoach
 name: LLMCoach
 category: AI
 icon: "🎓"
-description: Teach small language models a specific job. Build a knowledge base by dropping files into the chat or a watched folder, chat with it, generate training data, fine-tune with LoRA and compare the results, with live logs and loss charts. A nightly loop retrains and keeps a new model only if it scores better. Uses this server's Ollama or any OpenAI-compatible server.
+description: Teach small language models a specific job. Build a knowledge base from files dropped into the chat, a watched folder or an S3 bucket, chat with it, generate training data, fine-tune with LoRA and compare the results, with live logs and loss charts. A nightly loop retrains and keeps a new model only if it scores better. Uses this server's Ollama or any OpenAI-compatible server.
 website: https://github.com/AES256Afro/LLMCoach
 risk: low
 image:
-  reference: ghcr.io/aes256afro/llmcoach:0.7.0
-  version: "0.7.0"
+  reference: ghcr.io/aes256afro/llmcoach:0.8.0
+  version: "0.8.0"
 ports:
   - id: web
     label: Web UI
