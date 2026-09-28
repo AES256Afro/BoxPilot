@@ -8,6 +8,17 @@ export const notificationKinds = Object.freeze(["ntfy", "gotify", "webhook"]);
 const settingKey = "notifications";
 
 /**
+ * Whether fetch() can send to this address. It refuses one it cannot parse, or one with a user name
+ * or password in it, and its error then quotes the whole URL - a Gotify token in the query, a
+ * webhook's password - which would go on to the audit log and the page.
+ */
+function usableUrl(url) {
+  if (!URL.canParse(url)) return false;
+  const parsed = new URL(url);
+  return ["http:", "https:"].includes(parsed.protocol) && !parsed.username && !parsed.password;
+}
+
+/**
  * A failed job whose failure is already being dealt with, by the steps written on it: one a
  * BoxPilot restart cut off (state.recoverInterruptedJobs), which whoever owns it tells through the
  * health-alert ledger, and one somebody has since tried again with more time (M30.3). Each later
@@ -20,6 +31,7 @@ export function validateTarget(target) {
   if (!target || typeof target !== "object") return "Target must be an object";
   if (!notificationKinds.includes(target.kind)) return `kind must be one of ${notificationKinds.join(", ")}`;
   if (typeof target.url !== "string" || !/^https?:\/\/[^\s]+$/.test(target.url) || target.url.length > 500) return "url must be an http(s) address";
+  if (!usableUrl(target.url)) return "url must be a valid http(s) address without a user name or password (use the token field)";
   if (target.kind === "ntfy" && (typeof target.topic !== "string" || !/^[A-Za-z0-9_-]{1,64}$/.test(target.topic))) return "topic must be letters, digits, underscore, or hyphen";
   if (target.kind === "gotify" && (typeof target.token !== "string" || target.token.length < 1 || target.token.length > 200)) return "token is required for Gotify";
   if (target.token !== undefined && target.token !== null && (typeof target.token !== "string" || target.token.length > 200)) return "token is invalid";
@@ -94,6 +106,8 @@ export function createNotificationService({ store, fetcher = fetch, now = () => 
     const target = getTarget();
     if (!target) throw new Error("No notification target is configured");
     const { url, options } = buildRequest(target, { title, message, priority });
+    // A target saved before validateTarget refused such an address: say so without quoting it.
+    if (!usableUrl(url)) throw new Error("The notification target's address is not one BoxPilot can send to; set the target again in Settings");
     const response = await fetcher(url, { ...options, signal: AbortSignal.timeout(15_000) });
     if (!response.ok) throw new Error(`The notification target answered ${response.status}`);
     return { sent: true, kind: target.kind };
