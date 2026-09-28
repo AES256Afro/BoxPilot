@@ -215,5 +215,5 @@ action button carries its risk tier before it is clicked. Current pages stay rea
 ### Consequences
 
 Colors and type move into tokens with light and dark values; components gain a density. A page
-is not replaced until its new version shows the same facts. Copilot, the phone layout and
-recipes stay with their existing milestones (M24, M25, M22) rather than this one.
+is not replaced until its new version shows the same facts. The command bar is where the local
+assistant (M34) is asked; the phone layout and recipes stay with M25 and M22.
