@@ -1158,6 +1158,38 @@ This owns diagnostic cost and resource accounting. M21 remains the owner of gene
 
 Suggested order: release the reviewed fixes; M32.4 and M29.2; M27.5 plus M32.1-2; M30.5-7; then M30.8-9, M28.5 and M32.3-5. Keep backup compatibility and independent recovery ahead of broad automatic remediation.
 
+## M33 — One interface: Home and Ops
+
+Decided 2026-09-28 (ADR-004): the owner chose the Launcher and the Command Center from the ten
+directions in `docs/design-directions/04-eight-directions.html`. One design system, two views of
+the same data; light and dark, following the device with an override. The plan and the earlier
+study are in `HANDOFF-UI-REDESIGN.md` (B1-B7); this milestone takes B1-B4 and leaves the rest to
+the milestones they overlap.
+
+- **M33.1 Design system** (B1). Color and type tokens with light and dark values; two densities,
+  comfortable for Home and compact for Ops; shared components - buttons that carry their risk
+  tier, status chips, tiles, metric tiles, cards used sparingly; a gallery view in the demo.
+  Screenshots of the demo in both themes are taken on Linux in CI for every UI pull request.
+  Acceptance: one existing page is rebuilt on it with no visual regressions elsewhere.
+- **M33.2 The shell and Home** (B2). A top bar with the Home/Ops switch and a command bar ready
+  for search; Home shows app tiles with live health, what needs the owner, and the admin areas
+  in a dock. Acceptance: "is everything OK?" is answered by Home alone.
+- **M33.3 Ops**. The metric strip, what needs the owner by tier, containers with their numbers,
+  the job queue and a backup matrix, from the same sources as Home. Acceptance: every fact on
+  Home is one click from its detail on Ops.
+- **M33.4 Timeline and the way back** (B3). Jobs, checkpoints and settings changes as one feed.
+  "Undo" appears only where an operation declares a way back (M22.2); elsewhere the entry says
+  plainly that it cannot be undone.
+- **M33.5 Settings, area by area** (B4). Storage, Network, Firewall, Users and System move into
+  one searchable settings area; each old dashboard is retired only once its replacement shows
+  the same facts. Current pages stay reachable as "Classic" until then.
+- Elsewhere: Copilot (B5) waits for M24 and a GPU; the phone layout (B6) is M25; recipes and a GPU
+  page (B7) belong to M22.
+
+Guardrails: the risk tier shows on every action, not only in the dialog; the demo scenarios
+(`?scenario=fresh`, `?scenario=trouble`) and `npm run demo:sweep -- --deep` keep passing for every
+new page; no personal host data in mockups or fixtures.
+
 ## App catalogue candidates
 
 Checked against the 164 manifests already in `catalog/`, so nothing here duplicates an existing
