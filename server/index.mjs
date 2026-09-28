@@ -31,6 +31,7 @@ import { createStorageRouter } from "./routes/storage.mjs";
 import { createPowerRouter } from "./routes/power.mjs";
 import { createChecklistRouter } from "./routes/checklist.mjs";
 import { createPeopleRouter } from "./routes/people.mjs";
+import { apiRolePolicy } from "./routes/access.mjs";
 import { createHelperClient } from "./helper-client.mjs";
 import { createHelperLibvirtService } from "./helper-libvirt.mjs";
 import { createInventoryService } from "./inventory.mjs";
@@ -112,7 +113,8 @@ const vmRecoveries = createVmRecoveryService({ store: state, helper });
 const vmRetention = createVmRetentionService({ store: state, helper });
 const vmRestoreDrills = createVmRestoreDrillService({ store: state, helper });
 const recoveryKit = createRecoveryKitService({ store: state, prerequisites, helper, libvirt });
-const actionCenter = createActionCenterService({ recoveryKit, inventory });
+// Anyone but the owner is shown only their own jobs, so their failed-job count is of their own (M29.4).
+const actionCenter = createActionCenterService({ recoveryKit, inventory, listJobs: (createdBy) => state.listJobs(100, { createdBy }) });
 const supportBundle = createSupportBundleService({ inventory, prerequisites, actionCenter, audit, helper, store: state });
 const catalogService = createCatalogService();
 // Device globs in manifests are resolved by this process: the helper's sandbox has no real /dev.
@@ -357,18 +359,9 @@ app.use("/api/v1", (request, response, next) => {
 
 // Roles (M5.4): viewers may only look (plus read-only operation runs); operators may not change
 // settings or manage people; disabled accounts get nothing. High-risk staging/approval is
-// enforced in jobs.mjs. Owners pass through.
-app.use("/api/v1", (request, response, next) => {
-  const role = request.boxpilotSession?.owner?.role ?? "owner";
-  const reading = ["GET", "HEAD", "OPTIONS"].includes(request.method);
-  const pathname = request.path.toLowerCase(); // Express routes case-insensitively, so the policy must too
-  const readOnlyRun = /^\/operations\/[^/]+\/run$/.test(pathname);
-  const selfService = pathname === "/auth/logout" || pathname === "/auth/elevate" || pathname === "/auth/password";
-  if (role === "disabled") return response.status(403).json({ error: "This account is disabled", code: "forbidden" });
-  if (role === "viewer" && !reading && !readOnlyRun && !selfService) return response.status(403).json({ error: "Viewers can look but not change anything", code: "forbidden" });
-  if (role === "operator" && !reading && (pathname.startsWith("/settings") || pathname.startsWith("/people"))) return response.status(403).json({ error: "Only the owner can change settings or people", code: "forbidden" });
-  return next();
-});
+// enforced in jobs.mjs. Owners pass through. What a composite route may show each role is in
+// routes/access.mjs too (M29.4); the route-matrix test mounts this same policy.
+app.use("/api/v1", apiRolePolicy());
 app.use("/api/v1/people", auth.requireRole("owner"));
 app.use("/api/v1", createPeopleRouter({ state, auth }));
 app.use("/api/v1", createOperationsRouter({ state, helper, jobs, prerequisites, recoveryKit, actionCenter, auth }));

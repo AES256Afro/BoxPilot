@@ -14,6 +14,7 @@ import { hashPassword, renderAutoinstall, validateAutoinstallInput } from "../au
 import { readTlsStatus } from "../tls-status.mjs";
 import { collectStorage } from "../storage-inventory.mjs";
 import { detectRemediations } from "../remediations.mjs";
+import { callerId, readsThroughHelper, seesEveryAccount, withOwnActors } from "./access.mjs";
 import { access, readFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -57,7 +58,7 @@ export function buildReachability({ webHost, webPort, lanIp, dnsName, tls, serve
   return { ways, onLan, tlsProvisioned: Boolean(tls?.provisioned), servePublished: Boolean(servePublished) };
 }
 
-export function createHostRouter({ state, helper, catalogService, inventory, network, notifications = null, controllerProtection, controllerRetention, githubProvenance, releaseUpdates, setup, supportBundle, audit, auth, identity = null, webHost = "127.0.0.1", webPort = 8787, tlsDir = process.env.BOXPILOT_TLS_DIR ?? "/etc/boxpilot/tls" }) {
+export function createHostRouter({ state, helper, catalogService, inventory, network, notifications = null, controllerProtection, controllerRetention, githubProvenance, releaseUpdates, setup, supportBundle, audit, auth, identity = null, webHost = "127.0.0.1", webPort = 8787, tlsDir = process.env.BOXPILOT_TLS_DIR ?? "/etc/boxpilot/tls", collect = collectStorage }) {
   const router = Router();
   router.get("/diagnostics/runtime", async (_request, response) => {
     const [web, worker] = await Promise.allSettled([
@@ -104,9 +105,10 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
       ports: (manifest.ports ?? []).map((port) => ({ id: port.id, label: port.label, host: port.host, protocol: port.protocol, exposure: port.exposure })),
       volumes: (manifest.volumes ?? []).map((volume) => ({ id: volume.id, label: volume.label ?? null, hostPath: volume.hostPath ?? null, configurable: Boolean(volume.configurable), readOnly: Boolean(volume.readOnly) })),
     } : manifest);
+    // The verdicts say who ran the drill; only the owner is told when that was another account.
     const applications = manifests.map((manifest) => {
       const entry = live?.applications?.find((row) => row.id === manifest.id) ?? null;
-      return { manifest: project(manifest), live: entry ? { ...entry, backupVerification: verifications[manifest.id] ?? null, killSwitchDrill: drills[manifest.id] ?? null } : null };
+      return { manifest: project(manifest), live: entry ? { ...entry, backupVerification: withOwnActors(request, verifications[manifest.id] ?? null), killSwitchDrill: withOwnActors(request, drills[manifest.id] ?? null) } : null };
     });
     response.json({ applications, // The catalog is read on both sides, so the same file would otherwise be reported twice.
       problems: [...new Map([...problems, ...(live?.problems ?? [])].map((problem) => [problem.file, problem])).values()], liveError, host });
@@ -157,13 +159,17 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
    * verdicts recorded from earlier drills. Read-only — it finds problems and names the operation
    * that fixes each one; nothing runs until the owner approves it.
    */
-  router.get("/remediations", async (_request, response) => {
+  router.get("/remediations", async (request, response) => {
     const facts = { mounts: [], devices: [], containers: [], shares: [], apps: [], samba: null };
+    // File sharing (share folder owners, stat'd as root) and USB history (the kernel's journal) are
+    // operator reads (ADR-003). A viewer is not handed what they hold as findings: they are not read
+    // on a viewer's behalf, and the scan says which checks it left to an operator (M29.4).
+    const operatorReads = readsThroughHelper(request);
     const [storage, live, samba, usb, driveTools] = await Promise.all([
-      collectStorage().catch(() => null),
+      collect().catch(() => null),
       helper.request("app.inspect", {}, { timeoutMs: 30_000 }).catch(() => null),
-      helper.request("samba.inspect", {}, { timeoutMs: 30_000 }).catch(() => null),
-      helper.request("storage.usb.events", {}, { timeoutMs: 45_000 }).catch(() => null),
+      operatorReads ? helper.request("samba.inspect", {}, { timeoutMs: 30_000 }).catch(() => null) : null,
+      operatorReads ? helper.request("storage.usb.events", {}, { timeoutMs: 45_000 }).catch(() => null) : null,
       // The exact versions the drive-tools fix would install, for a finding whose fix is installing them.
       helper.request("prerequisite.drive-tools.inspect", {}, { timeoutMs: 30_000 }).catch(() => null),
     ]);
@@ -217,7 +223,9 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
     // Every finding here, and every health condition the watcher tracks, ends at a notification
     // target. Whether there is one is therefore part of whether any of this reaches anybody.
     try { facts.notifications = { configured: notifications?.describe?.().configured === true }; } catch { facts.notifications = null; }
-    const unavailableChecks = [["Drives and mounts", storage], ["Applications", live], ["File sharing", samba], ["USB history", usb]].filter(([, value]) => !value || value.available === false).map(([name]) => name);
+    const unavailableChecks = [["Drives and mounts", storage, true], ["Applications", live, true], ["File sharing", samba, operatorReads], ["USB history", usb, operatorReads]]
+      .filter(([, value]) => !value || value.available === false)
+      .map(([name, , allowed]) => (allowed ? name : `${name} (needs an operator)`));
     if (storage?.availability?.mounts === false) unavailableChecks.push("Current mounts");
     if (storage?.availability?.fstab === false) unavailableChecks.push("Saved mount configuration");
     if (!catalogManifests) unavailableChecks.push("Application definitions");
@@ -290,8 +298,9 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
   });
 
   // The bundle includes journal excerpts, so it needs the same role as reading the journal directly.
-  router.get("/support-bundle", auth.requireRole("owner", "operator"), async (_request, response) => {
-    response.json(await supportBundle.inspect());
+  // An operator's bundle carries their own audit trail and job failures, not every account's (M29.4).
+  router.get("/support-bundle", auth.requireRole("owner", "operator"), async (request, response) => {
+    response.json(await supportBundle.inspect(seesEveryAccount(request) ? {} : { actorId: callerId(request) }));
   });
 
   router.get("/inventory", async (_request, response) => {
@@ -333,25 +342,29 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
     }
   });
 
-  router.get("/backups", (_request, response) => {
-    response.json({ backups: state.listBackups(50) });
+  // Backup evidence is the server's, open to every role; who took each one is the owner's to see.
+  router.get("/backups", (request, response) => {
+    response.json({ backups: withOwnActors(request, state.listBackups(50)) });
   });
 
-  router.get("/controller-backup-protection", async (_request, response) => {
-    response.json(await controllerProtection.list());
+  router.get("/controller-backup-protection", async (request, response) => {
+    response.json(withOwnActors(request, await controllerProtection.list()));
   });
 
-  router.get("/controller-backup-retention", async (_request, response) => {
+  router.get("/controller-backup-retention", async (request, response) => {
     try {
-      response.json(await controllerRetention.inspect());
+      response.json(withOwnActors(request, await controllerRetention.inspect()));
     } catch (error) {
       response.status(503).json({ error: error.message, code: "controller_retention_inspection_failed" });
     }
   });
 
+  // An audit trail is who did what: everyone but the owner reads only their own entries.
   router.get("/audit", async (request, response) => {
     const result = await audit.list(request.query.limit);
-    response.status(result.available ? 200 : 503).json(result);
+    const self = callerId(request);
+    const visible = seesEveryAccount(request) ? result : { ...result, events: (result.events ?? []).filter((event) => self && event.actorId === self) };
+    response.status(result.available ? 200 : 503).json(visible);
   });
 
   return router;

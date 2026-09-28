@@ -172,3 +172,14 @@ fields remain secret even if their manifest mistakenly says `secret: false`.
 directories; `app.models.inspect` returns an application's model names and data sizes through root
 Docker access. These now require an operator. Aggregate backup counts and declared public app
 settings remain available to viewers. HTTP tests cover both run and inspect routes.
+
+**Addendum (2026-09-28, unreleased): composite routes answer to the same rule.** A route that
+assembles its answer from several sources - the Overview, the catalog, Repair, the evidence lists,
+the support bundle - never asks an operation's question, so it asks it on the operation's behalf
+(M29.4). An operator read is not run for a viewer through such a route, or the fields it is gated
+for are removed: Repair leaves File sharing and USB history to an operator and names them as not
+checked, and the Storage page's per-app data sizes and each share's recycle-bin size and owner are
+left out. A summary - whether shares are served, the day a drive was last written - stays open.
+Another account's work is the owner's to see: anyone else gets their own jobs' traces, and the
+records jobs left behind name no other account. `server/routes/access.mjs` holds both rules and
+the role policy; `server/routes/route-matrix.test.mjs` fails on any route without an entry.

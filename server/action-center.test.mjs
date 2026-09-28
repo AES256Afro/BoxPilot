@@ -117,4 +117,20 @@ describe("a box with nothing outstanding", () => {
     expect(result.notices[0].id).toBe("action-center.no-current-actions");
     expect(result.sourceStatus).toBe("ready");
   });
+
+  it("counts only the caller's own failed jobs when the caller is not the owner (M29.4)", async () => {
+    // The kit's job list is every account's. Activity shows anyone but the owner only their own,
+    // so a count of somebody else's failures would point at jobs the reader cannot open.
+    const recoveryKit = { inspect: vi.fn(async () => ({ checks: [], evidence: { jobs: [{ state: "failed" }, { state: "failed" }] } })) };
+    const listJobs = vi.fn((createdBy) => (createdBy === "operator-1" ? [{ state: "completed" }] : [{ state: "failed" }]));
+    const service = createActionCenterService({ recoveryKit, listJobs, now });
+    const everyone = await service.inspect();
+    expect(everyone.notices.find((notice) => notice.id === "jobs.failed")?.title).toBe("2 recent jobs failed");
+    expect((await service.inspect({ createdBy: "operator-1" })).notices.some((notice) => notice.id === "jobs.failed")).toBe(false);
+    expect(listJobs).toHaveBeenCalledWith("operator-1");
+    expect((await service.inspect({ createdBy: "viewer-1" })).notices.find((notice) => notice.id === "jobs.failed")?.title).toBe("1 recent job failed");
+    // Asked for a scope it cannot read, it counts nothing rather than everyone's.
+    const unscoped = createActionCenterService({ recoveryKit, now });
+    expect((await unscoped.inspect({ createdBy: "operator-1" })).notices.some((notice) => notice.id === "jobs.failed")).toBe(false);
+  });
 });

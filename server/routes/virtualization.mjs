@@ -8,6 +8,7 @@ import { Router } from "express";
 import { getSetupPlan } from "../libvirt.mjs";
 import { buildConsoleGuidanceResponse } from "../helper-libvirt.mjs";
 import { validateVmPlanInput } from "../vm-plan.mjs";
+import { withOwnActors } from "./access.mjs";
 
 export function createVirtualizationRouter({ libvirt, libvirtFoundation, vmPlanner, vmMedia, vmCreation, vmExports, vmProtection, vmRetention, vmRecoveries, audit }) {
   const router = Router();
@@ -81,6 +82,8 @@ export function createVirtualizationRouter({ libvirt, libvirtFoundation, vmPlann
     if (result.ok) {
       try {
         await audit.record("vm.plan.created", {
+          // Who planned it, so GET /audit can show each account its own plans (M29.4).
+          actorId: request.boxpilotSession?.owner?.id ?? null,
           domain: result.plan.input.name,
           revision: result.plan.revision,
           osProfile: result.plan.input.osProfile,
@@ -97,24 +100,26 @@ export function createVirtualizationRouter({ libvirt, libvirtFoundation, vmPlann
     response.status(result.ok ? 200 : 400).json(result);
   });
 
-  router.get("/virtualization/exports", (_request, response) => {
-    response.json(vmExports.list());
+  // The recorded exports, backups, retention runs and recoveries are the server's, open to every
+  // role; which account's job made each one is the owner's to see (M29.4).
+  router.get("/virtualization/exports", (request, response) => {
+    response.json(withOwnActors(request, vmExports.list()));
   });
 
-  router.get("/virtualization/protection", async (_request, response) => {
-    response.json(await vmProtection.list());
+  router.get("/virtualization/protection", async (request, response) => {
+    response.json(withOwnActors(request, await vmProtection.list()));
   });
 
-  router.get("/virtualization/retention", async (_request, response) => {
+  router.get("/virtualization/retention", async (request, response) => {
     try {
-      response.json(await vmRetention.inspect());
+      response.json(withOwnActors(request, await vmRetention.inspect()));
     } catch (error) {
       response.status(503).json({ error: error.message, code: "vm_retention_inspection_failed" });
     }
   });
 
-  router.get("/virtualization/recoveries", (_request, response) => {
-    response.json({ recoveries: vmRecoveries.list() });
+  router.get("/virtualization/recoveries", (request, response) => {
+    response.json({ recoveries: withOwnActors(request, vmRecoveries.list()) });
   });
 
   return router;

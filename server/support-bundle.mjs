@@ -7,18 +7,29 @@ function settled(result) {
   return result.status === "fulfilled" ? { status: "available", data: result.value } : { status: "unavailable" };
 }
 
+/**
+ * `inspect({ actorId })` is the bundle for an account that is not the owner (M29.4): its audit trail
+ * is what that account did, and its failed-job count is of that account's jobs. The owner's bundle
+ * (no actorId) has every account's.
+ */
 export function createSupportBundleService({ inventory, prerequisites, actionCenter, audit, helper, store = null, loadPolicy = loadRedactionPolicy, now = () => new Date(), version = productVersion } = {}) {
-  async function inspect() {
+  async function inspect({ actorId } = {}) {
     const policy = await loadPolicy().catch(() => ({ status: "unavailable", additionalLiterals: [], additionalPathPrefixes: [] }));
     const redactor = createRedactor(policy);
+    const scoped = actorId !== undefined;
     // The audit trail people mean is the one in the database. The file-backed log has a single
     // writer (one VM-plan event), so a bundle labelled "audit" was empty on essentially every box.
-    const auditEvents = (limit) => (store?.listAudit ? store.listAudit(limit) : audit.list(limit));
+    const auditEvents = async (limit) => {
+      if (scoped && !actorId) return [];
+      if (store?.listAudit) return store.listAudit(limit, scoped ? { actorId } : {});
+      const listed = await audit.list(limit);
+      return scoped ? { ...listed, events: (listed.events ?? []).filter((event) => event.actorId === actorId) } : listed;
+    };
     const [inventoryResult, prerequisiteResult, actionResult, auditResult, ...logResults] = await Promise.allSettled([
       inventory.inspect(),
       prerequisites.inspect(),
-      actionCenter.inspect(),
-      Promise.resolve(auditEvents(100)),
+      actionCenter.inspect(scoped ? { createdBy: actorId } : {}),
+      auditEvents(100),
       ...logSources.map((source) => helper.request("logs.read", { kind: "group", target: source, lines: 50 }, { timeoutMs: 60_000 })),
     ]);
     const logs = Object.fromEntries(logSources.map((source, index) => [source, settled(logResults[index])]));
