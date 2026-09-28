@@ -817,21 +817,28 @@ main:focus {
   padding-top: 24px;
 }
 
-/* The dock: fixed at the bottom, above the page and below every dialog. */
+/* The dock: fixed at the bottom, above the page and below every dialog. It spans the screen and
+   centres its one row of areas; only the row itself takes clicks, so the page beside it stays
+   usable. (Centred with left: 50% it could only size itself to half the screen, and wrapped.) */
 .shell-dock {
   position: fixed;
   z-index: 30;
+  right: 12px;
   bottom: calc(var(--shell-bottom-inset, 0px) + 12px);
-  left: 50%;
+  left: 12px;
+  display: flex;
+  justify-content: center;
   --tile-icon: 48px;
-  max-width: calc(100vw - 24px);
-  transform: translateX(-50%);
+  pointer-events: none;
 }
 
-.shell-dock ul {
+.ui-dock.shell-dock ul {
   flex-wrap: nowrap;
+  min-width: 0;
+  max-width: 100%;
   background: var(--topbar-bg);
   backdrop-filter: blur(18px);
+  pointer-events: auto;
 }
 
 .shell-dock .ui-dock__icon svg {
@@ -3661,16 +3668,11 @@ textarea {
   /* Too narrow for every area at once: the dock spans the screen and scrolls sideways inside
      itself, never the page. The names above the icons need hover room, so they go too. */
   .shell-dock {
-    display: flex;
     right: 8px;
     left: 8px;
-    max-width: none;
-    transform: none;
   }
 
-  .shell-dock ul {
-    flex: 1;
-    min-width: 0;
+  .ui-dock.shell-dock ul {
     overflow-x: auto;
     overscroll-behavior-x: contain;
     scrollbar-width: none;
@@ -5418,16 +5420,17 @@ a.ui-tile:hover {
 .ui-gallery__swatches li { display: flex; align-items: center; gap: var(--space-2); font-size: var(--font-size-xs); }
 .ui-gallery__swatch { flex: none; width: 28px; height: 20px; border: 1px solid var(--border-strong); border-radius: 6px; }
 
-/* ── Home (M33.2): the Launcher. What needs you beside the apps; system and backups below it. ── */
+/* ── Home (M33.2): the Launcher. What needs you down the side; the apps beside it, with the system
+   and the backups under them. ── */
 .home { display: grid; gap: var(--space-5); }
 .home-hello { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: var(--space-3) var(--space-5); }
 .home-hello h1 { margin: 0; color: var(--text-strong); font-size: clamp(26px, 3.2vw, 34px); font-weight: 800; letter-spacing: -0.02em; line-height: 1.1; }
 .home-verdict { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); margin: var(--space-2) 0 0; color: var(--text); font-size: var(--font-size-lg); line-height: 1.4; }
 .home-layout {
   display: grid;
-  grid-template-areas: "needs apps" "system apps" "backups apps";
-  grid-template-columns: minmax(0, 25rem) minmax(0, 1fr);
-  grid-template-rows: auto auto 1fr;
+  grid-template-areas: "needs apps apps" "needs system backups";
+  grid-template-columns: minmax(0, 24rem) minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-rows: auto 1fr;
   align-items: start;
   gap: var(--space-4);
 }
@@ -5442,7 +5445,9 @@ a.ui-tile:hover {
 .home-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2); }
 .home-metrics .ui-metric { padding: var(--space-3); }
 .home-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(calc(var(--tile-icon) + 3.75rem), 1fr)); gap: var(--space-4) var(--space-2); }
-.home-tile .ui-tile__detail { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A long name or fact takes a second line rather than losing its end. */
+.home-tile .ui-tile__name,
+.home-tile .ui-tile__detail { display: -webkit-box; max-width: 100%; overflow: hidden; white-space: normal; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
 .home-tile--emoji .ui-tile__icon { border-color: var(--border); background: var(--surface-raised); }
 .home-tile__emoji { font-size: calc(var(--tile-icon) * 0.5); font-weight: 400; line-height: 1; }
 .home-tile--add .ui-tile__icon { border: 1.5px dashed var(--border-strong); color: var(--text-muted); background: transparent; box-shadow: none; }
