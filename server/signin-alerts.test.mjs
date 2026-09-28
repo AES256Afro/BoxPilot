@@ -54,6 +54,8 @@ describe("new sign-in alerts", () => {
     expect(notified[0].title).toMatch(/New sign-in/);
     expect(notified[0].message).toContain("100.64.0.20");
     expect(notified[0].priority).toBe("high");
+    // One ledger entry per account and address if the push reaches no one (M27.2).
+    expect(notified[0].key).toMatch(/^signin\.new:.+:100\.64\.0\.20$/);
 
     expect(await login("100.64.0.20")).toBe(200); // now known -> no further alert
     expect(notified).toHaveLength(1);
