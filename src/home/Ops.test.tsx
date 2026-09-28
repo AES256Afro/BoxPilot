@@ -93,7 +93,7 @@ describe("Ops", () => {
     expect(within(jellyfin).getByText(/^Completed 11 hours ago/)).toBeTruthy();
     const vaultwarden = within(table).getByRole("button", { name: "Vaultwarden" }).closest("tr")!;
     expect(vaultwarden.getAttribute("data-status")).toBe("danger");
-    expect(within(vaultwarden).getByText("The last run failed")).toBeTruthy();
+    expect(within(vaultwarden).getByText("Last run failed")).toBeTruthy();
   });
 
   it("has every fact Home shows, one click from its page", async () => {
