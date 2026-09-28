@@ -61,7 +61,12 @@ import { createPowerRouter } from "./power.mjs";
 import { createChecklistRouter } from "./checklist.mjs";
 import { createHostRouter } from "./host.mjs";
 import { createOidcAdminRouter, createOidcRouter } from "./oidc.mjs";
+import { createAssistantRouter } from "./assistant.mjs";
 import { createAutoReconnect } from "../auto-reconnect.mjs";
+import { createAssistantService } from "../assistant/index.mjs";
+import { registry } from "../ops/index.mjs";
+import { createRedactor } from "../redaction.mjs";
+import { startFakeOllama } from "../../test/fake-ollama.mjs";
 
 const password = "correct horse battery";
 const roles = ["viewer", "operator", "owner"];
@@ -74,6 +79,8 @@ const accounts = {};
 const sessions = {};
 const fixtures = {};
 const routers = {};
+// The assistant's model (M34): a stand-in on a loopback port, so each test can read what it was shown.
+let fakeModel;
 
 // ---- the helper: canned answers per operation, and a record of what each request asked for ----
 
@@ -189,10 +196,16 @@ const changeRoutes = [
   "POST /api/v1/oidc/clients", "DELETE /api/v1/oidc/clients/:id",
   "POST /api/v1/people", "PUT /api/v1/people/:id", "DELETE /api/v1/people/:id",
   "PUT /api/v1/settings/weekly-report", "POST /api/v1/settings/weekly-report/send", "PUT /api/v1/settings/notifications", "POST /api/v1/settings/notifications/test",
-  "PUT /api/v1/settings/approval-mode", "PUT /api/v1/settings/backup-destination", "PUT /api/v1/settings/github-client-id",
+  "PUT /api/v1/settings/approval-mode", "PUT /api/v1/settings/backup-destination", "PUT /api/v1/settings/github-client-id", "PUT /api/v1/settings/assistant",
   "POST /api/v1/storage/shares/list", "POST /api/v1/virtualization/media/uploads", "POST /api/v1/virtualization/plans",
 ];
 const ownerOnlyChange = /^\/api\/v1\/(settings|people|oidc\/clients)(\/|$)/;
+
+/**
+ * Questions: a POST that only reads, open to every role (M34). What each role's answer is built
+ * from - the model's prompt as well as the response - is checked below like a data route's body.
+ */
+const questionRoutes = ["POST /api/v1/assistant/ask"];
 
 const open = { viewer: 200, operator: 200, owner: 200 };
 const operatorUp = { viewer: 403, operator: 200, owner: 200 };
@@ -350,6 +363,16 @@ const dataRoutes = {
   "GET /api/v1/controller-backup-retention": [{ ...open, check: ({ role, body }) => expect(body.retentionRuns.length, role).toBe(1) }],
   "GET /api/v1/audit": [{ ...open, check: ({ role, body }) => expect(body.events.length, role).toBe({ viewer: 0, operator: 1, owner: 2 }[role]) }],
   "GET /api/v1/oidc/clients": [ownerOnly],
+  // Whether the local model answers, for everyone; which models it holds and where, like
+  // app.models.inspect, for an operator (M29.6); the saved choices for the owner.
+  "GET /api/v1/assistant/status": [{
+    ...open,
+    check: ({ role, body }) => {
+      expect(body, role).toMatchObject({ ready: true, chatModel: "hermes3:8b" });
+      expect("models" in body && "endpoint" in body, role).toBe(role !== "viewer");
+      expect("settings" in body, role).toBe(role === "owner");
+    },
+  }],
 };
 
 // ---- the app, as index.mjs assembles it ----
@@ -413,6 +436,13 @@ beforeAll(async () => {
   routers.createOidcAdminRouter = createOidcAdminRouter({ oidc, auth });
   // Mounted at the site root in index.mjs; built here only so its routes can be accounted for.
   routers.createOidcRouter = createOidcRouter({ oidc, auth, store: state });
+  fakeModel = await startFakeOllama({
+    models: ["hermes3:8b"],
+    answer: 'Refresh package lists failed [S1].\n\n```plan\n[{"operationId": "apt.refresh", "parameters": {}, "why": "Try it again."}]\n```',
+  });
+  state.setSetting("assistant", { endpoint: fakeModel.url, model: null, embedModel: null });
+  const assistant = createAssistantService({ state, registry, catalog: catalogService, helper, inventory, redactor: createRedactor() });
+  routers.createAssistantRouter = createAssistantRouter({ assistant, state, auth });
 
   const app = express();
   app.use(securityHeaders({}));
@@ -426,7 +456,7 @@ beforeAll(async () => {
   app.use("/api/v1", (request, response, next) => (["GET", "HEAD", "OPTIONS"].includes(request.method) ? next() : auth.requireCsrf(request, response, next)));
   app.use("/api/v1", apiRolePolicy());
   app.use("/api/v1/people", auth.requireRole("owner"));
-  for (const name of ["createPeopleRouter", "createOperationsRouter", "createJobsRouter", "createVirtualizationRouter", "createSettingsRouter", "createFirewallRouter", "createStorageRouter", "createPowerRouter", "createChecklistRouter", "createHostRouter", "createOidcAdminRouter"]) {
+  for (const name of ["createPeopleRouter", "createOperationsRouter", "createJobsRouter", "createVirtualizationRouter", "createSettingsRouter", "createFirewallRouter", "createStorageRouter", "createPowerRouter", "createChecklistRouter", "createHostRouter", "createOidcAdminRouter", "createAssistantRouter"]) {
     app.use("/api/v1", routers[name]);
   }
   app.use((_request, response) => { response.status(404).json({ error: "Not found" }); });
@@ -498,6 +528,7 @@ beforeAll(async () => {
 afterAll(async () => {
   server?.closeAllConnections?.();
   await new Promise((resolve) => server.close(resolve));
+  await fakeModel?.close();
   state.close();
   await rm(directory, { recursive: true, force: true });
 });
@@ -517,7 +548,7 @@ describe("every route is accounted for", () => {
       .flatMap((layer) => [layer.route.path].flat().flatMap((routePath) => Object.keys(layer.route.methods)
         .map((method) => `${method === "_all" ? "ALL" : method.toUpperCase()} ${name === "createOidcRouter" ? "" : "/api/v1"}${routePath}`))));
     const routes = [...new Set([...inline, ...mounted])].sort();
-    const classified = [...publicRoutes, ...selfRoutes, ...directRoutes, ...changeRoutes, ...Object.keys(dataRoutes)];
+    const classified = [...publicRoutes, ...selfRoutes, ...directRoutes, ...changeRoutes, ...questionRoutes, ...Object.keys(dataRoutes)];
     expect(new Set(classified).size, "a route is in two tables").toBe(classified.length);
     const unclassified = routes.filter((route) => !classified.includes(route));
     expect(unclassified, "routes with no entry in route-matrix.test.mjs").toEqual([]);
@@ -559,6 +590,15 @@ describe("changes", () => {
     }
   });
 
+  it("lets every role ask the assistant, which only reads", async () => {
+    for (const route of questionRoutes) {
+      const [method, template] = route.split(" ");
+      for (const variant of variantsOf(template)) {
+        for (const role of roles) expect((await call(method, variant.url, sessions[role], { body: { question: "Is everything all right?" } })).status, `${role} ${method} ${variant.url}`).toBe(200);
+      }
+    }
+  });
+
   it("leaves a direct read to the registry, whatever the casing", async () => {
     const run = (id) => variantsOf("/api/v1/operations/:id/run", { id });
     for (const variant of run("samba.inspect")) {
@@ -570,5 +610,68 @@ describe("changes", () => {
     for (const variant of variantsOf("/api/v1/operations/:id/jobs", { id: "apt.refresh" })) {
       expect((await call("POST", variant.url, sessions.viewer, { body: { parameters: {} } })).status, variant.url).toBe(403);
     }
+  });
+});
+
+describe("the assistant, for every role, as written, in upper case and with a trailing slash", () => {
+  const question = { question: "Why did Refresh package lists fail, and what should I do?", context: { appId: "jellyfin" } };
+
+  it("builds each role's answer only from what that role may read, and plans only for a role that could approve", async () => {
+    for (const role of roles) {
+      for (const variant of variantsOf("/api/v1/assistant/ask")) {
+        const where = `${role}, ${variant.name}`;
+        fakeModel.reset();
+        const result = await call("POST", variant.url, sessions[role], { body: question });
+        expect(result.status, where).toBe(200);
+        expect(result.headers.get("cache-control"), where).toBe("no-store");
+        // The model's context is checked as a response body is: another account's ids, jobs and
+        // what they carried are in neither.
+        expect(fakeModel.prompts(), where).toHaveLength(1);
+        const prompt = JSON.stringify(fakeModel.prompts()).toLowerCase();
+        const text = result.text.toLowerCase();
+        for (const needle of foreign[role]()) {
+          expect(prompt.includes(String(needle).toLowerCase()), `${where}: the model was shown ${needle}`).toBe(false);
+          expect(text.includes(String(needle).toLowerCase()), `${where}: the answer shows ${needle}`).toBe(false);
+        }
+        // What the role may read still arrives: the owner's failed job, the operator's own
+        // schedule by name, and for a viewer the kind of thing that failed.
+        expect(prompt, where).toContain({ owner: "owner-marker failure", operator: "scheduled task failed: operator-marker", viewer: "a scheduled task failed or did not run" }[role]);
+        // An app's container log is an operator read (ADR-003), not run for a viewer.
+        expect(result.calls.includes("app.logs"), where).toBe(role !== "viewer");
+        expect(result.body.plan === null, where).toBe(role === "viewer");
+        if (role !== "viewer") expect(result.body.plan.steps.map((step) => step.operationId), where).toEqual(["apt.refresh"]);
+        expect(result.body.sources.length, where).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it("answers about a job only for someone who may open it", async () => {
+    const ask = (role, jobId) => call("POST", "/api/v1/assistant/ask", sessions[role], { body: { question: "What happened to this job?", context: { jobId } } });
+    for (const [role, job] of [["viewer", "ownerJob"], ["operator", "ownerJob"], ["viewer", "operatorJob"]]) {
+      fakeModel.reset();
+      const result = await ask(role, fixtures[job].id);
+      expect(result.status, `${role} asking about the ${job}`).toBe(404);
+      expect(fakeModel.prompts(), `${role} asking about the ${job}`).toEqual([]);
+    }
+    const own = await ask("operator", fixtures.operatorJob.id);
+    expect(own.status).toBe(200);
+    expect(own.body.sources[0]).toMatchObject({ kind: "job", ref: { jobId: fixtures.operatorJob.id } });
+    expect((await ask("owner", fixtures.operatorJob.id)).status).toBe(200);
+  });
+
+  it("streams sources, then the answer, then the result, to a viewer as to anyone", async () => {
+    const response = await fetch(`${base}/api/v1/assistant/ask`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "text/event-stream", Cookie: sessions.viewer.cookie, "X-BoxPilot-CSRF": sessions.viewer.csrfToken },
+      body: JSON.stringify({ question: "How do I restore a backup?" }),
+    });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("text/event-stream");
+    const events = [...(await response.text()).matchAll(/event: (\w+)\ndata: ([^\n]*)\n\n/g)].map((match) => [match[1], JSON.parse(match[2])]);
+    expect(events[0][0]).toBe("sources");
+    expect(events.some(([event]) => event === "delta")).toBe(true);
+    expect(events.at(-1)[0]).toBe("done");
+    expect(events.at(-1)[1]).toMatchObject({ plan: null, model: "hermes3:8b", degraded: null });
+    expect(events.at(-1)[1].answer).not.toContain("```");
   });
 });

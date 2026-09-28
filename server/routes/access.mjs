@@ -16,10 +16,11 @@ const reads = new Set(["GET", "HEAD", "OPTIONS"]);
 
 /**
  * The /api/v1 role policy, ahead of every router: viewers look (and run read-only operations, which
- * the operations router checks one by one); operators change the box but not its settings or people;
- * disabled accounts get nothing. Express routes case-insensitively and with or without a trailing
- * slash, so the policy compares the path lower-cased and without one: `/Operations/x/run/` is the
- * route `/operations/x/run`, and must be judged as that route.
+ * the operations router checks one by one, and ask the assistant, which only reads and answers from
+ * what the asker may read); operators change the box but not its settings or people; disabled
+ * accounts get nothing. Express routes case-insensitively and with or without a trailing slash, so
+ * the policy compares the path lower-cased and without one: `/Operations/x/run/` is the route
+ * `/operations/x/run`, and must be judged as that route.
  */
 export function apiRolePolicy() {
   return function rolePolicy(request, response, next) {
@@ -27,9 +28,10 @@ export function apiRolePolicy() {
     const reading = reads.has(request.method);
     const pathname = request.path.toLowerCase().replace(/(.)\/+$/, "$1");
     const readOnlyRun = /^\/operations\/[^/]+\/run$/.test(pathname);
+    const asking = request.method === "POST" && pathname === "/assistant/ask";
     const selfService = pathname === "/auth/logout" || pathname === "/auth/elevate" || pathname === "/auth/password";
     if (role === "disabled") return response.status(403).json({ error: "This account is disabled", code: "forbidden" });
-    if (role === "viewer" && !reading && !readOnlyRun && !selfService) return response.status(403).json({ error: "Viewers can look but not change anything", code: "forbidden" });
+    if (role === "viewer" && !reading && !readOnlyRun && !asking && !selfService) return response.status(403).json({ error: "Viewers can look but not change anything", code: "forbidden" });
     if (role === "operator" && !reading && (pathname.startsWith("/settings") || pathname.startsWith("/people"))) return response.status(403).json({ error: "Only the owner can change settings or people", code: "forbidden" });
     return next();
   };
