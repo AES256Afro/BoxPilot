@@ -268,4 +268,37 @@ describe("Repair Center", () => {
     expect(await screen.findByText(/qemu-system-x86 1:10.2.1/)).toBeTruthy();
     await waitFor(() => expect(JSON.parse(staged ?? "{}")).toEqual({ parameters: { expectedPackages: candidatePackages } }));
   });
+
+  it("offers to reconnect a dropped drive automatically next time, and says when it is waiting for a person", async () => {
+    // M26.5: armed from the notice that says the drive dropped, with every guardrail in one sentence.
+    const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+    const limits = { cooldownMinutes: 30, maxAttempts: 3, windowHours: 24 };
+    let status: { limits: typeof limits; drives: Record<string, unknown> } = { limits, drives: {} };
+    let armed: { method?: string; csrf: string | null } | null = null;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url.includes("prerequisites")) return json({ checks: [] });
+      if (url.includes("action-center") || url.includes("recovery-kit")) return json({ error: "unavailable" }, 503);
+      if (url.includes("/remediations")) return json({
+        counts: { critical: 1, warning: 0, info: 0 },
+        findings: [{ id: "read-only-remount:the-dump", severity: "critical", title: "/mnt/the-dump has gone read-only", detail: "The filesystem hit errors.", evidence: [], fix: { operationId: "storage.remount", parameters: { name: "the-dump" }, label: "Reconnect the drive", preview: "Mounts it again from fstab." }, manual: null }],
+      });
+      if (url === "/api/v1/drives/auto-reconnect") return json(status);
+      if (url === "/api/v1/drives/the-dump/auto-reconnect") {
+        armed = { method: init?.method, csrf: new Headers(init?.headers).get("X-BoxPilot-CSRF") };
+        status = { limits, drives: { "the-dump": { flowId: "flow-1", flowName: "Reconnect /mnt/the-dump when it drops", enabled: true, held: true, heldSince: "2026-09-28T03:00:00Z", heldBecause: "the last automatic reconnect did not work", attempts: 1, lastAttemptAt: "2026-09-28T03:00:00Z", lastOutcome: "failed", lastCheckFoundErrors: false } } };
+        return json({ flow: { id: "flow-1" } }, 201);
+      }
+      return json({ jobs: [] });
+    }));
+    render(<RepairCenter csrfToken="csrf-token" />);
+
+    expect(await screen.findByText(/at most 3 times a day and 30 minutes apart, never while the drive is being checked or after a check found errors, and not again after a failed try until you reconnect it yourself/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Reconnect /mnt/the-dump automatically" }));
+    expect(await screen.findByText("Waiting for you: the last automatic reconnect did not work. Reconnect it by hand to start again.")).toBeTruthy();
+    expect(armed).toEqual({ method: "POST", csrf: "csrf-token" });
+    expect(screen.getByRole("button", { name: "Stop reconnecting /mnt/the-dump automatically" })).toBeTruthy();
+    // The one-off fix is still there beside it.
+    expect(screen.getByRole("button", { name: "Reconnect the drive" })).toBeTruthy();
+  });
 });
