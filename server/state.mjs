@@ -1022,6 +1022,12 @@ export function createStateStore({
     return getSchedule(id);
   }
 
+  /** How a started run ended. Only that run's "started" is replaced; the time it ran is kept. */
+  function settleScheduleRun(id, { jobId, result }) {
+    database.prepare("UPDATE schedules SET last_result = ? WHERE id = ? AND last_job_id = ? AND last_result = 'started'").run(result, id, jobId);
+    return getSchedule(id);
+  }
+
   /** Flows: an ordered list of registered operations (ADR-002). Feature storage like schedules. */
   function normalizeFlow(row) {
     if (!row) return null;
@@ -1609,6 +1615,7 @@ export function createStateStore({
     listDueSchedules,
     setScheduleEnabled,
     markScheduleRun,
+    settleScheduleRun,
     deleteSchedule,
     recordBackup,
     getBackup,

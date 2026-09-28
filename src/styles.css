@@ -4351,6 +4351,7 @@ textarea {
 .schedules-panel .schedule-form { margin-top: 12px; flex-wrap: wrap; }
 .schedules-panel .schedule-form select, .schedules-panel .schedule-form input { padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-muted); color: var(--text); }
 .schedule-disabled td { opacity: 0.55; }
+.schedules-panel .schedule-reason { margin-top: 4px; font-size: 0.85em; max-width: 36ch; overflow-wrap: anywhere; }
 
 /* Notification settings (M8.4) */
 .notification-settings { display: grid; gap: 10px; }

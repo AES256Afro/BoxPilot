@@ -2,6 +2,7 @@ import { registry as defaultRegistry } from "./ops/index.mjs";
 import { secretPaths } from "./ops/registry.mjs";
 import { overdueScheduleIds } from "./schedule-freshness.mjs";
 import { asSentence } from "./health-alerts.mjs";
+import { recordFailed } from "./jobs.mjs";
 
 /**
  * Operation scheduler (M6.1): runs registered low/medium-risk operations on a cadence,
@@ -52,6 +53,37 @@ export function validateCadence({ frequency, minute, hour = null, weekday = null
   if (frequency !== "hourly" && (!Number.isInteger(hour) || hour < 0 || hour > 23)) return "hour must be 0-23";
   if (frequency === "weekly" && (!Number.isInteger(weekday) || weekday < 0 || weekday > 6)) return "weekday must be 0-6 (Sunday-Saturday)";
   return null;
+}
+
+const terminalStates = new Set(["completed", "failed", "cancelled"]);
+
+/** What a finished job means for its schedule's record: the words the Schedules panel reads. */
+function endingOf(job) {
+  if (job.state === "completed") return "completed";
+  if (job.state === "failed") return `failed: ${job.error ?? "the job failed"}`.slice(0, 200);
+  return `cancelled: ${job.error ?? "the job was withdrawn"}`.slice(0, 200);
+}
+
+/**
+ * What a schedule's last run came to: ran, failed, did not run, still running, or not run yet.
+ *
+ * The schedule used to record only that it had started a job, so a nightly backup whose job failed
+ * an hour later still read "ran". The ending is now written when the job finishes; a run recorded as
+ * started before that (an older release, or an ending this process never saw) is read from its job.
+ * `result` is the record's own words, `reason` the part worth showing beside the verdict.
+ */
+export function scheduleOutcome(schedule, job = null) {
+  let result = schedule?.lastResult ?? null;
+  if (result === "started" && job && job.id === schedule.lastJobId && terminalStates.has(job.state)) result = endingOf(job);
+  if (!result) return { outcome: null, result: null, reason: null };
+  const after = (prefix) => result.slice(prefix.length).trim() || null;
+  if (result === "completed") return { outcome: "ran", result, reason: null };
+  if (result === "starting") return { outcome: "running", result, reason: null };
+  // Started and not yet settled: still going, or its job has since been pruned and nobody can say.
+  if (result === "started") return { outcome: job && job.id === schedule.lastJobId ? "running" : "unknown", result, reason: null };
+  if (result === "blocked-by-approval-mode") return { outcome: "did-not-run", result, reason: "Approvals are set to always ask" };
+  for (const prefix of ["error:", "paused:", "cancelled:"]) if (result.startsWith(prefix)) return { outcome: "did-not-run", result, reason: after(prefix) };
+  return { outcome: "failed", result, reason: result.startsWith("failed:") ? after("failed:") : result };
 }
 
 const minutesInWeek = 7 * 24 * 60;
@@ -174,7 +206,11 @@ export function createSchedulerService({ store, jobs, secretEnvNamesFor = async 
     const behind = overdueScheduleIds(all, { now: now() });
     return all
       .filter((schedule) => !createdBy || schedule.createdBy === createdBy)
-      .map((schedule) => ({ ...schedule, parameters: describeParameters(schedule.parameters), title: registry.get(schedule.operationId)?.title ?? schedule.operationId, cadence: describeCadence(schedule), overdue: behind.has(schedule.id) }));
+      .map((schedule) => {
+        // The job is read only while the record still says "started": for a run whose ending was written, the record is the answer.
+        const { outcome, result, reason } = scheduleOutcome(schedule, schedule.lastResult === "started" && schedule.lastJobId ? store.getJob(schedule.lastJobId) : null);
+        return { ...schedule, lastResult: result, lastOutcome: outcome, lastReason: reason, parameters: describeParameters(schedule.parameters), title: registry.get(schedule.operationId)?.title ?? schedule.operationId, cadence: describeCadence(schedule), overdue: behind.has(schedule.id) };
+      });
   }
 
   /** What the schedule acts on, for the panel to show — the subject, not the whole parameter set. */
@@ -249,6 +285,10 @@ export function createSchedulerService({ store, jobs, secretEnvNamesFor = async 
         remember(job.id, schedule.id);
         await jobs.approveAndStart(job.id, schedule.createdBy, {});
         store.markScheduleRun(schedule.id, { jobId: job.id, result: "started", nextDueAt });
+        // A job that already finished told onJob before "started" was written, so its ending found
+        // nothing to replace: write it now, or the record would say started for good.
+        const already = store.getJob(job.id);
+        if (already && terminalStates.has(already.state)) store.settleScheduleRun?.(schedule.id, { jobId: job.id, result: endingOf(already) });
         store.recordAudit("schedule.run", { actorId: schedule.createdBy, subjectId: schedule.id, details: { operationId: schedule.operationId, jobId: job.id } });
       } catch (error) {
         // A job that was staged but could not start is withdrawn rather than left awaiting approval forever.
@@ -273,11 +313,17 @@ export function createSchedulerService({ store, jobs, secretEnvNamesFor = async 
   /** Job-event listener: a started run that finished decides whether the schedule is failing. */
   function onJob(job) {
     const scheduleId = started.get(job?.id);
-    if (!scheduleId || !["completed", "failed", "cancelled"].includes(job.state)) return;
+    if (!scheduleId || !terminalStates.has(job.state)) return;
     started.set(job.id, null); // handled once; the entry stays so owns() still answers
     const schedule = store.getSchedule(scheduleId);
     if (!schedule) return;
+    // The panel shows how the run ended, not only that it started (M27.2).
+    store.settleScheduleRun?.(schedule.id, { jobId: job.id, result: endingOf(job) });
     if (job.state === "completed") settle(schedule.id);
+    // The task ran and only saving its result failed. The job layer has already raised that as its
+    // own condition, in better words; raising the schedule's too made one run two alerts. An older
+    // failure of this schedule no longer describes its latest run, so it goes, without a "resolved".
+    else if (job.state === "failed" && recordFailed(job)) settle(schedule.id, { quietly: true });
     else if (job.state === "failed") announce(schedule, "Scheduled task failed", `${asSentence(job.error ?? "The job failed")} The job log is in Activity.`);
   }
 
@@ -295,6 +341,7 @@ export function createSchedulerService({ store, jobs, secretEnvNamesFor = async 
       if (!schedule.lastJobId || !ids.has(schedule.lastJobId)) continue;
       remember(schedule.lastJobId, null);
       taken.push(schedule.lastJobId);
+      store.settleScheduleRun?.(schedule.id, { jobId: schedule.lastJobId, result: "failed: interrupted by a BoxPilot restart" });
       announce(schedule, "Scheduled task was interrupted", "BoxPilot restarted while it was running, so it is marked failed. It may still have finished on its own; check what it changed before running it again.");
     }
     return taken;
