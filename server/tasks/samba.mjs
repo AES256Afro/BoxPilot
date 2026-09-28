@@ -328,7 +328,7 @@ export async function discoveryState(run, files = { access }) {
 /** The package that provides the service here: wsdd-server where the release split it out, wsdd before. */
 async function discoveryPackage(run) {
   const policy = await run(binaries.aptCache, ["policy", "wsdd-server"], { timeout: 30_000 }).catch(() => null);
-  const candidate = policy?.ok ? /Candidate:s*(S+)/.exec(policy.stdout ?? "")?.[1] : null;
+  const candidate = policy?.ok ? /Candidate:\s*(\S+)/.exec(policy.stdout ?? "")?.[1] : null;
   return candidate && candidate !== "(none)" ? "wsdd-server" : "wsdd";
 }
 
