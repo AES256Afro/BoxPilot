@@ -1,0 +1,27 @@
+# Weekly dependency updates, grouped so a quiet week is one pull request rather than a dozen.
+# Major versions arrive on their own, since they are the ones that need reading.
+# Catalog app images are not npm or Actions dependencies; the Catalog images workflow covers them.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      production:
+        dependency-type: production
+        update-types: [minor, patch]
+      development:
+        dependency-type: development
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      actions:
+        patterns: ["*"]
