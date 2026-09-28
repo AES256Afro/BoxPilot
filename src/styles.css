@@ -5146,6 +5146,584 @@ textarea {
   white-space: nowrap;
 }
 
+/* The status mark. Each status has its own shape as well as its own colour: a dot for good and
+   neutral, a triangle for warning, a diamond for danger, a hollow dashed ring for unknown. The
+   chip or tile that owns the mark sets the variables; the mark only draws them. */
+.ui-chip,
+.ui-tile {
+  --mark: var(--status-neutral);
+  --mark-radius: 50%;
+  --mark-clip: none;
+  --mark-transform: none;
+  --mark-border: 0;
+  --mark-fill: var(--mark);
+}
+
+.ui-chip--good,
+.ui-tile[data-status="good"] { --mark: var(--status-good); }
+
+.ui-chip--warning,
+.ui-tile[data-status="warning"] {
+  --mark: var(--status-warning);
+  --mark-radius: 0;
+  --mark-clip: polygon(50% 0, 100% 100%, 0 100%);
+}
+
+.ui-chip--danger,
+.ui-tile[data-status="danger"] {
+  --mark: var(--status-danger);
+  --mark-radius: 1px;
+  --mark-transform: rotate(45deg) scale(0.84);
+}
+
+.ui-chip--unknown,
+.ui-tile[data-status="unknown"] {
+  --mark: var(--status-unknown);
+  --mark-fill: transparent;
+  --mark-border: 1.5px dashed var(--status-unknown);
+}
+
+.ui-mark {
+  display: inline-block;
+  flex: none;
+  box-sizing: border-box;
+  width: 8px;
+  height: 8px;
+  border: var(--mark-border);
+  border-radius: var(--mark-radius);
+  background: var(--mark-fill);
+  clip-path: var(--mark-clip);
+  transform: var(--mark-transform);
+}
+
+/* ── Button ── */
+.ui-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: var(--control-height);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  color: var(--text-strong);
+  background: var(--surface-raised);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.ui-button:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  background: var(--surface-hover);
+}
+
+.ui-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.ui-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.ui-button[aria-busy="true"] {
+  cursor: progress;
+}
+
+.ui-button--primary {
+  border-color: var(--accent);
+  color: var(--accent-text-on);
+  background: var(--accent);
+}
+
+.ui-button--primary:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--accent) 86%, var(--text-strong));
+  background: color-mix(in srgb, var(--accent) 86%, var(--text-strong));
+}
+
+.ui-button--ghost {
+  border-color: transparent;
+  color: var(--accent);
+  background: transparent;
+}
+
+.ui-button--ghost:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--accent-faint);
+}
+
+/* Risk: low is plain. Medium carries a bar on its leading edge; high a bar, a red edge, a lock
+   and the word "Password". */
+.ui-button--risk-medium,
+.ui-button--risk-high {
+  position: relative;
+  padding-left: calc(var(--space-3) + 5px);
+}
+
+.ui-button--risk-medium::before,
+.ui-button--risk-high::before {
+  content: "";
+  position: absolute;
+  top: 24%;
+  bottom: 24%;
+  left: 5px;
+  width: 3px;
+  border-radius: var(--radius-pill);
+  background: var(--risk-medium);
+}
+
+.ui-button--risk-high::before {
+  background: var(--risk-high);
+}
+
+/* On the accent fill a hue alone would not stand out, so the mark gets a rim of the text colour. */
+.ui-button--primary.ui-button--risk-medium::before,
+.ui-button--primary.ui-button--risk-high::before {
+  box-shadow: 0 0 0 1.5px var(--accent-text-on);
+}
+
+.ui-button--secondary.ui-button--risk-high,
+.ui-button--secondary.ui-button--risk-high:hover:not(:disabled) {
+  border-color: var(--risk-high-border);
+}
+
+.ui-button__lock {
+  flex: none;
+  width: 1.05em;
+  height: 1.05em;
+  color: var(--risk-high-text);
+}
+
+.ui-button--primary .ui-button__lock {
+  color: inherit;
+}
+
+.ui-button__tier {
+  padding: 1px 6px;
+  border: 1px solid var(--risk-high-border);
+  border-radius: var(--radius-pill);
+  color: var(--risk-high-text);
+  background: var(--risk-high-bg);
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  line-height: 1.35;
+  letter-spacing: 0.02em;
+}
+
+/* ── Risk tag ── */
+.ui-risk {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  width: fit-content;
+  padding: 1px var(--space-2);
+  border: 1px solid;
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  line-height: 1.5;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.ui-risk--low { border-color: var(--risk-low-border); color: var(--risk-low-text); background: var(--risk-low-bg); }
+.ui-risk--medium { border-color: var(--risk-medium-border); color: var(--risk-medium-text); background: var(--risk-medium-bg); }
+.ui-risk--high { border-color: var(--risk-high-border); color: var(--risk-high-text); background: var(--risk-high-bg); }
+.ui-risk__lock { width: 1em; height: 1em; }
+
+/* ── Status chip ── */
+.ui-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  max-width: 100%;
+  padding: 1px var(--space-2);
+  border: 1px solid;
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  line-height: 1.6;
+  letter-spacing: 0;
+  text-transform: none;
+  white-space: nowrap;
+}
+
+.ui-chip--good { border-color: var(--status-good-border); color: var(--status-good-text); background: var(--status-good-bg); }
+.ui-chip--warning { border-color: var(--status-warning-border); color: var(--status-warning-text); background: var(--status-warning-bg); }
+.ui-chip--danger { border-color: var(--status-danger-border); color: var(--status-danger-text); background: var(--status-danger-bg); }
+.ui-chip--neutral { border-color: var(--status-neutral-border); color: var(--status-neutral-text); background: var(--status-neutral-bg); }
+.ui-chip--unknown { border-color: var(--status-unknown-border); border-style: dashed; color: var(--status-unknown-text); background: var(--status-unknown-bg); }
+
+/* ── Tile: an app with its health ── */
+.ui-tile {
+  display: grid;
+  justify-items: center;
+  align-content: start;
+  gap: var(--space-1);
+  min-width: 0;
+  padding: var(--space-3) var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-card);
+  color: var(--text);
+  background: transparent;
+  font: inherit;
+  text-align: center;
+  text-decoration: none;
+}
+
+button.ui-tile,
+a.ui-tile {
+  cursor: pointer;
+}
+
+button.ui-tile:hover,
+a.ui-tile:hover {
+  border-color: var(--border-subtle);
+  background: var(--surface-hover);
+}
+
+.ui-tile:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.ui-tile__icon {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: var(--tile-icon);
+  height: var(--tile-icon);
+  border: 1px solid var(--accent-border);
+  border-radius: calc(var(--tile-icon) * 0.28);
+  color: var(--accent-light);
+  background: var(--accent-bg);
+  box-shadow: var(--elevation-1);
+  font-size: calc(var(--tile-icon) * 0.36);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.ui-tile__icon > img,
+.ui-tile__icon > svg:not(.ui-mark) {
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+}
+
+.ui-tile__mark {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  width: calc(var(--tile-icon) * 0.25);
+  height: calc(var(--tile-icon) * 0.25);
+  min-width: 10px;
+  min-height: 10px;
+  box-shadow: 0 0 0 2px var(--surface);
+}
+
+.ui-tile[data-status="unknown"] .ui-tile__mark {
+  background: var(--surface);
+}
+
+.ui-tile__name {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--text-strong);
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ui-tile__detail {
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  line-height: 1.3;
+}
+
+.ui-tile[data-status="warning"] .ui-tile__detail { color: var(--status-warning-text); }
+.ui-tile[data-status="danger"] .ui-tile__detail { color: var(--status-danger-text); }
+
+/* ── Metric tile ── */
+.ui-metric {
+  display: grid;
+  align-content: start;
+  gap: var(--space-1);
+  min-width: 0;
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: var(--elevation-1);
+}
+
+.ui-metric[data-status="good"] { border-left: 3px solid var(--status-good); }
+.ui-metric[data-status="warning"] { border-left: 3px solid var(--status-warning); }
+.ui-metric[data-status="danger"] { border-left: 3px solid var(--status-danger); }
+.ui-metric[data-status="unknown"] { border-left: 3px dashed var(--status-unknown-border); }
+
+.ui-metric__label {
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.ui-metric__value {
+  color: var(--text-strong);
+  font-size: var(--font-size-xl);
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+}
+
+[data-density="compact"] .ui-metric__value {
+  font-family: var(--font-mono);
+  font-weight: 500;
+}
+
+.ui-metric__caption {
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-body);
+}
+
+.ui-metric__bar {
+  display: block;
+  height: 6px;
+  margin-top: var(--space-1);
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+  background: var(--meter-track);
+}
+
+.ui-metric__bar > i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+}
+
+.ui-metric[data-status="good"] .ui-metric__bar > i { background: var(--status-good); }
+.ui-metric[data-status="warning"] .ui-metric__bar > i { background: var(--status-warning); }
+.ui-metric[data-status="danger"] .ui-metric__bar > i { background: var(--status-danger); }
+.ui-metric[data-status="unknown"] .ui-metric__bar > i { background: var(--status-unknown); }
+
+.ui-metric__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+/* ── Card, used sparingly ── */
+.ui-card {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: var(--elevation-1);
+}
+
+.ui-card--flush {
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+/* ── Section: status first ── */
+.ui-section {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.ui-section__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
+}
+
+.ui-section__heading {
+  display: grid;
+  flex: 1 1 18rem;
+  gap: var(--space-1);
+  min-width: min(100%, 18rem);
+}
+
+.ui-section__title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  color: var(--text-strong);
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+}
+
+.ui-section__summary {
+  max-width: 72ch;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-body);
+}
+
+.ui-section__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+/* ── Table rows at the density's height ── */
+.ui-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-md);
+}
+
+.ui-table th,
+.ui-table td {
+  height: var(--row-height);
+  padding: 0 var(--space-3);
+  border-bottom: 1px solid var(--border-subtle);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.ui-table th {
+  height: calc(var(--row-height) * 0.8);
+  color: var(--text-muted);
+  background: var(--surface-header);
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.ui-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.ui-table__check {
+  width: 1%;
+  padding-right: 0;
+}
+
+.ui-table input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  vertical-align: middle;
+  accent-color: var(--accent);
+}
+
+/* ── Dock ── */
+.ui-dock {
+  display: inline-flex;
+  max-width: 100%;
+}
+
+.ui-dock ul {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  padding: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius-card) + var(--space-2));
+  list-style: none;
+  background: var(--surface);
+  box-shadow: var(--elevation-2);
+}
+
+.ui-dock__item {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: max(32px, calc(var(--tile-icon) * 0.8));
+  height: max(32px, calc(var(--tile-icon) * 0.8));
+  border: 1px solid transparent;
+  border-radius: var(--radius-card);
+  color: var(--text-strong);
+  background: var(--surface-raised);
+  font: inherit;
+  font-size: var(--font-size-xs);
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+}
+
+.ui-dock__item:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-hover);
+}
+
+.ui-dock__item[aria-current="page"] {
+  border-color: var(--accent);
+  color: var(--accent-text-on);
+  background: var(--accent);
+}
+
+.ui-dock__item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.ui-dock__icon {
+  display: grid;
+  place-items: center;
+}
+
+.ui-dock__badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  display: grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: var(--radius-pill);
+  color: var(--surface);
+  background: var(--text-strong);
+  box-shadow: 0 0 0 2px var(--surface);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+[data-density="compact"] .ui-dock__badge {
+  top: -9px;
+  right: -10px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  font-size: 9px;
+}
+
 /* ── Theme switch: System, Light, Dark ── */
 .ui-theme-switch {
   display: inline-flex;
@@ -5217,3 +5795,7 @@ textarea {
 .theme-palette span { color: var(--text-muted); font-size: 11px; line-height: 1.4; }
 .theme-palette[aria-checked="true"] { border-color: var(--accent); color: var(--accent); background: var(--accent-bg); }
 
+@media (prefers-reduced-motion: reduce) {
+  .ui-button,
+  .theme-palette { transition: none; }
+}
