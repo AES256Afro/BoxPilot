@@ -16,6 +16,7 @@ import { chmod, copyFile, mkdir, readdir, readFile, rename, rm, stat, statfs, wr
 import path from "node:path";
 import { fixedRun } from "./exec.mjs";
 import { createControllerBackupHelper } from "./controller-backup-helper.mjs";
+import { backupMountpoint } from "./backup-mount.mjs";
 
 const snapshotNamePattern = /^machine-snapshot-\d{8}T\d{6}Z-[a-f0-9]{8}\.tar\.gz$/;
 /**
@@ -80,7 +81,7 @@ export function createMachineSnapshotHelper({
   catalogRoot = process.env.BOXPILOT_CATALOG_ROOT ?? "/var/lib/boxpilot-managed/catalog",
   applicationBackupRoot = path.join(process.env.BOXPILOT_APPLICATION_BACKUP_ROOT ?? "/var/lib/boxpilot-managed/backups", "catalog"),
   controllerBackupRoot = process.env.BOXPILOT_CONTROLLER_BACKUP_ROOT ?? "/var/lib/boxpilot-managed/backups/boxpilot-controller",
-  mountRoot = process.env.BOXPILOT_BACKUP_SYNC_MOUNT ?? process.env.BOXPILOT_CONTROLLER_BACKUP_MOUNT ?? "/mnt/boxpilot-backup",
+  mountRoot = process.env.BOXPILOT_BACKUP_SYNC_MOUNT ?? process.env.BOXPILOT_CONTROLLER_BACKUP_MOUNT ?? backupMountpoint,
   netplanDirectory = "/etc/netplan",
   ufwDirectory = "/etc/ufw",
   fstabPath = "/etc/fstab",
@@ -132,11 +133,14 @@ export function createMachineSnapshotHelper({
   }
 
   async function inspect() {
+    const mount = await mountState();
     return {
       snapshotRoot: resolvedSnapshotRoot,
       snapshots: await listSnapshots(),
       keep,
-      sync: { destination: mirrorRoot, mount: await mountState(), lastSync: await lastSync() },
+      // A share that did not mount is not asked again for its sync record: behind an automount,
+      // every read of that path is another mount attempt waited out, and the page is waiting too.
+      sync: { destination: mirrorRoot, mount, lastSync: mount.mounted ? await lastSync() : null },
       boundary: { mutationPerformed: false, secretsReturned: false },
     };
   }

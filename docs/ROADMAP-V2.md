@@ -1152,6 +1152,42 @@ clear until v1.112.0. The lesson generalises.
   rather than sent at whatever hour it came back; with no target it is one not-announced entry,
   replaced each week. Six lines at most. To the notification target: what ran, what failed, what
   was skipped and why, what is not covered yet. The morning glance M25.3 promised, from the server side.
+- ✅ **M30.10 The helper starts without its backup NAS** (unreleased): after a reboot the helper
+  failed with `Failed to set up mount namespacing: /mnt/boxpilot-backup: No such device` and, with
+  `Restart=on-failure`, kept failing, five seconds after each attempt, for as long as the NAS was
+  off, taking every host operation with it. The sandbox named the share's automount point (`ReadWritePaths=`), and
+  setting a sandbox up resolves those paths: systemd 258+ does it through the automount on purpose,
+  so a failed mount fails the helper; 255 fires it from its nosuid pass and waits out the mount on
+  every start. The `-` prefix forgives only a missing path, and waiting for the network (the
+  previous fix) does not make a NAS that is off answer. The destination now lives at
+  `/mnt/boxpilot/backup` and the helper is given the folder above it, `/mnt/boxpilot`, which is not
+  an automount point, so the share mounts on first use instead - writable whether it was mounted
+  before the helper started or came up after. Kept: `ProtectSystem=strict`, `NoNewPrivileges=`,
+  every other path; nothing else under `/mnt` is opened (tried and measured: `ReadWritePaths=-/mnt`
+  also starts, but lets the helper write to every other drive; no `ReadWritePaths=` at all starts,
+  but a share already mounted at start is read-only to it; `NoNewPrivileges=false` does not help on
+  259). `server/backup-mount.mjs` is where the path is decided, and `/mnt/<name>` stays the rule for
+  every other mount; `boxpilot` is reserved as a mount name. **An existing install on upgrade**:
+  `scripts/boxpilot-upgrade.sh` stops the helper, then `scripts/boxpilot-backup-mount-move.mjs`
+  moves the one fstab entry at `/mnt/boxpilot-backup` (a BoxPilot share or drive, or a line the
+  owner wrote) to `/mnt/boxpilot/backup`: the old mount is released first and left alone if it is in
+  use, fstab is saved as `/etc/fstab.boxpilot-<stamp>`, changed in that one field, checked with
+  `findmnt --verify`, and put back with the old automount if the new one does not come up; a NAS
+  that is off does not stop it. A rolled-back upgrade undoes the move. When the move did not happen
+  (the share was in use, or the upgrade ran an older upgrade script - the in-app update runs the
+  installed version's script, so it will for this one release), the helper still starts, backups to
+  the NAS say the destination is unavailable, and Repair offers **Move the backup destination**
+  (`storage.backup.relocate`, medium). Repositories on the share keep their paths inside it. Backup
+  code with the NAS off reports the destination unavailable within the mount timeout (about 10 s
+  measured, 30 s at most; the mirror check no longer asks a share that did not mount a second time
+  for its sync record, which doubled the wait), and a write to a mounted share whose NAS went away
+  fails in about 10 s rather than hanging (CIFS is mounted soft). Remaining: an NFS destination is
+  mounted hard, so a write in flight when its NAS goes away waits for it to come back; not changed
+  here, since soft NFS trades that wait for silent write errors. `tests/ubuntu/helper-automount.sh`,
+  run on Ubuntu 24.04 and 26.04 in the install smoke workflow, reproduces the failure with the unit as
+  it was, then proves the shipped unit starts with a TEST-NET NAS, mirrors to a local Samba share that
+  comes up later, keeps writing across a restart and a NAS outage, refuses writes elsewhere under
+  `/mnt`, and moves, refuses to move (in use) and un-moves a real fstab entry.
 
 ### M31 — Storage and data, next steps (continues M23)
 

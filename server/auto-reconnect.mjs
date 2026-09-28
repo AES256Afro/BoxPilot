@@ -20,6 +20,7 @@
  */
 import { asSentence } from "./health-alerts.mjs";
 import { mountNamePattern } from "./tasks/storage.mjs";
+import { mountNameFor, mountpointFor } from "./backup-mount.mjs";
 
 export const autoReconnectLimits = Object.freeze({ cooldownMs: 30 * 60_000, maxAttempts: 3, windowMs: 24 * 60 * 60_000 });
 const settingKey = "driveReconnects";
@@ -36,7 +37,7 @@ export function lostDrives(activeKeys = []) {
     const at = String(key).indexOf(":");
     if (at < 0) continue;
     const what = conditions[key.slice(0, at)];
-    const drive = key.slice(at + 1).match(/^\/mnt\/([^/]+)$/)?.[1];
+    const drive = mountNameFor(key.slice(at + 1));
     if (!what || !reconnectable(drive) || lost.has(drive)) continue;
     lost.set(drive, { key, what });
   }
@@ -56,7 +57,7 @@ export function attemptsIn(record, now, limits = autoReconnectLimits) {
  */
 export function reconnectRefusal({ name, now, record = {}, lastCheck = null, activeJobs = [], limits = autoReconnectLimits }) {
   const busy = activeJobs.find((job) => driveJobs.includes(job?.type) && job.parameters?.name === name);
-  if (busy) return { reason: busy.type === "op:storage.check" ? `/mnt/${name} is being checked` : `/mnt/${name} is already being worked on`, tell: false };
+  if (busy) return { reason: busy.type === "op:storage.check" ? `${mountpointFor(name)} is being checked` : `${mountpointFor(name)} is already being worked on`, tell: false };
   if (lastCheck?.clean === false) {
     return { reason: `its last check found errors${lastCheck.checkedAt ? ` (${new Date(lastCheck.checkedAt).toLocaleString()})` : ""}, and writing to it again is for a person to decide`, advice: "Open Repair to check the drive, repair it if it needs it, and reconnect it there.", tell: true };
   }
@@ -82,7 +83,7 @@ const plural = (count, word) => `${count} ${word}${count === 1 ? "" : "s"}`;
  * mounted, and which apps it restarted. Exported for the tests; the words are the product here.
  */
 export function reconnectedNotice({ name, what, result = null, flowName = null, attempt = 1, limits = autoReconnectLimits }) {
-  const mountpoint = `/mnt/${name}`;
+  const mountpoint = mountpointFor(name);
   const allowance = ` Automatic reconnect ${attempt} of ${limits.maxAttempts} allowed in a day.`;
   if (!result) return { title: `${mountpoint} ${what}; ${flowName ?? "its automation"} ran`, message: `${flowName ?? "The automation armed for it"} ran and finished.${allowance}`, priority: "default" };
   const restarted = result.restarted ?? [];
@@ -125,7 +126,7 @@ export function createAutoReconnect({ store, flows, alerts = null, now = () => n
     if (refusal) {
       if (refusal.tell) {
         flows.recordSkip(flow.id, refusal.reason);
-        await raise(flow, `Did not reconnect /mnt/${name}`, `It ${loss.what}, and was not reconnected automatically: ${asSentence(refusal.reason)} ${refusal.advice ?? ""}`.trim());
+        await raise(flow, `Did not reconnect ${mountpointFor(name)}`, `It ${loss.what}, and was not reconnected automatically: ${asSentence(refusal.reason)} ${refusal.advice ?? ""}`.trim());
       }
       return { name, outcome: "waiting", reason: refusal.reason, told: Boolean(refusal.tell) };
     }
@@ -154,12 +155,12 @@ export function createAutoReconnect({ store, flows, alerts = null, now = () => n
     if (ran.outcome === "busy") { settle(null); return { name, outcome: "waiting", reason: "its automation is already running", told: false }; }
     if (ran.outcome === "refused") {
       settle(null);
-      await raise(flow, `Did not reconnect /mnt/${name}`, `It ${loss.what}, and was not reconnected automatically: ${asSentence(ran.error)} Reconnect it from Repair.`);
+      await raise(flow, `Did not reconnect ${mountpointFor(name)}`, `It ${loss.what}, and was not reconnected automatically: ${asSentence(ran.error)} Reconnect it from Repair.`);
       return { name, outcome: "refused", reason: ran.error, told: true };
     }
     if (ran.outcome === "failed") {
       settle("failed", "the last automatic reconnect did not work");
-      await raise(flow, `Could not reconnect /mnt/${name}`, `It ${loss.what}, and reconnecting it automatically failed: ${asSentence(ran.error ?? "the job failed")} BoxPilot will not try again on its own until it has been reconnected by hand, from Repair.`);
+      await raise(flow, `Could not reconnect ${mountpointFor(name)}`, `It ${loss.what}, and reconnecting it automatically failed: ${asSentence(ran.error ?? "the job failed")} BoxPilot will not try again on its own until it has been reconnected by hand, from Repair.`);
       return { name, outcome: "failed", reason: ran.error, told: true };
     }
 
@@ -168,7 +169,7 @@ export function createAutoReconnect({ store, flows, alerts = null, now = () => n
     const count = attemptsIn(readAll()[name], at.getTime(), limits).length;
     const notice = reconnectedNotice({ name, what: loss.what, result: step?.result ?? null, flowName: flow.name, attempt: count, limits });
     // The reconnect is the resolution: a later "resolved" push for the drop would say it twice.
-    if (step) for (const family of Object.keys(conditions)) await quietly(() => alerts?.clear(`${family}:/mnt/${name}`, { quietly: true }));
+    if (step) for (const family of Object.keys(conditions)) await quietly(() => alerts?.clear(`${family}:${mountpointFor(name)}`, { quietly: true }));
     await quietly(() => alerts?.tell({ key: `drive.reconnected:${name}`, ...notice }));
     return { name, outcome: "reconnected", notice };
   }
@@ -226,7 +227,7 @@ export function createAutoReconnect({ store, flows, alerts = null, now = () => n
   async function arm(name, actorId, { role = "owner" } = {}) {
     if (["viewer", "disabled"].includes(role)) throw Object.assign(new Error("Viewers cannot arm automations"), { code: "forbidden" });
     if (!reconnectable(name)) throw new Error("Only a drive BoxPilot mounts under /mnt can be reconnected automatically");
-    const flow = await flows.create({ name: `Reconnect /mnt/${name} when it drops`, steps: [{ operationId: "storage.remount", parameters: { name } }], triggerDrive: name, createdBy: actorId });
+    const flow = await flows.create({ name: `Reconnect ${mountpointFor(name)} when it drops`, steps: [{ operationId: "storage.remount", parameters: { name } }], triggerDrive: name, createdBy: actorId });
     write(name, () => null);
     return flow;
   }
@@ -234,7 +235,7 @@ export function createAutoReconnect({ store, flows, alerts = null, now = () => n
   /** Disarm a drive: its flow goes, and with it the trigger (flows.remove settles its condition quietly). */
   function disarm(name, actorId, { role = "owner" } = {}) {
     const flow = armedFlows().find((entry) => entry.triggerDrive === name);
-    if (!flow) throw Object.assign(new Error(`/mnt/${name} is not reconnected automatically`), { code: "not_found" });
+    if (!flow) throw Object.assign(new Error(`${mountpointFor(name)} is not reconnected automatically`), { code: "not_found" });
     flows.remove(flow.id, actorId, { role });
     write(name, () => null);
     return { removed: true, flowId: flow.id };

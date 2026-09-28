@@ -16,6 +16,7 @@ import { computeNextRun, validateCadence } from "./scheduler.mjs";
 import { holdsPlaceholder, isSinglePlaceholder, referencesIn, resolveValues, stepNamePattern } from "./flow-values.mjs";
 import { asSentence } from "./health-alerts.mjs";
 import { mountNamePattern } from "./tasks/storage.mjs";
+import { mountpointFor } from "./backup-mount.mjs";
 
 const nameLimit = 80;
 const stepLimit = 10;
@@ -188,7 +189,7 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
     if (triggerDrive === null || triggerDrive === undefined) return null;
     if (typeof triggerDrive !== "string" || !mountNamePattern.test(triggerDrive) || triggerDrive.startsWith("share-") || triggerDrive === "swap") return "the drive must be one BoxPilot mounts under /mnt";
     const other = store.listFlows().find((flow) => flow.triggerDrive === triggerDrive && flow.id !== ownId);
-    if (other) return `${other.name} already runs when /mnt/${triggerDrive} drops`;
+    if (other) return `${other.name} already runs when ${mountpointFor(triggerDrive)} drops`;
     return null;
   }
 
@@ -232,7 +233,7 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
     // and arming again. The same steps sent back by an edit form are not a change.
     if (flow.triggerDrive) {
       const stepsChanged = steps !== undefined && JSON.stringify(normalizeSteps(steps)) !== JSON.stringify(flow.steps);
-      if (stepsChanged || cadence !== undefined || triggerFlowId !== undefined) throw new Error(`${flow.name} reconnects /mnt/${flow.triggerDrive} when it drops; to change what it does, stop reconnecting automatically and arm the drive again`);
+      if (stepsChanged || cadence !== undefined || triggerFlowId !== undefined) throw new Error(`${flow.name} reconnects ${mountpointFor(flow.triggerDrive)} when it drops; to change what it does, stop reconnecting automatically and arm the drive again`);
     }
     const problem = validateFlow({ name: name ?? flow.name, steps: steps ?? flow.steps }, registry);
     if (problem) throw new Error(problem);
@@ -448,7 +449,7 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
     assertMayManage(flow, actorId, role);
     // A drive-armed flow remounts its drive and restarts the apps on it; its one trigger is the
     // drive dropping (M26.5). A webhook would let whoever holds the URL do that to a healthy drive.
-    if (flow.triggerDrive) throw new Error(`${flow.name} runs only when /mnt/${flow.triggerDrive} drops, so it cannot be given a webhook`);
+    if (flow.triggerDrive) throw new Error(`${flow.name} runs only when ${mountpointFor(flow.triggerDrive)} drops, so it cannot be given a webhook`);
     const token = randomBytes(32).toString("base64url");
     store.setFlowWebhook(id, createHash("sha256").update(token).digest("hex"), { actorId });
     return { token };

@@ -46,6 +46,8 @@ jobs:
       - name: Units are active and health reports this version
         run: |
           systemctl is-active boxpilot-helper.service boxpilot.service
+          # The folder the helper's sandbox is given; the backup destination is mounted below it.
+          test -d /mnt/boxpilot/backup
           version="$(node -p 'require("./package.json").version')"
           body="$(curl -fsS http://127.0.0.1:8787/api/v1/health)"
           echo "$body"
@@ -121,3 +123,26 @@ jobs:
           name: drive-reboot-vm-console
           path: ${{ runner.temp }}/drive-reboot-vm-console.log
           if-no-files-found: ignore
+
+  # The root helper must start with the backup NAS unreachable and still write to the share once it
+  # is reachable (M30). Real systemd, a real CIFS automount written the way share.mount writes it, a
+  # real Samba server on the runner. Both LTS releases: systemd 259 fails the old sandbox outright,
+  # 255 stalls it on every start; the owner's server runs the newer one.
+  helper-automount:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-26.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: The helper starts without its NAS and writes to it when it is back
+        run: sudo bash tests/ubuntu/helper-automount.sh "$(command -v node)"

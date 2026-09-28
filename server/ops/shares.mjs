@@ -13,7 +13,7 @@ export function shareOperations() {
   return [
     defineOperation({
       id: "share.mount", title: "Mount a network share", risk: "medium", timeoutMs: minutes(4),
-      description: "Adds a nofail, automount fstab entry for an SMB or NFS share at /mnt/<name>, stores SMB credentials root-only, mounts it, and removes everything again if the first mount fails.",
+      description: "Adds a nofail, automount fstab entry for an SMB or NFS share at /mnt/<name> (boxpilot-backup, the backup destination, at /mnt/boxpilot/backup), stores SMB credentials root-only, mounts it, and removes everything again if the first mount fails.",
       parameters: { fields: {
         kind: { type: "string", enum: [...shareKinds] },
         host: { type: "string", maxLength: 253, pattern: hostPattern },

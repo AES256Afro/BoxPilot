@@ -10,6 +10,7 @@ import { firewallProfileApply, firewallRuleAdd, firewallRuleDelete, firewallSet 
 import { storageCheck, storageClearMark, storageFormat, storageLvmExtend, storageLvmSnapshotCreate, storageLvmSnapshotDelete, storageLvmSnapshotRollback, storageMount, storageRemount, storageUnmount, swapFileSet } from "./storage.mjs";
 import { storageDockerOrder, storageVolumeState } from "./drive-shutdown.mjs";
 import { shareMount, shareUnmount } from "./shares.mjs";
+import { moveBackupMount } from "./backup-mount-move.mjs";
 import { housekeepingRemoveTrees } from "./housekeeping.mjs";
 import { aptClean, journalVacuum } from "./space.mjs";
 import { routerConnect, routerInspect, routerLeases } from "./router.mjs";
@@ -59,6 +60,7 @@ export const tasks = Object.freeze({
   "storage.clear-mark": storageClearMark,
   "storage.docker-order": storageDockerOrder,
   "storage.volume-state": storageVolumeState,
+  "storage.backup-relocate": moveBackupMount,
   "storage.format": storageFormat,
   "storage.swapfile": swapFileSet,
   "storage.lvm-extend": storageLvmExtend,
