@@ -177,6 +177,10 @@ export function appOperations() {
     }),
     defineOperation({
       id: "homepage.sync", title: "Sync Homepage with installed apps", risk: "low", timeoutMs: 60_000,
+      // Safe to run again after a restart cut it off (M30.2): it rebuilds BoxPilot's one group from
+      // the apps installed now and swaps the file in with a rename, so a second run writes what one
+      // clean run would. It runs inside the helper, so a restart stops it rather than leaving it going.
+      rerunAfterInterrupt: true,
       description: "Writes a BoxPilot group into Homepage's services.yaml with every installed app, its link, description, icon and live container status, and keeps the groups you wrote yourself. Repeats automatically after installs and uninstalls.",
       parameters: { fields: { host: { type: "string", optional: true, maxLength: 253, pattern: /^[A-Za-z0-9][A-Za-z0-9.-]{0,252}$/ } } },
       run: (parameters, { apps, progress }) => apps.syncHomepage({ host: parameters.host }, { progress }),

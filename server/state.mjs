@@ -1526,7 +1526,8 @@ export function createStateStore({
       for (const { id } of interrupted) {
         database.prepare("UPDATE jobs SET state = 'failed', error = ?, updated_at = ? WHERE id = ?")
           .run("BoxPilot restarted while this job was running. The operation itself may still have finished on its own; check what it changed before retrying.", timestamp(), id);
-        addJobStep(id, "recovery", "required", "The operation was interrupted; no automatic retry was attempted");
+        // Whether it runs again is decided after this, from the registry (server/job-reruns.mjs).
+        addJobStep(id, "recovery", "required", "The operation was interrupted by a BoxPilot restart");
       }
       database.exec("COMMIT");
     } catch (error) {
