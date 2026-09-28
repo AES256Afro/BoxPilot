@@ -186,6 +186,9 @@ export function createAssistantService({
     const installed = (Array.isArray(apps?.applications) ? apps.applications : []).filter((entry) => entry?.installed);
     installed.sort((a, b) => Number(b.id === "ollama") - Number(a.id === "ollama"));
     for (const entry of installed) {
+      // Only while its container is up: a stopped model server's port is free for anything else to
+      // take, and the prompt - the owner's is every account's work - would go to whatever did.
+      if (entry.container?.running !== true) continue;
       const manifest = catalog ? await catalog.get(entry.id).catch(() => null) : null;
       // An app that runs its own models and publishes Ollama's API port (the catalog's Ollama).
       if (!manifest?.modelRunner || manifest.modelRunner.service !== manifest.id) continue;
