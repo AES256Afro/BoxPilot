@@ -1206,13 +1206,41 @@ is a plan made only of registered operations, each approved at its own tier thro
 job path. Every answer names what it was drawn from - a document, a job, a log line - so a wrong
 answer can be caught. On a CPU a small model works; the GPU (1.119.0) makes it quicker.
 
-- **M34.1 What it knows.** An index of BoxPilot's own documents, the operation registry (what each
-  operation does, its tier, its parameters) and the catalog, plus the server's current facts read
-  at question time: health, recent jobs and their errors, apps and containers, storage, backups.
-  Embeddings through Ollama when a model is there; keyword search when none is, so it still helps.
-- **M34.2 Ask.** A question in the command bar (M33.2) gets an answer grounded in M34.1, with its
-  sources, streamed. A suggested fix arrives as a plan of registered operations, validated against
-  the registry and shown with each step's tier; nothing runs until the owner approves it.
+- ✅ **M34.1 What it knows** (unreleased): `server/assistant/knowledge.mjs` indexes `AGENTS.md` and
+  `docs/*.md` cut by heading (pieces of at most 1,200 characters), one chunk per registered
+  operation (id, title, tier, read-only or not, who may run it, parameter names and types) and one
+  per catalog manifest (name, description, ports, notes). It lives in memory, is built at startup
+  and is rebuilt when the catalog's manifests change. Retrieval is BM25 always; when the model
+  server has an embedding model (`nomic-embed-text` and the like) the question and its best keyword
+  matches are embedded, the rest of the index in the background while nobody waits for an answer,
+  cached by content hash and model, and the two rankings are fused. `docs/INVENTORY.md` and
+  `docs/VIRTUALIZATION.md` are labelled older and weigh less. The server's facts are read at
+  question time as the person asking (`facts.mjs`): failed jobs with their error and last log lines
+  (the owner's context holds every account's, anyone else's only their own), the health-alert
+  ledger with another account's entries cut back to their kind (the rule now shared with
+  Settings in `access.mjs`), installed apps and their containers, disk use and SMART, and backups
+  without who took them; an app's container log only for an operator (ADR-003). Job parameters are
+  masked by `secretPaths`, and a job of an unregistered type carries none.
+- ◐ **M34.2 Ask** (unreleased): `POST /api/v1/assistant/ask` takes `{ question, context?: { jobId,
+  alertKey, appId } }` and answers `{ answer, sources, plan, model, degraded, citations, notes }`,
+  as server-sent events (sources, the answer as it is written, the result) when the page asks for
+  `text/event-stream`, as JSON otherwise. `GET /api/v1/assistant/status` says whether a model
+  answers, which one, and how big the index is; `PUT /api/v1/settings/assistant` (the owner, with
+  the password) sets the model server's address and the models. Only a local model: the catalog's
+  Ollama when it is installed, or an address the owner gives that is loopback, private, link-local
+  or on the tailnet, checked when saved and before every request, redirects refused. Every piece
+  of context goes through the redactor after `secretPaths`; secrets planted in parameters, an
+  app's env, logs, errors, alerts and documents are tested never to reach the prompt. The model
+  cites sources by id; ids it made up and sentences with no source come back with the answer. A
+  plan is registered operations only, each checked against the registry (it exists, its parameters
+  pass, the asker could approve it, it carries no secret) and returned with its title, tier and
+  the request that would stage it; nothing is staged or run, and a viewer gets no plan. Bounded: a
+  2,000-character question, a 24,000-character prompt, a 12,000-character answer, two minutes, and
+  one answer at a time per account; the audit trail records who asked, how many sources, the
+  outcome and how long it took, never the question or the answer. Viewers may ask (the role
+  policy's one other read-only POST), and `route-matrix.test.mjs` checks the model's prompt for
+  every role as it checks a response. With no model, the answer is the sources it found.
+  Remaining: the command bar (M33.2) that asks it, and a Settings panel for the address and models.
 - **M34.3 Guided troubleshooting** (was M24.3). From a symptom - a failed job, a health alert, an
   app that will not start - it runs the read-only checks BoxPilot already has and explains the
   cause from their evidence rather than from general advice.
