@@ -54,7 +54,7 @@ export function staleMounts({ mounts = [], devices = [] } = {}) {
 export function readOnlyRemounts({ mounts = [] } = {}) {
   return mounts
     .filter((mount) => mount.managedName && mount.readOnly === true && !(mount.options ?? "").split(",").includes("ro"))
-    .map((mount) => finding({
+    .map((mount) => (mount.managedName.startsWith("share-") ? readOnlyShare(mount) : finding({
       id: `read-only-remount:${mount.managedName}`,
       severity: "critical",
       title: `${mount.target} has gone read-only`,
@@ -66,7 +66,29 @@ export function readOnlyRemounts({ mounts = [] } = {}) {
         label: "Reconnect the drive",
         preview: `Detaches the read-only mount at ${mount.target} and mounts it again from fstab, read-write, finding the drive by its UUID wherever the kernel has put it. Nothing on the drive is touched, and the containers using this folder are restarted so they see it again.`,
       },
-    }));
+    })));
+}
+
+/**
+ * The same finding for a network share. A share is not a drive: nothing dropped off USB, the drive
+ * operations refuse it, and it cannot be reconnected automatically. Its fix is share.reconnect,
+ * which mounts it again from its own fstab line through systemd.
+ */
+function readOnlyShare(mount) {
+  const name = mount.managedName.slice("share-".length);
+  return finding({
+    id: `read-only-remount:${mount.managedName}`,
+    severity: "critical",
+    title: `${mount.target} has gone read-only`,
+    detail: `The network share at ${mount.target} is mounted read-only although its fstab entry asks for read-write, so every write to it fails. That usually follows the NAS restarting or its connection dropping while the share was in use. Mounting it again from its fstab entry connects afresh.`,
+    evidence: [`mounted from ${mount.source} with ro`, `fstab asks for it read-write`, ...(mount.fstype ? [`${mount.fstype} network share`] : [])],
+    fix: {
+      operationId: "share.reconnect",
+      parameters: { name },
+      label: "Reconnect the share",
+      preview: `Takes the share at ${mount.target} off this server and mounts it again from its fstab entry, read-write, with the stored credentials. It is left alone if something other than an app is using it; the apps using this folder are restarted so they see it again. Nothing on the NAS is touched.`,
+    },
+  });
 }
 
 /**
@@ -502,7 +524,7 @@ export function detectRemediations(facts = {}) {
   const staleTargets = [
     ...staleMounts(facts).map((entry) => entry.id.replace("stale-mount:", "")),
     ...readOnlyRemounts(facts).map((entry) => entry.id.replace("read-only-remount:", "")),
-  ].map((name) => mountpointFor(name));
+  ].map((name) => mountpointFor(name.startsWith("share-") ? name.slice("share-".length) : name));
   const findings = [
     ...staleMounts(facts),
     ...readOnlyRemounts(facts),
