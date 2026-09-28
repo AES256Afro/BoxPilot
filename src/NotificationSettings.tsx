@@ -149,7 +149,7 @@ export default function NotificationSettings({ csrfToken }: { csrfToken: string 
   return (
     <section className="panel settings-panel notification-panel">
       <header className="panel-header">
-        <div><strong>Notifications</strong><span>Where alerts and the weekly report go. ntfy and Gotify are both in the app catalog.</span></div>
+        <div><strong>Notifications</strong><span>Where alerts and the weekly report go{current?.configured ? "" : ". ntfy and Gotify are both in the app catalog"}</span></div>
         <span className={`status-pill ${current?.configured ? "status-good" : "status-neutral"}`}>{current?.configured ? `${current.kind} configured` : "Off"}</span>
       </header>
       <p className="muted">You get a push for a failed job, a new BoxPilot release, a sign-in from a new address, and a short report once a week. BoxPilot also watches your server for the conditions below and notifies you when one turns bad — and again when it clears — checking every 15 minutes. A scheduled task or automation that keeps failing is one push until it works again. Anything that could not be sent is listed on the Overview.</p>
