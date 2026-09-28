@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { onWindows } from "../test/platform.mjs";
 import { createRuntimeDiagnostics, cgroupDirectory, parsePressure } from "./runtime-diagnostics.mjs";
 
 describe("low-cost process diagnostics", () => {
@@ -25,7 +26,8 @@ describe("low-cost process diagnostics", () => {
     expect(second.eventLoopBusyPercent).toBe(10);
     expect(second.pressure.memory).toBeNull();
   });
-  it("supports unavailable cgroups without inventing zero counters", async () => {
+  // Linux only: expects POSIX paths.
+  it.skipIf(onWindows)("supports unavailable cgroups without inventing zero counters", async () => {
     const diagnostics = createRuntimeDiagnostics({ readText: async () => { throw new Error("not Linux"); } });
     expect((await diagnostics.inspect()).cgroup).toMatchObject({ available: false, currentBytes: null, fileCacheBytes: null });
     expect(cgroupDirectory("0::/../../outside")).toBeNull();

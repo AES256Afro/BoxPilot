@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { onWindows } from "../test/platform.mjs";
 import { createControllerBackupHelper, controllerBackupHelperInternals } from "./controller-backup-helper.mjs";
 import { createStateStore } from "./state.mjs";
 
@@ -29,7 +30,8 @@ afterEach(async () => {
 });
 
 describe("controller database backup helper", () => {
-  it("captures committed WAL state and passes an isolated copy-open restore drill", async () => {
+  // Linux only: fsyncs a read-only handle, which Windows refuses; POSIX file modes.
+  it.skipIf(onWindows)("captures committed WAL state and passes an isolated copy-open restore drill", async () => {
     const { store, helper, restoreDrillRoot } = await fixture();
     expect((await stat(`${store.databasePath}-wal`)).size).toBeGreaterThan(0);
     await expect(helper.inspect()).resolves.toMatchObject({
@@ -90,7 +92,8 @@ describe("controller database backup helper", () => {
     store.close();
   });
 
-  it("rejects a symlink source and an incomplete database without creating an artifact", async () => {
+  // Linux only: creates file symlinks, which need a privilege on Windows.
+  it.skipIf(onWindows)("rejects a symlink source and an incomplete database without creating an artifact", async () => {
     const { directory, store, backupRoot, restoreDrillRoot } = await fixture();
     store.close();
     const linkedSource = path.join(directory, "linked.sqlite3");
@@ -139,7 +142,8 @@ describe("local copies on the database's own disk", () => {
     expect(removed).toMatchObject({ complete: true, failures: [], failureCount: 0 });
   });
 
-  it("preserves the new verified backup and reports failed deletion without claiming it was removed", async () => {
+  // Linux only: fsyncs a read-only handle, which Windows refuses.
+  it.skipIf(onWindows)("preserves the new verified backup and reports failed deletion without claiming it was removed", async () => {
     const removeLocal = vi.fn().mockRejectedValue(Object.assign(new Error("private filesystem detail"), { code: "EACCES" }));
     const { store, helper, backupRoot } = await fixture({ keepLocal: 1, removeLocal });
     const oldId = "22222222-2222-4222-8222-222222222222";
@@ -157,7 +161,8 @@ describe("local copies on the database's own disk", () => {
     } finally { store.close(); }
   });
 
-  it("records successful retention as a mutation and keeps the newly verified copy", async () => {
+  // Linux only: fsyncs a read-only handle, which Windows refuses.
+  it.skipIf(onWindows)("records successful retention as a mutation and keeps the newly verified copy", async () => {
     const { store, helper, backupRoot } = await fixture({ keepLocal: 1 });
     const oldId = "22222222-2222-4222-8222-222222222222";
     await mkdir(path.join(backupRoot, oldId));

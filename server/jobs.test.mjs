@@ -107,6 +107,7 @@ describe("durable job executor", () => {
     const orphan = await jobs.createOperationJob("share.mount", { kind: "smb", host: "nas", share: "Public", name: "nas2", username: "jamie", password: "x" }, owner.id);
     const { jobs: freshService } = { jobs: (await import("./jobs.mjs")).createJobService(store, helper) };
     await expect(freshService.approveAndRun(orphan.id, owner.id, { password: "correct horse battery" })).rejects.toThrow("no longer available");
+    store.close();
   });
 
   it("keeps raw Compose credentials out of persisted jobs while delivering the approved edit", async () => {
@@ -372,12 +373,14 @@ describe("an app's own secrets, typed into the install form", () => {
     await jobs.approveAndRun(job.id, owner.id, { password: "correct horse battery" });
     const install = seen.find((call) => call.operation === "app.install");
     expect(install.parameters.values.env.TUNNEL_TOKEN).toBe("eyJ-very-secret");   // the helper gets the real one
+    store.close();
   });
 
   it("leaves an app with no secret env alone", async () => {
     const { store, owner, jobs } = await withManifestSecret();
     const job = await jobs.createOperationJob("app.install", { id: "jellyfin", values: { env: { TZ: "UTC" } } }, owner.id);
     expect(store.getJob(job.id).parameters.values.env).toEqual({ TZ: "UTC" });
+    store.close();
   });
 
   it("refuses to install with the placeholder when the staged copy is gone", async () => {
@@ -387,6 +390,7 @@ describe("an app's own secrets, typed into the install form", () => {
     const job = await jobs.createOperationJob("app.install", { id: "cloudflared", values: { env: { TUNNEL_TOKEN: "eyJ-very-secret" } } }, owner.id);
     const fresh = createJobService(store, { request: async () => ({}) }, { secretEnvNamesFor: async () => ["TUNNEL_TOKEN"] });
     await expect(fresh.approveAndRun(job.id, owner.id, { password: "correct horse battery" })).rejects.toThrow("no longer available");
+    store.close();
   });
 });
 
@@ -406,5 +410,6 @@ describe("staged secrets whose job is finished with them", () => {
     expect(jobs.pruneStagedSecrets()).toBe(0);
     await jobs.approveAndRun(waiting.id, owner.id, { password: "correct horse battery" });
     expect(seen.find((call) => call.operation === "share.mount")?.parameters.password).toBe("hunter2 hunter2");
+    store.close();
   });
 });

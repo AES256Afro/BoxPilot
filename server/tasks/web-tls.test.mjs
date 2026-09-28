@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { onWindows } from "../../test/platform.mjs";
 import { mkdtemp, readFile, writeFile, mkdir, chmod, rm, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -103,7 +104,8 @@ describe("provisioning against a mocked host", () => {
 // A genuine end-to-end run: real OpenSSL builds a real CA and leaf in a temp dir, and we prove the
 // leaf verifies against the CA and carries the SANs. Guards against argument mistakes a mock hides.
 describe("provisioning end to end with real openssl", () => {
-  it("produces a leaf that verifies against the CA and covers the names", async () => {
+  // Linux only: needs openssl on the fixed Linux PATH.
+  it.skipIf(onWindows)("produces a leaf that verifies against the CA and covers the names", async () => {
     const dir = await mkdtemp(path.join(tmpdir(), "boxpilot-tls-"));
     const envPath = path.join(dir, "boxpilot.env");
     await writeFile(envPath, "BOXPILOT_HOST=0.0.0.0\n");

@@ -2,6 +2,7 @@ import path from "node:path";
 import { chmod, lstat, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it } from "vitest";
+import { onWindows } from "../test/platform.mjs";
 import { normalizeWebDistPermissions } from "./boxpilot-web-dist-permissions.mjs";
 
 const temporaryRoots = [];
@@ -23,7 +24,8 @@ async function fixture() {
   return { parent, root, assets };
 }
 
-describe("web distribution permission normalization", () => {
+// Linux only: POSIX file modes and symlinks.
+describe.skipIf(onWindows)("web distribution permission normalization", () => {
   it("makes only generated directories traversable and generated files readable", async () => {
     const { root, assets } = await fixture();
     const result = await normalizeWebDistPermissions(root);

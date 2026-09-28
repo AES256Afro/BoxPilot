@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { onWindows } from "../test/platform.mjs";
 import { inspectControllerFiles, addControllerConnectivity } from "./controller-doctor.mjs";
 const paths = { install: "/install", state: "/state", socket: "/socket", logs: "/logs" };
 function fixture() {
@@ -10,7 +11,8 @@ function fixture() {
   };
 }
 describe("independent controller health", () => {
-  it("checks fixed metadata without reading credentials or database contents", async () => {
+  // Linux only: expects POSIX paths.
+  it.skipIf(onWindows)("checks fixed metadata without reading credentials or database contents", async () => {
     const options = fixture(); options.read = vi.fn(options.read);
     const report = await inspectControllerFiles(options);
     expect(report.status).toBe("ready");
@@ -28,14 +30,16 @@ describe("independent controller health", () => {
     expect(report.checks.filter((item) => item.status === "fail").map((item) => item.id)).toEqual(expect.arrayContaining(["web-service", "state-directory", "asset:dist/index.html", "free-space", "free-inodes"]));
     expect(report.status).toBe("needs-attention");
   });
-  it("does not call unreadable protected metadata a permission defect", async () => {
+  // Linux only: expects POSIX paths.
+  it.skipIf(onWindows)("does not call unreadable protected metadata a permission defect", async () => {
     const options = fixture(); const inspect = options.inspect;
     options.inspect = async (file) => { if (file === "/socket") throw Object.assign(new Error(), { code: "EACCES" }); return inspect(file); };
     const report = await inspectControllerFiles(options);
     expect(report.checks.find((item) => item.id === "helper-socket").status).toBe("unknown");
     expect(report.status).toBe("incomplete");
   });
-  it("keeps doctor evidence when Express is down and detects mixed versions", async () => {
+  // Linux only: expects POSIX paths.
+  it.skipIf(onWindows)("keeps doctor evidence when Express is down and detects mixed versions", async () => {
     const base = await inspectControllerFiles(fixture());
     const mixed = addControllerConnectivity(base, { web: { product: "BoxPilot", status: "ok", version: "1.2.3" }, helper: { version: "1.2.2" } });
     expect(mixed.status).toBe("needs-attention");

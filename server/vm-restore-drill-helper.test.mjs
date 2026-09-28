@@ -3,6 +3,7 @@ import { access, mkdir, mkdtemp, readFile, rm, stat, symlink, utimes, writeFile 
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { onWindows } from "../test/platform.mjs";
 import { createVmRestoreDrillHelper, restoreDrillDomainName, validateVmRestoreDrillInput } from "./vm-restore-drill-helper.mjs";
 
 const directories = [];
@@ -113,7 +114,8 @@ describe("isolated VM restore drill helper", () => {
     await expect(helper.inspect(input)).resolves.toMatchObject({ ready: true, drillDomain: restoreDrillDomainName(drillId), network: "none", transient: true, memoryMiB: 2048, vcpus: 2, blockers: [] });
   });
 
-  it("blocks reused workspaces and unsafe generated NVRAM paths", async () => {
+  // Linux only: creates file symlinks, which need a privilege on Windows.
+  it.skipIf(onWindows)("blocks reused workspaces and unsafe generated NVRAM paths", async () => {
     const workspaceFixture = await fixture();
     await mkdir(path.join(workspaceFixture.restoreRoot, drillId), { recursive: true });
     await expect(workspaceFixture.helper.inspect(workspaceFixture.input)).resolves.toMatchObject({ ready: false, blockers: expect.arrayContaining(["The generated restore drill workspace already exists"]) });
@@ -123,7 +125,8 @@ describe("isolated VM restore drill helper", () => {
     await expect(nvramFixture.helper.inspect(nvramFixture.input)).resolves.toMatchObject({ ready: false, blockers: expect.arrayContaining(["Libvirt NVRAM inspection is unavailable"]) });
   });
 
-  it("restores, verifies, boots, health-checks, and cleans up an isolated guest", async () => {
+  // Linux only: expects POSIX paths.
+  it.skipIf(onWindows)("restores, verifies, boots, health-checks, and cleans up an isolated guest", async () => {
     const { helper, input, run, restoreRoot } = await fixture();
     await expect(helper.runDrill(input)).resolves.toMatchObject({
       passed: true, drillId, backupId, snapshotId, network: "none", transient: true, persistentDomainCreated: false,
@@ -138,7 +141,8 @@ describe("isolated VM restore drill helper", () => {
     await expect(access(path.join(restoreRoot, drillId))).rejects.toThrow();
   });
 
-  it("fails closed, removes the transient domain, and preserves restored files when guest health never appears", async () => {
+  // Linux only: expects POSIX paths.
+  it.skipIf(onWindows)("fails closed, removes the transient domain, and preserves restored files when guest health never appears", async () => {
     const { helper, input, run, restoreRoot, nvramRoot } = await fixture({ guestAgent: false, uefi: true });
     await expect(helper.runDrill(input)).rejects.toThrow("guest-agent health signal");
     expect(run.mock.calls.some(([binary, args]) => binary === "/usr/bin/virsh" && args.includes("destroy"))).toBe(true);

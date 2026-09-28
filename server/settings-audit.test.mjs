@@ -52,7 +52,7 @@ describe("recorded settings", () => {
   it("include the ones this week's incidents were about, read by a route the pages fetch", () => {
     for (const key of ["healthAlertsState", "appDataUsageLastRun", "killSwitchDrills", "appBackupVerifications"]) {
       expect(written.has(key), `${key} is no longer written`).toBe(true);
-      const routeReads = files.some(([file, text]) => file.startsWith("server/routes/") && new RegExp(`getSetting\\??\\.?\\(\\s*"${key}"`).test(text));
+      const routeReads = files.some(([file, text]) => file.startsWith(path.join("server", "routes") + path.sep) && new RegExp(`getSetting\\??\\.?\\(\\s*"${key}"`).test(text));
       expect(routeReads, `${key} is not read by any route`).toBe(true);
     }
   });

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { onWindows } from "../test/platform.mjs";
 import { createControllerRetentionHelper, validateControllerRetentionInput } from "./controller-retention-helper.mjs";
 
 const destination = { ready: true, repositoryId: "a".repeat(64), destinationRevision: "b".repeat(64), blockers: [] };
@@ -28,7 +29,8 @@ describe("controller retention helper", () => {
     expect(() => createControllerRetentionHelper({ mountRoot: "/", inspectDestination: async () => destination })).toThrow("dedicated path");
   });
 
-  it("inspects only the fixed controller-tagged snapshot inventory", async () => {
+  // Linux only: the backup mount must resolve below /mnt.
+  it.skipIf(onWindows)("inspects only the fixed controller-tagged snapshot inventory", async () => {
     const run = vi.fn(async (_binary, args) => {
       expect(args).toContain("--tag");
       expect(args).toContain("boxpilot-controller");
@@ -40,7 +42,8 @@ describe("controller retention helper", () => {
     expect(result.snapshotSetRevision).toMatch(/^[a-f0-9]{64}$/);
   });
 
-  it("forgets exact reviewed ids, skips prune, reads all data, and proves every kept snapshot remains", async () => {
+  // Linux only: the backup mount must resolve below /mnt.
+  it.skipIf(onWindows)("forgets exact reviewed ids, skips prune, reads all data, and proves every kept snapshot remains", async () => {
     let inspection = 0;
     const run = vi.fn(async (_binary, args) => {
       if (args.includes("snapshots")) {
@@ -61,12 +64,14 @@ describe("controller retention helper", () => {
     expect(calls.some((args) => args.includes("prune"))).toBe(false);
   });
 
-  it("refuses execution when the snapshot set changed after approval", async () => {
+  // Linux only: the backup mount must resolve below /mnt.
+  it.skipIf(onWindows)("refuses execution when the snapshot set changed after approval", async () => {
     const helper = createControllerRetentionHelper({ inspectDestination: async () => destination, run: async () => ({ stdout: JSON.stringify(snapshots), stderr: "" }) });
     await expect(helper.apply(input())).rejects.toThrow("changed after approval");
   });
 
-  it("refuses to call a run complete when it could not read what was removed", async () => {
+  // Linux only: the backup mount must resolve below /mnt.
+  it.skipIf(onWindows)("refuses to call a run complete when it could not read what was removed", async () => {
     let snapshotCall = 0;
     const run = vi.fn(async (_binary, args) => {
       if (args.includes("snapshots")) {
@@ -85,7 +90,8 @@ describe("controller retention helper", () => {
     await expect(helper.apply(input({ expectedSnapshotSetRevision: preview.snapshotSetRevision }))).rejects.toThrow(/could not confirm/i);
   });
 
-  it("does not infer removal from an unavailable post-inspection after forget fails", async () => {
+  // Linux only: the backup mount must resolve below /mnt.
+  it.skipIf(onWindows)("does not infer removal from an unavailable post-inspection after forget fails", async () => {
     let destinationCall = 0;
     const inspectDestination = vi.fn(async () => {
       destinationCall += 1;

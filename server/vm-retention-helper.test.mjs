@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { onWindows } from "../test/platform.mjs";
 import { createVmRetentionHelper, validateVmRetentionInput } from "./vm-retention-helper.mjs";
 
 const destination = { ready: true, repositoryId: "a".repeat(64), destinationRevision: "b".repeat(64), blockers: [] };
@@ -28,7 +29,8 @@ describe("VM retention helper", () => {
     expect(() => createVmRetentionHelper({ mountRoot: "/", inspectDestination: async () => destination })).toThrow("dedicated path");
   });
 
-  it("inspects only the fixed tagged snapshot inventory", async () => {
+  // Linux only: the backup mount must resolve below /mnt.
+  it.skipIf(onWindows)("inspects only the fixed tagged snapshot inventory", async () => {
     const run = vi.fn(async (_binary, args) => {
       expect(args).toContain("--tag");
       expect(args).toContain("boxpilot-vm");
@@ -47,7 +49,8 @@ describe("VM retention helper", () => {
     expect(result.snapshotSetRevision).toMatch(/^[a-f0-9]{64}$/);
   });
 
-  it("forgets exact reviewed ids, skips prune, reads repository data, and proves every kept snapshot remains", async () => {
+  // Linux only: the backup mount must resolve below /mnt.
+  it.skipIf(onWindows)("forgets exact reviewed ids, skips prune, reads repository data, and proves every kept snapshot remains", async () => {
     let inspection = 0;
     const run = vi.fn(async (_binary, args) => {
       if (args.includes("snapshots")) {
@@ -68,7 +71,8 @@ describe("VM retention helper", () => {
     expect(calls.some((args) => args.includes("prune"))).toBe(false);
   });
 
-  it("refuses execution if the snapshot set changed after approval", async () => {
+  // Linux only: the backup mount must resolve below /mnt.
+  it.skipIf(onWindows)("refuses execution if the snapshot set changed after approval", async () => {
     const helper = createVmRetentionHelper({
       inspectDestination: async () => destination,
       run: async () => ({ stdout: JSON.stringify(snapshots), stderr: "" }),
@@ -76,7 +80,8 @@ describe("VM retention helper", () => {
     await expect(helper.apply(input())).rejects.toThrow("changed after approval");
   });
 
-  it("returns durable mutation evidence when forget succeeds but repository verification fails", async () => {
+  // Linux only: the backup mount must resolve below /mnt.
+  it.skipIf(onWindows)("returns durable mutation evidence when forget succeeds but repository verification fails", async () => {
     let inspection = 0;
     const run = vi.fn(async (_binary, args) => {
       if (args.includes("snapshots")) {
@@ -99,7 +104,8 @@ describe("VM retention helper", () => {
     });
   });
 
-  it("does not count candidates as forgotten when the repository is unavailable afterwards", async () => {
+  // Linux only: the backup mount must resolve below /mnt.
+  it.skipIf(onWindows)("does not count candidates as forgotten when the repository is unavailable afterwards", async () => {
     // An unmounted drive inspects as { ready: false, snapshots: [] } rather than throwing, which
     // reads exactly like "every candidate is gone".
     let destinationChecks = 0;
@@ -110,7 +116,8 @@ describe("VM retention helper", () => {
     await expect(helper.apply(input({ expectedSnapshotSetRevision: preview.snapshotSetRevision }))).rejects.toThrow(/before any reviewed snapshot removal was confirmed/);
   });
 
-  it("does not count candidates as forgotten when a different repository answers afterwards", async () => {
+  // Linux only: the backup mount must resolve below /mnt.
+  it.skipIf(onWindows)("does not count candidates as forgotten when a different repository answers afterwards", async () => {
     let destinationChecks = 0;
     const inspectDestination = async () => (++destinationChecks <= 2 ? destination : { ...destination, destinationRevision: "9".repeat(64) });
     let inspection = 0;
@@ -124,7 +131,8 @@ describe("VM retention helper", () => {
   });
 });
 
-describe("forgetting a snapshot with no local record", () => {
+// Linux only: the backup mount must resolve below /mnt.
+describe.skipIf(onWindows)("forgetting a snapshot with no local record", () => {
   const orphan = "f".repeat(64);
   const recorded = "a".repeat(64);
   const revision = "b".repeat(64);

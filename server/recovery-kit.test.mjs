@@ -126,14 +126,16 @@ describe("when the backup folder cannot be read", () => {
   it("says so, instead of reporting that no application has a backup", async () => {
     // Zero backups is an alarm the owner should act on; not knowing is not, and the two used to
     // look identical because a failed directory read returned an empty count map.
-    const { owner, service } = await setup({ backups: [] });
+    const { owner, service, store } = await setup({ backups: [] });
     void owner;
     const kit = await service.inspect();
     const check = kit.checks.find((item) => item.id === "applications.backup");
     expect(check.state).toBe("action-required"); // the readable-but-empty case still warns
+    store.close();
 
     const unreadable = await setup({ backups: [], countsAvailable: false });
     const blindKit = await unreadable.service.inspect();
     expect(blindKit.checks.find((item) => item.id === "applications.backup").state).toBe("unavailable");
+    unreadable.store.close();
   });
 });

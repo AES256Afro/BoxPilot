@@ -13,8 +13,9 @@ it("measures regular files without following linked data or cycles", async () =>
   await mkdir(path.join(root, "child"));
   await writeFile(path.join(root, "child", "kept"), "12345");
   await writeFile(path.join(outside, "excluded"), "x".repeat(1024));
-  await symlink(outside, path.join(root, "external"));
-  await symlink(root, path.join(root, "child", "cycle"));
+  // Directory links as junctions on Windows, which need no privilege; the type is ignored elsewhere.
+  await symlink(outside, path.join(root, "external"), "junction");
+  await symlink(root, path.join(root, "child", "cycle"), "junction");
   expect(await measureTreeBytes(root)).toBe(5);
 });
 
@@ -33,7 +34,7 @@ it("distinguishes absent roots from an invalid or linked inventory root", async 
   expect(await listTreeEntries(path.join(root, "absent"))).toEqual([]);
   await writeFile(path.join(root, "file"), "x");
   await expect(listTreeEntries(path.join(root, "file"))).rejects.toThrow(/real directory/);
-  await symlink(root, path.join(root, "link"));
+  await symlink(root, path.join(root, "link"), "junction");
   await expect(listTreeEntries(path.join(root, "link"))).rejects.toThrow(/real directory/);
 });
 
