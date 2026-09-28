@@ -1,6 +1,8 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ShellDock, dockAreas } from "./ShellNav";
+
+afterEach(() => cleanup());
 
 describe("the dock", () => {
   it("names every area under its icon, and says which stay on a narrow screen", () => {
