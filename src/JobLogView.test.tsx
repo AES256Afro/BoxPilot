@@ -49,6 +49,15 @@ describe("the job log, viewable from wherever the action lives", () => {
     expect(screen.queryByText("not a display string")).toBeNull();
   });
 
+  it("says the output could not be opened instead of claiming the job printed nothing (M30.1)", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => json({ output: "" })));
+    const detail = "BoxPilot could not open this job's output: permission denied (the log folder is mode 700). The job itself ran; its output is not shown here.";
+    render(<JobLogView job={job({ steps: [{ name: "log", state: "failed", detail, createdAt: "2026-08-27T03:01:00.000Z" }] })} />);
+    expect(await screen.findByText(/BoxPilot could not open this job's output, so none is shown/)).toBeTruthy();
+    expect(screen.getByText(/the log folder is mode 700/)).toBeTruthy();
+    expect(screen.queryByText("This job recorded no output.")).toBeNull();
+  });
+
   it("given only an id, fetches the job and shows its recorded output and steps", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = input.toString();

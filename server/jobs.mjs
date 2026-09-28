@@ -19,6 +19,23 @@ function timeoutStep(timeout) {
   return `${timeout.step ?? "One step"} ran out of its ${formatDuration(timeout.budgetMs)}; the job had run for ${formatDuration(timeout.elapsedMs)}`;
 }
 
+/**
+ * The health-alert condition for a job log BoxPilot could not open (M30.1). One for the server,
+ * whichever job hit it: the helper writes every log the same way, so one it cannot read is rarely
+ * alone, and the owner needs one push, not one per job.
+ */
+export const jobLogAlertKey = "joblog.unreadable";
+/** A job whose log was written but could not be read; it carries a failed "log" step. */
+export const logUnreadable = (job) => (job?.steps ?? []).some((step) => step.name === "log" && step.state === "failed");
+
+/** What stood in the way, as the end of a sentence: "permission denied (the log folder is mode 700)". */
+function unreadableReason(status) {
+  const reason = status?.code === "EACCES" || status?.code === "EPERM" ? "permission denied"
+    : status?.code === "ENOTFILE" ? "it is not a file" : `error ${status?.code ?? "unknown"}`;
+  const blocking = status?.blocking;
+  return blocking && Number.isInteger(blocking.mode) ? `${reason} (the log ${blocking.what} is mode ${blocking.mode.toString(8)})` : reason;
+}
+
 /** One condition per operation and subject: a nightly backup that cannot record is one alert, not one a night. */
 function recordAlertKey(job) {
   const subject = job.parameters?.id ?? job.parameters?.name ?? null;
@@ -161,10 +178,34 @@ export function createJobService(store, helper, {
     return { job, owner, execution, approval: { tier: policy.tier, method: approvalMethod, elevatedUntil } };
   }
 
+  /**
+   * M30.1, the M27.4 canary on every job: the helper has finished writing this job's log, so can
+   * this process open it? An open and an fstat, not a read. A log it cannot open is said on the
+   * job, where an empty log used to read as "This job recorded no output", and raised once for
+   * the server; the next log that opens clears it. A job that printed nothing has no file, which
+   * is neither: it proves nothing about the next one. A reader without `check` skips all of this.
+   */
+  async function confirmLogReadable(jobId) {
+    if (typeof jobLog.check !== "function") return true;
+    let status;
+    try { status = await jobLog.check(jobId); } catch { return true; }
+    if (status?.state === "readable") {
+      if (alerts) tell(() => alerts.clear(jobLogAlertKey));
+      return true;
+    }
+    if (status?.state !== "unreadable") return true;
+    const reason = unreadableReason(status);
+    store.addJobStep(jobId, "log", "failed", `BoxPilot could not open this job's output: ${reason}. The job itself ran; its output is not shown here.`.slice(0, 500));
+    const title = store.getJob(jobId)?.title ?? "A job";
+    if (alerts) tell(() => alerts.raise({ key: jobLogAlertKey, title: "Job output cannot be read", message: `The helper wrote the output of ${title}, but BoxPilot could not open it: ${reason}. Jobs still run; their output is missing from Activity until the helper writes a log BoxPilot can read. The Root helper check on Repair says what to fix.`, priority: "high" }));
+    return false;
+  }
+
   /** Move the live job log (written by root-side processes) into SQLite and remove the file. */
   async function persistJobOutput(jobId) {
     if (!jobLog) return;
     try {
+      if (!await confirmLogReadable(jobId)) return;
       const { text, exists } = await jobLog.read(jobId, 0);
       if (exists && typeof store.saveJobOutput === "function") {
         store.saveJobOutput(jobId, text);

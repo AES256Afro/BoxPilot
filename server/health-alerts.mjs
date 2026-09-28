@@ -43,6 +43,9 @@ function reportedConditions() {
     "schedule.failed": "A scheduled task failed or did not run",
     "flow.failed": "An automation stopped or did not run",
     "record.failed": "A job ran but its result was not saved",
+    // M30.1: one condition for the server, not one per job. The helper writes every job's log, so
+    // when BoxPilot cannot open one it is usually every one (the umask of M27.4).
+    "joblog.unreadable": "BoxPilot could not read a job's output",
   };
 }
 const reportedFamilies = new Set(Object.keys(reportedConditions()));

@@ -46,3 +46,33 @@ export async function measureTreeBytes(target, { budget = createTreeScanBudget()
   await walk(target, 0);
   return bytes;
 }
+
+/** Space a file takes on disk: allocated blocks where the platform reports them, else its length. */
+export const diskUsage = (info) => (Number.isFinite(info?.blocks) && info.blocks >= 0 ? info.blocks * 512 : info?.size ?? 0);
+
+/**
+ * Bytes on disk and inodes under a directory (M30.8), with the same budget, link and mount rules as
+ * measureTreeBytes. Every entry is an inode, links and folders included, and so is the folder
+ * itself: a full disk is as often out of inodes as out of bytes.
+ */
+export async function measureTreeUsage(target, { budget = createTreeScanBudget(), usageOf = diskUsage } = {}) {
+  const root = await lstat(target);
+  if (!root.isDirectory() || root.isSymbolicLink()) throw new Error("Folder measurement requires a real directory");
+  let bytes = 0; let inodes = 1; let files = 0;
+  async function walk(directory, depth) {
+    budget.check(depth);
+    const handle = await opendir(directory, { bufferSize: 32 });
+    for await (const entry of handle) {
+      budget.check(depth, true);
+      const full = `${directory}/${entry.name}`;
+      const info = await lstat(full).catch((error) => { if (error.code === "ENOENT") return null; throw error; });
+      if (!info || info.dev !== root.dev) continue;
+      inodes += 1;
+      if (info.isSymbolicLink()) continue;
+      if (info.isDirectory()) await walk(full, depth + 1);
+      else if (info.isFile()) { bytes += usageOf(info); files += 1; }
+    }
+  }
+  await walk(target, 0);
+  return { bytes, inodes, files };
+}
