@@ -7,8 +7,8 @@ description: "Self-hosted device enrollment, package inventory, device-scoped AP
 website: https://foragefournuts.com
 risk: low
 image:
-  reference: ghcr.io/aes256afro/protec:0.6.0
-  version: "0.6.0"
+  reference: ghcr.io/aes256afro/protec:0.7.0
+  version: "0.7.0"
 user: "10001:10001"
 ports:
   - id: web
