@@ -10,15 +10,12 @@
     <script>
       (function () {
         // Before first paint, so the page never flashes the other theme. src/useTheme.ts owns
-        // these attributes after this and reads the same keys. Until M33.1 boxpilot-theme named
-        // a dark palette; such a value is read as the palette, with the appearance left on System.
+        // the attribute after this and reads the same key; anything but light or dark there (an
+        // old palette id from before the palettes were retired) means System.
         var root = document.documentElement;
         try {
           var theme = localStorage.getItem('boxpilot-theme');
-          var palette = localStorage.getItem('boxpilot-palette');
-          if (theme && theme !== 'system' && theme !== 'light' && theme !== 'dark') { palette = palette || theme; theme = null; }
           if (theme === 'light' || theme === 'dark') root.setAttribute('data-theme', theme);
-          if (palette && palette !== 'raw' && palette !== 'default') root.setAttribute('data-palette', palette);
         } catch (error) { /* no storage: follow the device */ }
       })();
     </script>

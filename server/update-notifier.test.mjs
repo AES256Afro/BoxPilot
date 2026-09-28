@@ -9,7 +9,8 @@ function fixture({ updateAvailable = true, target = { kind: "ntfy" }, notifiedTa
   const releaseUpdates = { inspect: vi.fn(async () => release) };
   let current = target;
   const notifications = { getTarget: () => current, send };
-  const now = () => new Date("2026-08-21T15:00:00.000Z");
+  let clock = new Date("2026-08-21T15:00:00.000Z");
+  const now = () => clock;
   // The real ledger over the same settings, so what is kept is what the Overview would count.
   const alerts = createHealthAlerts({ inventory: { inspect: async () => ({}) }, notifications, store, now });
   return {
@@ -17,6 +18,7 @@ function fixture({ updateAvailable = true, target = { kind: "ntfy" }, notifiedTa
     ledger: () => settings.get("healthAlertsState") ?? {},
     setTarget: (value) => { current = value; },
     setRelease: (value) => { release = { ...release, ...value }; },
+    setClock: (value) => { clock = new Date(value); },
     notifier: createUpdateNotifier({ releaseUpdates, notifications, alerts, store, now }),
   };
 }
@@ -71,6 +73,24 @@ describe("update notifier", () => {
     expect(Object.keys(ledger())).toEqual(["release.available"]);
     setRelease({ error: null });
     await expect(notifier.check()).resolves.toMatchObject({ reason: "up-to-date" });
+    expect(ledger()).toEqual({});
+  });
+
+  it("still tells a newer release that replaced one kept for a month, once a target answers", async () => {
+    // v0.62.7 is kept with nowhere to send it; three weeks later v0.62.9 replaces it. The ledger's
+    // month is counted from v0.62.9, not from v0.62.7: dropping it as old news would lose the newer
+    // release for good, since the notifier remembers it as told and never adds it again.
+    const { notifier, send, ledger, alerts, setTarget, setRelease, setClock } = fixture({ target: null });
+    await expect(notifier.check()).resolves.toMatchObject({ reason: "not-announced", latest: "v0.62.7" });
+    setClock("2026-09-11T15:00:00.000Z");
+    setRelease({ latest: { tag: "v0.62.9", version: "0.62.9" } });
+    await expect(notifier.check()).resolves.toMatchObject({ reason: "not-announced", latest: "v0.62.9" });
+    setClock("2026-09-21T15:00:00.000Z"); // 31 days after v0.62.7 was kept, 10 after v0.62.9
+    await alerts.check();
+    await expect(notifier.check()).resolves.toMatchObject({ reason: "already-notified" });
+    setTarget({ kind: "ntfy" });
+    expect((await alerts.check()).sent).toEqual(["release.available"]);
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({ title: "BoxPilot: Version 0.62.9 is available" }));
     expect(ledger()).toEqual({});
   });
 

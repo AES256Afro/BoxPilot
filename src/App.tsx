@@ -334,7 +334,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
 }
 
 function App() {
-  useTheme(); // keeps data-theme and data-palette true to this browser's choice
+  useTheme(); // keeps data-theme true to this browser's choice
   const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null);
   const [authError, setAuthError] = useState<string | null>(null);
 
