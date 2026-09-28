@@ -233,9 +233,9 @@ describe("Repair Center", () => {
     let staged: string | undefined;
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = input.toString();
-      if (url === "/api/v1/operations/prerequisites") return json({ checks: [{ id: "storage.smartmontools", group: "Storage", name: "SMART monitoring tools", status: "repairable", summary: "Configured APT metadata offers smartmontools 7.5-2", repair: { kind: "approved", description: "Review the exact repair" } }] });
-      if (url.endsWith("/operations/prerequisite.smartmontools.inspect/inspect")) return json({ operation: "prerequisite.smartmontools.inspect", result: { package: "smartmontools", installed: false, selectedVersion: "7.5-2", candidateVersion: "7.5-2" } });
-      if (url.endsWith("/operations/prerequisite.smartmontools.install/jobs")) { staged = init?.body as string; return json({ job: { id: "job-s", type: "op:prerequisite.smartmontools.install", title: "Install smartmontools", state: "awaiting_approval", risk: "medium", error: null, result: null, steps: [], approvals: [] }, approval: { tier: "medium", passwordRequired: false, elevated: false, mode: "tiered", reason: "medium risk" } }, 201); }
+      if (url === "/api/v1/operations/prerequisites") return json({ checks: [{ id: "storage.drive-tools", group: "Storage", name: "Drive check tools", status: "repairable", summary: "exfatprogs is not installed; Ubuntu's package lists offer exfatprogs 1.2.2-1", repair: { kind: "approved", description: "Review the exact versions" } }] });
+      if (url.endsWith("/operations/prerequisite.drive-tools.inspect/inspect")) return json({ operation: "prerequisite.drive-tools.inspect", result: { installed: false, missing: ["exfatprogs"], candidatePackages: { exfatprogs: "1.2.2-1" }, repairAvailable: true } });
+      if (url.endsWith("/operations/prerequisite.drive-tools.install/jobs")) { staged = init?.body as string; return json({ job: { id: "job-s", type: "op:prerequisite.drive-tools.install", title: "Install the drive check tools", state: "awaiting_approval", risk: "medium", error: null, result: null, steps: [], approvals: [] }, approval: { tier: "medium", passwordRequired: false, elevated: false, mode: "tiered", reason: "medium risk" } }, 201); }
       if (url.includes("action-center") || url.includes("recovery-kit")) return json({ error: "unavailable" }, 503);
       return json({ jobs: [] });
     });
@@ -243,9 +243,10 @@ describe("Repair Center", () => {
     render(<RepairCenter csrfToken="csrf-token" />);
 
     fireEvent.click(await screen.findByRole("button", { name: "Review exact repair" }));
-    expect(await screen.findByText("Install smartmontools 7.5-2")).toBeTruthy();
+    expect(await screen.findByText("Install the drive check tools")).toBeTruthy();
     expect(await screen.findByText("Medium risk")).toBeTruthy();
-    await waitFor(() => expect(JSON.parse(staged ?? "{}")).toEqual({ parameters: { expectedVersion: "7.5-2" } }));
+    expect(screen.getByText("exfatprogs 1.2.2-1")).toBeTruthy();
+    await waitFor(() => expect(JSON.parse(staged ?? "{}")).toEqual({ parameters: { expectedPackages: { exfatprogs: "1.2.2-1" } } }));
   });
 
   it("pins the exact five-package set when staging the virtualization install", async () => {
