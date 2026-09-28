@@ -9,7 +9,7 @@
  * nothing attempts an automatic unwind — a half-done flow the owner can read beats a rollback
  * that guesses.
  */
-import { secretFields } from "./ops/registry.mjs";
+import { maskSecrets, secretPaths } from "./ops/registry.mjs";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { registry as defaultRegistry, validateParameters } from "./ops/index.mjs";
 import { computeNextRun, validateCadence } from "./scheduler.mjs";
@@ -49,12 +49,7 @@ export function validateFlow({ name, steps } = {}, registry = defaultRegistry) {
     if (operation.risk === "high") return `${label}: ${operation.title} is high risk and cannot be part of a flow (ADR-002)`;
     const parameters = step.parameters ?? {};
     if (typeof parameters !== "object" || Array.isArray(parameters)) return `${label}: parameters must be an object`;
-    // A flow is stored, so a credential written into a step would sit in the database, in every
-    // controller backup and machine snapshot, and come back out of GET /flows - which a viewer can
-    // read. The scheduler has refused this since it existed; flows never did, and the palette that
-    // hides secret fields from the form is a hint the API does not enforce.
-    const secrets = secretFields(operation.parameters).filter((name) => parameters[name] !== undefined && parameters[name] !== null && parameters[name] !== "");
-    if (secrets.length) return `${label}: ${operation.title} needs a password or key each time, so it cannot be part of a flow`;
+    // Secrets are checked by flowSecretProblem below, which can ask the catalog about an app's own.
     if (step.name !== undefined && step.name !== null) {
       if (typeof step.name !== "string" || !stepNamePattern.test(step.name)) return `${label}: a step name is lowercase letters, digits and dashes, 24 characters at most`;
       if (namesSoFar.has(step.name)) return `${label}: another step is already named ${step.name}`;
@@ -90,6 +85,23 @@ export function validateFlow({ name, steps } = {}, registry = defaultRegistry) {
       const problem = validateParameters(relaxed, checkable, operation.title);
       if (problem) return `${label}: ${problem}`;
     }
+  }
+  return null;
+}
+
+/**
+ * Why these steps cannot be stored because one carries a secret, or null. A flow is stored, so a
+ * credential written into a step would sit in the database, in every controller backup and
+ * machine snapshot, and come back out of GET /flows - which a viewer can read. The palette that
+ * hides secret fields from the form is a hint the API does not enforce; this is the check, for a
+ * top-level password and an app's token in values.env alike (M29.1). It runs wherever validateFlow
+ * does - create, edit, every run, and the shipped library - but it needs the catalog, so it waits.
+ */
+export async function flowSecretProblem(steps, { registry = defaultRegistry, secretEnvNamesFor = null } = {}) {
+  for (const [index, step] of (Array.isArray(steps) ? steps : []).entries()) {
+    const operation = registry.get?.(step?.operationId);
+    if (!operation) continue;
+    if ((await secretPaths(operation, step.parameters ?? {}, { secretEnvNamesFor })).length) return `step ${index + 1}: ${operation.title} needs a password or key each time, so it cannot be part of a flow`;
   }
   return null;
 }
@@ -150,42 +162,42 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
   // The stored hash is never the browser's business; strip it from anything a route returns.
   const withoutHash = ({ webhookHash: _webhookHash, ...flow }) => flow;
 
-  /**
-   * An app password or token typed into an install form sits inside values.env, which the
-   * registry's field flags cannot see. A flow is stored, so it would sit in the database, in every
-   * backup of it, and in GET /flows. Asked of the manifest here, where it can be awaited, for
-   * creating a flow and for editing one alike.
-   */
-  async function refuseStoredAppSecrets(steps) {
-    for (const step of Array.isArray(steps) ? steps : []) {
-      if (!["app.install", "app.reconfigure"].includes(step?.operationId)) continue;
-      const env = step?.parameters?.values?.env;
-      if (!env || typeof env !== "object") continue;
-      const named = await secretEnvNamesFor(step.parameters?.id);
-      if (named.some((key) => typeof env[key] === "string" && env[key])) throw new Error(`${registry.get?.(step.operationId)?.title ?? step.operationId} needs a password or key each time, so it cannot be part of a flow`);
-    }
+  /** A flow's steps, refused if one carries a secret; `prefix` says why for a flow already saved. */
+  async function refuseStoredSecrets(steps, prefix = "") {
+    const problem = await flowSecretProblem(steps, { registry, secretEnvNamesFor });
+    if (problem) throw new Error(`${prefix}${problem}`);
   }
 
   async function create({ name, steps, createdBy, cadence = null, triggerFlowId = null }) {
-    await refuseStoredAppSecrets(steps);
     const problem = validateFlow({ name, steps }, registry);
     if (problem) throw new Error(problem);
+    await refuseStoredSecrets(steps);
     const triggerProblem = checkTrigger(triggerFlowId);
     if (triggerProblem) throw new Error(triggerProblem);
     return withoutHash(store.createFlow({ name: name.trim(), steps: normalizeSteps(steps), createdBy, triggerFlowId, ...cadenceFields(cadence) }));
   }
 
-  function list() {
-    // The hash never travels to a browser: it is not invertible, but it is also not the page's business.
-    return store.listFlows().map((flow) => ({ ...withoutHash(flow), risk: flowRisk(flow.steps, registry), running: running.has(flow.id) }));
+  /**
+   * Flows as the page sees them. The hash never travels to a browser: it is not invertible, but it
+   * is also not the page's business. Nor does a secret: a flow saved before its secret was refused
+   * still holds it, and GET /flows answers every signed-in role, so each step goes out masked.
+   */
+  async function list() {
+    const masked = async (step) => {
+      const operation = registry.get?.(step?.operationId);
+      if (!operation || !step.parameters || typeof step.parameters !== "object") return step;
+      return { ...step, parameters: maskSecrets(step.parameters, await secretPaths(operation, step.parameters, { secretEnvNamesFor })) };
+    };
+    return Promise.all(store.listFlows().map(async (flow) => ({ ...withoutHash(flow), steps: await Promise.all((flow.steps ?? []).map(masked)), risk: flowRisk(flow.steps, registry), running: running.has(flow.id) })));
   }
 
   async function update(id, { name, steps, cadence, enabled, triggerFlowId }, actorId, { role = "owner" } = {}) {
     const flow = store.getFlow(id);
     assertMayManage(flow, actorId, role);
-    if (steps) await refuseStoredAppSecrets(steps);
     const problem = validateFlow({ name: name ?? flow.name, steps: steps ?? flow.steps }, registry);
     if (problem) throw new Error(problem);
+    // The steps as they will be after this edit, new or kept: editing was once the way round the check.
+    await refuseStoredSecrets(steps ?? flow.steps);
     if (triggerFlowId !== undefined) {
       const triggerProblem = checkTrigger(triggerFlowId, id);
       if (triggerProblem) throw new Error(triggerProblem);
@@ -240,11 +252,14 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
    * response open for the whole flow: fine on a direct connection, but a proxy that gives up on a
    * long request - long before apt does - made the page show "the run was refused" while the flow
    * was still running. The page has treated the flow list as the truth since then; this makes the
-   * route honest about it. Every refusal still throws here, synchronously, with the same message.
-   * The run itself records its own outcome on the flow; only a failure before it can do that is
-   * reported, so nothing is lost by not being awaited.
+   * route honest about it. Every refusal still comes back from here, before the run starts, with
+   * the same message. The run itself records its own outcome on the flow; only a failure before it
+   * can do that is reported, so nothing is lost by not being awaited.
    */
-  function launch(id, actorId, { role = "owner" } = {}) {
+  async function launch(id, actorId, { role = "owner" } = {}) {
+    await refuseStoredSecrets(preflight(id, role).steps, "This flow is no longer valid: ");
+    // Checked again after waiting on the catalog, and with nothing between this and run() taking
+    // the flow: a second start in that gap must be refused to its own caller, not merely logged.
     const flow = preflight(id, role);
     run(id, actorId, { role }).catch((error) => {
       if (!recordedRunFailure.test(error.message)) report(`[boxpilot] flow ${flow.name} could not be run: ${error.message}`);
@@ -265,6 +280,10 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
     let skippedByCondition = 0;
     const namedResults = {};
     try {
+      // A flow saved before its secret was refused still carries it: it does not run, like any
+      // other flow validateFlow no longer accepts. Checked after the flow is marked running, so the
+      // wait on the catalog cannot let a second start slip past preflight.
+      await refuseStoredSecrets(flow.steps, "This flow is no longer valid: ");
       for (const [index, step] of flow.steps.entries()) {
         const operation = registry.get(step.operationId);
         const title = operation?.title ?? step.operationId;

@@ -1,5 +1,5 @@
 import { registry as defaultRegistry } from "./ops/index.mjs";
-import { secretFields } from "./ops/registry.mjs";
+import { secretPaths } from "./ops/registry.mjs";
 import { overdueScheduleIds } from "./schedule-freshness.mjs";
 
 /**
@@ -111,11 +111,9 @@ export function createSchedulerService({ store, jobs, secretEnvNamesFor = async 
     if (operation.readOnly) throw new Error("Read-only operations run on demand; they are not scheduled");
     if (operation.risk === "high") throw new Error(`${operation.title} is high risk and cannot run unattended`);
     if (operation.minimumRole === "owner" && (store.findOwnerById?.(createdBy)?.role ?? "owner") !== "owner") throw new Error(`Only the owner can schedule ${operation.title}`);
-    // A schedule is stored, so a credential given to it would sit in the database and in every backup.
-    // An app password or token nested in values.env is a secret too, and a stored one would sit in the database.
-    if (["app.install", "app.reconfigure"].includes(operationId) && (await secretEnvNamesFor(parameters?.id)).some((name) => typeof parameters?.values?.env?.[name] === "string" && parameters.values.env[name])) throw new Error(`${operation.title} needs a password or key each time, so it cannot run unattended`);
-    const secrets = secretFields(operation.parameters).filter((name) => parameters?.[name] !== undefined && parameters?.[name] !== null && parameters?.[name] !== "");
-    if (secrets.length) throw new Error(`${operation.title} needs a password or key each time, so it cannot run unattended`);
+    // A schedule is stored, so a credential given to it would sit in the database and in every
+    // backup: a top-level password, or an app's token nested in values.env alike (M29.1).
+    if ((await secretPaths(operation, parameters ?? {}, { secretEnvNamesFor })).length) throw new Error(`${operation.title} needs a password or key each time, so it cannot run unattended`);
     // A typed confirmation is a person promising they meant it; a schedule cannot make that promise.
     // Without this the job would be staged every tick and refused at approval every tick, forever.
     if (typeof operation.confirm === "function") throw new Error(`${operation.title} asks you to type a confirmation each time, so it cannot run on a schedule`);
@@ -189,8 +187,16 @@ export function createSchedulerService({ store, jobs, secretEnvNamesFor = async 
   async function runDue() {
     const due = store.listDueSchedules(now().toISOString());
     for (const schedule of due) {
-      // Schedules stored before credentials were refused still carry one: stop them rather than run them.
-      const carried = secretFields(registry.get(schedule.operationId)?.parameters ?? {}).filter((name) => schedule.parameters?.[name]);
+      // Schedules stored before credentials were refused still carry one: stop them rather than run
+      // them. That includes an app's token in values.env, which this check once looked straight past.
+      let carried;
+      try {
+        carried = await secretPaths(registry.get(schedule.operationId), schedule.parameters ?? {}, { secretEnvNamesFor });
+      } catch (error) {
+        // The catalog could not be read: skip this run rather than guess, and let the others go ahead.
+        store.markScheduleRun(schedule.id, { jobId: schedule.lastJobId ?? null, result: `error: ${error.message}`.slice(0, 200), nextDueAt: computeNextRun(schedule, now()).toISOString() });
+        continue;
+      }
       if (carried.length) {
         store.setScheduleEnabled(schedule.id, false, { actorId: schedule.createdBy, nextDueAt: null });
         store.markScheduleRun(schedule.id, { jobId: schedule.lastJobId ?? null, result: "paused: it holds a password, which schedules no longer store", nextDueAt: null });

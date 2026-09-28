@@ -5,7 +5,9 @@ import { composeVerdicts, planProbes } from "../reachability.mjs";
 export { parseServeStatus };
 
 const idField = { type: "string", pattern: /^[a-z0-9][a-z0-9-]{1,62}$/ };
-const valuesField = { type: "object", optional: true, validate: (value) => (Object.keys(value).every((key) => ["ports", "env", "volumes", "setup", "exposure", "networkMode"].includes(key)) ? null : "may only contain ports, env, volumes, setup, exposure, and networkMode") };
+// An app's install values. secretEnvOf: env entries its manifest (named by `id`) calls a password or
+// secret are secrets, which jobs stage in memory and schedules and flows refuse to store (M29.1).
+const valuesField = { type: "object", optional: true, secretEnvOf: "id", validate:(value) => (Object.keys(value).every((key) => ["ports", "env", "volumes", "setup", "exposure", "networkMode"].includes(key)) ? null : "may only contain ports, env, volumes, setup, exposure, and networkMode") };
 // Concrete device paths resolved by the web process (the helper's sandbox has no real /dev); the deployer keeps only those matching the manifest.
 const devicesField = { type: "array", optional: true, nullable: true, validate: (value) => (value.length > 32 || value.some((entry) => typeof entry !== "string" || !/^\/dev\/[A-Za-z0-9._/-]{1,64}$/.test(entry)) ? "must be up to 32 /dev paths" : null) };
 const minutes = (value) => value * 60_000;
