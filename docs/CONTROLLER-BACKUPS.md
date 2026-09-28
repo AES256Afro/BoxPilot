@@ -6,7 +6,7 @@ A local snapshot is recovery evidence, not complete disaster protection. The `0.
 
 ## What the backup contains
 
-The snapshot contains BoxPilot controller state, including owner password hashes, sessions, enrolled-agent identities, plans, approvals, jobs, audit events, migrations, router evidence, and backup records present when the snapshot is created. Treat the entire backup directory as sensitive.
+The snapshot contains BoxPilot controller state, including owner password hashes, sessions, enrolled-agent identities, plans, approvals, jobs, audit events, migrations, router evidence, and backup records present when the snapshot is created. Treat the entire backup directory as sensitive. A backup made before BoxPilot started masking stored secrets at startup may still hold a password or app token that an old job, schedule or flow kept in clear; existing copies are never rewritten, so keep them private and delete off-box ones you no longer need.
 
 The fixed locations are:
 
