@@ -2,34 +2,16 @@ import { verifyPassword } from "./security.mjs";
 import { defaultThrottle as throttle } from "./login-throttle.mjs";
 import { approvalRequirement, defaultApprovalMode, elevationTtlMs, normalizeApprovalMode } from "./ops/risk.mjs";
 import { registry } from "./ops/index.mjs";
-import { secretFields } from "./ops/registry.mjs";
+import { placeholderPaths, restoreSecrets, secretPaths, secretPlaceholder, splitSecrets } from "./ops/registry.mjs";
 
 /** What a secret parameter looks like in the database and the job API. */
-export const secretPlaceholder = "[secret]";
+export { secretPlaceholder };
 export const stagedSecretTtlMs = 30 * 60_000;
-/** Operations whose `values.env` can carry a manifest-declared secret. */
-const appValueOperations = new Set(["app.install", "app.reconfigure"]);
-
-/** Dotted paths of every secret in these parameters: top-level flagged fields plus nested app env. */
-function nestedSecretPaths(operationId, parameters, secretEnvNames) {
-  if (!appValueOperations.has(operationId)) return [];
-  const env = parameters?.values?.env;
-  if (!env || typeof env !== "object") return [];
-  return secretEnvNames.filter((name) => typeof env[name] === "string" && env[name].length).map((name) => `values.env.${name}`);
-}
-const readPath = (object, path) => path.split(".").reduce((node, key) => (node && typeof node === "object" ? node[key] : undefined), object);
-function writePath(object, path, value) {
-  const keys = path.split("."); const last = keys.pop();
-  let node = object;
-  for (const key of keys) { node[key] = { ...(node[key] ?? {}) }; node = node[key]; }
-  node[last] = value;
-}
-
 
 export function createJobService(store, helper, {
-  // Which of an app's environment values are secrets, from its manifest. The registry can only
-  // flag top-level parameter fields; an app's password or API token arrives nested inside
-  // values.env, so without this the token was written to the jobs table in clear.
+  // Which of an app's environment values are secrets, from its manifest (catalog/index.mjs
+  // secretEnvNamesLookup). An app's password or API token arrives nested inside values.env, where
+  // only the manifest can say which entry it is; secretPaths asks this for it.
   secretEnvNamesFor = async () => [],
   jobLog = null,
   operationRecordHooks = {},
@@ -96,20 +78,10 @@ export function createJobService(store, helper, {
     const approvalMethod = passwordProvided ? "password" : policy.elevated && policy.tier === "high" ? "elevated" : "confirm";
     const registeredOperation = job.type.startsWith("op:") ? registry.get(job.type.slice(3)) : null;
     if (!registeredOperation) throw new Error("Job type is not supported by this executor");
-    const parameters = { ...(job.parameters ?? {}) };
-    const secrets = stagedSecrets.get(jobId)?.values ?? {};
-    for (const name of secretFields(registeredOperation.parameters)) {
-      if (parameters[name] !== secretPlaceholder) continue;
-      if (typeof secrets[name] !== "string") throw new Error("The credentials staged with this job are no longer available (the service restarted); stage it again");
-      parameters[name] = secrets[name];
-    }
-    for (const [path, value] of Object.entries(secrets)) {
-      if (!path.startsWith("values.env.") || readPath(parameters, path) !== secretPlaceholder) continue;
-      writePath(parameters, path, value);
-    }
-    // A placeholder still present means the staged copy is gone (the service restarted): refuse
-    // rather than install the app with the literal text "[secret]" as its token.
-    if (appValueOperations.has(registeredOperation.id) && Object.values(parameters.values?.env ?? {}).includes(secretPlaceholder)) throw new Error("The secrets staged with this job are no longer available (the service restarted); stage it again");
+    const parameters = restoreSecrets(job.parameters ?? {}, stagedSecrets.get(jobId)?.values);
+    // A placeholder still present, anywhere, means the staged copy is gone (the service restarted):
+    // refuse rather than run with the literal text "[secret]" as a password or an app's token.
+    if (placeholderPaths(parameters).length) throw new Error("The credentials staged with this job are no longer available (the service restarted); stage it again");
     const parameterError = registry.validate(registeredOperation.id, parameters);
     if (parameterError) throw new Error(`Job parameters are no longer valid: ${parameterError}`);
     // An operation that restarts (or reboots) BoxPilot must not start while another job is mid-run:
@@ -226,19 +198,10 @@ export function createJobService(store, helper, {
     if (operationPrepareHooks[operationId]) parameters = await operationPrepareHooks[operationId](parameters ?? {});
     const parameterError = registry.validate(operationId, parameters ?? {});
     if (parameterError) throw new Error(parameterError);
-    const persisted = { ...(parameters ?? {}) };
-    const secrets = {};
-    for (const name of secretFields(operation.parameters)) {
-      if (typeof persisted[name] === "string" && persisted[name].length) { secrets[name] = persisted[name]; persisted[name] = secretPlaceholder; }
-    }
-    // An app's own secrets (a tunnel token, an API key typed into the install form) sit inside
-    // values.env. They are staged in memory like every other secret and the record keeps a
-    // placeholder, so the controller database - and every backup of it - never holds them.
-    for (const path of nestedSecretPaths(operationId, persisted, await secretEnvNamesFor(persisted.id))) {
-      secrets[path] = readPath(persisted, path);
-      writePath(persisted, path, secretPlaceholder);
-    }
-    const approvalExpiresAt = Object.keys(secrets).length ? new Date(now() + secretTtlMs).toISOString() : null;
+    // Every secret, top-level or an app's own inside values.env, is staged in memory and the record
+    // keeps a placeholder, so the controller database - and every backup of it - never holds one.
+    const { stored: persisted, secrets } = splitSecrets(parameters ?? {}, await secretPaths(operation, parameters ?? {}, { secretEnvNamesFor }));
+    const approvalExpiresAt = secrets.length ? new Date(now() + secretTtlMs).toISOString() : null;
     const job = store.createJob({
       type: `op:${operationId}`,
       title: operation.title,
@@ -255,7 +218,7 @@ export function createJobService(store, helper, {
         { name: "checkpoint", state: "completed", detail: `${operation.risk} risk · ${operation.readOnly ? "read-only" : "changes host state"} · runs through the root task runner` },
       ],
     });
-    if (Object.keys(secrets).length) stagedSecrets.set(job.id, { values: secrets, expiresAt: Date.parse(approvalExpiresAt) });
+    if (secrets.length) stagedSecrets.set(job.id, { values: secrets, expiresAt: Date.parse(approvalExpiresAt) });
     return job;
   }
 

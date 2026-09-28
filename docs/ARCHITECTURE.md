@@ -50,14 +50,16 @@ one carries:
 | `readOnly` | inspections; they answer immediately instead of becoming a job |
 | `minimumRole` | `owner` for anything that sends data off the box |
 | `confirm(parameters)` | text the approver must type. The disk path, the app id, the VM name |
-| `parameters` | field types, patterns, limits; `secret: true` fields never reach the database |
+| `parameters` | field types, patterns, limits; `secret: true` fields, and the manifest's password entries inside a `secretEnvOf` field (an app's `values.env`), never reach the database |
 
 A change becomes a **job**: staged with its parameters pinned, approved, then run. The job records
 its steps, its output, and an audit entry; the Activity drawer follows it live. Approval is the
 single gate, the same checks apply whether the request came from the UI, a schedule, or the API.
 
 Secrets given to a job (a share password, a cloud key) stay in memory. The database holds
-`"[secret]"` in their place, so a backup of BoxPilot's own database never carries them.
+`"[secret]"` in their place, so a backup of BoxPilot's own database never carries them. Where a
+secret can sit is answered by one function, `secretPaths` in `server/ops/registry.mjs`, from the
+parameter spec: jobs stage what it finds, and schedules and flows refuse to store it.
 
 ## Applications
 

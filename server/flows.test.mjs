@@ -621,7 +621,7 @@ describe("starting a flow without waiting for it", () => {
     const jobs = fakeJobs(store);
     const service = createFlowService({ store, jobs, pollMs: 2 });
     const flow = await service.create({ name: "long", steps: goodSteps, createdBy: "owner-1" });
-    const started = service.launch(flow.id, "owner-1", { role: "owner" });
+    const started = await service.launch(flow.id, "owner-1", { role: "owner" });
     expect(started).toEqual({ started: true, id: flow.id, name: "long" });
     expect(store.getFlow(flow.id).running ?? true).toBeTruthy(); // the run is underway, not awaited
     // Give it a moment: it records its own outcome without anyone awaiting it.
@@ -633,16 +633,27 @@ describe("starting a flow without waiting for it", () => {
     const store = fakeStore();
     const service = createFlowService({ store, jobs: fakeJobs(store), pollMs: 2 });
     const flow = await service.create({ name: "x", steps: goodSteps, createdBy: "owner-1" });
-    expect(() => service.launch("nope", "owner-1", { role: "owner" })).toThrow("Flow not found");
-    expect(() => service.launch(flow.id, "viewer-1", { role: "viewer" })).toThrow(/Viewers cannot run flows/);
+    await expect(service.launch("nope", "owner-1", { role: "owner" })).rejects.toThrow("Flow not found");
+    await expect(service.launch(flow.id, "viewer-1", { role: "viewer" })).rejects.toThrow(/Viewers cannot run flows/);
   });
 
   it("refuses a second start while the first is still running", async () => {
     const store = fakeStore();
     const service = createFlowService({ store, jobs: fakeJobs(store, { neverFinish: "job-1" }), pollMs: 2 });
     const flow = await service.create({ name: "slow", steps: goodSteps, createdBy: "owner-1" });
-    service.launch(flow.id, "owner-1", { role: "owner" });
-    expect(() => service.launch(flow.id, "owner-1", { role: "owner" })).toThrow(/already running/);
+    await service.launch(flow.id, "owner-1", { role: "owner" });
+    await expect(service.launch(flow.id, "owner-1", { role: "owner" })).rejects.toThrow(/already running/);
+  });
+
+  it("refuses the second of two starts made together, to its own caller", async () => {
+    // launch waits on the catalog before it starts the run; both starts pass the first check in
+    // that wait, and only the second look, taken with nothing between it and the run, tells them apart.
+    const store = fakeStore();
+    const service = createFlowService({ store, jobs: fakeJobs(store), pollMs: 2 });
+    const flow = await service.create({ name: "slow", steps: goodSteps, createdBy: "owner-1" });
+    const [first, second] = await Promise.allSettled([service.launch(flow.id, "owner-1", { role: "owner" }), service.launch(flow.id, "owner-1", { role: "owner" })]);
+    expect(first).toMatchObject({ status: "fulfilled", value: { started: true } });
+    expect(second).toMatchObject({ status: "rejected", reason: expect.objectContaining({ message: expect.stringMatching(/already running/) }) });
   });
 });
 
@@ -669,5 +680,91 @@ describe("editing a flow to carry an app's secret", () => {
     await expect(flows.update(flow.id, { steps: [{ operationId: "app.reconfigure", parameters: { id: "cloudflare-ddns", values: { env: { CLOUDFLARE_API_TOKEN: "cf-token" } } } }] }, "owner-1"))
       .rejects.toThrow("needs a password or key each time");
     expect(JSON.stringify(store.getFlow(flow.id))).not.toContain("cf-token");
+  });
+
+  it("is refused when the secret is typed as a number", async () => {
+    // The check asked only whether the value was a non-empty string; values.env also takes numbers,
+    // and a stored flow comes back out of GET /flows to anyone who can sign in.
+    const store = fakeStore();
+    const flows = createFlowService({ store, jobs: fakeJobs(store), pollMs: 2, secretEnvNamesFor: async () => ["ADMIN_PIN"] });
+    const steps = (pin) => [{ operationId: "app.reconfigure", parameters: { id: "pinned-app", values: { env: { ADMIN_PIN: pin } } } }];
+    await expect(flows.create({ name: "Re-pin", steps: steps(918273645546372), createdBy: "owner-1" })).rejects.toThrow("needs a password or key each time");
+    const flow = await flows.create({ name: "Re-pin", steps: steps(""), createdBy: "owner-1" });
+    await expect(flows.update(flow.id, { steps: steps(918273645546372) }, "owner-1")).rejects.toThrow("needs a password or key each time");
+    expect(JSON.stringify(store.listFlows())).not.toContain("918273645546372");
+  });
+});
+
+describe("a flow saved before its secret was refused", () => {
+  // validateFlow refused such a flow at run time only for a top-level password; one holding an
+  // app's token in values.env ran on, from the database it should never have been written to.
+  const catalog = async (id) => (id === "cloudflared" ? ["TUNNEL_TOKEN"] : []);
+  const legacy = {
+    top: [{ operationId: "credentials.set", parameters: { name: "ntfy", value: "tok_LEGACY" } }],
+    app: [{ operationId: "app.reconfigure", parameters: { id: "cloudflared", values: { env: { TUNNEL_TOKEN: "eyJ-legacy-token" } } } }],
+  };
+
+  it("does not run when started by hand, and says why before anything starts", async () => {
+    const store = fakeStore();
+    const jobs = fakeJobs(store);
+    const service = createFlowService({ store, jobs, pollMs: 2, secretEnvNamesFor: catalog });
+    for (const steps of Object.values(legacy)) {
+      const flow = store.createFlow({ name: "legacy", steps, createdBy: "owner-1" });
+      await expect(service.launch(flow.id, "owner-1", { role: "owner" })).rejects.toThrow(/no longer valid: step 1: .* needs a password or key each time/);
+      await expect(service.run(flow.id, "owner-1", { role: "owner" })).rejects.toThrow(/no longer valid/);
+    }
+    expect(jobs.calls).toEqual([]);
+  });
+
+  it("is skipped, recorded and not run when its clock comes round", async () => {
+    const store = fakeStore();
+    const jobs = fakeJobs(store);
+    const service = createFlowService({ store, jobs, pollMs: 2, secretEnvNamesFor: catalog, now: () => new Date("2026-09-15T10:00:00.000Z") });
+    const flow = store.createFlow({ name: "legacy", steps: legacy.app, createdBy: "owner-1", frequency: "daily", minute: 0, hour: 3, nextDueAt: "2026-09-15T03:00:00.000Z" });
+    await service.tick();
+    expect(store.getFlow(flow.id).lastResult).toMatch(/^skipped: This flow is no longer valid: step 1/);
+    expect(store.audits.map((audit) => audit.event)).toContain("flow.skipped");
+    expect(jobs.calls).toEqual([]);
+    // Nor can it be kept by editing something else about it: the stored steps are checked too.
+    await expect(service.update(flow.id, { name: "renamed" }, "owner-1")).rejects.toThrow("needs a password or key each time");
+  });
+
+  it("is listed with its secret masked, since GET /flows answers every signed-in role", async () => {
+    const store = fakeStore();
+    const service = createFlowService({ store, jobs: fakeJobs(store), pollMs: 2, secretEnvNamesFor: catalog });
+    store.createFlow({ name: "top", steps: legacy.top, createdBy: "owner-1" });
+    store.createFlow({ name: "app", steps: legacy.app, createdBy: "owner-1" });
+    const listed = await service.list();
+    expect(JSON.stringify(listed)).not.toMatch(/tok_LEGACY|eyJ-legacy-token/);
+    expect(listed[0].steps[0].parameters).toEqual({ name: "ntfy", value: "[secret]" });
+    expect(listed[1].steps[0].parameters.values.env.TUNNEL_TOKEN).toBe("[secret]");
+    // Only the answer is masked; the record, which run() must still refuse, is left as it is.
+    expect(store.listFlows()[0].steps[0].parameters.value).toBe("tok_LEGACY");
+  });
+});
+
+describe("a flow step whose app the catalog cannot name", () => {
+  // The catalog answers null for an app it does not have. A step that names its app through an
+  // earlier step's result asked for an app literally called "{{ steps.pick.id }}", was told "no
+  // secrets", and the token beside it was stored in the flow and served by GET /flows.
+  const catalogLookup = async (id) => (id === "cloudflared" ? ["TUNNEL_TOKEN"] : null);
+  const pick = { operationId: "controller.backup.create", name: "pick", parameters: {} };
+
+  it("cannot carry a value that might be that app's secret", async () => {
+    const store = fakeStore();
+    const flows = createFlowService({ store, jobs: fakeJobs(store), pollMs: 2, secretEnvNamesFor: catalogLookup });
+    const referenced = [pick, { operationId: "app.reconfigure", parameters: { id: "{{ steps.pick.id }}", values: { env: { TUNNEL_TOKEN: "eyJ-referenced-token" } } } }];
+    await expect(flows.create({ name: "Rotate", steps: referenced, createdBy: "owner-1" })).rejects.toThrow("needs a password or key each time");
+    const unknown = [{ operationId: "app.reconfigure", parameters: { id: "cloudfared", values: { env: { TUNNEL_TOKEN: "eyJ-typo-token" } } } }];
+    await expect(flows.create({ name: "Typo", steps: unknown, createdBy: "owner-1" })).rejects.toThrow("needs a password or key each time");
+    const flow = await flows.create({ name: "Fine", steps: [pick], createdBy: "owner-1" });
+    await expect(flows.update(flow.id, { steps: referenced }, "owner-1")).rejects.toThrow("needs a password or key each time");
+    expect(JSON.stringify(store.listFlows())).not.toMatch(/eyJ-(referenced|typo)-token/);
+  });
+
+  it("still takes an app's ordinary settings when the catalog knows the app", async () => {
+    const store = fakeStore();
+    const flows = createFlowService({ store, jobs: fakeJobs(store), pollMs: 2, secretEnvNamesFor: catalogLookup });
+    await expect(flows.create({ name: "Rename", steps: [{ operationId: "app.reconfigure", parameters: { id: "cloudflared", values: { env: { TUNNEL_NAME: "home" } } } }], createdBy: "owner-1" })).resolves.toBeTruthy();
   });
 });

@@ -12,7 +12,7 @@ import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import YAML from "yaml";
-import { validateFlow } from "./flows.mjs";
+import { flowSecretProblem, validateFlow } from "./flows.mjs";
 import { registry as defaultRegistry } from "./ops/index.mjs";
 
 function builtInLibraryDirectory() {
@@ -43,8 +43,9 @@ export async function loadFlowLibrary({ directory = defaultLibraryDirectory, reg
     try { parsed = YAML.parse(await readFile(path.join(directory, file), "utf8")); } catch (error) { problems.push({ file, errors: [`YAML: ${error.message}`] }); continue; }
     if (!parsed || typeof parsed !== "object") { problems.push({ file, errors: ["not a mapping"] }); continue; }
     if (parsed.description !== undefined && (typeof parsed.description !== "string" || parsed.description.length > descriptionLimit)) { problems.push({ file, errors: [`description must be a string of at most ${descriptionLimit} characters`] }); continue; }
-    // The same gate the API uses, so a library entry can never offer a step a hand-built flow could not.
-    const problem = validateFlow({ name: parsed.name, steps: parsed.steps }, registry);
+    // The same gates the API uses, so a library entry can never offer a step a hand-built flow could
+    // not. No catalog is consulted, so any app setting in a shipped step counts as a possible secret.
+    const problem = validateFlow({ name: parsed.name, steps: parsed.steps }, registry) ?? await flowSecretProblem(parsed.steps, { registry });
     if (problem) { problems.push({ file, errors: [problem] }); continue; }
     if (slugs.has(slug)) { problems.push({ file, errors: ["duplicate library id"] }); continue; }
     slugs.add(slug);
