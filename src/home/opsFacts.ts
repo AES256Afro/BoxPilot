@@ -45,8 +45,11 @@ export function workloads(apps: AppFact[], performance: Performance | null, vms:
   const stats = new Map((performance?.statsAvailable ? performance.apps : []).map((entry) => [entry.id, entry]));
   const rows: WorkloadRow[] = apps.map((app) => {
     const measured = stats.get(app.id);
-    const status: Status = !app.running && !app.paused ? "danger" : app.paused ? "neutral" : app.troubledSidecar || app.health === "unhealthy" ? "warning" : "good";
-    const state = !app.running && !app.paused ? (app.status === "restarting" ? "restarting" : "stopped")
+    // Down is a problem unless the owner stopped it from BoxPilot; no container at all is a look (Home says why).
+    const down = !app.running && !app.paused;
+    const chosen = down && app.stoppedOnPurpose && app.status !== "restarting";
+    const status: Status = down ? (app.status === "absent" ? "warning" : chosen ? "neutral" : "danger") : app.paused ? "neutral" : app.troubledSidecar || app.health === "unhealthy" ? "warning" : "good";
+    const state = down ? (app.status === "restarting" ? "restarting" : app.status === "absent" ? "no container" : "stopped")
       : app.paused ? "paused" : app.troubledSidecar ? `${app.troubledSidecar.id} ${app.troubledSidecar.status === "restarting" ? "restarting" : "down"}` : app.health === "unhealthy" ? "unhealthy" : "up";
     const live = app.running || app.paused;
     return {

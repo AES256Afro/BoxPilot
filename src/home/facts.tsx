@@ -44,6 +44,8 @@ export interface AppFact {
   /** Published on the tailnet over HTTPS by Tailscale Serve. */
   served: boolean;
   drill: { verified: boolean; checkedAt: string | null } | null;
+  /** Stopped from BoxPilot by the owner (app.action stop), so a choice rather than a fault. */
+  stoppedOnPurpose: boolean;
 }
 
 export interface CatalogFacts {
@@ -155,6 +157,7 @@ type RawLive = {
   updateAvailable?: boolean;
   folderProblems?: unknown[];
   killSwitchDrill?: { leaked?: boolean } | null;
+  stoppedOnPurpose?: { at?: string | null } | null;
   backupVerification?: { verified?: boolean; checkedAt?: string | null } | null;
   urls?: Array<{ host: number; exposure: string; path?: string | null }>;
 };
@@ -191,6 +194,7 @@ export function appFactsFrom(body: RawCatalog, serves: TailnetServe[]): CatalogF
       updateAvailable: Boolean(live.updateAvailable),
       folderProblems: list(live.folderProblems).length,
       vpnLeaked: Boolean(live.killSwitchDrill?.leaked),
+      stoppedOnPurpose: Boolean(live.stoppedOnPurpose),
       url: web ? appUrl(web, { lanAddress, serves }) : null,
       port: web ? web.host : null,
       exposure: web ? web.exposure : null,
