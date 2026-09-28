@@ -32,7 +32,9 @@ import { createPowerRouter } from "./routes/power.mjs";
 import { createChecklistRouter } from "./routes/checklist.mjs";
 import { createPeopleRouter } from "./routes/people.mjs";
 import { createRunbookRouter } from "./routes/runbook.mjs";
+import { createAssistantRouter } from "./routes/assistant.mjs";
 import { apiRolePolicy } from "./routes/access.mjs";
+import { createAssistantService } from "./assistant/index.mjs";
 import { createHelperClient } from "./helper-client.mjs";
 import { createHelperLibvirtService } from "./helper-libvirt.mjs";
 import { createInventoryService } from "./inventory.mjs";
@@ -283,6 +285,10 @@ createDiskSampler({ inventory, store: state }).start();
 createAppDataSampler({ helper, store: state }).start();
 // Sample SMART numbers daily so a drive going bad is caught before it fails (M23.3).
 createSmartSampler({ inventory, store: state }).start();
+// The local assistant (M34): its index of BoxPilot's documents, registry and catalog is built now,
+// in the background; its model is only ever a local one, found when someone asks.
+const assistant = createAssistantService({ state, registry, catalog: catalogService, helper, inventory, secretEnvNamesFor });
+void assistant.warm();
 
 app.disable("x-powered-by");
 app.use(jsonGzip());
@@ -379,6 +385,7 @@ app.use("/api/v1", createOidcAdminRouter({ oidc, auth }));
 // The runbook for this server (M34.4), from the same services the pages read.
 const runbook = createRunbookService({ store: state, helper, catalogService, inventory, network, notifications, autoReconnect, identity, secretEnvNamesFor, webHost: host, webPort: port, tlsDir });
 app.use("/api/v1", createRunbookRouter({ runbook, auth }));
+app.use("/api/v1", createAssistantRouter({ assistant, state, auth }));
 
 // OIDC provider endpoints (M19.3) live at the site root, not under /api/v1: discovery, JWKS, token
 // and userinfo are public by design, and /oidc/authorize reads the owner's session itself.
