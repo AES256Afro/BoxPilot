@@ -994,6 +994,7 @@ export const switcher = (current) => `<style>
   #demo-worlds a { color: #cbd5e1; text-decoration: none; padding: .2rem .55rem; border-radius: 999px; border: 1px solid #1e293b; }
   #demo-worlds a[data-current="true"] { background: #34d399; border-color: #34d399; color: #04231a; }
   #demo-worlds span { color: #64748b; margin-left: auto; }
+  @media (max-width: 620px) { #demo-worlds span { display: none; } }
 </style>
 <div id="demo-worlds"><b>Demo world</b>${scenarioNames.map((name) => {
   const description = { default: "a lived-in server", fresh: "nothing set up yet", trouble: "installed but unwell" }[name];
