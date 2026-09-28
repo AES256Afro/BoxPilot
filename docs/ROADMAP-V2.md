@@ -1158,6 +1158,73 @@ This owns diagnostic cost and resource accounting. M21 remains the owner of gene
 
 Suggested order: release the reviewed fixes; M32.4 and M29.2; M27.5 plus M32.1-2; M30.5-7; then M30.8-9, M28.5 and M32.3-5. Keep backup compatibility and independent recovery ahead of broad automatic remediation.
 
+## M33 — One interface: Home and Ops
+
+Decided 2026-09-28 (ADR-004): the owner chose the Launcher and the Command Center from the ten
+directions in `docs/design-directions/04-eight-directions.html`. One design system, two views of
+the same data; light and dark, following the device with an override. The plan and the earlier
+study are in `HANDOFF-UI-REDESIGN.md` (B1-B7); this milestone takes B1-B4 and leaves the rest to
+the milestones they overlap.
+
+- **M33.1 Design system** (B1). Color and type tokens with light and dark values; two densities,
+  comfortable for Home and compact for Ops; shared components - buttons that carry their risk
+  tier, status chips, tiles, metric tiles, cards used sparingly; a gallery view in the demo.
+  Screenshots of the demo in both themes are taken on Linux in CI for every UI pull request.
+  Acceptance: one existing page is rebuilt on it with no visual regressions elsewhere.
+- **M33.2 The shell and Home** (B2). A top bar with the Home/Ops switch and a command bar ready
+  for search; Home shows app tiles with live health, what needs the owner, and the admin areas
+  in a dock. Acceptance: "is everything OK?" is answered by Home alone.
+- **M33.3 Ops**. The metric strip, what needs the owner by tier, containers with their numbers,
+  the job queue and a backup matrix, from the same sources as Home. Acceptance: every fact on
+  Home is one click from its detail on Ops.
+- **M33.4 Timeline and the way back** (B3). Jobs, checkpoints and settings changes as one feed.
+  "Undo" appears only where an operation declares a way back (M22.2); elsewhere the entry says
+  plainly that it cannot be undone.
+- **M33.5 Settings, area by area** (B4). Storage, Network, Firewall, Users and System move into
+  one searchable settings area; each old dashboard is retired only once its replacement shows
+  the same facts. Current pages stay reachable as "Classic" until then.
+- **M33.6 Topology** (from the study's direction 4): the picture at the top of Storage and Network -
+  drives to folders and apps, the firewall's gates, the LAN and the tailnet - drawn from the same
+  facts as the pages beneath it.
+- The owner wants every concept from the study (2026-09-28): the assistant (B5) is M34; the phone
+  layout (B6) is M25; recipes and a GPU page (B7) belong to M22.
+
+Guardrails: the risk tier shows on every action, not only in the dialog; the demo scenarios
+(`?scenario=fresh`, `?scenario=trouble`) and `npm run demo:sweep -- --deep` keep passing for every
+new page; no personal host data in mockups or fixtures.
+
+## M34 — The local assistant
+
+Asked for 2026-09-28: a local AI that learns BoxPilot and this server, helps solve problems, and
+writes notes and documentation. It is the study's Copilot direction (B5), and it absorbs M24.3.
+
+Guardrails, before any feature: it runs only on a local model (the catalog's Ollama on this box, or
+an address on the owner's network), and nothing is sent to a cloud service. Its context is built
+with the asker's role (ADR-003, M29.4) and secrets are masked by `secretPaths` (M29.1), so it can
+never tell someone what they could not read themselves. It never runs commands: what it proposes
+is a plan made only of registered operations, each approved at its own tier through the ordinary
+job path. Every answer names what it was drawn from - a document, a job, a log line - so a wrong
+answer can be caught. On a CPU a small model works; the GPU (1.119.0) makes it quicker.
+
+- **M34.1 What it knows.** An index of BoxPilot's own documents, the operation registry (what each
+  operation does, its tier, its parameters) and the catalog, plus the server's current facts read
+  at question time: health, recent jobs and their errors, apps and containers, storage, backups.
+  Embeddings through Ollama when a model is there; keyword search when none is, so it still helps.
+- **M34.2 Ask.** A question in the command bar (M33.2) gets an answer grounded in M34.1, with its
+  sources, streamed. A suggested fix arrives as a plan of registered operations, validated against
+  the registry and shown with each step's tier; nothing runs until the owner approves it.
+- **M34.3 Guided troubleshooting** (was M24.3). From a symptom - a failed job, a health alert, an
+  app that will not start - it runs the read-only checks BoxPilot already has and explains the
+  cause from their evidence rather than from general advice.
+- **M34.4 Documentation of this server.** A runbook built from facts: what is installed, where each
+  app keeps its data, what is reachable from where, how backups run and where the copies are, and
+  how to restore each thing. Deterministic first, so it is right without a model; the model only
+  improves the prose. Downloadable, and regenerated when the server changes.
+- **M34.5 Notes.** A note drafted after an incident (what happened, what fixed it), attached to the
+  app or drive, which the owner can edit and which the assistant reads next time. Off by default.
+- **M34.6 Learning the platform.** Later, with LLMCoach: a model tuned on BoxPilot's documents and
+  registry, evaluated against the stock model before it replaces it.
+
 ## App catalogue candidates
 
 Checked against the 164 manifests already in `catalog/`, so nothing here duplicates an existing
