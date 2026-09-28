@@ -3,7 +3,8 @@ import { followJobOutput, terminalJobStates, type Job } from "./operations";
 import { readJson } from "./http";
 import { jobOutputText } from "./jobOutputText";
 import { JobWarnings } from "./JobWarnings";
-import { JobTimeoutNotice } from "./JobTimeout";
+import { JobTimeoutNotice, errorIsTheTimeout } from "./JobTimeout";
+import { ranAgain } from "./jobStatus";
 
 /**
  * The terminal view of one job, usable from anywhere an action is shown.
@@ -92,7 +93,12 @@ export function JobLogView({ job: given, jobId, title, onMoreTime }: { job?: Job
           ))}
         </ul>
       )}
-      {job.error && <div className="auth-error" role="alert">{job.error}</div>}
+      {/* A restart cut this run off and BoxPilot already ran it again (M30.2): "check what it changed
+          before retrying" is the wrong advice then, and red is the wrong colour. */}
+      {ranAgain(job)
+        ? <p className="job-rerun-note" role="status">A BoxPilot restart cut this run off, so BoxPilot ran it again by itself. The newer entry for it in Activity says how that went.</p>
+        : job.error && !errorIsTheTimeout(job) && <div className="auth-error" role="alert">{job.error}</div>}
+      {job.recovery?.rerunOf && <p className="muted job-rerun-note">BoxPilot ran this again by itself after a restart cut the first run off.</p>}
       <JobTimeoutNotice job={job} onMoreTime={onMoreTime ? () => onMoreTime(job) : undefined} />
       <JobWarnings result={job.result} />
       {outputError && <div role="alert"><p>{outputError}</p>{retryButton}</div>}

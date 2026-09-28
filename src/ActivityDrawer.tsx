@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { JobLogView } from "./JobLogView";
-import { jobWarnings } from "./JobWarnings";
-import { jobTimeout } from "./JobTimeout";
 import { ApproveDialog } from "./ApproveDialog";
+import { activeJobStates, jobStatus } from "./jobStatus";
 import { useDialogFocus } from "./useDialogFocus";
 import { createPortal } from "react-dom";
 import { followJobOutput, followJobs, terminalJobStates, type Job, type JobFeedStatus } from "./operations";
@@ -15,31 +14,6 @@ const noParameters: Record<string, unknown> = {};
  * listing recent jobs, updated live over /api/v1/events. Expanding a job shows its step log and
  * output — streamed while it runs, fetched once when it is finished.
  */
-
-const activeStates = new Set(["applying", "verifying"]);
-
-const stateLabel: Record<string, string> = {
-  awaiting_approval: "Awaiting approval",
-  cancelled: "Cancelled",
-  applying: "Running",
-  verifying: "Verifying",
-  completed: "Completed",
-  failed: "Failed",
-};
-
-function stateTone(state: string): string {
-  if (state === "completed") return "status-good";
-  if (state === "failed") return "status-danger";
-  if (activeStates.has(state)) return "status-warning";
-  return "status-neutral";
-}
-
-/** What the row's pill says: a job that ran out of time is not the same as one that failed (M30.3). */
-function statusPill(job: Job): { label: string; tone: string } {
-  if (job.state === "completed" && jobWarnings(job.result).length) return { label: "Completed with notice", tone: "status-warning" };
-  if (jobTimeout(job)) return { label: "Timed out", tone: "status-warning" };
-  return { label: stateLabel[job.state] ?? job.state, tone: stateTone(job.state) };
-}
 
 function timeLabel(iso?: string): string {
   if (!iso) return "";
@@ -82,7 +56,7 @@ export function ActivityDrawer({ csrfToken = "" }: { csrfToken?: string }) {
     onStatus: setFeedStatus,
   }), [retry]);
 
-  const runningCount = jobs.filter((job) => activeStates.has(job.state)).length;
+  const runningCount = jobs.filter((job) => activeJobStates.has(job.state)).length;
   const expanded = expandedId ? jobs.find((job) => job.id === expandedId) ?? null : null;
   const toggle = useCallback((jobId: string) => setExpandedId((current) => (current === jobId ? null : jobId)), []);
   // The drawer closes first: two modals would each hold keyboard focus against the other.
@@ -120,7 +94,7 @@ export function ActivityDrawer({ csrfToken = "" }: { csrfToken?: string }) {
                   <button type="button" className="activity-row" aria-expanded={expandedId === job.id} onClick={() => toggle(job.id)}>
                     <span className="activity-title">{job.title}</span>
                     <span className="activity-meta">
-                      <span className={`status-pill ${statusPill(job).tone}`}>{statusPill(job).label}</span>
+                      <span className={`status-pill ${jobStatus(job).tone}`}>{jobStatus(job).label}</span>
                       <span className="activity-time">{timeLabel(job.createdAt)}</span>
                     </span>
                   </button>

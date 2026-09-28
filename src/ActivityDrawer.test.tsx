@@ -115,6 +115,35 @@ describe("Activity drawer", () => {
   });
 });
 
+describe("a job a restart cut off, run again by BoxPilot (M30.2)", () => {
+  const cutOff = job({
+    id: "55555555-5555-4555-8555-555555555555", type: "op:homepage.sync", title: "Sync Homepage", state: "failed",
+    error: "BoxPilot restarted while this job was running. The operation itself may still have finished on its own; check what it changed before retrying.",
+    steps: [
+      { name: "recovery", state: "required", detail: "The operation was interrupted by a BoxPilot restart", createdAt: "2026-08-20T10:01:00.000Z" },
+      { name: "rerun", state: "started", detail: "Running again as job 66666666-6666-4666-8666-666666666666", createdAt: "2026-08-20T10:01:00.000Z" },
+    ],
+  });
+  const rerun = job({ id: "66666666-6666-4666-8666-666666666666", type: "op:homepage.sync", title: "Sync Homepage (second run)", state: "completed", recovery: { rerunOf: cutOff.id }, createdAt: "2026-08-20T10:02:00.000Z" });
+
+  it("is not shown as a failure waiting on the owner, and the second run says what it is", async () => {
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.stubGlobal("fetch", vi.fn(async () => json({ output: "" })));
+    render(<ActivityDrawer />);
+    act(() => FakeEventSource.instances.at(-1)?.emit("snapshot", { jobs: [rerun, cutOff] }));
+    fireEvent.click(screen.getByRole("button", { name: /Activity/ }));
+    expect(screen.getByText("Interrupted, ran again").className).toContain("status-neutral");
+    expect(screen.queryByText("Failed")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /Interrupted, ran again/ }));
+    expect(screen.getByText(/so BoxPilot ran it again by itself/)).toBeTruthy();
+    expect(screen.queryByText(/check what it changed before retrying/)).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /Sync Homepage \(second run\)/ }));
+    expect(screen.getByText("BoxPilot ran this again by itself after a restart cut the first run off.")).toBeTruthy();
+  });
+});
+
 describe("a job that ran out of time, in Activity (M30.3)", () => {
   const timedOutJob = job({
     id: "22222222-2222-4222-8222-222222222222", type: "op:app.update", title: "Update application", state: "failed",
@@ -148,6 +177,20 @@ describe("a job that ran out of time, in Activity (M30.3)", () => {
     expect(await screen.findByRole("button", { name: "Confirm and run" })).toBeTruthy();
     expect(screen.queryByRole("dialog", { name: "Activity" })).toBeNull();
     expect(fetchMock).toHaveBeenCalledWith(`/api/v1/jobs/${timedOutJob.id}/more-time`, expect.objectContaining({ method: "POST", headers: { "X-BoxPilot-CSRF": "csrf" } }));
+  });
+
+  it("says a whole-job timeout once, as a timeout, with the tier on the retry button", () => {
+    vi.stubGlobal("EventSource", FakeEventSource);
+    api();
+    const wholeJob = { ...timedOutJob, error: "Update application did not finish within 30 minutes. It may still be running on the server; Activity shows how far it got.", timeout: { ...timedOutJob.timeout!, scope: "operation" as const, step: null } };
+    render(<ActivityDrawer csrfToken="csrf" />);
+    act(() => FakeEventSource.instances.at(-1)?.emit("snapshot", { jobs: [wholeJob] }));
+    fireEvent.click(screen.getByRole("button", { name: /Activity/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Update application/ }));
+    expect(screen.getByText("It had 30 minutes and used all of it. It may still be running on the server.")).toBeTruthy();
+    // The same sentence in red above it, pointing at the Activity it is already in, is gone.
+    expect(screen.queryByText(/Activity shows how far it got/)).toBeNull();
+    expect(screen.getByRole("button", { name: "Try again with more time" }).dataset.risk).toBe("medium");
   });
 
   it("offers nothing for an ordinary failure, or where no approval can be sent", () => {

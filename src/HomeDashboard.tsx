@@ -5,6 +5,8 @@ import { inspectOperation, type Job } from "./operations";
 import { appUrl, type TailnetServe } from "./appLinks";
 import { judgeProtection, protectionWarning, type AppProtection, type ScheduleLike } from "./backupProtection";
 import { offBoxVerdict, offBoxWarning } from "./offBox";
+import { jobStatus, ranAgain } from "./jobStatus";
+import { jobTimeout } from "./JobTimeout";
 
 /**
  * Home dashboard (M8.1): what is on this box and what needs attention, one glance.
@@ -16,8 +18,6 @@ interface AppSummary { id: string; name: string; running: boolean; paused: boole
 interface Tile { updates: number | null; security: number; rebootRequired: boolean }
 interface ChecklistItem { id: string; title: string; detail: string; done: boolean; known?: boolean; optional: boolean; view: ViewName }
 interface Checklist { items: ChecklistItem[]; done: number; total: number; allEssentialDone: boolean; unknown?: number }
-
-const jobTone: Record<string, string> = { completed: "status-good", failed: "status-danger", applying: "status-warning", verifying: "status-warning" };
 
 interface WatchedCondition { family: string; title: string; since: string | null; announced: boolean }
 
@@ -229,8 +229,10 @@ export default function HomeDashboard({ onNavigate }: { onNavigate: (view: ViewN
     else if (app.folderProblems > 0) attention.push({ label: `${app.name} cannot write to its data folder`, view: "catalog" });
     else if (app.updateAvailable) attention.push({ label: `${app.name} has an update`, view: "catalog" });
   }
-  const failedJob = (jobs ?? []).find((job) => job.state === "failed");
-  if (failedJob) attention.push({ label: `Job failed: ${failedJob.title}`, view: "overview" });
+  // Repair keeps Activity with each job's steps; the Overview itself was a link back to this page.
+  // One BoxPilot already ran again after a restart is not waiting on anyone (M30.2).
+  const failedJob = (jobs ?? []).find((job) => job.state === "failed" && !ranAgain(job));
+  if (failedJob) attention.push({ label: `${jobTimeout(failedJob) ? "Job ran out of time" : "Job failed"}: ${failedJob.title}`, view: "repairs" });
   const staleDays = (iso: string | null) => (iso ? Math.floor((Date.now() - Date.parse(iso)) / (24 * 60 * 60 * 1000)) : null);
   if (unprotected) attention.push({ label: unprotected, view: "backups" });
   const backupAgeDays = staleDays(backups?.lastBackupAt ?? null);
@@ -246,13 +248,15 @@ export default function HomeDashboard({ onNavigate }: { onNavigate: (view: ViewN
           <div className="unannounced-line">
             <strong>BoxPilot could not tell you about {countOf(unannounced.length, "thing")}</strong>
             <span className="unannounced-actions">
-              <button type="button" className="text-button" aria-expanded={showUnannounced} onClick={() => setShowUnannounced((open) => !open)}>{showUnannounced ? "Hide" : "Show"}</button>
+              <button type="button" className="text-button" aria-expanded={showUnannounced} onClick={() => setShowUnannounced((open) => !open)}>{showUnannounced ? "Hide the list" : "Show the list"}</button>
               <button type="button" className="text-button" onClick={() => onNavigate("settings")}>{targetConfigured ? "Check where alerts go" : "Set where alerts go"}</button>
             </span>
           </div>
           {showUnannounced && (
             <>
-              <span>{targetConfigured ? "These have not reached your notification target yet. BoxPilot tries again every 15 minutes." : "No notification target is set, so these reached no one."}</span>
+              <span>{targetConfigured
+                ? `${unannounced.length === 1 ? "This has" : "These have"} not reached your notification target yet. BoxPilot tries again every 15 minutes.`
+                : `No notification target is set, so ${unannounced.length === 1 ? "this" : "these"} reached no one.`}</span>
               <ul className="unannounced-list">
                 {unannounced.map((alert, index) => (
                   <li key={`${alert.family}:${alert.title}:${index}`}>
@@ -368,7 +372,7 @@ export default function HomeDashboard({ onNavigate }: { onNavigate: (view: ViewN
             {jobs.map((job) => (
               <li key={job.id}>
                 <span>{job.title}</span>
-                <span className="activity-meta"><span className={`status-pill ${jobTone[job.state] ?? "status-neutral"}`}>{job.state.replace("_", " ")}</span><span className="activity-time">{timeLabel(job.createdAt)}</span></span>
+                <span className="activity-meta"><span className={`status-pill ${jobStatus(job).tone}`}>{jobStatus(job).label}</span><span className="activity-time">{timeLabel(job.createdAt)}</span></span>
               </li>
             ))}
           </ul>

@@ -3,7 +3,7 @@ import { approveJob, followJobOutput, getJobApproval, retryWithMoreTime, stageOp
 import { useDialogFocus } from "./useDialogFocus";
 import { jobOutputText } from "./jobOutputText";
 import { JobWarnings, jobWarnings } from "./JobWarnings";
-import { JobTimeoutNotice, jobTimeout } from "./JobTimeout";
+import { JobTimeoutNotice, errorIsTheTimeout, formatDuration, jobTimeout } from "./JobTimeout";
 
 /**
  * The one approval surface for registered operations (ADR-001 risk tiers):
@@ -181,6 +181,8 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
         <div className="modal-copy">
           {policy && <p><span className={`status-pill ${tierTone[tier]}`}>{tierLabel[tier]}</span>{policy.elevated && tier === "high" ? <span className="good-text"> Session elevated, no password needed right now.</span> : null}</p>}
           {preview && <div className="notice">{preview}</div>}
+          {/* What "more time" changes, before it is approved: the same job, with a larger budget. */}
+          {retryFrom && job?.recovery?.budgetMs ? <div className="notice">Runs it again with the same settings and gives it {formatDuration(job.recovery.budgetMs)} to finish.</div> : null}
           {phase === "ready" && policy?.expiresAt && <p role="status">{approvalExpired ? "This approval expired. Close it and stage the operation again with its credentials." : `Credentials are held temporarily. Approve before ${new Date(policy.expiresAt).toLocaleTimeString()}, or stage the operation again.`}</p>}
           {phase === "staging" && <p>Preparing...</p>}
           {phase === "ready" && confirmRequired && (
@@ -198,7 +200,8 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
           )}
           {phase === "done" && job && <p className={hasWarnings ? undefined : "good-text"}>{hasWarnings ? "Completed with follow-up needed." : "Completed."} {job.steps.filter((step) => step.name === "verify").at(-1)?.detail ?? ""}</p>}
           {job && (phase === "done" || phase === "error") && <JobWarnings result={job.result} />}
-          {error && <div className="auth-error" role="alert">{error}</div>}
+          {/* A whole-job timeout's error says what the notice below says better, so it is said once. */}
+          {error && !(ranOut && errorIsTheTimeout(job) && error === job?.error) && <div className="auth-error" role="alert">{error}</div>}
           {job && ranOut && <JobTimeoutNotice job={job} onMoreTime={() => setRetryFrom(job.id)} />}
           {job && (phase === "done" || phase === "error") && (
             <details><summary>Job log</summary><ul>{job.steps.map((step, index) => <li key={`${step.name}-${index}`}><strong>{step.name}</strong> · {step.state} · {step.detail}</li>)}</ul></details>
