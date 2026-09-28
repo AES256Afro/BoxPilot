@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { OperationRegistry, budgetFor, createRegistry, defineOperation, maskSecrets, moreTimeCeilingMs, nextBudgetMs, placeholderPaths, restoreSecrets, secretPaths, secretPlaceholder, splitSecrets, validateParameters } from "./registry.mjs";
+import { OperationRegistry, budgetFor, createRegistry, defineOperation, maskSecrets, moreTimeCeilingMs, nextBudgetMs, placeholderPaths, rerunsAfterInterrupt, restoreSecrets, secretPaths, secretPlaceholder, splitSecrets, validateParameters } from "./registry.mjs";
 import { registry } from "./index.mjs";
 import { helperOperations, legacyHelperOperations, validateHelperRequest } from "../helper-protocol.mjs";
 
@@ -186,5 +186,23 @@ describe("more time for an operation that ran out of it (M30.3)", () => {
     const offered = registry.list().filter((operation) => operation.maxTimeoutMs).map((operation) => operation.id).sort();
     expect(offered).toEqual(["app.install", "app.model.pull", "app.rollback", "app.update"]);
     for (const id of offered) expect(registry.get(id).maxTimeoutMs).toBe(registry.get(id).timeoutMs * 4);
+  });
+});
+
+describe("running an interrupted job again (M30.2)", () => {
+  it("is declared, and cannot be declared where a second run is not safe", () => {
+    expect(rerunsAfterInterrupt(defineOperation({ id: "a.read", title: "x", risk: "low", readOnly: true, run() {} }))).toBe(true);
+    expect(rerunsAfterInterrupt(defineOperation({ id: "a.change", title: "x", risk: "medium", run() {} }))).toBe(false);
+    expect(rerunsAfterInterrupt(defineOperation({ id: "a.sync", title: "x", risk: "medium", rerunAfterInterrupt: true, run() {} }))).toBe(true);
+    expect(() => defineOperation({ id: "a.b", title: "x", risk: "high", rerunAfterInterrupt: true, run() {} })).toThrow("high risk");
+    expect(() => defineOperation({ id: "a.b", title: "x", risk: "medium", confirm: () => "yes", rerunAfterInterrupt: true, run() {} })).toThrow("typed confirmation");
+    expect(() => defineOperation({ id: "a.b", title: "x", risk: "medium", restartsService: true, rerunAfterInterrupt: true, run() {} })).toThrow("restarts BoxPilot");
+    expect(() => defineOperation({ id: "a.b", title: "x", risk: "medium", rerunAfterInterrupt: true, parameters: { fields: { password: { type: "string", secret: true } } }, run() {} })).toThrow("secrets");
+    expect(() => defineOperation({ id: "a.b", title: "x", risk: "medium", rerunAfterInterrupt: true, parameters: { fields: { id: { type: "string" }, values: { type: "object", secretEnvOf: "id" } } }, run() {} })).toThrow("secrets");
+  });
+
+  it("is declared by exactly the operations whose entries say why", () => {
+    // Adding one here means writing down, on its registry entry, why a second run is harmless.
+    expect(registry.list().filter((operation) => operation.rerunAfterInterrupt).map((operation) => operation.id).sort()).toEqual(["backup.sync", "dns.names.apply", "homepage.sync"]);
   });
 });

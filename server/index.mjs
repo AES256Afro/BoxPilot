@@ -35,6 +35,7 @@ import { createHelperClient } from "./helper-client.mjs";
 import { createHelperLibvirtService } from "./helper-libvirt.mjs";
 import { createInventoryService } from "./inventory.mjs";
 import { createJobService, recordFailed } from "./jobs.mjs";
+import { planInterruptedReruns } from "./job-reruns.mjs";
 import { invalidateOperationEvidence } from "./diagnostic-invalidation.mjs";
 import { createLibvirtFoundationService } from "./libvirt-foundation.mjs";
 import { createMaintenanceService } from "./maintenance.mjs";
@@ -217,9 +218,12 @@ const scheduler = createSchedulerService({ store: state, jobs, secretEnvNamesFor
 // in silence: recovery ran before the notifier existed, so the one failure that happens while the
 // owner is away was the one never announced. A scheduled run's is its schedule's failure.
 const scheduledInterrupted = new Set(scheduler.recover(interruptedJobs));
+const announceInterrupted = (job) => notifications.send({ title: `BoxPilot: ${job.title ?? "a job"} was interrupted`, message: "BoxPilot restarted while it was running, so it is marked failed. The operation may still have finished on its own; check what it changed before retrying.", priority: "high" }).catch(() => {});
+// M30.2: a job whose operation is safe to repeat runs again instead, once; started further down.
+const interruptedReruns = planInterruptedReruns(interruptedJobs, { store: state, jobs, scheduled: scheduledInterrupted, announce: announceInterrupted });
 for (const job of interruptedJobs) {
-  if (scheduledInterrupted.has(job.id)) continue;
-  notifications.send({ title: `BoxPilot: ${job.title ?? "a job"} was interrupted`, message: "BoxPilot restarted while it was running, so it is marked failed. The operation may still have finished on its own; check what it changed before retrying.", priority: "high" }).catch(() => {});
+  if (scheduledInterrupted.has(job.id) || interruptedReruns.has(job.id)) continue;
+  announceInterrupted(job);
 }
 // A flow announces its own failures, steps included, once per flow until it next runs cleanly.
 const { library: flowLibrary, problems: flowLibraryProblems } = await loadFlowLibrary().catch(() => ({ library: [], problems: [] }));
@@ -228,6 +232,8 @@ const flows = createFlowService({ store: state, jobs, secretEnvNamesFor, library
 notifications.start();
 flows.start();
 scheduler.start();
+// Once the notifier listens, so a rerun that fails at once is still announced.
+void interruptedReruns.start().catch(() => {});
 const setup = createSetupService({ helper, scheduler });
 createUpdateNotifier({ releaseUpdates, notifications, store: state }).start();
 healthAlerts.start();

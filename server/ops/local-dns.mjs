@@ -14,6 +14,10 @@ export function localDnsOperations() {
     }),
     defineOperation({
       id: "dns.names.apply", title: "Give every app a local name", risk: "medium", timeoutMs: 5 * 60_000,
+      // Safe to run again after a restart cut it off (M30.2): it writes BoxPilot's own names file
+      // from these parameters through a temporary file and a rename, then asks the DNS server to
+      // reload, so a second run leaves the same file a single run would. It runs in the helper.
+      rerunAfterInterrupt: true,
       description: "Writes one name per installed app into the DNS server, pointing at this server's address. Records added by hand are in a separate file and are untouched.",
       parameters: { fields: {
         address: { type: "string", maxLength: 45, pattern: /^\d{1,3}(\.\d{1,3}){3}$/ },

@@ -259,9 +259,10 @@ export function createJobService(store, helper, {
    * Stage a job for any registered, non-read-only operation. Approval and execution are generic.
    *
    * `budgetMs` stages it with more time than normal (M30.3; the registry decides whether it counts),
-   * and `retryOf` names the job that ran out of time, so each run links to the one before.
+   * and `rerunOf` / `retryOf` name the job this one runs again: after a restart cut it off (M30.2),
+   * or after it ran out of time. They are kept on the record so each run links to the one before.
    */
-  async function createOperationJob(operationId, parameters, ownerId, { role = "owner", budgetMs = null, retryOf = null } = {}) {
+  async function createOperationJob(operationId, parameters, ownerId, { role = "owner", budgetMs = null, rerunOf = null, retryOf = null } = {}) {
     const operation = registry.get(operationId);
     if (!operation) throw new Error("Operation not found");
     if (role === "viewer" || role === "disabled") throw new Error("Viewers cannot stage operations");
@@ -286,6 +287,7 @@ export function createJobService(store, helper, {
       recovery: {
         ...(approvalExpiresAt ? { approvalExpiresAt } : {}),
         ...(budget !== operation.timeoutMs ? { budgetMs: budget } : {}),
+        ...(typeof rerunOf === "string" && rerunOf ? { rerunOf } : {}),
         ...(typeof retryOf === "string" && retryOf ? { retryOf } : {}),
         reason: operation.description || `${operation.title} is ${operation.risk} risk.`,
         manual: "If verification fails, review the job log and the helper journal, then rerun or undo the operation.",
@@ -294,6 +296,7 @@ export function createJobService(store, helper, {
       initialSteps: [
         { name: "preflight", state: "completed", detail: `${operation.title}: parameters validated against the operation registry` },
         { name: "checkpoint", state: "completed", detail: `${operation.risk} risk · ${operation.readOnly ? "read-only" : "changes host state"} · runs through the root task runner` },
+        ...(typeof rerunOf === "string" && rerunOf ? [{ name: "rerun", state: "completed", detail: `Ran again after BoxPilot restarted. The first run, job ${rerunOf}, was cut off.` }] : []),
         ...(typeof retryOf === "string" && retryOf ? [{ name: "retry", state: "completed", detail: `Trying again with more time. The last run, job ${retryOf}, ran out of time.` }] : []),
         ...(budget !== operation.timeoutMs ? [{ name: "budget", state: "completed", detail: `Allowed ${formatDuration(budget)} instead of the usual ${formatDuration(operation.timeoutMs)}` }] : []),
       ],

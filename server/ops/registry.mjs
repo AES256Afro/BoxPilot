@@ -39,6 +39,11 @@ export function nextBudgetMs(operation, spentMs = null) {
   return spent >= operation.maxTimeoutMs ? null : Math.min(spent * 2, operation.maxTimeoutMs);
 }
 
+/**
+ * Whether a job of this operation that a BoxPilot restart cut off is simply run again (M30.2):
+ * reads always are, and anything else only when its entry says so (`rerunAfterInterrupt`).
+ */
+export const rerunsAfterInterrupt = (operation) => Boolean(operation && (operation.readOnly || operation.rerunAfterInterrupt));
 
 const idPattern = /^[a-z0-9]+(?:[.-][a-z0-9]+)*$/;
 
@@ -87,7 +92,7 @@ export function validateParameters(spec, parameters, title = "Operation") {
 }
 
 export function defineOperation(definition) {
-  const { id, title, risk, readOnly = false, elevatedOnly = false, timeoutMs = defaultTimeoutMs, maxTimeoutMs = null, parameters = { fields: {} }, run, description = "", minimumRole = null, confirm = null, restartsService = false } = definition ?? {};
+  const { id, title, risk, readOnly = false, elevatedOnly = false, timeoutMs = defaultTimeoutMs, maxTimeoutMs = null, rerunAfterInterrupt = false, parameters = { fields: {} }, run, description = "", minimumRole = null, confirm = null, restartsService = false } = definition ?? {};
   if (typeof id !== "string" || !idPattern.test(id)) throw new Error(`Operation id "${id}" must be lower-case dotted segments`);
   if (typeof title !== "string" || !title.trim()) throw new Error(`Operation ${id} needs a title`);
   if (!riskTiers.includes(risk)) throw new Error(`Operation ${id} risk must be one of ${riskTiers.join(", ")}`);
@@ -107,11 +112,20 @@ export function defineOperation(definition) {
     if (readOnly) throw new Error(`Operation ${id} is read-only; only a job can be given more time`);
     if (!Number.isInteger(maxTimeoutMs) || maxTimeoutMs <= timeoutMs || maxTimeoutMs > moreTimeCeilingMs) throw new Error(`Operation ${id} maxTimeoutMs must be an integer above timeoutMs and at most ${moreTimeCeilingMs} ms`);
   }
+  // rerunAfterInterrupt: running it a second time, from the start, after a restart cut the first run
+  // off leaves the server as one clean run would. Staged secrets are gone after a restart, a typed
+  // confirmation is a promise nobody made twice, and a restart of BoxPilot itself would loop, so
+  // none of those can be declared.
+  if (rerunAfterInterrupt) {
+    if (risk === "high") throw new Error(`Operation ${id} is high risk and cannot run again on its own`);
+    if (confirm !== null || restartsService) throw new Error(`Operation ${id} asks for a typed confirmation or restarts BoxPilot, so it cannot run again on its own`);
+    if (Object.values(parameters?.fields ?? {}).some((field) => field?.secret === true || field?.secretEnvOf !== undefined)) throw new Error(`Operation ${id} takes secrets, which do not survive a restart, so it cannot run again on its own`);
+  }
   // minimumRole: who may stage/approve regardless of tier (e.g. anything that sends data off the box is owner-only).
   // confirm(parameters): text the approver must type for destructive jobs; checked server-side at approval.
   // restartsService: the operation restarts (or reboots) the BoxPilot service, so approving it while
   // another job runs would interrupt that job. The job service refuses the approval when so.
-  return Object.freeze({ id, title, description, risk, readOnly: Boolean(readOnly), elevatedOnly: Boolean(elevatedOnly), timeoutMs, maxTimeoutMs, parameters, run, minimumRole, confirm, restartsService: Boolean(restartsService) });
+  return Object.freeze({ id, title, description, risk, readOnly: Boolean(readOnly), elevatedOnly: Boolean(elevatedOnly), timeoutMs, maxTimeoutMs, rerunAfterInterrupt: Boolean(rerunAfterInterrupt), parameters, run, minimumRole, confirm, restartsService: Boolean(restartsService) });
 }
 
 export class OperationRegistry {
