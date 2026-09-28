@@ -59,6 +59,7 @@ export function parseFindmnt(json) {
   for (const entry of parsed.filesystems ?? []) walk(entry);
   return flat.map((entry) => {
     const options = typeof entry.options === "string" ? entry.options.split(",") : [];
+    const filesystemOptions = typeof entry["fs-options"] === "string" ? entry["fs-options"].split(",") : null;
     return {
       target: entry.target, source: entry.source, fstype: entry.fstype,
       sizeBytes: Number(entry.size) || null, usedBytes: Number(entry.used) || null, availableBytes: Number(entry.avail) || null,
@@ -66,7 +67,12 @@ export function parseFindmnt(json) {
       // errors on a flaky cable turns itself read-only (errors=remount-ro) and stays mounted, and
       // without this column nothing in BoxPilot could see the difference from a healthy mount.
       options,
-      readOnly: options.includes("ro"),
+      // Read-only is the filesystem's own flag (FS-OPTIONS), which is what errors=remount-ro sets,
+      // not the mount point's. This runs in the helper, whose ProtectSystem=strict marks every mount
+      // that existed when it started read-only in its own namespace: after an upgrade restarted it
+      // with the drive mounted, a healthy drive the host writes to read "ro" here and Repair called
+      // it critical. The mount point's options decide only where the filesystem's were not read.
+      readOnly: (filesystemOptions ?? options).includes("ro"),
     };
   });
 }
@@ -140,7 +146,7 @@ export function storageOperations() {
       run: async (_parameters, { run }) => {
         const [tree, mounts] = await Promise.all([
           run(lsblk, ["-J", "-b", "-o", "PATH,TYPE,SIZE,FSTYPE,UUID,LABEL,MODEL,TRAN,MOUNTPOINTS,RO,RM"], { timeout: 30_000, maxBuffer: 4 * 1024 * 1024 }),
-          run(findmnt, ["--real", "-J", "-b", "-o", "TARGET,SOURCE,FSTYPE,SIZE,USED,AVAIL,OPTIONS"], { timeout: 30_000, maxBuffer: 4 * 1024 * 1024 }),
+          run(findmnt, ["--real", "-J", "-b", "-o", "TARGET,SOURCE,FSTYPE,SIZE,USED,AVAIL,OPTIONS,FS-OPTIONS"], { timeout: 30_000, maxBuffer: 4 * 1024 * 1024 }),
         ]);
         const fstab = await readFile("/etc/fstab", "utf8").catch(() => "");
         return {
