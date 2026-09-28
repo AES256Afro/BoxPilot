@@ -17,7 +17,7 @@ describe("Home", () => {
     vi.stubGlobal("fetch", stubFetch());
     const onNavigate = renderHome();
     expect(screen.getByRole("heading", { level: 1 }).textContent).toMatch(/^Good (morning|afternoon|evening)$/);
-    expect(await screen.findByText("homebox needs you: 1 problem and 1 thing to look at.")).toBeTruthy();
+    expect(await screen.findByText("homebox needs you: 1 problem and 1 thing to look at. One more thing can wait.")).toBeTruthy();
 
     const needs = screen.getByRole("region", { name: /What needs you/ });
     const titles = within(needs).getAllByRole("button").filter((button) => button.className.includes("need__title")).map((button) => button.textContent);
