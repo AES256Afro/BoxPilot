@@ -151,6 +151,9 @@ export function parseBlockInventory(output) {
   return { available: true, devices };
 }
 
+/** `usb-bridge-unsupported`: the USB enclosure passes no SMART through, even with -d sat. */
+const smartReasons = Object.freeze(["ok", "smartctl-read-failed", "unsupported-device", "usb-bridge-unsupported"]);
+
 function normalizedSmartDisk(item) {
   const device = typeof item?.device === "string" && fixedDevicePattern.test(item.device) ? item.device : null;
   if (!device) return null;
@@ -164,7 +167,11 @@ function normalizedSmartDisk(item) {
     criticalWarning: numberOrNull(item.criticalWarning),
     mediaErrors: numberOrNull(item.mediaErrors),
     unsafeShutdowns: numberOrNull(item.unsafeShutdowns),
-    reason: ["ok", "smartctl-read-failed", "unsupported-device"].includes(item.reason) ? item.reason : "smartctl-read-failed",
+    reason: smartReasons.includes(item.reason) ? item.reason : "smartctl-read-failed",
+    // How the disk is attached, and whether it answered only when asked through its USB bridge
+    // with -d sat. Absent from evidence written before the scanner asked; null then.
+    transport: typeof item.transport === "string" && /^[a-z0-9]{1,16}$/.test(item.transport) ? item.transport : null,
+    deviceType: ["auto", "sat"].includes(item.deviceType) ? item.deviceType : null,
   };
 }
 
@@ -182,9 +189,13 @@ export function normalizeSmartEvidence(value, { now = () => new Date() } = {}) {
     critical: disks.filter((item) => item.health === "critical").length,
     unavailable: disks.filter((item) => item.health === "unavailable").length,
   };
+  // A disk behind a USB enclosure that passes no SMART through will never have a reading, and no
+  // amount of looking changes that. It is still listed, and still counted as unavailable, but it
+  // does not hold the whole reading at "needs a look" forever.
+  const unexplained = disks.filter((item) => item.health === "unavailable" && item.reason !== "usb-bridge-unsupported").length;
   return {
     available,
-    status: !available ? "unavailable" : stale ? "stale" : summary.critical > 0 ? "critical" : summary.warning > 0 || summary.unavailable > 0 ? "warning" : "healthy",
+    status: !available ? "unavailable" : stale ? "stale" : summary.critical > 0 ? "critical" : summary.warning > 0 || unexplained > 0 ? "warning" : "healthy",
     reason: available ? (stale ? "storage-scan-evidence-stale" : "fixed-root-scan") : ["smartctl-not-installed", "no-supported-disks", "storage-scan-failed"].includes(value.reason) ? value.reason : "storage-scan-unavailable",
     generatedAt: Number.isFinite(generatedTime) ? new Date(generatedTime).toISOString() : null,
     stale,
