@@ -21,7 +21,7 @@ import { asRequest, gatherFacts } from "./facts.mjs";
 import { createKnowledgeIndex, tokenize } from "./knowledge.mjs";
 import { createOllamaClient, isEmbeddingModel, normalizeEndpoint, ollamaApiPort } from "./ollama.mjs";
 import { extractPlan, planFence, validatePlan } from "./plan.mjs";
-import { buildPrompt, degradedMessages, fallbackAnswer, verifyCitations } from "./prompt.mjs";
+import { buildPrompt, degradedMessages, fallbackAnswer, finalRedaction, verifyCitations } from "./prompt.mjs";
 
 export const assistantSettingKey = "assistant";
 
@@ -268,9 +268,11 @@ export function createAssistantService({
     // What BoxPilot knows that bears on the question: the best matches, the operations that could
     // fix it (for someone who could approve them), and whatever the question is focused on.
     const query = [question, focusJob?.title, context.appId, context.alertKey].filter(Boolean).join(" ");
+    const redactor = await redactorFor();
     let vector = null;
     if (model.embedModel) {
-      vector = await embedQuestion(model, query, signal).catch(() => null);
+      // The embedding goes to the model server as surely as the prompt does, so it is redacted too.
+      vector = await embedQuestion(model, finalRedaction(query, redactor), signal).catch(() => null);
       resumeWarming = { endpoint: model.endpoint, model: model.embedModel };
     }
     const search = (options) => index.search(query, { ...options, vector, model: model.embedModel });
@@ -286,7 +288,7 @@ export function createAssistantService({
       .sort((a, b) => b.score - a.score || a.position - b.position).map((entry) => entry.source);
     const ordered = [...facts.sources.filter((source) => source.focus), ...knowledge.slice(0, 3), ...background, ...knowledge.slice(3)];
 
-    const prompt = buildPrompt({ question, sources: ordered, role, notes: facts.notes, now: now(), promptChars: limits.promptChars, redactor: await redactorFor() });
+    const prompt = buildPrompt({ question, sources: ordered, role, notes: facts.notes, now: now(), promptChars: limits.promptChars, redactor });
     const sources = prompt.sources.map(({ id, kind, title, ref, text }) => ({ id, kind, title, ref, excerpt: excerptOf(text) }));
     onEvent("sources", { sources, model: model.chatModel });
 
