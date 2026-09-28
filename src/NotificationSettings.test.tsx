@@ -88,12 +88,12 @@ describe("Notification settings", () => {
     expect(screen.getByText(/Sundays at 09:00, server time; next/)).toBeTruthy();
     expect(screen.getByText(/The last one reached no one/)).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Preview" }));
+    fireEvent.click(screen.getByRole("button", { name: "Preview the report" }));
     const preview = await screen.findByLabelText("Weekly report preview");
     expect(preview.textContent).toContain("Weekly report, 1 failed");
     expect(preview.textContent).toContain("Back up application data (immich)");
 
-    fireEvent.click(screen.getByRole("button", { name: "Send now" }));
+    fireEvent.click(screen.getByRole("button", { name: "Send the report now" }));
     expect(await screen.findByText("Sent. Check your device.")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Turn off the weekly report" }));
@@ -110,6 +110,8 @@ describe("Notification settings", () => {
       return json({ error: `unexpected ${url}` }, 500);
     }));
     render(<NotificationSettings csrfToken="csrf-token" />);
-    expect(((await screen.findByRole("button", { name: "Send now" })) as HTMLButtonElement).disabled).toBe(true);
+    expect(((await screen.findByRole("button", { name: "Send the report now" })) as HTMLButtonElement).disabled).toBe(true);
+    // A greyed-out button says why, and what would enable it.
+    expect(screen.getByText("Sending needs a notification target: set one above.")).toBeTruthy();
   });
 });

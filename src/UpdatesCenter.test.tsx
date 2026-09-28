@@ -114,14 +114,16 @@ describe("Updates center", () => {
     render(<UpdatesCenter csrfToken="csrf-token" />);
 
     expect(await screen.findByText("Security upgrades wait for you")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Turn on" }));
+    fireEvent.click(screen.getByRole("button", { name: "Turn on automatic updates" }));
     expect(await screen.findByText("Medium risk")).toBeTruthy();
     expect(JSON.parse(stagedUnattended ?? "{}")).toEqual({ parameters: { enabled: true } });
     fireEvent.click(screen.getByRole("button", { name: "Close dialog" }));
 
     expect(screen.getByText("backup engine")).toBeTruthy();
-    const curatedInstall = screen.getAllByRole("button", { name: "Install" }).find((button) => !(button as HTMLButtonElement).disabled);
-    fireEvent.click(curatedInstall as HTMLElement);
+    // Each tool's button names its package, so a screen reader's list of buttons is not twenty "Install"s.
+    expect(screen.getByRole("button", { name: "Remove htop" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Remove unused packages" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Install restic" }));
     expect(await screen.findByText("Medium risk")).toBeTruthy();
     expect(JSON.parse(stagedInstall ?? "{}")).toEqual({ parameters: { packages: ["restic"] } });
   });
