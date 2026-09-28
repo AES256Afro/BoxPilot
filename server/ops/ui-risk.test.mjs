@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { registry } from "./index.mjs";
 import { mayStart, operationRisk, ownerOnlyOperations, riskOf } from "../../src/ui/operationRisk.ts";
@@ -25,6 +26,15 @@ describe("the risk tiers drawn on buttons", () => {
       expect({ id, ownerOnly: ownerOnlyOperations.has(id) }).toEqual({ id, ownerOnly: registry.get(id).minimumRole === "owner" });
     }
     for (const id of ownerOnlyOperations) expect(id in operationRisk, `${id} is owner-only but has no tier`).toBe(true);
+  });
+
+  // Home and Ops offer each Repair finding's fix from their lists, with the tier on the button. A
+  // fix whose operation had no entry would be drawn as high, which is wrong the other way.
+  it("have a tier for every fix Repair can offer", () => {
+    const source = readFileSync(new URL("../remediations.mjs", import.meta.url), "utf8");
+    const fixes = [...new Set([...source.matchAll(/operationId: "([a-z][\w.-]+)"/g)].map((match) => match[1]))];
+    expect(fixes.length).toBeGreaterThan(5);
+    expect(fixes.filter((id) => !(id in operationRisk))).toEqual([]);
   });
 
   it("let a role start only what jobs.mjs would let it stage", () => {
