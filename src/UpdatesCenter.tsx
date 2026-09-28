@@ -108,7 +108,7 @@ export default function UpdatesCenter({ csrfToken }: { csrfToken: string }) {
           status={!report ? "unknown" : report.rebootRequired ? "warning" : "good"}
         >
           {report?.rebootRequired && (
-            <Button risk={riskOf("system.reboot")} onClick={() => start({ operationId: "system.reboot", title: "Reboot the server", parameters: {}, preview: <span>Reboots in 5 seconds after approval. Running VMs and containers stop; reconnect when this server is back.</span> })}>Reboot now</Button>
+            <Button risk={riskOf("system.reboot")} onClick={() => start({ operationId: "system.reboot", title: "Reboot the server", parameters: {}, preview: <span>First stops the apps using BoxPilot's drives and unmounts the drives, saying in the log which let go cleanly, then reboots 5 seconds later. Running VMs and containers stop and the apps start again by themselves; reconnect when this server is back.</span> })}>Reboot now</Button>
           )}
         </MetricTile>
         <MetricTile

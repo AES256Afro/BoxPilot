@@ -14,6 +14,7 @@ export const operationRisk = {
   "apt.unattended.set": "medium",
   "apt.upgrade": "medium",
   "service.action": "medium",
+  "storage.check": "medium",
   "storage.lvm.snapshot.create": "medium",
   "system.manager.reexec": "medium",
   "system.reboot": "high",

@@ -3,7 +3,9 @@ import path from "node:path";
 import * as fsPromises from "node:fs/promises";
 import { describe, expect, it, vi } from "vitest";
 import { validateParameters } from "./registry.mjs";
-import { parseFindmnt, parseFstab, parseLsblk, storageOperations, parseUsbEvents } from "./storage.mjs";
+import { parseFindmnt, parseFstab, parseLsblk, storageOperations, parseUsbEvents, parseUncleanMounts } from "./storage.mjs";
+
+const { readFile } = fsPromises;
 
 const operations = Object.fromEntries(storageOperations().map((operation) => [operation.id, operation]));
 
@@ -139,6 +141,39 @@ describe("findmnt's tree", () => {
     const mounts = parseFindmnt(JSON.stringify(tree));
     expect(mounts.map((mount) => mount.target)).toEqual(["/", "/boot", "/boot/efi", "/mnt/the-dump"]);
     expect(mounts.find((mount) => mount.target === "/mnt/the-dump")).toMatchObject({ source: "/dev/sdb2", readOnly: true });
+  });
+});
+
+describe("what the kernel says about a drive it found not cleanly unmounted (M26)", () => {
+  it("finds the owner's line after the reboot, and nothing in the system disk's ordinary mounts", async () => {
+    // What `journalctl -k -b -o short-iso -g ...` printed on the server after the reboot, with the
+    // hostname and filesystem UUIDs scrubbed.
+    const journal = await readFile("test/fixtures/kernel/unclean-exfat-after-reboot.journal", "utf8");
+    expect(parseUncleanMounts(journal)).toEqual([{
+      device: "/dev/sda2", driver: "exFAT-fs", at: "2026-09-28T07:12:44.000Z",
+      message: "exFAT-fs (sda2): Volume was not properly unmounted. Some data may be corrupt. Please run fsck.",
+    }]);
+  });
+
+  it("reads ext4's journal replay and orphan cleanup, FAT's warning and ntfs3's dirty volume, the latest per device", () => {
+    const journal = [
+      "2026-09-28T07:12:45+0000 server kernel: EXT4-fs (sdb1): recovery complete",
+      "2026-09-28T07:12:45+0000 server kernel: EXT4-fs (sdb1): mounted filesystem 00000000-0000-0000-0000-000000000002 r/w with ordered data mode. Quota mode: none.",
+      "2026-09-28T07:12:46+0000 server kernel: EXT4-fs (sdb1): 3 orphan inodes deleted",
+      "2026-09-28T07:12:46+0000 server kernel: FAT-fs (sdc1): Volume was not properly unmounted. Some data may be corrupt. Please run fsck.",
+      "2026-09-28T07:12:47+0000 server kernel: ntfs3(sdd1): volume is dirty and \"force\" flag is not set!",
+      "2026-09-28T07:12:47+0000 server kernel: ntfs3: sde1: volume is dirty and \"force\" flag is not set!",
+      "2026-09-28T07:12:48+0000 server kernel: EXT4-fs (sdf1): mounted filesystem 00000000-0000-0000-0000-000000000003 r/w with ordered data mode. Quota mode: none.",
+    ].join("\n");
+    const events = parseUncleanMounts(journal);
+    expect(events.map((event) => [event.device, event.driver, event.at])).toEqual([
+      ["/dev/sdb1", "EXT4-fs", "2026-09-28T07:12:46.000Z"],
+      ["/dev/sdc1", "FAT-fs", "2026-09-28T07:12:46.000Z"],
+      ["/dev/sdd1", "ntfs3", "2026-09-28T07:12:47.000Z"],
+      ["/dev/sde1", "ntfs3", "2026-09-28T07:12:47.000Z"],
+    ]);
+    expect(parseUncleanMounts("")).toEqual([]);
+    expect(parseUncleanMounts(null)).toEqual([]);
   });
 });
 

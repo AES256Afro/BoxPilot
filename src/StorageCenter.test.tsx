@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import StorageCenter from "./StorageCenter";
 
@@ -161,6 +161,27 @@ describe("Storage center", () => {
     expect(approve.disabled).toBe(true);
     fireEvent.change(screen.getByLabelText("Typed confirmation"), { target: { value: "/dev/sdb" } });
     expect(approve.disabled).toBe(false);
+  });
+
+  it("checks a drive BoxPilot mounts on demand, naming the apps it pauses", async () => {
+    // The owner's reboot left a kernel warning and no way to run the check (M26): Repair offered it
+    // only after a USB drop. It is on the drive's own row now, whatever happened to the drive.
+    const staged: Record<string, string> = {};
+    const catalog = { applications: [{ manifest: { id: "plex", name: "Plex", volumes: [{ id: "media", hostPath: null }] }, live: { installed: true, state: { values: { volumes: { media: "/mnt/olddata/films" } } } } }] };
+    const samba = { config: { scope: "lan", shares: [{ name: "Films", path: "/mnt/olddata/films" }, { name: "Documents", path: "/srv/documents" }] } };
+    const fetchMock = mockFetch(report, staged, (url) => (url === "/api/v1/catalog?view=summary" ? json(catalog) : url === "/api/v1/storage/samba" ? json(samba) : null));
+    render(<StorageCenter csrfToken="csrf-token" />);
+    const button = await screen.findByRole("button", { name: "Check this drive: /mnt/olddata" });
+    expect(button.getAttribute("data-risk")).toBe("medium");
+    // Only BoxPilot's own drives: the root filesystem has no check button.
+    expect(screen.getAllByRole("button", { name: /^Check this drive/ })).toHaveLength(1);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/v1/catalog?view=summary"));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/v1/storage/samba"));
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    fireEvent.click(button);
+    expect(await screen.findByText(/Pauses Plex while/)).toBeTruthy();
+    expect(screen.getByText(/runs e2fsck -fn on it, then mounts it again and starts them\. Computers using the Films share are disconnected for it and reconnect by themselves\. The check only reads: nothing on the drive is repaired or written\./)).toBeTruthy();
+    await waitFor(() => expect(JSON.parse(staged["storage.check"] ?? "{}")).toEqual({ parameters: { name: "olddata" } }));
   });
 
   it("offers Unmount only for BoxPilot-managed mounts", async () => {

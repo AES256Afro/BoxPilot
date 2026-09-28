@@ -94,3 +94,30 @@ jobs:
           systemctl show boxpilot-helper.service -p CapabilityBoundingSet -p SystemCallFilter -p NoNewPrivileges -p PrivateUsers
           pid="$(systemctl show boxpilot-helper.service -p MainPID --value)"
           if [ "$pid" -gt 0 ]; then sudo sed -n '/^Uid:/p; /^Gid:/p; /^Cap/p; /^Seccomp/p' "/proc/$pid/status"; fi
+
+  # Real reboots of an Ubuntu VM (KVM on the runner) with an exFAT drive an app is writing to, the
+  # way the owner's server reboots (M26): whether the next boot's kernel finds the drive not
+  # properly unmounted, with the fstab line before and after the Docker ordering, with Docker's
+  # live-restore off and on, and through BoxPilot's own reboot. Too slow for every pull request.
+  drive-reboot-vm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Reboot a VM with a drive in use, before and after the fix
+        run: sudo env "PATH=${PATH}" BOXPILOT_DISPOSABLE_TEST=1 BOXPILOT_TEST_ARTIFACTS="${RUNNER_TEMP}" bash tests/ubuntu/drive-reboot-vm.sh
+
+      - name: Keep the VM's serial console
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: drive-reboot-vm-console
+          path: ${{ runner.temp }}/drive-reboot-vm-console.log
+          if-no-files-found: ignore

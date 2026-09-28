@@ -9,6 +9,7 @@ import { useOperation } from "./ApproveDialog";
 import { AutoReconnectToggle, autoReconnectRule, useAutoReconnect } from "./AutoReconnect";
 import SambaPanel from "./SambaPanel";
 import NfsPanel from "./NfsPanel";
+import { Button, riskOf } from "./ui";
 
 interface DeviceRow {
   path: string | null; type: string | null; sizeBytes: number | null; fstype: string | null; uuid: string | null; label: string | null; model: string | null; transport: string | null;
@@ -39,6 +40,8 @@ const BACKUP_MOUNT_NAME = "boxpilot-backup";
 const nameValid = (name: string) => /^[a-z0-9][a-z0-9-]{0,31}$/.test(name);
 // exFAT/FAT/NTFS carry no Unix permissions, so a plain mount is root-owned and apps cannot write.
 const permissionlessFs = (fstype: string | null) => ["exfat", "vfat", "ntfs", "ntfs3", "msdos"].includes((fstype ?? "").toLowerCase());
+// The filesystems storage.check has a read-only checker for (server/tasks/storage.mjs).
+const checkableFs = (fstype: string | null) => ["exfat", "ext2", "ext3", "ext4", "vfat"].includes((fstype ?? "").toLowerCase());
 
 export default function StorageCenter({ csrfToken, onNavigate }: { csrfToken: string; onNavigate?: (view: ViewName) => void }) {
   const [report, setReport] = useState<StorageReport | null>(null);
@@ -105,6 +108,21 @@ export default function StorageCenter({ csrfToken, onNavigate }: { csrfToken: st
   const { start, dialog } = useOperation(csrfToken, () => { setMountTarget(null); setMountName(""); setPassword(""); void refresh(); void autoReconnect.refresh(); });
 
   const managedByMountpoint = new Map((report?.fstab ?? []).filter((row) => row.managedName && !row.managedName.startsWith("share-")).map((row) => [row.mountpoint, row.managedName as string]));
+  // The check Repair offers after a drop or an unclean unmount, on demand for any drive BoxPilot
+  // mounted. The preview names the apps it pauses, since those are what the owner will notice.
+  const checkDrive = (name: string, mount: MountRow) => {
+    const on = (path: string) => path === mount.target || path.startsWith(`${mount.target}/`);
+    const users = mapApps.filter((app) => app.paths.some(on)).map((app) => app.name);
+    // A share of a folder on the drive, or of one above it, keeps it busy while a PC has it open.
+    const shares = mapShares.filter((share) => on(share.path) || mount.target.startsWith(`${share.path.replace(/\/+$/, "")}/`)).map((share) => share.name);
+    const checker = mount.fstype === "exfat" ? "fsck.exfat -n" : mount.fstype === "vfat" ? "fsck.fat -n" : "e2fsck -fn";
+    start({
+      operationId: "storage.check",
+      title: `Check ${mount.target}`,
+      parameters: { name },
+      preview: <span>{users.length ? `Pauses ${users.join(", ")} while ` : "No app uses it, so nothing is paused while "}<code>{mount.target}</code> is unmounted, runs {checker} on it, then mounts it again{users.length ? " and starts them" : ""}.{shares.length ? ` Computers using the ${shares.join(", ")} share${shares.length === 1 ? "" : "s"} are disconnected for it and reconnect by themselves.` : ""} The check only reads: nothing on the drive is repaired or written.</span>,
+    });
+  };
   const disks = (report?.devices ?? []).filter((device) => device.type === "disk");
   // storage.lvm.extend keeps 32 GiB unallocated for snapshots and does nothing below 256 MiB of
   // actual growth, so the offer only appears when there is really something to claim.
@@ -599,6 +617,9 @@ export default function StorageCenter({ csrfToken, onNavigate }: { csrfToken: st
                       parameters: { name: managedName },
                       preview: <span>Unmounts <code>{mount.target}</code> and removes its fstab entry. Data on the disk and the empty directory are kept.</span>,
                     })}>Unmount</button>}
+                    {managedName && mount.target === `/mnt/${managedName}` && checkableFs(mount.fstype) && (
+                      <Button risk={riskOf("storage.check")} variant="ghost" aria-label={`Check this drive: ${mount.target}`} onClick={() => checkDrive(managedName, mount)}>Check this drive</Button>
+                    )}
                     {managedName && mount.target === `/mnt/${managedName}` && <AutoReconnectToggle drive={managedName} control={autoReconnect} compact />}</td>
                   </tr>
                 );

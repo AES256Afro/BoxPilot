@@ -1,5 +1,6 @@
 import { access, readFile, writeFile } from "node:fs/promises";
 import { fixedRun } from "../exec.mjs";
+import { prepareDrivesForReboot, resumeAfterCancelledReboot } from "./drive-shutdown.mjs";
 
 /**
  * Root-side system tasks executed by scripts/boxpilot-run.mjs inside boxpilot-run@.service.
@@ -13,15 +14,34 @@ const hostsPath = "/etc/hosts";
 const sysctlDropInPath = "/etc/sysctl.d/99-boxpilot.conf";
 
 /**
- * Schedule a reboot a few seconds out so the runner can still write its result file and the
- * helper can report success before the machine goes down.
+ * Get BoxPilot's drives ready, then schedule a reboot a few seconds out so the runner can still
+ * write its result file and the helper can report success before the machine goes down.
+ *
+ * The drives first (M26): the containers using them are stopped, everything is synced, and each
+ * drive is unmounted while nothing is writing to it, with the job log saying which let go and what
+ * held on to any that did not. That does not depend on fstab having the Docker ordering yet, and a
+ * failure in it never stops the reboot: the shutdown unmounts whatever is left, as it always has.
  */
-export async function systemReboot({ delaySeconds = 5 } = {}, { run = fixedRun, log = null } = {}) {
-  log?.(`Scheduling reboot in ${delaySeconds}s`, "stdout");
+export async function systemReboot({ delaySeconds = 5 } = {}, { run = fixedRun, log = null, prepare = prepareDrivesForReboot, resume = resumeAfterCancelledReboot } = {}) {
   const delay = Number.isInteger(delaySeconds) && delaySeconds >= 2 && delaySeconds <= 300 ? delaySeconds : 5;
+  let prepared = null;
+  try {
+    prepared = await prepare({}, { run, log });
+  } catch (error) {
+    log?.(`Could not get the drives ready (${error.message}); rebooting anyway, which unmounts them as it always has`, "stderr");
+  }
+  log?.(`Scheduling reboot in ${delay}s`, "stdout");
   const result = await run("/usr/bin/systemd-run", ["--quiet", "--on-active", String(delay), "--unit", "boxpilot-reboot", "/usr/bin/systemctl", "reboot"], { timeout: 30_000 });
-  if (!result.ok) throw new Error(`Could not schedule the reboot: ${result.stderr.split("\n").slice(-2).join(" ")}`);
-  return { scheduled: true, inSeconds: delay };
+  if (!result.ok) {
+    if (prepared) await resume(prepared, { run, log }).catch(() => {});
+    throw new Error(`Could not schedule the reboot: ${result.stderr.split("\n").slice(-2).join(" ")}${prepared?.dockerStopped || prepared?.drives?.some((drive) => drive.state === "unmounted") ? ". The drives were mounted again and Docker was started." : ""}`);
+  }
+  return {
+    scheduled: true,
+    inSeconds: delay,
+    drives: (prepared?.drives ?? []).map(({ mountpoint, state, holders, volumeDirty }) => ({ mountpoint, state, holders, volumeDirty })),
+    containers: prepared?.containers ?? null,
+  };
 }
 
 /** Replace the 127.0.1.1 line Ubuntu uses for the host's own name; append one if missing. */

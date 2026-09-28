@@ -94,6 +94,8 @@ const helperAnswers = {
     config: { managed: true, workgroup: "WORKGROUP", scope: "tailscale", interfaces: [], shares: [{ name: "media", path: "/srv/media", comment: null, readOnly: false, guest: false, users: [], recycle: true, recycleBytes: 734003200, ownerUid: 0 }] },
   }),
   "storage.usb.events": () => ({ available: true, days: 30, ports: [{ port: "2-1", drops: [{ at: "2026-09-20T10:00:00Z" }, { at: "2026-09-25T10:00:00Z" }], lastDropAt: "2026-09-25T10:00:00Z", vendorId: "0bc2", productId: "ab38", powerFaults: 1, resets: 0 }] }),
+  "storage.unclean.events": () => ({ available: true, events: [] }),
+  "storage.volumes.state": () => ({ available: true, readAt: "2026-09-28T12:00:00.000Z", drives: [] }),
   "housekeeping.inspect": () => ({ groups: [{ id: "docker-unused", safe: true, bytes: 40 * 1024 ** 3 }] }),
   "apt.upgradable.inspect": () => ({ packages: [] }),
   "logs.read": () => ({ lines: ["a journal line"] }),
@@ -329,11 +331,12 @@ const dataRoutes = {
   "GET /api/v1/remediations": [{
     ...open,
     check: ({ role, body, calls }) => {
-      // File sharing and USB history are operator reads; a viewer's scan names them as left to one.
+      // File sharing, USB history and unclean unmounts are operator reads; a viewer's scan names
+      // them as left to one.
       const operatorReads = role !== "viewer";
-      expect(calls.includes("samba.inspect") && calls.includes("storage.usb.events"), role).toBe(operatorReads);
+      expect(calls.includes("samba.inspect") && calls.includes("storage.usb.events") && calls.includes("storage.unclean.events") && calls.includes("storage.volumes.state"), role).toBe(operatorReads);
       expect(body.findings.some((finding) => finding.id === "flaky-drive:2-1"), role).toBe(operatorReads);
-      expect(body.unavailableChecks, role).toEqual(operatorReads ? [] : ["File sharing (needs an operator)", "USB history (needs an operator)"]);
+      expect(body.unavailableChecks, role).toEqual(operatorReads ? [] : ["File sharing (needs an operator)", "USB history (needs an operator)", "Unclean unmounts (needs an operator)", "Drive filesystems (needs an operator)"]);
     },
   }],
   "GET /api/v1/tls/ca.crt": [open],

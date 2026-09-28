@@ -177,7 +177,9 @@ const jobs = createJobService(state, helper, {
     // The drill's verdict outlives job pruning: per app, the latest proof (or leak) with when.
     // A drive check's verdict is what Repair reads to know whether a drive that dropped has been
     // looked at since; the job itself is pruned within weeks.
-    "storage.check": (job, result) => state.updateSetting("driveChecks", {}, (entries) => ({ value: { ...(entries ?? {}), [result.name]: { checkedAt: result.checkedAt, clean: result.clean, checker: result.checker, summary: result.summary } } })),
+    // markedDirty: an exFAT drive still carrying the kernel's "not properly unmounted" mark, which
+    // the kernel repeats at every mount until a repairing check clears it (M26).
+    "storage.check": (job, result) => state.updateSetting("driveChecks", {}, (entries) => ({ value: { ...(entries ?? {}), [result.name]: { checkedAt: result.checkedAt, clean: result.clean, checker: result.checker, summary: result.summary, markedDirty: result.markedDirty ?? null } } })),
     "app.vpn.killswitch.drill": (job, result) => state.updateSetting("killSwitchDrills", {}, (entries) => ({ value: { ...(entries ?? {}), [result.id]: { held: result.held, leaked: result.leaked, downForMs: result.downForMs, exitAfter: result.exitAfter ?? null, at: new Date().toISOString(), by: job.createdBy } } }), job.createdBy),
     // "The backups restore" has to be a record, not a hope: keep the last rehearsal verdict per app
     // so a schedule turns it into a history, and a failure is still visible after the job is pruned.
