@@ -1,4 +1,6 @@
 import { countOf } from "../data";
+import type { Status } from "../ui/types";
+import type { MountFact } from "./facts";
 
 /*
  * Small formatters Home and Ops share. The clock is always passed in, so a test can hold it still.
@@ -53,6 +55,23 @@ export function size(bytes: number | null | undefined): string {
   if (gib >= 1) return `${gib.toFixed(1)} GB`;
   return `${Math.round(bytes / 1024 ** 2)} MB`;
 }
+
+/** How full or busy, as a status: amber from `warn`, red from `danger`; not read is unknown. */
+export function loadStatus(percent: number | null | undefined, warn: number, danger: number): Status {
+  if (percent === null || percent === undefined || !Number.isFinite(percent)) return "unknown";
+  return percent >= danger ? "danger" : percent >= warn ? "warning" : "good";
+}
+
+/** A filesystem's fullness as the inventory judged it. */
+export function mountStatus(mount: MountFact): Status {
+  if (mount.state === "critical") return "danger";
+  if (mount.state === "warning") return "warning";
+  if (mount.state === "healthy") return "good";
+  return "unknown";
+}
+
+/** "/" is the system disk; anything else is named by where it is mounted. */
+export const mountName = (target: string) => (target === "/" ? "System disk" : target);
 
 /** Good morning, afternoon or evening, by the browser's own clock. */
 export function greeting(now: number): string {

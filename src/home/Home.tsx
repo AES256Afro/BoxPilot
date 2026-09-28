@@ -5,8 +5,8 @@ import { countOf, sentenceList, type ViewName } from "../data";
 import { PlusIcon } from "../shell/areaIcons";
 import { Button, Card, MetricTile, Section, StatusChip, Tile, type Status } from "../ui";
 import { AppSheet } from "./AppSheet";
-import { useFacts, valuesOf, type MountFact } from "./facts";
-import { greeting, relativeTime, size, uptime } from "./format";
+import { useFacts, valuesOf } from "./facts";
+import { greeting, loadStatus, mountName, mountStatus, relativeTime, size, uptime } from "./format";
 import { NeedRow } from "./NeedRow";
 import { appHealth, buildNeeds, needsLabel, verdictFor, verdictSources, type Need } from "./needs";
 
@@ -23,22 +23,6 @@ export interface HomeProps {
   onNavigate: (view: ViewName, options?: { app?: string }) => void;
   now?: () => number;
 }
-
-/** How full or busy, as a status: amber from `warn`, red from `danger`. */
-export function loadStatus(percent: number | null | undefined, warn: number, danger: number): Status {
-  if (percent === null || percent === undefined || !Number.isFinite(percent)) return "unknown";
-  return percent >= danger ? "danger" : percent >= warn ? "warning" : "good";
-}
-
-export function mountStatus(mount: MountFact): Status {
-  if (mount.state === "critical") return "danger";
-  if (mount.state === "warning") return "warning";
-  if (mount.state === "healthy") return "good";
-  return "unknown";
-}
-
-/** "/" is the system disk; anything else is named by where it is mounted. */
-export const mountName = (target: string) => (target === "/" ? "System disk" : target);
 
 const shownNeeds = 6;
 

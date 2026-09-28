@@ -10,6 +10,7 @@ export { Dock, type DockItem, type DockProps } from "./Dock";
 export { MetricTile, type MetricTileProps } from "./MetricTile";
 export { Section, type SectionProps } from "./Section";
 export { StatusChip, type StatusChipProps } from "./StatusChip";
+export { Table, type TableColumn, type TableProps } from "./Table";
 export { ThemeSwitch } from "./ThemeSwitch";
 export { Tile, initials, type TileProps } from "./Tile";
 export { mayStart, operationRisk, ownerOnlyOperations, riskOf } from "./operationRisk";

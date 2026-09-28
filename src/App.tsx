@@ -128,7 +128,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
 
   const pageContent = useMemo(() => {
     if (view === "home") return <Home csrfToken={csrfToken} role={role} onNavigate={setView} />;
-    if (view === "ops") return <Ops onNavigate={setView} />;
+    if (view === "ops") return <Ops csrfToken={csrfToken} role={role} onNavigate={setView} />;
     if (view === "setup") return <SetupWizard csrfToken={csrfToken} onDone={() => setView("home")} />;
     if (view === "overview") {
       return <><HomeDashboard onNavigate={setView} /><HostOverview /></>;

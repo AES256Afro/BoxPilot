@@ -7,6 +7,7 @@ import { MetricTile } from "./MetricTile";
 import { Section } from "./Section";
 import { StatusChip } from "./StatusChip";
 import { ThemeSwitch } from "./ThemeSwitch";
+import { Table, type TableColumn } from "./Table";
 import { Tile } from "./Tile";
 import { STATUSES, statusWords, type Density, type RiskTier, type Status } from "./types";
 
@@ -25,6 +26,20 @@ const apps: Array<{ name: string; status: Status; detail: string }> = [
   { name: "Pi-hole", status: "danger", detail: "Stopped" },
   { name: "Vaultwarden", status: "neutral", detail: "Paused" },
   { name: "Open WebUI", status: "unknown", detail: "Not checked" },
+];
+
+const packages = [
+  { name: "openssl", installed: "3.0.13-0ubuntu3.4", available: "3.0.13-0ubuntu3.5", suite: "noble-security", security: true, size: "1.4 MB" },
+  { name: "htop", installed: "3.2.2-2", available: "3.3.0-4", suite: "noble-updates", security: false, size: "172 kB" },
+  { name: "tmux", installed: "3.4-1", available: "3.4-1ubuntu0.1", suite: "noble-updates", security: false, size: "448 kB" },
+];
+
+const packageColumns: Array<TableColumn<(typeof packages)[number]>> = [
+  { id: "name", header: "Package", cell: (row) => <code>{row.name}</code> },
+  { id: "installed", header: "Installed", hideOnPhone: true, cell: (row) => row.installed },
+  { id: "available", header: "Available", cell: (row) => row.available },
+  { id: "size", header: "Size", numeric: true, cell: (row) => row.size },
+  { id: "suite", header: "Source", cell: (row) => (row.security ? <StatusChip status="warning">{row.suite}</StatusChip> : row.suite) },
 ];
 
 const dockAreas = ["updates", "storage", "firewall", "network", "backups", "virtualization", "repairs", "logs", "settings"];
@@ -98,16 +113,13 @@ function DensityShowcase({ density, title, summary }: { density: Density; title:
           actions={<><Button risk="low">Refresh lists</Button><Button variant="primary" risk="medium">Install all updates</Button></>}
         >
           <Card flush>
-            <div className="table-scroll">
-              <table className="ui-table">
-                <thead><tr><th>Package</th><th>Installed</th><th>Available</th><th>Source</th></tr></thead>
-                <tbody>
-                  <tr><td><code>openssl</code></td><td>3.0.13-0ubuntu3.4</td><td>3.0.13-0ubuntu3.5</td><td><StatusChip status="warning">noble-security</StatusChip></td></tr>
-                  <tr><td><code>htop</code></td><td>3.2.2-2</td><td>3.3.0-4</td><td>noble-updates</td></tr>
-                  <tr><td><code>tmux</code></td><td>3.4-1</td><td>3.4-1ubuntu0.1</td><td>noble-updates</td></tr>
-                </tbody>
-              </table>
-            </div>
+            <Table
+              caption={`Upgradable packages, ${density}`}
+              columns={packageColumns}
+              rows={packages}
+              rowKey={(row) => row.name}
+              rowStatus={(row) => (row.security ? "warning" : undefined)}
+            />
           </Card>
         </Section>
 
