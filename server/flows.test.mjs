@@ -442,8 +442,8 @@ describe("running a flow", () => {
     expect(JSON.stringify([...store.flows.values()])).not.toContain(token);
 
     expect(service.fireWebhook(flow.id, token, { source: "192.168.1.50" })).toBe("accepted");
-    await new Promise((resolve) => setTimeout(resolve, 25));                    // the run is fire-and-record
-    expect(store.getFlow(flow.id).lastResult).toBe("completed");
+    // The run is fire-and-record: wait for its outcome, not a fixed time a loaded runner can overshoot.
+    await vi.waitFor(() => expect(store.getFlow(flow.id).lastResult).toBe("completed"));
     expect(jobs.calls[0].actorId).toBe("operator-7");                           // the creator, not the caller
     expect(store.audits.some((entry) => entry.event === "flow.webhook-fired" && entry.details.source === "192.168.1.50")).toBe(true);
 
@@ -477,8 +477,7 @@ describe("running a flow", () => {
     const flow = await service.create({ name: "orphaned", steps: [goodSteps[0]], createdBy: "ghost-1" });
     const { token } = service.mintWebhook(flow.id, "ghost-1", { role: "owner" });
     expect(service.fireWebhook(flow.id, token)).toBe("accepted");
-    await new Promise((resolve) => setTimeout(resolve, 25));
-    expect(store.getFlow(flow.id).lastResult).toMatch(/skipped:.*creator no longer exists/);
+    await vi.waitFor(() => expect(store.getFlow(flow.id).lastResult).toMatch(/skipped:.*creator no longer exists/));
     expect(notified[0]).toMatch(/creator no longer exists/);
   });
 
@@ -490,8 +489,7 @@ describe("running a flow", () => {
     const flow = await service.create({ name: "demoted", steps: [goodSteps[0]], createdBy: "viewer-9" });
     const { token } = service.mintWebhook(flow.id, "viewer-9", { role: "owner" });
     expect(service.fireWebhook(flow.id, token)).toBe("accepted");
-    await new Promise((resolve) => setTimeout(resolve, 25));
-    expect(store.getFlow(flow.id).lastResult).toMatch(/skipped: viewer-9 can no longer approve/);
+    await vi.waitFor(() => expect(store.getFlow(flow.id).lastResult).toMatch(/skipped: viewer-9 can no longer approve/));
     expect(notified[0]).toMatch(/demoted was fired by its webhook but did not run/);
   });
 
