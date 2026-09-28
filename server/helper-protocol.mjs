@@ -43,8 +43,15 @@ export function validateHelperRequest(value) {
   if (value.context !== undefined) {
     if (!value.context || typeof value.context !== "object" || Array.isArray(value.context)) return "Request context must be an object";
     const keys = Object.keys(value.context);
-    if (keys.some((key) => key !== "jobId")) return "Request context accepts only jobId";
+    if (keys.some((key) => key !== "jobId" && key !== "budgetMs")) return "Request context accepts only jobId and budgetMs";
     if (value.context.jobId !== undefined && (typeof value.context.jobId !== "string" || !jobIdPattern.test(value.context.jobId))) return "Request context jobId must be a UUID";
+    // A job given more time (M30.3) says so here. Only an operation that offers more time accepts
+    // it, and only between its normal budget and its declared maximum. The web side sends it for
+    // those jobs alone, so an older helper, which accepts only jobId, still runs everything else.
+    if (value.context.budgetMs !== undefined) {
+      const operation = registry.get(value.operation);
+      if (!operation?.maxTimeoutMs || !Number.isInteger(value.context.budgetMs) || value.context.budgetMs < operation.timeoutMs || value.context.budgetMs > operation.maxTimeoutMs) return "Request context budgetMs is outside what this operation allows";
+    }
   }
   if (!value.parameters || typeof value.parameters !== "object" || Array.isArray(value.parameters)) return "Parameters must be an object";
   if (registry.has(value.operation)) return registry.validate(value.operation, value.parameters);
@@ -90,10 +97,13 @@ export async function executeHelperOperation(request, dependencies = {}) {
   if (registry.has(request.operation)) {
     const jobLog = createJobLogWriter({ jobId: request.context?.jobId ?? null, gid: serviceGroupId() });
     const progress = (line, stream) => { void jobLog.append(line, stream); };
+    // How much more time than normal this run has (1 = the normal budget). Operations that offer
+    // more time grow the limits of their slow steps by it; the rest never read it.
+    const timeScale = registry.budgetFor(request.operation, request.context?.budgetMs ?? null) / registry.timeoutFor(request.operation);
     // Every service the ops can name is passed explicitly (with its default), so a
     // dependency missing from the caller's set can never reach an op as undefined.
     try {
-      return { version: helperProtocolVersion, id: request.id, ok: true, result: await registry.execute(request.operation, request.parameters, { run: fixedRun, runUnit: dependencies.runUnit ?? createRunUnitClient({ run: fixedRun }), apps: dependencies.apps ?? createAppHelper(), vmCloud: dependencies.vmCloud ?? createVmCloudHelper(), credentials: dependencies.credentials ?? createCredentialStore(), vpnProfile: dependencies.vpnProfile ?? createVpnProfileStore(), ...dependencies, hostInspect, controllerBackups, controllerProtection, controllerRetention, prerequisites, foundation, vmMedia, virtualization, vmProtection, vmRetention, vmRestoreDrill, vmRecovery, machineSnapshot, progress, jobLog }) };
+      return { version: helperProtocolVersion, id: request.id, ok: true, result: await registry.execute(request.operation, request.parameters, { run: fixedRun, runUnit: dependencies.runUnit ?? createRunUnitClient({ run: fixedRun }), apps: dependencies.apps ?? createAppHelper(), vmCloud: dependencies.vmCloud ?? createVmCloudHelper(), credentials: dependencies.credentials ?? createCredentialStore(), vpnProfile: dependencies.vpnProfile ?? createVpnProfileStore(), ...dependencies, hostInspect, controllerBackups, controllerProtection, controllerRetention, prerequisites, foundation, vmMedia, virtualization, vmProtection, vmRetention, vmRestoreDrill, vmRecovery, machineSnapshot, progress, jobLog, timeScale }) };
     } finally { await jobLog.flush(); }
   }
   if (request.operation === "container.docker.inspect") {

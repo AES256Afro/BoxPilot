@@ -33,6 +33,18 @@ describe("run-unit client", () => {
     }) });
     await expect(failing.runTask("apt.update", {})).rejects.toThrow("apt-get update failed");
   });
+
+  it("reports a task that ran past its own budget as a timeout (M30.3)", async () => {
+    const runDirectory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-run-unit-")); directories.push(runDirectory);
+    const client = createRunUnitClient({ runDirectory, run: vi.fn(async (_binary, args) => {
+      const id = args[1].replace(/^boxpilot-run@/, "").replace(/\.service$/, "");
+      await writeFile(path.join(runDirectory, `${id}.result.json`), JSON.stringify({ ok: false, task: "apt.upgrade", error: "Task apt.upgrade exceeded 10800000 ms", timedOut: true, timeoutMs: 10_800_000 }));
+      return { ok: false, stdout: "", stderr: "" };
+    }) });
+    const error = await client.runTask("apt.upgrade", {}, { timeoutMs: 10_800_000 }).catch((caught) => caught);
+    expect(error.message).toBe("Root task apt.upgrade did not finish within 3 hours");
+    expect(error.timeout).toEqual({ scope: "step", budgetMs: 10_800_000, step: "Root task apt.upgrade" });
+  });
 });
 
 describe("stale files from an abandoned task", () => {

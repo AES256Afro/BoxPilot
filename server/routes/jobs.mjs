@@ -121,6 +121,19 @@ export function createJobsRouter({ state, jobs, scheduler, flows = null, helper 
     }
   });
 
+  // "Try again with more time" (M30.3): stages the same operation with a larger budget and answers
+  // like staging does, with the new job and what approving it needs. Nothing runs until it is approved.
+  router.post("/jobs/:id/more-time", auth.requireCsrf, async (request, response) => {
+    try {
+      const owner = request.boxpilotSession.owner;
+      const job = await jobs.retryWithMoreTime(request.params.id, owner.id, { role: owner.role ?? "owner" });
+      response.status(201).json({ job, approval: jobs.describeApproval(job.id, request.boxpilotSession) });
+    } catch (error) {
+      const status = error.message === "Job not found" ? 404 : /^(Only the owner|Viewers cannot)/.test(error.message) ? 403 : 409;
+      response.status(status).json({ error: error.message, code: error.code === "more_time_refused" ? "more_time_refused" : "job_retry_failed" });
+    }
+  });
+
   router.delete("/jobs/:id", auth.requireCsrf, (request, response) => {
     try {
       response.json({ job: jobs.cancelJob(request.params.id, request.boxpilotSession.owner.id, { role: request.boxpilotSession.owner.role ?? "owner" }) });

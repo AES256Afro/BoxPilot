@@ -326,3 +326,27 @@ describe("the nightly data sweep reaches the helper", () => {
     expect(registry.readOnlyIds()).toContain("app.data.usage");
   });
 });
+
+describe("a job given more time (M30.3)", () => {
+  const install = (context) => request({ operation: "app.install", parameters: { id: "jellyfin", values: {} }, ...(context ? { context } : {}) });
+
+  it("accepts a budget only where the operation offers more time, and only up to its maximum", () => {
+    expect(validateHelperRequest(install({ budgetMs: 50 * 60_000 }))).toBeNull();
+    expect(validateHelperRequest(install({ budgetMs: 100 * 60_000, jobId: "11111111-1111-4111-8111-111111111111" }))).toBeNull();
+    expect(validateHelperRequest(install({ budgetMs: 101 * 60_000 }))).toContain("budgetMs");
+    expect(validateHelperRequest(install({ budgetMs: 60_000 }))).toContain("budgetMs");
+    expect(validateHelperRequest(install({ budgetMs: "3000000" }))).toContain("budgetMs");
+    expect(validateHelperRequest(request({ operation: "apt.upgrade", parameters: { packages: ["htop"] }, context: { budgetMs: 200 * 60_000 } }))).toContain("budgetMs");
+    expect(validateHelperRequest(install({ lane: "app:x" }))).toBe("Request context accepts only jobId and budgetMs");
+  });
+
+  it("tells the operation how much more time it has, so its slow steps get it too", async () => {
+    const scales = [];
+    // Every other service is a stub: their real constructors want the server's own paths.
+    const services = Object.fromEntries(["runUnit", "vmCloud", "credentials", "vpnProfile", "hostInspect", "controllerBackups", "controllerProtection", "controllerRetention", "prerequisites", "foundation", "vmMedia", "virtualization", "vmProtection", "vmRetention", "vmRestoreDrill", "vmRecovery", "machineSnapshot"].map((name) => [name, {}]));
+    const apps = { install: async (_parameters, options) => { scales.push(options.timeScale); return { installed: true }; } };
+    await expect(executeHelperOperation(install({ budgetMs: 50 * 60_000 }), { ...services, apps })).resolves.toMatchObject({ ok: true });
+    await expect(executeHelperOperation(install(), { ...services, apps })).resolves.toMatchObject({ ok: true });
+    expect(scales).toEqual([2, 1]);
+  });
+});

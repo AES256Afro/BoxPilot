@@ -11,6 +11,34 @@
 
 export const riskTiers = Object.freeze(["low", "medium", "high"]);
 export const defaultTimeoutMs = 180_000;
+/**
+ * The most time any operation may be given by "Try again with more time" (M30.3). Twelve hours is
+ * the longest budget registered today, and the root task runner's own ceiling sits just under it.
+ */
+export const moreTimeCeilingMs = 12 * 60 * 60_000;
+
+/**
+ * The budget a job of this operation runs with. A requested budget counts only when the operation
+ * offers more time and the request falls between its normal budget and its maximum; anything else
+ * is the normal budget, so a stored or forged value can never shorten or stretch an operation that
+ * did not ask for it.
+ */
+export function budgetFor(operation, requestedMs = null) {
+  const normal = operation?.timeoutMs ?? defaultTimeoutMs;
+  if (!operation?.maxTimeoutMs || !Number.isInteger(requestedMs)) return normal;
+  return requestedMs >= normal && requestedMs <= operation.maxTimeoutMs ? requestedMs : normal;
+}
+
+/**
+ * What "Try again with more time" gives an operation whose budget ran out: twice the budget it
+ * had, up to its declared maximum. Null when it offers no more time or already had the maximum.
+ */
+export function nextBudgetMs(operation, spentMs = null) {
+  if (!operation?.maxTimeoutMs) return null;
+  const spent = budgetFor(operation, spentMs);
+  return spent >= operation.maxTimeoutMs ? null : Math.min(spent * 2, operation.maxTimeoutMs);
+}
+
 
 const idPattern = /^[a-z0-9]+(?:[.-][a-z0-9]+)*$/;
 
@@ -59,7 +87,7 @@ export function validateParameters(spec, parameters, title = "Operation") {
 }
 
 export function defineOperation(definition) {
-  const { id, title, risk, readOnly = false, elevatedOnly = false, timeoutMs = defaultTimeoutMs, parameters = { fields: {} }, run, description = "", minimumRole = null, confirm = null, restartsService = false } = definition ?? {};
+  const { id, title, risk, readOnly = false, elevatedOnly = false, timeoutMs = defaultTimeoutMs, maxTimeoutMs = null, parameters = { fields: {} }, run, description = "", minimumRole = null, confirm = null, restartsService = false } = definition ?? {};
   if (typeof id !== "string" || !idPattern.test(id)) throw new Error(`Operation id "${id}" must be lower-case dotted segments`);
   if (typeof title !== "string" || !title.trim()) throw new Error(`Operation ${id} needs a title`);
   if (!riskTiers.includes(risk)) throw new Error(`Operation ${id} risk must be one of ${riskTiers.join(", ")}`);
@@ -73,11 +101,17 @@ export function defineOperation(definition) {
     if (field.type !== "object" || field.secret) throw new Error(`Operation ${id} parameter ${name}: secretEnvOf belongs on an object field that is not itself secret`);
     if (!Object.hasOwn(parameters.fields, field.secretEnvOf)) throw new Error(`Operation ${id} parameter ${name}: secretEnvOf names ${field.secretEnvOf}, which is not a parameter`);
   }
+  // maxTimeoutMs: the most time "Try again with more time" may give it. Only a job can be retried,
+  // and a budget that cannot grow past the normal one is not an offer.
+  if (maxTimeoutMs !== null) {
+    if (readOnly) throw new Error(`Operation ${id} is read-only; only a job can be given more time`);
+    if (!Number.isInteger(maxTimeoutMs) || maxTimeoutMs <= timeoutMs || maxTimeoutMs > moreTimeCeilingMs) throw new Error(`Operation ${id} maxTimeoutMs must be an integer above timeoutMs and at most ${moreTimeCeilingMs} ms`);
+  }
   // minimumRole: who may stage/approve regardless of tier (e.g. anything that sends data off the box is owner-only).
   // confirm(parameters): text the approver must type for destructive jobs; checked server-side at approval.
   // restartsService: the operation restarts (or reboots) the BoxPilot service, so approving it while
   // another job runs would interrupt that job. The job service refuses the approval when so.
-  return Object.freeze({ id, title, description, risk, readOnly: Boolean(readOnly), elevatedOnly: Boolean(elevatedOnly), timeoutMs, parameters, run, minimumRole, confirm, restartsService: Boolean(restartsService) });
+  return Object.freeze({ id, title, description, risk, readOnly: Boolean(readOnly), elevatedOnly: Boolean(elevatedOnly), timeoutMs, maxTimeoutMs, parameters, run, minimumRole, confirm, restartsService: Boolean(restartsService) });
 }
 
 export class OperationRegistry {
@@ -101,6 +135,8 @@ export class OperationRegistry {
   list() { return [...this.#operations.values()]; }
   readOnlyIds() { return this.list().filter((operation) => operation.readOnly).map((operation) => operation.id); }
   timeoutFor(id) { return this.#operations.get(id)?.timeoutMs ?? null; }
+  /** The budget one request runs under: its own if the operation accepts it (see budgetFor), else the normal one. */
+  budgetFor(id, requestedMs = null) { const operation = this.#operations.get(id); return operation ? budgetFor(operation, requestedMs) : null; }
 
   /** Returns an error string or null. */
   validate(id, parameters) {

@@ -217,3 +217,36 @@ describe("deadlines on shared reads", () => {
     expect(answers).toHaveLength(2);
   });
 });
+
+describe("a request that runs out of time (M30.3)", () => {
+  it("is a timeout with its budget, not only a sentence", async () => {
+    const socketPath = await helperSocket(async (_request, connection) => { await new Promise((resolve) => connection.once("close", resolve)); return {}; });
+    const client = createHelperClient({ socketPath });
+    const error = await client.request("app.install", { id: "demo" }, { timeoutMs: 120 }).catch((caught) => caught);
+    expect(error.message).toContain("timed out");
+    expect(error.timeout).toEqual({ scope: "operation", budgetMs: 120 });
+  });
+
+  it("says when it never left the helper's queue", async () => {
+    const socketPath = await helperSocket(async (request, connection) => {
+      const beat = setInterval(() => connection.write(`${JSON.stringify({ version: 1, id: request.id, queued: true })}\n`), 10);
+      await new Promise((resolve) => connection.once("close", resolve));
+      clearInterval(beat);
+      return {};
+    });
+    const client = createHelperClient({ socketPath, queueTimeoutMs: 120 });
+    const error = await client.request("app.install", { id: "demo" }, { timeoutMs: 60_000 }).catch((caught) => caught);
+    expect(error.timeout).toEqual({ scope: "operation", budgetMs: 120, phase: "queued" });
+  });
+
+  it("sends a job's larger budget only when it has one, so an older helper still runs the rest", async () => {
+    const seen = [];
+    const socketPath = await helperSocket(async (request) => { seen.push(request.context ?? null); return { ok: true }; });
+    const client = createHelperClient({ socketPath });
+    const jobId = "11111111-1111-4111-8111-111111111111";
+    await client.request("app.install", { id: "demo" }, { timeoutMs: 5000, jobId });
+    await client.request("app.install", { id: "demo" }, { timeoutMs: 5000, jobId, budgetMs: 3_000_000 });
+    await client.request("app.install", { id: "demo" }, { timeoutMs: 5000 });
+    expect(seen).toEqual([{ jobId }, { jobId, budgetMs: 3_000_000 }, null]);
+  });
+});

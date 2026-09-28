@@ -1,3 +1,5 @@
+import { timeoutOf } from "./timeouts.mjs";
+
 /** Incremental newline-delimited helper replies. Only one incomplete frame is retained. */
 export const maxHelperResponseBytes = 32 * 1024 * 1024;
 
@@ -31,7 +33,11 @@ export function createHelperResponseReader(id, { maxFrameBytes = maxHelperRespon
       if (started) throw new Error("Helper reported the same request starting twice");
       started = true; onStarted(); return;
     }
-    if (response.ok !== true) throw new Error(response.error ?? "Helper operation failed");
+    if (response.ok !== true) {
+      // The reply's code, and a step's timeout when it ran out of time (M30.3), ride on the error.
+      const timeout = timeoutOf(response);
+      throw Object.assign(new Error(response.error ?? "Helper operation failed"), typeof response.code === "string" ? { code: response.code } : {}, timeout ? { timeout } : {});
+    }
     complete = true;
     result = response.result;
   }
