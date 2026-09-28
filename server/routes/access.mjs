@@ -44,6 +44,27 @@ export const seesEveryAccount = (request) => request.boxpilotSession?.owner?.rol
 /** Whether an operator-gated read (ADR-003) may run on this caller's behalf. */
 export const readsThroughHelper = (request) => ["owner", "operator"].includes(request.boxpilotSession?.owner?.role);
 
+/**
+ * A health-alert ledger entry as this caller may read it (M29.4): its words and its key. Every role
+ * sees that a condition is live; the words of one about another account's work - a job a restart
+ * cut off, a result not saved, a schedule of theirs, their sign-in from a new address - go only to
+ * the owner and to that account. Everyone else reads what kind of thing it is, and its key is cut
+ * back to that kind, because the rest of the key names the schedule, the account or the subject.
+ * `scheduleOwner(id)` answers who created a schedule.
+ */
+export function watchEntryFor(request, key, entry, label, scheduleOwner = () => null) {
+  const title = entry?.title ?? key;
+  const [family, subject] = String(key).split(":");
+  if (seesEveryAccount(request)) return { title, key };
+  const self = callerId(request);
+  const theirs = family === "schedule.failed" || family === "schedule.overdue" ? Boolean(self && scheduleOwner(subject) === self)
+    : family === "signin.new" ? Boolean(self && subject === self)
+    // Named by operation and subject rather than by job, so whose it was cannot be told apart.
+    : family === "job.interrupted" || family === "record.failed" ? false
+    : true;
+  return theirs ? { title, key } : { title: label, key: family };
+}
+
 /** The fields that name who did something: a job's creator, a drill's runner, a profile's applier. */
 const actorFields = new Set(["createdBy", "appliedBy", "by", "actorId", "updatedBy"]);
 
