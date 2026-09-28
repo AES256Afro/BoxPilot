@@ -841,7 +841,8 @@ main:focus {
   pointer-events: auto;
 }
 
-.shell-dock .ui-dock__icon svg {
+.shell-dock .ui-dock__icon svg,
+.areas-sheet .ui-dock__icon svg {
   width: 20px;
   height: 20px;
 }
