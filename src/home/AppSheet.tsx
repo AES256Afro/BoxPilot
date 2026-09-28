@@ -39,7 +39,7 @@ export function AppSheet({ app, protection, now, role, onClose, onNavigate, onSt
   const health = appHealth(app, protection, now);
   const state = app.vpnLeaked ? "Running, but it sent traffic outside its VPN"
     : app.paused ? "Paused: it keeps its memory and uses no processor"
-      : !app.running ? (app.status === "restarting" ? "Restarting over and over" : "Not running")
+      : !app.running ? (app.status === "restarting" ? "Restarting over and over" : app.status === "absent" ? "No container: listed as installed, but Docker has none for it" : app.stoppedOnPurpose ? "Stopped from BoxPilot; it stays off until you start it" : "Not running")
         : app.troubledSidecar ? `Running, but its ${app.troubledSidecar.id} container is ${app.troubledSidecar.status === "restarting" ? "restarting" : "down"}`
           : app.health === "unhealthy" ? "Running, but Docker's health check fails"
             : app.health === "healthy" ? "Running and healthy" : "Running";

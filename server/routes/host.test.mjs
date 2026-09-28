@@ -142,11 +142,11 @@ describe("the catalog summary view", () => {
     volumes: [{ id: "data", label: "Data", hostPath: "/mnt/dump", configurable: true, container: "/data" }, { id: "config", container: "/config", path: "config" }],
     env: [{ name: "BIG", default: "x".repeat(2000) }], notes: "long".repeat(500), setup: [{ step: 1 }], files: [{ path: "a" }], sha256: "f".repeat(64) };
 
-  const serve = async () => {
+  const serve = async ({ settings = {}, live = [] } = {}) => {
     const [{ default: express }, { createHostRouter }] = await Promise.all([import("express"), import("./host.mjs")]);
     const app = express();
     app.use("/api/v1", createHostRouter({
-      state: { getSetting: (_key, fallback) => fallback }, helper: { request: async () => ({ applications: [] }) },
+      state: { getSetting: (key, fallback) => settings[key] ?? fallback }, helper: { request: async () => ({ applications: live }) },
       catalogService: { all: async () => ({ manifests: [manifest], problems: [] }) }, inventory: { inspect: async () => ({}) },
       network: {}, controllerProtection: {}, controllerRetention: {}, githubProvenance: {}, releaseUpdates: {},
       setup: {}, supportBundle: {}, audit: {}, auth: { requireCsrf: (_q, _s, next) => next(), requireRole: () => (_q, _s, next) => next() },
@@ -177,5 +177,19 @@ describe("the catalog summary view", () => {
       const full = await (await fetch(`${base}/api/v1/catalog?view=everything-else`)).json();
       expect(full.applications[0].manifest.notes).toBeTruthy();
     } finally { close(); }
+  });
+
+  it("says which apps the owner stopped on purpose, so Home does not call them down", async () => {
+    const stopped = { settings: { appStops: { qbittorrent: { at: "2026-09-28T22:11:09.000Z", by: "owner-1" } } }, live: [{ id: "qbittorrent", installed: true, container: { running: false, status: "exited" } }] };
+    let server = await serve(stopped);
+    try {
+      const summary = await (await fetch(`${server.base}/api/v1/catalog?view=summary`)).json();
+      expect(summary.applications[0].live.stoppedOnPurpose).toEqual({ at: "2026-09-28T22:11:09.000Z" });
+    } finally { server.close(); }
+    server = await serve({ live: stopped.live });
+    try {
+      const summary = await (await fetch(`${server.base}/api/v1/catalog?view=summary`)).json();
+      expect(summary.applications[0].live.stoppedOnPurpose).toBeNull();
+    } finally { server.close(); }
   });
 });

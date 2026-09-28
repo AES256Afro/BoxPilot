@@ -129,10 +129,16 @@ export function evaluateHealth(inventory) {
   const blockDevices = inventory?.storage?.blockDevices;
   if (blockDevices?.available && Array.isArray(blockDevices.devices) && blockDevices.devices.length > 0) {
     const present = new Set(blockDevices.devices.map((device) => device.name).filter((name) => name?.startsWith("/dev/")));
+    // Device-mapper volumes (LVM, LUKS) are missing from lsblk inside the web service's sandbox
+    // (PrivateDevices=yes): it lists the partition under the root volume but not the volume. The
+    // owner's server said "/ lost its drive" for four weeks because of it. A mount from one is only
+    // judged when the list shows device-mapper volumes at all; USB drives are listed either way.
+    const mapperListed = [...present].some((name) => name.startsWith("/dev/mapper/") || name.startsWith("/dev/dm-"));
     // Only compare when there is something real to compare against. If the device names ever stop
     // being full paths, an empty set here would report every drive on the server as detached at once.
     for (const mount of present.size === 0 ? [] : inventory?.storage?.filesystems?.mounts ?? []) {
       if (!mount.source?.startsWith("/dev/") || present.has(mount.source)) continue;
+      if (!mapperListed && /^\/dev\/(mapper\/|dm-)/.test(mount.source)) continue;
       alerts.push({ key: `storage.mount.detached:${mount.target}`, priority: "high", title: `${mount.target} lost its drive`, message: `It is still mounted from ${mount.source}, which is no longer a device on this server — the drive was disconnected, and may have come back under a different name. Anything reading that folder now sees it empty, including network shares. Reconnect it from the Repair page.` });
     }
   }
