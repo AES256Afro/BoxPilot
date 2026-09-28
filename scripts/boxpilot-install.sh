@@ -116,9 +116,9 @@ if ! id boxpilot >/dev/null 2>&1; then
   useradd --system --create-home --home-dir /var/lib/boxpilot --shell /usr/sbin/nologin boxpilot
 fi
 install -d -m 0700 -o boxpilot -g boxpilot /var/lib/boxpilot
-# The helper binds this at start: it must exist, or an independent backup disk mounted later
-# stays invisible inside the helper's namespace.
-install -d -o root -g root -m 0755 /mnt/boxpilot-backup
+# The helper's sandbox is given /mnt/boxpilot at start and skips it when it is missing; the backup
+# destination (a NAS share or a drive) is mounted below it, at /mnt/boxpilot/backup.
+install -d -o root -g root -m 0755 /mnt/boxpilot /mnt/boxpilot/backup
 
 install -d -m 0755 /etc/boxpilot
 

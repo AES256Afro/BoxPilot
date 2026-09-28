@@ -1,13 +1,10 @@
 [Unit]
 Description=BoxPilot restricted local helper
 After=local-fs.target
-# The backup mount is a network share behind a systemd automount. Setting up this unit's bind path
-# at boot touched the automount trigger, which tried to mount the share before the network was up
-# and failed with "No such device" - a state the "-" prefix below does not forgive, since the path
-# exists. So: wait for the network, and for the automount trigger to be in place. Ordering only;
-# the share may be unreachable and the helper must still start.
-Wants=network-online.target
-After=network-online.target mnt-boxpilot\x2dbackup.automount
+# The backup destination is usually a NAS share behind a systemd automount, at /mnt/boxpilot/backup.
+# Ordering only: with its automount already in place the sandbox below copies it as it is; the NAS
+# itself is never waited for, and may be off. See ReadWritePaths= for why nothing here names it.
+After=mnt-boxpilot-backup.automount
 Before=boxpilot.service
 
 ConditionPathIsDirectory=/var/lib/boxpilot
@@ -28,12 +25,12 @@ Environment=BOXPILOT_CONTROLLER_DATABASE=/var/lib/boxpilot/boxpilot.sqlite3
 Environment=BOXPILOT_CONTROLLER_BACKUP_ROOT=/var/lib/boxpilot-managed/backups/boxpilot-controller
 Environment=BOXPILOT_CONTROLLER_RESTORE_DRILL_ROOT=/var/lib/boxpilot-managed/controller-restore-drills
 Environment=BOXPILOT_CONTROLLER_PROTECTION_DRILL_ROOT=/var/lib/boxpilot-managed/controller-independent-restore-drills
-Environment=BOXPILOT_CONTROLLER_BACKUP_MOUNT=/mnt/boxpilot-backup
+Environment=BOXPILOT_CONTROLLER_BACKUP_MOUNT=/mnt/boxpilot/backup
 Environment=BOXPILOT_CONTROLLER_RESTIC_PASSWORD_FILE=/etc/boxpilot/secrets/controller-backup-restic-password
 Environment=BOXPILOT_CONTROLLER_RESTIC_CACHE_DIRECTORY=/var/cache/boxpilot-controller-restic
 Environment=BOXPILOT_APPLICATION_BACKUP_ROOT=/var/lib/boxpilot-managed/backups
 Environment=BOXPILOT_APPLICATION_PROTECTION_DRILL_ROOT=/var/lib/boxpilot-managed/application-independent-restore-drills
-Environment=BOXPILOT_APPLICATION_BACKUP_MOUNT=/mnt/boxpilot-backup
+Environment=BOXPILOT_APPLICATION_BACKUP_MOUNT=/mnt/boxpilot/backup
 Environment=BOXPILOT_APPLICATION_RESTIC_PASSWORD_FILE=/etc/boxpilot/secrets/application-backup-restic-password
 Environment=BOXPILOT_APPLICATION_RESTIC_CACHE_DIRECTORY=/var/cache/boxpilot-application-restic
 Environment=BOXPILOT_DOCKER_BINARY=/usr/bin/docker
@@ -49,7 +46,7 @@ Environment=BOXPILOT_SYSTEMCTL_BINARY=/usr/bin/systemctl
 Environment=BOXPILOT_VM_IMAGE_ROOT=/var/lib/libvirt/images
 Environment=BOXPILOT_VM_MEDIA_INBOX=/var/lib/boxpilot-managed/vm-media-inbox
 Environment=BOXPILOT_VM_EXPORT_ROOT=/var/lib/boxpilot-managed/vm-exports
-Environment=BOXPILOT_VM_BACKUP_MOUNT=/mnt/boxpilot-backup
+Environment=BOXPILOT_VM_BACKUP_MOUNT=/mnt/boxpilot/backup
 Environment=BOXPILOT_VM_RESTORE_DRILL_ROOT=/var/lib/libvirt/images/boxpilot-restore-drills
 Environment=BOXPILOT_VM_RECOVERY_ROOT=/var/lib/libvirt/images/boxpilot-recoveries
 Environment=BOXPILOT_LIBVIRT_QEMU_GROUP=libvirt-qemu
@@ -89,7 +86,17 @@ ReadWritePaths=/var/lib/boxpilot
 ReadWritePaths=-/var/lib/libvirt/images
 ReadWritePaths=-/var/lib/libvirt/boot
 ReadWritePaths=-/var/lib/libvirt/qemu/nvram
-ReadWritePaths=-/mnt/boxpilot-backup
+# The backup destination is mounted at /mnt/boxpilot/backup, and this is the folder above it, never
+# the mount point itself. Setting up the sandbox resolves every path listed here, and resolving an
+# automount point mounts the share: with the NAS off that fails with "No such device", which no
+# "-" forgives, and the helper - every host operation BoxPilot has - stayed down, failing again
+# five seconds after each try, for as long as the NAS was off. systemd 258+ resolves through
+# automounts on purpose; 255 fires them from its nosuid pass (NoNewPrivileges=) and waits up to the
+# mount timeout. Neither looks inside a folder it is given, so the share mounts on first use
+# instead, writable, whether it was already mounted when the helper started or came up later.
+# Nothing else under /mnt is opened. tests/ubuntu/helper-automount.sh proves all of it on real
+# systemd with a real CIFS automount.
+ReadWritePaths=-/mnt/boxpilot
 RestrictAddressFamilies=AF_UNIX
 RestrictNamespaces=true
 RestrictRealtime=true

@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import path from "node:path";
 import { promisify } from "node:util";
 import { createVmProtectionHelper } from "./vm-protection-helper.mjs";
+import { backupMountpoint } from "./backup-mount.mjs";
 
 const execFile = promisify(execFileCallback);
 const uuidPattern = /^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
@@ -47,7 +48,7 @@ export function validateVmRetentionInput(input) {
 
 export function createVmRetentionHelper({
   resticBinary = process.env.BOXPILOT_RESTIC_BINARY ?? "/usr/bin/restic",
-  mountRoot = process.env.BOXPILOT_VM_BACKUP_MOUNT ?? "/mnt/boxpilot-backup",
+  mountRoot = process.env.BOXPILOT_VM_BACKUP_MOUNT ?? backupMountpoint,
   passwordFile = process.env.BOXPILOT_RESTIC_PASSWORD_FILE ?? "/etc/boxpilot/secrets/vm-backup-restic-password",
   cacheRoot = process.env.BOXPILOT_RESTIC_CACHE_DIRECTORY ?? "/var/cache/boxpilot-restic",
   inspectDestination = createVmProtectionHelper().inspect,
