@@ -7,7 +7,8 @@ import { aptAutoremove, aptInstall, aptRemove, aptRepair, aptUnattendedSet, aptU
 import { dockerLoggingDefaults, setHostname, setLocale, setSwappiness, setTimezone, systemReboot } from "./system.mjs";
 import { sshPasswordAuthSet, userAdd, userKeysImport, userSudoSet } from "./users.mjs";
 import { firewallProfileApply, firewallRuleAdd, firewallRuleDelete, firewallSet } from "./firewall.mjs";
-import { storageCheck, storageFormat, storageLvmExtend, storageLvmSnapshotCreate, storageLvmSnapshotDelete, storageLvmSnapshotRollback, storageMount, storageRemount, storageUnmount, swapFileSet } from "./storage.mjs";
+import { storageCheck, storageClearMark, storageFormat, storageLvmExtend, storageLvmSnapshotCreate, storageLvmSnapshotDelete, storageLvmSnapshotRollback, storageMount, storageRemount, storageUnmount, swapFileSet } from "./storage.mjs";
+import { storageDockerOrder, storageVolumeState } from "./drive-shutdown.mjs";
 import { shareMount, shareUnmount } from "./shares.mjs";
 import { housekeepingRemoveTrees } from "./housekeeping.mjs";
 import { aptClean, journalVacuum } from "./space.mjs";
@@ -55,6 +56,9 @@ export const tasks = Object.freeze({
   "storage.unmount": storageUnmount,
   "storage.remount": storageRemount,
   "storage.check": storageCheck,
+  "storage.clear-mark": storageClearMark,
+  "storage.docker-order": storageDockerOrder,
+  "storage.volume-state": storageVolumeState,
   "storage.format": storageFormat,
   "storage.swapfile": swapFileSet,
   "storage.lvm-extend": storageLvmExtend,

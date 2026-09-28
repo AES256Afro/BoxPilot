@@ -1,12 +1,14 @@
-import { access, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { access, mkdir, open, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fixedRun } from "../exec.mjs";
+import { parseSmbConf, smbConfPath } from "./samba.mjs";
 
 /**
  * Root-side storage tasks executed by scripts/boxpilot-run.mjs inside boxpilot-run@.service.
- * Mount operations must run in the host mount namespace (the helper's sandbox has its own),
- * and /etc/fstab is writable only here. Every fstab entry BoxPilot adds sits under a
- * `# boxpilot:<name>` marker line and carries `nofail`, so a missing disk never blocks boot.
+ * Mount operations must act in the host mount namespace (the helper's sandbox has its own, and so
+ * does this runner: see hostNamespace), and /etc/fstab is writable only here. Every fstab entry
+ * BoxPilot adds sits under a `# boxpilot:<name>` marker line and carries `nofail`, so a missing
+ * disk never blocks boot, and a drive's entry is ordered around Docker (withDockerOrder).
  */
 
 export const mountNamePattern = /^[a-z0-9][a-z0-9-]{0,31}$/;
@@ -41,6 +43,8 @@ const binaries = {
   fsckFat: "/usr/sbin/fsck.fat",
   e2fsck: "/usr/sbin/e2fsck",
   fsckExfat: "/usr/sbin/fsck.exfat",
+  smbcontrol: "/usr/bin/smbcontrol",
+  smbstatus: "/usr/bin/smbstatus",
   wipefs: "/usr/sbin/wipefs",
   mkfsExt4: "/usr/sbin/mkfs.ext4",
   fallocate: "/usr/bin/fallocate",
@@ -58,6 +62,19 @@ const binaries = {
   vgs: "/usr/sbin/vgs",
 };
 const tail = (text) => String(text ?? "").split("\n").filter(Boolean).slice(-3).join(" ");
+
+/**
+ * mount(8) and umount(8), switched into PID 1's mount namespace to do their work.
+ *
+ * These tasks run in boxpilot-run@.service, whose PrivateTmp= gives it a mount namespace of its
+ * own that does not propagate back to the host: a mount made there was visible to the task alone
+ * and gone when it exited, and an unmount took the drive away from the task and nothing else. The
+ * task's own findmnt agreed with it, so each reported success. tests/ubuntu/drive-shutdown-order.sh
+ * shows both on real systemd, and that -N (util-linux 2.33+) makes them read fstab and act in the
+ * host's namespace, from where the change propagates back into the task's own.
+ */
+export const hostNamespace = Object.freeze(["-N", "/proc/1/ns/mnt"]);
+const mountArgs = (...args) => [...hostNamespace, ...args];
 export const snapshotPrefix = "boxpilot-snap-";
 export const snapshotNamePattern = /^boxpilot-snap-[0-9]{8}-[0-9]{4}(-[a-z0-9-]{1,24})?$/;
 /** Device-mapper escapes "-" as "--": a snapshot named boxpilot-snap-x appears as vg-boxpilot--snap--x. */
@@ -134,6 +151,35 @@ export async function appendFstabEntry({ run, files, log }, name, entry) {
   return before;
 }
 
+/**
+ * Two options on every drive entry: the drive is mounted before Docker starts, and unmounted only
+ * after Docker has stopped (M26).
+ *
+ * `nofail` keeps a missing drive from holding up boot by taking the mount out of local-fs.target's
+ * ordering, and that was the only thing ordering it before Docker: docker.service comes after
+ * local-fs.target only by way of sysinit.target. With nothing between them, a boot can start the
+ * containers before the drive is mounted - they bind the empty folder underneath, and whatever they
+ * save lands on the system disk - and a shutdown can unmount the drive while Docker is still
+ * stopping them. Stop order is start order reversed, so one Before= orders both.
+ *
+ * The device timeout is what that costs when the drive really is missing: Docker waits for it at
+ * most this long instead of systemd's default 90 s. Not less, because a large USB disk starting
+ * from cold can take 15-20 s to show its partition table, and a drive that misses the window is
+ * not mounted at all until someone mounts it.
+ */
+export const driveDeviceTimeout = "30s";
+export const dockerOrderOption = "x-systemd.before=docker.service";
+
+/** The fstab options with the Docker ordering added where missing. A device timeout already there is the owner's and is kept. */
+export function withDockerOrder(options) {
+  const list = String(options ?? "").split(",").filter(Boolean);
+  const added = [
+    ...(list.includes(dockerOrderOption) ? [] : [dockerOrderOption]),
+    ...(list.some((option) => option.startsWith("x-systemd.device-timeout=")) ? [] : [`x-systemd.device-timeout=${driveDeviceTimeout}`]),
+  ];
+  return [...list, ...added].join(",");
+}
+
 /** Mount a filesystem by UUID at /mnt/<name> with a verified, nofail fstab entry. */
 export const appUserId = 1000;
 export const permissionlessFilesystems = Object.freeze(["exfat", "vfat", "ntfs", "ntfs3", "msdos"]);
@@ -167,13 +213,13 @@ export async function storageMount({ uuid, name, fstype = "auto", readOnly = fal
   // Linux filesystem keeps its own on-disk permissions, so we chown the top of it after mounting.
   const permissionless = permissionlessFilesystems.includes(entryFstype);
   const giveToApps = appWritable && !readOnly;
-  const options = readOnly ? "ro,nofail"
+  const options = withDockerOrder(readOnly ? "ro,nofail"
     : giveToApps && permissionless ? `rw,nofail,uid=${uid},gid=${gid}`
-      : "defaults,nofail";
+      : "defaults,nofail");
   const previous = await appendFstabEntry({ run, files, log }, name, `UUID=${uuid} ${mountpoint} ${entryFstype} ${options} 0 ${fsckPass}`);
   await run(binaries.systemctl, ["daemon-reload"], { timeout: 30_000 });
   log?.(`$ mount ${mountpoint}`, "stdout");
-  const mountResult = await run(binaries.mount, [mountpoint], { timeout: 60_000 });
+  const mountResult = await run(binaries.mount, mountArgs(mountpoint), { timeout: 60_000 });
   // mount can exit 0 while quietly skipping a `nofail` entry it judges not ready, or while leaving
   // nothing mounted for an unclean exFAT/NTFS volume. Trusting the exit code alone once reported
   // success with nothing mounted, leaving a live fstab entry that then blocked every retry, so
@@ -209,7 +255,7 @@ export async function storageUnmount({ name } = {}, { run = fixedRun, log = null
   const mounted = await run(binaries.findmnt, ["-n", mountpoint], { timeout: 15_000 });
   if (mounted.ok && mounted.stdout.trim()) {
     log?.(`$ umount ${mountpoint}`, "stdout");
-    const result = await run(binaries.umount, [mountpoint], { timeout: 60_000 });
+    const result = await run(binaries.umount, mountArgs(mountpoint), { timeout: 60_000 });
     if (!result.ok) throw new Error(`umount failed (is something using it?): ${result.stderr.split("\n").slice(-2).join(" ")}`);
   }
   await files.writeFile(fstabPath, without);
@@ -395,7 +441,7 @@ export async function storageRemount({ name } = {}, { run = fixedRun, log = null
   const before = await sourceOf();
   if (before) {
     log?.(`$ umount ${mountpoint}`, "stdout");
-    const plain = await run(binaries.umount, [mountpoint], { timeout: 60_000 });
+    const plain = await run(binaries.umount, mountArgs(mountpoint), { timeout: 60_000 });
     if (!plain.ok) {
       // A refused umount is usually EBUSY — something is still using a healthy folder — and lazily
       // detaching that splits the writers: whoever holds the old filesystem keeps writing into one
@@ -407,12 +453,12 @@ export async function storageRemount({ name } = {}, { run = fixedRun, log = null
       const mountReadable = await files.readable(mountpoint);
       if (mountReadable) throw new Error(`${mountpoint} is in use, so it was left alone: ${tail(plain.stderr)}. Stop whatever is using it — an app with that folder mounted, or the file server — and try again.`);
       log?.(`${mountpoint} is not readable, so its drive is gone; detaching lazily`, "stderr");
-      const lazy = await run(binaries.umount, ["-l", mountpoint], { timeout: 60_000 });
+      const lazy = await run(binaries.umount, mountArgs("-l", mountpoint), { timeout: 60_000 });
       if (!lazy.ok) throw new Error(`Could not detach ${mountpoint}: ${tail(lazy.stderr)}`);
     }
   }
   log?.(`$ mount ${mountpoint}`, "stdout");
-  const mounted = await run(binaries.mount, [mountpoint], { timeout: 120_000 });
+  const mounted = await run(binaries.mount, mountArgs(mountpoint), { timeout: 120_000 });
   if (!mounted.ok) throw new Error(`Could not mount ${mountpoint} again: ${tail(mounted.stderr)}. The drive may be unplugged; check it is connected and try again.`);
   const after = await sourceOf();
   if (!after) throw new Error(`${mountpoint} did not come back after remounting. The drive may be unplugged.`);
@@ -434,34 +480,27 @@ export async function storageRemount({ name } = {}, { run = fixedRun, log = null
   return { remounted: true, name, mountpoint, source: after, previousSource: before, deviceChanged: Boolean(before && before !== after), restarted, restartFailed: failed };
 }
 
+const defaultCheckFiles ={ readFile, readable: (target) => readdir(target).then(() => true, () => false), exists: (file) => access(file).then(() => true, () => false) };
+const readOnlyCheckers = (device) => ({ exfat: [binaries.fsckExfat, ["-n", device]], ext4: [binaries.e2fsck, ["-fn", device]], ext3: [binaries.e2fsck, ["-fn", device]], ext2: [binaries.e2fsck, ["-fn", device]], vfat: [binaries.fsckFat, ["-n", device]] });
 
 /**
- * Check a drive's filesystem without changing a byte of it.
- *
- * After a drive drops off USB and comes back, the honest next step is a check before anything
- * writes to it again - exFAT in particular keeps its whole directory table in one place. A check
- * while mounted read-write can report damage that is only a write in progress, so the drive is
- * unmounted for it: the containers bound to it are stopped first and started again afterwards,
- * the way an operator would do it by hand. The checker runs with -n: it reports, it never repairs.
- * Repairing is a separate decision with the report in hand.
+ * Do `work` with a managed drive unmounted from the host, the way an operator would by hand: the
+ * containers using it stopped, file-sharing clients let go of it, and everything mounted and
+ * started again afterwards whatever `work` did. `prepare` runs before anything is stopped, so a
+ * refusal there costs nothing.
  */
-export async function storageCheck({ name } = {}, { run = fixedRun, log = null, files = { readFile, readable: (target) => readdir(target).then(() => true, () => false), exists: (file) => access(file).then(() => true, () => false) } } = {}) {
+async function withDriveUnmounted(name, { verb, prepare, work }, { run, log, files, sleep, processes }) {
   assertPlainMountName(name);
   const content = await files.readFile(fstabPath, "utf8");
   const entry = parseManagedFstab(content).find((row) => row.name === name);
   if (!entry) throw new Error(`${name} is not a BoxPilot-managed mount`);
   const mountpoint = entry.line.trim().split(/\s+/)[1] ?? "";
   if (mountpoint !== `/mnt/${name}`) throw new Error(`The ${name} entry is not a drive mounted at /mnt/${name}; nothing was changed`);
-  const where = await run(binaries.findmnt, ["-n", "-o", "SOURCE,FSTYPE", mountpoint], { timeout: 15_000 });
-  const [device, fstype] = where.ok ? where.stdout.trim().split(/\s+/) : [];
-  if (!device) throw new Error(`${mountpoint} is not mounted, so there is nothing to check yet. Reconnect the drive first.`);
-  const checker = { exfat: [binaries.fsckExfat, ["-n", device]], ext4: [binaries.e2fsck, ["-fn", device]], ext3: [binaries.e2fsck, ["-fn", device]], ext2: [binaries.e2fsck, ["-fn", device]], vfat: [binaries.fsckFat, ["-n", device]] }[fstype];
-  if (!checker) throw new Error(`BoxPilot has no read-only checker for ${fstype} filesystems`);
-  // Before anything is stopped or unmounted: a checker that is not installed would only be found
-  // missing with the drive already detached. Ubuntu does not install fsck.exfat by default.
-  if (!(await files.exists(checker[0]))) {
-    throw new Error(`${path.basename(checker[0])} is not installed, so ${mountpoint} was not checked; nothing was stopped or unmounted. Install the drive check tools from Repair first.`);
-  }
+  const where = await run(binaries.findmnt, ["-n", "-o", "SOURCE,FSTYPE,MAJ:MIN", mountpoint], { timeout: 15_000 });
+  const [device, fstype, majMin] = where.ok ? where.stdout.trim().split(/\s+/) : [];
+  if (!device) throw new Error(`${mountpoint} is not mounted, so there is nothing to ${verb} yet. Reconnect the drive first.`);
+  const drive = { mountpoint, device, fstype };
+  const prepared = await prepare(drive);
 
   const bound = await containersBoundTo(run, mountpoint);
   for (const container of bound) { log?.(`$ docker stop ${container}`, "stdout"); await run(binaries.docker, ["stop", container], { timeout: 120_000 }); }
@@ -473,24 +512,202 @@ export async function storageCheck({ name } = {}, { run = fixedRun, log = null, 
       if (result.ok) started.push(container); else { restartFailed.push(container); log?.(`could not start ${container}: ${tail(result.stderr)}`, "stderr"); }
     }
   };
-  log?.(`$ umount ${mountpoint}`, "stdout");
-  const unmounted = await run(binaries.umount, [mountpoint], { timeout: 60_000 });
-  if (!unmounted.ok) { await restart(); throw new Error(`${mountpoint} is still in use, so it was not checked: ${tail(unmounted.stderr)}. Stop whatever is using it - a share, a copy in progress - and try again.`); }
-  let checked;
+  const unmounted = await unmountFromHost(mountpoint, { run, log, files, sleep });
+  if (!unmounted.ok) {
+    const holders = majMin ? await processesUsing(majMin, processes) : [];
+    await restart();
+    throw new Error(`${mountpoint} is still in use${holders.length ? ` by ${holders.map((holder) => `${holder.command} (${holder.pid})`).join(", ")}` : ""}, so nothing was done to it: ${tail(unmounted.result.stderr)}. Stop whatever is using it - a copy in progress, a shell sitting in it - and try again.`);
+  }
+  let outcome;
   try {
-    log?.(`$ ${path.basename(checker[0])} ${checker[1].join(" ")}`, "stdout");
-    checked = await run(checker[0], checker[1], { timeout: 25 * 60_000, onLine: (line, stream) => log?.(line, stream) });
+    outcome = await work({ ...drive, prepared });
   } finally {
     log?.(`$ mount ${mountpoint}`, "stdout");
-    const mounted = await run(binaries.mount, [mountpoint], { timeout: 120_000 });
+    const mounted = await run(binaries.mount, mountArgs(mountpoint), { timeout: 120_000 });
     if (!mounted.ok) log?.(`could not mount ${mountpoint} again: ${tail(mounted.stderr)}`, "stderr");
     await restart();
   }
+  return { ...drive, outcome, restarted: started, restartFailed, sharingClosedFor: unmounted.clients ?? [] };
+}
+
+/**
+ * Check a drive's filesystem without changing a byte of it.
+ *
+ * After a drive drops off USB and comes back, the honest next step is a check before anything
+ * writes to it again - exFAT in particular keeps its whole directory table in one place. A check
+ * while mounted read-write can report damage that is only a write in progress, so the drive is
+ * unmounted for it: the containers bound to it are stopped first and started again afterwards,
+ * the way an operator would do it by hand. The checker runs with -n: it reports, it never repairs.
+ * Repairing is a separate decision with the report in hand.
+ */
+export async function storageCheck({ name } = {}, { run = fixedRun, log = null, files = defaultCheckFiles, sleep = pause, processes = undefined } = {}) {
+  const done = await withDriveUnmounted(name, {
+    verb: "check",
+    prepare: async ({ mountpoint, device, fstype }) => {
+      const checker = readOnlyCheckers(device)[fstype];
+      if (!checker) throw new Error(`BoxPilot has no read-only checker for ${fstype} filesystems`);
+      // Before anything is stopped or unmounted: a checker that is not installed would only be found
+      // missing with the drive already detached. Ubuntu does not install fsck.exfat by default.
+      if (!(await files.exists(checker[0]))) {
+        throw new Error(`${path.basename(checker[0])} is not installed, so ${mountpoint} was not checked; nothing was stopped or unmounted. Install the drive check tools from Repair first.`);
+      }
+      return checker;
+    },
+    work: async ({ device, fstype, prepared: checker }) => {
+      // The dirty mark, read while nothing has the drive mounted: the only time it means anything.
+      const flags = fstype === "exfat" ? exfatVolumeFlags(await (files.bootSector ?? readBootSector)(device)) : null;
+      log?.(`$ ${path.basename(checker[0])} ${checker[1].join(" ")}`, "stdout");
+      const checked = await run(checker[0], checker[1], { timeout: 25 * 60_000, onLine: (line, stream) => log?.(line, stream) });
+      return { checked, markedDirty: flags ? flags.dirty : null, checker: path.basename(checker[0]) };
+    },
+  }, { run, log, files, sleep, processes });
+  const { mountpoint, device, fstype, outcome: { checked, markedDirty, checker } } = done;
   // fsck exit codes: 0 clean, 1 errors found (and would have been corrected without -n), 4 errors left, 8 operational error.
   const clean = checked.ok;
   const summary = (checked.stdout + "\n" + checked.stderr).split("\n").filter(Boolean).slice(-4).join(" ").slice(0, 400);
   log?.(clean ? `${mountpoint} checked clean` : `${mountpoint}: the checker found problems (exit ${checked.code})`, clean ? "stdout" : "stderr");
-  return { checked: true, name, mountpoint, device, fstype, checker: path.basename(checker[0]), clean, exitCode: checked.code, summary, restarted: started, restartFailed, checkedAt: new Date().toISOString() };
+  // fsck.exfat -n calls a consistent volume clean whether or not it carries the mark, and Linux
+  // keeps a mark it found at mount (tests/ubuntu/drive-shutdown-order.sh, part 3), so without
+  // this the check says "clean" and the kernel goes on warning at every mount, with nothing to
+  // say which of them to believe.
+  if (markedDirty) log?.(`${mountpoint} is still marked as not properly unmounted. ${clean ? "The folder table is consistent, so the mark is left over from an earlier drop or unclean shutdown; Repair offers to clear it. " : ""}Linux keeps that mark until a repairing check clears it, and says "Volume was not properly unmounted" every time the drive is mounted until then; this check only reads, so it leaves the mark as it is.`, "stderr");
+  return { checked: true, name, mountpoint, device, fstype, checker, clean, markedDirty, exitCode: checked.code, summary, restarted: done.restarted, restartFailed: done.restartFailed, checkedAt: new Date().toISOString() };
+}
+
+/**
+ * Clear the exFAT "not properly unmounted" mark from a drive whose folder table is consistent.
+ *
+ * Linux keeps that mark once it has seen it (exfatVolumeFlags), so a drive that dropped once
+ * warns at every mount for good, and the read-only check cannot clear it. A repairing run does,
+ * and on a consistent volume the mark is all it changes - so this runs the read-only pass first,
+ * with the drive unmounted, and only when that finds nothing wrong runs `fsck.exfat -y`. A volume
+ * with real damage is refused: repairing it is a decision to make with that report in hand.
+ */
+export async function storageClearMark({ name } = {}, { run = fixedRun, log = null, files = defaultCheckFiles, sleep = pause, processes = undefined } = {}) {
+  const done = await withDriveUnmounted(name, {
+    verb: "clear",
+    prepare: async ({ mountpoint, fstype }) => {
+      if (fstype !== "exfat") throw new Error(`${mountpoint} is ${fstype}; only exFAT keeps a not-properly-unmounted mark this way, so there is nothing to clear`);
+      if (!(await files.exists(binaries.fsckExfat))) throw new Error(`fsck.exfat is not installed, so nothing was stopped or unmounted. Install the drive check tools from Repair first.`);
+    },
+    work: async ({ mountpoint, device }) => {
+      const read = async () => exfatVolumeFlags(await (files.bootSector ?? readBootSector)(device));
+      const before = await read();
+      if (!before?.dirty) { log?.(`${mountpoint} is not marked; nothing to clear`, "stdout"); return { wasMarked: false, cleared: false }; }
+      log?.(`$ fsck.exfat -n ${device}`, "stdout");
+      const checked = await run(binaries.fsckExfat, ["-n", device], { timeout: 25 * 60_000, onLine: (line, stream) => log?.(line, stream) });
+      if (!checked.ok) throw new Error(`the read-only check found problems (exit ${checked.code}), so the mark was left and nothing was changed: ${tail(`${checked.stdout}\n${checked.stderr}`)}. Repairing a damaged volume is a separate decision.`);
+      log?.(`$ fsck.exfat -y ${device}`, "stdout");
+      const repaired = await run(binaries.fsckExfat, ["-y", device], { timeout: 25 * 60_000, onLine: (line, stream) => log?.(line, stream) });
+      const after = await read();
+      if (!repaired.ok || after?.dirty) throw new Error(`fsck.exfat -y did not clear the mark (exit ${repaired.code}): ${tail(`${repaired.stdout}\n${repaired.stderr}`)}`);
+      log?.(`Cleared the mark on ${mountpoint}; the folder table was consistent, so the mark is all that changed`, "stdout");
+      return { wasMarked: true, cleared: true };
+    },
+  }, { run, log, files, sleep, processes });
+  return { name, mountpoint: done.mountpoint, device: done.device, ...done.outcome, restarted: done.restarted, restartFailed: done.restartFailed, clearedAt: new Date().toISOString() };
+}
+
+const pause = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
+const underPath = (child, parent) => child === parent || child.startsWith(`${parent.replace(/\/+$/, "")}/`);
+
+/** Samba shares that reach into a mount: served from a folder on it, or from a folder above it. */
+export function sharesOnMount(smbConf, mountpoint) {
+  return parseSmbConf(smbConf).shares.filter((share) => underPath(share.path, mountpoint) || underPath(mountpoint, share.path)).map((share) => share.name);
+}
+
+/** Who is connected to which share, from `smbstatus -S --json`, or its table when JSON is not on offer. */
+export function parseSmbstatusShares(text) {
+  const raw = String(text ?? "").trim();
+  try {
+    const parsed = JSON.parse(raw);
+    return Object.values(parsed?.tcons ?? {}).map((tcon) => ({ service: String(tcon?.service ?? ""), machine: String(tcon?.machine ?? "") })).filter((row) => row.service && row.machine);
+  } catch {
+    return raw.split("\n").map((line) => line.match(/^(.+?)\s+(\d+)\s+(\S+)\s+\w{3}\s/)).filter(Boolean).map(([, service, , machine]) => ({ service: service.trim(), machine }));
+  }
+}
+
+/**
+ * Unmount a drive in the host's namespace, getting file-sharing clients off it first when they
+ * are what holds it.
+ *
+ * A Windows PC with the share mapped as a drive keeps directory handles open on it, and Explorer
+ * reconnects within about a second of `smbcontrol close-share`, so closing once and then
+ * unmounting loses the race. Closing and unmounting straight after, up to thirty times, won it on
+ * the first try on the owner's server. Once the drive is unmounted a client that reconnects sees
+ * only the empty folder underneath, which holds nothing.
+ */
+export async function unmountFromHost(mountpoint, { run = fixedRun, log = null, files = { readFile }, sleep = pause, tries = 30 } = {}) {
+  log?.(`$ umount ${mountpoint}`, "stdout");
+  const first = await run(binaries.umount, mountArgs(mountpoint), { timeout: 60_000 });
+  if (first.ok) return { ok: true, result: first, clients: [] };
+  const shares = sharesOnMount(await files.readFile(smbConfPath, "utf8").catch(() => ""), mountpoint);
+  if (!shares.length) return { ok: false, result: first, clients: [] };
+  const status = await run(binaries.smbstatus, ["-S", "--json"], { timeout: 15_000 });
+  const clients = [...new Set(parseSmbstatusShares(status.stdout).filter((row) => shares.includes(row.service)).map((row) => row.machine))];
+  let result = first;
+  for (let attempt = 1; attempt <= tries; attempt += 1) {
+    for (const share of shares) await run(binaries.smbcontrol, ["smbd", "close-share", share], { timeout: 10_000 });
+    result = await run(binaries.umount, mountArgs(mountpoint), { timeout: 60_000 });
+    if (result.ok) {
+      log?.(`Closed file-sharing connections${clients.length ? ` from ${clients.join(", ")}` : ""} to ${shares.join(", ")} so ${mountpoint} could be unmounted${attempt > 1 ? ` (try ${attempt})` : ""}`, "stdout");
+      return { ok: true, result, clients, shares };
+    }
+    await sleep(300);
+  }
+  return { ok: false, result, clients, shares };
+}
+
+/** glibc's makedev, which is how Node reports st_dev. */
+const makedev = (major, minor) => (major % 4096) * 256 + (minor % 256) + Math.floor(minor / 256) * 1_048_576 + Math.floor(major / 4096) * 2 ** 32;
+
+/**
+ * Processes with a file, a working directory or a root on the filesystem `majMin` ("8:2"), in any
+ * mount namespace - what `fuser -m` reports, from /proc, since fuser (psmisc) is not on every
+ * server. Compared by device number, so a path's spelling in another namespace does not matter.
+ */
+export async function processesUsing(majMin, { proc = "/proc", fs = { readdir, stat }, maxFiles = 4096 } = {}) {
+  const [major, minor] = String(majMin ?? "").split(":").map(Number);
+  if (!Number.isInteger(major) || !Number.isInteger(minor)) return [];
+  const device = makedev(major, minor);
+  const onDevice = (target) => fs.stat(target).then((info) => Number(info.dev) === device, () => false);
+  const found = [];
+  for (const entry of await fs.readdir(proc).catch(() => [])) {
+    if (!/^\d+$/.test(entry) || Number(entry) === process.pid) continue;
+    const base = `${proc}/${entry}`;
+    let holds = (await onDevice(`${base}/cwd`)) || (await onDevice(`${base}/root`));
+    if (!holds) {
+      const descriptors = (await fs.readdir(`${base}/fd`).catch(() => [])).slice(0, maxFiles);
+      for (const descriptor of descriptors) if (await onDevice(`${base}/fd/${descriptor}`)) { holds = true; break; }
+    }
+    if (holds) found.push({ pid: Number(entry), command: (await readFile(`${base}/comm`, "utf8").catch(() => "?")).trim() });
+  }
+  return found;
+}
+
+/** The first sector of a block device, read-only, or null when it cannot be read. */
+export async function readBootSector(device) {
+  let handle;
+  try {
+    handle = await open(device, "r");
+    const buffer = Buffer.alloc(512);
+    const { bytesRead } = await handle.read(buffer, 0, 512, 0);
+    return bytesRead === 512 ? buffer : null;
+  } catch { return null; } finally { await handle?.close().catch(() => {}); }
+}
+
+/**
+ * The exFAT boot sector's VolumeFlags. VolumeDirty (bit 1) is what the kernel reads at mount to
+ * print "Volume was not properly unmounted". It is set by the first write and cleared by a clean
+ * unmount (not by sync) - unless it was already set when the volume was mounted: then Linux leaves
+ * it set, as the exFAT specification asks, until a checker has repaired the volume. So a drive that
+ * once dropped off mid-write reports an unclean unmount at every mount, however cleanly it has been
+ * unmounted since. Measured on real exFAT in tests/ubuntu/drive-shutdown-order.sh.
+ */
+export function exfatVolumeFlags(bootSector) {
+  if (!bootSector || bootSector.length < 512 || bootSector.toString("latin1", 3, 11) !== "EXFAT   ") return null;
+  const flags = bootSector[106] | (bootSector[107] << 8);
+  return { dirty: (flags & 0x2) !== 0, mediaFailure: (flags & 0x4) !== 0 };
 }
 
 /** Running containers with a bind at or under the mountpoint. A prefix is not a parent: /mnt/x-backup is not under /mnt/x. */

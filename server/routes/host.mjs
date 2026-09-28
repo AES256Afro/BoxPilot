@@ -165,13 +165,19 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
     // operator reads (ADR-003). A viewer is not handed what they hold as findings: they are not read
     // on a viewer's behalf, and the scan says which checks it left to an operator (M29.4).
     const operatorReads = readsThroughHelper(request);
-    const [storage, live, samba, usb] = await Promise.all([
+    const [storage, live, samba, usb, unclean, volumes] = await Promise.all([
       collect().catch(() => null),
       helper.request("app.inspect", {}, { timeoutMs: 30_000 }).catch(() => null),
       operatorReads ? helper.request("samba.inspect", {}, { timeoutMs: 30_000 }).catch(() => null) : null,
       operatorReads ? helper.request("storage.usb.events", {}, { timeoutMs: 45_000 }).catch(() => null) : null,
+      operatorReads ? helper.request("storage.unclean.events", {}, { timeoutMs: 45_000 }).catch(() => null) : null,
+      // What each drive's filesystem says about its last unmount (M26): the kernel's warnings are
+      // only evidence for the mount they were printed at.
+      operatorReads ? helper.request("storage.volumes.state", {}, { timeoutMs: 90_000 }).catch(() => null) : null,
     ]);
     facts.usb = usb;
+    facts.unclean = unclean;
+    facts.volumes = volumes;
     facts.driveTools = null;
     facts.driveChecks = state.getSetting("driveChecks", {}) ?? {};
     if (storage) {
@@ -227,7 +233,7 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
     // Every finding here, and every health condition the watcher tracks, ends at a notification
     // target. Whether there is one is therefore part of whether any of this reaches anybody.
     try { facts.notifications = { configured: notifications?.describe?.().configured === true }; } catch { facts.notifications = null; }
-    const unavailableChecks = [["Drives and mounts", storage, true], ["Applications", live, true], ["File sharing", samba, operatorReads], ["USB history", usb, operatorReads]]
+    const unavailableChecks = [["Drives and mounts", storage, true], ["Applications", live, true], ["File sharing", samba, operatorReads], ["USB history", usb, operatorReads], ["Unclean unmounts", unclean, operatorReads], ["Drive filesystems", volumes, operatorReads]]
       .filter(([, value]) => !value || value.available === false)
       .map(([name, , allowed]) => (allowed ? name : `${name} (needs an operator)`));
     if (storage?.availability?.mounts === false) unavailableChecks.push("Current mounts");

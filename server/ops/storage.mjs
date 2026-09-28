@@ -1,6 +1,6 @@
 import { readdir, readFile, realpath } from "node:fs/promises";
 import { defineOperation } from "./registry.mjs";
-import { devicePattern, labelPattern, logicalVolumePattern, mountNamePattern, parseManagedFstab, uuidPattern } from "../tasks/storage.mjs";
+import { devicePattern, dockerOrderOption, driveDeviceTimeout, labelPattern, logicalVolumePattern, mountNamePattern, parseManagedFstab, uuidPattern } from "../tasks/storage.mjs";
 import { fsSnapshotsInspect, snapshotKinds, snapshotNamePattern as fsSnapshotNamePattern } from "../tasks/fs-snapshots.mjs";
 
 /** The LV name the Storage page shows for a snapshot path (device-mapper escapes "-" as "--"). */
@@ -103,6 +103,35 @@ export function parseUsbEvents(text, { now = () => new Date(), days = 30 } = {})
   return { days, ports: [...ports.values()].filter((entry) => entry.drops.length > 0).map((entry) => ({ ...entry, lastDropAt: entry.drops.at(-1) })) };
 }
 
+/**
+ * What the kernel says, as it mounts a filesystem, when that filesystem was not unmounted cleanly
+ * (M26). exFAT and FAT say it outright; ext4 says it by replaying its journal or cleaning up
+ * orphans; ntfs3 calls the volume dirty. One line per device: the latest.
+ */
+const uncleanMessages = [
+  /Volume was not properly unmounted/i,
+  /recovery complete/i,
+  /recovery required/i,
+  /orphan cleanup/i,
+  /\d+ orphan inodes? deleted/i,
+  /mounting fs with errors/i,
+  /volume is dirty/i,
+];
+export function parseUncleanMounts(text) {
+  const latest = new Map();
+  for (const line of String(text ?? "").split("\n")) {
+    // "exFAT-fs (sda2): ...", "EXT4-fs (sdb1): ...", and ntfs3's "ntfs3: sdc1: ..." / "ntfs3(sdc1): ...".
+    const match = line.match(/^(\S+)\s+\S+\s+kernel:\s+(?:(exFAT-fs|FAT-fs|EXT[234]-fs) \(([A-Za-z0-9_-]+)\)|(ntfs3)(?:\(([A-Za-z0-9_-]+)\)|: ([A-Za-z0-9_-]+))):\s+(.*)$/);
+    if (!match) continue;
+    const [, stamp, driver, device, ntfs, ntfsDevice, ntfsName, message] = match;
+    const at = Date.parse(stamp);
+    if (!Number.isFinite(at) || !uncleanMessages.some((pattern) => pattern.test(message))) continue;
+    const name = device ?? ntfsDevice ?? ntfsName;
+    latest.set(name, { device: `/dev/${name}`, driver: driver ?? ntfs, at: new Date(at).toISOString(), message: `${driver ?? ntfs} (${name}): ${message.trim()}` });
+  }
+  return [...latest.values()];
+}
+
 export function storageOperations() {
   return [
     defineOperation({
@@ -123,7 +152,7 @@ export function storageOperations() {
     }),
     defineOperation({
       id: "storage.mount", title: "Mount a filesystem", risk: "medium", timeoutMs: minutes(3),
-      description: "Adds a nofail fstab entry by UUID, verifies fstab still parses, and mounts at /mnt/<name>. A missing disk never blocks boot.",
+      description: `Adds a nofail fstab entry by UUID, verifies fstab still parses, and mounts at /mnt/<name>. A missing disk never blocks boot; Docker waits for it at boot for up to ${driveDeviceTimeout.replace("s", " seconds")} and stops before it is unmounted at shutdown.`,
       parameters: { fields: {
         uuid: { type: "string", maxLength: 40, pattern: uuidPattern },
         name: { type: "string", maxLength: 32, pattern: mountNamePattern },
@@ -203,16 +232,50 @@ export function storageOperations() {
       },
     }),
     defineOperation({
+      // operator (ADR-003): a kernel-log read, like storage.usb.events.
+      id: "storage.unclean.events", title: "Read which drives were not unmounted cleanly", risk: "low", readOnly: true, minimumRole: "operator", timeoutMs: 60_000,
+      description: "What the kernel said since this boot about filesystems it found not cleanly unmounted when it mounted them: exFAT and FAT say so outright, ext4 by replaying its journal. Read-only. A drive named here is worth checking before anything writes much to it again.",
+      run: async (_parameters, { run }) => {
+        const journalctl = process.env.BOXPILOT_JOURNALCTL_BINARY ?? "/usr/bin/journalctl";
+        const result = await run(journalctl, ["-k", "-b", "-o", "short-iso", "--no-pager", "-g", "(exFAT-fs|FAT-fs|EXT[234]-fs|ntfs3)"], { timeout: 45_000, maxBuffer: 4 * 1024 * 1024 });
+        // --grep exits 1 when nothing matched, which on a healthy server is the usual answer.
+        const nothingMatched = result.code === 1 && !result.stdout.trim();
+        if (!result.ok && !nothingMatched) return { available: false, events: [] };
+        return { available: true, events: parseUncleanMounts(result.stdout) };
+      },
+    }),
+    defineOperation({
+      // operator (ADR-003): it reads block devices as root, which nobody else can.
+      id: "storage.volumes.state", title: "Read how each drive was last unmounted", risk: "low", readOnly: true, minimumRole: "operator", timeoutMs: minutes(2),
+      description: "What each drive BoxPilot mounted says about itself: exFAT's not-properly-unmounted mark from its boot sector, an ext4 filesystem's state from its superblock, and when its current mount began. Read-only; nothing is unmounted or written.",
+      run: (_parameters, { runUnit, jobLog }) => runUnit.runTask("storage.volume-state", {}, { timeoutMs: minutes(1), logPath: jobLog?.path ?? null }),
+    }),
+    defineOperation({
       id: "storage.check", title: "Check a drive", risk: "medium", timeoutMs: minutes(35),
-      description: "Runs the filesystem's own read-only checker on a mounted drive and reports what it finds. Containers using the drive are stopped, the drive is unmounted for the check, then mounted again and the containers started. Nothing is repaired or written; that is a separate decision with the report in hand.",
+      description: "Runs the filesystem's own read-only checker on a mounted drive and reports what it finds. Containers using the drive are stopped, file-sharing clients are disconnected (they reconnect by themselves), the drive is unmounted for the check, then mounted again and the containers started. Nothing is repaired or written; that is a separate decision with the report in hand.",
       parameters: { fields: { name: { type: "string", maxLength: 32, pattern: mountNamePattern } } },
       run: (parameters, { runUnit, jobLog }) => runUnit.runTask("storage.check", { name: parameters.name }, { timeoutMs: minutes(33), logPath: jobLog?.path ?? null }),
+    }),
+    defineOperation({
+      // Its own operation and its own confirmation, not a step of the check: it writes to the drive.
+      id: "storage.dirty-mark.clear", title: "Clear a drive's not-properly-unmounted mark", risk: "medium", timeoutMs: minutes(35),
+      description: "For an exFAT drive whose check came back clean but which still carries the mark Linux keeps until a repairing check clears it. With the drive unmounted as for a check, runs the read-only check again and, only if it still finds nothing wrong, fsck.exfat -y, which on a consistent drive changes the mark and nothing else. A drive with real damage is refused and left as it is.",
+      parameters: { fields: { name: { type: "string", maxLength: 32, pattern: mountNamePattern } } },
+      run: (parameters, { runUnit, jobLog }) => runUnit.runTask("storage.clear-mark", { name: parameters.name }, { timeoutMs: minutes(33), logPath: jobLog?.path ?? null }),
     }),
     defineOperation({
       id: "storage.remount", title: "Reconnect a drive", risk: "medium", timeoutMs: minutes(5),
       description: "Detaches a managed mount and mounts it again from its fstab entry, which finds the drive by UUID wherever the kernel has put it. This is the fix when a drive was unplugged for a moment and came back under a different name, leaving the old mount pointing at nothing. The fstab entry and everything on the drive are unchanged. Containers using the folder are restarted afterwards, since Docker attaches a folder when a container starts and would otherwise keep the dead one.",
       parameters: { fields: { name: { type: "string", maxLength: 32, pattern: mountNamePattern } } },
       run: (parameters, { runUnit, jobLog }) => runUnit.runTask("storage.remount", { name: parameters.name }, { timeoutMs: minutes(4), logPath: jobLog?.path ?? null }),
+    }),
+    defineOperation({
+      // The migration for drive entries written before the ordering existed (M26), offered on
+      // Repair for a drive an app uses. Running it again changes nothing.
+      id: "storage.docker-order.apply", title: "Order the drives around Docker", risk: "medium", timeoutMs: minutes(3),
+      description: `Adds ${dockerOrderOption} and x-systemd.device-timeout=${driveDeviceTimeout} to each drive BoxPilot mounted, so a shutdown stops Docker before unmounting the drive and a boot mounts the drive before Docker starts its apps, waiting for it at most ${driveDeviceTimeout.replace("s", " seconds")}. fstab is copied first, the new one is checked with findmnt --verify before it replaces the old one, and the old one is put back if systemd does not take the change. Nothing is unmounted or restarted. Network shares and entries you wrote yourself are left alone.`,
+      parameters: { fields: {} },
+      run: (_parameters, { runUnit, jobLog }) => runUnit.runTask("storage.docker-order", {}, { timeoutMs: minutes(2), logPath: jobLog?.path ?? null }),
     }),
     defineOperation({
       id: "storage.unmount", title: "Unmount a managed filesystem", risk: "medium", timeoutMs: minutes(3),

@@ -21,6 +21,7 @@ import { annotateDevices, parseLsblkTree, sharesFrom, volumeGroupsFrom } from ".
 import { cloudProviders } from "../server/backup-cloud.mjs";
 import { buildChecklist } from "../server/setup-checklist.mjs";
 import { assessDriveChecks } from "../server/drive-checks.mjs";
+import { drivesNeedingCheck, drivesNotOrderedAroundDocker } from "../server/remediations.mjs";
 import { setupProfiles } from "../server/setup-profiles.mjs";
 import { productVersion } from "../server/version.mjs";
 import { securityHeaders } from "../server/security-headers.mjs";
@@ -631,17 +632,27 @@ api.get("/diagnostics/runtime", (_request, response) => {
   json(response, { web: snapshot(120 * 1024 ** 2, 32 * 1024 ** 2, 2 * 1024 ** 2), helper: snapshot(156 * 1024 ** 2, 48 * 1024 ** 2, 4 * 1024 ** 3), helperAvailable: true, transport: { active: 0, completed: 42, failed: 0 } });
 });
 
+// The drive findings of M26, from the real detectors: /mnt/media mounted after an unclean shutdown
+// and not checked since, and its fstab entry from before the Docker ordering.
+const demoDrive = { target: "/mnt/media", source: "/dev/sda1", fstype: "ext4", managedName: "media", options: "defaults,nofail" };
+const demoDriveFindings = () => [
+  ...drivesNeedingCheck({ mounts: [demoDrive], unclean: { available: true, events: [{ device: "/dev/sda1", driver: "EXT4-fs", at: ago(9), message: "EXT4-fs (sda1): recovery complete" }] }, driveChecks: { media: { checkedAt: ago(24 * 20), clean: true } } }),
+  ...drivesNotOrderedAroundDocker({ mounts: [demoDrive], containers: [{ name: "bp-jellyfin", binds: ["/mnt/media"] }] }),
+];
+
 api.get("/remediations", (request, response) => {
   const world = scenarioOf(request.get("referer"));
   if (world !== "trouble") return json(response, { findings: [], counts: { critical: 0, warning: 0, info: 0 }, checkedAt: now().toISOString() });
+  const drives = demoDriveFindings();
   return json(response, {
     checkedAt: now().toISOString(),
-    counts: { critical: 1, warning: 2, info: 2 },
+    counts: { critical: 1, warning: 2 + drives.length, info: 2 },
     findings: [
       { id: "stale-mount:media", severity: "critical", title: "/mnt/media is mounted from a drive that is gone",
         detail: "The mount still points at /dev/sda2, which no longer exists - the drive was disconnected and came back under a different name. Anything reading this folder gets an error or sees it empty, including network shares and any app that uses it.",
         evidence: ["mounted from /dev/sda2", "/dev/sda2 is not a device on this server", "16 TiB filesystem"],
         fix: { operationId: "storage.remount", parameters: { name: "media" }, label: "Reconnect the drive", preview: "Detaches the dead mount at /mnt/media and mounts it again from fstab, which finds the drive by its UUID wherever the kernel has put it. Nothing on the drive is touched." }, manual: null },
+      ...drives,
       { id: "stale-bind:bp-jellyfin", severity: "warning", title: "bp-jellyfin is still using the old copy of that folder",
         detail: "Docker attaches a folder when the container starts, so this one is still looking at the filesystem that was mounted then, not the one that is there now. It needs restarting before it sees the files again.",
         evidence: ["bp-jellyfin uses /mnt/media"],

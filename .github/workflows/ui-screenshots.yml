@@ -83,7 +83,9 @@ jobs:
           OUT_DIR: ${{ runner.temp }}/ui-screenshots
           PAGES: all
           SCENARIO: ${{ inputs.scenario }}
-          STATES: ${{ inputs.states }}
+          # With none given, the dialogs worth a look on every run: checking a drive (M26), which
+          # names the apps it pauses and the file shares it disconnects.
+          STATES: ${{ inputs.states || 'storage-check=?view=storage>Check this drive' }}
           SCHEMES: dark,light
           FULL_PAGE: "1"
           SCALE: "1"
