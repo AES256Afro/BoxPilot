@@ -204,8 +204,8 @@ export function createJobService(store, helper, {
   /** Move the live job log (written by root-side processes) into SQLite and remove the file. */
   async function persistJobOutput(jobId) {
     if (!jobLog) return;
-    if (!await confirmLogReadable(jobId)) return;
     try {
+      if (!await confirmLogReadable(jobId)) return;
       const { text, exists } = await jobLog.read(jobId, 0);
       if (exists && typeof store.saveJobOutput === "function") {
         store.saveJobOutput(jobId, text);
