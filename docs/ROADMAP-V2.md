@@ -1158,6 +1158,27 @@ This owns diagnostic cost and resource accounting. M21 remains the owner of gene
 
 Suggested order: release the reviewed fixes; M32.4 and M29.2; M27.5 plus M32.1-2; M30.5-7; then M30.8-9, M28.5 and M32.3-5. Keep backup compatibility and independent recovery ahead of broad automatic remediation.
 
+## M34 — The local assistant
+
+- ✅ **M34.4 Documentation of this server** (unreleased): *Repair Center → Document this server*,
+  beside the recovery kit. `server/runbook.mjs` turns facts into Markdown, pure and with the clock
+  passed in; `server/runbook-service.mjs` gathers the facts from reads BoxPilot already makes (the
+  host inventory, the network topology, the drives, the helper's app, backup, Serve, firewall,
+  snapshot and Samba reads, and its own records), masking every stored parameter set with
+  `secretPaths`/`maskSecrets` first. Eight sections: this server; each app's image, ports and who
+  can reach them, data folders and their drives, where its sign-in is kept and its backups;
+  storage, with what each drive holds, SMART and auto-reconnect; network and firewall; backups and
+  the second copy; automation; how to restore, numbered, naming each registered operation and
+  what approving it takes; and the issues open right now. A fact that could not be read says
+  unknown and why. Generating it needs an operator (ADR-003); downloading the full copy, which
+  names where the second copies are kept and carries every account's schedules and alerts, is the
+  owner's, like the recovery kit. Each download keeps a fingerprint per section - what is where,
+  not what it is doing this minute - and the page says "out of date since" the first layout
+  change BoxPilot recorded after it (a completed install, mount, firewall or exposure job, a
+  schedule, destination or firewall-profile change, a new version), from SQLite alone; a preview
+  names the sections that differ, which also catches changes made by hand. Remaining: the model's
+  prose pass, once M34.1 has a local model.
+
 ## App catalogue candidates
 
 Checked against the 164 manifests already in `catalog/`, so nothing here duplicates an existing
