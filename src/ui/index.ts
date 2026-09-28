@@ -12,5 +12,5 @@ export { Section, type SectionProps } from "./Section";
 export { StatusChip, type StatusChipProps } from "./StatusChip";
 export { ThemeSwitch } from "./ThemeSwitch";
 export { Tile, initials, type TileProps } from "./Tile";
-export { operationRisk, riskOf } from "./operationRisk";
+export { mayStart, operationRisk, ownerOnlyOperations, riskOf } from "./operationRisk";
 export { STATUSES, statusWords, type Density, type RiskTier, type Status } from "./types";

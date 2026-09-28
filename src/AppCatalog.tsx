@@ -235,7 +235,8 @@ export function offlineFor(downtimeMs: number | null): string {
   return `${Math.round(seconds / 60)} minutes`;
 }
 
-export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
+/** `focusApp` opens the catalog at one app's card (from a Home tile or the command bar); changing the search leaves it. */
+export default function AppCatalog({ csrfToken, focusApp }: { csrfToken: string; focusApp?: string }) {
   const [data, setData] = useState<CatalogResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -298,7 +299,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
   useDialogFocus(secretsRef, Boolean(secrets));
   const closeOnEscape = (close: () => void) => (event: { key: string; stopPropagation: () => void }) => { if (event.key === "Escape") { event.stopPropagation(); close(); } };
   const [filter, setFilter] = useState("");
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(focusApp ?? "");
   const [serves, setServes] = useState<Array<{ dnsName: string; port: number; target: string | null }> | null>(null);
   const [stats, setStats] = useState<Record<string, { cpuPercent: number; memBytes: number; containers: number }> | null>(null);
 
@@ -533,6 +534,8 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
 
   const categories = useMemo(() => [...new Set((data?.applications ?? []).map((entry) => entry.manifest.category))].sort(), [data]);
   const visible = useMemo(() => {
+    // Opened at one app: its card alone, until the search or the category is changed.
+    if (focusApp && search === focusApp && !filter) return (data?.applications ?? []).filter((entry) => entry.manifest.id === focusApp);
     const words = search.trim().toLowerCase().split(/\s+/).filter(Boolean);
     return (data?.applications ?? []).filter((entry) => {
       if (filter && entry.manifest.category !== filter) return false;
@@ -540,7 +543,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
       const haystack = `${entry.manifest.name} ${entry.manifest.id} ${entry.manifest.category} ${entry.manifest.description}`.toLowerCase();
       return words.every((word) => haystack.includes(word));
     });
-  }, [data, filter, search]);
+  }, [data, filter, focusApp, search]);
   // What is already on this server goes first, running before stopped, so it is never behind a
   // scroll through a hundred-odd things that are not installed.
   const installedVisible = useMemo(() => visible.filter((entry) => entry.live?.installed)

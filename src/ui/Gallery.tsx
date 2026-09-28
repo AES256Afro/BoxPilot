@@ -117,7 +117,7 @@ function DensityShowcase({ density, title, summary }: { density: Density; title:
             onSelect={setCurrent}
             items={dockAreas.map((id) => {
               const item = navItems.find((entry) => entry.id === id);
-              return { id, label: item?.label ?? id, icon: item?.short ?? id.slice(0, 2).toUpperCase(), current: id === current, badge: id === "updates" ? 14 : id === "backups" ? 2 : undefined };
+              return { id, label: item?.label ?? id, icon: item?.short ?? id.slice(0, 2).toUpperCase(), current: id === current, badge: id === "updates" ? 14 : id === "backups" ? 2 : undefined, separatorBefore: id === "settings" };
             })}
           />
         </div>

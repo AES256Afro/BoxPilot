@@ -60,6 +60,11 @@ export const pairs = [
   ["--risk-medium", "--surface-raised", 3, "the medium bar on a button"],
   ["--risk-high", "--surface-raised", 3, "the high bar on a button"],
   ["--accent", "--meter-track", 3, "a bar's fill against its track"],
+  // The shell, Home and Ops (M33.2, M33.3).
+  ["--text-strong", "--canvas", 4.5, "Home's greeting and verdict on the page"],
+  ["--text-muted", "--accent-bg", 4.5, "a hint on the chosen command"],
+  ["--text-muted", "--surface-hover", 4.5, "a figure's caption under the pointer"],
+  ["--text-strong", "--topbar-bg", 4.5, "the dock and top bar over the page"],
 ];
 
 /** Top-level rules and the rules one level inside @media, as { media, selector, declarations }. */
