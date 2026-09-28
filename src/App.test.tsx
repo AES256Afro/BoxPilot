@@ -6,6 +6,8 @@ import { connectionLabel } from "./appLinks";
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  // A test that fails half way must not leave the next one on its page.
+  window.history.replaceState(null, "", "/");
 });
 
 describe("BoxPilot console", () => {
