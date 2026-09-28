@@ -243,6 +243,23 @@ describe("a mount the kernel turned read-only", () => {
     const { findings } = detectRemediations({ mounts: [dump], devices: [{ path: "/dev/sdb2" }], containers: [{ name: "bp-plex", appId: "plex", binds: ["/mnt/the-dump"] }, { name: "bp-ntfy", appId: "ntfy", binds: ["/srv/ntfy"] }] });
     expect(findings.map((entry) => entry.id).filter((id) => id !== "drive-order")).toEqual(["read-only-remount:the-dump", "stale-bind:bp-plex"]);
   });
+
+  // The backup destination is a network share (share-boxpilot-backup) at /mnt/boxpilot/backup.
+  // Repair offered it the drive fixes, and both refused it: "share-boxpilot-backup is a network
+  // share; use the share operations for it" and "Only a drive BoxPilot mounts under /mnt can be
+  // reconnected automatically".
+  const backupShare = { target: "/mnt/boxpilot/backup", source: "//nas.example/BoxPilot-Backup", fstype: "cifs", managedName: "share-boxpilot-backup", readOnly: true, options: "credentials=/etc/boxpilot/secrets/share-boxpilot-backup.cred,uid=1000,nofail,_netdev,x-systemd.automount" };
+
+  it("offers a read-only network share the share reconnect, never the drive operations", () => {
+    const [found] = readOnlyRemounts({ mounts: [backupShare] });
+    expect(found).toMatchObject({ id: "read-only-remount:share-boxpilot-backup", severity: "critical", title: "/mnt/boxpilot/backup has gone read-only", fix: { operationId: "share.reconnect", parameters: { name: "boxpilot-backup" }, label: "Reconnect the share" } });
+    expect(found.detail).not.toMatch(/USB|drive/);
+  });
+
+  it("lists the containers on a read-only share at the share's own mount point", () => {
+    const { findings } = detectRemediations({ mounts: [backupShare], devices: [], containers: [{ name: "bp-duplicati", appId: "duplicati", binds: ["/mnt/boxpilot/backup/duplicati"] }] });
+    expect(findings.map((entry) => entry.id)).toEqual(expect.arrayContaining(["read-only-remount:share-boxpilot-backup", "stale-bind:bp-duplicati"]));
+  });
 });
 
 describe("a drive the kernel found not cleanly unmounted (M26)", () => {
