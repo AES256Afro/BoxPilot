@@ -7,8 +7,8 @@ description: Teach small language models a specific job. Build a knowledge base 
 website: https://github.com/AES256Afro/LLMCoach
 risk: low
 image:
-  reference: ghcr.io/aes256afro/llmcoach:0.11.1
-  version: "0.11.1"
+  reference: ghcr.io/aes256afro/llmcoach:0.11.2
+  version: "0.11.2"
 ports:
   - id: web
     label: Web UI
