@@ -983,11 +983,18 @@ the web service could not read). There will be more.
   cover no longer push once per failure, so a schedule failing every hour is one push. A host alert
   whose send failed is now kept as not announced too, instead of being dropped until the next round.
   The Overview shows one "BoxPilot could not tell you about N things" line, quiet at zero, that opens
-  to the list and links to Settings. Still open: a job someone ran by hand, an interrupted job that
-  no schedule started, release notices and sign-in alerts are still pushed directly and leave no
-  record when nothing receives them; a "resolved" push that fails is dropped rather than retried;
-  the Schedules panel still shows "ran" for a run whose job later failed; a scheduled run whose
-  record hook fails raises both a schedule and a record condition.
+  to the list and links to Settings. Since then (unreleased): release notices, new-sign-in alerts,
+  the weekly report and a job a restart cut off that no schedule or automation started go through the
+  same ledger as notices - pushed at once, or kept as one not-announced entry per release, account
+  and address, or operation and subject; counted on the Overview but not under "Needs attention";
+  sent by the next round once a target answers and then dropped; at most 20 kept, none past 30 days.
+  A job run by hand is not kept when its push reaches no one: the person who ran it watched it fail,
+  and Activity and the Overview keep it; the unattended case, the interrupted job, is kept. The
+  Schedules panel shows how the last run ended (ran, failed, or did not run, with the reason) rather
+  than that a job started, and a scheduled run whose record hook fails is one condition, the record
+  one, which quietly replaces the schedule's own earlier failure. Still open: a "resolved" push that
+  fails is dropped rather than retried. An automation whose step's record hook fails still raises
+  both, on purpose: the automation also stopped, and its later steps did not run.
 - **M27.3 Run the detectors against captured reality.** Keep a fixture directory of real
   `findmnt -J`, `lsblk -J`, fstab, `docker inspect` output from the real server (scrubbed), and run
   every Repair detector and health rule over it in CI. The findmnt tree bug would have failed on
@@ -1040,8 +1047,15 @@ clear until v1.112.0. The lesson generalises.
   read-only or idempotent operation cut off by a self-update should simply run again.
 - **M30.3 Timeouts are a first-class result**, not a stderr prefix: the job record says the budget
   and what was reached, and the dialog offers "try again with more time" for pulls.
-- **M30.4 A weekly self-report** to the notification target: what ran, what failed, what was
-  skipped and why, what is not covered yet. The morning glance M25.3 promised, from the server side.
+- ✅ **M30.4 A weekly self-report** (unreleased): one push on Sundays at 09:00 server time, timed by
+  the scheduler's own daylight-saving-safe next-run arithmetic; on by default like every other push
+  once a target is set, and turned off, previewed or sent now under Settings, Notifications. It is
+  read from what BoxPilot records - jobs, schedule and automation records, the health-alert ledger,
+  the backups table - plus the setup checklist and the apps with no backup schedule for "not covered
+  yet", a line left out when those cannot be checked. A week the server was off for is skipped
+  rather than sent at whatever hour it came back; with no target it is one not-announced entry,
+  replaced each week. Six lines at most. To the notification target: what ran, what failed, what
+  was skipped and why, what is not covered yet. The morning glance M25.3 promised, from the server side.
 
 ### M31 — Storage and data, next steps (continues M23)
 
