@@ -4,7 +4,8 @@ name: UI screenshots
 # touches the interface (M33.1). Download the ui-screenshots artifact and look at both themes: this
 # job fails only when the demo or Chrome cannot run, because judging the pictures is a person's job.
 # Run it by hand with a baseline (for example main) to get that ref's dark pages alongside, in
-# baseline/, for a before-and-after comparison.
+# baseline/, for a before-and-after comparison. By hand it also takes a viewport (375x812 puts a
+# phone's pages in phone/), a demo world, and states reached by clicking, such as an open dialog.
 on:
   pull_request:
     paths:
@@ -17,6 +18,18 @@ on:
     inputs:
       baseline:
         description: "Also photograph this branch or tag in dark, into baseline/ (for example main)"
+        required: false
+        default: ""
+      viewport:
+        description: "Also photograph at this size, into phone/ (for example 375x812)"
+        required: false
+        default: ""
+      scenario:
+        description: "The demo world for every page: default, fresh or trouble"
+        required: false
+        default: ""
+      states:
+        description: "Extra captures reached by clicking, name=query>click;... (see scripts/demo-screenshots.mjs)"
         required: false
         default: ""
 
@@ -69,11 +82,27 @@ jobs:
         env:
           OUT_DIR: ${{ runner.temp }}/ui-screenshots
           PAGES: all
+          SCENARIO: ${{ inputs.scenario }}
+          STATES: ${{ inputs.states }}
           SCHEMES: dark,light
           FULL_PAGE: "1"
           SCALE: "1"
           # A throwaway runner photographing a local demo; Ubuntu's user-namespace rules can
           # otherwise stop Chrome's sandbox from starting at all.
+          CHROME_ARGS: --no-sandbox
+        run: npm run demo:screenshots
+
+      - name: Photograph at another size
+        if: github.event_name == 'workflow_dispatch' && inputs.viewport != ''
+        env:
+          OUT_DIR: ${{ runner.temp }}/ui-screenshots/phone
+          VIEWPORT: ${{ inputs.viewport }}
+          PAGES: all
+          SCENARIO: ${{ inputs.scenario }}
+          STATES: ${{ inputs.states }}
+          SCHEMES: dark,light
+          FULL_PAGE: "1"
+          SCALE: "2"
           CHROME_ARGS: --no-sandbox
         run: npm run demo:screenshots
 
