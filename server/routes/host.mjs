@@ -94,6 +94,8 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
     // Likewise the kill-switch drill. Recording that an app leaked outside its VPN and then showing
     // nobody is worse than not drilling: the owner believes it is covered because a drill ran.
     const drills = state.getSetting("killSwitchDrills", {}) ?? {};
+    // Apps the owner stopped from BoxPilot, so Home can say "Stopped" rather than calling them down.
+    const stops = state.getSetting("appStops", {}) ?? {};
     // Six pages fetch this and five of them read id, name, category, icon and the volumes' host
     // paths - of 442 KB, most of it env definitions, notes and install steps only the catalog page
     // itself shows. ?view=summary hands those five what they use: about a tenth of the bytes, on
@@ -108,7 +110,7 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
     // The verdicts say who ran the drill; only the owner is told when that was another account.
     const applications = manifests.map((manifest) => {
       const entry = live?.applications?.find((row) => row.id === manifest.id) ?? null;
-      return { manifest: project(manifest), live: entry ? { ...entry, backupVerification: withOwnActors(request, verifications[manifest.id] ?? null), killSwitchDrill: withOwnActors(request, drills[manifest.id] ?? null) } : null };
+      return { manifest: project(manifest), live: entry ? { ...entry, backupVerification: withOwnActors(request, verifications[manifest.id] ?? null), killSwitchDrill: withOwnActors(request, drills[manifest.id] ?? null), stoppedOnPurpose: stops[manifest.id] ? { at: stops[manifest.id].at ?? null } : null } : null };
     });
     response.json({ applications, // The catalog is read on both sides, so the same file would otherwise be reported twice.
       problems: [...new Map([...problems, ...(live?.problems ?? [])].map((problem) => [problem.file, problem])).values()], liveError, host });

@@ -106,12 +106,21 @@ export function buildNeeds(facts: FactValues, { now, role }: { now: number; role
 
   // ── Apps: stopped, leaking, unwell. A pause is a choice, so it is said, not alarmed about. ──
   const findingIds = new Set((facts.repairs?.findings ?? []).map((finding) => finding.id));
+  const missing: AppFact[] = [];
   for (const app of apps) {
     const base = { kind: "alert" as const, view: "catalog" as const, appId: app.id };
     if (app.vpnLeaked) needs.push({ ...base, id: `app-vpn:${app.id}`, severity: "danger", title: `${app.name} sent traffic outside its VPN`, detail: "The last kill-switch drill saw it leave the tunnel", action: null });
     if (!app.running && !app.paused) {
-      needs.push({ ...base, id: `app-down:${app.id}`, severity: "danger", title: `${app.name} is not running`, detail: containerWords(app.status),
-        action: act("app.action", "Start", `Start ${app.name}`, { id: app.id, action: "start" }, `Starts ${app.name}.`) });
+      // No container at all is said once for every such app, below. An app the owner stopped
+      // from BoxPilot is a choice, like a pause; one that stopped by itself is a problem.
+      if (app.status === "absent") missing.push(app);
+      else if (app.stoppedOnPurpose && app.status !== "restarting") {
+        needs.push({ ...base, id: `app-stopped:${app.id}`, severity: "neutral", title: `${app.name} is stopped`, detail: "Stopped on purpose from BoxPilot: it stays off until you start it",
+          action: act("app.action", "Start", `Start ${app.name}`, { id: app.id, action: "start" }, `Starts ${app.name}.`) });
+      } else {
+        needs.push({ ...base, id: `app-down:${app.id}`, severity: "danger", title: `${app.name} is not running`, detail: containerWords(app.status),
+          action: act("app.action", "Start", `Start ${app.name}`, { id: app.id, action: "start" }, `Starts ${app.name}.`) });
+      }
     } else if (app.paused) {
       needs.push({ ...base, id: `app-paused:${app.id}`, severity: "neutral", title: `${app.name} is paused`, detail: "Paused on purpose: it keeps its memory and uses no CPU",
         action: act("app.action", "Resume", `Resume ${app.name}`, { id: app.id, action: "unpause" }, `Thaws ${app.name} exactly where it left off.`) });
@@ -128,6 +137,15 @@ export function buildNeeds(facts: FactValues, { now, role }: { now: number; role
       needs.push({ ...base, id: `app-update:${app.id}`, kind: "updates", severity: "neutral", title: `An update for ${app.name}`, detail: "Pulls the new image; the old one comes back if the new one is not healthy",
         action: act("app.update", "Update", `Update ${app.name}`, { id: app.id }, "Pulls the image and recreates the container. The previous image is restored if the new one fails to become healthy.") });
     }
+  }
+  // Listed as installed, with no container at all: most often removed outside BoxPilot. One item for
+  // all of them rather than a problem each; the App catalog reinstalls or uninstalls each one.
+  if (missing.length > 0) {
+    const one = missing.length === 1;
+    const named = missing.length <= 2 ? missing.map((app) => app.name).join(" and ") : `${missing.slice(0, 2).map((app) => app.name).join(", ")} and ${missing.length - 2} more`;
+    needs.push({ id: "apps-missing", kind: "alert", severity: "warning", view: "catalog", ...(one ? { appId: missing[0].id } : {}),
+      title: `${named} ${one ? "has" : "have"} no container`,
+      detail: `BoxPilot lists ${one ? "it" : "them"} as installed, but Docker has no container for ${one ? "it" : "them"}. Reinstall or uninstall ${one ? "it" : "each"} from the App catalog.`, action: null });
   }
 
   if ((facts.services?.failed ?? 0) > 0) {
@@ -261,7 +279,11 @@ export const severityStatus: Record<NeedSeverity, Status> = { danger: "danger", 
 /** A tile's health: the one status and the few words under its name. */
 export function appHealth(app: AppFact, protection: AppProtection | undefined, now: number): { status: Status; label: string; detail: string } {
   if (app.vpnLeaked) return { status: "danger", label: "Left its VPN", detail: "Left its VPN" };
-  if (!app.running && !app.paused) return { status: "danger", label: "Not running", detail: app.status === "restarting" ? "Restarting" : "Not running" };
+  if (!app.running && !app.paused) {
+    if (app.status === "absent") return { status: "warning", label: "No container", detail: "No container" };
+    if (app.stoppedOnPurpose && app.status !== "restarting") return { status: "neutral", label: "Stopped", detail: "Stopped" };
+    return { status: "danger", label: "Not running", detail: app.status === "restarting" ? "Restarting" : "Not running" };
+  }
   if (app.paused) return { status: "neutral", label: "Paused", detail: "Paused" };
   if (app.troubledSidecar) return { status: "warning", label: `${app.troubledSidecar.id} ${app.troubledSidecar.status === "restarting" ? "restarting" : "down"}`, detail: `${app.troubledSidecar.id} ${app.troubledSidecar.status === "restarting" ? "restarting" : "down"}` };
   if (app.health === "unhealthy") return { status: "warning", label: "Unhealthy", detail: "Unhealthy" };
