@@ -3,7 +3,7 @@ import type { Job } from "../operations";
 import type { AppFact, FactValues } from "./facts";
 import { appFactsFrom, inventoryFactsFrom, watchFactsFrom } from "./facts";
 import { elapsed, greeting, relativeTime, shortAge, size } from "./format";
-import { appHealth, buildNeeds, groupByTier, reachOf, sortNeeds, verdictFor, type Need } from "./needs";
+import { appHealth, buildNeeds, groupByTier, needsLabel, reachOf, sortNeeds, verdictFor, type Need } from "./needs";
 
 const now = Date.parse("2026-09-28T12:00:00Z");
 const hoursAgo = (hours: number) => new Date(now - hours * 3_600_000).toISOString();
@@ -161,7 +161,20 @@ describe("the verdict", () => {
     const neutral: Need = { ...danger, id: "z", severity: "neutral" };
     expect(verdictFor([danger, warning], { hostname: "homebox", checking: true, unread: [] })).toMatchObject({ status: "danger", sentence: "homebox needs you: 1 problem and 1 thing to look at." });
     expect(verdictFor([warning, warning], { hostname: "homebox", checking: false, unread: [] })).toMatchObject({ status: "warning", sentence: "homebox is running. 2 things need a look." });
-    expect(verdictFor([neutral], { hostname: "homebox", checking: false, unread: [] }).sentence).toBe("homebox is healthy. One small thing could use a look.");
+    expect(verdictFor([neutral], { hostname: "homebox", checking: false, unread: [] }).sentence).toBe("homebox is healthy. One small thing can wait.");
+  });
+
+  it("counts what can wait in the same sentence, so the headline adds up to the list", () => {
+    // The owner saw "2 to look at" over a "What needs you" of 4: two could wait, and nothing said so.
+    const danger: Need = { id: "x", kind: "alert", severity: "danger", title: "x", detail: null, view: "home", action: null };
+    const warning: Need = { ...danger, id: "y", severity: "warning" };
+    const neutral: Need = { ...danger, id: "z", severity: "neutral" };
+    const needs = [warning, warning, neutral, neutral];
+    const verdict = verdictFor(needs, { hostname: "homebox", checking: false, unread: [] });
+    expect(verdict).toMatchObject({ label: "2 to look at", sentence: "homebox is running. 2 things need a look. 2 more can wait." });
+    expect(needsLabel(needs, verdict)).toBe("2 to look at");
+    expect(verdictFor([danger, neutral], { hostname: "homebox", checking: false, unread: [] }).sentence).toBe("homebox needs you: 1 problem. One more thing can wait.");
+    expect(needsLabel([neutral, neutral], verdictFor([neutral, neutral], { hostname: "homebox", checking: false, unread: [] }))).toBe("2 can wait");
   });
 });
 

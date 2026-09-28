@@ -8,7 +8,7 @@ import { AppSheet } from "./AppSheet";
 import { useFacts, valuesOf, type MountFact } from "./facts";
 import { greeting, relativeTime, size, uptime } from "./format";
 import { NeedRow } from "./NeedRow";
-import { appHealth, buildNeeds, verdictFor, verdictSources, type Need } from "./needs";
+import { appHealth, buildNeeds, needsLabel, verdictFor, verdictSources, type Need } from "./needs";
 
 /*
  * Home (M33.2, ADR-004): the Launcher. It answers "is everything OK?" on one screen: a verdict
@@ -71,7 +71,8 @@ export default function Home({ csrfToken, role, onNavigate, now = Date.now }: Ho
   const sheetApp = sheetFor ? apps.find((app) => app.id === sheetFor) ?? null : null;
 
   const worst: Status = needs.some((need) => need.severity === "danger") ? "danger" : needs.some((need) => need.severity === "warning") ? "warning" : needs.length ? "neutral" : "good";
-  const needsStatus = needs.length ? { status: worst, label: String(needs.length) } : checking ? { status: "unknown" as const, label: "Checking" } : unread.length ? { status: "unknown" as const, label: "Not fully read" } : { status: "good" as const, label: "All clear" };
+  const shown = showAll ? needs : needs.slice(0, shownNeeds);
+  const needsStatus = needs.length ? { status: worst, label: needsLabel(needs, verdict) } : checking ? { status: "unknown" as const, label: "Checking" } : unread.length ? { status: "unknown" as const, label: "Not fully read" } : { status: "good" as const, label: "All clear" };
 
   // Backups at a glance, from the same verdicts the needs list uses.
   const verdicts = values.protection ? judgeProtection(values.protection, (values.schedules ?? []).map((schedule) => ({ ...schedule, parameters: schedule.parameters ?? undefined })), { now: clock }) : null;
@@ -101,9 +102,20 @@ export default function Home({ csrfToken, role, onNavigate, now = Date.now }: Ho
             {needs.length === 0
               ? <p className="home-quiet">{checking ? "Reading this server…" : unread.length ? "Nothing wrong in what could be read." : "Nothing needs you right now."}</p>
               : (
-                <ul className="need-list">
-                  {(showAll ? needs : needs.slice(0, shownNeeds)).map((need) => <NeedRow key={need.id} need={need} onOpen={open} onAct={act} />)}
-                </ul>
+                <>
+                  <ul className="need-list">
+                    {shown.filter((need) => need.severity !== "neutral").map((need) => <NeedRow key={need.id} need={need} onOpen={open} onAct={act} />)}
+                  </ul>
+                  {shown.some((need) => need.severity === "neutral") && (
+                    <>
+                      {/* A heading when the list has both, so its count matches the headline's. */}
+                      {shown.some((need) => need.severity !== "neutral") && <h3 className="need-list__heading">Can wait</h3>}
+                      <ul className="need-list">
+                        {shown.filter((need) => need.severity === "neutral").map((need) => <NeedRow key={need.id} need={need} onOpen={open} onAct={act} />)}
+                      </ul>
+                    </>
+                  )}
+                </>
               )}
             {needs.length > shownNeeds && <Button variant="ghost" className="home-more" aria-expanded={showAll} onClick={() => setShowAll((value) => !value)}>{showAll ? "Show fewer" : `Show all ${needs.length}`}</Button>}
             {unread.length > 0 && <p className="home-unread"><StatusChip status="unknown">Not read</StatusChip><span>BoxPilot could not read {sentenceList(unread)}, so this list may be missing something.</span></p>}
@@ -114,7 +126,7 @@ export default function Home({ csrfToken, role, onNavigate, now = Date.now }: Ho
           <Section
             title="Apps"
             status={facts.catalog.state === "failed" || (catalog && !catalog.liveKnown) ? { status: "unknown", label: "Not read" }
-              : catalog ? (unwell ? { status: "warning", label: `${unwell} need a look` } : { status: apps.length ? "good" : "neutral", label: countOf(apps.length, "app") }) : undefined}
+              : catalog ? (unwell ? { status: "warning", label: `${unwell} of ${countOf(apps.length, "app")} flagged` } : { status: apps.length ? "good" : "neutral", label: countOf(apps.length, "app") }) : undefined}
             actions={<Button variant="ghost" onClick={() => onNavigate("catalog")}>App catalog</Button>}
           >
             {facts.catalog.state === "failed" && (
