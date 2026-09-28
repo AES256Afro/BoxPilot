@@ -110,6 +110,19 @@ describe("what the weekly report says", () => {
     expect(gaps).toContain("the drive check tools are not installed");
   });
 
+  it("counts a drive whose automatic reconnect is paused among the paused automations", withZone("America/New_York", async () => {
+    const { store, owner, now } = await world("2026-09-27T13:00:30Z");
+    // Pausing a drive's reconnect flow (M26.5) switches off an unattended trigger, like pausing a
+    // flow on a clock. A flow only ever run by hand, paused, has no trigger to switch off.
+    const armed = store.createFlow({ name: "Reconnect /mnt/media when it drops", steps: [{ operationId: "storage.remount", parameters: { name: "media" } }], createdBy: owner.id, triggerDrive: "media" });
+    store.updateFlow(armed.id, { enabled: false }, { actorId: owner.id });
+    const byHand = store.createFlow({ name: "Tidy up", steps: [{ operationId: "docker.prune", parameters: {} }], createdBy: owner.id });
+    store.updateFlow(byHand.id, { enabled: false }, { actorId: owner.id });
+    const week = await gatherWeek({ store, registry, now });
+    expect(week.paused).toBe(1);
+    expect(composeWeeklyReport(week).message).toContain("Paused: 1 schedule or automation.");
+  }));
+
   it("is read from the jobs, schedules, automations, ledger and backups BoxPilot recorded", withZone("America/New_York", async () => {
     const { store, owner, at, now } = await world("2026-09-19T12:00:00Z");
     job(store, owner, { type: "apt.upgrade", title: titles["apt.upgrade"], state: "failed", error: "last week" }); // before the week
