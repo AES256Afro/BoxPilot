@@ -13,7 +13,8 @@
 #      mount stayed in the task, and stopping the automount took the share off the host even while
 #      it was in use. What mount -N does with a share's helper, and what stopping the mount unit
 #      and starting the automount do.
-#   2. share.mount through boxpilot-run@, the unit as shipped with its node path changed.
+#   2. share.mount through boxpilot-run@, the unit as shipped with its node path changed; then
+#      share.reconnect, refused while a shell uses the share and done, app restarted, when an app does.
 #   3. share.unmount: refused while a shell or an app uses the share, done when nothing does, and
 #      done after getting Samba clients off it.
 #   4. A first mount that fails: a wrong password, and a NAS that does not answer.
@@ -272,6 +273,35 @@ check "its credentials are root-only ($(stat -c '%a %U' "$CRED" 2>&1))" [ "$(sta
 check "it reports the share's size, read from the host ($(result_field 'value.result?.sizeBytes'))" [ "$(result_field 'value.result?.sizeBytes > 0')" = true ]
 echo "written on the host" > "${MNT}/from-the-host.txt"
 check "a file written at ${MNT} on the host lands on the NAS" [ -f "${SMB_DIR}/from-the-host.txt" ]
+
+# ---- 2b. share.reconnect --------------------------------------------------------------------------
+
+section "2b. share.reconnect while a shell sits in the share"
+hold "$MNT"; shell=$HOLDER
+run_task share.reconnect "{\"name\":\"${NAME}\"}"
+check "share.reconnect refuses" [ "$TASK_OK" = false ]
+check "... naming what holds it: sleep (${shell})" contains "$(result_field 'value.error')" "in use by sleep (${shell})"
+check "the share is untouched on the host ('$(host_types "$MNT")')" [ "$(host_types "$MNT")" = "autofs cifs" ]
+let_go "$shell"
+
+section "2c. share.reconnect while an app has the share"
+if docker image inspect "$IMAGE" >/dev/null 2>&1; then
+  docker run -d --name bp-share-app -v "${MNT}:/data" "$IMAGE" sleep 600 >/dev/null
+  started_before="$(docker inspect -f '{{.State.StartedAt}}' bp-share-app)"
+  sleep 1
+  run_task share.reconnect "{\"name\":\"${NAME}\"}"
+  check "share.reconnect succeeds" [ "$TASK_OK" = true ]
+  check "the host has the share mounted again over its automount ('$(host_types "$MNT")')" [ "$(host_types "$MNT")" = "autofs cifs" ]
+  check "... its entry and credentials kept" eval 'in_fstab && [ -f "$CRED" ]'
+  check "the app was restarted, so it sees the new mount ($(result_field 'JSON.stringify(value.result?.restarted)'))" eval '[ "$(docker inspect -f "{{.State.StartedAt}}" bp-share-app)" != "$started_before" ]'
+  echo "after the reconnect" > "${MNT}/after-reconnect.txt"
+  check "a write on the host lands on the NAS" [ -f "${SMB_DIR}/after-reconnect.txt" ]
+  docker exec bp-share-app sh -c 'echo "from the app" > /data/from-the-app.txt'
+  check "... and so does one from the restarted app" [ -f "${SMB_DIR}/from-the-app.txt" ]
+  docker rm -f bp-share-app >/dev/null
+else
+  record FAIL "no Docker on this runner, so a reconnect with an app on the share was not tried"
+fi
 
 # ---- 3. share.unmount ---------------------------------------------------------------------------
 

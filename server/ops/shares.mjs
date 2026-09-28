@@ -35,5 +35,13 @@ export function shareOperations() {
       parameters: { fields: { name: { type: "string", maxLength: 32, pattern: mountNamePattern } } },
       run: (parameters, { runUnit, jobLog }) => runUnit.runTask("share.unmount", { name: parameters.name }, { timeoutMs: minutes(2), logPath: jobLog?.path ?? null }),
     }),
+    defineOperation({
+      // storage.remount's counterpart for a share, which it refuses: what Repair offers a share
+      // that has gone read-only.
+      id: "share.reconnect", title: "Reconnect a network share", risk: "medium", timeoutMs: minutes(4),
+      description: "Unmounts the share at /mnt/<name> and mounts it again from its fstab entry with the stored credentials, then restarts the apps using the folder so they see the new mount. The fstab entry, the automount and the credentials are kept. File-sharing clients are disconnected first; while anything other than an app still uses the share, nothing is changed and the error names it.",
+      parameters: { fields: { name: { type: "string", maxLength: 32, pattern: mountNamePattern } } },
+      run: (parameters, { runUnit, jobLog }) => runUnit.runTask("share.reconnect", { name: parameters.name }, { timeoutMs: minutes(3), logPath: jobLog?.path ?? null }),
+    }),
   ];
 }
