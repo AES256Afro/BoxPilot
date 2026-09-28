@@ -24,6 +24,21 @@ export interface ApprovalPolicy { expiresAt?: string | null; expired?: boolean; 
 
 export interface JobStep { name: string; state: string; detail: string; createdAt: string }
 
+/**
+ * A job that ran out of time (M30.3). `scope` says whose limit it was: the whole operation's, or
+ * one step's inside it. `moreTimeMs` is the budget "Try again with more time" would give it, and
+ * is null when that is not offered.
+ */
+export interface JobTimeout {
+  scope: "operation" | "step";
+  budgetMs: number;
+  elapsedMs: number;
+  phase: "queued" | "running";
+  step: string | null;
+  lastOutput: string | null;
+  moreTimeMs: number | null;
+}
+
 export interface Job {
   id: string;
   type: string;
@@ -32,6 +47,9 @@ export interface Job {
   risk: string;
   error: string | null;
   result: unknown;
+  timeout?: JobTimeout | null;
+  /** Where this run came from: a larger budget, or the run it repeats (M30.2/M30.3). */
+  recovery?: { budgetMs?: number; rerunOf?: string; retryOf?: string };
   createdAt?: string;
   updatedAt?: string;
   steps: JobStep[];
@@ -67,6 +85,14 @@ export function approveJob(jobId: string, csrfToken: string, password?: string, 
 /** What approving a staged job needs right now (elevation can lapse after staging). */
 export function getJobApproval(jobId: string): Promise<ApprovalPolicy> {
   return fetch(`/api/v1/jobs/${encodeURIComponent(jobId)}/approval`).then((response) => readJson(response));
+}
+
+/**
+ * "Try again with more time": stage the timed-out job's operation again with a larger budget. The
+ * answer is the same as staging: a job awaiting approval, and what approving it needs.
+ */
+export function retryWithMoreTime(jobId: string, csrfToken: string): Promise<{ job: Job; approval: ApprovalPolicy }> {
+  return fetch(`/api/v1/jobs/${encodeURIComponent(jobId)}/more-time`, { method: "POST", headers: { "X-BoxPilot-CSRF": csrfToken } }).then((response) => readJson(response));
 }
 
 /** Withdraw a job that is still awaiting approval (the dialog was dismissed). */
