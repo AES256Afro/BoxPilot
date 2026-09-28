@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
+import { onWindows } from "../../test/platform.mjs";
 import { housekeepingRemoveTrees } from "./housekeeping.mjs";
 
 /**
@@ -22,7 +23,8 @@ describe("removing previous release trees", () => {
   const root = "/opt";
   const good = ["/opt/boxpilot.prev.20260825T170951Z", "/opt/boxpilot-prev-0.40.0", "/opt/boxpilot.rollback-0.60.0-d6562ba"];
 
-  it("removes the leftovers it is given", async () => {
+  // Linux only: expects POSIX paths.
+  it.skipIf(onWindows)("removes the leftovers it is given", async () => {
     const f = files(good);
     const result = await housekeepingRemoveTrees({ paths: good, installRoot: root, currentTree: "/opt/boxpilot" }, { files: f });
     expect(result.removed).toEqual(good);
@@ -50,7 +52,8 @@ describe("removing previous release trees", () => {
     ]);
   });
 
-  it("reports a tree it could not remove rather than abandoning the rest", async () => {
+  // Linux only: expects POSIX paths.
+  it.skipIf(onWindows)("reports a tree it could not remove rather than abandoning the rest", async () => {
     const f = files(good);
     f.rm = vi.fn(async (target) => { if (target === good[1]) throw new Error("EROFS: read-only file system"); f.removed.push(target); });
     const result = await housekeepingRemoveTrees({ paths: good, installRoot: root, currentTree: "/opt/boxpilot" }, { files: f });

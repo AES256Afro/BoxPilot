@@ -3,6 +3,7 @@ import os from "node:os";
 import YAML from "yaml";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { onWindows } from "../test/platform.mjs";
 import { createAppHelper } from "./app-helper.mjs";
 import { createCatalogService } from "./catalog/index.mjs";
 import { fixedRun } from "./exec.mjs";
@@ -101,7 +102,8 @@ describe("generic app deployer", () => {
     expect(await readFile(path.join(catalogRoot, "demo", "compose.yaml"), "utf8")).toBe(compose);
   });
 
-  it("bounds configuration reads and refuses symlink files", async () => {
+  // Linux only: creates file symlinks, which need a privilege on Windows.
+  it.skipIf(onWindows)("bounds configuration reads and refuses symlink files", async () => {
     const { apps, catalogRoot } = await setup();
     await apps.install({ id: "demo", values: { setup: [] } });
     const file = path.join(catalogRoot, "demo", "compose.yaml");
@@ -126,7 +128,8 @@ describe("generic app deployer", () => {
     expect(await apps.installedIds()).toEqual([]);
   });
 
-  it("resolves device globs against the host when writing the project, and refuses when nothing matches", async () => {
+  // Linux only: needs /usr/bin/tar.
+  it.skipIf(onWindows)("resolves device globs against the host when writing the project, and refuses when nothing matches", async () => {
     const manifestYaml = "schemaVersion: 2\nid: smart\nname: Smart\ncategory: Disks\ndescription: d\nimage:\n  reference: x/smart:1\ndevices:\n  - /dev/sd?\n  - /dev/nvme?\nhealth:\n  kind: running\n  stableSeconds: 4\n  timeoutSeconds: 30\n";
     const bare = await setup({ listDevices: async () => ["tty", "zero"] });
     await writeFile(path.join(bare.catalogDirectory, "smart.yaml"), manifestYaml);
@@ -223,7 +226,8 @@ sidecars:
     expect(applications.find((entry) => entry.id === "hole").urls).toEqual([{ id: "web", label: "web", host: 8084, exposure: "lan", path: "/admin/" }]);
   });
 
-  it("creates the folder layout a manifest promises inside a data volume, only where missing", async () => {
+  // Linux only: host folders must be POSIX absolute paths.
+  it.skipIf(onWindows)("creates the folder layout a manifest promises inside a data volume, only where missing", async () => {
     // Sonarr's first act is to look for /data/tv; qBittorrent's is to write /data/torrents.
     // The manifest promises the layout, the install delivers it, and folders that already
     // exist stay exactly as the owner had them, ownership included.
@@ -251,7 +255,8 @@ sidecars:
     expect(chowned.filter(([target]) => target.endsWith("torrents"))).toHaveLength(0);
   });
 
-  it("hands an existing but root-owned data folder to the app so it can write", async () => {
+  // Linux only: host folders must be POSIX absolute paths.
+  it.skipIf(onWindows)("hands an existing but root-owned data folder to the app so it can write", async () => {
     // The qBittorrent case: the download folder already exists but is root-owned (Docker or a default
     // made it), so the app running as PUID 1000 cannot write and every torrent errors. The deployer
     // should claim a root-owned read-write folder for the app; a folder owned by a real user is left.
@@ -273,7 +278,8 @@ sidecars:
     expect(chowned.some(([target, uid, gid]) => target === mediaRoot && uid === 1000 && gid === 1000)).toBe(true);
   });
 
-  it("never chowns through a symlink that resolves into a protected location", async () => {
+  // Linux only: host folders must be POSIX absolute paths, and /usr must be the protected /usr.
+  it.skipIf(onWindows)("never chowns through a symlink that resolves into a protected location", async () => {
     // The privilege-escalation guard: a compromised app (uid 1000) plants a symlink inside a folder
     // it owns, pointing at /etc, then a redeploy points a writable volume at that symlink. Root must
     // refuse before any chown, not chase the link and hand /etc to uid 1000.
@@ -356,7 +362,8 @@ sidecars:
     expect(stored.values.env).not.toHaveProperty("WIREGUARD_PRIVATE_KEY"); // secret, filtered as before
   });
 
-  it("reports a data folder the installed app cannot write to, and clears once ownership is right", async () => {
+  // Linux only: host folders must be POSIX absolute paths.
+  it.skipIf(onWindows)("reports a data folder the installed app cannot write to, and clears once ownership is right", async () => {
     // The silent qBittorrent failure: every torrent errored at 0% because /data was root-owned.
     // The catalog listing should say so on the card instead of leaving the app to fail quietly.
     const mediaRoot = await mkdtemp(path.join(os.tmpdir(), "boxpilot-ro-media-")); directories.push(mediaRoot);
@@ -438,7 +445,8 @@ sidecars:
     await expect(plain.apps.vpnKillSwitchDrill({ id: "plain" })).rejects.toThrow(/does not run through a VPN tunnel/);
   });
 
-  it("writes a manifest's config files into the project directory on install", async () => {
+  // Linux only: POSIX file modes.
+  it.skipIf(onWindows)("writes a manifest's config files into the project directory on install", async () => {
     const { apps, catalogDirectory, catalogRoot } = await setup();
     await writeFile(path.join(catalogDirectory, "conf.yaml"), [
       "schemaVersion: 2", "id: conf", "name: Conf", "category: T", "description: d",
@@ -624,7 +632,8 @@ sidecars:
     expect(calls.filter((call) => call.includes(" exec -T ")).map((call) => call.split(" exec -T ")[1])).toEqual(["ollama ollama pull llama3.2:3b"]);
   });
 
-  it("installs, inspects, acts on, reconfigures, updates, and uninstalls an app from its manifest", async () => {
+  // Linux only: needs /usr/bin/tar.
+  it.skipIf(onWindows)("installs, inspects, acts on, reconfigures, updates, and uninstalls an app from its manifest", async () => {
     const { apps, calls, catalogRoot } = await setup();
     const installed = await apps.install({ id: "demo", values: { ports: { web: 9090 } } });
     expect(installed).toMatchObject({ installed: true, id: "demo", hostPorts: [{ id: "web", host: 9090 }], secretsGenerated: ["ADMIN_PASSWORD"] });
@@ -757,7 +766,8 @@ sidecars:
     expect(calls.some((call) => call.includes("up --detach --force-recreate"))).toBe(true);
   });
 
-  it("edits the raw compose file with validation and rollback", async () => {
+  // Linux only: needs /usr/bin/tar.
+  it.skipIf(onWindows)("edits the raw compose file with validation and rollback", async () => {
     const { apps, catalogRoot } = await setup();
     await apps.install({ id: "demo" });
     const composePath = path.join(catalogRoot, "demo", "compose.yaml");
@@ -774,7 +784,8 @@ sidecars:
     expect(JSON.parse(await readFile(path.join(catalogRoot, "demo", "boxpilot.json"), "utf8")).rawEdited).toBe(true);
   });
 
-  it("updates an app whose stored state echoes values the manifest does not accept", async () => {
+  // Linux only: needs /usr/bin/tar.
+  it.skipIf(onWindows)("updates an app whose stored state echoes values the manifest does not accept", async () => {
     // Older releases persisted every hostPath volume (docker socket included) into
     // boxpilot.json; updates then failed validation. Stored state is sanitized instead.
     const { apps, catalogRoot } = await setup();
@@ -841,7 +852,8 @@ sidecars:
     expect(after).toContain("- Mine:");
   });
 
-  it("lists a backup's files and restores one path over the current data after a checkpoint", async () => {
+  // Linux only: needs /usr/bin/tar.
+  it.skipIf(onWindows)("lists a backup's files and restores one path over the current data after a checkpoint", async () => {
     const { apps, catalogRoot } = await setup();
     await apps.install({ id: "demo" });
     const dataDirectory = path.join(catalogRoot, "demo", "data");
@@ -864,7 +876,8 @@ sidecars:
     await expect(apps.restoreAppBackupPath({ id: "demo", backup: backupResult.artifact, path: "data/missing.txt" })).rejects.toThrow("is not in");
   });
 
-  it("restores a file from the oldest backup without its own checkpoint pruning that backup", async () => {
+  // Linux only: needs /usr/bin/tar.
+  it.skipIf(onWindows)("restores a file from the oldest backup without its own checkpoint pruning that backup", async () => {
     const { apps, catalogRoot, advance } = await setup();
     await apps.install({ id: "demo" });
     const dataDirectory = path.join(catalogRoot, "demo", "data");
@@ -880,7 +893,8 @@ sidecars:
     expect((await apps.listAppBackups({ id: "demo" })).backups.map((item) => item.artifact)).toContain(oldest.artifact);
   });
 
-  it("prunes checkpoints only against other checkpoints, never the owner's own backups", async () => {
+  // Linux only: needs /usr/bin/tar.
+  it.skipIf(onWindows)("prunes checkpoints only against other checkpoints, never the owner's own backups", async () => {
     const { apps, advance } = await setup();
     await apps.install({ id: "demo" });
     const nightlies = [];
@@ -921,7 +935,8 @@ sidecars:
     expect(calls).toContainEqual("pull ghcr.io/example/byuser:1.0");
   });
 
-  it("remembers what an update moved from, and can put the app and its sidecar back", async () => {
+  // Linux only: needs /usr/bin/tar.
+  it.skipIf(onWindows)("remembers what an update moved from, and can put the app and its sidecar back", async () => {
     // The update that succeeds and turns out wrong two days later. The failure path already knows
     // how to redeploy a pinned image; this is the same move made deliberately, and it has to bring
     // the sidecar with it - an app restored onto an upgraded database cannot read its own data.
@@ -964,7 +979,8 @@ sidecars:
     expect(stored.pinnedRollback).toBe(true);
   });
 
-  it("steps back more than one release, and forgets the versions it stepped past", async () => {
+  // Linux only: needs /usr/bin/tar.
+  it.skipIf(onWindows)("steps back more than one release, and forgets the versions it stepped past", async () => {
     const { apps, catalogRoot, catalogDirectory } = await setup();
     const manifest = (image) => [
       "schemaVersion: 2", "id: steps", "name: Steps", "category: T", "description: d",
@@ -998,7 +1014,8 @@ sidecars:
     await expect(apps.rollbackApp({ id: "steps", at: "2020-01-01T00:00:00.000Z" })).rejects.toThrow("no recorded version");
   });
 
-  it("does not move forward when asked to go back a second time", async () => {
+  // Linux only: needs /usr/bin/tar.
+  it.skipIf(onWindows)("does not move forward when asked to go back a second time", async () => {
     // history[0] after a rollback describes the version just left behind. Choosing it would
     // redeploy exactly what the owner was escaping and call it a success.
     const { apps, catalogRoot, catalogDirectory } = await setup();
@@ -1023,7 +1040,8 @@ sidecars:
     expect(await readFile(path.join(catalogRoot, "pong", "compose.yaml"), "utf8")).toContain("app:1.0");
   });
 
-  it("refuses a recorded version that names a service the app no longer has", async () => {
+  // Linux only: needs /usr/bin/tar.
+  it.skipIf(onWindows)("refuses a recorded version that names a service the app no longer has", async () => {
     // An update that moved only a sidecar, and a later release that dropped that sidecar. Pinning
     // nothing and reporting success would leave the app on the release being escaped.
     const { apps, catalogRoot, catalogDirectory } = await setup();
@@ -1060,7 +1078,8 @@ sidecars:
     await expect(apps.rollbackApp({ id: "demo" })).rejects.toThrow("nothing to go back to");
   });
 
-  it("rehearses a restore against a real archive, and refuses a damaged or truncated one", async () => {
+  // Linux only: needs /usr/bin/tar.
+  it.skipIf(onWindows)("rehearses a restore against a real archive, and refuses a damaged or truncated one", async () => {
     // A checksum proves the bytes did not rot; it cannot prove the archive opens or holds the app.
     // The rehearsal unpacks the whole thing for real, and leaves the live app entirely alone.
     const { apps, calls, catalogRoot, backupRoot } = await setup();
@@ -1095,7 +1114,8 @@ sidecars:
     await expect(apps.verifyAppBackup({ id: "demo", backup: "20260101T000000Z.tar.gz" })).rejects.toThrow("does not exist");
   });
 
-  it("backs up, prunes, restores, and deletes app data with a real archive", async () => {
+  // Linux only: needs /usr/bin/tar.
+  it.skipIf(onWindows)("backs up, prunes, restores, and deletes app data with a real archive", async () => {
     const { apps, calls, catalogRoot, backupRoot, advance } = await setup();
     await apps.install({ id: "demo" });
     await writeFile(path.join(catalogRoot, "demo", "data", "file.txt"), "precious");
@@ -1130,7 +1150,8 @@ sidecars:
   });
 });
 
-describe("folders an app is pointed at", () => {
+// Linux only: host folders must be POSIX absolute paths.
+describe.skipIf(onWindows)("folders an app is pointed at", () => {
   it("creates a missing data folder and gives it to the user the app runs as", async () => {
     const chowns = [];
     const { apps, catalogDirectory } = await setup({ chownDirectory: async (target, uid, gid) => { chowns.push(`${target}:${uid}:${gid}`); } });
@@ -1166,7 +1187,8 @@ describe("folders an app is pointed at", () => {
   });
 });
 
-describe("restoring an application backup", () => {
+// Linux only: needs /usr/bin/tar.
+describe.skipIf(onWindows)("restoring an application backup", () => {
   it("keeps the original after a healthy restore when its safety backup failed", async () => {
     let failBackup = false;
     const runCommand = (binary, args, options) => failBackup && args.includes("-czf") ? Promise.resolve({ ok: false, stdout: "", stderr: "fixture full backup disk" }) : fixedRun(binary, args, options);
@@ -1537,7 +1559,8 @@ describe("an update or a step back that fails part-way", () => {
   });
 });
 
-describe("restoring one path from an application backup", () => {
+// Linux only: needs /usr/bin/tar.
+describe.skipIf(onWindows)("restoring one path from an application backup", () => {
   // tar ran as root straight into the live app directory, and follows a directory symlink it finds
   // there. A container can plant one in its own volume (data/config -> /etc), so restoring
   // data/config/app.conf wrote wherever the container pointed.

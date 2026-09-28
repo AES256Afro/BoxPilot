@@ -32,7 +32,9 @@ describe("BoxPilot state store", () => {
     legacy.close();
 
     const store = createStateStore({ databasePath, stateDirectory: directory });
-    const tables = new DatabaseSync(databasePath).prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all().map((row) => row.name);
+    const inspector = new DatabaseSync(databasePath);
+    const tables = inspector.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all().map((row) => row.name);
+    inspector.close();
     expect(tables).not.toContain("fleet_agents");
     expect(tables).not.toContain("router_checkpoints");
     expect(tables).not.toContain("migration_sources");
@@ -373,6 +375,7 @@ describe("history retention", () => {
     expect(result.removedAbandoned).toBe(2);
     expect(store.getJob(ids[2])).toBeNull();
     expect(result.removedAudit).toBeGreaterThan(0);
+    store.close();
   });
 
   it("clears expired sessions and spent plans, and keeps the ones still in use", async () => {
@@ -388,6 +391,7 @@ describe("history retention", () => {
     expect(result.removedSessions).toBe(1);
     expect(store.getSession(live.token)).not.toBeNull();
     expect(store.getSession(dead.token)).toBeNull();
+    store.close();
   });
 
   it("removes the bootstrap token row once it has been spent", async () => {
@@ -401,6 +405,7 @@ describe("history retention", () => {
     expect(inspector.prepare("SELECT COUNT(*) AS n FROM bootstrap_tokens").get().n).toBe(0);
     inspector.close();
     expect(() => store.consumeBootstrapToken(token, { username: "second", passwordHash: "x" })).toThrow();
+    store.close();
   });
 });
 
@@ -415,6 +420,7 @@ describe("job visibility", () => {
     const helperJob = store.createJob({ type: "op:apt.refresh", title: "helper", risk: "low", parameters: {}, createdBy: helper.id, initialSteps: [] });
     expect(store.listJobs(50).map((job) => job.id).sort()).toEqual([ownerJob.id, helperJob.id].sort());
     expect(store.listJobs(50, { createdBy: helper.id }).map((job) => job.id)).toEqual([helperJob.id]);
+    store.close();
   });
 });
 
@@ -428,6 +434,7 @@ describe("the bootstrap token", () => {
     expect(store.bootstrapTokenUsable("not-a-real-token")).toBe(false);
     store.consumeBootstrapToken(token, { username: "admin", passwordHash: "x" });
     expect(store.bootstrapTokenUsable(token)).toBe(false);
+    store.close();
   });
 });
 
@@ -464,6 +471,7 @@ describe("flows storage", () => {
     expect(store.listDueFlows("2026-08-29T00:00:00.000Z")).toEqual([]);
     store.updateFlow("f1", { enabled: false });
     expect(store.listDueFlows("2026-08-30T03:00:01.000Z")).toEqual([]);
+    store.close();
     await rm(directory, { recursive: true, force: true });
   });
 });

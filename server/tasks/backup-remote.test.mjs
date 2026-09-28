@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { onWindows } from "../../test/platform.mjs";
 import { backupRemoteInternals, backupRemoteKeygen, backupRemoteSync, backupRemoteTest } from "./backup-remote.mjs";
 
 const directories = [];
@@ -89,7 +90,8 @@ describe("off-box SSH mirror tasks", () => {
 });
 
 describe("a mirror with nothing to copy", () => {
-  it("refuses rather than recording a sync that moved nothing", async () => {
+  // Linux only: needs /usr/bin/rsync.
+  it.skipIf(onWindows)("refuses rather than recording a sync that moved nothing", async () => {
     // Recording a "last mirrored" here made the Overview report that backups were kept off-box on
     // a server that had never taken one.
     const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-empty-mirror-"));

@@ -3,6 +3,7 @@ import { lstat, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { onWindows } from "../test/platform.mjs";
 import { createVmProtectionHelper, validateVmProtectionInput } from "./vm-protection-helper.mjs";
 
 const directories = [];
@@ -92,7 +93,8 @@ describe("encrypted independent VM backup helper", () => {
     ]);
   });
 
-  it("detects an initialized encrypted repository on a different writable filesystem", async () => {
+  // Linux only: the backup mount must resolve below /mnt.
+  it.skipIf(onWindows)("detects an initialized encrypted repository on a different writable filesystem", async () => {
     const { helper } = await fixture();
     await expect(helper.inspect()).resolves.toMatchObject({
       ready: true, adapter: "mounted-restic", encrypted: true, independent: true, resticVersion: "0.19.1", repositoryId,
@@ -100,7 +102,8 @@ describe("encrypted independent VM backup helper", () => {
     });
   });
 
-  it("rejects a directory on the server's source filesystem as independent protection", async () => {
+  // Linux only: the backup mount must resolve below /mnt.
+  it.skipIf(onWindows)("rejects a directory on the server's source filesystem as independent protection", async () => {
     const { helper } = await fixture({ independent: false });
     const status = await helper.inspect();
     expect(status.ready).toBe(false);
@@ -108,7 +111,8 @@ describe("encrypted independent VM backup helper", () => {
     expect(status.blockers).toContain("Mount a writable independent filesystem at the configured VM backup mount");
   });
 
-  it("backs up only the fixed verified export and verifies the repository afterwards", async () => {
+  // Linux only: the backup mount must resolve below /mnt.
+  it.skipIf(onWindows)("backs up only the fixed verified export and verifies the repository afterwards", async () => {
     const { helper, run, exportId, backupId, domainUuid, expectedSizeBytes, expectedManifestChecksumSha256 } = await fixture();
     const destination = await helper.inspect();
     const result = await helper.createBackup({
@@ -124,7 +128,8 @@ describe("encrypted independent VM backup helper", () => {
     expect(checkCall[1]).not.toContain("--tag");
   });
 
-  it("fails before restic backup when local export content changed", async () => {
+  // Linux only: the backup mount must resolve below /mnt.
+  it.skipIf(onWindows)("fails before restic backup when local export content changed", async () => {
     const { helper, run, exportId, backupId, domainUuid, expectedSizeBytes } = await fixture();
     const destination = await helper.inspect();
     await expect(helper.createBackup({

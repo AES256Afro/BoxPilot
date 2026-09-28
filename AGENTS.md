@@ -17,7 +17,7 @@ The authoritative plan is `docs/ROADMAP-V2.md`. The governing decision is `docs/
 - **Copy**: say what the action does. Do not write paragraphs about what the product refuses to do; do not add boundary slugs to API responses.
 - **Version**: `package.json` is the only source. Import `productVersion` from `server/version.mjs` (server/scripts) or use `__BOXPILOT_VERSION__` (UI).
 - **No personal host data** in committed files: no real hostnames, MAC addresses, LAN layouts, router models. Use placeholders; private copies go in `*.local.md` (gitignored).
-- **Tests**: inject clocks (`now`) and never rely on the wall clock against dated fixtures. `npm run check` must pass (build + vitest + shell syntax).
+- **Tests**: inject clocks (`now`) and never rely on the wall clock against dated fixtures. `npm run check` must pass (build + vitest + shell syntax). Tests that need Linux itself (POSIX modes, `/usr/bin/tar`, POSIX paths, file symlinks) are gated with `it.skipIf(onWindows)` from `test/platform.mjs` and skip on Windows while Linux CI runs every one of them; a new test that needs Linux uses the same helper.
 
 ## Conventions
 

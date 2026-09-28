@@ -125,6 +125,7 @@ describe("per-account identity links", () => {
     // owner re-links it from Settings rather than have a released name sign in as the first owner.
     state.setSetting("githubLogins", ["legacydev"]);
     expect(identity.githubAccountFor("legacydev", 1234)).toBeNull();
+    state.close();
   });
 });
 
@@ -145,6 +146,7 @@ describe("GitHub device-flow limits", () => {
     await expect(identity.githubStart({ purpose: "signin", client: "d" })).rejects.toThrow("sign-in attempts in progress");
     // The owner can still start a link flow while sign-in slots are full.
     await expect(identity.githubStart({ purpose: "link", ownerId: owner.id, client: "e" })).resolves.toMatchObject({ userCode: "ABCD-EFGH" });
+    state.close();
   });
 });
 

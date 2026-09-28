@@ -259,7 +259,10 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
   const composeRead = useRef<AbortController | null>(null);
   const effectiveConfigRef = useRef<HTMLElement | null>(null);
   useDialogFocus(effectiveConfigRef, Boolean(effectiveConfig));
-  useEffect(() => () => { composeRead.current?.abort(); composeRead.current = null; }, [effectiveConfig?.id]);
+  // showEffectiveConfig and closeEffectiveConfig abort an in-flight raw Compose read themselves.
+  // Keyed on the dialog's app, this cleanup ran in the task after the commit that opened the dialog
+  // and aborted a read clicked in between, leaving "Reading Compose file..." up for good.
+  useEffect(() => () => { composeRead.current?.abort(); composeRead.current = null; }, []);
   const closeEffectiveConfig = () => {
     composeRead.current?.abort(); composeRead.current = null;
     setEffectiveConfig(null); setComposeDraft(null);
@@ -418,6 +421,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
   };
 
   const showEffectiveConfig = async (id: string) => {
+    composeRead.current?.abort(); composeRead.current = null;
     setComposeAccess({ needsPassword: false, password: "", busy: false, error: null });
     setComposeDraft(null);
     try {

@@ -3,6 +3,7 @@ import { mkdtemp, rm, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { onWindows } from "../test/platform.mjs";
 import { createCredentialStore } from "./credentials.mjs";
 import { httpRequest } from "./tasks/http-request.mjs";
 
@@ -17,7 +18,8 @@ async function storeIn() {
 }
 
 describe("the credential store", () => {
-  it("saves under a name, lists names and dates only, reads the value, and removes", async () => {
+  // Linux only: POSIX file modes.
+  it.skipIf(onWindows)("saves under a name, lists names and dates only, reads the value, and removes", async () => {
     const { store, file } = await storeIn();
     await store.set({ name: "ntfy-token", value: "tk_secret" });
     expect(await store.listNames()).toEqual([{ name: "ntfy-token", createdAt: "2026-08-28T00:00:00.000Z", updatedAt: "2026-08-28T00:00:00.000Z" }]);

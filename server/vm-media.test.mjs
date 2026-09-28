@@ -4,6 +4,7 @@ import { Readable } from "node:stream";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { onWindows } from "../test/platform.mjs";
 import { createVmMediaService } from "./vm-media.mjs";
 
 function requestFor(content, filename = "ubuntu.iso", declaredSize = content.length) {
@@ -18,7 +19,8 @@ function requestFor(content, filename = "ubuntu.iso", declaredSize = content.len
 }
 
 describe("VM media controller service", () => {
-  it("streams an authenticated upload into a complete staging pair", async () => {
+  // Linux only: fsyncs a read-only handle, which Windows refuses.
+  it.skipIf(onWindows)("streams an authenticated upload into a complete staging pair", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "boxpilot-vm-upload-"));
     const inboxRoot = path.join(root, "inbox");
     await mkdir(inboxRoot);
