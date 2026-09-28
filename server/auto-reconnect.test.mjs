@@ -181,6 +181,16 @@ describe("auto-reconnect", () => {
     expect(service.status().drives.media).toMatchObject({ enabled: true, held: false, attempts: 1, lastOutcome: "reconnected" });
   });
 
+  it("keeps what an armed drive runs fixed: it can be renamed or paused, and anything else means arming it again", async () => {
+    const { service, flows } = setup();
+    const flow = await service.arm("media", "owner-1");
+    await expect(flows.update(flow.id, { steps: [{ operationId: "storage.remount", parameters: { name: "backup" } }] }, "owner-1")).rejects.toThrow("arm the drive again");
+    await expect(flows.update(flow.id, { cadence: { frequency: "daily", hour: 3, minute: 0 } }, "owner-1")).rejects.toThrow("arm the drive again");
+    await expect(flows.update(flow.id, { triggerFlowId: "flow-9" }, "owner-1")).rejects.toThrow("arm the drive again");
+    expect(await flows.update(flow.id, { name: "Media drive", steps: flow.steps }, "owner-1")).toMatchObject({ name: "Media drive", steps: flow.steps, triggerDrive: "media" });
+    expect(await flows.update(flow.id, { enabled: false }, "owner-1")).toMatchObject({ enabled: false, triggerDrive: "media" });
+  });
+
   it("reconnects a drive that went read-only the same way", async () => {
     const { service, jobs, titles } = setup();
     await service.arm("media", "owner-1");

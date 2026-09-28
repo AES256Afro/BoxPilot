@@ -227,6 +227,13 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
   async function update(id, { name, steps, cadence, enabled, triggerFlowId }, actorId, { role = "owner" } = {}) {
     const flow = store.getFlow(id);
     assertMayManage(flow, actorId, role);
+    // A drive-armed flow runs unattended the moment its drive drops, so what it runs was fixed when the
+    // drive was armed (M26.5): it can be renamed, paused or resumed, and anything else means disarming
+    // and arming again. The same steps sent back by an edit form are not a change.
+    if (flow.triggerDrive) {
+      const stepsChanged = steps !== undefined && JSON.stringify(normalizeSteps(steps)) !== JSON.stringify(flow.steps);
+      if (stepsChanged || cadence !== undefined || triggerFlowId !== undefined) throw new Error(`${flow.name} reconnects /mnt/${flow.triggerDrive} when it drops; to change what it does, stop reconnecting automatically and arm the drive again`);
+    }
     const problem = validateFlow({ name: name ?? flow.name, steps: steps ?? flow.steps }, registry);
     if (problem) throw new Error(problem);
     // The steps as they will be after this edit, new or kept: editing was once the way round the check.
