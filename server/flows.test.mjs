@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { createFlowService, flowRisk, validateFlow } from "./flows.mjs";
 import { computeNextRun } from "./scheduler.mjs";
+import { createHealthAlerts } from "./health-alerts.mjs";
 
 /**
  * Flows are ADR-002: chains of registered operations, each step an ordinary job, the chain
@@ -34,6 +35,17 @@ function fakeStore() {
     listDueFlows(nowIso) { return [...flows.values()].filter((flow) => flow.enabled !== false && flow.nextDueAt && flow.nextDueAt <= nowIso); },
     listFlowsTriggeredBy(flowId) { return [...flows.values()].filter((flow) => flow.enabled !== false && flow.triggerFlowId === flowId); },
     recordAudit: (event, detail) => audits.push({ event, ...detail }),
+  };
+}
+
+/** The health-alert ledger as a flow sees it: the messages raised (and whole alerts), and what was cleared. */
+function recordingAlerts(messages = []) {
+  const raised = [];
+  const cleared = [];
+  return {
+    raised, cleared,
+    raise: (alert) => { messages.push(alert.message); raised.push(alert); return Promise.resolve({ notified: false }); },
+    clear: (key, options = {}) => { cleared.push({ key, ...options }); return Promise.resolve({ cleared: true }); },
   };
 }
 
@@ -217,13 +229,15 @@ describe("running a flow", () => {
     const store = fakeStore();
     const jobs = fakeJobs(store, { failAt: 1 });
     const notified = [];
-    const service = createFlowService({ store, jobs, pollMs: 2, notify: (message) => notified.push(message) });
+    const service = createFlowService({ store, jobs, pollMs: 2, alerts: recordingAlerts(notified) });
     const flow = await service.create({ name: "belt", steps: [{ ...goodSteps[0], onFailure: "continue" }, goodSteps[1]], createdBy: "owner-1" });
     const outcome = await service.run(flow.id, "owner-1", { role: "owner" });
     expect(outcome.completed).toBe(true);
     expect(jobs.calls).toHaveLength(2);                       // the second step still ran
     expect(store.getFlow(flow.id).lastResult).toMatch(/^completed with problems: step 1 .*failed/);
-    expect(notified).toEqual([]);                             // the failed job's own push carries the news
+    // The step's job no longer pushes on its own (the flow claims it), so the flow says it, once.
+    expect(notified).toHaveLength(1);
+    expect(notified[0]).toMatch(/^belt completed with problems: step 1 .*failed/);
   });
 
   it("a false condition skips the step, which holds its place in the run", async () => {
@@ -250,7 +264,7 @@ describe("running a flow", () => {
     const store = fakeStore();
     const jobs = fakeJobs(store, { results: { 1: { count: 4 } } });
     const notified = [];
-    const service = createFlowService({ store, jobs, pollMs: 2, notify: (message) => notified.push(message) });
+    const service = createFlowService({ store, jobs, pollMs: 2, alerts: recordingAlerts(notified) });
     const flow = await service.create({
       name: "picky",
       steps: [
@@ -301,7 +315,7 @@ describe("running a flow", () => {
     const store = fakeStore();
     store.findOwnerById = (id) => ({ id, username: id, role: id.startsWith("viewer") ? "viewer" : "owner" });
     const notified = [];
-    const service = createFlowService({ store, jobs: fakeJobs(store), pollMs: 2, notify: (message) => notified.push(message) });
+    const service = createFlowService({ store, jobs: fakeJobs(store), pollMs: 2, alerts: recordingAlerts(notified) });
     const first = await service.create({ name: "backup", steps: [goodSteps[0]], createdBy: "owner-1" });
     await service.create({ name: "mirror", steps: [goodSteps[1]], createdBy: "viewer-9", triggerFlowId: first.id });
     await service.run(first.id, "owner-1", { role: "owner" });
@@ -348,7 +362,7 @@ describe("running a flow", () => {
   it("rewrites a record stranded by a restart to what is actually known", () => {
     const store = fakeStore();
     const notified = [];
-    const service = createFlowService({ store, jobs: fakeJobs(store), pollMs: 2, notify: (message) => notified.push(message) });
+    const service = createFlowService({ store, jobs: fakeJobs(store), pollMs: 2, alerts: recordingAlerts(notified) });
     store.flows.set("flow-9", { id: "flow-9", name: "Update night", steps: [goodSteps[0]], createdBy: "owner-1", enabled: true, lastResult: "running step 2 of 3 (Install package updates)", lastJobIds: ["job-1", "job-2"], nextDueAt: null, triggerFlowId: null });
     store.flows.set("flow-10", { id: "flow-10", name: "Fine", steps: [goodSteps[0]], createdBy: "owner-1", enabled: true, lastResult: "completed", lastJobIds: ["job-3"], nextDueAt: null, triggerFlowId: null });
     expect(service.recover()).toBe(1);
@@ -459,7 +473,7 @@ describe("running a flow", () => {
     const store = fakeStore();
     store.findOwnerById = () => null;
     const notified = [];
-    const service = createFlowService({ store, jobs: fakeJobs(store), pollMs: 2, notify: (message) => notified.push(message) });
+    const service = createFlowService({ store, jobs: fakeJobs(store), pollMs: 2, alerts: recordingAlerts(notified) });
     const flow = await service.create({ name: "orphaned", steps: [goodSteps[0]], createdBy: "ghost-1" });
     const { token } = service.mintWebhook(flow.id, "ghost-1", { role: "owner" });
     expect(service.fireWebhook(flow.id, token)).toBe("accepted");
@@ -472,7 +486,7 @@ describe("running a flow", () => {
     const store = fakeStore();
     store.findOwnerById = (id) => ({ id, username: id, role: "viewer" });
     const notified = [];
-    const service = createFlowService({ store, jobs: fakeJobs(store), pollMs: 2, notify: (message) => notified.push(message) });
+    const service = createFlowService({ store, jobs: fakeJobs(store), pollMs: 2, alerts: recordingAlerts(notified) });
     const flow = await service.create({ name: "demoted", steps: [goodSteps[0]], createdBy: "viewer-9" });
     const { token } = service.mintWebhook(flow.id, "viewer-9", { role: "owner" });
     expect(service.fireWebhook(flow.id, token)).toBe("accepted");
@@ -766,5 +780,73 @@ describe("a flow step whose app the catalog cannot name", () => {
     const store = fakeStore();
     const flows = createFlowService({ store, jobs: fakeJobs(store), pollMs: 2, secretEnvNamesFor: catalogLookup });
     await expect(flows.create({ name: "Rename", steps: [{ operationId: "app.reconfigure", parameters: { id: "cloudflared", values: { env: { TUNNEL_NAME: "home" } } } }], createdBy: "owner-1" })).resolves.toBeTruthy();
+  });
+});
+
+describe("an automation that fails (M27.2)", () => {
+  // The real health-alert ledger, over its own settings, with a stand-in notification target.
+  function withLedger({ target = { kind: "ntfy" }, send = vi.fn(async () => ({ sent: true })) } = {}) {
+    const settings = new Map();
+    const ledgerStore = { getSetting: (key, fallback) => settings.get(key) ?? fallback, setSetting: (key, value) => settings.set(key, value), recordAudit: () => {} };
+    const alerts = createHealthAlerts({ inventory: { inspect: async () => ({}) }, notifications: { getTarget: () => target, send }, store: ledgerStore, now: () => new Date("2026-09-27T03:00:00Z") });
+    // A flow announces without waiting; anything queued on the ledger after it waits for it.
+    const drained = () => alerts.clear("nothing:pending");
+    return { alerts, send, drained, state: () => settings.get("healthAlertsState") ?? {} };
+  }
+
+  it("is announced once per flow, owns its step jobs, and says when a clean run fixed it", async () => {
+    const store = fakeStore();
+    const { alerts, send, drained, state } = withLedger();
+    const failing = createFlowService({ store, jobs: fakeJobs(store, { failAt: 1, alwaysFail: true }), pollMs: 2, alerts });
+    const flow = await failing.create({ name: "Nightly", steps: [goodSteps[0]], createdBy: "owner-1" });
+
+    await expect(failing.run(flow.id, "owner-1", { role: "owner" })).rejects.toThrow(/stopped at step 1/);
+    // The step's job is the flow's: the notifier leaves it alone, so the owner hears it once, from here.
+    expect(failing.owns("job-1")).toBe(true);
+    await drained();
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledWith({ title: "BoxPilot: Automation stopped: Nightly", message: expect.stringMatching(/^Nightly stopped at step 1 .*the step went wrong/), priority: "high" });
+
+    await expect(failing.run(flow.id, "owner-1", { role: "owner" })).rejects.toThrow(/stopped at step 1/);
+    await drained();
+    expect(send).toHaveBeenCalledTimes(1); // the same flow failing again is not a second push
+    expect(state()[`flow.failed:${flow.id}`]).toMatchObject({ notified: true });
+
+    const fixed = createFlowService({ store, jobs: fakeJobs(store), pollMs: 2, alerts });
+    await fixed.run(flow.id, "owner-1", { role: "owner" });
+    await drained();
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(send).toHaveBeenLastCalledWith(expect.objectContaining({ title: "BoxPilot: resolved. Automation stopped: Nightly" }));
+    expect(state()).toEqual({});
+  });
+
+  it("is kept as not announced when there is no target, and deleting the flow drops it quietly", async () => {
+    const store = fakeStore();
+    const { alerts, send, drained, state } = withLedger({ target: null });
+    const service = createFlowService({ store, jobs: fakeJobs(store), pollMs: 2, alerts, now: () => new Date("2026-08-30T03:01:00.000Z") });
+    // A demoted creator: the clock fires, the run is refused, and no job exists to carry the news.
+    const flow = await service.create({ name: "Mirror", steps: [goodSteps[0]], createdBy: "viewer-9", cadence: { frequency: "daily", minute: 0, hour: 3 } });
+    store.flows.get(flow.id).nextDueAt = "2026-08-30T03:00:00.000Z";
+    await service.tick();
+    await drained();
+    expect(send).not.toHaveBeenCalled();
+    expect(state()[`flow.failed:${flow.id}`]).toMatchObject({ notified: false, title: "Automation did not run: Mirror", message: expect.stringContaining("viewer-9 can no longer approve") });
+
+    service.remove(flow.id, "owner-1", { role: "owner" });
+    await drained();
+    expect(state()).toEqual({});
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("is kept as not announced when the target does not answer", async () => {
+    const store = fakeStore();
+    const send = vi.fn(async () => { throw new Error("The notification target answered 502"); });
+    const { alerts, drained, state } = withLedger({ send });
+    const service = createFlowService({ store, jobs: fakeJobs(store, { failAt: 1 }), pollMs: 2, alerts });
+    const flow = await service.create({ name: "Belt", steps: [{ ...goodSteps[0], onFailure: "continue" }, goodSteps[1]], createdBy: "owner-1" });
+    expect((await service.run(flow.id, "owner-1", { role: "owner" })).completed).toBe(true);
+    await drained();
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(state()[`flow.failed:${flow.id}`]).toMatchObject({ notified: false, title: "Automation finished with problems: Belt" });
   });
 });

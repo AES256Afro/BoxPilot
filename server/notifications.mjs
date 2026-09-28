@@ -51,7 +51,7 @@ export function buildRequest(target, { title, message, priority = "default" }) {
   };
 }
 
-export function createNotificationService({ store, fetcher = fetch, now = () => new Date() }) {
+export function createNotificationService({ store, fetcher = fetch, now = () => new Date(), claimed = () => false }) {
   const notified = new Set();
 
   function getTarget() {
@@ -95,6 +95,12 @@ export function createNotificationService({ store, fetcher = fetch, now = () => 
     if (job.state !== "failed" || notified.has(job.id)) return;
     notified.add(job.id);
     if (notified.size > 500) notified.delete(notified.values().next().value);
+    // A scheduled run, an automation's step, or a job whose result was not saved is announced as
+    // its own condition, once, through the health alerts - and kept as not announced when this
+    // cannot reach anyone. Pushing the job too is what made a nightly failure a nightly push.
+    let owned = false;
+    try { owned = Boolean(claimed(job)); } catch { owned = false; } // unsure means push it: a duplicate beats silence
+    if (owned) return;
     if (!getTarget()) return;
     void send({ title: `BoxPilot: ${job.title} failed`, message: (job.error ?? "The job failed; open Activity for the log.").slice(0, 500), priority: "high" })
       .then(() => store.recordAudit("notifications.sent", { subjectId: job.id, details: { title: job.title } }))

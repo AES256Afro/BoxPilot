@@ -74,6 +74,23 @@ describe("failed-job notifications", () => {
     store.close();
   });
 
+  it("leaves a job that has its own announcement to it, and still pushes when unsure", async () => {
+    // A scheduled run, an automation's step, a result not saved: announced once per condition by the
+    // health alerts. Pushing the job as well is what made a nightly failure a nightly push.
+    const requests = [];
+    const store = { getSetting: () => ({ kind: "webhook", url: "http://127.0.0.1:9000/hook" }), recordAudit: vi.fn() };
+    const claimed = vi.fn((job) => {
+      if (job.id === "20000000-0000-4000-8000-000000000003") throw new Error("scheduler is not there yet");
+      return job.id === "20000000-0000-4000-8000-000000000001";
+    });
+    const service = createNotificationService({ store, claimed, fetcher: vi.fn(async (url, options) => { requests.push({ url, options }); return { ok: true, status: 200 }; }) });
+    service.onJob({ id: "20000000-0000-4000-8000-000000000001", state: "failed", title: "Back up application data", error: "disk full" });
+    service.onJob({ id: "20000000-0000-4000-8000-000000000002", state: "failed", title: "Install package updates", error: "apt lock" });
+    service.onJob({ id: "20000000-0000-4000-8000-000000000003", state: "failed", title: "Refresh package lists", error: "mirror down" });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(requests.map((request) => JSON.parse(request.options.body).title)).toEqual(["BoxPilot: Install package updates failed", "BoxPilot: Refresh package lists failed"]);
+  });
+
   it("audits delivery failures instead of throwing into the job path", async () => {
     const failing = vi.fn(async () => ({ ok: false, status: 500 }));
     const { store, owner, service } = await setup({ fetcher: failing });

@@ -34,7 +34,7 @@ import { createPeopleRouter } from "./routes/people.mjs";
 import { createHelperClient } from "./helper-client.mjs";
 import { createHelperLibvirtService } from "./helper-libvirt.mjs";
 import { createInventoryService } from "./inventory.mjs";
-import { createJobService } from "./jobs.mjs";
+import { createJobService, recordFailed } from "./jobs.mjs";
 import { invalidateOperationEvidence } from "./diagnostic-invalidation.mjs";
 import { createLibvirtFoundationService } from "./libvirt-foundation.mjs";
 import { createMaintenanceService } from "./maintenance.mjs";
@@ -130,7 +130,14 @@ function markProfileEdited(job) {
 }
 
 const secretEnvNamesFor = secretEnvNamesLookup(catalogService);
+// Where alerts go, and the one ledger of what was announced and what could not be (M27.2). A failed
+// scheduled run, an automation's step, or a result that could not be saved is announced through the
+// health alerts, once per condition, so the notifier leaves those jobs alone. scheduler and flows are
+// only read when a job event arrives, which is after notifications.start() below, once both exist.
+const notifications = createNotificationService({ store: state, claimed: (job) => scheduler.owns(job.id) || flows.owns(job.id) || recordFailed(job) });
+const healthAlerts = createHealthAlerts({ inventory, notifications, store: state, resolveScheduleTitle: (operationId) => registry.get(operationId)?.title ?? operationId });
 const jobs = createJobService(state, helper, {
+  alerts: healthAlerts,
   onOperationSettled: (job) => invalidateOperationEvidence(job, { registry, inventory, prerequisites, helper }),
   secretEnvNamesFor,
   jobLog: jobLogReader,
@@ -205,25 +212,25 @@ const jobs = createJobService(state, helper, {
 });
 state.deleteExpiredSessions();
 const interruptedJobs = state.recoverInterruptedJobs();
-const scheduler = createSchedulerService({ store: state, jobs, secretEnvNamesFor });
-const notifications = createNotificationService({ store: state });
-notifications.start();
+const scheduler = createSchedulerService({ store: state, jobs, secretEnvNamesFor, alerts: healthAlerts });
 // A job cut off by a restart - a crash, or BoxPilot updating itself mid-install - was marked failed
 // in silence: recovery ran before the notifier existed, so the one failure that happens while the
-// owner is away was the one never announced.
+// owner is away was the one never announced. A scheduled run's is its schedule's failure.
+const scheduledInterrupted = new Set(scheduler.recover(interruptedJobs));
 for (const job of interruptedJobs) {
+  if (scheduledInterrupted.has(job.id)) continue;
   notifications.send({ title: `BoxPilot: ${job.title ?? "a job"} was interrupted`, message: "BoxPilot restarted while it was running, so it is marked failed. The operation may still have finished on its own; check what it changed before retrying.", priority: "high" }).catch(() => {});
 }
-// A flow failure that never produced a job has no failed-job push to carry the news; the flow
-// sends its own. Failed step jobs stay covered by the ordinary failed-job notifications.
+// A flow announces its own failures, steps included, once per flow until it next runs cleanly.
 const { library: flowLibrary, problems: flowLibraryProblems } = await loadFlowLibrary().catch(() => ({ library: [], problems: [] }));
 if (flowLibraryProblems.length) console.warn(`[boxpilot] flow library problems: ${flowLibraryProblems.map((problem) => `${problem.file}: ${problem.errors.join("; ")}`).join(" | ")}`);
-const flows = createFlowService({ store: state, jobs, secretEnvNamesFor, library: flowLibrary, notify: (message) => { notifications.send({ title: "Automation", message, priority: "high" }).catch(() => {}); } });
+const flows = createFlowService({ store: state, jobs, secretEnvNamesFor, library: flowLibrary, alerts: healthAlerts });
+notifications.start();
 flows.start();
 scheduler.start();
 const setup = createSetupService({ helper, scheduler });
 createUpdateNotifier({ releaseUpdates, notifications, store: state }).start();
-createHealthAlerts({ inventory, notifications, store: state, resolveScheduleTitle: (operationId) => registry.get(operationId)?.title ?? operationId }).start();
+healthAlerts.start();
 // Reissue the LAN certificate before it expires, reusing its CA so trusted devices stay trusted (M18.2).
 createTlsRenewal({ helper, store: state }).start();
 // Sample free space daily so the disk-fill forecast (M23.1) has a trend to project.
