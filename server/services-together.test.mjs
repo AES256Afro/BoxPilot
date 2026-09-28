@@ -239,7 +239,10 @@ describe("upgrading a database v1.121.0 left", () => {
   });
 });
 
-describe("the services together", () => {
+// Real services on real timers, with waits of their own of up to 5 s inside a test: the default
+// 5 s test limit is the same size, and a loaded runner ran one test out of it while every
+// assertion would have held. The limit is for the whole walk, not any one step.
+describe("the services together", { timeout: 30_000 }, () => {
   async function server(start, options = {}) {
     const { now, at } = clock(start);
     const store = openStore(await databaseFile(), now);
