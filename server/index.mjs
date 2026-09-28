@@ -285,10 +285,11 @@ createDiskSampler({ inventory, store: state }).start();
 createAppDataSampler({ helper, store: state }).start();
 // Sample SMART numbers daily so a drive going bad is caught before it fails (M23.3).
 createSmartSampler({ inventory, store: state }).start();
-// The local assistant (M34): its index of BoxPilot's documents, registry and catalog is built now,
-// in the background; its model is only ever a local one, found when someone asks.
+// The local assistant (M34): its model is only ever a local one, found when someone asks. Its index
+// of BoxPilot's documents, registry and catalog is built the first time anyone asks or reads its
+// status, not here: most servers never run a model, and building it at every start cost ~50 ms of
+// CPU and kept ~3 MiB of heap (7 MiB before its postings were packed) for nothing.
 const assistant = createAssistantService({ state, registry, catalog: catalogService, helper, inventory, secretEnvNamesFor });
-void assistant.warm();
 
 app.disable("x-powered-by");
 app.use(jsonGzip());
