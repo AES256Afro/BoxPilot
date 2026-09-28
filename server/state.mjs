@@ -788,9 +788,13 @@ export function createStateStore({
     return event;
   }
 
-  function listAudit(limit = 100) {
+  /** Newest first. `actorId` limits it to what one account did (an operator's support bundle). */
+  function listAudit(limit = 100, { actorId = null } = {}) {
     const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 100, 1), 200);
-    return database.prepare("SELECT * FROM audit_events ORDER BY created_at DESC, rowid DESC LIMIT ?").all(safeLimit).map((row) => ({
+    const rows = actorId
+      ? database.prepare("SELECT * FROM audit_events WHERE actor_id = ? ORDER BY created_at DESC, rowid DESC LIMIT ?").all(actorId, safeLimit)
+      : database.prepare("SELECT * FROM audit_events ORDER BY created_at DESC, rowid DESC LIMIT ?").all(safeLimit);
+    return rows.map((row) => ({
       id: row.id,
       type: row.type,
       actorId: row.actor_id,

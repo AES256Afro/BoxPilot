@@ -25,7 +25,7 @@ const weeklyReport = {
 beforeAll(async () => {
   const app = express();
   app.use(express.json());
-  app.use((request, _response, next) => { request.boxpilotSession = { owner: { id: "owner-1" } }; next(); });
+  app.use((request, _response, next) => { request.boxpilotSession = { owner: { id: "owner-1", role: request.headers["x-test-role"] ?? "owner" } }; next(); });
   app.use("/api/v1", createSettingsRouter({ state, notifications, weeklyReport, auth }));
   server = app.listen(0);
   await new Promise((resolve) => server.once("listening", resolve));
@@ -123,6 +123,20 @@ describe("the weekly report in Settings (M30.4)", () => {
     const refused = await send();
     expect(refused.status).toBe(502);
     expect((await refused.json()).error).toBe("No notification target is configured");
+  });
+});
+
+describe("GET /settings/notifications", () => {
+  it("shows where alerts go to the owner only; others see that a target is set and its kind", async () => {
+    const original = notifications.describe;
+    notifications.describe = () => ({ configured: true, kind: "ntfy", url: "https://ntfy.example.org", topic: "private-topic-7f3a", hasToken: false });
+    try {
+      const at = async (role) => (await fetch(`${base}/api/v1/settings/notifications`, { headers: { "x-test-role": role } })).json();
+      expect(await at("owner")).toMatchObject({ configured: true, kind: "ntfy", url: "https://ntfy.example.org", topic: "private-topic-7f3a" });
+      for (const role of ["operator", "viewer"]) expect(await at(role)).toEqual({ configured: true, kind: "ntfy", url: null, topic: null, hasToken: false });
+    } finally {
+      notifications.describe = original;
+    }
   });
 });
 
