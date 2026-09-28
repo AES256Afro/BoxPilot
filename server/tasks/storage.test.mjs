@@ -310,7 +310,7 @@ describe("mount names that belong to other operations", () => {
 
   it("refuses to unmount a share by its marker name, so the share's fstab line survives", async () => {
     // It found nothing mounted at /mnt/share-nas, skipped the umount, and deleted the entry anyway.
-    await expect(storageUnmount({ name: "share-nas" }, { run, files })).rejects.toThrow(/network share; use the share operations/);
+    await expect(storageUnmount({ name: "share-nas" }, { run, files })).rejects.toThrow(/network share, not a drive; reconnect it with share.reconnect/);
     expect(files.writeFile).not.toHaveBeenCalled();
   });
 

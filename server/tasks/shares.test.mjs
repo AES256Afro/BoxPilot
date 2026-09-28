@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { buildShareEntry, credentialsPath, explainMountError, shareMount, shareUnmount, validateShare } from "./shares.mjs";
+import { buildShareEntry, credentialsPath, explainMountError, shareMount, shareReconnect, shareUnmount, validateShare } from "./shares.mjs";
 
 const BASE_FSTAB = "# /etc/fstab\nUUID=root-uuid / ext4 defaults 0 1\n";
 const MANAGED_FSTAB = `${BASE_FSTAB}# boxpilot:share-nas-media\n//mycloud/Public /mnt/nas-media cifs credentials=/etc/boxpilot/secrets/share-nas-media.cred,nofail,x-systemd.automount 0 0\n`;
@@ -28,7 +28,7 @@ const pathOf = (unit) => `/${unit.replace(/\.(auto)?mount$/, "").replaceAll("-",
  * refuses the mount unit's stop until something lets go (Samba's close-share when `samba` is set);
  * `retrigger` has a client mount the share again through the automount between the two stops.
  */
-function fakeHost({ mounts = {}, fstype = "cifs", mountFails = null, startsButNothing = false, busy = false, samba = false, retrigger = false, containers = [], journal = "" } = {}) {
+function fakeHost({ mounts = {}, fstype = "cifs", mountFails = null, startsButNothing = false, busy = false, samba = false, retrigger = false, containers = [], journal = "", readOnly = false } = {}) {
   const state = { mounts: structuredClone(mounts), busy, journal, retriggered: false };
   const calls = [];
   const ok = (stdout = "") => ({ ok: true, code: 0, stdout, stderr: "" });
@@ -37,6 +37,7 @@ function fakeHost({ mounts = {}, fstype = "cifs", mountFails = null, startsButNo
     const name = binary.split("/").at(-1);
     calls.push(`${name} ${args.join(" ")}`);
     if (name === "findmnt" && args[0] === "--verify") return ok();
+    if (name === "findmnt" && args.includes("FSTYPE,FS-OPTIONS")) return ok(at(args.at(-1)).map((type) => (type === "autofs" ? "autofs rw" : `${type} ${readOnly ? "ro" : "rw"},vers=3.1.1`)).join("\n"));
     if (name === "findmnt" && args.includes("--mountpoint")) return ok(at(args.at(-1)).map((type) => (type === "autofs" ? "autofs 0 0" : `${type} 1000 500`)).join("\n"));
     if (name === "findmnt") {
       const rows = Object.entries(state.mounts).flatMap(([target, types]) => types.map((type) => `${target} ${type} ${type === "autofs" ? "0:40" : "0:55"}`));
@@ -279,5 +280,65 @@ describe("share.unmount, on the host, and not while something uses the share", (
     expect(host.calls.lastIndexOf("systemctl stop mnt-nas\\x2dmedia.mount")).toBeGreaterThan(host.calls.indexOf("systemctl stop mnt-nas\\x2dmedia.automount"));
     expect(host.state.mounts["/mnt/nas-media"]).toEqual([]);
     expect(files.state.fstab).toBe(BASE_FSTAB);
+  });
+});
+
+describe("share.reconnect, the share's own remount", () => {
+  const mountUnit = "systemctl stop mnt-nas\\x2dmedia.mount";
+
+  it("unmounts and mounts the share again on the host, keeps its entry and credentials, and restarts the apps using it", async () => {
+    const files = fakeFiles(MANAGED_FSTAB);
+    files.state.written[credentialsPath("nas-media")] = { content: "x" };
+    const host = fakeHost({ mounts: { "/mnt/nas-media": ["autofs", "cifs"] }, containers: ["bp-plex"] });
+    const result = await shareReconnect({ name: "nas-media" }, { run: host.run, files, now });
+    expect(result).toEqual({ reconnected: true, name: "nas-media", mountpoint: "/mnt/nas-media", restarted: ["bp-plex"], restartFailed: [] });
+    const order = [mountUnit, "systemctl start mnt-nas\\x2dmedia.automount", "systemctl start mnt-nas\\x2dmedia.mount", "docker restart bp-plex"].map((call) => host.calls.indexOf(call));
+    expect(order.every((index, position) => index >= 0 && (position === 0 || index > order[position - 1]))).toBe(true);
+    // Never the automount's stop, which takes the share away lazily; never mount or umount here.
+    expect(host.calls).not.toContain("systemctl stop mnt-nas\\x2dmedia.automount");
+    expect(host.calls.some((call) => /^u?mount /.test(call))).toBe(false);
+    expect(host.state.mounts["/mnt/nas-media"]).toEqual(["autofs", "cifs"]);
+    expect(files.state.fstab).toBe(MANAGED_FSTAB);
+    expect(files.state.written[credentialsPath("nas-media")]).toBeDefined();
+  });
+
+  it("mounts a share that had gone idle without unmounting anything first", async () => {
+    const files = fakeFiles(MANAGED_FSTAB);
+    const host = fakeHost({ mounts: { "/mnt/nas-media": ["autofs"] } });
+    await expect(shareReconnect({ name: "nas-media" }, { run: host.run, files, now })).resolves.toMatchObject({ reconnected: true, restarted: [] });
+    expect(host.calls).not.toContain(mountUnit);
+    expect(host.state.mounts["/mnt/nas-media"]).toEqual(["autofs", "cifs"]);
+  });
+
+  it("leaves a share something other than an app is using as it was, naming the holder", async () => {
+    const files = fakeFiles(MANAGED_FSTAB);
+    const host = fakeHost({ mounts: { "/mnt/nas-media": ["autofs", "cifs"] }, busy: true });
+    await expect(shareReconnect({ name: "nas-media" }, { run: host.run, files, now, processes: holdingShell }))
+      .rejects.toThrow(/^\/mnt\/nas-media is in use by .* \(4242\), so it was left as it was: umount: \/mnt\/nas-media: target is busy\. Stop whatever/);
+    expect(host.calls.some((call) => call.startsWith("systemctl start"))).toBe(false);
+    expect(host.state.mounts["/mnt/nas-media"]).toEqual(["autofs", "cifs"]);
+  });
+
+  it("says why when the share does not come back, and keeps its entry so it mounts once the NAS answers", async () => {
+    const files = fakeFiles(MANAGED_FSTAB);
+    const host = fakeHost({ mounts: { "/mnt/nas-media": ["autofs", "cifs"] }, mountFails: "mount error(112): Host is down\nmnt-nas\\x2dmedia.mount: Mount process exited, code=exited, status=32/n/a" });
+    await expect(shareReconnect({ name: "nas-media" }, { run: host.run, files, now }))
+      .rejects.toThrow(/^The host did not answer\..* \/mnt\/nas-media is not mounted now; its fstab entry is kept, so it mounts by itself once the NAS answers\.$/);
+    expect(files.state.fstab).toBe(MANAGED_FSTAB);
+  });
+
+  it("fails, after restarting the apps, when the share comes back read-only again", async () => {
+    const files = fakeFiles(MANAGED_FSTAB);
+    const host = fakeHost({ mounts: { "/mnt/nas-media": ["autofs", "cifs"] }, containers: ["bp-plex"], readOnly: true });
+    await expect(shareReconnect({ name: "nas-media" }, { run: host.run, files, now }))
+      .rejects.toThrow("/mnt/nas-media was mounted again but is still read-only, so the NAS is serving it read-only to this server. Check the share's permissions for this user on the NAS. bp-plex was restarted.");
+    expect(host.calls).toContain("docker restart bp-plex");
+  });
+
+  it("refuses a name that is not one of BoxPilot's shares", async () => {
+    const host = fakeHost();
+    await expect(shareReconnect({ name: "other" }, { run: host.run, files: fakeFiles(MANAGED_FSTAB), now })).rejects.toThrow("other is not a BoxPilot-managed share");
+    await expect(shareReconnect({ name: "../etc" }, { run: host.run, files: fakeFiles(MANAGED_FSTAB), now })).rejects.toThrow("Name is invalid");
+    expect(host.calls).toEqual([]);
   });
 });

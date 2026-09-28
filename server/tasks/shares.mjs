@@ -1,6 +1,6 @@
 import { access, mkdir, readFile, rmdir, unlink, writeFile } from "node:fs/promises";
 import { fixedRun } from "../exec.mjs";
-import { appendFstabEntry, containersBoundTo, mountNamePattern, processesUsing, removeManagedEntry, unmountFromHost } from "./storage.mjs";
+import { appendFstabEntry, containersBoundTo, mountNamePattern, parseManagedFstab, processesUsing, removeManagedEntry, unmountFromHost } from "./storage.mjs";
 import { mountpointFor, reservedMountNames } from "../backup-mount.mjs";
 
 /**
@@ -53,6 +53,7 @@ const binaries = {
   systemctl: process.env.BOXPILOT_SYSTEMCTL_BINARY ?? "/usr/bin/systemctl",
   systemdEscape: "/usr/bin/systemd-escape",
   journalctl: "/usr/bin/journalctl",
+  docker: process.env.BOXPILOT_DOCKER_BINARY ?? "/usr/bin/docker",
   mountCifs: "/sbin/mount.cifs",
   mountNfs: "/sbin/mount.nfs",
 };
@@ -275,4 +276,62 @@ export async function shareUnmount({ name } = {}, { run = fixedRun, log = null, 
   const credentialsRemoved = await files.unlink(credentialsPath(name)).then(() => true, () => false);
   log?.(`Unmounted ${mountpoint} and removed the ${name} share from fstab${credentialsRemoved ? " and its stored credentials" : ""}; the folder was kept`, "stdout");
   return { unmounted: true, name, mountpoint, credentialsRemoved, directoryKept: true, sharingClosedFor: released.clients ?? [] };
+}
+
+/**
+ * Reconnect a share: the share's counterpart of storage.remount, which refuses shares. A share whose
+ * NAS restarted or whose connection dropped while in use can be left mounted read-only or answering
+ * nothing; mounting it again from its fstab line connects afresh. As in share.mount and
+ * share.unmount, systemd does the unmount and the mount, so they happen on the host.
+ *
+ * The fstab entry, the automount and the stored credentials are kept. Apps with the folder in a
+ * container hold a copy of the old mount of their own, which the host's unmount does not touch, so
+ * they are restarted afterwards to see the new one (Docker resolves a bind when a container
+ * starts). Anything else still using the share - a shell, a copy - leaves it alone, named.
+ */
+export async function shareReconnect({ name } = {}, { run = fixedRun, log = null, files = { readFile }, sleep = pause, processes = undefined, now = () => new Date() } = {}) {
+  if (typeof name !== "string" || !mountNamePattern.test(name)) throw new Error("Name is invalid");
+  const entry = parseManagedFstab(await files.readFile(fstabPath, "utf8")).find((row) => row.name === `share-${name}`);
+  if (!entry) throw new Error(`${name} is not a BoxPilot-managed share`);
+  const fstype = entry.line.trim().split(/\s+/)[2] ?? "";
+  const kind = fstype.startsWith("nfs") ? "nfs" : "smb";
+  const mountpoint = mountpointFor(name);
+  const units = await unitsFor(run, mountpoint);
+  const apps = await containersBoundTo(run, mountpoint);
+
+  const since = now();
+  if (shareIn(await hostMountsAt(run, mountpoint))) {
+    const released = await unmountFromHost(mountpoint, { run, log, files, sleep, command: `systemctl stop ${units.mount}`, unmount: () => stopShare(run, units.mount, mountpoint) });
+    if (!released.ok) {
+      const share = shareIn(await hostMountsAt(run, mountpoint));
+      const holders = share?.majMin ? await holdersOf(share.majMin, processes) : [];
+      const why = (helperWords(await unitJournal(run, units.mount, since), units.mount).split("\n").filter(Boolean).at(-1) ?? tail(released.result?.stderr)).replace(/[.\s]+$/, "");
+      throw new Error(`${mountpoint} is in use${holders.length ? ` by ${holders.map((holder) => `${holder.command} (${holder.pid})`).join(", ")}` : ""}, so it was left as it was${why ? `: ${why}` : ""}. Stop whatever is using it - a copy in progress, a shell sitting in it - and try again.`);
+    }
+  }
+  // The automount is still there; starting it again is a no-op unless something had stopped it.
+  // Then the share itself, now, so a NAS that is still away is found while the owner is watching.
+  const mountedFrom = now();
+  await run(binaries.systemctl, ["start", units.automount], { timeout: 30_000 });
+  const started = await run(binaries.systemctl, ["start", units.mount], { timeout: 90_000 });
+  if (!started.ok || !shareIn(await hostMountsAt(run, mountpoint).catch(() => []))) {
+    const said = await unitJournal(run, units.mount, mountedFrom);
+    const reason = explainMountError(kind, `${said}\n${started.stderr}`, helperWords(said, units.mount) || tail(started.stderr) || `systemd started ${units.mount} but nothing is mounted at ${mountpoint}`);
+    throw new Error(`${reason}${/[.!?]$/.test(reason) ? "" : "."} ${mountpoint} is not mounted now; its fstab entry is kept, so it mounts by itself once the NAS answers.`);
+  }
+  const options = await run(binaries.findmnt, ["--task", "1", "-ln", "-o", "FSTYPE,FS-OPTIONS", "--mountpoint", mountpoint], { timeout: 15_000 });
+  const [, filesystemOptions = ""] = options.stdout.split("\n").map((row) => row.trim().split(/\s+/)).find(([type]) => type && type !== "autofs") ?? [];
+  const readOnly = filesystemOptions.split(",").includes("ro") && !entry.line.trim().split(/\s+/)[3]?.split(",").includes("ro");
+  log?.(`${mountpoint} is mounted again${readOnly ? ", read-only" : ""}`, readOnly ? "stderr" : "stdout");
+
+  const restarted = []; const restartFailed = [];
+  for (const container of apps) {
+    log?.(`$ docker restart ${container}`, "stdout");
+    const result = await run(binaries.docker, ["restart", container], { timeout: 120_000 });
+    if (result.ok) restarted.push(container); else { restartFailed.push(container); log?.(`could not restart ${container}: ${tail(result.stderr)}`, "stderr"); }
+  }
+  // Mounted afresh and still read-only is the NAS's answer, not a stale connection: saying the
+  // reconnect worked would send the owner back to the same button.
+  if (readOnly) throw new Error(`${mountpoint} was mounted again but is still read-only, so the NAS is serving it read-only to this server. Check the share's permissions for this user on the NAS.${restarted.length ? ` ${restarted.join(", ")} ${restarted.length === 1 ? "was" : "were"} restarted.` : ""}`);
+  return { reconnected: true, name, mountpoint, restarted, restartFailed };
 }

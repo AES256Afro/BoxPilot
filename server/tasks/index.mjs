@@ -9,7 +9,7 @@ import { sshPasswordAuthSet, userAdd, userKeysImport, userSudoSet } from "./user
 import { firewallProfileApply, firewallRuleAdd, firewallRuleDelete, firewallSet } from "./firewall.mjs";
 import { storageCheck, storageClearMark, storageFormat, storageLvmExtend, storageLvmSnapshotCreate, storageLvmSnapshotDelete, storageLvmSnapshotRollback, storageMount, storageRemount, storageUnmount, swapFileSet } from "./storage.mjs";
 import { storageDockerOrder, storageVolumeState } from "./drive-shutdown.mjs";
-import { shareMount, shareUnmount } from "./shares.mjs";
+import { shareMount, shareReconnect, shareUnmount } from "./shares.mjs";
 import { moveBackupMount } from "./backup-mount-move.mjs";
 import { housekeepingRemoveTrees } from "./housekeeping.mjs";
 import { aptClean, journalVacuum } from "./space.mjs";
@@ -80,6 +80,7 @@ export const tasks = Object.freeze({
   "router.leases": routerLeases,
   "share.mount": shareMount,
   "share.unmount": shareUnmount,
+  "share.reconnect": shareReconnect,
   "storage.fs-snapshot.create": fsSnapshotCreate,
   "storage.fs-snapshot.delete": fsSnapshotDelete,
   "samba.apply": sambaApply,
