@@ -50,7 +50,7 @@ describe("BoxPilot console", () => {
   it("keeps the Classic overview reachable", async () => {
     vi.stubGlobal("fetch", vi.fn(authenticatedFetch));
     render(<App />);
-    fireEvent.click(within(dock()).getByRole("button", { name: "Overview (Classic)" }));
+    fireEvent.click(within(await screen.findByRole("navigation", { name: "Admin areas" })).getByRole("button", { name: "Overview (Classic)" }));
     expect(await screen.findByRole("heading", { name: "Server overview" })).toBeTruthy();
     expect(screen.getByText("Classic overview")).toBeTruthy();
     expect(screen.getByRole("region", { name: "Features" }).textContent).toContain("Setup checklist");

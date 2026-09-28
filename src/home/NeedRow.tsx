@@ -17,7 +17,8 @@ export function NeedRow({ need, onOpen, onAct }: { need: Need; onOpen: (need: Ne
       <span className="ui-mark need__mark" aria-hidden="true" />
       <div className="need__body">
         <button type="button" className="need__title" onClick={() => onOpen(need)} aria-describedby={need.detail ? detailId : undefined}>
-          <span className="ui-visually-hidden">{severityWords[need.severity]}: </span>{need.title}
+          {/* The space stays outside the hidden words: a name is built from trimmed pieces. */}
+          <span className="ui-visually-hidden">{`${severityWords[need.severity]}:`}</span>{` ${need.title}`}
         </button>
         {need.detail && <span className="need__detail" id={detailId}>{need.detail}</span>}
       </div>
