@@ -1,0 +1,6 @@
+Vacuuming done, freed 0B of archived journals from /run/log/journal.
+Deleted archived journal /var/log/journal/0123456789abcdef0123456789abcdef/system@4a3b2c1d0e0f4a5b8c7d6e5f4a3b2c1d-0000000000000001-00063f0a1b2c3d4e.journal (8.0M).
+Deleted archived journal /var/log/journal/0123456789abcdef0123456789abcdef/user-1000@4a3b2c1d0e0f4a5b8c7d6e5f4a3b2c1d-0000000000000100-00063f0b1b2c3d4e.journal (16.0M).
+Deleted empty archived journal /var/log/journal/0123456789abcdef0123456789abcdef/system@4a3b2c1d0e0f4a5b8c7d6e5f4a3b2c1d-0000000000000200-00063f0c1b2c3d4e.journal (4.0K).
+Vacuuming done, freed 24.0M of archived journals from /var/log/journal/0123456789abcdef0123456789abcdef.
+Vacuuming done, freed 0B of archived journals from /var/log/journal.
