@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useOperation } from "./ApproveDialog";
 import SnapshotFirstButton from "./SnapshotFirstButton";
+import { countOf } from "./data";
 import { inspectOperation } from "./operations";
+import { Button, Card, MetricTile, Section, StatusChip, riskOf, type Status } from "./ui";
 
 interface UpgradablePackage {
   name: string;
@@ -34,6 +36,11 @@ const curatedDescriptions: Record<string, string> = {
   "nfs-common": "NFS mounts", "cifs-utils": "SMB/CIFS mounts", smbclient: "lists SMB shares on a NAS", samba: "SMB file server (Storage page)", "nfs-kernel-server": "NFS server (Storage page)", nut: "UPS monitoring (System page)", fail2ban: "SSH brute-force protection (Firewall page)", rclone: "cloud backup mirror (Backups page)", needrestart: "finds services running old libraries",
 };
 
+/**
+ * Updates and packages, the first page built on the design system (M33.1): each figure says its
+ * status first, each button shows its risk tier, and nothing that has not been read yet is drawn
+ * as fine. Every action still goes through the one approval dialog.
+ */
 export default function UpdatesCenter({ csrfToken }: { csrfToken: string }) {
   const [report, setReport] = useState<UpgradableReport | null>(null);
   const [unattended, setUnattended] = useState<UnattendedReport | null>(null);
@@ -74,109 +81,138 @@ export default function UpdatesCenter({ csrfToken }: { csrfToken: string }) {
   const toggleAll = () => setSelected(allSelected ? new Set() : new Set(allNames));
   const customList = useMemo(() => customPackages.split(/[\s,]+/).map((item) => item.trim()).filter(Boolean), [customPackages]);
 
+  // What is known about updates, said first. Nothing read yet is unknown, never "up to date".
+  const securityCount = report?.securityCount ?? 0;
+  const updates: { status: Status; label: string } = !report
+    ? { status: "unknown", label: loading ? "Checking" : "Not read" }
+    : report.count === 0 ? { status: "good", label: "Up to date" }
+      : securityCount > 0 ? { status: "warning", label: countOf(securityCount, "security update") }
+        : { status: "neutral", label: `${report.count} waiting` };
+  const installedTools = curated?.packages.filter((tool) => tool.installed).length ?? 0;
+  const unattendedRead = unattended !== null;
+
   return (
-    <div className="updates-center">
+    <div className="updates-center" data-density="comfortable">
       {dialog}
-      <div className="metric-grid">
-        <article className="panel"><span className="eyebrow">Available updates</span><strong>{loading ? "…" : report?.count ?? "—"}</strong><span>{report?.securityCount ? `${report.securityCount} security` : "packages"}</span></article>
-        <article className="panel"><span className="eyebrow">Reboot</span><strong>{report?.rebootRequired ? "Required" : "Not needed"}</strong><span>{report?.rebootRequired ? "A kernel or core library changed" : "Nothing pending a restart"}</span>
-          {report?.rebootRequired && <div className="recovery-actions"><button className="secondary-button" type="button" onClick={() => start({ operationId: "system.reboot", title: "Reboot the server", parameters: {}, preview: <span>Reboots in 5 seconds after approval. Running VMs and containers stop; reconnect when the host is back.</span> })}>Reboot now</button></div>}
-        </article>
-        <article className="panel">
-          <span className="eyebrow">Automatic updates</span>
-          <strong>{loading && !unattended ? "…" : unattended?.enabled ? "On" : "Off"}</strong>
-          <span>{unattended?.enabled ? "Security upgrades install nightly" : "Security upgrades wait for you"}</span>
-          {unattended && (
-            <div className="recovery-actions">
-              <button className="secondary-button" type="button" disabled={loading} onClick={() => start({
-                operationId: "apt.unattended.set",
-                title: unattended.enabled ? "Turn off automatic updates" : "Turn on automatic updates",
-                parameters: { enabled: !unattended.enabled },
-                preview: unattended.enabled
-                  ? <span>Sets <code>APT::Periodic::Unattended-Upgrade "0"</code>. You install updates from this page instead.</span>
-                  : <span>{unattended.installed ? "" : "Installs unattended-upgrades, then "}sets <code>APT::Periodic::Unattended-Upgrade "1"</code> so security updates install nightly.</span>,
-              })}>{unattended.enabled ? "Turn off" : "Turn on"}</button>
-            </div>
+      <div className="updates-figures">
+        <MetricTile
+          label="Available updates"
+          value={loading && !report ? "…" : report?.count ?? "—"}
+          caption={!report ? (loading ? "Reading APT state" : "Not read") : securityCount ? `${securityCount} security` : "packages"}
+          status={updates.status}
+        />
+        <MetricTile
+          label="Reboot"
+          value={!report ? "—" : report.rebootRequired ? "Required" : "Not needed"}
+          caption={!report ? (loading ? "Reading APT state" : "Not read") : report.rebootRequired ? "A kernel or core library changed" : "Nothing pending a restart"}
+          status={!report ? "unknown" : report.rebootRequired ? "warning" : "good"}
+        >
+          {report?.rebootRequired && (
+            <Button risk={riskOf("system.reboot")} onClick={() => start({ operationId: "system.reboot", title: "Reboot the server", parameters: {}, preview: <span>Reboots in 5 seconds after approval. Running VMs and containers stop; reconnect when the host is back.</span> })}>Reboot now</Button>
           )}
-        </article>
-        <article className="panel">
-          <span className="eyebrow">Actions</span>
-          <div className="recovery-actions">
-            <button className="secondary-button" type="button" disabled={loading} onClick={() => start({ operationId: "apt.refresh", title: "Refresh package lists", parameters: {}, preview: <span>Runs <code>apt-get update</code>. Installs nothing.</span> })}>Refresh lists</button>
-            <SnapshotFirstButton start={start} />
-            <button className="primary-button" type="button" disabled={loading || !report?.count} onClick={() => start({ operationId: "apt.upgrade", title: "Install all updates", parameters: {}, preview: <span>Upgrades {report?.count ?? 0} package{report?.count === 1 ? "" : "s"} with <code>apt-get upgrade --with-new-pkgs</code> after refreshing the lists.</span> })}>Install all updates</button>
-          </div>
-        </article>
+        </MetricTile>
+        <MetricTile
+          label="Automatic updates"
+          value={loading && !unattendedRead ? "…" : !unattendedRead ? "—" : unattended.enabled ? "On" : "Off"}
+          caption={!unattendedRead ? (loading ? "Reading the setting" : "Could not read the setting") : unattended.enabled ? "Security upgrades install nightly" : "Security upgrades wait for you"}
+          status={!unattendedRead ? "unknown" : unattended.enabled ? "good" : "neutral"}
+        >
+          {unattended && (
+            <Button risk={riskOf("apt.unattended.set")} disabled={loading} onClick={() => start({
+              operationId: "apt.unattended.set",
+              title: unattended.enabled ? "Turn off automatic updates" : "Turn on automatic updates",
+              parameters: { enabled: !unattended.enabled },
+              preview: unattended.enabled
+                ? <span>Sets <code>APT::Periodic::Unattended-Upgrade "0"</code>. You install updates from this page instead.</span>
+                : <span>{unattended.installed ? "" : "Installs unattended-upgrades, then "}sets <code>APT::Periodic::Unattended-Upgrade "1"</code> so security updates install nightly.</span>,
+            })}>{unattended.enabled ? "Turn off" : "Turn on"}</Button>
+          )}
+        </MetricTile>
       </div>
 
       {error && <div className="auth-error" role="alert">{error}</div>}
 
-      {report?.needrestartPresent && report.servicesNeedingRestart === null && <section className="panel"><strong>Running-library check unavailable</strong><p>The scan did not finish. Refresh this page to try again. Package update information is still shown below.</p></section>}
+      {report?.needrestartPresent && report.servicesNeedingRestart === null && (
+        <Section title="Running-library check" status={{ status: "unknown", label: "Not finished" }} summary="The scan did not finish. Refresh this page to try again. Package update information is still shown below." />
+      )}
       {report?.servicesNeedingRestart && report.servicesNeedingRestart.length > 0 && (
-        <section className="panel">
-          <header className="panel-header"><div><strong>Services running old libraries</strong><span>These kept the pre-upgrade code in memory. Restart them when convenient, or reboot to refresh everything.</span></div></header>
-          <div className="recovery-actions">
-            {report.needrestartCheckedAt && <span>Checked {new Date(report.needrestartCheckedAt).toLocaleString()}</span>}
+        <Section
+          title="Services running old libraries"
+          status={{ status: "warning", label: `${report.servicesNeedingRestart.length} to restart` }}
+          summary={<>These kept the pre-upgrade code in memory. Restart them when convenient, or reboot to refresh everything.{report.needrestartCheckedAt ? ` Checked ${new Date(report.needrestartCheckedAt).toLocaleString()}.` : ""}</>}
+        >
+          <div className="updates-restarts">
             {report.servicesNeedingRestart.map((unit) => unit === "systemd-manager" ? (
-              <button key={unit} className="secondary-button" type="button" onClick={() => start({ operationId: "system.manager.reexec", title: "Refresh systemd manager", parameters: {}, preview: <span>Re-executes the system manager to load updated libraries while preserving its state. Runs <code>systemctl daemon-reexec</code>.</span> })}>Refresh systemd manager</button>
+              <Button key={unit} risk={riskOf("system.manager.reexec")} onClick={() => start({ operationId: "system.manager.reexec", title: "Refresh systemd manager", parameters: {}, preview: <span>Re-executes the system manager to load updated libraries while preserving its state. Runs <code>systemctl daemon-reexec</code>.</span> })}>Refresh systemd manager</Button>
             ) : !/^[A-Za-z0-9:._@\\-]{1,200}\.service$/.test(unit) ? (
-              <span key={unit}>{unit}: reboot the server to refresh this process.</span>
+              <span key={unit} className="updates-note">{unit}: reboot the server to refresh this process.</span>
             ) : (
-              <button key={unit} className="secondary-button" type="button" onClick={() => start({ operationId: "service.action", title: `Restart ${unit}`, parameters: { unit, action: "restart" }, preview: <span><code>systemctl restart {unit}</code></span> })}>Restart {unit}</button>
+              <Button key={unit} risk={riskOf("service.action")} onClick={() => start({ operationId: "service.action", title: `Restart ${unit}`, parameters: { unit, action: "restart" }, preview: <span><code>systemctl restart {unit}</code></span> })}>Restart {unit}</Button>
             ))}
           </div>
-        </section>
+        </Section>
       )}
 
-      <section className="panel">
-        <header className="panel-header"><div><strong>Upgradable packages</strong><span>Select some to upgrade only those, or install everything above.</span></div>
-          <button className="secondary-button" type="button" disabled={selectedList.length === 0} onClick={() => start({ operationId: "apt.upgrade", title: `Upgrade ${selectedList.length} selected package${selectedList.length === 1 ? "" : "s"}`, parameters: { packages: selectedList }, preview: <span>{selectedList.join(", ")}</span> })}>Upgrade selected ({selectedList.length})</button>
-        </header>
-        <div className="table-scroll">
-          <table>
-            <thead><tr><th><input type="checkbox" aria-label="Select all packages" checked={allSelected} disabled={allNames.length === 0} onChange={toggleAll} /></th><th>Package</th><th>Installed</th><th>Available</th><th>Source</th></tr></thead>
-            <tbody>
-              {loading && !report ? <tr><td colSpan={5}>Reading APT state...</td></tr> : null}
-              {report && report.upgradable.length === 0 ? <tr><td colSpan={5}>Everything is up to date.</td></tr> : null}
-              {report?.upgradable.map((item) => (
-                <tr key={item.name}>
-                  <td><input type="checkbox" aria-label={`Select ${item.name}`} checked={selected.has(item.name)} onChange={() => toggle(item.name)} /></td>
-                  <td><a className="changelog-link" href={`https://launchpad.net/ubuntu/+source/${encodeURIComponent(item.source ?? item.name)}/+changelog`} target="_blank" rel="noreferrer" title="Changelog on Launchpad"><code>{item.name}</code></a></td>
-                  <td>{item.installed}</td>
-                  <td>{item.candidate}</td>
-                  <td>{/security/i.test(item.suite) ? <span className="status-pill status-warning">{item.suite}</span> : item.suite}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
+      <Section
+        title="Upgradable packages"
+        status={updates}
+        summary="Select some to upgrade only those, or install them all."
+        actions={<>
+          <Button risk={riskOf("apt.refresh")} disabled={loading} onClick={() => start({ operationId: "apt.refresh", title: "Refresh package lists", parameters: {}, preview: <span>Runs <code>apt-get update</code>. Installs nothing.</span> })}>Refresh lists</Button>
+          <SnapshotFirstButton start={start} />
+          <Button risk={riskOf("apt.upgrade")} disabled={selectedList.length === 0} onClick={() => start({ operationId: "apt.upgrade", title: `Upgrade ${selectedList.length} selected package${selectedList.length === 1 ? "" : "s"}`, parameters: { packages: selectedList }, preview: <span>{selectedList.join(", ")}</span> })}>Upgrade selected ({selectedList.length})</Button>
+          <Button variant="primary" risk={riskOf("apt.upgrade")} disabled={loading || !report?.count} onClick={() => start({ operationId: "apt.upgrade", title: "Install all updates", parameters: {}, preview: <span>Upgrades {report?.count ?? 0} package{report?.count === 1 ? "" : "s"} with <code>apt-get upgrade --with-new-pkgs</code> after refreshing the lists.</span> })}>Install all updates</Button>
+        </>}
+      >
+        <Card flush>
+          <div className="table-scroll">
+            <table className="ui-table">
+              <thead><tr><th className="ui-table__check"><input type="checkbox" aria-label="Select all packages" checked={allSelected} disabled={allNames.length === 0} onChange={toggleAll} /></th><th>Package</th><th>Installed</th><th>Available</th><th>Source</th></tr></thead>
+              <tbody>
+                {loading && !report ? <tr><td colSpan={5}>Reading APT state...</td></tr> : null}
+                {report && report.upgradable.length === 0 ? <tr><td colSpan={5}>Everything is up to date.</td></tr> : null}
+                {report?.upgradable.map((item) => (
+                  <tr key={item.name}>
+                    <td className="ui-table__check"><input type="checkbox" aria-label={`Select ${item.name}`} checked={selected.has(item.name)} onChange={() => toggle(item.name)} /></td>
+                    <td><a className="changelog-link" href={`https://launchpad.net/ubuntu/+source/${encodeURIComponent(item.source ?? item.name)}/+changelog`} target="_blank" rel="noreferrer" title="Changelog on Launchpad"><code>{item.name}</code></a></td>
+                    <td>{item.installed}</td>
+                    <td>{item.candidate}</td>
+                    <td>{/security/i.test(item.suite) ? <StatusChip status="warning" title="A security update">{item.suite}</StatusChip> : item.suite}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      </Section>
 
       {curated && (
-        <section className="panel">
-          <header className="panel-header"><div><strong>Common tools</strong><span>One-confirm installs of the packages most servers want. Anything else installs below.</span></div></header>
-          <div className="curated-grid">
+        <Section
+          title="Common tools"
+          status={{ status: "neutral", label: `${installedTools} of ${curated.packages.length} installed` }}
+          summary="One-confirm installs of the packages most servers want. Anything else installs below."
+        >
+          <ul className="updates-tools">
             {curated.packages.map((tool) => (
-              <article key={tool.name} className={`curated-tool${tool.installed ? " curated-installed" : ""}`}>
+              <li key={tool.name} className="updates-tool" data-installed={tool.installed || undefined}>
                 <div><code>{tool.name}</code><span>{curatedDescriptions[tool.name] ?? ""}</span></div>
                 {tool.installed
-                  ? <button className="text-button" type="button" onClick={() => start({ operationId: "apt.remove", title: `Remove ${tool.name}`, parameters: { packages: [tool.name] }, preview: <span>Removes {tool.name} ({tool.version}) and anything only it needed.</span> })}>Remove</button>
-                  : <button className="secondary-button" type="button" onClick={() => start({ operationId: "apt.install", title: `Install ${tool.name}`, parameters: { packages: [tool.name] }, preview: <span><code>apt-get install --no-install-recommends {tool.name}</code></span> })}>Install</button>}
-              </article>
+                  ? <Button variant="ghost" risk={riskOf("apt.remove")} onClick={() => start({ operationId: "apt.remove", title: `Remove ${tool.name}`, parameters: { packages: [tool.name] }, preview: <span>Removes {tool.name} ({tool.version}) and anything only it needed.</span> })}>Remove</Button>
+                  : <Button risk={riskOf("apt.install")} onClick={() => start({ operationId: "apt.install", title: `Install ${tool.name}`, parameters: { packages: [tool.name] }, preview: <span><code>apt-get install --no-install-recommends {tool.name}</code></span> })}>Install</Button>}
+              </li>
             ))}
-          </div>
-        </section>
+          </ul>
+        </Section>
       )}
 
-      <section className="panel">
-        <header className="panel-header"><div><strong>Install packages</strong><span>Any Ubuntu package, installed without recommends. Medium risk: you confirm before it runs.</span></div></header>
-        <div className="recovery-actions">
+      <Section title="Install packages" summary="Any Ubuntu package, installed without recommends.">
+        <Card className="updates-install">
           <input aria-label="Package names" placeholder="htop git tmux" value={customPackages} onChange={(event) => setCustomPackages(event.target.value)} />
-          <button className="primary-button" type="button" disabled={customList.length === 0} onClick={() => start({ operationId: "apt.install", title: `Install ${customList.join(", ")}`, parameters: { packages: customList }, preview: <span><code>apt-get install --no-install-recommends {customList.join(" ")}</code></span> })}>Install</button>
-          <button className="secondary-button" type="button" disabled={customList.length === 0} onClick={() => start({ operationId: "apt.remove", title: `Remove ${customList.join(", ")}`, parameters: { packages: customList }, preview: <span>Removes the packages and anything only they needed. Configuration files are kept.</span> })}>Remove</button>
-          <button className="secondary-button" type="button" onClick={() => start({ operationId: "apt.autoremove", title: "Remove unused packages", parameters: {}, preview: <span><code>apt-get autoremove --purge</code></span> })}>Autoremove unused</button>
-        </div>
-      </section>
+          <Button variant="primary" risk={riskOf("apt.install")} disabled={customList.length === 0} onClick={() => start({ operationId: "apt.install", title: `Install ${customList.join(", ")}`, parameters: { packages: customList }, preview: <span><code>apt-get install --no-install-recommends {customList.join(" ")}</code></span> })}>Install</Button>
+          <Button risk={riskOf("apt.remove")} disabled={customList.length === 0} onClick={() => start({ operationId: "apt.remove", title: `Remove ${customList.join(", ")}`, parameters: { packages: customList }, preview: <span>Removes the packages and anything only they needed. Configuration files are kept.</span> })}>Remove</Button>
+          <Button risk={riskOf("apt.autoremove")} onClick={() => start({ operationId: "apt.autoremove", title: "Remove unused packages", parameters: {}, preview: <span><code>apt-get autoremove --purge</code></span> })}>Autoremove unused</Button>
+        </Card>
+      </Section>
     </div>
   );
 }
