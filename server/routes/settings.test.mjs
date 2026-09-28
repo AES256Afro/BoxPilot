@@ -67,6 +67,25 @@ describe("GET /settings/watch", () => {
     // The words kept for a later send are not handed to every signed-in viewer; the title is enough here.
     expect(JSON.stringify(body)).not.toContain("UNIQUE constraint");
   });
+
+  it("counts news that reached no one with the rest, without calling it a condition (M27.2)", async () => {
+    settings.set("healthAlertsState", {
+      "system.reboot": { title: "A reboot is required", since: "2026-09-26T00:00:00Z", notified: true },
+      "signin.new:owner-1:100.64.0.20": { title: "New sign-in from 100.64.0.20", since: "2026-09-27T08:00:00Z", message: "alex signed in from 100.64.0.20", notified: false },
+      "release.available": { title: "Version 1.127.0 is available", since: "2026-09-27T09:00:00Z", message: "You are running 1.126.0.", notified: false },
+      "job.interrupted:apt.upgrade": { title: "Install all package updates was interrupted", since: "2026-09-27T10:00:00Z", message: "m", notified: false },
+    });
+    const body = await (await fetch(`${base}/api/v1/settings/watch`)).json();
+    expect(body.activeCount).toBe(1); // a release or a sign-in is not something wrong with the server
+    expect(body.unannouncedCount).toBe(3);
+    expect(body.notices).toEqual([
+      { key: "signin.new", label: "A sign-in from a new address", title: "New sign-in from 100.64.0.20", since: "2026-09-27T08:00:00Z", announced: false },
+      { key: "release.available", label: "A new BoxPilot release", title: "Version 1.127.0 is available", since: "2026-09-27T09:00:00Z", announced: false },
+      { key: "job.interrupted", label: "A job was cut off by a restart", title: "Install all package updates was interrupted", since: "2026-09-27T10:00:00Z", announced: false },
+    ]);
+    expect(body.conditions.map((condition) => condition.key)).not.toContain("signin.new");
+    expect(JSON.stringify(body)).not.toContain("You are running");
+  });
 });
 
 describe("GET /settings/vpn-profile role gate", () => {

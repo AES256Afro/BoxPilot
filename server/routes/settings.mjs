@@ -5,7 +5,7 @@
 import { Router } from "express";
 import { approvalModes, defaultApprovalMode, elevationTtlMs, normalizeApprovalMode } from "../ops/risk.mjs";
 import { normalizeDestination } from "../backup-destination.mjs";
-import { healthConditions } from "../health-alerts.mjs";
+import { healthConditions, isNotice, noticeKinds } from "../health-alerts.mjs";
 import { vpnProviders, vpnProtocols } from "../vpn-profile.mjs";
 
 export function createSettingsRouter({ state, notifications, auth }) {
@@ -34,18 +34,22 @@ export function createSettingsRouter({ state, notifications, auth }) {
   router.get("/settings/watch", (_request, response) => {
     const active = state.getSetting("healthAlertsState", {}) ?? {};
     const byFamily = {};
+    const notices = [];
     for (const [key, entry] of Object.entries(active)) {
       if (!entry) continue;
+      const family = key.split(":")[0];
+      // News that reached no one - a release, a new sign-in, an interrupted job, the weekly report -
+      // is not a condition to watch, but it is counted with the ones that could not be told.
+      if (isNotice(key)) { notices.push({ key: family, label: noticeKinds[family], title: entry.title ?? key, since: entry.since ?? null, announced: false }); continue; }
       // A condition that is live but was never announced - because no notification target is set -
       // is still live. Hiding it here as well meant a drive that dropped off USB was known to
       // BoxPilot and shown to nobody, on any page, until the owner happened to read a folder.
-      const family = key.split(":")[0];
       (byFamily[family] ??= []).push({ title: entry.title ?? key, since: entry.since ?? null, announced: entry.notified !== false });
     }
     const conditions = Object.entries(healthConditions).map(([key, label]) => ({ key, label, active: Boolean(byFamily[key]?.length), details: byFamily[key] ?? [] }));
     const live = Object.values(byFamily).flat();
     // What BoxPilot knew and could not tell anyone (M27.2): the Overview's one-line count.
-    response.json({ targetConfigured: notifications.describe().configured === true, activeCount: live.length, unannouncedCount: live.filter((detail) => !detail.announced).length, conditions });
+    response.json({ targetConfigured: notifications.describe().configured === true, activeCount: live.length, unannouncedCount: live.filter((detail) => !detail.announced).length + notices.length, conditions, notices });
   });
 
   router.put("/settings/notifications", auth.requireCsrf, async (request, response) => {
