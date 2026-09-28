@@ -69,6 +69,12 @@ export const noticeKinds = Object.freeze({
 export const isNotice = (key) => Object.hasOwn(noticeKinds, String(key).split(":")[0]);
 export const noticeLimit = 20;
 export const noticeMaxAgeMs = 30 * 24 * 60 * 60_000;
+/**
+ * When a notice's words were last told: `since` is the day it was first kept, and `renewedAt` the
+ * day newer words replaced it (a newer release, this week's report). Its age, and its place in the
+ * limit, are counted from the newer of the two, so replaced news is not dropped as a month old.
+ */
+const toldAt = (entry) => entry?.renewedAt ?? entry?.since ?? "";
 
 /** One notice per operation and subject: the same backup cut off twice is one entry, not two. */
 export function jobNoticeKey(kind, job) {
@@ -261,7 +267,7 @@ export function createHealthAlerts({ inventory, notifications, store, resolveSch
         // News nobody has heard yet: sent now if a target answers, then forgotten; kept otherwise,
         // until it is a month old and no longer news.
         if (isNotice(key)) {
-          if (now().getTime() - Date.parse(entry?.since ?? "") > noticeMaxAgeMs) continue;
+          if (now().getTime() - Date.parse(toldAt(entry)) > noticeMaxAgeMs) continue;
           const delivered = target ? await announce(key, { title: entry.title ?? key, message: entry.message ?? entry.title ?? key, priority: entry.priority ?? "default" }) : false;
           if (delivered) sent.push(key); else nextState[key] = entry;
           continue;
@@ -347,7 +353,8 @@ export function createHealthAlerts({ inventory, notifications, store, resolveSch
   /**
    * One-off news (a notice, above): pushed now, or kept as not announced for a round to send once a
    * target answers. Kept again under the same key, it keeps the day it was first kept and takes the
-   * newer words; delivered, it leaves the ledger, including an older undelivered copy.
+   * newer words, noting when they came (renewedAt); delivered, it leaves the ledger, including an
+   * older undelivered copy.
    */
   function tell({ key, title, message, priority = "default" }) {
     return exclusive(async () => {
@@ -358,9 +365,10 @@ export function createHealthAlerts({ inventory, notifications, store, resolveSch
         if (state[key]) { delete state[key]; writeState(state); }
         return { key, notified: true };
       }
-      state[key] = { since: state[key]?.since ?? now().toISOString(), title, message: text, priority, notified: false };
+      const at = now().toISOString();
+      state[key] = { since: state[key]?.since ?? at, ...(state[key] ? { renewedAt: at } : {}), title, message: text, priority, notified: false };
       // Bounded: past the limit the oldest news goes first. Conditions are never touched here.
-      const notices = Object.entries(state).filter(([name]) => isNotice(name)).sort(([, left], [, right]) => String(left?.since).localeCompare(String(right?.since)));
+      const notices = Object.entries(state).filter(([name]) => isNotice(name)).sort(([, left], [, right]) => String(toldAt(left)).localeCompare(String(toldAt(right))));
       for (const [name] of notices.slice(0, Math.max(0, notices.length - noticeLimit))) delete state[name];
       writeState(state);
       return { key, notified: false };

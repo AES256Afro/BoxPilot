@@ -1,17 +1,20 @@
 import { describe, expect, it, vi } from "vitest";
 import { invalidateOperationEvidence } from "./diagnostic-invalidation.mjs";
-function deps(readOnly = false) { return { registry: { get: () => ({ readOnly }) }, inventory: { forget: vi.fn() }, prerequisites: { forget: vi.fn() }, helper: { invalidate: vi.fn() } }; }
+function deps(readOnly = false) { return { registry: { get: () => ({ readOnly }) }, inventory: { forget: vi.fn() }, prerequisites: { forget: vi.fn() }, helper: { invalidate: vi.fn() }, storage: { forget: vi.fn() } }; }
 describe("evidence after operations", () => {
   it("leaves read-only operations and expensive disk-usage scans alone", () => {
     const services = deps(true);
     invalidateOperationEvidence({ type: "op:app.inspect" }, services);
     expect(services.inventory.forget).not.toHaveBeenCalled();
+    expect(services.storage.forget).not.toHaveBeenCalled();
     expect(services.helper.invalidate).not.toHaveBeenCalled();
   });
   it("refreshes app evidence after a mutation without restarting unrelated scans", () => {
     const services = deps();
     invalidateOperationEvidence({ type: "op:app.install" }, services);
     expect(services.inventory.forget).toHaveBeenCalledOnce();
+    // The shared lsblk/findmnt read goes with the inventory, whatever the operation.
+    expect(services.storage.forget).toHaveBeenCalledOnce();
     expect(services.prerequisites.forget).not.toHaveBeenCalled();
     expect(services.helper.invalidate).toHaveBeenCalledWith(["system.controller.inspect", "app.inspect", "container.docker.inventory", "app.backups.counts"]);
   });

@@ -91,6 +91,24 @@ describe("failed-job notifications", () => {
     expect(requests.map((request) => JSON.parse(request.options.body).title)).toEqual(["BoxPilot: Install package updates failed", "BoxPilot: Refresh package lists failed"]);
   });
 
+  it("does not push an old failure again when a step is written to it after a restart", async () => {
+    // This process has no memory of what the last one pushed. A job a restart cut off is told by
+    // whoever owns it, and the rerun planner (M30.2) writes on it whether it ran again; a job that
+    // ran out of time gets a step when it is retried with more time (M30.3). Neither is a new failure.
+    const requests = [];
+    const store = { getSetting: () => ({ kind: "webhook", url: "http://127.0.0.1:9000/hook" }), recordAudit: vi.fn() };
+    const service = createNotificationService({ store, fetcher: vi.fn(async (url, options) => { requests.push({ url, options }); return { ok: true, status: 200 }; }) });
+    const recovery = { name: "recovery", state: "required", detail: "The operation was interrupted by a BoxPilot restart" };
+    service.onJob({ id: "30000000-0000-4000-8000-000000000001", state: "failed", title: "Sync Homepage with installed apps", error: "BoxPilot restarted", steps: [recovery, { name: "rerun", state: "started", detail: "Running again as job x" }] });
+    service.onJob({ id: "30000000-0000-4000-8000-000000000002", state: "failed", title: "Refresh package lists", error: "BoxPilot restarted", steps: [recovery, { name: "rerun", state: "failed", detail: "Could not run it again" }] });
+    service.onJob({ id: "30000000-0000-4000-8000-000000000003", state: "failed", title: "Update application", error: "did not finish", steps: [{ name: "timeout", state: "reached", detail: "x" }, { name: "retry", state: "staged", detail: "Staged again" }] });
+    // The retry itself, or a rerun, failing is news: they carry their own "retry" and "rerun" steps, completed.
+    service.onJob({ id: "30000000-0000-4000-8000-000000000004", state: "failed", title: "Update application", error: "pull failed", steps: [{ name: "retry", state: "completed", detail: "Trying again with more time" }] });
+    service.onJob({ id: "30000000-0000-4000-8000-000000000005", state: "failed", title: "Sync Homepage with installed apps", error: "no homepage", steps: [{ name: "rerun", state: "completed", detail: "Ran again after BoxPilot restarted" }] });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(requests.map((request) => JSON.parse(request.options.body).title)).toEqual(["BoxPilot: Update application failed", "BoxPilot: Sync Homepage with installed apps failed"]);
+  });
+
   it("audits delivery failures instead of throwing into the job path", async () => {
     const failing = vi.fn(async () => ({ ok: false, status: 500 }));
     const { store, owner, service } = await setup({ fetcher: failing });

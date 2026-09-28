@@ -1,8 +1,12 @@
-/** Drop only evidence a settled mutation could have changed, including partial failures. */
-export function invalidateOperationEvidence(job, { registry, inventory, prerequisites, helper }) {
+/**
+ * Drop only evidence a settled mutation could have changed, including partial failures. `storage`
+ * is the shared lsblk/findmnt read, dropped whenever the inventory is.
+ */
+export function invalidateOperationEvidence(job, { registry, inventory, prerequisites, helper, storage = null }) {
   const operation = job.type?.startsWith("op:") ? job.type.slice(3) : null;
   if (operation && registry.get(operation)?.readOnly) return;
   inventory.forget();
+  storage?.forget?.();
   const reads = new Set(["system.controller.inspect"]);
   const system = /^(apt|prerequisite|service|system)\./.test(operation ?? "");
   if (system) {

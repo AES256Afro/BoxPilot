@@ -10,44 +10,46 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe("the theme choice", () => {
-  it("defaults to System and the Raw palette", () => {
-    expect(readThemeChoice()).toEqual({ appearance: "system", palette: "raw" });
+  it("defaults to System", () => {
+    expect(readThemeChoice()).toEqual({ appearance: "system" });
   });
 
-  it("reads a chosen appearance and palette", () => {
+  it("reads a chosen appearance", () => {
     window.localStorage.setItem("boxpilot-theme", "dark");
-    window.localStorage.setItem("boxpilot-palette", "nord");
-    expect(readThemeChoice()).toEqual({ appearance: "dark", palette: "nord" });
+    expect(readThemeChoice()).toEqual({ appearance: "dark" });
+    window.localStorage.setItem("boxpilot-theme", "light");
+    expect(readThemeChoice()).toEqual({ appearance: "light" });
   });
 
-  it("reads a palette stored under the old key as the palette, and moves it", () => {
+  it("treats a retired palette as System, and clears what the palettes left behind", () => {
+    // Before M33.1 the palette id sat under boxpilot-theme; after it, under boxpilot-palette.
     window.localStorage.setItem("boxpilot-theme", "solarized");
-    expect(reloadThemeChoice()).toEqual({ appearance: "system", palette: "solarized" });
+    window.localStorage.setItem("boxpilot-palette", "nord");
+    document.documentElement.setAttribute("data-palette", "nord");
+    expect(reloadThemeChoice()).toEqual({ appearance: "system" });
     expect(window.localStorage.getItem("boxpilot-theme")).toBeNull();
-    expect(window.localStorage.getItem("boxpilot-palette")).toBe("solarized");
-    expect(document.documentElement.getAttribute("data-palette")).toBe("solarized");
-    expect(document.documentElement.hasAttribute("data-theme")).toBe(false);
+    expect(window.localStorage.getItem("boxpilot-palette")).toBeNull();
+    expect(document.documentElement.hasAttribute("data-palette")).toBe(false);
   });
 
-  it("treats the old default and anything unknown as System and Raw", () => {
-    window.localStorage.setItem("boxpilot-theme", "default");
-    expect(reloadThemeChoice()).toEqual({ appearance: "system", palette: "raw" });
-    window.localStorage.setItem("boxpilot-theme", "purple");
-    window.localStorage.setItem("boxpilot-palette", "purple");
-    expect(readThemeChoice()).toEqual({ appearance: "system", palette: "raw" });
+  it("keeps a chosen appearance while clearing a retired palette beside it", () => {
+    window.localStorage.setItem("boxpilot-theme", "dark");
+    window.localStorage.setItem("boxpilot-palette", "amber");
+    expect(reloadThemeChoice()).toEqual({ appearance: "dark" });
+    expect(window.localStorage.getItem("boxpilot-theme")).toBe("dark");
+    expect(window.localStorage.getItem("boxpilot-palette")).toBeNull();
+    expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
   });
 
   it("follows the device when storage cannot be read", () => {
     vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => { throw new Error("blocked"); });
-    expect(readThemeChoice()).toEqual({ appearance: "system", palette: "raw" });
+    expect(readThemeChoice()).toEqual({ appearance: "system" });
   });
 
-  it("sets and clears the attributes the stylesheet reads", () => {
-    applyThemeChoice({ appearance: "light", palette: "amber" });
+  it("sets and clears the attribute the stylesheet reads", () => {
+    applyThemeChoice({ appearance: "light" });
     expect(document.documentElement.getAttribute("data-theme")).toBe("light");
-    expect(document.documentElement.getAttribute("data-palette")).toBe("amber");
-    applyThemeChoice({ appearance: "system", palette: "raw" });
+    applyThemeChoice({ appearance: "system" });
     expect(document.documentElement.hasAttribute("data-theme")).toBe(false);
-    expect(document.documentElement.hasAttribute("data-palette")).toBe(false);
   });
 });

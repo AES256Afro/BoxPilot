@@ -9,6 +9,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { composeWeeklyReport, createWeeklyReport, gatherWeek, reportKey, uncovered } from "./weekly-report.mjs";
 import { createHealthAlerts } from "./health-alerts.mjs";
+import { buildChecklist } from "./setup-checklist.mjs";
 import { createStateStore } from "./state.mjs";
 
 const directories = [];
@@ -97,6 +98,30 @@ describe("what the weekly report says", () => {
     // A backup folder that could not be read is unknown, not "every app unprotected".
     expect(uncovered({ protection: { available: false, apps: protection.apps }, schedules })).toEqual([]);
   });
+
+  it("says what is missing for every essential on the checklist, never the essential's own title", () => {
+    // The checklist as the Overview builds it, with every essential known and still open. M26.3
+    // added "This server can check its drives" after the report's phrases were written, and the
+    // report fell back to the item's title: "Not covered yet: This server can check its drives".
+    const items = buildChecklist({}).items.filter((item) => !item.optional).map((item) => ({ ...item, known: true, done: false }));
+    const gaps = uncovered({ checklist: { items } });
+    expect(gaps).toHaveLength(items.length);
+    for (const item of items) expect(gaps).not.toContain(item.title);
+    expect(gaps).toContain("the drive check tools are not installed");
+  });
+
+  it("counts a drive whose automatic reconnect is paused among the paused automations", withZone("America/New_York", async () => {
+    const { store, owner, now } = await world("2026-09-27T13:00:30Z");
+    // Pausing a drive's reconnect flow (M26.5) switches off an unattended trigger, like pausing a
+    // flow on a clock. A flow only ever run by hand, paused, has no trigger to switch off.
+    const armed = store.createFlow({ name: "Reconnect /mnt/media when it drops", steps: [{ operationId: "storage.remount", parameters: { name: "media" } }], createdBy: owner.id, triggerDrive: "media" });
+    store.updateFlow(armed.id, { enabled: false }, { actorId: owner.id });
+    const byHand = store.createFlow({ name: "Tidy up", steps: [{ operationId: "docker.prune", parameters: {} }], createdBy: owner.id });
+    store.updateFlow(byHand.id, { enabled: false }, { actorId: owner.id });
+    const week = await gatherWeek({ store, registry, now });
+    expect(week.paused).toBe(1);
+    expect(composeWeeklyReport(week).message).toContain("Paused: 1 schedule or automation.");
+  }));
 
   it("is read from the jobs, schedules, automations, ledger and backups BoxPilot recorded", withZone("America/New_York", async () => {
     const { store, owner, at, now } = await world("2026-09-19T12:00:00Z");
