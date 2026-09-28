@@ -294,10 +294,11 @@ describe("Repair Center", () => {
     render(<RepairCenter csrfToken="csrf-token" />);
 
     expect(await screen.findByText(/at most 3 times a day and 30 minutes apart, never while the drive is being checked or after a check found errors, and not again after a failed try until you reconnect it yourself/)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Reconnect /mnt/the-dump automatically" }));
-    expect(await screen.findByText("Waiting for you: the last automatic reconnect did not work. Reconnect it by hand to start again.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Reconnect it automatically next time: /mnt/the-dump" }));
+    // The Reconnect button beside it is the "by hand" that lifts the hold.
+    expect(await screen.findByText("Waiting for you: the last automatic reconnect did not work. Reconnecting it here by hand starts it again.")).toBeTruthy();
     expect(armed).toEqual({ method: "POST", csrf: "csrf-token" });
-    expect(screen.getByRole("button", { name: "Stop reconnecting /mnt/the-dump automatically" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Stop reconnecting automatically: /mnt/the-dump" })).toBeTruthy();
     // The one-off fix is still there beside it.
     expect(screen.getByRole("button", { name: "Reconnect the drive" })).toBeTruthy();
   });

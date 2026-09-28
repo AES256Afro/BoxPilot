@@ -4655,6 +4655,7 @@ textarea {
 .activity-meta { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
 .activity-time { color: var(--text-muted); font-size: 12px; }
 .activity-detail { display: grid; gap: 10px; padding: 0 8px 14px; }
+.job-rerun-note { margin: 0; font-size: 13px; line-height: 1.5; }
 .activity-steps { margin: 0; padding: 0 0 0 16px; color: var(--text-strong); font-size: 12px; display: grid; gap: 4px; }
 
 /* System page (M2.7) */
@@ -4720,8 +4721,8 @@ textarea {
 /* Schedules panel (M6.1) */
 .schedules-panel .schedule-form { margin-top: 12px; flex-wrap: wrap; }
 .schedules-panel .schedule-form select, .schedules-panel .schedule-form input { padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-muted); color: var(--text); }
-.schedule-disabled td { opacity: 0.55; }
-.schedules-panel .schedule-reason { margin-top: 4px; font-size: 0.85em; max-width: 36ch; overflow-wrap: anywhere; }
+.schedule-disabled td:not(:last-child) { color: var(--text-muted); }
+.schedules-panel .schedule-reason { margin-top: 4px; font-size: 11px; line-height: 1.45; max-width: 36ch; white-space: normal; overflow-wrap: anywhere; }
 
 /* Notification settings (M8.4) */
 .notification-settings { display: grid; gap: 10px; }
@@ -4730,6 +4731,10 @@ textarea {
 .notification-settings input { min-width: 200px; }
 /* The weekly self-report (M30.4) */
 .weekly-report { display: grid; gap: 8px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+.notification-panel { padding-bottom: 15px; }
+.notification-panel > p, .notification-panel > .watch-status, .notification-panel > .notification-settings, .notification-panel > .weekly-report { margin-inline: 15px; }
+.notification-panel > p, .notification-settings p, .weekly-report { font-size: 13px; line-height: 1.5; }
+.notification-panel > p { margin-block: 12px 0; }
 .weekly-report p { margin: 0; }
 .weekly-report .recovery-actions { flex-wrap: wrap; }
 .weekly-report-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; }
@@ -4763,7 +4768,7 @@ textarea {
 .samba-apply { margin-top: 14px; align-items: center; }
 .checklist-items { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
 .checklist-items li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 10px 12px; border: 1px solid var(--border-subtle); border-radius: 12px; background: var(--surface-muted); }
-.checklist-items li.done { opacity: 0.75; }
+.checklist-items li.done > div > strong { color: var(--text-muted); }
 .checklist-items li > div { display: grid; gap: 2px; }
 .checklist-items li .muted { font-size: 13px; }
 .checklist-mark { width: 22px; height: 22px; display: inline-grid; place-items: center; border-radius: 50%; border: 1px solid var(--border); font-size: 13px; }
@@ -5029,11 +5034,13 @@ textarea {
 .problem-card > button { justify-self: start; }
 .problem-manual { color: var(--text-muted); margin: 0; max-width: 82ch; }
 /* Reconnect a drive automatically (M26.5): on a Repair notice and on a Storage row */
-.auto-reconnect { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; min-width: 0; }
+.auto-reconnect { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; min-width: 0; white-space: normal; }
+td .auto-reconnect { max-width: 38ch; }
+td .auto-reconnect > span { flex-basis: 100%; }
 .auto-reconnect > p { flex-basis: 100%; margin: 0; max-width: 82ch; font-size: 13px; }
 .auto-reconnect-waiting { color: var(--warn-text); }
 .auto-reconnect .auth-error { flex-basis: 100%; }
-.mount-rule { margin: 10px 0 0; max-width: 82ch; font-size: 13px; }
+.mount-rule { margin: 10px 15px 14px; max-width: 82ch; font-size: 13px; line-height: 1.5; }
 .repair-prereq-header { margin-top: 4px; }
 .repair-prerequisites { display: grid; gap: 12px; min-width: 0; }
 .repair-page { min-width: 0; font-size: 14px; line-height: 1.55; }
@@ -5774,7 +5781,7 @@ a.ui-tile:hover {
 /* ── Settings: appearance ── */
 .theme-settings-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; padding: 16px; }
 .theme-settings .ui-theme-switch { display: flex; }
-.theme-settings .ui-theme-switch__option { flex: 1 1 0; min-width: 0; padding: 0 6px; }
+.theme-settings .ui-theme-switch__option { flex: 1 0 auto; padding: 0 8px; }
 .theme-palettes { display: grid; gap: 10px; }
 .theme-palettes-label { display: grid; gap: 3px; margin: 0; }
 .theme-palettes-label strong { font-size: 12px; }
@@ -5800,8 +5807,28 @@ a.ui-tile:hover {
 .updates-install input { flex: 1 1 16rem; min-width: 0; min-height: var(--control-height); padding: 0 var(--space-3); border: 1px solid var(--border-input); border-radius: var(--radius-control); color: var(--text); background: var(--surface-muted); font: inherit; font-size: var(--font-size-md); }
 .updates-install input::placeholder { color: var(--text-muted); }
 
+.updates-security-inline { display: none; margin-left: var(--space-2); }
+
 @media (max-width: 900px) {
   .updates-figures { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 640px) {
+  .updates-center .updates-installed, .updates-center .updates-source { display: none; }
+  .updates-center .updates-security-inline { display: inline-flex; }
+  .updates-center .updates-package { white-space: normal; }
+}
+
+/* A wide table on a phone: each row becomes a block and each cell says what it is (data-label),
+   so the last columns - a schedule's last run, a drive's reconnect controls - are not off-screen. */
+@media (max-width: 640px) {
+  table.stack-on-phone, table.stack-on-phone tbody, table.stack-on-phone tr, table.stack-on-phone td { display: block; }
+  table.stack-on-phone thead { display: none; }
+  table.stack-on-phone tr { padding: 8px 0; border-bottom: 1px solid var(--border-subtle); }
+  table.stack-on-phone td { padding: 3px 15px; border-bottom: 0; white-space: normal; overflow-wrap: anywhere; }
+  table.stack-on-phone td[data-label]::before { content: attr(data-label) ": "; color: var(--text-muted); font-weight: 600; }
+  table.stack-on-phone td:empty { display: none; }
+  table.stack-on-phone td .auto-reconnect { max-width: none; }
 }
 
 /* ── The gallery (demo only, /?gallery) ── */

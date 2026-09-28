@@ -98,17 +98,17 @@ export default function UpdatesCenter({ csrfToken }: { csrfToken: string }) {
         <MetricTile
           label="Available updates"
           value={loading && !report ? "…" : report?.count ?? "—"}
-          caption={!report ? (loading ? "Reading APT state" : "Not read") : securityCount ? `${securityCount} security` : "packages"}
+          caption={!report ? (loading ? "Checking for updates" : "Not read") : securityCount ? `${securityCount} security` : "packages"}
           status={updates.status}
         />
         <MetricTile
           label="Reboot"
           value={!report ? "—" : report.rebootRequired ? "Required" : "Not needed"}
-          caption={!report ? (loading ? "Reading APT state" : "Not read") : report.rebootRequired ? "A kernel or core library changed" : "Nothing pending a restart"}
+          caption={!report ? (loading ? "Checking for updates" : "Not read") : report.rebootRequired ? "A kernel or core library changed" : "Nothing pending a restart"}
           status={!report ? "unknown" : report.rebootRequired ? "warning" : "good"}
         >
           {report?.rebootRequired && (
-            <Button risk={riskOf("system.reboot")} onClick={() => start({ operationId: "system.reboot", title: "Reboot the server", parameters: {}, preview: <span>Reboots in 5 seconds after approval. Running VMs and containers stop; reconnect when the host is back.</span> })}>Reboot now</Button>
+            <Button risk={riskOf("system.reboot")} onClick={() => start({ operationId: "system.reboot", title: "Reboot the server", parameters: {}, preview: <span>Reboots in 5 seconds after approval. Running VMs and containers stop; reconnect when this server is back.</span> })}>Reboot now</Button>
           )}
         </MetricTile>
         <MetricTile
@@ -118,7 +118,7 @@ export default function UpdatesCenter({ csrfToken }: { csrfToken: string }) {
           status={!unattendedRead ? "unknown" : unattended.enabled ? "good" : "neutral"}
         >
           {unattended && (
-            <Button risk={riskOf("apt.unattended.set")} disabled={loading} onClick={() => start({
+            <Button risk={riskOf("apt.unattended.set")} disabled={loading} aria-label={unattended.enabled ? "Turn off automatic updates" : "Turn on automatic updates"} onClick={() => start({
               operationId: "apt.unattended.set",
               title: unattended.enabled ? "Turn off automatic updates" : "Turn on automatic updates",
               parameters: { enabled: !unattended.enabled },
@@ -167,17 +167,17 @@ export default function UpdatesCenter({ csrfToken }: { csrfToken: string }) {
         <Card flush>
           <div className="table-scroll">
             <table className="ui-table">
-              <thead><tr><th className="ui-table__check"><input type="checkbox" aria-label="Select all packages" checked={allSelected} disabled={allNames.length === 0} onChange={toggleAll} /></th><th>Package</th><th>Installed</th><th>Available</th><th>Source</th></tr></thead>
+              <thead><tr><th className="ui-table__check"><input type="checkbox" aria-label="Select all packages" checked={allSelected} disabled={allNames.length === 0} onChange={toggleAll} /></th><th>Package</th><th className="updates-installed">Installed</th><th>Available</th><th className="updates-source">Source</th></tr></thead>
               <tbody>
-                {loading && !report ? <tr><td colSpan={5}>Reading APT state...</td></tr> : null}
+                {loading && !report ? <tr><td colSpan={5}>Checking for updates...</td></tr> : null}
                 {report && report.upgradable.length === 0 ? <tr><td colSpan={5}>Everything is up to date.</td></tr> : null}
                 {report?.upgradable.map((item) => (
                   <tr key={item.name}>
                     <td className="ui-table__check"><input type="checkbox" aria-label={`Select ${item.name}`} checked={selected.has(item.name)} onChange={() => toggle(item.name)} /></td>
-                    <td><a className="changelog-link" href={`https://launchpad.net/ubuntu/+source/${encodeURIComponent(item.source ?? item.name)}/+changelog`} target="_blank" rel="noreferrer" title="Changelog on Launchpad"><code>{item.name}</code></a></td>
-                    <td>{item.installed}</td>
+                    <td className="updates-package"><a className="changelog-link" href={`https://launchpad.net/ubuntu/+source/${encodeURIComponent(item.source ?? item.name)}/+changelog`} target="_blank" rel="noreferrer" title="Changelog on Launchpad"><code>{item.name}</code></a>{/security/i.test(item.suite) && <StatusChip status="warning" className="updates-security-inline" title="A security update">security</StatusChip>}</td>
+                    <td className="updates-installed">{item.installed}</td>
                     <td>{item.candidate}</td>
-                    <td>{/security/i.test(item.suite) ? <StatusChip status="warning" title="A security update">{item.suite}</StatusChip> : item.suite}</td>
+                    <td className="updates-source">{/security/i.test(item.suite) ? <StatusChip status="warning" title="A security update">{item.suite}</StatusChip> : item.suite}</td>
                   </tr>
                 ))}
               </tbody>
@@ -197,8 +197,8 @@ export default function UpdatesCenter({ csrfToken }: { csrfToken: string }) {
               <li key={tool.name} className="updates-tool" data-installed={tool.installed || undefined}>
                 <div><code>{tool.name}</code><span>{curatedDescriptions[tool.name] ?? ""}</span></div>
                 {tool.installed
-                  ? <Button variant="ghost" risk={riskOf("apt.remove")} onClick={() => start({ operationId: "apt.remove", title: `Remove ${tool.name}`, parameters: { packages: [tool.name] }, preview: <span>Removes {tool.name} ({tool.version}) and anything only it needed.</span> })}>Remove</Button>
-                  : <Button risk={riskOf("apt.install")} onClick={() => start({ operationId: "apt.install", title: `Install ${tool.name}`, parameters: { packages: [tool.name] }, preview: <span><code>apt-get install --no-install-recommends {tool.name}</code></span> })}>Install</Button>}
+                  ? <Button variant="ghost" risk={riskOf("apt.remove")} aria-label={`Remove ${tool.name}`} onClick={() => start({ operationId: "apt.remove", title: `Remove ${tool.name}`, parameters: { packages: [tool.name] }, preview: <span>Removes {tool.name} ({tool.version}) and anything only it needed.</span> })}>Remove</Button>
+                  : <Button risk={riskOf("apt.install")} aria-label={`Install ${tool.name}`} onClick={() => start({ operationId: "apt.install", title: `Install ${tool.name}`, parameters: { packages: [tool.name] }, preview: <span><code>apt-get install --no-install-recommends {tool.name}</code></span> })}>Install</Button>}
               </li>
             ))}
           </ul>
@@ -210,7 +210,7 @@ export default function UpdatesCenter({ csrfToken }: { csrfToken: string }) {
           <input aria-label="Package names" placeholder="htop git tmux" value={customPackages} onChange={(event) => setCustomPackages(event.target.value)} />
           <Button variant="primary" risk={riskOf("apt.install")} disabled={customList.length === 0} onClick={() => start({ operationId: "apt.install", title: `Install ${customList.join(", ")}`, parameters: { packages: customList }, preview: <span><code>apt-get install --no-install-recommends {customList.join(" ")}</code></span> })}>Install</Button>
           <Button risk={riskOf("apt.remove")} disabled={customList.length === 0} onClick={() => start({ operationId: "apt.remove", title: `Remove ${customList.join(", ")}`, parameters: { packages: customList }, preview: <span>Removes the packages and anything only they needed. Configuration files are kept.</span> })}>Remove</Button>
-          <Button risk={riskOf("apt.autoremove")} onClick={() => start({ operationId: "apt.autoremove", title: "Remove unused packages", parameters: {}, preview: <span><code>apt-get autoremove --purge</code></span> })}>Autoremove unused</Button>
+          <Button risk={riskOf("apt.autoremove")} onClick={() => start({ operationId: "apt.autoremove", title: "Remove unused packages", parameters: {}, preview: <span><code>apt-get autoremove --purge</code></span> })}>Remove unused packages</Button>
         </Card>
       </Section>
     </div>

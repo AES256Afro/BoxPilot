@@ -68,13 +68,23 @@ describe("Storage center", () => {
     });
     render(<StorageCenter csrfToken="csrf-token" />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "Reconnect /mnt/olddata automatically" }));
-    expect(await screen.findByRole("button", { name: "Stop reconnecting /mnt/olddata automatically" })).toBeTruthy();
+    // The label says it acts when the drive drops, not now; the name adds which drive.
+    fireEvent.click(await screen.findByRole("button", { name: "Reconnect automatically if it drops: /mnt/olddata" }));
+    expect(await screen.findByRole("button", { name: "Stop reconnecting automatically: /mnt/olddata" })).toBeTruthy();
     expect(request).toEqual({ method: "POST", csrf: "csrf-token" });
     expect(screen.getByText("Reconnects automatically.")).toBeTruthy();
     expect(screen.getAllByText(/at most 3 times a day and 30 minutes apart/)).toHaveLength(1);
     // The root filesystem is not BoxPilot's mount: nothing to arm there.
-    expect(screen.getAllByRole("button", { name: /^(Stop reconnecting|Reconnect) \/.* automatically$/ })).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: /^(Stop reconnecting|Reconnect) automatically.*: \/mnt\// })).toHaveLength(1);
+  });
+
+  it("says where to reconnect a held drive by hand, since its row has no Reconnect button", async () => {
+    mockFetch(report, {}, (url) => {
+      if (url === "/api/v1/drives/auto-reconnect") return json({ limits: { cooldownMinutes: 30, maxAttempts: 3, windowHours: 24 }, drives: { olddata: { flowId: "flow-1", flowName: "Reconnect /mnt/olddata when it drops", enabled: true, held: true, heldSince: "2026-09-28T03:00:00Z", heldBecause: "the last automatic reconnect did not work", attempts: 1, lastAttemptAt: "2026-09-28T03:00:00Z", lastOutcome: "failed", lastCheckFoundErrors: false } } });
+      return null;
+    });
+    render(<StorageCenter csrfToken="csrf-token" />);
+    expect(await screen.findByText("Waiting for you: the last automatic reconnect did not work. Reconnect it from Repair Center to start again.")).toBeTruthy();
   });
 
   it("offers Mount for unmounted filesystems and stages it with the fstab preview", async () => {

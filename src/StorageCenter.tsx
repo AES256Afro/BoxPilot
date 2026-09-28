@@ -581,7 +581,7 @@ export default function StorageCenter({ csrfToken, onNavigate }: { csrfToken: st
       <section className="panel">
         <header className="panel-header"><div><strong>Mounted filesystems</strong><span>Unmount is offered only for mounts BoxPilot added; entries you created stay yours.</span></div></header>
         <div className="table-scroll">
-          <table>
+          <table className="stack-on-phone">
             <thead><tr><th>Mounted at</th><th>Device</th><th>Type</th><th>Used</th><th aria-label="Actions" /></tr></thead>
             <tbody>
               {report?.mounts.map((mount) => {
@@ -590,9 +590,9 @@ export default function StorageCenter({ csrfToken, onNavigate }: { csrfToken: st
                 return (
                   <tr key={mount.target}>
                     <td><code>{mount.target}</code>{managedName ? <span className="status-pill status-neutral">managed</span> : null}</td>
-                    <td><code>{mount.source}</code></td>
-                    <td>{mount.fstype}</td>
-                    <td>{percent !== null ? <span className={percent >= 90 ? "status-pill status-danger" : ""}>{gib(mount.usedBytes)} of {gib(mount.sizeBytes)} ({percent}%)</span> : "—"}</td>
+                    <td data-label="Device"><code>{mount.source}</code></td>
+                    <td data-label="Type">{mount.fstype}</td>
+                    <td data-label="Used">{percent !== null ? <span className={percent >= 90 ? "status-pill status-danger" : ""}>{gib(mount.usedBytes)} of {gib(mount.sizeBytes)} ({percent}%)</span> : "—"}</td>
                     <td>{managedName && <button className="text-button" type="button" onClick={() => start({
                       operationId: "storage.unmount",
                       title: `Unmount /mnt/${managedName}`,

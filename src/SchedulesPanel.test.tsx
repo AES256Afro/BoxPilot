@@ -45,6 +45,11 @@ describe("Schedules panel", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<SchedulesPanel csrfToken="csrf-token" />);
     expect(await screen.findByText("did not run: Always-ask approvals")).toBeTruthy();
+    // Not a dead end: the row says what stops it and where that is changed.
+    expect(screen.getByText("Schedules are skipped while approvals always ask for the password. Change that in Settings, under Approvals.")).toBeTruthy();
+    // Each row's buttons say which schedule they act on.
+    expect(screen.getByRole("button", { name: "Pause Back up application data" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Delete the schedule: Back up application data" })).toBeTruthy();
   });
 
   it("shows a run whose job failed as failed, and one that could not start as did not run (M27.2)", async () => {
