@@ -114,7 +114,7 @@ export default function Home({ csrfToken, role, onNavigate, now = Date.now }: Ho
           <Section
             title="Apps"
             status={facts.catalog.state === "failed" || (catalog && !catalog.liveKnown) ? { status: "unknown", label: "Not read" }
-              : catalog ? (unwell ? { status: "warning", label: `${unwell} need a look` } : { status: "good", label: `${countOf(apps.length, "app")}` }) : undefined}
+              : catalog ? (unwell ? { status: "warning", label: `${unwell} need a look` } : { status: apps.length ? "good" : "neutral", label: countOf(apps.length, "app") }) : undefined}
             actions={<Button variant="ghost" onClick={() => onNavigate("catalog")}>App catalog</Button>}
           >
             {facts.catalog.state === "failed" && (
