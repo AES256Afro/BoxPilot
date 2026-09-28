@@ -53,14 +53,17 @@ export const humanBytes = (bytes) => {
   return `${(bytes / 1024 ** index).toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
 };
 
+/** How many of each kind of application backup "Older application backups" always keeps. */
+export const defaultKeepBackupsPerApp = 3;
+
 /** A `docker system df` reclaimable cell, which reads like "1.1GB (32%)". */
-function parseReclaimable(cell) {
+export function parseReclaimable(cell) {
   const match = /^\s*([\d.]+\s*[KMGT]?B)/i.exec(String(cell ?? ""));
   return match ? parseDockerSize(match[1]) : 0;
 }
 
 /** Docker's own size accounting, which is the only source that understands shared layers. */
-function parseDockerSize(text) {
+export function parseDockerSize(text) {
   const match = /^([\d.]+)\s*([KMGT]?B)$/i.exec(String(text ?? "").trim());
   if (!match) return 0;
   // Powers of 1000, because that is what the Docker CLI printed. It formats every size this way —
@@ -82,7 +85,7 @@ export function createHousekeepingService({
   tarBinary = process.env.BOXPILOT_TAR_BINARY ?? "/usr/bin/tar",
   apps = null,
   runUnit = null,
-  keepBackupsPerApp = 3,
+  keepBackupsPerApp = defaultKeepBackupsPerApp,
   jobLogMaxAgeDays = 90,
   now = () => new Date(),
   treeScanLimits = {},

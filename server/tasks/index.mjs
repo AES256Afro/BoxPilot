@@ -10,6 +10,7 @@ import { firewallProfileApply, firewallRuleAdd, firewallRuleDelete, firewallSet 
 import { storageCheck, storageFormat, storageLvmExtend, storageLvmSnapshotCreate, storageLvmSnapshotDelete, storageLvmSnapshotRollback, storageMount, storageRemount, storageUnmount, swapFileSet } from "./storage.mjs";
 import { shareMount, shareUnmount } from "./shares.mjs";
 import { housekeepingRemoveTrees } from "./housekeeping.mjs";
+import { aptClean, journalVacuum } from "./space.mjs";
 import { routerConnect, routerInspect, routerLeases } from "./router.mjs";
 import { dnsBlockerVerify } from "./dns-check.mjs";
 import { sambaApply, sambaDiscoverySet, sambaRecycleEmpty, sambaUserRemove, sambaUserSet } from "./samba.mjs";
@@ -61,6 +62,8 @@ export const tasks = Object.freeze({
   "storage.lvm-snapshot-delete": storageLvmSnapshotDelete,
   "storage.lvm-snapshot-rollback": storageLvmSnapshotRollback,
   "housekeeping.remove-trees": housekeepingRemoveTrees,
+  "journal.vacuum": journalVacuum,
+  "apt.clean": aptClean,
   "router.connect": routerConnect,
   "router.inspect": routerInspect,
   "dns.blocker.verify": (parameters) => dnsBlockerVerify(parameters),

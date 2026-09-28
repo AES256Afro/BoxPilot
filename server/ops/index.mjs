@@ -4,6 +4,7 @@ import { prerequisiteOperations } from "./prerequisites.mjs";
 import { aptOperations } from "./apt.mjs";
 import { systemOperations } from "./system.mjs";
 import { housekeepingOperations } from "./housekeeping.mjs";
+import { spaceOperations } from "./space.mjs";
 import { performanceOperations } from "./performance.mjs";
 import { localDnsOperations } from "./local-dns.mjs";
 import { routerOperations } from "./router.mjs";
@@ -29,7 +30,7 @@ import { connectorOperations } from "./connectors.mjs";
 import { vpnOperations } from "./vpn.mjs";
 
 /** The default registry used by the helper and the web service. Add new operation modules here. */
-export const operationModules = [prerequisiteOperations, aptOperations, systemOperations, appOperations, serviceOperations, userOperations, firewallOperations, storageOperations, controllerOperations, vmOperations, hostBackupOperations, logOperations, updateOperations, networkOperations, shareOperations, sambaOperations, nfsOperations, upsOperations, fail2banOperations, backupCloudOperations, tailscaleOperations, housekeepingOperations, performanceOperations, localDnsOperations, routerOperations, connectorOperations, vpnOperations];
+export const operationModules = [prerequisiteOperations, aptOperations, systemOperations, appOperations, serviceOperations, userOperations, firewallOperations, storageOperations, controllerOperations, vmOperations, hostBackupOperations, logOperations, updateOperations, networkOperations, shareOperations, sambaOperations, nfsOperations, upsOperations, fail2banOperations, backupCloudOperations, tailscaleOperations, housekeepingOperations, spaceOperations, performanceOperations, localDnsOperations, routerOperations, connectorOperations, vpnOperations];
 export const registry = createRegistry(operationModules);
 setRegistryLookup((id) => registry.get(id));
 export { createRegistry, defineOperation, validateParameters, riskTiers } from "./registry.mjs";
