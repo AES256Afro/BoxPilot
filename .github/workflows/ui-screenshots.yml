@@ -83,9 +83,11 @@ jobs:
           OUT_DIR: ${{ runner.temp }}/ui-screenshots
           PAGES: all
           SCENARIO: ${{ inputs.scenario }}
-          # With none given, the dialogs worth a look on every run: checking a drive (M26), which
-          # names the apps it pauses and the file shares it disconnects.
-          STATES: ${{ inputs.states || 'storage-check=?view=storage>Check this drive' }}
+          # With none given, the states worth a look on every run: checking a drive (M26), which
+          # names the apps it pauses and the file shares it disconnects; the command bar and an
+          # app's sheet on Home (M33.2); and Home in the unwell and the empty worlds. Home and Ops
+          # themselves come with every page, from the navigation in src/data.ts.
+          STATES: ${{ inputs.states || 'storage-check=?view=storage>Check this drive;command-bar=?view=home>Search pages, apps and settings;app-sheet=?view=home>📷Immich;home-trouble=?view=home&scenario=trouble;home-fresh=?view=home&scenario=fresh;areas-sheet=?view=home>More' }}
           SCHEMES: dark,light
           FULL_PAGE: "1"
           SCALE: "1"

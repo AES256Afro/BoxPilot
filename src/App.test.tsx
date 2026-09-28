@@ -6,6 +6,8 @@ import { connectionLabel } from "./appLinks";
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  // A test that fails half way must not leave the next one on its page.
+  window.history.replaceState(null, "", "/");
 });
 
 describe("BoxPilot console", () => {
@@ -31,15 +33,32 @@ describe("BoxPilot console", () => {
     return Promise.resolve(new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } }));
   }
 
-  it("navigates between product areas", async () => {
+  const greeting = /^Good (morning|afternoon|evening)$/;
+  const dock = () => screen.getByRole("navigation", { name: "Admin areas" });
+
+  it("lands on Home and reaches every area from the dock", async () => {
     vi.stubGlobal("fetch", vi.fn(authenticatedFetch));
     render(<App />);
-    expect(await screen.findByRole("heading", { name: "Server overview" })).toBeTruthy();
-    expect(screen.getByRole("region", { name: "Features" }).textContent).toContain("Setup checklist");
-    expect(await screen.findByText("homebox")).toBeTruthy();
-    fireEvent.click(within(screen.getByRole("navigation", { name: "Product areas" })).getByRole("button", { name: /Backups/ }));
+    expect(await screen.findByRole("heading", { level: 1, name: greeting })).toBeTruthy();
+    expect(screen.queryByRole("region", { name: "Features" })).toBeNull();
+    expect(within(screen.getByRole("navigation", { name: "Views" })).getByRole("button", { name: "Home" }).getAttribute("aria-current")).toBe("page");
+    fireEvent.click(within(dock()).getByRole("button", { name: "Backups" }));
     expect(screen.getByRole("heading", { name: "Backups" })).toBeTruthy();
     expect(screen.getByRole("region", { name: "Features" }).textContent).toContain("Restore from a snapshot");
+    expect(within(dock()).getByRole("button", { name: "Backups" }).getAttribute("aria-current")).toBe("page");
+    expect(within(screen.getByRole("navigation", { name: "Views" })).getByRole("button", { name: "Home" }).hasAttribute("aria-current")).toBe(false);
+  });
+
+  it("keeps the Classic overview reachable", async () => {
+    vi.stubGlobal("fetch", vi.fn(authenticatedFetch));
+    render(<App />);
+    fireEvent.click(within(await screen.findByRole("navigation", { name: "Admin areas" })).getByRole("button", { name: "Overview (Classic)" }));
+    expect(await screen.findByRole("heading", { name: "Server overview" })).toBeTruthy();
+    expect(screen.getByText("Classic overview")).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Features" }).textContent).toContain("Setup checklist");
+    expect(await screen.findByText("homebox")).toBeTruthy();
+    expect(window.location.search).toBe("?view=overview");
+    window.history.replaceState(null, "", "/");
   });
 
   it("opens the page named in the URL and keeps the URL in step", async () => {
@@ -47,11 +66,31 @@ describe("BoxPilot console", () => {
     window.history.replaceState(null, "", "/?view=backups");
     render(<App />);
     expect(await screen.findByRole("heading", { name: "Backups" })).toBeTruthy();
-    fireEvent.click(within(screen.getByRole("navigation", { name: "Product areas" })).getByRole("button", { name: /Overview/ }));
-    expect(await screen.findByRole("heading", { name: "Server overview" })).toBeTruthy();
+    const views = screen.getByRole("navigation", { name: "Views" });
+    fireEvent.click(within(views).getByRole("button", { name: "Ops" }));
+    expect(await screen.findByRole("heading", { level: 1, name: "Ops" })).toBeTruthy();
+    expect(window.location.search).toBe("?view=ops");
+    expect(within(views).getByRole("button", { name: "Ops" }).getAttribute("aria-current")).toBe("page");
+    fireEvent.click(within(views).getByRole("button", { name: "Home" }));
+    expect(await screen.findByRole("heading", { level: 1, name: greeting })).toBeTruthy();
     expect(window.location.search).toBe("");
-    fireEvent.click(within(screen.getByRole("navigation", { name: "Product areas" })).getByRole("button", { name: /Backups/ }));
+    fireEvent.click(within(dock()).getByRole("button", { name: "Backups" }));
     expect(window.location.search).toBe("?view=backups");
+    window.history.replaceState(null, "", "/");
+  });
+
+  it("opens the command bar from anywhere with Ctrl K", async () => {
+    vi.stubGlobal("fetch", vi.fn(authenticatedFetch));
+    window.history.replaceState(null, "", "/?view=backups");
+    render(<App />);
+    expect(await screen.findByRole("heading", { name: "Backups" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Search pages, apps and settings" }).closest(".topbar")).not.toBeNull();
+    fireEvent.keyDown(window, { key: "k", ctrlKey: true });
+    const input = within(screen.getByRole("dialog", { name: "Search BoxPilot" })).getByRole("combobox");
+    fireEvent.change(input, { target: { value: "firewall" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(await screen.findByRole("heading", { level: 1, name: "Firewall" })).toBeTruthy();
+    expect(window.location.search).toBe("?view=firewall");
     window.history.replaceState(null, "", "/");
   });
 
@@ -75,8 +114,8 @@ describe("BoxPilot console", () => {
     vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
 
     render(<App />);
-    expect(await screen.findByRole("heading", { name: "Server overview" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /Logs/ }));
+    expect(await screen.findByRole("heading", { level: 1, name: greeting })).toBeTruthy();
+    fireEvent.click(within(dock()).getByRole("button", { name: "Logs" }));
 
     expect(await screen.findByText(/BoxPilot listening/)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Kernel" })).toBeTruthy();
@@ -121,7 +160,7 @@ describe("BoxPilot console", () => {
 
     vi.stubGlobal("fetch", vi.fn(authenticatedFetch));
     render(<App />);
-    expect(await screen.findByRole("heading", { name: "Server overview" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { level: 1, name: greeting })).toBeTruthy();
     await vi.waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalledWith("/api/v1/health"));
     expect(screen.queryByRole("heading", { name: "Design system" })).toBeNull();
     window.history.replaceState(null, "", "/");
@@ -130,7 +169,7 @@ describe("BoxPilot console", () => {
   it("offers System, Light and Dark in the top bar", async () => {
     vi.stubGlobal("fetch", vi.fn(authenticatedFetch));
     render(<App />);
-    expect(await screen.findByRole("heading", { name: "Server overview" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { level: 1, name: greeting })).toBeTruthy();
     const theme = screen.getByRole("radiogroup", { name: "Theme" });
     expect(theme.closest(".topbar")).not.toBeNull();
     expect(within(theme).getAllByRole("radio").map((radio) => radio.textContent)).toEqual(["System", "Light", "Dark"]);
