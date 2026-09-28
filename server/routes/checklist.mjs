@@ -10,11 +10,11 @@
 import { Router } from "express";
 import { buildChecklist, gatherChecklistEvidence } from "../setup-checklist.mjs";
 
-export function createChecklistRouter({ state, helper, notifications, inventory, network, driveChecks = undefined }) {
+export function createChecklistRouter({ state, helper, notifications, inventory, network, driveChecks = undefined, storage = null }) {
   const router = Router();
   router.get("/setup/checklist", async (_request, response) => {
     try {
-      response.json(buildChecklist(await gatherChecklistEvidence({ state, helper, notifications, inventory, network, driveChecks })));
+      response.json(buildChecklist(await gatherChecklistEvidence({ state, helper, notifications, inventory, network, driveChecks, storage })));
     } catch (error) {
       response.status(503).json({ error: error.message, code: "checklist_unavailable" });
     }

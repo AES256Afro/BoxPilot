@@ -38,6 +38,7 @@ import { createAssistantService } from "./assistant/index.mjs";
 import { createHelperClient } from "./helper-client.mjs";
 import { createHelperLibvirtService } from "./helper-libvirt.mjs";
 import { createInventoryService } from "./inventory.mjs";
+import { createStorageReader } from "./storage-inventory.mjs";
 import { createJobService, recordFailed } from "./jobs.mjs";
 import { planInterruptedReruns } from "./job-reruns.mjs";
 import { invalidateOperationEvidence } from "./diagnostic-invalidation.mjs";
@@ -109,6 +110,9 @@ const releaseUpdates = createReleaseUpdateService();
 const controllerProtection = createControllerProtectionService({ store: state, helper });
 const controllerRetention = createControllerRetentionService({ store: state, helper });
 const inventory = createInventoryService({ helper, maintenance });
+// lsblk, findmnt and fstab for the Overview's drive checks, the weekly report and the runbook: one
+// shared read held like the inventory, and dropped with it when an operation settles.
+const storageRead = createStorageReader();
 const vmCreation = createVmCreationService({ store: state, planner: vmPlanner, libvirt });
 const vmMedia = createVmMediaService({ store: state, helper });
 const vmExports = createVmExportService({ store: state, libvirt, helper });
@@ -150,7 +154,7 @@ const notifications = createNotificationService({ store: state, claimed: (job) =
 const healthAlerts = createHealthAlerts({ inventory, notifications, store: state, resolveScheduleTitle: (operationId) => registry.get(operationId)?.title ?? operationId });
 const jobs = createJobService(state, helper, {
   alerts: healthAlerts,
-  onOperationSettled: (job) => invalidateOperationEvidence(job, { registry, inventory, prerequisites, helper }),
+  onOperationSettled: (job) => invalidateOperationEvidence(job, { registry, inventory, prerequisites, helper, storage: storageRead }),
   secretEnvNamesFor,
   jobLog: jobLogReader,
   // Registry ops whose results become durable evidence rows.
@@ -268,7 +272,7 @@ const weeklyReport = createWeeklyReport({
   store: state, alerts: healthAlerts, notifications,
   coverage: async () => {
     const [evidence, protection] = await Promise.all([
-      gatherChecklistEvidence({ state, helper, notifications, inventory, network }).catch(() => null),
+      gatherChecklistEvidence({ state, helper, notifications, inventory, network, storage: storageRead }).catch(() => null),
       helper.request("app.backup.protection", {}, { timeoutMs: 60_000 }).catch(() => null),
     ]);
     return { checklist: evidence ? buildChecklist(evidence) : null, protection };
@@ -380,11 +384,11 @@ app.use("/api/v1", createSettingsRouter({ state, notifications, weeklyReport, au
 app.use("/api/v1", createFirewallRouter({ state, helper, catalogService, webPort: port, webHost: host }));
 app.use("/api/v1", createStorageRouter({ auth, helper, inventory, state }));
 app.use("/api/v1", createPowerRouter());
-app.use("/api/v1", createChecklistRouter({ state, helper, notifications, inventory, network }));
+app.use("/api/v1", createChecklistRouter({ state, helper, notifications, inventory, network, storage: storageRead }));
 app.use("/api/v1", createHostRouter({ state, helper, catalogService, inventory, network, notifications, controllerProtection, controllerRetention, githubProvenance, releaseUpdates, setup, supportBundle, audit, auth, identity, webHost: host, webPort: port }));
 app.use("/api/v1", createOidcAdminRouter({ oidc, auth }));
 // The runbook for this server (M34.4), from the same services the pages read.
-const runbook = createRunbookService({ store: state, helper, catalogService, inventory, network, notifications, autoReconnect, identity, secretEnvNamesFor, webHost: host, webPort: port, tlsDir });
+const runbook = createRunbookService({ store: state, helper, catalogService, inventory, network, notifications, autoReconnect, identity, secretEnvNamesFor, collect: storageRead, webHost: host, webPort: port, tlsDir });
 app.use("/api/v1", createRunbookRouter({ runbook, auth }));
 app.use("/api/v1", createAssistantRouter({ assistant, state, auth }));
 
