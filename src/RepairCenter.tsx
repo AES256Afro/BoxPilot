@@ -3,6 +3,7 @@ import { readJson } from "./http";
 import RuntimeHealth from "./RuntimeHealth";
 import PackageRecovery from "./PackageRecovery";
 import ControllerDoctor from "./ControllerDoctor";
+import ServerRunbook from "./ServerRunbook";
 import { useOperation } from "./ApproveDialog";
 import { AutoReconnectToggle, useAutoReconnect } from "./AutoReconnect";
 import { inspectOperation } from "./operations";
@@ -477,6 +478,10 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
           <footer className="recovery-actions"><button className="secondary-button" type="button" onClick={() => downloadRecoveryKit("markdown")}>Download rebuild steps (.md)</button><button className="secondary-button" type="button" onClick={() => downloadRecoveryKit("json")}>Download recovery data (.json)</button></footer>
         </section>
       )}
+
+      {/* Beside the recovery kit: the kit says whether this server could be rebuilt, the runbook
+          says what it is and how to put each thing back (M34.4). */}
+      <ServerRunbook />
 
 
       <section className="panel job-history">

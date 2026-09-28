@@ -1244,10 +1244,24 @@ answer can be caught. On a CPU a small model works; the GPU (1.119.0) makes it q
 - **M34.3 Guided troubleshooting** (was M24.3). From a symptom - a failed job, a health alert, an
   app that will not start - it runs the read-only checks BoxPilot already has and explains the
   cause from their evidence rather than from general advice.
-- **M34.4 Documentation of this server.** A runbook built from facts: what is installed, where each
-  app keeps its data, what is reachable from where, how backups run and where the copies are, and
-  how to restore each thing. Deterministic first, so it is right without a model; the model only
-  improves the prose. Downloadable, and regenerated when the server changes.
+- ✅ **M34.4 Documentation of this server** (unreleased): *Repair Center → Document this server*,
+  beside the recovery kit. `server/runbook.mjs` turns facts into Markdown, pure and with the clock
+  passed in; `server/runbook-service.mjs` gathers the facts from reads BoxPilot already makes (the
+  host inventory, the network topology, the drives, the helper's app, backup, Serve, firewall,
+  snapshot and Samba reads, and its own records), masking every stored parameter set with
+  `secretPaths`/`maskSecrets` first. Eight sections: this server; each app's image, ports and who
+  can reach them, data folders and their drives, where its sign-in is kept and its backups;
+  storage, with what each drive holds, SMART and auto-reconnect; network and firewall; backups and
+  the second copy; automation; how to restore, numbered, naming each registered operation and
+  what approving it takes; and the issues open right now. A fact that could not be read says
+  unknown and why. Generating it needs an operator (ADR-003); downloading the full copy, which
+  names where the second copies are kept and carries every account's schedules and alerts, is the
+  owner's, like the recovery kit. Each download keeps a fingerprint per section - what is where,
+  not what it is doing this minute - and the page says "out of date since" the first layout
+  change BoxPilot recorded after it (a completed install, mount, firewall or exposure job, a
+  schedule, destination or firewall-profile change, a new version), from SQLite alone; a preview
+  names the sections that differ, which also catches changes made by hand. Remaining: the model's
+  prose pass, once M34.1 has a local model.
 - **M34.5 Notes.** A note drafted after an incident (what happened, what fixed it), attached to the
   app or drive, which the owner can edit and which the assistant reads next time. Off by default.
 - **M34.6 Learning the platform.** Later, with LLMCoach: a model tuned on BoxPilot's documents and
