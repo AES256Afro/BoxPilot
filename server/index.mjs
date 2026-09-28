@@ -45,6 +45,8 @@ import { createReleaseUpdateService } from "./release-updates.mjs";
 import { createSetupService } from "./setup-profiles.mjs";
 import { createUpdateNotifier } from "./update-notifier.mjs";
 import { createHealthAlerts, jobNoticeKey, tellInterrupted } from "./health-alerts.mjs";
+import { createWeeklyReport } from "./weekly-report.mjs";
+import { buildChecklist, gatherChecklistEvidence } from "./setup-checklist.mjs";
 import { createTlsRenewal } from "./tls-renewal.mjs";
 import { createDiskSampler } from "./disk-forecast.mjs";
 import { createAppDataSampler } from "./app-data-growth.mjs";
@@ -231,6 +233,19 @@ flows.start();
 scheduler.start();
 const setup = createSetupService({ helper, scheduler });
 createUpdateNotifier({ releaseUpdates, notifications, alerts: healthAlerts, store: state }).start();
+// The weekly self-report (M30.4). "Not covered yet" asks what the Overview's checklist asks, plus
+// which apps with data worth keeping have no backup schedule; either may fail, and is then left out.
+const weeklyReport = createWeeklyReport({
+  store: state, alerts: healthAlerts, notifications,
+  coverage: async () => {
+    const [evidence, protection] = await Promise.all([
+      gatherChecklistEvidence({ state, helper, notifications, inventory, network }).catch(() => null),
+      helper.request("app.backup.protection", {}, { timeoutMs: 60_000 }).catch(() => null),
+    ]);
+    return { checklist: evidence ? buildChecklist(evidence) : null, protection };
+  },
+});
+weeklyReport.start();
 healthAlerts.start();
 // Reissue the LAN certificate before it expires, reusing its CA so trusted devices stay trusted (M18.2).
 createTlsRenewal({ helper, store: state }).start();
@@ -336,7 +351,7 @@ app.use("/api/v1", createPeopleRouter({ state, auth }));
 app.use("/api/v1", createOperationsRouter({ state, helper, jobs, prerequisites, recoveryKit, actionCenter, auth }));
 app.use("/api/v1", createJobsRouter({ state, jobs, scheduler, flows, helper, jobLogReader, auth }));
 app.use("/api/v1", createVirtualizationRouter({ libvirt, libvirtFoundation, vmPlanner, vmMedia, vmCreation, vmExports, vmProtection, vmRetention, vmRecoveries, audit }));
-app.use("/api/v1", createSettingsRouter({ state, notifications, auth }));
+app.use("/api/v1", createSettingsRouter({ state, notifications, weeklyReport, auth }));
 app.use("/api/v1", createFirewallRouter({ state, helper, catalogService, webPort: port, webHost: host }));
 app.use("/api/v1", createStorageRouter({ auth, helper, inventory, state }));
 app.use("/api/v1", createPowerRouter());
