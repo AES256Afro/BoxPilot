@@ -7,7 +7,7 @@ import { approvalModes, defaultApprovalMode, elevationTtlMs, normalizeApprovalMo
 import { normalizeDestination } from "../backup-destination.mjs";
 import { healthConditions, isNotice, noticeKinds } from "../health-alerts.mjs";
 import { vpnProviders, vpnProtocols } from "../vpn-profile.mjs";
-import { callerId, seesEveryAccount } from "./access.mjs";
+import { watchEntryFor } from "./access.mjs";
 
 export function createSettingsRouter({ state, notifications, weeklyReport = null, auth }) {
   const router = Router();
@@ -35,23 +35,8 @@ export function createSettingsRouter({ state, notifications, weeklyReport = null
     response.json(described);
   });
 
-  /**
-   * An entry's words as this caller may read them (M29.4). Every role sees how many conditions are
-   * live; the words of one that is about another account's work - a job a restart cut off, a result
-   * not saved, a schedule of theirs, their sign-in from a new address - go only to the owner and to
-   * that account. Everyone else reads what kind of thing it is.
-   */
-  function titleFor(request, key, entry, label) {
-    const title = entry.title ?? key;
-    if (seesEveryAccount(request)) return title;
-    const [family, subject] = key.split(":");
-    const self = callerId(request);
-    if (family === "schedule.failed" || family === "schedule.overdue") return self && state.getSchedule?.(subject)?.createdBy === self ? title : label;
-    if (family === "signin.new") return self && subject === self ? title : label;
-    // Named by operation and subject rather than by job, so whose it was cannot be told apart.
-    if (family === "job.interrupted" || family === "record.failed") return label;
-    return title;
-  }
+  /** An entry's words as this caller may read them (M29.4); access.mjs holds the rule, which the assistant shares. */
+  const titleFor = (request, key, entry, label) => watchEntryFor(request, key, entry, label, (id) => state.getSchedule?.(id)?.createdBy ?? null).title;
 
   // What BoxPilot watches for on its own, and which conditions are live right now. The active set is
   // the health-alert watcher's own persisted state, grouped back to its condition families.
