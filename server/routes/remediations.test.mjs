@@ -26,7 +26,7 @@ describe("remediation source availability", () => {
       expect(response.status).toBe(200);
       const body = await response.json();
       expect(body.sourceStatus).toBe("partial");
-      expect(body.unavailableChecks).toEqual(["Drives and mounts", "Applications", "File sharing", "USB history"]);
+      expect(body.unavailableChecks).toEqual(["Drives and mounts", "Applications", "File sharing", "USB history", "Unclean unmounts", "Drive filesystems"]);
       expect(Array.isArray(body.findings)).toBe(true);
     } finally { server.closeAllConnections?.(); await new Promise((resolve) => server.close(resolve)); }
   });

@@ -69,10 +69,12 @@ describe("root system tasks", () => {
   it("schedules a delayed reboot via systemd-run so the result can be reported first", async () => {
     const { systemReboot } = await import("./system.mjs");
     const run = vi.fn(async () => ({ ok: true, stdout: "", stderr: "" }));
-    await expect(systemReboot({ delaySeconds: 7 }, { run })).resolves.toEqual({ scheduled: true, inSeconds: 7 });
+    // No BoxPilot drive to get ready first; that half is tested in drive-shutdown.test.mjs.
+    const prepare = async () => null;
+    await expect(systemReboot({ delaySeconds: 7 }, { run, prepare })).resolves.toEqual({ scheduled: true, inSeconds: 7, drives: [], containers: null });
     expect(run).toHaveBeenCalledWith("/usr/bin/systemd-run", ["--quiet", "--on-active", "7", "--unit", "boxpilot-reboot", "/usr/bin/systemctl", "reboot"], expect.anything());
-    await expect(systemReboot({ delaySeconds: 99999 }, { run })).resolves.toMatchObject({ inSeconds: 5 });
-    await expect(systemReboot({}, { run: vi.fn(async () => ({ ok: false, stdout: "", stderr: "no dbus" })) })).rejects.toThrow("Could not schedule");
+    await expect(systemReboot({ delaySeconds: 99999 }, { run, prepare })).resolves.toMatchObject({ inSeconds: 5 });
+    await expect(systemReboot({}, { prepare, run: vi.fn(async () => ({ ok: false, stdout: "", stderr: "no dbus" })) })).rejects.toThrow("Could not schedule");
   });
 
   it("toggles unattended upgrades, installing the package only when missing", async () => {

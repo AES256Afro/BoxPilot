@@ -133,38 +133,139 @@ export function flakyDrives({ usb = null } = {}) {
 
 
 /**
- * A USB drive that has dropped since it was last checked. The drop is in the kernel log, the last
- * check (if any) in the recorded verdicts; a drop newer than the last clean check earns the offer.
- * A drive that has never been checked after a drop is exactly the case where the directory table
- * is worth reading before anything writes to it again.
+ * A USB drive that has dropped since it was last checked, or any drive the kernel found not cleanly
+ * unmounted when it last mounted it. Both are in the kernel log, the last check (if any) in the
+ * recorded verdicts; either newer than the last clean check earns the offer. A drive that has never
+ * been checked after one is exactly the case where the directory table is worth reading before
+ * anything writes to it again.
+ *
+ * The second came from the owner's reboot: the kernel said "Volume was not properly unmounted",
+ * nothing had dropped, and so nothing offered the check - the owner reconnected the drive instead,
+ * which never reads the table.
  *
  * An exFAT drive on a server without fsck.exfat cannot be checked yet, and offering the check would
  * stop its apps for a job that cannot run. The offer is the install instead, and becomes the check
  * once the checker is there.
  */
-export function drivesNeedingCheck({ mounts = [], devices = [], usb = null, driveChecks = {}, tools = null, driveTools = null } = {}) {
-  if (!usb?.available || !Array.isArray(usb.ports) || !usb.ports.length) return [];
-  const lastDrop = usb.ports.reduce((latest, port) => (port.lastDropAt && (!latest || port.lastDropAt > latest) ? port.lastDropAt : latest), null);
-  if (!lastDrop) return [];
+export function drivesNeedingCheck({ mounts = [], devices = [], usb = null, unclean = null, volumes = null, driveChecks = {}, tools = null, driveTools = null } = {}) {
+  const lastDrop = usb?.available && Array.isArray(usb.ports) ? usb.ports.reduce((latest, port) => (port.lastDropAt && (!latest || port.lastDropAt > latest) ? port.lastDropAt : latest), null) : null;
+  // The other way a drive comes to need a check (M26): mounted after it was not unmounted cleanly.
+  // A reboot or a power cut does this without any USB drop.
+  const uncleanByDevice = new Map((unclean?.available && Array.isArray(unclean.events) ? unclean.events : []).map((event) => [event.device, event]));
+  const volumeByTarget = new Map((volumes?.available && Array.isArray(volumes.drives) ? volumes.drives : []).map((volume) => [volume.mountpoint, volume]));
+  if (!lastDrop && uncleanByDevice.size === 0 && volumeByTarget.size === 0) return [];
   const onUsb = new Set(devices.filter((device) => device.transport === "usb").map((device) => device.path));
+  const droppedWith = (mount) => (lastDrop && (onUsb.size === 0 || onUsb.has(mount.source) || [...onUsb].some((disk) => mount.source.startsWith(disk))) ? lastDrop : null);
   return mounts
-    .filter((mount) => mount.managedName && mount.source?.startsWith("/dev/") && (onUsb.size === 0 || onUsb.has(mount.source) || [...onUsb].some((disk) => mount.source.startsWith(disk))))
-    .filter((mount) => { const last = driveChecks?.[mount.managedName]; return !(last?.clean && last.checkedAt > lastDrop); })
-    .map((mount) => {
+    .filter((mount) => mount.managedName && mount.source?.startsWith("/dev/"))
+    .flatMap((mount) => {
+      const name = mount.managedName;
+      const last = driveChecks?.[name];
+      const checkedCleanSince = (at) => Boolean(last?.clean && at && last.checkedAt > at);
+      const drop = droppedWith(mount);
+      const evidence = uncleanEvidence(uncleanByDevice.get(mount.source) ?? null, volumeByTarget.get(mount.target) ?? null);
       const checkerMissing = mount.fstype === "exfat" && tools?.fsckExfat === false;
-      return finding({
-        id: `drive-check:${mount.managedName}`,
-        severity: "warning",
-        title: `${mount.target} has not been checked since its drive dropped`,
-        detail: `A drive that drops off USB mid-write can be left with a damaged directory table that only shows up later, as files that vanish or a folder that will not open. The filesystem's own checker can read the whole table without changing anything. ${checkerMissing
-          ? "This drive is exFAT and fsck.exfat is not installed, so the checker comes first: install it, and this becomes the check itself."
-          : "The apps using the drive are paused for the check and started again after it."}`,
-        evidence: [`last drop ${new Date(lastDrop).toLocaleString()}`, driveChecks?.[mount.managedName] ? `last check ${new Date(driveChecks[mount.managedName].checkedAt).toLocaleString()}${driveChecks[mount.managedName].clean ? " (clean)" : " (problems found)"}` : "never checked", ...(checkerMissing ? ["fsck.exfat not found in /usr/sbin or /sbin"] : [])],
-        fix: checkerMissing
-          ? installDriveToolsFix(driveTools)
-          : { operationId: "storage.check", parameters: { name: mount.managedName }, label: "Check the drive", preview: `Stops the containers using ${mount.target}, unmounts it, runs the read-only checker, mounts it again and starts them. Nothing is repaired or written.` },
-      });
+      const lastCheck = last ? `last check ${new Date(last.checkedAt).toLocaleString()}${last.clean ? (last.markedDirty ? " (clean, still marked)" : " (clean)") : " (problems found)"}` : "never checked";
+      // The exFAT mark a clean check already found: Linux keeps it until a repairing check and
+      // repeats its warning at every mount, so a later warning is that mark again, not news, and a
+      // second read-only check would only say "clean" again. Clearing it is what is left.
+      const knownMark = Boolean(evidence && mount.fstype === "exfat" && last?.clean && last.markedDirty);
+      const uncleanDue = Boolean(evidence && !checkedCleanSince(evidence.at) && !knownMark);
+      const dropDue = Boolean(drop && !checkedCleanSince(drop));
+      if (uncleanDue || dropDue) {
+        const unclean = Boolean(uncleanDue && (!dropDue || evidence.at >= drop));
+        return [finding({
+          id: `drive-check:${name}`,
+          severity: "warning",
+          title: unclean ? `${mount.target} was not unmounted cleanly and has not been checked since` : `${mount.target} has not been checked since its drive dropped`,
+          detail: `${unclean
+            ? "This drive was not unmounted cleanly before it was last mounted - after a power cut, a reboot that did not wait for it, or an unplug - and its filesystem says so. Whatever was being written then may have left the directory table damaged, which shows up later as files that vanish or a folder that will not open."
+            : "A drive that drops off USB mid-write can be left with a damaged directory table that only shows up later, as files that vanish or a folder that will not open."} The filesystem's own checker can read the whole table without changing anything. ${checkerMissing
+            ? "This drive is exFAT and fsck.exfat is not installed, so the checker comes first: install it, and this becomes the check itself."
+            : "The apps using the drive are paused for the check and started again after it."}`,
+          evidence: [...(uncleanDue ? evidence.lines : []), ...(drop ? [`last drop ${new Date(drop).toLocaleString()}`] : []), lastCheck, ...(checkerMissing ? ["fsck.exfat not found in /usr/sbin or /sbin"] : [])],
+          fix: checkerMissing
+            ? installDriveToolsFix(driveTools)
+            : { operationId: "storage.check", parameters: { name }, label: "Check the drive", preview: `Stops the containers using ${mount.target}, disconnects file-sharing clients from it (they reconnect by themselves), unmounts it, runs the read-only checker, mounts it again and starts them. Nothing is repaired or written.` },
+        })];
+      }
+      if (knownMark) {
+        return [finding({
+          id: `drive-mark:${name}`,
+          severity: "info",
+          title: `${mount.target} still carries an old "not properly unmounted" mark`,
+          detail: `The check on ${new Date(last.checkedAt).toLocaleString()} found the folder table consistent and the mark still set. Linux keeps that mark until a repairing check clears it and repeats its warning every time the drive is mounted, so the warning is about the same old mark, not a new problem. Clearing it changes the mark and nothing else, since the table is consistent.`,
+          evidence: [...evidence.lines, lastCheck],
+          fix: {
+            operationId: "storage.dirty-mark.clear",
+            parameters: { name },
+            label: "Clear the mark",
+            preview: `Stops the containers using ${mount.target}, disconnects file-sharing clients, unmounts it and runs the read-only check again. Only if that still finds nothing wrong does it run fsck.exfat -y, which on a consistent drive changes the not-properly-unmounted mark and nothing else. Then it mounts the drive and starts them again. A drive with real damage is left as it is.`,
+          },
+        })];
+      }
+      return [];
     });
+}
+
+/**
+ * Whether a drive was not unmounted cleanly before its current mount, and what says so; null when
+ * nothing does.
+ *
+ * The filesystem is the source of truth where it can be one: an ext superblock's state, and an
+ * exFAT mark that is clear. A set exFAT mark on a mounted drive is not conclusive - the first write
+ * after mounting sets it - so there the kernel's warning decides, and only a warning printed at
+ * the current mount: this boot's log keeps every warning it ever printed, including ones from
+ * mounts since undone by a check, a repair by hand or a reconnect. Without the filesystem's word
+ * (a viewer's scan, or a server that could not be read), the kernel's line is all there is.
+ */
+function uncleanEvidence(event, volume) {
+  const kernelLine = (entry) => `kernel, ${new Date(entry.at).toLocaleString()}: ${entry.message}`;
+  const mountedAt = volume?.mountedAt ? Date.parse(volume.mountedAt) : null;
+  const atThisMount = event && (mountedAt === null || Date.parse(event.at) >= mountedAt - 30_000) ? event : null;
+  if (volume?.ext?.state) {
+    if (!/not clean|error/i.test(volume.ext.state)) return null;
+    const at = atThisMount?.at ?? volume.mountedAt;
+    return at ? { at, lines: [`the filesystem says it is "${volume.ext.state}"`, ...(atThisMount ? [kernelLine(atThisMount)] : [])] } : null;
+  }
+  if (volume?.exfat?.dirty === false) return null;
+  if (!atThisMount) return null;
+  return { at: atThisMount.at, lines: [kernelLine(atThisMount), ...(volume?.exfat?.dirty ? ["the drive's not-properly-unmounted mark is set"] : [])] };
+}
+
+/**
+ * Drives BoxPilot mounted before their fstab entries were ordered around Docker (M26).
+ *
+ * `nofail` keeps a missing drive from blocking boot, and in doing so leaves nothing ordering the
+ * drive against docker.service. At boot the apps can start before the drive is mounted: they see
+ * the empty folder underneath, a library looks wiped and downloads land on the system disk. At
+ * shutdown the drive can be unmounted while Docker is still stopping them. Drives mounted since
+ * carry the ordering; this offers it to the ones that do not, where an app actually uses them.
+ */
+export function drivesNotOrderedAroundDocker({ mounts = [], containers = [] } = {}) {
+  const network = ["cifs", "smb3", "nfs", "nfs4"];
+  const users = (target) => containers.filter((container) => (container.binds ?? []).some((bind) => bind === target || bind.startsWith(`${target}/`)));
+  const drives = mounts
+    .filter((mount) => mount.managedName && !mount.managedName.startsWith("share-") && mount.managedName !== "swap" && mount.target === mountpointFor(mount.managedName))
+    .filter((mount) => typeof mount.options === "string" && !network.includes(mount.fstype) && !mount.options.split(",").includes("x-systemd.before=docker.service"))
+    .map((mount) => ({ mount, users: users(mount.target) }))
+    .filter((entry) => entry.users.length > 0);
+  if (drives.length === 0) return [];
+  const targets = drives.map((entry) => entry.mount.target);
+  const one = drives.length === 1;
+  return [finding({
+    id: "drive-order",
+    severity: "warning",
+    title: `${targets.join(", ")} can be unmounted while apps are still using ${one ? "it" : "them"}`,
+    detail: `Nothing tells the system to wait for ${one ? "this drive" : "these drives"} before starting Docker, or to stop Docker before unmounting ${one ? "it" : "them"}: the nofail option that keeps a missing drive from blocking boot also takes that ordering away. So a boot can start the apps before the drive is mounted, when they see an empty folder and anything they save lands on the system disk, and a shutdown can unmount it while they are still stopping.`,
+    evidence: drives.flatMap((entry) => entry.users.map((container) => `${container.name} uses ${(container.binds ?? []).find((bind) => bind === entry.mount.target || bind.startsWith(`${entry.mount.target}/`))}`)),
+    fix: {
+      operationId: "storage.docker-order.apply",
+      parameters: {},
+      label: "Order the drives around Docker",
+      preview: "Adds x-systemd.before=docker.service and x-systemd.device-timeout=30s to each drive BoxPilot mounted, so Docker waits up to 30 seconds for them at boot and stops before they are unmounted. fstab is copied first, checked with findmnt --verify before it replaces the old one, and put back if systemd does not take the change. Nothing is unmounted or restarted, and network shares and entries you wrote yourself are left alone.",
+    },
+  })];
 }
 
 /**
@@ -409,6 +510,7 @@ export function detectRemediations(facts = {}) {
     ...flakyDrives(facts),
     ...drivesNeedingCheck(facts),
     ...containersOnStaleMounts({ ...facts, staleTargets }),
+    ...drivesNotOrderedAroundDocker(facts),
     ...vpnLeaks(facts),
     ...failedRehearsals(facts),
     ...unwritableAppFolders(facts),
