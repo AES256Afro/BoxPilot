@@ -3,7 +3,7 @@ id: protec
 name: Protec
 category: Administration
 icon: "▣"
-description: "Self-hosted device enrollment, package inventory, device-scoped API access, recoverable token rotation, scheduled inventory refreshes, cancellation, completion receipts, and audit history."
+description: "Self-hosted device enrollment, package inventory, device groups with package-presence compliance, read-only APT change previews, device-scoped API access, recoverable token rotation, scheduled inventory refreshes, completion receipts, and audit history."
 website: https://foragefournuts.com
 risk: low
 image:
@@ -42,7 +42,7 @@ health:
 notes: >-
   Plan a Tailscale Serve or reverse-proxy HTTPS address and enter its origin before installation.
   The container port binds only to loopback; publish it through your chosen HTTPS service.
-  Back up before upgrading to 0.6: schema 6 requires the pre-upgrade database for rollback.
+  Back up before upgrading to 0.7: it moves the database to schema 8, which 0.6 cannot open, so rollback needs the pre-upgrade backup.
   Linux and macOS inventory agents connect outbound to the portal. Device privileges are
-  reported; this release does not install packages, enforce policies, manage VPN routes,
+  reported; this release previews package changes but does not install them, evaluates policies but does not enforce them, and does not manage VPN routes
   or run remote shells. Explore mock data at https://foragefournuts.com/demo/.
