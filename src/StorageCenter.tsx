@@ -6,6 +6,7 @@ import ConnectPaths from "./ConnectPaths";
 import { readJson } from "./http";
 import { validShareName } from "./shareName";
 import { useOperation } from "./ApproveDialog";
+import { AutoReconnectToggle, autoReconnectRule, useAutoReconnect } from "./AutoReconnect";
 import SambaPanel from "./SambaPanel";
 import NfsPanel from "./NfsPanel";
 
@@ -100,7 +101,8 @@ export default function StorageCenter({ csrfToken, onNavigate }: { csrfToken: st
 
   useEffect(() => { void refresh(); }, [refresh]);
 
-  const { start, dialog } = useOperation(csrfToken, () => { setMountTarget(null); setMountName(""); setPassword(""); void refresh(); });
+  const autoReconnect = useAutoReconnect(csrfToken);
+  const { start, dialog } = useOperation(csrfToken, () => { setMountTarget(null); setMountName(""); setPassword(""); void refresh(); void autoReconnect.refresh(); });
 
   const managedByMountpoint = new Map((report?.fstab ?? []).filter((row) => row.managedName && !row.managedName.startsWith("share-")).map((row) => [row.mountpoint, row.managedName as string]));
   const disks = (report?.devices ?? []).filter((device) => device.type === "disk");
@@ -596,13 +598,17 @@ export default function StorageCenter({ csrfToken, onNavigate }: { csrfToken: st
                       title: `Unmount /mnt/${managedName}`,
                       parameters: { name: managedName },
                       preview: <span>Unmounts <code>{mount.target}</code> and removes its fstab entry. Data on the disk and the empty directory are kept.</span>,
-                    })}>Unmount</button>}</td>
+                    })}>Unmount</button>}
+                    {managedName && mount.target === `/mnt/${managedName}` && <AutoReconnectToggle drive={managedName} control={autoReconnect} compact />}</td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
         </div>
+        {autoReconnect.status && (report?.mounts ?? []).some((mount) => managedByMountpoint.get(mount.target) === mount.target.slice("/mnt/".length)) && (
+          <p className="muted mount-rule">{autoReconnectRule(autoReconnect.status.limits)}</p>
+        )}
       </section>
     </div>
   );

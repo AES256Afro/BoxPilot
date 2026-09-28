@@ -61,6 +61,7 @@ export const noticeKinds = Object.freeze({
   "release.available": "A new BoxPilot release",
   "signin.new": "A sign-in from a new address",
   "report.weekly": "The weekly report",
+  "drive.reconnected": "A drive was reconnected automatically",
 });
 export const isNotice = (key) => Object.hasOwn(noticeKinds, String(key).split(":")[0]);
 export const noticeLimit = 20;
@@ -197,6 +198,13 @@ export function createHealthAlerts({ inventory, notifications, store, resolveSch
   };
   const readState = () => ({ ...(store.getSetting(settingKey, {}) ?? {}) });
   const writeState = (value) => store.setSetting(settingKey, value, { updatedBy: null });
+  // Whatever acts on what a round found (M26.5's drive reconnect). Told after the round has
+  // announced and saved, and never waited for: a reconnect takes minutes, a round must not.
+  const listeners = new Set();
+  function afterRound(listener) {
+    listeners.add(listener);
+    return () => listeners.delete(listener);
+  }
 
   /** Send one announcement: true when the target took it, false when there is none or it failed. */
   async function announce(key, { title, message, priority = "default" }) {
@@ -226,7 +234,7 @@ export function createHealthAlerts({ inventory, notifications, store, resolveSch
     // A drive going bad shows in its SMART numbers before it fails outright (M23.3).
     const smartAlerts = evaluateSmartTrends(store.getSetting?.("smartHistory", {}) ?? {}, { now: now() });
     const active = [...evaluateHealth(snapshot), ...scheduleAlerts, ...forecastAlerts, ...smartAlerts];
-    return exclusive(async () => {
+    const round = await exclusive(async () => {
       const previous = readState();
       const nextState = {};
       const sent = [];
@@ -281,6 +289,12 @@ export function createHealthAlerts({ inventory, notifications, store, resolveSch
       writeState(nextState);
       return { active: active.map((alert) => alert.key), sent, target: Boolean(target) };
     });
+    // Which evidence this round actually had, so a listener never reads missing evidence as "fine".
+    const seen = { active: round.active, availability: collectorAvailability(snapshot) };
+    for (const listener of listeners) {
+      try { Promise.resolve(listener(seen)).catch(() => {}); } catch { /* the round's own work stands */ }
+    }
+    return round;
   });
 
   /**
@@ -359,5 +373,5 @@ export function createHealthAlerts({ inventory, notifications, store, resolveSch
     return () => { cancel(first); unschedule(timer); };
   }
 
-  return { check, start, raise, clear, tell, evaluate: () => inventory.inspect().then(evaluateHealth) };
+  return { check, start, raise, clear, tell, afterRound, evaluate: () => inventory.inspect().then(evaluateHealth) };
 }

@@ -26,6 +26,7 @@ function watchView(family: string): ViewName {
   if (family === "schedule.failed") return "system";
   if (family === "flow.failed") return "automations";
   if (family === "release.available") return "system"; // System, BoxPilot updates
+  if (family === "drive.reconnected") return "storage"; // the drive's row, where its auto-reconnect lives
   if (family === "signin.new" || family === "report.weekly") return "settings"; // where you're signed in; the report's preview
   return "repairs"; // host conditions, an interrupted job, a result not saved: Repair keeps the Activity with each job's steps
 }
