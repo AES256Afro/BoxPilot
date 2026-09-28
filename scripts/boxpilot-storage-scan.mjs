@@ -14,6 +14,7 @@ const defaultLsblk = "/usr/bin/lsblk";
 const defaultFindmnt = "/usr/bin/findmnt";
 const fixedFilesystemSourcePattern = /^\/dev\/(?:mapper\/[a-zA-Z0-9+_.-]+|[a-zA-Z0-9+_.-]+)$/;
 const fixedKernelNamePattern = /^[a-zA-Z0-9+_.-]{1,64}$/;
+const fixedTransportPattern = /^[a-z0-9]{1,16}$/;
 
 async function fixedRun(binary, args, { timeout = 30000 } = {}) {
   try {
@@ -39,7 +40,7 @@ function parseDisks(value) {
     const parsed = JSON.parse(value);
     return (Array.isArray(parsed.blockdevices) ? parsed.blockdevices : [])
       .filter((item) => item?.type === "disk" && typeof item.name === "string" && fixedDevicePattern.test(item.name))
-      .map((item) => item.name)
+      .map((item) => ({ device: item.name, transport: typeof item.tran === "string" && fixedTransportPattern.test(item.tran) ? item.tran : null }))
       .slice(0, 16);
   } catch {
     return [];
@@ -113,6 +114,54 @@ export function parseSmartctlEvidence(device, output) {
   };
 }
 
+/** The lines smartctl wrote about why it could not read a device, from its JSON `messages`. */
+function smartctlMessages(output) {
+  try {
+    const messages = JSON.parse(output)?.smartctl?.messages;
+    return Array.isArray(messages) ? messages.slice(0, 16).map((entry) => String(entry?.string ?? "").slice(0, 256)) : [];
+  } catch {
+    return [];
+  }
+}
+
+/** smartctl did not know the USB bridge in front of this disk and asked to be told the device type. */
+export function usbBridgeUnrecognized(output) {
+  return smartctlMessages(output).some((line) => /Unknown USB bridge|specify device type with the -d option/i.test(line));
+}
+
+/** smartctl could not open the device at all, which says nothing about what the bridge passes through. */
+function deviceOpenFailed(output) {
+  return smartctlMessages(output).some((line) => /open device: .* failed|No such device|Permission denied/i.test(line));
+}
+
+/**
+ * Whether a disk that did not answer is worth asking once more with `-d sat`.
+ *
+ * smartctl recognises many USB-SATA bridges by their USB id and speaks SAT (ATA commands wrapped in
+ * SCSI) to them on its own. One it does not recognise answers "Unknown USB bridge" and nothing
+ * else, and plenty of those pass ATA commands through perfectly well when asked. Only USB disks are
+ * asked again: an internal disk that did not answer has no bridge to blame.
+ */
+export function needsSatRetry(transport, directOutput) {
+  if (transport !== "usb" && !usbBridgeUnrecognized(directOutput)) return false;
+  return parseSmartctlEvidence("", directOutput).health === "unavailable";
+}
+
+/**
+ * One disk's SMART evidence from the reading as smartctl chose to do it and, for a USB disk that
+ * did not answer, the second reading through `-d sat`. Both are reads; nothing is enabled or
+ * written on the drive. A USB disk that answers neither way sits behind a bridge that does not pass
+ * SMART through, and is recorded as exactly that: a limit of the enclosure, not a failed reading.
+ */
+export function smartEvidenceFor(device, { transport = null, direct = "", sat = null } = {}) {
+  const onUsb = transport === "usb" || usbBridgeUnrecognized(direct);
+  const first = { ...parseSmartctlEvidence(device, direct), transport: onUsb ? "usb" : transport, deviceType: "auto" };
+  if (first.health !== "unavailable" || !onUsb || sat === null) return first;
+  const second = parseSmartctlEvidence(device, sat);
+  if (second.health !== "unavailable") return { ...second, transport: "usb", deviceType: "sat" };
+  return { ...first, deviceType: "sat", reason: deviceOpenFailed(direct) || deviceOpenFailed(sat) ? "smartctl-read-failed" : "usb-bridge-unsupported" };
+}
+
 export function createStorageScanner({
   run = fixedRun,
   checkAccess = access,
@@ -132,13 +181,14 @@ export function createStorageScanner({
     } catch {
       return { schemaVersion: 2, generatedAt: now().toISOString(), available: false, reason: "smartctl-not-installed", filesystems, disks: [], boundary: { mutationPerformed: false, serialsIncluded: false, rawOutputIncluded: false, browserTriggered: false, filesystemCheckTriggered: false } };
     }
-    const deviceResult = await run(lsblkBinary, ["--json", "--paths", "--nodeps", "--output", "NAME,TYPE"], { timeout: 10000 });
+    const deviceResult = await run(lsblkBinary, ["--json", "--paths", "--nodeps", "--output", "NAME,TYPE,TRAN"], { timeout: 10000 });
     const devices = deviceResult.ok ? parseDisks(deviceResult.stdout) : [];
     if (devices.length === 0) return { schemaVersion: 2, generatedAt: now().toISOString(), available: false, reason: "no-supported-disks", filesystems, disks: [], boundary: { mutationPerformed: false, serialsIncluded: false, rawOutputIncluded: false, browserTriggered: false, filesystemCheckTriggered: false } };
     const disks = [];
-    for (const device of devices) {
-      const result = await run(smartctlBinary, ["--json=c", "--all", device], { timeout: 30000 });
-      disks.push(parseSmartctlEvidence(device, result.stdout));
+    for (const { device, transport } of devices) {
+      const direct = await run(smartctlBinary, ["--json=c", "--all", device], { timeout: 30000 });
+      const sat = needsSatRetry(transport, direct.stdout) ? await run(smartctlBinary, ["--json=c", "--all", "-d", "sat", device], { timeout: 30000 }) : null;
+      disks.push(smartEvidenceFor(device, { transport, direct: direct.stdout, sat: sat ? sat.stdout : null }));
     }
     return { schemaVersion: 2, generatedAt: now().toISOString(), available: disks.some((item) => item.health !== "unavailable"), reason: disks.some((item) => item.health !== "unavailable") ? "fixed-root-scan" : "storage-scan-failed", filesystems, disks, boundary: { mutationPerformed: false, serialsIncluded: false, rawOutputIncluded: false, browserTriggered: false, filesystemCheckTriggered: false } };
   }
@@ -168,4 +218,4 @@ if (invokedPath === import.meta.url) {
   });
 }
 
-export const storageScanInternals = { defaultFindmnt, defaultLsblk, defaultOutputPath, defaultSmartctl, filesystemErrorSummary, fixedDevicePattern, fixedFilesystemSourcePattern, fixedKernelNamePattern, parseDisks, safeCounter, safeNumber };
+export const storageScanInternals = { defaultFindmnt, defaultLsblk, defaultOutputPath, defaultSmartctl, filesystemErrorSummary, fixedDevicePattern, fixedFilesystemSourcePattern, fixedKernelNamePattern, fixedTransportPattern, parseDisks, safeCounter, safeNumber };

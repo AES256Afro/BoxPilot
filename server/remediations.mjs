@@ -69,12 +69,37 @@ export function readOnlyRemounts({ mounts = [] } = {}) {
 }
 
 /**
+ * The fix for a server that cannot check its drives: the same pinned drive-tools install the setup
+ * checklist's "This server can check its drives" leads to (M26.3), at the exact versions the helper
+ * found on offer. When the helper could not say - it was busy, or the package lists offer nothing
+ * yet - the plain package install still works, since it refreshes the lists first.
+ */
+export function installDriveToolsFix(driveTools = null) {
+  const offered = driveTools?.repairAvailable ? driveTools.candidatePackages ?? {} : {};
+  if (Object.keys(offered).length) {
+    const listed = Object.entries(offered).map(([name, version]) => `${name} ${version}`).join(" and ");
+    return {
+      operationId: "prerequisite.drive-tools.install",
+      parameters: { expectedPackages: { ...offered } },
+      label: "Install the drive check tools",
+      preview: `Installs ${listed} from Ubuntu's archive, then confirms fsck.exfat and smartctl answer and reads every disk's SMART health again. No drive is touched or checked by this step.`,
+    };
+  }
+  return {
+    operationId: "apt.install",
+    parameters: { packages: ["exfatprogs"] },
+    label: "Install the exFAT checker",
+    preview: "Installs the exfatprogs package (fsck.exfat, tune.exfat). No drive is touched or checked by this step.",
+  };
+}
+
+/**
  * An exFAT drive on a server with no way to check it. exFAT is what every large external drive
  * ships with, and after an unclean disconnect it is the filesystem most worth checking before it
  * is written to again - but Ubuntu does not install fsck.exfat by default, so "check the drive"
  * is not something this server can do until it has exfatprogs.
  */
-export function exfatCheckerMissing({ mounts = [], tools = null } = {}) {
+export function exfatCheckerMissing({ mounts = [], tools = null, driveTools = null } = {}) {
   if (!tools || tools.fsckExfat !== false) return [];
   const exfat = mounts.filter((mount) => mount.fstype === "exfat");
   if (!exfat.length) return [];
@@ -84,12 +109,7 @@ export function exfatCheckerMissing({ mounts = [], tools = null } = {}) {
     title: "This server cannot check its exFAT drives",
     detail: `${exfat.map((mount) => mount.target).join(", ")} ${exfat.length === 1 ? "is" : "are"} exFAT, and fsck.exfat is not installed. After a drive drops off and comes back, a check before writing to it again is the difference between a scare and a corrupted folder table. Installing exfatprogs adds the checker; it changes nothing on the drives.`,
     evidence: [`${exfat.length} exFAT mount${exfat.length === 1 ? "" : "s"}`, "fsck.exfat not found in /usr/sbin or /sbin"],
-    fix: {
-      operationId: "apt.install",
-      parameters: { packages: ["exfatprogs"] },
-      label: "Install the exFAT checker",
-      preview: "Installs the exfatprogs package (fsck.exfat, tune.exfat). No drive is touched or checked by this step.",
-    },
+    fix: installDriveToolsFix(driveTools),
   })];
 }
 
@@ -116,8 +136,12 @@ export function flakyDrives({ usb = null } = {}) {
  * check (if any) in the recorded verdicts; a drop newer than the last clean check earns the offer.
  * A drive that has never been checked after a drop is exactly the case where the directory table
  * is worth reading before anything writes to it again.
+ *
+ * An exFAT drive on a server without fsck.exfat cannot be checked yet, and offering the check would
+ * stop its apps for a job that cannot run. The offer is the install instead, and becomes the check
+ * once the checker is there.
  */
-export function drivesNeedingCheck({ mounts = [], devices = [], usb = null, driveChecks = {} } = {}) {
+export function drivesNeedingCheck({ mounts = [], devices = [], usb = null, driveChecks = {}, tools = null, driveTools = null } = {}) {
   if (!usb?.available || !Array.isArray(usb.ports) || !usb.ports.length) return [];
   const lastDrop = usb.ports.reduce((latest, port) => (port.lastDropAt && (!latest || port.lastDropAt > latest) ? port.lastDropAt : latest), null);
   if (!lastDrop) return [];
@@ -125,14 +149,21 @@ export function drivesNeedingCheck({ mounts = [], devices = [], usb = null, driv
   return mounts
     .filter((mount) => mount.managedName && mount.source?.startsWith("/dev/") && (onUsb.size === 0 || onUsb.has(mount.source) || [...onUsb].some((disk) => mount.source.startsWith(disk))))
     .filter((mount) => { const last = driveChecks?.[mount.managedName]; return !(last?.clean && last.checkedAt > lastDrop); })
-    .map((mount) => finding({
-      id: `drive-check:${mount.managedName}`,
-      severity: "warning",
-      title: `${mount.target} has not been checked since its drive dropped`,
-      detail: `A drive that drops off USB mid-write can be left with a damaged directory table that only shows up later, as files that vanish or a folder that will not open. The filesystem's own checker can read the whole table without changing anything. The apps using the drive are paused for the check and started again after it.`,
-      evidence: [`last drop ${new Date(lastDrop).toLocaleString()}`, driveChecks?.[mount.managedName] ? `last check ${new Date(driveChecks[mount.managedName].checkedAt).toLocaleString()}${driveChecks[mount.managedName].clean ? " (clean)" : " (problems found)"}` : "never checked"],
-      fix: { operationId: "storage.check", parameters: { name: mount.managedName }, label: "Check the drive", preview: `Stops the containers using ${mount.target}, unmounts it, runs the read-only checker, mounts it again and starts them. Nothing is repaired or written.` },
-    }));
+    .map((mount) => {
+      const checkerMissing = mount.fstype === "exfat" && tools?.fsckExfat === false;
+      return finding({
+        id: `drive-check:${mount.managedName}`,
+        severity: "warning",
+        title: `${mount.target} has not been checked since its drive dropped`,
+        detail: `A drive that drops off USB mid-write can be left with a damaged directory table that only shows up later, as files that vanish or a folder that will not open. The filesystem's own checker can read the whole table without changing anything. ${checkerMissing
+          ? "This drive is exFAT and fsck.exfat is not installed, so the checker comes first: install it, and this becomes the check itself."
+          : "The apps using the drive are paused for the check and started again after it."}`,
+        evidence: [`last drop ${new Date(lastDrop).toLocaleString()}`, driveChecks?.[mount.managedName] ? `last check ${new Date(driveChecks[mount.managedName].checkedAt).toLocaleString()}${driveChecks[mount.managedName].clean ? " (clean)" : " (problems found)"}` : "never checked", ...(checkerMissing ? ["fsck.exfat not found in /usr/sbin or /sbin"] : [])],
+        fix: checkerMissing
+          ? installDriveToolsFix(driveTools)
+          : { operationId: "storage.check", parameters: { name: mount.managedName }, label: "Check the drive", preview: `Stops the containers using ${mount.target}, unmounts it, runs the read-only checker, mounts it again and starts them. Nothing is repaired or written.` },
+      });
+    });
 }
 
 /**

@@ -9,11 +9,51 @@
  * are left out of the "N of M essentials" count rather than counted against the owner.
  */
 
+import { gatherDriveChecks } from "./drive-checks.mjs";
+
 const dnsApps = ["pi-hole", "adguard-home", "technitium-dns"];
+
+const joined = (items) => (items.length <= 1 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`);
+/** "the USB drive at /mnt/media" / "the USB drives at /mnt/media and /mnt/backup". */
+const usbDrivesAt = (disks) => {
+  const targets = disks.flatMap((disk) => disk.targets);
+  return `the USB drive${targets.length === 1 ? "" : "s"} at ${joined(targets)}`;
+};
+
+/**
+ * "This server can check its drives" (M26.3). Not done while smartctl or fsck.exfat is missing;
+ * unknown while a USB drive BoxPilot mounts has no current SMART reading; done otherwise. An
+ * enclosure that passes no SMART through is said plainly and does not hold the item open.
+ */
+function driveChecksItem(driveChecks) {
+  const item = { id: "drive-checks", title: "This server can check its drives", view: "repairs", optional: false };
+  if (!driveChecks) return { ...item, known: false, done: false, detail: "BoxPilot could not look for smartctl and fsck.exfat." };
+  const { missingPackages, disksKnown, disks } = driveChecks;
+  if (missingPackages.length) {
+    const detail = missingPackages.length === 2
+      ? "Install smartmontools and exfatprogs: smartctl reads each disk's SMART health, and fsck.exfat checks an exFAT drive after it drops off, before anything writes to it again. Neither changes anything on a drive."
+      : missingPackages[0] === "exfatprogs"
+        ? "fsck.exfat is not installed, so an exFAT drive cannot be checked after it drops off. Installing exfatprogs adds it and changes nothing on the drives."
+        : "smartctl is not installed, so no disk's SMART health is read. Installing smartmontools adds it and reads every disk straight away.";
+    return { ...item, known: true, done: false, detail };
+  }
+  const unread = disks.filter((disk) => disk.smart === "unread");
+  if (!disksKnown || unread.length) {
+    return { ...item, known: false, done: false, detail: disksKnown ? `The last disk-health scan has no reading for ${usbDrivesAt(unread)} yet. It runs every six hours.` : "BoxPilot could not list the drives it mounts." };
+  }
+  const answering = disks.filter((disk) => disk.smart === "answers" || disk.smart === "answers-through-bridge");
+  const throughBridge = disks.filter((disk) => disk.smart === "answers-through-bridge");
+  const limited = disks.filter((disk) => disk.smart === "bridge-unsupported");
+  const sentences = ["smartctl reads each disk's SMART health and fsck.exfat can check an exFAT drive."];
+  const bridges = throughBridge.length === 1 ? "its USB bridge" : "their USB bridges";
+  if (answering.length) sentences.push(`SMART reaches ${usbDrivesAt(answering)}${throughBridge.length === answering.length ? `, through ${bridges}` : throughBridge.length ? ` (${joined(throughBridge.flatMap((disk) => disk.targets))} through ${bridges})` : ""}.`);
+  if (limited.length) sentences.push(`The USB enclosure${limited.length === 1 ? "" : "s"} holding ${joined(limited.flatMap((disk) => disk.targets))} ${limited.length === 1 ? "does" : "do"} not pass SMART through, so ${limited.length === 1 ? "that disk's" : "those disks'"} health cannot be read from this server. That is a limit of the enclosure; a different one, or connecting the disk directly, would report it.`);
+  return { ...item, known: true, done: true, detail: sentences.join(" ") };
+}
 
 /** @param {object} evidence partial evidence; a source that is `null` makes its item unknown */
 export function buildChecklist(evidence = {}) {
-  const { firewall = null, firewallProfile = null, installedApps = [], notifications = null, unattended = null, backupDestination = null, cloudDestination = null, backupSync = null, samba = null, nfs = null, ups = null, tailscale = null } = evidence;
+  const { firewall = null, firewallProfile = null, installedApps = [], notifications = null, unattended = null, backupDestination = null, cloudDestination = null, backupSync = null, samba = null, nfs = null, ups = null, tailscale = null, driveChecks = null } = evidence;
   const items = [
     {
       id: "tailscale", title: "Reach BoxPilot from anywhere", view: "network", optional: false,
@@ -55,6 +95,7 @@ export function buildChecklist(evidence = {}) {
         : cloudDestination || backupDestination || backupSync?.mounted ? "A destination is set up but nothing has been mirrored to it yet: run a sync from the Backups page."
         : "A disk failure should not take the backups with it: add a cloud destination, an SSH destination, or a backup drive.",
     },
+    driveChecksItem(driveChecks),
     {
       id: "dns", title: "Block ads and trackers network-wide", view: "catalog", optional: true,
       known: Array.isArray(installedApps), done: installedApps.some((id) => dnsApps.includes(id)),
@@ -88,17 +129,20 @@ export function buildChecklist(evidence = {}) {
 const withLastSync = (destination, record) => (destination ? { ...destination, lastSync: record?.completedAt ?? null } : null);
 
 /** Gather evidence from the services the web process already has; every call tolerates failure. */
-export async function gatherChecklistEvidence({ state, helper, notifications, inventory, network } = {}) {
+export async function gatherChecklistEvidence({ state, helper, notifications, inventory, network, driveChecks = gatherDriveChecks } = {}) {
   const quiet = (promise) => promise.catch(() => null);
-  const [firewall, apps, unattended, samba, nfs, machine, snapshot, topology] = await Promise.all([
+  const inventoryRead = quiet(inventory ? inventory.inspect() : Promise.resolve(null));
+  const [firewall, apps, unattended, samba, nfs, machine, snapshot, topology, drives] = await Promise.all([
     quiet(helper.request("firewall.inspect", {}, { timeoutMs: 15_000 })),
     quiet(helper.request("app.inspect", {}, { timeoutMs: 15_000 })),
     quiet(helper.request("apt.unattended.inspect", {}, { timeoutMs: 15_000 })),
     quiet(helper.request("samba.inspect", {}, { timeoutMs: 15_000 })),
     quiet(helper.request("nfs.inspect", {}, { timeoutMs: 15_000 })),
     quiet(helper.request("host.snapshot.inspect", {}, { timeoutMs: 15_000 })),
-    quiet(inventory ? inventory.inspect() : Promise.resolve(null)),
+    inventoryRead,
     quiet(network ? network.inspect() : Promise.resolve(null)),
+    // The drive item reads the inventory's SMART evidence; its own reads start alongside it.
+    quiet(driveChecks({ smart: inventoryRead.then((value) => value?.storage?.smart ?? null) })),
   ]);
   return {
     firewall,
@@ -115,5 +159,6 @@ export async function gatherChecklistEvidence({ state, helper, notifications, in
     nfs,
     ups: snapshot?.power?.ups ?? null,
     tailscale: topology?.tailscale ?? snapshot?.network?.tailscale ?? null,
+    driveChecks: drives,
   };
 }

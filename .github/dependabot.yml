@@ -9,6 +9,11 @@ updates:
       interval: weekly
       day: monday
     open-pull-requests-limit: 5
+    # @types/node follows the Node runtime BoxPilot ships on (engines: >=24; CI and installs use
+    # 24). A newer major describes APIs the servers do not have; move it with the runtime instead.
+    ignore:
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
     groups:
       production:
         dependency-type: production

@@ -1,0 +1,23 @@
+{
+  "json_format_version": [1, 0],
+  "smartctl": {
+    "version": [7, 4],
+    "pre_release": false,
+    "svn_revision": "5530",
+    "platform_info": "x86_64-linux-6.8.0-generic",
+    "build_info": "(local build)",
+    "argv": ["smartctl", "--json=c", "--all", "/dev/sdc"],
+    "exit_status": 4
+  },
+  "local_time": { "time_t": 1790582400, "asctime": "Mon Sep 28 06:00:00 2026 UTC" },
+  "device": { "name": "/dev/sdc", "info_name": "/dev/sdc", "type": "scsi", "protocol": "SCSI" },
+  "scsi_vendor": "Example",
+  "scsi_product": "USB Enclosure",
+  "scsi_model_name": "Example USB Enclosure",
+  "scsi_revision": "0100",
+  "user_capacity": { "blocks": 3907029168, "bytes": 2000398934016 },
+  "logical_block_size": 512,
+  "serial_number": "PLACEHOLDER-SERIAL-0002",
+  "device_type": { "scsi_terminology": "Direct Access Block Device", "scsi_value": 0 },
+  "smart_support": { "available": false }
+}

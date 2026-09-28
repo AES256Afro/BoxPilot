@@ -2,7 +2,7 @@ import { mkdtemp } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { createPrerequisiteService, port53Occupied } from "./prerequisites.mjs";
+import { createPrerequisiteService, driveToolsCheck, port53Occupied } from "./prerequisites.mjs";
 
 describe("prerequisite inventory", () => {
   it("reports live readiness without returning raw peer or listener output", async () => {
@@ -10,8 +10,8 @@ describe("prerequisite inventory", () => {
       ? ({ installed: true, engineVersion: "29.1.3", provider: "existing-compatible-engine", installedPackageVersion: null, repairAvailable: false })
       : operation === "prerequisite.virtualization.inspect"
         ? ({ installed: true, kvmDeviceAvailable: true, serviceActive: true, connectionReady: true, connectionUri: "qemu:///system", qemuVerified: true, repairAvailable: false })
-        : operation === "prerequisite.smartmontools.inspect"
-          ? ({ installed: true, installedVersion: "7.5-2", repairAvailable: false })
+        : operation === "prerequisite.drive-tools.inspect"
+          ? ({ installed: true, tools: { smartctl: true, fsckExfat: true }, missing: [], broken: [], candidatePackages: {}, repairAvailable: false })
           : operation === "prerequisite.restic.inspect"
             ? ({ installed: true, installedVersion: "0.18.1-1", repairAvailable: false })
           : operation === "prerequisite.apt-metadata.inspect"
@@ -34,7 +34,7 @@ describe("prerequisite inventory", () => {
     expect(runCommand).not.toHaveBeenCalledWith("docker", expect.anything());
     expect(runCommand).not.toHaveBeenCalledWith("virsh", expect.anything());
     expect(result.checks.find((item) => item.id === "virtualization.libvirt")).toMatchObject({ status: "ready" });
-    expect(result.checks.find((item) => item.id === "storage.smartmontools")).toMatchObject({ status: "ready", summary: expect.stringContaining("7.5-2") });
+    expect(result.checks.find((item) => item.id === "storage.drive-tools")).toMatchObject({ status: "ready", summary: expect.stringContaining("fsck.exfat"), repair: null });
     expect(result.checks.find((item) => item.id === "backup.restic")).toMatchObject({ status: "ready", summary: expect.stringContaining("0.18.1-1") });
     expect(result.checks.find((item) => item.id === "host.apt-metadata")).toMatchObject({ status: "ready", summary: expect.stringContaining("dpkg state is ready") });
     expect(result.checks.find((item) => item.id === "dns.port53")).toMatchObject({ status: "conflict" });
@@ -58,7 +58,7 @@ describe("prerequisite inventory", () => {
   it("offers only the fixed approved smartmontools repair when configured metadata has a candidate", async () => {
     const helper = { request: vi.fn(async (operation) => {
       if (operation === "canary.verify") return { verified: true, helperVersion: "0.42.0", mutationPerformed: false };
-      if (operation === "prerequisite.smartmontools.inspect") return { installed: false, candidateVersion: "7.5-2", repairAvailable: true };
+      if (operation === "prerequisite.drive-tools.inspect") return { installed: false, missing: ["exfatprogs"], broken: [], candidatePackages: { exfatprogs: "1.2.2-1" }, repairAvailable: true };
       if (operation === "prerequisite.restic.inspect") return { installed: false, candidateVersion: "0.18.1-1", repairAvailable: true };
       if (operation === "prerequisite.apt-metadata.inspect") return { available: true, state: "stale", updatedAt: "2026-08-01T00:00:00.000Z", ageHours: 360, packageManagerState: "ready", refreshAvailable: true };
       if (operation === "prerequisite.docker.inspect") return { installed: false, candidateVersion: "28.2.2-0ubuntu1", repairAvailable: true };
@@ -67,12 +67,25 @@ describe("prerequisite inventory", () => {
     }) };
     const service = createPrerequisiteService({ stateDirectory: "/state", helper, runCommand: vi.fn(async () => ({ ok: true, stdout: "" })), checkAccess: vi.fn(async () => {}), getFilesystem: vi.fn(async () => ({ bavail: 2_000_000, bsize: 4096 })) });
     const result = await service.inspect();
-    expect(result.checks.find((item) => item.id === "storage.smartmontools")).toMatchObject({ status: "repairable", repair: { kind: "approved" } });
+    expect(result.checks.find((item) => item.id === "storage.drive-tools")).toMatchObject({ status: "repairable", summary: "exfatprogs is not installed; Ubuntu's package lists offer exfatprogs 1.2.2-1", repair: { kind: "approved" } });
     expect(result.checks.find((item) => item.id === "backup.restic")).toMatchObject({ status: "repairable", repair: { kind: "approved" } });
     expect(result.checks.find((item) => item.id === "containers.docker")).toMatchObject({ status: "repairable", repair: { kind: "approved" } });
     expect(result.checks.find((item) => item.id === "virtualization.libvirt")).toMatchObject({ status: "repairable", repair: { kind: "approved" } });
     expect(result.checks.find((item) => item.id === "host.apt-metadata")).toMatchObject({ status: "repairable", repair: { kind: "approved" } });
     expect(JSON.stringify(result)).not.toContain("apt-get");
+  });
+});
+
+describe("the drive check tools row", () => {
+  it("offers the exact fix only when every missing tool has a version on offer", () => {
+    expect(driveToolsCheck({ installed: false, missing: ["exfatprogs", "smartmontools"], broken: [], candidatePackages: { exfatprogs: "1.2.2-1", smartmontools: "7.4-2build1" }, repairAvailable: true }))
+      .toMatchObject({ id: "storage.drive-tools", status: "repairable", summary: "exfatprogs and smartmontools are not installed; Ubuntu's package lists offer exfatprogs 1.2.2-1 and smartmontools 7.4-2build1", repair: { kind: "approved" } });
+    expect(driveToolsCheck({ installed: false, missing: ["exfatprogs"], broken: [], candidatePackages: {}, repairAvailable: false }))
+      .toMatchObject({ status: "missing", summary: expect.stringContaining("offer no version"), repair: { kind: "manual", description: expect.stringContaining("Refresh the package lists") } });
+    expect(driveToolsCheck({ installed: false, missing: ["exfatprogs"], broken: ["exfatprogs"], candidatePackages: {}, repairAvailable: false }))
+      .toMatchObject({ status: "missing", summary: "exfatprogs is installed, but fsck.exfat is missing from this server", repair: { kind: "manual", description: expect.stringContaining("--reinstall exfatprogs") } });
+    // A helper that did not answer is not a missing tool.
+    expect(driveToolsCheck(null)).toMatchObject({ status: "unavailable", repair: { kind: "manual" } });
   });
 });
 

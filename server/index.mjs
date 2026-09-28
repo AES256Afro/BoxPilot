@@ -53,6 +53,7 @@ import { createSmartSampler } from "./smart-trends.mjs";
 import { registry } from "./ops/index.mjs";
 import { createNotificationService } from "./notifications.mjs";
 import { createSchedulerService } from "./scheduler.mjs";
+import { scrubStoredSecrets } from "./secret-scrub.mjs";
 import { createFlowService } from "./flows.mjs";
 import { loadFlowLibrary } from "./flow-library.mjs";
 import { createStateStore } from "./state.mjs";
@@ -213,6 +214,15 @@ const jobs = createJobService(state, helper, {
 });
 state.deleteExpiredSessions();
 const interruptedJobs = state.recoverInterruptedJobs();
+// A job, schedule or flow written before secrets were refused (M29.1) can still hold one in clear,
+// and every controller backup copies it. Mask them before anything else reads them (M29.3).
+try {
+  const scrubbed = await scrubStoredSecrets({ store: state, registry, secretEnvNamesFor, holdsStagedSecrets: jobs.holdsStagedSecrets });
+  if (scrubbed.secrets) console.warn(`[boxpilot] masked ${scrubbed.secrets} stored secret(s) in ${scrubbed.jobs} job(s), ${scrubbed.schedules} schedule(s) and ${scrubbed.flows} flow(s)`);
+  if (scrubbed.unchecked) console.warn(`[boxpilot] ${scrubbed.unchecked} stored parameter set(s) could not be checked for secrets; they are checked again at the next start`);
+} catch (error) {
+  console.warn(`[boxpilot] stored parameters could not be checked for secrets: ${error.message}`);
+}
 const scheduler = createSchedulerService({ store: state, jobs, secretEnvNamesFor, alerts: healthAlerts });
 // A job cut off by a restart - a crash, or BoxPilot updating itself mid-install - was marked failed
 // in silence: recovery ran before the notifier existed, so the one failure that happens while the
