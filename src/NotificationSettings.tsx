@@ -51,10 +51,12 @@ function WeeklyReport({ csrfToken, targetConfigured }: { csrfToken: string; targ
       </div>
       <p className="muted">One push a week: what ran, what failed, what did not run and why, and what is not covered yet.</p>
       <div className="recovery-actions">
-        <button className="secondary-button" type="button" disabled={busy} onClick={() => void show()}>Preview</button>
-        <button className="secondary-button" type="button" disabled={busy || !targetConfigured} onClick={() => void send()}>Send now</button>
+        <button className="secondary-button" type="button" disabled={busy} onClick={() => void show()}>Preview the report</button>
+        <button className="secondary-button" type="button" disabled={busy || !targetConfigured} onClick={() => void send()}>Send the report now</button>
         <button className="text-button" type="button" disabled={busy} onClick={() => void toggle()}>{status.enabled ? "Turn off the weekly report" : "Turn on the weekly report"}</button>
       </div>
+      {/* Not a greyed button with no reason: say what sending needs. */}
+      {!targetConfigured && <p className="muted">Sending needs a notification target: set one above.</p>}
       {preview && (
         <div className="weekly-report-preview" aria-label="Weekly report preview">
           <strong>{preview.title}</strong>
@@ -145,9 +147,9 @@ export default function NotificationSettings({ csrfToken }: { csrfToken: string 
   };
 
   return (
-    <section className="panel settings-panel">
+    <section className="panel settings-panel notification-panel">
       <header className="panel-header">
-        <div><strong>Notifications</strong><span>Failed jobs push to your phone. Ntfy and Gotify are both in the app catalog</span></div>
+        <div><strong>Notifications</strong><span>Where alerts and the weekly report go{current?.configured ? "" : ". ntfy and Gotify are both in the app catalog"}</span></div>
         <span className={`status-pill ${current?.configured ? "status-good" : "status-neutral"}`}>{current?.configured ? `${current.kind} configured` : "Off"}</span>
       </header>
       <p className="muted">You get a push for a failed job, a new BoxPilot release, a sign-in from a new address, and a short report once a week. BoxPilot also watches your server for the conditions below and notifies you when one turns bad — and again when it clears — checking every 15 minutes. A scheduled task or automation that keeps failing is one push until it works again. Anything that could not be sent is listed on the Overview.</p>
@@ -167,7 +169,7 @@ export default function NotificationSettings({ csrfToken }: { csrfToken: string 
       <div className="notification-settings">
         {current?.configured && !editing && (
           <>
-            <p>Failed jobs go to <code>{current.url}</code>{current.kind === "ntfy" && current.topic ? <> topic <code>{current.topic}</code></> : null}.</p>
+            <p>Alerts go to <code>{current.url}</code>{current.kind === "ntfy" && current.topic ? <> topic <code>{current.topic}</code></> : null}.</p>
             <div className="recovery-actions">
               <button className="secondary-button" type="button" disabled={busy} onClick={() => void test()}>Send a test</button>
               <button className="text-button" type="button" onClick={() => { setEditing(true); setKind(current.kind ?? "ntfy"); setUrl(current.url ?? ""); setTopic(current.topic ?? "boxpilot"); }}>Change</button>

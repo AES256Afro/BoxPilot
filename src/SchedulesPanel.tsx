@@ -124,7 +124,7 @@ export default function SchedulesPanel({ csrfToken, serverTimezone = null }: { c
       <header className="panel-header"><div><strong>Schedules</strong><span>Backups, update refreshes, and cleanup run on their own. Each run appears in Activity and the audit log.</span></div></header>
       {error && <div className="auth-error" role="alert">{error}</div>}
       <div className="table-scroll">
-        <table>
+        <table className="stack-on-phone">
           <thead><tr><th>What</th><th>When{serverTimezone ? <span className="muted"> ({serverTimezone})</span> : null}</th><th>Next run <span className="muted">(your time)</span></th><th>Last run</th><th aria-label="Actions" /></tr></thead>
           <tbody>
             {schedules === null ? <tr><td colSpan={5}>Loading schedules...</td></tr> : null}
@@ -133,23 +133,26 @@ export default function SchedulesPanel({ csrfToken, serverTimezone = null }: { c
               <Fragment key={schedule.id}>
                 <tr className={schedule.enabled ? "" : "schedule-disabled"}>
                   <td>{schedule.title}{typeof schedule.parameters.subject === "string" ? <> · <code>{schedule.parameters.subject}</code></> : null}</td>
-                  <td>{schedule.cadence}</td>
-                  <td>{schedule.enabled ? <>{new Date(schedule.nextDueAt).toLocaleString()}{schedule.overdue ? <span className="status-pill status-warning" style={{ marginLeft: 6 }} title="This schedule has not run for more than a full cycle — the server may have been off, or the task may be failing.">behind</span> : null}</> : "paused"}</td>
-                  <td>
+                  <td data-label="When">{schedule.cadence}</td>
+                  <td data-label="Next run">{schedule.enabled ? <>{new Date(schedule.nextDueAt).toLocaleString()}{schedule.overdue ? <span className="status-pill status-warning" style={{ marginLeft: 6 }} title="This schedule has not run for more than a full cycle — the server may have been off, or the task may be failing.">behind</span> : null}</> : "paused"}</td>
+                  <td data-label="Last run">
                     {lastResultPill(schedule)}
-                    {(schedule.lastOutcome === "failed" || schedule.lastOutcome === "did-not-run") && schedule.lastReason && schedule.lastResult !== "blocked-by-approval-mode"
-                      ? <div className="muted schedule-reason">{schedule.lastReason}</div>
-                      : null}
+                    {/* Always-ask approvals stop every schedule, so say where that is changed. */}
+                    {schedule.lastResult === "blocked-by-approval-mode"
+                      ? <div className="muted schedule-reason">Schedules are skipped while approvals always ask for the password. Change that in Settings, under Approvals.</div>
+                      : (schedule.lastOutcome === "failed" || schedule.lastOutcome === "did-not-run") && schedule.lastReason
+                        ? <div className="muted schedule-reason">{schedule.lastReason}</div>
+                        : null}
                   </td>
                   <td>
                     <div className="recovery-actions">
                       {schedule.lastJobId && (
-                        <button className="text-button" type="button" onClick={() => setOpenLog((current) => (current === schedule.id ? null : schedule.id))}>
+                        <button className="text-button" type="button" aria-label={`${openLog === schedule.id ? "Hide log" : "View log"}: ${schedule.title}`} onClick={() => setOpenLog((current) => (current === schedule.id ? null : schedule.id))}>
                           {openLog === schedule.id ? "Hide log" : "View log"}
                         </button>
                       )}
-                      <button className="text-button" type="button" onClick={() => void toggle(schedule)}>{schedule.enabled ? "Pause" : "Resume"}</button>
-                      <button className="text-button" type="button" onClick={() => void remove(schedule)}>Delete</button>
+                      <button className="text-button" type="button" aria-label={`${schedule.enabled ? "Pause" : "Resume"} ${schedule.title}`} onClick={() => void toggle(schedule)}>{schedule.enabled ? "Pause" : "Resume"}</button>
+                      <button className="text-button" type="button" aria-label={`Delete the schedule: ${schedule.title}`} onClick={() => void remove(schedule)}>Delete</button>
                     </div>
                   </td>
                 </tr>

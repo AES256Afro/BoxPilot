@@ -172,6 +172,10 @@ export const inspections = {
   },
   "controller.database.inspect": { checkedAt: "2026-09-07T12:00:00Z", status: "ready", checks: [{ id: "database-quick-check", title: "SQLite quick check", status: "pass", detail: "Core database structure passed SQLite quick_check", next: null }, { id: "database-core-tables", title: "Core BoxPilot tables", status: "pass", detail: "14 of 14 required backup tables present", next: null }] },
   "system.controller.inspect": { checkedAt: "2026-09-07T12:00:00Z", status: "warning", installedVersion: productVersion, checks: [{ id: "web-service", title: "Web service", status: "pass", detail: "active/running; restarts 0", next: null }, { id: "helper-service", title: "Root helper service", status: "pass", detail: "active/running; restarts 0", next: null }, { id: "free-space", title: "State filesystem free space", status: "warning", detail: "820 MiB available", next: "Review Storage and backup retention before removing data." }] },
+  // The drive check tools (M26.3). Only a server missing them reads this, from Repair's "Review exact repair".
+  "prerequisite.drive-tools.inspect": { tools: { smartctl: true, fsckExfat: true },
+    packages: { exfatprogs: { installedVersion: "1.2.2-1build1", candidateVersion: "1.2.2-1build1" }, smartmontools: { installedVersion: "7.4-2build1", candidateVersion: "7.4-2build1" } },
+    installed: true, missing: [], broken: [], candidatePackages: { exfatprogs: "1.2.2-1build1", smartmontools: "7.4-2build1" }, repairAvailable: false, source: "installed-tools", mutationPerformed: false, arbitraryPackageAccepted: false },
   "apt.health.inspect": { checkedAt: "2026-09-07T12:00:00Z", status: "needs-repair", repairAvailable: true, locks: { available: true, holders: [] }, audit: { ok: true, detail: "The following packages have been unpacked but not configured:\n example-tool" }, simulation: { ok: true, detail: "Conf example-tool (1.0 Ubuntu)" } },
   "apt.upgradable.inspect": { count: 4, securityCount: 1, rebootRequired: false, needrestartPresent: true, servicesNeedingRestart: [], upgradable: [
     { name: "openssl", suite: "noble-security", candidate: "3.0.13-0ubuntu3.6", installed: "3.0.13-0ubuntu3.5", architecture: "amd64", source: "security" },
@@ -561,6 +565,9 @@ api.get("/flows", (_request, response) => json(response, {
     { id: "flow-2", name: "Belt and braces", steps: [{ operationId: "controller.backup.create", parameters: {}, name: "backup" }, { operationId: "backup.sync", parameters: {}, when: { value: "{{ steps.backup.changed }}" }, onFailure: "continue" }],
       createdBy: "owner-demo", risk: "medium", running: false, createdAt: ago(100), updatedAt: ago(100), lastRunAt: ago(5), lastResult: "completed (1 step skipped by condition)", lastJobIds: ["d3", null],
       frequency: null, minute: null, hour: null, weekday: null, enabled: true, nextDueAt: null, triggerFlowId: "flow-1", webhookEnabled: false },
+    { id: "flow-3", name: "Reconnect /mnt/media when it drops", steps: [{ operationId: "storage.remount", parameters: { name: "media" } }],
+      createdBy: "owner-demo", risk: "medium", running: false, createdAt: ago(300), updatedAt: ago(300), lastRunAt: null, lastResult: null, lastJobIds: [],
+      frequency: null, minute: null, hour: null, weekday: null, enabled: true, nextDueAt: null, triggerFlowId: null, webhookEnabled: false, triggerDrive: "media" },
   ],
   shelf: [
     { slug: "update-night", name: "Update night", description: "Snapshot, refresh, then install every update.", steps: [{ operationId: "host.snapshot.create", parameters: {} }, { operationId: "apt.refresh", parameters: {} }, { operationId: "apt.upgrade", parameters: {}, retry: 1 }] },
@@ -584,11 +591,16 @@ api.get("/flows", (_request, response) => json(response, {
   ],
 }));
 api.get("/schedules", (_request, response) => json(response, { schedules: [
-  { id: "s1", operationId: "app.backup", parameters: { subject: "immich" }, frequency: "daily", minute: 0, hour: 3, weekday: null, enabled: true, createdBy: "owner-demo", createdAt: ago(200), nextDueAt: ago(-8), lastRunAt: ago(16), lastResult: "completed", lastOutcome: "ran", lastReason: null },
-  { id: "s2", operationId: "backup.cloud.sync", parameters: {}, frequency: "daily", minute: 30, hour: 4, weekday: null, enabled: true, createdBy: "owner-demo", createdAt: ago(200), nextDueAt: ago(-7), lastRunAt: ago(26), lastJobId: "d3", lastResult: "completed", lastOutcome: "ran", lastReason: null },
-  { id: "s3", operationId: "apt.refresh", parameters: {}, frequency: "weekly", minute: 0, hour: 5, weekday: 0, enabled: true, createdBy: "owner-demo", createdAt: ago(400), nextDueAt: ago(-60), lastRunAt: ago(108), lastJobId: "j2", lastResult: "completed", lastOutcome: "ran", lastReason: null },
-  { id: "s4", operationId: "app.vpn.killswitch.drill", parameters: { subject: "qbittorrent" }, frequency: "weekly", minute: 0, hour: 4, weekday: 0, enabled: true, overdue: false, title: "Prove the kill switch", cadence: "weekly on Sunday at 04:00", createdBy: "owner-demo", createdAt: ago(400), nextDueAt: ago(-90), lastRunAt: ago(60), lastResult: "completed", lastOutcome: "ran", lastReason: null },
+  { id: "s1", operationId: "app.backup", parameters: { subject: "immich" }, frequency: "daily", minute: 0, hour: 3, weekday: null, enabled: true, title: "Back up application data", cadence: "daily at 03:00", createdBy: "owner-demo", createdAt: ago(200), nextDueAt: ago(-8), lastRunAt: ago(16), lastResult: "completed", lastOutcome: "ran", lastReason: null },
+  { id: "s2", operationId: "backup.cloud.sync", parameters: {}, frequency: "daily", minute: 30, hour: 4, weekday: null, enabled: true, title: "Mirror local backups to the cloud destination", cadence: "daily at 04:30", createdBy: "owner-demo", createdAt: ago(200), nextDueAt: ago(-7), lastRunAt: ago(26), lastJobId: "d3", lastResult: "completed", lastOutcome: "ran", lastReason: null },
+  { id: "s3", operationId: "apt.refresh", parameters: {}, frequency: "weekly", minute: 0, hour: 5, weekday: 0, enabled: true, title: "Refresh package lists", cadence: "Sundays at 05:00", createdBy: "owner-demo", createdAt: ago(400), nextDueAt: ago(-60), lastRunAt: ago(108), lastJobId: "j2", lastResult: "completed", lastOutcome: "ran", lastReason: null },
+  { id: "s4", operationId: "app.vpn.killswitch.drill", parameters: { subject: "qbittorrent" }, frequency: "weekly", minute: 0, hour: 4, weekday: 0, enabled: true, overdue: false, title: "Prove the kill switch", cadence: "Sundays at 04:00", createdBy: "owner-demo", createdAt: ago(400), nextDueAt: ago(-90), lastRunAt: ago(60), lastResult: "completed", lastOutcome: "ran", lastReason: null },
 ] }));
+// Reconnecting a drive automatically (M26.5): /mnt/media is armed, which is also its automation.
+const autoReconnectLimits = { cooldownMinutes: 30, maxAttempts: 3, windowHours: 24 };
+api.get("/drives/auto-reconnect", (_request, response) => json(response, { limits: autoReconnectLimits, drives: {
+  media: { flowId: "flow-3", flowName: "Reconnect /mnt/media when it drops", enabled: true, held: false, heldSince: null, heldBecause: null, attempts: 1, lastAttemptAt: ago(40), lastOutcome: "reconnected", lastCheckFoundErrors: false },
+} }));
 api.get("/system/update", (_request, response) => json(response, { current: { version: productVersion, tag: `v${productVersion}` }, latest: { tag: `v${productVersion}`, version: productVersion, publishedAt: ago(30), url: "https://github.com/AES256Afro/BoxPilot/releases" }, updateAvailable: false, checkedAt: now().toISOString(), error: null }));
 api.get("/power/ups/detect", (_request, response) => json(response, { devices: [{ vendorId: "051d", productId: "0002", manufacturer: "American Power Conversion", product: "Back-UPS ES 700G", driver: "usbhid-ups", confidence: "vendor-id", sysfs: "1-3" }], nutInstalled: true }));
 api.get("/firewall/overview", (_request, response) => json(response, {
@@ -717,6 +729,10 @@ const freshWords = {
  * the state nobody could look at before, because the demo only ever had a healthy server in it.
  */
 const troubleWords = {
+  // Neither drive checker is installed, and Ubuntu's lists offer both: Repair's drive row offers the install.
+  "prerequisite.drive-tools.inspect": { tools: { smartctl: false, fsckExfat: false },
+    packages: { exfatprogs: { installedVersion: null, candidateVersion: "1.2.2-1build1" }, smartmontools: { installedVersion: null, candidateVersion: "7.4-2build1" } },
+    installed: false, missing: ["exfatprogs", "smartmontools"], broken: [], repairAvailable: true, source: "configured-apt-candidates" },
   "router.inspect": { configured: true, reachable: false, host: "192.168.1.1", username: "root", model: null, firmware: null,
     reason: 'The router did not accept that password for "root". This is the password for the router\'s own admin page, which is often not the same as any other password on this network.' },
   // Pi-hole is installed but its container is stopped, so the names it serves have gone with it.
@@ -748,10 +764,30 @@ const troubleWords = {
 
 /** The same server, described by the routes that report what it can currently reach. */
 const backupNotice = (job) => ({ ...job, type: "op:controller.backup.create", title: "Back up the BoxPilot database", result: { warnings: ["The new database backup passed verification, but old local copies could not all be checked or removed. They may still use disk space. Check backup-directory access and free space before retrying a backup."] } });
+// M30.2/M30.3: a pull that ran out of time, and a sync a restart cut off that BoxPilot ran again.
+const troubleJobs = [
+  { id: "t1", type: "op:app.update", title: "Update Immich", state: "failed", risk: "medium", result: null, createdAt: ago(0.5), approvals: [],
+    error: "Update Immich did not finish within 25 minutes. It may still be running on the server; Activity shows how far it got.",
+    steps: [{ name: "pull", state: "failed", detail: "Pulling ghcr.io/immich-app/immich-server:v1.140.0", createdAt: ago(0.9) }],
+    timeout: { scope: "operation", budgetMs: 25 * 60_000, elapsedMs: 25 * 60_000, phase: "running", step: null, lastOutput: "ghcr.io/immich-app/immich-server: downloading 1.1 GB of 1.9 GB", moreTimeMs: 50 * 60_000 } },
+  { id: "r2", type: "op:homepage.sync", title: "Sync Homepage with installed apps", state: "completed", risk: "low", error: null, result: null, createdAt: ago(2), approvals: [],
+    recovery: { rerunOf: "r1" }, steps: [{ name: "verify", state: "completed", detail: "Homepage lists 11 apps", createdAt: ago(2) }] },
+  { id: "r1", type: "op:homepage.sync", title: "Sync Homepage with installed apps", state: "failed", risk: "low", result: null, createdAt: ago(2.1), approvals: [],
+    error: "BoxPilot restarted while this job was running. The operation itself may still have finished on its own; check what it changed before retrying.",
+    steps: [{ name: "recovery", state: "required", detail: "The operation was interrupted by a BoxPilot restart", createdAt: ago(2) }, { name: "rerun", state: "started", detail: "Running again as job r2", createdAt: ago(2) }] },
+];
 const troubleRest = {
-  "/jobs": (body) => ({ jobs: body.jobs.map((job, index) => (index === 0
+  "/jobs": (body) => ({ jobs: [...troubleJobs, ...body.jobs.map((job, index) => (index === 0
     ? { ...job, state: "failed", error: "rsync: connection unexpectedly closed by nas.local" }
-    : index === 1 ? backupNotice(job) : job)) }),
+    : index === 1 ? backupNotice(job) : job))] }),
+  "/schedules": (body) => ({ schedules: body.schedules.map((schedule) => (schedule.id === "s1"
+    ? { ...schedule, lastResult: "failed: tar failed: No space left on device", lastOutcome: "failed", lastReason: "tar failed: No space left on device" }
+    : schedule.id === "s3" ? { ...schedule, lastResult: "blocked-by-approval-mode", lastOutcome: "did-not-run", lastReason: "Approvals are set to always ask" } : schedule)) }),
+  "/drives/auto-reconnect": (body) => ({ ...body, drives: Object.fromEntries(Object.entries(body.drives).map(([name, drive]) => [name,
+    { ...drive, held: true, heldSince: ago(3), heldBecause: "the last automatic reconnect did not work", attempts: 2, lastAttemptAt: ago(3), lastOutcome: "failed" }])) }),
+  "/operations/prerequisites": (body) => ({ ...body, checks: body.checks.map((check) => (check.id === "storage.drive-tools"
+    ? { ...check, status: "repairable", summary: "smartmontools and exfatprogs are not installed; Ubuntu's package lists offer smartmontools 7.4-2build1 and exfatprogs 1.2.2-1build1", repair: { kind: "approved", description: "Review the exact versions, then install only what is missing; the job confirms each tool answers and reads every disk's SMART health again" } }
+    : check)) }),
   "/jobs/d2": (body) => ({ ...body, job: backupNotice(body.job) }),
   "/jobs/d2/output": () => ({ output: "" }),
   // A mirror that keeps failing does not record an error anywhere; it just stops being recent,
@@ -810,7 +846,7 @@ api.get("/operations", (_request, response) => json(response, { operations: [], 
 const demoPrerequisites = [
   { id: "helper.boundary", group: "BoxPilot", name: "Root helper", status: "ready", summary: "Answering on its socket, running the pinned release.", repair: null },
   { id: "docker", group: "Applications", name: "Docker Engine", status: "ready", summary: "28.0.0 installed, service active.", repair: null },
-  { id: "drive-tools", group: "Disks", name: "Drive check tools", status: "ready", summary: "smartctl reads each disk's SMART health and fsck.exfat can check an exFAT drive.", repair: null },
+  { id: "storage.drive-tools", group: "Storage", name: "Drive check tools", status: "ready", summary: "smartctl reads each disk's SMART health and fsck.exfat can check an exFAT drive.", repair: null },
   { id: "restic", group: "Backups", name: "restic", status: "ready", summary: "0.17.3 installed.", repair: null },
   { id: "rsync", group: "Backups", name: "rsync", status: "missing", summary: "Not installed. Mirroring backups to another machine needs it.", repair: { kind: "approved", description: "Installs rsync from Ubuntu's repositories." } },
   { id: "virtualization", group: "Virtual machines", name: "QEMU/KVM and libvirt", status: "ready", summary: "Hardware virtualization available; libvirtd active.", repair: null },
@@ -877,6 +913,14 @@ api.get("/operations/:id/inspect", (request, response) => {
 // reads through /run (which is how it passes parameters) behaves here too.
 api.post("/operations/:id/run", (request, response) => json(response, { operation: request.params.id, result: fixturesFor(scenarioOf(request.get("referer")))[request.params.id] ?? {} }));
 api.post("/operations/:id/jobs", (request, response) => response.status(201).json({ job: { id: "demo-job", type: `op:${request.params.id}`, title: request.params.id, state: "awaiting_approval", risk: "medium", error: null, result: null, steps: [], approvals: [], createdAt: now().toISOString() }, approval: { tier: "medium", passwordRequired: false, elevated: false, mode: "tiered", reason: "demo: jobs never run here" } }));
+// "Try again with more time" (M30.3) stages the timed-out job again, like the product, and never runs it.
+api.post("/jobs/:id/more-time", (request, response) => {
+  const timedOut = troubleJobs.find((job) => job.id === request.params.id && job.timeout);
+  if (!timedOut) return response.status(409).json({ error: "Only a job that ran out of time can be tried again with more time" });
+  return response.status(201).json({ job: { id: "demo-job", type: timedOut.type, title: timedOut.title, state: "awaiting_approval", risk: timedOut.risk, error: null, result: null, approvals: [], createdAt: now().toISOString(),
+    recovery: { budgetMs: timedOut.timeout.moreTimeMs, retryOf: timedOut.id }, steps: [{ name: "retry", state: "completed", detail: `Trying again with more time. The last run, job ${timedOut.id}, ran out of time.`, createdAt: now().toISOString() }] },
+  approval: { tier: "medium", passwordRequired: false, elevated: false, mode: "tiered", reason: "demo: jobs never run here" } });
+});
 api.all("/{*rest}", (_request, response) => response.status(404).json({ error: "Not part of the demo", code: "demo_missing" }));
 app.use("/api/v1", api);
 app.use(express.static(dist, { index: false }));
