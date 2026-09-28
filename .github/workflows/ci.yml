@@ -66,3 +66,25 @@ jobs:
 
       - name: Drives unmount after Docker stops and mount before it starts
         run: sudo env "PATH=${PATH}" BOXPILOT_DISPOSABLE_TEST=1 bash tests/ubuntu/drive-shutdown-order.sh
+
+  # share.mount and share.unmount run in boxpilot-run@, whose PrivateTmp= gives each task a mount
+  # namespace of its own. Real systemd, a real Samba server and NFS server on the runner, and the
+  # host's own mount table read before and after. Both LTS releases, as for the helper's automount.
+  share-mount-host:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-26.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Shares mount and unmount on the host, not in the task's namespace
+        run: sudo bash tests/ubuntu/share-mount-host.sh "$(command -v node)"
