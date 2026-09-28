@@ -107,7 +107,8 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000, r
     void Promise.resolve(notify({
       key: `signin.new:${owner.id}:${address}`,
       title: `New sign-in from ${address}`,
-      message: `${owner.username} signed in from ${address} via ${method}. If this wasn't you, change your password and review Settings, Where you're signed in.`,
+      // The time is in the words: a push kept until a target answers can arrive hours later.
+      message: `${owner.username} signed in from ${address} via ${method} at ${new Date().toLocaleString()}. If this wasn't you, change your password and review Settings, Where you're signed in.`,
       priority: "high",
     })).catch(() => {});
   }
