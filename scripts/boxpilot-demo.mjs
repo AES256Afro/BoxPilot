@@ -20,6 +20,7 @@ import { adviseFirewall, profiles, protectedRules, riskyPorts, services, buildPl
 import { annotateDevices, parseLsblkTree, sharesFrom, volumeGroupsFrom } from "../server/storage-inventory.mjs";
 import { cloudProviders } from "../server/backup-cloud.mjs";
 import { buildChecklist } from "../server/setup-checklist.mjs";
+import { assessDriveChecks } from "../server/drive-checks.mjs";
 import { setupProfiles } from "../server/setup-profiles.mjs";
 import { productVersion } from "../server/version.mjs";
 import { securityHeaders } from "../server/security-headers.mjs";
@@ -96,7 +97,7 @@ const inventory = () => ({
       { target: "/mnt/media", source: "/dev/sda1", filesystem: "ext4", totalBytes: 4000 * GiB, usedBytes: 2710 * GiB, availableBytes: 1290 * GiB, usedPercent: 68, capacityState: "healthy", readOnly: false, optionNames: ["nofail", "relatime", "rw"], errorEvidence: { supported: true, state: "healthy", errorsCount: 0, source: "ext4-sysfs-errors-count", reason: "ok" } },
     ], summary: { healthy: 2, warning: 0, critical: 0, unavailable: 0 }, errors: { healthy: 2, critical: 0, unavailable: 0, unsupported: 0 } },
     blockDevices: { available: true, devices: [{ name: "/dev/nvme0n1", parent: null, type: "disk", filesystem: null, sizeBytes: 1024209543168, mountTargets: [], rotational: false, readOnly: false, transport: "nvme", model: "Example NVMe SSD 1TB" }, { name: "/dev/sda", parent: null, type: "disk", filesystem: null, sizeBytes: 4000 * GiB, mountTargets: [], rotational: true, readOnly: false, transport: "usb", model: "Example USB HDD 4TB" }] },
-    smart: { available: true, status: "healthy", reason: "fixed-root-scan", generatedAt: ago(2), stale: false, disks: [{ device: "/dev/nvme0n1", health: "healthy", passed: true, temperatureCelsius: 41, powerOnHours: 6120, percentageUsed: 3, mediaErrors: 0, unsafeShutdowns: 2 }, { device: "/dev/sda", health: "healthy", passed: true, temperatureCelsius: 36, powerOnHours: 14800, percentageUsed: null, mediaErrors: 0, unsafeShutdowns: 0 }] },
+    smart: { available: true, status: "healthy", reason: "fixed-root-scan", generatedAt: ago(2), stale: false, disks: [{ device: "/dev/nvme0n1", health: "healthy", passed: true, temperatureCelsius: 41, powerOnHours: 6120, percentageUsed: 3, mediaErrors: 0, unsafeShutdowns: 2 }, { device: "/dev/sda", health: "healthy", passed: true, temperatureCelsius: 36, powerOnHours: 14800, percentageUsed: null, mediaErrors: 0, unsafeShutdowns: 0, reason: "ok", transport: "usb", deviceType: "sat" }] },
   },
   maintenance: { system: { available: true, state: "running", failedServiceCount: 0, failedServiceCountTruncated: false }, reboot: { available: true, required: false }, packageManager: { available: true, state: "ready", pendingUpdateFragments: 0, countTruncated: false }, aptMetadata: { available: true, state: "current", updatedAt: ago(5), ageHours: 5 }, automaticSecurityUpdates: { available: true, state: "enabled-active", enabled: true, active: true } },
   power: { ups: { installed: true, configured: true, available: true, state: "online", reason: "ok", deviceCount: 1, statusTokens: ["OL"], batteryChargePercent: 100, estimatedRuntimeSeconds: 2460, loadPercent: 18, source: "nut-localhost-fixed", boundary: { mutationPerformed: false, powerCommandAvailable: false, shutdownPolicyChanged: false, localhostOnly: true, remoteNetworkProbePerformed: false, browserTargetAccepted: false, rawOutputIncluded: false, deviceNameIncluded: false, serialIncluded: false } } },
@@ -497,8 +498,8 @@ api.get("/setup/checklist", (request, response) => {
   // A brand new server has done none of this; that list is the whole point of the page.
   const bare = scenarioOf(request.get("referer")) === "fresh";
   json(response, buildChecklist(bare
-    ? { tailscale: { connected: false }, firewall: { active: false }, firewallProfile: null, unattended: { enabled: false }, notifications: { configured: false }, cloudDestination: null, installedApps: [], samba: { configured: false }, nfs: { configured: false }, ups: { configured: false } }
-    : { tailscale: { connected: true, dnsName: host.tailnet }, firewall: firewallReport, firewallProfile, unattended: { enabled: true }, notifications: { configured: true, kind: "ntfy" }, cloudDestination: { provider: "b2" }, installedApps: Object.keys(installed), samba: { configured: true }, nfs: { configured: false }, ups: { configured: true } }));
+    ? { tailscale: { connected: false }, firewall: { active: false }, firewallProfile: null, unattended: { enabled: false }, notifications: { configured: false }, cloudDestination: null, installedApps: [], samba: { configured: false }, nfs: { configured: false }, ups: { configured: false }, driveChecks: assessDriveChecks({ tools: { smartctl: false, fsckExfat: false }, storage: { devices, fstab, mounts } }) }
+    : { tailscale: { connected: true, dnsName: host.tailnet }, firewall: firewallReport, firewallProfile, unattended: { enabled: true }, notifications: { configured: true, kind: "ntfy" }, cloudDestination: { provider: "b2" }, installedApps: Object.keys(installed), samba: { configured: true }, nfs: { configured: false }, ups: { configured: true }, driveChecks: assessDriveChecks({ tools: { smartctl: true, fsckExfat: true }, storage: { devices, fstab, mounts }, smart: inventory().storage.smart }) }));
 });
 // The whole Virtual Machines page used to answer "not part of the demo", so nobody could look at
 // it before it reached a server. These mirror the real route shapes in server/routes/virtualization.mjs.
