@@ -118,4 +118,32 @@ describe("failed-job notifications", () => {
     expect(store.listAudit()).toEqual(expect.arrayContaining([expect.objectContaining({ type: "notifications.failed" })]));
     store.close();
   });
+
+  // fetch() quotes the whole URL when it cannot use it: "Failed to parse URL from
+  // http://gotify:8O80/message?token=..." or "...includes credentials: https://user:pass@...". That
+  // text went into the audit log, which is kept for twenty thousand rows and copied into every
+  // controller backup, and into the Settings page's error.
+  it("refuses a target fetch cannot use, and never repeats its address in an error or the audit log", async () => {
+    expect(validateTarget({ kind: "gotify", url: "http://gotify.lan:8O80", token: "gotify-app-token" })).toContain("url");
+    expect(validateTarget({ kind: "webhook", url: "https://hook-user:hook-password@hooks.example/boxpilot" })).toContain("url");
+    expect(validateTarget({ kind: "ntfy", url: "http://[fd00::1", topic: "private-topic" })).toContain("url");
+
+    // A target saved before the check: every send fails, but the error names no part of it.
+    const { store, owner, service } = await setup({ fetcher: globalThis.fetch });
+    for (const target of [
+      { kind: "gotify", url: "http://gotify.lan:8O80", topic: null, token: "gotify-app-token" },
+      { kind: "webhook", url: "https://hook-user:hook-password@hooks.example/boxpilot", topic: null, token: null },
+    ]) {
+      store.setSetting("notifications", target, { updatedBy: owner.id });
+      const failure = await service.send({ title: "T", message: "M" }).then(() => null, (error) => error);
+      expect(failure?.message).toBeTruthy();
+      expect(failure.message).not.toMatch(/gotify-app-token|hook-password|gotify\.lan|hooks\.example/);
+      service.onJob({ id: crypto.randomUUID(), state: "failed", title: "Anything", error: "boom" });
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const audit = JSON.stringify(store.listAudit(200));
+    expect(audit).toContain("notifications.failed");
+    expect(audit).not.toMatch(/gotify-app-token|hook-password/);
+    store.close();
+  });
 });

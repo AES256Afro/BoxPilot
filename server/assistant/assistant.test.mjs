@@ -198,6 +198,16 @@ describe("secrets", () => {
     }
     expect(prompt).toContain("[secret]");
   });
+
+  // The chat prompt went through the redactor; the question's embedding, sent to the same model
+  // server a moment earlier, did not.
+  it("redacts the question on its way to the embedding model too", async () => {
+    await service().ask(caller("owner"), { question: "Why does restic say password=SENTINEL-QUESTION-12 is wrong?", context: { alertKey: "token=SENTINEL-ALERTKEY-13" } });
+    const embeds = fake.requests.filter((entry) => entry.path === "/api/embed");
+    expect(embeds.length).toBeGreaterThan(0);
+    expect(JSON.stringify(embeds)).toContain("restic");
+    expect(JSON.stringify(fake.requests)).not.toMatch(/SENTINEL-(QUESTION-12|ALERTKEY-13)/);
+  });
 });
 
 describe("plans", () => {
@@ -279,6 +289,25 @@ describe("without a model", () => {
     try {
       const status = await service().status(caller("owner"));
       expect(status).toMatchObject({ ready: true, source: "catalog", endpoint: `http://127.0.0.1:${fake.port}`, chatModel: "hermes3:8b", embeddings: true });
+    } finally {
+      applications = saved;
+    }
+  });
+
+  // The owner's password guards the address the server's facts are sent to. The catalog fallback
+  // asked for nothing, and followed the port an installed Ollama had recorded whether or not Ollama
+  // was there: an operator could stop it (a low-risk action) and put an app of their own on that
+  // port, and the owner's next question - every account's failed jobs and logs - went to it.
+  it("does not send anything to a catalog Ollama's port while its container is not running", async () => {
+    state.setSetting("assistant", { endpoint: null, model: null, embedModel: null });
+    const saved = applications;
+    applications = [...saved, { id: "ollama", installed: true, container: { exists: true, running: false, status: "exited" }, state: { values: { ports: { api: fake.port } } }, urls: [] }];
+    try {
+      const assistant = service();
+      expect(await assistant.status(caller("owner"))).toMatchObject({ ready: false, source: "none", endpoint: null });
+      const result = await assistant.ask(caller("owner"), { question: "Why did the package refresh fail?" });
+      expect(result.degraded).toMatchObject({ reason: "no-model" });
+      expect(fake.requests).toEqual([]);
     } finally {
       applications = saved;
     }
