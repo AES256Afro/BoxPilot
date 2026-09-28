@@ -147,3 +147,61 @@ describe("approval dialog", () => {
     expect(onClose).toHaveBeenCalled();
   });
 });
+
+describe("a job that ran out of time (M30.3)", () => {
+  const install = { ...stagedJob, type: "op:app.install", title: "Install application", risk: "medium", parameters: { id: "jellyfin", values: {} } };
+  const timeout = { scope: "step", budgetMs: 15 * 60_000, elapsedMs: 17 * 60_000, phase: "running", step: "Downloading the images and starting the app", lastOutput: "abc123 Downloading 812MB/2.1GB", moreTimeMs: 50 * 60_000 };
+  const medium = { tier: "medium", passwordRequired: false, elevated: false, mode: "tiered", reason: "medium risk" };
+
+  /** The dialog's endpoints; `ended` is how the first run finishes. */
+  function stubRun(ended: Record<string, unknown>) {
+    const calls: Array<{ url: string; method: string }> = [];
+    const json = (body: unknown, status = 200) => Promise.resolve(new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString(); const method = init?.method ?? "GET";
+      calls.push({ url, method });
+      if (url === "/api/v1/operations/app.install/jobs") return json({ job: install, approval: medium });
+      if (url === "/api/v1/jobs/job-1/more-time" && method === "POST") return json({ job: { ...install, id: "job-2", recovery: { budgetMs: 50 * 60_000, retryOf: "job-1" } }, approval: medium }, 201);
+      if (url.endsWith("/approve")) return json({ job: { ...install, state: "applying" }, elevatedUntil: null }, 202);
+      if (url.endsWith("/output")) return json({ jobId: "job-1", state: "failed", output: "", live: false });
+      return json({ job: { ...install, ...ended } });
+    }));
+    return calls;
+  }
+
+  it("says it ran out of time, and stages it again with more time through the same approval", async () => {
+    const calls = stubRun({ state: "failed", error: "Jellyfin installation failed and was rolled back. Downloading the images and starting the app did not finish within 15 minutes", timeout });
+    render(<ApproveDialog operationId="app.install" title="Install Jellyfin" parameters={install.parameters} csrfToken="csrf" onClose={() => {}} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm and run" }));
+    const retry = await screen.findByRole("button", { name: "Try again with more time" });
+    expect(screen.getAllByText("Ran out of time")).toHaveLength(2); // the heading and the notice
+    expect(screen.getByText("Downloading the images and starting the app had 15 minutes and did not finish. The job ran for 17 minutes.")).toBeTruthy();
+    expect(screen.getByText("abc123 Downloading 812MB/2.1GB")).toBeTruthy();
+    expect(screen.getByText("Trying again gives it 50 minutes, and asks for approval like any other job.")).toBeTruthy();
+
+    fireEvent.click(retry);
+    // Staged, then approved like anything else: nothing runs until the button below is pressed.
+    const again = await screen.findByRole("button", { name: "Confirm and run" });
+    expect(screen.getByText("Approval · more time")).toBeTruthy();
+    expect(calls.filter((call) => call.url.endsWith("/approve"))).toHaveLength(1);
+    fireEvent.click(again);
+    await waitFor(() => expect(calls.some((call) => call.url === "/api/v1/jobs/job-2/approve" && call.method === "POST")).toBe(true));
+  });
+
+  it("shows the timeout but offers no more time where the job's record does not", async () => {
+    stubRun({ state: "failed", error: "Install application did not finish within 1 hour 40 minutes.", timeout: { ...timeout, scope: "operation", budgetMs: 100 * 60_000, elapsedMs: 100 * 60_000, step: null, moreTimeMs: null } });
+    render(<ApproveDialog operationId="app.install" title="Install Jellyfin" parameters={install.parameters} csrfToken="csrf" onClose={() => {}} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm and run" }));
+    expect(await screen.findByText("It had 1 hour 40 minutes and used all of it. It may still be running on the server.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Try again with more time" })).toBeNull();
+  });
+
+  it("keeps an ordinary failure a failure", async () => {
+    stubRun({ state: "failed", error: "docker compose up failed: port is already allocated", timeout: null });
+    render(<ApproveDialog operationId="app.install" title="Install Jellyfin" parameters={install.parameters} csrfToken="csrf" onClose={() => {}} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm and run" }));
+    expect(await screen.findByText("Needs attention")).toBeTruthy();
+    expect(screen.queryByText("Ran out of time")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Try again with more time" })).toBeNull();
+  });
+});

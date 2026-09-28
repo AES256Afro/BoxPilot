@@ -3,6 +3,7 @@ import { followJobOutput, terminalJobStates, type Job } from "./operations";
 import { readJson } from "./http";
 import { jobOutputText } from "./jobOutputText";
 import { JobWarnings } from "./JobWarnings";
+import { JobTimeoutNotice } from "./JobTimeout";
 
 /**
  * The terminal view of one job, usable from anywhere an action is shown.
@@ -13,7 +14,7 @@ import { JobWarnings } from "./JobWarnings";
  * give it a job, or just a job id and it fetches the rest. Running jobs stream; finished ones show
  * what was recorded; a job that has aged out of the history says so instead of showing nothing.
  */
-export function JobLogView({ job: given, jobId, title }: { job?: Job; jobId?: string; title?: string }) {
+export function JobLogView({ job: given, jobId, title, onMoreTime }: { job?: Job; jobId?: string; title?: string; onMoreTime?: (job: Job) => void }) {
   const [fetched, setFetched] = useState<Job | null>(null);
   const [goneId, setGoneId] = useState<string | null>(null);
   const [jobError, setJobError] = useState<string | null>(null);
@@ -91,6 +92,7 @@ export function JobLogView({ job: given, jobId, title }: { job?: Job; jobId?: st
         </ul>
       )}
       {job.error && <div className="auth-error" role="alert">{job.error}</div>}
+      <JobTimeoutNotice job={job} onMoreTime={onMoreTime ? () => onMoreTime(job) : undefined} />
       <JobWarnings result={job.result} />
       {outputError && <div role="alert"><p>{outputError}</p>{retryButton}</div>}
       {readingOutput && <p className="muted">Reading saved output...</p>}

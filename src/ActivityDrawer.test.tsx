@@ -114,3 +114,52 @@ describe("Activity drawer", () => {
     expect(screen.queryByText(/Job history is unavailable/)).toBeNull();
   });
 });
+
+describe("a job that ran out of time, in Activity (M30.3)", () => {
+  const timedOutJob = job({
+    id: "22222222-2222-4222-8222-222222222222", type: "op:app.update", title: "Update application", state: "failed",
+    error: "Jellyfin update failed before anything was restarted; the app was unchanged. Downloading the new images did not finish within 30 minutes",
+    timeout: { scope: "step", budgetMs: 30 * 60_000, elapsedMs: 34 * 60_000, phase: "running", step: "Downloading the new images", lastOutput: "jellyfin Pulling fs layer", moreTimeMs: 80 * 60_000 },
+  });
+  const failedJob = job({ id: "33333333-3333-4333-8333-333333333333", title: "Install packages", state: "failed", error: "apt-get install failed", timeout: null });
+  const api = () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url.endsWith("/output")) return json({ jobId: timedOutJob.id, state: "failed", output: "", live: false });
+      if (url.endsWith("/more-time") && init?.method === "POST") return json({ job: { ...timedOutJob, id: "44444444-4444-4444-8444-444444444444", state: "awaiting_approval", error: null, timeout: null }, approval: { tier: "medium", passwordRequired: false, elevated: false, mode: "tiered", reason: "medium risk" } }, 201);
+      return json({ error: `unexpected ${url}` }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  };
+
+  it("is marked timed out rather than failed, and offers more time through the approval dialog", async () => {
+    vi.stubGlobal("EventSource", FakeEventSource);
+    const fetchMock = api();
+    render(<ActivityDrawer csrfToken="csrf" />);
+    act(() => FakeEventSource.instances.at(-1)?.emit("snapshot", { jobs: [timedOutJob, failedJob] }));
+    fireEvent.click(screen.getByRole("button", { name: /Activity/ }));
+    expect(screen.getByText("Timed out").className).toContain("status-warning");
+    expect(screen.getByText("Failed").className).toContain("status-danger");
+
+    fireEvent.click(screen.getByRole("button", { name: /Update application/ }));
+    expect(screen.getByText("Downloading the new images had 30 minutes and did not finish. The job ran for 34 minutes.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Try again with more time" }));
+    expect(await screen.findByRole("button", { name: "Confirm and run" })).toBeTruthy();
+    expect(screen.queryByRole("dialog", { name: "Activity" })).toBeNull();
+    expect(fetchMock).toHaveBeenCalledWith(`/api/v1/jobs/${timedOutJob.id}/more-time`, expect.objectContaining({ method: "POST", headers: { "X-BoxPilot-CSRF": "csrf" } }));
+  });
+
+  it("offers nothing for an ordinary failure, or where no approval can be sent", () => {
+    vi.stubGlobal("EventSource", FakeEventSource);
+    api();
+    render(<ActivityDrawer />);
+    act(() => FakeEventSource.instances.at(-1)?.emit("snapshot", { jobs: [timedOutJob, failedJob] }));
+    fireEvent.click(screen.getByRole("button", { name: /Activity/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Update application/ }));
+    expect(screen.getByText("Ran out of time")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Try again with more time" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Install packages/ }));
+    expect(screen.queryByText("Ran out of time")).toBeNull();
+  });
+});
