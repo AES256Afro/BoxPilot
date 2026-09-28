@@ -128,8 +128,12 @@ export function buildChecklist(evidence = {}) {
 
 const withLastSync = (destination, record) => (destination ? { ...destination, lastSync: record?.completedAt ?? null } : null);
 
-/** Gather evidence from the services the web process already has; every call tolerates failure. */
-export async function gatherChecklistEvidence({ state, helper, notifications, inventory, network, driveChecks = gatherDriveChecks } = {}) {
+/**
+ * Gather evidence from the services the web process already has; every call tolerates failure.
+ * `storage` is the shared lsblk/findmnt read (storage-inventory.mjs createStorageReader); without it
+ * the drive item reads the drives itself.
+ */
+export async function gatherChecklistEvidence({ state, helper, notifications, inventory, network, driveChecks = gatherDriveChecks, storage = null } = {}) {
   const quiet = (promise) => promise.catch(() => null);
   const inventoryRead = quiet(inventory ? inventory.inspect() : Promise.resolve(null));
   const [firewall, apps, unattended, samba, nfs, machine, snapshot, topology, drives] = await Promise.all([
@@ -142,7 +146,7 @@ export async function gatherChecklistEvidence({ state, helper, notifications, in
     inventoryRead,
     quiet(network ? network.inspect() : Promise.resolve(null)),
     // The drive item reads the inventory's SMART evidence; its own reads start alongside it.
-    quiet(driveChecks({ smart: inventoryRead.then((value) => value?.storage?.smart ?? null) })),
+    quiet(driveChecks({ smart: inventoryRead.then((value) => value?.storage?.smart ?? null), ...(storage ? { collect: storage } : {}) })),
   ]);
   return {
     firewall,

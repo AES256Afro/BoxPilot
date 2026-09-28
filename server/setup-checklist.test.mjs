@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { buildChecklist, gatherChecklistEvidence } from "./setup-checklist.mjs";
+import { invalidateOperationEvidence } from "./diagnostic-invalidation.mjs";
+import { gatherDriveChecks } from "./drive-checks.mjs";
+import { createStorageReader } from "./storage-inventory.mjs";
 
 describe("setup checklist", () => {
   it("counts the essentials and explains each item", () => {
@@ -52,6 +55,28 @@ describe("setup checklist", () => {
     // A drive reader that fails leaves the item unknown, not "not set up".
     const failing = await gatherChecklistEvidence({ state, helper, notifications: null, inventory: null, network: null, driveChecks: async () => { throw new Error("lsblk failed"); } });
     expect(buildChecklist(failing).items.find((item) => item.id === "drive-checks")).toMatchObject({ known: false, done: false });
+  });
+
+  it("runs lsblk and findmnt once for Overview loads within ten seconds, and again once an operation settles", async () => {
+    let clock = 0;
+    const collect = vi.fn(async () => ({ devices: [], mounts: [], fstab: [], availability: { devices: true, mounts: true, fstab: true } }));
+    const storage = createStorageReader({ collect, now: () => clock });
+    const helper = { request: async () => ({}), invalidate: vi.fn() };
+    const inventory = { inspect: async () => ({ storage: { smart: null } }), forget: vi.fn() };
+    const driveChecks = (options) => gatherDriveChecks({ ...options, detect: async () => ({ smartctl: true, fsckExfat: true }) });
+    const load = () => gatherChecklistEvidence({ state: { getSetting: () => null }, helper, notifications: null, inventory, network: null, storage, driveChecks });
+    const [first] = await Promise.all([load(), load()]);
+    await load();
+    expect(collect).toHaveBeenCalledTimes(1);
+    expect(first.driveChecks).toMatchObject({ disksKnown: true, missingPackages: [] });
+    // A mount the owner just ran is on the next load, not ten seconds later.
+    invalidateOperationEvidence({ type: "op:storage.mount" }, { registry: { get: () => ({ readOnly: false }) }, inventory, prerequisites: { forget: vi.fn() }, helper, storage });
+    await load();
+    expect(collect).toHaveBeenCalledTimes(2);
+    // And a drive plugged in with no operation at all is on a load ten seconds on.
+    clock += 10_001;
+    await load();
+    expect(collect).toHaveBeenCalledTimes(3);
   });
 });
 
