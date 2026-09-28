@@ -1275,9 +1275,38 @@ the milestones they overlap.
   on tiles from the manifests. Left for M33.3: Ops, whose tables need a compact `Table` component
   (today the class `ui-table`). Every other page keeps its own styles, now on the tokens, until
   M33.5 moves it.
-- **M33.2 The shell and Home** (B2). A top bar with the Home/Ops switch and a command bar ready
-  for search; Home shows app tiles with live health, what needs the owner, and the admin areas
-  in a dock. Acceptance: "is everything OK?" is answered by Home alone.
+- ✅ **M33.2 The shell and Home** (B2, unreleased). A top bar with the Home/Ops switch and a command
+  bar ready for search; Home shows app tiles with live health, what needs the owner, and the admin
+  areas in a dock. Acceptance: "is everything OK?" is answered by Home alone. The sidebar is gone:
+  the top bar holds the Home / Ops switch, the command bar and the theme, and the admin areas sit
+  in a dock at the bottom (`src/shell/`), one row with each area's name over its icon on hover and
+  keyboard focus, scrolling inside itself on a narrow screen, Updates and Repair carrying counts.
+  Home (`src/home/Home.tsx`) is the landing page. A verdict comes first ("homebox is running. 2
+  things need a look.") and is never "healthy" about a source that could not be read: it names
+  what was not read. What needs the owner (`needs.ts`) is worst first, then in the order asked
+  for: health alerts, Repair's findings, jobs awaiting approval, updates, backups, failed jobs,
+  setup; it carries every attention item the Classic overview raised. The installed apps are
+  tiles with their health (stopped, unwell, never or not lately backed up, paused, update ready)
+  and the manifest's icon, initials where it has none; a tile opens a sheet with the app's state,
+  reach, update, backups and restore drill and a link to the app itself. The system (load,
+  memory, each disk) and the backups (apps covered, the off-box copy, the database) are figures.
+  Every fact opens its page; every fix shows its tier on its button and opens the ordinary
+  approval dialog; a role sees only the buttons it could use (`mayStart`, whose owner-only list
+  `server/ops/ui-risk.test.mjs` holds to the registry's `minimumRole`). One facts provider
+  (`facts.tsx`) reads the endpoints the Classic pages already use, only while Home or Ops is
+  open: the quick ones every minute, the slow ones every five, jobs over the live event stream.
+  The command bar (Ctrl/Cmd K, `CommandBar.tsx`) finds any page, any app (its own page, or its
+  card: the catalog opens at one app with `?app=`) and any feature the pages list; where the
+  local assistant answers (M34.2) it asks it and shows the answer, its sources and any suggested
+  step, which opens the approval dialog at its tier; where it does not, it says so and stays a
+  search box. The Overview stays in the dock as "Overview (Classic)". The demo answers the
+  assistant, records which app each backup job was for, and adds a failed backup and a job
+  awaiting approval to the trouble world; the screenshots add the command bar, an app sheet and
+  Home in the trouble and fresh worlds. Left: app logos (manifests carry an emoji; real logos
+  need a manifest field and bundled images); per-app numbers on tiles ("2 streaming") need
+  per-app reads; the Classic overview still shows facts Home does not (the UPS, each SMART disk,
+  the key services, the setup checklist as a list), so it is not retired; the assistant's answer
+  arrives whole rather than streamed; B2's notification centre is not built.
 - **M33.3 Ops**. The metric strip, what needs the owner by tier, containers with their numbers,
   the job queue and a backup matrix, from the same sources as Home. Acceptance: every fact on
   Home is one click from its detail on Ops.
@@ -1344,7 +1373,8 @@ answer can be caught. On a CPU a small model works; the GPU (1.119.0) makes it q
   outcome and how long it took, never the question or the answer. Viewers may ask (the role
   policy's one other read-only POST), and `route-matrix.test.mjs` checks the model's prompt for
   every role as it checks a response. With no model, the answer is the sources it found.
-  Remaining: the command bar (M33.2) that asks it, and a Settings panel for the address and models.
+  The command bar (M33.2) asks it, as JSON for now rather than the stream. Remaining: a Settings
+  panel for the address and models.
 - **M34.3 Guided troubleshooting** (was M24.3). From a symptom - a failed job, a health alert, an
   app that will not start - it runs the read-only checks BoxPilot already has and explains the
   cause from their evidence rather than from general advice.

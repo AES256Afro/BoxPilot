@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { PendingOperation } from "../ApproveDialog";
 import type { ViewName } from "../data";
@@ -39,7 +39,8 @@ const isMac = () => typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(n
 
 export function CommandBar({ csrfToken, onNavigate, onStart }: CommandBarProps) {
   const [open, setOpen] = useState(false);
-  useEffect(() => {
+  // Attached as the bar is drawn, so the shortcut works the moment the bar can be seen.
+  useLayoutEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (!(event.ctrlKey || event.metaKey) || event.altKey || event.key.toLowerCase() !== "k") return;
       // Another dialog holds the keyboard; opening this over it would leave two fighting for focus.
