@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Job } from "../operations";
 import type { AppFact } from "./facts";
 import { reachOf } from "./needs";
-import { backupMatrix, jobState, jobTarget, performanceFrom, workloads, type Performance } from "./opsFacts";
+import { backupMatrix, jobState, jobTarget, performanceFrom, shortReach, workloads, type Performance } from "./opsFacts";
 
 const now = Date.parse("2026-09-28T12:00:00Z");
 const hoursAgo = (hours: number) => new Date(now - hours * 3_600_000).toISOString();
@@ -41,6 +41,13 @@ describe("the containers table", () => {
     ]);
     expect(rows[0].reach).toBe("On your network");
     expect(rows.at(-1)?.memBytes).toBeNull(); // a stopped VM holds no memory
+  });
+
+  it("says who can reach an app in one word", () => {
+    expect(shortReach({ port: 8096, exposure: "lan", served: false })).toBe("LAN");
+    expect(shortReach({ port: 8096, exposure: "lan", served: true })).toBe("tailnet");
+    expect(shortReach({ port: 11434, exposure: "loopback", served: false })).toBe("local");
+    expect(shortReach({ port: null, exposure: null, served: false })).toBe("—");
   });
 
   it("shows no numbers when Docker's stats are not answering, rather than zeroes", () => {
@@ -85,15 +92,15 @@ describe("the backup matrix", () => {
     const [immich, jellyfin, nextcloud, vaultwarden] = rows;
     expect(jellyfin.runs.map((run) => run.jobId)).toEqual(["j0", "j1", "j2", "j3", "j4"]);
     expect(jellyfin).toMatchObject({ status: "good", summary: "Covered", drill: { verified: true } });
-    expect(immich).toMatchObject({ status: "danger", summary: "The last run failed" });
+    expect(immich).toMatchObject({ status: "danger", summary: "Last run failed" });
     expect(immich.runs.map((run) => run.state)).toEqual(["failed", "ok"]);
-    expect(vaultwarden).toMatchObject({ status: "warning", summary: "Never backed up", runs: [] });
+    expect(vaultwarden).toMatchObject({ status: "warning", summary: "No backup yet", runs: [] });
     // Backed up by a job, but not in what the protection read reported: not known, never "Covered".
     expect(nextcloud).toMatchObject({ status: "unknown", summary: "Not known", backups: null });
   });
 
   it("calls a backup that is weeks old stale", () => {
     const [immich] = backupMatrix({ protection: protection.slice(1, 2), jobs: [], apps: [], now });
-    expect(immich).toMatchObject({ status: "warning", summary: "Nothing for 63 days" });
+    expect(immich).toMatchObject({ status: "warning", summary: "63 days old" });
   });
 });

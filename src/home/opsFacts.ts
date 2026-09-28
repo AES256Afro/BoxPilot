@@ -66,6 +66,13 @@ export function workloads(apps: AppFact[], performance: Performance | null, vms:
   return rows;
 }
 
+/** Who can reach an app, in the one word a dense table has room for. */
+export function shortReach(app: Pick<AppFact, "exposure" | "served" | "port">): string {
+  if (app.port === null) return "—";
+  if (app.served) return "tailnet";
+  return app.exposure === "loopback" ? "local" : "LAN";
+}
+
 /** A job's pill as a status: done is good, failed is danger, still going or cut short is a look. */
 export function jobState(job: Job): { status: Status; label: string } {
   const { label, tone } = jobStatus(job);
@@ -136,7 +143,7 @@ export function backupMatrix({ protection, jobs, apps, now, runs = 5, staleAfter
     const never = known !== null && (known.backups === 0 || ageDays === null);
     const stale = ageDays !== null && ageDays > staleAfterDays;
     const status: Status = lastFailed ? "danger" : never || stale ? "warning" : known ? "good" : "unknown";
-    const summary = lastFailed ? "The last run failed" : never ? "Never backed up" : stale ? `Nothing for ${ageDays} days` : known ? "Covered" : "Not known";
+    const summary = lastFailed ? "Last run failed" : never ? "No backup yet" : stale ? `${ageDays} days old` : known ? "Covered" : "Not known";
     return { id, name: byId.get(id)?.name ?? known?.name ?? id, status, runs: recent, backups: known?.backups ?? null, newestAt: known?.newestAt ?? null, drill: byId.get(id)?.drill ?? null, summary };
   });
   return rows.sort((a, b) => a.name.localeCompare(b.name));

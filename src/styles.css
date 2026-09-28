@@ -5563,8 +5563,8 @@ a.ui-tile:hover {
 .ops-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: var(--space-3); }
 .ops-grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); align-items: start; gap: var(--space-3); }
 .ops-alerts { grid-column: span 3; }
-.ops-containers { grid-column: span 5; }
-.ops-inbox { grid-column: span 4; }
+.ops-containers { grid-column: span 6; }
+.ops-inbox { grid-column: span 3; }
 .ops-jobs { grid-column: span 7; }
 .ops-backups { grid-column: span 5; }
 .ops-panel > .ui-section { gap: var(--space-3); padding-bottom: var(--space-3); }
@@ -5582,6 +5582,8 @@ a.ui-tile:hover {
 .ops-link:hover { color: var(--link); text-decoration: underline; }
 .ops-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
 .ops-icon { margin-right: var(--space-2); font-weight: 400; }
+/* A long app name ends in an ellipsis rather than pushing the numbers out of the panel. */
+.ui-table .ops-link { display: inline-block; max-width: 13rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; }
 .ops-mono { color: var(--text-muted); font-family: var(--font-mono); }
 .ops-dim { color: var(--text-muted); }
 .ops-bar { display: inline-block; width: 36px; height: 4px; margin-right: var(--space-2); overflow: hidden; border-radius: 2px; background: var(--meter-track); vertical-align: middle; }

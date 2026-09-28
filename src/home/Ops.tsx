@@ -7,8 +7,8 @@ import { Button, Card, MetricTile, RiskTag, Section, StatusChip, Table, type Ris
 import { useFacts, valuesOf } from "./facts";
 import { elapsed, loadStatus, mountName, mountStatus, relativeTime, shortAge, size, uptime } from "./format";
 import { NeedRow } from "./NeedRow";
-import { buildNeeds, groupByTier, reachOf, verdictFor, verdictSources, type Need } from "./needs";
-import { backupMatrix, jobState, jobTarget, performanceFrom, workloads, type BackupRow, type Performance, type RunState, type WorkloadRow } from "./opsFacts";
+import { buildNeeds, groupByTier, verdictFor, verdictSources, type Need } from "./needs";
+import { backupMatrix, jobState, jobTarget, performanceFrom, shortReach, workloads, type BackupRow, type Performance, type RunState, type WorkloadRow } from "./opsFacts";
 
 /*
  * Ops (M33.3, ADR-004): the Command Center. The same facts as Home, at compact density and all at
@@ -108,7 +108,7 @@ export default function Ops({ csrfToken, role, onNavigate, now = Date.now, pollM
 
   // ── Containers, jobs and backups, from the same facts. ──
   const apps = values.catalog?.apps ?? [];
-  const rows = workloads(apps, perf, values.vms, reachOf);
+  const rows = workloads(apps, perf, values.vms, shortReach);
   const liveJobs = values.jobs ?? [];
   const jobs = useMemo(() => {
     // The live feed is newer than the one-off read, so its copy of a job wins.
@@ -124,7 +124,7 @@ export default function Ops({ csrfToken, role, onNavigate, now = Date.now, pollM
   const database = values.database;
 
   const workloadColumns: Array<TableColumn<WorkloadRow>> = [
-    { id: "name", header: "Name", cell: (row) => <button type="button" className="ops-link" onClick={() => (row.kind === "vm" ? onNavigate("virtualization") : onNavigate("catalog", { app: row.id }))}>{row.icon && <span className="ops-icon" aria-hidden="true">{row.icon}</span>}{row.name}</button> },
+    { id: "name", header: "Name", cell: (row) => <button type="button" className="ops-link" title={row.name} onClick={() => (row.kind === "vm" ? onNavigate("virtualization") : onNavigate("catalog", { app: row.id }))}>{row.icon && <span className="ops-icon" aria-hidden="true">{row.icon}</span>}{row.name}</button> },
     { id: "state", header: "State", cell: (row) => <StatusChip status={row.status}>{row.state}</StatusChip> },
     { id: "cpu", header: "CPU", numeric: true, cell: (row) => (row.cpuPercent === null ? "—" : <><span className="ops-bar" aria-hidden="true"><i style={{ width: `${Math.min(100, row.cpuPercent)}%` }} /></span>{`${row.cpuPercent.toFixed(1)}%`}</>) },
     { id: "memory", header: "Memory", numeric: true, cell: (row) => (row.memBytes === null ? "—" : size(row.memBytes)) },
@@ -151,7 +151,7 @@ export default function Ops({ csrfToken, role, onNavigate, now = Date.now, pollM
     { id: "app", header: "App", cell: (row) => <button type="button" className="ops-link" onClick={() => onNavigate("backups")}>{row.name}</button> },
     { id: "runs", header: "Last runs", label: "Last runs, newest first", cell: (row) => (
       <span className="ops-runs">
-        {row.runs.length === 0 ? <span className="ops-dim">none recorded</span> : row.runs.map((run) => (
+        {row.runs.length === 0 ? <span className="ops-dim"><span aria-hidden="true">—</span><span className="ui-visually-hidden">No runs recorded</span></span> : row.runs.map((run) => (
           <span key={run.jobId} className="ops-run" data-run={run.state} title={`${runWords[run.state]} ${relativeTime(run.at, clock) ?? ""}`.trim()}>
             <span className="ui-mark" aria-hidden="true" /><span className="ui-visually-hidden">{`${runWords[run.state]} ${relativeTime(run.at, clock) ?? ""}. `}</span>
           </span>
