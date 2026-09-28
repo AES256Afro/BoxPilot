@@ -88,7 +88,7 @@ jobs:
           # app's sheet on Home (M33.2); Home in the unwell and the empty worlds; and Ops (M33.3)
           # in the unwell one. Home and Ops themselves come with every page, from the navigation
           # in src/data.ts.
-          STATES: ${{ inputs.states || 'storage-check=?view=storage>Check this drive;command-bar=?view=home>Search pages, apps and settings;app-sheet=?view=home>📷Immich;home-trouble=?view=home&scenario=trouble;home-fresh=?view=home&scenario=fresh;ops-trouble=?view=ops&scenario=trouble' }}
+          STATES: ${{ inputs.states || 'storage-check=?view=storage>Check this drive;command-bar=?view=home>Search pages, apps and settings;app-sheet=?view=home>📷Immich;home-trouble=?view=home&scenario=trouble;home-fresh=?view=home&scenario=fresh;ops-trouble=?view=ops&scenario=trouble;areas-sheet=?view=home>More' }}
           SCHEMES: dark,light
           FULL_PAGE: "1"
           SCALE: "1"

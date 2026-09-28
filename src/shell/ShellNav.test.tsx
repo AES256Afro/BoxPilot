@@ -7,7 +7,7 @@ describe("the dock", () => {
     render(<ShellDock view="backups" onSelect={vi.fn()} />);
     const dock = screen.getByRole("navigation", { name: "Admin areas" });
     const labels = Array.from(dock.querySelectorAll(".ui-dock__label")).map((label) => label.textContent);
-    expect(labels).toEqual(expect.arrayContaining(["Updates", "Storage", "VMs", "Repair", "Apps", "Classic", "Settings", "More"]));
+    expect(labels).toEqual(expect.arrayContaining(["Updates", "Storage", "VMs", "Repair", "Apps", "Automate", "Metrics", "Classic", "Settings", "More"]));
     expect(within(dock).getByRole("button", { name: "Backups" }).getAttribute("aria-current")).toBe("page");
     // A phone keeps four areas and More; every area is still reachable through More.
     expect(dockAreas.filter((area) => area.priority === 1).map((area) => area.id)).toEqual(["updates", "storage", "backups", "repairs"]);
