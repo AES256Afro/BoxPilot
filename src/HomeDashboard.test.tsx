@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import HomeDashboard from "./HomeDashboard";
 
@@ -58,6 +58,56 @@ describe("Home dashboard", () => {
     expect(screen.getByText("(optional)")).toBeTruthy();
     fireEvent.click(screen.getAllByRole("button", { name: "Open" })[0]);
     expect(onNavigate).toHaveBeenCalledWith("firewall");
+  });
+
+  describe("what BoxPilot could not tell anyone (M27.2)", () => {
+    const since = "2026-09-27T03:00:00.000Z";
+    const watchWith = (targetConfigured: boolean, conditions: unknown[]) => vi.fn(async (input: RequestInfo | URL) => (input.toString().endsWith("/api/v1/settings/watch")
+      ? json({ targetConfigured, activeCount: 0, conditions })
+      : json({ error: "unavailable" }, 503)));
+    const conditions = (announced: boolean) => [
+      { key: "schedule.failed", label: "A scheduled task failed or did not run", active: true, details: [{ title: "Scheduled task failed: Back up application data (jellyfin)", since, announced }] },
+      { key: "flow.failed", label: "An automation stopped or did not run", active: true, details: [{ title: "Automation stopped: Nightly", since, announced }] },
+      { key: "system.reboot", label: "A reboot is required", active: true, details: [{ title: "A reboot is required", since, announced: true }] },
+      { key: "record.failed", label: "A job ran but its result was not saved", active: false, details: [] },
+    ];
+
+    it("is one line with the count, opens to the list, and leads to where alerts are set", async () => {
+      vi.stubGlobal("fetch", watchWith(false, conditions(false)));
+      const onNavigate = vi.fn();
+      render(<HomeDashboard onNavigate={onNavigate} />);
+      // Two unannounced; the reboot was announced, so it is not counted.
+      expect(await screen.findByText("BoxPilot could not tell you about 2 things")).toBeTruthy();
+      const line = screen.getByRole("region", { name: "Alerts that reached no one" });
+      expect(within(line).queryByText("Automation stopped: Nightly")).toBeNull(); // the list waits to be asked for
+
+      fireEvent.click(within(line).getByRole("button", { name: "Show" }));
+      expect(within(line).getByText("No notification target is set, so these reached no one.")).toBeTruthy();
+      expect(within(line).getByRole("button", { name: "Scheduled task failed: Back up application data (jellyfin)" })).toBeTruthy();
+      fireEvent.click(within(line).getByRole("button", { name: "Automation stopped: Nightly" }));
+      expect(onNavigate).toHaveBeenLastCalledWith("automations");
+      fireEvent.click(within(line).getByRole("button", { name: "Set where alerts go" }));
+      expect(onNavigate).toHaveBeenLastCalledWith("settings");
+    });
+
+    it("says they have not reached the target yet when one is set", async () => {
+      vi.stubGlobal("fetch", watchWith(true, conditions(false)));
+      render(<HomeDashboard onNavigate={vi.fn()} />);
+      const line = await screen.findByRole("region", { name: "Alerts that reached no one" });
+      fireEvent.click(within(line).getByRole("button", { name: "Show" }));
+      expect(within(line).getByText("These have not reached your notification target yet. BoxPilot tries again every 15 minutes.")).toBeTruthy();
+      expect(within(line).getByRole("button", { name: "Check where alerts go" })).toBeTruthy();
+    });
+
+    it("stays quiet when everything was announced", async () => {
+      vi.stubGlobal("fetch", watchWith(true, conditions(true)));
+      render(<HomeDashboard onNavigate={vi.fn()} />);
+      // The conditions are still live, so they still need attention; they just reached someone.
+      expect(await screen.findByText("Needs attention")).toBeTruthy();
+      expect(screen.getByText("Automation stopped: Nightly")).toBeTruthy();
+      expect(screen.queryByText(/could not tell you/)).toBeNull();
+      expect(screen.queryByRole("region", { name: "Alerts that reached no one" })).toBeNull();
+    });
   });
 
   it("renders quiet tiles when sources are unavailable", async () => {

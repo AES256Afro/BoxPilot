@@ -3,10 +3,19 @@ import { defaultThrottle as throttle } from "./login-throttle.mjs";
 import { approvalRequirement, defaultApprovalMode, elevationTtlMs, normalizeApprovalMode } from "./ops/risk.mjs";
 import { registry } from "./ops/index.mjs";
 import { placeholderPaths, restoreSecrets, secretPaths, secretPlaceholder, splitSecrets } from "./ops/registry.mjs";
+import { asSentence } from "./health-alerts.mjs";
 
 /** What a secret parameter looks like in the database and the job API. */
 export { secretPlaceholder };
 export const stagedSecretTtlMs = 30 * 60_000;
+/** A job that ran but whose result BoxPilot could not save; it carries a failed "record" step. */
+export const recordFailed = (job) => (job?.steps ?? []).some((step) => step.name === "record" && step.state === "failed");
+
+/** One condition per operation and subject: a nightly backup that cannot record is one alert, not one a night. */
+function recordAlertKey(job) {
+  const subject = job.parameters?.id ?? job.parameters?.name ?? null;
+  return `record.failed:${job.type.slice(3)}${typeof subject === "string" && subject ? `:${subject.slice(0, 64)}` : ""}`;
+}
 
 export function createJobService(store, helper, {
   // Which of an app's environment values are secrets, from its manifest (catalog/index.mjs
@@ -17,9 +26,33 @@ export function createJobService(store, helper, {
   operationRecordHooks = {},
   operationPrepareHooks = {},
   onOperationSettled = () => {},
+  // The health-alert ledger (raise/clear). A result that could not be saved is announced through it.
+  alerts = null,
   now = () => Date.now(),
   secretTtlMs = stagedSecretTtlMs,
 } = {}) {
+  // Announcing never holds up or fails the job: the ledger may wait on a notification target.
+  const tell = (call) => { try { Promise.resolve(call()).catch(() => {}); } catch { /* the job's outcome stands */ } };
+
+  /**
+   * Registry ops with durable evidence record it web-side, and a failed record fails the job. The
+   * operation itself did run, so the job says which half failed, and the owner hears about it once
+   * per operation until a later run records cleanly - with or without a notification target.
+   */
+  async function recordResult(job, result) {
+    const hook = operationRecordHooks[job.type.slice(3)];
+    if (!hook) return;
+    try {
+      await hook(job, result);
+    } catch (error) {
+      store.addJobStep(job.id, "record", "failed", `The operation ran, but BoxPilot could not save its result: ${error.message}`.slice(0, 500));
+      const subject = job.parameters?.id ?? job.parameters?.name ?? null;
+      const label = `${job.title}${typeof subject === "string" && subject ? ` (${subject})` : ""}`;
+      if (alerts) tell(() => alerts.raise({ key: recordAlertKey(job), title: `Result not saved: ${label}`, message: `${label} ran, but BoxPilot could not save what it did: ${asSentence(error.message)} Pages that show it may be out of date until it runs again. The job log is in Activity.`, priority: "high" }));
+      throw error;
+    }
+    if (alerts) tell(() => alerts.clear(recordAlertKey(job)));
+  }
   // Secret parameters (share passwords) staged with a job live here until it runs; they are
   // never written to SQLite or the job log. A restart forgets them and the job must be re-staged.
   const stagedSecrets = new Map();
@@ -148,7 +181,7 @@ export function createJobService(store, helper, {
       store.addJobStep(jobId, "apply", "completed", execution.applied);
       if (!execution.validate(result)) throw new Error(execution.run ? "Operation returned an invalid result" : "Helper returned an invalid operation result");
       // Registry ops with durable evidence record it web-side; a failed record fails the job.
-      if (job.type.startsWith("op:")) operationRecordHooks[job.type.slice(3)]?.(job, result);
+      if (job.type.startsWith("op:")) await recordResult(job, result);
       store.addJobStep(jobId, "verify", "completed", execution.verified);
       await refreshEvidence();
       const completed = store.transitionJob(jobId, "verifying", "completed", { result });

@@ -265,3 +265,97 @@ it("coalesces overlapping health checks before sending notifications", async () 
   expect(inspect).toHaveBeenCalledOnce();
   expect(send).toHaveBeenCalledOnce();
 });
+
+describe("failures BoxPilot reports on its own work (M27.2)", () => {
+  const at = () => new Date("2026-09-27T03:00:00Z");
+  function ledger({ target = { kind: "ntfy" }, send = vi.fn(async () => ({ sent: true })), inspect = async () => ({}) } = {}) {
+    const settings = new Map();
+    const store = { getSetting: (key, fallback) => settings.get(key) ?? fallback, setSetting: (key, value) => settings.set(key, value), recordAudit: vi.fn() };
+    let current = target;
+    const notifications = { getTarget: () => current, send };
+    const alerts = createHealthAlerts({ inventory: { inspect }, notifications, store, now: at });
+    return { alerts, send, store, state: () => settings.get("healthAlertsState") ?? {}, setTarget: (value) => { current = value; } };
+  }
+  const failure = { key: "schedule.failed:sch-1", title: "Scheduled task failed: Back up application data (jellyfin)", message: "tar failed: disk full. The job log is in Activity.", priority: "high" };
+
+  it("announces a failure once however often it repeats, and says once that it cleared", async () => {
+    const { alerts, send, state, store } = ledger();
+    expect(await alerts.raise(failure)).toMatchObject({ notified: true, sent: true });
+    expect(send).toHaveBeenCalledWith({ title: `BoxPilot: ${failure.title}`, message: failure.message, priority: "high" });
+    // An hourly schedule failing all night is one push, not twelve.
+    for (let run = 0; run < 12; run += 1) expect(await alerts.raise(failure)).toMatchObject({ sent: false });
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(state()[failure.key]).toEqual({ since: "2026-09-27T03:00:00.000Z", title: failure.title, notified: true });
+
+    expect(await alerts.clear(failure.key)).toMatchObject({ cleared: true, sent: true });
+    expect(send).toHaveBeenLastCalledWith(expect.objectContaining({ title: `BoxPilot: resolved. ${failure.title}` }));
+    expect(state()).toEqual({});
+    expect(store.recordAudit).toHaveBeenCalledWith("health.alert.resolved", expect.objectContaining({ subjectId: failure.key }));
+    expect(await alerts.clear(failure.key)).toMatchObject({ cleared: false, sent: false }); // nothing left to say
+    expect(send).toHaveBeenCalledTimes(2);
+
+    // Failing again after it recovered is news again.
+    expect(await alerts.raise(failure)).toMatchObject({ sent: true });
+    expect(send).toHaveBeenCalledTimes(3);
+  });
+
+  it("keeps a failure as not announced when there is no target, and the round that finds one sends it", async () => {
+    const { alerts, send, state, setTarget } = ledger({ target: null });
+    expect(await alerts.raise(failure)).toMatchObject({ notified: false, sent: false });
+    expect(send).not.toHaveBeenCalled();
+    expect(state()[failure.key]).toEqual({ since: "2026-09-27T03:00:00.000Z", title: failure.title, message: failure.message, priority: "high", notified: false });
+    // Still no target: the round carries it forward rather than dropping what nothing re-evaluates.
+    await alerts.check();
+    expect(state()[failure.key]).toMatchObject({ notified: false });
+
+    setTarget({ kind: "ntfy" });
+    expect((await alerts.check()).sent).toEqual([failure.key]);
+    expect(send).toHaveBeenCalledWith({ title: `BoxPilot: ${failure.title}`, message: failure.message, priority: "high" });
+    expect(state()[failure.key]).toEqual({ since: "2026-09-27T03:00:00.000Z", title: failure.title, notified: true });
+    expect((await alerts.check()).sent).toEqual([]); // announced now; the next round is quiet
+  });
+
+  it("keeps a failure whose delivery failed as not announced, and tries again", async () => {
+    const send = vi.fn().mockRejectedValueOnce(new Error("The notification target answered 502")).mockResolvedValue({ sent: true });
+    const { alerts, state, store } = ledger({ send });
+    expect(await alerts.raise(failure)).toMatchObject({ notified: false });
+    expect(state()[failure.key]).toMatchObject({ notified: false, message: failure.message });
+    expect(store.recordAudit).toHaveBeenCalledWith("health.alert.failed", expect.objectContaining({ subjectId: failure.key }));
+    // The same failure again is another chance to deliver it, not a duplicate.
+    expect(await alerts.raise(failure)).toMatchObject({ notified: true, sent: true });
+    expect(state()[failure.key].notified).toBe(true);
+  });
+
+  it("drops a never-announced failure silently when it clears, and a deleted one quietly", async () => {
+    const { alerts, send, state, setTarget } = ledger({ target: null });
+    await alerts.raise(failure);
+    setTarget({ kind: "ntfy" });
+    expect(await alerts.clear(failure.key)).toMatchObject({ cleared: true, sent: false }); // nobody heard it failed
+    expect(send).not.toHaveBeenCalled();
+
+    await alerts.raise(failure); // announced this time
+    expect(await alerts.clear(failure.key, { quietly: true })).toMatchObject({ cleared: true, sent: false });
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(state()).toEqual({});
+  });
+
+  it("keeps a host alert whose delivery failed as not announced instead of forgetting it", async () => {
+    const send = vi.fn(async () => { throw new Error("ntfy down"); });
+    const { alerts, state } = ledger({ send, inspect: async () => ({ ...healthy, maintenance: { system: { failedServiceCount: 2 }, reboot: { required: false } } }) });
+    expect(await alerts.check()).toMatchObject({ active: ["system.services"], sent: [] });
+    expect(state()["system.services"]).toMatchObject({ notified: false });
+  });
+
+  it("does not let a round write over a failure raised while it was sending", async () => {
+    let release;
+    const held = new Promise((resolve) => { release = resolve; });
+    const send = vi.fn(async ({ title }) => { if (title.includes("system service")) await held; return { sent: true }; });
+    const { alerts, state } = ledger({ send, inspect: async () => ({ ...healthy, maintenance: { system: { failedServiceCount: 1 }, reboot: { required: false } } }) });
+    const round = alerts.check();
+    await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(1)); // the round is waiting on its send
+    const raised = alerts.raise(failure);
+    release();
+    await Promise.all([round, raised]);
+    expect(Object.keys(state()).sort()).toEqual([failure.key, "system.services"]);
+  });
+});

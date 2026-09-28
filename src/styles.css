@@ -4339,6 +4339,13 @@ textarea {
 .dashboard-app a:hover { text-decoration: underline; }
 .dashboard-jobs { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; }
 .dashboard-jobs li { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 13px; }
+/* What BoxPilot could not tell anyone (M27.2): one line, and the list when asked for. */
+.unannounced-notice { gap: 8px; font-size: 14px; }
+.unannounced-notice span { font-size: 13px; line-height: 1.5; }
+.unannounced-line { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 16px; }
+.unannounced-actions { display: flex; flex-wrap: wrap; gap: 0 14px; }
+.unannounced-notice .text-button { color: var(--warn-text-light); font-size: 13px; text-align: left; overflow-wrap: anywhere; }
+.unannounced-list { margin: 0; padding-left: 18px; display: grid; gap: 2px; }
 
 /* Schedules panel (M6.1) */
 .schedules-panel .schedule-form { margin-top: 12px; flex-wrap: wrap; }

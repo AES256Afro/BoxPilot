@@ -87,7 +87,7 @@ export default function NotificationSettings({ csrfToken }: { csrfToken: string 
         <div><strong>Notifications</strong><span>Failed jobs push to your phone. Ntfy and Gotify are both in the app catalog</span></div>
         <span className={`status-pill ${current?.configured ? "status-good" : "status-neutral"}`}>{current?.configured ? `${current.kind} configured` : "Off"}</span>
       </header>
-      <p className="muted">You get a push for a failed job and a new BoxPilot release. BoxPilot also watches your server for the conditions below and notifies you when one turns bad — and again when it clears — checking every 15 minutes.</p>
+      <p className="muted">You get a push for a failed job and a new BoxPilot release. BoxPilot also watches your server for the conditions below and notifies you when one turns bad — and again when it clears — checking every 15 minutes. A scheduled task or automation that keeps failing is one push until it works again. Anything that could not be sent is listed on the Overview.</p>
       {watch && (
         <div className="watch-status">
           <div className="watch-summary">{watch.activeCount === 0 ? <span className="good-text">All clear</span> : <span className="auth-error" style={{ display: "inline", padding: "2px 8px" }}>{watch.activeCount} needs attention</span>}{!watch.targetConfigured && <span className="muted"> · set a target below so these can reach you</span>}</div>
