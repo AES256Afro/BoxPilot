@@ -9,6 +9,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { composeWeeklyReport, createWeeklyReport, gatherWeek, reportKey, uncovered } from "./weekly-report.mjs";
 import { createHealthAlerts } from "./health-alerts.mjs";
+import { buildChecklist } from "./setup-checklist.mjs";
 import { createStateStore } from "./state.mjs";
 
 const directories = [];
@@ -96,6 +97,17 @@ describe("what the weekly report says", () => {
     expect(uncovered({ checklist, protection, schedules })).toEqual(["no second copy of the backups", "no backup schedule for Immich"]);
     // A backup folder that could not be read is unknown, not "every app unprotected".
     expect(uncovered({ protection: { available: false, apps: protection.apps }, schedules })).toEqual([]);
+  });
+
+  it("says what is missing for every essential on the checklist, never the essential's own title", () => {
+    // The checklist as the Overview builds it, with every essential known and still open. M26.3
+    // added "This server can check its drives" after the report's phrases were written, and the
+    // report fell back to the item's title: "Not covered yet: This server can check its drives".
+    const items = buildChecklist({}).items.filter((item) => !item.optional).map((item) => ({ ...item, known: true, done: false }));
+    const gaps = uncovered({ checklist: { items } });
+    expect(gaps).toHaveLength(items.length);
+    for (const item of items) expect(gaps).not.toContain(item.title);
+    expect(gaps).toContain("the drive check tools are not installed");
   });
 
   it("is read from the jobs, schedules, automations, ledger and backups BoxPilot recorded", withZone("America/New_York", async () => {

@@ -53,6 +53,8 @@ const gapPhrases = {
   updates: "security updates do not install automatically",
   notifications: "no notification target",
   backups: "no second copy of the backups",
+  // M26.3's item. Open and known only while smartctl or fsck.exfat is missing.
+  "drive-checks": "the drive check tools are not installed",
 };
 
 /** What is not covered yet, from the checklist and the apps with data worth backing up. */
