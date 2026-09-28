@@ -1,0 +1,114 @@
+name: UI screenshots
+
+# Every page of the demo, in light and in dark, photographed on Linux for each pull request that
+# touches the interface (M33.1). Download the ui-screenshots artifact and look at both themes: this
+# job fails only when the demo or Chrome cannot run, because judging the pictures is a person's job.
+# Run it by hand with a baseline (for example main) to get that ref's dark pages alongside, in
+# baseline/, for a before-and-after comparison.
+on:
+  pull_request:
+    paths:
+      - "src/**"
+      - "index.html"
+      - "vite.config.ts"
+      - "scripts/demo-screenshots.mjs"
+      - ".github/workflows/ui-screenshots.yml"
+  workflow_dispatch:
+    inputs:
+      baseline:
+        description: "Also photograph this branch or tag in dark, into baseline/ (for example main)"
+        required: false
+        default: ""
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  screenshots:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Find Chrome
+        run: |
+          chrome="$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || command -v chromium-browser || true)"
+          if [ -z "$chrome" ]; then echo "No Chrome or Chromium on this runner"; exit 1; fi
+          "$chrome" --version
+          echo "CHROME=$chrome" >> "$GITHUB_ENV"
+
+      - name: Start the demo
+        run: |
+          nohup npm run demo > "$RUNNER_TEMP/demo.log" 2>&1 &
+          for second in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:8799/api/v1/health > /dev/null; then echo "The demo answered after ${second}s"; exit 0; fi
+            sleep 1
+          done
+          echo "The demo did not start:"
+          cat "$RUNNER_TEMP/demo.log"
+          exit 1
+
+      - name: Photograph every page, dark and light
+        env:
+          OUT_DIR: ${{ runner.temp }}/ui-screenshots
+          PAGES: all
+          SCHEMES: dark,light
+          FULL_PAGE: "1"
+          SCALE: "1"
+          # A throwaway runner photographing a local demo; Ubuntu's user-namespace rules can
+          # otherwise stop Chrome's sandbox from starting at all.
+          CHROME_ARGS: --no-sandbox
+        run: npm run demo:screenshots
+
+      - name: Photograph the baseline
+        if: github.event_name == 'workflow_dispatch' && inputs.baseline != ''
+        env:
+          BASELINE: ${{ inputs.baseline }}
+          OUT_DIR: ${{ runner.temp }}/ui-screenshots/baseline
+          DEMO_URL: http://127.0.0.1:8798
+          PAGES: all
+          SCHEMES: dark
+          FULL_PAGE: "1"
+          SCALE: "1"
+          CHROME_ARGS: --no-sandbox
+        run: |
+          git fetch --no-tags --depth=1 origin "$BASELINE"
+          git worktree add --detach "$RUNNER_TEMP/baseline-src" FETCH_HEAD
+          (cd "$RUNNER_TEMP/baseline-src" && npm ci && npm run build)
+          (cd "$RUNNER_TEMP/baseline-src" && PORT=8798 nohup node scripts/boxpilot-demo.mjs > "$RUNNER_TEMP/baseline-demo.log" 2>&1 &)
+          for second in $(seq 1 60); do
+            if curl -fsS "$DEMO_URL/api/v1/health" > /dev/null; then break; fi
+            if [ "$second" = 60 ]; then echo "The baseline demo did not start:"; cat "$RUNNER_TEMP/baseline-demo.log"; exit 1; fi
+            sleep 1
+          done
+          npm run demo:screenshots
+
+      - name: Show the demo's log
+        if: failure()
+        run: cat "$RUNNER_TEMP/demo.log" "$RUNNER_TEMP/baseline-demo.log" 2>/dev/null || true
+
+      - name: Upload the screenshots
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: ui-screenshots
+          path: ${{ runner.temp }}/ui-screenshots
+          if-no-files-found: error
+          retention-days: 14

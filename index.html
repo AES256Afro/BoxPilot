@@ -3,13 +3,23 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#0d1117" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0d1117" />
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f6f8fa" />
     <meta name="description" content="Ubuntu server setup and management" />
     <title>BoxPilot</title>
     <script>
       (function () {
-        const t = localStorage.getItem('boxpilot-theme');
-        if (t) document.documentElement.dataset.theme = t;
+        // Before first paint, so the page never flashes the other theme. src/useTheme.ts owns
+        // these attributes after this and reads the same keys. Until M33.1 boxpilot-theme named
+        // a dark palette; such a value is read as the palette, with the appearance left on System.
+        var root = document.documentElement;
+        try {
+          var theme = localStorage.getItem('boxpilot-theme');
+          var palette = localStorage.getItem('boxpilot-palette');
+          if (theme && theme !== 'system' && theme !== 'light' && theme !== 'dark') { palette = palette || theme; theme = null; }
+          if (theme === 'light' || theme === 'dark') root.setAttribute('data-theme', theme);
+          if (palette && palette !== 'raw' && palette !== 'default') root.setAttribute('data-palette', palette);
+        } catch (error) { /* no storage: follow the device */ }
       })();
     </script>
   </head>

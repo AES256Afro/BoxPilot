@@ -106,4 +106,33 @@ describe("BoxPilot console", () => {
     expect(screen.getByRole("region", { name: "Features" }).textContent).toContain(`apps in ${categories.size} categories`);
     window.history.replaceState(null, "", "/");
   });
+
+  it("opens the design system gallery only when the server is the demo", async () => {
+    // The gallery (M33.1) is for reviewing components; a real BoxPilot ignores ?gallery.
+    const demoFetch = (input: RequestInfo | URL) => input.toString().endsWith("/api/v1/health")
+      ? Promise.resolve(new Response(JSON.stringify({ status: "ok", mode: "demo" }), { status: 200, headers: { "Content-Type": "application/json" } }))
+      : authenticatedFetch(input);
+    window.history.replaceState(null, "", "/?gallery");
+    vi.stubGlobal("fetch", vi.fn(demoFetch));
+    render(<App />);
+    expect(await screen.findByRole("heading", { name: "Design system" })).toBeTruthy();
+    expect(screen.getAllByRole("radiogroup", { name: "Theme" }).length).toBeGreaterThan(1);
+    cleanup();
+
+    vi.stubGlobal("fetch", vi.fn(authenticatedFetch));
+    render(<App />);
+    expect(await screen.findByRole("heading", { name: "Server overview" })).toBeTruthy();
+    await vi.waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalledWith("/api/v1/health"));
+    expect(screen.queryByRole("heading", { name: "Design system" })).toBeNull();
+    window.history.replaceState(null, "", "/");
+  });
+
+  it("offers System, Light and Dark in the top bar", async () => {
+    vi.stubGlobal("fetch", vi.fn(authenticatedFetch));
+    render(<App />);
+    expect(await screen.findByRole("heading", { name: "Server overview" })).toBeTruthy();
+    const theme = screen.getByRole("radiogroup", { name: "Theme" });
+    expect(theme.closest(".topbar")).not.toBeNull();
+    expect(within(theme).getAllByRole("radio").map((radio) => radio.textContent)).toEqual(["System", "Light", "Dark"]);
+  });
 });
