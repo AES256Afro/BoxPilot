@@ -164,6 +164,7 @@ const publicRoutes = [
   "GET /api/v1/auth/identity", "POST /api/v1/auth/tailscale", "POST /api/v1/auth/github/start", "POST /api/v1/auth/github/poll",
   "POST /api/v1/auth/passkey/options", "POST /api/v1/auth/passkey/verify", "POST /api/v1/auth/passkey/recovery",
   "GET /.well-known/openid-configuration", "GET /oidc/jwks", "GET /oidc/authorize", "POST /oidc/authorize", "POST /oidc/token", "GET /oidc/userinfo",
+  "OPTIONS /oidc/token", "OPTIONS /oidc/userinfo", "OPTIONS /oidc/jwks",
 ];
 
 /** The caller's own account and nothing else: sign-out, elevation, password, sessions, passkeys, linked identities. */
@@ -505,10 +506,12 @@ describe("every route is accounted for", () => {
     const factories = new Set([...index.matchAll(/(create\w+Router)\(/g)].map((match) => match[1]));
     // A router mounted in index.mjs and not here is a set of routes nobody has classified.
     expect([...factories].sort()).toEqual(Object.keys(routers).sort());
-    const inline = [...index.matchAll(/app\.(get|post|put|delete|patch)\("([^"]+)"/g)].map((match) => `${match[1].toUpperCase()} ${match[2]}`);
+    const inline = [...index.matchAll(/app\.(get|post|put|delete|patch|options|all)\("([^"]+)"/g)].map((match) => `${match[1].toUpperCase()} ${match[2]}`);
+    // A route may be declared for several paths at once (the OIDC preflight is), and `all` answers every method.
     const mounted = Object.entries(routers).flatMap(([name, router]) => router.stack
       .filter((layer) => layer.route)
-      .flatMap((layer) => Object.keys(layer.route.methods).filter((method) => method !== "_all").map((method) => `${method.toUpperCase()} ${name === "createOidcRouter" ? "" : "/api/v1"}${layer.route.path}`)));
+      .flatMap((layer) => [layer.route.path].flat().flatMap((routePath) => Object.keys(layer.route.methods)
+        .map((method) => `${method === "_all" ? "ALL" : method.toUpperCase()} ${name === "createOidcRouter" ? "" : "/api/v1"}${routePath}`))));
     const routes = [...new Set([...inline, ...mounted])].sort();
     const classified = [...publicRoutes, ...selfRoutes, ...directRoutes, ...changeRoutes, ...Object.keys(dataRoutes)];
     expect(new Set(classified).size, "a route is in two tables").toBe(classified.length);
