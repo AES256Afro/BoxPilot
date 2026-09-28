@@ -38,6 +38,8 @@ function normalizeJob(row, steps = [], approvals = []) {
     recovery: parseJson(row.recovery_json),
     result: row.result_json ? parseJson(row.result_json, null) : null,
     error: row.error,
+    // M30.3: a job that ran out of time says so here (server/timeouts.mjs has the shape).
+    timeout: row.timeout_json ? parseJson(row.timeout_json, null) : null,
     createdBy: row.created_by,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -400,6 +402,8 @@ export function createStateStore({
   const approvalColumns = database.prepare("PRAGMA table_info(approvals)").all().map((column) => column.name);
   if (!approvalColumns.includes("method")) database.exec("ALTER TABLE approvals ADD COLUMN method TEXT NOT NULL DEFAULT 'password'");
   if (!approvalColumns.includes("tier")) database.exec("ALTER TABLE approvals ADD COLUMN tier TEXT");
+  // M30.3: a timeout is a result of its own on the job, not a phrase in its error.
+  if (!database.prepare("PRAGMA table_info(jobs)").all().some((column) => column.name === "timeout_json")) database.exec("ALTER TABLE jobs ADD COLUMN timeout_json TEXT");
 
   function timestamp() {
     return iso(now());
@@ -909,15 +913,15 @@ export function createStateStore({
     return { removedJobs, removedAudit, removedAbandoned, removedSessions, removedPlans };
   }
 
-  function transitionJob(jobId, fromStates, state, { result = undefined, error = undefined } = {}) {
+  function transitionJob(jobId, fromStates, state, { result = undefined, error = undefined, timeout = undefined } = {}) {
     const allowed = Array.isArray(fromStates) ? fromStates : [fromStates];
     const placeholders = allowed.map(() => "?").join(", ");
     const current = database.prepare(`SELECT state FROM jobs WHERE id = ? AND state IN (${placeholders})`).get(jobId, ...allowed);
     if (!current) throw new Error("Job is not in an allowed state");
     // COALESCE, not overwrite: a job that succeeded on the host and then failed its evidence check
     // would otherwise lose the artifact path and checksum the earlier transition recorded.
-    database.prepare("UPDATE jobs SET state = ?, result_json = COALESCE(?, result_json), error = COALESCE(?, error), updated_at = ? WHERE id = ?")
-      .run(state, result === undefined ? null : json(result), error ?? null, timestamp(), jobId);
+    database.prepare("UPDATE jobs SET state = ?, result_json = COALESCE(?, result_json), error = COALESCE(?, error), timeout_json = COALESCE(?, timeout_json), updated_at = ? WHERE id = ?")
+      .run(state, result === undefined ? null : json(result), error ?? null, timeout ? json(timeout) : null, timestamp(), jobId);
     emitJobChanged(jobId);
     return getJob(jobId);
   }
@@ -1528,7 +1532,8 @@ export function createStateStore({
       for (const { id } of interrupted) {
         database.prepare("UPDATE jobs SET state = 'failed', error = ?, updated_at = ? WHERE id = ?")
           .run("BoxPilot restarted while this job was running. The operation itself may still have finished on its own; check what it changed before retrying.", timestamp(), id);
-        addJobStep(id, "recovery", "required", "The operation was interrupted; no automatic retry was attempted");
+        // Whether it runs again is decided after this, from the registry (server/job-reruns.mjs).
+        addJobStep(id, "recovery", "required", "The operation was interrupted by a BoxPilot restart");
       }
       database.exec("COMMIT");
     } catch (error) {

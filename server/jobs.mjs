@@ -2,14 +2,22 @@ import { verifyPassword } from "./security.mjs";
 import { defaultThrottle as throttle } from "./login-throttle.mjs";
 import { approvalRequirement, defaultApprovalMode, elevationTtlMs, normalizeApprovalMode } from "./ops/risk.mjs";
 import { registry } from "./ops/index.mjs";
-import { placeholderPaths, restoreSecrets, secretPaths, secretPlaceholder, splitSecrets } from "./ops/registry.mjs";
+import { budgetFor, nextBudgetMs, placeholderPaths, restoreSecrets, secretPaths, secretPlaceholder, splitSecrets } from "./ops/registry.mjs";
 import { asSentence } from "./health-alerts.mjs";
+import { formatDuration, jobTimeoutRecord, timeoutMessage, timeoutOf } from "./timeouts.mjs";
 
 /** What a secret parameter looks like in the database and the job API. */
 export { secretPlaceholder };
 export const stagedSecretTtlMs = 30 * 60_000;
 /** A job that ran but whose result BoxPilot could not save; it carries a failed "record" step. */
 export const recordFailed = (job) => (job?.steps ?? []).some((step) => step.name === "record" && step.state === "failed");
+
+/** The job-log step for a timeout: which limit ran out, and how long the job had run by then. */
+function timeoutStep(timeout) {
+  if (timeout.phase === "queued") return `Waited ${formatDuration(timeout.elapsedMs)} behind other work and never started`;
+  if (timeout.scope === "operation") return `Used its whole ${formatDuration(timeout.budgetMs)}; BoxPilot stopped waiting after ${formatDuration(timeout.elapsedMs)}`;
+  return `${timeout.step ?? "One step"} ran out of its ${formatDuration(timeout.budgetMs)}; the job had run for ${formatDuration(timeout.elapsedMs)}`;
+}
 
 /** One condition per operation and subject: a nightly backup that cannot record is one alert, not one a night. */
 function recordAlertKey(job) {
@@ -129,10 +137,15 @@ export function createJobService(store, helper, {
         throw new Error(`Wait for ${running.length === 1 ? "a running job" : `${running.length} running jobs`} to finish first: ${names}. "${registeredOperation.title}" restarts BoxPilot and would interrupt ${running.length === 1 ? "it" : "them"}.`);
       }
     }
+    // The budget this job runs under: the operation's own, or the larger one it was staged with by
+    // "Try again with more time" (M30.3), re-checked against the registry here.
+    const budgetMs = budgetFor(registeredOperation, job.recovery?.budgetMs ?? null);
     const execution = {
       operation: registeredOperation.id,
       parameters,
-      timeoutMs: registeredOperation.timeoutMs,
+      timeoutMs: budgetMs,
+      // Sent to the helper only when it differs, so an older helper still runs every normal job.
+      ...(budgetMs !== registeredOperation.timeoutMs ? { budgetMs } : {}),
       applying: `Running ${registeredOperation.title}`,
       applied: `${registeredOperation.title} finished`,
       verified: `${registeredOperation.title} completed`,
@@ -162,8 +175,26 @@ export function createJobService(store, helper, {
     } catch { /* output is best-effort */ }
   }
 
+  /**
+   * The job's timeout record, when the operation ran out of time (M30.3): which budget, how long it
+   * had run, how far its log got, and whether "Try again with more time" is on offer. Null for any
+   * other failure. More time is offered when the operation declares a larger maximum, the job did
+   * not already have it, the work had started (a job that never left the queue needs the queue to
+   * clear, not more time), and its parameters hold no secrets, which are gone once it has run.
+   */
+  async function timeoutRecordFor(job, execution, error, startedAt) {
+    const timeout = timeoutOf(error);
+    if (!timeout) return null;
+    const operation = registry.get(job.type.slice(3));
+    const moreTimeMs = timeout.phase === "queued" || placeholderPaths(job.parameters ?? {}).length ? null : nextBudgetMs(operation, execution.timeoutMs);
+    let log = "";
+    try { log = jobLog ? (await jobLog.read(job.id, 0))?.text ?? "" : ""; } catch { /* the record stands without it */ }
+    return jobTimeoutRecord(timeout, { elapsedMs: now() - startedAt, log, moreTimeMs });
+  }
+
   async function executePrepared({ job, owner, execution }) {
     const jobId = job.id;
+    const startedAt = now();
     let refreshed = false;
     const refreshEvidence = async () => {
       if (refreshed) return;
@@ -175,7 +206,7 @@ export function createJobService(store, helper, {
       const result = execution.run
         ? await execution.run()
         : execution.timeoutMs
-          ? await helper.request(execution.operation, execution.parameters, { timeoutMs: execution.timeoutMs, jobId })
+          ? await helper.request(execution.operation, execution.parameters, { timeoutMs: execution.timeoutMs, jobId, ...(execution.budgetMs ? { budgetMs: execution.budgetMs } : {}) })
           : await helper.request(execution.operation, execution.parameters, { jobId });
       store.transitionJob(jobId, "applying", "verifying", { result });
       store.addJobStep(jobId, "apply", "completed", execution.applied);
@@ -193,12 +224,18 @@ export function createJobService(store, helper, {
       await refreshEvidence();
       const current = store.getJob(jobId);
       if (["applying", "verifying"].includes(current?.state)) {
-        store.addJobStep(jobId, "verify", "failed", execution.failed);
+        // Only the operation itself can run out of time; a record hook failing afterwards cannot.
+        const timeout = current.state === "applying" && job.type.startsWith("op:") ? await timeoutRecordFor(job, execution, error, startedAt) : null;
+        // A step's own limit comes with the operation's sentence (what it undid); the whole budget
+        // running out has no such sentence, so it gets one saying what is known.
+        const message = timeout && (timeout.scope === "operation" || timeout.phase === "queued") ? timeoutMessage(job.title, timeout) : error.message;
+        if (timeout) store.addJobStep(jobId, "timeout", "reached", timeoutStep(timeout).slice(0, 500));
+        else store.addJobStep(jobId, "verify", "failed", execution.failed);
         // Helper operations that roll back on failure say so in the error itself.
         if (/rollback|cleanup completed|was unchanged/i.test(error.message)) {
           store.addJobStep(jobId, "rollback", "completed", "The operation undid its partial changes before failing; existing data was preserved");
         }
-        store.transitionJob(jobId, current.state, "failed", { error: error.message });
+        store.transitionJob(jobId, current.state, "failed", { error: message, ...(timeout ? { timeout } : {}) });
       }
       store.recordAudit("job.failed", { actorId: owner.id, subjectId: jobId, details: { type: job.type } });
       await persistJobOutput(jobId);
@@ -218,8 +255,14 @@ export function createJobService(store, helper, {
     return store.getJob(jobId);
   }
 
-  /** Stage a job for any registered, non-read-only operation. Approval and execution are generic. */
-  async function createOperationJob(operationId, parameters, ownerId, { role = "owner" } = {}) {
+  /**
+   * Stage a job for any registered, non-read-only operation. Approval and execution are generic.
+   *
+   * `budgetMs` stages it with more time than normal (M30.3; the registry decides whether it counts),
+   * and `rerunOf` / `retryOf` name the job this one runs again: after a restart cut it off (M30.2),
+   * or after it ran out of time. They are kept on the record so each run links to the one before.
+   */
+  async function createOperationJob(operationId, parameters, ownerId, { role = "owner", budgetMs = null, rerunOf = null, retryOf = null } = {}) {
     const operation = registry.get(operationId);
     if (!operation) throw new Error("Operation not found");
     if (role === "viewer" || role === "disabled") throw new Error("Viewers cannot stage operations");
@@ -235,6 +278,7 @@ export function createJobService(store, helper, {
     // keeps a placeholder, so the controller database - and every backup of it - never holds one.
     const { stored: persisted, secrets } = splitSecrets(parameters ?? {}, await secretPaths(operation, parameters ?? {}, { secretEnvNamesFor }));
     const approvalExpiresAt = secrets.length ? new Date(now() + secretTtlMs).toISOString() : null;
+    const budget = budgetFor(operation, budgetMs);
     const job = store.createJob({
       type: `op:${operationId}`,
       title: operation.title,
@@ -242,6 +286,9 @@ export function createJobService(store, helper, {
       parameters: persisted,
       recovery: {
         ...(approvalExpiresAt ? { approvalExpiresAt } : {}),
+        ...(budget !== operation.timeoutMs ? { budgetMs: budget } : {}),
+        ...(typeof rerunOf === "string" && rerunOf ? { rerunOf } : {}),
+        ...(typeof retryOf === "string" && retryOf ? { retryOf } : {}),
         reason: operation.description || `${operation.title} is ${operation.risk} risk.`,
         manual: "If verification fails, review the job log and the helper journal, then rerun or undo the operation.",
       },
@@ -249,13 +296,36 @@ export function createJobService(store, helper, {
       initialSteps: [
         { name: "preflight", state: "completed", detail: `${operation.title}: parameters validated against the operation registry` },
         { name: "checkpoint", state: "completed", detail: `${operation.risk} risk · ${operation.readOnly ? "read-only" : "changes host state"} · runs through the root task runner` },
+        ...(typeof rerunOf === "string" && rerunOf ? [{ name: "rerun", state: "completed", detail: `Ran again after BoxPilot restarted. The first run, job ${rerunOf}, was cut off.` }] : []),
+        ...(typeof retryOf === "string" && retryOf ? [{ name: "retry", state: "completed", detail: `Trying again with more time. The last run, job ${retryOf}, ran out of time.` }] : []),
+        ...(budget !== operation.timeoutMs ? [{ name: "budget", state: "completed", detail: `Allowed ${formatDuration(budget)} instead of the usual ${formatDuration(operation.timeoutMs)}` }] : []),
       ],
     });
     if (secrets.length) stagedSecrets.set(job.id, { values: secrets, expiresAt: Date.parse(approvalExpiresAt) });
     return job;
   }
 
-  /** Read-only: what approving this job would require for the given session. */
+  /**
+   * "Try again with more time" (M30.3): stage the same operation, with the same parameters, again,
+   * with twice the budget that ran out, up to the operation's declared maximum. It is staged, not
+   * run: it goes through the same approval, at the same tier, as any other job, by whoever asks.
+   */
+  async function retryWithMoreTime(jobId, ownerId, { role = "owner" } = {}) {
+    const job = store.getJob(jobId);
+    if (!job || (job.createdBy !== ownerId && role !== "owner")) throw new Error("Job not found");
+    const operation = job.type.startsWith("op:") ? registry.get(job.type.slice(3)) : null;
+    const refuse = (message) => Object.assign(new Error(message), { code: "more_time_refused" });
+    if (!operation || job.state !== "failed" || !job.timeout) throw refuse("Only a job that ran out of time can be tried again with more time");
+    if (job.timeout.phase === "queued") throw refuse("This job never started: it waited behind other work. Run it again once that work has finished.");
+    if (placeholderPaths(job.parameters ?? {}).length) throw refuse("This job was given passwords, and BoxPilot does not keep them after a job runs. Start it again from where you started it.");
+    const budgetMs = nextBudgetMs(operation, budgetFor(operation, job.recovery?.budgetMs ?? null));
+    if (!budgetMs) throw refuse(operation.maxTimeoutMs ? `${operation.title} already had the most time it can have, ${formatDuration(operation.maxTimeoutMs)}.` : `${operation.title} cannot be given more time.`);
+    const retry = await createOperationJob(operation.id, job.parameters ?? {}, ownerId, { role, budgetMs, retryOf: job.id });
+    store.addJobStep(job.id, "retry", "staged", `Staged again with ${formatDuration(budgetMs)} as job ${retry.id}`);
+    store.recordAudit("job.more-time", { actorId: ownerId, subjectId: retry.id, details: { type: job.type, retryOf: job.id, budgetMs } });
+    return retry;
+  }
+
   /** Apply the operation's prepare hook without staging — the scheduler validates with it. */
   async function prepareParameters(operationId, parameters = {}) {
     return operationPrepareHooks[operationId] ? operationPrepareHooks[operationId](parameters ?? {}) : parameters ?? {};
@@ -272,6 +342,7 @@ export function createJobService(store, helper, {
     return store.getJob(jobId);
   }
 
+  /** Read-only: what approving this job would require for the given session. */
   function describeApproval(jobId, session = null) {
     const job = store.getJob(jobId);
     if (!job) return null;
@@ -301,5 +372,5 @@ export function createJobService(store, helper, {
     return dropped;
   }
 
-  return { pruneStagedSecrets, holdsStagedSecrets, createOperationJob, approveAndRun, approveAndStart, describeApproval, approvalPolicy, cancelJob, prepareParameters };
+  return { pruneStagedSecrets, holdsStagedSecrets, createOperationJob, retryWithMoreTime, approveAndRun, approveAndStart, describeApproval, approvalPolicy, cancelJob, prepareParameters };
 }

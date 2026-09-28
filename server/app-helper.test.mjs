@@ -1557,6 +1557,50 @@ describe("an update or a step back that fails part-way", () => {
     expect(await composeFile()).toBe(current);
     expect(calls.filter((call) => / up /.test(call))).toHaveLength(2); // the failed start, then the restore
   });
+
+  // M30.3: a pull that hit its own limit is a timeout the job can offer more time for, and a job
+  // given more time gives the pull more too.
+  const timingOut = (runDocker, verb, limits) => {
+    const original = runDocker.getMockImplementation();
+    runDocker.mockImplementation(async (binary, args, options) => {
+      if (args[0] === "compose" && args.includes(verb)) { limits.push(options.timeout); return { ok: false, timedOut: true, code: null, stdout: "", stderr: `timed out after ${options.timeout} ms` }; }
+      return original(binary, args, options);
+    });
+  };
+
+  it("says a pull that ran out of its limit timed out, and scales the limit with the job's budget", async () => {
+    const { apps, publish, composeFile, runDocker } = await installed();
+    const before = await composeFile();
+    await publish("app:2.0.0");
+    const limits = [];
+    timingOut(runDocker, "pull", limits);
+    const error = await apps.update({ id: "step" }, { checkpoint: false }).catch((caught) => caught);
+    expect(error.message).toBe("Step update failed before anything was restarted; the app was unchanged. Downloading the new images did not finish within 30 minutes");
+    expect(error.timeout).toEqual({ scope: "step", budgetMs: 30 * 60_000, step: "Downloading the new images" });
+    expect(await composeFile()).toBe(before);
+    const doubled = await apps.update({ id: "step" }, { checkpoint: false, timeScale: 2 }).catch((caught) => caught);
+    expect(doubled.timeout).toMatchObject({ budgetMs: 60 * 60_000 });
+    expect(limits).toEqual([30 * 60_000, 60 * 60_000]);
+  });
+
+  it("says an install whose images did not arrive in time timed out, after rolling it back", async () => {
+    const { apps, runDocker, catalogRoot } = await setup();
+    const limits = [];
+    timingOut(runDocker, "up", limits);
+    const error = await apps.install({ id: "demo", values: { setup: [] } }, { timeScale: 2 }).catch((caught) => caught);
+    expect(error.message).toBe("Demo installation failed and was rolled back. Downloading the images and starting the app did not finish within 30 minutes");
+    expect(error.timeout).toEqual({ scope: "step", budgetMs: 30 * 60_000, step: "Downloading the images and starting the app" });
+    expect(limits).toEqual([30 * 60_000]);
+    await expect(stat(path.join(catalogRoot, "demo"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("does not call an ordinary failed pull a timeout", async () => {
+    const { apps, publish, failing } = await installed();
+    await publish("app:2.0.0");
+    failing("pull");
+    const error = await apps.update({ id: "step" }, { checkpoint: false }).catch((caught) => caught);
+    expect(error.timeout).toBeUndefined();
+  });
 });
 
 // Linux only: needs /usr/bin/tar.

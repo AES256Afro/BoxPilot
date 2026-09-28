@@ -1,9 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { JobLogView } from "./JobLogView";
 import { jobWarnings } from "./JobWarnings";
+import { jobTimeout } from "./JobTimeout";
+import { ApproveDialog } from "./ApproveDialog";
 import { useDialogFocus } from "./useDialogFocus";
 import { createPortal } from "react-dom";
 import { followJobOutput, followJobs, terminalJobStates, type Job, type JobFeedStatus } from "./operations";
+
+/** A retry with more time is staged from the job itself; the dialog's own parameters go unused. */
+const noParameters: Record<string, unknown> = {};
 
 /**
  * Global Activity drawer (M1.5): a topbar button with a running-job badge that opens a panel
@@ -29,6 +34,13 @@ function stateTone(state: string): string {
   return "status-neutral";
 }
 
+/** What the row's pill says: a job that ran out of time is not the same as one that failed (M30.3). */
+function statusPill(job: Job): { label: string; tone: string } {
+  if (job.state === "completed" && jobWarnings(job.result).length) return { label: "Completed with notice", tone: "status-warning" };
+  if (jobTimeout(job)) return { label: "Timed out", tone: "status-warning" };
+  return { label: stateLabel[job.state] ?? job.state, tone: stateTone(job.state) };
+}
+
 function timeLabel(iso?: string): string {
   if (!iso) return "";
   const time = Date.parse(iso);
@@ -47,9 +59,11 @@ function upsert(jobs: Job[], job: Job): Job[] {
 }
 
 
-export function ActivityDrawer() {
+export function ActivityDrawer({ csrfToken = "" }: { csrfToken?: string }) {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [open, setOpen] = useState(false);
+  // The timed-out job being staged again with more time, through the ordinary approval dialog.
+  const [moreTime, setMoreTime] = useState<Job | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [feedStatus, setFeedStatus] = useState<JobFeedStatus>("loading");
   const [retry, setRetry] = useState(0);
@@ -71,6 +85,8 @@ export function ActivityDrawer() {
   const runningCount = jobs.filter((job) => activeStates.has(job.state)).length;
   const expanded = expandedId ? jobs.find((job) => job.id === expandedId) ?? null : null;
   const toggle = useCallback((jobId: string) => setExpandedId((current) => (current === jobId ? null : jobId)), []);
+  // The drawer closes first: two modals would each hold keyboard focus against the other.
+  const tryWithMoreTime = useCallback((job: Job) => { setOpen(false); setMoreTime(job); }, []);
 
   return (
     <>
@@ -104,16 +120,20 @@ export function ActivityDrawer() {
                   <button type="button" className="activity-row" aria-expanded={expandedId === job.id} onClick={() => toggle(job.id)}>
                     <span className="activity-title">{job.title}</span>
                     <span className="activity-meta">
-                      <span className={`status-pill ${job.state === "completed" && jobWarnings(job.result).length ? "status-warning" : stateTone(job.state)}`}>{job.state === "completed" && jobWarnings(job.result).length ? "Completed with notice" : stateLabel[job.state] ?? job.state}</span>
+                      <span className={`status-pill ${statusPill(job).tone}`}>{statusPill(job).label}</span>
                       <span className="activity-time">{timeLabel(job.createdAt)}</span>
                     </span>
                   </button>
-                  {expanded?.id === job.id && <JobLogView job={expanded} />}
+                  {expanded?.id === job.id && <JobLogView job={expanded} onMoreTime={csrfToken ? tryWithMoreTime : undefined} />}
                 </div>
               ))}
             </div>
           </aside>
         </div>,
+        document.body,
+      )}
+      {moreTime && createPortal(
+        <ApproveDialog operationId={moreTime.type.slice(3)} title={moreTime.title} parameters={noParameters} moreTimeFor={moreTime.id} csrfToken={csrfToken} onClose={() => setMoreTime(null)} />,
         document.body,
       )}
     </>
