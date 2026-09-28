@@ -1,0 +1,1985 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>BoxPilot UI Directions</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@500;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=Figtree:wght@400;500;600;700;800&family=IBM+Plex+Sans+Condensed:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=Instrument+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&family=DM+Mono:wght@400;500&family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,400..600&family=Rubik:wght@400;500;600;700&family=Cantarell:wght@400;700&display=swap">
+<style>
+:root{
+  --bg:#ECEEF1;--surface:#FFFFFF;--ink:#13161B;--muted:#586070;--faint:#8A92A0;--line:#D5D9E0;
+  --accent:#2748B5;--accent-soft:#E2E8F8;--frame:#D9DDE4;--chip:#F3F5F8;
+  --display:'Schibsted Grotesk','Helvetica Neue',Arial,sans-serif;
+  --body:'IBM Plex Sans','Segoe UI',system-ui,sans-serif;
+  --mono:'IBM Plex Mono',ui-monospace,Consolas,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#0E1014;--surface:#161920;--ink:#E5E8EE;--muted:#9AA2B0;--faint:#6D7584;--line:#272C35;
+    --accent:#93AEFF;--accent-soft:#1B2440;--frame:#1C2028;--chip:#1D2129;color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0E1014;--surface:#161920;--ink:#E5E8EE;--muted:#9AA2B0;--faint:#6D7584;--line:#272C35;
+  --accent:#93AEFF;--accent-soft:#1B2440;--frame:#1C2028;--chip:#1D2129;color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.6 var(--body);-webkit-font-smoothing:antialiased}
+.page{max-width:1160px;margin:0 auto;padding-inline:28px;padding-block:56px 96px}
+a{color:var(--accent)}
+a:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:6px}
+.eyebrow{font:500 12px/1.4 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.intro h1{font:800 clamp(34px,5.4vw,60px)/1.02 var(--display);letter-spacing:-.025em;margin:14px 0 18px;text-wrap:balance;max-width:16ch}
+.intro .lede{font-size:clamp(17px,2vw,20px);line-height:1.5;max-width:62ch;margin:0 0 14px;color:var(--ink)}
+.intro p{max-width:66ch;margin:0 0 12px;color:var(--muted)}
+.tiers-key{display:flex;flex-wrap:wrap;gap:8px;margin-top:18px}
+.tk{display:inline-flex;align-items:center;gap:8px;font-size:13px;padding:6px 12px 6px 8px;border-radius:99px;background:var(--surface);border:1px solid var(--line)}
+.tk b{font:600 11px/1 var(--mono);letter-spacing:.04em;text-transform:uppercase;padding:4px 7px;border-radius:99px;color:#fff}
+.tk .l{background:#1F8A55}.tk .m{background:#B7791F}.tk .h{background:#C2362F}
+.picker{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:40px 0 8px}
+.pick{display:flex;flex-direction:column;gap:6px;padding:14px 14px 14px;border-radius:12px;background:var(--surface);border:1px solid var(--line);color:var(--ink);text-decoration:none;transition:border-color .15s,transform .15s}
+.pick:hover{border-color:var(--accent);transform:translateY(-1px)}
+.pick .n{font:500 11px/1 var(--mono);color:var(--faint)}
+.pick .nm{font:700 17px/1.2 var(--display);letter-spacing:-.01em}
+.pick .ln{font-size:12.5px;line-height:1.4;color:var(--muted)}
+.sw{display:flex;gap:3px;margin-top:auto;padding-top:6px}
+.sw i{height:6px;flex:1;border-radius:3px}
+.dir{margin-top:88px;scroll-margin-top:24px}
+.dir-h{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 24px;align-items:end;border-top:2px solid var(--ink);padding-top:16px}
+.dir-h h2{font:800 clamp(30px,4vw,44px)/1.05 var(--display);letter-spacing:-.02em;margin:6px 0 0;text-wrap:balance}
+.dir-h .concept{grid-column:1/-1;font-size:18px;line-height:1.45;margin:4px 0 0;max-width:60ch}
+.dir-h .top{font:500 12px/1 var(--mono);color:var(--muted);text-decoration:none;align-self:start}
+.notes{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);gap:28px;margin:26px 0 30px}
+.notes dl{margin:0;display:grid;grid-template-columns:130px minmax(0,1fr);gap:10px 18px}
+.notes dt{font:600 12px/1.6 var(--mono);text-transform:uppercase;letter-spacing:.05em;color:var(--muted);padding-top:2px}
+.notes dd{margin:0;font-size:14.5px;line-height:1.55}
+.sig{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px 18px}
+.sig h3{font:600 12px/1.4 var(--mono);text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:0 0 10px}
+.sig ul{margin:0;padding:0;list-style:none;display:grid;gap:10px}
+.sig li{font-size:14px;line-height:1.5;padding-left:16px;position:relative}
+.sig li::before{content:"";position:absolute;left:0;top:.62em;width:7px;height:7px;border-radius:2px;background:var(--accent)}
+.sig li b{font-weight:600}
+.shots{display:grid;gap:22px}
+.shot figcaption{display:flex;justify-content:space-between;gap:12px;font:500 12px/1.4 var(--mono);color:var(--muted);margin:0 0 8px}
+.shot figcaption b{color:var(--ink);font-weight:500}
+.shot{margin:0}
+.frame{background:var(--frame);border-radius:14px;padding:8px}
+.stage-wrap{position:relative;width:100%;aspect-ratio:1040/600;overflow:hidden;border-radius:9px;background:#222}
+.stage{position:absolute;left:0;top:0;width:1040px;height:600px;overflow:hidden;transform-origin:0 0;font-size:12px;line-height:1.35;text-align:left}
+.stage *{box-sizing:border-box}
+.stage svg.ic{width:1em;height:1em;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none;vertical-align:-.14em}
+/* shared app icons */
+.ap{--z:32px;display:inline-grid;place-items:center;flex:none;width:var(--z);height:var(--z);border-radius:calc(var(--z)*.28);font-weight:700;font-size:calc(var(--z)*.4);line-height:1;color:#fff;letter-spacing:-.03em;position:relative;overflow:hidden;font-style:normal}
+.ap-ol{background:#F4F4F1;color:#141414;box-shadow:inset 0 0 0 1px rgba(0,0,0,.08)}
+.ap-ow{background:#17171B}
+.ap-lc{background:linear-gradient(140deg,#16997A,#0A5A48)}
+.ap-jf{background:linear-gradient(135deg,#AA5CC3,#00A4DC)}
+.ap-im{background:radial-gradient(circle at 34% 34%,#FA2921 0 17%,transparent 18%),radial-gradient(circle at 66% 34%,#FFB400 0 17%,transparent 18%),radial-gradient(circle at 34% 66%,#1E83F7 0 17%,transparent 18%),radial-gradient(circle at 66% 66%,#18C249 0 17%,transparent 18%),#FFFFFF;box-shadow:inset 0 0 0 1px rgba(0,0,0,.08)}
+.ap-ph{background:linear-gradient(140deg,#E3353F,#8C0B16)}
+.ap-vw{background:linear-gradient(140deg,#2F72EA,#1646B6)}
+.ap-ha{background:linear-gradient(140deg,#45C0F6,#178CC6)}
+.ap-nc{background:linear-gradient(140deg,#1E9EE2,#0067A7)}
+.ap-ab{background:linear-gradient(140deg,#F4A62A,#C25F0C)}
+.ap-wh{background:linear-gradient(140deg,#43434F,#141419)}
+.ap-sy{background:linear-gradient(140deg,#11A7EC,#05679F)}
+.ap-uk{background:linear-gradient(140deg,#5DDC8C,#1C9753)}
+.ap-pp{background:linear-gradient(140deg,#2F8E59,#15501D)}
+.ap-mc{background:linear-gradient(140deg,#7DB443,#4B761C)}
+.ap-gr{background:linear-gradient(140deg,#3BA3AB,#21666C)}
+.ap-bp{background:linear-gradient(140deg,#3A4150,#1C2029)}
+.compare{margin-top:96px}
+.compare h2{font:800 clamp(28px,3.6vw,40px)/1.1 var(--display);letter-spacing:-.02em;margin:0 0 8px}
+.compare > p{color:var(--muted);max-width:66ch;margin:0 0 20px}
+.tbl{overflow-x:auto;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+.tbl table{border-collapse:collapse;width:100%;min-width:720px;font-size:14px}
+.tbl th,.tbl td{text-align:left;padding:11px 14px;border-bottom:1px solid var(--line);vertical-align:top}
+.tbl tr:last-child td{border-bottom:0}
+.tbl th{font:600 11.5px/1.4 var(--mono);text-transform:uppercase;letter-spacing:.05em;color:var(--muted);background:var(--chip)}
+.tbl td:first-child{font-weight:600;white-space:nowrap}
+.tbl td:first-child a{color:var(--ink);text-decoration:none}
+.tbl td:first-child a:hover{color:var(--accent)}
+.meter{display:inline-flex;gap:3px;vertical-align:middle;margin-right:8px}
+.meter i{width:9px;height:9px;border-radius:2px;background:var(--line)}
+.meter i.on{background:var(--ink)}
+.mix{margin-top:28px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.mix div{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px;font-size:14px}
+.mix b{display:block;font:700 15px/1.3 var(--display);margin-bottom:4px}
+.foot{margin-top:56px;color:var(--faint);font-size:13px;max-width:70ch}
+@media (max-width:880px){
+  .picker{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .notes{grid-template-columns:1fr}
+  .mix{grid-template-columns:1fr}
+}
+@media (max-width:560px){
+  .page{padding-inline:16px;padding-block:36px 72px}
+  .notes dl{grid-template-columns:1fr;gap:2px}
+  .notes dd{margin-bottom:10px}
+  .dir{margin-top:64px}
+  .frame{padding:4px;border-radius:10px}
+  .stage-wrap{border-radius:7px}
+  .pick{padding:12px}
+}
+@media (prefers-reduced-motion:reduce){.pick{transition:none}.pick:hover{transform:none}}
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/></symbol>
+  <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/></symbol>
+  <symbol id="i-disk" viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></symbol>
+  <symbol id="i-archive" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="5" rx="1"/><path d="M5 9v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9M10 13h4"/></symbol>
+  <symbol id="i-net" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18"/></symbol>
+  <symbol id="i-vm" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></symbol>
+  <symbol id="i-update" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.9-3M4 13a8 8 0 0 0 14.9 3"/><path d="M4 4v4h4M20 20v-4h-4"/></symbol>
+  <symbol id="i-wrench" viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.8-3.8a6 6 0 0 1-7.9 7.9l-6.9 6.9a2.1 2.1 0 0 1-3-3l6.9-6.9a6 6 0 0 1 7.9-7.9z"/></symbol>
+  <symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.5v3M12 18.5v3M4.6 4.6l2.1 2.1M17.3 17.3l2.1 2.1M2.5 12h3M18.5 12h3M4.6 19.4l2.1-2.1M17.3 6.7l2.1-2.1"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></symbol>
+  <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></symbol>
+  <symbol id="i-chevd" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></symbol>
+  <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></symbol>
+  <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 16l.7 1.8 1.8.7-1.8.7L19 21l-.7-1.8-1.8-.7 1.8-.7z"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+  <symbol id="i-undo" viewBox="0 0 24 24"><path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+  <symbol id="i-cpu" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1.5"/><rect x="9.5" y="9.5" width="5" height="5"/><path d="M9 2.5v3M15 2.5v3M9 18.5v3M15 18.5v3M2.5 9h3M2.5 15h3M18.5 9h3M18.5 15h3"/></symbol>
+  <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></symbol>
+  <symbol id="i-send" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 24 24"><path d="M12 3l9 4.5-9 4.5-9-4.5z"/><path d="M3 12l9 4.5 9-4.5M3 16.5L12 21l9-4.5"/></symbol>
+  <symbol id="i-wall" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="1.5"/><path d="M3 9.3h18M3 14.7h18M9 4v5.3M15 9.3v5.4M9 14.7V20"/></symbol>
+  <symbol id="i-share" viewBox="0 0 24 24"><circle cx="18" cy="5" r="2.6"/><circle cx="6" cy="12" r="2.6"/><circle cx="18" cy="19" r="2.6"/><path d="M8.3 13.3l7.4 4.4M15.7 6.3l-7.4 4.4"/></symbol>
+  <symbol id="i-gpu" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="11" rx="1.5"/><circle cx="8" cy="11.5" r="2.5"/><circle cx="16" cy="11.5" r="2.5"/><path d="M5 17v3"/></symbol>
+  <symbol id="i-tv" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="13" rx="2"/><path d="M8 21h8"/></symbol>
+  <symbol id="i-laptop" viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="11" rx="1.5"/><path d="M2 19h20"/></symbol>
+  <symbol id="i-phone" viewBox="0 0 24 24"><rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18.5h2"/></symbol>
+  <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
+  <symbol id="i-term" viewBox="0 0 24 24"><path d="M4 17l6-5-6-5M12 19h8"/></symbol>
+  <symbol id="i-filter" viewBox="0 0 24 24"><path d="M3 5h18l-7 8v6l-4 2v-8z"/></symbol>
+  <symbol id="i-key" viewBox="0 0 24 24"><circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M17 6l3 3M15 8l2 2"/></symbol>
+  <symbol id="i-face" viewBox="0 0 24 24"><path d="M3 8V5a2 2 0 0 1 2-2h3M16 3h3a2 2 0 0 1 2 2v3M21 16v3a2 2 0 0 1-2 2h-3M8 21H5a2 2 0 0 1-2-2v-3"/><path d="M9 9v1.5M15 9v1.5M12 9v4h-1M9 16c1.8 1.3 4.2 1.3 6 0"/></symbol>
+  <symbol id="i-pulse" viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4.5l12 7.5-12 7.5z"/></symbol>
+  <symbol id="i-dots" viewBox="0 0 24 24"><path d="M5 12h.01M12 12h.01M19 12h.01"/></symbol>
+  <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></symbol>
+  <symbol id="i-cal" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></symbol>
+  <symbol id="i-cloud" viewBox="0 0 24 24"><path d="M7 18a4.5 4.5 0 0 1-.5-9A6 6 0 0 1 18 8.5a4.5 4.5 0 0 1-.5 9.5z"/></symbol>
+  <symbol id="i-usb" viewBox="0 0 24 24"><rect x="7" y="9" width="10" height="13" rx="2"/><path d="M9 9V3h6v6M11 5.5h.01M13 5.5h.01"/></symbol>
+  <symbol id="i-film" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 4v16M17 4v16M3 9h4M3 15h4M17 9h4M17 15h4"/></symbol>
+  <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-9 9"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-ts" viewBox="0 0 24 24"><circle cx="5" cy="5" r="2" fill="currentColor" stroke="none"/><circle cx="12" cy="5" r="2" fill="currentColor" stroke="none" opacity=".35"/><circle cx="19" cy="5" r="2" fill="currentColor" stroke="none" opacity=".35"/><circle cx="5" cy="12" r="2" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="2" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="2" fill="currentColor" stroke="none"/><circle cx="5" cy="19" r="2" fill="currentColor" stroke="none" opacity=".35"/><circle cx="12" cy="19" r="2" fill="currentColor" stroke="none"/><circle cx="19" cy="19" r="2" fill="currentColor" stroke="none" opacity=".35"/></symbol>
+</svg>
+
+<main class="page">
+<header class="intro" id="top">
+  <div class="eyebrow">BoxPilot · redesign study · 27 Sep 2026</div>
+  <h1>Eight ways BoxPilot could look</h1>
+  <p class="lede">Today BoxPilot looks like most server admin panels: a sidebar that lists every subsystem, the same grid of stat cards on every page, and a lot of explanatory text. Nothing tells you where to look first, and every page feels the same.</p>
+  <p>Each direction below has two screens drawn at 1040 × 600 with one realistic home server: Ubuntu 24.04, an RTX 4080, three disks, nine apps, Tailscale, and the open alert about Immich. Under each name you'll find how it navigates, how it's laid out, how it reads, who it suits, and the features it adds. Pick one, or name the parts you'd combine.</p>
+  <p>Every direction shows BoxPilot's three risk tiers somewhere on screen:</p>
+  <div class="tiers-key">
+    <span class="tk"><b class="l">Low</b>one click</span>
+    <span class="tk"><b class="m">Medium</b>preview, then confirm</span>
+    <span class="tk"><b class="h">High</b>password and typed confirmation</span>
+  </div>
+</header>
+
+<nav class="picker" aria-label="Directions">
+  <a class="pick" href="#launcher"><span class="n">1</span><span class="nm">Launcher</span><span class="ln">Your apps are the home screen</span><span class="sw"><i style="background:#2E7D7A"></i><i style="background:#D08A4E"></i><i style="background:#1D3B5C"></i><i style="background:#4ADE80"></i></span></a>
+  <a class="pick" href="#command"><span class="n">2</span><span class="nm">Command Center</span><span class="ln">Dense ops console, nothing hidden</span><span class="sw"><i style="background:#0A0D10"></i><i style="background:#1D232B"></i><i style="background:#FFB547"></i><i style="background:#56C8E0"></i></span></a>
+  <a class="pick" href="#recipes"><span class="n">3</span><span class="nm">Recipes &amp; Guides</span><span class="ln">Start from what you want to do</span><span class="sw"><i style="background:#F3F5F9"></i><i style="background:#1E7A55"></i><i style="background:#FFCF4A"></i><i style="background:#DCE9FF"></i></span></a>
+  <a class="pick" href="#topology"><span class="n">4</span><span class="nm">Topology Map</span><span class="ln">The box drawn as a connected map</span><span class="sw"><i style="background:#F4F5F7"></i><i style="background:#475467"></i><i style="background:#0E9384"></i><i style="background:#444CE7"></i></span></a>
+  <a class="pick" href="#timeline"><span class="n">5</span><span class="nm">Timeline</span><span class="ln">A history you can read and undo</span><span class="sw"><i style="background:#FFFFFF;box-shadow:inset 0 0 0 1px #ddd"></i><i style="background:#111113"></i><i style="background:#1A7F37"></i><i style="background:#CF222E"></i></span></a>
+  <a class="pick" href="#copilot"><span class="n">6</span><span class="nm">Copilot</span><span class="ln">Ask in words, approve a plan</span><span class="sw"><i style="background:#131316"></i><i style="background:#26262C"></i><i style="background:#F0A47C"></i><i style="background:#ECEAE6"></i></span></a>
+  <a class="pick" href="#pocket"><span class="n">7</span><span class="nm">Pocket</span><span class="ln">Phone first, approvals from a notification</span><span class="sw"><i style="background:#102A28"></i><i style="background:#F2F3EF"></i><i style="background:#17A05D"></i><i style="background:#F2A93B"></i></span></a>
+  <a class="pick" href="#calm"><span class="n">8</span><span class="nm">Calm Settings</span><span class="ln">Feels like Ubuntu's own settings</span><span class="sw"><i style="background:#FAFAFB;box-shadow:inset 0 0 0 1px #ddd"></i><i style="background:#3584E4"></i><i style="background:#242424"></i><i style="background:#78AEED"></i></span></a>
+</nav>
+
+<style>
+.stage table{font-size:inherit;font-family:inherit;color:inherit;border-collapse:collapse}
+.d1{font-family:'Figtree',system-ui,sans-serif;color:#fff;background:
+ radial-gradient(55% 75% at 10% 6%,rgba(46,125,122,.9),transparent 62%),
+ radial-gradient(42% 60% at 94% 8%,rgba(214,138,80,.8),transparent 60%),
+ radial-gradient(70% 70% at 62% 108%,rgba(33,60,108,.95),transparent 65%),
+ linear-gradient(160deg,#1A3340,#18202F)}
+.d1 .sb{position:absolute;inset:0 0 auto 0;height:52px;display:flex;align-items:center;gap:14px;padding:0 28px;font-size:13px}
+.d1 .host{display:flex;align-items:center;gap:8px;font-weight:700;font-size:14px}
+.d1 .dot{width:8px;height:8px;border-radius:50%;background:#4ADE80;box-shadow:0 0 0 3px rgba(74,222,128,.22)}
+.d1 .muted{color:rgba(255,255,255,.66)}
+.d1 .srch{position:absolute;left:50%;transform:translateX(-50%);width:400px;height:34px;border-radius:17px;background:rgba(255,255,255,.13);border:1px solid rgba(255,255,255,.14);display:flex;align-items:center;gap:9px;padding:0 8px 0 14px;color:rgba(255,255,255,.7);font-size:13px}
+.d1 .srch .k{margin-left:auto;font-size:11px;padding:3px 7px;border-radius:7px;background:rgba(255,255,255,.14)}
+.d1 .sbr{margin-left:auto;display:flex;align-items:center;gap:14px}
+.d1 .pill{display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border-radius:99px;background:rgba(255,255,255,.12);font-size:12px;font-weight:600}
+.d1 .av{width:28px;height:28px;border-radius:50%;background:#F2C49B;color:#4A2A12;display:grid;place-items:center;font-weight:800;font-size:12px}
+.d1 .bell{position:relative;font-size:17px;display:grid}
+.d1 .bell b{position:absolute;top:-4px;right:-6px;min-width:15px;height:15px;border-radius:8px;background:#F59E0B;color:#241300;font-size:9.5px;display:grid;place-items:center}
+.d1 .glass{background:rgba(255,255,255,.11);border:1px solid rgba(255,255,255,.16);backdrop-filter:blur(20px) saturate(140%);-webkit-backdrop-filter:blur(20px) saturate(140%);border-radius:20px}
+.d1 .wcol{position:absolute;left:28px;top:66px;width:300px;display:flex;flex-direction:column;gap:12px}
+.d1 .w{padding:14px 16px}
+.d1 .wh{display:flex;align-items:center;gap:7px;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:rgba(255,255,255,.72);margin-bottom:10px}
+.d1 .wh span{margin-left:auto;font-weight:500;letter-spacing:0;text-transform:none}
+.d1 .m{display:grid;grid-template-columns:1fr auto;gap:3px 8px;margin-top:8px;font-size:12.5px}
+.d1 .m:first-of-type{margin-top:0}
+.d1 .m b{font-weight:700}
+.d1 .bar{grid-column:1/-1;height:6px;border-radius:3px;background:rgba(255,255,255,.14);overflow:hidden}
+.d1 .bar i{display:block;height:100%;border-radius:3px;background:#fff}
+.d1 .row{display:flex;align-items:center;gap:10px;padding:8px 0}
+.d1 .row + .row{border-top:1px solid rgba(255,255,255,.12)}
+.d1 .row .tx{flex:1;min-width:0;font-size:12.5px;line-height:1.3}
+.d1 .row .tx small{display:block;font-size:11px;color:rgba(255,255,255,.64)}
+.d1 .btn{font:700 11.5px/1 'Figtree',sans-serif;padding:7px 11px;border-radius:99px;background:#fff;color:#16232E;white-space:nowrap}
+.d1 .tier{font-size:9.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;padding:3px 6px;border-radius:6px}
+.d1 .tl{background:rgba(74,222,128,.2);color:#86EFAC}.d1 .tm{background:rgba(251,191,36,.2);color:#FCD34D}.d1 .th{background:rgba(248,113,113,.22);color:#FCA5A5}
+.d1 .hello{position:absolute;left:360px;top:70px}
+.d1 .hello h1{margin:0;font-size:30px;font-weight:800;letter-spacing:-.02em}
+.d1 .hello p{margin:4px 0 0;font-size:14px;color:rgba(255,255,255,.75)}
+.d1 .grid{position:absolute;left:356px;top:150px;width:656px;display:grid;grid-template-columns:repeat(5,112px);gap:20px 24px}
+.d1 .t{display:flex;flex-direction:column;align-items:center;text-align:center;gap:6px}
+.d1 .t .ap{--z:66px;border-radius:19px;box-shadow:0 8px 22px rgba(0,0,0,.28);font-size:24px}
+.d1 .t .iw{position:relative}
+.d1 .t .bd{position:absolute;top:-5px;right:-7px;height:20px;min-width:20px;padding:0 5px;border-radius:10px;display:grid;place-items:center;font-size:10.5px;font-weight:800;border:2px solid #1D2E3C}
+.d1 .ok{background:#4ADE80;width:14px;min-width:14px!important;height:14px!important;padding:0!important;top:-3px!important;right:-3px!important}
+.d1 .wn{background:#FBBF24;color:#2A1A00}
+.d1 .inf{background:#fff;color:#18232E}
+.d1 .t .nm{font-size:13px;font-weight:700;line-height:1.1}
+.d1 .t .st{font-size:11px;color:rgba(255,255,255,.66);line-height:1.1;margin-top:-2px}
+.d1 .t .st.w8{color:#FCD34D}
+.d1 .add .ap{background:rgba(255,255,255,.1);border:1.5px dashed rgba(255,255,255,.4);box-shadow:none;font-size:26px}
+.d1 .sugg{position:absolute;left:356px;top:410px;width:656px;padding:12px 16px;display:grid;grid-template-columns:1fr 1fr;gap:18px}
+.d1 .sugg .row{padding:0;border:0}
+.d1 .sugg .ic2{width:34px;height:34px;border-radius:10px;background:rgba(255,255,255,.14);display:grid;place-items:center;font-size:17px;flex:none}
+.d1 .dock{position:absolute;left:684px;transform:translateX(-50%);bottom:14px;padding:9px 12px;border-radius:24px;display:flex;align-items:center;gap:9px}
+.d1 .dk{position:relative;width:44px;height:44px;border-radius:13px;background:rgba(255,255,255,.16);display:grid;place-items:center;font-size:21px;color:#fff}
+.d1 .dk b{position:absolute;top:-5px;right:-5px;min-width:18px;height:18px;border-radius:9px;background:#F87171;font-size:10px;display:grid;place-items:center;padding:0 4px}
+.d1 .dk.on{background:#fff;color:#1A2A38}
+.d1 .dsep{width:1px;height:34px;background:rgba(255,255,255,.22);margin:0 3px}
+.d1 .tip{position:absolute;bottom:62px;left:35px;transform:translateX(-50%);background:rgba(10,18,26,.85);padding:5px 9px;border-radius:8px;font-size:11.5px;font-weight:600;white-space:nowrap}
+/* catalog screen */
+.d1 .win{position:absolute;left:24px;top:60px;width:992px;height:524px;border-radius:22px;overflow:hidden}
+.d1 .wtop{display:flex;align-items:center;gap:12px;padding:14px 18px 10px}
+.d1 .seg{display:flex;padding:3px;border-radius:12px;background:rgba(0,0,0,.18)}
+.d1 .seg span{padding:6px 13px;border-radius:9px;font-size:12.5px;font-weight:600;color:rgba(255,255,255,.75)}
+.d1 .seg span.on{background:rgba(255,255,255,.9);color:#16232E}
+.d1 .wtop .srch2{margin-left:auto;width:230px;height:32px;border-radius:10px;background:rgba(0,0,0,.18);display:flex;align-items:center;gap:8px;padding:0 12px;color:rgba(255,255,255,.66);font-size:12.5px}
+.d1 .hero{margin:6px 18px 0;width:586px;height:152px;border-radius:18px;padding:20px 22px;position:relative;overflow:hidden;background:linear-gradient(115deg,#1F6B40,#2D9460 60%,#58B97D)}
+.d1 .hero .ey{font-size:10.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;opacity:.8}
+.d1 .hero h2{margin:6px 0 6px;font-size:25px;font-weight:800;letter-spacing:-.02em;max-width:330px;line-height:1.1}
+.d1 .hero p{margin:0;font-size:12.5px;max-width:330px;opacity:.88}
+.d1 .hero .get{position:absolute;left:22px;bottom:16px;display:flex;align-items:center;gap:10px;font-size:11.5px;opacity:.95}
+.d1 .hero .paper{position:absolute;right:26px;top:18px;width:150px;height:118px}
+.d1 .hero .paper i{position:absolute;width:88px;height:112px;border-radius:6px;background:#fff;box-shadow:0 10px 24px rgba(0,0,0,.25)}
+.d1 .hero .paper i:nth-child(1){right:48px;top:6px;transform:rotate(-9deg);opacity:.7}
+.d1 .hero .paper i:nth-child(2){right:4px;top:0;transform:rotate(6deg);background:repeating-linear-gradient(#fff 0 12px,#E4EFE8 12px 14px);background-clip:content-box;padding:16px 12px}
+.d1 .cats{display:flex;gap:7px;margin:14px 18px 0}
+.d1 .cats span{padding:6px 11px;border-radius:99px;background:rgba(255,255,255,.12);font-size:12px;font-weight:600}
+.d1 .cats span.on{background:#fff;color:#16232E}
+.d1 .sec{margin:16px 18px 8px;font-size:15px;font-weight:800;display:flex;align-items:baseline;gap:8px}
+.d1 .sec small{font-size:12px;font-weight:500;color:rgba(255,255,255,.66)}
+.d1 .cards{margin:0 18px;width:586px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 10px}
+.d1 .cd{padding:9px 11px;border-radius:14px;background:rgba(255,255,255,.1);display:grid;grid-template-columns:40px minmax(0,1fr) auto;gap:1px 10px;align-items:center}
+.d1 .cd .ap{--z:40px;border-radius:11px;font-size:16px;grid-row:span 2}
+.d1 .cd b{font-size:13px;align-self:end}
+.d1 .cd p{margin:0;font-size:11px;line-height:1.3;color:rgba(255,255,255,.7);grid-column:2;align-self:start;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.d1 .cd .ft{grid-column:3;grid-row:1/3;display:flex;flex-direction:column;align-items:flex-end;gap:5px}
+.d1 .cd .tg{font-size:10px;font-weight:700;padding:2px 6px;border-radius:5px;background:rgba(255,255,255,.14);white-space:nowrap}
+.d1 .cd .gt{font-size:11px;font-weight:800;padding:4px 12px;border-radius:99px;background:rgba(255,255,255,.9);color:#16232E}
+.d1 .cd.sel{background:rgba(255,255,255,.22);box-shadow:inset 0 0 0 2px rgba(255,255,255,.7)}
+.d1 .sheet{position:absolute;right:12px;top:12px;bottom:12px;width:356px;border-radius:18px;background:#FBFCFD;color:#132029;padding:18px 20px;display:flex;flex-direction:column;gap:13px;box-shadow:0 18px 50px rgba(0,0,0,.35)}
+.d1 .sh-h{display:flex;gap:12px;align-items:center}
+.d1 .sh-h .ap{--z:52px;border-radius:14px;font-size:21px}
+.d1 .sh-h h3{margin:0;font-size:18px;font-weight:800;letter-spacing:-.01em}
+.d1 .sh-h p{margin:1px 0 0;font-size:12px;color:#5B6B78}
+.d1 .sh-h .x{margin-left:auto;align-self:start;width:26px;height:26px;border-radius:50%;background:#EEF1F4;display:grid;place-items:center;color:#5B6B78}
+.d1 .fl label{display:block;font-size:11px;font-weight:700;color:#5B6B78;letter-spacing:.03em;margin-bottom:5px;text-transform:uppercase}
+.d1 .fi{display:flex;align-items:center;gap:8px;height:36px;border-radius:10px;border:1px solid #DCE2E8;padding:0 11px;font-size:13px;background:#fff}
+.d1 .fi small{margin-left:auto;color:#6B7B88;font-size:11px}
+.d1 .sg2{display:grid;grid-template-columns:1fr 1fr;padding:3px;border-radius:10px;background:#EEF1F4}
+.d1 .sg2 span{text-align:center;padding:7px 0;border-radius:8px;font-size:12.5px;font-weight:600;color:#5B6B78}
+.d1 .sg2 span.on{background:#fff;color:#132029;box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.d1 .hint{font-size:11px;color:#6B7B88;margin-top:5px}
+.d1 .tgl{display:flex;align-items:center;gap:10px;font-size:13px}
+.d1 .tgl .sw2{margin-left:auto;width:38px;height:22px;border-radius:11px;background:#1F9D63;position:relative}
+.d1 .tgl .sw2::after{content:"";position:absolute;right:2px;top:2px;width:18px;height:18px;border-radius:50%;background:#fff}
+.d1 .risk{border-radius:12px;background:#FFF8E6;border:1px solid #F4DE9E;padding:10px 12px;font-size:12px;color:#5A4410}
+.d1 .risk .rt{display:flex;gap:5px;margin-bottom:7px}
+.d1 .risk .rt span{flex:1;text-align:center;padding:5px 0;border-radius:7px;font-size:10.5px;font-weight:700;background:#fff;color:#8B96A0;border:1px solid #EEE3C4}
+.d1 .risk .rt span.on{background:#F2B01E;color:#2A1C00;border-color:#F2B01E}
+.d1 .acts{margin-top:auto;display:grid;grid-template-columns:1fr 2fr;gap:8px}
+.d1 .acts span{height:40px;border-radius:12px;display:grid;place-items:center;font-size:13.5px;font-weight:700;background:#EEF1F4;color:#34434F}
+.d1 .acts span.pr{background:#16232E;color:#fff}
+</style>
+
+<section class="dir" id="launcher">
+  <div class="dir-h">
+    <div><div class="eyebrow">Direction 1</div><h2>Launcher</h2></div>
+    <a class="top" href="#top">Back to top ↑</a>
+    <p class="concept">A tablet-style home screen: your apps come first as big tiles with health badges, and the admin side of the server lives in a dock at the bottom.</p>
+  </div>
+  <div class="notes">
+    <dl>
+      <dt>Navigation</dt><dd>The home screen is your apps. Tap a tile to open the app; press and hold for its sheet (who can reach it, backups, performance, update). Admin areas sit in a dock, and one search bar reaches every app, setting and log.</dd>
+      <dt>Layout</dt><dd>A column of widgets (system, what needs a look, backups and disks) beside a five-across app grid. Deeper screens open as frosted sheets over the wallpaper instead of new pages.</dd>
+      <dt>Type, color, density</dt><dd>Figtree throughout. Frosted glass on a dusk wallpaper, 66 px icons, generous spacing and low density. Health is a dot or badge on the icon itself.</dd>
+      <dt>Who it suits</dt><dd>An owner who mostly opens BoxPilot to get to apps, and other people in the house. Less suited to long admin sessions, where the dock becomes a detour.</dd>
+    </dl>
+    <div class="sig"><h3>Signature features</h3><ul>
+      <li><b>Health badges on app icons.</b> Immich wears an amber "!" until it has an off-box copy.</li>
+      <li><b>An app store for the catalog</b> with a "Picked for homebox" shelf based on your GPU and free disk space.</li>
+      <li><b>Install sheet</b> that shows where the data will live, who can reach it, and the risk tier before anything runs.</li>
+    </ul></div>
+  </div>
+  <div class="shots">
+    <figure class="shot"><figcaption><b>Home screen</b><span>Overview</span></figcaption><div class="frame"><div class="stage-wrap"><div class="stage d1">
+      <div class="sb">
+        <div class="host"><span class="dot"></span>homebox</div><span class="muted">Ubuntu 24.04 · up 23 days</span>
+        <div class="srch"><svg class="ic"><use href="#i-search"/></svg>Search apps, settings and logs<span class="k">Ctrl K</span></div>
+        <div class="sbr"><span class="pill"><svg class="ic"><use href="#i-ts"/></svg>Tailnet</span><span class="bell"><svg class="ic"><use href="#i-bell"/></svg><b>1</b></span><span class="av">C</span></div>
+      </div>
+      <div class="wcol">
+        <div class="glass w">
+          <div class="wh"><svg class="ic"><use href="#i-pulse"/></svg>System<span>Sun 09:41</span></div>
+          <div class="m"><span>Processor</span><b>12%</b><div class="bar"><i style="width:12%"></i></div></div>
+          <div class="m"><span>Memory</span><b>21.4 of 64 GB</b><div class="bar"><i style="width:33%"></i></div></div>
+          <div class="m"><span>RTX 4080 · Ollama</span><b>9.1 of 16 GB</b><div class="bar"><i style="width:57%;background:#A7F3D0"></i></div></div>
+        </div>
+        <div class="glass w">
+          <div class="wh"><svg class="ic"><use href="#i-bell"/></svg>Needs a look</div>
+          <div class="row"><i class="ap ap-im" style="--z:30px;border-radius:9px"></i><div class="tx">Photos are only on this box<small>Immich · 412 GB, no off-box copy</small></div><span class="btn">Fix</span></div>
+          <div class="row"><span class="ic2" style="width:30px;height:30px;border-radius:9px;background:rgba(255,255,255,.16);display:grid;place-items:center;font-size:15px"><svg class="ic"><use href="#i-update"/></svg></span><div class="tx">14 updates <span class="tier tm">Medium</span><small>3 are security fixes</small></div><span class="btn">Review</span></div>
+        </div>
+        <div class="glass w">
+          <div class="wh"><svg class="ic"><use href="#i-archive"/></svg>Backups &amp; disks<span>drill passed yesterday</span></div>
+          <div class="m"><span>9 apps backed up</span><b>7 off-box</b><div class="bar"><i style="width:78%;background:#4ADE80"></i></div></div>
+          <div class="m"><span>Media · 8 TB</span><b>62%</b><div class="bar"><i style="width:62%"></i></div></div>
+          <div class="m"><span>Backup · 4 TB</span><b>41%</b><div class="bar"><i style="width:41%"></i></div></div>
+        </div>
+      </div>
+      <div class="hello"><h1>Good morning</h1><p>homebox is healthy. One thing could use a look.</p></div>
+      <div class="grid">
+        <div class="t"><div class="iw"><i class="ap ap-jf">J</i><span class="bd ok"></span></div><span class="nm">Jellyfin</span><span class="st">2 streaming</span></div>
+        <div class="t"><div class="iw"><i class="ap ap-im"></i><span class="bd wn">!</span></div><span class="nm">Immich</span><span class="st w8">Not off-box</span></div>
+        <div class="t"><div class="iw"><i class="ap ap-nc">N</i><span class="bd ok"></span></div><span class="nm">Nextcloud</span><span class="st">Tailscale only</span></div>
+        <div class="t"><div class="iw"><i class="ap ap-ha">HA</i><span class="bd ok"></span></div><span class="nm">Home Assistant</span><span class="st">41 devices</span></div>
+        <div class="t"><div class="iw"><i class="ap ap-vw">V</i><span class="bd ok"></span></div><span class="nm">Vaultwarden</span><span class="st">Drill passed</span></div>
+        <div class="t"><div class="iw"><i class="ap ap-ow">OI</i><span class="bd ok"></span></div><span class="nm">Open WebUI</span><span class="st">Chat</span></div>
+        <div class="t"><div class="iw"><i class="ap ap-ol">O</i><span class="bd inf">GPU</span></div><span class="nm">Ollama</span><span class="st">3 models</span></div>
+        <div class="t"><div class="iw"><i class="ap ap-lc">LC</i><span class="bd ok"></span></div><span class="nm">LLMCoach</span><span class="st">Running</span></div>
+        <div class="t"><div class="iw"><i class="ap ap-ph">π</i><span class="bd ok"></span></div><span class="nm">Pi-hole</span><span class="st">18% blocked</span></div>
+        <div class="t add"><div class="iw"><i class="ap"><svg class="ic"><use href="#i-plus"/></svg></i></div><span class="nm">Add an app</span><span class="st">168 in catalog</span></div>
+      </div>
+      <div class="glass sugg">
+        <div class="row"><span class="ic2"><svg class="ic"><use href="#i-shield"/></svg></span><div class="tx">Install security fixes every night <span class="tier tl">Low</span><small>Runs at 04:00, restarts nothing</small></div><span class="btn">Turn on</span></div>
+        <div class="row"><span class="ic2"><svg class="ic"><use href="#i-cloud"/></svg></span><div class="tx">Nextcloud has no off-box copy <span class="tier tm">Medium</span><small>Copy it to your B2 bucket</small></div><span class="btn">Set up</span></div>
+      </div>
+      <div class="glass dock">
+        <span class="tip">Updates · 14 waiting</span>
+        <span class="dk"><svg class="ic"><use href="#i-update"/></svg><b>14</b></span>
+        <span class="dk"><svg class="ic"><use href="#i-disk"/></svg></span>
+        <span class="dk"><svg class="ic"><use href="#i-wall"/></svg></span>
+        <span class="dk"><svg class="ic"><use href="#i-net"/></svg></span>
+        <span class="dk"><svg class="ic"><use href="#i-archive"/></svg></span>
+        <span class="dk"><svg class="ic"><use href="#i-vm"/></svg></span>
+        <span class="dk"><svg class="ic"><use href="#i-wrench"/></svg></span>
+        <span class="dk"><svg class="ic"><use href="#i-list"/></svg></span>
+        <span class="dsep"></span>
+        <span class="dk"><svg class="ic"><use href="#i-grid"/></svg></span>
+        <span class="dk"><svg class="ic"><use href="#i-gear"/></svg></span>
+      </div>
+    </div></div></div></figure>
+
+    <figure class="shot"><figcaption><b>App catalog as a store, with the install sheet open</b><span>App catalog</span></figcaption><div class="frame"><div class="stage-wrap"><div class="stage d1">
+      <div class="sb">
+        <div class="host"><span class="dot"></span>homebox</div><span class="muted">App catalog</span>
+        <div class="sbr"><span class="pill"><svg class="ic"><use href="#i-ts"/></svg>Tailnet</span><span class="bell"><svg class="ic"><use href="#i-bell"/></svg><b>1</b></span><span class="av">C</span></div>
+      </div>
+      <div class="glass win">
+        <div class="wtop"><div class="seg"><span class="on">Discover</span><span>Categories</span><span>Installed · 9</span><span>Updates · 2</span></div></div>
+        <div class="hero">
+          <div class="ey">New in the catalog</div>
+          <h2>Go paperless at home</h2>
+          <p>Paperless-ngx reads the letters and receipts you scan, so you can search every word.</p>
+          <div class="get"><span class="gt" style="font-size:12px;font-weight:800;padding:6px 16px;border-radius:99px;background:#fff;color:#1F6B40">Get</span>Documents · 2 containers · 1.1 GB</div>
+          <div class="paper"><i></i><i></i></div>
+        </div>
+        <div class="cats"><span class="on">For you</span><span>Photos &amp; files</span><span>Media</span><span>Smart home</span><span>AI</span><span>Security</span><span>Games</span></div>
+        <div class="sec">Picked for homebox <small>your RTX 4080 and 3 TB free on the media disk</small></div>
+        <div class="cards">
+          <div class="cd sel"><i class="ap ap-ab">A</i><b>Audiobookshelf</b><p>Audiobooks and podcasts</p><div class="ft"><span class="tg">Media</span><span class="gt">Get</span></div></div>
+          <div class="cd"><i class="ap ap-wh">W</i><b>Whisper</b><p>Speech to text on your GPU</p><div class="ft"><span class="tg">Uses GPU</span><span class="gt">Get</span></div></div>
+          <div class="cd"><i class="ap ap-sy">S</i><b>Syncthing</b><p>Folders synced with your laptop</p><div class="ft"><span class="tg">Files</span><span class="gt">Get</span></div></div>
+          <div class="cd"><i class="ap ap-uk">U</i><b>Uptime Kuma</b><p>Alerts when an app is down</p><div class="ft"><span class="tg">Monitoring</span><span class="gt">Get</span></div></div>
+          <div class="cd"><i class="ap ap-gr">G</i><b>Grocy</b><p>Fridge stock and shopping</p><div class="ft"><span class="tg">Household</span><span class="gt">Get</span></div></div>
+          <div class="cd"><i class="ap ap-mc">M</i><b>Minecraft</b><p>A family world, Tailscale only</p><div class="ft"><span class="tg">Game</span><span class="gt">Get</span></div></div>
+        </div>
+        <div class="sheet">
+          <div class="sh-h"><i class="ap ap-ab">A</i><div><h3>Audiobookshelf</h3><p>Audiobooks and podcasts · 380 MB</p></div><span class="x"><svg class="ic"><use href="#i-x"/></svg></span></div>
+          <div class="fl"><label>Where your books live</label><div class="fi"><svg class="ic" style="color:#6B7B88"><use href="#i-folder"/></svg>/srv/media/audiobooks<small>8 TB disk · 3.0 TB free</small></div></div>
+          <div class="fl"><label>Who can open it</label><div class="sg2"><span>This network</span><span class="on">Tailscale only</span></div><div class="hint">HTTPS at homebox.tail1234.ts.net, from any of your devices</div></div>
+          <div class="tgl"><svg class="ic" style="font-size:16px;color:#1F9D63"><use href="#i-archive"/></svg><div>Back up every night<div class="hint" style="margin:1px 0 0">to /srv/backup, with a weekly restore drill</div></div><span class="sw2"></span></div>
+          <div class="risk"><div class="rt"><span>Low · one click</span><span class="on">Medium · preview</span><span>High · password</span></div>Installing is medium risk. You'll see the container, the port and the folder it creates before anything runs.</div>
+          <div class="acts"><span>Cancel</span><span class="pr">Preview install</span></div>
+        </div>
+      </div>
+    </div></div></div></figure>
+  </div>
+</section>
+
+<style>
+.d2{font-family:'IBM Plex Sans Condensed','Arial Narrow',sans-serif;background:#0A0D10;color:#C3CBD5;font-size:11.5px}
+.d2 .mo{font-family:'JetBrains Mono',ui-monospace,monospace}
+.d2 .rail{position:absolute;left:0;top:0;bottom:0;width:52px;background:#07090B;border-right:1px solid #1A2027;display:flex;flex-direction:column;align-items:center;gap:4px;padding:9px 0}
+.d2 .logo{width:32px;height:32px;border-radius:5px;background:#FFB547;color:#1A1000;font:700 12px 'JetBrains Mono',monospace;display:grid;place-items:center;margin-bottom:8px}
+.d2 .ri{width:36px;height:33px;display:grid;place-items:center;border-radius:5px;color:#5F6A77;font-size:17px;position:relative}
+.d2 .ri.on{background:#151B22;color:#FFB547;box-shadow:inset 2px 0 0 #FFB547}
+.d2 .ri b{position:absolute;top:5px;right:5px;width:6px;height:6px;border-radius:50%;background:#FFB547}
+.d2 .ri.sp{margin-top:auto}
+.d2 .top{position:absolute;left:52px;right:0;top:0;height:40px;border-bottom:1px solid #1A2027;display:flex;align-items:center;gap:14px;white-space:nowrap;padding:0 12px;background:#0C1014}
+.d2 .crumb{font-weight:600;font-size:13.5px;color:#E8EDF2}
+.d2 .crumb span{color:#5C6773;font-weight:400}
+.d2 .kv{font:10.5px 'JetBrains Mono',monospace;color:#6E7985}
+.d2 .kv b{color:#C3CBD5;font-weight:500}
+.d2 .range{margin-left:auto;display:flex;border:1px solid #242C35;border-radius:4px;overflow:hidden}
+.d2 .range span{padding:4px 8px;font:10.5px 'JetBrains Mono',monospace;color:#6E7985;border-right:1px solid #242C35}
+.d2 .range span:last-child{border-right:0}
+.d2 .range span.on{background:#1A212A;color:#FFB547}
+.d2 .cmd{width:200px;height:26px;border:1px solid #242C35;border-radius:4px;background:#080B0E;display:flex;align-items:center;gap:7px;padding:0 8px;color:#5C6773;font-size:11.5px}
+.d2 .cmd kbd{margin-left:auto;font:10px 'JetBrains Mono',monospace;color:#7D8894;border:1px solid #2A333D;border-radius:3px;padding:1px 4px}
+.d2 .who{font:10.5px 'JetBrains Mono',monospace;color:#6E7985}
+.d2 .g{position:absolute;left:52px;top:40px;right:0;bottom:0;padding:10px;display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:8px}
+.d2 .g.ov{grid-template-rows:84px minmax(0,1fr) 176px}
+.d2 .p{background:#10151A;border:1px solid #1C232B;border-radius:4px;overflow:hidden;display:flex;flex-direction:column;min-height:0;min-width:0}
+.d2 .ph{display:flex;align-items:center;gap:8px;height:26px;padding:0 10px;border-bottom:1px solid #1C232B;font:600 9.5px 'JetBrains Mono',monospace;letter-spacing:.09em;text-transform:uppercase;color:#8A95A1;flex:none}
+.d2 .ph .r{margin-left:auto;font-weight:400;letter-spacing:0;text-transform:none;color:#5C6773}
+.d2 .ph .cnt{color:#FFB547}
+.d2 .kpi{grid-column:span 2;position:relative;padding:9px 10px}
+.d2 .kpi .lb{font:600 9.5px 'JetBrains Mono',monospace;letter-spacing:.09em;color:#6E7985}
+.d2 .kpi .v{font:500 20px/1.1 'JetBrains Mono',monospace;color:#EEF2F6;margin-top:7px;letter-spacing:-.02em}
+.d2 .kpi .v small{font-size:11px;color:#6E7985;letter-spacing:0}
+.d2 .kpi .s{font-size:11px;color:#6E7985;margin-top:3px}
+.d2 .kpi svg.sp{position:absolute;right:8px;bottom:8px;width:56px;height:26px}
+.d2 .kpi.warn .v{color:#FFB547}
+.d2 .al{display:grid;grid-template-columns:3px minmax(0,1fr) auto;gap:1px 9px;padding:7px 10px 7px 0;border-bottom:1px solid #161C22}
+.d2 .al > i{grid-row:span 2;border-radius:0 2px 2px 0}
+.d2 .al b{color:#E3E8ED;font-weight:600;font-size:12px}
+.d2 .al small{grid-column:2/4;color:#6E7985;font-size:11px}
+.d2 .al .t{font:10px 'JetBrains Mono',monospace;color:#56616D}
+.d2 .cw{background:#FFB547}.d2 .ci{background:#56C8E0}.d2 .co{background:#3DD68C}.d2 .cn{background:#3A4450}
+.d2 table.tb{width:100%}
+.d2 .tb th{font:600 9px 'JetBrains Mono',monospace;letter-spacing:.07em;color:#56616D;text-align:left;padding:5px 6px 4px;border-bottom:1px solid #1C232B;text-transform:uppercase}
+.d2 .tb td{padding:0 6px;height:18px;line-height:18px;border-bottom:1px solid #141A20;font:10.5px 'JetBrains Mono',monospace;color:#AEB8C3;white-space:nowrap}
+.d2 .tb tr:last-child td{border-bottom:0}
+.d2 .tb .nm{color:#E3E8ED}
+.d2 .up{color:#3DD68C}.d2 .dn{color:#56616D}.d2 .am{color:#FFB547}.d2 .rd{color:#FF6B6B}.d2 .cy{color:#56C8E0}
+.d2 .cb{display:inline-block;width:24px;height:4px;background:#1C232B;vertical-align:middle;margin-right:6px;border-radius:1px;overflow:hidden}
+.d2 .cb i{display:block;height:100%;background:#56C8E0}
+.d2 .rc{font-size:9.5px;padding:1px 5px;border-radius:2px;background:#151C23;color:#8A95A1}
+.d2 .rc.lan{color:#FFB547;background:rgba(255,181,71,.08)}
+.d2 .tier{font:700 9px 'JetBrains Mono',monospace;padding:2px 5px;border-radius:3px;letter-spacing:.05em}
+.d2 .tL{color:#3DD68C;background:rgba(61,214,140,.08);border:1px solid rgba(61,214,140,.35)}
+.d2 .tM{color:#FFB547;background:rgba(255,181,71,.08);border:1px solid rgba(255,181,71,.38)}
+.d2 .tH{color:#FF6B6B;background:rgba(255,107,107,.08);border:1px solid rgba(255,107,107,.42)}
+.d2 .ib{display:grid;grid-template-columns:40px minmax(0,1fr) auto;gap:2px 8px;align-items:center;padding:7px 10px;border-bottom:1px solid #161C22}
+.d2 .ib .tier{text-align:center}
+.d2 .ib b{font-weight:600;color:#E3E8ED;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.d2 .ib small{grid-column:2/3;color:#6E7985;font-size:10.5px}
+.d2 .bt{grid-row:span 2;grid-column:3;grid-row-start:1;font-weight:600;font-size:11px;padding:4px 9px;border-radius:3px;border:1px solid #2A333D;color:#C3CBD5;background:#141A20}
+.d2 .bt.pr{background:#FFB547;border-color:#FFB547;color:#1A1000}
+.d2 .bt.hi{border-color:rgba(255,107,107,.5);color:#FF8A8A}
+.d2 .ib .tier{grid-row:span 2}
+.d2 .legend{display:flex;gap:10px;padding:6px 10px;font:10px 'JetBrains Mono',monospace;color:#56616D;border-bottom:1px solid #161C22}
+.d2 .pb{display:inline-block;width:92px;height:5px;background:#1C232B;border-radius:1px;vertical-align:middle;overflow:hidden}
+.d2 .pb i{display:block;height:100%;background:#FFB547}
+.d2 .bm{display:grid;grid-template-columns:1fr 1fr;gap:0 10px;padding:0 4px}
+.d2 .bm .tb td{height:19px}
+.d2 .dotg{display:inline-block;width:7px;height:7px;border-radius:50%;background:#3DD68C}
+.d2 .dotr{display:inline-block;width:7px;height:7px;border-radius:50%;border:1.5px solid #FF6B6B}
+.d2 .foot{margin-top:auto;padding:6px 10px;border-top:1px solid #1C232B;font:10px 'JetBrains Mono',monospace;color:#6E7985}
+/* firewall */
+.d2 .g.fw{grid-template-rows:40px minmax(0,1fr) 148px}
+.d2 .strip{grid-column:span 12;display:flex;flex-direction:row;align-items:center;gap:0;padding:0}
+.d2 .strip > div{flex:none;white-space:nowrap;padding:0 14px;border-right:1px solid #1C232B;height:100%;display:flex;flex-direction:column;justify-content:center}
+.d2 .strip .k{font:600 9px 'JetBrains Mono',monospace;letter-spacing:.08em;color:#56616D}
+.d2 .strip .v{font:500 13px 'JetBrains Mono',monospace;color:#E3E8ED}
+.d2 .strip .lock{margin-left:auto;border-right:0;flex-direction:row;align-items:center;gap:8px;font:10.5px 'JetBrains Mono',monospace;color:#8A95A1}
+.d2 .lk{display:inline-flex;align-items:center;gap:4px;padding:2px 6px;border:1px solid #242C35;border-radius:3px;color:#C3CBD5}
+.d2 .staged td{background:rgba(61,214,140,.06);color:#9BE8C0!important}
+.d2 .staged td:first-child{box-shadow:inset 2px 0 0 #3DD68C}
+.d2 .diff{margin:8px 10px;padding:8px 10px;background:#080B0E;border:1px solid #1C232B;border-radius:3px;font:10.5px/1.7 'JetBrains Mono',monospace;color:#8A95A1;white-space:pre}
+.d2 .diff .a{color:#3DD68C}
+.d2 .srow{display:flex;align-items:center;gap:8px;padding:0 10px 10px}
+.d2 .srow .note{font-size:11px;color:#6E7985;flex:1}
+.d2 .log{padding:6px 10px;font:10px/1.65 'JetBrains Mono',monospace;color:#6E7985;white-space:nowrap;overflow:hidden}
+.d2 .log b{color:#FF8A8A;font-weight:500}
+</style>
+
+<section class="dir" id="command">
+  <div class="dir-h">
+    <div><div class="eyebrow">Direction 2</div><h2>Command Center</h2></div>
+    <a class="top" href="#top">Back to top ↑</a>
+    <p class="concept">A dense operations console in the spirit of Grafana and Cockpit: live metrics, an alert stack, a job queue and an inbox of pending changes, all on one screen.</p>
+  </div>
+  <div class="notes">
+    <dl>
+      <dt>Navigation</dt><dd>A 52 px icon rail, and a command palette (Ctrl K) that runs any registered operation by name. One time-range control drives every chart on the page.</dd>
+      <dt>Layout</dt><dd>A 12-column panel grid: metric strip, alerts, containers, action inbox, job queue, backup matrix. Everything fits on a 1080p screen without scrolling.</dd>
+      <dt>Type, color, density</dt><dd>IBM Plex Sans Condensed with JetBrains Mono for every number. Near-black panels, amber for anything that needs you, cyan for data. Roughly three times today's information per screen.</dd>
+      <dt>Who it suits</dt><dd>A power user who keeps BoxPilot open on a second monitor or a wall display. Too much for other people in the house.</dd>
+    </dl>
+    <div class="sig"><h3>Signature features</h3><ul>
+      <li><b>Action inbox:</b> every pending change in one list, each with its tier and a single button.</li>
+      <li><b>Job queue</b> with job numbers, live progress and durations, fed by BoxPilot's durable jobs.</li>
+      <li><b>Backup matrix:</b> local copy, off-box copy and last drill for every app at a glance.</li>
+      <li><b>Listening vs. allowed:</b> the firewall screen checks open ports against what is actually running.</li>
+    </ul></div>
+  </div>
+  <div class="shots">
+    <figure class="shot"><figcaption><b>Operations overview</b><span>Overview</span></figcaption><div class="frame"><div class="stage-wrap"><div class="stage d2">
+      <div class="rail"><span class="logo">BP</span><span class="ri on"><svg class="ic"><use href="#i-grid"/></svg></span><span class="ri"><svg class="ic"><use href="#i-layers"/></svg></span><span class="ri"><svg class="ic"><use href="#i-update"/></svg><b></b></span><span class="ri"><svg class="ic"><use href="#i-pulse"/></svg></span><span class="ri"><svg class="ic"><use href="#i-disk"/></svg></span><span class="ri"><svg class="ic"><use href="#i-wall"/></svg></span><span class="ri"><svg class="ic"><use href="#i-net"/></svg></span><span class="ri"><svg class="ic"><use href="#i-archive"/></svg><b></b></span><span class="ri"><svg class="ic"><use href="#i-vm"/></svg></span><span class="ri"><svg class="ic"><use href="#i-bolt"/></svg></span><span class="ri"><svg class="ic"><use href="#i-list"/></svg></span><span class="ri sp"><svg class="ic"><use href="#i-gear"/></svg></span></div>
+      <div class="top">
+        <div class="crumb">homebox <span>/ overview</span></div>
+        <div class="kv">ubuntu <b>24.04</b> · up <b>23d 04:12</b> · boxpilot <b>1.118.0</b> <span class="am">→ 1.119.0</span></div>
+        <div class="range"><span>1h</span><span class="on">6h</span><span>24h</span><span>7d</span></div>
+        <div class="cmd"><svg class="ic"><use href="#i-term"/></svg>Run an operation…<kbd>Ctrl K</kbd></div>
+        <div class="who">owner · you</div>
+      </div>
+      <div class="g ov">
+        <div class="p kpi"><div class="lb">CPU</div><div class="v">12.4<small>%</small></div><div class="s">load 1.84</div><svg class="sp" viewBox="0 0 66 28"><path d="M0 20 L6 18 12 21 18 15 24 17 30 11 36 16 42 13 48 19 54 12 60 14 66 10 V28 H0Z" fill="rgba(86,200,224,.14)"/><path d="M0 20 L6 18 12 21 18 15 24 17 30 11 36 16 42 13 48 19 54 12 60 14 66 10" fill="none" stroke="#56C8E0" stroke-width="1.4"/></svg></div>
+        <div class="p kpi"><div class="lb">MEMORY</div><div class="v">21.4<small>/64G</small></div><div class="s">cache 18.2G</div><svg class="sp" viewBox="0 0 66 28"><path d="M0 14 L6 14 12 13 18 13 24 14 30 12 36 12 42 12 48 11 54 12 60 11 66 11 V28 H0Z" fill="rgba(86,200,224,.14)"/><path d="M0 14 L6 14 12 13 18 13 24 14 30 12 36 12 42 12 48 11 54 12 60 11 66 11" fill="none" stroke="#56C8E0" stroke-width="1.4"/></svg></div>
+        <div class="p kpi"><div class="lb">GPU · RTX 4080</div><div class="v">38<small>% · 9.1G</small></div><div class="s">ollama · 61°C</div><svg class="sp" viewBox="0 0 66 28"><path d="M0 25 L6 25 12 24 18 8 24 6 30 22 36 25 42 25 48 12 54 5 60 9 66 14 V28 H0Z" fill="rgba(86,200,224,.14)"/><path d="M0 25 L6 25 12 24 18 8 24 6 30 22 36 25 42 25 48 12 54 5 60 9 66 14" fill="none" stroke="#56C8E0" stroke-width="1.4"/></svg></div>
+        <div class="p kpi"><div class="lb">NETWORK</div><div class="v">48<small>↓ 6↑ Mb/s</small></div><div class="s">enp5s0</div><svg class="sp" viewBox="0 0 66 28"><path d="M0 18 L6 16 12 19 18 12 24 9 30 14 36 10 42 8 48 13 54 11 60 7 66 9 V28 H0Z" fill="rgba(86,200,224,.14)"/><path d="M0 18 L6 16 12 19 18 12 24 9 30 14 36 10 42 8 48 13 54 11 60 7 66 9" fill="none" stroke="#56C8E0" stroke-width="1.4"/></svg></div>
+        <div class="p kpi warn"><div class="lb">ROOT VOLUME</div><div class="v">80<small>% · 78/98G</small></div><div class="s">+2G / week</div><svg class="sp" viewBox="0 0 66 28"><path d="M0 14 L11 13 22 12 33 11 44 9 55 8 66 6 V28 H0Z" fill="rgba(255,181,71,.14)"/><path d="M0 14 L11 13 22 12 33 11 44 9 55 8 66 6" fill="none" stroke="#FFB547" stroke-width="1.4"/></svg></div>
+        <div class="p kpi"><div class="lb">TEMPS</div><div class="v">52<small>°C cpu</small></div><div class="s">nvme 41°C</div><svg class="sp" viewBox="0 0 66 28"><path d="M0 16 L6 15 12 16 18 13 24 14 30 12 36 15 42 14 48 16 54 13 60 14 66 13 V28 H0Z" fill="rgba(86,200,224,.14)"/><path d="M0 16 L6 15 12 16 18 13 24 14 30 12 36 15 42 14 48 16 54 13 60 14 66 13" fill="none" stroke="#56C8E0" stroke-width="1.4"/></svg></div>
+
+        <div class="p" style="grid-column:span 3"><div class="ph">Alerts <span class="cnt">2</span><span class="r">5 open</span></div>
+          <div class="al"><i class="cw"></i><b>Immich · no off-box copy</b><span class="t">3d</span><small>412 GB only on homebox and /srv/backup</small></div>
+          <div class="al"><i class="cw"></i><b>Nextcloud · no off-box copy</b><span class="t">3d</span><small>38 GB · mirror not configured</small></div>
+          <div class="al"><i class="ci"></i><b>14 package updates</b><span class="t">6h</span><small>3 security: openssl, libssh, sudo</small></div>
+          <div class="al"><i class="ci"></i><b>BoxPilot 1.119.0 available</b><span class="t">1d</span><small>self-update with health-check rollback</small></div>
+          <div class="al"><i class="co"></i><b>Restore drill passed</b><span class="t">1d</span><small>vaultwarden · restored to scratch, verified</small></div>
+        </div>
+
+        <div class="p" style="grid-column:span 5"><div class="ph">Containers &amp; VMs <span class="r">10 up · win11 stopped</span></div>
+          <table class="tb"><thead><tr><th>Name</th><th>State</th><th>CPU</th><th>Mem</th><th>Reach</th><th>Port</th></tr></thead><tbody>
+            <tr><td class="nm">ollama</td><td class="up">● up</td><td><span class="cb"><i style="width:62%"></i></span>31.2%</td><td>10.8G</td><td><span class="rc">local</span></td><td>11434</td></tr>
+            <tr><td class="nm">open-webui</td><td class="up">● up</td><td><span class="cb"><i style="width:3%"></i></span>0.4%</td><td>612M</td><td><span class="rc">tailnet</span></td><td>3000</td></tr>
+            <tr><td class="nm">llmcoach</td><td class="up">● up</td><td><span class="cb"><i style="width:6%"></i></span>1.1%</td><td>380M</td><td><span class="rc">tailnet</span></td><td>8080</td></tr>
+            <tr><td class="nm">jellyfin</td><td class="up">● up</td><td><span class="cb"><i style="width:18%"></i></span>4.8%</td><td>1.2G</td><td><span class="rc lan">LAN</span></td><td>8096</td></tr>
+            <tr><td class="nm">immich</td><td class="up">● up</td><td><span class="cb"><i style="width:9%"></i></span>2.1%</td><td>1.9G</td><td><span class="rc">tailnet</span></td><td>2283</td></tr>
+            <tr><td class="nm">nextcloud</td><td class="up">● up</td><td><span class="cb"><i style="width:4%"></i></span>0.7%</td><td>420M</td><td><span class="rc">tailnet</span></td><td>8443</td></tr>
+            <tr><td class="nm">homeassistant</td><td class="up">● up</td><td><span class="cb"><i style="width:7%"></i></span>1.6%</td><td>540M</td><td><span class="rc lan">LAN</span></td><td>8123</td></tr>
+            <tr><td class="nm">pihole</td><td class="up">● up</td><td><span class="cb"><i style="width:2%"></i></span>0.3%</td><td>96M</td><td><span class="rc lan">LAN</span></td><td>53</td></tr>
+            <tr><td class="nm">vaultwarden</td><td class="up">● up</td><td><span class="cb"><i style="width:1%"></i></span>0.0%</td><td>28M</td><td><span class="rc">tailnet</span></td><td>8222</td></tr>
+            <tr><td class="nm">vm:ubuntu-dev</td><td class="up">● run</td><td><span class="cb"><i style="width:10%"></i></span>2 vcpu</td><td>4.0G</td><td><span class="rc">tailnet</span></td><td>22</td></tr>
+          </tbody></table>
+        </div>
+
+        <div class="p" style="grid-column:span 4"><div class="ph">Action inbox <span class="cnt">4</span><span class="r">L 1-click · M preview · H password</span></div>
+          <div class="ib"><span class="tier tM">MED</span><b>Install 14 updates</b><span class="bt pr">Preview</span><small>3 security · no reboot needed</small></div>
+          <div class="ib"><span class="tier tH">HIGH</span><b>Update BoxPilot → 1.119.0</b><span class="bt hi">Unlock</span><small>password + type “homebox”</small></div>
+          <div class="ib"><span class="tier tM">MED</span><b>Mirror immich → b2:homebox-offsite</b><span class="bt">Preview</span><small>412 GB · encrypted restic copy</small></div>
+          <div class="ib"><span class="tier tL">LOW</span><b>Prune 6 unused images</b><span class="bt">Run</span><small>frees 3.4 GB on /</small></div>
+        </div>
+
+        <div class="p" style="grid-column:span 7"><div class="ph">Job queue <span class="r">1 running · 1 queued · 0 failed today</span></div>
+          <table class="tb"><thead><tr><th>Job</th><th>Operation</th><th>Target</th><th>Progress</th><th>State</th><th>Time</th></tr></thead><tbody>
+            <tr><td class="dn">#4821</td><td class="nm">backup.app</td><td>immich</td><td><span class="pb"><i style="width:62%"></i></span> 62%</td><td class="am">running</td><td>3m12s</td></tr>
+            <tr><td class="dn">#4822</td><td class="nm">mirror.sync</td><td>jellyfin → b2</td><td><span class="pb"><i style="width:0"></i></span></td><td class="dn">queued</td><td>–</td></tr>
+            <tr><td class="dn">#4820</td><td class="nm">apt.refresh</td><td>–</td><td><span class="pb"><i style="width:100%;background:#3DD68C"></i></span></td><td class="up">done</td><td>14s</td></tr>
+            <tr><td class="dn">#4819</td><td class="nm">model.pull</td><td>ollama qwen2.5:14b</td><td><span class="pb"><i style="width:100%;background:#3DD68C"></i></span></td><td class="up">done</td><td>2m41s</td></tr>
+            <tr><td class="dn">#4818</td><td class="nm">flow.run</td><td>Belt and braces 6/6</td><td><span class="pb"><i style="width:100%;background:#3DD68C"></i></span></td><td class="up">done</td><td>4m02s</td></tr>
+            <tr><td class="dn">#4812</td><td class="nm">backup.drill</td><td>vaultwarden</td><td><span class="pb"><i style="width:100%;background:#3DD68C"></i></span></td><td class="up">passed</td><td>41s</td></tr>
+          </tbody></table>
+        </div>
+
+        <div class="p" style="grid-column:span 5"><div class="ph">Backups <span class="r">local · off-box · drill</span></div>
+          <div class="bm">
+            <table class="tb"><tbody>
+              <tr><td class="nm">immich</td><td><span class="dotg"></span></td><td><span class="dotr"></span></td><td>1d</td></tr>
+              <tr><td class="nm">nextcloud</td><td><span class="dotg"></span></td><td><span class="dotr"></span></td><td>3d</td></tr>
+              <tr><td class="nm">vaultwarden</td><td><span class="dotg"></span></td><td><span class="dotg"></span></td><td>1d</td></tr>
+              <tr><td class="nm">homeassistant</td><td><span class="dotg"></span></td><td><span class="dotg"></span></td><td>2d</td></tr>
+              <tr><td class="nm">jellyfin</td><td><span class="dotg"></span></td><td><span class="dotg"></span></td><td>4d</td></tr>
+            </tbody></table>
+            <table class="tb"><tbody>
+              <tr><td class="nm">pihole</td><td><span class="dotg"></span></td><td><span class="dotg"></span></td><td>5d</td></tr>
+              <tr><td class="nm">open-webui</td><td><span class="dotg"></span></td><td><span class="dotg"></span></td><td>2d</td></tr>
+              <tr><td class="nm">llmcoach</td><td><span class="dotg"></span></td><td><span class="dotg"></span></td><td>3d</td></tr>
+              <tr><td class="nm">ollama</td><td><span class="dotg"></span></td><td><span class="dotg"></span></td><td>6d</td></tr>
+            </tbody></table>
+          </div>
+          <div class="foot">9/9 local · <span class="am">7/9 off-box</span> · last run 03:10 · 2.1 GB changed</div>
+        </div>
+      </div>
+    </div></div></div></figure>
+
+    <figure class="shot"><figcaption><b>Firewall console with a staged change</b><span>Firewall</span></figcaption><div class="frame"><div class="stage-wrap"><div class="stage d2">
+      <div class="rail"><span class="logo">BP</span><span class="ri"><svg class="ic"><use href="#i-grid"/></svg></span><span class="ri"><svg class="ic"><use href="#i-layers"/></svg></span><span class="ri"><svg class="ic"><use href="#i-update"/></svg><b></b></span><span class="ri"><svg class="ic"><use href="#i-pulse"/></svg></span><span class="ri"><svg class="ic"><use href="#i-disk"/></svg></span><span class="ri on"><svg class="ic"><use href="#i-wall"/></svg></span><span class="ri"><svg class="ic"><use href="#i-net"/></svg></span><span class="ri"><svg class="ic"><use href="#i-archive"/></svg><b></b></span><span class="ri"><svg class="ic"><use href="#i-vm"/></svg></span><span class="ri"><svg class="ic"><use href="#i-bolt"/></svg></span><span class="ri"><svg class="ic"><use href="#i-list"/></svg></span><span class="ri sp"><svg class="ic"><use href="#i-gear"/></svg></span></div>
+      <div class="top">
+        <div class="crumb">homebox <span>/ firewall</span></div>
+        <div class="kv">ufw <b>0.36.2</b> · fail2ban <b>1.0.2</b> · <b>enp5s0</b>, <b>tailscale0</b></div>
+        <div class="range"><span>1h</span><span>6h</span><span class="on">24h</span><span>7d</span></div>
+        <div class="cmd"><svg class="ic"><use href="#i-term"/></svg>Run an operation…<kbd>Ctrl K</kbd></div>
+        <div class="who">owner · you</div>
+      </div>
+      <div class="g fw">
+        <div class="p strip">
+          <div><span class="k">UFW</span><span class="v up">● active</span></div>
+          <div><span class="k">IN / OUT</span><span class="v">deny / allow</span></div>
+          <div><span class="k">PROFILE</span><span class="v">Trusted LAN</span></div>
+          <div><span class="k">RULES</span><span class="v">10 <span class="up" style="font-size:11px">+1 staged</span></span></div>
+          <div><span class="k">BLOCKED · 24H</span><span class="v">1,284</span></div>
+          <div><span class="k">FAIL2BAN</span><span class="v">2 jails</span></div>
+          <div class="lock"><span class="lk"><svg class="ic"><use href="#i-lock"/></svg>ssh</span><span class="lk"><svg class="ic"><use href="#i-lock"/></svg>tailscale0</span><span class="lk"><svg class="ic"><use href="#i-lock"/></svg>boxpilot</span></div>
+        </div>
+        <div class="p" style="grid-column:span 7"><div class="ph">Rules <span class="r">ordered as ufw evaluates them</span></div>
+          <table class="tb"><thead><tr><th>#</th><th>Action</th><th>Port</th><th>From</th><th>Comment</th><th style="text-align:right">Hits 24h</th></tr></thead><tbody>
+            <tr><td class="dn">1</td><td class="am">LIMIT</td><td>22/tcp</td><td>anywhere</td><td class="nm"><svg class="ic" style="color:#6E7985"><use href="#i-lock"/></svg> ssh</td><td style="text-align:right">312</td></tr>
+            <tr><td class="dn">2</td><td class="up">ALLOW</td><td>any</td><td>on tailscale0</td><td class="nm"><svg class="ic" style="color:#6E7985"><use href="#i-lock"/></svg> tailnet</td><td style="text-align:right">8,941</td></tr>
+            <tr><td class="dn">3</td><td class="up">ALLOW</td><td>8787/tcp</td><td>on tailscale0</td><td class="nm"><svg class="ic" style="color:#6E7985"><use href="#i-lock"/></svg> boxpilot</td><td style="text-align:right">1,203</td></tr>
+            <tr><td class="dn">4</td><td class="up">ALLOW</td><td>53</td><td>192.168.1.0/24</td><td class="nm">pihole dns</td><td style="text-align:right">48,210</td></tr>
+            <tr><td class="dn">5</td><td class="up">ALLOW</td><td>80/tcp</td><td>192.168.1.0/24</td><td class="nm">pihole admin</td><td style="text-align:right">36</td></tr>
+            <tr><td class="dn">6</td><td class="up">ALLOW</td><td>8096/tcp</td><td>192.168.1.0/24</td><td class="nm">jellyfin</td><td style="text-align:right">2,114</td></tr>
+            <tr><td class="dn">7</td><td class="up">ALLOW</td><td>1900/udp</td><td>192.168.1.0/24</td><td class="nm">jellyfin discovery</td><td style="text-align:right">866</td></tr>
+            <tr><td class="dn">8</td><td class="up">ALLOW</td><td>8123/tcp</td><td>192.168.1.0/24</td><td class="nm">home assistant</td><td style="text-align:right">5,730</td></tr>
+            <tr><td class="dn">9</td><td class="up">ALLOW</td><td>445/tcp</td><td>192.168.1.0/24</td><td class="nm">smb media</td><td style="text-align:right">604</td></tr>
+            <tr><td class="dn">10</td><td class="up">ALLOW</td><td>5353/udp</td><td>192.168.1.0/24</td><td class="nm">mdns</td><td style="text-align:right">1,977</td></tr>
+            <tr class="staged"><td>11</td><td>+ALLOW</td><td>2283/tcp</td><td>192.168.1.0/24</td><td>immich (staged)</td><td style="text-align:right">–</td></tr>
+          </tbody></table>
+        </div>
+        <div style="grid-column:span 5;display:grid;grid-template-rows:minmax(0,1fr) auto;gap:8px;min-height:0">
+          <div class="p"><div class="ph">Listening vs. allowed <span class="r">ss -tulpn, 09:41</span></div>
+            <table class="tb"><thead><tr><th>Port</th><th>Process</th><th>Bind</th><th>Reachable from</th></tr></thead><tbody>
+              <tr><td>22</td><td class="nm">sshd</td><td>0.0.0.0</td><td class="up">LAN + tailnet, limited</td></tr>
+              <tr><td>2283</td><td class="nm">immich</td><td>0.0.0.0</td><td class="am">tailnet only</td></tr>
+              <tr><td>3000</td><td class="nm">open-webui</td><td>0.0.0.0</td><td>tailnet only</td></tr>
+              <tr><td>11434</td><td class="nm">ollama</td><td>127.0.0.1</td><td class="dn">this box only</td></tr>
+              <tr><td>5432</td><td class="nm">postgres</td><td>172.18.0.4</td><td class="dn">docker network</td></tr>
+            </tbody></table>
+          </div>
+          <div class="p"><div class="ph">Staged change <span class="tier tM" style="margin-left:4px">MED</span><span class="r">preview, then confirm</span></div>
+            <div class="diff"><span class="a">+ ufw allow from 192.168.1.0/24</span>
+<span class="a">+     to any port 2283 proto tcp comment 'immich'</span></div>
+            <div class="srow"><span class="note">Immich becomes reachable from the LAN. Rules 1 to 3 stay locked.</span><span class="bt">Discard</span><span class="bt pr">Apply</span></div>
+          </div>
+        </div>
+        <div class="p" style="grid-column:span 7"><div class="ph">Blocked connections <span class="r">per hour · max 118 at 03:00</span></div>
+          <svg viewBox="0 0 540 110" style="width:100%;height:100%;display:block" preserveAspectRatio="none">
+            <g stroke="#161C22" stroke-width="1"><line x1="0" y1="20" x2="540" y2="20"/><line x1="0" y1="55" x2="540" y2="55"/><line x1="0" y1="90" x2="540" y2="90"/></g>
+            <g fill="#56C8E0" opacity=".85">
+              <rect x="10" y="62" width="14" height="28"/><rect x="32" y="58" width="14" height="32"/><rect x="54" y="40" width="14" height="50"/><rect x="76" y="22" width="14" height="68" fill="#FFB547"/><rect x="98" y="48" width="14" height="42"/><rect x="120" y="60" width="14" height="30"/><rect x="142" y="66" width="14" height="24"/><rect x="164" y="70" width="14" height="20"/><rect x="186" y="64" width="14" height="26"/><rect x="208" y="57" width="14" height="33"/><rect x="230" y="61" width="14" height="29"/><rect x="252" y="54" width="14" height="36"/><rect x="274" y="59" width="14" height="31"/><rect x="296" y="63" width="14" height="27"/><rect x="318" y="52" width="14" height="38"/><rect x="340" y="49" width="14" height="41"/><rect x="362" y="56" width="14" height="34"/><rect x="384" y="60" width="14" height="30"/><rect x="406" y="53" width="14" height="37"/><rect x="428" y="47" width="14" height="43"/><rect x="450" y="58" width="14" height="32"/><rect x="472" y="62" width="14" height="28"/><rect x="494" y="66" width="14" height="24"/><rect x="516" y="44" width="14" height="46" fill="#FFB547"/>
+            </g>
+            <g fill="#56616D" font-family="JetBrains Mono,monospace" font-size="9"><text x="10" y="104">00</text><text x="142" y="104">06</text><text x="274" y="104">12</text><text x="406" y="104">18</text><text x="505" y="104">now</text></g>
+          </svg>
+        </div>
+        <div class="p" style="grid-column:span 5"><div class="ph">Latest blocks <span class="r">journal -k -f</span></div>
+          <div class="log">09:41:07 <b>BLOCK</b> SRC=192.168.1.57 DPT=2283 TCP (phone, immich)<br>09:40:52 <b>BLOCK</b> SRC=192.168.1.57 DPT=2283 TCP (phone, immich)<br>09:22:10 <b>BLOCK</b> SRC=192.168.1.44 DPT=8009 TCP (tv, cast)<br>08:58:03 <b>BLOCK</b> SRC=192.168.1.31 DPT=5432 TCP<br>08:40:19 <b>BLOCK</b> SRC=192.168.1.1 DPT=161 UDP (router)</div>
+          <div class="foot">The phone trying :2283 is why the rule above was suggested.</div>
+        </div>
+      </div>
+    </div></div></div></figure>
+  </div>
+</section>
+
+<style>
+.d3{font-family:'Instrument Sans','Segoe UI',sans-serif;background:#F3F5F9;color:#1B2230;font-size:13px}
+.d3 .bg{font-family:'Bricolage Grotesque','Segoe UI',sans-serif}
+.d3 .nav{position:absolute;inset:0 0 auto 0;height:60px;display:flex;align-items:center;gap:28px;padding:0 36px;background:#fff;border-bottom:1px solid #E3E7EE}
+.d3 .brand{display:flex;align-items:center;gap:9px;font:800 18px 'Bricolage Grotesque',sans-serif;letter-spacing:-.02em}
+.d3 .mark{width:30px;height:30px;border-radius:9px;background:#1E7A55;color:#fff;display:grid;place-items:center;font-size:16px}
+.d3 .tabs{display:flex;gap:4px}
+.d3 .tabs span{padding:7px 14px;border-radius:99px;font-weight:600;color:#5A6478;font-size:13.5px}
+.d3 .tabs span.on{background:#1B2230;color:#fff}
+.d3 .stat{margin-left:auto;display:flex;align-items:center;gap:8px;padding:6px 13px 6px 9px;border-radius:99px;background:#E4F3EA;color:#175E42;font-weight:600}
+.d3 .stat i{width:9px;height:9px;border-radius:50%;background:#22A06B}
+.d3 .av{width:32px;height:32px;border-radius:50%;background:#FFCF4A;display:grid;place-items:center;font-weight:700}
+.d3 .body{position:absolute;top:60px;left:0;right:0;bottom:0;padding:26px 36px;display:grid;gap:28px}
+.d3 .body.home{grid-template-columns:minmax(0,1fr) 296px}
+.d3 h1{font:750 35px/1.05 'Bricolage Grotesque',sans-serif;letter-spacing:-.03em;margin:0}
+.d3 .ask{margin-top:16px;height:52px;border-radius:16px;background:#fff;border:1.5px solid #C9D1DD;display:flex;align-items:center;gap:10px;padding:0 7px 0 16px;font-size:15px;color:#7D879A;box-shadow:0 8px 24px rgba(27,34,48,.06)}
+.d3 .ask .go{margin-left:auto;height:38px;padding:0 16px;border-radius:11px;background:#1E7A55;color:#fff;font-weight:600;font-size:13.5px;display:flex;align-items:center;gap:6px}
+.d3 .lr{display:flex;align-items:center;gap:8px;margin:22px 0 11px}
+.d3 .lr b{font:700 15px 'Bricolage Grotesque',sans-serif;margin-right:8px}
+.d3 .lr span{font-size:12px;font-weight:600;color:#5A6478;padding:4px 10px;border-radius:99px;background:#E7EBF2}
+.d3 .lr span.on{background:#1B2230;color:#fff}
+.d3 .lr a{margin-left:auto;font-size:12.5px;font-weight:600;color:#1E7A55;text-decoration:none}
+.d3 .rc{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+.d3 .card{background:#fff;border:1px solid #E3E7EE;border-radius:16px;overflow:hidden}
+.d3 .band{height:62px;position:relative;display:flex;align-items:center;padding:0 16px;gap:8px}
+.d3 .band .big{font-size:30px;stroke-width:1.6}
+.d3 .band .sm{width:28px;height:28px;border-radius:50%;background:#fff;display:grid;place-items:center;font-size:14px;margin-left:-14px;margin-top:18px;box-shadow:0 2px 6px rgba(0,0,0,.08)}
+.d3 .band .st{position:absolute;top:10px;right:10px;font-size:11px;font-weight:700;padding:3px 8px;border-radius:99px;background:#fff}
+.d3 .st.dn{color:#1E7A55}
+.d3 .st.ip{background:#1B2230!important;color:#FFCF4A}
+.d3 .cb{padding:11px 14px 13px}
+.d3 .cb h4{margin:0;font:700 16px/1.15 'Bricolage Grotesque',sans-serif;letter-spacing:-.01em}
+.d3 .cb p{margin:4px 0 0;font-size:12px;color:#5A6478;line-height:1.35}
+.d3 .card.done{opacity:.72}
+.d3 .sky{background:#DCE9FF;color:#1D4ED8}.d3 .mint{background:#DDF3E6;color:#1E7A55}.d3 .peach{background:#FFE6D6;color:#C2410C}.d3 .lilac{background:#ECE6FF;color:#6D28D9}.d3 .lemon{background:#FFF1BF;color:#8A5A00}.d3 .rose{background:#FFE1E7;color:#BE123C}
+.d3 .panel{background:#fff;border:1px solid #E3E7EE;border-radius:18px;padding:18px}
+.d3 .panel h3{margin:0 0 3px;font:700 17px/1.2 'Bricolage Grotesque',sans-serif;letter-spacing:-.01em}
+.d3 .panel .sub{font-size:12.5px;color:#5A6478;margin:0 0 12px}
+.d3 .li{display:flex;gap:10px;align-items:flex-start;padding:9px 0;border-top:1px solid #EEF1F5;font-size:13px;line-height:1.35}
+.d3 .li .ico{width:24px;height:24px;border-radius:8px;display:grid;place-items:center;flex:none;font-size:13px}
+.d3 .li .ok{background:#E4F3EA;color:#1E7A55}.d3 .li .wa{background:#FFF1BF;color:#8A5A00}.d3 .li .up{background:#DCE9FF;color:#1D4ED8}
+.d3 .li a{display:inline-flex;align-items:center;gap:3px;margin-top:4px;font-weight:600;color:#1E7A55;text-decoration:none;font-size:12.5px}
+.d3 .care{padding-block:14px}
+.d3 .cr{display:grid;grid-template-columns:auto 1fr;gap:1px 10px;align-items:center;padding:7px 0}
+.d3 .pill{font-size:11px;font-weight:700;padding:3px 9px;border-radius:99px;grid-row:span 2;white-space:nowrap;text-align:center;min-width:78px}
+.d3 .p-l{background:#DDF3E6;color:#16603F}.d3 .p-m{background:#FFF1BF;color:#7A4E00}.d3 .p-h{background:#FFE1E7;color:#A3122F}
+.d3 .cr b{font-size:12.5px}
+.d3 .cr small{font-size:11.5px;color:#5A6478}
+/* wizard */
+.d3 .body.wz{grid-template-columns:200px minmax(0,1fr) 262px;padding-top:22px}
+.d3 .crumbs{position:absolute;top:72px;left:36px;font-size:12px;color:#7D879A}
+.d3 .steps{padding-top:30px;position:relative}
+.d3 .stp{display:grid;grid-template-columns:28px 1fr;gap:2px 12px;position:relative;padding-bottom:26px}
+.d3 .stp::before{content:"";position:absolute;left:13px;top:30px;bottom:2px;width:2px;background:#DCE2EA}
+.d3 .stp:last-of-type::before{display:none}
+.d3 .stp .n{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;font-weight:700;font-size:12.5px;background:#fff;border:2px solid #DCE2EA;color:#7D879A;grid-row:span 2}
+.d3 .stp.d .n{background:#1E7A55;border-color:#1E7A55;color:#fff}
+.d3 .stp.d::before{background:#1E7A55}
+.d3 .stp.c .n{border-color:#1B2230;color:#1B2230;box-shadow:0 0 0 4px #FFE9A0}
+.d3 .stp b{font-size:13.5px;padding-top:4px}
+.d3 .stp small{font-size:12px;color:#5A6478;line-height:1.35}
+.d3 .later{font-size:12.5px;color:#1E7A55;font-weight:600}
+.d3 .main .ey{font-size:12px;font-weight:700;color:#8A5A00;letter-spacing:.02em;margin-top:18px}
+.d3 .main h2{font:750 27px/1.1 'Bricolage Grotesque',sans-serif;letter-spacing:-.025em;margin:6px 0 6px}
+.d3 .main > p{margin:0 0 14px;font-size:13.5px;color:#465063;line-height:1.45;max-width:440px}
+.d3 .opts{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.d3 .op{position:relative;background:#fff;border:1.5px solid #DCE2EA;border-radius:14px;padding:11px 12px 11px 42px;min-height:88px}
+.d3 .op .rb{position:absolute;left:14px;top:14px;width:18px;height:18px;border-radius:50%;border:2px solid #C3CBD7}
+.d3 .op.on{border:2px solid #1E7A55;background:#F2FAF5}
+.d3 .op.on .rb{border:5px solid #1E7A55}
+.d3 .op b{display:flex;align-items:center;gap:6px;font-size:13.5px}
+.d3 .op p{margin:4px 0 0;font-size:12px;color:#5A6478;line-height:1.35}
+.d3 .op .tg{display:inline-block;margin-top:6px;font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px;background:#E4F3EA;color:#16603F}
+.d3 .op.off{background:#F6F7F9;border-style:dashed}
+.d3 .op.off b,.d3 .op.off p{color:#8A93A5}
+.d3 .op.off .tg{background:#FFE1E7;color:#A3122F}
+.d3 .fields{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
+.d3 .fd label{display:block;font-size:11.5px;font-weight:700;color:#5A6478;margin-bottom:4px}
+.d3 .fd div{height:36px;border-radius:10px;border:1.5px solid #DCE2EA;background:#fff;display:flex;align-items:center;padding:0 11px;font-size:13px;gap:7px}
+.d3 .fd small{margin-left:auto;font-size:11px;color:#7D879A}
+.d3 .nav2{display:flex;gap:10px;margin-top:12px}
+.d3 .b1,.d3 .b2{height:40px;padding:0 18px;border-radius:12px;display:flex;align-items:center;gap:6px;font-weight:600;font-size:13.5px}
+.d3 .b1{background:#E7EBF2;color:#1B2230}
+.d3 .b2{background:#1E7A55;color:#fff;margin-left:auto}
+.d3 .plan{align-self:start;margin-top:26px}
+.d3 .pl{display:grid;grid-template-columns:20px 1fr;gap:3px 10px;padding:10px 0;border-top:1px solid #EEF1F5}
+.d3 .pl .k{width:20px;height:20px;border-radius:6px;background:#F0F2F6;font-size:11px;font-weight:700;display:grid;place-items:center;color:#5A6478;grid-row:span 2}
+.d3 .pl b{font-size:12.5px;line-height:1.3;font-weight:600}
+.d3 .pl .pill{grid-row:auto;justify-self:start;min-width:0;font-size:10.5px;padding:2px 8px}
+.d3 .nb{font-size:12px;color:#5A6478;background:#F6F7F9;border-radius:10px;padding:9px 11px;margin-top:8px;line-height:1.4}
+</style>
+
+<section class="dir" id="recipes">
+  <div class="dir-h">
+    <div><div class="eyebrow">Direction 3</div><h2>Recipes &amp; Guides</h2></div>
+    <a class="top" href="#top">Back to top ↑</a>
+    <p class="concept">Start from what you want to get done, in plain words. Every task is a short guided recipe that lists its plan before anything runs.</p>
+  </div>
+  <div class="notes">
+    <dl>
+      <dt>Navigation</dt><dd>Three tabs: Do something (recipes), My box (the usual subsystem pages) and History. The search box takes whole sentences and returns recipes, not settings.</dd>
+      <dt>Layout</dt><dd>Recipe cards on the left, "Your box today" written as sentences on the right. Each recipe is a two-to-five step wizard with a live plan beside it.</dd>
+      <dt>Type, color, density</dt><dd>Bricolage Grotesque headings, Instrument Sans body. A cool light background with a soft tint per category, and plenty of room. The risk tiers get plain names: Safe, Check first, Careful.</dd>
+      <dt>Who it suits</dt><dd>First-time self-hosters and whoever runs the family server. Power users will find wizards slow for one-line edits, so My box keeps direct controls.</dd>
+    </dl>
+    <div class="sig"><h3>Signature features</h3><ul>
+      <li><b>The plan panel:</b> what BoxPilot will do, step by step with each step's tier, before you press Start.</li>
+      <li><b>Teaching by constraint:</b> the 4 TB disk inside homebox is greyed out as an off-box target, with the reason.</li>
+      <li><b>Resume anywhere:</b> recipes remember their step, so "Back up my photos" waits at step 2 of 3.</li>
+    </ul></div>
+  </div>
+  <div class="shots">
+    <figure class="shot"><figcaption><b>What do you want to do?</b><span>Overview</span></figcaption><div class="frame"><div class="stage-wrap"><div class="stage d3">
+      <div class="nav"><div class="brand"><span class="mark"><svg class="ic"><use href="#i-spark"/></svg></span>BoxPilot</div><div class="tabs"><span class="on">Do something</span><span>My box</span><span>History</span></div><div class="stat"><i></i>homebox · all good</div><div class="av">C</div></div>
+      <div class="body home">
+        <div>
+          <h1>What do you want to do?</h1>
+          <div class="ask"><svg class="ic"><use href="#i-search"/></svg>For example, "let the TV play movies from the big drive"<span class="go">Show me how <svg class="ic"><use href="#i-arrow"/></svg></span></div>
+          <div class="lr"><b>Popular on home servers</b><span class="on">All</span><span>Media</span><span>Photos</span><span>Privacy</span><span>AI</span><a href="#recipes">All 40 guides →</a></div>
+          <div class="rc">
+            <div class="card"><div class="band peach"><svg class="ic big"><use href="#i-image"/></svg><span class="sm"><svg class="ic"><use href="#i-cloud"/></svg></span><span class="st ip">Step 2 of 3</span></div><div class="cb"><h4>Back up my photos</h4><p>Copy Immich off this box · 3 steps</p></div></div>
+            <div class="card"><div class="band lilac"><svg class="ic big"><use href="#i-lock"/></svg><span class="sm"><svg class="ic"><use href="#i-ts"/></svg></span></div><div class="cb"><h4>Make an app private</h4><p>Tailscale only, with HTTPS · 1 step</p></div></div>
+            <div class="card"><div class="band sky"><svg class="ic big"><use href="#i-folder"/></svg><span class="sm"><svg class="ic"><use href="#i-laptop"/></svg></span></div><div class="cb"><h4>Share a folder</h4><p>Open it from Windows or a Mac · 3 steps</p></div></div>
+            <div class="card done"><div class="band mint"><svg class="ic big"><use href="#i-tv"/></svg><span class="sm"><svg class="ic"><use href="#i-play"/></svg></span><span class="st dn">✓ Done</span></div><div class="cb"><h4>Set up a media server</h4><p>Jellyfin and a share for the TV</p></div></div>
+            <div class="card done"><div class="band lemon"><svg class="ic big"><use href="#i-gpu"/></svg><span class="sm"><svg class="ic"><use href="#i-spark"/></svg></span><span class="st dn">✓ Done</span></div><div class="cb"><h4>Run AI on my GPU</h4><p>Ollama and Open WebUI</p></div></div>
+            <div class="card done"><div class="band rose"><svg class="ic big"><use href="#i-shield"/></svg><span class="sm"><svg class="ic"><use href="#i-x"/></svg></span><span class="st dn">✓ Done</span></div><div class="cb"><h4>Block ads at home</h4><p>Pi-hole for every device</p></div></div>
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:14px">
+          <div class="panel">
+            <h3 style="margin-bottom:8px">Your box today</h3>
+            <div class="li"><span class="ico ok"><svg class="ic"><use href="#i-check"/></svg></span><div>All 9 apps are running and backed up. Yesterday's test restore worked.</div></div>
+            <div class="li"><span class="ico wa"><svg class="ic"><use href="#i-alert"/></svg></span><div>Your Immich photos exist only on this box.<br><a href="#recipes">Continue "Back up my photos" <svg class="ic"><use href="#i-arrow"/></svg></a></div></div>
+            <div class="li"><span class="ico up"><svg class="ic"><use href="#i-update"/></svg></span><div>14 updates are ready, 3 for security.<br><a href="#recipes">Install them safely <svg class="ic"><use href="#i-arrow"/></svg></a></div></div>
+          </div>
+          <div class="panel care">
+            <h3 style="font-size:15px">How careful BoxPilot is</h3>
+            <div class="cr"><span class="pill p-l">Safe</span><b>One click</b><small>Backups, restarts, logs</small></div>
+            <div class="cr"><span class="pill p-m">Check first</span><b>Shows the change first</b><small>Installs, shares, ports</small></div>
+            <div class="cr"><span class="pill p-h">Careful</span><b>Asks for your password</b><small>Disks, deletions, updates</small></div>
+          </div>
+        </div>
+      </div>
+    </div></div></div></figure>
+
+    <figure class="shot"><figcaption><b>Recipe wizard: "Back up my photos", step 2</b><span>Backups</span></figcaption><div class="frame"><div class="stage-wrap"><div class="stage d3">
+      <div class="nav"><div class="brand"><span class="mark"><svg class="ic"><use href="#i-spark"/></svg></span>BoxPilot</div><div class="tabs"><span class="on">Do something</span><span>My box</span><span>History</span></div><div class="stat"><i></i>homebox · all good</div><div class="av">C</div></div>
+      <div class="crumbs">Do something / Photos / <b style="color:#1B2230">Back up my photos</b></div>
+      <div class="body wz">
+        <div class="steps">
+          <div class="stp d"><span class="n"><svg class="ic"><use href="#i-check"/></svg></span><b>What to protect</b><small>Immich · 412 GB of photos and videos, plus its database</small></div>
+          <div class="stp c"><span class="n">2</span><b>Where the copy goes</b><small>Somewhere that survives if homebox doesn't</small></div>
+          <div class="stp"><span class="n">3</span><b>Prove it works</b><small>Restore a copy to a scratch space and check it</small></div>
+          <div class="later">Save and finish later</div>
+        </div>
+        <div class="main">
+          <div class="ey">STEP 2 OF 3</div>
+          <h2>Where should the extra copy live?</h2>
+          <p>A backup inside the same box won't help if the box is stolen, floods or dies. Pick a place outside it. BoxPilot encrypts the copy before it leaves.</p>
+          <div class="opts">
+            <div class="op on"><span class="rb"></span><b><svg class="ic"><use href="#i-cloud"/></svg>Backblaze B2</b><p>Cloud storage you pay for by the gigabyte</p><span class="tg">About $2.50 a month</span></div>
+            <div class="op"><span class="rb"></span><b><svg class="ic"><use href="#i-laptop"/></svg>Another computer</b><p>A PC or NAS at a relative's house, over SSH</p></div>
+            <div class="op"><span class="rb"></span><b><svg class="ic"><use href="#i-usb"/></svg>A USB drive</b><p>Plug it in, copy, and keep it somewhere else</p></div>
+            <div class="op off"><span class="rb"></span><b><svg class="ic"><use href="#i-disk"/></svg>The 4 TB disk in homebox</b><p>Already holds your nightly backups. It fails along with the box.</p><span class="tg">Not off-box</span></div>
+          </div>
+          <div class="fields">
+            <div class="fd"><label>Bucket</label><div>homebox-photos<small>new</small></div></div>
+            <div class="fd"><label>Application key</label><div><svg class="ic" style="color:#1E7A55"><use href="#i-key"/></svg>Kept by the root helper</div></div>
+          </div>
+          <div class="nav2"><span class="b1"><svg class="ic"><use href="#i-back"/></svg>Back</span><span class="b2">Next: prove it works <svg class="ic"><use href="#i-arrow"/></svg></span></div>
+        </div>
+        <div class="panel plan">
+          <h3>What BoxPilot will do</h3><p class="sub" style="margin-bottom:4px">Nothing runs until you press Start on the last step.</p>
+          <div class="pl"><span class="k">1</span><b>Keep backing up Immich to /srv/backup every night at 03:10</b><span class="pill p-l">Safe</span></div>
+          <div class="pl"><span class="k">2</span><b>Create the bucket and store its key in the root helper</b><span class="pill p-m">Check first</span></div>
+          <div class="pl"><span class="k">3</span><b>Encrypt and copy the backup to B2 every night after it finishes</b><span class="pill p-m">Check first</span></div>
+          <div class="pl"><span class="k">4</span><b>Restore from B2 to a scratch folder every Sunday and compare</b><span class="pill p-l">Safe</span></div>
+          <div class="nb">The first copy is 412 GB. On your upload speed that takes about 9 hours, so it runs overnight.</div>
+        </div>
+      </div>
+    </div></div></div></figure>
+  </div>
+</section>
+
+<style>
+.d4{font-family:'Manrope','Segoe UI',sans-serif;background:#F4F5F7;color:#18202B;font-size:12px}
+.d4 .mo{font-family:'DM Mono',ui-monospace,monospace}
+.d4 .tb{position:absolute;inset:0 0 auto 0;height:48px;background:#fff;border-bottom:1px solid #E4E7EC;display:flex;align-items:center;gap:14px;padding:0 16px;z-index:2}
+.d4 .logo{display:flex;align-items:center;gap:8px;font-weight:800;font-size:14px}
+.d4 .logo i{width:26px;height:26px;border-radius:7px;background:#18202B;color:#fff;display:grid;place-items:center;font-size:13px;font-style:normal}
+.d4 .vt{display:flex;background:#F2F4F7;border-radius:8px;padding:3px}
+.d4 .vt span{padding:4px 11px;border-radius:6px;font-weight:600;color:#667085}
+.d4 .vt span.on{background:#fff;color:#18202B;box-shadow:0 1px 2px rgba(16,24,40,.12)}
+.d4 .ly{display:flex;gap:6px}
+.d4 .ly span{display:flex;align-items:center;gap:6px;padding:4px 10px;border:1px solid #E4E7EC;border-radius:99px;font-weight:600;font-size:11.5px;color:#344054;background:#fff}
+.d4 .ly span i{width:8px;height:8px;border-radius:2px}
+.d4 .ly span.off{color:#98A2B3;background:#F9FAFB}
+.d4 .ly span.on{background:#18202B;color:#fff;border-color:#18202B}
+.d4 .fs{margin-left:auto;width:206px;height:30px;border:1px solid #E4E7EC;border-radius:8px;display:flex;align-items:center;gap:7px;padding:0 10px;color:#98A2B3}
+.d4 .hp{display:flex;align-items:center;gap:6px;font-weight:700;color:#067647;background:#ECFDF3;padding:5px 10px;border-radius:99px;font-size:11.5px}
+.d4 .hp i{width:7px;height:7px;border-radius:50%;background:#17B26A}
+.d4 .cv{position:absolute;left:0;top:48px;width:720px;height:552px;background:radial-gradient(#D3D8E0 1px,transparent 1.3px) 0 0/16px 16px}
+.d4 .cv svg.edges{position:absolute;left:0;top:0;width:720px;height:552px;overflow:visible}
+.d4 .colh{position:absolute;top:14px;font:500 10px 'DM Mono',monospace;letter-spacing:.08em;color:#98A2B3;text-transform:uppercase}
+.d4 .n{position:absolute;background:#fff;border:1px solid #D0D5DD;border-radius:9px;box-shadow:0 1px 2px rgba(16,24,40,.06);display:flex;align-items:center;gap:8px;padding:0 10px}
+.d4 .dk{height:58px;width:140px;white-space:nowrap;border-left:4px solid #475467;flex-direction:column;align-items:flex-start;justify-content:center;gap:1px}
+.d4 .dk b{font-size:12px}
+.d4 .dk small,.d4 .fo small,.d4 .gp small{font:10.5px 'DM Mono',monospace;color:#667085}
+.d4 .dk .u{width:100%;height:4px;border-radius:2px;background:#EAECF0;overflow:hidden;margin-top:4px}
+.d4 .dk .u i{display:block;height:100%;background:#475467}
+.d4 .fo{height:38px;width:150px;border-left:4px solid #0E9384;font-weight:700;font-size:11.5px;flex-direction:column;align-items:flex-start;justify-content:center;gap:0}
+.d4 .fo .sh{position:absolute;right:-8px;top:-8px;font:500 9.5px 'DM Mono',monospace;background:#0E9384;color:#fff;padding:1px 5px;border-radius:4px}
+.d4 .gp{height:46px;width:150px;border-left:4px solid #5A8F00;flex-direction:column;align-items:flex-start;justify-content:center;gap:1px;font-weight:700}
+.d4 .vmn{width:150px;border-left:4px solid #DC6803;flex-direction:column;align-items:stretch;padding:8px 10px;gap:4px}
+.d4 .vmn b{font-size:11.5px}
+.d4 .vmn span{display:flex;align-items:center;gap:6px;font:10.5px 'DM Mono',monospace;color:#475467}
+.d4 .g{width:7px;height:7px;border-radius:50%;background:#17B26A;flex:none}
+.d4 .o{width:7px;height:7px;border-radius:50%;border:1.5px solid #98A2B3;flex:none}
+.d4 .apn{height:30px;width:166px;border-radius:8px;font-weight:700;font-size:11.5px;padding:0 8px;gap:6px;white-space:nowrap}
+.d4 .apn .ap{--z:20px;border-radius:6px;font-size:8px}
+.d4 .apn small{margin-left:auto;font:10px 'DM Mono',monospace;color:#98A2B3;font-weight:400}
+.d4 .apn.sel{border:2px solid #444CE7;box-shadow:0 0 0 4px rgba(68,76,231,.14)}
+.d4 .apn .wb{width:16px;height:16px;border-radius:50%;background:#FEF0C7;color:#B54708;display:grid;place-items:center;font-size:10px;font-weight:800}
+.d4 .rn{width:140px;flex-direction:column;align-items:stretch;padding:9px 10px;border-left:4px solid #444CE7;gap:5px}
+.d4 .rn b{font-size:12px;display:flex;align-items:center;gap:6px}
+.d4 .rn small{font:10px 'DM Mono',monospace;color:#667085;word-break:break-all}
+.d4 .rn .dv{display:flex;align-items:center;gap:6px;font-size:11px;color:#475467}
+.d4 .rn.inet{border-left-color:#98A2B3}
+.d4 .wall{position:absolute;left:535px;top:26px;width:6px;height:398px;border-radius:3px;background:repeating-linear-gradient(180deg,#98A2B3 0 9px,transparent 9px 12px)}
+.d4 .wl{position:absolute;left:538px;top:430px;transform:translateX(-50%);font:500 9.5px 'DM Mono',monospace;color:#475467;background:#fff;border:1px solid #D0D5DD;border-radius:5px;padding:2px 6px;white-space:nowrap;display:flex;align-items:center;gap:4px}
+.d4 .gate{position:absolute;transform:translate(-50%,-50%);font:500 9.5px 'DM Mono',monospace;background:#fff;border:1px solid #98A2B3;border-radius:4px;padding:0 4px;color:#344054;line-height:14px}
+.d4 .xb{position:absolute;width:14px;height:14px;transform:translate(-50%,-50%);border-radius:50%;background:#F04438;color:#fff;display:grid;place-items:center;font-size:9px}
+.d4 .mini{position:absolute;left:20px;top:476px;width:130px;height:62px;background:#fff;border:1px solid #D0D5DD;border-radius:8px;overflow:hidden}
+.d4 .mini i{position:absolute;background:#D0D5DD;border-radius:1px}
+.d4 .mini .vp{position:absolute;left:6px;top:6px;width:88px;height:48px;border:1.5px solid #444CE7;border-radius:3px;background:rgba(68,76,231,.06)}
+.d4 .zm{position:absolute;left:160px;top:490px;display:flex;flex-direction:column;background:#fff;border:1px solid #D0D5DD;border-radius:8px;overflow:hidden}
+.d4 .zm span{width:28px;height:24px;display:grid;place-items:center;color:#475467;font-size:13px}
+.d4 .zm span + span{border-top:1px solid #EAECF0}
+.d4 .lg{position:absolute;left:352px;top:470px;width:350px;display:grid;grid-template-columns:1fr 1fr;gap:6px 16px;font-size:11px;color:#475467;background:rgba(255,255,255,.85);border:1px solid #E4E7EC;border-radius:8px;padding:8px 10px}
+.d4 .lg span{display:flex;align-items:center;gap:7px}
+.d4 .lg svg{width:26px;height:8px;flex:none}
+.d4 .side{position:absolute;left:720px;top:48px;right:0;bottom:0;background:#fff;border-left:1px solid #E4E7EC;padding:14px 18px;display:flex;flex-direction:column;gap:10px}
+.d4 .sh-h{display:flex;align-items:center;gap:11px}
+.d4 .sh-h .ap{--z:42px;border-radius:12px}
+.d4 .sh-h h3{margin:0;font-size:17px;font-weight:800;letter-spacing:-.01em}
+.d4 .sh-h p{margin:1px 0 0;font-size:11.5px;color:#667085;display:flex;align-items:center;gap:6px}
+.d4 .sh-h .x{margin-left:auto;align-self:flex-start;color:#98A2B3;font-size:15px}
+.d4 .warn{border-radius:10px;background:#FFFAEB;border:1px solid #FEDF89;padding:10px 12px;font-size:12px;color:#7A2E0E;display:grid;grid-template-columns:auto 1fr;gap:3px 9px}
+.d4 .warn svg{color:#DC6803;font-size:15px;grid-row:span 2}
+.d4 .warn b{font-size:12.5px;color:#93370D}
+.d4 .sl{font:500 10px 'DM Mono',monospace;letter-spacing:.08em;color:#98A2B3;text-transform:uppercase;margin-bottom:-4px}
+.d4 .cx{display:grid;grid-template-columns:auto 1fr;gap:0 9px;align-items:center;font-size:12px;padding:3px 0;border-bottom:1px dashed #EAECF0}
+.d4 .cx i{width:9px;height:9px;border-radius:3px;grid-row:span 2}
+.d4 .cx small{color:#667085;font-size:11px}
+.d4 .cx b{font-weight:600}
+.d4 .ac{display:flex;align-items:center;gap:8px;padding:7px 10px;border:1px solid #E4E7EC;border-radius:8px;font-weight:600;font-size:12px}
+.d4 .ac + .ac{margin-top:-6px}
+.d4 .ac .t{margin-left:auto}
+.d4 .t{font:500 9.5px 'DM Mono',monospace;padding:2px 6px;border-radius:4px;letter-spacing:.04em}
+.d4 .tl{background:#ECFDF3;color:#067647}.d4 .tm{background:#FFFAEB;color:#B54708}.d4 .th{background:#FEF3F2;color:#B42318}
+.d4 .ac.dg{color:#B42318}
+/* storage lens */
+.d4 .lane{position:absolute;left:0;width:720px;height:150px}
+.d4 .lane + .lane{border-top:1px solid #E4E7EC}
+.d4 .lb{position:absolute;left:20px;top:22px;width:160px;white-space:nowrap;display:grid;grid-template-columns:30px 1fr;gap:1px 9px}
+.d4 .lb .di{width:30px;height:30px;border-radius:8px;background:#18202B;color:#fff;display:grid;place-items:center;font-size:15px;grid-row:span 3}
+.d4 .lb b{font-size:13px}
+.d4 .lb small{font-size:11px;color:#667085}
+.d4 .lb .ok{color:#067647;font-weight:600}
+.d4 .vg{position:absolute;left:186px;top:12px;font:500 10px 'DM Mono',monospace;color:#98A2B3;letter-spacing:.04em}
+.d4 .bar{position:absolute;left:186px;top:28px;width:500px;height:40px;display:flex;border-radius:7px;overflow:visible;background:#EAECF0}
+.d4 .bar > i{height:100%;position:relative;border-right:2px solid #F4F5F7}
+.d4 .bar > i:first-child{border-radius:7px 0 0 7px}
+.d4 .bar > i:last-child{border-right:0;border-radius:0 7px 7px 0}
+.d4 .hatch{background:repeating-linear-gradient(135deg,#EEF0FF 0 6px,#DDE0FB 6px 12px)!important;outline:2px solid #444CE7;outline-offset:1px}
+.d4 .cap{position:absolute;top:74px;font-size:11px;color:#475467;white-space:nowrap}
+.d4 .cap b{font-weight:700;color:#18202B}
+.d4 .chips{position:absolute;left:186px;top:104px;display:flex;gap:7px;align-items:center}
+.d4 .chip{display:flex;align-items:center;gap:6px;font-size:11px;padding:4px 9px;border-radius:99px;background:#fff;border:1px solid #D0D5DD;color:#344054;white-space:nowrap}
+.d4 .chip.tl2{border-color:#99E0D4;background:#F0FDF9;color:#0E6B60}
+.d4 .chip.w{border-color:#FEDF89;background:#FFFAEB;color:#93370D}
+.d4 .arr{color:#98A2B3}
+.d4 .radio{display:flex;align-items:flex-start;gap:9px;padding:8px 10px;border:1px solid #E4E7EC;border-radius:9px;font-size:12px}
+.d4 .radio + .radio{margin-top:-6px}
+.d4 .radio i{width:14px;height:14px;border-radius:50%;border:1.5px solid #98A2B3;flex:none;margin-top:1px}
+.d4 .radio.on{border-color:#444CE7;background:#F5F6FF}
+.d4 .radio.on i{border:4.5px solid #444CE7}
+.d4 .radio small{display:block;color:#667085;font-size:11px}
+.d4 .cmdp{overflow:hidden;background:#101828;color:#D0D5DD;font:9.5px/1.6 'DM Mono',monospace;border-radius:8px;padding:8px 10px;white-space:pre}
+.d4 .btnp{height:36px;border-radius:9px;background:#444CE7;color:#fff;font-weight:700;display:flex;align-items:center;justify-content:center;gap:8px;font-size:12.5px}
+</style>
+
+<section class="dir" id="topology">
+  <div class="dir-h">
+    <div><div class="eyebrow">Direction 4</div><h2>Topology Map</h2></div>
+    <a class="top" href="#top">Back to top ↑</a>
+    <p class="concept">The box drawn as a map: disks feed folders and shares, folders feed apps, apps pass through the firewall to your LAN and tailnet. Click anything to act on it.</p>
+  </div>
+  <div class="notes">
+    <dl>
+      <dt>Navigation</dt><dd>One map with lenses (Everything, Storage, Network, Backups) and layer toggles. Clicking a node opens its side panel. A List view gives the same items as a table for keyboard users and big setups.</dd>
+      <dt>Layout</dt><dd>Columns read left to right: disks, folders and shares, apps, the firewall, then LAN and tailnet devices. VMs and the GPU sit where they connect. The side panel is 320 px.</dd>
+      <dt>Type, color, density</dt><dd>Manrope with DM Mono for paths and ports. A light dot-grid canvas, colored by kind of thing: slate disks, teal folders, green GPU, orange VMs, indigo network. Medium density.</dd>
+      <dt>Who it suits</dt><dd>Visual thinkers, and anyone asking "why can't the TV see this?". It needs careful layout work to stay readable past about 40 nodes.</dd>
+    </dl>
+    <div class="sig"><h3>Signature features</h3><ul>
+      <li><b>Firewall as a wall</b> with a labelled gate wherever traffic is allowed through, and a red dead end where it is blocked.</li>
+      <li><b>Path highlight:</b> select Immich and its disk, folders, backup and reach light up across the whole map.</li>
+      <li><b>Storage lens</b> with disks drawn to scale, which makes the 828 GB the Ubuntu installer left unallocated impossible to miss.</li>
+    </ul></div>
+  </div>
+  <div class="shots">
+    <figure class="shot"><figcaption><b>The whole box, with Immich selected</b><span>Overview</span></figcaption><div class="frame"><div class="stage-wrap"><div class="stage d4">
+      <div class="tb">
+        <div class="logo"><i><svg class="ic"><use href="#i-share"/></svg></i>homebox</div>
+        <div class="vt"><span class="on">Map</span><span>List</span></div>
+        <div class="ly"><span class="on">Everything</span><span>Storage</span><span>Network</span><span>Backups</span></div>
+        <div class="fs"><svg class="ic"><use href="#i-search"/></svg>Find on the map</div>
+        <div class="hp"><i></i>Healthy · 1 warning</div>
+      </div>
+      <div class="cv">
+        <svg class="edges" viewBox="0 0 720 552">
+          <g fill="none" stroke="#C4CAD4" stroke-width="1.3">
+            <path d="M152 69 L176 69"/><path d="M152 157 C164 157 164 185 176 185"/><path d="M152 245 L176 245"/>
+            <path d="M326 69 C339 69 339 55 352 55"/><path d="M326 69 C339 69 339 93 352 93"/><path d="M326 69 C339 69 339 131 352 131"/><path d="M326 69 C339 69 339 245 352 245"/><path d="M326 69 C339 69 339 283 352 283"/><path d="M326 69 C339 69 339 321 352 321"/><path d="M326 69 C339 69 339 359 352 359"/>
+            <path d="M326 185 C339 185 339 207 352 207"/>
+            <path d="M512 55 C539 55 539 99 566 99"/><path d="M512 131 C539 131 539 99 566 99"/><path d="M512 207 C539 207 539 99 566 99"/>
+            <path d="M512 93 C539 93 539 261 566 261"/><path d="M512 245 C539 245 539 261 566 261"/><path d="M512 283 C539 283 539 261 566 261"/><path d="M512 359 C539 359 539 261 566 261"/>
+            <path d="M326 432 L520 432 C548 432 548 320 566 320"/>
+          </g>
+          <g fill="none" stroke="#5A8F00" stroke-width="1.6"><path d="M326 323 C339 323 339 321 352 321"/><path d="M326 323 C339 323 339 207 352 207"/></g>
+          <g fill="none" stroke="#444CE7" stroke-width="2.4"><path d="M152 157 C164 157 164 137 176 137"/><path d="M326 137 C339 137 339 169 352 169"/><path d="M512 169 C539 169 539 261 566 261"/></g>
+          <path d="M326 245 C339 245 339 169 352 169" fill="none" stroke="#444CE7" stroke-width="2" stroke-dasharray="4 3"/>
+          <path d="M512 169 C526 169 530 136 534 134" fill="none" stroke="#F04438" stroke-width="1.6" stroke-dasharray="3 3"/>
+        </svg>
+        <span class="colh" style="left:20px">Disks</span><span class="colh" style="left:176px">Folders &amp; shares</span><span class="colh" style="left:352px">Apps</span><span class="colh" style="left:566px">Reach</span>
+        <div class="n dk" style="left:20px;top:40px"><b>nvme0n1 · 1 TB</b><small>system · / 80%</small><span class="u"><i style="width:80%;background:#F79009"></i></span></div>
+        <div class="n dk" style="left:20px;top:128px;border-left-color:#444CE7"><b>sda · 8 TB HDD</b><small>/srv/media · 62%</small><span class="u"><i style="width:62%"></i></span></div>
+        <div class="n dk" style="left:20px;top:216px"><b>sdb · 4 TB HDD</b><small>/srv/backup · 41%</small><span class="u"><i style="width:41%"></i></span></div>
+        <div class="n fo" style="left:176px;top:50px">/srv/apps<small>9 apps' settings</small></div>
+        <div class="n fo" style="left:176px;top:118px;border-left-color:#444CE7">/srv/media/photos<small>412 GB</small></div>
+        <div class="n fo" style="left:176px;top:166px">/srv/media<small>movies, tv, music</small><span class="sh">SMB</span></div>
+        <div class="n fo" style="left:176px;top:226px">/srv/backup<small>restic · 1.2 TB</small></div>
+        <div class="n gp" style="left:176px;top:300px">RTX 4080 · 16 GB<small>9.1 GB in use</small></div>
+        <div class="n vmn" style="left:176px;top:380px"><b>Virtual machines</b><span><i class="g"></i>ubuntu-dev · on</span><span><i class="o"></i>win11 · off</span></div>
+        <div class="n apn" style="left:352px;top:40px"><i class="ap ap-ph">π</i>Pi-hole<small>53</small></div>
+        <div class="n apn" style="left:352px;top:78px"><i class="ap ap-vw">V</i>Vaultwarden<small>8222</small></div>
+        <div class="n apn" style="left:352px;top:116px"><i class="ap ap-ha">HA</i>Home Assistant<small>8123</small></div>
+        <div class="n apn sel" style="left:352px;top:154px"><i class="ap ap-im"></i>Immich<span class="wb">!</span><small>2283</small></div>
+        <div class="n apn" style="left:352px;top:192px"><i class="ap ap-jf">J</i>Jellyfin<small>8096</small></div>
+        <div class="n apn" style="left:352px;top:230px"><i class="ap ap-nc">N</i>Nextcloud<small>8443</small></div>
+        <div class="n apn" style="left:352px;top:268px"><i class="ap ap-ow">OI</i>Open WebUI<small>3000</small></div>
+        <div class="n apn" style="left:352px;top:306px"><i class="ap ap-ol">O</i>Ollama<small>local</small></div>
+        <div class="n apn" style="left:352px;top:344px"><i class="ap ap-lc">LC</i>LLMCoach<small>8080</small></div>
+        <div class="wall"></div>
+        <span class="gate" style="left:538px;top:77px">53</span><span class="gate" style="left:538px;top:115px">8123</span><span class="gate" style="left:538px;top:155px">8096</span><span class="gate" style="left:538px;top:236px">tailnet</span>
+        <span class="xb" style="left:538px;top:135px"><svg class="ic"><use href="#i-x"/></svg></span>
+        <span class="wl"><svg class="ic"><use href="#i-wall"/></svg>ufw · Trusted LAN</span>
+        <div class="n rn" style="left:566px;top:40px"><b><svg class="ic"><use href="#i-net"/></svg>LAN</b><small>192.168.1.0/24</small><span class="dv"><svg class="ic"><use href="#i-tv"/></svg>Living-room TV</span><span class="dv"><svg class="ic"><use href="#i-laptop"/></svg>6 more devices</span></div>
+        <div class="n rn" style="left:566px;top:186px"><b><svg class="ic"><use href="#i-ts"/></svg>Tailnet</b><small>tail1234.ts.net</small><span class="dv"><svg class="ic"><use href="#i-phone"/></svg>Owner's phone</span><span class="dv"><svg class="ic"><use href="#i-laptop"/></svg>Owner's laptop</span><span class="dv"><svg class="ic"><use href="#i-laptop"/></svg>2 more</span></div>
+        <div class="n rn inet" style="left:566px;top:356px"><b><svg class="ic"><use href="#i-cloud"/></svg>Internet</b><small>Funnel off</small></div>
+        <div class="mini"><i style="left:10px;top:10px;width:14px;height:30px"></i><i style="left:30px;top:10px;width:16px;height:34px"></i><i style="left:52px;top:8px;width:18px;height:40px"></i><i style="left:78px;top:8px;width:16px;height:36px"></i><i style="left:30px;top:48px;width:16px;height:8px"></i><span class="vp"></span></div>
+        <div class="zm"><span><svg class="ic"><use href="#i-plus"/></svg></span><span><svg class="ic"><use href="#i-minus"/></svg></span></div>
+        <div class="lg">
+          <span><svg viewBox="0 0 26 8"><path d="M1 4H25" stroke="#C4CAD4" stroke-width="1.6"/></svg>stores on / reached from</span>
+          <span><svg viewBox="0 0 26 8"><path d="M1 4H25" stroke="#444CE7" stroke-width="2" stroke-dasharray="4 3"/></svg>backs up to</span>
+          <span><svg viewBox="0 0 26 8"><path d="M1 4H25" stroke="#5A8F00" stroke-width="1.8"/></svg>uses the GPU</span>
+          <span><svg viewBox="0 0 26 8"><path d="M1 4H18" stroke="#F04438" stroke-width="1.6" stroke-dasharray="3 3"/><circle cx="21" cy="4" r="3.5" fill="#F04438"/></svg>blocked by firewall</span>
+        </div>
+      </div>
+      <aside class="side">
+        <div class="sh-h"><i class="ap ap-im"></i><div><h3>Immich</h3><p><span class="g"></span>Running · Tailscale only</p></div><span class="x"><svg class="ic"><use href="#i-x"/></svg></span></div>
+        <div class="warn"><svg class="ic"><use href="#i-alert"/></svg><b>No copy off this box</b><span>412 GB of photos live only on this box.</span></div>
+        <div class="sl">Connected to</div>
+        <div>
+          <div class="cx"><i style="background:#444CE7"></i><b>Photos in /srv/media/photos</b><small>sda · 8 TB HDD</small></div>
+          <div class="cx"><i style="background:#0E9384"></i><b>Settings in /srv/apps/immich</b><small>nvme0n1 · with its Postgres</small></div>
+          <div class="cx"><i style="background:#475467"></i><b>Backs up to /srv/backup</b><small>nightly 03:10 · drilled Tuesday</small></div>
+          <div class="cx"><i style="background:#444CE7"></i><b>Reached from your tailnet</b><small>4 devices, HTTPS</small></div>
+          <div class="cx" style="border-bottom:0"><i style="background:#F04438"></i><b>Blocked on the LAN</b><small>port 2283 has no rule</small></div>
+        </div>
+        <div class="sl">Actions</div>
+        <div class="ac"><svg class="ic"><use href="#i-archive"/></svg>Back up now<span class="t tl">LOW</span></div>
+        <div class="ac"><svg class="ic"><use href="#i-cloud"/></svg>Copy off-box to B2…<span class="t tm">MEDIUM</span></div>
+        <div class="ac"><svg class="ic"><use href="#i-net"/></svg>Open on the LAN (2283)…<span class="t tm">MEDIUM</span></div>
+        <div class="ac dg"><svg class="ic"><use href="#i-x"/></svg>Uninstall and delete photos…<span class="t th">HIGH</span></div>
+      </aside>
+    </div></div></div></figure>
+
+    <figure class="shot"><figcaption><b>Storage lens, with the unallocated space selected</b><span>Storage</span></figcaption><div class="frame"><div class="stage-wrap"><div class="stage d4">
+      <div class="tb">
+        <div class="logo"><i><svg class="ic"><use href="#i-share"/></svg></i>homebox</div>
+        <div class="vt"><span class="on">Map</span><span>List</span></div>
+        <div class="ly"><span>Everything</span><span class="on">Storage</span><span>Network</span><span>Backups</span></div>
+        <div class="fs"><svg class="ic"><use href="#i-search"/></svg>Find on the map</div>
+        <div class="hp"><i></i>Healthy · 1 warning</div>
+      </div>
+      <div class="cv">
+        <div class="lane" style="top:10px">
+          <div class="lb"><span class="di"><svg class="ic"><use href="#i-disk"/></svg></span><b>nvme0n1</b><small>1 TB NVMe · system</small><small class="ok">Healthy · 41°C</small></div>
+          <span class="vg">ubuntu-vg · 931 GiB</span>
+          <div class="bar"><i style="width:6px;background:#98A2B3"></i><i style="width:54px;background:linear-gradient(90deg,#F79009 0 80%,#FEDF89 80%)"></i><i class="hatch" style="flex:1"></i></div>
+          <span class="cap" style="left:186px"><b>/ 78 of 98 GB</b></span>
+          <span class="cap" style="left:420px;color:#3538CD"><b style="color:#3538CD">828 GB</b> not in any volume</span>
+          <div class="chips"><span class="chip">system 14 GB</span><span class="chip">/srv/apps 12 GB</span><span class="chip">Ollama models 14 GB</span><span class="chip">VM disks 38 GB</span></div>
+        </div>
+        <div class="lane" style="top:176px">
+          <div class="lb"><span class="di"><svg class="ic"><use href="#i-disk"/></svg></span><b>sda</b><small>8 TB HDD · media</small><small class="ok">Healthy · 34°C</small></div>
+          <span class="vg">ext4 · 62% used</span>
+          <div class="bar"><i style="width:181px;background:#0E9384"></i><i style="width:88px;background:#2ED3B7"></i><i style="width:26px;background:#444CE7"></i><i style="width:16px;background:#98A2B3"></i><i style="flex:1;background:#EAECF0"></i></div>
+          <span class="cap" style="left:186px"><b>movies</b> 2.9 TB</span><span class="cap" style="left:370px"><b>tv</b> 1.4 TB</span><span class="cap" style="left:452px;color:#3538CD"><b style="color:#3538CD">photos</b> 412 GB</span><span class="cap" style="left:590px">3.0 TB free</span>
+          <div class="chips"><span class="chip tl2"><svg class="ic"><use href="#i-share"/></svg>SMB · Media</span><span class="arr">→</span><span class="chip"><svg class="ic"><use href="#i-tv"/></svg>Living-room TV</span><span class="chip"><svg class="ic"><use href="#i-laptop"/></svg>Owner's laptop</span><span class="chip tl2">NFS · movies → ubuntu-dev</span></div>
+        </div>
+        <div class="lane" style="top:342px">
+          <div class="lb"><span class="di"><svg class="ic"><use href="#i-disk"/></svg></span><b>sdb</b><small>4 TB HDD · backup</small><small class="ok">Healthy · 33°C</small></div>
+          <span class="vg">ext4 · 41% used</span>
+          <div class="bar"><i style="width:150px;background:#475467"></i><i style="width:22px;background:#667085"></i><i style="width:33px;background:#DC6803"></i><i style="flex:1;background:#EAECF0"></i></div>
+          <span class="cap" style="left:186px"><b>restic</b> 1.2 TB · 9 apps</span><span class="cap" style="left:345px"><b>VM exports</b> 260 GB</span><span class="cap" style="left:590px">2.4 TB free</span>
+          <div class="chips"><span class="chip tl2"><svg class="ic"><use href="#i-cloud"/></svg>Mirrored to B2 · 7 of 9 apps</span><span class="chip w"><svg class="ic"><use href="#i-alert"/></svg>immich, nextcloud: local only</span></div>
+        </div>
+      </div>
+      <aside class="side">
+        <div class="sh-h"><span style="width:42px;height:42px;border-radius:12px;background:repeating-linear-gradient(135deg,#EEF0FF 0 6px,#DDE0FB 6px 12px);border:2px solid #444CE7;flex:none"></span><div><h3>828 GB unallocated</h3><p>nvme0n1 · ubuntu-vg</p></div><span class="x"><svg class="ic"><use href="#i-x"/></svg></span></div>
+        <p style="margin:0;font-size:12px;color:#475467;line-height:1.5">Ubuntu's installer gave the root volume 100 GB and left the rest of the disk empty. The root volume is 80% full and grows about 2 GB a week.</p>
+        <div class="sl">What to do with it</div>
+        <div class="radio on"><i></i><div><b>Grow / by 200 GB</b><small>Leaves 628 GB for snapshots and later</small></div></div>
+        <div class="radio"><i></i><div><b>Use all 828 GB for /</b><small>Simplest, but no room left for LVM snapshots</small></div></div>
+        <div class="radio"><i></i><div><b>New volume for VM disks</b><small>Moves 38 GB of VMs off the root volume</small></div></div>
+        <div class="ac" style="margin-top:0"><svg class="ic" style="color:#067647"><use href="#i-check"/></svg>Snapshot / first, keep 7 days<span class="t tl">LOW</span></div>
+        <div class="cmdp">lvcreate -sL10G -n pregrow ubuntu-vg/ubuntu-lv
+lvextend -r -L +200G ubuntu-vg/ubuntu-lv</div>
+        <div style="display:flex;align-items:center;gap:8px;font-size:11.5px;color:#B42318"><span class="t th">HIGH</span>Password, then type <b class="mo">ubuntu-lv</b></div>
+        <div class="btnp"><svg class="ic"><use href="#i-lock"/></svg>Grow root volume…</div>
+      </aside>
+    </div></div></div></figure>
+  </div>
+</section>
+
+<style>
+.d5{font-family:'Geist','Segoe UI',sans-serif;background:#F7F7F8;color:#111113;font-size:12.5px;letter-spacing:-.005em}
+.d5 .mo{font-family:'Geist Mono',ui-monospace,monospace;letter-spacing:0}
+.d5 .top{position:absolute;inset:0 0 auto 0;height:52px;background:#fff;border-bottom:1px solid #E6E6EA;display:flex;align-items:center;gap:14px;padding:0 20px}
+.d5 .lg{display:flex;align-items:center;gap:8px;font-weight:700;font-size:14px}
+.d5 .lg i{width:22px;height:22px;border-radius:6px;background:#111113;display:grid;place-items:center;color:#fff;font-size:12px;font-style:normal}
+.d5 .sep{color:#C9C9CF}
+.d5 .hs{display:flex;align-items:center;gap:6px;font-weight:600;padding:5px 9px;border-radius:7px;border:1px solid #E6E6EA}
+.d5 .hs i{width:7px;height:7px;border-radius:50%;background:#1A7F37}
+.d5 .sg{position:absolute;left:50%;transform:translateX(-50%);display:flex;padding:3px;border-radius:9px;background:#F1F1F3}
+.d5 .sg span{padding:5px 12px;border-radius:7px;font-weight:500;color:#6E6E76;display:flex;gap:6px;align-items:center}
+.d5 .sg span.on{background:#fff;color:#111113;box-shadow:0 1px 2px rgba(0,0,0,.08)}
+.d5 .sg b{font-size:10.5px;background:#FFE7A3;color:#7A4B00;border-radius:99px;padding:0 6px;font-weight:600}
+.d5 .sr{margin-left:auto;width:220px;height:30px;border:1px solid #E6E6EA;border-radius:8px;display:flex;align-items:center;gap:7px;padding:0 10px;color:#9A9AA2}
+.d5 .sr kbd{margin-left:auto;font:10.5px 'Geist Mono',monospace;color:#9A9AA2}
+.d5 .av{width:28px;height:28px;border-radius:50%;background:#111113;color:#fff;display:grid;place-items:center;font-weight:600;font-size:12px}
+.d5 .wrap{position:absolute;top:52px;left:0;right:0;bottom:0;display:grid;grid-template-columns:176px minmax(0,1fr) 286px;gap:22px;padding:18px 20px 0}
+.d5 .fl h5{margin:0 0 6px;font:500 10.5px 'Geist Mono',monospace;color:#9A9AA2;text-transform:uppercase;letter-spacing:.06em}
+.d5 .fl ul{list-style:none;margin:0 0 16px;padding:0}
+.d5 .fl li{display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:7px;color:#3F3F46}
+.d5 .fl li.on{background:#fff;box-shadow:0 0 0 1px #E6E6EA;color:#111113;font-weight:600}
+.d5 .fl li i{width:8px;height:8px;border-radius:50%}
+.d5 .fl li span{margin-left:auto;font:11px 'Geist Mono',monospace;color:#9A9AA2}
+.d5 .c-ap{background:#6D4AFF}.d5 .c-up{background:#0969DA}.d5 .c-bk{background:#0E8A7E}.d5 .c-fw{background:#C2410C}.d5 .c-st{background:#52525B}.d5 .c-vm{background:#B45309}
+.d5 .since{font-size:11.5px;color:#6E6E76;padding:8px 10px;border:1px dashed #D4D4D8;border-radius:8px;line-height:1.4}
+.d5 .sec{display:flex;align-items:center;gap:8px;font:500 10.5px 'Geist Mono',monospace;color:#9A9AA2;text-transform:uppercase;letter-spacing:.06em;margin:0 0 8px}
+.d5 .sec::after{content:"";flex:1;height:1px;background:#E6E6EA}
+.d5 .ny{display:grid;grid-template-columns:28px minmax(0,1fr) auto;gap:0 10px;align-items:center;background:#fff;border:1px solid #F2D58A;border-left:3px solid #D4A017;border-radius:8px;padding:8px 10px;margin-bottom:6px}
+.d5 .ny .ic2{width:28px;height:28px;border-radius:7px;background:#FFF6DB;color:#9A6700;display:grid;place-items:center;font-size:14px}
+.d5 .ny b{font-weight:600;font-size:13px}
+.d5 .ny small{display:block;color:#6E6E76;font-size:11.5px}
+.d5 .btn{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 10px;border-radius:7px;border:1px solid #E0E0E5;background:#fff;font-weight:500;font-size:12px;color:#111113;white-space:nowrap}
+.d5 .btn.pr{background:#111113;color:#fff;border-color:#111113}
+.d5 .tr{font:500 10px 'Geist Mono',monospace;padding:1px 6px;border-radius:5px;letter-spacing:.02em}
+.d5 .tl{background:#DAFBE1;color:#116329}.d5 .tm{background:#FFF1C2;color:#7A4B00}.d5 .th{background:#FFEBE9;color:#A40E26}
+.d5 .feed{position:relative}
+.d5 .day{display:flex;align-items:baseline;gap:8px;margin:14px 0 4px;font-weight:600;font-size:13px}
+.d5 .day small{font:11px 'Geist Mono',monospace;color:#9A9AA2;font-weight:400}
+.d5 .ev{display:grid;grid-template-columns:40px 12px minmax(0,1fr) auto;gap:0 10px;padding:7px 0;position:relative}
+.d5 .ev::before{content:"";position:absolute;left:55px;top:0;bottom:0;width:1px;background:#E6E6EA}
+.d5 .ev .tm2{font:11px 'Geist Mono',monospace;color:#9A9AA2;text-align:right;padding-top:2px}
+.d5 .ev .dt{width:11px;height:11px;border-radius:50%;margin-top:3px;box-shadow:0 0 0 3px #F7F7F8;position:relative;z-index:1}
+.d5 .ev b{font-weight:600;font-size:13px}
+.d5 .ev small{display:block;color:#6E6E76;font-size:11.5px;margin-top:1px}
+.d5 .ev .acts{display:flex;gap:6px;align-items:flex-start}
+.d5 .diff{margin-top:6px;border:1px solid #E6E6EA;border-radius:7px;overflow:hidden;background:#fff;font:11px/1.65 'Geist Mono',monospace}
+.d5 .diff div{padding:0 9px;white-space:nowrap}
+.d5 .diff .a{background:#E6FFEC;color:#116329}
+.d5 .diff .r{background:#FFEBE9;color:#A40E26}
+.d5 .diff .h{background:#F6F6F8;color:#6E6E76;border-bottom:1px solid #EDEDF0}
+.d5 .card{background:#fff;border:1px solid #E6E6EA;border-radius:10px;padding:14px}
+.d5 .card h4{margin:0;font-size:14px;font-weight:600;display:flex;align-items:center;gap:8px}
+.d5 .card h4 .cmp{margin-left:auto;font:500 11px 'Geist Mono',monospace;color:#6E6E76;border:1px solid #E6E6EA;border-radius:6px;padding:2px 7px;display:flex;gap:4px;align-items:center}
+.d5 .dg{display:grid;grid-template-columns:1fr auto auto;gap:0 10px;font-size:12px;margin-top:10px}
+.d5 .dg span{padding:6px 0;border-top:1px solid #F0F0F2}
+.d5 .dg .v{font-family:'Geist Mono',monospace;text-align:right}
+.d5 .dg .d{font:11px 'Geist Mono',monospace;text-align:right;color:#9A9AA2}
+.d5 .dg .d.p{color:#116329}.d5 .dg .d.w{color:#9A6700}
+.d5 .bars{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;align-items:end;height:66px;margin-top:12px;padding-bottom:0}
+.d5 .bars i{display:block;border-radius:3px 3px 1px 1px;background:#D4D4D8}
+.d5 .bars i.hi{background:#111113}
+.d5 .bl{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;font:10px 'Geist Mono',monospace;color:#9A9AA2;text-align:center;margin-top:4px}
+.d5 .un{display:grid;grid-template-columns:auto 1fr;gap:6px 9px;align-items:center;font-size:12px;margin-top:10px}
+/* detail */
+.d5 .wrap.dt{grid-template-columns:262px minmax(0,1fr);gap:0;padding:0}
+.d5 .lst{border-right:1px solid #E6E6EA;background:#fff;padding:14px 12px;overflow:hidden}
+.d5 .li{display:grid;grid-template-columns:36px 9px minmax(0,1fr);gap:0 8px;align-items:start;padding:7px 8px;border-radius:7px;font-size:12px}
+.d5 .li .t{font:10.5px 'Geist Mono',monospace;color:#9A9AA2;padding-top:1px}
+.d5 .li i{width:8px;height:8px;border-radius:50%;margin-top:4px}
+.d5 .li.on{background:#F1F1F3;font-weight:600}
+.d5 .dh{padding:16px 22px 0}
+.d5 .tag{display:inline-flex;align-items:center;gap:6px;font:500 11px 'Geist Mono',monospace;color:#6D4AFF;background:#F1EDFF;border-radius:5px;padding:2px 7px}
+.d5 .dh h2{margin:8px 0 4px;font-size:21px;font-weight:600;letter-spacing:-.02em}
+.d5 .dh .mt{color:#6E6E76;font-size:12px;display:flex;gap:12px}
+.d5 .tabs{display:flex;gap:18px;border-bottom:1px solid #E6E6EA;margin:14px 22px 0}
+.d5 .tabs span{padding:0 0 9px;color:#6E6E76;font-weight:500}
+.d5 .tabs span.on{color:#111113;box-shadow:inset 0 -2px 0 #111113}
+.d5 .dbody{display:grid;grid-template-columns:minmax(0,1fr) 254px;gap:18px;padding:14px 22px}
+.d5 .fh{font:500 11px 'Geist Mono',monospace;color:#6E6E76;margin:0 0 6px;display:flex;justify-content:space-between}
+.d5 .diff .n{display:inline-block;width:22px;color:#B4B4BC}
+.d5 .also{margin-top:12px;display:grid;gap:0}
+.d5 .also div{display:flex;align-items:center;gap:9px;padding:7px 0;border-top:1px solid #EDEDF0;font-size:12px}
+.d5 .also div svg{color:#1A7F37}
+.d5 .also small{margin-left:auto;font:11px 'Geist Mono',monospace;color:#9A9AA2}
+.d5 .rb{align-self:start;border:1px solid #E6E6EA;border-radius:10px;background:#fff;padding:14px}
+.d5 .rb h4{margin:0 0 3px;font-size:14px;font-weight:600;display:flex;align-items:center;gap:7px}
+.d5 .rb p{margin:0 0 10px;font-size:12px;color:#6E6E76;line-height:1.45}
+.d5 .rb ul{margin:0 0 12px;padding:0;list-style:none;display:grid;gap:7px}
+.d5 .rb li{font-size:12px;display:grid;grid-template-columns:14px 1fr;gap:8px;line-height:1.4}
+.d5 .rb li svg{margin-top:2px;color:#6E6E76}
+.d5 .rb .btn{width:100%;justify-content:center;height:32px}
+.d5 .rb .ft{font-size:11px;color:#9A9AA2;margin-top:8px;line-height:1.4}
+</style>
+
+<section class="dir" id="timeline">
+  <div class="dir-h">
+    <div><div class="eyebrow">Direction 5</div><h2>Timeline</h2></div>
+    <a class="top" href="#top">Back to top ↑</a>
+    <p class="concept">BoxPilot as a readable history. Every change, job and automation run is an entry with its diff and an undo, and the home page answers "what changed since I last looked?"</p>
+  </div>
+  <div class="notes">
+    <dl>
+      <dt>Navigation</dt><dd>The feed is home. Filter by area or by who made the change (you, an automation, BoxPilot). "Needs you" is pinned on top. Each subsystem page is a filtered feed with that area's controls above it.</dd>
+      <dt>Layout</dt><dd>Filters on the left, the feed in the middle with diffs inline, and a digest on the right comparing now with last week. Clicking an entry opens a detail view with steps, output and rollback.</dd>
+      <dt>Type, color, density</dt><dd>Geist and Geist Mono on near-white. Color appears only on category dots, tier tags and diff lines, so the green and red of a change stand out. Medium density.</dd>
+      <dt>Who it suits</dt><dd>An owner who tinkers and wants to know what the overnight automations did. It builds directly on BoxPilot's audit trail and durable jobs.</dd>
+    </dl>
+    <div class="sig"><h3>Signature features</h3><ul>
+      <li><b>Undo on every entry,</b> gated by the original change's tier: one click, a preview, or your password.</li>
+      <li><b>"Since last week" digest:</b> apps, packages, firewall rules, disk growth and backup runs compared with a date you pick.</li>
+      <li><b>Change detail</b> with the compose-file diff, each job step, and a rollback that says what it will and won't touch.</li>
+    </ul></div>
+  </div>
+  <div class="shots">
+    <figure class="shot"><figcaption><b>Feed since your last visit</b><span>Overview</span></figcaption><div class="frame"><div class="stage-wrap"><div class="stage d5">
+      <div class="top">
+        <div class="lg"><i><svg class="ic"><use href="#i-clock"/></svg></i>BoxPilot</div><span class="sep">/</span><div class="hs"><i></i>homebox <svg class="ic" style="color:#9A9AA2"><use href="#i-chevd"/></svg></div>
+        <div class="sg"><span class="on">Feed</span><span>Needs you <b>2</b></span><span>Scheduled</span></div>
+        <div class="sr"><svg class="ic"><use href="#i-search"/></svg>Search changes<kbd>/</kbd></div><div class="av">C</div>
+      </div>
+      <div class="wrap">
+        <div class="fl">
+          <h5>Show</h5>
+          <ul><li class="on">All changes<span>31</span></li><li><i class="c-ap"></i>Apps<span>4</span></li><li><i class="c-up"></i>Updates<span>6</span></li><li><i class="c-bk"></i>Backups<span>14</span></li><li><i class="c-fw"></i>Firewall<span>2</span></li><li><i class="c-st"></i>Storage<span>3</span></li><li><i class="c-vm"></i>VMs<span>2</span></li></ul>
+          <h5>Made by</h5>
+          <ul><li>You<span>5</span></li><li>Automations<span>24</span></li><li>BoxPilot<span>2</span></li></ul>
+          <div class="since">Showing everything since your last visit, <b>Tue 22 Sep 18:05</b>.</div>
+        </div>
+        <div class="feed">
+          <div class="sec">Needs you</div>
+          <div class="ny"><span class="ic2"><svg class="ic"><use href="#i-cloud"/></svg></span><div><b>Immich has no off-box copy</b><small>412 GB of photos, only on homebox</small></div><span style="display:flex;gap:6px;align-items:center"><span class="tr tm">MEDIUM</span><span class="btn pr">Set up copy</span></span></div>
+          <div class="ny"><span class="ic2"><svg class="ic"><use href="#i-update"/></svg></span><div><b>14 package updates waiting</b><small>3 security: openssl, libssh, sudo</small></div><span style="display:flex;gap:6px;align-items:center"><span class="tr tm">MEDIUM</span><span class="btn">Review</span></span></div>
+          <div class="day">Today <small>Sun 27 Sep</small></div>
+          <div class="ev"><span class="tm2">08:55</span><span class="dt c-ap"></span><div><b>Pulled qwen2.5:14b into Ollama</b><small>by you · 9.0 GB on / · job #4819</small></div><div class="acts"><span class="btn"><svg class="ic"><use href="#i-undo"/></svg>Undo</span></div></div>
+          <div class="ev"><span class="tm2">03:10</span><span class="dt c-bk"></span><div><b>Nightly backup of 9 apps</b><small>by automation Belt and braces · 2.1 GB changed · 6 of 6 steps</small></div><div class="acts"><span class="btn">Details</span></div></div>
+          <div class="day">Yesterday <small>Sat 26 Sep</small></div>
+          <div class="ev"><span class="tm2">21:14</span><span class="dt c-ap"></span><div><b>Installed Open WebUI</b><small>by you · job #4803 · 1m 12s</small>
+            <div class="diff"><div class="a">+ container open-webui:main</div><div class="a">+ reach     tailnet only, HTTPS :3000</div><div class="a">+ folder    /srv/apps/open-webui</div></div></div><div class="acts"><span class="btn"><svg class="ic"><use href="#i-undo"/></svg>Undo <span class="tr th">HIGH</span></span></div></div>
+          <div class="ev"><span class="tm2">21:20</span><span class="dt c-fw"></span><div><b>Allowed Home Assistant on the LAN</b><small>by you · profile Trusted LAN</small>
+            <div class="diff"><div class="a">+ ALLOW 8123/tcp from 192.168.1.0/24</div></div></div><div class="acts"><span class="btn"><svg class="ic"><use href="#i-undo"/></svg>Roll back <span class="tr tm">MED</span></span></div></div>
+          <div class="ev"><span class="tm2">03:32</span><span class="dt c-bk"></span><div><b>Restore drill passed: Vaultwarden</b><small>restored to a scratch copy, 214 items checked</small></div><div class="acts"><span class="btn">Details</span></div></div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:12px">
+          <div class="card">
+            <h4>Since last week<span class="cmp">Sun 20 Sep <svg class="ic"><use href="#i-chevd"/></svg></span></h4>
+            <div class="dg">
+              <span>Apps</span><span class="v">9</span><span class="d p">+1 Open WebUI</span>
+              <span>Upgrades</span><span class="v">42</span><span class="d">0 failed</span>
+              <span>Firewall rules</span><span class="v">10</span><span class="d p">+1</span>
+              <span>/srv/media</span><span class="v">4.96 TB</span><span class="d w">+212 GB</span>
+              <span>Root volume</span><span class="v">80%</span><span class="d w">+3 pts</span>
+              <span>Backup runs</span><span class="v">63</span><span class="d p">63 passed</span>
+              <span>Restore drills</span><span class="v">7</span><span class="d p">7 passed</span>
+            </div>
+            <div class="bars"><i style="height:30%"></i><i style="height:22%"></i><i style="height:48%"></i><i style="height:36%"></i><i style="height:26%"></i><i style="height:92%" class="hi"></i><i style="height:40%"></i></div>
+            <div class="bl"><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span><span>S</span></div>
+          </div>
+          <div class="card">
+            <h4><svg class="ic"><use href="#i-undo"/></svg>How undo works</h4>
+            <div class="un"><span class="tr tl">LOW</span><span>One click, like removing a model</span><span class="tr tm">MED</span><span>Shows the rollback plan first</span><span class="tr th">HIGH</span><span>Password and typed confirmation</span></div>
+          </div>
+        </div>
+      </div>
+    </div></div></div></figure>
+
+    <figure class="shot"><figcaption><b>Change detail with rollback</b><span>Updates</span></figcaption><div class="frame"><div class="stage-wrap"><div class="stage d5">
+      <div class="top">
+        <div class="lg"><i><svg class="ic"><use href="#i-clock"/></svg></i>BoxPilot</div><span class="sep">/</span><div class="hs"><i></i>homebox <svg class="ic" style="color:#9A9AA2"><use href="#i-chevd"/></svg></div>
+        <div class="sg"><span class="on">Feed</span><span>Needs you <b>2</b></span><span>Scheduled</span></div>
+        <div class="sr"><svg class="ic"><use href="#i-search"/></svg>Search changes<kbd>/</kbd></div><div class="av">C</div>
+      </div>
+      <div class="wrap dt">
+        <div class="lst">
+          <div class="day" style="margin-top:0">Thursday <small>24 Sep</small></div>
+          <div class="li on"><span class="t">02:04</span><i class="c-ap"></i><span>Updated Jellyfin to 10.11.11</span></div>
+          <div class="li"><span class="t">02:01</span><i class="c-up"></i><span>Installed 42 package updates</span></div>
+          <div class="li"><span class="t">02:00</span><i class="c-up"></i><span>Automation Update night started</span></div>
+          <div class="day">Wednesday <small>23 Sep</small></div>
+          <div class="li"><span class="t">19:40</span><i class="c-st"></i><span>Shared /srv/media as “Media”</span></div>
+          <div class="li"><span class="t">19:38</span><i class="c-fw"></i><span>Allowed SMB (445/tcp) on the LAN</span></div>
+          <div class="li"><span class="t">19:36</span><i class="c-up"></i><span>Installed samba</span></div>
+          <div class="li"><span class="t">03:10</span><i class="c-bk"></i><span>Nightly backup of 9 apps</span></div>
+          <div class="day">Tuesday <small>22 Sep</small></div>
+          <div class="li"><span class="t">18:02</span><i class="c-vm"></i><span>Stopped VM win11</span></div>
+          <div class="li"><span class="t">11:15</span><i class="c-bk"></i><span>Restore drill passed: Immich</span></div>
+        </div>
+        <div>
+          <div class="dh">
+            <span class="tag"><i style="width:7px;height:7px;border-radius:50%;background:#6D4AFF"></i>apps · jellyfin</span>
+            <h2>Updated Jellyfin 10.11.9 → 10.11.11</h2>
+            <div class="mt"><span>Thu 24 Sep, 02:04</span><span>by automation <b style="color:#111113;font-weight:500">Update night</b></span><span class="mo">job #4761 · 2m 03s</span></div>
+          </div>
+          <div class="tabs"><span class="on">What changed</span><span>Steps · 5</span><span>Output</span></div>
+          <div class="dbody">
+            <div>
+              <div class="fh"><span>/srv/apps/jellyfin/compose.yaml</span><span>+1 −1</span></div>
+              <div class="diff">
+                <div class="h">@@ services.jellyfin @@</div>
+                <div><span class="n">4</span>  jellyfin:</div>
+                <div class="r"><span class="n">5</span>-   image: jellyfin/jellyfin:10.11.9</div>
+                <div class="a"><span class="n">5</span>+   image: jellyfin/jellyfin:10.11.11</div>
+                <div><span class="n">6</span>    runtime: nvidia</div>
+                <div><span class="n">7</span>    volumes:</div>
+                <div><span class="n">8</span>      - /srv/apps/jellyfin/config:/config</div>
+                <div><span class="n">9</span>      - /srv/media:/media:ro</div>
+              </div>
+              <div class="also">
+                <div><svg class="ic"><use href="#i-check"/></svg>Copied config to /srv/backup/pre-update/jellyfin<small>02:03 · 212 MB</small></div>
+                <div><svg class="ic"><use href="#i-check"/></svg>Pulled jellyfin/jellyfin:10.11.11<small>1.3 GB</small></div>
+                <div><svg class="ic"><use href="#i-check"/></svg>Health check answered HTTP 200<small>after 8 s</small></div>
+                <div><svg class="ic"><use href="#i-check"/></svg>Kept the 10.11.9 image for rollback<small>until 1 Oct</small></div>
+              </div>
+            </div>
+            <div class="rb">
+              <h4><svg class="ic"><use href="#i-undo"/></svg>Roll back to 10.11.9 <span class="tr tm">MEDIUM</span></h4>
+              <p>You'll see this plan again as a preview before it runs.</p>
+              <ul>
+                <li><svg class="ic"><use href="#i-play"/></svg>Stop Jellyfin (nobody is watching right now)</li>
+                <li><svg class="ic"><use href="#i-folder"/></svg>Restore config from the 02:03 copy</li>
+                <li><svg class="ic"><use href="#i-undo"/></svg>Start 10.11.9, still on disk</li>
+                <li><svg class="ic"><use href="#i-shield"/></svg>Leave /srv/media untouched</li>
+              </ul>
+              <span class="btn pr">Preview rollback</span>
+              <div class="ft">Changes made in Jellyfin after 02:04 Thursday (2 watch-history entries) would be lost.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div></div></div></figure>
+  </div>
+</section>
+
+<style>
+.d6{font-family:'Sora','Segoe UI',sans-serif;background:#131316;color:#ECEAE6;font-size:12px}
+.d6 .sf{font-family:'Source Serif 4',Georgia,serif}
+.d6 .mo{font-family:'JetBrains Mono',ui-monospace,monospace}
+.d6 .sb{position:absolute;left:0;top:0;bottom:0;width:216px;background:#17171B;border-right:1px solid #25252B;padding:16px 12px;display:flex;flex-direction:column;gap:6px}
+.d6 .sb > *{flex-shrink:0}
+.d6 .brand{display:flex;align-items:center;gap:9px;font-weight:600;font-size:14px;padding:0 6px 8px}
+.d6 .brand i{width:26px;height:26px;border-radius:8px;background:#F0A47C;color:#2A150A;display:grid;place-items:center;font-size:14px;font-style:normal}
+.d6 .new{display:flex;align-items:center;gap:8px;height:34px;padding:0 10px;border-radius:9px;border:1px solid #3A3A42;font-weight:500;color:#ECEAE6;margin-bottom:8px}
+.d6 .new kbd{margin-left:auto;font:10px 'JetBrains Mono',monospace;color:#6E6C67}
+.d6 .gl{font-size:10.5px;color:#6E6C67;padding:8px 8px 2px;letter-spacing:.02em}
+.d6 .it{display:flex;flex-direction:column;gap:1px;padding:7px 9px;border-radius:8px;color:#BDBAB3;font-size:12px}
+.d6 .it small{font-size:10.5px;color:#6E6C67}
+.d6 .it.on{background:#24242A;color:#ECEAE6}
+.d6 .it.wt{background:rgba(240,164,124,.08);border:1px solid rgba(240,164,124,.25);color:#ECEAE6}
+.d6 .it.wt small{color:#F0A47C}
+.d6 .model{margin-top:auto;border:1px solid #2A2A31;border-radius:10px;padding:10px;font-size:11px;color:#9C9A94;display:grid;gap:3px}
+.d6 .model b{color:#ECEAE6;font-weight:500;font-size:11.5px;display:flex;align-items:center;gap:6px}
+.d6 .model b i{width:7px;height:7px;border-radius:50%;background:#7FCB9B}
+.d6 .model a{color:#F0A47C;text-decoration:none;margin-top:4px}
+.d6 .ct{position:absolute;left:216px;top:0;bottom:0;width:564px;display:flex;flex-direction:column}
+.d6 .ch{height:52px;flex:none;display:flex;align-items:center;gap:10px;padding:0 26px;border-bottom:1px solid #222227}
+.d6 .ch b{font-weight:600;font-size:13.5px}
+.d6 .ch span{color:#6E6C67}
+.d6 .ch .r{margin-left:auto;font-size:11px;color:#9C9A94;display:flex;align-items:center;gap:6px}
+.d6 .conv{flex:1;padding:18px 26px 0;display:flex;flex-direction:column;gap:12px;overflow:hidden}
+.d6 .who{display:flex;align-items:center;gap:8px;font-size:11.5px;color:#9C9A94}
+.d6 .who i{width:22px;height:22px;border-radius:50%;background:#F0A47C;color:#2A150A;display:grid;place-items:center;font-size:12px;font-style:normal}
+.d6 .who b{color:#ECEAE6;font-weight:600}
+.d6 .msg{font:400 15px/1.55 'Source Serif 4',Georgia,serif;color:#E4E1DB;margin:0;padding-left:30px}
+.d6 .brief{margin-left:30px;border:1px solid #2A2A31;border-radius:12px;background:#1B1B20;overflow:hidden}
+.d6 .brief div{display:flex;align-items:center;gap:10px;padding:9px 12px;font-size:12.5px}
+.d6 .brief div + div{border-top:1px solid #25252B}
+.d6 .brief small{margin-left:auto;color:#6E6C67;font-size:11px}
+.d6 .ok{color:#7FCB9B}.d6 .wa{color:#E9B45F}
+.d6 .chips{margin-left:30px;display:flex;flex-wrap:wrap;gap:7px}
+.d6 .chip{display:flex;align-items:center;gap:7px;padding:7px 11px;border-radius:99px;border:1px solid #34343C;background:#1B1B20;font-size:12px;color:#DAD7D0}
+.d6 .t{font:600 9.5px 'JetBrains Mono',monospace;padding:2px 6px;border-radius:5px;letter-spacing:.03em}
+.d6 .tl{background:rgba(127,203,155,.12);color:#7FCB9B}.d6 .tm{background:rgba(233,180,95,.13);color:#E9B45F}.d6 .th{background:rgba(238,126,116,.13);color:#EE7E74}.d6 .tr{background:#26262C;color:#9C9A94}
+.d6 .comp{margin:0 26px 8px;border:1px solid #34343C;border-radius:14px;background:#1B1B20;padding:12px 12px 10px 14px;flex:none}
+.d6 .comp .ph{font-size:13px;color:#6E6C67}
+.d6 .comp .row{display:flex;align-items:center;gap:8px;margin-top:12px}
+.d6 .comp .md{display:flex;align-items:center;gap:6px;font-size:11px;color:#9C9A94;padding:4px 9px;border-radius:99px;background:#24242A}
+.d6 .comp .md i{width:6px;height:6px;border-radius:50%;background:#7FCB9B}
+.d6 .comp .hint{font-size:11px;color:#6E6C67}
+.d6 .comp .send{margin-left:auto;width:32px;height:32px;border-radius:9px;background:#F0A47C;color:#2A150A;display:grid;place-items:center;font-size:15px}
+.d6 .fine{text-align:center;font-size:10.5px;color:#6E6C67;padding:0 0 10px;flex:none}
+.d6 .rr{position:absolute;left:780px;top:0;bottom:0;right:0;border-left:1px solid #222227;padding:16px 18px;display:flex;flex-direction:column;gap:14px}
+.d6 .rh{font-size:10.5px;color:#6E6C67;letter-spacing:.04em;text-transform:uppercase;display:flex;align-items:center;gap:6px}
+.d6 .rh span{margin-left:auto;text-transform:none;letter-spacing:0}
+.d6 .hl{display:flex;align-items:center;gap:12px}
+.d6 .hl b{display:block;font-size:17px;font-weight:600}
+.d6 .hl small{color:#E9B45F;font-size:11.5px}
+.d6 .mt{display:grid;grid-template-columns:1fr auto;gap:4px 8px;font-size:11.5px;color:#BDBAB3}
+.d6 .mt b{text-align:right;font-weight:500;color:#ECEAE6;font-family:'JetBrains Mono',monospace;font-size:11px}
+.d6 .mt i{grid-column:1/-1;height:4px;border-radius:2px;background:#26262C;overflow:hidden;margin-bottom:5px}
+.d6 .mt i s{display:block;height:100%;background:#BDBAB3;text-decoration:none}
+.d6 .apps{display:grid;grid-template-columns:1fr 1fr;gap:6px 10px;font-size:11.5px;color:#BDBAB3}
+.d6 .apps span{display:flex;align-items:center;gap:7px;white-space:nowrap}
+.d6 .apps .ap{--z:18px;border-radius:5px;font-size:7px}
+.d6 .apps em{width:6px;height:6px;border-radius:50%;background:#7FCB9B;margin-left:auto;flex:none}
+.d6 .apps em.w{background:#E9B45F}
+.d6 .kv{display:flex;flex-direction:column;gap:6px;font-size:11.5px;color:#BDBAB3}
+.d6 .kv div{display:flex;justify-content:space-between;gap:8px}
+.d6 .kv b{color:#ECEAE6;font-weight:500}
+/* plan */
+.d6 .ub{align-self:flex-end;max-width:380px;background:#2A221E;border:1px solid #4A372B;color:#F3E6DC;padding:10px 14px;border-radius:14px 14px 4px 14px;font-size:13px;line-height:1.45}
+.d6 .plan{margin-left:30px;border:1px solid #3A3A42;border-radius:14px;background:#1B1B20;overflow:hidden}
+.d6 .plh{padding:11px 14px;border-bottom:1px solid #2A2A31;display:flex;align-items:center;gap:10px}
+.d6 .plh b{font-size:13px;font-weight:600;display:block}
+.d6 .plh small{font-size:11px;color:#9C9A94}
+.d6 .plh .ico{width:28px;height:28px;border-radius:8px;background:rgba(240,164,124,.14);color:#F0A47C;display:grid;place-items:center;font-size:14px;flex:none}
+.d6 .ps{display:grid;grid-template-columns:18px minmax(0,1fr) auto;gap:0 10px;align-items:center;padding:5px 14px;border-bottom:1px solid #25252B}
+.d6 .ps .n{width:18px;height:18px;border-radius:50%;border:1px solid #3A3A42;display:grid;place-items:center;font-size:10px;color:#9C9A94}
+.d6 .ps b{font-weight:500;font-size:12.5px;color:#ECEAE6}
+.d6 .ps small{display:block;font:10.5px 'JetBrains Mono',monospace;color:#6E6C67}
+.d6 .ps .dfx{grid-column:2/4;margin-top:6px;font:10.5px/1.6 'JetBrains Mono',monospace;background:#141418;border:1px solid #25252B;border-radius:7px;padding:5px 9px;color:#7FCB9B;white-space:nowrap;overflow:hidden}
+.d6 .pf{display:flex;align-items:center;gap:8px;padding:10px 14px}
+.d6 .bt{height:32px;padding:0 13px;border-radius:9px;display:flex;align-items:center;gap:6px;font-weight:500;font-size:12px;border:1px solid #3A3A42;color:#DAD7D0}
+.d6 .bt.pr{background:#F0A47C;border-color:#F0A47C;color:#2A150A;font-weight:600}
+.d6 .pf .tru{margin-left:auto;font-size:10.5px;color:#6E6C67;text-align:right;line-height:1.35}
+.d6 .chg{display:grid;gap:0}
+.d6 .chg div{display:grid;grid-template-columns:22px 1fr;gap:1px 8px;padding:8px 0;border-top:1px solid #222227;font-size:12px}
+.d6 .chg div:first-child{border-top:0}
+.d6 .chg svg{grid-row:span 2;margin-top:2px;color:#F0A47C;font-size:14px}
+.d6 .chg small{color:#9C9A94;font-size:11px}
+.d6 .tsum{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.d6 .tsum div{border-radius:9px;padding:8px;text-align:center;font-size:10.5px;color:#9C9A94;background:#1B1B20;border:1px solid #25252B}
+.d6 .tsum b{display:block;font:600 17px 'JetBrains Mono',monospace;margin-bottom:1px}
+.d6 .alt{border:1px dashed #3A3A42;border-radius:10px;padding:10px;font-size:11.5px;color:#BDBAB3;line-height:1.45}
+.d6 .alt a{color:#F0A47C;text-decoration:none}
+</style>
+
+<section class="dir" id="copilot">
+  <div class="dir-h">
+    <div><div class="eyebrow">Direction 6</div><h2>Copilot</h2></div>
+    <a class="top" href="#top">Back to top ↑</a>
+    <p class="concept">Tell homebox what you want in plain words. The Ollama model already running on the box drafts a plan out of BoxPilot's own operations, each step with its risk tier, and you approve it.</p>
+  </div>
+  <div class="notes">
+    <dl>
+      <dt>Navigation</dt><dd>The conversation is home, with past requests on the left and live status on the right. Answers link to the classic pages ("open Firewall"), which stay available for direct edits.</dd>
+      <dt>Layout</dt><dd>Three columns: requests, the conversation with plan cards, and a live panel that becomes "what changes if you approve" while a plan is open.</dd>
+      <dt>Type, color, density</dt><dd>Sora for the interface and Source Serif 4 for the assistant's voice, so its words read differently from system text. Graphite with a peach accent. Low density.</dd>
+      <dt>Who it suits</dt><dd>An owner who knows what they want but not where the switch is. It depends on Ollama staying up and on the plan being strictly limited to registered operations.</dd>
+    </dl>
+    <div class="sig"><h3>Signature features</h3><ul>
+      <li><b>Plan cards:</b> every step is a registered operation with its tier, and approving runs them as one recorded job.</li>
+      <li><b>Grounded answers:</b> the model sees what's installed, so "install Jellyfin" becomes "Jellyfin is already here, I'll only add the share".</li>
+      <li><b>Morning briefing</b> written from last night's jobs, with one-tap follow-ups.</li>
+      <li><b>Local only:</b> the model runs on the RTX 4080, and nothing leaves homebox.</li>
+    </ul></div>
+  </div>
+  <div class="shots">
+    <figure class="shot"><figcaption><b>Morning briefing</b><span>Overview</span></figcaption><div class="frame"><div class="stage-wrap"><div class="stage d6">
+      <aside class="sb">
+        <div class="brand"><i><svg class="ic"><use href="#i-spark"/></svg></i>BoxPilot</div>
+        <div class="new"><svg class="ic"><use href="#i-plus"/></svg>New request<kbd>N</kbd></div>
+        <div class="gl">Waiting for you</div>
+        <div class="it wt">Share /srv/media with the TV<small>Plan ready · 5 steps</small></div>
+        <div class="gl">Recent</div>
+        <div class="it on">Morning briefing<small>Today</small></div>
+        <div class="it">Install Open WebUI<small>Saturday</small></div>
+        <div class="it">Why is Jellyfin buffering?<small>Thursday</small></div>
+        <div class="it">Free up space on /<small>Wednesday</small></div>
+        <div class="model"><b><i></i>llama3.1:8b on Ollama</b><span>RTX 4080 · 5.2 GB of VRAM</span><span>Runs on homebox. Nothing leaves it.</span><a href="#copilot">Classic pages →</a></div>
+      </aside>
+      <div class="ct">
+        <div class="ch"><b>Morning briefing</b><span>Sunday 27 September</span><span class="r"><svg class="ic"><use href="#i-clock"/></svg>written 06:30 from last night's jobs</span></div>
+        <div class="conv">
+          <div class="who"><i><svg class="ic"><use href="#i-spark"/></svg></i><b>homebox</b>09:41</div>
+          <p class="msg">Good morning. homebox had a quiet night. Everything is running, and the only thing I'd look at is your photos.</p>
+          <div class="brief">
+            <div><svg class="ic ok"><use href="#i-check"/></svg>9 apps backed up at 03:10, 2.1 GB changed<small>job #4818</small></div>
+            <div><svg class="ic ok"><use href="#i-check"/></svg>Vaultwarden restore drill passed yesterday<small>214 items</small></div>
+            <div><svg class="ic wa"><use href="#i-alert"/></svg>Immich's 412 GB of photos have no copy off this box<small>3 days</small></div>
+          </div>
+          <p class="msg">There are 14 updates waiting, 3 of them security fixes, and BoxPilot 1.119.0 is out. Want me to plan any of these?</p>
+          <div class="chips">
+            <span class="chip">Copy Immich off-box to B2<span class="t tm">MED</span></span>
+            <span class="chip">Install the 3 security updates<span class="t tm">MED</span></span>
+            <span class="chip">Update BoxPilot to 1.119.0<span class="t th">HIGH</span></span>
+            <span class="chip">What's using the GPU?<span class="t tr">READ</span></span>
+          </div>
+        </div>
+        <div class="comp"><div class="ph">Ask homebox to do something, or ask why something happened…</div><div class="row"><span class="md"><i></i>llama3.1:8b · local</span><span class="hint">/ for operations · @ for apps</span><span class="send"><svg class="ic"><use href="#i-send"/></svg></span></div></div>
+        <div class="fine">Plans only use BoxPilot's registered operations. You approve every change.</div>
+      </div>
+      <aside class="rr">
+        <div class="rh">homebox now<span>09:41</span></div>
+        <div class="hl"><svg width="54" height="54" viewBox="0 0 54 54"><circle cx="27" cy="27" r="22" fill="none" stroke="#26262C" stroke-width="6"/><circle cx="27" cy="27" r="22" fill="none" stroke="#7FCB9B" stroke-width="6" stroke-dasharray="124 139" stroke-linecap="round" transform="rotate(-90 27 27)"/><circle cx="27" cy="27" r="22" fill="none" stroke="#E9B45F" stroke-width="6" stroke-dasharray="8 139" stroke-dashoffset="-128" stroke-linecap="round" transform="rotate(-90 27 27)"/></svg><div><b>Healthy</b><small>1 warning · Immich</small></div></div>
+        <div class="mt"><span>Processor</span><b>12%</b><i><s style="width:12%"></s></i><span>Memory</span><b>21.4 / 64 GB</b><i><s style="width:33%"></s></i><span>RTX 4080</span><b>38% · 9.1 GB</b><i><s style="width:57%;background:#F0A47C"></s></i><span>Root volume</span><b>80%</b><i><s style="width:80%;background:#E9B45F"></s></i></div>
+        <div class="rh">Apps<span>9 of 9 running</span></div>
+        <div class="apps"><span><i class="ap ap-jf">J</i>Jellyfin<em></em></span><span><i class="ap ap-im"></i>Immich<em class="w"></em></span><span><i class="ap ap-nc">N</i>Nextcloud<em></em></span><span><i class="ap ap-ha">HA</i>Home Asst.<em></em></span><span><i class="ap ap-vw">V</i>Vaultwarden<em></em></span><span><i class="ap ap-ph">π</i>Pi-hole<em></em></span><span><i class="ap ap-ol">O</i>Ollama<em></em></span><span><i class="ap ap-ow">OI</i>Open WebUI<em></em></span><span><i class="ap ap-lc">LC</i>LLMCoach<em></em></span></div>
+        <div class="kv"><div><span>VMs</span><b>ubuntu-dev on · win11 off</b></div><div><span>Tailscale</span><b>connected</b></div><div><span>Firewall</span><b>Trusted LAN</b></div></div>
+      </aside>
+    </div></div></div></figure>
+
+    <figure class="shot"><figcaption><b>A request becomes a plan to approve</b><span>Approval flow</span></figcaption><div class="frame"><div class="stage-wrap"><div class="stage d6">
+      <aside class="sb">
+        <div class="brand"><i><svg class="ic"><use href="#i-spark"/></svg></i>BoxPilot</div>
+        <div class="new"><svg class="ic"><use href="#i-plus"/></svg>New request<kbd>N</kbd></div>
+        <div class="gl">Waiting for you</div>
+        <div class="it wt on">Share /srv/media with the TV<small>Plan ready · 5 steps</small></div>
+        <div class="gl">Recent</div>
+        <div class="it">Morning briefing<small>Today</small></div>
+        <div class="it">Install Open WebUI<small>Saturday</small></div>
+        <div class="it">Why is Jellyfin buffering?<small>Thursday</small></div>
+        <div class="it">Free up space on /<small>Wednesday</small></div>
+        <div class="model"><b><i></i>llama3.1:8b on Ollama</b><span>RTX 4080 · 5.2 GB of VRAM</span><span>Runs on homebox. Nothing leaves it.</span><a href="#copilot">Classic pages →</a></div>
+      </aside>
+      <div class="ct">
+        <div class="ch"><b>Share /srv/media with the TV</b><span class="r"><svg class="ic"><use href="#i-clock"/></svg>09:44</span></div>
+        <div class="conv" style="gap:10px;padding-top:14px">
+          <div class="ub">Install Jellyfin and share /srv/media with the TV</div>
+          <p class="msg" style="font-size:14.5px">Jellyfin 10.11.11 is already running and reads /srv/media, so I'll leave it alone. Here's a plan for the share the TV needs.</p>
+          <div class="plan">
+            <div class="plh"><span class="ico"><svg class="ic"><use href="#i-share"/></svg></span><div><b>Share /srv/media with the living-room TV</b><small>5 steps · 3 need a preview · none need your password</small></div></div>
+            <div class="ps"><span class="n">1</span><div><b>Install the Samba file server</b><small>packages.install samba</small></div><span class="t tm">MED</span></div>
+            <div class="ps"><span class="n">2</span><div><b>Create a share-only user “tv” with no shell</b><small>users.create_share_user tv</small></div><span class="t tl">LOW</span></div>
+            <div class="ps"><span class="n">3</span><div><b>Share /srv/media as “Media”, read-only for tv</b><small>shares.smb.create Media</small></div><span class="t tm">MED</span></div>
+            <div class="ps"><span class="n">4</span><div><b>Allow SMB from your LAN only</b><small>firewall.allow profile=Trusted LAN</small></div><span class="t tm">MED</span><div class="dfx">+ ufw allow from 192.168.1.0/24 to any port 445 proto tcp</div></div>
+            <div class="ps" style="border-bottom:0"><span class="n">5</span><div><b>Check the share opens as tv</b><small>shares.smb.test Media</small></div><span class="t tl">LOW</span></div>
+            <div class="pf"><span class="bt pr"><svg class="ic"><use href="#i-check"/></svg>Review and approve</span><span class="bt">Edit plan</span><span class="tru">Drafted in 4.2 s. All 5 steps are<br>registered BoxPilot operations.</span></div>
+          </div>
+        </div>
+        <div class="comp" style="padding:10px 12px"><div class="row" style="margin:0"><span class="ph">Reply, or ask to change a step…</span><span class="send"><svg class="ic"><use href="#i-send"/></svg></span></div></div>
+      </div>
+      <aside class="rr">
+        <div class="rh">If you approve</div>
+        <div class="chg">
+          <div><svg class="ic"><use href="#i-archive"/></svg><b>+1 package</b><small>samba, 41 MB</small></div>
+          <div><svg class="ic"><use href="#i-user"/></svg><b>+1 user</b><small>tv · share only, no login</small></div>
+          <div><svg class="ic"><use href="#i-folder"/></svg><b>+1 share</b><small>Media → /srv/media, read-only</small></div>
+          <div><svg class="ic"><use href="#i-wall"/></svg><b>+1 firewall rule</b><small>445/tcp from 192.168.1.0/24</small></div>
+        </div>
+        <div class="tsum"><div><b style="color:#7FCB9B">2</b>low</div><div><b style="color:#E9B45F">3</b>medium</div><div><b style="color:#6E6C67">0</b>high</div></div>
+        <div class="alt">Undo is one entry in History that removes all four.<br><br>Also possible: turn on DLNA in Jellyfin, so the TV finds your library without a share. <a href="#copilot">Ask about it →</a></div>
+      </aside>
+    </div></div></div></figure>
+  </div>
+</section>
+
+<style>
+.d7{font-family:'Rubik','Segoe UI',sans-serif;color:#E6EFEA;background:radial-gradient(60% 90% at 70% 40%,#1A4440,transparent 70%),#0F2826}
+.d7 .cap{position:absolute;left:40px;top:44px;width:250px}
+.d7 .cap .ey{font-size:11px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:#8FB3A9}
+.d7 .cap h3{margin:10px 0 22px;font-size:25px;line-height:1.12;font-weight:600;letter-spacing:-.015em;color:#fff}
+.d7 .co{display:grid;grid-template-columns:24px 1fr;gap:10px;margin-bottom:16px;font-size:13px;line-height:1.4;color:#C8D9D3}
+.d7 .co b{color:#fff;font-weight:600;display:block}
+.d7 .mk{width:22px;height:22px;border-radius:50%;background:#F2A93B;color:#241500;display:grid;place-items:center;font-size:11.5px;font-weight:700;box-shadow:0 0 0 3px rgba(242,169,59,.25)}
+.d7 .mk.ab{position:absolute;z-index:9}
+.d7 .ph{position:absolute;top:14px;width:272px;height:572px;border-radius:44px;background:#0A0B0B;padding:9px;box-shadow:0 30px 60px rgba(0,0,0,.45),inset 0 0 0 1.5px #2C302F}
+.d7 .scr{position:relative;width:100%;height:100%;border-radius:35px;overflow:hidden;background:#F2F3EF;color:#121417;font-size:12px}
+.d7 .isl{position:absolute;top:9px;left:50%;transform:translateX(-50%);width:80px;height:23px;border-radius:12px;background:#000;z-index:5}
+.d7 .stb{height:42px;display:flex;align-items:center;justify-content:space-between;padding:4px 24px 0 26px;font-weight:600;font-size:12.5px}
+.d7 .stb .sgn{display:flex;gap:4px;align-items:center}
+.d7 .stb .sgn i{display:block;width:3px;border-radius:1px;background:currentColor}
+.d7 .stb .bat{width:22px;height:11px;border-radius:3px;border:1.5px solid currentColor;position:relative;padding:1px}
+.d7 .stb .bat::after{content:"";display:block;height:100%;width:75%;background:currentColor;border-radius:1px}
+.d7 .hh{display:flex;align-items:center;gap:10px;padding:2px 18px 0}
+.d7 .hh b{font-size:15px;font-weight:700;display:block}
+.d7 .hh small{font-size:11px;color:#6A7072;display:flex;align-items:center;gap:4px}
+.d7 .hh .av{margin-left:auto;width:32px;height:32px;border-radius:50%;background:#121417;color:#fff;display:grid;place-items:center;font-weight:600}
+.d7 .hero{display:flex;align-items:center;gap:14px;padding:16px 18px 10px}
+.d7 .hero .t1{font-size:26px;font-weight:700;letter-spacing:-.02em;line-height:1}
+.d7 .hero .t2{display:inline-flex;align-items:center;gap:5px;margin-top:6px;font-size:12.5px;font-weight:600;color:#8A5300;background:#FDEBC8;padding:4px 9px;border-radius:99px}
+.d7 .stats{display:flex;gap:6px;padding:0 18px 12px}
+.d7 .stats span{flex:1;background:#fff;border-radius:12px;padding:7px 8px;font-size:10.5px;color:#6A7072;line-height:1.2}
+.d7 .stats b{display:block;font-size:14px;color:#121417;font-weight:600}
+.d7 .card{margin:0 12px 8px;background:#fff;border-radius:22px;padding:14px;box-shadow:0 1px 2px rgba(18,20,23,.06)}
+.d7 .card.am{box-shadow:inset 0 0 0 2px #F2C46E}
+.d7 .card .tp{display:flex;align-items:center;gap:8px;font-size:11px;color:#6A7072}
+.d7 .card .tp .ap{--z:22px;border-radius:7px;font-size:8px}
+.d7 .card h4{margin:7px 0 2px;font-size:16px;font-weight:600;letter-spacing:-.01em}
+.d7 .card p{margin:0;font-size:12px;color:#6A7072;line-height:1.35}
+.d7 .tier{margin-left:auto;font-size:9.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;padding:3px 7px;border-radius:99px}
+.d7 .tl{background:#DDF4E7;color:#0F7040}.d7 .tm{background:#FDEBC8;color:#8A5300}.d7 .th{background:#FDE0E1;color:#B4232A}
+.d7 .big{margin-top:11px;height:42px;border-radius:14px;background:#121417;color:#fff;display:flex;align-items:center;justify-content:center;gap:7px;font-weight:600;font-size:13.5px}
+.d7 .row2{display:flex;align-items:center;gap:10px}
+.d7 .row2 .sm{margin-left:auto;height:34px;padding:0 14px;border-radius:12px;background:#EEF0EC;font-weight:600;display:flex;align-items:center}
+.d7 .tabbar{position:absolute;left:0;right:0;bottom:0;height:74px;background:rgba(250,250,248,.94);border-top:1px solid #E3E5E0;display:grid;grid-template-columns:repeat(4,1fr);padding:8px 8px 0}
+.d7 .tabbar span{display:flex;flex-direction:column;align-items:center;gap:3px;font-size:10.5px;color:#8A9092;position:relative}
+.d7 .tabbar svg{font-size:21px}
+.d7 .tabbar .on{color:#121417;font-weight:600}
+.d7 .tabbar b{position:absolute;top:-3px;left:58%;min-width:16px;height:16px;border-radius:8px;background:#E5484D;color:#fff;font-size:9.5px;display:grid;place-items:center}
+.d7 .hi{position:absolute;bottom:7px;left:50%;transform:translateX(-50%);width:96px;height:4px;border-radius:2px;background:#121417;z-index:6}
+.d7 .lock{background:linear-gradient(170deg,#23505B,#122833 45%,#1B1830);color:#fff}
+.d7 .lock .hi{background:#fff}
+.d7 .clk{text-align:center;padding-top:14px}
+.d7 .clk small{display:flex;align-items:center;justify-content:center;gap:5px;font-size:13px;font-weight:500;opacity:.85}
+.d7 .clk b{display:block;font-size:70px;font-weight:500;letter-spacing:-.03em;line-height:1.02}
+.d7 .nt{margin:0 10px 8px;border-radius:20px;background:rgba(255,255,255,.17);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);padding:11px 13px;font-size:12px;line-height:1.35}
+.d7 .nt .nh{display:flex;align-items:center;gap:7px;font-size:11px;opacity:.8;margin-bottom:3px}
+.d7 .nt .nh i{width:18px;height:18px;border-radius:5px;background:#F2F3EF;color:#121417;display:grid;place-items:center;font-size:10px;font-style:normal;opacity:1}
+.d7 .nt .nh span{margin-left:auto}
+.d7 .nt b{font-weight:600;display:block}
+.d7 .nt p{margin:1px 0 0;opacity:.9}
+.d7 .na{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:0 10px 8px}
+.d7 .na span{height:36px;border-radius:14px;background:rgba(255,255,255,.17);display:flex;align-items:center;justify-content:center;gap:6px;font-weight:600;font-size:12px}
+.d7 .stk{margin:-4px 20px 0;height:10px;border-radius:0 0 14px 14px;background:rgba(255,255,255,.1)}
+.d7 .lb{position:absolute;bottom:30px;left:0;right:0;display:flex;justify-content:space-between;padding:0 34px}
+.d7 .lb span{width:44px;height:44px;border-radius:50%;background:rgba(255,255,255,.14);display:grid;place-items:center;font-size:18px}
+/* approvals */
+.d7 .nav{display:flex;align-items:center;gap:4px;padding:0 16px;color:#17A05D;font-weight:500;font-size:13px}
+.d7 .ttl{padding:6px 18px 0}
+.d7 .ttl b{font-size:25px;font-weight:700;letter-spacing:-.02em;display:block}
+.d7 .ttl small{font-size:12px;color:#6A7072}
+.d7 .lst{margin:12px 12px 0;background:#fff;border-radius:18px;overflow:hidden}
+.d7 .lst div{display:flex;align-items:center;gap:9px;padding:10px 12px;border-top:1px solid #EEF0EC;font-size:12.5px}
+.d7 .lst div:first-child{border-top:0}
+.d7 .lst small{margin-left:auto;font-size:10.5px;color:#6A7072}
+.d7 .lst .sec{font-size:9.5px;font-weight:700;color:#B4232A;background:#FDE0E1;padding:2px 6px;border-radius:99px;margin-left:auto}
+.d7 .dim{position:absolute;inset:0;background:rgba(18,20,23,.38);z-index:3}
+.d7 .sheet{position:absolute;left:0;right:0;bottom:0;z-index:4;background:#fff;border-radius:28px 28px 0 0;padding:10px 16px 26px}
+.d7 .grab{width:38px;height:5px;border-radius:3px;background:#D5D8D3;margin:0 auto 12px}
+.d7 .sheet h4{margin:8px 0 4px;font-size:18px;font-weight:700;letter-spacing:-.015em}
+.d7 .sheet p{margin:0;color:#6A7072;font-size:12px;line-height:1.4}
+.d7 .bl{margin:12px 0;display:grid;gap:7px}
+.d7 .bl div{display:flex;gap:8px;font-size:12px;align-items:flex-start;line-height:1.35}
+.d7 .bl svg{color:#17A05D;margin-top:1px}
+.d7 .slide{height:54px;border-radius:27px;background:#EEF0EC;position:relative;display:flex;align-items:center;justify-content:center;font-weight:600;color:#6A7072;font-size:13.5px}
+.d7 .slide .kn{position:absolute;left:5px;top:5px;width:44px;height:44px;border-radius:50%;background:#F2A93B;color:#241500;display:grid;place-items:center;font-size:18px}
+.d7 .hs{background:#F2F3EF}
+.d7 .cx{display:flex;justify-content:space-between;padding:0 18px;font-size:13px;font-weight:500;color:#17A05D}
+.d7 .up{display:flex;flex-direction:column;align-items:center;text-align:center;padding:14px 20px 0}
+.d7 .up .ic3{width:62px;height:62px;border-radius:18px;background:linear-gradient(145deg,#2A3140,#12151C);color:#fff;display:grid;place-items:center;font-size:28px;box-shadow:0 8px 20px rgba(0,0,0,.2)}
+.d7 .up h4{margin:12px 0 2px;font-size:20px;font-weight:700;letter-spacing:-.015em}
+.d7 .up .ver{font-size:13px;color:#6A7072;margin-bottom:8px}
+.d7 .up p{margin:10px 0 0;font-size:12px;color:#4F5557;line-height:1.45}
+.d7 .fld{margin:16px 16px 0}
+.d7 .fld label{display:block;font-size:11.5px;color:#6A7072;margin-bottom:5px}
+.d7 .fld div{height:44px;border-radius:14px;background:#fff;border:2px solid #121417;display:flex;align-items:center;padding:0 14px;font-size:15px;font-weight:500;gap:8px}
+.d7 .fld div svg{margin-left:auto;color:#17A05D}
+.d7 .fld div .cur{width:2px;height:20px;background:#17A05D;margin-left:-6px}
+.d7 .pk{margin:12px 16px 0;height:50px;border-radius:16px;background:#121417;color:#fff;display:flex;align-items:center;justify-content:center;gap:8px;font-weight:600;font-size:14px}
+.d7 .foot{margin:10px 22px 0;text-align:center;font-size:11px;color:#6A7072;line-height:1.4}
+</style>
+
+<section class="dir" id="pocket">
+  <div class="dir-h">
+    <div><div class="eyebrow">Direction 7</div><h2>Pocket</h2></div>
+    <a class="top" href="#top">Back to top ↑</a>
+    <p class="concept">Designed for the phone first: one big health status, a stack of cards that each need one decision, a bottom tab bar, and approvals straight from a push notification.</p>
+  </div>
+  <div class="notes">
+    <dl>
+      <dt>Navigation</dt><dd>A bottom tab bar (Home, Apps, Alerts, Box). Actions open as sheets that slide up. Push notifications go out through ntfy and carry action buttons. On a desktop the same cards reflow into a three-column grid.</dd>
+      <dt>Layout</dt><dd>A single column where every action sits in the thumb zone. Cards are ordered by what needs you, and each has one large button.</dd>
+      <dt>Type, color, density</dt><dd>Rubik, with 26 to 70 px status type. Light screens, and a single health color (green, amber or red) that carries the whole state. Very low density.</dd>
+      <dt>Who it suits</dt><dd>An owner who checks on the box from the couch or away from home over Tailscale. Deep work (LVM, firewall rules) still wants a desktop screen.</dd>
+    </dl>
+    <div class="sig"><h3>Signature features</h3><ul>
+      <li><b>A gesture per tier:</b> tap for low, review then slide for medium, passkey plus typing the hostname for high.</li>
+      <li><b>Actionable notifications:</b> "Install" or "Later" right on the lock screen, which then open the approval sheet.</li>
+      <li><b>Short elevation:</b> one passkey approval unlocks high-risk actions for 10 minutes, then it locks itself.</li>
+    </ul></div>
+  </div>
+  <div class="shots">
+    <figure class="shot"><figcaption><b>Home tab and lock-screen notifications</b><span>Overview</span></figcaption><div class="frame"><div class="stage-wrap"><div class="stage d7">
+      <div class="cap">
+        <div class="ey">Pocket · Home</div>
+        <h3>Status you can read at arm's length</h3>
+        <div class="co"><span class="mk">1</span><div><b>One status, one color</b>The ring and the words agree, and the chip says what's off.</div></div>
+        <div class="co"><span class="mk">2</span><div><b>Only what needs you</b>Each card is one decision with one big button.</div></div>
+        <div class="co"><span class="mk">3</span><div><b>Tabs in the thumb zone</b>Home, Apps, Alerts and Box.</div></div>
+        <div class="co"><span class="mk">4</span><div><b>Push with actions</b>Sent through ntfy, answered from the lock screen.</div></div>
+      </div>
+      <span class="mk ab" style="left:319px;top:140px">1</span>
+      <span class="mk ab" style="left:319px;top:300px">2</span>
+      <span class="mk ab" style="left:319px;top:540px">3</span>
+      <span class="mk ab" style="left:689px;top:226px">4</span>
+      <div class="ph" style="left:330px"><div class="scr">
+        <span class="isl"></span>
+        <div class="stb"><span>9:41</span><span class="sgn"><i style="height:4px"></i><i style="height:6px"></i><i style="height:8px"></i><i style="height:10px"></i><span class="bat"></span></span></div>
+        <div class="hh"><div><b>homebox</b><small><svg class="ic"><use href="#i-ts"/></svg>via Tailscale</small></div><span class="av">C</span></div>
+        <div class="hero">
+          <svg width="84" height="84" viewBox="0 0 84 84"><circle cx="42" cy="42" r="35" fill="none" stroke="#E3E6E1" stroke-width="9"/><circle cx="42" cy="42" r="35" fill="none" stroke="#17A05D" stroke-width="9" stroke-linecap="round" stroke-dasharray="196 220" transform="rotate(-90 42 42)"/><circle cx="42" cy="42" r="35" fill="none" stroke="#F2A93B" stroke-width="9" stroke-linecap="round" stroke-dasharray="6 220" stroke-dashoffset="-206" transform="rotate(-90 42 42)"/><path d="M31 43l8 8 15-17" fill="none" stroke="#17A05D" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <div><div class="t1">All good</div><span class="t2"><svg class="ic"><use href="#i-alert"/></svg>1 needs you</span></div>
+        </div>
+        <div class="stats"><span><b>12%</b>CPU</span><span><b>21 GB</b>memory</span><span><b>38%</b>GPU</span></div>
+        <div class="card am"><div class="tp"><i class="ap ap-im"></i>Immich · 412 GB<span class="tier tm">Medium</span></div><h4>Photos only on this box</h4><p>If homebox fails, they're gone. Copy them to your B2 bucket.</p><div class="big"><svg class="ic"><use href="#i-shield"/></svg>Protect them</div></div>
+        <div class="card"><div class="row2"><div><h4 style="margin-top:0">14 updates</h4><p>3 security fixes ready</p></div><span class="sm">Review</span></div></div>
+        <div class="tabbar"><span class="on"><svg class="ic"><use href="#i-home"/></svg>Home</span><span><svg class="ic"><use href="#i-grid"/></svg>Apps</span><span><svg class="ic"><use href="#i-bell"/></svg>Alerts<b>1</b></span><span><svg class="ic"><use href="#i-disk"/></svg>Box</span></div>
+        <span class="hi"></span>
+      </div></div>
+      <div class="ph" style="left:700px"><div class="scr lock">
+        <span class="isl"></span>
+        <div class="stb"><span>9:41</span><span class="sgn"><i style="height:4px"></i><i style="height:6px"></i><i style="height:8px"></i><i style="height:10px"></i><span class="bat"></span></span></div>
+        <div class="clk"><small><svg class="ic"><use href="#i-lock"/></svg>Sunday 27 September</small><b>9:41</b></div>
+        <div style="height:14px"></div>
+        <div class="nt"><div class="nh"><i><svg class="ic"><use href="#i-spark"/></svg></i>BoxPilot · homebox<span>now</span></div><b>3 security updates ready</b><p>openssl, libssh and sudo. Nothing needs a restart.</p></div>
+        <div class="na"><span>Install<span class="tier tm" style="margin:0;background:rgba(242,169,59,.3);color:#FFE2B0">Med</span></span><span>Later</span></div>
+        <div class="nt"><div class="nh"><i><svg class="ic"><use href="#i-spark"/></svg></i>BoxPilot · homebox<span>3h ago</span></div><b>Immich has no off-box copy</b><p>412 GB of photos exist only on homebox. Tap to fix.</p></div>
+        <div class="stk"></div>
+        <div style="text-align:center;font-size:11px;opacity:.7;margin-top:8px">2 more from BoxPilot</div>
+        <div class="lb"><span><svg class="ic"><use href="#i-bolt"/></svg></span><span><svg class="ic"><use href="#i-image"/></svg></span></div>
+        <span class="hi"></span>
+      </div></div>
+    </div></div></div></figure>
+
+    <figure class="shot"><figcaption><b>Medium tier: review, then slide. High tier: passkey and hostname.</b><span>Approval flow</span></figcaption><div class="frame"><div class="stage-wrap"><div class="stage d7">
+      <div class="cap">
+        <div class="ey">Pocket · Approvals</div>
+        <h3>Each risk tier has its own gesture</h3>
+        <div class="co"><span class="mk">1</span><div><b>Medium: review, then slide</b>The sheet lists what changes. Sliding can't happen by accident.</div></div>
+        <div class="co"><span class="mk">2</span><div><b>High: passkey and hostname</b>Type the box's name, then confirm with Face ID or a security key.</div></div>
+        <div class="co"><span class="mk">3</span><div><b>Ten minutes, then it locks</b>Your approval opens a short elevated session, as it does today.</div></div>
+      </div>
+      <span class="mk ab" style="left:319px;top:520px">1</span>
+      <span class="mk ab" style="left:689px;top:348px">2</span>
+      <span class="mk ab" style="left:689px;top:458px">3</span>
+      <div class="ph" style="left:330px"><div class="scr">
+        <span class="isl"></span>
+        <div class="stb"><span>9:41</span><span class="sgn"><i style="height:4px"></i><i style="height:6px"></i><i style="height:8px"></i><i style="height:10px"></i><span class="bat"></span></span></div>
+        <div class="nav"><svg class="ic"><use href="#i-back"/></svg>Box</div>
+        <div class="ttl"><b>Updates</b><small>14 waiting · checked 6 hours ago</small></div>
+        <div class="lst"><div>openssl<span class="sec">Security</span></div><div>libssh-4<span class="sec">Security</span></div><div>sudo<span class="sec">Security</span></div><div>linux-firmware<small>98 MB</small></div><div>docker-ce<small>27 MB</small></div></div>
+        <div class="dim"></div>
+        <div class="sheet">
+          <div class="grab"></div>
+          <span class="tier tm" style="margin:0">Medium · review, then slide</span>
+          <h4>Install 3 security updates</h4>
+          <p>openssl, libssh-4 and sudo · 4.1 MB from Ubuntu's security archive</p>
+          <div class="bl">
+            <div><svg class="ic"><use href="#i-check"/></svg>No reboot, and no app restarts</div>
+            <div><svg class="ic"><use href="#i-check"/></svg>SSH stays connected while sudo updates</div>
+            <div><svg class="ic"><use href="#i-check"/></svg>Stops and reports if a package fails</div>
+          </div>
+          <div class="slide"><span class="kn"><svg class="ic"><use href="#i-chev"/></svg></span>Slide to install</div>
+        </div>
+        <span class="hi" style="z-index:6"></span>
+      </div></div>
+      <div class="ph" style="left:700px"><div class="scr hs">
+        <span class="isl"></span>
+        <div class="stb"><span>9:43</span><span class="sgn"><i style="height:4px"></i><i style="height:6px"></i><i style="height:8px"></i><i style="height:10px"></i><span class="bat"></span></span></div>
+        <div class="cx"><span>Cancel</span></div>
+        <div class="up">
+          <span class="ic3"><svg class="ic"><use href="#i-spark"/></svg></span>
+          <h4>Update BoxPilot</h4>
+          <div class="ver">1.118.0 → 1.119.0</div>
+          <span class="tier th" style="margin:0">High · needs your passkey</span>
+          <p>BoxPilot restarts itself. If the new version fails its health check, it rolls back to 1.118.0 by itself.</p>
+        </div>
+        <div class="fld"><label>Type <b>homebox</b> to continue</label><div>homebox<span class="cur"></span><svg class="ic"><use href="#i-check"/></svg></div></div>
+        <div class="pk"><svg class="ic" style="font-size:18px"><use href="#i-face"/></svg>Confirm with passkey</div>
+        <div class="foot">High-risk actions stay unlocked for 10 minutes after this.</div>
+        <span class="hi"></span>
+      </div></div>
+    </div></div></div></figure>
+  </div>
+</section>
+
+<style>
+.d8{--desk:linear-gradient(135deg,#C7D2DE,#DCE3EA 50%,#C3CCD8);--wb:#FAFAFB;--sb:#EBEBED;--sel:#D9D9DE;--card:#FFFFFF;--bd:rgba(0,0,0,.09);--tx:#1F1F23;--dim:#6C6C74;--ac:#3584E4;--acbg:rgba(53,132,228,.1);--sw:#D0D0D6;--code:#F2F2F4;--sh:0 18px 50px rgba(20,30,50,.28),0 0 0 1px rgba(0,0,0,.12);
+  font-family:'Cantarell','Segoe UI',sans-serif;background:var(--desk);color:var(--tx);font-size:13px}
+.d8.dk{--desk:linear-gradient(135deg,#1B1D22,#24262C 50%,#17191D);--wb:#242428;--sb:#2E2E33;--sel:#3E3E45;--card:#323237;--bd:rgba(255,255,255,.08);--tx:#F2F2F4;--dim:#A3A3AB;--ac:#78AEED;--acbg:rgba(120,174,237,.14);--sw:#55555C;--code:#1E1E22;--sh:0 18px 50px rgba(0,0,0,.55),0 0 0 1px rgba(255,255,255,.1)}
+.d8 .win{position:absolute;left:20px;top:18px;width:1000px;height:564px;border-radius:14px;overflow:hidden;background:var(--wb);box-shadow:var(--sh);display:grid;grid-template-columns:248px 1fr}
+.d8 .side{background:var(--sb);display:flex;flex-direction:column;border-right:1px solid var(--bd)}
+.d8 .shd{height:48px;display:flex;align-items:center;padding:0 10px;flex:none}
+.d8 .srch{flex:1;height:32px;border-radius:8px;background:rgba(127,127,140,.14);display:flex;align-items:center;gap:8px;padding:0 10px;color:var(--dim)}
+.d8 .nav{padding:4px 8px;display:flex;flex-direction:column;gap:1px}
+.d8 .nav .gp{height:8px}
+.d8 .nav span{height:28px;display:flex;align-items:center;gap:11px;padding:0 10px;border-radius:7px;color:var(--tx)}
+.d8 .nav span svg{font-size:15px;color:var(--dim)}
+.d8 .nav span.on{background:var(--sel);font-weight:700}
+.d8 .nav span.on svg{color:var(--tx)}
+.d8 .nav em{margin-left:auto;font-style:normal;font-size:11px;font-weight:700;min-width:20px;height:18px;border-radius:9px;background:var(--ac);color:#fff;display:grid;place-items:center;padding:0 6px}
+.d8.dk .nav em{color:#10223A}
+.d8 .main{display:flex;flex-direction:column;min-width:0}
+.d8 .hb{height:48px;display:flex;align-items:center;justify-content:center;position:relative;font-weight:700;flex:none}
+.d8 .hb .wc{position:absolute;right:12px;top:12px;display:flex;gap:8px}
+.d8 .hb .wc span{width:24px;height:24px;border-radius:50%;background:rgba(127,127,140,.16);display:grid;place-items:center;font-size:12px;color:var(--tx)}
+.d8 .col{width:600px;margin:0 auto;padding:10px 0 0;display:flex;flex-direction:column}
+.d8 .hero{display:flex;align-items:center;gap:16px;margin-bottom:12px}
+.d8 .hero .ic4{width:56px;height:56px;border-radius:14px;background:linear-gradient(160deg,#6A6874,#3D3A46);display:grid;place-items:center;color:#fff;font-size:26px;box-shadow:inset 0 -3px 0 rgba(0,0,0,.2)}
+.d8 .hero b{font-size:22px;display:block;letter-spacing:-.01em}
+.d8 .hero small{color:var(--dim);font-size:12.5px}
+.d8 .ban{display:flex;align-items:center;gap:12px;border-radius:12px;background:var(--acbg);padding:10px 12px 10px 14px;margin-bottom:14px}
+.d8 .ban svg{color:var(--ac);font-size:18px}
+.d8 .ban b{display:block}
+.d8 .ban small{color:var(--dim);font-size:12px}
+.d8 .pbtn{margin-left:auto;height:32px;padding:0 16px;border-radius:8px;background:var(--ac);color:#fff;font-weight:700;display:flex;align-items:center}
+.d8.dk .pbtn{color:#0F2139}
+.d8 .gt{font-weight:700;font-size:13px;margin:0 0 7px 2px;display:flex;align-items:baseline;gap:8px}
+.d8 .gt small{font-weight:400;color:var(--dim);font-size:12px}
+.d8 .box{background:var(--card);border-radius:12px;box-shadow:0 0 0 1px var(--bd),0 1px 2px rgba(0,0,0,.05);margin-bottom:14px;overflow:hidden}
+.d8 .r{display:flex;align-items:center;gap:12px;min-height:42px;padding:0 14px}
+.d8 .r + .r{border-top:1px solid var(--bd)}
+.d8 .r .lb{flex:1;min-width:0}
+.d8 .r .lb small{display:block;color:var(--dim);font-size:12px;margin-top:1px}
+.d8 .r .v{color:var(--dim);display:flex;align-items:center;gap:8px}
+.d8 .r .ch{color:var(--dim);font-size:14px}
+.d8 .r .ap{--z:26px;border-radius:7px;font-size:10px}
+.d8 .dot{width:8px;height:8px;border-radius:50%;flex:none}
+.d8 .ok{background:#2EC27E}.d8 .wa{background:#E5A50A}
+.d8 .sw{width:42px;height:24px;border-radius:12px;background:var(--sw);position:relative;flex:none}
+.d8 .sw::after{content:"";position:absolute;left:3px;top:3px;width:18px;height:18px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.2)}
+.d8 .sw.on{background:var(--ac)}
+.d8 .sw.on::after{left:21px}
+.d8 .dd{display:flex;align-items:center;gap:6px;color:var(--tx);padding:5px 10px;border-radius:7px;background:rgba(127,127,140,.12)}
+.d8 .dd svg{font-size:12px;color:var(--dim)}
+.d8 .tg{font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px}
+.d8 .tl{background:rgba(46,194,126,.15);color:#1A7F4F}.d8 .tm{background:rgba(229,165,10,.16);color:#8A6100}.d8 .th{background:rgba(224,27,36,.12);color:#B01A22}
+.d8.dk .tl{color:#57E389}.d8.dk .tm{color:#F8C44A}.d8.dk .th{color:#FF7B7B}
+.d8 .lk{color:var(--dim);font-size:14px}
+.d8 .note{font-size:12px;color:var(--dim);margin:-10px 2px 16px}
+.d8 .scrim{position:absolute;inset:0;background:rgba(0,0,0,.3);z-index:5}
+.d8 .dlg{position:absolute;left:624px;top:258px;transform:translateX(-50%);width:380px;background:#3A3A40;border-radius:16px;box-shadow:0 24px 60px rgba(0,0,0,.5),0 0 0 1px rgba(255,255,255,.08);z-index:6;text-align:center;overflow:hidden}
+.d8 .dlg .in{padding:22px 24px 18px}
+.d8 .dlg h4{margin:0 0 8px;font-size:17px;line-height:1.25}
+.d8 .dlg p{margin:0;color:#C9C9D0;font-size:13px;line-height:1.45}
+.d8 .dlg .cd{margin:14px 0 10px;background:#26262A;border-radius:9px;padding:9px 11px;font:11px/1.5 'JetBrains Mono',ui-monospace,monospace;color:#8FF0A4;text-align:left;white-space:nowrap;overflow:hidden}
+.d8 .dlg .rk{display:flex;align-items:center;justify-content:center;gap:8px;font-size:12px;color:#C9C9D0}
+.d8 .dlg .bts{display:grid;grid-template-columns:1fr 1fr;border-top:1px solid rgba(255,255,255,.1)}
+.d8 .dlg .bts span{height:46px;display:grid;place-items:center;font-weight:700}
+.d8 .dlg .bts span + span{border-left:1px solid rgba(255,255,255,.1);color:#78AEED}
+</style>
+
+<section class="dir" id="calm">
+  <div class="dir-h">
+    <div><div class="eyebrow">Direction 8</div><h2>Calm Settings</h2></div>
+    <a class="top" href="#top">Back to top ↑</a>
+    <p class="concept">Make BoxPilot look like the system settings people already know from GNOME and macOS: a searchable sidebar, grouped rows with switches, and quiet dialogs. Light and dark are equally finished.</p>
+  </div>
+  <div class="notes">
+    <dl>
+      <dt>Navigation</dt><dd>A sidebar in four quiet groups (box, storage and network, data and machines, people and upkeep). The search field at the top finds settings inside pages, not only page names.</dd>
+      <dt>Layout</dt><dd>One centered 600 px column of grouped rows: switches, dropdowns and chevrons into sub-pages. Anything that needs a preview opens as a dialog over the page.</dd>
+      <dt>Type, color, density</dt><dd>Cantarell, GNOME's own typeface, on neutral greys with GNOME blue. Medium density and very little color, so the few amber and red marks stand out.</dd>
+      <dt>Who it suits</dt><dd>Anyone who wants BoxPilot to feel like part of Ubuntu. It is the smallest step from today's structure, and the cheapest of the eight to build.</dd>
+    </dl>
+    <div class="sig"><h3>Signature features</h3><ul>
+      <li><b>One switch per app</b> for "reachable on my network", with the ufw rule shown in the confirmation.</li>
+      <li><b>A locked "Always reachable" group</b> for SSH, Tailscale and BoxPilot, so nobody locks themselves out.</li>
+      <li><b>Approval policy as ordinary settings:</b> the three tiers are rows you can read and adjust.</li>
+    </ul></div>
+  </div>
+  <div class="shots">
+    <figure class="shot"><figcaption><b>Overview in light</b><span>Overview</span></figcaption><div class="frame"><div class="stage-wrap"><div class="stage d8">
+      <div class="win">
+        <div class="side">
+          <div class="shd"><div class="srch"><svg class="ic"><use href="#i-search"/></svg>Search settings</div></div>
+          <div class="nav">
+            <span class="on"><svg class="ic"><use href="#i-home"/></svg>Overview</span><span><svg class="ic"><use href="#i-grid"/></svg>Apps</span><span><svg class="ic"><use href="#i-update"/></svg>Updates<em>14</em></span>
+            <i class="gp"></i>
+            <span><svg class="ic"><use href="#i-disk"/></svg>Storage</span><span><svg class="ic"><use href="#i-share"/></svg>Sharing</span><span><svg class="ic"><use href="#i-net"/></svg>Network</span><span><svg class="ic"><use href="#i-ts"/></svg>Tailscale</span><span><svg class="ic"><use href="#i-wall"/></svg>Firewall</span>
+            <i class="gp"></i>
+            <span><svg class="ic"><use href="#i-archive"/></svg>Backups</span><span><svg class="ic"><use href="#i-vm"/></svg>Virtual Machines</span><span><svg class="ic"><use href="#i-pulse"/></svg>Services</span><span><svg class="ic"><use href="#i-bolt"/></svg>Automations</span>
+            <i class="gp"></i>
+            <span><svg class="ic"><use href="#i-user"/></svg>Users &amp; SSH</span><span><svg class="ic"><use href="#i-shield"/></svg>Approvals</span><span><svg class="ic"><use href="#i-list"/></svg>Logs</span><span><svg class="ic"><use href="#i-wrench"/></svg>Repair</span>
+          </div>
+        </div>
+        <div class="main">
+          <div class="hb">Overview<div class="wc"><span><svg class="ic"><use href="#i-dots"/></svg></span><span><svg class="ic"><use href="#i-x"/></svg></span></div></div>
+          <div class="col">
+            <div class="hero"><span class="ic4"><svg class="ic"><use href="#i-disk"/></svg></span><div><b>homebox</b><small>Ubuntu 24.04.1 LTS · AMD Ryzen · 64 GB · RTX 4080 · BoxPilot 1.118.0</small></div></div>
+            <div class="ban"><svg class="ic"><use href="#i-update"/></svg><div><b>BoxPilot 1.119.0 is available</b><small>Rolls back by itself if it fails its health check</small></div><span class="tg th">High risk</span><span class="pbtn" style="margin-left:0">Update…</span></div>
+            <div class="gt">Status</div>
+            <div class="box">
+              <div class="r"><span class="lb">Health</span><span class="v"><i class="dot ok"></i>All systems normal</span></div>
+              <div class="r"><span class="lb">Needs attention</span><span class="v"><i class="dot wa"></i>Immich has no off-box copy</span><svg class="ic ch"><use href="#i-chev"/></svg></div>
+              <div class="r"><span class="lb">Software updates</span><span class="v">14 available, 3 security</span><svg class="ic ch"><use href="#i-chev"/></svg></div>
+              <div class="r"><span class="lb">Backups</span><span class="v">9 apps · test restore passed yesterday</span><svg class="ic ch"><use href="#i-chev"/></svg></div>
+            </div>
+            <div class="gt">Approvals <small>How BoxPilot asks before it changes things</small></div>
+            <div class="box">
+              <div class="r"><span class="lb">Low-risk changes<small>Restarts, backups, clearing caches</small></span><span class="tg tl">Low</span><span class="dd">Run right away<svg class="ic"><use href="#i-chevd"/></svg></span></div>
+              <div class="r"><span class="lb">Medium-risk changes<small>Installs, shares, firewall rules</small></span><span class="tg tm">Medium</span><span class="dd">Show a preview first<svg class="ic"><use href="#i-chevd"/></svg></span></div>
+              <div class="r"><span class="lb">High-risk changes<small>Disks, deleting data, updating BoxPilot</small></span><span class="tg th">High</span><span class="dd">Password and typed name<svg class="ic"><use href="#i-chevd"/></svg></span></div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </div></div></div></figure>
+
+    <figure class="shot"><figcaption><b>Firewall in dark, confirming a change</b><span>Firewall</span></figcaption><div class="frame"><div class="stage-wrap"><div class="stage d8 dk">
+      <div class="win">
+        <div class="side">
+          <div class="shd"><div class="srch"><svg class="ic"><use href="#i-search"/></svg>Search settings</div></div>
+          <div class="nav">
+            <span><svg class="ic"><use href="#i-home"/></svg>Overview</span><span><svg class="ic"><use href="#i-grid"/></svg>Apps</span><span><svg class="ic"><use href="#i-update"/></svg>Updates<em>14</em></span>
+            <i class="gp"></i>
+            <span><svg class="ic"><use href="#i-disk"/></svg>Storage</span><span><svg class="ic"><use href="#i-share"/></svg>Sharing</span><span><svg class="ic"><use href="#i-net"/></svg>Network</span><span><svg class="ic"><use href="#i-ts"/></svg>Tailscale</span><span class="on"><svg class="ic"><use href="#i-wall"/></svg>Firewall</span>
+            <i class="gp"></i>
+            <span><svg class="ic"><use href="#i-archive"/></svg>Backups</span><span><svg class="ic"><use href="#i-vm"/></svg>Virtual Machines</span><span><svg class="ic"><use href="#i-pulse"/></svg>Services</span><span><svg class="ic"><use href="#i-bolt"/></svg>Automations</span>
+            <i class="gp"></i>
+            <span><svg class="ic"><use href="#i-user"/></svg>Users &amp; SSH</span><span><svg class="ic"><use href="#i-shield"/></svg>Approvals</span><span><svg class="ic"><use href="#i-list"/></svg>Logs</span><span><svg class="ic"><use href="#i-wrench"/></svg>Repair</span>
+          </div>
+        </div>
+        <div class="main">
+          <div class="hb">Firewall<div class="wc"><span><svg class="ic"><use href="#i-dots"/></svg></span><span><svg class="ic"><use href="#i-x"/></svg></span></div></div>
+          <div class="col">
+            <div class="box">
+              <div class="r"><span class="lb">Firewall<small>Blocks anything you haven't allowed</small></span><span class="sw on"></span></div>
+              <div class="r"><span class="lb">Profile</span><span class="dd">Trusted LAN<svg class="ic"><use href="#i-chevd"/></svg></span></div>
+            </div>
+            <div class="gt">Reachable from your local network <small>192.168.1.0/24</small></div>
+            <div class="box">
+              <div class="r"><i class="ap ap-jf">J</i><span class="lb">Jellyfin<small>port 8096 and discovery</small></span><span class="sw on"></span></div>
+              <div class="r"><i class="ap ap-ph">π</i><span class="lb">Pi-hole DNS<small>port 53</small></span><span class="sw on"></span></div>
+              <div class="r"><i class="ap ap-ha">HA</i><span class="lb">Home Assistant<small>port 8123</small></span><span class="sw on"></span></div>
+              <div class="r"><i class="ap ap-bp"><svg class="ic"><use href="#i-folder"/></svg></i><span class="lb">Media share (SMB)<small>port 445</small></span><span class="sw on"></span></div>
+              <div class="r"><i class="ap ap-im"></i><span class="lb">Immich<small>port 2283 · Tailscale only right now</small></span><span class="sw on"></span></div>
+            </div>
+            <div class="gt">Always reachable</div>
+            <div class="box">
+              <div class="r"><span class="lb">SSH, rate-limited</span><svg class="ic lk"><use href="#i-lock"/></svg></div>
+              <div class="r"><span class="lb">Tailscale and BoxPilot</span><svg class="ic lk"><use href="#i-lock"/></svg></div>
+            </div>
+          </div>
+          <div class="scrim"></div>
+          <div class="dlg"><div class="in">
+            <h4>Allow Immich on your local network?</h4>
+            <p>Phones and computers on 192.168.1.0/24 will be able to open Immich. It stays reachable over Tailscale either way.</p>
+            <div class="cd">ufw allow from 192.168.1.0/24<br>&nbsp;&nbsp;to any port 2283 proto tcp</div>
+            <div class="rk"><span class="tg tm">Medium risk</span>This is the exact change that will run.</div>
+          </div><div class="bts"><span>Cancel</span><span>Allow</span></div></div>
+        </div>
+      </div>
+    </div></div></div></figure>
+  </div>
+</section>
+
+<section class="compare" id="compare">
+  <div class="eyebrow">Side by side</div>
+  <h2>How the eight compare</h2>
+  <p>Build effort is my estimate relative to today's React app and operation registry, from 1 (restyle) to 5 (new subsystem). Density is information per screen.</p>
+  <div class="tbl"><table>
+    <thead><tr><th>Direction</th><th>Best at</th><th>Density</th><th>Learning curve</th><th>On a phone</th><th>Build effort</th></tr></thead>
+    <tbody>
+      <tr><td><a href="#launcher">1 · Launcher</a></td><td>Getting to your apps</td><td><span class="meter"><i class="on"></i><i class="on"></i><i></i><i></i><i></i></span></td><td>Gentle</td><td>Good</td><td><span class="meter"><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i></span>New shell and store</td></tr>
+      <tr><td><a href="#command">2 · Command Center</a></td><td>Watching the box, approving in batches</td><td><span class="meter"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i></span></td><td>Steep</td><td>Poor</td><td><span class="meter"><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i></span>Charts and panels</td></tr>
+      <tr><td><a href="#recipes">3 · Recipes &amp; Guides</a></td><td>First setup and bigger tasks</td><td><span class="meter"><i class="on"></i><i></i><i></i><i></i><i></i></span></td><td>Gentlest</td><td>Good</td><td><span class="meter"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i></span>Every recipe is written and tested</td></tr>
+      <tr><td><a href="#topology">4 · Topology Map</a></td><td>Seeing how things connect</td><td><span class="meter"><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i></span></td><td>Medium</td><td>Poor</td><td><span class="meter"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i></span>Graph layout and routing</td></tr>
+      <tr><td><a href="#timeline">5 · Timeline</a></td><td>Knowing what changed, and undoing it</td><td><span class="meter"><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i></span></td><td>Gentle</td><td>Fair</td><td><span class="meter"><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i></span>Audit trail exists, rollback is new</td></tr>
+      <tr><td><a href="#copilot">6 · Copilot</a></td><td>Doing things you can't find</td><td><span class="meter"><i class="on"></i><i class="on"></i><i></i><i></i><i></i></span></td><td>Gentle</td><td>Good</td><td><span class="meter"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i></span>Planning, grounding, testing</td></tr>
+      <tr><td><a href="#pocket">7 · Pocket</a></td><td>Checking in and approving away from home</td><td><span class="meter"><i class="on"></i><i></i><i></i><i></i><i></i></span></td><td>Gentle</td><td>Best</td><td><span class="meter"><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i></span>Plus ntfy actions</td></tr>
+      <tr><td><a href="#calm">8 · Calm Settings</a></td><td>Familiar, everyday admin</td><td><span class="meter"><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i></span></td><td>Gentlest</td><td>Fair</td><td><span class="meter"><i class="on"></i><i class="on"></i><i></i><i></i><i></i></span>Closest to today</td></tr>
+    </tbody>
+  </table></div>
+  <div class="mix">
+    <div><b>Calm Settings + Timeline</b>Settings-style pages for everyday admin, with the Timeline feed as the Overview.</div>
+    <div><b>Launcher + Pocket</b>One card and tile system that works on the wall tablet and the phone.</div>
+    <div><b>Command Center + Copilot</b>A console for watching, and plan cards as the only way to change things.</div>
+  </div>
+  <p class="foot">Every screen is static HTML and CSS drawn for this page. The setup (host, disks, GPU, apps, Tailscale name, alerts, update counts, VMs) is modelled on a real home server, with placeholder names. Other figures, such as CPU load, stream counts, prices, job numbers, package names and dates, are illustrative.</p>
+</section>
+</main>
+
+<script>
+(function(){
+  var wraps=[].slice.call(document.querySelectorAll('.stage-wrap'));
+  function fit(w){var st=w.firstElementChild;if(!st)return;var s=w.clientWidth/1040;st.style.transform='scale('+s+')';}
+  function all(){wraps.forEach(fit);}
+  if('ResizeObserver' in window){var ro=new ResizeObserver(function(es){es.forEach(function(e){fit(e.target);});});wraps.forEach(function(w){ro.observe(w);});}
+  window.addEventListener('resize',all);
+  all();
+})();
+</script>
+</html>
