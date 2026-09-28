@@ -5,6 +5,7 @@ import { chmod, lstat, mkdir, readFile, readdir, rm, statfs } from "node:fs/prom
 import path from "node:path";
 import { promisify } from "node:util";
 import { controllerBackupHelperInternals } from "./controller-backup-helper.mjs";
+import { backupMountpoint } from "./backup-mount.mjs";
 
 const execFile = promisify(execFileCallback);
 const uuidPattern = /^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
@@ -42,7 +43,7 @@ function confinedChild(root, child) {
 export function createControllerProtectionHelper({
   resticBinary = process.env.BOXPILOT_RESTIC_BINARY ?? "/usr/bin/restic",
   findmntBinary = process.env.BOXPILOT_FINDMNT_BINARY ?? "/usr/bin/findmnt",
-  mountRoot = process.env.BOXPILOT_CONTROLLER_BACKUP_MOUNT ?? "/mnt/boxpilot-backup",
+  mountRoot = process.env.BOXPILOT_CONTROLLER_BACKUP_MOUNT ?? backupMountpoint,
   passwordFile = process.env.BOXPILOT_CONTROLLER_RESTIC_PASSWORD_FILE ?? "/etc/boxpilot/secrets/controller-backup-restic-password",
   cacheRoot = process.env.BOXPILOT_CONTROLLER_RESTIC_CACHE_DIRECTORY ?? "/var/cache/boxpilot-controller-restic",
   backupRoot = process.env.BOXPILOT_CONTROLLER_BACKUP_ROOT ?? "/var/lib/boxpilot-managed/backups/boxpilot-controller",
@@ -121,7 +122,7 @@ export function createControllerProtectionHelper({
         writable: true,
       };
     } catch {
-      blockers.push("Mount a writable filesystem independent from both BoxPilot state locations at /mnt/boxpilot-backup");
+      blockers.push(`Mount a writable filesystem independent from both BoxPilot state locations at ${resolvedMountRoot}`);
     }
 
     try {

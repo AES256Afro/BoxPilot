@@ -1,4 +1,5 @@
 import { readFile, stat } from "node:fs/promises";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { onWindows } from "../test/platform.mjs";
 import { productVersion } from "./version.mjs";
@@ -25,7 +26,7 @@ describe("native systemd network boundaries", () => {
     expect(helperUnit).toContain("Environment=BOXPILOT_CONTROLLER_BACKUP_ROOT=/var/lib/boxpilot-managed/backups/boxpilot-controller");
     expect(helperUnit).toContain("Environment=BOXPILOT_CONTROLLER_RESTORE_DRILL_ROOT=/var/lib/boxpilot-managed/controller-restore-drills");
     expect(helperUnit).toContain("Environment=BOXPILOT_CONTROLLER_PROTECTION_DRILL_ROOT=/var/lib/boxpilot-managed/controller-independent-restore-drills");
-    expect(helperUnit).toContain("Environment=BOXPILOT_CONTROLLER_BACKUP_MOUNT=/mnt/boxpilot-backup");
+    expect(helperUnit).toContain("Environment=BOXPILOT_CONTROLLER_BACKUP_MOUNT=/mnt/boxpilot/backup");
     expect(helperUnit).toContain("Environment=BOXPILOT_CONTROLLER_RESTIC_PASSWORD_FILE=/etc/boxpilot/secrets/controller-backup-restic-password");
     expect(helperUnit).toContain("Environment=BOXPILOT_CONTROLLER_RESTIC_CACHE_DIRECTORY=/var/cache/boxpilot-controller-restic");
     expect(helperUnit).toContain("Environment=BOXPILOT_APPLICATION_BACKUP_ROOT=/var/lib/boxpilot-managed/backups");
@@ -33,7 +34,7 @@ describe("native systemd network boundaries", () => {
     expect(helperUnit).toContain("Environment=BOXPILOT_APPLICATION_RESTIC_PASSWORD_FILE=/etc/boxpilot/secrets/application-backup-restic-password");
     expect(helperUnit).toContain("StateDirectory=boxpilot-managed boxpilot-migration");
     expect(helperUnit).toContain("Environment=BOXPILOT_RESTIC_BINARY=/usr/bin/restic");
-    expect(helperUnit).toContain("Environment=BOXPILOT_VM_BACKUP_MOUNT=/mnt/boxpilot-backup");
+    expect(helperUnit).toContain("Environment=BOXPILOT_VM_BACKUP_MOUNT=/mnt/boxpilot/backup");
     expect(helperUnit).toContain("Environment=BOXPILOT_VM_RESTORE_DRILL_ROOT=/var/lib/libvirt/images/boxpilot-restore-drills");
     expect(helperUnit).toContain("Environment=BOXPILOT_VM_RECOVERY_ROOT=/var/lib/libvirt/images/boxpilot-recoveries");
     expect(helperUnit).toContain("Environment=BOXPILOT_LIBVIRT_QEMU_GROUP=libvirt-qemu");
@@ -41,7 +42,7 @@ describe("native systemd network boundaries", () => {
     expect(helperUnit).toContain("Environment=BOXPILOT_RESTIC_PASSWORD_FILE=/etc/boxpilot/secrets/vm-backup-restic-password");
     expect(helperUnit).toContain("CacheDirectory=boxpilot-restic boxpilot-controller-restic boxpilot-application-restic");
     expect(helperUnit).toContain("CacheDirectoryMode=0700");
-    expect(helperUnit).toContain("ReadWritePaths=-/mnt/boxpilot-backup");
+    expect(helperUnit).toContain("ReadWritePaths=-/mnt/boxpilot\n");
     // The controller backup runs VACUUM INTO against the live database; with the web service stopped
     // SQLite must recreate the WAL index, which a read-only mount refuses.
     expect(helperUnit).toContain("ReadWritePaths=/var/lib/boxpilot");
@@ -349,13 +350,41 @@ describe("surviving a reboot with the backup drive still waking up", () => {
     expect(web).toMatch(/^After=boxpilot-helper\.service$/m);
   });
 
-  it("orders the helper after the network and the backup share's automount, without requiring either", async () => {
-    // The backup mount is a network share behind an automount: binding the path at boot triggered a
-    // mount attempt before the network was up.
-    const helper = await readFile("deploy/boxpilot-helper.service", "utf8");
-    expect(helper).toMatch(/^After=network-online\.target mnt-boxpilot\\x2dbackup\.automount$/m);
-    expect(helper).toMatch(/^Wants=network-online\.target$/m);
-    expect(helper).not.toMatch(/^RequiresMountsFor=.*boxpilot-backup/m);   // the drive may be absent
-    expect(helper).toMatch(/^ReadWritePaths=-\/mnt\/boxpilot-backup$/m);
+  it("gives the helper the folder above the backup share's automount, never the automount itself", async () => {
+    // 2026-09-28: waiting for the network was not enough. With the NAS off, setting up the sandbox
+    // resolved ReadWritePaths=-/mnt/boxpilot-backup, which fired the automount, the mount failed
+    // with "No such device" and so did the helper, again and again until the NAS came back.
+    // tests/ubuntu/helper-automount.sh reproduces that on systemd 259 and 255 and proves this layout.
+    const helper = (await readFile("deploy/boxpilot-helper.service", "utf8")).replaceAll("\r\n", "\n");
+    const { backupMountParent, backupMountpoint, legacyBackupMountpoint } = await import("./backup-mount.mjs");
+    expect(path.posix.dirname(backupMountpoint)).toBe(backupMountParent);
+    const sandboxPaths = [...helper.matchAll(/^(?:ReadWritePaths|ReadOnlyPaths|InaccessiblePaths|ExecPaths|NoExecPaths|BindPaths|BindReadOnlyPaths|RequiresMountsFor)=(.*)$/gm)]
+      .flatMap((match) => match[1].trim().split(/\s+/)).map((entry) => entry.replace(/^[-+]+/, "").split(":")[0]);
+    for (const entry of sandboxPaths) {
+      expect(entry === backupMountpoint || entry.startsWith(`${backupMountpoint}/`) || entry === legacyBackupMountpoint, `${entry} names the automount point`).toBe(false);
+    }
+    // The hardening stays: the one folder BoxPilot owns, not /mnt, and the rest still read-only.
+    expect(sandboxPaths).toContain(backupMountParent);
+    expect(sandboxPaths).not.toContain("/mnt");
+    expect(helper).toMatch(/^ProtectSystem=strict$/m);
+    expect(helper).toMatch(/^NoNewPrivileges=true$/m);
+    for (const variable of ["CONTROLLER", "APPLICATION", "VM"]) expect(helper).toContain(`Environment=BOXPILOT_${variable}_BACKUP_MOUNT=${backupMountpoint}\n`);
+    // Ordering only, on the automount unit; neither it nor the network is waited on or required.
+    expect(helper).toMatch(/^After=mnt-boxpilot-backup\.automount$/m);
+    expect(helper).not.toMatch(/^(?:Wants|Requires|BindsTo|Requisite)=.*(?:automount|network-online)/m);
+  });
+
+  it("creates that folder on install and moves an existing destination into it on upgrade", async () => {
+    const install = (await readFile("scripts/boxpilot-install.sh", "utf8")).replaceAll("\r\n", "\n");
+    const upgrade = (await readFile("scripts/boxpilot-upgrade.sh", "utf8")).replaceAll("\r\n", "\n");
+    expect(install).toContain("install -d -o root -g root -m 0755 /mnt/boxpilot /mnt/boxpilot/backup");
+    expect(install).not.toContain("/mnt/boxpilot-backup");
+    // After the new units are in place and before the helper restarts; undone by a rollback, since
+    // the old helper looks for the destination where it used to be.
+    const moved = upgrade.indexOf('if moved="$("$NODE_BIN" "${INSTALL_DIR}/scripts/boxpilot-backup-mount-move.mjs" 2>&1)"');
+    expect(moved).toBeGreaterThan(0);
+    expect(moved).toBeGreaterThan(upgrade.indexOf("systemctl daemon-reload\n"));
+    expect(moved).toBeLessThan(upgrade.indexOf("systemctl restart boxpilot-helper.service ||"));
+    expect(upgrade).toMatch(/rollback\(\) \{[\s\S]*boxpilot-backup-mount-move\.mjs" undo "\$BACKUP_MOUNT_UNDO"[\s\S]*mv "\$PREVIOUS" "\$INSTALL_DIR"/);
   });
 });

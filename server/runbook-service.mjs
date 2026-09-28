@@ -24,6 +24,7 @@ import { bindingFor } from "./catalog/compose.mjs";
 import { describeCadence, scheduleOutcome } from "./scheduler.mjs";
 import { healthConditions, isNotice, noticeKinds } from "./health-alerts.mjs";
 import { cloudProviders } from "./backup-cloud.mjs";
+import { backupMountpoint } from "./backup-mount.mjs";
 import { changedSections, changesSince, forAudience, layoutOperations, outOfDate, renderRunbook, runbookFingerprint, storeMarkers } from "./runbook.mjs";
 
 const posix = path.posix;
@@ -32,7 +33,7 @@ export const runbookSettingKey = "serverRunbook";
 
 // Fixed by deploy/boxpilot-helper.service (checked in server/deployment.test.mjs) and described in
 // docs/CONTROLLER-BACKUPS.md: where the encrypted database copy lives and where its password is.
-const controllerRepository = "/mnt/boxpilot-backup/restic-controller";
+const controllerRepository = `${backupMountpoint}/restic-controller`;
 const controllerPasswordFile = "/etc/boxpilot/secrets/controller-backup-restic-password";
 
 /** Operations a restore step names. Their titles and tiers come from the registry, not from here. */

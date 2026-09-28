@@ -39,6 +39,8 @@ describe("network share tasks", () => {
     expect(validateShare({ kind: "nfs", host: "nas", share: "media", name: "n" })).toContain("absolute path");
     expect(validateShare({ kind: "nfs", host: "nas", share: "/media", name: "n", username: "u" })).toContain("NFS");
     expect(validateShare({ kind: "smb", host: "nas", share: "Public", name: "n", username: "a=b" })).toContain("username");
+    // /mnt/boxpilot is the folder the backup destination lives in; nothing is mounted over it.
+    expect(validateShare({ kind: "smb", host: "nas", share: "Public", name: "boxpilot" })).toContain("reserved");
 
     expect(buildShareEntry({ kind: "smb", host: "nas", share: "My Files", name: "nas-files", guest: false }).entry)
       .toBe("//nas/My\\040Files /mnt/nas-files cifs credentials=/etc/boxpilot/secrets/share-nas-files.cred,uid=1000,gid=1000,file_mode=0664,dir_mode=0775,iocharset=utf8,nofail,_netdev,x-systemd.automount,x-systemd.idle-timeout=300,x-systemd.mount-timeout=30 0 0");
@@ -87,7 +89,10 @@ describe("network share tasks", () => {
     const files = fakeFiles();
     const run = fakeRun();
     await shareMount({ kind: "smb", host: "mycloud", share: "alex/BoxPilot-Backup", name: "boxpilot-backup", username: "alex", password: "s3cret" }, { run, files, exists: toolsPresent });
-    expect(files.state.fstab).toContain("//mycloud/alex/BoxPilot-Backup /mnt/boxpilot-backup cifs");
+    // The backup destination goes under /mnt/boxpilot, the folder the helper's sandbox is given,
+    // never on an automount point of its own (deploy/boxpilot-helper.service).
+    expect(files.state.fstab).toContain("//mycloud/alex/BoxPilot-Backup /mnt/boxpilot/backup cifs");
+    expect(files.state.fstab).toContain("# boxpilot:share-boxpilot-backup\n");
 
     for (const share of ["../etc", "alex/../../etc", "/leading", "trailing/", "a//b", "alex/.."]) {
       await expect(shareMount({ kind: "smb", host: "mycloud", share, name: "nope" }, { run: fakeRun(), files: fakeFiles(), exists: toolsPresent }))
