@@ -23,6 +23,9 @@ export async function fixedRun(binary, args = [], { timeout = 30_000, maxBuffer 
     return {
       ok: false,
       code: typeof error.code === "number" ? error.code : null,
+      // Said as a flag as well as in words (M30.3): callers decide on this, never on the text.
+      // A child killed for overflowing maxBuffer is "killed" too; that one did not run out of time.
+      ...(error.killed && error.code !== "ERR_CHILD_PROCESS_STDIO_MAXBUFFER" ? { timedOut: true } : {}),
       stdout: typeof error.stdout === "string" ? error.stdout.trim() : "",
       // A command that never started (ENOENT, EACCES) has an empty stderr; without the message
       // the job log would say nothing at all about why it failed. And a command BoxPilot itself
@@ -111,7 +114,7 @@ export function streamRun(binary, args = [], { timeout = 30_000, env = {}, cwd, 
     const finish = (code, error) => {
       if (settled) return; settled = true; clearTimeout(timer);
       for (const stream of ["stdout", "stderr"]) if (partial[stream]) { consume(stream, "\n"); }
-      resolve({ ok: code === 0 && !error, code: typeof code === "number" ? code : null, stdout: tails.stdout.trim(), stderr: `${timedOut ? `timed out after ${timeout} ms\n` : ""}${error ? `${error.message}\n` : ""}${tails.stderr.trim()}`.trim() });
+      resolve({ ok: code === 0 && !error, code: typeof code === "number" ? code : null, ...(timedOut ? { timedOut: true } : {}), stdout: tails.stdout.trim(), stderr: `${timedOut ? `timed out after ${timeout} ms\n` : ""}${error ? `${error.message}\n` : ""}${tails.stderr.trim()}`.trim() });
     };
     child.on("error", (error) => finish(null, error));
     child.on("close", (code) => finish(code, null));

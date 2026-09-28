@@ -84,6 +84,12 @@ export function hostBackupOperations() {
     }),
     defineOperation({
       id: "backup.sync", title: "Copy backups to the backup drive", risk: "medium", timeoutMs: 6 * 60 * 60_000,
+      // Safe to run again after a restart cut it off (M30.2): each file is copied beside its target,
+      // checked by hash and only then renamed into place, files already there at full size are
+      // skipped, and nothing is ever deleted - so a second run finishes what the first started. It
+      // runs in the helper; the two SSH and cloud mirrors run in a root task a restart does not
+      // stop, which is why they are not marked.
+      rerunAfterInterrupt: true,
       description: "Copies the local backups (database backups, application backups, machine snapshots) onto the backup drive with hash verification. Nothing is ever deleted from the destination.",
       run: (_parameters, { machineSnapshot }) => machineSnapshot.sync(),
     }),

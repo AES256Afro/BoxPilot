@@ -20,6 +20,18 @@ import { resolveValues, sanitizeStoredValues } from "./catalog/schema.mjs";
 import { profileConnectionEnv, profileSecurityEnv } from "./vpn-profile.mjs";
 import { dataScanCommand } from "./scan-resources.mjs";
 import { shared } from "./cache.mjs";
+import { formatDuration, keepTimeout, timedOut } from "./timeouts.mjs";
+
+/**
+ * A job given more time (M30.3) runs with `timeScale` above 1: its budget over the operation's
+ * normal one. The limits of the steps that download - the ones more time actually helps - grow by
+ * the same factor, or the larger budget would only let the job wait longer for the same step to
+ * give up. Bounded here too, whatever the caller passes.
+ */
+const scaled = (ms, timeScale = 1) => Math.round(ms * (Number.isFinite(timeScale) && timeScale > 1 ? Math.min(timeScale, 16) : 1));
+
+/** A compose or exec step that hit its own limit is a timeout, not a Docker error. Null otherwise. */
+const stepTimedOut = (result, step, budgetMs) => (result?.timedOut ? timedOut(`${step} did not finish within ${formatDuration(budgetMs)}`, { budgetMs, step }) : null);
 
 const actions = Object.freeze(["start", "stop", "restart", "pause", "unpause"]);
 const idPattern = /^[a-z0-9][a-z0-9-]{1,62}$/;
@@ -595,7 +607,7 @@ export function createAppHelper({
     return { applications: described, problems: readProblems, catalogRoot: root };
   }
 
-  async function install({ id, values: rawValues = {}, devices = null }, { progress = null } = {}) {
+  async function install({ id, values: rawValues = {}, devices = null }, { progress = null, timeScale = 1 } = {}) {
     const manifest = await ensureManifest(id);
     const existing = await readState(id);
     if (existing?.installed) throw new Error(`${manifest.name} is already installed; use reconfigure or update`);
@@ -607,9 +619,11 @@ export function createAppHelper({
     try { await stat(dirFor(id)); } catch { directoryExisted = false; }
     progress?.(`Writing compose project for ${manifest.name} (${manifest.image.reference})`, "stdout");
     const rendered = await writeProject(manifest, values, { existingEnv: await readEnv(id), devices });
-    const up = await compose(id, ["up", "--detach", "--remove-orphans"], { timeout: 15 * 60_000, progress });
+    // `up` downloads every image the app does not have yet before it starts anything.
+    const upBudgetMs = scaled(15 * 60_000, timeScale);
+    const up = await compose(id, ["up", "--detach", "--remove-orphans"], { timeout: upBudgetMs, progress });
     try {
-      if (!up.ok) throw new Error(`docker compose up failed: ${redact(up.stderr).split("\n").slice(-4).join(" ")}`);
+      if (!up.ok) throw stepTimedOut(up, "Downloading the images and starting the app", upBudgetMs) ?? new Error(`docker compose up failed: ${redact(up.stderr).split("\n").slice(-4).join(" ")}`);
       const status = await waitHealthy(manifest, progress);
       progress?.(`${manifest.name} is up`, "stdout");
       await writeState(id, { id, installed: true, installedAt: clock().toISOString(), updatedAt: clock().toISOString(), manifestSha256: manifest.sha256 ?? null, image: { reference: manifest.image.reference, id: status.image }, values: storableValues(manifest, values, rendered.env), pinnedRollback: false });
@@ -621,7 +635,7 @@ export function createAppHelper({
       await compose(id, ["down", "--remove-orphans"], { timeout: 120_000, progress }).catch(() => {});
       recentlyTouched.add(id);
       if (!directoryExisted) await rm(dirFor(id), { recursive: true, force: true }).catch(() => {});
-      throw new Error(`${manifest.name} installation failed and was rolled back. ${error.message}`);
+      throw keepTimeout(error, new Error(`${manifest.name} installation failed and was rolled back. ${error.message}`));
     }
   }
 
@@ -659,7 +673,7 @@ export function createAppHelper({
     return { artifact: result.artifact, checksumSha256: result.checksumSha256, sizeBytes: result.sizeBytes, downtimeMs: result.downtimeMs };
   }
 
-  async function update({ id, devices = null }, { progress = null, checkpoint: takeCheckpoint = true } = {}) {
+  async function update({ id, devices = null }, { progress = null, checkpoint: takeCheckpoint = true, timeScale = 1 } = {}) {
     const manifest = await ensureManifest(id);
     const state = await readState(id);
     if (!state?.installed) throw new Error(`${manifest.name} is not installed`);
@@ -685,17 +699,19 @@ export function createAppHelper({
     try {
       await writeProject(manifest, values, { existingEnv: await readEnv(id), devices }); // picks up manifest changes (new image tag)
       declaredUserCache.delete(manifest.image.reference); declaredOwnerCache.delete(manifest.image.reference);   // a pull can change the image's USER
-      const pull = await compose(id, ["pull"], { timeout: 30 * 60_000, progress });
-      if (!pull.ok) throw new Error(`docker compose pull failed: ${redact(pull.stderr).split("\n").slice(-3).join(" ")}`);
+      const pullBudgetMs = scaled(30 * 60_000, timeScale);
+      const pull = await compose(id, ["pull"], { timeout: pullBudgetMs, progress });
+      if (!pull.ok) throw stepTimedOut(pull, "Downloading the new images", pullBudgetMs) ?? new Error(`docker compose pull failed: ${redact(pull.stderr).split("\n").slice(-3).join(" ")}`);
     } catch (error) {
       // Nothing has been restarted yet, so the containers still run the old version: put the files
       // that describe them back, or the next restart would quietly move the app forward.
       await restoreProjectFiles(id, previous).catch(() => {});
-      throw new Error(`${manifest.name} update failed before anything was restarted; the app was unchanged. ${error.message}`);
+      throw keepTimeout(error, new Error(`${manifest.name} update failed before anything was restarted; the app was unchanged. ${error.message}`));
     }
-    const up = await compose(id, ["up", "--detach", "--remove-orphans"], { timeout: 15 * 60_000, progress });
+    const upBudgetMs = scaled(15 * 60_000, timeScale);
+    const up = await compose(id, ["up", "--detach", "--remove-orphans"], { timeout: upBudgetMs, progress });
     try {
-      if (!up.ok) throw new Error(`docker compose up failed: ${redact(up.stderr).split("\n").slice(-4).join(" ")}`);
+      if (!up.ok) throw stepTimedOut(up, "Starting the new version", upBudgetMs) ?? new Error(`docker compose up failed: ${redact(up.stderr).split("\n").slice(-4).join(" ")}`);
       const status = await waitHealthy(manifest, progress);
       const deployedNow = deployedImages(await readFile(path.join(dirFor(id), "compose.yaml"), "utf8").catch(() => ""));
       // Keep what it came from, so going back is a click rather than an archaeology exercise. Only
@@ -726,7 +742,7 @@ export function createAppHelper({
         rolledBack = rollback.ok;
         if (rolledBack && pinnedImages) await writeState(id, { ...state, pinnedRollback: true, image: { reference: before.image, id: before.image } }).catch(() => {});
       }
-      throw new Error(`${manifest.name} update failed${rolledBack ? "; the previous image was restored" : " and automatic rollback also failed"}. ${error.message}`);
+      throw keepTimeout(error, new Error(`${manifest.name} update failed${rolledBack ? "; the previous image was restored" : " and automatic rollback also failed"}. ${error.message}`));
     }
   }
 
@@ -739,7 +755,7 @@ export function createAppHelper({
    * previous version and nothing else. Catalog references are version tags, never `latest`, so the
    * old image is re-pullable even after an unused-image prune has removed it locally.
    */
-  async function rollbackApp({ id, at = null, devices = null }, { progress = null, checkpoint: takeCheckpoint = true } = {}) {
+  async function rollbackApp({ id, at = null, devices = null }, { progress = null, checkpoint: takeCheckpoint = true, timeScale = 1 } = {}) {
     const manifest = await ensureManifest(id);
     const state = await readState(id);
     if (!state?.installed) throw new Error(`${manifest.name} is not installed`);
@@ -782,20 +798,22 @@ export function createAppHelper({
       await writeProject(pinned, values, { existingEnv: await readEnv(id), devices });
       // Pull explicitly: the previous image is unused after an update, so a prune may have removed it.
       declaredUserCache.delete(manifest.image.reference); declaredOwnerCache.delete(manifest.image.reference);   // a pull can change the image's USER
-      const pull = await compose(id, ["pull"], { timeout: 30 * 60_000, progress });
-      if (!pull.ok) throw new Error(`Could not fetch the previous version: ${redact(pull.stderr).split("\n").slice(-3).join(" ")}`);
+      const pullBudgetMs = scaled(30 * 60_000, timeScale);
+      const pull = await compose(id, ["pull"], { timeout: pullBudgetMs, progress });
+      if (!pull.ok) throw stepTimedOut(pull, "Downloading the previous version", pullBudgetMs) ?? new Error(`Could not fetch the previous version: ${redact(pull.stderr).split("\n").slice(-3).join(" ")}`);
       started = true;
-      const up = await compose(id, ["up", "--detach", "--remove-orphans"], { timeout: 15 * 60_000, progress });
-      if (!up.ok) throw new Error(`${manifest.name} would not start on the previous version: ${redact(up.stderr).split("\n").slice(-4).join(" ")}`);
+      const upBudgetMs = scaled(15 * 60_000, timeScale);
+      const up = await compose(id, ["up", "--detach", "--remove-orphans"], { timeout: upBudgetMs, progress });
+      if (!up.ok) throw stepTimedOut(up, "Starting the previous version", upBudgetMs) ?? new Error(`${manifest.name} would not start on the previous version: ${redact(up.stderr).split("\n").slice(-4).join(" ")}`);
       status = await waitHealthy(manifest, progress);
     } catch (error) {
       // Put back the compose file this app was running, as reconfigure and a compose edit do, and
       // start it again if the attempt got as far as replacing the containers.
       const restored = await restoreProjectFiles(id, previous).then(() => previous.compose !== null, () => false);
-      if (!started) throw new Error(`${manifest.name} could not go back a version; the app was unchanged. ${error.message}`);
+      if (!started) throw keepTimeout(error, new Error(`${manifest.name} could not go back a version; the app was unchanged. ${error.message}`));
       progress?.(`Going back failed: ${error.message}. Restoring the version it was on...`, "stderr");
       const back = restored && (await compose(id, ["up", "--detach", "--remove-orphans"], { timeout: 10 * 60_000, progress })).ok;
-      throw new Error(`${manifest.name} could not go back a version${back ? "; the version it was on was restored" : " and restoring the version it was on also failed"}. ${error.message}`);
+      throw keepTimeout(error, new Error(`${manifest.name} could not go back a version${back ? "; the version it was on was restored" : " and restoring the version it was on also failed"}. ${error.message}`));
     }
     // The rollback is itself an entry, so going back twice steps back twice rather than ping-ponging.
     const movedFrom = Object.fromEntries(Object.keys(restoreTo).map((service) => [service, runningBefore[service] ?? last.to?.[service] ?? null]));
@@ -1764,13 +1782,17 @@ export function createAppHelper({
     return { id, available: true, models, totalBytes: models.reduce((sum, model) => sum + model.bytes, 0), reason: null };
   }
 
-  async function pullModel({ id, model }, { progress = null } = {}) {
+  async function pullModel({ id, model }, { progress = null, timeScale = 1 } = {}) {
     const manifest = await ensureManifest(id);
     await readyForModels(id, manifest);
     progress?.(`Downloading ${model}. Large models are tens of gigabytes; this can take a while.`, "stdout");
     // Two hours: a 20 GB model over a domestic line is comfortably an hour, and the alternative is
-    // a download that dies near the end with nothing to show for it.
-    const result = await compose(id, ["exec", "-T", modelService(manifest), "ollama", "pull", model], { timeout: 120 * 60_000, progress });
+    // a download that dies near the end with nothing to show for it. A slower line gets more time
+    // from "Try again with more time", which scales this with the job's budget.
+    const pullBudgetMs = scaled(120 * 60_000, timeScale);
+    const result = await compose(id, ["exec", "-T", modelService(manifest), "ollama", "pull", model], { timeout: pullBudgetMs, progress });
+    const ranOut = stepTimedOut(result, `Downloading ${model}`, pullBudgetMs);
+    if (ranOut) throw ranOut;
     if (!result.ok) throw new Error(`Could not download ${model}: ${redact(result.stderr).split("\n").filter(Boolean).slice(-2).join(" ") || "the model runner refused"}`);
     return { id, model, pulled: true, models: parseModelList((await compose(id, ["exec", "-T", modelService(manifest), "ollama", "list"], { timeout: 60_000 })).stdout) };
   }

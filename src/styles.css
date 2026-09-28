@@ -2123,6 +2123,10 @@ textarea {
 
 .job-warning { font-size: 14px; line-height: 1.5; }
 .job-warning ul { margin: 4px 0 0; padding-left: 20px; }
+.job-timeout { display: grid; gap: 6px; font-size: 14px; line-height: 1.5; }
+.job-timeout p { margin: 0; }
+.job-timeout code { overflow-wrap: anywhere; }
+.job-timeout button { justify-self: start; }
 
 .warning-notice span {
   color: var(--warn-text-dim);

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import net from "node:net";
 import { shared } from "./cache.mjs";
 import { createHelperResponseReader, maxHelperResponseBytes } from "./helper-response.mjs";
+import { timedOut } from "./timeouts.mjs";
 
 /**
  * Reads that several routes ask for at once, and that take no arguments so one answer serves them
@@ -34,7 +35,7 @@ const queuedCeilingMs = 24 * 60 * 60_000;
 
 export function createHelperClient({ socketPath = process.env.BOXPILOT_HELPER_SOCKET ?? "/run/boxpilot/helper.sock", timeoutMs = 5000, queueTimeoutMs = queuedCeilingMs, maxResponseBytes = maxHelperResponseBytes, setTimeout: schedule = globalThis.setTimeout, clearTimeout: cancel = globalThis.clearTimeout } = {}) {
   const transport = { active: 0, completed: 0, failed: 0 };
-  function send(operation, parameters = {}, { timeoutMs: requestTimeoutMs = timeoutMs, jobId = null } = {}) {
+  function send(operation, parameters = {}, { timeoutMs: requestTimeoutMs = timeoutMs, jobId = null, budgetMs = null } = {}) {
     return new Promise((resolve, reject) => {
       const connection = net.createConnection(socketPath);
       transport.active += 1;
@@ -53,12 +54,17 @@ export function createHelperClient({ socketPath = process.env.BOXPILOT_HELPER_SO
         reject(error);
       }
 
-      /** Replace the overall deadline. Unlike the socket inactivity timeout, heartbeats never extend it. */
+      /**
+       * Replace the overall deadline. Unlike the socket inactivity timeout, heartbeats never extend it.
+       * Running out is a timeout the job record keeps (M30.3): which budget, and whether the request
+       * was still queued behind other work or already running.
+       */
       function arm(ms, message) {
         if (deadline !== null) cancel(deadline);
-        deadline = schedule(() => fail(new Error(message)), ms);
+        deadline = schedule(() => fail(ranOut(message, ms)), ms);
         deadline.unref?.();
       }
+      const ranOut = (message, ms) => timedOut(message, { scope: "operation", budgetMs: ms, ...(queued && !started ? { phase: "queued" } : {}) });
       // The operation's budget is measured from when the helper starts it. A request the helper says
       // is queued behind earlier work waits under the queue ceiling instead, and gets its full budget
       // back when the helper reports that it left the queue.
@@ -80,7 +86,10 @@ export function createHelperClient({ socketPath = process.env.BOXPILOT_HELPER_SO
       arm(requestTimeoutMs, "Helper request timed out (overall deadline reached)");
       connection.setEncoding("utf8");
       connection.setTimeout(requestTimeoutMs);
-      connection.on("connect", () => connection.write(`${JSON.stringify({ version: 1, id, operation, parameters, ...(jobId ? { context: { jobId } } : {}) })}\n`));
+      // budgetMs goes only with a job given more time: an older helper refuses any context key but
+      // jobId, and every other request must keep working against it for a release.
+      const context = { ...(jobId ? { jobId } : {}), ...(Number.isInteger(budgetMs) ? { budgetMs } : {}) };
+      connection.on("connect", () => connection.write(`${JSON.stringify({ version: 1, id, operation, parameters, ...(Object.keys(context).length ? { context } : {}) })}\n`));
       connection.on("data", (chunk) => { if (!settled) { try { reader.push(chunk); } catch (error) { fail(error); } } });
       connection.on("end", () => {
         if (settled) return;
@@ -94,7 +103,8 @@ export function createHelperClient({ socketPath = process.env.BOXPILOT_HELPER_SO
           fail(error);
         }
       });
-      connection.on("timeout", () => fail(new Error("Helper request timed out")));
+      // Nothing heard for the whole budget: the same timeout, reached through the idle timer.
+      connection.on("timeout", () => fail(ranOut("Helper request timed out", connection.timeout ?? requestTimeoutMs)));
       connection.on("error", (error) => fail(new Error(`Helper unavailable: ${error.message}`)));
       connection.on("close", () => { if (!settled) fail(new Error("Helper connection closed before sending a result")); });
     });
@@ -128,7 +138,7 @@ export function createHelperClient({ socketPath = process.env.BOXPILOT_HELPER_SO
     // Every caller races the read against its own deadline - including the long ones, who were
     // previously handed the read itself and so inherited whatever ceiling it happened to have.
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error("Helper request timed out")), requestTimeoutMs);
+      const timer = setTimeout(() => reject(timedOut("Helper request timed out", { scope: "operation", budgetMs: requestTimeoutMs })), requestTimeoutMs);
       timer.unref?.();
       underlying.then((value) => { clearTimeout(timer); resolve(value); }, (error) => { clearTimeout(timer); reject(error); });
     });

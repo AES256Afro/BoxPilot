@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { approveJob, followJobOutput, getJobApproval, stageOperation, waitForJob, type ApprovalPolicy, type Job, type RiskTier, cancelJob } from "./operations";
+import { approveJob, followJobOutput, getJobApproval, retryWithMoreTime, stageOperation, waitForJob, type ApprovalPolicy, type Job, type RiskTier, cancelJob } from "./operations";
 import { useDialogFocus } from "./useDialogFocus";
 import { jobOutputText } from "./jobOutputText";
 import { JobWarnings, jobWarnings } from "./JobWarnings";
+import { JobTimeoutNotice, jobTimeout } from "./JobTimeout";
 
 /**
  * The one approval surface for registered operations (ADR-001 risk tiers):
@@ -28,11 +29,17 @@ interface Props extends PendingOperation {
   csrfToken: string;
   onClose: () => void;
   onFinished?: (job: Job) => void;
+  /**
+   * Stage "Try again with more time" for this timed-out job instead of staging `operationId` with
+   * `parameters` (M30.3). Activity opens the dialog this way; the dialog does it for itself when a
+   * job it ran out of time.
+   */
+  moreTimeFor?: string;
 }
 
 type Phase = "staging" | "ready" | "approving" | "running" | "done" | "error";
 
-export function ApproveDialog({ operationId, title, parameters, preview, confirmText, csrfToken, onClose, onFinished }: Props) {
+export function ApproveDialog({ operationId, title, parameters, preview, confirmText, csrfToken, onClose, onFinished, moreTimeFor }: Props) {
   const [phase, setPhase] = useState<Phase>("staging");
   const [job, setJob] = useState<Job | null>(null);
   const [policy, setPolicy] = useState<ApprovalPolicy | null>(null);
@@ -48,6 +55,8 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
   const observation = useRef<AbortController | null>(null);
   const mounted = useRef(false);
   const stagedRef = useRef<{ jobId: string | null; approvalStarted: boolean; withdrawn: boolean } | null>(null);
+  // The timed-out job being tried again with more time, if that is what is staged.
+  const [retryFrom, setRetryFrom] = useState<string | null>(moreTimeFor ?? null);
   useDialogFocus(dialogRef);
 
   useEffect(() => { if (outputRef.current) outputRef.current.scrollTop = outputRef.current.scrollHeight; }, [output]);
@@ -65,12 +74,14 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
       stagedState.withdrawn = true;
       void cancelJob(stagedState.jobId, csrfToken).catch(() => undefined);
     };
-    setPhase("staging"); setJob(null); setPolicy(null); setError(null); setPassword(""); setTypedConfirm("");
-    stageOperation(operationId, parameters, csrfToken)
+    setPhase("staging"); setJob(null); setPolicy(null); setError(null); setPassword(""); setTypedConfirm(""); setOutput("");
+    // A retry with more time is staged by the server from the timed-out job, and then approved
+    // here exactly like anything else: same tier, same password or typed confirmation.
+    (retryFrom ? retryWithMoreTime(retryFrom, csrfToken) : stageOperation(operationId, parameters, csrfToken))
       .then((staged) => { stagedState.jobId = staged.job.id; if (cancelled) { withdraw(); return; } setJob(staged.job); setPolicy(staged.approval); setPhase("ready"); })
       .catch((stageError: unknown) => { if (cancelled) return; setError(stageError instanceof Error ? stageError.message : "Could not prepare this action"); setPhase("error"); });
     return () => { cancelled = true; withdraw(); };
-  }, [operationId, parameters, csrfToken]);
+  }, [operationId, parameters, csrfToken, retryFrom]);
 
   // Dismissing a staged-but-unapproved job withdraws it so Activity does not fill with orphans.
   const dismiss = useCallback(() => {
@@ -150,6 +161,7 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
 
   const tier = policy?.tier ?? "high";
   const hasWarnings = jobWarnings(job?.result).length > 0;
+  const ranOut = phase === "error" && jobTimeout(job) !== null;
   const passwordRequired = policy ? policy.passwordRequired : true;
   const confirmRequired = confirmText ?? policy?.confirmText ?? null;
   const busy = phase === "staging" || phase === "approving" || phase === "running";
@@ -161,7 +173,7 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
       <section ref={dialogRef} tabIndex={-1} className="modal" role="dialog" aria-modal="true" aria-labelledby="approve-title" onMouseDown={(event) => event.stopPropagation()}>
         <header className="modal-header">
           <div>
-            <span className="eyebrow">{phase === "done" ? "Finished" : phase === "error" ? "Needs attention" : "Approval"}</span>
+            <span className="eyebrow">{phase === "done" ? "Finished" : ranOut ? "Ran out of time" : phase === "error" ? "Needs attention" : retryFrom && phase === "ready" ? "Approval · more time" : "Approval"}</span>
             <h2 id="approve-title">{title}</h2>
           </div>
           <button className="icon-button" type="button" onClick={dismiss} aria-label="Close dialog" disabled={busy}>X</button>
@@ -187,6 +199,7 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
           {phase === "done" && job && <p className={hasWarnings ? undefined : "good-text"}>{hasWarnings ? "Completed with follow-up needed." : "Completed."} {job.steps.filter((step) => step.name === "verify").at(-1)?.detail ?? ""}</p>}
           {job && (phase === "done" || phase === "error") && <JobWarnings result={job.result} />}
           {error && <div className="auth-error" role="alert">{error}</div>}
+          {job && ranOut && <JobTimeoutNotice job={job} onMoreTime={() => setRetryFrom(job.id)} />}
           {job && (phase === "done" || phase === "error") && (
             <details><summary>Job log</summary><ul>{job.steps.map((step, index) => <li key={`${step.name}-${index}`}><strong>{step.name}</strong> · {step.state} · {step.detail}</li>)}</ul></details>
           )}

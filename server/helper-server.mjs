@@ -28,8 +28,10 @@ import { createHousekeepingService } from "./housekeeping.mjs";
 import { createPerformanceService } from "./performance.mjs";
 import { createLocalDnsService } from "./local-dns.mjs";
 import { fixedRun } from "./exec.mjs";
+import { timeoutOf } from "./timeouts.mjs";
 
 const socketPath = process.env.BOXPILOT_HELPER_SOCKET ?? "/run/boxpilot/helper.sock";
+const idleGraceMs = 30_000;
 const maxRequestBytes = 128 * 1024; // compose edits and key imports declare 64 KiB fields
 const legacyReadOnlyOperations = new Set(["container.docker.inspect", "container.docker.inventory", "controller.database.backup.inspect", "controller.database.protection.inspect", "controller.database.protection.retention.inspect", "virtualization.foundation.inspect", "virtualization.media.inspect", "virtualization.inventory.inspect", "virtualization.console.inspect", "virtualization.domain.export.inspect", "virtualization.export.backup.inspect", "virtualization.export.backup.retention.inspect", "virtualization.export.backup.restore-drill.inspect", "virtualization.backup.recovery.inspect"]);
 const readOnlyOperations = new Set([...registry.readOnlyIds(), ...legacyReadOnlyOperations]);
@@ -108,7 +110,12 @@ const server = net.createServer({ allowHalfOpen: true }, (connection) => {
       return;
     }
     try {
-      const registeredTimeout = registry.timeoutFor(request.operation);
+      // The budget this request runs under: the operation's own, or a larger one a job was given
+      // with "Try again with more time" (the protocol validator checks it against the registry).
+      // The idle limit sits a little past it, so the web side's deadline - the one that records the
+      // timeout on the job - is the one that fires, and this stays the backstop for a dead peer.
+      const budget = registry.budgetFor(request.operation, request.context?.budgetMs ?? null);
+      const registeredTimeout = budget ? budget + idleGraceMs : null;
       if (registeredTimeout) connection.setTimeout(registeredTimeout);
       let result;
       if (readOnlyOperations.has(request.operation)) {
@@ -144,7 +151,10 @@ const server = net.createServer({ allowHalfOpen: true }, (connection) => {
       }
       reply(result);
     } catch (error) {
-      reply({ version: 1, id: request?.id ?? null, ok: false, error: error.message, code: "operation_failed" });
+      // A step that ran out of its own time says so in a field (M30.3). An older web side reads
+      // only `error`, so the reply stays what it was for it.
+      const timeout = timeoutOf(error);
+      reply({ version: 1, id: request?.id ?? null, ok: false, error: error.message, code: timeout ? "timeout" : "operation_failed", ...(timeout ? { timeout } : {}) });
     }
   }
 

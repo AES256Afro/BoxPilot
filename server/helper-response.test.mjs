@@ -48,4 +48,16 @@ describe("bounded helper response parsing", () => {
     expect(() => late.push(reply({ queued: true }))).toThrow("after it started");
     expect(() => createHelperResponseReader("request").push(reply({ started: true, ok: false, error: "no" }))).toThrow("no");
   });
+
+  it("carries a step's timeout from the reply onto the error, and nothing from an older helper's (M30.3)", () => {
+    const caught = (frame) => { try { createHelperResponseReader("request").push(frame); } catch (error) { return error; } return null; };
+    const ranOut = caught(reply({ ok: false, error: "Downloading the new images did not finish within 30 minutes", code: "timeout", timeout: { scope: "step", budgetMs: 1_800_000, step: "Downloading the new images" } }));
+    expect(ranOut.message).toBe("Downloading the new images did not finish within 30 minutes");
+    expect(ranOut.code).toBe("timeout");
+    expect(ranOut.timeout).toEqual({ scope: "step", budgetMs: 1_800_000, step: "Downloading the new images" });
+    // An older helper's reply: the same sentence, no structure, so no timeout is claimed.
+    const older = caught(reply({ ok: false, error: "docker compose pull failed: timed out after 1800000 ms", code: "operation_failed" }));
+    expect(older.timeout).toBeUndefined();
+    expect(older.code).toBe("operation_failed");
+  });
 });

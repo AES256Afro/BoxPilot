@@ -163,10 +163,11 @@ export function appOperations() {
       },
     }),
     defineOperation({
-      id: "app.rollback", title: "Go back to the previous version", risk: "medium", timeoutMs: minutes(40),
+      // Pulls the previous images again, so a slow line can be given more time (M30.3): up to 4x.
+      id: "app.rollback", title: "Go back to the previous version", risk: "medium", timeoutMs: minutes(40), maxTimeoutMs: minutes(160),
       description: "Takes a data checkpoint, then puts the application back on the versions it was running before its last update - the app and any sidecar that moved with it. The version to restore comes from this application's own recorded history, not from the request, so nothing else can be deployed this way. Data and settings are untouched; only the images change.",
       parameters: { fields: { id: idField, at: { type: "string", optional: true, maxLength: 32, pattern: /^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/ }, checkpoint: { type: "boolean", optional: true }, devices: devicesField } },
-      run: (parameters, { apps, progress }) => apps.rollbackApp({ id: parameters.id, at: parameters.at ?? null, devices: parameters.devices ?? null }, { progress, checkpoint: parameters.checkpoint ?? true }),
+      run: (parameters, { apps, progress, timeScale }) => apps.rollbackApp({ id: parameters.id, at: parameters.at ?? null, devices: parameters.devices ?? null }, { progress, checkpoint: parameters.checkpoint ?? true, timeScale }),
     }),
     defineOperation({
       id: "app.backup", title: "Back up application data", risk: "medium", timeoutMs: minutes(70),
@@ -176,6 +177,10 @@ export function appOperations() {
     }),
     defineOperation({
       id: "homepage.sync", title: "Sync Homepage with installed apps", risk: "low", timeoutMs: 60_000,
+      // Safe to run again after a restart cut it off (M30.2): it rebuilds BoxPilot's one group from
+      // the apps installed now and swaps the file in with a rename, so a second run writes what one
+      // clean run would. It runs inside the helper, so a restart stops it rather than leaving it going.
+      rerunAfterInterrupt: true,
       description: "Writes a BoxPilot group into Homepage's services.yaml with every installed app, its link, description, icon and live container status, and keeps the groups you wrote yourself. Repeats automatically after installs and uninstalls.",
       parameters: { fields: { host: { type: "string", optional: true, maxLength: 253, pattern: /^[A-Za-z0-9][A-Za-z0-9.-]{0,252}$/ } } },
       run: (parameters, { apps, progress }) => apps.syncHomepage({ host: parameters.host }, { progress }),
@@ -249,10 +254,11 @@ export function appOperations() {
       run: (parameters, { apps }) => apps.secrets(parameters),
     }),
     defineOperation({
-      id: "app.install", title: "Install application", risk: "medium", timeoutMs: minutes(25),
+      // Pulls the app's images; a slow line or a large image can be given more time (M30.3): up to 4x.
+      id: "app.install", title: "Install application", risk: "medium", timeoutMs: minutes(25), maxTimeoutMs: minutes(100),
       description: "Writes the compose project, pulls the image, starts the container, and waits for it to be healthy; rolls back on failure.",
       parameters: { fields: { id: idField, values: valuesField, devices: devicesField } },
-      run: (parameters, { apps, progress }) => apps.install({ id: parameters.id, values: parameters.values ?? {}, devices: parameters.devices ?? null }, { progress }),
+      run: (parameters, { apps, progress, timeScale }) => apps.install({ id: parameters.id, values: parameters.values ?? {}, devices: parameters.devices ?? null }, { progress, timeScale }),
     }),
     defineOperation({
       id: "app.uninstall", title: "Uninstall application (keep data)", risk: "medium", timeoutMs: minutes(10),
@@ -273,10 +279,11 @@ export function appOperations() {
       run: (parameters, { apps, progress }) => apps.vpnKillSwitchDrill({ id: parameters.id }, { progress }),
     }),
     defineOperation({
-      id: "app.update", title: "Update application", risk: "medium", timeoutMs: minutes(40),
+      // Pulls the new images; a slow line or a large image can be given more time (M30.3): up to 4x.
+      id: "app.update", title: "Update application", risk: "medium", timeoutMs: minutes(40), maxTimeoutMs: minutes(160),
       description: "Takes a data checkpoint, pulls the catalog's current image, and recreates the container; restores the previous image if it fails to become healthy.",
       parameters: { fields: { id: idField, checkpoint: { type: "boolean", optional: true }, devices: devicesField } },
-      run: (parameters, { apps, progress }) => apps.update({ id: parameters.id, devices: parameters.devices ?? null }, { progress, checkpoint: parameters.checkpoint ?? true }),
+      run: (parameters, { apps, progress, timeScale }) => apps.update({ id: parameters.id, devices: parameters.devices ?? null }, { progress, checkpoint: parameters.checkpoint ?? true, timeScale }),
     }),
     defineOperation({
       id: "app.exposure.set", title: "Change who can reach an application", risk: "medium", timeoutMs: minutes(15),
@@ -334,10 +341,11 @@ export function appOperations() {
       run: (parameters, { apps }) => apps.listModels({ id: parameters.id }),
     }),
     defineOperation({
-      id: "app.model.pull", title: "Download a language model", risk: "medium", timeoutMs: minutes(150),
+      // A model is tens of gigabytes; a slow line can be given more time (M30.3): up to 4x, ten hours.
+      id: "app.model.pull", title: "Download a language model", risk: "medium", timeoutMs: minutes(150), maxTimeoutMs: minutes(600),
       description: "Downloads a model into this app. Large models are tens of gigabytes and can take an hour or more; progress appears in the job log as it goes.",
       parameters: { fields: { id: idField, model: { type: "string", maxLength: 128, pattern: /^[a-z0-9][a-z0-9._/-]{0,96}(:[a-zA-Z0-9._-]{1,32})?$/ } } },
-      run: (parameters, { apps, progress }) => apps.pullModel({ id: parameters.id, model: parameters.model }, { progress }),
+      run: (parameters, { apps, progress, timeScale }) => apps.pullModel({ id: parameters.id, model: parameters.model }, { progress, timeScale }),
     }),
     defineOperation({
       id: "app.model.remove", title: "Remove a language model", risk: "medium", timeoutMs: minutes(6),

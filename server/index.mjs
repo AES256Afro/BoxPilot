@@ -35,6 +35,7 @@ import { createHelperClient } from "./helper-client.mjs";
 import { createHelperLibvirtService } from "./helper-libvirt.mjs";
 import { createInventoryService } from "./inventory.mjs";
 import { createJobService, recordFailed } from "./jobs.mjs";
+import { planInterruptedReruns } from "./job-reruns.mjs";
 import { invalidateOperationEvidence } from "./diagnostic-invalidation.mjs";
 import { createLibvirtFoundationService } from "./libvirt-foundation.mjs";
 import { createMaintenanceService } from "./maintenance.mjs";
@@ -229,9 +230,14 @@ const scheduler = createSchedulerService({ store: state, jobs, secretEnvNamesFor
 // A job cut off by a restart - a crash, or BoxPilot updating itself mid-install - was marked failed
 // in silence: recovery ran before the notifier existed, so the one failure that happens while the
 // owner is away was the one never announced. A scheduled run's is its schedule's failure.
+const scheduledInterrupted = new Set(scheduler.recover(interruptedJobs));
+// M30.2: a job whose operation is safe to repeat runs again instead, once; started further down.
+// A rerun that cannot start is told like any other interrupted job.
+const tellOneInterrupted = (job) => { void tellInterrupted({ alerts: healthAlerts, store: state, interrupted: [job], owned: scheduledInterrupted }); };
+const interruptedReruns = planInterruptedReruns(interruptedJobs, { store: state, jobs, scheduled: scheduledInterrupted, announce: tellOneInterrupted });
 // The rest are told through the ledger, kept as not announced if the push reaches no one. This runs
 // before flows.start() below, which rewrites the flows whose steps it must leave to them.
-void tellInterrupted({ alerts: healthAlerts, store: state, interrupted: interruptedJobs, owned: new Set(scheduler.recover(interruptedJobs)) });
+void tellInterrupted({ alerts: healthAlerts, store: state, interrupted: interruptedJobs.filter((job) => !interruptedReruns.has(job.id)), owned: scheduledInterrupted });
 // Running the same operation cleanly again answers an interruption nobody was told about.
 state.subscribeJobs((job) => { if (job.state === "completed") healthAlerts.clear(jobNoticeKey("job.interrupted", job), { quietly: true }).catch(() => {}); });
 // A flow announces its own failures, steps included, once per flow until it next runs cleanly.
@@ -241,6 +247,8 @@ const flows = createFlowService({ store: state, jobs, secretEnvNamesFor, library
 notifications.start();
 flows.start();
 scheduler.start();
+// Once the notifier listens, so a rerun that fails at once is still announced.
+void interruptedReruns.start().catch(() => {});
 const setup = createSetupService({ helper, scheduler });
 createUpdateNotifier({ releaseUpdates, notifications, alerts: healthAlerts, store: state }).start();
 // The weekly self-report (M30.4). "Not covered yet" asks what the Overview's checklist asks, plus
