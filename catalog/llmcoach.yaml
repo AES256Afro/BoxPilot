@@ -7,8 +7,8 @@ description: Teach small language models a specific job. Build a knowledge base 
 website: https://github.com/AES256Afro/LLMCoach
 risk: low
 image:
-  reference: ghcr.io/aes256afro/llmcoach:0.10.1
-  version: "0.10.1"
+  reference: ghcr.io/aes256afro/llmcoach:0.11.0
+  version: "0.11.0"
 ports:
   - id: web
     label: Web UI
@@ -54,6 +54,9 @@ env:
     label: Hugging Face token (optional)
     type: password
     description: Only needed to fine-tune gated base models such as Llama or Gemma. Create a read token at huggingface.co/settings/tokens and accept the model's license there first.
+  - name: LLMCOACH_WHISPER_URL
+    label: Where Whisper is (optional)
+    description: For voice notes and other recordings. Install the Whisper app from the catalog, then enter http://host.docker.internal:9002 here. It can also be set later on LLMCoach's Providers page.
   - name: HF_HOME
     default: /cache/huggingface
     fixed: true
@@ -76,4 +79,4 @@ signIn:
 health:
   kind: healthcheck
   timeoutSeconds: 300
-notes: "The dashboard shows whether LLMCoach can reach Ollama and which models it has; more model servers (llama.cpp, vLLM, LocalAI and others) can be added on its Providers page. Pull a chat model and nomic-embed-text in Ollama first. Without a GPU, training is limited to models under 1 B parameters (for example Qwen2.5-0.5B); the knowledge base, chat, dataset generation and evaluation all work on a CPU. A finished fine-tune can be exported into Ollama from the Canvas, Workbench or Friendly studio, where it appears as llmcoach-<project>-ft<number> next to the models you pulled."
+notes: "The dashboard shows whether LLMCoach can reach Ollama and which models it has; more model servers (llama.cpp, vLLM, LocalAI and others) can be added on its Providers page. Pull a chat model and nomic-embed-text in Ollama first. Without a GPU, training is limited to models under 1 B parameters (for example Qwen2.5-0.5B); the knowledge base, chat, dataset generation and evaluation all work on a CPU. Scanned PDFs are read with OCR; recordings are transcribed by the Whisper app when its address is given. A finished fine-tune can be exported into Ollama from the Canvas, Workbench or Friendly studio, where it appears as llmcoach-<project>-ft<number> next to the models you pulled."
