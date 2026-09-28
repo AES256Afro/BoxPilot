@@ -375,8 +375,15 @@ describe("checking a drive without changing it", () => {
       if (name === "fsck.exfat" || name === "e2fsck") { options?.onLine?.("checking directory tree", "stdout"); return { ok: exit === 0, code: exit, stdout: exit === 0 ? "the-dump: clean. directories 51, files 1200" : "ERROR: invalid cluster chain\n", stderr: "" }; }
       return { ok: true, stdout: "", stderr: "" };
     });
-    return { run, calls, files: { readFile: async () => fstab, readable: async () => true } };
+    return { run, calls, files: { readFile: async () => fstab, readable: async () => true, exists: async () => true } };
   }
+
+  it("refuses before stopping or unmounting anything when the checker is not installed", async () => {
+    const { run, calls, files } = checkFakes();
+    await expect(storageCheck({ name: "the-dump" }, { run, files: { ...files, exists: async (file) => file !== "/usr/sbin/fsck.exfat" } }))
+      .rejects.toThrow("fsck.exfat is not installed, so /mnt/the-dump was not checked; nothing was stopped or unmounted");
+    expect(calls.some((call) => call.startsWith("docker stop") || call.startsWith("umount"))).toBe(false);
+  });
 
   it("pauses the containers, unmounts, runs the read-only checker, mounts, and starts them again", async () => {
     const { run, calls, files } = checkFakes();
