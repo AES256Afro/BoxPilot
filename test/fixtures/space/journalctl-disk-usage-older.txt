@@ -1,0 +1,1 @@
+Journals take up 3.9G on disk.

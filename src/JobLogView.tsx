@@ -52,6 +52,7 @@ export function JobLogView({ job: given, jobId, title, onMoreTime }: { job?: Job
   const [readingOutput, setReadingOutput] = useState(true);
   const outputRef = useRef<HTMLPreElement | null>(null);
   const finished = job ? terminalJobStates.has(job.state) : false;
+  const logUnreadable = Boolean(job?.steps.some((step) => step.name === "log" && step.state === "failed"));
 
   useEffect(() => {
     if (!id || !job) return undefined;
@@ -102,7 +103,9 @@ export function JobLogView({ job: given, jobId, title, onMoreTime }: { job?: Job
           <pre ref={outputRef} aria-label={`Output for ${title ?? job.title}`}>{output || "Waiting for output..."}</pre>
         </div>
       )}
-      {finished && !output && !job.error && !outputError && !readingOutput && <p className="muted">This job recorded no output.</p>}
+      {/* M30.1: an empty log is not "no output" when BoxPilot could not open the file the helper wrote. */}
+      {finished && !output && !outputError && !readingOutput && logUnreadable && <p role="alert">BoxPilot could not open this job's output, so none is shown. The log step above says why.</p>}
+      {finished && !output && !job.error && !outputError && !readingOutput && !logUnreadable && <p className="muted">This job recorded no output.</p>}
     </div>
   );
 }

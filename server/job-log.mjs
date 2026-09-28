@@ -148,8 +148,31 @@ export function createJobLogReader({ directory = defaultJobLogDirectory } = {}) 
       await handle?.close().catch(() => {});
     }
   }
+  /**
+   * Whether this process can open a job's log (M30.1): an open and an fstat, never a read, so a
+   * log at the 4 MiB cap costs the same as an empty one. "absent" is a job that printed nothing,
+   * since the writer creates the file on its first line; a folder this process cannot search is
+   * "unreadable", not absent. When the file cannot be opened, the mode of whatever was in the way
+   * is reported if it can be seen: the file's when the folder can be searched, else the folder's.
+   */
+  async function check(jobId) {
+    const target = jobLogPath(jobId, directory);
+    let handle;
+    try {
+      handle = await open(target, "r");
+      const info = await handle.stat();
+      if (!info.isFile()) return { state: "unreadable", code: "ENOTFILE", path: target, blocking: null };
+      return { state: "readable", bytes: info.size, path: target };
+    } catch (error) {
+      if (error.code === "ENOENT") return { state: "absent", path: target };
+      const blocking = await stat(target).then((entry) => ({ what: "file", mode: entry.mode & 0o777 }), () => stat(directory).then((entry) => ({ what: "folder", mode: entry.mode & 0o777 }), () => null));
+      return { state: "unreadable", code: typeof error.code === "string" ? error.code : "unknown", path: target, blocking };
+    } finally {
+      await handle?.close().catch(() => {});
+    }
+  }
   async function remove(jobId) {
     await rm(jobLogPath(jobId, directory), { force: true }).catch(() => {});
   }
-  return { read, remove, directory };
+  return { read, check, remove, directory };
 }
