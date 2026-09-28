@@ -1,4 +1,4 @@
-import { mkdtemp, open, readdir, rm, stat } from "node:fs/promises";
+import { chmod, mkdtemp, open, readdir, rm, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -155,5 +155,41 @@ describe("the order and the end of a long log", () => {
     expect(text.trimEnd().split("\n").at(-1)).toMatch(/! final error: the disk is full$/);
     expect(text).toContain(`step ${lines - 1} `);
     expect(text.indexOf("log truncated")).toBeLessThan(text.indexOf(`step ${lines - 1} `));
+  });
+});
+
+describe("checking that a finished log can be opened (M30.1)", () => {
+  // Root reads through any mode, so the refusal half needs an ordinary account, which CI is.
+  const asRoot = process.getuid?.() === 0;
+
+  it("opens and stats without reading, and says absent for a job that printed nothing", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-joblog-check-")); directories.push(directory);
+    const reader = createJobLogReader({ directory });
+    expect(await reader.check(jobId)).toEqual({ state: "absent", path: jobLogPath(jobId, directory) });
+    const writer = createJobLogWriter({ jobId, directory, now: () => new Date("2026-09-28T12:00:00.000Z") });
+    await writer.append("done", "stdout");
+    expect(await reader.check(jobId)).toEqual({ state: "readable", bytes: Buffer.byteLength("2026-09-28T12:00:00.000Z   done\n"), path: jobLogPath(jobId, directory) });
+    // A missing log folder is a job that never wrote, not a folder BoxPilot is kept out of.
+    expect((await createJobLogReader({ directory: path.join(directory, "never-created") }).check(jobId)).state).toBe("absent");
+  });
+
+  // Linux only: POSIX file modes, as an unprivileged account.
+  it.skipIf(onWindows || asRoot)("names the file or the folder whose mode kept this process out", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-joblog-check-")); directories.push(directory);
+    const logs = path.join(directory, "logs");
+    const writer = createJobLogWriter({ jobId, directory: logs });
+    await writer.append("written by the helper", "stdout");
+    const reader = createJobLogReader({ directory: logs });
+    // A file this account has no read on, as the web service had none on a 0600 root file.
+    await chmod(jobLogPath(jobId, logs), 0o000);
+    expect(await reader.check(jobId)).toMatchObject({ state: "unreadable", code: "EACCES", blocking: { what: "file", mode: 0o000 } });
+    await chmod(jobLogPath(jobId, logs), 0o640);
+    // A folder it cannot search, as the umask made 0700: the file cannot even be looked for, which is not "absent".
+    await chmod(logs, 0o000);
+    try {
+      expect(await reader.check(jobId)).toMatchObject({ state: "unreadable", code: "EACCES", blocking: { what: "folder", mode: 0o000 } });
+      expect(await reader.check("22222222-2222-4222-8222-222222222222")).toMatchObject({ state: "unreadable" });
+    } finally { await chmod(logs, 0o750); }
+    expect((await reader.check(jobId)).state).toBe("readable");
   });
 });

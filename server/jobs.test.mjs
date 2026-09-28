@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 // Password hashing runs at production scrypt cost; CI runners need more than the 5 s default.
 vi.setConfig({ testTimeout: 30_000 });
-import { createJobService, recordFailed } from "./jobs.mjs";
+import { createJobService, jobLogAlertKey, logUnreadable, recordFailed } from "./jobs.mjs";
 import { createHealthAlerts } from "./health-alerts.mjs";
 import { hashPassword } from "./security.mjs";
 import { createStateStore } from "./state.mjs";
@@ -324,6 +324,86 @@ describe("durable job executor", () => {
       await runOnce();
       expect(send).toHaveBeenCalledTimes(1);
       expect(state()[key]).toMatchObject({ notified: false });
+    });
+  });
+
+  describe("a job log BoxPilot cannot open (M30.1)", () => {
+    const open = [];
+    afterEach(() => { for (const store of open.splice(0)) { try { store.close(); } catch { /* already closed */ } } });
+    /**
+     * The real ledger and job service over a stand-in log reader whose `check` answers what the
+     * test says: the M27.4 canary's question, asked of every job once the helper is done with it.
+     */
+    async function logging({ target = { kind: "ntfy" }, send = vi.fn(async () => ({ sent: true })), fails = false } = {}) {
+      const helper = { request: vi.fn(async (operation) => { if (operation !== "job.output.release" && fails) throw new Error("apt-get update failed"); return { ok: true }; }) };
+      const { store, owner } = await setup(helper);
+      open.push(store);
+      const alerts = createHealthAlerts({ inventory: { inspect: async () => ({}) }, notifications: { getTarget: () => target, send }, store, now: () => new Date("2026-09-28T03:00:00Z") });
+      let status = { state: "unreadable", code: "EACCES", blocking: { what: "folder", mode: 0o700 } };
+      const jobLog = { check: vi.fn(async () => status), read: vi.fn(async () => ({ text: "the output", exists: true })) };
+      const jobs = createJobService(store, helper, { alerts, jobLog });
+      const runOnce = async () => {
+        const job = await jobs.createOperationJob("apt.refresh", {}, owner.id);
+        await jobs.approveAndRun(job.id, owner.id, {}).catch(() => {});
+        await alerts.clear("nothing:pending"); // the job announces without waiting; this waits for it
+        return store.getJob(job.id);
+      };
+      return { store, send, jobLog, helper, runOnce, set: (next) => { status = next; }, state: () => store.getSetting("healthAlertsState", {}) };
+    }
+
+    it("says so on the job instead of an empty log, raises one condition, and clears on the next readable log", async () => {
+      const { store, send, jobLog, helper, runOnce, set, state } = await logging();
+      const first = await runOnce();
+      // The operation's own outcome stands; the log is what is missing, and the job says why.
+      expect(first.state).toBe("completed");
+      expect(logUnreadable(first)).toBe(true);
+      expect(first.steps.find((step) => step.name === "log")).toMatchObject({ state: "failed", detail: expect.stringContaining("permission denied (the log folder is mode 700)") });
+      // Cheap: an open and a stat, not a read of what could be a 4 MiB log, and nothing saved or released.
+      expect(jobLog.read).not.toHaveBeenCalled();
+      expect(store.getJobOutput(first.id)).toBeNull();
+      expect(helper.request).not.toHaveBeenCalledWith("job.output.release", expect.anything(), expect.anything());
+      expect(send).toHaveBeenCalledTimes(1);
+      expect(send).toHaveBeenCalledWith({ title: "BoxPilot: Job output cannot be read", message: expect.stringContaining("The helper wrote the output of Refresh package lists, but BoxPilot could not open it: permission denied"), priority: "high" });
+      expect(Object.keys(state())).toEqual([jobLogAlertKey]);
+
+      // Every job after it is the same failure, and the same one push.
+      expect(logUnreadable(await runOnce())).toBe(true);
+      expect(send).toHaveBeenCalledTimes(1);
+
+      // A job that printed nothing proves nothing either way: the condition stands.
+      set({ state: "absent" });
+      const quiet = await runOnce();
+      expect(logUnreadable(quiet)).toBe(false);
+      expect(Object.keys(state())).toEqual([jobLogAlertKey]);
+
+      set({ state: "readable", bytes: 10 });
+      const readable = await runOnce();
+      expect(logUnreadable(readable)).toBe(false);
+      expect(store.getJobOutput(readable.id)).toBe("the output");
+      expect(send).toHaveBeenCalledTimes(2);
+      expect(send).toHaveBeenLastCalledWith(expect.objectContaining({ title: "BoxPilot: resolved. Job output cannot be read" }));
+      expect(state()).toEqual({});
+    });
+
+    it("is checked for a failed job too, and kept as not announced when there is no target", async () => {
+      const { send, runOnce, state } = await logging({ target: null, fails: true });
+      const failed = await runOnce();
+      expect(failed.state).toBe("failed");
+      expect(logUnreadable(failed)).toBe(true);
+      expect(send).not.toHaveBeenCalled();
+      expect(state()[jobLogAlertKey]).toMatchObject({ notified: false, title: "Job output cannot be read" });
+    });
+
+    it("leaves a reader without the check, and a check that throws, to the old path", async () => {
+      const helper = { request: vi.fn(async () => ({ ok: true })) };
+      const { store, owner } = await setup(helper);
+      open.push(store);
+      const raise = vi.fn(async () => ({}));
+      const jobs = createJobService(store, helper, { alerts: { raise, clear: vi.fn(async () => ({})) }, jobLog: { check: async () => { throw new Error("stat failed"); }, read: async () => ({ text: "saved anyway", exists: true }) } });
+      const job = await jobs.createOperationJob("apt.refresh", {}, owner.id);
+      await jobs.approveAndRun(job.id, owner.id, {});
+      expect(store.getJobOutput(job.id)).toBe("saved anyway");
+      expect(raise).not.toHaveBeenCalled();
     });
   });
 
