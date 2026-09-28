@@ -1036,10 +1036,28 @@ clear until v1.112.0. The lesson generalises.
 ### M30 — BoxPilot watching BoxPilot
 
 - **M30.1 Job logs are verified readable** at write time (M27.4's canary, made permanent).
-- **M30.2 Interrupted jobs are announced** - done in v1.112.0 - and *retried where safe*: a
-  read-only or idempotent operation cut off by a self-update should simply run again.
-- **M30.3 Timeouts are a first-class result**, not a stderr prefix: the job record says the budget
-  and what was reached, and the dialog offers "try again with more time" for pulls.
+- ✅ **M30.2 Interrupted jobs are announced** (v1.112.0) **and run again where safe** (unreleased):
+  a registry entry declares `rerunAfterInterrupt`, with the reason written beside it, and a job of
+  it that a restart cut off is staged again once, as its creator, through the ordinary approval
+  path; the two records name each other ("Ran again after BoxPilot restarted"). Declared:
+  `homepage.sync`, `dns.names.apply` and `backup.sync`; reads count too, though no read is a job.
+  Never run again: a rerun (one per job), a job staged with secrets, a scheduled run or an
+  automation's step (their owners report them), anything under always-ask approvals, a job whose
+  creator can no longer approve. The registry refuses the flag on high-risk, typed-confirmation,
+  BoxPilot-restarting and secret-taking operations. Everything else is still marked failed and
+  announced. Left undeclared on purpose: the SSH and cloud mirrors and `apt.refresh`, whose root
+  task keeps running through a restart, so a second run would race the first.
+- ✅ **M30.3 Timeouts are a first-class result**, not a stderr prefix (unreleased): a job that ran
+  out of time carries `timeout` - whose limit (the whole operation's, or one step's such as a
+  pull), the budget, the time used, whether it never left the queue, the step, the last line of
+  its log, and what "Try again with more time" would give. Commands, root tasks and the helper's
+  reply say so as a flag; nothing matches "timed out after" any more. The dialog and Activity show
+  it as "Ran out of time" / "Timed out", apart from failures. `app.install`, `app.update`,
+  `app.rollback` and `app.model.pull` declare `maxTimeoutMs`, four times their budget (twelve
+  hours is the ceiling for any operation); a retry doubles the budget and the pull limits inside
+  it, and is staged for approval at the same tier as any other job. The helper takes the larger
+  budget as `context.budgetMs`, sent only for those jobs, so a helper one release older still
+  runs everything else.
 - **M30.4 A weekly self-report** to the notification target: what ran, what failed, what was
   skipped and why, what is not covered yet. The morning glance M25.3 promised, from the server side.
 
