@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { collectorAvailability, createHealthAlerts, evaluateHealth } from "./health-alerts.mjs";
+import { collectorAvailability, createHealthAlerts, evaluateHealth, isNotice, jobNoticeKey, noticeLimit, noticeMaxAgeMs, tellInterrupted } from "./health-alerts.mjs";
 
 const healthy = {
   storage: { root: { usedPercent: 40 }, filesystems: { mounts: [{ target: "/", usedPercent: 40, capacityState: "healthy" }, { target: "/mnt/media", usedPercent: 60, capacityState: "healthy" }] }, smart: { disks: [{ device: "/dev/nvme0n1", health: "healthy", temperatureCelsius: 35, mediaErrors: 0 }] } },
@@ -357,5 +357,105 @@ describe("failures BoxPilot reports on its own work (M27.2)", () => {
     release();
     await Promise.all([round, raised]);
     expect(Object.keys(state()).sort()).toEqual([failure.key, "system.services"]);
+  });
+});
+
+describe("news pushed straight to the target, kept when it reaches no one (M27.2)", () => {
+  function ledger({ target = { kind: "ntfy" }, send = vi.fn(async () => ({ sent: true })), at = "2026-09-27T03:00:00Z" } = {}) {
+    const settings = new Map();
+    const store = { getSetting: (key, fallback) => settings.get(key) ?? fallback, setSetting: (key, value) => settings.set(key, value), recordAudit: vi.fn() };
+    let current = target;
+    let clock = new Date(at);
+    const alerts = createHealthAlerts({ inventory: { inspect: async () => ({}) }, notifications: { getTarget: () => current, send }, store, now: () => clock });
+    return { alerts, send, store, state: () => settings.get("healthAlertsState") ?? {}, setTarget: (value) => { current = value; }, setClock: (value) => { clock = new Date(value); } };
+  }
+  const signIn = { key: "signin.new:owner-1:100.64.0.20", title: "New sign-in from 100.64.0.20", message: "alex signed in from 100.64.0.20 via password.", priority: "high" };
+
+  it("is sent and forgotten when the target takes it", async () => {
+    const { alerts, send, state } = ledger();
+    expect(await alerts.tell(signIn)).toEqual({ key: signIn.key, notified: true });
+    expect(send).toHaveBeenCalledWith({ title: `BoxPilot: ${signIn.title}`, message: signIn.message, priority: "high" });
+    expect(state()).toEqual({}); // news, not a condition: nothing stands once it is told
+  });
+
+  it("is kept once per key without a target, and a round that finds one sends it and lets it go", async () => {
+    const { alerts, send, state, setTarget, setClock } = ledger({ target: null });
+    expect(await alerts.tell(signIn)).toMatchObject({ notified: false });
+    setClock("2026-09-28T03:00:00Z");
+    await alerts.tell({ ...signIn, message: "alex signed in again from 100.64.0.20." });
+    expect(Object.keys(state())).toEqual([signIn.key]); // the same news twice is one entry
+    expect(state()[signIn.key]).toEqual({ since: "2026-09-27T03:00:00.000Z", title: signIn.title, message: "alex signed in again from 100.64.0.20.", priority: "high", notified: false });
+    await alerts.check();
+    expect(state()[signIn.key]).toMatchObject({ notified: false }); // still nobody to tell
+
+    setTarget({ kind: "ntfy" });
+    expect((await alerts.check()).sent).toEqual([signIn.key]);
+    expect(send).toHaveBeenCalledWith({ title: `BoxPilot: ${signIn.title}`, message: "alex signed in again from 100.64.0.20.", priority: "high" });
+    expect(state()).toEqual({});
+  });
+
+  it("keeps one whose send failed, and a later delivery of the same news clears it", async () => {
+    const send = vi.fn().mockRejectedValueOnce(new Error("The notification target answered 502")).mockResolvedValue({ sent: true });
+    const { alerts, state, store } = ledger({ send });
+    expect(await alerts.tell(signIn)).toMatchObject({ notified: false });
+    expect(state()[signIn.key]).toMatchObject({ notified: false });
+    expect(store.recordAudit).toHaveBeenCalledWith("health.alert.failed", expect.objectContaining({ subjectId: signIn.key }));
+    expect(await alerts.tell(signIn)).toMatchObject({ notified: true });
+    expect(state()).toEqual({});
+  });
+
+  it("never grows a pile: the oldest go past the limit, and a month-old one is no longer news", async () => {
+    const { alerts, state, setClock } = ledger({ target: null });
+    await alerts.raise({ key: "schedule.failed:s1", title: "Scheduled task failed: Back up application data", message: "disk full" });
+    const start = Date.parse("2026-09-01T00:00:00Z");
+    for (let index = 0; index < noticeLimit + 5; index += 1) {
+      setClock(new Date(start + index * 60 * 60_000).toISOString()); // one an hour
+      await alerts.tell({ key: `signin.new:owner-1:100.64.0.${index}`, title: `New sign-in from 100.64.0.${index}`, message: "m" });
+    }
+    const notices = Object.keys(state()).filter(isNotice);
+    expect(notices).toHaveLength(noticeLimit);
+    expect(notices).not.toContain("signin.new:owner-1:100.64.0.0"); // the oldest went first
+    expect(state()["schedule.failed:s1"]).toBeTruthy(); // conditions are not news and are never trimmed
+
+    // A month after the tenth hour: the ones kept from hours 5 to 9 are past it, 10 onwards are not.
+    setClock(new Date(start + noticeMaxAgeMs + 9.5 * 60 * 60_000).toISOString());
+    await alerts.check();
+    expect(Object.keys(state()).filter(isNotice)).toHaveLength(noticeLimit - 5);
+    expect(state()["schedule.failed:s1"]).toBeTruthy();
+  });
+
+  it("clears quietly: news nobody heard has nothing to resolve", async () => {
+    const { alerts, send, state, setTarget } = ledger({ target: null });
+    await alerts.tell({ key: "job.interrupted:apt.upgrade", title: "Install all package updates was interrupted", message: "m", priority: "high" });
+    setTarget({ kind: "ntfy" });
+    expect(await alerts.clear("job.interrupted:apt.upgrade")).toMatchObject({ cleared: true, sent: false });
+    expect(send).not.toHaveBeenCalled();
+    expect(state()).toEqual({});
+  });
+});
+
+describe("jobs a restart cut off (M27.2)", () => {
+  it("tells the ones started by hand, once per operation, and leaves scheduled runs and automation steps to their owners", async () => {
+    const settings = new Map();
+    const jobsById = {
+      manual: { id: "manual", type: "op:apt.upgrade", title: "Install all package updates", parameters: {} },
+      again: { id: "again", type: "op:apt.upgrade", title: "Install all package updates", parameters: {} },
+      backup: { id: "backup", type: "op:app.backup", title: "Back up application data", parameters: { id: "immich" } },
+      scheduled: { id: "scheduled", type: "op:app.backup", title: "Back up application data", parameters: { id: "jellyfin" } },
+      step: { id: "step", type: "op:docker.prune", title: "Clean up Docker disk space", parameters: {} },
+    };
+    const store = {
+      getSetting: (key, fallback) => settings.get(key) ?? fallback, setSetting: (key, value) => settings.set(key, value), recordAudit: vi.fn(),
+      getJob: (id) => jobsById[id] ?? null,
+      listFlows: () => [{ id: "f1", lastResult: "running step 2 of 3 (Clean up Docker disk space)", lastJobIds: ["earlier", "step"] }, { id: "f2", lastResult: "completed", lastJobIds: ["manual"] }],
+    };
+    const alerts = createHealthAlerts({ inventory: { inspect: async () => ({}) }, notifications: { getTarget: () => null, send: vi.fn() }, store, now: () => new Date("2026-09-27T03:00:00Z") });
+    const interrupted = Object.keys(jobsById).map((id) => ({ id, title: jobsById[id].title }));
+    await tellInterrupted({ alerts, store, interrupted, owned: new Set(["scheduled"]) });
+    const state = settings.get("healthAlertsState");
+    expect(Object.keys(state).sort()).toEqual(["job.interrupted:app.backup:immich", "job.interrupted:apt.upgrade"]);
+    expect(state["job.interrupted:apt.upgrade"]).toMatchObject({ title: "Install all package updates was interrupted", notified: false, priority: "high" });
+    expect(state["job.interrupted:app.backup:immich"].title).toBe("Back up application data (immich) was interrupted");
+    expect(jobNoticeKey("job.interrupted", jobsById.backup)).toBe("job.interrupted:app.backup:immich");
   });
 });

@@ -5,10 +5,10 @@
 import { Router } from "express";
 import { approvalModes, defaultApprovalMode, elevationTtlMs, normalizeApprovalMode } from "../ops/risk.mjs";
 import { normalizeDestination } from "../backup-destination.mjs";
-import { healthConditions } from "../health-alerts.mjs";
+import { healthConditions, isNotice, noticeKinds } from "../health-alerts.mjs";
 import { vpnProviders, vpnProtocols } from "../vpn-profile.mjs";
 
-export function createSettingsRouter({ state, notifications, auth }) {
+export function createSettingsRouter({ state, notifications, weeklyReport = null, auth }) {
   const router = Router();
   // Belt and braces with the policy middleware: only the owner changes settings, whatever the path casing.
   router.use("/settings", (request, response, next) => (["GET", "HEAD", "OPTIONS"].includes(request.method) ? next() : auth.requireRole("owner")(request, response, next)));
@@ -34,19 +34,53 @@ export function createSettingsRouter({ state, notifications, auth }) {
   router.get("/settings/watch", (_request, response) => {
     const active = state.getSetting("healthAlertsState", {}) ?? {};
     const byFamily = {};
+    const notices = [];
     for (const [key, entry] of Object.entries(active)) {
       if (!entry) continue;
+      const family = key.split(":")[0];
+      // News that reached no one - a release, a new sign-in, an interrupted job, the weekly report -
+      // is not a condition to watch, but it is counted with the ones that could not be told.
+      if (isNotice(key)) { notices.push({ key: family, label: noticeKinds[family], title: entry.title ?? key, since: entry.since ?? null, announced: false }); continue; }
       // A condition that is live but was never announced - because no notification target is set -
       // is still live. Hiding it here as well meant a drive that dropped off USB was known to
       // BoxPilot and shown to nobody, on any page, until the owner happened to read a folder.
-      const family = key.split(":")[0];
       (byFamily[family] ??= []).push({ title: entry.title ?? key, since: entry.since ?? null, announced: entry.notified !== false });
     }
     const conditions = Object.entries(healthConditions).map(([key, label]) => ({ key, label, active: Boolean(byFamily[key]?.length), details: byFamily[key] ?? [] }));
     const live = Object.values(byFamily).flat();
     // What BoxPilot knew and could not tell anyone (M27.2): the Overview's one-line count.
-    response.json({ targetConfigured: notifications.describe().configured === true, activeCount: live.length, unannouncedCount: live.filter((detail) => !detail.announced).length, conditions });
+    response.json({ targetConfigured: notifications.describe().configured === true, activeCount: live.length, unannouncedCount: live.filter((detail) => !detail.announced).length + notices.length, conditions, notices });
   });
+
+  // The weekly self-report (M30.4): whether it is on, when it goes, and how the last one went.
+  if (weeklyReport) {
+    router.get("/settings/weekly-report", (_request, response) => {
+      response.json(weeklyReport.status());
+    });
+
+    // The words it would send now. Owner only: it names every account's jobs and failures, which
+    // an operator or viewer cannot list for themselves.
+    router.get("/settings/weekly-report/preview", auth.requireRole("owner"), async (_request, response) => {
+      try {
+        response.json(await weeklyReport.preview());
+      } catch (error) {
+        response.status(500).json({ error: `Could not put the report together: ${error.message}`, code: "report_failed" });
+      }
+    });
+
+    router.put("/settings/weekly-report", auth.requireCsrf, (request, response) => {
+      if (typeof request.body?.enabled !== "boolean") return response.status(400).json({ error: "enabled must be true or false", code: "invalid_setting" });
+      return response.json(weeklyReport.setEnabled(request.body.enabled, { updatedBy: request.boxpilotSession.owner.id }));
+    });
+
+    router.post("/settings/weekly-report/send", auth.requireCsrf, async (request, response) => {
+      try {
+        response.json(await weeklyReport.sendNow({ actorId: request.boxpilotSession.owner.id }));
+      } catch (error) {
+        response.status(502).json({ error: error.message, code: "notification_test_failed" });
+      }
+    });
+  }
 
   router.put("/settings/notifications", auth.requireCsrf, async (request, response) => {
     const owner = await ownerWithPassword(request, response, "Owner password required to change the notification target");
@@ -61,7 +95,7 @@ export function createSettingsRouter({ state, notifications, auth }) {
 
   router.post("/settings/notifications/test", auth.requireCsrf, async (_request, response) => {
     try {
-      response.json(await notifications.send({ title: "BoxPilot test notification", message: "Notifications are working. Failed jobs, new releases, and health alerts (disk space, SMART, UPS, failed services) arrive like this." }));
+      response.json(await notifications.send({ title: "BoxPilot test notification", message: "Notifications are working. Failed jobs, new releases, health alerts (disk space, SMART, UPS, failed services) and the weekly report arrive like this." }));
     } catch (error) {
       response.status(502).json({ error: error.message, code: "notification_test_failed" });
     }

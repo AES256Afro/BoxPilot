@@ -71,6 +71,8 @@ function initialValues(manifest: Manifest, live: LiveState | null): Values {
  */
 const isPaused = (live: LiveState | null) => live?.container.status === "paused";
 const isRunning = (live: LiveState | null) => Boolean(live?.container.running) && !isPaused(live);
+/** A weekly kill-switch drill that ended badly. One still starting or running has not failed. */
+const drillFailed = (lastResult?: string | null) => Boolean(lastResult) && !["completed", "started", "starting"].some((state) => lastResult!.startsWith(state));
 
 // Send only what differs from the baseline. On install the baseline is the manifest default; on
 // reconfigure it is the app's STORED value, because the server merges each field over the stored set
@@ -596,7 +598,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
               {installed && manifest.networkVia && tunnels[manifest.id]?.exit && tunnels[manifest.id].running && (
                 <p className="muted app-stats">VPN exit: {tunnels[manifest.id].exit?.location ?? "unknown place"} · {tunnels[manifest.id].exit?.ip}{tunnels[manifest.id].forwardedPort ? ` · forwarded port ${tunnels[manifest.id].forwardedPort} (set it under Tools, Options, Connection)` : ""} · <button className="text-button" type="button" onClick={() => start({ operationId: "app.vpn.killswitch.drill", title: `Prove ${manifest.name}'s kill switch`, parameters: { id: manifest.id }, preview: <span>Forces the tunnel down for a few seconds, checks nothing can reach the internet while it is down, then brings it back. Downloads pause briefly and resume by themselves; the result is recorded.</span> })}>Prove the kill switch</button>
                   {killswitch[manifest.id]
-                    ? <> · <span className={`status-pill status-${killswitch[manifest.id].overdue || (killswitch[manifest.id].lastResult && !killswitch[manifest.id].lastResult!.startsWith("completed")) ? "warning" : "good"}`}>auto-checked weekly</span>{killswitch[manifest.id].lastRunAt ? ` (last ${new Date(killswitch[manifest.id].lastRunAt!).toLocaleDateString()}${killswitch[manifest.id].lastResult && !killswitch[manifest.id].lastResult!.startsWith("completed") ? ", failed" : ""})` : ""} <button className="text-button" type="button" disabled={scheduling} onClick={() => void unscheduleKillswitch(killswitch[manifest.id].id)}>stop</button></>
+                    ? <> · <span className={`status-pill status-${killswitch[manifest.id].overdue || drillFailed(killswitch[manifest.id].lastResult) ? "warning" : "good"}`}>auto-checked weekly</span>{killswitch[manifest.id].lastRunAt ? ` (last ${new Date(killswitch[manifest.id].lastRunAt!).toLocaleDateString()}${drillFailed(killswitch[manifest.id].lastResult) ? ", failed" : ""})` : ""} <button className="text-button" type="button" disabled={scheduling} onClick={() => void unscheduleKillswitch(killswitch[manifest.id].id)}>stop</button></>
                     : <> · <button className="text-button" type="button" disabled={scheduling} onClick={() => void scheduleKillswitch(manifest.id)}>Verify weekly</button></>}
                 </p>
               )}

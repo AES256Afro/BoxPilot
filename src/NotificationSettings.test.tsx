@@ -66,4 +66,50 @@ describe("Notification settings", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Send a test" }));
     expect(await screen.findByText(/Test sent/)).toBeTruthy();
   });
+
+  it("shows the weekly report's schedule, previews it, sends it now and turns it off (M30.4)", async () => {
+    const report = { title: "Weekly report, 1 failed", message: "Sep 20 to Sep 27: 12 jobs ran, 1 failed: Back up application data (immich).\nBackups: 7 app backups this week; database backed up today." };
+    const calls: string[] = [];
+    let enabled = true;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      calls.push(`${init?.method ?? "GET"} ${url}`);
+      if (url.endsWith("/settings/weekly-report/preview")) return json(report);
+      if (url.endsWith("/settings/weekly-report/send") && init?.method === "POST") return json({ sent: true, ...report });
+      if (url.endsWith("/settings/weekly-report") && init?.method === "PUT") { enabled = JSON.parse(init.body as string).enabled; return json({ enabled, cadence: "Sundays at 09:00", nextDueAt: null, lastSentAt: null, lastResult: null, targetConfigured: true }); }
+      if (url.endsWith("/settings/weekly-report")) return json({ enabled, cadence: "Sundays at 09:00", nextDueAt: "2026-10-04T13:00:00.000Z", lastSentAt: null, lastResult: "not-announced", targetConfigured: true });
+      if (url.endsWith("/settings/notifications")) return json({ configured: true, kind: "ntfy", url: "http://127.0.0.1:8093", topic: "boxpilot", hasToken: false });
+      return json({ error: `unexpected ${url}` }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<NotificationSettings csrfToken="csrf-token" />);
+
+    expect(await screen.findByText("Weekly report")).toBeTruthy();
+    expect(screen.getByText(/Sundays at 09:00, server time; next/)).toBeTruthy();
+    expect(screen.getByText(/The last one reached no one/)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Preview" }));
+    const preview = await screen.findByLabelText("Weekly report preview");
+    expect(preview.textContent).toContain("Weekly report, 1 failed");
+    expect(preview.textContent).toContain("Back up application data (immich)");
+
+    fireEvent.click(screen.getByRole("button", { name: "Send now" }));
+    expect(await screen.findByText("Sent. Check your device.")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Turn off the weekly report" }));
+    expect(await screen.findByText(/^Off\./)).toBeTruthy();
+    expect(calls).toContain("PUT /api/v1/settings/weekly-report");
+    expect(screen.getByRole("button", { name: "Turn on the weekly report" })).toBeTruthy();
+  });
+
+  it("does not offer to send the report now without a target", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url.endsWith("/settings/weekly-report")) return json({ enabled: true, cadence: "Sundays at 09:00", nextDueAt: "2026-10-04T13:00:00.000Z", lastSentAt: null, lastResult: null, targetConfigured: false });
+      if (url.endsWith("/settings/notifications")) return json({ configured: false, kind: null, url: null, topic: null, hasToken: false });
+      return json({ error: `unexpected ${url}` }, 500);
+    }));
+    render(<NotificationSettings csrfToken="csrf-token" />);
+    expect(((await screen.findByRole("button", { name: "Send now" })) as HTMLButtonElement).disabled).toBe(true);
+  });
 });
