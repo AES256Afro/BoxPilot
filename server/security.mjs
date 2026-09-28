@@ -103,9 +103,12 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000, r
     if (verdict === "known") return;
     store.recordAudit("session.sign-in-address", { actorId: owner.id, subjectId: owner.id, details: { address, method, first: verdict === "first" } });
     if (verdict === "first") return; // baseline the first address without an alert
+    // The key lets a push that reached no one be kept once per account and address (M27.2).
     void Promise.resolve(notify({
-      title: "New sign-in to BoxPilot",
-      message: `${owner.username} signed in from ${address} via ${method}. If this wasn't you, change your password and review Settings, Where you're signed in.`,
+      key: `signin.new:${owner.id}:${address}`,
+      title: `New sign-in from ${address}`,
+      // The time is in the words: a push kept until a target answers can arrive hours later.
+      message: `${owner.username} signed in from ${address} via ${method} at ${new Date().toLocaleString()}. If this wasn't you, change your password and review Settings, Where you're signed in.`,
       priority: "high",
     })).catch(() => {});
   }

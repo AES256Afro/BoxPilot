@@ -6,6 +6,8 @@ import { shared } from "./cache.mjs";
  * UPS state, failed services, reboot-required, unhealthy containers. State lives in a
  * setting so a restart does not re-send everything. A scheduled backup that quietly stopped is
  * treated the same way (M20.1), read from the schedule table rather than the inventory snapshot.
+ * The same setting is the ledger of what could not be told (M27.2): BoxPilot's own failures, and
+ * one-off news (a release, a new sign-in, the weekly report) kept only until it is delivered.
  */
 import { evaluateScheduleFreshness } from "./schedule-freshness.mjs";
 import { evaluateDiskForecast } from "./disk-forecast.mjs";
@@ -45,6 +47,53 @@ function reportedConditions() {
 }
 const reportedFamilies = new Set(Object.keys(reportedConditions()));
 export const isReported = (key) => reportedFamilies.has(String(key).split(":")[0]);
+
+/**
+ * One-off news that used to be pushed straight to the target and forgotten when nothing took it: a
+ * job a restart cut off that no schedule or automation owns, a new release, a sign-in from a new
+ * address, the weekly report. They are not conditions - nothing turns them good again - so the
+ * ledger holds one only while it has not been announced: a round that delivers it drops it. The
+ * same key again is the same news (one entry, newest words), and at most `noticeLimit` are kept,
+ * none longer than `noticeMaxAgeMs`, so a server with no target never grows a pile.
+ */
+export const noticeKinds = Object.freeze({
+  "job.interrupted": "A job was cut off by a restart",
+  "release.available": "A new BoxPilot release",
+  "signin.new": "A sign-in from a new address",
+  "report.weekly": "The weekly report",
+});
+export const isNotice = (key) => Object.hasOwn(noticeKinds, String(key).split(":")[0]);
+export const noticeLimit = 20;
+export const noticeMaxAgeMs = 30 * 24 * 60 * 60_000;
+
+/** One notice per operation and subject: the same backup cut off twice is one entry, not two. */
+export function jobNoticeKey(kind, job) {
+  const operation = String(job?.type ?? "").replace(/^op:/, "") || "job";
+  const subject = job?.parameters?.id ?? job?.parameters?.name ?? null;
+  return `${kind}:${operation}${typeof subject === "string" && subject ? `:${subject.slice(0, 64)}` : ""}`;
+}
+
+/**
+ * Jobs a BoxPilot restart cut off, told at startup. A scheduled run is its schedule's to announce
+ * (`owned`, from scheduler.recover), and an automation's step is the automation's: flows.recover()
+ * rewrites every flow still "running step" and raises its condition, so those steps are skipped
+ * here too. What is left was started by hand, and nobody watched it end - the page that followed it
+ * lost its connection with the restart - so it goes through the ledger and is kept if unheard.
+ */
+export function tellInterrupted({ alerts, store, interrupted = [], owned = new Set() }) {
+  const flowSteps = new Set((store.listFlows?.() ?? []).filter((flow) => flow.lastResult?.startsWith("running step")).flatMap((flow) => flow.lastJobIds ?? []));
+  const told = interrupted.filter((job) => !owned.has(job.id) && !flowSteps.has(job.id)).map((interruptedJob) => {
+    const job = store.getJob?.(interruptedJob.id) ?? interruptedJob;
+    const subject = job.parameters?.id ?? job.parameters?.name ?? null;
+    return alerts.tell({
+      key: jobNoticeKey("job.interrupted", job),
+      title: `${job.title ?? "A job"}${typeof subject === "string" && subject ? ` (${subject.slice(0, 64)})` : ""} was interrupted`,
+      message: "BoxPilot restarted while it was running, so it is marked failed. The operation may still have finished on its own; check what it changed before retrying.",
+      priority: "high",
+    }).catch(() => ({ notified: false }));
+  });
+  return Promise.all(told);
+}
 
 /** An error message as the end of a sentence in an alert: trimmed, with one full stop. */
 export const asSentence = (text) => {
@@ -198,6 +247,14 @@ export function createHealthAlerts({ inventory, notifications, store, resolveSch
       const availability = { ...collectorAvailability(snapshot), "schedule.overdue": true, "storage.forecast": true, "smart.errors": true, "smart.wear": true };
       for (const [key, entry] of Object.entries(previous)) {
         if (nextState[key]) continue;
+        // News nobody has heard yet: sent now if a target answers, then forgotten; kept otherwise,
+        // until it is a month old and no longer news.
+        if (isNotice(key)) {
+          if (now().getTime() - Date.parse(entry?.since ?? "") > noticeMaxAgeMs) continue;
+          const delivered = target ? await announce(key, { title: entry.title ?? key, message: entry.message ?? entry.title ?? key, priority: entry.priority ?? "default" }) : false;
+          if (delivered) sent.push(key); else nextState[key] = entry;
+          continue;
+        }
         // Raised by whatever saw the failure, not by this round, and kept until that code clears it.
         // One not yet announced gets another try, so a target set today still hears about yesterday.
         if (isReported(key)) {
@@ -270,6 +327,29 @@ export function createHealthAlerts({ inventory, notifications, store, resolveSch
     });
   }
 
+  /**
+   * One-off news (a notice, above): pushed now, or kept as not announced for a round to send once a
+   * target answers. Kept again under the same key, it keeps the day it was first kept and takes the
+   * newer words; delivered, it leaves the ledger, including an older undelivered copy.
+   */
+  function tell({ key, title, message, priority = "default" }) {
+    return exclusive(async () => {
+      const text = String(message ?? title).slice(0, 1000);
+      const notified = await announce(key, { title, message: text, priority });
+      const state = readState();
+      if (notified) {
+        if (state[key]) { delete state[key]; writeState(state); }
+        return { key, notified: true };
+      }
+      state[key] = { since: state[key]?.since ?? now().toISOString(), title, message: text, priority, notified: false };
+      // Bounded: past the limit the oldest news goes first. Conditions are never touched here.
+      const notices = Object.entries(state).filter(([name]) => isNotice(name)).sort(([, left], [, right]) => String(left?.since).localeCompare(String(right?.since)));
+      for (const [name] of notices.slice(0, Math.max(0, notices.length - noticeLimit))) delete state[name];
+      writeState(state);
+      return { key, notified: false };
+    });
+  }
+
   function start() {
     const safeCheck = () => check().catch(() => {});
     const first = delay(safeCheck, initialDelayMs);
@@ -279,5 +359,5 @@ export function createHealthAlerts({ inventory, notifications, store, resolveSch
     return () => { cancel(first); unschedule(timer); };
   }
 
-  return { check, start, raise, clear, evaluate: () => inventory.inspect().then(evaluateHealth) };
+  return { check, start, raise, clear, tell, evaluate: () => inventory.inspect().then(evaluateHealth) };
 }

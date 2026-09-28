@@ -3,7 +3,7 @@
  * so Settings can show what BoxPilot is watching and what is currently active.
  */
 import express from "express";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createSettingsRouter } from "./settings.mjs";
 
 let server; let base; const settings = new Map();
@@ -14,11 +14,19 @@ const auth = {
 };
 const notifications = { describe: () => ({ configured: true, kind: "ntfy" }) };
 const state = { getSetting: (key, fallback) => settings.get(key) ?? fallback };
+const report = { title: "Weekly report, nothing failed", message: "Sep 20 to Sep 27: 41 jobs ran, none failed." };
+const weeklyReport = {
+  status: vi.fn(() => ({ enabled: true, cadence: "Sundays at 09:00", nextDueAt: "2026-10-04T13:00:00.000Z", lastSentAt: null, lastResult: null, targetConfigured: true })),
+  preview: vi.fn(async () => report),
+  setEnabled: vi.fn((enabled) => ({ enabled })),
+  sendNow: vi.fn(async () => ({ sent: true, ...report })),
+};
 
 beforeAll(async () => {
   const app = express();
   app.use(express.json());
-  app.use("/api/v1", createSettingsRouter({ state, notifications, auth }));
+  app.use((request, _response, next) => { request.boxpilotSession = { owner: { id: "owner-1" } }; next(); });
+  app.use("/api/v1", createSettingsRouter({ state, notifications, weeklyReport, auth }));
   server = app.listen(0);
   await new Promise((resolve) => server.once("listening", resolve));
   base = `http://127.0.0.1:${server.address().port}`;
@@ -66,6 +74,55 @@ describe("GET /settings/watch", () => {
     expect(byKey["record.failed"].active).toBe(true);
     // The words kept for a later send are not handed to every signed-in viewer; the title is enough here.
     expect(JSON.stringify(body)).not.toContain("UNIQUE constraint");
+  });
+
+  it("counts news that reached no one with the rest, without calling it a condition (M27.2)", async () => {
+    settings.set("healthAlertsState", {
+      "system.reboot": { title: "A reboot is required", since: "2026-09-26T00:00:00Z", notified: true },
+      "signin.new:owner-1:100.64.0.20": { title: "New sign-in from 100.64.0.20", since: "2026-09-27T08:00:00Z", message: "alex signed in from 100.64.0.20", notified: false },
+      "release.available": { title: "Version 1.127.0 is available", since: "2026-09-27T09:00:00Z", message: "You are running 1.126.0.", notified: false },
+      "job.interrupted:apt.upgrade": { title: "Install all package updates was interrupted", since: "2026-09-27T10:00:00Z", message: "m", notified: false },
+    });
+    const body = await (await fetch(`${base}/api/v1/settings/watch`)).json();
+    expect(body.activeCount).toBe(1); // a release or a sign-in is not something wrong with the server
+    expect(body.unannouncedCount).toBe(3);
+    expect(body.notices).toEqual([
+      { key: "signin.new", label: "A sign-in from a new address", title: "New sign-in from 100.64.0.20", since: "2026-09-27T08:00:00Z", announced: false },
+      { key: "release.available", label: "A new BoxPilot release", title: "Version 1.127.0 is available", since: "2026-09-27T09:00:00Z", announced: false },
+      { key: "job.interrupted", label: "A job was cut off by a restart", title: "Install all package updates was interrupted", since: "2026-09-27T10:00:00Z", announced: false },
+    ]);
+    expect(body.conditions.map((condition) => condition.key)).not.toContain("signin.new");
+    expect(JSON.stringify(body)).not.toContain("You are running");
+  });
+});
+
+describe("the weekly report in Settings (M30.4)", () => {
+  it("says whether it is on and when it goes, to anyone signed in", async () => {
+    const response = await fetch(`${base}/api/v1/settings/weekly-report`, { headers: { "x-test-role": "viewer" } });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ enabled: true, cadence: "Sundays at 09:00" });
+  });
+
+  it("previews to the owner only: it names every account's jobs", async () => {
+    expect((await fetch(`${base}/api/v1/settings/weekly-report/preview`, { headers: { "x-test-role": "operator" } })).status).toBe(403);
+    const response = await fetch(`${base}/api/v1/settings/weekly-report/preview`, { headers: { "x-test-role": "owner" } });
+    expect(await response.json()).toEqual(report);
+  });
+
+  it("turns on and off with a real boolean, and sends now or says why it could not", async () => {
+    const put = (body) => fetch(`${base}/api/v1/settings/weekly-report`, { method: "PUT", headers: { "Content-Type": "application/json", "x-test-role": "owner" }, body: JSON.stringify(body) });
+    expect((await fetch(`${base}/api/v1/settings/weekly-report`, { method: "PUT", headers: { "Content-Type": "application/json", "x-test-role": "operator" }, body: JSON.stringify({ enabled: false }) })).status).toBe(403);
+    expect((await put({ enabled: "no" })).status).toBe(400);
+    expect(await (await put({ enabled: false })).json()).toEqual({ enabled: false });
+    expect(weeklyReport.setEnabled).toHaveBeenCalledWith(false, { updatedBy: "owner-1" });
+
+    const send = () => fetch(`${base}/api/v1/settings/weekly-report/send`, { method: "POST", headers: { "x-test-role": "owner" } });
+    expect(await (await send()).json()).toMatchObject({ sent: true, title: report.title });
+    expect(weeklyReport.sendNow).toHaveBeenCalledWith({ actorId: "owner-1" });
+    weeklyReport.sendNow.mockRejectedValueOnce(new Error("No notification target is configured"));
+    const refused = await send();
+    expect(refused.status).toBe(502);
+    expect((await refused.json()).error).toBe("No notification target is configured");
   });
 });
 

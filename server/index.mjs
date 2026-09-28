@@ -44,7 +44,9 @@ import { createRecoveryKitService } from "./recovery-kit.mjs";
 import { createReleaseUpdateService } from "./release-updates.mjs";
 import { createSetupService } from "./setup-profiles.mjs";
 import { createUpdateNotifier } from "./update-notifier.mjs";
-import { createHealthAlerts } from "./health-alerts.mjs";
+import { createHealthAlerts, jobNoticeKey, tellInterrupted } from "./health-alerts.mjs";
+import { createWeeklyReport } from "./weekly-report.mjs";
+import { buildChecklist, gatherChecklistEvidence } from "./setup-checklist.mjs";
 import { createTlsRenewal } from "./tls-renewal.mjs";
 import { createDiskSampler } from "./disk-forecast.mjs";
 import { createAppDataSampler } from "./app-data-growth.mjs";
@@ -83,8 +85,9 @@ const audit = createAuditLog();
 const state = createStateStore();
 // The identity service is created below; the throttle asks it who the caller is, lazily, so the
 // two can be wired without ordering them.
-// notify is called only at sign-in time, long after the notifications service below is constructed.
-const auth = createAuthService(state, { resolveClientAddress: (request) => identity.clientAddress(request), notify: (payload) => notifications.send(payload) });
+// notify is called only at sign-in time, long after the health-alert ledger below is constructed. It
+// goes through the ledger so a sign-in alert that reaches no one is kept as not announced (M27.2).
+const auth = createAuthService(state, { resolveClientAddress: (request) => identity.clientAddress(request), notify: (payload) => healthAlerts.tell(payload) });
 const helper = createHelperClient({ timeoutMs: 180000 });
 const maintenance = createMaintenanceService();
 const libvirt = createHelperLibvirtService({ helper });
@@ -226,11 +229,11 @@ const scheduler = createSchedulerService({ store: state, jobs, secretEnvNamesFor
 // A job cut off by a restart - a crash, or BoxPilot updating itself mid-install - was marked failed
 // in silence: recovery ran before the notifier existed, so the one failure that happens while the
 // owner is away was the one never announced. A scheduled run's is its schedule's failure.
-const scheduledInterrupted = new Set(scheduler.recover(interruptedJobs));
-for (const job of interruptedJobs) {
-  if (scheduledInterrupted.has(job.id)) continue;
-  notifications.send({ title: `BoxPilot: ${job.title ?? "a job"} was interrupted`, message: "BoxPilot restarted while it was running, so it is marked failed. The operation may still have finished on its own; check what it changed before retrying.", priority: "high" }).catch(() => {});
-}
+// The rest are told through the ledger, kept as not announced if the push reaches no one. This runs
+// before flows.start() below, which rewrites the flows whose steps it must leave to them.
+void tellInterrupted({ alerts: healthAlerts, store: state, interrupted: interruptedJobs, owned: new Set(scheduler.recover(interruptedJobs)) });
+// Running the same operation cleanly again answers an interruption nobody was told about.
+state.subscribeJobs((job) => { if (job.state === "completed") healthAlerts.clear(jobNoticeKey("job.interrupted", job), { quietly: true }).catch(() => {}); });
 // A flow announces its own failures, steps included, once per flow until it next runs cleanly.
 const { library: flowLibrary, problems: flowLibraryProblems } = await loadFlowLibrary().catch(() => ({ library: [], problems: [] }));
 if (flowLibraryProblems.length) console.warn(`[boxpilot] flow library problems: ${flowLibraryProblems.map((problem) => `${problem.file}: ${problem.errors.join("; ")}`).join(" | ")}`);
@@ -239,7 +242,20 @@ notifications.start();
 flows.start();
 scheduler.start();
 const setup = createSetupService({ helper, scheduler });
-createUpdateNotifier({ releaseUpdates, notifications, store: state }).start();
+createUpdateNotifier({ releaseUpdates, notifications, alerts: healthAlerts, store: state }).start();
+// The weekly self-report (M30.4). "Not covered yet" asks what the Overview's checklist asks, plus
+// which apps with data worth keeping have no backup schedule; either may fail, and is then left out.
+const weeklyReport = createWeeklyReport({
+  store: state, alerts: healthAlerts, notifications,
+  coverage: async () => {
+    const [evidence, protection] = await Promise.all([
+      gatherChecklistEvidence({ state, helper, notifications, inventory, network }).catch(() => null),
+      helper.request("app.backup.protection", {}, { timeoutMs: 60_000 }).catch(() => null),
+    ]);
+    return { checklist: evidence ? buildChecklist(evidence) : null, protection };
+  },
+});
+weeklyReport.start();
 healthAlerts.start();
 // Reissue the LAN certificate before it expires, reusing its CA so trusted devices stay trusted (M18.2).
 createTlsRenewal({ helper, store: state }).start();
@@ -345,7 +361,7 @@ app.use("/api/v1", createPeopleRouter({ state, auth }));
 app.use("/api/v1", createOperationsRouter({ state, helper, jobs, prerequisites, recoveryKit, actionCenter, auth }));
 app.use("/api/v1", createJobsRouter({ state, jobs, scheduler, flows, helper, jobLogReader, auth }));
 app.use("/api/v1", createVirtualizationRouter({ libvirt, libvirtFoundation, vmPlanner, vmMedia, vmCreation, vmExports, vmProtection, vmRetention, vmRecoveries, audit }));
-app.use("/api/v1", createSettingsRouter({ state, notifications, auth }));
+app.use("/api/v1", createSettingsRouter({ state, notifications, weeklyReport, auth }));
 app.use("/api/v1", createFirewallRouter({ state, helper, catalogService, webPort: port, webHost: host }));
 app.use("/api/v1", createStorageRouter({ auth, helper, inventory, state }));
 app.use("/api/v1", createPowerRouter());

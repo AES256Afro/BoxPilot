@@ -101,6 +101,10 @@ export function createNotificationService({ store, fetcher = fetch, now = () => 
     let owned = false;
     try { owned = Boolean(claimed(job)); } catch { owned = false; } // unsure means push it: a duplicate beats silence
     if (owned) return;
+    // What is left was run by hand, and the person who ran it watched it fail in the dialog that
+    // started it; Activity and the Overview keep it after. So a push that reaches no one here is
+    // audited, not kept in the ledger. The unattended case - a job a restart cut off, whose page
+    // lost its connection before the end - is kept there instead (health-alerts tellInterrupted).
     if (!getTarget()) return;
     void send({ title: `BoxPilot: ${job.title} failed`, message: (job.error ?? "The job failed; open Activity for the log.").slice(0, 500), priority: "high" })
       .then(() => store.recordAudit("notifications.sent", { subjectId: job.id, details: { title: job.title } }))
