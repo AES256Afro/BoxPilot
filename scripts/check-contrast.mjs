@@ -11,8 +11,8 @@
  *
  *   node scripts/check-contrast.mjs      prints every pair; exits 1 when anything falls short
  *
- * The same checks run in `npm test` through scripts/check-contrast.test.mjs. The optional dark
- * palettes (html[data-palette]) are the looks from before M33.1 and are not checked here.
+ * The same checks run in `npm test` through scripts/check-contrast.test.mjs. There is one dark
+ * look and one light one; the older dark palettes were retired.
  */
 import { readFileSync } from "node:fs";
 import path from "node:path";
