@@ -31,6 +31,7 @@ import { createStorageRouter } from "./routes/storage.mjs";
 import { createPowerRouter } from "./routes/power.mjs";
 import { createChecklistRouter } from "./routes/checklist.mjs";
 import { createPeopleRouter } from "./routes/people.mjs";
+import { createRunbookRouter } from "./routes/runbook.mjs";
 import { createAssistantRouter } from "./routes/assistant.mjs";
 import { apiRolePolicy } from "./routes/access.mjs";
 import { createAssistantService } from "./assistant/index.mjs";
@@ -45,6 +46,7 @@ import { createMaintenanceService } from "./maintenance.mjs";
 import { createNetworkService } from "./network.mjs";
 import { createPrerequisiteService } from "./prerequisites.mjs";
 import { createRecoveryKitService } from "./recovery-kit.mjs";
+import { createRunbookService } from "./runbook-service.mjs";
 import { createReleaseUpdateService } from "./release-updates.mjs";
 import { createSetupService } from "./setup-profiles.mjs";
 import { createUpdateNotifier } from "./update-notifier.mjs";
@@ -380,6 +382,9 @@ app.use("/api/v1", createPowerRouter());
 app.use("/api/v1", createChecklistRouter({ state, helper, notifications, inventory, network }));
 app.use("/api/v1", createHostRouter({ state, helper, catalogService, inventory, network, notifications, controllerProtection, controllerRetention, githubProvenance, releaseUpdates, setup, supportBundle, audit, auth, identity, webHost: host, webPort: port }));
 app.use("/api/v1", createOidcAdminRouter({ oidc, auth }));
+// The runbook for this server (M34.4), from the same services the pages read.
+const runbook = createRunbookService({ store: state, helper, catalogService, inventory, network, notifications, autoReconnect, identity, secretEnvNamesFor, webHost: host, webPort: port, tlsDir });
+app.use("/api/v1", createRunbookRouter({ runbook, auth }));
 app.use("/api/v1", createAssistantRouter({ assistant, state, auth }));
 
 // OIDC provider endpoints (M19.3) live at the site root, not under /api/v1: discovery, JWKS, token
