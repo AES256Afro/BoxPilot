@@ -16,6 +16,27 @@ const defaultVirtualizationApprovalPath = "/run/boxpilot/virtualization-approval
 const defaultAptApprovalPath = "/run/boxpilot/apt-refresh-approval.json";
 const versionPattern = /^[0-9A-Za-z.+:~_-]{1,64}$/;
 const virtualizationPackageNames = ["qemu-system-x86", "libvirt-daemon-system", "libvirt-clients", "virtinst", "ovmf"];
+/**
+ * The drive-check tools (M26.3): smartctl reads a disk's SMART health, fsck.exfat checks an exFAT
+ * drive without changing it. Each is looked for where Ubuntu puts it, and each answers its version
+ * question with its own name - that answer is what "installed" is verified by.
+ */
+const driveToolPackageNames = Object.freeze(["exfatprogs", "smartmontools"]);
+const driveTools = Object.freeze({
+  smartctl: { package: "smartmontools", paths: ["/usr/sbin/smartctl", "/sbin/smartctl"], versionArgs: ["--version"], identity: /^smartctl\s+(\d[\w.-]*)/m },
+  // exfatprogs prints its version and exits non-zero after -V on some releases; the answer is the line, not the exit code.
+  fsckExfat: { package: "exfatprogs", paths: ["/usr/sbin/fsck.exfat", "/sbin/fsck.exfat"], versionArgs: ["-V"], identity: /exfatprogs version\s*:\s*(\S+)/i },
+});
+
+/** Returns a problem, or null when `packages` is a non-empty map of fixed drive-tool package names to exact versions. */
+export function driveToolPackagesProblem(packages) {
+  if (!packages || typeof packages !== "object" || Array.isArray(packages)) return "must be an object of package name to exact version";
+  const names = Object.keys(packages);
+  if (names.length === 0) return "must list at least one package";
+  if (names.some((name) => !driveToolPackageNames.includes(name))) return `may list only ${driveToolPackageNames.join(" and ")}`;
+  if (names.some((name) => typeof packages[name] !== "string" || !versionPattern.test(packages[name]))) return "every version must be an exact Debian version string";
+  return null;
+}
 
 async function fixedRun(binary, args, { timeout = 30000 } = {}) {
   try {
@@ -171,6 +192,103 @@ export function createPrerequisiteHelper({
       packageChanged: !before.installed,
       scan: { completed: true, evidenceRefreshed, smartEvidenceAvailable: evidence?.available === true, diskResults: Array.isArray(evidence?.disks) ? Math.min(evidence.disks.length, 16) : 0 },
       boundary: { fixedPackage: true, arbitraryPackageAccepted: false, aptUpdatePerformed: false, packageRemovalPerformed: false, browserCommandAccepted: false },
+    };
+  }
+
+  /** Where each drive-check tool is on this server, or null. */
+  async function locateDriveTools() {
+    const located = await Promise.all(Object.entries(driveTools).map(async ([tool, spec]) => {
+      const found = await Promise.all(spec.paths.map((file) => run("/usr/bin/test", ["-e", file], { timeout: 10000 })));
+      const index = found.findIndex((result) => result.ok);
+      return [tool, index >= 0 ? spec.paths[index] : null];
+    }));
+    return Object.fromEntries(located);
+  }
+
+  /**
+   * Can this server check its drives: is smartctl here, is fsck.exfat here, and for whichever is
+   * not, which exact version do the configured package lists offer. A package dpkg calls installed
+   * whose tool is nevertheless gone is broken rather than missing, and is not repaired from here.
+   */
+  async function inspectDriveTools() {
+    const [packageEvidence, paths] = await Promise.all([
+      Promise.all(driveToolPackageNames.map(async (name) => {
+        const [installedResult, policyResult] = await Promise.all([
+          run(dpkgQueryBinary, ["--show", "--showformat=${Status}\\t${Version}", name], { timeout: 10000 }),
+          run(aptCacheBinary, ["policy", name], { timeout: 10000 }),
+        ]);
+        return [name, { installedVersion: installedResult.ok ? installedVersion(installedResult.stdout) : null, candidateVersion: policyResult.ok ? candidateVersion(policyResult.stdout) : null }];
+      })),
+      locateDriveTools(),
+    ]);
+    const packages = Object.fromEntries(packageEvidence);
+    const missing = Object.entries(driveTools).filter(([tool]) => !paths[tool]).map(([, spec]) => spec.package).sort();
+    const broken = missing.filter((name) => packages[name].installedVersion !== null);
+    const offered = missing.filter((name) => !broken.includes(name) && packages[name].candidateVersion !== null);
+    return {
+      tools: { smartctl: paths.smartctl !== null, fsckExfat: paths.fsckExfat !== null },
+      packages,
+      installed: missing.length === 0,
+      missing,
+      broken,
+      candidatePackages: Object.fromEntries(offered.map((name) => [name, packages[name].candidateVersion])),
+      repairAvailable: missing.length > 0 && offered.length === missing.length,
+      source: missing.length === 0 ? "installed-tools" : offered.length ? "configured-apt-candidates" : "unavailable",
+      mutationPerformed: false,
+      arbitraryPackageAccepted: false,
+    };
+  }
+
+  /** Ask each tool who it is. An installed package whose tool does not answer is not a working checker. */
+  async function driveToolsAnswer() {
+    const paths = await locateDriveTools();
+    const answers = await Promise.all(Object.entries(driveTools).map(async ([tool, spec]) => {
+      if (!paths[tool]) return [tool, { answered: false, version: null }];
+      const result = await run(paths[tool], spec.versionArgs, { timeout: 10000 });
+      const version = String(result.stdout ?? "").match(spec.identity)?.[1] ?? null;
+      return [tool, { answered: version !== null, version: cleanVersion(version) }];
+    }));
+    return Object.fromEntries(answers);
+  }
+
+  async function installDriveTools({ expectedPackages }) {
+    const problem = driveToolPackagesProblem(expectedPackages);
+    if (problem) throw new Error(`The expected drive-check packages are invalid: ${problem}`);
+    const before = await inspectDriveTools();
+    if (before.installed) throw new Error("smartctl and fsck.exfat are both already on this server; nothing was installed");
+    const wanted = Object.keys(expectedPackages).sort();
+    // The plan must name exactly what is missing now, at exactly the versions offered now.
+    if (!before.repairAvailable || wanted.join(",") !== before.missing.join(",") || wanted.some((name) => before.candidatePackages[name] !== expectedPackages[name])) {
+      throw new Error("Host state changed: the missing drive-check packages or their versions no longer match the approved plan");
+    }
+    const approved = Object.fromEntries(wanted.map((name) => [name, expectedPackages[name]]));
+    await clearApproval();
+    await writeApproval({ packages: approved, approvedAt: now().toISOString() });
+    let start;
+    try {
+      start = await run(systemctlBinary, ["start", "boxpilot-smartmontools-install.service"], { timeout: 15 * 60 * 1000 });
+    } finally {
+      await clearApproval();
+    }
+    if (!start.ok) throw new Error("The fixed drive-check tools installation service failed");
+    const after = await inspectDriveTools();
+    for (const name of wanted) {
+      if (after.packages[name]?.installedVersion !== approved[name]) throw new Error(`${name} did not match the approved version after installation`);
+    }
+    const answers = await driveToolsAnswer();
+    const silent = Object.entries(answers).filter(([, answer]) => !answer.answered).map(([tool]) => (tool === "smartctl" ? "smartctl" : "fsck.exfat"));
+    if (silent.length) throw new Error(`${silent.join(" and ")} ${silent.length === 1 ? "is" : "are"} installed but did not answer when asked for ${silent.length === 1 ? "its" : "their"} version`);
+    let evidence = null;
+    try { evidence = JSON.parse(await loadEvidence()); } catch { evidence = null; }
+    const generatedTime = typeof evidence?.generatedAt === "string" ? Date.parse(evidence.generatedAt) : Number.NaN;
+    const evidenceRefreshed = Number.isFinite(generatedTime) && Math.abs(now().getTime() - generatedTime) <= 5 * 60 * 1000;
+    if (!evidenceRefreshed) throw new Error("The fixed storage evidence scan did not produce current evidence");
+    return {
+      installed: true,
+      packages: approved,
+      tools: answers,
+      scan: { completed: true, evidenceRefreshed, smartEvidenceAvailable: evidence?.available === true, diskResults: Array.isArray(evidence?.disks) ? Math.min(evidence.disks.length, 16) : 0 },
+      boundary: { fixedPackageSet: true, arbitraryPackageAccepted: false, aptUpdatePerformed: false, packageRemovalPerformed: false, driveTouched: false, browserCommandAccepted: false },
     };
   }
 
@@ -465,7 +583,7 @@ export function createPrerequisiteHelper({
     };
   }
 
-  return { inspectSmartmontools, installSmartmontools, inspectRestic, installRestic, inspectDocker, installDocker, inspectVirtualization, installVirtualization, inspectNvidia, inspectAptMetadata, refreshAptMetadata };
+  return { inspectSmartmontools, installSmartmontools, inspectDriveTools, installDriveTools, inspectRestic, installRestic, inspectDocker, installDocker, inspectVirtualization, installVirtualization, inspectNvidia, inspectAptMetadata, refreshAptMetadata };
 }
 
-export const prerequisiteHelperInternals = { candidateVersion, cleanVersion, defaultAptCache, defaultAptApprovalPath, defaultApprovalPath, defaultResticApprovalPath, defaultDockerApprovalPath, defaultVirtualizationApprovalPath, defaultDpkgQuery, defaultEvidencePath, defaultSystemctl, installedVersion, versionPattern, virtualizationPackageNames };
+export const prerequisiteHelperInternals = { candidateVersion, cleanVersion, driveToolPackageNames, driveTools, defaultAptCache, defaultAptApprovalPath, defaultApprovalPath, defaultResticApprovalPath, defaultDockerApprovalPath, defaultVirtualizationApprovalPath, defaultDpkgQuery, defaultEvidencePath, defaultSystemctl, installedVersion, versionPattern, virtualizationPackageNames };

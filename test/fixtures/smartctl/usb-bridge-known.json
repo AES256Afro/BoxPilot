@@ -1,0 +1,23 @@
+{
+  "json_format_version": [1, 0],
+  "smartctl": {
+    "version": [7, 4],
+    "pre_release": false,
+    "svn_revision": "5530",
+    "platform_info": "x86_64-linux-6.8.0-generic",
+    "build_info": "(local build)",
+    "argv": ["smartctl", "--json=c", "--all", "/dev/sdd"],
+    "exit_status": 0
+  },
+  "local_time": { "time_t": 1790582400, "asctime": "Mon Sep 28 06:00:00 2026 UTC" },
+  "device": { "name": "/dev/sdd", "info_name": "/dev/sdd [USB bridge 0x2345:0x6789 (0x100)]", "type": "sat", "protocol": "ATA" },
+  "model_name": "EXAMPLE SSD 1TB",
+  "serial_number": "PLACEHOLDER-SERIAL-0003",
+  "firmware_version": "EX02",
+  "in_smartctl_database": false,
+  "smart_support": { "available": true, "enabled": true },
+  "smart_status": { "passed": true },
+  "power_on_time": { "hours": 2210 },
+  "power_cycle_count": 97,
+  "temperature": { "current": 31 }
+}

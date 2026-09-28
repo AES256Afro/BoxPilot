@@ -80,6 +80,19 @@ describe("restricted helper protocol", () => {
   });
 
   // Linux only: executeHelperOperation builds its default helpers from POSIX paths.
+  it.skipIf(onWindows)("accepts only the fixed drive-tools inspection and an exact-version plan from the fixed set", async () => {
+    expect(validateHelperRequest(request({ operation: "prerequisite.drive-tools.inspect", parameters: {} }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "prerequisite.drive-tools.install", parameters: { expectedPackages: { exfatprogs: "1.2.2-1" } } }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "prerequisite.drive-tools.install", parameters: { expectedPackages: { curl: "8.5.0-2" } } }))).toContain("may list only");
+    const prerequisites = {
+      inspectDriveTools: async () => ({ installed: false, missing: ["exfatprogs"], candidatePackages: { exfatprogs: "1.2.2-1" }, repairAvailable: true, mutationPerformed: false }),
+      installDriveTools: async ({ expectedPackages }) => ({ installed: true, packages: expectedPackages, tools: { smartctl: { answered: true }, fsckExfat: { answered: true } } }),
+    };
+    await expect(executeHelperOperation(request({ operation: "prerequisite.drive-tools.inspect", parameters: {} }), { prerequisites })).resolves.toMatchObject({ ok: true, result: { candidatePackages: { exfatprogs: "1.2.2-1" }, mutationPerformed: false } });
+    await expect(executeHelperOperation(request({ operation: "prerequisite.drive-tools.install", parameters: { expectedPackages: { exfatprogs: "1.2.2-1" } } }), { prerequisites })).resolves.toMatchObject({ ok: true, result: { installed: true, tools: { fsckExfat: { answered: true } } } });
+  });
+
+  // Linux only: executeHelperOperation builds its default helpers from POSIX paths.
   it.skipIf(onWindows)("accepts only fixed restic inspection and exact-version installation", async () => {
     expect(validateHelperRequest(request({ operation: "prerequisite.restic.inspect", parameters: {} }))).toBeNull();
     expect(validateHelperRequest(request({ operation: "prerequisite.restic.inspect", parameters: { repository: "/tmp/repo" } }))).toContain("no parameters");

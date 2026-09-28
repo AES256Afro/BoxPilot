@@ -247,3 +247,23 @@ describe("the rewritten REST routes are the same routes", () => {
     expect(complaints, "a rewritten route that changes shape is a different server, not an emptier one").toEqual([]);
   });
 });
+
+describe("the setup checklist in the demo", () => {
+  it("answers in every scenario, drive checks included", async () => {
+    const server = app.listen(0, "127.0.0.1");
+    await new Promise((resolve) => server.once("listening", resolve));
+    const { port } = server.address();
+    try {
+      const drives = {};
+      for (const scenario of scenarioNames) {
+        const response = await fetch(`http://127.0.0.1:${port}/api/v1/setup/checklist`, { headers: { referer: `http://127.0.0.1:${port}/?scenario=${scenario}` } });
+        expect(response.status, scenario).toBe(200);
+        drives[scenario] = (await response.json()).items.find((item) => item.id === "drive-checks");
+      }
+      expect(drives.default).toMatchObject({ known: true, done: true, detail: expect.stringContaining("/mnt/media, through its USB bridge") });
+      expect(drives.fresh).toMatchObject({ known: true, done: false, view: "repairs" });
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
+    }
+  });
+});

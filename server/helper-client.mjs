@@ -14,7 +14,7 @@ const sharableReads = new Set([
   "system.runtime.inspect", "app.inspect", "samba.inspect", "container.docker.inventory", "app.data.usage",
   // The rest of what one Overview or Repair load asks for from several routes at once.
   "apt.unattended.inspect", "firewall.inspect", "nfs.inspect", "host.snapshot.inspect", "app.backups.counts",
-  "prerequisite.docker.inspect", "prerequisite.restic.inspect", "prerequisite.smartmontools.inspect", "prerequisite.virtualization.inspect", "prerequisite.nvidia.inspect",
+  "prerequisite.docker.inspect", "prerequisite.restic.inspect", "prerequisite.smartmontools.inspect", "prerequisite.drive-tools.inspect", "prerequisite.virtualization.inspect", "prerequisite.nvidia.inspect",
   "virtualization.foundation.inspect",
 ]);
 
