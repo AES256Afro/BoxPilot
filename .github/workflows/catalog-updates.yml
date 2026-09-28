@@ -1,0 +1,102 @@
+# Images the repository owner publishes (FarSpace, Keel, LLMCoach and the rest under
+# ghcr.io/<owner>/) release often, and every release used to need a hand-made pull request: one
+# day took sixty of them, and the one that waited fell 22 releases behind. Once a day this moves
+# each of those pins to its newest release tag and keeps one pull request open with the result.
+# Third-party images are left alone; an upstream release can change ports, users or data layout.
+#
+# A pull request opened with the workflow token starts no other workflows, so CI and the image
+# check are started on the branch explicitly, and their results attach to its head commit.
+# Opening the pull request needs Settings → Actions → General → "Allow GitHub Actions to create and
+# approve pull requests". Without it the branch is still pushed and the run summary links to it.
+name: Catalog updates
+
+on:
+  schedule:
+    - cron: "41 7 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+concurrency:
+  group: catalog-updates
+  cancel-in-progress: false
+
+env:
+  BRANCH: catalog/image-updates
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+
+      # Writes the manifests and the pull request text. A registry lookup that fails is reported at
+      # the end of the run rather than here, so the images that could be checked still move.
+      - name: Find newer releases
+        id: find
+        continue-on-error: true
+        run: >-
+          node scripts/catalog-update-images.mjs --owner "${{ github.repository_owner }}" --write
+          --title-file "$RUNNER_TEMP/title.txt" --body-file "$RUNNER_TEMP/body.md"
+
+      - name: Open or refresh the pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FIND_OUTCOME: ${{ steps.find.outcome }}
+        run: |
+          existing="$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty')"
+          if git diff --quiet -- catalog; then
+            echo "Every owned image is on its newest release." >> "$GITHUB_STEP_SUMMARY"
+            # Close a leftover pull request only on a clean run: a crash also leaves no diff.
+            if [ "$FIND_OUTCOME" = success ] && [ -n "$existing" ]; then
+              gh pr close "$existing" --delete-branch --comment "main already pins the newest release of every owned image."
+            fi
+            exit 0
+          fi
+          # The script writes the title only after the edited catalog validates again, so a
+          # missing title means a half-finished edit that must not be pushed.
+          if [ ! -s "$RUNNER_TEMP/title.txt" ]; then
+            echo "The catalog edit did not finish; nothing was pushed." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          cat "$RUNNER_TEMP/body.md" >> "$GITHUB_STEP_SUMMARY"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -C "$BRANCH"
+          git add catalog
+          { cat "$RUNNER_TEMP/title.txt"; printf '\nMoved by the Catalog updates workflow; details are in the pull request.\n'; } | git commit -q -F -
+          # Leave an unchanged branch alone, so a quiet day does not re-run CI for nothing.
+          if git fetch -q origin "$BRANCH" 2>/dev/null && git diff --quiet FETCH_HEAD HEAD; then
+            echo "The open pull request already carries these moves."
+            exit 0
+          fi
+          git push -q --force origin "$BRANCH"
+          title="$(cat "$RUNNER_TEMP/title.txt")"
+          if [ -n "$existing" ]; then
+            gh pr edit "$existing" --title "$title" --body-file "$RUNNER_TEMP/body.md"
+          elif ! gh pr create --base main --head "$BRANCH" --title "$title" --body-file "$RUNNER_TEMP/body.md"; then
+            {
+              echo
+              echo "**The pull request could not be opened** (Actions may not be allowed to create pull requests)."
+              echo "[Open it from the pushed branch](https://github.com/${GITHUB_REPOSITORY}/compare/main...${BRANCH}?expand=1)."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          gh workflow run ci.yml --ref "$BRANCH"
+          gh workflow run catalog-images.yml --ref "$BRANCH"
+
+      - name: Fail the run if a registry lookup failed
+        if: steps.find.outcome == 'failure'
+        run: |
+          echo "::error::Some catalog images could not be checked; see the Find newer releases step."
+          exit 1
