@@ -126,6 +126,20 @@ describe("the weekly report in Settings (M30.4)", () => {
   });
 });
 
+describe("GET /settings/notifications", () => {
+  it("shows where alerts go to the owner only; others see that a target is set and its kind", async () => {
+    const original = notifications.describe;
+    notifications.describe = () => ({ configured: true, kind: "ntfy", url: "https://ntfy.example.org", topic: "private-topic-7f3a", hasToken: false });
+    try {
+      const at = async (role) => (await fetch(`${base}/api/v1/settings/notifications`, { headers: { "x-test-role": role } })).json();
+      expect(await at("owner")).toMatchObject({ configured: true, kind: "ntfy", url: "https://ntfy.example.org", topic: "private-topic-7f3a" });
+      for (const role of ["operator", "viewer"]) expect(await at(role)).toEqual({ configured: true, kind: "ntfy", url: null, topic: null, hasToken: false });
+    } finally {
+      notifications.describe = original;
+    }
+  });
+});
+
 describe("GET /settings/vpn-profile role gate", () => {
   it("serves the owner but refuses viewer and operator (it names the VPN account and exempted LAN ranges)", async () => {
     settings.set("vpnProfile", { configured: true, provider: "protonvpn", openvpnUser: "acct-9931", outboundSubnets: "192.168.1.0/24" });
