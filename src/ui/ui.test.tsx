@@ -109,6 +109,31 @@ describe("Dock", () => {
     fireEvent.click(within(nav).getByRole("button", { name: "Storage" }));
     expect(onSelect).toHaveBeenCalledWith("storage");
   });
+
+  it("shows each area's name above its icon, and draws a rule between groups", () => {
+    render(<Dock onSelect={vi.fn()} items={[{ id: "updates", label: "Updates", icon: "UP", badge: 3 }, { id: "settings", label: "Settings", icon: "ST", separatorBefore: true }]} />);
+    const nav = screen.getByRole("navigation", { name: "Admin areas" });
+    const tip = within(nav).getByRole("button", { name: "Updates, 3 waiting" }).querySelector(".ui-dock__tip");
+    expect(tip?.textContent).toBe("Updates · 3 waiting");
+    expect(tip?.getAttribute("aria-hidden")).toBe("true");
+    expect(nav.querySelectorAll(".ui-dock__separator")).toHaveLength(1);
+    // The rule is drawing only: the list still reads as two areas.
+    expect(within(nav).getAllByRole("listitem")).toHaveLength(2);
+  });
+});
+
+describe("MetricTile as a way in", () => {
+  it("is one button that opens the figure's detail, with nothing inside it to press", () => {
+    const onSelect = vi.fn();
+    render(<MetricTile label="Memory" value="11.0 GB" caption="of 32 GB" status="good" bar={{ value: 34 }} onSelect={onSelect}><button type="button">Not drawn</button></MetricTile>);
+    const tile = screen.getByRole("button", { name: /^Memory/ });
+    expect(tile.getAttribute("data-status")).toBe("good");
+    expect(tile.textContent).toContain("11.0 GB");
+    expect(screen.queryByRole("meter")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Not drawn" })).toBeNull();
+    fireEvent.click(tile);
+    expect(onSelect).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("ThemeSwitch", () => {

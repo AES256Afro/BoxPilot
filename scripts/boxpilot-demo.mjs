@@ -134,6 +134,13 @@ const jobs = [
   { id: "j1", type: "op:host.snapshot.create", title: "Create a machine snapshot", state: "completed", risk: "medium", error: null, result: null, createdAt: ago(30), steps: [], approvals: [] },
   { id: "j2", type: "op:apt.refresh", title: "Refresh package lists", state: "completed", risk: "low", error: null, result: null, createdAt: ago(30), steps: [], approvals: [] },
   { id: "j3", type: "op:apt.upgrade", title: "Install package updates", state: "completed", risk: "medium", error: null, result: null, createdAt: ago(30), steps: [], approvals: [] },
+  // Nights of app backups and one restore drill, each naming its app the way app.backup records it:
+  // what Ops' backup matrix reads (M33.3). Kept after the others, whose order the trouble world uses.
+  ...[["jellyfin", 11], ["pi-hole", 12], ["open-webui", 5], ["jellyfin", 35], ["pi-hole", 36], ["jellyfin", 59], ["pi-hole", 60], ["jellyfin", 83]].map(([id, hours], index) => ({
+    id: `b${index + 1}`, type: "op:app.backup", title: "Back up application data", state: "completed", risk: "medium", error: null, result: null,
+    parameters: { id, keep: 5 }, createdAt: ago(hours), updatedAt: ago(hours - 0.05), steps: [], approvals: [],
+  })),
+  { id: "v1", type: "op:app.backup.verify", title: "Rehearse restoring a backup", state: "completed", risk: "medium", error: null, result: null, parameters: { id: "jellyfin" }, createdAt: ago(10.5), updatedAt: ago(10.4), steps: [], approvals: [] },
 ];
 // What each job's terminal would have shown; the demo serves it from /jobs/:id/output like the product.
 const jobOutputs = {
@@ -786,6 +793,12 @@ const troubleJobs = [
   { id: "r1", type: "op:homepage.sync", title: "Sync Homepage with installed apps", state: "failed", risk: "low", result: null, createdAt: ago(2.1), approvals: [],
     error: "BoxPilot restarted while this job was running. The operation itself may still have finished on its own; check what it changed before retrying.",
     steps: [{ name: "recovery", state: "required", detail: "The operation was interrupted by a BoxPilot restart", createdAt: ago(2) }, { name: "rerun", state: "started", detail: "Running again as job r2", createdAt: ago(2) }] },
+  // Last night's Immich backup, the one the failing schedule ran (M33.2: a failed backup on Home).
+  { id: "t2", type: "op:app.backup", title: "Back up application data", state: "failed", risk: "medium", result: null, createdAt: ago(16), updatedAt: ago(15.9), approvals: [],
+    parameters: { id: "immich", keep: 5 }, error: "tar failed: No space left on device", steps: [{ name: "archive", state: "failed", detail: "tar failed: No space left on device", createdAt: ago(15.9) }] },
+  // Staged by the operator account and waiting for the owner, which Repair's approval desk holds.
+  { id: "t3", type: "op:storage.remount", title: "Reconnect a drive", state: "awaiting_approval", risk: "medium", error: null, result: null, createdAt: ago(0.3), approvals: [],
+    parameters: { name: "media" }, steps: [{ name: "preflight", state: "completed", detail: "Reconnect a drive: parameters validated against the operation registry", createdAt: ago(0.3) }] },
 ];
 const troubleRest = {
   "/jobs": (body) => ({ jobs: [...troubleJobs, ...body.jobs.map((job, index) => (index === 0
@@ -932,6 +945,38 @@ api.post("/jobs/:id/more-time", (request, response) => {
     recovery: { budgetMs: timedOut.timeout.moreTimeMs, retryOf: timedOut.id }, steps: [{ name: "retry", state: "completed", detail: `Trying again with more time. The last run, job ${timedOut.id}, ran out of time.`, createdAt: now().toISOString() }] },
   approval: { tier: "medium", passwordRequired: false, elevated: false, mode: "tiered", reason: "demo: jobs never run here" } });
 });
+// What approving a staged job takes, for Repair's approval desk: the tier the job was staged at.
+api.get("/jobs/:id/approval", (request, response) => {
+  const staged = troubleJobs.find((job) => job.id === request.params.id && job.state === "awaiting_approval");
+  if (!staged) return response.status(404).json({ error: "Job not found" });
+  return json(response, { jobId: staged.id, tier: staged.risk, passwordRequired: false, elevated: false, mode: "tiered", reason: "demo: jobs never run here", confirmText: null, minimumRole: null });
+});
+
+/**
+ * The local assistant (M34.2), which the command bar asks (M33.2). The demo runs no model, so every
+ * question gets the same short answer with its sources and one step to approve, which is what the
+ * command bar needs to be reviewed. The fresh world has no model at all, so its bar stays a search box.
+ */
+const assistantLimits = { questionChars: 2000, timeoutMs: 120_000, perAccount: 1 };
+api.get("/assistant/status", (request, response) => {
+  if (scenarioOf(request.get("referer")) === "fresh") {
+    return json(response, { ready: false, reachable: false, problem: { reason: "no-model", message: "No local model is set up. Install Ollama from the catalog and pull a model, or give the address of one on your network in Settings." },
+      source: null, chatModel: null, embeddings: false, index: { chunks: 412, documents: 38, embedded: 0 }, limits: assistantLimits });
+  }
+  return json(response, { ready: true, reachable: true, problem: null, source: "catalog", chatModel: "hermes3:8b", embeddings: true, index: { chunks: 412, documents: 38, embedded: 412 }, limits: assistantLimits });
+});
+api.post("/assistant/ask", (_request, response) => json(response, {
+  answer: "Three apps have never been backed up: Vaultwarden, Nextcloud and Homepage [S1]. Vaultwarden holds your passwords, so start with it [S2]. Approve the step below to back it up now, then give it a daily schedule on the Backups page so it stays covered [S3].\n\n(The demo gives this answer to every question.)",
+  sources: [
+    { id: "S1", kind: "fact", title: "Which apps have backups", ref: "app.backup.protection", excerpt: "vaultwarden: 0 backups; nextcloud: 0 backups; homepage: 0 backups", cited: true },
+    { id: "S2", kind: "catalog", title: "Vaultwarden", ref: "catalog/vaultwarden.yaml", excerpt: "Password manager compatible with the Bitwarden apps.", cited: true },
+    { id: "S3", kind: "document", title: "Backups: schedules", ref: "docs/ROADMAP-V2.md", excerpt: "Scheduled app backups run as ordinary jobs.", cited: true },
+  ],
+  plan: { steps: [{ operationId: "app.backup", title: "Back up application data", risk: "medium", readOnly: false, approval: "Preview, then confirm", typedConfirmation: false, parameters: { id: "vaultwarden" },
+    why: "Vaultwarden has never been backed up.", request: { method: "POST", path: "/api/v1/operations/app.backup/jobs", body: { parameters: { id: "vaultwarden" } } } }], dropped: [] },
+  model: "hermes3:8b", degraded: null, citations: { unknown: [], uncited: [] }, notes: [],
+}));
+
 api.all("/{*rest}", (_request, response) => response.status(404).json({ error: "Not part of the demo", code: "demo_missing" }));
 app.use("/api/v1", api);
 app.use(express.static(dist, { index: false }));
@@ -941,6 +986,7 @@ app.use(express.static(dist, { index: false }));
  * to the demo's own copy of the page and never reaches a real build.
  */
 export const switcher = (current) => `<style>
+  :root { --shell-bottom-inset: 40px; }
   #demo-worlds { position: fixed; bottom: 0; left: 0; right: 0; z-index: 2147483647; display: flex; gap: .5rem; align-items: center;
     padding: .4rem .75rem; font: 500 12px/1.5 ui-sans-serif, system-ui, sans-serif; color: #cbd5e1;
     background: #0b1220ee; border-top: 1px solid #1e293b; backdrop-filter: blur(6px); }
