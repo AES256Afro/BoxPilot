@@ -18,6 +18,8 @@ interface Flow {
   lastRunAt: string | null; lastResult: string | null; lastJobIds: Array<string | null>;
   frequency: "hourly" | "daily" | "weekly" | null; minute: number | null; hour: number | null; weekday: number | null;
   enabled: boolean; nextDueAt: string | null; triggerFlowId: string | null; webhookEnabled: boolean;
+  // Armed from a drive's row or its Repair notice (M26.5): the managed drive whose loss runs it.
+  triggerDrive?: string | null;
 }
 
 const weekdays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -356,9 +358,15 @@ export default function AutomationsCenter({ csrfToken }: { csrfToken: string }) 
                 {flow.triggerFlowId && (
                   <p className="muted">Runs after {flows?.find((other) => other.id === flow.triggerFlowId)?.name ?? "another flow"} completes, under its own creator's account.{flow.enabled ? "" : " Paused."}</p>
                 )}
+                {flow.triggerDrive && (
+                  <p className="muted">Runs when /mnt/{flow.triggerDrive} drops or goes read-only, under its creator's account, within the limits shown beside the drive on Storage.{flow.enabled ? "" : " Paused."}</p>
+                )}
                 <div className="recovery-actions">
                   <button className="primary-button" type="button" disabled={flow.running} onClick={() => void runFlow(flow)}>{flow.running ? "Running…" : "Run now"}</button>
-                  {!flow.frequency && (
+                  {flow.triggerDrive && (
+                    <button className="secondary-button" type="button" disabled={flow.running} onClick={() => void setEnabled(flow, !flow.enabled)}>{flow.enabled ? "Pause reconnecting" : "Resume reconnecting"}</button>
+                  )}
+                  {!flow.frequency && !flow.triggerDrive && (
                     <button className="secondary-button" type="button" disabled={flow.running} onClick={() => void reschedule(flow, { frequency: "weekly", minute: 0, hour: 3, weekday: 0 })}>Run it every Sunday at 03:00</button>
                   )}
                   {flow.frequency && (

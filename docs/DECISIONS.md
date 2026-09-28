@@ -102,6 +102,21 @@ an effect no single step has.
   source; the run itself goes through the same door as a scheduled one, with the same refusals
   (creator demoted, always-ask mode, already running), recorded and notified the same way.
   Health alerts and device events as triggers remain future work, but they now have a template.
+- **Addendum (unreleased, M26.5): one health condition is admitted as a trigger, a managed drive
+  going dead or read-only.** The webhook's template holds. The fact is BoxPilot's own: the health
+  round's finding about /mnt/<name>, not anything a third party supplies. The consent is arming:
+  whoever clicks creates a flow for exactly that drive, and its one step (reconnect it) is written
+  at that moment. The trigger chooses only WHEN; nothing from the finding reaches the step, which is
+  why arming is per drive rather than one switch for every drive, since a global switch would need
+  the finding to name the drive to the step. The armed state shows on the drive's row, on its Repair
+  notice and on Automations; disarming, pausing or removing the flow revokes it. The run goes
+  through the same door as a scheduled one, under the creator's stored authority with the same
+  refusals, each step an ordinary job. What an event needs and a clock never did is a bound on how
+  often it fires, so this trigger carries its own: a cooldown between runs, a cap per day, a hold
+  after any run that failed or was interrupted until a person has reconnected the drive, and no run
+  while the drive is being checked or after a check found errors. Each outcome goes through the
+  health-alert ledger once. Other health conditions and device events remain future work, and each
+  needs its bounds argued as well as its consent.
 
 ## ADR-003: a read that sees past the caller's own permissions needs an operator
 

@@ -18,7 +18,7 @@ export function outputTailFrom(final, sentBytes) {
   return bytes.subarray(sentBytes).toString("utf8");
 }
 
-export function createJobsRouter({ state, jobs, scheduler, flows = null, helper = null, jobLogReader, auth, streamBudget = createStreamBudget() }) {
+export function createJobsRouter({ state, jobs, scheduler, flows = null, autoReconnect = null, helper = null, jobLogReader, auth, streamBudget = createStreamBudget() }) {
   const router = Router();
   function openStream(request, response) {
     const release = streamBudget.acquire(request.boxpilotSession?.owner?.id ?? "anonymous");
@@ -238,6 +238,33 @@ export function createJobsRouter({ state, jobs, scheduler, flows = null, helper 
     } catch (error) {
       const status = error.message.includes("not found") ? 404 : /Viewers|always ask/.test(error.message) ? 403 : 409;
       response.status(status).json({ error: error.message, code: "flow_run_failed" });
+    }
+  });
+
+  // Reconnecting a drive automatically (M26.5). Arming is creating the drive's flow as the person
+  // asking, disarming removes it; reading says what is armed and what is waiting for a person.
+  router.get("/drives/auto-reconnect", (_request, response) => {
+    if (!autoReconnect) return response.status(503).json({ error: "Automations are not available", code: "flows_unavailable" });
+    return response.json(autoReconnect.status());
+  });
+
+  router.post("/drives/:name/auto-reconnect", auth.requireCsrf, async (request, response) => {
+    if (!autoReconnect) return response.status(503).json({ error: "Automations are not available", code: "flows_unavailable" });
+    try {
+      const flow = await autoReconnect.arm(request.params.name, request.boxpilotSession.owner.id, { role: request.boxpilotSession.owner.role });
+      return response.status(201).json({ flow });
+    } catch (error) {
+      return response.status(error.code === "forbidden" ? 403 : 400).json({ error: error.message, code: "auto_reconnect_rejected" });
+    }
+  });
+
+  router.delete("/drives/:name/auto-reconnect", auth.requireCsrf, (request, response) => {
+    if (!autoReconnect) return response.status(503).json({ error: "Automations are not available", code: "flows_unavailable" });
+    try {
+      autoReconnect.disarm(request.params.name, request.boxpilotSession.owner.id, { role: request.boxpilotSession.owner.role });
+      return response.status(204).end();
+    } catch (error) {
+      return response.status(error.code === "not_found" ? 404 : 403).json({ error: error.message, code: "auto_reconnect_rejected" });
     }
   });
 

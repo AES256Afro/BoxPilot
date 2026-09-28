@@ -391,8 +391,10 @@ its network, use a generic HTTP step for everything else, and hand SaaS breadth 
   fence: the fact is recorded by BoxPilot itself, the consent is the follower's creator writing
   the link (visible on the row, revoked by disabling), the follower runs under its own creator's
   authority with the scheduler's refusals, refusals are recorded and notified, cycles are refused
-  at save, and depth is bounded. Only completion triggers, not failure. Remaining: signals from
-  jobs and thresholds, which start to look like the third-party question below.
+  at save, and depth is bounded. Only completion triggers, not failure. Since then (unreleased,
+  M26.5): one health condition, a managed drive going dead or read-only, with bounds on how often
+  it may fire. Remaining: signals from jobs and other thresholds, which start to look like the
+  third-party question below.
 - ✅ **M13.6** (v1.50.0) **Inbound webhooks.** The deferred consent question got its ADR-002
   addendum and then its code: a flow's creator mints a token for exactly that flow (delegated
   authority, like an API key), the armed state shows on the row, regenerating or removing revokes.
@@ -968,9 +970,23 @@ but detection is the floor.
   same port, same vendor:product, how many times in 30 days, whether a power fault was logged. A
   drive that has dropped twice earns a standing Repair notice naming the cable, port or enclosure
   as the thing to change. The evidence is already in the journal; nothing reads it.
-- **M26.5 Auto-reconnect, opt-in.** A flow the owner can arm: when a managed mount goes dead or
-  read-only, reconnect it and restart bound containers, then notify. Off by default; the
-  scheduler's consent rules apply.
+- ✅ **M26.5 Auto-reconnect, opt-in** (unreleased): arming a drive - "Reconnect automatically" on
+  its row under Storage, or "Reconnect it automatically next time" on the Repair notice that says it
+  dropped - creates a flow of one step, `storage.remount` for that drive (M26.1's reconnect, which
+  restarts every container bound to it and proves the mount with a real read), started by a new
+  trigger: the health round finding /mnt/<name> dead or read-only (ADR-002 addendum). Armed per
+  drive, not globally: the step is written when the drive is armed and nothing from the finding
+  reaches it, and restarting the apps on a drive is a decision about that drive. It is off until
+  someone arms it, runs as an ordinary job under the armer's stored authority with a scheduled run's
+  refusals (always-ask approvals, a creator who lost the role), and shows on Automations, where
+  pausing or removing it revokes it. Guardrails, in `server/auto-reconnect.mjs`: 30 minutes between
+  automatic reconnects of one drive and at most 3 in 24 hours; after one that failed, or that a
+  restart cut off, none until the drive has been reconnected by hand; never while that drive is
+  being checked, reconnected or unmounted; never after its last check found errors. A reconnect is
+  told through the ledger as news ("Reconnected /mnt/media and restarted 3 apps", which stands in
+  for the drop's "resolved"); a failure, the cap, a check with errors or a consent refusal as the
+  automation's own condition, once, cleared by the next reconnect that works, automatic or by hand.
+  One sentence beside each control states the limits.
 
 ### M27 — Silent-failure audit: nothing BoxPilot knows may be shown to nobody
 

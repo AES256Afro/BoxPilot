@@ -4662,6 +4662,12 @@ textarea {
 .problem-evidence li { color: var(--muted); font-size: 11px; border: 1px solid var(--border); border-radius: 999px; padding: 1px 8px; }
 .problem-card > button { justify-self: start; }
 .problem-manual { color: var(--muted); margin: 0; max-width: 82ch; }
+/* Reconnect a drive automatically (M26.5): on a Repair notice and on a Storage row */
+.auto-reconnect { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; min-width: 0; }
+.auto-reconnect > p { flex-basis: 100%; margin: 0; max-width: 82ch; font-size: 13px; }
+.auto-reconnect-waiting { color: var(--warn-text); }
+.auto-reconnect .auth-error { flex-basis: 100%; }
+.mount-rule { margin: 10px 0 0; max-width: 82ch; font-size: 13px; }
 .repair-prereq-header { margin-top: 4px; }
 .repair-prerequisites { display: grid; gap: 12px; min-width: 0; }
 .repair-page { min-width: 0; font-size: 14px; line-height: 1.55; }
