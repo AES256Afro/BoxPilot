@@ -283,6 +283,25 @@ describe("without a model", () => {
       applications = saved;
     }
   });
+
+  // The owner's password guards the address the server's facts are sent to. The catalog fallback
+  // asked for nothing, and followed the port an installed Ollama had recorded whether or not Ollama
+  // was there: an operator could stop it (a low-risk action) and put an app of their own on that
+  // port, and the owner's next question - every account's failed jobs and logs - went to it.
+  it("does not send anything to a catalog Ollama's port while its container is not running", async () => {
+    state.setSetting("assistant", { endpoint: null, model: null, embedModel: null });
+    const saved = applications;
+    applications = [...saved, { id: "ollama", installed: true, container: { exists: true, running: false, status: "exited" }, state: { values: { ports: { api: fake.port } } }, urls: [] }];
+    try {
+      const assistant = service();
+      expect(await assistant.status(caller("owner"))).toMatchObject({ ready: false, source: "none", endpoint: null });
+      const result = await assistant.ask(caller("owner"), { question: "Why did the package refresh fail?" });
+      expect(result.degraded).toMatchObject({ reason: "no-model" });
+      expect(fake.requests).toEqual([]);
+    } finally {
+      applications = saved;
+    }
+  });
 });
 
 describe("bounds", () => {
