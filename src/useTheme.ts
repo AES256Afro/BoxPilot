@@ -29,7 +29,8 @@ export function useTheme() {
   const [theme, setThemeState] = useState<ThemeId>(getStoredTheme);
 
   useEffect(() => {
-    document.documentElement.dataset.theme = theme;
+    // The dark looks are palettes now; data-theme is left for light and dark (styles.css).
+    document.documentElement.dataset.palette = theme;
   }, [theme]);
 
   const setTheme = useCallback((id: ThemeId) => {
