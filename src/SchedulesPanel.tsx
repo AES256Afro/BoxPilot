@@ -8,17 +8,32 @@ interface Schedule {
   title: string; cadence: string;
   /** Set by the API when a schedule has slipped a whole cycle past its due time (M20.1). */
   overdue?: boolean;
+  /** How the last run ended, read from its job rather than from having started one (M27.2). */
+  lastOutcome?: "ran" | "failed" | "did-not-run" | "running" | "unknown" | null;
+  lastReason?: string | null;
 }
 
 interface Template { key: string; label: string; operationId: string; parameters: Record<string, unknown> }
 
 const weekdays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
+/**
+ * The last run's real ending: ran, failed, or did not run. Starting a job used to be shown as "ran",
+ * so a backup whose job failed an hour later still looked fine here.
+ */
 function lastResultPill(schedule: Schedule) {
-  if (!schedule.lastResult) return <span className="status-pill status-neutral">not yet run</span>;
-  if (schedule.lastResult === "started") return <span className="status-pill status-good">ran {schedule.lastRunAt ? new Date(schedule.lastRunAt).toLocaleString() : ""}</span>;
-  if (schedule.lastResult === "blocked-by-approval-mode") return <span className="status-pill status-warning">skipped: Always-ask approvals</span>;
-  return <span className="status-pill status-danger" title={schedule.lastResult}>failed</span>;
+  const when = schedule.lastRunAt ? ` ${new Date(schedule.lastRunAt).toLocaleString()}` : "";
+  const reason = schedule.lastReason ?? schedule.lastResult ?? undefined;
+  switch (schedule.lastOutcome) {
+    case "ran": return <span className="status-pill status-good">ran{when}</span>;
+    case "running": return <span className="status-pill status-neutral">running</span>;
+    case "unknown": return <span className="status-pill status-neutral">started{when}</span>;
+    case "did-not-run": return schedule.lastResult === "blocked-by-approval-mode"
+      ? <span className="status-pill status-warning" title={reason}>did not run: Always-ask approvals</span>
+      : <span className="status-pill status-warning" title={reason}>did not run{when}</span>;
+    case "failed": return <span className="status-pill status-danger" title={reason}>failed{when}</span>;
+    default: return schedule.lastResult ? <span className="status-pill status-danger" title={reason}>failed</span> : <span className="status-pill status-neutral">not yet run</span>;
+  }
 }
 
 /** Scheduled operations (M6.1): nightly app backups, update refreshes, Docker cleanup. */
@@ -120,7 +135,12 @@ export default function SchedulesPanel({ csrfToken, serverTimezone = null }: { c
                   <td>{schedule.title}{typeof schedule.parameters.subject === "string" ? <> · <code>{schedule.parameters.subject}</code></> : null}</td>
                   <td>{schedule.cadence}</td>
                   <td>{schedule.enabled ? <>{new Date(schedule.nextDueAt).toLocaleString()}{schedule.overdue ? <span className="status-pill status-warning" style={{ marginLeft: 6 }} title="This schedule has not run for more than a full cycle — the server may have been off, or the task may be failing.">behind</span> : null}</> : "paused"}</td>
-                  <td>{lastResultPill(schedule)}</td>
+                  <td>
+                    {lastResultPill(schedule)}
+                    {(schedule.lastOutcome === "failed" || schedule.lastOutcome === "did-not-run") && schedule.lastReason && schedule.lastResult !== "blocked-by-approval-mode"
+                      ? <div className="muted schedule-reason">{schedule.lastReason}</div>
+                      : null}
+                  </td>
                   <td>
                     <div className="recovery-actions">
                       {schedule.lastJobId && (

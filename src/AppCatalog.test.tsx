@@ -70,7 +70,7 @@ describe("App catalog", () => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => input.toString() === "/api/v1/catalog" ? json({ applications: [{ manifest, live: { installed: false, state: null, container: { exists: false } } }], problems: [], host: {} }) : json({})));
     render(<AppCatalog csrfToken="csrf-token" />);
     const opener = await screen.findByRole("button", { name: "Install" }); opener.focus(); fireEvent.click(opener);
-    const dialog = await screen.findByRole("dialog"); expect(document.activeElement).toBe(dialog);
+    const dialog = await screen.findByRole("dialog"); await waitFor(() => expect(document.activeElement).toBe(dialog));
     fireEvent.keyDown(dialog, { key: "Tab" });
     expect(document.activeElement).toBe(within(dialog).getByRole("button", { name: "Close dialog" }));
     fireEvent.keyDown(dialog, { key: "Escape" });
@@ -289,7 +289,7 @@ describe("App catalog", () => {
     opener.focus();
     fireEvent.click(opener);
     const dialog = await screen.findByRole("dialog");
-    expect(document.activeElement).toBe(dialog);
+    await waitFor(() => expect(document.activeElement).toBe(dialog));
     fireEvent.keyDown(document, { key: "Tab" });
     expect(dialog.contains(document.activeElement)).toBe(true);
     fireEvent.keyDown(document.activeElement as Element, { key: "Escape" });
@@ -465,7 +465,7 @@ describe("finding things in a catalog of a hundred-odd apps", () => {
     const opener = await screen.findByRole("button", { name: "Config" }); opener.focus();
     fireEvent.click(opener);
     const dialog = await screen.findByRole("dialog");
-    expect(document.activeElement).toBe(dialog);
+    await waitFor(() => expect(document.activeElement).toBe(dialog));
     fireEvent.click(await screen.findByRole("button", { name: "Read Compose file" }));
     await waitFor(() => expect(signal).toBeTruthy());
     fireEvent.keyDown(dialog, { key: "Escape" });

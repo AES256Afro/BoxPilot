@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import VmPlanner from "./VmPlanner";
 
@@ -70,7 +70,7 @@ describe("VM planner", () => {
     const onClose = vi.fn();
     const { unmount } = render(<VmPlanner onClose={onClose} onStage={vi.fn()} csrfToken="csrf" />);
     const dialog = screen.getByRole("dialog");
-    expect(document.activeElement).toBe(dialog);
+    await waitFor(() => expect(document.activeElement).toBe(dialog));
     fireEvent.keyDown(document, { key: "Tab" });
     expect(dialog.contains(document.activeElement)).toBe(true);
     fireEvent.keyDown(dialog, { key: "Escape" });
