@@ -1,6 +1,7 @@
 import { stat } from "node:fs/promises";
 import { productVersion } from "../version.mjs";
 import { createJobLogWriter, jobLogPath, serviceGroupId } from "../job-log.mjs";
+import { driveToolPackagesProblem } from "../prerequisite-helper.mjs";
 import { defineOperation } from "./registry.mjs";
 
 const debianVersion = /^[0-9A-Za-z.+:~_-]{1,64}$/;
@@ -42,6 +43,18 @@ export function prerequisiteOperations() {
     }),
     defineOperation({ id: "prerequisite.smartmontools.inspect", title: "Inspect smartmontools", risk: "low", readOnly: true, parameters: noParameters, run: (_p, { prerequisites }) => prerequisites.inspectSmartmontools() }),
     defineOperation({ id: "prerequisite.smartmontools.install", title: "Install smartmontools", risk: "medium", description: "Installs smartmontools from Ubuntu's archive, which is what reads a disk's SMART health.", timeoutMs: minutes(15), parameters: exactVersion, run: (parameters, { prerequisites }) => prerequisites.installSmartmontools(parameters) }),
+    defineOperation({
+      id: "prerequisite.drive-tools.inspect", title: "Inspect the drive check tools", risk: "low", readOnly: true, parameters: noParameters,
+      description: "Whether smartctl and fsck.exfat are on this server, and the exact version Ubuntu's package lists offer for any that is missing.",
+      run: (_p, { prerequisites }) => prerequisites.inspectDriveTools(),
+    }),
+    defineOperation({
+      // M26.3. The same fixed installer as smartmontools alone, with the exFAT checker added to its set.
+      id: "prerequisite.drive-tools.install", title: "Install the drive check tools", risk: "medium", timeoutMs: minutes(17),
+      description: "Installs whichever of smartmontools (smartctl, which reads a disk's SMART health) and exfatprogs (fsck.exfat, which checks an exFAT drive) is missing, at the exact version shown, then confirms each tool answers and reads every disk's SMART health again. Nothing else is installed and no drive is touched.",
+      parameters: { fields: { expectedPackages: { type: "object", validate: driveToolPackagesProblem } } },
+      run: (parameters, { prerequisites }) => prerequisites.installDriveTools(parameters),
+    }),
     defineOperation({ id: "prerequisite.restic.inspect", title: "Inspect restic", risk: "low", readOnly: true, parameters: noParameters, run: (_p, { prerequisites }) => prerequisites.inspectRestic() }),
     defineOperation({ id: "prerequisite.restic.install", title: "Install restic", risk: "medium", description: "Installs restic from Ubuntu's archive. It is the engine behind the encrypted, independent copies of your backups.", timeoutMs: minutes(15), parameters: exactVersion, run: (parameters, { prerequisites }) => prerequisites.installRestic(parameters) }),
     defineOperation({ id: "prerequisite.docker.inspect", title: "Inspect Docker Engine", risk: "low", readOnly: true, parameters: noParameters, run: (_p, { prerequisites }) => prerequisites.inspectDocker() }),

@@ -176,17 +176,22 @@ describe("native systemd network boundaries", () => {
     expect(runner).not.toMatch(/child_process|exec\(|spawn\(/);
   });
 
-  it("ships a static exact-package smartmontools installer without a general package argument", async () => {
+  it("ships a static exact-package drive-tools installer without a general package argument", async () => {
     const service = await readFile("deploy/boxpilot-smartmontools-install.service", "utf8");
     const protocol = await readFile("server/helper-protocol.mjs", "utf8");
     expect(service).toContain("Type=oneshot");
     const installer = await readFile("scripts/boxpilot-smartmontools-install.mjs", "utf8");
     expect(service).toContain("ExecStart=/usr/local/bin/node /opt/boxpilot/scripts/boxpilot-smartmontools-install.mjs");
-    expect(service).toContain("ConditionPathExists=!/usr/sbin/smartctl");
+    // exfatprogs may be the only one missing, so the unit must still start when smartctl exists.
+    expect(service).not.toContain("ConditionPathExists=!/usr/sbin/smartctl");
     expect(service).toContain("ConditionPathExists=/run/boxpilot/smartmontools-approval.json");
-    expect(installer).toContain("`smartmontools=${approval.expectedVersion}`");
+    // The fixed set, and only exact pinned versions from it.
+    expect(installer).toContain('const fixedPackages = Object.freeze(["exfatprogs", "smartmontools"]);');
+    expect(installer).toContain("`${name}=${approved[name]}`");
+    expect(installer).toContain('"--no-install-recommends", "--no-remove"');
     expect(installer).toContain("[\"start\", \"boxpilot-storage-scan.service\"]");
     expect(installer).toContain("process.argv.length !== 2");
+    expect(helperOperations.has("prerequisite.drive-tools.install")).toBe(true);
     expect(service).not.toContain("apt-get update");
     expect(installer).not.toContain("apt-get update");
     expect(service).not.toContain("%i");

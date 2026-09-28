@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { createPrerequisiteHelper } from "./prerequisite-helper.mjs";
+import { prerequisiteOperations } from "./ops/prerequisites.mjs";
+import { createRegistry } from "./ops/registry.mjs";
 
 function packageRun({ installed = true } = {}) {
   return vi.fn(async (binary, args) => {
@@ -246,5 +248,119 @@ describe("fixed prerequisite helper", () => {
     const changed = createPrerequisiteHelper({ maintenance: { inspect: async () => ({ aptMetadata: { available: true, state: "stale", updatedAt: "2026-08-02T00:00:00.000Z", ageHours: 336 }, packageManager: { state: "ready" } }) } });
     await expect(changed.refreshAptMetadata({ expectedUpdatedAt: "2026-08-01T00:00:00.000Z" })).rejects.toThrow("no longer matches");
     await expect(changed.refreshAptMetadata({ expectedUpdatedAt: "not-a-time" })).rejects.toThrow("timestamp is invalid");
+  });
+});
+
+/**
+ * A host as dpkg, apt-cache, test and the tools themselves describe it. Starting the fixed
+ * installer unit installs what the approval marker names, unless `install` says otherwise.
+ */
+function driveToolsHost({ installed = { smartmontools: "7.4-2build1" }, candidates = { smartmontools: "7.4-2build1", exfatprogs: "1.2.2-1" }, answers = true, install = null } = {}) {
+  const host = { installed: { ...installed }, approval: null, units: [] };
+  const present = () => ({ "/usr/sbin/smartctl": Boolean(host.installed.smartmontools), "/usr/sbin/fsck.exfat": Boolean(host.installed.exfatprogs) });
+  host.run = vi.fn(async (binary, args) => {
+    if (binary === "/usr/bin/test") return { ok: Boolean(present()[args[1]]), stdout: "" };
+    if (binary.endsWith("dpkg-query")) { const name = args.at(-1); return host.installed[name] ? { ok: true, stdout: `install ok installed\t${host.installed[name]}` } : { ok: false, stdout: "" }; }
+    if (binary.endsWith("apt-cache")) { const name = args.at(-1); return { ok: true, stdout: `${name}:\n  Installed: (none)\n  Candidate: ${candidates[name] ?? "(none)"}\n  token=must-not-leak` }; }
+    if (binary.endsWith("systemctl")) {
+      host.units.push(args);
+      if (args[1] === "boxpilot-smartmontools-install.service") (install ?? ((packages) => Object.assign(host.installed, packages)))(host.approval.packages);
+      return { ok: true, stdout: "" };
+    }
+    if (binary === "/usr/sbin/smartctl") return answers ? { ok: true, stdout: "smartctl 7.4 2023-08-01 r5530 [x86_64-linux-6.8.0] (local build)" } : { ok: false, stdout: "", code: 127 };
+    // exfatprogs exits non-zero after -V on some releases; the version line is the answer.
+    if (binary === "/usr/sbin/fsck.exfat") return answers ? { ok: false, stdout: "exfatprogs version : 1.2.2", code: 16 } : { ok: false, stdout: "", code: 127 };
+    throw new Error(`unexpected ${binary} ${args.join(" ")}`);
+  });
+  host.writeApproval = vi.fn(async (approval) => { host.approval = approval; });
+  host.clearApproval = vi.fn(async () => undefined);
+  return host;
+}
+
+const freshEvidence = () => JSON.stringify({ generatedAt: "2026-09-28T06:00:30.000Z", available: true, disks: [{ device: "/dev/nvme0n1" }, { device: "/dev/sdb" }] });
+const scanTime = () => new Date("2026-09-28T06:01:00.000Z");
+
+describe("drive check tools (M26.3)", () => {
+  it("says which tool is missing and the exact version on offer, without raw APT output", async () => {
+    const host = driveToolsHost();
+    const result = await createPrerequisiteHelper({ run: host.run }).inspectDriveTools();
+    expect(result).toEqual({
+      tools: { smartctl: true, fsckExfat: false },
+      packages: { exfatprogs: { installedVersion: null, candidateVersion: "1.2.2-1" }, smartmontools: { installedVersion: "7.4-2build1", candidateVersion: "7.4-2build1" } },
+      installed: false, missing: ["exfatprogs"], broken: [], candidatePackages: { exfatprogs: "1.2.2-1" }, repairAvailable: true,
+      source: "configured-apt-candidates", mutationPerformed: false, arbitraryPackageAccepted: false,
+    });
+    expect(JSON.stringify(result)).not.toContain("must-not-leak");
+    expect(host.run).toHaveBeenCalledWith("/usr/bin/test", ["-e", "/usr/sbin/fsck.exfat"], { timeout: 10000 });
+  });
+
+  it("does not offer to repair what it cannot: no candidate, or a package whose tool has gone", async () => {
+    const offline = await createPrerequisiteHelper({ run: driveToolsHost({ installed: {}, candidates: { smartmontools: "7.4-2build1" } }).run }).inspectDriveTools();
+    expect(offline).toMatchObject({ installed: false, missing: ["exfatprogs", "smartmontools"], candidatePackages: { smartmontools: "7.4-2build1" }, repairAvailable: false });
+    const host = driveToolsHost({ installed: { smartmontools: "7.4-2build1", exfatprogs: "1.2.2-1" } });
+    host.run.mockImplementation(async (binary, args) => (binary === "/usr/bin/test" && args[1].includes("fsck.exfat") ? { ok: false, stdout: "" } : binary.endsWith("dpkg-query") ? { ok: true, stdout: `install ok installed\t${args.at(-1) === "exfatprogs" ? "1.2.2-1" : "7.4-2build1"}` } : { ok: true, stdout: "  Candidate: 1.2.2-1" }));
+    expect(await createPrerequisiteHelper({ run: host.run }).inspectDriveTools()).toMatchObject({ missing: ["exfatprogs"], broken: ["exfatprogs"], candidatePackages: {}, repairAvailable: false });
+  });
+
+  it("installs only the missing tool through the fixed unit, then proves both answer", async () => {
+    const host = driveToolsHost();
+    const helper = createPrerequisiteHelper({ run: host.run, writeApproval: host.writeApproval, clearApproval: host.clearApproval, loadEvidence: async () => freshEvidence(), now: scanTime });
+    const result = await helper.installDriveTools({ expectedPackages: { exfatprogs: "1.2.2-1" } });
+    expect(host.writeApproval).toHaveBeenCalledWith({ packages: { exfatprogs: "1.2.2-1" }, approvedAt: "2026-09-28T06:01:00.000Z" });
+    expect(host.clearApproval).toHaveBeenCalledTimes(2);
+    expect(host.units).toEqual([["start", "boxpilot-smartmontools-install.service"]]);
+    expect(host.run).toHaveBeenCalledWith("/usr/sbin/fsck.exfat", ["-V"], { timeout: 10000 });
+    expect(host.run).toHaveBeenCalledWith("/usr/sbin/smartctl", ["--version"], { timeout: 10000 });
+    expect(result).toMatchObject({
+      installed: true, packages: { exfatprogs: "1.2.2-1" },
+      tools: { smartctl: { answered: true, version: "7.4" }, fsckExfat: { answered: true, version: "1.2.2" } },
+      scan: { completed: true, evidenceRefreshed: true, diskResults: 2 },
+      boundary: { fixedPackageSet: true, arbitraryPackageAccepted: false, packageRemovalPerformed: false, driveTouched: false },
+    });
+  });
+
+  it("refuses a plan that no longer matches what is missing, before writing any approval", async () => {
+    const host = driveToolsHost();
+    const helper = createPrerequisiteHelper({ run: host.run, writeApproval: host.writeApproval, clearApproval: host.clearApproval, loadEvidence: async () => freshEvidence(), now: scanTime });
+    for (const expectedPackages of [{ exfatprogs: "1.2.1-1" }, { exfatprogs: "1.2.2-1", smartmontools: "7.4-2build1" }, { smartmontools: "7.4-2build1" }]) {
+      await expect(helper.installDriveTools({ expectedPackages })).rejects.toThrow("no longer match the approved plan");
+    }
+    for (const expectedPackages of [{}, { curl: "8.5.0-2" }, { exfatprogs: "$(id)" }, ["exfatprogs"], null]) {
+      await expect(helper.installDriveTools({ expectedPackages })).rejects.toThrow("drive-check packages are invalid");
+    }
+    const ready = driveToolsHost({ installed: { smartmontools: "7.4-2build1", exfatprogs: "1.2.2-1" } });
+    await expect(createPrerequisiteHelper({ run: ready.run, writeApproval: ready.writeApproval }).installDriveTools({ expectedPackages: { exfatprogs: "1.2.2-1" } })).rejects.toThrow("already on this server");
+    expect(host.writeApproval).not.toHaveBeenCalled();
+    expect(ready.writeApproval).not.toHaveBeenCalled();
+    expect(host.units).toEqual([]);
+  });
+
+  it("fails the job when the package landed but a tool does not answer, or the wrong version landed", async () => {
+    const silent = driveToolsHost({ answers: false });
+    await expect(createPrerequisiteHelper({ run: silent.run, writeApproval: silent.writeApproval, clearApproval: silent.clearApproval, loadEvidence: async () => freshEvidence(), now: scanTime })
+      .installDriveTools({ expectedPackages: { exfatprogs: "1.2.2-1" } })).rejects.toThrow("smartctl and fsck.exfat are installed but did not answer");
+    const drifted = driveToolsHost({ install: () => Object.assign(drifted.installed, { exfatprogs: "1.2.3-1" }) });
+    await expect(createPrerequisiteHelper({ run: drifted.run, writeApproval: drifted.writeApproval, clearApproval: drifted.clearApproval, loadEvidence: async () => freshEvidence(), now: scanTime })
+      .installDriveTools({ expectedPackages: { exfatprogs: "1.2.2-1" } })).rejects.toThrow("exfatprogs did not match the approved version");
+    const nothing = driveToolsHost({ install: () => undefined });
+    await expect(createPrerequisiteHelper({ run: nothing.run, writeApproval: nothing.writeApproval, clearApproval: nothing.clearApproval, loadEvidence: async () => freshEvidence(), now: scanTime })
+      .installDriveTools({ expectedPackages: { exfatprogs: "1.2.2-1" } })).rejects.toThrow("exfatprogs did not match the approved version");
+    expect(nothing.clearApproval).toHaveBeenCalledTimes(2);
+  });
+
+  it("accepts only the fixed package set, at exact versions, as registry parameters", () => {
+    const registry = createRegistry([prerequisiteOperations]);
+    expect(registry.get("prerequisite.drive-tools.install")).toMatchObject({ risk: "medium", readOnly: false });
+    expect(registry.get("prerequisite.drive-tools.inspect")).toMatchObject({ risk: "low", readOnly: true });
+    expect(registry.validate("prerequisite.drive-tools.inspect", {})).toBeNull();
+    expect(registry.validate("prerequisite.drive-tools.inspect", { package: "curl" })).toContain("no parameters");
+    expect(registry.validate("prerequisite.drive-tools.install", { expectedPackages: { exfatprogs: "1.2.2-1" } })).toBeNull();
+    expect(registry.validate("prerequisite.drive-tools.install", { expectedPackages: { exfatprogs: "1.2.2-1", smartmontools: "7.4-2build1" } })).toBeNull();
+    expect(registry.validate("prerequisite.drive-tools.install", { expectedPackages: { curl: "8.5.0-2" } })).toContain("may list only exfatprogs and smartmontools");
+    expect(registry.validate("prerequisite.drive-tools.install", { expectedPackages: {} })).toContain("at least one package");
+    expect(registry.validate("prerequisite.drive-tools.install", { expectedPackages: { exfatprogs: "1.2.2-1; reboot" } })).toContain("exact Debian version");
+    expect(registry.validate("prerequisite.drive-tools.install", { expectedPackages: ["exfatprogs"] })).toContain("must be a object");
+    expect(registry.validate("prerequisite.drive-tools.install", { expectedPackages: { exfatprogs: "1.2.2-1" }, packages: ["curl"] })).toContain('does not accept parameter "packages"');
+    expect(registry.validate("prerequisite.drive-tools.install", {})).toContain('requires parameter "expectedPackages"');
   });
 });

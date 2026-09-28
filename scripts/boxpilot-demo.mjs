@@ -807,7 +807,7 @@ api.get("/operations", (_request, response) => json(response, { operations: [], 
 const demoPrerequisites = [
   { id: "helper.boundary", group: "BoxPilot", name: "Root helper", status: "ready", summary: "Answering on its socket, running the pinned release.", repair: null },
   { id: "docker", group: "Applications", name: "Docker Engine", status: "ready", summary: "28.0.0 installed, service active.", repair: null },
-  { id: "smartmontools", group: "Disks", name: "smartmontools", status: "ready", summary: "7.4 installed; the disk-health timer is running.", repair: null },
+  { id: "drive-tools", group: "Disks", name: "Drive check tools", status: "ready", summary: "smartctl reads each disk's SMART health and fsck.exfat can check an exFAT drive.", repair: null },
   { id: "restic", group: "Backups", name: "restic", status: "ready", summary: "0.17.3 installed.", repair: null },
   { id: "rsync", group: "Backups", name: "rsync", status: "missing", summary: "Not installed. Mirroring backups to another machine needs it.", repair: { kind: "approved", description: "Installs rsync from Ubuntu's repositories." } },
   { id: "virtualization", group: "Virtual machines", name: "QEMU/KVM and libvirt", status: "ready", summary: "Hardware virtualization available; libvirtd active.", repair: null },

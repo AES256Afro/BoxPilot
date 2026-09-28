@@ -198,9 +198,12 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
   // One generic review flow: read the live pinned versions from the registry inspect,
   // then stage the matching install through the shared risk-tiered dialog.
   const repairDefinitions: Record<string, { inspect: string; install: string; describe: (result: Record<string, unknown>) => { title: string; parameters: Record<string, unknown>; preview: ReactNode } }> = {
-    "storage.smartmontools": {
-      inspect: "prerequisite.smartmontools.inspect", install: "prerequisite.smartmontools.install",
-      describe: (result) => ({ title: `Install smartmontools ${result.selectedVersion}`, parameters: { expectedVersion: result.selectedVersion }, preview: <span>Installs <code>smartmontools {String(result.selectedVersion)}</code> from the configured Ubuntu source. The job re-checks the pinned version before it runs.</span> }),
+    "storage.drive-tools": {
+      inspect: "prerequisite.drive-tools.inspect", install: "prerequisite.drive-tools.install",
+      describe: (result) => {
+        const packages = (result.candidatePackages ?? {}) as Record<string, string>;
+        return { title: "Install the drive check tools", parameters: { expectedPackages: packages }, preview: <span>Installs <code>{Object.entries(packages).map(([name, version]) => `${name} ${version}`).join(", ")}</code> from the configured Ubuntu source, then confirms smartctl and fsck.exfat answer and reads every disk's SMART health again. The job re-checks the pinned versions before it runs. No drive is touched.</span> };
+      },
     },
     "backup.restic": {
       inspect: "prerequisite.restic.inspect", install: "prerequisite.restic.install",
