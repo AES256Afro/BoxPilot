@@ -5,6 +5,7 @@
 import { Router } from "express";
 import { createEventStream, createStreamBudget } from "../event-stream.mjs";
 import { suggestFlows, suggestionFacts } from "../flow-suggestions.mjs";
+import { callerId, readsThroughHelper, seesEveryAccount } from "./access.mjs";
 
 /**
  * The part of a job's persisted output the stream has not sent yet, given how many BYTES of the
@@ -153,20 +154,37 @@ export function createJobsRouter({ state, jobs, scheduler, flows = null, helper 
   // Flows (ADR-002): ordered lists of registered operations, each step an ordinary job. The
   // routes mirror schedules: reading needs a session, changing needs CSRF, and running is barred
   // to viewers by the service itself.
-  router.get("/flows", async (_request, response) => {
+  router.get("/flows", async (request, response) => {
     if (!flows) return response.status(503).json({ error: "Flows are not available", code: "flows_unavailable" });
-    response.json({ flows: await flows.list(), palette: flows.stepPalette(), shelf: flows.shelf() });
+    const listed = await flows.list();
+    response.json({ flows: seesEveryAccount(request) ? listed : listed.map((flow) => flowForCaller(request, flow)), palette: flows.stepPalette(), shelf: flows.shelf() });
   });
+
+  /**
+   * A flow is shared - every role reads it, and an operator may run anyone's - but each run's steps
+   * are jobs of whoever ran it (M29.4). For anyone but the owner, a last run that was not entirely
+   * theirs keeps its outcome and the step it reached, and loses its job ids and the error text those
+   * jobs recorded; the flow's creator is named only to the creator.
+   */
+  function flowForCaller(request, flow) {
+    const self = callerId(request);
+    const jobIds = Array.isArray(flow.lastJobIds) ? flow.lastJobIds : [];
+    const theirs = jobIds.every((jobId) => jobId === null || (self !== null && state.getJob(jobId)?.createdBy === self));
+    const visible = { ...flow, createdBy: flow.createdBy === self ? flow.createdBy : null };
+    if (theirs) return visible;
+    return { ...visible, lastJobIds: [], lastResult: typeof flow.lastResult === "string" ? flow.lastResult.split(": ")[0] : flow.lastResult, lastRunElsewhere: true };
+  }
 
   // Which automation this server in particular should have, and why (M24.1). Nothing is created:
   // this is the argument for pressing a button that was already on the shelf.
-  router.get("/flows/suggestions", async (_request, response) => {
+  router.get("/flows/suggestions", async (request, response) => {
     if (!flows) return response.status(503).json({ error: "Flows are not available", code: "flows_unavailable" });
     // Three of the four facts are database reads and free. The other two ask the helper, and a
     // fact that cannot be read simply means that argument is not made today rather than an error:
-    // a suggestion nobody can justify should not be offered at all.
+    // a suggestion nobody can justify should not be offered at all. housekeeping.inspect needs an
+    // operator (ADR-003), so it is not run for a viewer, who cannot add a flow either (M29.4).
     const [housekeeping, updates] = await Promise.all([
-      helper ? helper.request("housekeeping.inspect", {}, { timeoutMs: 20_000 }).catch(() => null) : null,
+      helper && readsThroughHelper(request) ? helper.request("housekeeping.inspect", {}, { timeoutMs: 20_000 }).catch(() => null) : null,
       helper ? helper.request("apt.upgradable.inspect", {}, { timeoutMs: 20_000 }).catch(() => null) : null,
     ]);
     const packages = Array.isArray(updates?.packages) ? updates.packages : [];

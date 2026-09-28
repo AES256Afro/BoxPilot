@@ -13,9 +13,11 @@ import CopyButton from "./CopyButton";
  */
 interface FlowStep { operationId: string; parameters?: Record<string, unknown>; name?: string; onFailure?: "stop" | "continue"; when?: { value: string; equals?: unknown }; retry?: number }
 interface Flow {
-  id: string; name: string; steps: FlowStep[]; createdBy: string;
+  // createdBy is null for someone else's flow unless you are the owner; so is a run another account
+  // started, which comes with lastRunElsewhere, its outcome, and none of its jobs (M29.4).
+  id: string; name: string; steps: FlowStep[]; createdBy: string | null;
   risk: "low" | "medium" | "high"; running: boolean;
-  lastRunAt: string | null; lastResult: string | null; lastJobIds: Array<string | null>;
+  lastRunAt: string | null; lastResult: string | null; lastJobIds: Array<string | null>; lastRunElsewhere?: boolean;
   frequency: "hourly" | "daily" | "weekly" | null; minute: number | null; hour: number | null; weekday: number | null;
   enabled: boolean; nextDueAt: string | null; triggerFlowId: string | null; webhookEnabled: boolean;
 }
@@ -332,7 +334,10 @@ export default function AutomationsCenter({ csrfToken }: { csrfToken: string }) 
                     Last run{flow.lastRunAt ? ` ${new Date(flow.lastRunAt).toLocaleString()}` : ""}: {flow.lastResult}
                   </p>
                 )}
-                {(flow.running || flow.lastJobIds.length > 0) && (
+                {flow.lastRunElsewhere && (
+                  <p className="muted">{flow.running ? "Someone else is running this now." : "Someone else ran this last."} Its steps are in their Activity.</p>
+                )}
+                {!flow.lastRunElsewhere && (flow.running || flow.lastJobIds.length > 0) && (
                   <details className="flow-run-detail">
                     <summary>{flow.running ? "Watch this run" : "What the last run did"}</summary>
                     {flow.lastJobIds.length === 0

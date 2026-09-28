@@ -10,7 +10,7 @@ All API responses use JSON and send `Cache-Control: no-store`.
 GET /api/v1/audit?limit=100
 ```
 
-The limit is constrained to `1-200`. Events are returned newest first. The older JSONL foundation records bounded `vm.plan.created` events and may contain historical lifecycle events from releases before `0.10.0`. Current lifecycle and snapshot attribution, approvals, steps, results, and failures live in the Operations Core SQLite job ledger. Tokens, command output, raw environment values, and guest secrets are excluded.
+The limit is constrained to `1-200`. Events are returned newest first. The owner sees every event; any other account sees only the events it recorded (an entry written before `actorId` was recorded is the owner's). The older JSONL foundation records bounded `vm.plan.created` events and may contain historical lifecycle events from releases before `0.10.0`. Current lifecycle and snapshot attribution, approvals, steps, results, and failures live in the Operations Core SQLite job ledger. Tokens, command output, raw environment values, and guest secrets are excluded.
 
 On the native systemd deployment, the JSONL file lives under `StateDirectory=boxpilot`. This is a live operational foundation, not the final owner-attributed and tamper-evident audit ledger.
 

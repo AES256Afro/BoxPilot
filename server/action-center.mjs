@@ -87,8 +87,14 @@ function collectorNotice() {
   };
 }
 
-export function createActionCenterService({ recoveryKit, inventory = null, now = () => new Date(), version = productVersion } = {}) {
-  async function inspect() {
+/**
+ * `listJobs(createdBy)` returns one account's recent jobs. `inspect({ createdBy })` is the view for
+ * an account that is not the owner (M29.4): it counts that account's own failures, because the
+ * recovery kit's job list is every account's and Activity shows them only their own. Without a
+ * reader, such a view counts none rather than everyone's.
+ */
+export function createActionCenterService({ recoveryKit, inventory = null, listJobs = null, now = () => new Date(), version = productVersion } = {}) {
+  async function inspect({ createdBy } = {}) {
     let kit;
     try {
       kit = await recoveryKit.inspect();
@@ -141,7 +147,8 @@ export function createActionCenterService({ recoveryKit, inventory = null, now =
       boundary: boundary(),
     });
 
-    const failedJobs = kit.evidence.jobs.filter((item) => item.state === "failed").length;
+    const recentJobs = createdBy === undefined ? kit.evidence.jobs : (listJobs && createdBy ? listJobs(createdBy) : []);
+    const failedJobs = recentJobs.filter((item) => item.state === "failed").length;
     if (failedJobs > 0) notices.push({
       id: "jobs.failed",
       severity: "warning",

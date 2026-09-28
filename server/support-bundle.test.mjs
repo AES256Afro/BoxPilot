@@ -24,6 +24,21 @@ describe("source-backed support bundle", () => {
     expect(result.redactionPolicy).toMatchObject({ additionalLiteralCount: 1, configuredValuesIncluded: false });
   });
 
+  it("gives an operator their own audit trail and job failures, and the owner everyone's (M29.4)", async () => {
+    const events = [{ type: "job.created", actorId: "owner-1", subjectId: "job-owner" }, { type: "job.created", actorId: "operator-1", subjectId: "job-operator" }];
+    const store = { listAudit: vi.fn((limit, { actorId = null } = {}) => events.filter((event) => !actorId || event.actorId === actorId).slice(0, limit)) };
+    const actionCenter = { inspect: vi.fn(async () => ({ notices: [] })) };
+    const owner = await service({ store, actionCenter }).inspect();
+    expect(owner.sources.audit.data.map((event) => event.subjectId)).toEqual(["job-owner", "job-operator"]);
+    expect(actionCenter.inspect).toHaveBeenLastCalledWith({});
+    const operator = await service({ store, actionCenter }).inspect({ actorId: "operator-1" });
+    expect(operator.sources.audit.data.map((event) => event.subjectId)).toEqual(["job-operator"]);
+    expect(actionCenter.inspect).toHaveBeenLastCalledWith({ createdBy: "operator-1" });
+    // Without the database, the file log is filtered the same way.
+    const fromFile = await service({ audit: { list: vi.fn(async () => ({ available: true, events })) } }).inspect({ actorId: "operator-1" });
+    expect(fromFile.sources.audit.data.events.map((event) => event.subjectId)).toEqual(["job-operator"]);
+  });
+
   it("degrades each collector independently and never returns thrown error text", async () => {
     const failed = service({ inventory: { inspect: vi.fn(async () => { throw new Error("inventory-secret"); }) }, helper: { request: vi.fn(async () => { throw new Error("log-secret"); }) } });
     const result = await failed.inspect();

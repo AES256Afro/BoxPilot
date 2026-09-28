@@ -5,9 +5,13 @@ import { createHostRouter } from "./host.mjs";
 
 vi.mock("../storage-inventory.mjs", () => ({ collectStorage: vi.fn(async () => { throw new Error("storage timeout"); }) }));
 
+// Repair's File sharing and USB history checks are operator reads; these tests are about sources failing, not roles.
+const asOwner = (request, _response, next) => { request.boxpilotSession = { owner: { id: "owner-1", role: "owner" } }; next(); };
+
 describe("remediation source availability", () => {
   it("keeps failed collectors visible rather than presenting an empty healthy scan", async () => {
     const app = express();
+    app.use(asOwner);
     app.use(createHostRouter({
       state: { getSetting: (_key, fallback) => fallback },
       helper: { request: async () => { throw new Error("helper unavailable"); } },
@@ -31,6 +35,7 @@ describe("remediation source availability", () => {
 it("names unavailable mount and catalog sources even when other checks succeed", async () => {
   vi.mocked(collectStorage).mockResolvedValueOnce({ devices: [], mounts: [], fstab: [], availability: { mounts: false, fstab: false } });
   const app = express();
+  app.use(asOwner);
   app.use(createHostRouter({ state: { getSetting: (_key, fallback) => fallback }, helper: { request: async () => ({}) }, catalogService: { all: async () => { throw new Error("catalog unavailable"); } }, auth: { requireCsrf: (_req, _res, next) => next(), requireRole: () => (_req, _res, next) => next() }, notifications: { describe: () => ({ configured: true }) } }));
   const server = app.listen(0, "127.0.0.1");
   await new Promise((resolve) => server.once("listening", resolve));

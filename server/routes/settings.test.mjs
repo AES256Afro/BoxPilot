@@ -25,7 +25,7 @@ const weeklyReport = {
 beforeAll(async () => {
   const app = express();
   app.use(express.json());
-  app.use((request, _response, next) => { request.boxpilotSession = { owner: { id: "owner-1" } }; next(); });
+  app.use((request, _response, next) => { request.boxpilotSession = { owner: { id: "owner-1", role: request.headers["x-test-role"] ?? "owner" } }; next(); });
   app.use("/api/v1", createSettingsRouter({ state, notifications, weeklyReport, auth }));
   server = app.listen(0);
   await new Promise((resolve) => server.once("listening", resolve));

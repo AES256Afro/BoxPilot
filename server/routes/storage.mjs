@@ -15,6 +15,7 @@ import { growthByApp } from "../app-data-growth.mjs";
 import { projectDaysToFull } from "../disk-forecast.mjs";
 import { parseNeighbors } from "../network.mjs";
 import { credentialPattern, hostPattern } from "../tasks/shares.mjs";
+import { readsThroughHelper, withOwnActors } from "./access.mjs";
 
 const ipBinary = "/usr/sbin/ip";
 const smbclientBinary = "/usr/bin/smbclient";
@@ -86,10 +87,11 @@ async function mapLimit(items, limit, worker) {
 export function createStorageRouter({ auth, helper = null, inventory = null, state = null, run = fixedRun, collect = collectStorage, probe = probePort, reverse = (address) => dns.reverse(address), sweepLimit = 254 }) {
   const router = Router();
 
-  router.get("/storage/overview", async (_request, response) => {
+  router.get("/storage/overview", async (request, response) => {
     try {
       const overview = await collect();
-      const records = state?.getSetting?.("lvmSnapshots", []) ?? [];
+      // The recorded snapshot says who took it; only the owner is told when that was someone else.
+      const records = withOwnActors(request, state?.getSetting?.("lvmSnapshots", []) ?? []);
       overview.snapshots = (overview.snapshots ?? []).map((snapshot) => ({ ...snapshot, ...(records.find((entry) => entry.path === snapshot.path) ?? {}) }));
       response.json(overview);
     } catch (error) {
@@ -98,7 +100,7 @@ export function createStorageRouter({ auth, helper = null, inventory = null, sta
   });
 
   // When each filesystem is on track to fill, from the sampled free-space history (M23.1).
-  router.get("/storage/forecast", async (_request, response) => {
+  router.get("/storage/forecast", async (request, response) => {
     const history = state?.getSetting?.("diskUsageHistory", {}) ?? {};
     const usage = state?.getSetting?.("appDataUsageHistory", {}) ?? {};
     const now = Date.now();
@@ -114,7 +116,10 @@ export function createStorageRouter({ auth, helper = null, inventory = null, sta
     // than only the drives that are filling: "which app owns what on this drive" is a question
     // worth answering on a drive with room to spare too. One list, so the panel that blames a
     // filling drive and the map that labels every drive cannot disagree about the numbers.
-    response.json({ forecasts, tracking: Object.keys(history).length, usage: growthByApp(usage, { now, windowDays: 7, limit: 200 }), lastMeasured: state?.getSetting?.("appDataUsageLastRun", null) ?? null });
+    // Those sizes are app.data.usage's, which needs an operator (ADR-003): the path and size of
+    // every app's data. A viewer gets the drive forecasts, which any account can read from df.
+    const sizes = readsThroughHelper(request);
+    response.json({ forecasts, tracking: Object.keys(history).length, usage: sizes ? growthByApp(usage, { now, windowDays: 7, limit: 200 }) : [], lastMeasured: sizes ? state?.getSetting?.("appDataUsageLastRun", null) ?? null : null });
   });
 
   // Discover LAN hosts offering SMB (445) or NFS (2049): recent neighbours plus a sweep of each /24.
@@ -170,10 +175,16 @@ export function createStorageRouter({ auth, helper = null, inventory = null, sta
   });
 
   // The file server (Samba) this server runs: state from the helper plus the addresses clients should use.
-  router.get("/storage/samba", async (_request, response) => {
+  // samba.inspect needs an operator (ADR-003) for two fields: each share's recycle-bin size and its
+  // folder's owner, read as root. The rest is smb.conf and the sambashare group, which any account
+  // on the server can read, so a viewer gets the shares without those two (M29.4).
+  router.get("/storage/samba", async (request, response) => {
     let state = { installed: false, running: null, configured: false, config: { managed: false, workgroup: "WORKGROUP", scope: "tailscale", interfaces: [], shares: [] }, users: [] };
     let error = null;
     try { if (helper) state = await helper.request("samba.inspect", {}, { timeoutMs: 30_000 }); } catch (requestError) { error = requestError.message; }
+    if (!readsThroughHelper(request) && Array.isArray(state?.config?.shares)) {
+      state = { ...state, config: { ...state.config, shares: state.config.shares.map(({ recycleBytes: _size, ownerUid: _owner, ...share }) => share) } };
+    }
     let addresses = { tailscaleDnsName: null, tailscaleAddress: null, lanAddress: null };
     try {
       const snapshot = inventory ? await inventory.inspect() : null;
