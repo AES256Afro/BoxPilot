@@ -21,6 +21,31 @@ function check(id, group, name, status, summary, repair = null) {
 }
 
 /**
+ * smartctl reads each disk's SMART health; fsck.exfat checks an exFAT drive after it drops off. One
+ * row, because "can this server check its drives" is one question (M26.3), and one fix for it.
+ */
+export function driveToolsCheck(inspection) {
+  const row = (status, summary, repair = null) => check("storage.drive-tools", "Storage", "Drive check tools", status, summary, repair);
+  if (!inspection) return row("unavailable", "The drive check tools could not be inspected", { kind: "manual", description: "Check again once the helper answers" });
+  if (inspection.installed) return row("ready", "smartctl reads each disk's SMART health and fsck.exfat can check an exFAT drive");
+  const named = (names) => names.join(" and ");
+  const are = (names) => (names.length === 1 ? "is" : "are");
+  const missing = inspection.missing ?? [];
+  if (inspection.repairAvailable) {
+    const offered = Object.entries(inspection.candidatePackages ?? {}).map(([name, version]) => `${name} ${version}`).join(" and ");
+    return row("repairable", `${named(missing)} ${are(missing)} not installed; Ubuntu's package lists offer ${offered}`,
+      { kind: "approved", description: "Review the exact versions, then install only what is missing; the job confirms each tool answers and reads every disk's SMART health again" });
+  }
+  const broken = inspection.broken ?? [];
+  if (broken.length) {
+    return row("missing", `${named(broken)} ${are(broken)} installed, but ${broken.map((name) => (name === "exfatprogs" ? "fsck.exfat" : "smartctl")).join(" and ")} ${are(broken)} missing from this server`,
+      { kind: "manual", description: `Reinstall it from a terminal (sudo apt-get install --reinstall ${broken.join(" ")}), then check again` });
+  }
+  return row("missing", `${named(missing)} ${are(missing)} not installed, and this server's package lists offer no version to install`,
+    { kind: "manual", description: "Refresh the package lists (APT package metadata, on this page), then check again" });
+}
+
+/**
  * Is anything listening on port 53, per one line of `ss -H -lntu` output?
  *
  * Ubuntu's own systemd-resolved prints its stub listener as `127.0.0.53%lo:53`, and the scoped
@@ -48,7 +73,7 @@ export function createPrerequisiteService({ stateDirectory, helper, runCommand =
     const quiet = (operation) => helper.request(operation, {}).catch(() => null);
     return {
       canary: helper.request("canary.verify", {}).then((value) => ({ ok: true, value }), (error) => ({ ok: false, error })),
-      smartmontools: quiet("prerequisite.smartmontools.inspect"),
+      driveTools: quiet("prerequisite.drive-tools.inspect"),
       restic: quiet("prerequisite.restic.inspect"),
       aptMetadata: quiet("prerequisite.apt-metadata.inspect"),
       docker: quiet("prerequisite.docker.inspect"),
@@ -110,21 +135,9 @@ export function createPrerequisiteService({ stateDirectory, helper, runCommand =
       checks.push(check("helper.boundary", "BoxPilot", "Restricted helper", "repairable", "The local helper socket is unavailable", { kind: "guided", description: "Start or repair boxpilot-helper.service" }));
     }
 
-    const smartmontools = await pending.smartmontools;
-    checks.push(check(
-      "storage.smartmontools",
-      "Storage",
-      "SMART monitoring tools",
-      smartmontools?.installed ? "ready" : smartmontools?.repairAvailable ? "repairable" : "missing",
-      smartmontools?.installed
-        ? `smartmontools ${smartmontools.installedVersion} is installed for the fixed storage evidence timer`
-        : smartmontools?.repairAvailable
-          ? `Configured APT metadata offers the fixed smartmontools ${smartmontools.candidateVersion} candidate`
-          : "smartmontools is not installed and no fixed configured APT candidate was verified",
-      smartmontools?.installed ? null : smartmontools?.repairAvailable
-        ? { kind: "approved", description: "Review an exact-version durable plan, reauthenticate, install only smartmontools, and verify a fresh fixed storage scan" }
-        : { kind: "manual", description: "Repair configured Ubuntu APT metadata before creating an installation plan" },
-    ));
+    // smartctl reads each disk's SMART health; fsck.exfat checks an exFAT drive after it drops off.
+    // One row, because "can this server check its drives" is one question (M26.3).
+    checks.push(driveToolsCheck(await pending.driveTools));
 
     const restic = await pending.restic;
     checks.push(check(

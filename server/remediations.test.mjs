@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { containersOnStaleMounts, detectRemediations, mountFor, nothingCanReachYou, splitDataFolders, failedRehearsals, permissionlessMounts, staleMounts, unwritableShares, vpnLeaks, windowsCannotDiscover, readOnlyRemounts, exfatCheckerMissing, flakyDrives, drivesNeedingCheck } from "./remediations.mjs";
+import { containersOnStaleMounts, detectRemediations, mountFor, nothingCanReachYou, splitDataFolders, failedRehearsals, permissionlessMounts, staleMounts, unwritableShares, vpnLeaks, windowsCannotDiscover, readOnlyRemounts, exfatCheckerMissing, flakyDrives, drivesNeedingCheck, installDriveToolsFix } from "./remediations.mjs";
 
 /**
  * The situation each of these was written from, on a real server:
@@ -256,6 +256,19 @@ describe("a server that cannot check its exFAT drives", () => {
     expect(exfatCheckerMissing({ mounts: [{ ...exfat, fstype: "ext4" }], tools: { fsckExfat: false } })).toEqual([]);
     expect(exfatCheckerMissing({ mounts: [exfat] })).toEqual([]);
   });
+
+  it("uses the pinned drive-tools install when the helper said what is on offer", () => {
+    const driveTools = { installed: false, missing: ["exfatprogs"], candidatePackages: { exfatprogs: "1.2.2-1" }, repairAvailable: true };
+    const [found] = exfatCheckerMissing({ mounts: [exfat], tools: { fsckExfat: false }, driveTools });
+    expect(found.fix).toEqual({
+      operationId: "prerequisite.drive-tools.install",
+      parameters: { expectedPackages: { exfatprogs: "1.2.2-1" } },
+      label: "Install the drive check tools",
+      preview: "Installs exfatprogs 1.2.2-1 from Ubuntu's archive, then confirms fsck.exfat and smartctl answer and reads every disk's SMART health again. No drive is touched or checked by this step.",
+    });
+    // Nothing on offer: the package install, which refreshes the lists first, still works.
+    expect(installDriveToolsFix({ ...driveTools, candidatePackages: {}, repairAvailable: false })).toMatchObject({ operationId: "apt.install", parameters: { packages: ["exfatprogs"] } });
+  });
 });
 
 
@@ -306,5 +319,16 @@ describe("a USB drive that dropped and has not been checked since", () => {
     expect(drivesNeedingCheck({ mounts, devices, usb: { available: true, ports: [] } })).toEqual([]);
     const internal = [{ ...mounts[0], source: "/dev/nvme0n1p3", managedName: "fast" }];
     expect(drivesNeedingCheck({ mounts: internal, devices, usb })).toEqual([]);
+  });
+
+  it("offers the checker's install instead of a check that could not run when fsck.exfat is missing", () => {
+    const driveTools = { installed: false, missing: ["exfatprogs"], candidatePackages: { exfatprogs: "1.2.2-1" }, repairAvailable: true };
+    const [found] = drivesNeedingCheck({ mounts, devices, usb, driveChecks: {}, tools: { fsckExfat: false }, driveTools });
+    expect(found).toMatchObject({ id: "drive-check:the-dump", fix: { operationId: "prerequisite.drive-tools.install", parameters: { expectedPackages: { exfatprogs: "1.2.2-1" } } } });
+    expect(found.detail).toContain("fsck.exfat is not installed, so the checker comes first");
+    expect(found.evidence).toContain("fsck.exfat not found in /usr/sbin or /sbin");
+    // Once it is there, the same finding is the check again; an ext4 drive never needed exfatprogs.
+    expect(drivesNeedingCheck({ mounts, devices, usb, tools: { fsckExfat: true }, driveTools })[0].fix.operationId).toBe("storage.check");
+    expect(drivesNeedingCheck({ mounts: [{ ...mounts[0], fstype: "ext4" }], devices, usb, tools: { fsckExfat: false }, driveTools })[0].fix.operationId).toBe("storage.check");
   });
 });

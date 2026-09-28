@@ -42,4 +42,19 @@ describe("sanitized storage evidence", () => {
     expect(normalizeSmartEvidence({ ...current, schemaVersion: 3 }, { now }).status).toBe("unavailable");
     expect(normalizeSmartEvidence({ schemaVersion: 1, generatedAt: "2026-08-17T05:00:00.000Z", available: true, disks: [] }, { now }).stale).toBe(true);
   });
+
+  it("keeps how a USB disk answered, and does not hold the reading at 'warning' for an enclosure that cannot answer", () => {
+    const now = () => new Date("2026-09-28T06:30:00.000Z");
+    const internal = { device: "/dev/nvme0n1", health: "healthy", passed: true, reason: "ok", transport: "nvme", deviceType: "auto" };
+    const throughBridge = { device: "/dev/sdb", health: "healthy", passed: true, reason: "ok", transport: "usb", deviceType: "sat" };
+    const noPassthrough = { device: "/dev/sdc", health: "unavailable", passed: null, reason: "usb-bridge-unsupported", transport: "usb", deviceType: "sat" };
+    const evidence = (disks) => normalizeSmartEvidence({ schemaVersion: 2, generatedAt: "2026-09-28T06:00:00.000Z", available: true, reason: "fixed-root-scan", disks }, { now });
+    const result = evidence([internal, throughBridge, noPassthrough]);
+    expect(result.disks).toMatchObject([{ transport: "nvme", deviceType: "auto" }, { transport: "usb", deviceType: "sat" }, { reason: "usb-bridge-unsupported", deviceType: "sat" }]);
+    expect(result).toMatchObject({ status: "healthy", summary: { healthy: 2, unavailable: 1 } });
+    // A disk that did not answer for any other reason still needs a look.
+    expect(evidence([internal, { ...noPassthrough, reason: "smartctl-read-failed" }]).status).toBe("warning");
+    // Evidence written before the scanner asked has neither field, and an unknown value is dropped.
+    expect(evidence([{ device: "/dev/sdb", health: "healthy", reason: "ok", transport: "USB; rm -rf", deviceType: "megaraid" }]).disks[0]).toMatchObject({ transport: null, deviceType: null });
+  });
 });

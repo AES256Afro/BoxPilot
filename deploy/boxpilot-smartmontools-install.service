@@ -1,12 +1,13 @@
 [Unit]
-Description=BoxPilot fixed smartmontools package installation
+Description=BoxPilot fixed drive-check tools installation (smartmontools, exfatprogs)
 Documentation=https://github.com/AES256Afro/BoxPilot
 Wants=network-online.target
 After=network-online.target boxpilot.service
 ConditionPathExists=/usr/bin/apt-get
 ConditionPathExists=/usr/local/bin/node
 ConditionPathExists=/etc/debian_version
-ConditionPathExists=!/usr/sbin/smartctl
+# No condition on smartctl being absent: exfatprogs may be the only one missing. The installer
+# itself refuses to change a package that is already installed.
 ConditionPathExists=/run/boxpilot/smartmontools-approval.json
 
 [Service]
