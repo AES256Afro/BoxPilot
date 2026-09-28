@@ -18,6 +18,15 @@ function usableUrl(url) {
   return ["http:", "https:"].includes(parsed.protocol) && !parsed.username && !parsed.password;
 }
 
+/**
+ * A failed job whose failure is already being dealt with, by the steps written on it: one a
+ * BoxPilot restart cut off (state.recoverInterruptedJobs), which whoever owns it tells through the
+ * health-alert ledger, and one somebody has since tried again with more time (M30.3). Each later
+ * gets a step - whether it ran again (M30.2), the retry that was staged - and after a restart this
+ * process does not remember having pushed it, so without this each such step pushed it again.
+ */
+const failureAlreadyHandled = (job) => (job?.steps ?? []).some((step) => (step.name === "recovery" && step.state === "required") || (step.name === "retry" && step.state === "staged"));
+
 export function validateTarget(target) {
   if (!target || typeof target !== "object") return "Target must be an object";
   if (!notificationKinds.includes(target.kind)) return `kind must be one of ${notificationKinds.join(", ")}`;
@@ -106,7 +115,7 @@ export function createNotificationService({ store, fetcher = fetch, now = () => 
 
   /** Job-event listener: one push per failed job, never re-sent. Errors are audited, not thrown. */
   function onJob(job) {
-    if (job.state !== "failed" || notified.has(job.id)) return;
+    if (job.state !== "failed" || notified.has(job.id) || failureAlreadyHandled(job)) return;
     notified.add(job.id);
     if (notified.size > 500) notified.delete(notified.values().next().value);
     // A scheduled run, an automation's step, or a job whose result was not saved is announced as
