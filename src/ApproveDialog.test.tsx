@@ -178,11 +178,14 @@ describe("a job that ran out of time (M30.3)", () => {
     expect(screen.getByText("Downloading the images and starting the app had 15 minutes and did not finish. The job ran for 17 minutes.")).toBeTruthy();
     expect(screen.getByText("abc123 Downloading 812MB/2.1GB")).toBeTruthy();
     expect(screen.getByText("Trying again gives it 50 minutes, and asks for approval like any other job.")).toBeTruthy();
+    expect(retry.dataset.risk).toBe("medium"); // the tier shows before the click, as on every action
 
     fireEvent.click(retry);
     // Staged, then approved like anything else: nothing runs until the button below is pressed.
     const again = await screen.findByRole("button", { name: "Confirm and run" });
     expect(screen.getByText("Approval · more time")).toBeTruthy();
+    // What is being approved: the same job, with the larger budget.
+    expect(screen.getByText("Runs it again with the same settings and gives it 50 minutes to finish.")).toBeTruthy();
     expect(calls.filter((call) => call.url.endsWith("/approve"))).toHaveLength(1);
     fireEvent.click(again);
     await waitFor(() => expect(calls.some((call) => call.url === "/api/v1/jobs/job-2/approve" && call.method === "POST")).toBe(true));
@@ -193,6 +196,8 @@ describe("a job that ran out of time (M30.3)", () => {
     render(<ApproveDialog operationId="app.install" title="Install Jellyfin" parameters={install.parameters} csrfToken="csrf" onClose={() => {}} />);
     fireEvent.click(await screen.findByRole("button", { name: "Confirm and run" }));
     expect(await screen.findByText("It had 1 hour 40 minutes and used all of it. It may still be running on the server.")).toBeTruthy();
+    // The job's error is the same timeout in other words; it is said once, not twice in two colours.
+    expect(screen.queryByText("Install application did not finish within 1 hour 40 minutes.")).toBeNull();
     expect(screen.queryByRole("button", { name: "Try again with more time" })).toBeNull();
   });
 

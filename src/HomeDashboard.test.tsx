@@ -42,6 +42,23 @@ describe("Home dashboard", () => {
 
     fireEvent.click(screen.getByText("1 failed service"));
     expect(onNavigate).toHaveBeenCalledWith("services");
+    // A failed job leads to Repair, where Activity keeps its steps; it used to link to this page.
+    fireEvent.click(screen.getByText("Job failed: Update application"));
+    expect(onNavigate).toHaveBeenLastCalledWith("repairs");
+  });
+
+  it("says a job ran out of time, and leaves out one BoxPilot already ran again (M30.2, M30.3)", async () => {
+    const timedOut = { id: "j3", type: "op:app.update", title: "Update Immich", state: "failed", risk: "medium", error: "Update Immich did not finish within 25 minutes.", result: null, createdAt: "2026-08-20T11:00:00.000Z", steps: [], approvals: [],
+      timeout: { scope: "operation", budgetMs: 25 * 60_000, elapsedMs: 25 * 60_000, phase: "running", step: null, lastOutput: null, moreTimeMs: 50 * 60_000 } };
+    const interrupted = { id: "j4", type: "op:homepage.sync", title: "Sync Homepage with installed apps", state: "failed", risk: "low", error: "BoxPilot restarted while this job was running.", result: null, createdAt: "2026-08-20T12:00:00.000Z", approvals: [],
+      steps: [{ name: "recovery", state: "required", detail: "The operation was interrupted by a BoxPilot restart", createdAt: "2026-08-20T12:01:00.000Z" }, { name: "rerun", state: "started", detail: "Running again as job j5", createdAt: "2026-08-20T12:01:00.000Z" }] };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => (input.toString().includes("/api/v1/jobs") ? json({ jobs: [interrupted, timedOut] }) : json({ error: "unavailable" }, 503))));
+    render(<HomeDashboard onNavigate={vi.fn()} />);
+    expect(await screen.findByText("Job ran out of time: Update Immich")).toBeTruthy();
+    expect(screen.queryByText("Job failed: Sync Homepage with installed apps")).toBeNull();
+    // Recent activity says the same as Activity does.
+    expect(screen.getByText("Timed out").className).toContain("status-warning");
+    expect(screen.getByText("Interrupted, ran again").className).toContain("status-neutral");
   });
 
   it("shows the setup checklist with links for what is left", async () => {
@@ -81,7 +98,7 @@ describe("Home dashboard", () => {
       const line = screen.getByRole("region", { name: "Alerts that reached no one" });
       expect(within(line).queryByText("Automation stopped: Nightly")).toBeNull(); // the list waits to be asked for
 
-      fireEvent.click(within(line).getByRole("button", { name: "Show" }));
+      fireEvent.click(within(line).getByRole("button", { name: "Show the list" }));
       expect(within(line).getByText("No notification target is set, so these reached no one.")).toBeTruthy();
       expect(within(line).getByRole("button", { name: "Scheduled task failed: Back up application data (jellyfin)" })).toBeTruthy();
       fireEvent.click(within(line).getByRole("button", { name: "Automation stopped: Nightly" }));
@@ -94,7 +111,7 @@ describe("Home dashboard", () => {
       vi.stubGlobal("fetch", watchWith(true, conditions(false)));
       render(<HomeDashboard onNavigate={vi.fn()} />);
       const line = await screen.findByRole("region", { name: "Alerts that reached no one" });
-      fireEvent.click(within(line).getByRole("button", { name: "Show" }));
+      fireEvent.click(within(line).getByRole("button", { name: "Show the list" }));
       expect(within(line).getByText("These have not reached your notification target yet. BoxPilot tries again every 15 minutes.")).toBeTruthy();
       expect(within(line).getByRole("button", { name: "Check where alerts go" })).toBeTruthy();
     });
@@ -113,7 +130,7 @@ describe("Home dashboard", () => {
       render(<HomeDashboard onNavigate={onNavigate} />);
       expect(await screen.findByText("BoxPilot could not tell you about 4 things")).toBeTruthy();
       const line = screen.getByRole("region", { name: "Alerts that reached no one" });
-      fireEvent.click(within(line).getByRole("button", { name: "Show" }));
+      fireEvent.click(within(line).getByRole("button", { name: "Show the list" }));
       fireEvent.click(within(line).getByRole("button", { name: "Version 1.127.0 is available" }));
       expect(onNavigate).toHaveBeenLastCalledWith("system");
       fireEvent.click(within(line).getByRole("button", { name: "New sign-in from 100.64.0.20" }));
