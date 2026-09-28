@@ -27,7 +27,7 @@ BoxPilot `0.61.0` can install the fixed Ubuntu KVM, QEMU, libvirt, virt-install,
 - Create an internal snapshot only while a persistent VM is stopped and every writable disk is an unchained qcow2 file inside the managed image directory
 - Label the snapshot offline-consistent and explicitly not an independent backup
 - Detect an already active Cockpit socket and show a Tailscale-hostname console handoff without opening or configuring the service
-- Reverify a completed local export and copy it into an encrypted restic repository only when `/mnt/boxpilot-backup` is a writable independent mount
+- Reverify a completed local export and copy it into an encrypted restic repository only when `/mnt/boxpilot/backup` is a writable independent mount
 - Restore one exact encrypted snapshot, boot it transiently with no network, require repeated QEMU guest-agent health, and mark only that passing record protected
 - Read every data pack in the repository and confirm exact snapshot identity before recording evidence
 - Restore a protected snapshot into a new persistent recovery domain that remains stopped, non-autostarting, and network-isolated
@@ -251,7 +251,7 @@ This local export is not yet disaster recovery. Use the next workflow to create 
 
 ## 8. Configure an independent encrypted VM copy
 
-Do not create `/mnt/boxpilot-backup` as an ordinary directory on the server root disk. Attach and mount an external disk or a separately mounted NAS filesystem at that exact path. BoxPilot rejects the destination if its filesystem device matches either local exports or VM images.
+Do not use `/mnt/boxpilot/backup` as an ordinary directory on the server root disk. Attach and mount an external disk or a separately mounted NAS filesystem at that exact path. BoxPilot rejects the destination if its filesystem device matches either local exports or VM images.
 
 Install restic and run the interactive fixed-path setup utility:
 
@@ -262,7 +262,7 @@ sudo /opt/boxpilot/scripts/boxpilot-restic-setup.sh
 sudo systemctl restart boxpilot-helper boxpilot
 ```
 
-The utility prompts without echo, writes a root-owned mode-`0600` password file, and initializes `/mnt/boxpilot-backup/restic-vm`. It does not accept a password or repository path as an argument. Keep a separate recovery copy of the password outside the server.
+The utility prompts without echo, writes a root-owned mode-`0600` password file, and initializes `/mnt/boxpilot/backup/restic-vm`. It does not accept a password or repository path as an argument. Keep a separate recovery copy of the password outside the server.
 
 Then:
 
@@ -381,10 +381,10 @@ Correct the specific failed requirement and refresh the page. Do not loosen the 
 ### The encrypted destination stays blocked
 
 ```bash
-findmnt --mountpoint /mnt/boxpilot-backup
-stat -c '%d %n' /mnt/boxpilot-backup /var/lib/boxpilot-managed /var/lib/libvirt/images
+findmnt --mountpoint /mnt/boxpilot/backup
+stat -c '%d %n' /mnt/boxpilot/backup /var/lib/boxpilot-managed /var/lib/libvirt/images
 sudo stat -c '%U:%G %a %s %n' /etc/boxpilot/secrets/vm-backup-restic-password
-sudo restic --repo /mnt/boxpilot-backup/restic-vm --password-file /etc/boxpilot/secrets/vm-backup-restic-password snapshots
+sudo restic --repo /mnt/boxpilot/backup/restic-vm --password-file /etc/boxpilot/secrets/vm-backup-restic-password snapshots
 sudo systemctl restart boxpilot-helper boxpilot
 ```
 

@@ -152,7 +152,7 @@ export function storageOperations() {
     }),
     defineOperation({
       id: "storage.mount", title: "Mount a filesystem", risk: "medium", timeoutMs: minutes(3),
-      description: `Adds a nofail fstab entry by UUID, verifies fstab still parses, and mounts at /mnt/<name>. A missing disk never blocks boot; Docker waits for it at boot for up to ${driveDeviceTimeout.replace("s", " seconds")} and stops before it is unmounted at shutdown.`,
+      description: `Adds a nofail fstab entry by UUID, verifies fstab still parses, and mounts at /mnt/<name> (boxpilot-backup, the backup destination, at /mnt/boxpilot/backup). A missing disk never blocks boot; Docker waits for it at boot for up to ${driveDeviceTimeout.replace("s", " seconds")} and stops before it is unmounted at shutdown.`,
       parameters: { fields: {
         uuid: { type: "string", maxLength: 40, pattern: uuidPattern },
         name: { type: "string", maxLength: 32, pattern: mountNamePattern },
@@ -276,6 +276,13 @@ export function storageOperations() {
       description: `Adds ${dockerOrderOption} and x-systemd.device-timeout=${driveDeviceTimeout} to each drive BoxPilot mounted, so a shutdown stops Docker before unmounting the drive and a boot mounts the drive before Docker starts its apps, waiting for it at most ${driveDeviceTimeout.replace("s", " seconds")}. fstab is copied first, the new one is checked with findmnt --verify before it replaces the old one, and the old one is put back if systemd does not take the change. Nothing is unmounted or restarted. Network shares and entries you wrote yourself are left alone.`,
       parameters: { fields: {} },
       run: (_parameters, { runUnit, jobLog }) => runUnit.runTask("storage.docker-order", {}, { timeoutMs: minutes(2), logPath: jobLog?.path ?? null }),
+    }),
+    defineOperation({
+      // The upgrade script makes this move itself; this is for an install whose upgrade could not
+      // (the share was in use) or ran an older upgrade script that did not know to.
+      id: "storage.backup.relocate", title: "Move the backup destination", risk: "medium", timeoutMs: minutes(4),
+      description: "Moves the backup destination's fstab entry from /mnt/boxpilot-backup to /mnt/boxpilot/backup, where BoxPilot's root helper can use it without needing the NAS to be on when it starts. The mount is released first and left alone if something is using it; fstab is saved beside itself, checked after the change, and put back if the new mount point does not come up. Nothing on the share or drive is touched.",
+      run: (_parameters, { runUnit, jobLog }) => runUnit.runTask("storage.backup-relocate", {}, { timeoutMs: minutes(3), logPath: jobLog?.path ?? null }),
     }),
     defineOperation({
       id: "storage.unmount", title: "Unmount a managed filesystem", risk: "medium", timeoutMs: minutes(3),

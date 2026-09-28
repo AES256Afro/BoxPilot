@@ -2,7 +2,7 @@
 
 set -eu
 
-boxpilot_mount="${BOXPILOT_CONTROLLER_BACKUP_MOUNT:-/mnt/boxpilot-backup}"
+boxpilot_mount="${BOXPILOT_CONTROLLER_BACKUP_MOUNT:-/mnt/boxpilot/backup}"
 boxpilot_repository="$boxpilot_mount/restic-controller"
 boxpilot_secret_directory="/etc/boxpilot/secrets"
 boxpilot_password_file="$boxpilot_secret_directory/controller-backup-restic-password"

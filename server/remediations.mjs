@@ -10,6 +10,7 @@
  * checked against the situation that produced it rather than against a machine that has to be
  * broken on purpose first.
  */
+import { backupMountpoint, legacyBackupMountpoint, mountpointFor } from "./backup-mount.mjs";
 
 export const severities = Object.freeze(["critical", "warning", "info"]);
 
@@ -245,7 +246,7 @@ export function drivesNotOrderedAroundDocker({ mounts = [], containers = [] } = 
   const network = ["cifs", "smb3", "nfs", "nfs4"];
   const users = (target) => containers.filter((container) => (container.binds ?? []).some((bind) => bind === target || bind.startsWith(`${target}/`)));
   const drives = mounts
-    .filter((mount) => mount.managedName && !mount.managedName.startsWith("share-") && mount.managedName !== "swap" && mount.target === `/mnt/${mount.managedName}`)
+    .filter((mount) => mount.managedName && !mount.managedName.startsWith("share-") && mount.managedName !== "swap" && mount.target === mountpointFor(mount.managedName))
     .filter((mount) => typeof mount.options === "string" && !network.includes(mount.fstype) && !mount.options.split(",").includes("x-systemd.before=docker.service"))
     .map((mount) => ({ mount, users: users(mount.target) }))
     .filter((entry) => entry.users.length > 0);
@@ -469,6 +470,31 @@ export function nothingCanReachYou({ notifications = null, apps = [] } = {}) {
   })];
 }
 
+/**
+ * A backup destination still mounted where it used to be. The helper looks for it at
+ * /mnt/boxpilot/backup, the one place its sandbox can be given a network share without the NAS
+ * having to be on for the helper to start (server/backup-mount.mjs). The upgrade moves it; this is
+ * for an install whose upgrade could not, because the share was in use or an older upgrade script
+ * ran. Until it moves, copies to the NAS or drive stop with "nothing is mounted there".
+ */
+export function backupDestinationToMove({ fstab = [] } = {}) {
+  const entry = fstab.find((row) => row.mountpoint === legacyBackupMountpoint);
+  if (!entry) return [];
+  return [finding({
+    id: "backup-destination-moved",
+    severity: "warning",
+    title: `Backups look for their NAS or drive at ${backupMountpoint} now`,
+    detail: `fstab still mounts the backup destination at ${legacyBackupMountpoint}. BoxPilot copies its backups to ${backupMountpoint}, so nothing is copied there until it moves. Moving it changes only where it is mounted: the share or drive, its login and everything on it stay as they are.`,
+    evidence: [`${entry.device} is mounted at ${legacyBackupMountpoint}${entry.managedName ? ` (${entry.managedName})` : " by an entry you wrote"}`],
+    fix: {
+      operationId: "storage.backup.relocate",
+      parameters: {},
+      label: "Move the backup destination",
+      preview: `Mounts ${entry.device} at ${backupMountpoint} instead of ${legacyBackupMountpoint}: releases the old mount point (and leaves it alone if something is using it), changes that one fstab entry after saving a copy beside it, and puts everything back if the new mount point does not come up.`,
+    },
+  })];
+}
+
 /** Everything, worst first, with a stable order inside a severity so the list does not shuffle. */
 export function detectRemediations(facts = {}) {
   // Containers bound to a dead OR read-only mount are on a filesystem that will be replaced by the
@@ -476,7 +502,7 @@ export function detectRemediations(facts = {}) {
   const staleTargets = [
     ...staleMounts(facts).map((entry) => entry.id.replace("stale-mount:", "")),
     ...readOnlyRemounts(facts).map((entry) => entry.id.replace("read-only-remount:", "")),
-  ].map((name) => `/mnt/${name}`);
+  ].map((name) => mountpointFor(name));
   const findings = [
     ...staleMounts(facts),
     ...readOnlyRemounts(facts),
@@ -493,6 +519,7 @@ export function detectRemediations(facts = {}) {
     ...permissionlessMounts(facts),
     ...nothingCanReachYou(facts),
     ...windowsCannotDiscover(facts),
+    ...backupDestinationToMove(facts),
   ];
   const rank = (entry) => severities.indexOf(entry.severity);
   return {

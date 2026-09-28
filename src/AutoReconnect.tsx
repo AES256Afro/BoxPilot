@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { readJson } from "./http";
+import { mountpointFor } from "./mountpoints";
 
 /**
  * Reconnecting a drive automatically (M26.5), armed where the owner already sees the drive: its row
@@ -70,7 +71,7 @@ export function AutoReconnectToggle({ drive, control, compact = false }: { drive
   const { status, pending, error } = control;
   if (!status) return null;
   const armed = status.drives[drive] ?? null;
-  const mountpoint = `/mnt/${drive}`;
+  const mountpoint = mountpointFor(drive);
   // Where "by hand" is: the Repair notice this sits in has the Reconnect button; a drive's row does not.
   const byHand = compact ? "Reconnect it from Repair Center to start again." : "Reconnecting it here by hand starts it again.";
   const waiting = armed && !armed.enabled

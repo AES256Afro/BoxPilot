@@ -1,4 +1,5 @@
 import { readdir, readFile, readlink, rename, unlink, writeFile } from "node:fs/promises";
+import { mountpointFor } from "../backup-mount.mjs";
 import { fixedRun } from "../exec.mjs";
 import { exfatVolumeFlags, parseManagedFstab, processesUsing, readBootSector, unmountFromHost, withDockerOrder } from "./storage.mjs";
 
@@ -42,7 +43,8 @@ export function mountUnitName(mountpoint) {
 /**
  * The drives BoxPilot manages, and why any other marked entry is not one. A marker owns the line
  * after it; shares (`share-<name>`) and the swap file have their own markers and their own
- * operations, and an entry that is not a local filesystem at /mnt/<name> is somebody's hand edit.
+ * operations, and an entry that is not a local filesystem at its mount point (/mnt/<name>, or the
+ * backup destination's: see mountpointFor) is somebody's hand edit.
  */
 export function managedDriveEntries(content) {
   const lines = String(content ?? "").split("\n");
@@ -56,7 +58,7 @@ export function managedDriveEntries(content) {
     if (name.startsWith("share-")) return skipped("a network share");
     if (name === "swap") return skipped("the swap file");
     if (lines[index].trim().startsWith("#") || fieldAt.length < 4) return skipped("not an fstab entry");
-    if (mountpoint !== `/mnt/${name}`) return skipped(`not mounted at /mnt/${name}`);
+    if (mountpoint !== mountpointFor(name)) return skipped(`not mounted at ${mountpointFor(name)}`);
     if (networkFilesystems.has(fstype) || options.split(",").includes("_netdev")) return skipped("a network filesystem");
     if (fstype === "swap") return skipped("swap");
     return { ...entry, drive: true, reason: null };
