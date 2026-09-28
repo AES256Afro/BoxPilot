@@ -25,7 +25,7 @@ export const mountNamePattern = /^[a-z0-9][a-z0-9-]{0,31}$/;
  */
 function assertPlainMountName(name) {
   if (typeof name !== "string" || !mountNamePattern.test(name)) throw new Error("Name is invalid");
-  if (name.startsWith("share-")) throw new Error(`${name} is a network share; use the share operations for it`);
+  if (name.startsWith("share-")) throw new Error(`${name} is a network share, not a drive; reconnect it with share.reconnect ("Reconnect the share" in Repair)`);
   if (name === "swap") throw new Error("swap is the swap file, not a mount; use the swap file operation for it");
 }
 

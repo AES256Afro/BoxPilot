@@ -25,6 +25,7 @@ export const operationRisk = {
   "prerequisite.drive-tools.install": "medium",
   "samba.discovery.set": "medium",
   "service.action": "medium",
+  "share.reconnect": "medium",
   "storage.backup.relocate": "medium",
   "storage.check": "medium",
   "storage.dirty-mark.clear": "medium",

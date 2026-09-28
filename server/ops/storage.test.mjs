@@ -121,6 +121,30 @@ describe("reading what findmnt says about a mount", () => {
     expect(mount.options).toContain("errors=remount-ro");
   });
 
+  it("takes read-only from the filesystem, not from a sandbox's read-only view of the mount point", () => {
+    // What the helper saw on the owner's server after an upgrade restarted it with the drive
+    // mounted: ProtectSystem=strict had made the mount point ro in its namespace, while the
+    // filesystem itself - and the host - were read-write.
+    const [sandboxed] = parseFindmnt(JSON.stringify({ filesystems: [{ target: "/mnt/the-dump", source: "/dev/sda2", fstype: "exfat", options: "ro,nosuid,relatime,uid=1000,gid=1000", "fs-options": "rw,uid=1000,gid=1000,errors=remount-ro" }] }));
+    expect(sandboxed.readOnly).toBe(false);
+    expect(sandboxed.options).toContain("ro");
+    // A filesystem that hit errors and remounted itself read-only says so in its own options.
+    const [failed] = parseFindmnt(JSON.stringify({ filesystems: [{ target: "/mnt/the-dump", source: "/dev/sda2", fstype: "exfat", options: "ro,relatime,uid=1000", "fs-options": "ro,uid=1000,errors=remount-ro" }] }));
+    expect(failed.readOnly).toBe(true);
+  });
+
+  it("falls back to the mount point's options where findmnt gave no filesystem options", () => {
+    const [mount] = parseFindmnt(JSON.stringify({ filesystems: [{ target: "/mnt/old", source: "/dev/sdb1", fstype: "ext4", options: "ro,relatime" }] }));
+    expect(mount.readOnly).toBe(true);
+  });
+
+  it("asks findmnt for the filesystem's options as well as the mount point's", async () => {
+    const run = vi.fn(async () => ({ ok: true, stdout: "{}", stderr: "" }));
+    await operations["storage.inspect"].run({}, { run }).catch(() => {});
+    const call = run.mock.calls.find(([, args]) => args.includes("--real"));
+    expect(call?.[1].at(-1)).toMatch(/(^|,)OPTIONS,FS-OPTIONS$/);
+  });
+
   it("treats a mount without an options column as read-write rather than guessing", () => {
     const [mount] = parseFindmnt(JSON.stringify({ filesystems: [{ target: "/mnt/x", source: "/dev/sdc1", fstype: "ext4" }] }));
     expect(mount.readOnly).toBe(false);

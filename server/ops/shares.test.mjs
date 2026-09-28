@@ -22,5 +22,10 @@ describe("share operations", () => {
     expect(runUnit.runTask).toHaveBeenCalledWith("share.mount", { kind: "smb", host: "nas", share: "Public", name: "nas", username: null, password: null, domain: null, readOnly: false }, expect.anything());
     await operations["share.unmount"].run({ name: "nas" }, { runUnit, jobLog: null });
     expect(runUnit.runTask).toHaveBeenCalledWith("share.unmount", { name: "nas" }, expect.anything());
+    await operations["share.reconnect"].run({ name: "boxpilot-backup" }, { runUnit, jobLog: null });
+    expect(runUnit.runTask).toHaveBeenCalledWith("share.reconnect", { name: "boxpilot-backup" }, expect.anything());
+    expect(operations["share.reconnect"].risk).toBe("medium");
+    expect(validateParameters(operations["share.reconnect"].parameters, { name: "share-nas" }, "t")).toBeNull();
+    expect(validateParameters(operations["share.reconnect"].parameters, { name: "../etc" }, "t")).toContain("name");
   });
 });
