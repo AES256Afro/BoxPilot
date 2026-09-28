@@ -61,6 +61,7 @@ import { createPowerRouter } from "./power.mjs";
 import { createChecklistRouter } from "./checklist.mjs";
 import { createHostRouter } from "./host.mjs";
 import { createOidcAdminRouter, createOidcRouter } from "./oidc.mjs";
+import { createAutoReconnect } from "../auto-reconnect.mjs";
 
 const password = "correct horse battery";
 const roles = ["viewer", "operator", "owner"];
@@ -184,6 +185,7 @@ const changeRoutes = [
   "POST /api/v1/jobs/:id/approve", "POST /api/v1/jobs/:id/more-time", "DELETE /api/v1/jobs/:id",
   "POST /api/v1/flows", "PUT /api/v1/flows/:id", "DELETE /api/v1/flows/:id", "POST /api/v1/flows/:id/webhook", "DELETE /api/v1/flows/:id/webhook", "POST /api/v1/flows/:id/run",
   "POST /api/v1/schedules", "PUT /api/v1/schedules/:id", "DELETE /api/v1/schedules/:id",
+  "POST /api/v1/drives/:name/auto-reconnect", "DELETE /api/v1/drives/:name/auto-reconnect",
   "POST /api/v1/oidc/clients", "DELETE /api/v1/oidc/clients/:id",
   "POST /api/v1/people", "PUT /api/v1/people/:id", "DELETE /api/v1/people/:id",
   "PUT /api/v1/settings/weekly-report", "POST /api/v1/settings/weekly-report/send", "PUT /api/v1/settings/notifications", "POST /api/v1/settings/notifications/test",
@@ -222,6 +224,8 @@ const dataRoutes = {
   "GET /api/v1/jobs/:id/stream": [ownersJob, operatorsJob],
   "GET /api/v1/jobs/:id": [ownersJob, operatorsJob],
   "GET /api/v1/jobs/:id/approval": [ownersJob, operatorsJob],
+  // What is armed and what waits for a person (M26.5): flow ids and hold state, no account or job ids.
+  "GET /api/v1/drives/auto-reconnect": [{ ...open, check: ({ role, body }) => expect(body.limits, role).toMatchObject({ maxAttempts: 3 }) }],
   "GET /api/v1/flows": [{
     ...open,
     check: ({ role, body }) => {
@@ -385,7 +389,7 @@ beforeAll(async () => {
   routers.createPasskeyRouter = createPasskeyRouter({ store: state, auth, passkeys: createPasskeyService({ store: state }), identity });
   routers.createPeopleRouter = createPeopleRouter({ state, auth });
   routers.createOperationsRouter = createOperationsRouter({ state, helper, jobs, prerequisites, recoveryKit, actionCenter, auth });
-  routers.createJobsRouter = createJobsRouter({ state, jobs, scheduler, flows, helper, jobLogReader: { read: async (_id, offset) => ({ text: "", offset, exists: false }) }, auth, streamBudget: createStreamBudget({ perAccount: 1_000, total: 1_000 }) });
+  routers.createJobsRouter = createJobsRouter({ state, jobs, scheduler, flows, autoReconnect: createAutoReconnect({ store: state, flows }), helper, jobLogReader: { read: async (_id, offset) => ({ text: "", offset, exists: false }) }, auth, streamBudget: createStreamBudget({ perAccount: 1_000, total: 1_000 }) });
   routers.createVirtualizationRouter = createVirtualizationRouter({
     libvirt, libvirtFoundation: { inspect: async () => ({ connectionReady: true }) }, vmPlanner: { getOptions: async () => ({}) }, vmMedia: { inspect: async () => ({ media: [] }) }, vmCreation: { preview: async () => ({ ok: false, errors: [] }) },
     vmExports: createVmExportService({ store: state, libvirt, helper }), vmProtection: createVmProtectionService({ store: state, helper }), vmRetention: createVmRetentionService({ store: state, helper }), vmRecoveries: createVmRecoveryService({ store: state, helper }), audit,
