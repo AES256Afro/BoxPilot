@@ -1,4 +1,4 @@
-import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fixedRun } from "../exec.mjs";
 
@@ -445,7 +445,7 @@ export async function storageRemount({ name } = {}, { run = fixedRun, log = null
  * the way an operator would do it by hand. The checker runs with -n: it reports, it never repairs.
  * Repairing is a separate decision with the report in hand.
  */
-export async function storageCheck({ name } = {}, { run = fixedRun, log = null, files = { readFile, readable: (target) => readdir(target).then(() => true, () => false) } } = {}) {
+export async function storageCheck({ name } = {}, { run = fixedRun, log = null, files = { readFile, readable: (target) => readdir(target).then(() => true, () => false), exists: (file) => access(file).then(() => true, () => false) } } = {}) {
   assertPlainMountName(name);
   const content = await files.readFile(fstabPath, "utf8");
   const entry = parseManagedFstab(content).find((row) => row.name === name);
@@ -457,6 +457,11 @@ export async function storageCheck({ name } = {}, { run = fixedRun, log = null, 
   if (!device) throw new Error(`${mountpoint} is not mounted, so there is nothing to check yet. Reconnect the drive first.`);
   const checker = { exfat: [binaries.fsckExfat, ["-n", device]], ext4: [binaries.e2fsck, ["-fn", device]], ext3: [binaries.e2fsck, ["-fn", device]], ext2: [binaries.e2fsck, ["-fn", device]], vfat: [binaries.fsckFat, ["-n", device]] }[fstype];
   if (!checker) throw new Error(`BoxPilot has no read-only checker for ${fstype} filesystems`);
+  // Before anything is stopped or unmounted: a checker that is not installed would only be found
+  // missing with the drive already detached. Ubuntu does not install fsck.exfat by default.
+  if (!(await files.exists(checker[0]))) {
+    throw new Error(`${path.basename(checker[0])} is not installed, so ${mountpoint} was not checked; nothing was stopped or unmounted. Install the drive check tools from Repair first.`);
+  }
 
   const bound = await containersBoundTo(run, mountpoint);
   for (const container of bound) { log?.(`$ docker stop ${container}`, "stdout"); await run(binaries.docker, ["stop", container], { timeout: 120_000 }); }
