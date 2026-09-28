@@ -432,7 +432,7 @@ export function createAssistantService({
     return value;
   }
 
-  /** Build the index now, at startup, rather than on the first question. */
+  /** Build the index now rather than on the first question or status read, which build it themselves. */
   function warm() {
     return index.ensure().catch(() => null);
   }

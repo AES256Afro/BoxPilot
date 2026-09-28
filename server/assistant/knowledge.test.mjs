@@ -3,7 +3,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { createCatalogService } from "../catalog/index.mjs";
 import { createRegistry, defineOperation, registry as realRegistry } from "../ops/index.mjs";
-import { chunkMarkdown, createBm25, createKnowledgeIndex, fuseRankings, operationChunks, repositoryRoot, tokenize } from "./knowledge.mjs";
+import { chunkMarkdown, createBm25, createEmbeddingCache, createKnowledgeIndex, embeddingCacheLimits, fuseRankings, operationChunks, repositoryRoot, tokenize } from "./knowledge.mjs";
 
 const run = () => ({});
 const smallRegistry = createRegistry([[
@@ -138,6 +138,67 @@ describe("retrieval", () => {
 
   it("scores nothing for a question with no known word", () => {
     expect(createBm25([{ title: "a", text: "backup restore" }]).search(tokenize("zebra")).size).toBe(0);
+  });
+
+  it("scores exactly as BM25 over [chunk, count] pairs did, from its packed postings", () => {
+    const chunks = [
+      { title: "Backups", text: "Restore a backup archive. Restore it again.", weight: 1 },
+      { title: "Network", text: "Tailscale reaches the server from anywhere.", weight: 1 },
+      { title: "Older", text: "Restoring a backup from before ADR-001, backup by backup.", weight: 0.7 },
+      { title: "Empty", text: "", weight: 1 },
+    ];
+    // The formula written out plainly, the way the index held it before its postings were packed.
+    const reference = (query, k1 = 1.2, b = 0.75) => {
+      const counted = chunks.map((chunk) => tokenize(`${chunk.title}\n${chunk.text}`));
+      const average = counted.reduce((sum, tokens) => sum + tokens.length, 0) / counted.length;
+      const scores = new Map();
+      for (const token of new Set(query)) {
+        const holding = counted.map((tokens, index) => [index, tokens.filter((entry) => entry === token).length]).filter(([, count]) => count > 0);
+        const idf = Math.log(1 + (chunks.length - holding.length + 0.5) / (holding.length + 0.5));
+        for (const [index, count] of holding) scores.set(index, (scores.get(index) ?? 0) + idf * ((count * (k1 + 1)) / (count + k1 * (1 - b + b * (counted[index].length / average)))) * chunks[index].weight);
+      }
+      return scores;
+    };
+    const bm25 = createBm25(chunks);
+    for (const question of ["restore a backup", "tailscale server", "backup backup ADR-001", "zebra"]) {
+      expect(bm25.search(tokenize(question))).toEqual(reference(tokenize(question)));
+    }
+    expect(bm25.postings).toBe(chunks.reduce((sum, chunk) => sum + new Set(tokenize(`${chunk.title}\n${chunk.text}`)).size, 0));
+  });
+});
+
+describe("the embedding cache", () => {
+  const vector = (dimensions, seed = 1) => Array.from({ length: dimensions }, (_, index) => ((index * 7 + seed) % 13) - 6);
+
+  it("holds at most maxEntries vectors, the oldest going first, across models", () => {
+    const cache = createEmbeddingCache({ maxEntries: 3, maxBytes: Number.MAX_SAFE_INTEGER });
+    for (const [model, hash] of [["a", "1"], ["a", "2"], ["b", "1"], ["b", "2"]]) cache.set(model, hash, vector(8));
+    expect(cache.size).toBe(3);
+    expect(cache.get("a", "1")).toBeNull();
+    expect(cache.get("b", "2")).not.toBeNull();
+    expect(cache.count("a")).toBe(1);
+  });
+
+  it("is bounded in bytes too, whatever width the model's vectors are", () => {
+    const wide = 4096; // a 4,096-wide model's vectors are 16 KiB each
+    const cache = createEmbeddingCache({ maxEntries: 1000, maxBytes: 10 * wide * 4 });
+    for (let index = 0; index < 25; index += 1) cache.set("wide", `hash-${index}`, vector(wide, index));
+    expect(cache.size).toBe(10);
+    expect(cache.bytes).toBe(10 * wide * 4);
+    expect(cache.get("wide", "hash-24")).not.toBeNull();
+    // Setting the same one again replaces it rather than counting it twice.
+    cache.set("wide", "hash-24", vector(wide, 3));
+    expect(cache.bytes).toBe(10 * wide * 4);
+  });
+
+  it("holds a whole corpus the size of BoxPilot's own under a wide model by default", () => {
+    const cache = createEmbeddingCache();
+    for (let index = 0; index < 1000; index += 1) cache.set("qwen3-embedding", `hash-${index}`, vector(4096, index));
+    expect(cache.count("qwen3-embedding")).toBe(1000);
+    expect(cache.bytes).toBeLessThanOrEqual(embeddingCacheLimits.maxBytes);
+    for (let index = 0; index < 3000; index += 1) cache.set(`model-${index % 5}`, `hash-${index}`, vector(4096, index));
+    expect(cache.bytes).toBeLessThanOrEqual(embeddingCacheLimits.maxBytes);
+    expect(cache.size).toBeLessThanOrEqual(embeddingCacheLimits.maxEntries);
   });
 });
 

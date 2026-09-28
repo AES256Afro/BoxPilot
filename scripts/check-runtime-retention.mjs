@@ -7,10 +7,13 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { setImmediate as immediate, setTimeout as delay } from "node:timers/promises";
+import { createEmbeddingCache, createKnowledgeIndex, embeddingCacheLimits } from "../server/assistant/knowledge.mjs";
+import { createCatalogService } from "../server/catalog/index.mjs";
 import { createEventStream, createStreamBudget } from "../server/event-stream.mjs";
 import { createHelperClient } from "../server/helper-client.mjs";
 import { createLoginThrottle } from "../server/login-throttle.mjs";
 import { createOidcService } from "../server/oidc.mjs";
+import { registry } from "../server/ops/index.mjs";
 
 if (typeof globalThis.gc !== "function") throw new Error("Run with node --expose-gc scripts/check-runtime-retention.mjs");
 const option = (name, fallback, max) => {
@@ -73,6 +76,22 @@ try {
   await new Promise((resolve) => webServer.listen(0, "127.0.0.1", resolve));
   const helper = createHelperClient({ socketPath });
   const port = webServer.address().port;
+  // The assistant's index of BoxPilot's own documents, registry and catalog (M34.1) is held for the
+  // life of the process once built. Measured on its own, over the real corpus, against a budget.
+  const catalog = createCatalogService();
+  await catalog.all();
+  await settleAndCollect();
+  const beforeIndex = process.memoryUsage().heapUsed;
+  const knowledge = createKnowledgeIndex({ registry, catalog });
+  const indexStats = await knowledge.ensure();
+  await settleAndCollect();
+  const indexRetainedBytes = process.memoryUsage().heapUsed - beforeIndex;
+  const indexBudget = 4 * 1024 * 1024;
+  // Its embedding cache, churned with a 4,096-wide model's vectors under three model names, which
+  // is what switching embedding models does: bounded in entries and in bytes whatever the width.
+  const embeddings = createEmbeddingCache();
+  const wideVector = Array.from({ length: 4096 }, (_, index) => (index % 13) - 6);
+  let embedded = 0;
   async function streamOnce(abort) {
     await new Promise((resolve, reject) => {
       const request = http.get({ hostname: "127.0.0.1", port, agent: false }, (response) => {
@@ -95,6 +114,8 @@ try {
       oidc.exchangeCode({ code, codeVerifier: verifier, clientId: client.id, redirectUri: client.redirectUris[0], issuer: "https://example.invalid" });
       clock += 1000;
       throttle.record([`caller-${batch}-${iteration}`], false);
+      for (let count = 0; count < 4; count += 1, embedded += 1) embeddings.set(`model-${embedded % 3}`, `chunk-${embedded}`, wideVector);
+      assert.ok(knowledge.search("where did the disk space go").length > 0);
     }
     await settleAndCollect();
     assert.equal(helper.diagnostics().active, 0);
@@ -102,19 +123,23 @@ try {
     assert.equal(streamBudget.stats().active, 0);
     assert.equal(oidc.internals.pendingCodeCount(), 0);
     assert.ok(throttle.size() <= 64);
+    assert.ok(embeddings.size <= embeddingCacheLimits.maxEntries && embeddings.bytes <= embeddingCacheLimits.maxBytes, `embedding cache ${embeddings.size} entries, ${embeddings.bytes} bytes`);
     if (batch >= 0) samples.push({ batch, ...process.memoryUsage(), resources: resources() });
   }
   const growth = samples.at(-1).heapUsed - samples[0].heapUsed;
   const peakGrowth = Math.max(...samples.map((sample) => sample.heapUsed)) - samples[0].heapUsed;
   const budget = 8 * 1024 * 1024;
   const result = {
-    scenario: "Local helper read sharing, SSE close/abort, SSO grant exchange and bounded throttle churn",
+    scenario: "Local helper read sharing, SSE close/abort, SSO grant exchange, bounded throttle churn, and the assistant's index and embedding cache",
     node: process.version, platform: process.platform, warmupBatches: 2, batches, iterationsPerBatch: iterations,
     helperRequests, streamClosures, samples, retainedHeapGrowthBytes: growth, peakRetainedHeapGrowthBytes: peakGrowth, heapGrowthBudgetBytes: budget,
-    passed: peakGrowth <= budget,
+    assistantIndex: { chunks: indexStats.chunks, terms: indexStats.terms, retainedHeapBytes: indexRetainedBytes, budgetBytes: indexBudget },
+    embeddingCache: { vectorsSet: embedded, entries: embeddings.size, bytes: embeddings.bytes, limits: embeddingCacheLimits },
+    passed: peakGrowth <= budget && indexRetainedBytes <= indexBudget,
     limitation: "Synthetic short-run regression budget; not a browser leak test, production load test or 24-72 hour soak. RSS can remain high after allocator reuse.",
   };
   console.log(JSON.stringify(result, null, 2));
+  assert.ok(indexRetainedBytes <= indexBudget, `The assistant's index retains ${indexRetainedBytes} bytes of heap (budget ${indexBudget})`);
   assert.ok(result.passed, `Retained heap grew by up to ${peakGrowth} bytes after warmup (budget ${budget})`);
 } finally {
   oidc.close();

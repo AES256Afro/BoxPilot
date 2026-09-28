@@ -20,9 +20,18 @@ import { fixedRun } from "./exec.mjs";
 import { defaultJobLogDirectory, jobIdPattern, jobLogPath } from "./job-log.mjs";
 import { createHousekeepingService, defaultKeepBackupsPerApp, humanBytes, parseDockerSize, parseReclaimable } from "./housekeeping.mjs";
 import { validateParameters } from "./ops/registry.mjs";
+import { lowPriorityCommand } from "./scan-resources.mjs";
 import { createTreeScanBudget, diskUsage, listTreeEntries, measureTreeUsage } from "./tree-scan.mjs";
 
 const dayMs = 86_400_000;
+/**
+ * How long one look at where the space went, or one preview, may walk folders for, in all: under the
+ * three minutes space.inspect and space.cleanup.preview are given, with room for what comes after.
+ * Each walk used to get a fresh minute of its own, so the backup folders alone, one after another,
+ * could walk for five, long after the web side had stopped waiting, holding one of the helper's
+ * eight read slots the whole time. A folder the pass has no time left for says so.
+ */
+export const spacePassMs = 150_000;
 const mebibyte = 1024 ** 2;
 /** A log written to within this long is treated as active whatever its job's record says. */
 export const activeLogGraceMs = 60 * 60_000;
@@ -257,9 +266,22 @@ export function createSpaceRecovery({
   usageOf = diskUsage,
   now = () => new Date(),
   treeScanLimits = {},
+  // du runs at idle IO priority and nice 10, as the app-data scan's does (scan-resources.mjs).
+  scanCommand = lowPriorityCommand,
+  passMs = spacePassMs,
 } = {}) {
-  const budget = () => createTreeScanBudget(treeScanLimits);
-  const docker = (args, options = {}) => run(dockerBinary, args, { timeout: 60_000, maxBuffer: 8 * 1024 * 1024, ...options });
+  const scanClock = treeScanLimits.now ?? (() => Date.now());
+  /**
+   * A walk's budget: its own entry and depth limits, and whatever time the pass it belongs to has
+   * left (`deadlineAt`), never more than a walk's own limit. Without a pass, the walk's own limit.
+   */
+  const budget = (deadlineAt = null) => {
+    if (deadlineAt === null) return createTreeScanBudget(treeScanLimits);
+    const own = treeScanLimits.maxDurationMs ?? 60_000;
+    return createTreeScanBudget({ ...treeScanLimits, maxDurationMs: Math.max(0, Math.min(own, deadlineAt - scanClock())) });
+  };
+  const passDeadline = () => scanClock() + passMs;
+  const docker =(args, options = {}) => run(dockerBinary, args, { timeout: 60_000, maxBuffer: 8 * 1024 * 1024, ...options });
 
   /** Free bytes and inodes of the filesystem holding `target`; null when it cannot be read. */
   async function filesystemOf(target) {
@@ -285,8 +307,8 @@ export function createSpaceRecovery({
   // --- the journal ---------------------------------------------------------------------------
 
   /** Every journal folder (one per machine id, and per namespace) under /var/log/journal and /run/log/journal. */
-  async function journalFolders() {
-    const scan = budget();
+  async function journalFolders(deadlineAt = null) {
+    const scan = budget(deadlineAt);
     const folders = [];
     for (const root of journalRoots) {
       for (const entry of await listTreeEntries(root, { budget: scan })) {
@@ -302,8 +324,8 @@ export function createSpaceRecovery({
 
   // --- job logs --------------------------------------------------------------------------------
 
-  async function jobLogs() {
-    const logs = (await filesIn(jobLogDirectory, budget(), (name) => jobIdPattern.test(name.replace(/\.log$/, "")) && name.endsWith(".log")))
+  async function jobLogs(deadlineAt = null) {
+    const logs = (await filesIn(jobLogDirectory, budget(deadlineAt), (name) => jobIdPattern.test(name.replace(/\.log$/, "")) && name.endsWith(".log")))
       .map((log) => ({ ...log, jobId: log.name.replace(/\.log$/, "") }));
     // Without the job records nothing can be told apart, and a log is never taken on a guess.
     const states = await Promise.resolve().then(() => lookupJobs(logs.map((log) => log.jobId))).catch((error) => { throw Object.assign(new Error(`BoxPilot's job records could not be read: ${error.message}`), { code: "JOB_RECORDS_UNAVAILABLE" }); });
@@ -346,8 +368,8 @@ export function createSpaceRecovery({
   // --- APT ------------------------------------------------------------------------------------
 
   /** Exactly what `apt-get clean` deletes: downloaded packages, partial downloads, and the binary caches. */
-  async function aptCleanTargets() {
-    const scan = budget();
+  async function aptCleanTargets(deadlineAt = null) {
+    const scan = budget(deadlineAt);
     const archives = path.join(aptCacheRoot, "archives");
     const targets = [
       ...await filesIn(archives, scan, (name) => name !== "lock"),
@@ -382,13 +404,13 @@ export function createSpaceRecovery({
   // --- backups ---------------------------------------------------------------------------------
 
   /** Each local backup folder's bytes and inodes, and its own retention; application backups per app. */
-  async function backupUsage() {
+  async function backupUsage(deadlineAt = null) {
     const roots = [];
     for (const root of backupRoots) {
       try {
-        const usage = await measureTreeUsage(root.path, { budget: budget(), usageOf });
+        const usage = await measureTreeUsage(root.path, { budget: budget(deadlineAt), usageOf });
         const entry = { id: root.id, title: root.title, path: root.path, ...usage, retention: root.retention };
-        if (root.id === "application") entry.beyondNewest = await applicationBackupsBeyondNewest(root.path);
+        if (root.id === "application") entry.beyondNewest = await applicationBackupsBeyondNewest(root.path, deadlineAt);
         roots.push(entry);
       } catch (error) {
         roots.push({ id: root.id, title: root.title, path: root.path, bytes: null, inodes: null, files: null, retention: root.retention, unavailable: error.code === "ENOENT" ? "Not created yet" : error.code === "TREE_SCAN_BUDGET" ? "Too large to measure in one pass" : "Could not be read" });
@@ -398,9 +420,9 @@ export function createSpaceRecovery({
   }
 
   /** Archives past the newest few of each kind, counted the way Reclaim disk space counts them. */
-  async function applicationBackupsBeyondNewest(root) {
+  async function applicationBackupsBeyondNewest(root, deadlineAt = null) {
     let count = 0; let bytes = 0;
-    const scan = budget();
+    const scan = budget(deadlineAt);
     for (const app of await listTreeEntries(root, { budget: scan })) {
       if (!app.isDirectory()) continue;
       const directory = path.join(root, app.name);
@@ -417,8 +439,8 @@ export function createSpaceRecovery({
 
   // --- where the space went ---------------------------------------------------------------------
 
-  async function inspectJournal() {
-    const [folders, reported] = await Promise.all([journalFolders(), run(journalctl, ["--disk-usage"], { timeout: 60_000 })]);
+  async function inspectJournal(deadlineAt) {
+    const [folders, reported] = await Promise.all([journalFolders(deadlineAt), run(journalctl, ["--disk-usage"], { timeout: 60_000 })]);
     const files = folders.flatMap((folder) => folder.files);
     const active = files.filter((file) => parseJournalFileName(file.name)?.kind === "active");
     return {
@@ -433,8 +455,8 @@ export function createSpaceRecovery({
     };
   }
 
-  async function inspectJobLogs() {
-    const logs = await jobLogs();
+  async function inspectJobLogs(deadlineAt) {
+    const logs = await jobLogs(deadlineAt);
     const classes = jobLogClasses(logs, cleanupBounds.jobLogDefaultDays);
     const summary = (list) => ({ count: list.length, bytes: list.reduce((sum, log) => sum + log.bytes, 0) });
     return {
@@ -444,11 +466,17 @@ export function createSpaceRecovery({
     };
   }
 
-  async function inspectApt() {
+  /** du at idle IO priority and nice 10, within its minute; it starts with the pass, well inside it. */
+  async function du(args) {
+    const command = await scanCommand(duBinary, args);
+    return run(command.binary, command.args, { timeout: 60_000 });
+  }
+
+  async function inspectApt(deadlineAt) {
     const [bytesRun, inodesRun, targets] = await Promise.all([
-      run(duBinary, ["--summarize", "--one-file-system", "--block-size=1", aptCacheRoot], { timeout: 60_000 }),
-      run(duBinary, ["--summarize", "--one-file-system", "--inodes", aptCacheRoot], { timeout: 60_000 }),
-      aptCleanTargets(),
+      du(["--summarize", "--one-file-system", "--block-size=1", aptCacheRoot]),
+      du(["--summarize", "--one-file-system", "--inodes", aptCacheRoot]),
+      aptCleanTargets(deadlineAt),
     ]);
     const bytes = parseDuSummary(bytesRun.stdout).get(aptCacheRoot) ?? null;
     const inodes = parseDuSummary(inodesRun.stdout).get(aptCacheRoot) ?? null;
@@ -472,8 +500,8 @@ export function createSpaceRecovery({
     };
   }
 
-  async function inspectBackups() {
-    const roots = await backupUsage();
+  async function inspectBackups(deadlineAt) {
+    const roots = await backupUsage(deadlineAt);
     const measured = roots.filter((root) => root.bytes !== null);
     return {
       id: "backups", title: "Local backups", path: measured[0]?.path ?? null,
@@ -488,11 +516,15 @@ export function createSpaceRecovery({
       : error?.code === "EACCES" || error?.code === "EPERM" ? "Could not be read"
         : "Could not be measured";
 
-  /** Bytes and inodes per category, and the free space and inodes of the filesystems they sit on. */
+  /**
+   * Bytes and inodes per category, and the free space and inodes of the filesystems they sit on.
+   * Every folder walk shares one deadline (spacePassMs).
+   */
   async function inspect() {
     const titles = { journal: "System journal", "job-logs": "BoxPilot job logs", "apt-cache": "APT download cache", docker: "Docker", backups: "Local backups" };
     const readers = [["journal", inspectJournal], ["job-logs", inspectJobLogs], ["apt-cache", inspectApt], ["docker", inspectDocker], ["backups", inspectBackups]];
-    const settled = await Promise.allSettled(readers.map(([, read]) => read()));
+    const deadlineAt = passDeadline();
+    const settled = await Promise.allSettled(readers.map(([, read]) => read(deadlineAt)));
     // Unavailable is never zero: a category that could not be read has no numbers, only the reason.
     const categories = settled.map((result, index) => (result.status === "fulfilled"
       ? { ...result.value, available: true, unavailable: null, humanBytes: result.value.bytes === null ? null : humanBytes(result.value.bytes) }
@@ -525,8 +557,8 @@ export function createSpaceRecovery({
 
   const listItems = (entries, describe) => ({ items: entries.slice(0, listedItems).map(describe), more: Math.max(0, entries.length - listedItems) });
 
-  async function planJournal(bounds) {
-    const folders = await journalFolders();
+  async function planJournal(bounds, deadlineAt = null) {
+    const folders = await journalFolders(deadlineAt);
     const planned = folders.map((folder) => ({ folder, ...planJournalFolder(folder.files, { maxBytes: bounds.journalMaxBytes, maxAgeDays: bounds.journalMaxAgeDays, now: now().getTime() }) }));
     const remove = planned.flatMap((entry) => entry.remove);
     const keptArchived = planned.flatMap((entry) => entry.kept);
@@ -549,8 +581,8 @@ export function createSpaceRecovery({
     };
   }
 
-  async function planJobLogs(bounds) {
-    const classes = jobLogClasses(await jobLogs(), bounds.jobLogRetentionDays);
+  async function planJobLogs(bounds, deadlineAt = null) {
+    const classes = jobLogClasses(await jobLogs(deadlineAt), bounds.jobLogRetentionDays);
     const remove = classes["past-retention"];
     const size = (list) => humanBytes(list.reduce((sum, log) => sum + log.bytes, 0));
     const saved = (log) => (log.job?.savedBytes === null || log.job?.savedBytes === undefined ? "no copy in Activity" : log.job.savedBytes >= log.bytes ? "Activity keeps its output" : "Activity keeps the end of its output");
@@ -573,8 +605,8 @@ export function createSpaceRecovery({
     };
   }
 
-  async function planApt() {
-    const targets = await aptCleanTargets();
+  async function planApt(_bounds, deadlineAt = null) {
+    const targets = await aptCleanTargets(deadlineAt);
     const packages = targets.filter((file) => file.name.endsWith(".deb"));
     return {
       public: {
@@ -628,13 +660,14 @@ export function createSpaceRecovery({
   const planners = { journal: planJournal, "job-logs": planJobLogs, "apt-cache": planApt, "docker-dangling": planDocker };
   const cleanupTitles = { journal: "System journal", "job-logs": "BoxPilot job logs", "apt-cache": "APT download cache", "docker-dangling": "Dangling Docker images" };
 
-  async function prepare(parameters) {
+  /** The plan for these bounds. `deadlineAt` is the preview's pass; the cleanup's own budget is 30 minutes. */
+  async function prepare(parameters, deadlineAt = null) {
     const bounds = boundsOf(parameters);
     const internal = new Map();
     const categories = [];
     for (const id of bounds.categories) {
       try {
-        const planned = await planners[id](bounds);
+        const planned = await planners[id](bounds, deadlineAt);
         internal.set(id, planned);
         categories.push({ id, title: cleanupTitles[id], available: true, unavailable: null, ...planned.public, humanBytes: humanBytes(planned.public.bytes) });
       } catch (error) {
@@ -659,7 +692,7 @@ export function createSpaceRecovery({
 
   /** The preview: what these bounds remove now, what that frees, and what stays. Changes nothing. */
   async function plan(parameters) {
-    return (await prepare(parameters)).plan;
+    return (await prepare(parameters, passDeadline())).plan;
   }
 
   // --- the cleanup -------------------------------------------------------------------------------

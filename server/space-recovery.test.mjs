@@ -14,10 +14,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { onWindows } from "../test/platform.mjs";
 import {
   activeLogGraceMs, cleanupBounds, cleanupCategoryIds, createSpaceRecovery, journalVacuumArgs, parseDockerSystemDf, parseDuSummary,
-  parseJournalDiskUsage, parseJournalFileName, parseJournalVacuum, planJournalFolder,
+  parseJournalDiskUsage, parseJournalFileName, parseJournalVacuum, planJournalFolder, spacePassMs,
 } from "./space-recovery.mjs";
 import { aptClean, journalVacuum } from "./tasks/space.mjs";
 import { registry } from "./ops/index.mjs";
+import { lowPriorityCommand } from "./scan-resources.mjs";
 
 const fixtures = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "test", "fixtures", "space");
 const fixture = (name) => readFile(path.join(fixtures, name), "utf8");
@@ -246,7 +247,9 @@ async function host({ docker = true, database = true, vacuumDeletes = null } = {
   await mkdir(dockerRoot);
   let pruned = false;
   const df = await fixture("docker-system-df.jsonl");
-  const run = vi.fn(async (binary, args) => {
+  const run = vi.fn(async (program, programArgs) => {
+    // du runs behind ionice and nice (scan-resources.mjs): answer for the command they run.
+    const [binary, args] = program.endsWith("/ionice") ? [programArgs[6], programArgs.slice(7)] : [program, programArgs];
     const ok = (stdout) => ({ ok: true, code: 0, stdout, stderr: "" });
     if (binary.endsWith("du")) return ok(args.includes("--inodes") ? `9\t${apt}` : `2560\t${apt}`);
     if (binary.endsWith("journalctl")) return ok((await fixture("journalctl-disk-usage.txt")).trim());
@@ -289,6 +292,8 @@ async function host({ docker = true, database = true, vacuumDeletes = null } = {
     expectedUid: process.getuid?.() ?? 0,
     usageOf: (info) => info.size,
     now: () => new Date(now),
+    // As on an Ubuntu host with both tools, whatever machine runs the test.
+    scanCommand: (binary, args) => lowPriorityCommand(binary, args, { platform: "linux", executable: async () => true }),
   });
   return { root, journal, logs, jobs, apt, run, runUnit, space };
 }
@@ -297,8 +302,12 @@ const byId = (list) => Object.fromEntries(list.map((entry) => [entry.id, entry])
 
 describe("where the space went", () => {
   it("attributes bytes and inodes to the journal, job logs, the APT cache, Docker and local backups", async () => {
-    const { space } = await host();
+    const { space, run, apt } = await host();
     const report = await space.inspect();
+    // du walks at idle IO priority and nice 10, as the app-data scan does.
+    for (const measure of ["--block-size=1", "--inodes"]) {
+      expect(run).toHaveBeenCalledWith("/usr/bin/ionice", ["-c", "3", "-t", "/usr/bin/nice", "-n", "10", "/usr/bin/du", "--summarize", "--one-file-system", measure, apt], expect.any(Object));
+    }
     const categories = byId(report.categories);
     expect(categories.journal).toMatchObject({ available: true, bytes: 64 * 1024 + 3 * 128 * 1024, inodes: 5, detail: { journaldReportedBytes: Math.round(1.2 * GiB), activeFiles: 1, archivedFiles: 3 } });
     expect(categories["job-logs"]).toMatchObject({ available: true, bytes: 22_000, inodes: 6 });
@@ -320,6 +329,33 @@ describe("where the space went", () => {
     expect(categories.docker).toMatchObject({ available: false, bytes: null, unavailable: "Docker did not answer" });
     expect(categories["job-logs"]).toMatchObject({ available: false, bytes: null, unavailable: "BoxPilot's job records could not be read" });
     expect(categories.journal.available).toBe(true);
+  });
+
+  it("walks folders for one deadline in all, not a fresh minute per folder, and ends inside the operation's budget", async () => {
+    expect(spacePassMs).toBeLessThan(registry.get("space.inspect").timeoutMs);
+    expect(spacePassMs).toBeLessThan(registry.get("space.cleanup.preview").timeoutMs);
+    const root = await mkdtemp(path.join(os.tmpdir(), "boxpilot-space-pass-"));
+    directories.push(root);
+    const backupRoots = [];
+    for (const id of ["database", "machine-snapshots", "vm-exports", "elsewhere"]) {
+      await mkdir(path.join(root, id), { recursive: true });
+      await writeFile(path.join(root, id, "archive.tar.gz"), Buffer.alloc(100, 1));
+      backupRoots.push({ id, title: id, path: path.join(root, id), retention: "kept" });
+    }
+    // Measuring a file takes 40 seconds on this clock. Each folder alone is well within a walk's
+    // own minute, but the four together are 160 seconds, past a pass of 100.
+    let clock = 0;
+    const missing = path.join(root, "missing");
+    const space = createSpaceRecovery({
+      run: async () => ({ ok: false, code: 1, stdout: "", stderr: "not here" }),
+      journalRoots: [missing], aptCacheRoot: missing, aptListsPartial: missing, jobLogDirectory: missing, lookupJobs: async () => new Map(),
+      backupRoots, usageOf: (info) => { clock += 40_000; return info.size; },
+      treeScanLimits: { now: () => clock }, passMs: 100_000,
+      scanCommand: async (binary, args) => ({ binary, args, priority: "default" }),
+    });
+    const roots = byId((await space.inspect()).categories).backups.detail.roots;
+    expect(roots.map((entry) => entry.unavailable ?? entry.bytes)).toEqual([100, 100, 100, "Too large to measure in one pass"]);
+    expect(clock).toBe(120_000);
   });
 });
 
