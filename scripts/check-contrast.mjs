@@ -65,6 +65,7 @@ export const pairs = [
   ["--text-muted", "--accent-bg", 4.5, "a hint on the chosen command"],
   ["--text-muted", "--surface-hover", 4.5, "a figure's caption under the pointer"],
   ["--text-strong", "--topbar-bg", 4.5, "the dock and top bar over the page"],
+  ["--text-muted", "--topbar-bg", 4.5, "the dock's area names"],
 ];
 
 /** Top-level rules and the rules one level inside @media, as { media, selector, declarations }. */

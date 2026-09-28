@@ -4,8 +4,8 @@ import type { ViewName } from "../data";
 /*
  * One line icon per page, for the dock and the command bar (M33.2). The shapes are the ones the
  * design study drew for its dock (docs/design-directions/04-eight-directions.html), on a 24-unit
- * grid, stroked in the text colour. They are decoration: every place that shows one also says the
- * page's name, to assistive technology and on hover or focus.
+ * grid, stroked in the text colour. They are decoration: every place that shows one also shows the
+ * page's name and reads it to assistive technology.
  */
 
 function Svg({ children, ...props }: SVGProps<SVGSVGElement>) {
@@ -53,6 +53,11 @@ export function PlusIcon(props: Omit<SVGProps<SVGSVGElement>, "children">) {
 
 export function SparkIcon(props: Omit<SVGProps<SVGSVGElement>, "children">) {
   return <Svg {...props}>{shapes.setup}</Svg>;
+}
+
+/** The dock's More: every area, when the screen is too narrow for all of them. */
+export function MoreIcon(props: Omit<SVGProps<SVGSVGElement>, "children">) {
+  return <Svg {...props}><circle cx="5" cy="12" r="1.4" /><circle cx="12" cy="12" r="1.4" /><circle cx="19" cy="12" r="1.4" /></Svg>;
 }
 
 export function ExternalIcon(props: Omit<SVGProps<SVGSVGElement>, "children">) {

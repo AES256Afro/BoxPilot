@@ -110,12 +110,17 @@ describe("Dock", () => {
     expect(onSelect).toHaveBeenCalledWith("storage");
   });
 
-  it("shows each area's name above its icon, and draws a rule between groups", () => {
-    render(<Dock onSelect={vi.fn()} items={[{ id: "updates", label: "Updates", icon: "UP", badge: 3 }, { id: "settings", label: "Settings", icon: "ST", separatorBefore: true }]} />);
+  it("shows each area's name under its icon, and draws a rule between groups", () => {
+    // Icons alone had to be learnt or hovered; the owner asked for the names.
+    render(<Dock onSelect={vi.fn()} items={[{ id: "updates", label: "Updates & packages", short: "Updates", icon: "UP", badge: 3 }, { id: "settings", label: "Settings", icon: "ST", separatorBefore: true, priority: 3 }]} />);
     const nav = screen.getByRole("navigation", { name: "Admin areas" });
-    const tip = within(nav).getByRole("button", { name: "Updates, 3 waiting" }).querySelector(".ui-dock__tip");
-    expect(tip?.textContent).toBe("Updates · 3 waiting");
-    expect(tip?.getAttribute("aria-hidden")).toBe("true");
+    const updates = within(nav).getByRole("button", { name: "Updates & packages, 3 waiting" });
+    expect(updates.querySelector(".ui-dock__label")?.textContent).toBe("Updates");
+    expect(updates.querySelector(".ui-dock__label")?.getAttribute("aria-hidden")).toBe("true");
+    expect(updates.querySelector(".ui-dock__icon .ui-dock__badge")?.textContent).toBe("3");
+    expect(within(nav).getByRole("button", { name: "Settings" }).querySelector(".ui-dock__label")?.textContent).toBe("Settings");
+    // Which items a narrow screen keeps is the page's stylesheet's call; the dock only says so.
+    expect(nav.querySelectorAll('[data-priority="3"]')).toHaveLength(2);
     expect(nav.querySelectorAll(".ui-dock__separator")).toHaveLength(1);
     // The rule is drawing only: the list still reads as two areas.
     expect(within(nav).getAllByRole("listitem")).toHaveLength(2);

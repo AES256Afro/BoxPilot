@@ -294,13 +294,22 @@ export function verdictFor(needs: Need[], { hostname, checking, unread }: { host
   const danger = needs.filter((need) => need.severity === "danger").length;
   const warning = needs.filter((need) => need.severity === "warning").length;
   const neutral = needs.filter((need) => need.severity === "neutral").length;
+  // The rest of "What needs you", counted in the same sentence, so its number adds up to the
+  // list's: two to look at and two more that can wait is the list of four below it.
+  const canWait = neutral ? ` ${neutral === 1 ? "One more thing" : `${neutral} more`} can wait.` : "";
   if (danger > 0) {
-    return { status: "danger", label: countOf(danger, "problem"), sentence: `${hostname} needs you: ${countOf(danger, "problem")}${warning ? ` and ${countOf(warning, "thing")} to look at` : ""}.` };
+    return { status: "danger", label: countOf(danger, "problem"), sentence: `${hostname} needs you: ${countOf(danger, "problem")}${warning ? ` and ${countOf(warning, "thing")} to look at` : ""}.${canWait}` };
   }
-  if (warning > 0) return { status: "warning", label: `${warning} to look at`, sentence: `${hostname} is running. ${warning === 1 ? "One thing needs" : `${warning} things need`} a look.` };
+  if (warning > 0) return { status: "warning", label: `${warning} to look at`, sentence: `${hostname} is running. ${warning === 1 ? "One thing needs" : `${warning} things need`} a look.${canWait}` };
   if (checking) return { status: "unknown", label: "Checking", sentence: `Checking ${hostname}…` };
   if (unread.length > 0) return { status: "unknown", label: "Not fully checked", sentence: `Nothing wrong found, but BoxPilot could not read ${sentenceList(unread)}.` };
-  return { status: "good", label: "Healthy", sentence: `${hostname} is healthy.${neutral ? ` ${neutral === 1 ? "One small thing" : `${neutral} small things`} could use a look.` : " Nothing needs you."}` };
+  return { status: "good", label: "Healthy", sentence: `${hostname} is healthy.${neutral ? ` ${neutral === 1 ? "One small thing" : `${neutral} small things`} can wait.` : " Nothing needs you."}` };
+}
+
+/** The label for "What needs you": the headline's count when something needs a look, so the two agree. */
+export function needsLabel(needs: Need[], verdict: Verdict): string {
+  const urgent = needs.filter((need) => need.severity !== "neutral").length;
+  return urgent > 0 ? verdict.label : `${needs.length} can wait`;
 }
 
 /** The sources whose answer the verdict rests on, with the words used when one could not be read. */
