@@ -8,7 +8,7 @@ import { normalizeDestination } from "../backup-destination.mjs";
 import { healthConditions, isNotice, noticeKinds } from "../health-alerts.mjs";
 import { vpnProviders, vpnProtocols } from "../vpn-profile.mjs";
 
-export function createSettingsRouter({ state, notifications, auth }) {
+export function createSettingsRouter({ state, notifications, weeklyReport = null, auth }) {
   const router = Router();
   // Belt and braces with the policy middleware: only the owner changes settings, whatever the path casing.
   router.use("/settings", (request, response, next) => (["GET", "HEAD", "OPTIONS"].includes(request.method) ? next() : auth.requireRole("owner")(request, response, next)));
@@ -52,6 +52,36 @@ export function createSettingsRouter({ state, notifications, auth }) {
     response.json({ targetConfigured: notifications.describe().configured === true, activeCount: live.length, unannouncedCount: live.filter((detail) => !detail.announced).length + notices.length, conditions, notices });
   });
 
+  // The weekly self-report (M30.4): whether it is on, when it goes, and how the last one went.
+  if (weeklyReport) {
+    router.get("/settings/weekly-report", (_request, response) => {
+      response.json(weeklyReport.status());
+    });
+
+    // The words it would send now. Owner only: it names every account's jobs and failures, which
+    // an operator or viewer cannot list for themselves.
+    router.get("/settings/weekly-report/preview", auth.requireRole("owner"), async (_request, response) => {
+      try {
+        response.json(await weeklyReport.preview());
+      } catch (error) {
+        response.status(500).json({ error: `Could not put the report together: ${error.message}`, code: "report_failed" });
+      }
+    });
+
+    router.put("/settings/weekly-report", auth.requireCsrf, (request, response) => {
+      if (typeof request.body?.enabled !== "boolean") return response.status(400).json({ error: "enabled must be true or false", code: "invalid_setting" });
+      return response.json(weeklyReport.setEnabled(request.body.enabled, { updatedBy: request.boxpilotSession.owner.id }));
+    });
+
+    router.post("/settings/weekly-report/send", auth.requireCsrf, async (request, response) => {
+      try {
+        response.json(await weeklyReport.sendNow({ actorId: request.boxpilotSession.owner.id }));
+      } catch (error) {
+        response.status(502).json({ error: error.message, code: "notification_test_failed" });
+      }
+    });
+  }
+
   router.put("/settings/notifications", auth.requireCsrf, async (request, response) => {
     const owner = await ownerWithPassword(request, response, "Owner password required to change the notification target");
     if (!owner) return;
@@ -65,7 +95,7 @@ export function createSettingsRouter({ state, notifications, auth }) {
 
   router.post("/settings/notifications/test", auth.requireCsrf, async (_request, response) => {
     try {
-      response.json(await notifications.send({ title: "BoxPilot test notification", message: "Notifications are working. Failed jobs, new releases, and health alerts (disk space, SMART, UPS, failed services) arrive like this." }));
+      response.json(await notifications.send({ title: "BoxPilot test notification", message: "Notifications are working. Failed jobs, new releases, health alerts (disk space, SMART, UPS, failed services) and the weekly report arrive like this." }));
     } catch (error) {
       response.status(502).json({ error: error.message, code: "notification_test_failed" });
     }

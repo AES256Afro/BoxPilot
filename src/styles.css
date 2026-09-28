@@ -4358,6 +4358,12 @@ textarea {
 .notification-settings .recovery-actions { flex-wrap: wrap; }
 .notification-settings select, .notification-settings input { padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-muted); color: var(--text); }
 .notification-settings input { min-width: 200px; }
+/* The weekly self-report (M30.4) */
+.weekly-report { display: grid; gap: 8px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+.weekly-report p { margin: 0; }
+.weekly-report .recovery-actions { flex-wrap: wrap; }
+.weekly-report-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; }
+.weekly-report-preview { display: grid; gap: 4px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-muted); font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
 
 /* Storage page (M2.8) */
 .storage-center { display: grid; gap: 16px; }

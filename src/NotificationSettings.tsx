@@ -3,6 +3,69 @@ import { useEffect, useState } from "react";
 interface NotificationState { configured: boolean; kind: "ntfy" | "gotify" | "webhook" | null; url: string | null; topic: string | null; hasToken: boolean }
 interface WatchCondition { key: string; label: string; active: boolean; details: Array<{ title: string; since: string | null }> }
 interface WatchStatus { targetConfigured: boolean; activeCount: number; conditions: WatchCondition[] }
+interface WeeklyReportStatus { enabled: boolean; cadence: string; nextDueAt: string | null; lastSentAt: string | null; lastResult: "sent" | "not-announced" | "missed" | null; targetConfigured: boolean }
+
+/**
+ * The weekly self-report (M30.4): on or off, when it goes, a preview of what it would say now, and
+ * a way to send it at once. Sending now goes straight to the target, so a failure shows here.
+ */
+function WeeklyReport({ csrfToken, targetConfigured }: { csrfToken: string; targetConfigured: boolean }) {
+  const [status, setStatus] = useState<WeeklyReportStatus | null>(null);
+  const [preview, setPreview] = useState<{ title: string; message: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/v1/settings/weekly-report").then((response) => (response.ok ? response.json() : null)).then((body: WeeklyReportStatus | null) => setStatus(body)).catch(() => {});
+  }, []);
+
+  const call = async <T,>(url: string, init: RequestInit, done: (body: T) => void, failure: string) => {
+    setBusy(true); setError(null); setMessage(null);
+    try {
+      const response = await fetch(url, init);
+      const body = (await response.json().catch(() => ({}))) as T & { error?: string };
+      if (!response.ok) throw new Error(body.error ?? failure);
+      done(body);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : failure);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const toggle = () => call("/api/v1/settings/weekly-report", { method: "PUT", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ enabled: !status?.enabled }) }, (body: WeeklyReportStatus) => setStatus(body), "Could not change the weekly report");
+  const show = () => call("/api/v1/settings/weekly-report/preview", {}, (body: { title: string; message: string }) => setPreview(body), "Could not put the report together");
+  const send = () => call("/api/v1/settings/weekly-report/send", { method: "POST", headers: { "X-BoxPilot-CSRF": csrfToken } }, (body: { title: string; message: string }) => { setPreview(body); setMessage("Sent. Check your device."); }, "The report could not be sent");
+
+  if (!status) return null;
+  const when = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : null);
+  return (
+    <div className="weekly-report">
+      <div className="weekly-report-line">
+        <strong>Weekly report</strong>
+        <span className="muted">
+          {status.enabled ? `${status.cadence}, server time${status.nextDueAt ? `; next ${when(status.nextDueAt)}` : ""}.` : "Off."}
+          {status.lastResult === "sent" && status.lastSentAt ? ` Last sent ${when(status.lastSentAt)}.` : ""}
+          {status.lastResult === "not-announced" ? " The last one reached no one; it is listed on the Overview." : ""}
+        </span>
+      </div>
+      <p className="muted">One push a week: what ran, what failed, what did not run and why, and what is not covered yet.</p>
+      <div className="recovery-actions">
+        <button className="secondary-button" type="button" disabled={busy} onClick={() => void show()}>Preview</button>
+        <button className="secondary-button" type="button" disabled={busy || !targetConfigured} onClick={() => void send()}>Send now</button>
+        <button className="text-button" type="button" disabled={busy} onClick={() => void toggle()}>{status.enabled ? "Turn off the weekly report" : "Turn on the weekly report"}</button>
+      </div>
+      {preview && (
+        <div className="weekly-report-preview" aria-label="Weekly report preview">
+          <strong>{preview.title}</strong>
+          {preview.message.split("\n").map((line, index) => <span key={index}>{line}</span>)}
+        </div>
+      )}
+      {message && <p className="good-text">{message}</p>}
+      {error && <div className="auth-error" role="alert">{error}</div>}
+    </div>
+  );
+}
 
 /**
  * Settings panel: where failed-job alerts go. ntfy and Gotify are both in the app catalog,
@@ -87,7 +150,7 @@ export default function NotificationSettings({ csrfToken }: { csrfToken: string 
         <div><strong>Notifications</strong><span>Failed jobs push to your phone. Ntfy and Gotify are both in the app catalog</span></div>
         <span className={`status-pill ${current?.configured ? "status-good" : "status-neutral"}`}>{current?.configured ? `${current.kind} configured` : "Off"}</span>
       </header>
-      <p className="muted">You get a push for a failed job and a new BoxPilot release. BoxPilot also watches your server for the conditions below and notifies you when one turns bad — and again when it clears — checking every 15 minutes. A scheduled task or automation that keeps failing is one push until it works again. Anything that could not be sent is listed on the Overview.</p>
+      <p className="muted">You get a push for a failed job, a new BoxPilot release, a sign-in from a new address, and a short report once a week. BoxPilot also watches your server for the conditions below and notifies you when one turns bad — and again when it clears — checking every 15 minutes. A scheduled task or automation that keeps failing is one push until it works again. Anything that could not be sent is listed on the Overview.</p>
       {watch && (
         <div className="watch-status">
           <div className="watch-summary">{watch.activeCount === 0 ? <span className="good-text">All clear</span> : <span className="auth-error" style={{ display: "inline", padding: "2px 8px" }}>{watch.activeCount} needs attention</span>}{!watch.targetConfigured && <span className="muted"> · set a target below so these can reach you</span>}</div>
@@ -145,6 +208,7 @@ export default function NotificationSettings({ csrfToken }: { csrfToken: string 
         {message && <p className="good-text">{message}</p>}
         {error && <div className="auth-error" role="alert">{error}</div>}
       </div>
+      <WeeklyReport csrfToken={csrfToken} targetConfigured={current?.configured === true} />
     </section>
   );
 }
