@@ -644,10 +644,13 @@ export function parseSmbstatusShares(text) {
  * unmounting loses the race. Closing and unmounting straight after, up to thirty times, won it on
  * the first try on the owner's server. Once the drive is unmounted a client that reconnects sees
  * only the empty folder underneath, which holds nothing.
+ *
+ * `unmount` is the one attempt, repeated after each close: umount -N for a drive, and for a
+ * network share the stop of its mount unit (server/tasks/shares.mjs), with `command` saying which.
  */
-export async function unmountFromHost(mountpoint, { run = fixedRun, log = null, files = { readFile }, sleep = pause, tries = 30 } = {}) {
-  log?.(`$ umount ${mountpoint}`, "stdout");
-  const first = await run(binaries.umount, mountArgs(mountpoint), { timeout: 60_000 });
+export async function unmountFromHost(mountpoint, { run = fixedRun, log = null, files = { readFile }, sleep = pause, tries = 30, command = `umount ${mountpoint}`, unmount = () => run(binaries.umount, mountArgs(mountpoint), { timeout: 60_000 }) } = {}) {
+  log?.(`$ ${command}`, "stdout");
+  const first = await unmount();
   if (first.ok) return { ok: true, result: first, clients: [] };
   const shares = sharesOnMount(await files.readFile(smbConfPath, "utf8").catch(() => ""), mountpoint);
   if (!shares.length) return { ok: false, result: first, clients: [] };
@@ -656,7 +659,7 @@ export async function unmountFromHost(mountpoint, { run = fixedRun, log = null, 
   let result = first;
   for (let attempt = 1; attempt <= tries; attempt += 1) {
     for (const share of shares) await run(binaries.smbcontrol, ["smbd", "close-share", share], { timeout: 10_000 });
-    result = await run(binaries.umount, mountArgs(mountpoint), { timeout: 60_000 });
+    result = await unmount();
     if (result.ok) {
       log?.(`Closed file-sharing connections${clients.length ? ` from ${clients.join(", ")}` : ""} to ${shares.join(", ")} so ${mountpoint} could be unmounted${attempt > 1 ? ` (try ${attempt})` : ""}`, "stdout");
       return { ok: true, result, clients, shares };
@@ -719,7 +722,7 @@ export function exfatVolumeFlags(bootSector) {
 }
 
 /** Running containers with a bind at or under the mountpoint. A prefix is not a parent: /mnt/x-backup is not under /mnt/x. */
-async function containersBoundTo(run, mountpoint) {
+export async function containersBoundTo(run, mountpoint) {
   const ids = await run(binaries.docker, ["ps", "-q"], { timeout: 15_000 });
   if (!ids.ok || !ids.stdout.trim()) return [];
   const listed = await run(binaries.docker, ["inspect", "--format", "{{.Name}}\t{{range .Mounts}}{{.Source}}\t{{end}}", ...ids.stdout.trim().split(/\s+/)], { timeout: 30_000 });
