@@ -384,7 +384,7 @@ describe("news pushed straight to the target, kept when it reaches no one (M27.2
     setClock("2026-09-28T03:00:00Z");
     await alerts.tell({ ...signIn, message: "alex signed in again from 100.64.0.20." });
     expect(Object.keys(state())).toEqual([signIn.key]); // the same news twice is one entry
-    expect(state()[signIn.key]).toEqual({ since: "2026-09-27T03:00:00.000Z", title: signIn.title, message: "alex signed in again from 100.64.0.20.", priority: "high", notified: false });
+    expect(state()[signIn.key]).toEqual({ since: "2026-09-27T03:00:00.000Z", renewedAt: "2026-09-28T03:00:00.000Z", title: signIn.title, message: "alex signed in again from 100.64.0.20.", priority: "high", notified: false });
     await alerts.check();
     expect(state()[signIn.key]).toMatchObject({ notified: false }); // still nobody to tell
 
@@ -422,6 +422,30 @@ describe("news pushed straight to the target, kept when it reaches no one (M27.2
     await alerts.check();
     expect(Object.keys(state()).filter(isNotice)).toHaveLength(noticeLimit - 5);
     expect(state()["schedule.failed:s1"]).toBeTruthy();
+  });
+
+  it("ages news from its newest words, so news that replaced older news is not dropped as a month old", async () => {
+    // A release, the weekly report and a drive's reconnect are each kept under one key, the newest
+    // replacing the last. The month a notice is kept is counted from the newest of them.
+    const { alerts, send, state, setTarget, setClock } = ledger({ target: null, at: "2026-09-01T00:00:00Z" });
+    await alerts.tell({ key: "release.available", title: "Version 1.131.0 is available", message: "first" });
+    setClock("2026-09-25T00:00:00Z");
+    await alerts.tell({ key: "release.available", title: "Version 1.132.0 is available", message: "newest" });
+    expect(state()["release.available"]).toMatchObject({ since: "2026-09-01T00:00:00.000Z", title: "Version 1.132.0 is available" });
+
+    setClock("2026-10-02T00:00:00Z"); // a month after the first, a week after the newest
+    await alerts.check();
+    expect(state()["release.available"]).toMatchObject({ title: "Version 1.132.0 is available", notified: false });
+    setTarget({ kind: "ntfy" });
+    expect((await alerts.check()).sent).toEqual(["release.available"]);
+    expect(send).toHaveBeenCalledWith({ title: "BoxPilot: Version 1.132.0 is available", message: "newest", priority: "default" });
+
+    // A month after its newest words it is no longer news.
+    setTarget(null);
+    await alerts.tell({ key: "release.available", title: "Version 1.133.0 is available", message: "later" });
+    setClock("2026-11-02T00:00:01Z");
+    await alerts.check();
+    expect(state()).toEqual({});
   });
 
   it("clears quietly: news nobody heard has nothing to resolve", async () => {
