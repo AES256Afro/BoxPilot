@@ -20,6 +20,7 @@ import { createOperationsRouter } from "./operations.mjs";
 import { createPeopleRouter } from "./people.mjs";
 import { createSettingsRouter } from "./settings.mjs";
 import { createHostRouter } from "./host.mjs";
+import { apiRolePolicy } from "./access.mjs";
 import { createJobService } from "../jobs.mjs";
 import { createSchedulerService } from "../scheduler.mjs";
 import { createNotificationService } from "../notifications.mjs";
@@ -78,17 +79,7 @@ beforeAll(async () => {
   app.post("/api/v1/auth/elevate", auth.requireSession, auth.requireCsrf, auth.elevate);
   app.use("/api/v1", auth.requireSession);
   app.use("/api/v1", (request, response, next) => (["GET", "HEAD", "OPTIONS"].includes(request.method) ? next() : auth.requireCsrf(request, response, next)));
-  app.use("/api/v1", (request, response, next) => {
-    const role = request.boxpilotSession?.owner?.role ?? "owner";
-    const reading = ["GET", "HEAD", "OPTIONS"].includes(request.method);
-    const pathname = request.path.toLowerCase();
-    const readOnlyRun = /^\/operations\/[^/]+\/run$/.test(pathname);
-    const selfService = pathname === "/auth/logout" || pathname === "/auth/elevate" || pathname === "/auth/password";
-    if (role === "disabled") return response.status(403).json({ error: "This account is disabled", code: "forbidden" });
-    if (role === "viewer" && !reading && !readOnlyRun && !selfService) return response.status(403).json({ error: "Viewers can look but not change anything", code: "forbidden" });
-    if (role === "operator" && !reading && (pathname.startsWith("/settings") || pathname.startsWith("/people"))) return response.status(403).json({ error: "Only the owner can change settings or people", code: "forbidden" });
-    return next();
-  });
+  app.use("/api/v1", apiRolePolicy());
   app.use("/api/v1/people", auth.requireRole("owner"));
   app.use("/api/v1", createPeopleRouter({ state, auth }));
   app.use("/api/v1", createOperationsRouter({ state, helper, jobs, prerequisites: { inspect: async () => ({}) }, recoveryKit: { inspect: async () => ({}) }, actionCenter: { inspect: async () => ({}) }, auth }));

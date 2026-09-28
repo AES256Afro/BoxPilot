@@ -5,6 +5,7 @@
  */
 import { Router } from "express";
 import { registry, riskTiers } from "../ops/index.mjs";
+import { callerId, seesEveryAccount } from "./access.mjs";
 
 export function createOperationsRouter({ state, helper, jobs, prerequisites, recoveryKit, actionCenter, auth }) {
   const router = Router();
@@ -88,8 +89,9 @@ export function createOperationsRouter({ state, helper, jobs, prerequisites, rec
     }
   });
 
-  router.get("/operations/action-center", async (_request, response) => {
-    response.json(await actionCenter.inspect());
+  // Everyone may read it; its failed-job count is of the caller's own jobs unless the caller is the owner.
+  router.get("/operations/action-center", async (request, response) => {
+    response.json(await actionCenter.inspect(seesEveryAccount(request) ? {} : { createdBy: callerId(request) }));
   });
 
   return router;
