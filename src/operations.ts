@@ -47,6 +47,8 @@ export interface Job {
   risk: string;
   error: string | null;
   result: unknown;
+  /** What it was staged with, secrets replaced by placeholders (app.backup's `id`, for instance). */
+  parameters?: Record<string, unknown> | null;
   timeout?: JobTimeout | null;
   /** Where this run came from: a larger budget, or the run it repeats (M30.2/M30.3). */
   recovery?: { budgetMs?: number; rerunOf?: string; retryOf?: string };

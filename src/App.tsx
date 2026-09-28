@@ -1,16 +1,17 @@
 import PageErrorBoundary from "./PageErrorBoundary";
 import { Suspense, lazy, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import {
-  navItems,
-  viewLabel,
-  type ViewName,
-} from "./data";
+import { viewLabel, type ViewName } from "./data";
+import { viewCopy, viewFeatures } from "./pageCopy";
 import AuthScreen from "./AuthScreen";
 import ActivityDrawer from "./ActivityDrawer";
+import { useOperation } from "./ApproveDialog";
 import { useTheme } from "./useTheme";
 import { ThemeSwitch } from "./ui/ThemeSwitch";
 import { dropElevation, fetchAuthStatus, logoutOwner, type AuthStatus } from "./auth";
 import { connectionLabel } from "./appLinks";
+import { FactsProvider } from "./home/facts";
+import { CommandBar } from "./shell/CommandBar";
+import { ShellDock, ViewSwitch } from "./shell/ShellNav";
 
 // Every page is its own chunk, fetched the first time it is opened. All eighteen used to ride in
 // the one bundle: 688 KB of JavaScript to show the Overview, about sixty percent of it pages the
@@ -18,6 +19,8 @@ import { connectionLabel } from "./appLinks";
 // navigation, once, and the immutable asset cache keeps it after that.
 const BackupCenter = lazy(() => import("./BackupCenter"));
 const GitHubCenter = lazy(() => import("./GitHubCenter"));
+const Home = lazy(() => import("./home/Home"));
+const Ops = lazy(() => import("./home/Ops"));
 const HomeDashboard = lazy(() => import("./HomeDashboard"));
 const SetupWizard = lazy(() => import("./SetupWizard"));
 const HostOverview = lazy(() => import("./HostOverview"));
@@ -38,151 +41,39 @@ const VirtualMachines = lazy(() => import("./VirtualMachines"));
 // it is the demo, so a real BoxPilot never shows it and never fetches its chunk.
 const Gallery = lazy(() => import("./ui/Gallery"));
 
-const viewCopy: Record<ViewName, { title: string; description: string; action?: string }> = {
-  setup: {
-    title: "Set up this server",
-    description: "Pick what this server should be. BoxPilot checks what is already in place and installs the rest, in order, through the normal approved jobs.",
-  },
-  overview: {
-    title: "Server overview",
-    description: "What is running on this server and what needs attention.",
-  },
-  updates: {
-    title: "Updates and packages",
-    description: "See what Ubuntu wants to update, install it, and add or remove packages.",
-  },
-  catalog: {
-    title: "App catalog",
-    description: "Install, update, configure, and remove applications with one click.",
-  },
-  services: {
-    title: "Services",
-    description: "See what systemd is running, start or stop it, and read its journal.",
-  },
-  automations: {
-    title: "Automations",
-    description: "Chains of the operations you already trust, run in order as recorded jobs. Add one from the shelf or build your own.",
-  },
-  system: {
-    title: "System",
-    description: "Hostname, time zone, swap, and maintenance timers for this server.",
-  },
-  performance: {
-    title: "Performance",
-    description: "How hard this server is working, and what is working it. Pause or stop whatever is costing the most, right where you see the cost.",
-  },
-  users: {
-    title: "Users & SSH",
-    description: "Add accounts, import SSH keys from GitHub, and control SSH password login.",
-  },
-  firewall: {
-    title: "Firewall",
-    description: "Profiles, open ports, and suggestions based on what is listening.",
-  },
-  storage: {
-    title: "Storage",
-    description: "Disks, LVM, mounts, network shares, and sharing this server's folders.",
-  },
-  network: {
-    title: "Network and DNS",
-    description: "Gateway, DNS, devices on your LAN, and Tailscale.",
-  },
-  repairs: {
-    title: "Repair Center",
-    description: "What is wrong on this server, and the fix for each one.",
-  },
-  virtualization: {
-    title: "Virtual Machines",
-    description: "Create and run virtual machines on QEMU/KVM.",
-  },
-  backups: {
-    title: "Backups",
-    description: "BoxPilot's own database, machine snapshots, and second copies kept elsewhere.",
-  },
-  github: {
-    title: "GitHub",
-    description: "Where this BoxPilot came from: release, commit, and asset digests.",
-  },
-  logs: {
-    title: "Logs",
-    description: "Read and download logs from any unit, container, or journal group.",
-    action: "Download support bundle",
-  },
-  settings: {
-    title: "Settings",
-    description: "Access, alerts, sign-in, approval mode, and theme.",
-  },
-};
-
-const viewFeatures: Record<ViewName, string[]> = {
-  automations: ["Ready-made flows", "Build your own", "Steps run as recorded jobs", "A failed step stops the run"],
-  setup: ["Setup profiles", "Checks what is already in place", "Installs the rest in order", "Autoinstall files for a new server"],
-  overview: ["Updates and failed services", "Apps and VMs running", "Backup health", "Setup checklist", "Needs attention", "Installed apps"],
-  updates: ["APT updates, all or selected", "Automatic security updates", "Restart hints", "Common tools with one click", "Snapshot before upgrading", "Install and remove packages"],
-  catalog: [`${__BOXPILOT_CATALOG_SIZE__} apps${__BOXPILOT_CATALOG_CATEGORIES__ > 0 ? ` in ${__BOXPILOT_CATALOG_CATEGORIES__} categories` : ""}`, "Install, update, configure, uninstall", "Per-app backups and restores", "Logs and resource use", "HTTPS on your tailnet", "Image tags verified"],
-  services: ["systemd units and timers", "Start, stop, restart", "Enable and disable", "Journal", "SSH, Tailscale, and BoxPilot protected"],
-  system: ["Hostname", "Time zone and language", "Swap and swappiness", "fstrim", "Docker housekeeping", "UPS monitoring", "Schedules", "BoxPilot self-update"],
-  performance: ["CPU, memory and swap live", "Load average and temperatures", "Disk use per filesystem", "CPU and memory per app", "Pause, resume, stop, restart", "AI services pinned to the top"],
-  users: ["Accounts", "sudo membership", "SSH keys from GitHub", "Password-login policy"],
-  firewall: ["Profiles", "Service presets", "Suggestions from what is listening", "fail2ban", "SSH, Tailscale, and BoxPilot always reachable"],
-  storage: ["Disks and LVM", "Grow the root volume", "Snapshots with rollback", "Mount by UUID", "SMB/NFS shares with LAN discovery", "Samba and NFS servers on your tailnet", "Swap files", "Format empty disks"],
-  network: ["Gateway and resolvers", "DNS listeners", "Devices on your LAN", "Wake-on-LAN", "Tailscale exit node", "Subnet router"],
-  repairs: ["Find what is broken", "Reconnect a drive that dropped out", "Fix a folder nothing can write to", "See what a job did, step by step", "Rebuild-from-scratch checklist"],
-  virtualization: ["QEMU/KVM setup", "VMs from cloud images or ISOs", "Start, stop, snapshots", "Encrypted exports", "Restore drills", "Recover as a clone"],
-  backups: ["Database backups with restore drills", "Encrypted second copies", "Retention", "Machine snapshots", "Mirrors to a drive, SSH host, or cloud", "Restore from a snapshot"],
-  github: ["Release and commit metadata", "Asset digests", "No token needed"],
-  logs: ["Any unit, container, or journal group", "Tail and follow", "Filter", "Download", "Support bundle"],
-  settings: ["Approval mode", "Alerts: ntfy, Gotify, webhook", "GitHub sign-in", "Tailscale sign-in", "People", "Password", "Theme"],
-};
-
-
 function StatusPill({ children, tone = "good" }: { children: ReactNode; tone?: string }) {
   return <span className={`status-pill status-${tone}`}>{children}</span>;
 }
 
-function Modal({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) {
-  return (
-    <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
-      <section
-        className="modal"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="dialog-title"
-        onMouseDown={(event) => event.stopPropagation()}
-      >
-        <header className="modal-header">
-          <div>
-            <span className="eyebrow">Safe preview</span>
-            <h2 id="dialog-title">{title}</h2>
-          </div>
-          <button className="icon-button" type="button" onClick={onClose} aria-label="Close dialog">
-            X
-          </button>
-        </header>
-        {children}
-      </section>
-    </div>
-  );
-}
-
 const Settings = lazy(() => import("./SettingsView"));
 
-/** Deep link: /?view=firewall opens that page, and a reload keeps the page you were on (Setup included). */
+/** Home and Ops draw their own headers; every other page gets the Classic one. */
+const ownHeader = new Set<ViewName>(["home", "ops"]);
+
+/**
+ * Deep link: /?view=firewall opens that page, and a reload keeps the page you were on (Setup
+ * included). No view is Home, the landing page since M33.2; the old landing page is ?view=overview.
+ */
 function viewFromLocation(): ViewName {
   const candidate = new URLSearchParams(window.location.search).get("view");
-  return candidate && Object.hasOwn(viewCopy, candidate) ? (candidate as ViewName) : "overview";
+  return candidate && Object.hasOwn(viewCopy, candidate) ? (candidate as ViewName) : "home";
 }
 
 function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthStatus; onSignedOut: () => void; onAuthChanged?: (status: AuthStatus) => void }) {
   const [view, setViewState] = useState<ViewName>(viewFromLocation);
+  // The app the catalog opens at (?app=jellyfin), when a tile or the command bar sent us there.
+  const [focusApp, setFocusApp] = useState<string | null>(() => new URLSearchParams(window.location.search).get("app"));
   const [galleryAsked, setGalleryAsked] = useState(() => new URLSearchParams(window.location.search).has("gallery"));
-  const setView = useCallback((next: ViewName) => {
+  const setView = useCallback((next: ViewName, options: { app?: string } = {}) => {
     setViewState(next);
+    setFocusApp(options.app ?? null);
     setGalleryAsked(false);
     const url = new URL(window.location.href);
     url.searchParams.delete("gallery");
-    if (next === "overview") url.searchParams.delete("view");
+    url.searchParams.delete("app");
+    if (next === "home") url.searchParams.delete("view");
     else url.searchParams.set("view", next);
+    if (options.app) url.searchParams.set("app", options.app);
     window.history.replaceState(null, "", url);
   }, []);
   const [clock, setClock] = useState(() => Date.now());
@@ -214,9 +105,13 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
   }, []);
   const [apiMode, setApiMode] = useState("browser preview");
   const [bundleError, setBundleError] = useState<string | null>(null);
+  const role = authStatus.owner?.role ?? "owner";
+  const csrfToken = authStatus.csrfToken ?? "";
 
   const copy = viewCopy[view];
   const showGallery = galleryAsked && apiMode === "demo";
+  // A step the command bar's assistant suggested goes through the same approval dialog as any other.
+  const { start: startOperation, dialog: operationDialog } = useOperation(csrfToken);
 
   useEffect(() => {
     if (typeof fetch !== "function") return;
@@ -232,27 +127,29 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
   }, []);
 
   const pageContent = useMemo(() => {
-    if (view === "setup") return <SetupWizard csrfToken={authStatus.csrfToken ?? ""} onDone={() => setView("overview")} />;
+    if (view === "home") return <Home csrfToken={csrfToken} role={role} onNavigate={setView} />;
+    if (view === "ops") return <Ops onNavigate={setView} />;
+    if (view === "setup") return <SetupWizard csrfToken={csrfToken} onDone={() => setView("home")} />;
     if (view === "overview") {
       return <><HomeDashboard onNavigate={setView} /><HostOverview /></>;
     }
-    if (view === "updates") return <UpdatesCenter csrfToken={authStatus.csrfToken ?? ""} />;
-    if (view === "catalog") return <AppCatalog csrfToken={authStatus.csrfToken ?? ""} />;
-    if (view === "services") return <ServicesCenter csrfToken={authStatus.csrfToken ?? ""} />;
-    if (view === "system") return <SystemCenter csrfToken={authStatus.csrfToken ?? ""} />;
-    if (view === "automations") return <AutomationsCenter csrfToken={authStatus.csrfToken ?? ""} />;
-    if (view === "performance") return <PerformanceCenter csrfToken={authStatus.csrfToken ?? ""} />;
-    if (view === "users") return <UsersCenter csrfToken={authStatus.csrfToken ?? ""} />;
-    if (view === "firewall") return <FirewallCenter csrfToken={authStatus.csrfToken ?? ""} />;
-    if (view === "storage") return <StorageCenter csrfToken={authStatus.csrfToken ?? ""} onNavigate={setView} />;
-    if (view === "network") return <NetworkCenter csrfToken={authStatus.csrfToken ?? ""} onOpenRepair={() => setView("repairs")} />;
-    if (view === "repairs") return <RepairCenter csrfToken={authStatus.csrfToken ?? ""} onNavigate={setView} />;
-    if (view === "virtualization") return <VirtualMachines csrfToken={authStatus.csrfToken ?? ""} onOpenRepair={() => setView("repairs")} />;
-    if (view === "backups") return <BackupCenter csrfToken={authStatus.csrfToken ?? ""} onOpenRepair={() => setView("repairs")} />;
+    if (view === "updates") return <UpdatesCenter csrfToken={csrfToken} />;
+    if (view === "catalog") return <AppCatalog key={focusApp ?? ""} csrfToken={csrfToken} focusApp={focusApp ?? undefined} />;
+    if (view === "services") return <ServicesCenter csrfToken={csrfToken} />;
+    if (view === "system") return <SystemCenter csrfToken={csrfToken} />;
+    if (view === "automations") return <AutomationsCenter csrfToken={csrfToken} />;
+    if (view === "performance") return <PerformanceCenter csrfToken={csrfToken} />;
+    if (view === "users") return <UsersCenter csrfToken={csrfToken} />;
+    if (view === "firewall") return <FirewallCenter csrfToken={csrfToken} />;
+    if (view === "storage") return <StorageCenter csrfToken={csrfToken} onNavigate={setView} />;
+    if (view === "network") return <NetworkCenter csrfToken={csrfToken} onOpenRepair={() => setView("repairs")} />;
+    if (view === "repairs") return <RepairCenter csrfToken={csrfToken} onNavigate={setView} />;
+    if (view === "virtualization") return <VirtualMachines csrfToken={csrfToken} onOpenRepair={() => setView("repairs")} />;
+    if (view === "backups") return <BackupCenter csrfToken={csrfToken} onOpenRepair={() => setView("repairs")} />;
     if (view === "github") return <GitHubCenter />;
-    if (view === "logs") return <SystemLogs csrfToken={authStatus.csrfToken ?? ""} />;
-    return <Settings csrfToken={authStatus.csrfToken ?? ""} role={authStatus.owner?.role ?? "owner"} />;
-  }, [apiMode, authStatus.csrfToken, view]);
+    if (view === "logs") return <SystemLogs csrfToken={csrfToken} />;
+    return <Settings csrfToken={csrfToken} role={role} />;
+  }, [csrfToken, focusApp, role, setView, view]);
 
   const downloadSupportBundle = async () => {
     setBundleError(null);
@@ -277,59 +174,58 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
     if (view === "logs") void downloadSupportBundle();
   };
 
-  return (
-    <div className="app-shell">
-      <aside className="sidebar">
-        <div className="brand"><span>B</span><div>BoxPilot<small>v{__BOXPILOT_VERSION__}</small></div></div>
-        <nav aria-label="Product areas">
-          {navItems.map((item) => (
-            <button
-              type="button"
-              key={item.id}
-              aria-current={view === item.id && !showGallery ? "page" : undefined}
-              onClick={() => setView(item.id)}
-            >
-              <span>{item.short}</span>{item.label}
-            </button>
-          ))}
-        </nav>
-        <div className="private-access">
-          <i />
-          <div><strong>Private administration</strong><span>{connectionLabel(window.location)}</span></div>
-        </div>
-        <div className="prototype-label">v{__BOXPILOT_VERSION__}</div>
-      </aside>
+  const wide = !showGallery && ownHeader.has(view);
 
-      <main>
+  return (
+    <FactsProvider>
+      <div className="app-shell">
+        <a className="skip-link" href="#content">Skip to the page</a>
         <header className="topbar">
-          <div className="hostline">
-            <div><strong>BoxPilot</strong><span>Server administration</span></div>
+          <div className="topbar-left">
+            <div className="brand" title={`BoxPilot ${__BOXPILOT_VERSION__}`}><span aria-hidden="true">B</span><div>BoxPilot<small>v{__BOXPILOT_VERSION__}</small></div></div>
+            <ViewSwitch view={showGallery ? null : view} onSelect={setView} />
           </div>
-          <div className="topbar-right"><ThemeSwitch compact /><ActivityDrawer csrfToken={authStatus.csrfToken ?? ""} />{authStatus.owner?.role && authStatus.owner.role !== "owner" ? <span className="status-pill status-neutral" title="Your role on this server">{authStatus.owner.role}</span> : null}{elevated ? <button className="text-button elevation-lock" type="button" title="High-risk approvals skip the password until this time. Click to lock now." aria-label={`Elevated until ${elevatedLabel}. Lock now`} onClick={() => void dropElevation(authStatus.csrfToken ?? "").then(refreshAuth).catch(() => refreshAuth())}><span className="elevation-long">Elevated until </span><span className="elevation-short">Until </span>{elevatedLabel} · Lock</button> : <StatusPill tone="neutral">Tiered approvals</StatusPill>}<span className="signed-in-user" title={authStatus.owner?.username}>{authStatus.owner?.username}</span><button className="text-button" type="button" onClick={() => void logoutOwner(authStatus.csrfToken ?? "").then(onSignedOut).catch(onSignedOut)}>Sign out</button></div>
+          <CommandBar csrfToken={csrfToken} onNavigate={setView} onStart={startOperation} />
+          <div className="topbar-right">
+            <span className="connection-pill" title="How this browser reached BoxPilot">{connectionLabel(window.location)}</span>
+            <ThemeSwitch compact />
+            <ActivityDrawer csrfToken={csrfToken} />
+            {authStatus.owner?.role && authStatus.owner.role !== "owner" ? <span className="status-pill status-neutral" title="Your role on this server">{authStatus.owner.role}</span> : null}
+            {elevated
+              ? <button className="text-button elevation-lock" type="button" title="High-risk approvals skip the password until this time. Click to lock now." aria-label={`Elevated until ${elevatedLabel}. Lock now`} onClick={() => void dropElevation(csrfToken).then(refreshAuth).catch(() => refreshAuth())}><span className="elevation-long">Elevated until </span><span className="elevation-short">Until </span>{elevatedLabel} · Lock</button>
+              : <StatusPill tone="neutral">Tiered approvals</StatusPill>}
+            <span className="signed-in-user" title={authStatus.owner?.username}>{authStatus.owner?.username}</span>
+            <button className="text-button" type="button" onClick={() => void logoutOwner(csrfToken).then(onSignedOut).catch(onSignedOut)}>Sign out</button>
+          </div>
         </header>
 
-        <div className="content">
-          {showGallery ? <Suspense fallback={<p className="muted page-loading">Loading…</p>}><Gallery /></Suspense> : <>
-          <header className="page-header">
-            <div><span className="eyebrow">{view === "overview" ? "System overview" : "BoxPilot"}</span><h1>{copy.title}</h1><p>{copy.description}</p></div>
-            {copy.action && (
-              <button className="primary-button" type="button" onClick={handlePrimaryAction}>
-                {copy.action}
-              </button>
-            )}
-          </header>
-          {view !== "repairs" && <section className="surface-notice surface-live feature-strip" aria-label="Features">
-            <strong>What you can do</strong>
-            <ul className="feature-list">{viewFeatures[view].map((feature) => <li key={feature}>{feature}</li>)}</ul>
-          </section>}
-          {bundleError && <div className="auth-error" role="alert">{bundleError}</div>}
-          <PageErrorBoundary pageName={viewLabel(view)} resetKey={view}><Suspense fallback={<p className="muted page-loading">Loading…</p>}>{pageContent}</Suspense></PageErrorBoundary>
-          </>}
-        </div>
-      </main>
+        <ShellDock view={showGallery ? null : view} onSelect={setView} />
 
-
-    </div>
+        <main id="content" tabIndex={-1}>
+          <div className={wide ? "content content--wide" : "content"}>
+            {showGallery ? <Suspense fallback={<p className="muted page-loading">Loading…</p>}><Gallery /></Suspense> : <>
+              {!ownHeader.has(view) && (
+                <header className="page-header">
+                  <div><span className="eyebrow">{view === "overview" ? "Classic overview" : "BoxPilot"}</span><h1>{copy.title}</h1><p>{copy.description}</p></div>
+                  {copy.action && (
+                    <button className="primary-button" type="button" onClick={handlePrimaryAction}>
+                      {copy.action}
+                    </button>
+                  )}
+                </header>
+              )}
+              {view !== "repairs" && !ownHeader.has(view) && <section className="surface-notice surface-live feature-strip" aria-label="Features">
+                <strong>What you can do</strong>
+                <ul className="feature-list">{viewFeatures[view].map((feature) => <li key={feature}>{feature}</li>)}</ul>
+              </section>}
+              {bundleError && <div className="auth-error" role="alert">{bundleError}</div>}
+              <PageErrorBoundary pageName={viewLabel(view)} resetKey={view}><Suspense fallback={<p className="muted page-loading">Loading…</p>}>{pageContent}</Suspense></PageErrorBoundary>
+            </>}
+          </div>
+        </main>
+        {operationDialog}
+      </div>
+    </FactsProvider>
   );
 }
 
