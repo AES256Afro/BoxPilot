@@ -8,6 +8,7 @@ import {
 import AuthScreen from "./AuthScreen";
 import ActivityDrawer from "./ActivityDrawer";
 import { useTheme } from "./useTheme";
+import { ThemeSwitch } from "./ui/ThemeSwitch";
 import { dropElevation, fetchAuthStatus, logoutOwner, type AuthStatus } from "./auth";
 import { connectionLabel } from "./appLinks";
 
@@ -33,6 +34,9 @@ const UsersCenter = lazy(() => import("./UsersCenter"));
 const FirewallCenter = lazy(() => import("./FirewallCenter"));
 const StorageCenter = lazy(() => import("./StorageCenter"));
 const VirtualMachines = lazy(() => import("./VirtualMachines"));
+// The design system's gallery (M33.1), for the demo only: /?gallery opens it when the server says
+// it is the demo, so a real BoxPilot never shows it and never fetches its chunk.
+const Gallery = lazy(() => import("./ui/Gallery"));
 
 const viewCopy: Record<ViewName, { title: string; description: string; action?: string }> = {
   setup: {
@@ -171,9 +175,12 @@ function viewFromLocation(): ViewName {
 
 function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthStatus; onSignedOut: () => void; onAuthChanged?: (status: AuthStatus) => void }) {
   const [view, setViewState] = useState<ViewName>(viewFromLocation);
+  const [galleryAsked, setGalleryAsked] = useState(() => new URLSearchParams(window.location.search).has("gallery"));
   const setView = useCallback((next: ViewName) => {
     setViewState(next);
+    setGalleryAsked(false);
     const url = new URL(window.location.href);
+    url.searchParams.delete("gallery");
     if (next === "overview") url.searchParams.delete("view");
     else url.searchParams.set("view", next);
     window.history.replaceState(null, "", url);
@@ -209,6 +216,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
   const [bundleError, setBundleError] = useState<string | null>(null);
 
   const copy = viewCopy[view];
+  const showGallery = galleryAsked && apiMode === "demo";
 
   useEffect(() => {
     if (typeof fetch !== "function") return;
@@ -278,7 +286,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
             <button
               type="button"
               key={item.id}
-              aria-current={view === item.id ? "page" : undefined}
+              aria-current={view === item.id && !showGallery ? "page" : undefined}
               onClick={() => setView(item.id)}
             >
               <span>{item.short}</span>{item.label}
@@ -297,10 +305,11 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
           <div className="hostline">
             <div><strong>BoxPilot</strong><span>Server administration</span></div>
           </div>
-          <div className="topbar-right"><ActivityDrawer csrfToken={authStatus.csrfToken ?? ""} />{authStatus.owner?.role && authStatus.owner.role !== "owner" ? <span className="status-pill status-neutral" title="Your role on this server">{authStatus.owner.role}</span> : null}{elevated ? <button className="text-button elevation-lock" type="button" title="High-risk approvals skip the password until this time. Click to lock now." aria-label={`Elevated until ${elevatedLabel}. Lock now`} onClick={() => void dropElevation(authStatus.csrfToken ?? "").then(refreshAuth).catch(() => refreshAuth())}><span className="elevation-long">Elevated until </span><span className="elevation-short">Until </span>{elevatedLabel} · Lock</button> : <StatusPill tone="neutral">Tiered approvals</StatusPill>}<span className="signed-in-user" title={authStatus.owner?.username}>{authStatus.owner?.username}</span><button className="text-button" type="button" onClick={() => void logoutOwner(authStatus.csrfToken ?? "").then(onSignedOut).catch(onSignedOut)}>Sign out</button></div>
+          <div className="topbar-right"><ThemeSwitch compact /><ActivityDrawer csrfToken={authStatus.csrfToken ?? ""} />{authStatus.owner?.role && authStatus.owner.role !== "owner" ? <span className="status-pill status-neutral" title="Your role on this server">{authStatus.owner.role}</span> : null}{elevated ? <button className="text-button elevation-lock" type="button" title="High-risk approvals skip the password until this time. Click to lock now." aria-label={`Elevated until ${elevatedLabel}. Lock now`} onClick={() => void dropElevation(authStatus.csrfToken ?? "").then(refreshAuth).catch(() => refreshAuth())}><span className="elevation-long">Elevated until </span><span className="elevation-short">Until </span>{elevatedLabel} · Lock</button> : <StatusPill tone="neutral">Tiered approvals</StatusPill>}<span className="signed-in-user" title={authStatus.owner?.username}>{authStatus.owner?.username}</span><button className="text-button" type="button" onClick={() => void logoutOwner(authStatus.csrfToken ?? "").then(onSignedOut).catch(onSignedOut)}>Sign out</button></div>
         </header>
 
         <div className="content">
+          {showGallery ? <Suspense fallback={<p className="muted page-loading">Loading…</p>}><Gallery /></Suspense> : <>
           <header className="page-header">
             <div><span className="eyebrow">{view === "overview" ? "System overview" : "BoxPilot"}</span><h1>{copy.title}</h1><p>{copy.description}</p></div>
             {copy.action && (
@@ -315,6 +324,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
           </section>}
           {bundleError && <div className="auth-error" role="alert">{bundleError}</div>}
           <PageErrorBoundary pageName={viewLabel(view)} resetKey={view}><Suspense fallback={<p className="muted page-loading">Loading…</p>}>{pageContent}</Suspense></PageErrorBoundary>
+          </>}
         </div>
       </main>
 
@@ -324,7 +334,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
 }
 
 function App() {
-  useTheme(); // applies data-theme from localStorage
+  useTheme(); // keeps data-theme and data-palette true to this browser's choice
   const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null);
   const [authError, setAuthError] = useState<string | null>(null);
 

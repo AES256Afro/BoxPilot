@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { PendingOperation } from "./ApproveDialog";
+import { Button, riskOf } from "./ui";
 
 interface Overview { volumeGroups?: Array<{ name: string | null; freeBytes: number; logicalVolumes: Array<{ path: string; mountpoints: string[]; growable: boolean; snapshot?: boolean }> }> }
 
@@ -20,11 +21,11 @@ export default function SnapshotFirstButton({ start, suffix = "before-upgrade" }
   }, []);
   if (!target) return null;
   return (
-    <button className="secondary-button" type="button" onClick={() => start({
+    <Button risk={riskOf("storage.lvm.snapshot.create")} onClick={() => start({
       operationId: "storage.lvm.snapshot.create",
       title: `Take a snapshot of ${target.mountpoint} first`,
       parameters: { path: target.path, sizeGiB: target.sizeGiB, suffix },
       preview: <span>Creates an LVM snapshot of <code>{target.mountpoint}</code> reserving {target.sizeGiB} GiB in {target.group}. If the upgrade goes wrong, roll back from the Storage page (the root volume merges during a reboot). Remove the snapshot once you are happy with the result.</span>,
-    })}>Take a snapshot first</button>
+    })}>Take a snapshot first</Button>
   );
 }

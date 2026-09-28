@@ -384,7 +384,7 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
           )}
 
           <div className="vm-control-lock">
-            <div><strong>What each action asks for</strong><span>Starting, stopping and restarting a VM asks you to confirm, with the exact change shown first. Creating or deleting one asks for your password and the machine\u2019s name typed out.</span></div>
+            <div><strong>What each action asks for</strong><span>Starting, stopping and restarting a VM asks you to confirm, with the exact change shown first. Creating or deleting one asks for your password and the machine's name typed out.</span></div>
           </div>
         </section>
 

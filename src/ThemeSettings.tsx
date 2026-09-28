@@ -1,61 +1,48 @@
-import { useTheme, THEMES, type ThemeId } from "./useTheme";
+import { useId } from "react";
+import { ThemeSwitch } from "./ui/ThemeSwitch";
+import { handleRadioKeys } from "./ui/radio";
+import { useTheme, type PaletteId } from "./useTheme";
 
-/** Settings panel: choose the UI theme. Persisted in localStorage. */
+/** Settings panel: light, dark or the device's choice, and which dark palette. Kept per browser. */
 export default function ThemeSettings() {
-  const { theme, setTheme, themes } = useTheme();
+  const { appearance, palette, setPalette, palettes } = useTheme();
+  const paletteLabel = useId();
 
   return (
-    <section className="panel settings-panel">
+    <section className="panel settings-panel theme-settings">
       <header className="panel-header">
         <div>
-          <strong>Theme</strong>
-          <span>Appearance of the interface</span>
+          <strong>Appearance</strong>
+          <span>For this browser. System follows the device's light or dark setting.</span>
         </div>
       </header>
-      <div style={{ padding: "16px" }}>
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))",
-            gap: "10px",
-          }}
-        >
-          {themes.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => setTheme(t.id as ThemeId)}
-              style={{
-                display: "grid",
-                gap: "4px",
-                padding: "12px",
-                border:
-                  theme === t.id
-                    ? "1px solid var(--accent)"
-                    : "1px solid var(--border)",
-                borderRadius: "var(--radius-md)",
-                background:
-                  theme === t.id ? "var(--accent-bg)" : "var(--surface)",
-                color: theme === t.id ? "var(--accent)" : "var(--text)",
-                cursor: "pointer",
-                textAlign: "left",
-                fontFamily: "inherit",
-                fontSize: "inherit",
-                transition: "160ms ease",
-              }}
-            >
-              <strong style={{ fontSize: "12px" }}>{t.label}</strong>
-              <span
-                style={{
-                  fontSize: "10px",
-                  color: "var(--text-muted)",
-                  lineHeight: 1.4,
-                }}
-              >
-                {t.description}
-              </span>
-            </button>
-          ))}
+      <div className="theme-settings-body">
+        <ThemeSwitch />
+        <div className="theme-palettes">
+          <p id={paletteLabel} className="theme-palettes-label">
+            <strong>Dark palette</strong>
+            <span>{appearance === "light" ? "Used when you switch to Dark or System on a dark device." : "Used whenever BoxPilot is dark."}</span>
+          </p>
+          <div role="radiogroup" aria-labelledby={paletteLabel} className="theme-palette-grid" onKeyDown={(event) => handleRadioKeys(event, (value) => setPalette(value as PaletteId))}>
+            {palettes.map((option) => {
+              const checked = option.id === palette;
+              return (
+                <button
+                  key={option.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={checked}
+                  tabIndex={checked ? 0 : -1}
+                  data-value={option.id}
+                  className="theme-palette"
+                  onClick={() => setPalette(option.id)}
+                >
+                  <strong>{option.label}</strong>
+                  <span>{option.description}</span>
+                </button>
+              );
+            })}
+          </div>
         </div>
       </div>
     </section>
