@@ -99,6 +99,33 @@ describe("Home dashboard", () => {
       expect(within(line).getByRole("button", { name: "Check where alerts go" })).toBeTruthy();
     });
 
+    it("counts a release, a new sign-in, an interrupted job and the weekly report that reached no one, without calling them faults", async () => {
+      const notices = [
+        { key: "signin.new", label: "A sign-in from a new address", title: "New sign-in from 100.64.0.20", since, announced: false },
+        { key: "release.available", label: "A new BoxPilot release", title: "Version 1.127.0 is available", since, announced: false },
+        { key: "job.interrupted", label: "A job was cut off by a restart", title: "Install all package updates was interrupted", since, announced: false },
+        { key: "report.weekly", label: "The weekly report", title: "Weekly report, nothing failed", since, announced: false },
+      ];
+      vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => (input.toString().endsWith("/api/v1/settings/watch")
+        ? json({ targetConfigured: false, activeCount: 1, conditions: conditions(true), notices })
+        : json({ error: "unavailable" }, 503))));
+      const onNavigate = vi.fn();
+      render(<HomeDashboard onNavigate={onNavigate} />);
+      expect(await screen.findByText("BoxPilot could not tell you about 4 things")).toBeTruthy();
+      const line = screen.getByRole("region", { name: "Alerts that reached no one" });
+      fireEvent.click(within(line).getByRole("button", { name: "Show" }));
+      fireEvent.click(within(line).getByRole("button", { name: "Version 1.127.0 is available" }));
+      expect(onNavigate).toHaveBeenLastCalledWith("system");
+      fireEvent.click(within(line).getByRole("button", { name: "New sign-in from 100.64.0.20" }));
+      expect(onNavigate).toHaveBeenLastCalledWith("settings");
+      fireEvent.click(within(line).getByRole("button", { name: "Install all package updates was interrupted" }));
+      expect(onNavigate).toHaveBeenLastCalledWith("repairs");
+      // News is not a fault: "Needs attention" lists the conditions, not these.
+      const attention = screen.getByText("Needs attention").closest("section") as HTMLElement;
+      expect(within(attention).queryByText("Weekly report, nothing failed")).toBeNull();
+      expect(within(attention).getByText("Automation stopped: Nightly")).toBeTruthy();
+    });
+
     it("stays quiet when everything was announced", async () => {
       vi.stubGlobal("fetch", watchWith(true, conditions(true)));
       render(<HomeDashboard onNavigate={vi.fn()} />);

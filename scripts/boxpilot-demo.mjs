@@ -472,7 +472,9 @@ api.get("/settings/watch", (_request, response) => json(response, { targetConfig
   ["power.ups", "UPS on battery or low"], ["system.services", "System services have failed"], ["system.reboot", "A reboot is required"],
   ["docker.unhealthy", "A container is unhealthy"], ["docker.restarting", "A container keeps restarting (crash-looping)"], ["schedule.overdue", "A scheduled task (such as a backup) has stopped running"],
   ["schedule.failed", "A scheduled task failed or did not run"], ["flow.failed", "An automation stopped or did not run"], ["record.failed", "A job ran but its result was not saved"],
-].map(([key, label]) => ({ key, label, active: false, details: [] })), unannouncedCount: 0 }));
+].map(([key, label]) => ({ key, label, active: false, details: [] })), notices: [], unannouncedCount: 0 }));
+api.get("/settings/weekly-report", (_request, response) => json(response, { enabled: true, cadence: "Sundays at 09:00", nextDueAt: new Date(Date.now() + 4 * 24 * 3600_000).toISOString(), lastSentAt: ago(72), lastResult: "sent", targetConfigured: true }));
+api.get("/settings/weekly-report/preview", (_request, response) => json(response, { title: "Weekly report, nothing failed", message: "Sep 20 to Sep 27: 41 jobs ran, none failed.\nBackups: 7 app backups this week; database backed up today." }));
 api.get("/settings/approval-mode", (_request, response) => json(response, { mode: "tiered", modes: ["tiered", "always-ask"] }));
 api.get("/settings/vpn-profile", (_request, response) => json(response, {
   profile: { configured: true, provider: "mullvad", type: "wireguard", wireguardAddresses: "10.64.222.21/32", countries: "Sweden, Netherlands", portForwarding: "off", dot: "on", blockMalicious: "on", blockAds: "on", blockSurveillance: "off", dnsAddress: "", outboundSubnets: "192.168.0.0/16, 10.0.0.0/8", healthTargetAddress: "", hasWireguardKey: true, hasOpenvpnPassword: false, updatedAt: ago(48) },
@@ -582,10 +584,10 @@ api.get("/flows", (_request, response) => json(response, {
   ],
 }));
 api.get("/schedules", (_request, response) => json(response, { schedules: [
-  { id: "s1", operationId: "app.backup", parameters: { subject: "immich" }, frequency: "daily", minute: 0, hour: 3, weekday: null, enabled: true, createdBy: "owner-demo", createdAt: ago(200), nextDueAt: ago(-8), lastRunAt: ago(16) },
-  { id: "s2", operationId: "backup.cloud.sync", parameters: {}, frequency: "daily", minute: 30, hour: 4, weekday: null, enabled: true, createdBy: "owner-demo", createdAt: ago(200), nextDueAt: ago(-7), lastRunAt: ago(26), lastJobId: "d3", lastResult: "started" },
-  { id: "s3", operationId: "apt.refresh", parameters: {}, frequency: "weekly", minute: 0, hour: 5, weekday: 0, enabled: true, createdBy: "owner-demo", createdAt: ago(400), nextDueAt: ago(-60), lastRunAt: ago(108), lastJobId: "j2", lastResult: "started" },
-  { id: "s4", operationId: "app.vpn.killswitch.drill", parameters: { subject: "qbittorrent" }, frequency: "weekly", minute: 0, hour: 4, weekday: 0, enabled: true, overdue: false, title: "Prove the kill switch", cadence: "weekly on Sunday at 04:00", createdBy: "owner-demo", createdAt: ago(400), nextDueAt: ago(-90), lastRunAt: ago(60), lastResult: "completed" },
+  { id: "s1", operationId: "app.backup", parameters: { subject: "immich" }, frequency: "daily", minute: 0, hour: 3, weekday: null, enabled: true, createdBy: "owner-demo", createdAt: ago(200), nextDueAt: ago(-8), lastRunAt: ago(16), lastResult: "completed", lastOutcome: "ran", lastReason: null },
+  { id: "s2", operationId: "backup.cloud.sync", parameters: {}, frequency: "daily", minute: 30, hour: 4, weekday: null, enabled: true, createdBy: "owner-demo", createdAt: ago(200), nextDueAt: ago(-7), lastRunAt: ago(26), lastJobId: "d3", lastResult: "completed", lastOutcome: "ran", lastReason: null },
+  { id: "s3", operationId: "apt.refresh", parameters: {}, frequency: "weekly", minute: 0, hour: 5, weekday: 0, enabled: true, createdBy: "owner-demo", createdAt: ago(400), nextDueAt: ago(-60), lastRunAt: ago(108), lastJobId: "j2", lastResult: "completed", lastOutcome: "ran", lastReason: null },
+  { id: "s4", operationId: "app.vpn.killswitch.drill", parameters: { subject: "qbittorrent" }, frequency: "weekly", minute: 0, hour: 4, weekday: 0, enabled: true, overdue: false, title: "Prove the kill switch", cadence: "weekly on Sunday at 04:00", createdBy: "owner-demo", createdAt: ago(400), nextDueAt: ago(-90), lastRunAt: ago(60), lastResult: "completed", lastOutcome: "ran", lastReason: null },
 ] }));
 api.get("/system/update", (_request, response) => json(response, { current: { version: productVersion, tag: `v${productVersion}` }, latest: { tag: `v${productVersion}`, version: productVersion, publishedAt: ago(30), url: "https://github.com/AES256Afro/BoxPilot/releases" }, updateAvailable: false, checkedAt: now().toISOString(), error: null }));
 api.get("/power/ups/detect", (_request, response) => json(response, { devices: [{ vendorId: "051d", productId: "0002", manufacturer: "American Power Conversion", product: "Back-UPS ES 700G", driver: "usbhid-ups", confidence: "vendor-id", sysfs: "1-3" }], nutInstalled: true }));

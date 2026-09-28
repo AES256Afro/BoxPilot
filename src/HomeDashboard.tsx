@@ -25,7 +25,9 @@ interface WatchedCondition { family: string; title: string; since: string | null
 function watchView(family: string): ViewName {
   if (family === "schedule.failed") return "system";
   if (family === "flow.failed") return "automations";
-  return "repairs"; // host conditions, and a result not saved: Repair keeps the Activity with each job's steps
+  if (family === "release.available") return "system"; // System, BoxPilot updates
+  if (family === "signin.new" || family === "report.weekly") return "settings"; // where you're signed in; the report's preview
+  return "repairs"; // host conditions, an interrupted job, a result not saved: Repair keeps the Activity with each job's steps
 }
 
 function timeLabel(iso?: string): string {
@@ -49,6 +51,7 @@ export default function HomeDashboard({ onNavigate }: { onNavigate: (view: ViewN
   const [offBox, setOffBox] = useState<string | null>(null);
   const [setup, setSetup] = useState<{ firstRun: boolean; installedApps: number } | null>(null);
   const [watch, setWatch] = useState<WatchedCondition[]>([]);
+  const [notices, setNotices] = useState<WatchedCondition[]>([]);
   const [targetConfigured, setTargetConfigured] = useState(false);
   const [showUnannounced, setShowUnannounced] = useState(false);
   const [rebuild, setRebuild] = useState<{ count: number; source: string } | null>(null);
@@ -165,9 +168,10 @@ export default function HomeDashboard({ onNavigate }: { onNavigate: (view: ViewN
 
     fetch("/api/v1/settings/watch")
       .then((response) => (response.ok ? response.json() : { conditions: [] }))
-      .then((data: { targetConfigured?: boolean; conditions?: Array<{ key: string; active: boolean; details: Array<{ title: string; since?: string | null; announced?: boolean }> }> }) => {
+      .then((data: { targetConfigured?: boolean; conditions?: Array<{ key: string; active: boolean; details: Array<{ title: string; since?: string | null; announced?: boolean }> }>; notices?: Array<{ key: string; title: string; since?: string | null }> }) => {
         guard(setTargetConfigured)(data.targetConfigured === true);
         guard(setWatch)((data.conditions ?? []).filter((condition) => condition.active).flatMap((condition) => condition.details.map((detail) => ({ family: condition.key, title: detail.title, since: detail.since ?? null, announced: detail.announced !== false }))));
+        guard(setNotices)((data.notices ?? []).map((notice) => ({ family: notice.key, title: notice.title, since: notice.since ?? null, announced: false })));
       })
       .catch(() => {});
 
@@ -208,7 +212,9 @@ export default function HomeDashboard({ onNavigate }: { onNavigate: (view: ViewN
   for (const alert of watch) attention.push({ label: alert.title, view: watchView(alert.family) });
   // Everything BoxPilot knew and could not tell anyone (M27.2): host conditions, failed schedules,
   // stopped automations and results it could not save, with no target set or a target that failed.
-  const unannounced = watch.filter((alert) => !alert.announced);
+  // News that reached no one - an interrupted job, a release, a new sign-in, the weekly report - is
+  // counted here too, but it is not a fault, so it stays out of "Needs attention" below.
+  const unannounced = [...watch.filter((alert) => !alert.announced), ...notices];
   if (updates?.rebootRequired) attention.push({ label: "A reboot is pending", view: "updates" });
   if ((updates?.updates ?? 0) > 0) attention.push({ label: `${updates?.updates} update${updates?.updates === 1 ? "" : "s"} available${updates?.security ? ` (${updates.security} security)` : ""}`, view: "updates" });
   if ((failedServices ?? 0) > 0) attention.push({ label: `${failedServices} failed service${failedServices === 1 ? "" : "s"}`, view: "services" });
@@ -247,8 +253,8 @@ export default function HomeDashboard({ onNavigate }: { onNavigate: (view: ViewN
             <>
               <span>{targetConfigured ? "These have not reached your notification target yet. BoxPilot tries again every 15 minutes." : "No notification target is set, so these reached no one."}</span>
               <ul className="unannounced-list">
-                {unannounced.map((alert) => (
-                  <li key={`${alert.family}:${alert.title}`}>
+                {unannounced.map((alert, index) => (
+                  <li key={`${alert.family}:${alert.title}:${index}`}>
                     <button type="button" className="text-button" onClick={() => onNavigate(watchView(alert.family))}>{alert.title}</button>
                     {alert.since && <span className="muted"> since {timeLabel(alert.since)}</span>}
                   </li>
