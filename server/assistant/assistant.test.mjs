@@ -198,6 +198,16 @@ describe("secrets", () => {
     }
     expect(prompt).toContain("[secret]");
   });
+
+  // The chat prompt went through the redactor; the question's embedding, sent to the same model
+  // server a moment earlier, did not.
+  it("redacts the question on its way to the embedding model too", async () => {
+    await service().ask(caller("owner"), { question: "Why does restic say password=SENTINEL-QUESTION-12 is wrong?", context: { alertKey: "token=SENTINEL-ALERTKEY-13" } });
+    const embeds = fake.requests.filter((entry) => entry.path === "/api/embed");
+    expect(embeds.length).toBeGreaterThan(0);
+    expect(JSON.stringify(embeds)).toContain("restic");
+    expect(JSON.stringify(fake.requests)).not.toMatch(/SENTINEL-(QUESTION-12|ALERTKEY-13)/);
+  });
 });
 
 describe("plans", () => {
