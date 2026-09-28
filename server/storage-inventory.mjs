@@ -8,6 +8,7 @@
  * Storage page reads from here. Mutations still go through root tasks.
  */
 import { access, readFile as readFileDefault } from "node:fs/promises";
+import { shared } from "./cache.mjs";
 import { fixedRun } from "./exec.mjs";
 import { parseFindmnt, parseFstab } from "./ops/storage.mjs";
 
@@ -217,4 +218,16 @@ export async function collectStorage({ run = fixedRun, readFile = readFileDefaul
     shares: sharesFrom(fstab, mounts),
     tools: { cifs, nfs, smbclient, showmount },
   };
+}
+
+/**
+ * collectStorage as one shared read, for the pages that want a recent answer rather than a fresh
+ * one each time: the Overview's "This server can check its drives" (M26.3), the weekly report that
+ * asks the same question, and the runbook. The Overview used to start its own lsblk and findmnt on
+ * every load. Held ten seconds, like the inventory, and dropped whenever an operation settles
+ * (diagnostic-invalidation.mjs), so nobody is shown the drives from before a mount they just ran.
+ * Repair and Storage keep reading live: a drive that has just dropped is their business.
+ */
+export function createStorageReader({ collect = collectStorage, ttlMs = 10_000, now = () => Date.now() } = {}) {
+  return shared(() => collect(), { ttlMs, now });
 }

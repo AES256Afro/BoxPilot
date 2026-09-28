@@ -5,8 +5,8 @@
  *
  * Everything lives in memory. The documents and the registry change only when BoxPilot is upgraded,
  * which restarts this process, and the catalog is re-read when its manifests change, so the index is
- * built at startup and rebuilt in part when the catalog moves on - a few hundred kilobytes of text
- * and well under a second of work. Embeddings are cached by the hash of the text they were made
+ * built when the assistant is first used and rebuilt in part when the catalog moves on - a few
+ * hundred kilobytes of text, under 3 MiB of heap, and well under a second of work. Embeddings are cached by the hash of the text they were made
  * from and by model, in memory too: the corpus is small enough to embed again after a restart in
  * the background, and a cache on disk would be one more thing to keep in step with a model the
  * owner can swap at any time.
@@ -179,34 +179,64 @@ export function catalogChunks(manifests) {
   });
 }
 
-/** A BM25 index over chunks. `search(tokens)` answers a Map of chunk index to score. */
+/**
+ * A BM25 index over chunks. `search(tokens)` answers a Map of chunk index to score.
+ *
+ * The postings live in three typed arrays, not an array of [chunk, count] pairs per term: the index
+ * is held for the life of the process, and ~50,000 two-element arrays for BoxPilot's own documents
+ * kept 5.5 MiB of heap where these keep well under one. Each term's postings are in chunk order, as
+ * before, so scores add up in the same order and come out the same.
+ */
 export function createBm25(chunks, { k1 = 1.2, b = 0.75 } = {}) {
-  const postings = new Map();
-  const lengths = chunks.map((chunk, index) => {
+  const building = new Map(); // term -> [chunk, count, chunk, count, ...], dropped once packed
+  const lengths = Float64Array.from(chunks, (chunk, index) => {
     const tokens = tokenize(`${chunk.title}\n${chunk.text}`);
     const counts = new Map();
     for (const token of tokens) counts.set(token, (counts.get(token) ?? 0) + 1);
     for (const [token, count] of counts) {
-      if (!postings.has(token)) postings.set(token, []);
-      postings.get(token).push([index, count]);
+      let list = building.get(token);
+      if (!list) building.set(token, (list = []));
+      list.push(index, count);
     }
     return tokens.length;
   });
+  const termIds = new Map();
+  const starts = new Uint32Array(building.size + 1);
+  let total = 0;
+  for (const list of building.values()) total += list.length / 2;
+  const postingChunks = new Uint32Array(total);
+  const postingCounts = new Uint32Array(total);
+  let at = 0;
+  for (const [token, list] of building) {
+    starts[termIds.size] = at;
+    termIds.set(token, termIds.size);
+    for (let position = 0; position < list.length; position += 2) {
+      postingChunks[at] = list[position];
+      postingCounts[at] = list[position + 1];
+      at += 1;
+    }
+  }
+  starts[termIds.size] = at;
+  building.clear();
   const average = lengths.reduce((sum, length) => sum + length, 0) / Math.max(1, lengths.length);
   function search(queryTokens) {
     const scores = new Map();
     for (const token of new Set(queryTokens)) {
-      const list = postings.get(token);
-      if (!list) continue;
-      const idf = Math.log(1 + (chunks.length - list.length + 0.5) / (list.length + 0.5));
-      for (const [index, count] of list) {
+      const id = termIds.get(token);
+      if (id === undefined) continue;
+      const from = starts[id];
+      const to = starts[id + 1];
+      const idf = Math.log(1 + (chunks.length - (to - from) + 0.5) / (to - from + 0.5));
+      for (let position = from; position < to; position += 1) {
+        const index = postingChunks[position];
+        const count = postingCounts[position];
         const score = idf * ((count * (k1 + 1)) / (count + k1 * (1 - b + b * (lengths[index] / average))));
         scores.set(index, (scores.get(index) ?? 0) + score * (chunks[index].weight ?? 1));
       }
     }
     return scores;
   }
-  return { search, terms: postings.size };
+  return { search, terms: termIds.size, postings: total };
 }
 
 const normalize = (vector) => {
@@ -215,19 +245,39 @@ const normalize = (vector) => {
 };
 const dot = (a, b) => { let sum = 0; for (let index = 0; index < Math.min(a.length, b.length); index += 1) sum += a[index] * b[index]; return sum; };
 
-/** Embeddings by model and content hash, bounded; the oldest go first. */
-export function createEmbeddingCache({ maxEntries = 8192 } = {}) {
+/**
+ * Embeddings by model and content hash, bounded by count and by bytes; the oldest go first.
+ *
+ * A count alone did not bound the memory: a vector's size is the model's, so 8,192 of them were
+ * 24 MiB from a 768-wide model and 128 MiB from a 4,096-wide one. The corpus is under a thousand
+ * chunks, so these limits still hold a whole corpus under any common embedding model, with room
+ * for most of the one before a switch.
+ */
+export const embeddingCacheLimits = Object.freeze({ maxEntries: 4096, maxBytes: 32 * 1024 * 1024 });
+
+export function createEmbeddingCache({ maxEntries = embeddingCacheLimits.maxEntries, maxBytes = embeddingCacheLimits.maxBytes } = {}) {
   const vectors = new Map();
+  let bytes = 0;
   const key = (model, hash) => `${model}\u0000${hash}`;
+  const drop = (name) => {
+    const held = vectors.get(name);
+    if (!held) return;
+    bytes -= held.byteLength;
+    vectors.delete(name);
+  };
   return {
     get: (model, hash) => vectors.get(key(model, hash)) ?? null,
     set(model, hash, vector) {
-      vectors.delete(key(model, hash));
-      vectors.set(key(model, hash), normalize(vector));
-      while (vectors.size > maxEntries) vectors.delete(vectors.keys().next().value);
+      const name = key(model, hash);
+      drop(name);
+      const stored = normalize(vector);
+      vectors.set(name, stored);
+      bytes += stored.byteLength;
+      while (vectors.size > 1 && (vectors.size > maxEntries || bytes > maxBytes)) drop(vectors.keys().next().value);
     },
     count: (model) => [...vectors.keys()].filter((entry) => entry.startsWith(`${model}\u0000`)).length,
     get size() { return vectors.size; },
+    get bytes() { return bytes; },
   };
 }
 
