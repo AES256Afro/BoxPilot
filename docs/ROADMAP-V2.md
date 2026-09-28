@@ -1028,10 +1028,7 @@ clear until v1.112.0. The lesson generalises.
   jobs, scheduler, flows and the audit log, so a new nesting cannot be missed three times.
 - **M29.2 Staged secrets expire.** Thirty minutes unapproved and the staged copy is dropped, with
   the dialog saying so; today they live until the daily prune.
-- **M29.3 Transient operation secrets stay out of controller backups.** A test that stages every
-  operation with a secret in the registry, writes a controller backup, and checks the copy for
-  those supplied values. Application backups still contain the credentials needed to restore
-  the application and require private storage.
+- ✅ **M29.3 Transient operation secrets stay out of controller backups** (unreleased): `server/secrets-at-rest.test.mjs` stages every secret-bearing operation in one database, one job run and one left awaiting approval with its secrets in memory, attempts a schedule and a flow with them, and has the controller-backup helper write its copy; no supplied value is in the artifact, the manifest or the drill (Linux; the staging and the helper's preflight run everywhere). Rows stored before M29.1 are masked at startup by `server/secret-scrub.mjs`: secretPaths finds them, a job with staged secrets is left alone, a masked schedule or flow is paused or refused as before, and one audit entry records counts. Existing backups are not rewritten. Application backups still contain the credentials needed to restore the application and require private storage.
 
 ### M30 — BoxPilot watching BoxPilot
 
