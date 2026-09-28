@@ -149,6 +149,10 @@ describe("native systemd network boundaries", () => {
     expect(service).not.toContain("StateDirectory=boxpilot");
     expect(timer).toContain("OnUnitActiveSec=6h");
     expect(scanner).toContain('["--json=c", "--all", device]');
+    // A USB disk that did not answer is asked once more through its bridge. Still a read: SMART is
+    // never switched on or off from here.
+    expect(scanner).toContain('["--json=c", "--all", "-d", "sat", device]');
+    expect(scanner).not.toMatch(/["'](?:-s|--smart=on|--smart=off)["']/);
     expect(scanner).toContain('["--noheadings", "--nodeps", "--output", "KNAME", source]');
     expect(scanner).toContain('`/sys/fs/ext4/${kernelName}/errors_count`');
     expect(scanner).not.toMatch(/["'](?:fsck|e2fsck|tune2fs)["']/);
