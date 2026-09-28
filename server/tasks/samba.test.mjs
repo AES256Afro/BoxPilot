@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { parseSmbConf, renderSmbConf, sambaApply, sambaDiagnose, sambaDiscoverySet, sambaRecycleEmpty, sambaUserRemove, sambaUserSet, validateSambaConfig } from "./samba.mjs";
+import { discoveryState, parseSmbConf, renderSmbConf, sambaApply, sambaDiagnose, sambaDiscoverySet, sambaRecycleEmpty, sambaUserRemove, sambaUserSet, validateSambaConfig } from "./samba.mjs";
 
 function fakeRun({ testparmFails = false, lanDevice = "eno1", users = {} } = {}) {
   return vi.fn(async (binary, args) => {
@@ -128,7 +128,7 @@ describe("samba tasks", () => {
       if (args?.[0] === "is-active") return { ok: true, stdout: "active\n", stderr: "" };
       return { ok: true, stdout: "", stderr: "" };
     });
-    const files = { access: async (target) => { if (target.includes("wsdd") && !installed) throw new Error("ENOENT"); }, readFile: async () => "# Managed by BoxPilot\n[global]\n   interfaces = lo tailscale0 eno1\n" };
+    const files = { access: async (target) => { if (target.includes("wsdd-server") || (target.includes("wsdd") && !installed)) throw new Error("ENOENT"); }, readFile: async () => "# Managed by BoxPilot\n[global]\n   interfaces = lo tailscale0 eno1\n" };
 
     const first = await sambaDiscoverySet({ enabled: true }, { run, files });
     expect(first).toMatchObject({ enabled: true, installed: true, running: true, allowed: ["3702/udp", "5357/tcp"] });
@@ -142,10 +142,39 @@ describe("samba tasks", () => {
     expect(run.mock.calls.some(([binary]) => binary.endsWith("apt-get"))).toBe(false);
   });
 
+  it("installs and starts wsdd-server where the release split the service out of wsdd (Ubuntu 26.04)", async () => {
+    // wsdd 0.8 ships the tool in wsdd and the service in wsdd-server. A server with only the tool
+    // has /usr/bin/wsdd but no unit, and starting "wsdd" failed with "Unit wsdd.service does not
+    // exist" - what the owner's server did before this.
+    let serverInstalled = false;
+    const run = vi.fn(async (binary, args) => {
+      if (binary.endsWith("apt-cache")) return { ok: true, stdout: "wsdd-server:\n  Installed: (none)\n  Candidate: 2:0.8-5ubuntu1\n", stderr: "" };
+      if (binary.endsWith("apt-get")) { serverInstalled = args.includes("wsdd-server"); return { ok: true, stdout: "", stderr: "" }; }
+      if (args?.[0] === "is-active") return { ok: true, stdout: "active\n", stderr: "" };
+      return { ok: true, stdout: "", stderr: "" };
+    });
+    // The wsdd tool is already there; only wsdd-server brings a unit.
+    const files = { access: async (target) => { if (target === "/usr/bin/wsdd") return; if (target.endsWith("wsdd-server.service") && serverInstalled) return; throw new Error("ENOENT"); }, readFile: async () => "# Managed by BoxPilot\n[global]\n   interfaces = lo tailscale0 eno1\n" };
+
+    const result = await sambaDiscoverySet({ enabled: true }, { run, files });
+    expect(result).toMatchObject({ enabled: true, installed: true, running: true, unit: "wsdd-server" });
+    expect(run).toHaveBeenCalledWith("/usr/bin/apt-get", ["install", "-y", "--no-install-recommends", "wsdd-server"], expect.anything());
+    expect(run).toHaveBeenCalledWith(expect.stringContaining("systemctl"), ["enable", "--now", "wsdd-server"], expect.anything());
+    expect(run).not.toHaveBeenCalledWith(expect.stringContaining("systemctl"), ["enable", "--now", "wsdd"], expect.anything());
+  });
+
+  it("counts the wsdd tool without a service as not installed", async () => {
+    const run = vi.fn(async () => ({ ok: true, stdout: "", stderr: "" }));
+    const files = { access: async (target) => { if (target === "/usr/bin/wsdd") return; throw new Error("ENOENT"); } };
+    await expect(discoveryState(run, files)).resolves.toEqual({ installed: false, running: false, unit: null });
+  });
+
   it("turns Windows discovery off by stopping wsdd and withdrawing the discovery rules", async () => {
     const run = vi.fn(async () => ({ ok: true, stdout: "inactive\n", stderr: "" }));
     const files = { access: async () => { throw new Error("ENOENT"); }, readFile: async () => "# Managed by BoxPilot\n[global]\n   interfaces = lo tailscale0 eno1\n" };
     await expect(sambaDiscoverySet({ enabled: false }, { run, files })).resolves.toMatchObject({ enabled: false, installed: false });
+    // Whichever unit this release has is disabled; the one it lacks is simply not there.
+    expect(run).toHaveBeenCalledWith(expect.stringContaining("systemctl"), ["disable", "--now", "wsdd-server"], expect.anything());
     expect(run).toHaveBeenCalledWith(expect.stringContaining("systemctl"), ["disable", "--now", "wsdd"], expect.anything());
     expect(run).toHaveBeenCalledWith("/usr/sbin/ufw", ["--force", "delete", "allow", "3702/udp"], expect.anything());
     expect(run).toHaveBeenCalledWith("/usr/sbin/ufw", ["--force", "delete", "allow", "5357/tcp"], expect.anything());
@@ -176,7 +205,7 @@ describe("samba tasks", () => {
     const filesFor = ({ uid = 1000, exists = true, isDir = true, wsdd = true } = {}) => ({
       readFile: async () => CONF,
       stat: async () => { if (!exists) throw new Error("ENOENT"); return { uid, isDirectory: () => isDir }; },
-      access: async (target) => { if (target.includes("wsdd") && !wsdd) throw new Error("ENOENT"); },
+      access: async (target) => { if (target.includes("wsdd-server") || (target.includes("wsdd") && !wsdd)) throw new Error("ENOENT"); },
     });
     const byId = (result) => Object.fromEntries(result.checks.map((check) => [check.id, check]));
 
@@ -245,7 +274,7 @@ describe("samba tasks", () => {
   it("suspends needrestart while installing, so apt cannot restart BoxPilot mid-job", async () => {
     let installed = false;
     const run = vi.fn(async (binary) => { if (binary.endsWith("apt-get")) installed = true; return { ok: true, stdout: "active\n", stderr: "" }; });
-    const files = { access: async (target) => { if (target.includes("wsdd") && !installed) throw new Error("ENOENT"); }, readFile: async () => "# Managed by BoxPilot\n[global]\n   interfaces = lo tailscale0 eno1\n" };
+    const files = { access: async (target) => { if (target.includes("wsdd-server") || (target.includes("wsdd") && !installed)) throw new Error("ENOENT"); }, readFile: async () => "# Managed by BoxPilot\n[global]\n   interfaces = lo tailscale0 eno1\n" };
     await sambaDiscoverySet({ enabled: true }, { run, files });
     expect(run).toHaveBeenCalledWith("/usr/bin/apt-get", expect.anything(), expect.objectContaining({ env: { DEBIAN_FRONTEND: "noninteractive", NEEDRESTART_SUSPEND: "1" } }));
   });

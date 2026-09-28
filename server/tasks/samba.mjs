@@ -37,6 +37,7 @@ const binaries = {
   du: "/usr/bin/du",
   rm: "/usr/bin/rm",
   aptGet: "/usr/bin/apt-get",
+  aptCache: "/usr/bin/apt-cache",
   ufw: "/usr/sbin/ufw",
 };
 
@@ -298,13 +299,37 @@ export async function sambaRecycleEmpty({ share, olderThanDays = 0 } = {}, { run
   return { emptied: true, share, path: recycleDir, olderThanDays: days, freedBytes };
 }
 
-/** Is wsdd present, and is it running? Read-only, used by samba.inspect to describe discovery. */
+/**
+ * The discovery service's unit. Debian 13 and Ubuntu 26.04 split wsdd 0.8 into the `wsdd` tool and a
+ * `wsdd-server` package that owns the service; earlier releases ship one `wsdd` package with
+ * wsdd.service. The /usr/bin/wsdd binary is in both, so it says nothing about whether the daemon
+ * can run: the unit that is installed is what decides, and it is what gets started and stopped.
+ */
+export const discoveryUnits = Object.freeze(["wsdd-server", "wsdd"]);
+const unitDirectories = ["/etc/systemd/system", "/usr/lib/systemd/system", "/lib/systemd/system"];
+
+async function installedDiscoveryUnit(files) {
+  for (const unit of discoveryUnits) {
+    for (const directory of unitDirectories) {
+      if (await files.access(`${directory}/${unit}.service`).then(() => true, () => false)) return unit;
+    }
+  }
+  return null;
+}
+
+/** Is a discovery service installed, and is it running? Read-only, used by samba.inspect to describe discovery. */
 export async function discoveryState(run, files = { access }) {
-  const installed = await Promise.all(["/usr/bin/wsdd", "/usr/sbin/wsdd"].map((candidate) => files.access(candidate).then(() => true, () => false)));
-  const present = installed.some(Boolean);
-  if (!present) return { installed: false, running: false };
-  const active = await run(binaries.systemctl, ["is-active", "wsdd"], { timeout: 10_000 }).catch(() => null);
-  return { installed: true, running: active ? active.stdout.trim() === "active" : false };
+  const unit = await installedDiscoveryUnit(files);
+  if (!unit) return { installed: false, running: false, unit: null };
+  const active = await run(binaries.systemctl, ["is-active", unit], { timeout: 10_000 }).catch(() => null);
+  return { installed: true, running: active ? active.stdout.trim() === "active" : false, unit };
+}
+
+/** The package that provides the service here: wsdd-server where the release split it out, wsdd before. */
+async function discoveryPackage(run) {
+  const policy = await run(binaries.aptCache, ["policy", "wsdd-server"], { timeout: 30_000 }).catch(() => null);
+  const candidate = policy?.ok ? /Candidate:\s*(\S+)/.exec(policy.stdout ?? "")?.[1] : null;
+  return candidate && candidate !== "(none)" ? "wsdd-server" : "wsdd";
 }
 
 /**
@@ -327,7 +352,8 @@ export async function sambaDiscoverySet({ enabled = true } = {}, { run = fixedRu
     }
   }
   if (!on) {
-    await run(binaries.systemctl, ["disable", "--now", "wsdd"], { timeout: 60_000 }).catch(() => {});
+    // Whichever release this is, the service is one of these; the other is simply not there.
+    for (const unit of discoveryUnits) await run(binaries.systemctl, ["disable", "--now", unit], { timeout: 60_000 }).catch(() => {});
     for (const entry of discoveryPorts) {
       await run(binaries.ufw, ["--force", "delete", "allow", `${entry.port}/${entry.protocol}`], { timeout: 30_000 }).catch(() => {});
     }
@@ -336,20 +362,21 @@ export async function sambaDiscoverySet({ enabled = true } = {}, { run = fixedRu
   }
   const before = await discoveryState(run, files);
   if (!before.installed) {
-    log?.("Installing wsdd so Windows can discover this server", "stdout");
-    const install = await run(binaries.aptGet, ["install", "-y", "--no-install-recommends", "wsdd"], {
+    const packageName = await discoveryPackage(run);
+    log?.(`Installing ${packageName} so Windows can discover this server`, "stdout");
+    const install = await run(binaries.aptGet, ["install", "-y", "--no-install-recommends", packageName], {
       timeout: 300_000,
       // NEEDRESTART_SUSPEND as well as DEBIAN_FRONTEND: needrestart in automatic mode restarts
       // services running outdated libraries after any apt run, and it has killed the BoxPilot
       // process waiting on the very job that invoked it.
       env: { DEBIAN_FRONTEND: "noninteractive", NEEDRESTART_SUSPEND: "1" },
     });
-    if (!install.ok) throw new Error(`Could not install wsdd: ${tail(install.stderr) || "apt-get failed"}. Check that updates are working, then try again.`);
+    if (!install.ok) throw new Error(`Could not install ${packageName}: ${tail(install.stderr) || "apt-get failed"}. Check that updates are working, then try again.`);
   }
   const after = await discoveryState(run, files);
-  if (!after.installed) throw new Error("wsdd did not install; Windows discovery is unavailable on this server");
-  const enable = await run(binaries.systemctl, ["enable", "--now", "wsdd"], { timeout: 60_000 });
-  if (!enable.ok) throw new Error(`Could not start wsdd: ${tail(enable.stderr)}`);
+  if (!after.installed) throw new Error("No discovery service was installed; Windows discovery is unavailable on this server");
+  const enable = await run(binaries.systemctl, ["enable", "--now", after.unit], { timeout: 60_000 });
+  if (!enable.ok) throw new Error(`Could not start ${after.unit}: ${tail(enable.stderr)}`);
   // Discovery is multicast: without these two rules Windows never hears the reply, and the
   // feature looks broken in exactly the way it looked broken before wsdd was there at all.
   const allowed = [];
