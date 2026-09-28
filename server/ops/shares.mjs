@@ -31,7 +31,7 @@ export function shareOperations() {
     }),
     defineOperation({
       id: "share.unmount", title: "Unmount a network share", risk: "medium", timeoutMs: minutes(3),
-      description: "Unmounts /mnt/<name>, removes the fstab entry and the automount unit, and deletes the stored credentials. The empty directory is kept.",
+      description: "Unmounts /mnt/<name>, removes the fstab entry and the automount unit, and deletes the stored credentials. The empty directory is kept. File-sharing clients are disconnected from it first; while an app or anything else still uses the share, nothing is changed and the error names it.",
       parameters: { fields: { name: { type: "string", maxLength: 32, pattern: mountNamePattern } } },
       run: (parameters, { runUnit, jobLog }) => runUnit.runTask("share.unmount", { name: parameters.name }, { timeoutMs: minutes(2), logPath: jobLog?.path ?? null }),
     }),
