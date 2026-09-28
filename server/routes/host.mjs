@@ -58,7 +58,7 @@ export function buildReachability({ webHost, webPort, lanIp, dnsName, tls, serve
   return { ways, onLan, tlsProvisioned: Boolean(tls?.provisioned), servePublished: Boolean(servePublished) };
 }
 
-export function createHostRouter({ state, helper, catalogService, inventory, network, notifications = null, controllerProtection, controllerRetention, githubProvenance, releaseUpdates, setup, supportBundle, audit, auth, identity = null, webHost = "127.0.0.1", webPort = 8787, tlsDir = process.env.BOXPILOT_TLS_DIR ?? "/etc/boxpilot/tls", collect = collectStorage }) {
+export function createHostRouter({ state, helper, catalogService, inventory, network, notifications = null, controllerProtection, controllerRetention, githubProvenance, releaseUpdates, setup, supportBundle, audit, auth, identity = null, webHost = "127.0.0.1", webPort = 8787, tlsDir = process.env.BOXPILOT_TLS_DIR ?? "/etc/boxpilot/tls", collect = collectStorage, fileExists = (file) => access(file).then(() => true, () => false) }) {
   const router = Router();
   router.get("/diagnostics/runtime", async (_request, response) => {
     const [web, worker] = await Promise.allSettled([
@@ -165,16 +165,14 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
     // operator reads (ADR-003). A viewer is not handed what they hold as findings: they are not read
     // on a viewer's behalf, and the scan says which checks it left to an operator (M29.4).
     const operatorReads = readsThroughHelper(request);
-    const [storage, live, samba, usb, driveTools] = await Promise.all([
+    const [storage, live, samba, usb] = await Promise.all([
       collect().catch(() => null),
       helper.request("app.inspect", {}, { timeoutMs: 30_000 }).catch(() => null),
       operatorReads ? helper.request("samba.inspect", {}, { timeoutMs: 30_000 }).catch(() => null) : null,
       operatorReads ? helper.request("storage.usb.events", {}, { timeoutMs: 45_000 }).catch(() => null) : null,
-      // The exact versions the drive-tools fix would install, for a finding whose fix is installing them.
-      helper.request("prerequisite.drive-tools.inspect", {}, { timeoutMs: 30_000 }).catch(() => null),
     ]);
     facts.usb = usb;
-    facts.driveTools = driveTools;
+    facts.driveTools = null;
     facts.driveChecks = state.getSetting("driveChecks", {}) ?? {};
     if (storage) {
       // findmnt knows what is mounted; fstab knows which of those BoxPilot manages and with what
@@ -186,8 +184,14 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
       });
       facts.devices = (storage.devices ?? []).filter((device) => device.path).map((device) => ({ path: device.path, transport: device.transport ?? device.tran ?? null }));
       // Whether the exFAT checker exists here at all; asked of the filesystem, not of apt.
-      const present = await Promise.all(["/usr/sbin/fsck.exfat", "/sbin/fsck.exfat"].map((file) => access(file).then(() => true, () => false)));
+      const present = await Promise.all(["/usr/sbin/fsck.exfat", "/sbin/fsck.exfat"].map((file) => fileExists(file)));
       facts.tools = { fsckExfat: present.some(Boolean) };
+      // The exact versions the drive-tools fix would install, asked only when a finding offers that
+      // fix: an exFAT drive and no fsck.exfat. Asked on every scan, it was eight root processes, two
+      // of them apt-cache, on every Repair load of a server that already had the checker.
+      if (!facts.tools.fsckExfat && facts.mounts.some((mount) => mount.fstype === "exfat")) {
+        facts.driveTools = await helper.request("prerequisite.drive-tools.inspect", {}, { timeoutMs: 30_000 }).catch(() => null);
+      }
     }
     if (samba?.configured) {
       const shares = samba.config?.shares ?? [];
