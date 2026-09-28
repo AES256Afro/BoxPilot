@@ -191,6 +191,12 @@ describe("auto-reconnect", () => {
     expect(await flows.update(flow.id, { enabled: false }, "owner-1")).toMatchObject({ enabled: false, triggerDrive: "media" });
   });
 
+  it("cannot be given a webhook, which would let anyone with the URL remount a healthy drive", async () => {
+    const { service, flows } = setup();
+    const flow = await service.arm("media", "owner-1");
+    expect(() => flows.mintWebhook(flow.id, "owner-1", { role: "owner" })).toThrow("cannot be given a webhook");
+  });
+
   it("reconnects a drive that went read-only the same way", async () => {
     const { service, jobs, titles } = setup();
     await service.arm("media", "owner-1");
