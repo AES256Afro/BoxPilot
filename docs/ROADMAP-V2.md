@@ -1169,8 +1169,8 @@ the milestones they overlap.
 - ✅ **M33.1 Design system** (B1, unreleased). `src/styles.css` holds one set of colour tokens
   with a dark value (the GitHub-dark look BoxPilot always had, unchanged) and a light one, applied
   by `@media (prefers-color-scheme: light)` while the choice is System and by
-  `html[data-theme="light"]` when it is Light; the eight older looks are now dark palettes
-  (`html[data-palette]`, Settings -> Appearance) that apply only while dark. Semantic tokens for
+  `html[data-theme="light"]` when it is Light. The eight older dark looks were retired at the
+  owner's call (2026-09-28): one dark and one light, System by default. Semantic tokens for
   status (good, warning, danger, neutral, unknown - grey, hollow and dashed, never green), risk
   tier and elevation, and density tokens (`data-density="comfortable|compact"`) for spacing, row
   heights and type. Every colour literal in the page styles became a token (63, fifteen of them
@@ -1192,7 +1192,7 @@ the milestones they overlap.
   the command bar in the top bar, the dock replacing the sidebar), Home itself, and real app icons
   on tiles from the manifests. Left for M33.3: Ops, whose tables need a compact `Table` component
   (today the class `ui-table`). Every other page keeps its own styles, now on the tokens, until
-  M33.5 moves it; whether the dark palettes stay is the owner's call.
+  M33.5 moves it.
 - **M33.2 The shell and Home** (B2). A top bar with the Home/Ops switch and a command bar ready
   for search; Home shows app tiles with live health, what needs the owner, and the admin areas
   in a dock. Acceptance: "is everything OK?" is answered by Home alone.
