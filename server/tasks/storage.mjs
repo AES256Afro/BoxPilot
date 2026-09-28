@@ -1,12 +1,14 @@
 import { access, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fixedRun } from "../exec.mjs";
+import { mountpointFor, reservedMountNames } from "../backup-mount.mjs";
 
 /**
  * Root-side storage tasks executed by scripts/boxpilot-run.mjs inside boxpilot-run@.service.
  * Mount operations must run in the host mount namespace (the helper's sandbox has its own),
  * and /etc/fstab is writable only here. Every fstab entry BoxPilot adds sits under a
  * `# boxpilot:<name>` marker line and carries `nofail`, so a missing disk never blocks boot.
+ * A mount named <name> is at /mnt/<name>, except the backup destination (see server/backup-mount.mjs).
  */
 
 export const mountNamePattern = /^[a-z0-9][a-z0-9-]{0,31}$/;
@@ -23,6 +25,11 @@ function assertPlainMountName(name) {
   if (typeof name !== "string" || !mountNamePattern.test(name)) throw new Error("Name is invalid");
   if (name.startsWith("share-")) throw new Error(`${name} is a network share; use the share operations for it`);
   if (name === "swap") throw new Error("swap is the swap file, not a mount; use the swap file operation for it");
+}
+
+/** /mnt/boxpilot holds the backup destination; a drive mounted over it would take its place. */
+export function assertNotReservedMountName(name) {
+  if (reservedMountNames.includes(name)) throw new Error(`${name} is reserved: /mnt/${name} holds BoxPilot's backup destination. Pick another name.`);
 }
 export const uuidPattern = /^[0-9a-fA-F][0-9a-fA-F-]{3,40}$/;
 export const devicePattern = /^\/dev\/[a-z][a-z0-9/]{1,30}$/;
@@ -134,7 +141,7 @@ export async function appendFstabEntry({ run, files, log }, name, entry) {
   return before;
 }
 
-/** Mount a filesystem by UUID at /mnt/<name> with a verified, nofail fstab entry. */
+/** Mount a filesystem by UUID at /mnt/<name> (see mountpointFor) with a verified, nofail fstab entry. */
 export const appUserId = 1000;
 export const permissionlessFilesystems = Object.freeze(["exfat", "vfat", "ntfs", "ntfs3", "msdos"]);
 
@@ -142,13 +149,14 @@ export async function storageMount({ uuid, name, fstype = "auto", readOnly = fal
   if (typeof uuid !== "string" || !uuidPattern.test(uuid)) throw new Error("UUID is invalid");
   if (typeof name !== "string" || !mountNamePattern.test(name)) throw new Error("Name must be lower-case letters, digits, and hyphens (max 32)");
   assertPlainMountName(name);   // and not swap or share-*: creating one would plant a marker swapFileSet and shareUnmount act on as their own
+  assertNotReservedMountName(name);
   if (typeof fstype !== "string" || !/^[a-z0-9]{2,12}$/.test(fstype)) throw new Error("Filesystem type is invalid");
   if (![uid, gid].every((value) => Number.isInteger(value) && value >= 0 && value <= 65_535)) throw new Error("Owner uid/gid are invalid");
   const device = await run(binaries.blkid, ["-U", uuid], { timeout: 15_000 });
   if (!device.ok || !device.stdout.trim()) throw new Error(`No filesystem with UUID ${uuid} was found`);
   const dev = device.stdout.trim();
   assertNotProtected(dev, await deviceTree(run, dev));
-  const mountpoint = `/mnt/${name}`;
+  const mountpoint = mountpointFor(name);
   const mounted = await run(binaries.findmnt, ["-n", mountpoint], { timeout: 15_000 });
   if (mounted.ok && mounted.stdout.trim()) throw new Error(`${mountpoint} is already mounted`);
   await files.mkdir(mountpoint, { recursive: true, mode: 0o755 });
@@ -205,7 +213,7 @@ export async function storageUnmount({ name } = {}, { run = fixedRun, log = null
   const content = await files.readFile(fstabPath, "utf8");
   const without = removeManagedEntry(content, name);
   if (without === null) throw new Error(`${name} is not a BoxPilot-managed mount; edit fstab yourself for entries you created`);
-  const mountpoint = `/mnt/${name}`;
+  const mountpoint = mountpointFor(name);
   const mounted = await run(binaries.findmnt, ["-n", mountpoint], { timeout: 15_000 });
   if (mounted.ok && mounted.stdout.trim()) {
     log?.(`$ umount ${mountpoint}`, "stdout");
@@ -386,7 +394,7 @@ export async function storageRemount({ name } = {}, { run = fixedRun, log = null
   // mountpoint from the entry itself, rather than assuming /mnt/<name>, is what keeps this op from
   // unmounting a path the entry has nothing to do with.
   const mountpoint = entry.line.trim().split(/\s+/)[1] ?? "";
-  if (mountpoint !== `/mnt/${name}`) throw new Error(`The ${name} entry is not a drive mounted at /mnt/${name}; nothing was changed`);
+  if (mountpoint !== mountpointFor(name)) throw new Error(`The ${name} entry is not a drive mounted at ${mountpointFor(name)}; nothing was changed`);
 
   const sourceOf = async () => {
     const result = await run(binaries.findmnt, ["-n", "-o", "SOURCE", mountpoint], { timeout: 15_000 });
@@ -451,7 +459,7 @@ export async function storageCheck({ name } = {}, { run = fixedRun, log = null, 
   const entry = parseManagedFstab(content).find((row) => row.name === name);
   if (!entry) throw new Error(`${name} is not a BoxPilot-managed mount`);
   const mountpoint = entry.line.trim().split(/\s+/)[1] ?? "";
-  if (mountpoint !== `/mnt/${name}`) throw new Error(`The ${name} entry is not a drive mounted at /mnt/${name}; nothing was changed`);
+  if (mountpoint !== mountpointFor(name)) throw new Error(`The ${name} entry is not a drive mounted at ${mountpointFor(name)}; nothing was changed`);
   const where = await run(binaries.findmnt, ["-n", "-o", "SOURCE,FSTYPE", mountpoint], { timeout: 15_000 });
   const [device, fstype] = where.ok ? where.stdout.trim().split(/\s+/) : [];
   if (!device) throw new Error(`${mountpoint} is not mounted, so there is nothing to check yet. Reconnect the drive first.`);

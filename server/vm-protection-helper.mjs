@@ -3,6 +3,7 @@ import { createReadStream } from "node:fs";
 import { lstat, mkdir, readFile, statfs } from "node:fs/promises";
 import path from "node:path";
 import { streamRun } from "./exec.mjs";
+import { backupMountpoint } from "./backup-mount.mjs";
 
 const uuidPattern = /^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
 const shaPattern = /^[a-f0-9]{64}$/;
@@ -40,7 +41,7 @@ export function validateVmProtectionInput(input) {
 export function createVmProtectionHelper({
   resticBinary = process.env.BOXPILOT_RESTIC_BINARY ?? "/usr/bin/restic",
   findmntBinary = process.env.BOXPILOT_FINDMNT_BINARY ?? "/usr/bin/findmnt",
-  mountRoot = process.env.BOXPILOT_VM_BACKUP_MOUNT ?? "/mnt/boxpilot-backup",
+  mountRoot = process.env.BOXPILOT_VM_BACKUP_MOUNT ?? backupMountpoint,
   passwordFile = process.env.BOXPILOT_RESTIC_PASSWORD_FILE ?? "/etc/boxpilot/secrets/vm-backup-restic-password",
   cacheRoot = process.env.BOXPILOT_RESTIC_CACHE_DIRECTORY ?? "/var/cache/boxpilot-restic",
   exportRoot = process.env.BOXPILOT_VM_EXPORT_ROOT ?? "/var/lib/boxpilot-managed/vm-exports",

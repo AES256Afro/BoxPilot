@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { JobLogView } from "./JobLogView";
 import CopyButton from "./CopyButton";
+import { mountpointFor } from "./mountpoints";
 
 /**
  * Automations (M13.2, ADR-002): ordered lists of registered operations, run as ordinary jobs.
@@ -364,7 +365,7 @@ export default function AutomationsCenter({ csrfToken }: { csrfToken: string }) 
                   <p className="muted">Runs after {flows?.find((other) => other.id === flow.triggerFlowId)?.name ?? "another flow"} completes, under its own creator's account.{flow.enabled ? "" : " Paused."}</p>
                 )}
                 {flow.triggerDrive && (
-                  <p className="muted">Runs when /mnt/{flow.triggerDrive} drops or goes read-only, under its creator's account, within the limits shown beside the drive on Storage.{flow.enabled ? "" : " Paused."}</p>
+                  <p className="muted">Runs when {mountpointFor(flow.triggerDrive)} drops or goes read-only, under its creator's account, within the limits shown beside the drive on Storage.{flow.enabled ? "" : " Paused."}</p>
                 )}
                 <div className="recovery-actions">
                   <button className="primary-button" type="button" disabled={flow.running} onClick={() => void runFlow(flow)}>{flow.running ? "Running…" : "Run now"}</button>

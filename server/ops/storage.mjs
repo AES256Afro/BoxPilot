@@ -123,7 +123,7 @@ export function storageOperations() {
     }),
     defineOperation({
       id: "storage.mount", title: "Mount a filesystem", risk: "medium", timeoutMs: minutes(3),
-      description: "Adds a nofail fstab entry by UUID, verifies fstab still parses, and mounts at /mnt/<name>. A missing disk never blocks boot.",
+      description: "Adds a nofail fstab entry by UUID, verifies fstab still parses, and mounts at /mnt/<name> (boxpilot-backup, the backup destination, at /mnt/boxpilot/backup). A missing disk never blocks boot.",
       parameters: { fields: {
         uuid: { type: "string", maxLength: 40, pattern: uuidPattern },
         name: { type: "string", maxLength: 32, pattern: mountNamePattern },
@@ -213,6 +213,13 @@ export function storageOperations() {
       description: "Detaches a managed mount and mounts it again from its fstab entry, which finds the drive by UUID wherever the kernel has put it. This is the fix when a drive was unplugged for a moment and came back under a different name, leaving the old mount pointing at nothing. The fstab entry and everything on the drive are unchanged. Containers using the folder are restarted afterwards, since Docker attaches a folder when a container starts and would otherwise keep the dead one.",
       parameters: { fields: { name: { type: "string", maxLength: 32, pattern: mountNamePattern } } },
       run: (parameters, { runUnit, jobLog }) => runUnit.runTask("storage.remount", { name: parameters.name }, { timeoutMs: minutes(4), logPath: jobLog?.path ?? null }),
+    }),
+    defineOperation({
+      // The upgrade script makes this move itself; this is for an install whose upgrade could not
+      // (the share was in use) or ran an older upgrade script that did not know to.
+      id: "storage.backup.relocate", title: "Move the backup destination", risk: "medium", timeoutMs: minutes(4),
+      description: "Moves the backup destination's fstab entry from /mnt/boxpilot-backup to /mnt/boxpilot/backup, where BoxPilot's root helper can use it without needing the NAS to be on when it starts. The mount is released first and left alone if something is using it; fstab is saved beside itself, checked after the change, and put back if the new mount point does not come up. Nothing on the share or drive is touched.",
+      run: (_parameters, { runUnit, jobLog }) => runUnit.runTask("storage.backup-relocate", {}, { timeoutMs: minutes(3), logPath: jobLog?.path ?? null }),
     }),
     defineOperation({
       id: "storage.unmount", title: "Unmount a managed filesystem", risk: "medium", timeoutMs: minutes(3),

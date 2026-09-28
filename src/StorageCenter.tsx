@@ -9,6 +9,7 @@ import { useOperation } from "./ApproveDialog";
 import { AutoReconnectToggle, autoReconnectRule, useAutoReconnect } from "./AutoReconnect";
 import SambaPanel from "./SambaPanel";
 import NfsPanel from "./NfsPanel";
+import { BACKUP_MOUNT_NAME, BACKUP_MOUNTPOINT, mountpointFor } from "./mountpoints";
 
 interface DeviceRow {
   path: string | null; type: string | null; sizeBytes: number | null; fstype: string | null; uuid: string | null; label: string | null; model: string | null; transport: string | null;
@@ -33,10 +34,8 @@ function gib(bytes: number | null): string {
 // 31, not 32: a share name maxes at 31 chars (shareNamePattern), so a 32-char mount name prefilled
 // into "Share on network" would otherwise disable the form with no hint as to why.
 const slug = (text: string) => text.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 31);
-/** Backups sync to this exact mount point; see server/machine-snapshot-helper.mjs. */
-const BACKUP_MOUNT_NAME = "boxpilot-backup";
-
-const nameValid = (name: string) => /^[a-z0-9][a-z0-9-]{0,31}$/.test(name);
+// "boxpilot" is the folder the backup destination lives in (server/backup-mount.mjs).
+const nameValid = (name: string) => /^[a-z0-9][a-z0-9-]{0,31}$/.test(name) && name !== "boxpilot";
 // exFAT/FAT/NTFS carry no Unix permissions, so a plain mount is root-owned and apps cannot write.
 const permissionlessFs = (fstype: string | null) => ["exfat", "vfat", "ntfs", "ntfs3", "msdos"].includes((fstype ?? "").toLowerCase());
 
@@ -152,7 +151,7 @@ export default function StorageCenter({ csrfToken, onNavigate }: { csrfToken: st
 
   const mountShare = () => start({
     operationId: "share.mount",
-    title: `Mount ${kind === "smb" ? `//${host.trim()}/${share.trim()}` : `${host.trim()}:${share.trim()}`} at /mnt/${shareName}`,
+    title: `Mount ${kind === "smb" ? `//${host.trim()}/${share.trim()}` : `${host.trim()}:${share.trim()}`} at ${mountpointFor(shareName)}`,
     parameters: {
       kind, host: host.trim(), share: share.trim(), name: shareName,
       ...(kind === "smb" && username.trim() ? { username: username.trim(), password } : {}),
@@ -161,7 +160,7 @@ export default function StorageCenter({ csrfToken, onNavigate }: { csrfToken: st
     },
     preview: (
       <span>
-        Adds a <code>{kind === "smb" ? "cifs" : "nfs"}</code> entry to fstab for <code>/mnt/{shareName}</code> with <code>nofail</code>, <code>_netdev</code>, and systemd automount, so a NAS that is off never blocks boot and reconnects by itself.
+        Adds a <code>{kind === "smb" ? "cifs" : "nfs"}</code> entry to fstab for <code>{mountpointFor(shareName)}</code> with <code>nofail</code>, <code>_netdev</code>, and systemd automount, so a NAS that is off never blocks boot and reconnects by itself.
         {kind === "smb" && username.trim() ? <> Credentials for <strong>{username.trim()}</strong> are stored root-only at <code>{credentialsPath}</code> and never shown again.</> : kind === "smb" ? <> Connects as <strong>guest</strong>.</> : null}
         {shareReadOnly ? " Mounted read-only." : ""} If the first mount fails, everything is removed again.
       </span>
@@ -449,15 +448,15 @@ export default function StorageCenter({ csrfToken, onNavigate }: { csrfToken: st
         </div>
         {mountTarget && (
           <div className="recovery-actions storage-mount-form">
-            <span>Mount <code>{mountTarget.path}</code> at <code>/mnt/{nameValid(mountName) ? mountName : "<name>"}</code></span>
+            <span>Mount <code>{mountTarget.path}</code> at <code>{nameValid(mountName) ? mountpointFor(mountName) : "/mnt/<name>"}</code></span>
             <input aria-label="Mount name" placeholder="data" value={mountName} onChange={(event) => setMountName(event.target.value.toLowerCase())} />
             <label className="cloud-vm-check"><input type="checkbox" checked={mountReadOnly} onChange={(event) => { setMountReadOnly(event.target.checked); if (event.target.checked) setMountAppWritable(false); }} />read-only</label>
             <label className="cloud-vm-check" title="Give the drive to your apps (user 1000) so containers and network shares can write to it. Without this an exFAT/NTFS drive is read-only for apps."><input type="checkbox" checked={mountAppWritable} disabled={mountReadOnly} onChange={(event) => setMountAppWritable(event.target.checked)} />writable by my apps</label>
             <button className="primary-button" type="button" disabled={!nameValid(mountName)} onClick={() => start({
               operationId: "storage.mount",
-              title: `Mount ${mountTarget.path} at /mnt/${mountName}`,
+              title: `Mount ${mountTarget.path} at ${mountpointFor(mountName)}`,
               parameters: { uuid: mountTarget.uuid, name: mountName, ...(mountReadOnly ? { readOnly: true } : {}), ...(mountAppWritable && !mountReadOnly ? { appWritable: true } : {}) },
-              preview: <span>Mounts <code>{mountTarget.path}</code> ({mountTarget.fstype ?? "auto"}) at <code>/mnt/{mountName}</code> with a <code>nofail</code> fstab entry, so a missing disk never blocks boot.{mountReadOnly ? " Read-only." : mountAppWritable ? (permissionlessFs(mountTarget.fstype) ? " Owned by your apps user so containers and shares can write to it." : " The top folder is handed to your apps user so containers can write to it.") : ""}</span>,
+              preview: <span>Mounts <code>{mountTarget.path}</code> ({mountTarget.fstype ?? "auto"}) at <code>{mountpointFor(mountName)}</code> with a <code>nofail</code> fstab entry, so a missing disk never blocks boot.{mountReadOnly ? " Read-only." : mountAppWritable ? (permissionlessFs(mountTarget.fstype) ? " Owned by your apps user so containers and shares can write to it." : " The top folder is handed to your apps user so containers can write to it.") : ""}</span>,
             })}>Mount</button>
             <button className="text-button" type="button" onClick={() => setMountTarget(null)}>Cancel</button>
           </div>
@@ -535,9 +534,10 @@ export default function StorageCenter({ csrfToken, onNavigate }: { csrfToken: st
             {/* The one mount point that means something to the rest of BoxPilot. Backups look for
                 this exact path, so a share mounted anywhere else is a folder and nothing more —
                 which is easy to discover only after setting one up and wondering why the Backups
-                page still says there is nowhere to copy to. */}
+                page still says there is nowhere to copy to. It is mounted at /mnt/boxpilot/backup
+                rather than /mnt/<name>: see server/backup-mount.mjs. */}
             {shareName === BACKUP_MOUNT_NAME
-              ? <span className="muted">BoxPilot will copy its backups here.</span>
+              ? <span className="muted">Mounted at <code>{BACKUP_MOUNTPOINT}</code>; BoxPilot will copy its backups there.</span>
               : <button className="text-button" type="button" onClick={() => { setNameTouched(true); setShareName(BACKUP_MOUNT_NAME); }}>Use this for BoxPilot's backups</button>}
           </label>
           {kind === "smb" && (
@@ -595,18 +595,18 @@ export default function StorageCenter({ csrfToken, onNavigate }: { csrfToken: st
                     <td data-label="Used">{percent !== null ? <span className={percent >= 90 ? "status-pill status-danger" : ""}>{gib(mount.usedBytes)} of {gib(mount.sizeBytes)} ({percent}%)</span> : "—"}</td>
                     <td>{managedName && <button className="text-button" type="button" onClick={() => start({
                       operationId: "storage.unmount",
-                      title: `Unmount /mnt/${managedName}`,
+                      title: `Unmount ${mount.target}`,
                       parameters: { name: managedName },
                       preview: <span>Unmounts <code>{mount.target}</code> and removes its fstab entry. Data on the disk and the empty directory are kept.</span>,
                     })}>Unmount</button>}
-                    {managedName && mount.target === `/mnt/${managedName}` && <AutoReconnectToggle drive={managedName} control={autoReconnect} compact />}</td>
+                    {managedName && mount.target === mountpointFor(managedName) && <AutoReconnectToggle drive={managedName} control={autoReconnect} compact />}</td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
         </div>
-        {autoReconnect.status && (report?.mounts ?? []).some((mount) => managedByMountpoint.get(mount.target) === mount.target.slice("/mnt/".length)) && (
+        {autoReconnect.status && (report?.mounts ?? []).some((mount) => { const name = managedByMountpoint.get(mount.target); return name !== undefined && mount.target === mountpointFor(name); }) && (
           <p className="muted mount-rule">{autoReconnectRule(autoReconnect.status.limits)}</p>
         )}
       </section>

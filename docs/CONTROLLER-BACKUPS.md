@@ -17,8 +17,8 @@ Drill root:      /var/lib/boxpilot-managed/controller-restore-drills
 Protection drill:/var/lib/boxpilot-managed/controller-independent-restore-drills
 Artifact:        <backup-uuid>/boxpilot.sqlite3
 Manifest:        <backup-uuid>/manifest.json
-Restic mount:    /mnt/boxpilot-backup
-Restic repo:     /mnt/boxpilot-backup/restic-controller
+Restic mount:    /mnt/boxpilot/backup
+Restic repo:     /mnt/boxpilot/backup/restic-controller
 Recovery key:    /etc/boxpilot/secrets/controller-backup-restic-password
 ```
 
@@ -40,7 +40,9 @@ Do not paste the owner password into chat, a terminal command, issue tracker, or
 
 ## Set up the fixed independent destination
 
-BoxPilot does not partition, format, mount, or select storage. Attach and mount an external disk or NAS using a separately reviewed host procedure. The exact mount must be `/mnt/boxpilot-backup`, must be writable, and must report a different filesystem device from both `/var/lib/boxpilot` and `/var/lib/boxpilot-managed`.
+BoxPilot does not partition, format, mount, or select storage. Attach and mount an external disk or NAS using a separately reviewed host procedure. The exact mount must be `/mnt/boxpilot/backup`, must be writable, and must report a different filesystem device from both `/var/lib/boxpilot` and `/var/lib/boxpilot-managed`.
+
+The destination used to be `/mnt/boxpilot-backup`. It moved one level down because the root helper's sandbox is given the folder above it, `/mnt/boxpilot`, never the mount point itself: resolving a NAS share's automount point while the NAS was off stopped the helper from starting at all. The upgrade moves an existing destination's fstab entry (keeping a copy as `/etc/fstab.boxpilot-<stamp>`); if it could not, Repair offers the same move as **Move the backup destination** (`storage.backup.relocate`). Repositories on the share keep their paths inside it and need nothing.
 
 After the mount is stable:
 
@@ -50,7 +52,7 @@ sudo /opt/boxpilot/scripts/boxpilot-controller-restic-setup.sh
 sudo systemctl restart boxpilot-helper.service boxpilot.service
 ```
 
-The interactive script accepts no arguments. It asks for a new controller recovery password without echo, writes only `/etc/boxpilot/secrets/controller-backup-restic-password` as `root:root` mode `0600`, and initializes only `/mnt/boxpilot-backup/restic-controller`. It refuses a symbolic-link password file, a non-exact mount, a same-filesystem destination, a short password, or a repository it cannot read. The VM repository uses a different path and password. Keep an additional recovery copy of the controller password outside the server and outside the mounted backup storage.
+The interactive script accepts no arguments. It asks for a new controller recovery password without echo, writes only `/etc/boxpilot/secrets/controller-backup-restic-password` as `root:root` mode `0600`, and initializes only `/mnt/boxpilot/backup/restic-controller`. It refuses a symbolic-link password file, a non-exact mount, a same-filesystem destination, a short password, or a repository it cannot read. The VM repository uses a different path and password. Keep an additional recovery copy of the controller password outside the server and outside the mounted backup storage.
 
 The server does not currently have this independent mount configured. Until it does, Backups displays every blocker and disables staging. Inspection is read-only and does not create a repository or secret.
 
@@ -142,7 +144,7 @@ Recovery is intentionally not an in-product mutation in `0.40.0`. Perform it fro
 
 1. Keep a separate copy of the current live database family before replacement.
 2. Stop the web service before changing controller state. The helper may remain stopped during the recovery.
-3. Restore the recorded exact snapshot id from `/mnt/boxpilot-backup/restic-controller` into a new root-only recovery directory with restic `--verify`. Do not use a moving selector such as `latest`.
+3. Restore the recorded exact snapshot id from `/mnt/boxpilot/backup/restic-controller` into a new root-only recovery directory with restic `--verify`. Do not use a moving selector such as `latest`.
 4. Verify that the restored `boxpilot.sqlite3` and `manifest.json` match both recorded SHA-256 values and that the database passes SQLite integrity and foreign-key checks in an isolated location.
 5. Install only the verified standalone database as `/var/lib/boxpilot/boxpilot.sqlite3`, owned by `boxpilot:boxpilot` and mode `0600`. Remove or quarantine old WAL and shared-memory companions only while the service is stopped and only after the current state has been preserved.
 6. Start the helper first and the web service second.

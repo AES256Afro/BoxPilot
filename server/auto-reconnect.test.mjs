@@ -98,9 +98,11 @@ describe("which drives a health round found in trouble", () => {
       "storage.mount.detached:/srv/data",         // not a drive BoxPilot mounts
       "storage.mount.detached:/mnt/media/deeper", // not a mount point of its own
       "storage.mount.readonly:/mnt/share-nas",    // a network share has its own operations
+      "storage.mount.detached:/mnt/boxpilot/backup", // the backup drive, which is not at /mnt/<name>
+      "storage.mount.detached:/mnt/boxpilot-backup", // where it used to be: no name mounts there now
       "flow.failed:flow-1",
     ]);
-    expect([...found.keys()]).toEqual(["media", "backup"]);
+    expect([...found.keys()]).toEqual(["media", "backup", "boxpilot-backup"]);
     expect(found.get("media")).toEqual({ key: "storage.mount.detached:/mnt/media", what: "lost its drive" });
     expect(found.get("backup").what).toBe("went read-only");
   });
