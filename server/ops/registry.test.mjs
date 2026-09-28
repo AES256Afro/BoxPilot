@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { OperationRegistry, createRegistry, defineOperation, maskSecrets, placeholderPaths, restoreSecrets, secretPaths, secretPlaceholder, splitSecrets, validateParameters } from "./registry.mjs";
+import { OperationRegistry, budgetFor, createRegistry, defineOperation, maskSecrets, moreTimeCeilingMs, nextBudgetMs, placeholderPaths, restoreSecrets, secretPaths, secretPlaceholder, splitSecrets, validateParameters } from "./registry.mjs";
 import { registry } from "./index.mjs";
 import { helperOperations, legacyHelperOperations, validateHelperRequest } from "../helper-protocol.mjs";
 
@@ -153,5 +153,38 @@ describe("where the secrets are (M29.1)", () => {
 
   it("declares the app install values of the real registry as holding the app's own secrets", () => {
     for (const id of ["app.install", "app.reconfigure"]) expect(registry.get(id).parameters.fields.values.secretEnvOf).toBe("id");
+  });
+});
+
+describe("more time for an operation that ran out of it (M30.3)", () => {
+  const pull = defineOperation({ id: "demo.pull", title: "Pull", risk: "medium", timeoutMs: 25 * 60_000, maxTimeoutMs: 100 * 60_000, run() {} });
+  const plain = defineOperation({ id: "demo.plain", title: "Plain", risk: "medium", timeoutMs: 25 * 60_000, run() {} });
+
+  it("doubles the budget that ran out, up to the declared maximum, and then stops offering", () => {
+    expect(nextBudgetMs(pull)).toBe(50 * 60_000);
+    expect(nextBudgetMs(pull, 50 * 60_000)).toBe(100 * 60_000);
+    expect(nextBudgetMs(pull, 80 * 60_000)).toBe(100 * 60_000);
+    expect(nextBudgetMs(pull, 100 * 60_000)).toBeNull();
+    expect(nextBudgetMs(plain)).toBeNull();
+  });
+
+  it("only lets a budget between the normal one and the maximum count", () => {
+    expect(budgetFor(pull, 50 * 60_000)).toBe(50 * 60_000);
+    expect(budgetFor(pull, 101 * 60_000)).toBe(25 * 60_000); // past the maximum: normal
+    expect(budgetFor(pull, 60_000)).toBe(25 * 60_000); // shorter than normal: normal
+    expect(budgetFor(pull, "3000000")).toBe(25 * 60_000);
+    expect(budgetFor(plain, 50 * 60_000)).toBe(25 * 60_000); // offers no more time at all
+  });
+
+  it("refuses a maximum that is not above the budget, or past the ceiling, or on a read", () => {
+    expect(() => defineOperation({ id: "a.b", title: "x", risk: "medium", timeoutMs: 1000, maxTimeoutMs: 1000, run() {} })).toThrow("maxTimeoutMs");
+    expect(() => defineOperation({ id: "a.b", title: "x", risk: "medium", timeoutMs: 1000, maxTimeoutMs: moreTimeCeilingMs + 1, run() {} })).toThrow("maxTimeoutMs");
+    expect(() => defineOperation({ id: "a.b", title: "x", risk: "low", readOnly: true, timeoutMs: 1000, maxTimeoutMs: 2000, run() {} })).toThrow("only a job");
+  });
+
+  it("is offered by the pulls and nothing else, each at most four times its budget", () => {
+    const offered = registry.list().filter((operation) => operation.maxTimeoutMs).map((operation) => operation.id).sort();
+    expect(offered).toEqual(["app.install", "app.model.pull", "app.rollback", "app.update"]);
+    for (const id of offered) expect(registry.get(id).maxTimeoutMs).toBe(registry.get(id).timeoutMs * 4);
   });
 });

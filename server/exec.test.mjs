@@ -159,6 +159,11 @@ describe("a command BoxPilot stopped for taking too long", () => {
     const result = await fixedRun(process.execPath, ["-e", "setTimeout(() => {}, 10000)"], { timeout: 150 });
     expect(result.ok).toBe(false);
     expect(result.stderr.startsWith("timed out after 150 ms")).toBe(true);
+    // And as a flag (M30.3): callers decide on this, never on the words.
+    expect(result.timedOut).toBe(true);
+    const failed = await fixedRun(process.execPath, ["-e", "process.exit(3)"], { timeout: 10_000 });
+    expect(failed).toMatchObject({ ok: false, code: 3 });
+    expect(failed.timedOut).toBeUndefined();
   });
 
   it("says so on the streaming path too, keeping what the command did say", async () => {
@@ -169,5 +174,6 @@ describe("a command BoxPilot stopped for taking too long", () => {
     expect(result.ok).toBe(false);
     expect(result.stderr.startsWith("timed out after 2000 ms")).toBe(true);
     expect(result.stderr).toContain("still going");
+    expect(result.timedOut).toBe(true);
   });
 });

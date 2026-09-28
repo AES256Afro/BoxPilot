@@ -81,12 +81,15 @@ export async function runTask(id, { now = () => new Date(), taskTable = tasks } 
     return result;
   };
   let payload;
-  const timer = new Promise((_resolve, reject) => setTimeout(() => reject(new Error(`Task ${spec.task} exceeded ${spec.timeoutMs} ms`)), spec.timeoutMs).unref?.());
+  // The task's own budget running out is said as a flag in the result (M30.3), so the helper can
+  // report a timeout without reading it back out of the sentence.
+  const exceeded = new Error(`Task ${spec.task} exceeded ${spec.timeoutMs} ms`);
+  const timer = new Promise((_resolve, reject) => setTimeout(() => reject(exceeded), spec.timeoutMs).unref?.());
   try {
     const result = await Promise.race([task(spec.parameters, { log, run }), timer]);
     payload = { ok: true, task: spec.task, result };
   } catch (error) {
-    payload = { ok: false, task: spec.task, error: error instanceof Error ? error.message : String(error) };
+    payload = { ok: false, task: spec.task, error: error instanceof Error ? error.message : String(error), ...(error === exceeded ? { timedOut: true, timeoutMs: spec.timeoutMs } : {}) };
   } finally {
     await unlink(specPath).catch(() => {});
     await writer.flush();

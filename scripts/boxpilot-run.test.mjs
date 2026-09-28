@@ -75,4 +75,11 @@ describe("boxpilot-run task runner", () => {
     const taskTable = { "apt.update": vi.fn(async () => { throw new Error("apt exploded"); }) };
     await expect(runTask(id, { now, taskTable })).resolves.toEqual({ ok: false, task: "apt.update", error: "apt exploded" });
   });
+
+  it("says a task that ran past its budget timed out, as a flag and not only in words (M30.3)", async () => {
+    const { runTask } = await import("./boxpilot-run.mjs");
+    await writeFile(path.join(directory, `${id}.json`), JSON.stringify({ task: "apt.update", parameters: {}, approvedAt: now().toISOString(), timeoutMs: 1000 }));
+    const taskTable = { "apt.update": vi.fn(() => new Promise(() => {})) };
+    await expect(runTask(id, { now, taskTable })).resolves.toEqual({ ok: false, task: "apt.update", error: "Task apt.update exceeded 1000 ms", timedOut: true, timeoutMs: 1000 });
+  });
 });

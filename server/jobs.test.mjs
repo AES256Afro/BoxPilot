@@ -516,3 +516,139 @@ describe("an app the catalog cannot name", () => {
     } finally { store.close(); }
   });
 });
+
+describe("a job that ran out of time (M30.3)", () => {
+  const minutes = (value) => value * 60_000;
+  const log = "$ docker compose up --detach --remove-orphans\n jellyfin Pulling\n abc123 Downloading 812MB/2.1GB\n";
+
+  /**
+   * A store and job service on one injected clock. `answer(operation, parameters, options, advance)`
+   * plays the helper: it moves the clock on by however long the operation "took", then answers.
+   */
+  async function timed(answer, options = {}) {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-jobs-timeout-"));
+    directories.push(directory);
+    let at = Date.parse("2026-09-28T09:00:00.000Z");
+    const advance = (ms) => { at += ms; };
+    const store = createStateStore({ stateDirectory: directory, now: () => new Date(at) });
+    const owner = store.consumeBootstrapToken(store.createBootstrapToken().token, { username: "operator", passwordHash: "not-checked-here" });
+    const helper = { request: vi.fn(async (operation, parameters, requestOptions) => answer(operation, parameters, requestOptions, advance)) };
+    const jobs = createJobService(store, helper, { now: () => at, jobLog: { read: async () => ({ text: log, exists: true }) }, ...options });
+    return { store, owner, jobs, helper, advance };
+  }
+  // What the helper client throws when the whole budget runs out, and what a helper reply carries
+  // when one step inside the operation hit its own limit.
+  const budgetRanOut = (options, advance, extra = {}) => { advance(options.timeoutMs); throw Object.assign(new Error("Helper request timed out (overall deadline reached)"), { code: "timeout", timeout: { scope: "operation", budgetMs: options.timeoutMs, ...extra } }); };
+
+  it("records the budget, the time used and how far it got, instead of a failure sentence", async () => {
+    const { store, owner, jobs, helper } = await timed((_operation, _parameters, options, advance) => budgetRanOut(options, advance));
+    try {
+      const job = await jobs.createOperationJob("app.install", { id: "jellyfin", values: {} }, owner.id);
+      await expect(jobs.approveAndRun(job.id, owner.id, {})).rejects.toThrow("overall deadline");
+      expect(helper.request).toHaveBeenCalledWith("app.install", { id: "jellyfin", values: {} }, { timeoutMs: minutes(25), jobId: job.id });
+      const failed = store.getJob(job.id);
+      expect(failed.state).toBe("failed");
+      expect(failed.timeout).toEqual({ scope: "operation", budgetMs: minutes(25), elapsedMs: minutes(25), phase: "running", step: null, lastOutput: "abc123 Downloading 812MB/2.1GB", moreTimeMs: minutes(50) });
+      expect(failed.error).toBe("Install application did not finish within 25 minutes. It may still be running on the server; Activity shows how far it got.");
+      expect(failed.steps.find((step) => step.name === "timeout")).toMatchObject({ state: "reached", detail: "Used its whole 25 minutes; BoxPilot stopped waiting after 25 minutes" });
+      expect(failed.steps.some((step) => step.name === "verify" && step.state === "failed")).toBe(false);
+    } finally { store.close(); }
+  });
+
+  it("keeps the operation's own sentence when one step inside it hit its limit", async () => {
+    const { store, owner, jobs } = await timed((_operation, _parameters, _options, advance) => {
+      advance(minutes(33));
+      // As the helper-response reader rebuilds it from the helper's reply.
+      throw Object.assign(new Error("Jellyfin update failed before anything was restarted; the app was unchanged. Downloading the new images did not finish within 30 minutes"), { code: "timeout", timeout: { scope: "step", budgetMs: minutes(30), step: "Downloading the new images" } });
+    });
+    try {
+      const job = await jobs.createOperationJob("app.update", { id: "jellyfin" }, owner.id);
+      await expect(jobs.approveAndRun(job.id, owner.id, {})).rejects.toThrow("was unchanged");
+      const failed = store.getJob(job.id);
+      expect(failed.timeout).toMatchObject({ scope: "step", budgetMs: minutes(30), elapsedMs: minutes(33), step: "Downloading the new images", moreTimeMs: minutes(80) });
+      expect(failed.error).toMatch(/^Jellyfin update failed before anything was restarted/);
+      expect(failed.steps.map((step) => step.name)).toEqual(expect.arrayContaining(["timeout", "rollback"]));
+    } finally { store.close(); }
+  });
+
+  it("offers more time only to operations that declare it, and not to a job that never started", async () => {
+    const { store, owner, jobs } = await timed((operation, _parameters, options, advance) => (operation === "app.model.pull" ? budgetRanOut(options, advance, { phase: "queued" }) : budgetRanOut(options, advance)));
+    try {
+      const upgrade = await jobs.createOperationJob("apt.upgrade", { packages: ["htop"] }, owner.id);
+      await expect(jobs.approveAndRun(upgrade.id, owner.id, {})).rejects.toThrow();
+      expect(store.getJob(upgrade.id).timeout).toMatchObject({ scope: "operation", budgetMs: minutes(185), moreTimeMs: null });
+      const queued = await jobs.createOperationJob("app.model.pull", { id: "ollama", model: "llama3:8b" }, owner.id);
+      await expect(jobs.approveAndRun(queued.id, owner.id, {})).rejects.toThrow();
+      expect(store.getJob(queued.id).timeout).toMatchObject({ phase: "queued", moreTimeMs: null });
+      expect(store.getJob(queued.id).error).toMatch(/waited 2 hours 30 minutes behind other work/);
+      await expect(jobs.retryWithMoreTime(queued.id, owner.id)).rejects.toThrow("never started");
+    } finally { store.close(); }
+  });
+
+  it("leaves an ordinary failure without a timeout", async () => {
+    const { store, owner, jobs } = await timed(() => { throw new Error("docker compose up failed: no such image"); });
+    try {
+      const job = await jobs.createOperationJob("app.install", { id: "jellyfin", values: {} }, owner.id);
+      await expect(jobs.approveAndRun(job.id, owner.id, {})).rejects.toThrow("no such image");
+      expect(store.getJob(job.id)).toMatchObject({ state: "failed", timeout: null, error: "docker compose up failed: no such image" });
+      await expect(jobs.retryWithMoreTime(job.id, owner.id)).rejects.toThrow("Only a job that ran out of time");
+    } finally { store.close(); }
+  });
+
+  it("stages the same operation again with twice the budget, through approval, up to the maximum", async () => {
+    const { store, owner, jobs, helper } = await timed((_operation, _parameters, options, advance) => budgetRanOut(options, advance));
+    try {
+      const first = await jobs.createOperationJob("app.install", { id: "jellyfin", values: {} }, owner.id);
+      await expect(jobs.approveAndRun(first.id, owner.id, {})).rejects.toThrow();
+
+      const second = await jobs.retryWithMoreTime(first.id, owner.id);
+      // Staged, not run: it waits for the same approval as anything else.
+      expect(second).toMatchObject({ state: "awaiting_approval", type: "op:app.install", parameters: { id: "jellyfin", values: {} }, recovery: { budgetMs: minutes(50), retryOf: first.id } });
+      expect(second.steps.find((step) => step.name === "budget").detail).toBe("Allowed 50 minutes instead of the usual 25 minutes");
+      expect(store.getJob(first.id).steps.at(-1)).toMatchObject({ name: "retry", state: "staged", detail: `Staged again with 50 minutes as job ${second.id}` });
+      expect(jobs.describeApproval(second.id)).toMatchObject({ tier: "medium", passwordRequired: false });
+      expect(helper.request).toHaveBeenCalledTimes(1);
+
+      await expect(jobs.approveAndRun(second.id, owner.id, {})).rejects.toThrow();
+      // The larger budget reaches the helper, which checks it against the registry.
+      expect(helper.request).toHaveBeenLastCalledWith("app.install", { id: "jellyfin", values: {} }, { timeoutMs: minutes(50), jobId: second.id, budgetMs: minutes(50) });
+      expect(store.getJob(second.id).timeout).toMatchObject({ budgetMs: minutes(50), elapsedMs: minutes(50), moreTimeMs: minutes(100) });
+
+      const third = await jobs.retryWithMoreTime(second.id, owner.id);
+      expect(third.recovery.budgetMs).toBe(minutes(100));
+      await expect(jobs.approveAndRun(third.id, owner.id, {})).rejects.toThrow();
+      expect(store.getJob(third.id).timeout.moreTimeMs).toBeNull();
+      await expect(jobs.retryWithMoreTime(third.id, owner.id)).rejects.toThrow("already had the most time it can have, 1 hour 40 minutes");
+    } finally { store.close(); }
+  });
+
+  it("never skips approval: always-ask still wants the password for the retry", async () => {
+    const { store, owner, jobs, helper } = await timed((_operation, _parameters, options, advance) => budgetRanOut(options, advance));
+    try {
+      const first = await jobs.createOperationJob("app.update", { id: "jellyfin" }, owner.id);
+      await expect(jobs.approveAndRun(first.id, owner.id, {})).rejects.toThrow();
+      store.setSetting("approvalMode", "always-password", { updatedBy: owner.id });
+      const retry = await jobs.retryWithMoreTime(first.id, owner.id);
+      expect(jobs.describeApproval(retry.id)).toMatchObject({ passwordRequired: true, tier: "medium" });
+      await expect(jobs.approveAndRun(retry.id, owner.id, {})).rejects.toThrow("Enter the owner password");
+      expect(helper.request).toHaveBeenCalledTimes(1);
+      expect(store.getJob(retry.id).state).toBe("awaiting_approval");
+    } finally { store.close(); }
+  });
+
+  it("is the creator's or the owner's to retry, and never a job whose secrets are gone", async () => {
+    const { store, owner, jobs } = await timed((_operation, _parameters, options, advance) => budgetRanOut(options, advance), { secretEnvNamesFor: async () => ["API_TOKEN"] });
+    try {
+      const sam = store.createOwnerAccount({ username: "sam", passwordHash: "x", role: "operator", createdBy: owner.id });
+      const job = await jobs.createOperationJob("app.install", { id: "jellyfin", values: {} }, owner.id);
+      await expect(jobs.approveAndRun(job.id, owner.id, {})).rejects.toThrow();
+      await expect(jobs.retryWithMoreTime(job.id, sam.id, { role: "operator" })).rejects.toThrow("Job not found");
+
+      const withToken = await jobs.createOperationJob("app.install", { id: "jellyfin", values: { env: { API_TOKEN: "tok-123456" } } }, owner.id);
+      await expect(jobs.approveAndRun(withToken.id, owner.id, {})).rejects.toThrow();
+      // The token was handed to the operation and dropped; a retry would have only the placeholder.
+      expect(store.getJob(withToken.id).timeout.moreTimeMs).toBeNull();
+      await expect(jobs.retryWithMoreTime(withToken.id, owner.id)).rejects.toThrow("does not keep them");
+    } finally { store.close(); }
+  });
+});
