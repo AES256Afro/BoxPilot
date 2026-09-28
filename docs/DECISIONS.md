@@ -183,3 +183,37 @@ left out. A summary - whether shares are served, the day a drive was last writte
 Another account's work is the owner's to see: anyone else gets their own jobs' traces, and the
 records jobs left behind name no other account. `server/routes/access.mjs` holds both rules and
 the role policy; `server/routes/route-matrix.test.mjs` fails on any route without an entry.
+
+**Addendum (2026-09-28): banned addresses stay visible to everyone.** The M29.4 audit flagged
+`fail2ban.inspect` as a direct read open to viewers that reads root-only state. The owner decided
+that every account should see which addresses are banned, so it stays open to all roles as an
+explicit exception to this rule. `firewall.inspect` was not changed either; gating it needs the
+owner's say.
+
+## ADR-004: one interface, Home and Ops
+
+### Context
+
+About fifteen top-level pages each act as a dashboard; panels open with paragraphs before the
+status; risk tiers appear only once a dialog opens. The owner reviewed ten directions
+(`docs/design-directions/04-eight-directions.html`, `HANDOFF-UI-REDESIGN.md`) and liked two:
+the Launcher and the Command Center.
+
+### Decision
+
+One design system with two views of the same data, switched in the top bar:
+
+- **Home** is the Launcher: apps as tiles with live health, what needs the owner, and the admin
+  areas in a dock. It answers "is everything OK?" on one screen, at a comfortable density.
+- **Ops** is the Command Center: a metric strip, what needs the owner by tier, containers, the
+  job queue and a backup matrix, at a compact density.
+
+Both work in light and dark, follow the device's setting by default, and can be overridden. Every
+action button carries its risk tier before it is clicked. Current pages stay reachable as
+"Classic" until each area's replacement is done (M33).
+
+### Consequences
+
+Colors and type move into tokens with light and dark values; components gain a density. A page
+is not replaced until its new version shows the same facts. Copilot, the phone layout and
+recipes stay with their existing milestones (M24, M25, M22) rather than this one.
