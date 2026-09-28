@@ -446,6 +446,9 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
   function mintWebhook(id, actorId, { role = "owner" } = {}) {
     const flow = store.getFlow(id);
     assertMayManage(flow, actorId, role);
+    // A drive-armed flow remounts its drive and restarts the apps on it; its one trigger is the
+    // drive dropping (M26.5). A webhook would let whoever holds the URL do that to a healthy drive.
+    if (flow.triggerDrive) throw new Error(`${flow.name} runs only when /mnt/${flow.triggerDrive} drops, so it cannot be given a webhook`);
     const token = randomBytes(32).toString("base64url");
     store.setFlowWebhook(id, createHash("sha256").update(token).digest("hex"), { actorId });
     return { token };
