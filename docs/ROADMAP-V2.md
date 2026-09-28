@@ -1158,6 +1158,66 @@ This owns diagnostic cost and resource accounting. M21 remains the owner of gene
 
 Suggested order: release the reviewed fixes; M32.4 and M29.2; M27.5 plus M32.1-2; M30.5-7; then M30.8-9, M28.5 and M32.3-5. Keep backup compatibility and independent recovery ahead of broad automatic remediation.
 
+## M34 — The local assistant
+
+Asked for 2026-09-28: a local AI that learns BoxPilot and this server, helps solve problems, and
+writes notes and documentation. It is the study's Copilot direction (B5), and it absorbs M24.3.
+
+Guardrails, before any feature: it runs only on a local model (the catalog's Ollama on this box, or
+an address on the owner's network), and nothing is sent to a cloud service. Its context is built
+with the asker's role (ADR-003, M29.4) and secrets are masked by `secretPaths` (M29.1), so it can
+never tell someone what they could not read themselves. It never runs commands: what it proposes
+is a plan made only of registered operations, each approved at its own tier through the ordinary
+job path. Every answer names what it was drawn from - a document, a job, a log line - so a wrong
+answer can be caught. On a CPU a small model works; the GPU (1.119.0) makes it quicker.
+
+- ✅ **M34.1 What it knows** (unreleased): `server/assistant/knowledge.mjs` indexes `AGENTS.md` and
+  `docs/*.md` cut by heading (pieces of at most 1,200 characters), one chunk per registered
+  operation (id, title, tier, read-only or not, who may run it, parameter names and types) and one
+  per catalog manifest (name, description, ports, notes). It lives in memory, is built at startup
+  and is rebuilt when the catalog's manifests change. Retrieval is BM25 always; when the model
+  server has an embedding model (`nomic-embed-text` and the like) the question and its best keyword
+  matches are embedded, the rest of the index in the background while nobody waits for an answer,
+  cached by content hash and model, and the two rankings are fused. `docs/INVENTORY.md` and
+  `docs/VIRTUALIZATION.md` are labelled older and weigh less. The server's facts are read at
+  question time as the person asking (`facts.mjs`): failed jobs with their error and last log lines
+  (the owner's context holds every account's, anyone else's only their own), the health-alert
+  ledger with another account's entries cut back to their kind (the rule now shared with
+  Settings in `access.mjs`), installed apps and their containers, disk use and SMART, and backups
+  without who took them; an app's container log only for an operator (ADR-003). Job parameters are
+  masked by `secretPaths`, and a job of an unregistered type carries none.
+- ◐ **M34.2 Ask** (unreleased): `POST /api/v1/assistant/ask` takes `{ question, context?: { jobId,
+  alertKey, appId } }` and answers `{ answer, sources, plan, model, degraded, citations, notes }`,
+  as server-sent events (sources, the answer as it is written, the result) when the page asks for
+  `text/event-stream`, as JSON otherwise. `GET /api/v1/assistant/status` says whether a model
+  answers, which one, and how big the index is; `PUT /api/v1/settings/assistant` (the owner, with
+  the password) sets the model server's address and the models. Only a local model: the catalog's
+  Ollama when it is installed, or an address the owner gives that is loopback, private, link-local
+  or on the tailnet, checked when saved and before every request, redirects refused. Every piece
+  of context goes through the redactor after `secretPaths`; secrets planted in parameters, an
+  app's env, logs, errors, alerts and documents are tested never to reach the prompt. The model
+  cites sources by id; ids it made up and sentences with no source come back with the answer. A
+  plan is registered operations only, each checked against the registry (it exists, its parameters
+  pass, the asker could approve it, it carries no secret) and returned with its title, tier and
+  the request that would stage it; nothing is staged or run, and a viewer gets no plan. Bounded: a
+  2,000-character question, a 24,000-character prompt, a 12,000-character answer, two minutes, and
+  one answer at a time per account; the audit trail records who asked, how many sources, the
+  outcome and how long it took, never the question or the answer. Viewers may ask (the role
+  policy's one other read-only POST), and `route-matrix.test.mjs` checks the model's prompt for
+  every role as it checks a response. With no model, the answer is the sources it found.
+  Remaining: the command bar (M33.2) that asks it, and a Settings panel for the address and models.
+- **M34.3 Guided troubleshooting** (was M24.3). From a symptom - a failed job, a health alert, an
+  app that will not start - it runs the read-only checks BoxPilot already has and explains the
+  cause from their evidence rather than from general advice.
+- **M34.4 Documentation of this server.** A runbook built from facts: what is installed, where each
+  app keeps its data, what is reachable from where, how backups run and where the copies are, and
+  how to restore each thing. Deterministic first, so it is right without a model; the model only
+  improves the prose. Downloadable, and regenerated when the server changes.
+- **M34.5 Notes.** A note drafted after an incident (what happened, what fixed it), attached to the
+  app or drive, which the owner can edit and which the assistant reads next time. Off by default.
+- **M34.6 Learning the platform.** Later, with LLMCoach: a model tuned on BoxPilot's documents and
+  registry, evaluated against the stock model before it replaces it.
+
 ## App catalogue candidates
 
 Checked against the 164 manifests already in `catalog/`, so nothing here duplicates an existing
