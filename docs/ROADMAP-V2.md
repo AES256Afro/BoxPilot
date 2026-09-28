@@ -1307,9 +1307,26 @@ the milestones they overlap.
   per-app reads; the Classic overview still shows facts Home does not (the UPS, each SMART disk,
   the key services, the setup checklist as a list), so it is not retired; the assistant's answer
   arrives whole rather than streamed; B2's notification centre is not built.
-- **M33.3 Ops**. The metric strip, what needs the owner by tier, containers with their numbers,
-  the job queue and a backup matrix, from the same sources as Home. Acceptance: every fact on
-  Home is one click from its detail on Ops.
+- ✅ **M33.3 Ops** (unreleased). The metric strip, what needs the owner by tier, containers with
+  their numbers, the job queue and a backup matrix, from the same sources as Home. Acceptance:
+  every fact on Home is one click from its detail on Ops. `src/home/Ops.tsx`, at compact density,
+  reads Home's facts provider plus the Performance page's live read (every five seconds while
+  open) and a longer job history for the matrix. The strip: CPU and memory live, each disk, the
+  network (whether the tailnet is up, the LAN address), the hottest sensor or the uptime, each
+  opening its page. What needs the owner is Home's list, split: alerts, with nothing to run from
+  here (a staged job shows the tier it waits at), and an action inbox grouped by the tier of its
+  fix (password and typed confirmation; preview, then confirm; one click), every button through
+  the approval dialog. Containers and VMs with their state, CPU, memory, reach and port; the job
+  queue with the operation, what it acted on (from its parameters), its state in Activity's
+  words, when it started and how long it took; and the backup matrix: each app worth backing up
+  with its last five runs, its newest backup, its restore drill and a verdict. `Ops.test.tsx`
+  holds that every need Home lists is on Ops and every app tile is a row. `src/ui/Table.tsx` is
+  the compact table (the `ui-table` class): a caption for assistive technology, figures
+  right-aligned in tabular (compact: monospace) numerals, a status mark per row, an empty state,
+  columns a phone leaves out and rows it stacks instead of scrolling; the gallery shows it at
+  both densities. Left: network throughput (no endpoint measures it, so the strip shows
+  connectivity); the study's time-range control and sparklines (these figures keep no history);
+  the GPU tile (with the GPU page, M22); and the Firewall's "listening vs. allowed" screen (M33.5).
 - **M33.4 Timeline and the way back** (B3). Jobs, checkpoints and settings changes as one feed.
   "Undo" appears only where an operation declares a way back (M22.2); elsewhere the entry says
   plainly that it cannot be undone.
