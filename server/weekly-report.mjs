@@ -99,7 +99,8 @@ export async function gatherWeek({ store, registry = defaultRegistry, now = () =
   }
   const stopped = [];
   for (const flow of store.listFlows?.() ?? []) {
-    const unattended = Boolean(flow.frequency || flow.triggerFlowId || flow.webhookEnabled);
+    // Anything that starts it without a person: a clock, another flow, a webhook, a drive dropping.
+    const unattended = Boolean(flow.frequency || flow.triggerFlowId || flow.webhookEnabled || flow.triggerDrive);
     if (!flow.enabled && unattended) { paused += 1; continue; }
     if (!inWeek(flow.lastRunAt) || !flow.lastResult) continue;
     if (flow.lastResult.startsWith("skipped:")) skipped.push({ name: flow.name, why: flow.lastResult.slice("skipped:".length).trim() });
