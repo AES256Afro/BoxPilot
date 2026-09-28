@@ -22,6 +22,15 @@
  *   FULL_PAGE    1 to capture each page's full height instead of the first screen
  *   SCALE        device pixel ratio, default 2
  *   WIDTH        the stored JPEG width on macOS, default 1600
+ *   VIEWPORT     the window, as WIDTHxHEIGHT, default 1440x960. Under 768 px wide the page is
+ *                emulated as a phone (VIEWPORT=375x812 is an iPhone's portrait width).
+ *   SCENARIO     the demo world for every page: default, fresh or trouble. Files get a suffix.
+ *   STATES       extra captures of states a page only reaches by clicking, separated by ";":
+ *                name=query>click>click, for example
+ *                "overview-alerts=?scenario=trouble>Show;activity=?scenario=trouble>Activity".
+ *                Each click presses the first button, link or summary whose text or aria-label
+ *                is that text (exact match first, then the first one starting with it); "text@2"
+ *                presses the second. With STATES and no PAGES, only the states are photographed.
  *
  * It fails only when Chrome or the demo cannot run. A page that does not load is reported and
  * skipped, so one broken page still leaves every other screenshot to look at.
@@ -38,7 +47,12 @@ const baseUrl = process.env.DEMO_URL ?? "http://127.0.0.1:8799";
 const storedWidth = Number.parseInt(process.env.WIDTH ?? "1600", 10);
 const scale = Number.parseFloat(process.env.SCALE ?? "2") || 2;
 const fullPage = process.env.FULL_PAGE === "1";
-const viewport = { width: 1440, height: 960, deviceScaleFactor: scale, mobile: false };
+const [viewportWidth, viewportHeight] = (process.env.VIEWPORT ?? "1440x960").split("x").map((part) => Number.parseInt(part, 10));
+if (!(viewportWidth >= 320 && viewportHeight >= 320)) throw new Error(`VIEWPORT takes WIDTHxHEIGHT, such as 375x812, not ${process.env.VIEWPORT}`);
+// Under 768 px the page is a phone: the mobile flag makes Chrome honour the page's meta viewport.
+const viewport = { width: viewportWidth, height: viewportHeight, deviceScaleFactor: scale, mobile: viewportWidth < 768 };
+const scenario = (process.env.SCENARIO ?? "").trim();
+if (scenario && !["default", "fresh", "trouble"].includes(scenario)) throw new Error(`SCENARIO takes default, fresh or trouble, not ${scenario}`);
 const settleMs = 2500;
 const tallest = 12_000;
 
@@ -60,8 +74,19 @@ function allPages() {
   return [...views.map((view) => [view, `?view=${view}`]), ["setup", "?view=setup"], ["gallery", "?gallery"]];
 }
 
+/** STATES: name=query>click>click entries, each a page and the clicks that reach the state. */
+function chooseStates() {
+  return (process.env.STATES ?? "").split(";").map((entry) => entry.trim()).filter(Boolean).map((entry) => {
+    const [name, rest = ""] = entry.split(/=(.*)/s);
+    const [query, ...clicks] = rest.split(">").map((part) => part.trim());
+    if (!/^[a-z0-9-]+$/.test(name ?? "") || !query?.startsWith("?")) throw new Error(`STATES entries look like name=?view=overview>Show, not ${entry}`);
+    return [name, query, clicks.filter(Boolean)];
+  });
+}
+
 function choosePages() {
   const asked = (process.env.PAGES ?? "").split(",").map((name) => name.trim()).filter(Boolean);
+  if (asked.length === 0 && (process.env.STATES ?? "").trim()) return [];
   if (asked.length === 0) return readmePages;
   const every = allPages();
   if (asked.includes("all")) return every;
@@ -92,6 +117,23 @@ function findChrome() {
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Press the first control named `text` exactly, or else the first whose name starts with it;
+ * `text@2` presses the second of them instead.
+ */
+const clickScript = (target) => `(() => {
+  const [, want, nth] = ${JSON.stringify(target)}.match(/^(.*?)(?:@(\\d+))?$/);
+  const index = Number(nth ?? 1) - 1;
+  const names = (element) => [element.getAttribute("aria-label"), element.textContent].filter(Boolean).map((name) => name.replace(/\\s+/g, " ").trim());
+  const controls = [...document.querySelectorAll("button:not([disabled]), a, summary, [role=button], [role=radio]")];
+  const exact = controls.filter((element) => names(element).includes(want));
+  const hit = (exact.length ? exact : controls.filter((element) => names(element).some((name) => name.startsWith(want))))[index];
+  if (!hit) return false;
+  hit.scrollIntoView({ block: "center" });
+  hit.click();
+  return true;
+})()`;
 
 class Devtools {
   constructor(socket) {
@@ -183,6 +225,7 @@ async function capture(devtools) {
 
 async function main() {
   const pages = choosePages();
+  const states = chooseStates();
   const schemes = chooseSchemes();
   // Say plainly when there is no demo to photograph, rather than timing out on the first page.
   try {
@@ -206,13 +249,21 @@ async function main() {
     const devtools = new Devtools(socket);
     await devtools.send("Page.enable");
     await devtools.send("Emulation.setDeviceMetricsOverride", viewport);
-    for (const [name, query] of pages) {
+    // Pages in the chosen world, then the states, each reached from its page by its clicks.
+    const inWorld = (query) => (scenario && scenario !== "default" ? `${query}${query.includes("?") ? "&" : "?"}scenario=${scenario}` : query);
+    const suffix = scenario && scenario !== "default" ? `-${scenario}` : "";
+    const captures = [...pages.map(([name, query]) => [`${name}${suffix}`, inWorld(query), []]), ...states];
+    for (const [name, query, clicks] of captures) {
       try {
         await devtools.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: schemes[0] }] });
         const loaded = devtools.once("Page.loadEventFired");
         await devtools.send("Page.navigate", { url: `${baseUrl}/${query}` });
         await loaded;
         await sleep(settleMs);
+        for (const text of clicks) {
+          if (!(await devtools.evaluate(clickScript(text)))) throw new Error(`nothing to click named "${text}"`);
+          await sleep(900);
+        }
         const title = String(await devtools.evaluate("document.querySelector('main h1, h1')?.textContent ?? ''")).trim() || "no heading";
         // Each scheme on the same load: the stylesheet follows the emulated preference live.
         for (const [index, scheme] of schemes.entries()) {
