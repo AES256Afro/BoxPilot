@@ -357,6 +357,9 @@ export function createJobService(store, helper, {
     store.recordAudit("job.approval.expired", { actorId: null, subjectId: job.id, details: { type: job.type } });
   }
 
+  /** Whether this job's secrets are staged in memory now. The stored-secret scrub leaves such a job alone. */
+  const holdsStagedSecrets = (jobId) => stagedSecrets.has(jobId);
+
   /** Drop finished or expired secrets. Called once a minute, and expiry is also enforced at approval. */
   function pruneStagedSecrets() {
     let dropped = 0;
@@ -369,5 +372,5 @@ export function createJobService(store, helper, {
     return dropped;
   }
 
-  return { pruneStagedSecrets, createOperationJob, retryWithMoreTime, approveAndRun, approveAndStart, describeApproval, approvalPolicy, cancelJob, prepareParameters };
+  return { pruneStagedSecrets, holdsStagedSecrets, createOperationJob, retryWithMoreTime, approveAndRun, approveAndStart, describeApproval, approvalPolicy, cancelJob, prepareParameters };
 }

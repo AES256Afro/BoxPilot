@@ -952,8 +952,18 @@ but detection is the floor.
 - ✅ **M26.2 Check before writing** (v1.114.0): `storage.check` pauses the containers on the drive, unmounts, runs the filesystem's own read-only checker, remounts and restarts them; Repair offers it for any USB drive that has dropped since its last clean check. After a reconnect of an exFAT/ext4 drive that hit errors, offer
   `fsck -n` (read-only) as a job, show its verdict on the drive card, and only then offer the
   repairing run. Requires exfatprogs, which M26.3 installs.
-- **M26.3 Setup checklist item: "This server can check its drives."** exfatprogs and smartmontools
-  present, SMART enabled for USB enclosures where the bridge allows (`-d sat`).
+- ✅ **M26.3 Setup checklist item: "This server can check its drives."** (unreleased): an essential
+  item on the Overview checklist, not done while smartctl or fsck.exfat is missing and linked to
+  Repair, where `prerequisite.drive-tools.install` (medium) installs whichever of smartmontools and
+  exfatprogs is missing at the exact versions in its preview - through the existing fixed
+  smartmontools installer, now given a fixed two-package set and `--no-remove` - then fails unless
+  both tools answer and a fresh SMART scan lands. The storage scan asks a USB disk that did not
+  answer once more with `-d sat` (a read; SMART is never switched on) and records how each disk
+  answered. The item is done once every USB drive BoxPilot mounts answers, directly or through its
+  bridge; an enclosure that passes no SMART through is named as the enclosure's limit, on the item
+  and on the Overview's disk card, and no longer holds the SMART reading at "needs a look". Repair's
+  drive-check offer for an exFAT drive becomes the install while fsck.exfat is missing, and
+  `storage.check` refuses before unmounting anything without its checker. `server/drive-checks.mjs`.
 - ✅ **M26.4 Say why it dropped** (v1.113.0; the real log showed four drops in thirty days, not two). Correlate the kernel's USB disconnect with what BoxPilot knows:
   same port, same vendor:product, how many times in 30 days, whether a power fault was logged. A
   drive that has dropped twice earns a standing Repair notice naming the cable, port or enclosure
@@ -1028,10 +1038,7 @@ clear until v1.112.0. The lesson generalises.
   jobs, scheduler, flows and the audit log, so a new nesting cannot be missed three times.
 - **M29.2 Staged secrets expire.** Thirty minutes unapproved and the staged copy is dropped, with
   the dialog saying so; today they live until the daily prune.
-- **M29.3 Transient operation secrets stay out of controller backups.** A test that stages every
-  operation with a secret in the registry, writes a controller backup, and checks the copy for
-  those supplied values. Application backups still contain the credentials needed to restore
-  the application and require private storage.
+- ✅ **M29.3 Transient operation secrets stay out of controller backups** (unreleased): `server/secrets-at-rest.test.mjs` stages every secret-bearing operation in one database, one job run and one left awaiting approval with its secrets in memory, attempts a schedule and a flow with them, and has the controller-backup helper write its copy; no supplied value is in the artifact, the manifest or the drill (Linux; the staging and the helper's preflight run everywhere). Rows stored before M29.1 are masked at startup by `server/secret-scrub.mjs`: secretPaths finds them, a job with staged secrets is left alone, a masked schedule or flow is paused or refused as before, and one audit entry records counts. Existing backups are not rewritten. Application backups still contain the credentials needed to restore the application and require private storage.
 
 ### M30 — BoxPilot watching BoxPilot
 

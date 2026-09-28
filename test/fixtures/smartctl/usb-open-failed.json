@@ -1,0 +1,16 @@
+{
+  "json_format_version": [1, 0],
+  "smartctl": {
+    "version": [7, 4],
+    "pre_release": false,
+    "svn_revision": "5530",
+    "platform_info": "x86_64-linux-6.8.0-generic",
+    "build_info": "(local build)",
+    "argv": ["smartctl", "--json=c", "--all", "-d", "sat", "/dev/sdb"],
+    "messages": [
+      { "string": "Smartctl open device: /dev/sdb [SAT] failed: No such device", "severity": "error" }
+    ],
+    "exit_status": 2
+  },
+  "local_time": { "time_t": 1790582400, "asctime": "Mon Sep 28 06:00:00 2026 UTC" }
+}
