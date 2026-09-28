@@ -4,6 +4,7 @@ import RuntimeHealth from "./RuntimeHealth";
 import PackageRecovery from "./PackageRecovery";
 import ControllerDoctor from "./ControllerDoctor";
 import { useOperation } from "./ApproveDialog";
+import { AutoReconnectToggle, useAutoReconnect } from "./AutoReconnect";
 import { inspectOperation } from "./operations";
 import type { ViewName } from "./data";
 
@@ -89,6 +90,12 @@ interface Remediation {
   evidence: string[];
   fix: { operationId: string; parameters: Record<string, unknown>; label: string; preview: string } | null;
   manual: string | null;
+}
+
+/** The managed drive a notice is about when that drive dropped or went read-only: what can be reconnected automatically. */
+function droppedDrive(problem: Remediation): string | null {
+  const drive = problem.id.match(/^(?:stale-mount|read-only-remount):([a-z0-9][a-z0-9-]{0,31})$/)?.[1] ?? null;
+  return problem.fix?.operationId === "storage.remount" ? drive : null;
 }
 
 export default function RepairCenter({ csrfToken, onNavigate = () => undefined }: { csrfToken: string; onNavigate?: (view: ViewName) => void }) {
@@ -193,7 +200,9 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
     return () => { cancelled = true; };
   }, [awaitingApproval]);
 
-  const { start: startOperation, dialog: operationDialog } = useOperation(csrfToken, () => { void refresh(); });
+  // A reconnect done here by hand lifts an automatic reconnect's hold, so both are read again after it.
+  const autoReconnect = useAutoReconnect(csrfToken);
+  const { start: startOperation, dialog: operationDialog } = useOperation(csrfToken, () => { void refresh(); void autoReconnect.refresh(); });
 
   // One generic review flow: read the live pinned versions from the registry inspect,
   // then stage the matching install through the shared risk-tiered dialog.
@@ -347,6 +356,7 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
                 {problem.fix
                   ? <button className="primary-button" type="button" onClick={() => startOperation({ operationId: problem.fix!.operationId, title: problem.fix!.label, parameters: problem.fix!.parameters, preview: <span>{problem.fix!.preview}</span> })}>{problem.fix.label}</button>
                   : <p className="problem-manual">{problem.manual}</p>}
+                {droppedDrive(problem) && <AutoReconnectToggle drive={droppedDrive(problem)!} control={autoReconnect} />}
               </article>
             ))}
           </div>

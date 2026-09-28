@@ -57,6 +57,26 @@ describe("Storage center", () => {
     expect(screen.getByText(/Shared folder used by/).textContent).toContain("grew 2.0 GiB");
   });
 
+  it("arms a drive BoxPilot mounts to reconnect by itself, and states the limits once", async () => {
+    // M26.5: off until someone arms it, on the drive's own row.
+    let armed = false;
+    let request: { method?: string; csrf: string | null } | null = null;
+    mockFetch(report, {}, (url, init) => {
+      if (url === "/api/v1/drives/auto-reconnect") return json({ limits: { cooldownMinutes: 30, maxAttempts: 3, windowHours: 24 }, drives: armed ? { olddata: { flowId: "flow-1", flowName: "Reconnect /mnt/olddata when it drops", enabled: true, held: false, heldSince: null, heldBecause: null, attempts: 0, lastAttemptAt: null, lastOutcome: null, lastCheckFoundErrors: false } } : {} });
+      if (url === "/api/v1/drives/olddata/auto-reconnect") { request = { method: init?.method, csrf: new Headers(init?.headers).get("X-BoxPilot-CSRF") }; armed = true; return json({ flow: { id: "flow-1" } }, 201); }
+      return null;
+    });
+    render(<StorageCenter csrfToken="csrf-token" />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Reconnect /mnt/olddata automatically" }));
+    expect(await screen.findByRole("button", { name: "Stop reconnecting /mnt/olddata automatically" })).toBeTruthy();
+    expect(request).toEqual({ method: "POST", csrf: "csrf-token" });
+    expect(screen.getByText("Reconnects automatically.")).toBeTruthy();
+    expect(screen.getAllByText(/at most 3 times a day and 30 minutes apart/)).toHaveLength(1);
+    // The root filesystem is not BoxPilot's mount: nothing to arm there.
+    expect(screen.getAllByRole("button", { name: /^(Stop reconnecting|Reconnect) \/.* automatically$/ })).toHaveLength(1);
+  });
+
   it("offers Mount for unmounted filesystems and stages it with the fstab preview", async () => {
     const staged: Record<string, string> = {};
     mockFetch(report, staged);

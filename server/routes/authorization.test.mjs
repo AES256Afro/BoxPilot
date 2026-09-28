@@ -160,6 +160,9 @@ describe("role boundaries", () => {
     expect((await api("POST", "/api/v1/flows", { session: viewer, body: { name: "x", steps: [] } })).status).toBe(403);
     expect((await api("POST", "/api/v1/flows/flow-test/run", { session: viewer })).status).toBe(403);
     expect((await api("DELETE", "/api/v1/flows/flow-test", { session: viewer })).status).toBe(403);
+    // Arming a drive to reconnect by itself (M26.5) is creating a flow, and held to the same line.
+    expect((await api("POST", "/api/v1/drives/media/auto-reconnect", { session: viewer })).status).toBe(403);
+    expect((await api("DELETE", "/api/v1/drives/media/auto-reconnect", { session: viewer })).status).toBe(403);
     // and a session without its CSRF token cannot mutate
     const owner = await signIn("owner");
     expect((await api("POST", "/api/v1/flows/flow-test/run", { session: { cookie: owner.cookie, csrfToken: "" } })).status).toBe(403);

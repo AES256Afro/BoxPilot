@@ -57,6 +57,7 @@ import { createNotificationService } from "./notifications.mjs";
 import { createSchedulerService } from "./scheduler.mjs";
 import { scrubStoredSecrets } from "./secret-scrub.mjs";
 import { createFlowService } from "./flows.mjs";
+import { createAutoReconnect } from "./auto-reconnect.mjs";
 import { loadFlowLibrary } from "./flow-library.mjs";
 import { createStateStore } from "./state.mjs";
 import { createSupportBundleService } from "./support-bundle.mjs";
@@ -244,8 +245,12 @@ state.subscribeJobs((job) => { if (job.state === "completed") healthAlerts.clear
 const { library: flowLibrary, problems: flowLibraryProblems } = await loadFlowLibrary().catch(() => ({ library: [], problems: [] }));
 if (flowLibraryProblems.length) console.warn(`[boxpilot] flow library problems: ${flowLibraryProblems.map((problem) => `${problem.file}: ${problem.errors.join("; ")}`).join(" | ")}`);
 const flows = createFlowService({ store: state, jobs, secretEnvNamesFor, library: flowLibrary, alerts: healthAlerts });
+// M26.5: a drive somebody armed is reconnected when a health round finds it dead or read-only,
+// through its own flow and within a cooldown, a daily cap and a hold after any failure.
+const autoReconnect = createAutoReconnect({ store: state, flows, alerts: healthAlerts });
 notifications.start();
 flows.start();
+autoReconnect.start();
 scheduler.start();
 // Once the notifier listens, so a rerun that fails at once is still announced.
 void interruptedReruns.start().catch(() => {});
@@ -367,7 +372,7 @@ app.use("/api/v1", (request, response, next) => {
 app.use("/api/v1/people", auth.requireRole("owner"));
 app.use("/api/v1", createPeopleRouter({ state, auth }));
 app.use("/api/v1", createOperationsRouter({ state, helper, jobs, prerequisites, recoveryKit, actionCenter, auth }));
-app.use("/api/v1", createJobsRouter({ state, jobs, scheduler, flows, helper, jobLogReader, auth }));
+app.use("/api/v1", createJobsRouter({ state, jobs, scheduler, flows, autoReconnect, helper, jobLogReader, auth }));
 app.use("/api/v1", createVirtualizationRouter({ libvirt, libvirtFoundation, vmPlanner, vmMedia, vmCreation, vmExports, vmProtection, vmRetention, vmRecoveries, audit }));
 app.use("/api/v1", createSettingsRouter({ state, notifications, weeklyReport, auth }));
 app.use("/api/v1", createFirewallRouter({ state, helper, catalogService, webPort: port, webHost: host }));

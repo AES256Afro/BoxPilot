@@ -394,9 +394,10 @@ export function createStateStore({
   for (const row of database.prepare("SELECT token_hash FROM sessions WHERE id IS NULL").all()) {
     database.prepare("UPDATE sessions SET id = ? WHERE token_hash = ?").run(randomUUID(), row.token_hash);
   }
-  // v1.33.0 shipped flows without a cadence; a flow on a clock needs one (ADR-002 addendum).
+  // v1.33.0 shipped flows without a cadence; a flow on a clock needs one (ADR-002 addendum). A flow
+  // armed for a drive (M26.5) names the managed mount whose loss starts it.
   const flowColumns = database.prepare("PRAGMA table_info(flows)").all().map((column) => column.name);
-  for (const [column, definition] of [["frequency", "TEXT"], ["minute", "INTEGER"], ["hour", "INTEGER"], ["weekday", "INTEGER"], ["enabled", "INTEGER NOT NULL DEFAULT 1"], ["next_due_at", "TEXT"], ["trigger_flow_id", "TEXT"], ["webhook_hash", "TEXT"]]) {
+  for (const [column, definition] of [["frequency", "TEXT"], ["minute", "INTEGER"], ["hour", "INTEGER"], ["weekday", "INTEGER"], ["enabled", "INTEGER NOT NULL DEFAULT 1"], ["next_due_at", "TEXT"], ["trigger_flow_id", "TEXT"], ["webhook_hash", "TEXT"], ["trigger_drive", "TEXT"]]) {
     if (!flowColumns.includes(column)) database.exec(`ALTER TABLE flows ADD COLUMN ${column} ${definition}`);
   }
   const approvalColumns = database.prepare("PRAGMA table_info(approvals)").all().map((column) => column.name);
@@ -1043,17 +1044,18 @@ export function createStateStore({
       frequency: row.frequency, minute: row.minute, hour: row.hour, weekday: row.weekday,
       enabled: row.enabled === 1 || row.enabled === undefined, nextDueAt: row.next_due_at,
       triggerFlowId: row.trigger_flow_id ?? null,
+      triggerDrive: row.trigger_drive ?? null,
       webhookEnabled: Boolean(row.webhook_hash),
       webhookHash: row.webhook_hash ?? null,
     };
   }
 
-  function createFlow({ name, steps, createdBy, frequency = null, minute = null, hour = null, weekday = null, nextDueAt = null, triggerFlowId = null }) {
+  function createFlow({ name, steps, createdBy, frequency = null, minute = null, hour = null, weekday = null, nextDueAt = null, triggerFlowId = null, triggerDrive = null }) {
     const id = randomUUID();
     const at = timestamp();
-    database.prepare("INSERT INTO flows (id, name, steps_json, created_by, created_at, updated_at, frequency, minute, hour, weekday, next_due_at, trigger_flow_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-      .run(id, name, json(steps), createdBy, at, at, frequency, minute, hour, weekday, nextDueAt, triggerFlowId);
-    recordAudit("flow.created", { actorId: createdBy, subjectId: id, details: { name, steps: steps.map((step) => step.operationId) } });
+    database.prepare("INSERT INTO flows (id, name, steps_json, created_by, created_at, updated_at, frequency, minute, hour, weekday, next_due_at, trigger_flow_id, trigger_drive) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(id, name, json(steps), createdBy, at, at, frequency, minute, hour, weekday, nextDueAt, triggerFlowId, triggerDrive);
+    recordAudit("flow.created", { actorId: createdBy, subjectId: id, details: { name, steps: steps.map((step) => step.operationId), ...(triggerDrive ? { triggerDrive } : {}) } });
     return getFlow(id);
   }
 
