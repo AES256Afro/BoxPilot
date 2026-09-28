@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { backupDestinationToMove, containersOnStaleMounts, detectRemediations, mountFor, nothingCanReachYou, splitDataFolders, failedRehearsals, permissionlessMounts, staleMounts, unwritableShares, vpnLeaks, windowsCannotDiscover, readOnlyRemounts, exfatCheckerMissing, flakyDrives, drivesNeedingCheck, installDriveToolsFix } from "./remediations.mjs";
+import { backupDestinationToMove, containersOnStaleMounts, detectRemediations, mountFor, nothingCanReachYou, splitDataFolders, failedRehearsals, permissionlessMounts, staleMounts, unwritableShares, vpnLeaks, windowsCannotDiscover, readOnlyRemounts, exfatCheckerMissing, flakyDrives, drivesNeedingCheck, installDriveToolsFix, drivesNotOrderedAroundDocker } from "./remediations.mjs";
 
 /**
  * The situation each of these was written from, on a real server:
@@ -126,10 +126,12 @@ describe("the whole sweep", () => {
       apps: [{ id: "qbittorrent", name: "qBittorrent", killSwitchDrill: { leaked: true, at: "2026-08-30T04:00:00Z" } }],
     };
     const { findings, counts } = detectRemediations(facts);
-    expect(counts).toEqual({ critical: 2, warning: 1, info: 1 });
-    expect(findings.map((entry) => entry.severity)).toEqual(["critical", "critical", "warning", "info"]);
+    expect(counts).toEqual({ critical: 2, warning: 2, info: 1 });
+    expect(findings.map((entry) => entry.severity)).toEqual(["critical", "critical", "warning", "warning", "info"]);
     // The container finding is derived from the stale mount detected in the same pass.
     expect(findings.some((entry) => entry.id === "stale-bind:bp-plex")).toBe(true);
+    // And a drive mounted before the Docker ordering existed, with an app on it, is offered it.
+    expect(findings.some((entry) => entry.id === "drive-order")).toBe(true);
 
     expect(detectRemediations({}).findings).toEqual([]);
     expect(detectRemediations({}).counts).toEqual({ critical: 0, warning: 0, info: 0 });
@@ -239,7 +241,131 @@ describe("a mount the kernel turned read-only", () => {
 
   it("lists the containers bound to it for a restart, since the fix replaces the filesystem under them", () => {
     const { findings } = detectRemediations({ mounts: [dump], devices: [{ path: "/dev/sdb2" }], containers: [{ name: "bp-plex", appId: "plex", binds: ["/mnt/the-dump"] }, { name: "bp-ntfy", appId: "ntfy", binds: ["/srv/ntfy"] }] });
-    expect(findings.map((entry) => entry.id)).toEqual(["read-only-remount:the-dump", "stale-bind:bp-plex"]);
+    expect(findings.map((entry) => entry.id).filter((id) => id !== "drive-order")).toEqual(["read-only-remount:the-dump", "stale-bind:bp-plex"]);
+  });
+});
+
+describe("a drive the kernel found not cleanly unmounted (M26)", () => {
+  // The owner's reboot: no USB drop, just the kernel's line as it mounted the drive at boot.
+  const mounts = [{ target: "/mnt/the-dump", source: "/dev/sda2", fstype: "exfat", managedName: "the-dump", readOnly: false, options: "defaults,nofail,uid=1000,gid=1000" }];
+  const devices = [{ path: "/dev/sda", transport: "usb" }, { path: "/dev/sda2", transport: "usb" }];
+  const unclean = { available: true, events: [{ device: "/dev/sda2", driver: "exFAT-fs", at: "2026-09-27T21:14:09.000Z", message: "exFAT-fs (sda2): Volume was not properly unmounted. Some data may be corrupt. Please run fsck." }] };
+
+  it("offers the check with no USB drop at all, quoting the kernel", () => {
+    const [found] = drivesNeedingCheck({ mounts, devices, usb: { available: true, ports: [] }, unclean, driveChecks: { "the-dump": { checkedAt: "2026-09-06T10:00:00.000Z", clean: true } } });
+    expect(found).toMatchObject({ id: "drive-check:the-dump", severity: "warning", title: "/mnt/the-dump was not unmounted cleanly and has not been checked since", fix: { operationId: "storage.check", parameters: { name: "the-dump" } } });
+    expect(found.evidence[0]).toContain("exFAT-fs (sda2): Volume was not properly unmounted");
+    expect(found.evidence).toContain(`last check ${new Date("2026-09-06T10:00:00.000Z").toLocaleString()} (clean)`);
+    // A viewer's scan, or a journal that could not be read, gives no events and so no offer.
+    expect(drivesNeedingCheck({ mounts, devices, unclean: null })).toEqual([]);
+    expect(drivesNeedingCheck({ mounts, devices, unclean: { available: false, events: unclean.events } })).toEqual([]);
+  });
+
+  it("is satisfied by a clean check after the kernel's line, and asks again after one that found problems", () => {
+    expect(drivesNeedingCheck({ mounts, devices, unclean, driveChecks: { "the-dump": { checkedAt: "2026-09-28T08:00:00.000Z", clean: true } } })).toEqual([]);
+    expect(drivesNeedingCheck({ mounts, devices, unclean, driveChecks: { "the-dump": { checkedAt: "2026-09-28T08:00:00.000Z", clean: false } } })).toHaveLength(1);
+  });
+
+  it("matches the kernel's device to the drive mounted from it, not to any other", () => {
+    expect(drivesNeedingCheck({ mounts: [{ ...mounts[0], source: "/dev/sdb2" }], devices, unclean })).toEqual([]);
+  });
+
+  it("offers the checker's install first when fsck.exfat is missing", () => {
+    const [found] = drivesNeedingCheck({ mounts, devices, unclean, tools: { fsckExfat: false } });
+    expect(found.fix.operationId).toBe("apt.install");
+  });
+
+  it("offers to clear a mark Linux keeps, instead of the same check after every reboot", () => {
+    // The check after the first warning found the table consistent and the mark still set. The
+    // kernel repeats the mark at the next mount; a second read-only check cannot change it.
+    const checked = { "the-dump": { checkedAt: "2026-09-26T08:00:00.000Z", clean: true, markedDirty: true } };
+    const [found] = drivesNeedingCheck({ mounts, devices, unclean, driveChecks: checked });
+    expect(found).toMatchObject({ id: "drive-mark:the-dump", severity: "info", fix: { operationId: "storage.dirty-mark.clear", parameters: { name: "the-dump" } } });
+    expect(found.fix.preview).toContain("changes the not-properly-unmounted mark and nothing else");
+    // A drop after that check is news, though, and earns the check again.
+    const usb = { available: true, ports: [{ port: "6-1", drops: ["2026-09-27T01:00:00.000Z"], lastDropAt: "2026-09-27T01:00:00.000Z" }] };
+    expect(drivesNeedingCheck({ mounts, devices, usb, unclean, driveChecks: checked })[0].id).toBe("drive-check:the-dump");
+  });
+});
+
+describe("what a drive's own filesystem says, over the kernel's old lines (M26)", () => {
+  // The owner checked the drive by hand and cleared the mark (fsck.exfat -y), and the remount after
+  // it printed nothing - but this boot's log still held the warnings from 18:02 and 18:47.
+  const mounts = [{ target: "/mnt/the-dump", source: "/dev/sda2", fstype: "exfat", managedName: "the-dump", readOnly: false, options: "defaults,nofail" }];
+  const warnings = (at) => ({ available: true, events: [{ device: "/dev/sda2", driver: "exFAT-fs", at, message: "exFAT-fs (sda2): Volume was not properly unmounted. Some data may be corrupt. Please run fsck." }] });
+  const volume = (fields) => ({ available: true, readAt: "2026-09-28T20:00:00.000Z", drives: [{ name: "the-dump", mountpoint: "/mnt/the-dump", device: "/dev/sda2", fstype: "exfat", mounted: true, ...fields }] });
+
+  it("ignores a warning printed at a mount since undone, even with the mark set by writes since", () => {
+    const facts = { mounts, unclean: warnings("2026-09-28T18:47:10.000Z"), volumes: volume({ mountedAt: "2026-09-28T19:30:00.000Z", exfat: { dirty: true } }) };
+    expect(drivesNeedingCheck(facts)).toEqual([]);
+  });
+
+  it("believes a clear mark over any warning", () => {
+    expect(drivesNeedingCheck({ mounts, unclean: warnings("2026-09-28T19:30:01.000Z"), volumes: volume({ mountedAt: "2026-09-28T19:30:00.000Z", exfat: { dirty: false } }) })).toEqual([]);
+  });
+
+  it("offers the check for a warning printed at the current mount", () => {
+    const [found] = drivesNeedingCheck({ mounts, unclean: warnings("2026-09-28T19:29:59.000Z"), volumes: volume({ mountedAt: "2026-09-28T19:30:00.000Z", exfat: { dirty: true } }) });
+    expect(found).toMatchObject({ id: "drive-check:the-dump", fix: { operationId: "storage.check" } });
+    expect(found.evidence).toContain("the drive's not-properly-unmounted mark is set");
+  });
+
+  it("takes an ext4 drive's word from its superblock: a replayed journal is not damage, errors are", () => {
+    const ext = [{ ...mounts[0], fstype: "ext4", source: "/dev/sdb1", target: "/mnt/media", managedName: "media" }];
+    const recovery = { available: true, events: [{ device: "/dev/sdb1", driver: "EXT4-fs", at: "2026-09-28T19:30:00.000Z", message: "EXT4-fs (sdb1): recovery complete" }] };
+    const state = (text) => ({ available: true, drives: [{ name: "media", mountpoint: "/mnt/media", device: "/dev/sdb1", fstype: "ext4", mounted: true, mountedAt: "2026-09-28T19:30:00.000Z", ext: { state: text } }] });
+    expect(drivesNeedingCheck({ mounts: ext, unclean: recovery, volumes: state("clean") })).toEqual([]);
+    const [found] = drivesNeedingCheck({ mounts: ext, unclean: recovery, volumes: state("clean with errors") });
+    expect(found).toMatchObject({ id: "drive-check:media" });
+    expect(found.evidence[0]).toBe('the filesystem says it is "clean with errors"');
+    // Without a kernel line, the superblock alone is enough, placed at the start of this mount.
+    expect(drivesNeedingCheck({ mounts: ext, volumes: state("not clean") })).toHaveLength(1);
+    expect(drivesNeedingCheck({ mounts: ext, volumes: state("not clean"), driveChecks: { media: { checkedAt: "2026-09-28T19:45:00.000Z", clean: true } } })).toEqual([]);
+  });
+
+  it("goes from check to clearing the mark to nothing, as the owner works through it", () => {
+    // 1. Mounted at boot with the mark: the warning is this mount's, and nothing has checked it.
+    const boot = { mounts, unclean: warnings("2026-09-28T07:12:44.000Z"), volumes: volume({ mountedAt: "2026-09-28T07:12:45.000Z", exfat: { dirty: true } }) };
+    expect(drivesNeedingCheck(boot)[0].id).toBe("drive-check:the-dump");
+    // 2. The check remounted it (the mark made the kernel warn again) and found it consistent but marked.
+    const checked = { ...boot, unclean: warnings("2026-09-28T08:00:30.000Z"), volumes: volume({ mountedAt: "2026-09-28T08:00:31.000Z", exfat: { dirty: true } }), driveChecks: { "the-dump": { checkedAt: "2026-09-28T08:00:40.000Z", clean: true, markedDirty: true } } };
+    expect(drivesNeedingCheck(checked)[0]).toMatchObject({ id: "drive-mark:the-dump", fix: { operationId: "storage.dirty-mark.clear" } });
+    // 3. Clearing it remounted it once more, and that mount printed nothing.
+    const cleared = { ...checked, volumes: volume({ mountedAt: "2026-09-28T08:10:00.000Z", exfat: { dirty: false } }) };
+    expect(drivesNeedingCheck(cleared)).toEqual([]);
+    // ...and stays that way once the apps write to it again (which sets the mark while mounted).
+    expect(drivesNeedingCheck({ ...cleared, volumes: volume({ mountedAt: "2026-09-28T08:10:00.000Z", exfat: { dirty: true } }) })).toEqual([]);
+  });
+});
+
+describe("drives not ordered around Docker (M26)", () => {
+  // The owner's line as it was when the reboot left the drive flagged as not properly unmounted.
+  const dump = { target: "/mnt/the-dump", source: "/dev/sda2", fstype: "exfat", managedName: "the-dump", options: "defaults,nofail,uid=1000,gid=1000" };
+  const plex = { name: "bp-plex", appId: "plex", binds: ["/mnt/the-dump/media"] };
+  const qbit = { name: "bp-qbittorrent", appId: "qbittorrent", binds: ["/mnt/the-dump"] };
+
+  it("offers the migration for a drive an app uses, naming the apps", () => {
+    const [found] = drivesNotOrderedAroundDocker({ mounts: [dump], containers: [plex, qbit, { name: "bp-ntfy", binds: ["/srv/ntfy"] }] });
+    expect(found).toMatchObject({ id: "drive-order", severity: "warning", title: "/mnt/the-dump can be unmounted while apps are still using it", fix: { operationId: "storage.docker-order.apply", parameters: {} } });
+    expect(found.evidence).toEqual(["bp-plex uses /mnt/the-dump/media", "bp-qbittorrent uses /mnt/the-dump"]);
+  });
+
+  it("is quiet once the entry has the ordering, when no app uses the drive, and for shares, swap and hand-made entries", () => {
+    expect(drivesNotOrderedAroundDocker({ mounts: [{ ...dump, options: `${dump.options},x-systemd.before=docker.service,x-systemd.device-timeout=30s` }], containers: [plex] })).toEqual([]);
+    expect(drivesNotOrderedAroundDocker({ mounts: [dump], containers: [{ name: "bp-ntfy", binds: ["/srv/ntfy"] }] })).toEqual([]);
+    // A prefix is not a parent: /mnt/the-dump-2 is not on /mnt/the-dump.
+    expect(drivesNotOrderedAroundDocker({ mounts: [dump], containers: [{ name: "bp-x", binds: ["/mnt/the-dump-2"] }] })).toEqual([]);
+    expect(drivesNotOrderedAroundDocker({ mounts: [{ ...dump, managedName: "share-the-dump" }], containers: [plex] })).toEqual([]);
+    expect(drivesNotOrderedAroundDocker({ mounts: [{ ...dump, fstype: "cifs" }], containers: [plex] })).toEqual([]);
+    expect(drivesNotOrderedAroundDocker({ mounts: [{ ...dump, managedName: null }], containers: [plex] })).toEqual([]);
+    expect(drivesNotOrderedAroundDocker({ mounts: [{ ...dump, options: null }], containers: [plex] })).toEqual([]);
+  });
+
+  it("is one finding for several drives", () => {
+    const media = { ...dump, target: "/mnt/media", managedName: "media", source: "/dev/sdc1", fstype: "ext4", options: "defaults,nofail" };
+    const found = drivesNotOrderedAroundDocker({ mounts: [dump, media], containers: [plex, { name: "bp-jellyfin", binds: ["/mnt/media/films"] }] });
+    expect(found).toHaveLength(1);
+    expect(found[0].title).toBe("/mnt/the-dump, /mnt/media can be unmounted while apps are still using them");
   });
 });
 

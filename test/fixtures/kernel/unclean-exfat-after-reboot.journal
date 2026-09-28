@@ -1,0 +1,4 @@
+2026-09-28T07:12:40+0000 server kernel: EXT4-fs (dm-0): mounted filesystem 00000000-0000-0000-0000-000000000000 ro with ordered data mode. Quota mode: none.
+2026-09-28T07:12:41+0000 server kernel: EXT4-fs (dm-0): re-mounted 00000000-0000-0000-0000-000000000000 r/w. Quota mode: none.
+2026-09-28T07:12:41+0000 server kernel: EXT4-fs (nvme0n1p2): mounted filesystem 00000000-0000-0000-0000-000000000001 r/w with ordered data mode. Quota mode: none.
+2026-09-28T07:12:44+0000 server kernel: exFAT-fs (sda2): Volume was not properly unmounted. Some data may be corrupt. Please run fsck.

@@ -48,3 +48,21 @@ jobs:
         run: |
           docker build -f tests/ubuntu/package-recovery.Dockerfile -t boxpilot-package-recovery-test:ci .
           docker run --rm --network none --cpus 2 --memory 768m --pids-limit 128 --mount "type=bind,source=${GITHUB_WORKSPACE},target=/work,readonly" boxpilot-package-recovery-test:ci
+
+  # Needs the runner itself, not a container: real systemd ordering, loop devices, the kernel's
+  # exFAT driver and the Docker daemon. It edits /etc/fstab and restarts Docker, which is why it
+  # runs only here, on a machine thrown away afterwards.
+  drive-shutdown-order:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Drives unmount after Docker stops and mount before it starts
+        run: sudo env "PATH=${PATH}" BOXPILOT_DISPOSABLE_TEST=1 bash tests/ubuntu/drive-shutdown-order.sh

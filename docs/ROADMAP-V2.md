@@ -987,6 +987,52 @@ but detection is the floor.
   for the drop's "resolved"); a failure, the cap, a check with errors or a consent refusal as the
   automation's own condition, once, cleared by the next reconnect that works, automatic or by hand.
   One sentence beside each control states the limits.
+- ✅ **M26.6 Drives unmount cleanly, and a drive that was not is checked** (unreleased): after a
+  reboot through BoxPilot the kernel said /mnt/the-dump "was not properly unmounted". Measured on
+  real systemd, the kernel's exFAT driver and Docker by `tests/ubuntu/drive-shutdown-order.sh` (a CI
+  job), and by real reboots of an Ubuntu VM with an app writing to an exFAT drive,
+  `tests/ubuntu/drive-reboot-vm.sh` (in the install smoke workflow):
+  - *The warning.* Linux keeps exFAT's VolumeDirty mark once it has mounted a volume with it set, as
+    the exFAT specification asks, and `fsck.exfat -n` calls such a volume clean; only a repairing run
+    clears it. So a drive that dropped mid-write in September warns at every mount however cleanly it
+    has been unmounted since. The VM's reboots left the drive clean every time, with the fstab line
+    before and after this change and Docker's live-restore off and on.
+  - *Boot and shutdown order.* `nofail` takes a drive out of local-fs.target's ordering, the only thing
+    that put it before docker.service: with a drive 6 s late, Docker started at once and the app saw
+    the empty folder underneath, where anything it saves lands on the system disk. Drive entries now
+    carry `x-systemd.before=docker.service,x-systemd.device-timeout=30s`: Docker waits for the drive,
+    at most 30 s when it is missing (10 s risks a cold large USB disk missing the window and then not
+    being mounted at all). `x-systemd.required-by=` was rejected: with the drive missing, Docker and
+    every app fail to start. Existing entries get it from `storage.docker-order.apply` (medium),
+    offered on Repair for a drive an app uses: fstab copied first, the new file checked with
+    `findmnt --verify --tab-file` (no worse than the current one) before an atomic rename, the
+    ordering read back from systemd after the daemon-reload, the old file put back otherwise; shares,
+    swap and hand-made entries are not touched. At shutdown the ordering makes Docker stop first but
+    changed nothing measurable: a container's bind is its own copy of the mount, so the drive is only
+    released when the container exits, and with live-restore on (`docker.logging.set` turns it on)
+    Docker leaves its containers running until systemd's final kill.
+  - *BoxPilot's reboot* gets the drives ready first: stops Docker (not `docker stop`, which marks an
+    `unless-stopped` app as stopped by hand, so it would stay down after the reboot), sends containers
+    that live-restore kept running their own stop signal and timeout, syncs, unmounts each drive, and
+    says in the job log which let go, which did not and what held on (from /proc: fuser is not
+    installed everywhere), and whether an exFAT drive still carries the mark. Bounded at 2.5 minutes;
+    it never keeps the server from rebooting, and puts everything back if the reboot cannot be
+    scheduled.
+  - *File sharing.* A drive shared to a Windows PC is held by smbd, and Windows reconnects within a
+    second of `smbcontrol close-share`. The check and the reboot close the drive's shares and unmount
+    straight after, up to 30 times, and say whom they disconnected.
+  - *Mounts from the runner.* boxpilot-run@ has PrivateTmp=, which gave its mount and umount a
+    namespace of their own: storage.mount's mount went away with the runner, and Reconnect and Check
+    never touched the host's mount while reporting success. They now run with `-N /proc/1/ns/mnt`.
+    (Share mounts in `server/tasks/shares.mjs` still do not.)
+  - *Finding an unclean unmount.* `storage.volumes.state` (operator) reads each drive's exFAT mark and
+    ext superblock state and when its current mount began; `storage.unclean.events` (operator) reads
+    this boot's kernel warnings. Repair offers `storage.check` when the filesystem says so or a warning
+    was printed at the current mount, until a clean check after it; a warning from a mount since
+    undone (a check, a repair by hand) no longer counts. A clean check that found the mark still set
+    offers `storage.dirty-mark.clear` (medium): the read-only pass again, then `fsck.exfat -y` only if
+    that is still clean, so the mark is all it changes. The Storage page has "Check this drive" on
+    each drive BoxPilot mounted.
 
 ### M27 — Silent-failure audit: nothing BoxPilot knows may be shown to nobody
 
