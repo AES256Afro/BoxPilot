@@ -1,0 +1,32 @@
+# Audit npm dependencies against the reviewed list in .github/audit-triage.json (ROADMAP-V2 M29.4).
+# An advisory in a production dependency fails; a development-only one is a warning. See
+# scripts/dependency-audit.mjs for the triage rules.
+#
+# Kept out of the main CI job for the same reason as the catalog image check: advisories are
+# published over time, and a new one should not fail a pull request that never touched
+# dependencies. The weekly run is where a new advisory against an unchanged lockfile shows up.
+name: Dependency audit
+
+on:
+  push:
+    branches: [main]
+    paths: ["package.json", "package-lock.json", ".github/audit-triage.json", "scripts/dependency-audit.mjs"]
+  pull_request:
+    paths: ["package.json", "package-lock.json", ".github/audit-triage.json", "scripts/dependency-audit.mjs"]
+  schedule:
+    - cron: "29 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Audit against the triage list
+        run: node scripts/dependency-audit.mjs
