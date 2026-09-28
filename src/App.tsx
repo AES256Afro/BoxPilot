@@ -8,6 +8,7 @@ import {
 import AuthScreen from "./AuthScreen";
 import ActivityDrawer from "./ActivityDrawer";
 import { useTheme } from "./useTheme";
+import { ThemeSwitch } from "./ui/ThemeSwitch";
 import { dropElevation, fetchAuthStatus, logoutOwner, type AuthStatus } from "./auth";
 import { connectionLabel } from "./appLinks";
 
@@ -297,7 +298,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
           <div className="hostline">
             <div><strong>BoxPilot</strong><span>Server administration</span></div>
           </div>
-          <div className="topbar-right"><ActivityDrawer csrfToken={authStatus.csrfToken ?? ""} />{authStatus.owner?.role && authStatus.owner.role !== "owner" ? <span className="status-pill status-neutral" title="Your role on this server">{authStatus.owner.role}</span> : null}{elevated ? <button className="text-button elevation-lock" type="button" title="High-risk approvals skip the password until this time. Click to lock now." aria-label={`Elevated until ${elevatedLabel}. Lock now`} onClick={() => void dropElevation(authStatus.csrfToken ?? "").then(refreshAuth).catch(() => refreshAuth())}><span className="elevation-long">Elevated until </span><span className="elevation-short">Until </span>{elevatedLabel} · Lock</button> : <StatusPill tone="neutral">Tiered approvals</StatusPill>}<span className="signed-in-user" title={authStatus.owner?.username}>{authStatus.owner?.username}</span><button className="text-button" type="button" onClick={() => void logoutOwner(authStatus.csrfToken ?? "").then(onSignedOut).catch(onSignedOut)}>Sign out</button></div>
+          <div className="topbar-right"><ThemeSwitch compact /><ActivityDrawer csrfToken={authStatus.csrfToken ?? ""} />{authStatus.owner?.role && authStatus.owner.role !== "owner" ? <span className="status-pill status-neutral" title="Your role on this server">{authStatus.owner.role}</span> : null}{elevated ? <button className="text-button elevation-lock" type="button" title="High-risk approvals skip the password until this time. Click to lock now." aria-label={`Elevated until ${elevatedLabel}. Lock now`} onClick={() => void dropElevation(authStatus.csrfToken ?? "").then(refreshAuth).catch(() => refreshAuth())}><span className="elevation-long">Elevated until </span><span className="elevation-short">Until </span>{elevatedLabel} · Lock</button> : <StatusPill tone="neutral">Tiered approvals</StatusPill>}<span className="signed-in-user" title={authStatus.owner?.username}>{authStatus.owner?.username}</span><button className="text-button" type="button" onClick={() => void logoutOwner(authStatus.csrfToken ?? "").then(onSignedOut).catch(onSignedOut)}>Sign out</button></div>
         </header>
 
         <div className="content">
@@ -324,7 +325,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
 }
 
 function App() {
-  useTheme(); // applies data-theme from localStorage
+  useTheme(); // keeps data-theme and data-palette true to this browser's choice
   const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null);
   const [authError, setAuthError] = useState<string | null>(null);
 

@@ -215,6 +215,50 @@
   --elevation-3: var(--shadow-xl);
 }
 
+/* ── Density: spacing, control and row heights, and the type scale ────────
+ * Comfortable is Home's, compact is Ops'. Set data-density on a container; src/ui components
+ * and pages built on them read these tokens instead of writing out sizes. */
+:root,
+[data-density="comfortable"] {
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --control-height: 34px;
+  --row-height: 42px;
+  --font-size-xs: 11px;
+  --font-size-sm: 13px;
+  --font-size-md: 14px;
+  --font-size-lg: 16px;
+  --font-size-xl: 22px;
+  --line-height-body: 1.5;
+  --tile-icon: 56px;
+  --radius-control: 8px;
+  --radius-card: 12px;
+}
+
+[data-density="compact"] {
+  --space-1: 2px;
+  --space-2: 4px;
+  --space-3: 8px;
+  --space-4: 10px;
+  --space-5: 14px;
+  --space-6: 20px;
+  --control-height: 26px;
+  --row-height: 28px;
+  --font-size-xs: 10px;
+  --font-size-sm: 11px;
+  --font-size-md: 12px;
+  --font-size-lg: 13px;
+  --font-size-xl: 18px;
+  --line-height-body: 1.35;
+  --tile-icon: 36px;
+  --radius-control: 4px;
+  --radius-card: 6px;
+}
+
 /* ── Optional dark palettes (Settings -> Appearance -> Dark palette) ───────
  * The looks from before M33.1. Each one applies only while the interface is dark; tokens a
  * palette leaves out keep the Raw values above. */
@@ -5083,3 +5127,93 @@ textarea {
 .passkey-rename input { min-width: 0; width: 100%; }
 .webhook-reveal code { overflow-wrap: anywhere; user-select: all; }
 .copy-feedback { grid-column: 1 / -1; color: var(--text-muted); font-size: 14px; line-height: 1.5; }
+
+/* ═════════════════════════════════════════════════════════════════════════ */
+/*  Design system components (src/ui, M33.1). Sizes come from the density    */
+/*  tokens and colours from the theme tokens: nothing below is a literal.    */
+/* ═════════════════════════════════════════════════════════════════════════ */
+
+.ui-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  border: 0;
+  white-space: nowrap;
+}
+
+/* ── Theme switch: System, Light, Dark ── */
+.ui-theme-switch {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--surface-muted);
+}
+
+.ui-theme-switch__option {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  color: var(--text-muted);
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ui-theme-switch__option:hover {
+  color: var(--text-strong);
+}
+
+.ui-theme-switch__option[aria-checked="true"] {
+  border-color: var(--border-strong);
+  color: var(--text-strong);
+  background: var(--surface);
+  box-shadow: var(--elevation-1);
+}
+
+.ui-theme-switch__option:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.ui-theme-switch__option svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
+}
+
+.ui-theme-switch--compact .ui-theme-switch__option {
+  width: 28px;
+  min-height: 26px;
+  padding: 0;
+}
+
+/* ── Settings: appearance ── */
+.theme-settings-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; padding: 16px; }
+.theme-settings .ui-theme-switch { display: flex; }
+.theme-settings .ui-theme-switch__option { flex: 1 1 0; min-width: 0; padding: 0 6px; }
+.theme-palettes { display: grid; gap: 10px; }
+.theme-palettes-label { display: grid; gap: 3px; margin: 0; }
+.theme-palettes-label strong { font-size: 12px; }
+.theme-palettes-label span { color: var(--text-muted); font-size: 12px; }
+.theme-palette-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
+.theme-palette { display: grid; gap: 4px; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius-md); color: var(--text); background: var(--surface); font: inherit; text-align: left; cursor: pointer; transition: 160ms ease; }
+.theme-palette strong { font-size: 12px; }
+.theme-palette span { color: var(--text-muted); font-size: 11px; line-height: 1.4; }
+.theme-palette[aria-checked="true"] { border-color: var(--accent); color: var(--accent); background: var(--accent-bg); }
+

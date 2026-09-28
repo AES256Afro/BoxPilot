@@ -106,4 +106,13 @@ describe("BoxPilot console", () => {
     expect(screen.getByRole("region", { name: "Features" }).textContent).toContain(`apps in ${categories.size} categories`);
     window.history.replaceState(null, "", "/");
   });
+
+  it("offers System, Light and Dark in the top bar", async () => {
+    vi.stubGlobal("fetch", vi.fn(authenticatedFetch));
+    render(<App />);
+    expect(await screen.findByRole("heading", { name: "Server overview" })).toBeTruthy();
+    const theme = screen.getByRole("radiogroup", { name: "Theme" });
+    expect(theme.closest(".topbar")).not.toBeNull();
+    expect(within(theme).getAllByRole("radio").map((radio) => radio.textContent)).toEqual(["System", "Light", "Dark"]);
+  });
 });
