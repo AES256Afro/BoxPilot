@@ -20,12 +20,24 @@ export function scanDeferral(pressure) {
   return null;
 }
 
-/** Keep the same filesystem-limited du, with lower scheduling priority on supported Linux hosts. */
-export async function dataScanCommand(folder, { platform = process.platform, executable = (file) => access(file, constants.X_OK).then(() => true, () => false) } = {}) {
-  if (platform !== "linux") return { binary: "du", args: ["-sbx", folder], priority: "default" };
+const executableDefault = (file) => access(file, constants.X_OK).then(() => true, () => false);
+
+/**
+ * Any read-only scan command at idle IO priority and nice 10 where this host has ionice and nice,
+ * and unchanged where it has neither. The command stays an argument vector; nothing goes through a
+ * shell.
+ */
+export async function lowPriorityCommand(binary, args, { platform = process.platform, executable = executableDefault } = {}) {
+  if (platform !== "linux") return { binary, args, priority: "default" };
   const [nice, ionice] = await Promise.all([executable("/usr/bin/nice"), executable("/usr/bin/ionice")]);
-  const command = nice ? ["/usr/bin/nice", "-n", "10", "/usr/bin/du", "-sbx", folder] : ["/usr/bin/du", "-sbx", folder];
+  const command = nice ? ["/usr/bin/nice", "-n", "10", binary, ...args] : [binary, ...args];
   // -t still runs the scan if this kernel/device cannot apply the requested IO class.
   if (ionice) return { binary: "/usr/bin/ionice", args: ["-c", "3", "-t", ...command], priority: nice ? "idle-io-requested-and-nice-10" : "idle-io-requested" };
   return { binary: command[0], args: command.slice(1), priority: nice ? "nice-10" : "default" };
+}
+
+/** Keep the same filesystem-limited du, with lower scheduling priority on supported Linux hosts. */
+export async function dataScanCommand(folder, { platform = process.platform, executable = executableDefault } = {}) {
+  if (platform !== "linux") return { binary: "du", args: ["-sbx", folder], priority: "default" };
+  return lowPriorityCommand("/usr/bin/du", ["-sbx", folder], { platform, executable });
 }
