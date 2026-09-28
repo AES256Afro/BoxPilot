@@ -809,7 +809,7 @@ main:focus {
 .content {
   width: min(1180px, 100%);
   margin: 0 auto;
-  padding: 32px clamp(16px, 3vw, 36px) calc(var(--shell-bottom-inset, 0px) + 104px);
+  padding: 32px clamp(16px, 3vw, 36px) calc(var(--shell-bottom-inset, 0px) + 120px);
 }
 
 .content--wide {
@@ -844,6 +844,75 @@ main:focus {
 .shell-dock .ui-dock__icon svg {
   width: 20px;
   height: 20px;
+}
+
+/* Every area fits, named, from 1380px. Narrower, the dock keeps its first group and a More that
+   opens every area (AreasSheet); on a phone, the four everyday areas and More. It never scrolls
+   sideways, so no area is hidden without a way to it. */
+.shell-dock [data-priority="overflow"] {
+  display: none;
+}
+
+@media (max-width: 1379px) {
+  .shell-dock [data-priority="3"] {
+    display: none;
+  }
+
+  .shell-dock [data-priority="overflow"] {
+    display: block;
+  }
+}
+
+@media (max-width: 759px) {
+  .shell-dock [data-priority="2"] {
+    display: none;
+  }
+
+  .ui-dock.shell-dock ul {
+    gap: var(--space-1);
+  }
+
+  .shell-dock .ui-dock__item {
+    width: 56px;
+  }
+}
+
+/* Every area, named, from the dock's More. */
+.areas-sheet {
+  display: grid;
+  gap: var(--space-4);
+  width: min(560px, 100%);
+}
+
+.areas-sheet__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.areas-sheet__head h2 {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 20px;
+}
+
+.areas-sheet__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: var(--space-3) var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.areas-sheet__grid .ui-dock__item {
+  width: 100%;
+}
+
+.areas-sheet__grid .ui-dock__label {
+  white-space: normal;
+  text-align: center;
 }
 
 /* ── The command bar's dialog ── */
@@ -3665,21 +3734,9 @@ textarea {
 }
 
 @media (max-width: 900px) {
-  /* Too narrow for every area at once: the dock spans the screen and scrolls sideways inside
-     itself, never the page. The names above the icons need hover room, so they go too. */
   .shell-dock {
     right: 8px;
     left: 8px;
-  }
-
-  .ui-dock.shell-dock ul {
-    overflow-x: auto;
-    overscroll-behavior-x: contain;
-    scrollbar-width: none;
-  }
-
-  .shell-dock .ui-dock__tip {
-    display: none;
   }
 
   .brand div {
@@ -3768,7 +3825,7 @@ textarea {
   .elevation-short { display: inline; }
 
   .content {
-    padding: 20px 16px calc(var(--shell-bottom-inset, 0px) + 96px);
+    padding: 20px 16px calc(var(--shell-bottom-inset, 0px) + 112px);
   }
 
   .page-header {
@@ -5259,7 +5316,22 @@ a.ui-tile:hover {
   box-shadow: var(--elevation-2);
 }
 
+/* An area: its icon on a tile, and its name under it. */
 .ui-dock__item {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  width: 68px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-card);
+  color: var(--text-strong);
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}
+
+.ui-dock__icon {
   position: relative;
   display: grid;
   place-items: center;
@@ -5267,21 +5339,18 @@ a.ui-tile:hover {
   height: max(32px, calc(var(--tile-icon) * 0.8));
   border: 1px solid transparent;
   border-radius: var(--radius-card);
-  color: var(--text-strong);
   background: var(--surface-raised);
-  font: inherit;
   font-size: var(--font-size-xs);
   font-weight: 800;
   letter-spacing: 0.05em;
-  cursor: pointer;
 }
 
-.ui-dock__item:hover {
+.ui-dock__item:hover .ui-dock__icon {
   border-color: var(--border-strong);
   background: var(--surface-hover);
 }
 
-.ui-dock__item[aria-current="page"] {
+.ui-dock__item[aria-current="page"] .ui-dock__icon {
   border-color: var(--accent);
   color: var(--accent-text-on);
   background: var(--accent);
@@ -5292,9 +5361,20 @@ a.ui-tile:hover {
   outline-offset: 2px;
 }
 
-.ui-dock__icon {
-  display: grid;
-  place-items: center;
+.ui-dock__label {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ui-dock__item:hover .ui-dock__label,
+.ui-dock__item[aria-current="page"] .ui-dock__label {
+  color: var(--text-strong);
 }
 
 .ui-dock__badge {
@@ -5322,32 +5402,6 @@ a.ui-tile:hover {
   height: 16px;
   padding: 0 4px;
   font-size: 9px;
-}
-
-/* The area's name above its icon, on hover and on keyboard focus. */
-.ui-dock__tip {
-  position: absolute;
-  bottom: calc(100% + 10px);
-  left: 50%;
-  padding: 4px 9px;
-  border-radius: 7px;
-  color: var(--surface);
-  background: var(--text-strong);
-  box-shadow: var(--elevation-2);
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0;
-  white-space: nowrap;
-  opacity: 0;
-  pointer-events: none;
-  transform: translate(-50%, 4px);
-  transition: opacity 120ms ease, transform 120ms ease;
-}
-
-.ui-dock__item:hover .ui-dock__tip,
-.ui-dock__item:focus-visible .ui-dock__tip {
-  opacity: 1;
-  transform: translate(-50%, 0);
 }
 
 .ui-dock__separator {
@@ -5512,6 +5566,8 @@ a.ui-tile:hover {
 
 /* One thing that needs you: its mark, what it is, and the fix with its tier. */
 .need-list { display: grid; margin: 0; padding: 0; list-style: none; }
+/* What can wait, after what needs a look: the headline counts only the first part. */
+.need-list__heading { margin: var(--space-2) 0 0; padding-top: var(--space-3); border-top: 1px solid var(--border-subtle); color: var(--text-muted); font-size: var(--font-size-xs); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
 .need {
   --mark: var(--status-neutral);
   --mark-radius: 50%;
@@ -5632,5 +5688,5 @@ a.ui-tile:hover {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .ui-button, .ui-dock__tip { transition: none; }
+  .ui-button { transition: none; }
 }
