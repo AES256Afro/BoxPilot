@@ -26,8 +26,13 @@ export function createSettingsRouter({ state, notifications, weeklyReport = null
   }
 
   // Failed-job push notifications (M8.4): where alerts go.
-  router.get("/settings/notifications", (_request, response) => {
-    response.json(notifications.describe());
+  router.get("/settings/notifications", (request, response) => {
+    const described = notifications.describe();
+    // Where alerts go is the owner's to see (M29.4): an ntfy topic on a shared server, or a webhook
+    // URL, works like a password - whoever knows it can read the alerts or send fake ones. Everyone
+    // else learns whether a target is set, and of what kind, which is all the Overview needs.
+    if ((request.boxpilotSession?.owner?.role ?? "owner") !== "owner") return response.json({ ...described, url: null, topic: null });
+    response.json(described);
   });
 
   /**
