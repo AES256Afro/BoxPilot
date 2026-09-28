@@ -1166,11 +1166,33 @@ the same data; light and dark, following the device with an override. The plan a
 study are in `HANDOFF-UI-REDESIGN.md` (B1-B7); this milestone takes B1-B4 and leaves the rest to
 the milestones they overlap.
 
-- **M33.1 Design system** (B1). Color and type tokens with light and dark values; two densities,
-  comfortable for Home and compact for Ops; shared components - buttons that carry their risk
-  tier, status chips, tiles, metric tiles, cards used sparingly; a gallery view in the demo.
-  Screenshots of the demo in both themes are taken on Linux in CI for every UI pull request.
-  Acceptance: one existing page is rebuilt on it with no visual regressions elsewhere.
+- ✅ **M33.1 Design system** (B1, unreleased). `src/styles.css` holds one set of colour tokens
+  with a dark value (the GitHub-dark look BoxPilot always had, unchanged) and a light one, applied
+  by `@media (prefers-color-scheme: light)` while the choice is System and by
+  `html[data-theme="light"]` when it is Light; the eight older looks are now dark palettes
+  (`html[data-palette]`, Settings -> Appearance) that apply only while dark. Semantic tokens for
+  status (good, warning, danger, neutral, unknown - grey, hollow and dashed, never green), risk
+  tier and elevation, and density tokens (`data-density="comfortable|compact"`) for spacing, row
+  heights and type. Every colour literal in the page styles became a token (63, fifteen of them
+  fallbacks inside `var()`), and twelve references to tokens that were never defined now resolve.
+  `scripts/check-contrast.mjs`, run by `npm test`, checks 40 text and mark pairs in both themes
+  (4.5:1 body, 3:1 large text and marks), that the two light blocks match, that every dark colour
+  has a light value and that unknown is not green. System / Light / Dark sits in the top bar and
+  in Settings, per browser in localStorage, set before first paint by `index.html`. Components in
+  `src/ui/`: `Button` with `risk` (low plain; medium an amber mark; high a red mark, a lock and
+  "Password"; the tier is the button's description for screen readers), `RiskTag`, `StatusChip`,
+  `Tile`, `MetricTile`, `Card`, `Section` (status first), `Dock`, `ThemeSwitch`; tiers come from
+  `src/ui/operationRisk.ts`, which `server/ops/ui-risk.test.mjs` holds to the registry. The gallery
+  is `/?gallery`, shown only by the demo. Updates & packages is rebuilt on them.
+  `.github/workflows/ui-screenshots.yml` photographs every demo page and the gallery, light and
+  dark, on Linux for each UI pull request (artifact `ui-screenshots`); run by hand with a
+  `baseline` ref it adds that ref's dark pages. Against `main`, the other pages' dark captures
+  differ only in the top bar, in timestamps, and in the few lines whose undefined colour now
+  applies (a drive's "kernel errors: 0" in green, the apps filling a disk). Left for M33.2: the shell (the Home/Ops switch and
+  the command bar in the top bar, the dock replacing the sidebar), Home itself, and real app icons
+  on tiles from the manifests. Left for M33.3: Ops, whose tables need a compact `Table` component
+  (today the class `ui-table`). Every other page keeps its own styles, now on the tokens, until
+  M33.5 moves it; whether the dark palettes stay is the owner's call.
 - **M33.2 The shell and Home** (B2). A top bar with the Home/Ops switch and a command bar ready
   for search; Home shows app tiles with live health, what needs the owner, and the admin areas
   in a dock. Acceptance: "is everything OK?" is answered by Home alone.
