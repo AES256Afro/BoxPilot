@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { computeNextRun, createSchedulerService, describeCadence, validateCadence, chooseQuietSlot } from "./scheduler.mjs";
 import { createStateStore } from "./state.mjs";
 import { createHealthAlerts } from "./health-alerts.mjs";
+import { createJobService } from "./jobs.mjs";
 
 const directories = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true }))); });
@@ -332,6 +333,159 @@ describe("a scheduled task that fails (M27.2)", () => {
     expect(restarted.owns(jobId)).toBe(true);
     await drained();
     expect(state()[`schedule.failed:${schedule.id}`]).toMatchObject({ notified: false, title: "Scheduled task was interrupted: Back up application data (jellyfin)" });
+    store.close();
+  });
+});
+
+describe("what the Schedules panel says about the last run (M27.2)", () => {
+  const outcomeOf = (scheduler, id) => scheduler.list().find((entry) => entry.id === id);
+
+  it("says ran, failed or did not run from how the job ended, not from having started it", async () => {
+    let clock = new Date("2026-08-20T02:59:00");
+    const { store, jobs, owner, registry } = await setup();
+    const scheduler = createSchedulerService({ store, jobs, registry, now: () => clock });
+    const schedule = await scheduler.create({ operationId: "app.backup", parameters: { id: "jellyfin" }, frequency: "hourly", minute: 0, createdBy: owner.id });
+    expect(outcomeOf(scheduler, schedule.id)).toMatchObject({ lastOutcome: null, lastResult: null });
+
+    clock = new Date("2026-08-20T03:00:30");
+    await scheduler.tick();
+    const first = store.getSchedule(schedule.id).lastJobId;
+    // Staged and not finished: running, not "ran".
+    expect(outcomeOf(scheduler, schedule.id)).toMatchObject({ lastOutcome: "running", lastResult: "started" });
+    store.transitionJob(first, "awaiting_approval", "failed", { error: "tar failed: disk full" });
+    scheduler.onJob(store.getJob(first));
+    expect(store.getSchedule(schedule.id)).toMatchObject({ lastResult: "failed: tar failed: disk full", lastRunAt: expect.any(String) });
+    expect(outcomeOf(scheduler, schedule.id)).toMatchObject({ lastOutcome: "failed", lastReason: "tar failed: disk full" });
+
+    clock = new Date("2026-08-20T04:00:30");
+    await scheduler.tick();
+    const second = store.getSchedule(schedule.id).lastJobId;
+    store.transitionJob(second, "awaiting_approval", "completed", {});
+    scheduler.onJob(store.getJob(second));
+    expect(outcomeOf(scheduler, schedule.id)).toMatchObject({ lastOutcome: "ran", lastResult: "completed", lastReason: null });
+    // A late event from the older run does not overwrite the newer run's ending.
+    scheduler.onJob(store.getJob(first));
+    expect(store.getSchedule(schedule.id).lastResult).toBe("completed");
+
+    // Could not start: did not run, with the reason.
+    jobs.approveAndStart = vi.fn(async () => { throw new Error("helper is busy"); });
+    clock = new Date("2026-08-20T05:00:30");
+    await scheduler.tick();
+    expect(outcomeOf(scheduler, schedule.id)).toMatchObject({ lastOutcome: "did-not-run", lastReason: "helper is busy" });
+    jobs.approveAndStart = vi.fn(async () => { throw Object.assign(new Error("Enter the owner password"), { code: "password_required" }); });
+    clock = new Date("2026-08-20T06:00:30");
+    await scheduler.tick();
+    expect(outcomeOf(scheduler, schedule.id)).toMatchObject({ lastOutcome: "did-not-run", lastResult: "blocked-by-approval-mode", lastReason: "Approvals are set to always ask" });
+    store.close();
+  });
+
+  it("reads a run recorded only as started from its job, after a restart or an upgrade", async () => {
+    let clock = new Date("2026-08-20T02:59:00");
+    const { store, jobs, owner, registry } = await setup();
+    const scheduler = createSchedulerService({ store, jobs, registry, now: () => clock });
+    const schedule = await scheduler.create({ operationId: "app.backup", parameters: { id: "immich" }, frequency: "daily", minute: 0, hour: 3, createdBy: owner.id });
+    clock = new Date("2026-08-20T03:00:30");
+    await scheduler.tick();
+    const jobId = store.getSchedule(schedule.id).lastJobId;
+    // The job failed while nothing was listening: the row still says "started".
+    store.transitionJob(jobId, "awaiting_approval", "failed", { error: "pull failed" });
+    const fresh = createSchedulerService({ store, jobs, registry, now: () => clock });
+    expect(store.getSchedule(schedule.id).lastResult).toBe("started");
+    expect(outcomeOf(fresh, schedule.id)).toMatchObject({ lastOutcome: "failed", lastResult: "failed: pull failed", lastReason: "pull failed" });
+    store.close();
+  });
+
+  it("writes the ending of a job that finished before its start was recorded", async () => {
+    let clock = new Date("2026-08-20T02:59:00");
+    const { store, jobs, owner, registry } = await setup();
+    const scheduler = createSchedulerService({ store, jobs, registry, now: () => clock });
+    // A job that fails inside approveAndStart: its event arrives before the schedule says "started".
+    jobs.approveAndStart = vi.fn(async (jobId) => {
+      store.transitionJob(jobId, "awaiting_approval", "failed", { error: "refused at once" });
+      scheduler.onJob(store.getJob(jobId));
+      return store.getJob(jobId);
+    });
+    const schedule = await scheduler.create({ operationId: "apt.refresh", parameters: {}, frequency: "hourly", minute: 0, createdBy: owner.id });
+    clock = new Date("2026-08-20T03:00:30");
+    await scheduler.tick();
+    expect(store.getSchedule(schedule.id).lastResult).toBe("failed: refused at once");
+    store.close();
+  });
+
+  it("says a run a restart cut off failed", async () => {
+    let clock = new Date("2026-08-20T02:59:00");
+    const { store, jobs, owner, registry } = await setup();
+    const scheduler = createSchedulerService({ store, jobs, registry, now: () => clock });
+    const schedule = await scheduler.create({ operationId: "app.backup", parameters: { id: "jellyfin" }, frequency: "daily", minute: 0, hour: 3, createdBy: owner.id });
+    clock = new Date("2026-08-20T03:00:30");
+    await scheduler.tick();
+    const jobId = store.getSchedule(schedule.id).lastJobId;
+    createSchedulerService({ store, jobs, registry, now: () => clock }).recover([{ id: jobId, title: "Back up application data" }]);
+    expect(outcomeOf(scheduler, schedule.id)).toMatchObject({ lastOutcome: "failed", lastReason: "interrupted by a BoxPilot restart" });
+    store.close();
+  });
+});
+
+describe("a scheduled run whose result was not saved (M27.2)", () => {
+  // The real job service, so the record hook fails the way it does in production and raises its
+  // own condition, and the real ledger, so what is counted is what the Overview would count.
+  async function recording({ send = vi.fn(async () => ({ sent: true })) } = {}) {
+    let clock = new Date("2026-08-20T02:59:00");
+    const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-sched-record-"));
+    directories.push(directory);
+    const store = createStateStore({ stateDirectory: directory });
+    const owner = store.consumeBootstrapToken(store.createBootstrapToken().token, { username: "operator", passwordHash: "hash" });
+    const alerts = createHealthAlerts({ inventory: { inspect: async () => ({}) }, notifications: { getTarget: () => ({ kind: "ntfy" }), send }, store, now: () => clock });
+    let broken = true;
+    const helper = { request: vi.fn(async () => ({ id: "jellyfin", verified: true })) };
+    const jobs = createJobService(store, helper, { alerts, operationRecordHooks: { "app.backup.verify": () => { if (broken) throw new Error("database is locked"); } } });
+    const scheduler = createSchedulerService({ store, jobs, now: () => clock, alerts });
+    const stop = store.subscribeJobs(scheduler.onJob);
+    const schedule = await scheduler.create({ operationId: "app.backup.verify", parameters: { id: "jellyfin" }, frequency: "hourly", minute: 0, createdBy: owner.id });
+    const run = async (hour) => {
+      clock = new Date(`2026-08-20T${hour}:00:30`);
+      await scheduler.tick();
+      const jobId = store.getSchedule(schedule.id).lastJobId;
+      await vi.waitFor(() => expect(["completed", "failed"]).toContain(store.getJob(jobId).state));
+      await new Promise((resolve) => setTimeout(resolve, 5)); // the job event is delivered on a microtask
+      await alerts.clear("nothing:pending"); // and everything it queued on the ledger has settled
+      return store.getJob(jobId);
+    };
+    return { store, send, alerts, schedule, run, fix: () => { broken = false; }, stop, state: () => store.getSetting("healthAlertsState", {}) };
+  }
+
+  it("is one condition, the unsaved result, not a failed schedule as well", async () => {
+    const { store, send, schedule, run, fix, state, stop } = await recording();
+    const job = await run("03");
+    expect(job.state).toBe("failed");
+    expect(Object.keys(state())).toEqual(["record.failed:app.backup.verify:jellyfin"]);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({ title: "BoxPilot: Result not saved: Rehearse restoring a backup (jellyfin)" }));
+    // The panel still says the run failed, and why.
+    expect(store.getSchedule(schedule.id).lastResult).toBe("failed: database is locked");
+
+    await run("04");
+    expect(send).toHaveBeenCalledTimes(1); // failing the same way again is not news
+    fix();
+    await run("05");
+    expect(state()).toEqual({});
+    expect(send).toHaveBeenLastCalledWith(expect.objectContaining({ title: "BoxPilot: resolved. Result not saved: Rehearse restoring a backup (jellyfin)" }));
+    stop();
+    store.close();
+  });
+
+  it("replaces an earlier failure of the same schedule quietly rather than standing beside it", async () => {
+    const { store, send, alerts, schedule, run, state, stop } = await recording();
+    await alerts.raise({ key: `schedule.failed:${schedule.id}`, title: "Scheduled task failed: Rehearse restoring a backup (jellyfin)", message: "earlier", priority: "high" });
+    expect(send).toHaveBeenCalledTimes(1);
+    await run("03");
+    expect(Object.keys(state())).toEqual(["record.failed:app.backup.verify:jellyfin"]);
+    // No "resolved" for the schedule: the task did not succeed, only its failure changed shape.
+    expect(send.mock.calls.map(([payload]) => payload.title)).toEqual([
+      "BoxPilot: Scheduled task failed: Rehearse restoring a backup (jellyfin)",
+      "BoxPilot: Result not saved: Rehearse restoring a backup (jellyfin)",
+    ]);
+    stop();
     store.close();
   });
 });
