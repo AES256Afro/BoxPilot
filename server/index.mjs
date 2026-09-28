@@ -76,6 +76,7 @@ import { createVmRecoveryService } from "./vm-recovery.mjs";
 import { createVmRetentionService } from "./vm-retention.mjs";
 import { createVmRestoreDrillService } from "./vm-restore-drill.mjs";
 import { foldVerdict, verdictFrom } from "./backup-verdicts.mjs";
+import { appStopClearingOperations, foldAppStop, seedAppStops } from "./app-stops.mjs";
 import { jsonGzip, precompressedAssets } from "./compress.mjs";
 import { securityHeaders } from "./security-headers.mjs";
 
@@ -184,6 +185,9 @@ const jobs = createJobService(state, helper, {
     // "The backups restore" has to be a record, not a hope: keep the last rehearsal verdict per app
     // so a schedule turns it into a history, and a failure is still visible after the job is pruned.
     "app.backup.verify": (job, result) => state.updateSetting("appBackupVerifications", {}, (entries) => ({ value: foldVerdict(entries, result.id, verdictFrom(result, job.createdBy)) }), job.createdBy),
+    // Apps the owner stopped on purpose, so Home says "Stopped" rather than "not running"; anything
+    // that brings the app back or replaces it clears it (server/app-stops.mjs).
+    ...Object.fromEntries(["app.action", ...appStopClearingOperations].map((operation) => [operation, (job) => state.updateSetting("appStops", {}, (entries) => ({ value: foldAppStop(entries, job) }), job.createdBy)])),
     // Snapshot metadata (origin, size, time) lives here because lvs needs root; the Storage page merges it with lsblk.
     "storage.lvm.snapshot.create": (job, result) => state.updateSetting("lvmSnapshots", [], (entries) => ({ value: [...(entries ?? []).filter((entry) => entry.path !== result.path), { path: result.path, name: result.name, origin: result.origin, volumeGroup: result.volumeGroup, sizeGiB: result.sizeGiB, createdAt: result.createdAt, createdBy: job.createdBy, suffix: job.parameters?.suffix ?? null }] }), job.createdBy),
     // Read and write in one transaction rather than two statements that happen not to interleave.
@@ -238,6 +242,11 @@ try {
   if (scrubbed.unchecked) console.warn(`[boxpilot] ${scrubbed.unchecked} stored parameter set(s) could not be checked for secrets; they are checked again at the next start`);
 } catch (error) {
   console.warn(`[boxpilot] stored parameters could not be checked for secrets: ${error.message}`);
+}
+// Apps stopped on purpose were first recorded in 1.137.0; an install that stopped some before then
+// has them rebuilt once from its recent jobs, so Home does not call them down after the upgrade.
+if (state.getSetting("appStops", null) === null) {
+  try { state.setSetting("appStops", seedAppStops(state.listJobs(200)), { updatedBy: null }); } catch (error) { console.warn(`[boxpilot] apps stopped on purpose could not be read from recent jobs: ${error.message}`); }
 }
 const scheduler = createSchedulerService({ store: state, jobs, secretEnvNamesFor, alerts: healthAlerts });
 // A job cut off by a restart - a crash, or BoxPilot updating itself mid-install - was marked failed

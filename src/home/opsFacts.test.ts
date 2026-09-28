@@ -10,7 +10,7 @@ const hoursAgo = (hours: number) => new Date(now - hours * 3_600_000).toISOStrin
 function app(overrides: Partial<AppFact> = {}): AppFact {
   return {
     id: "jellyfin", name: "Jellyfin", icon: "🎬", category: "Media", running: true, paused: false, status: "running", health: "healthy",
-    troubledSidecar: null, updateAvailable: false, folderProblems: 0, vpnLeaked: false, url: null, port: 8096, exposure: "lan", served: false, drill: null, ...overrides,
+    troubledSidecar: null, updateAvailable: false, folderProblems: 0, vpnLeaked: false, stoppedOnPurpose: false, url: null, port: 8096, exposure: "lan", served: false, drill: null, ...overrides,
   };
 }
 
@@ -41,6 +41,14 @@ describe("the containers table", () => {
     ]);
     expect(rows[0].reach).toBe("On your network");
     expect(rows.at(-1)?.memBytes).toBeNull(); // a stopped VM holds no memory
+  });
+
+  it("does not call an app the owner stopped a problem, and says when there is no container at all", () => {
+    const rows = workloads([
+      app({ id: "plex", name: "Plex", running: false, status: "exited", stoppedOnPurpose: true }),
+      app({ id: "dockge", name: "Dockge", running: false, status: "absent" }),
+    ], null, null, reachOf);
+    expect(rows.map((row) => [row.name, row.status, row.state])).toEqual([["Dockge", "warning", "no container"], ["Plex", "neutral", "stopped"]]);
   });
 
   it("says who can reach an app in one word", () => {

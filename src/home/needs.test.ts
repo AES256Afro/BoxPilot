@@ -17,7 +17,7 @@ const facts = (overrides: Partial<FactValues>): FactValues => ({ ...none, ...ove
 function app(overrides: Partial<AppFact> = {}): AppFact {
   return {
     id: "jellyfin", name: "Jellyfin", icon: "🎬", category: "Media", running: true, paused: false, status: "running", health: "healthy",
-    troubledSidecar: null, updateAvailable: false, folderProblems: 0, vpnLeaked: false, url: "http://192.0.2.10:8096", port: 8096,
+    troubledSidecar: null, updateAvailable: false, folderProblems: 0, vpnLeaked: false, stoppedOnPurpose: false, url: "http://192.0.2.10:8096", port: 8096,
     exposure: "lan", served: false, drill: null, ...overrides,
   };
 }
@@ -145,6 +145,36 @@ describe("what needs you", () => {
   it("sorts stably by severity, then kind", () => {
     const need = (id: string, kind: Need["kind"], severity: Need["severity"]): Need => ({ id, kind, severity, title: id, detail: null, view: "home", action: null });
     expect(ids(sortNeeds([need("a", "setup", "neutral"), need("b", "backup", "danger"), need("c", "alert", "warning"), need("d", "alert", "danger"), need("e", "alert", "danger")]))).toEqual(["d", "e", "b", "c", "a"]);
+  });
+});
+
+describe("apps that are not running, on the owner's real server", () => {
+  // Home on bigbox the evening it shipped: three apps the owner had stopped from BoxPilot, and six
+  // listed as installed with no container, each called a problem of its own.
+  const catalog = (apps: AppFact[]) => facts({ catalog: { apps, total: 160, liveKnown: true } });
+
+  it("says an app stopped from BoxPilot is stopped, quietly, with Start", () => {
+    const plex = app({ id: "plex", name: "Plex Media Server", running: false, status: "exited", stoppedOnPurpose: true });
+    const [need] = buildNeeds(catalog([plex]), { now, role: "owner" });
+    expect(need).toMatchObject({ id: "app-stopped:plex", severity: "neutral", title: "Plex Media Server is stopped", appId: "plex", action: { operationId: "app.action", label: "Start", parameters: { id: "plex", action: "start" } } });
+    expect(appHealth(plex, undefined, now)).toMatchObject({ status: "neutral", label: "Stopped" });
+  });
+
+  it("still calls an app that stopped by itself, or keeps restarting, a problem", () => {
+    const crashed = app({ id: "plex", name: "Plex Media Server", running: false, status: "exited" });
+    const looping = app({ id: "immich", name: "Immich", running: false, status: "restarting", stoppedOnPurpose: true });
+    expect(buildNeeds(catalog([crashed, looping]), { now, role: "owner" }).map((need) => [need.id, need.severity])).toEqual([["app-down:plex", "danger"], ["app-down:immich", "danger"]]);
+  });
+
+  it("says once which apps have no container, rather than a problem each", () => {
+    const absent = ["AnythingLLM", "AuDHDMAP", "Dockge", "Homepage", "IT-Tools", "Open WebUI"].map((name) => app({ id: name.toLowerCase(), name, running: false, status: "absent" }));
+    const needs = buildNeeds(catalog(absent), { now, role: "owner" });
+    expect(needs).toHaveLength(1);
+    expect(needs[0]).toMatchObject({ id: "apps-missing", severity: "warning", view: "catalog", title: "AnythingLLM, AuDHDMAP and 4 more have no container", action: null });
+    expect(needs[0].appId).toBeUndefined();
+    expect(appHealth(absent[0], undefined, now)).toMatchObject({ status: "warning", label: "No container" });
+    const [one] = buildNeeds(catalog([absent[2]]), { now, role: "owner" });
+    expect(one).toMatchObject({ title: "Dockge has no container", appId: "dockge" });
   });
 });
 

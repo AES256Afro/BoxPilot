@@ -36,6 +36,19 @@ describe("a mount whose drive has gone", () => {
     expect(alerts[0].message).toContain("shares");
   });
 
+  it("does not call the LVM root lost when the sandbox's lsblk cannot see device-mapper volumes", () => {
+    // What the web service's lsblk returns on the owner's server (PrivateDevices=yes): the disks
+    // and partitions, but not /dev/mapper/ubuntu--vg-ubuntu--lv on nvme0n1p3. "/ lost its drive"
+    // stood in the ledger from 2026-08-31 until this.
+    const sandboxed = structuredClone(detached);
+    sandboxed.storage.blockDevices.devices = [{ name: "/dev/sdb" }, { name: "/dev/sdb2" }, { name: "/dev/nvme0n1" }, { name: "/dev/nvme0n1p3" }];
+    expect(evaluateHealth(sandboxed).map((alert) => alert.key)).toEqual(["storage.mount.detached:/mnt/the-dump"]);
+    // Where the list does show device-mapper volumes, a mapper source missing from it is still judged.
+    const listed = structuredClone(sandboxed);
+    listed.storage.blockDevices.devices.push({ name: "/dev/mapper/other--vg-data" });
+    expect(evaluateHealth(listed).map((alert) => alert.key)).toEqual(["storage.mount.detached:/", "storage.mount.detached:/mnt/the-dump"]);
+  });
+
   it("says nothing once the drive is back under its new name", () => {
     const back = structuredClone(detached);
     back.storage.filesystems.mounts[1].source = "/dev/sdb2";
