@@ -1,4 +1,6 @@
 import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { registry } from "./index.mjs";
 import { mayStart, operationRisk, ownerOnlyOperations, riskOf } from "../../src/ui/operationRisk.ts";
@@ -31,7 +33,7 @@ describe("the risk tiers drawn on buttons", () => {
   // Home and Ops offer each Repair finding's fix from their lists, with the tier on the button. A
   // fix whose operation had no entry would be drawn as high, which is wrong the other way.
   it("have a tier for every fix Repair can offer", () => {
-    const source = readFileSync(new URL("../remediations.mjs", import.meta.url), "utf8");
+    const source = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "remediations.mjs"), "utf8");
     const fixes = [...new Set([...source.matchAll(/operationId: "([a-z][\w.-]+)"/g)].map((match) => match[1]))];
     expect(fixes.length).toBeGreaterThan(5);
     expect(fixes.filter((id) => !(id in operationRisk))).toEqual([]);
