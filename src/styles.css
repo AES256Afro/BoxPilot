@@ -5622,7 +5622,10 @@ a.ui-tile:hover {
 
 @media (max-width: 700px) {
   .home-layout { grid-template-areas: "needs" "apps" "system" "backups"; grid-template-columns: minmax(0, 1fr); }
-  .home-tiles { grid-template-columns: repeat(auto-fill, minmax(calc(var(--tile-icon) + 2.5rem), 1fr)); }
+  .home-tiles { grid-template-columns: repeat(auto-fill, minmax(calc(var(--tile-icon) + 2.5rem), 1fr)); gap: var(--space-3) var(--space-1); }
+  /* Room for a whole word on each line of a name: the tile gives up its side padding instead. */
+  .home-tile { padding-inline: 0; }
+  .home-tile .ui-tile__name, .home-tile .ui-tile__detail { overflow-wrap: break-word; }
   .app-sheet__facts > div { grid-template-columns: minmax(0, 1fr); gap: 2px; }
 }
 

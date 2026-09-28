@@ -738,6 +738,8 @@ const freshWords = {
   "dns.names.inspect": { available: false, reason: "No DNS server BoxPilot can write to is installed. Install Pi-hole from the App catalog.", platform: null, records: [], apps: [] },
   "router.inspect": { configured: false, reachable: false, host: null, username: null, model: null, firmware: null, reason: "No router is connected yet." },
   "router.leases": { host: null, leases: [] },
+  // A new server can read its backup folder; it just has no apps in it yet.
+  "app.backup.protection": { available: true, apps: [] },
 };
 
 /**
