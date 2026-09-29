@@ -14,8 +14,10 @@
  *   helper asked back and a low-confidence answer for the owner to look at), and a live runner,
  *   so the test console really runs.
  * - fresh: Agents never turned on, nothing installed.
- * - trouble: Agents on, but the runner is not answering and the model would not start, so the last
- *   question was answered from the tools alone; the Pi-hole Watcher is paused.
+ * - trouble: Agents on, Unsloth installed and the model downloaded, but the runner's unit stopped
+ *   (inactive and disabled, as on a server where nobody pressed Start the runner), so a question
+ *   asked ten minutes ago waits for it. An hour earlier the model would not start, so that question
+ *   was answered from the tools alone; the Pi-hole Watcher is paused.
  *
  * The owner's password is not asked for in the demo: any password saves the settings.
  */
@@ -56,7 +58,7 @@ function helperFor(world, { apps, services }) {
     default: { runtime: { installed: true, path: "/var/lib/boxpilot-agents/unsloth/bin/unsloth" }, service: { unit: runnerUnit, loaded: true, active: "active", sub: "running", enabled: "enabled" },
       models: [{ repo: model.repo, file: model.file, bytes: 2_910_000_000, complete: true, projector: false }, { repo: model.repo, file: model.projector, bytes: 672_000_000, complete: true, projector: true }], diskFreeBytes: 588 * 1024 ** 3 },
     fresh: { runtime: { installed: false, path: "/var/lib/boxpilot-agents/unsloth/bin/unsloth" }, service: { unit: runnerUnit, loaded: true, active: "inactive", sub: "dead", enabled: "disabled" }, models: [], diskFreeBytes: 588 * 1024 ** 3 },
-    trouble: { runtime: { installed: true, path: "/var/lib/boxpilot-agents/unsloth/bin/unsloth" }, service: { unit: runnerUnit, loaded: true, active: "failed", sub: "failed", enabled: "enabled" },
+    trouble: { runtime: { installed: true, path: "/var/lib/boxpilot-agents/unsloth/bin/unsloth" }, service: { unit: runnerUnit, loaded: true, active: "inactive", sub: "dead", enabled: "disabled" },
       models: [{ repo: model.repo, file: model.file, bytes: 2_910_000_000, complete: true, projector: false }], diskFreeBytes: 12 * 1024 ** 3 },
   }[world];
   const answers = {
@@ -162,6 +164,9 @@ async function seed({ service, state, caller, at, runNext, script, world }) {
     service.startRun(caller, keeper.id, { kind: "ask", question: "Is anything failing?" });
     await runNext();
     service.pauseAgent(caller, pihole.id, {});
+    // Asked since, with the runner stopped: it waits in the queue until someone starts it.
+    at(new Date(Date.now() - 10 * 60_000));
+    service.startRun(caller, keeper.id, { kind: "ask", question: "Why is Jellyfin restarting?" });
     return;
   }
 

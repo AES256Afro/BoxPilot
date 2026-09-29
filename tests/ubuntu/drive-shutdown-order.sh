@@ -103,7 +103,30 @@ fstab_line() {  # $1 = options
   printf '# boxpilot:%s\nUUID=%s %s exfat %s 0 0\n' "$NAME" "$UUID" "$MNT" "$1" >> /etc/fstab
   systemctl daemon-reload
 }
+# systemd follows the mount table in its own time: it rereads it at a limited rate, and a container
+# starting or stopping makes several changes of its own. A mount or unmount made outside systemd -
+# BoxPilot's storage tasks mount with mount(8) in PID 1's namespace - can be most of a second old
+# before the mount unit says so, and a start or stop issued then does nothing and succeeds. In 7c a
+# stop that did nothing left the drive mounted, with its app's writes on it, where the mark was
+# read. So the drive's own mount and unmount first wait, bounded, for the unit to catch up.
+unit_in_step() {
+  local state; state="$(systemctl show "$UNIT" -p ActiveState --value)"
+  if findmnt -n "$MNT" >/dev/null; then [ "$state" = active ]; else [ "$state" = inactive ] || [ "$state" = failed ]; fi
+}
+wait_unit_in_step() {
+  unit_in_step && return 0
+  local start; start=$(now_ms)
+  until unit_in_step; do
+    if [ $(( $(now_ms) - start )) -ge 10000 ]; then
+      note "$UNIT still says $(systemctl show "$UNIT" -p ActiveState --value) 10 s on, with the drive $(findmnt -n "$MNT" >/dev/null && echo mounted || echo unmounted)"
+      return 1
+    fi
+    sleep 0.1
+  done
+  note "systemd took $(( $(now_ms) - start )) ms to see the drive $(findmnt -n "$MNT" >/dev/null && echo mounted || echo unmounted)"
+}
 mount_drive() {
+  wait_unit_in_step
   # This test starts the unit more often than systemd's start limit allows a real one.
   systemctl reset-failed "$UNIT" 2>/dev/null
   sc start "$UNIT"
@@ -125,23 +148,62 @@ held_in() {
 }
 mounted_here() { findmnt -n "$MNT" >/dev/null; }
 not_mounted_here() { ! mounted_here; }
-# Unmounts the drive, marks it, and mounts it afresh with the mark. A namespace still going away
-# (the last step's app or runner unit) can keep the filesystem alive for a moment after the host
-# unmounts it; a mount then reuses it without reading the mark, and its last unmount writes the
-# mark clear again. So this waits for the kernel's warning, and marks and mounts again without it.
-mount_marked() {
-  local T
-  for _ in 1 2 3 4 5; do
-    sc stop "$UNIT"; for _ in $(seq 1 20); do mounted_here || break; sleep 0.25; done
-    [ -z "$(held_in)" ] || sleep 1
-    set_dirty; T=$(date +%s); mount_drive; sleep 1
-    journalctl -k --since "@$T" --no-pager | grep -q 'Volume was not properly unmounted' && { sleep 1; return 0; }
-    note "the mount reused a filesystem still held elsewhere, so it never read the mark; again"
-    sleep 1
+# Whether the kernel has let go of the drive's filesystem everywhere. Gone from the host's mount
+# table is not gone while another namespace still has it (4a: a container with it bound). Until the
+# last one lets go, the mark on the drive is whatever that live filesystem last wrote (the first
+# write after a mount sets it), and a mount reuses it without reading the mark. A mounted
+# filesystem holds its device exclusively, so an exclusive open succeeds only once no mount of it
+# is left anywhere.
+released() { node -e 'const fs = require("fs"); try { fs.closeSync(fs.openSync(process.argv[1], fs.constants.O_RDONLY | fs.constants.O_EXCL)); } catch { process.exit(1); }' "$PART"; }
+still_held() { ! released; }
+# Waits, bounded, for that; says how long it took when it was not at once, and who held it then.
+wait_released() {
+  released && return 0
+  local start holders; start=$(now_ms); holders="$(held_in | tr '\n' ' ')"
+  until released; do
+    if [ $(( $(now_ms) - start )) -ge 20000 ]; then
+      fail "the filesystem on $PART was still alive 20 s after the host unmounted it (open in: ${holders:-no process})"
+      return 1
+    fi
+    sleep 0.1
   done
-  return 1
+  note "the filesystem outlived the host's unmount by $(( $(now_ms) - start )) ms (open then in: ${holders:-no process})"
 }
-kernel_since() { journalctl -k --since "@$1" --no-pager 2>/dev/null | grep -i 'exfat' | sed 's/^/   kernel: /'; }
+# The drive unmounted on the host and gone everywhere, so its mark is what the next mount reads.
+unmount_drive() {
+  wait_unit_in_step
+  sc stop "$UNIT"
+  if mounted_here; then fail "systemctl stop $UNIT left $MNT mounted"; return 1; fi
+  wait_released
+}
+
+# The kernel's own log, from a line this test writes into it just before the mount it is about.
+# The kernel prints the exFAT warning inside the mount call, so it is there once mount returns.
+# The journal cannot place it: journald stamps a kernel line when it reads it, and a --since of
+# whole seconds reached back up to a second before the mount, to an earlier mount of the drive
+# while it was still marked.
+KMARK=""
+kmark() {
+  KMARK="bp-drive-test: mark $(date +%s%N)"
+  echo "$KMARK" > /dev/kmsg
+  dmesg | grep -qF "$KMARK" || fail "the kernel's log did not take the test's mark, so no warning can be placed after it"
+}
+since_mark() { dmesg | awk -v mark="$KMARK" 'seen; index($0, mark) { seen = 1 }'; }
+kernel_since() { since_mark | grep -i 'exfat' | sed 's/^/   kernel: /'; }
+# 0 when the kernel has said "Volume was not properly unmounted" since the mark, 1 when it has
+# not, 2 when the mark is not in the log (so neither can be told).
+warned() {
+  dmesg | grep -qF "$KMARK" || return 2
+  since_mark | grep -q 'Volume was not properly unmounted'
+}
+not_warned() { warned; [ $? -eq 1 ]; }
+# Unmounts the drive, marks it, and mounts it afresh with the mark: the filesystem is gone
+# everywhere before the mark is written, so the mount reads it and the kernel warns.
+mount_marked() {
+  unmount_drive || return 1
+  set_dirty; kmark; mount_drive
+  warned || { note "the mount did not warn about the mark it was given"; kernel_since; return 1; }
+}
 
 # ---- Docker -------------------------------------------------------------------------------------
 
@@ -233,21 +295,22 @@ mount_drive; note "mounted: dirty=$(dirty)"
 echo hello > "${MNT}/a.txt"; note "after creating a file: dirty=$(dirty)"
 head -c 1048576 /dev/urandom >> "${MNT}/a.txt"; note "after appending 1 MiB: dirty=$(dirty)"
 sync; note "after sync: dirty=$(dirty)"
-sc stop "$UNIT"; check "a clean unmount leaves the flag clear" test "$(dirty)" -eq 0
+check "while it is mounted, the filesystem holds its device, which is what wait_released waits on" still_held
+unmount_drive; check "a clean unmount leaves the flag clear" test "$(dirty)" -eq 0
 set_dirty; note "flag set by hand, as a drive pulled mid-write leaves it: dirty=$(dirty)"
 out="$(fsck.exfat -n "$PART" 2>&1)"; rc=$?; echo "$out" | sed 's/^/   /'
 check "fsck.exfat -n calls a consistent volume clean, dirty flag or not (exit $rc)" test "$rc" -eq 0
-T=$(date +%s); mount_drive; sleep 1; kernel_since "$T"
-check "the kernel warns at mount" bash -c "journalctl -k --since @$T --no-pager | grep -q 'Volume was not properly unmounted'"
+kmark; mount_drive; kernel_since
+check "the kernel warns at mount" warned
 echo more > "${MNT}/b.txt"; sync
-sc stop "$UNIT"; note "after writing and a clean unmount of a volume mounted dirty: dirty=$(dirty)"
+unmount_drive; note "after writing and a clean unmount of a volume mounted dirty: dirty=$(dirty)"
 check "Linux keeps the flag set when the volume was dirty at mount, however cleanly it is unmounted" test "$(dirty)" -eq 1
-T=$(date +%s); mount_drive; sleep 1; kernel_since "$T"; sc stop "$UNIT"
-check "so the kernel warns again at the next mount" bash -c "journalctl -k --since @$T --no-pager | grep -q 'Volume was not properly unmounted'"
+kmark; mount_drive; kernel_since; unmount_drive
+check "so the kernel warns again at the next mount" warned
 out="$(fsck.exfat -p "$PART" 2>&1)"; rc=$?; echo "$out" | sed 's/^/   /'
 check "fsck.exfat -p (a repairing run) clears it: exit $rc, dirty=$(dirty)" test "$(dirty)" -eq 0
-T=$(date +%s); mount_drive; sleep 1; sc stop "$UNIT"
-check "and the kernel stops warning" bash -c "! journalctl -k --since @$T --no-pager | grep -q 'Volume was not properly unmounted'"
+kmark; mount_drive; unmount_drive
+check "and the kernel stops warning" not_warned
 
 # ---- 4. the unit-stop half of a shutdown --------------------------------------------------------
 
@@ -415,7 +478,7 @@ section "7b. Check (storage.check) from a PrivateTmp unit, on a drive still carr
 docker rm -f bp-holder >/dev/null
 mount_marked || fail "could not mount the drive afresh with the mark set"
 run_holder
-watch_host; T=$(date +%s)
+watch_host; kmark
 in_runner "
   import { storageCheck } from '${REPO}/server/tasks/storage.mjs';
   console.log(JSON.stringify(await storageCheck({ name: '${NAME}' }, { log: (line, stream) => console.log('   [' + stream + '] ' + line) })));
@@ -423,11 +486,11 @@ in_runner "
 host_saw_umount; seen=$?; result="$(tail -1 "${WORK}/check.out")"
 check "storage.check succeeds from the runner's namespace (exit $rc)" test "$rc" -eq 0
 check "the host saw its own mount go for the check ($(tr '\n' ' ' < "${WORK}/poll.out")) and come back" bash -c "[ $seen -eq 0 ] && findmnt -n '$MNT' >/dev/null"
-kernel_since "$T"
-check "and the kernel mounted it afresh, repeating the mark's warning" bash -c "journalctl -k --since @$T --no-pager | grep -q 'Volume was not properly unmounted'"
+kernel_since
+check "and the kernel mounted it afresh, repeating the mark's warning" warned
 check "it calls the drive clean and says it is still marked" bash -c "grep -q '\"clean\":true' <<< '$result' && grep -q '\"markedDirty\":true' <<< '$result'"
 check "and started the app again" wait_running bp-holder
-docker rm -f bp-holder >/dev/null; sc stop "$UNIT"
+docker rm -f bp-holder >/dev/null; unmount_drive
 
 section "7c. Clear the mark (storage.dirty-mark.clear) from a PrivateTmp unit"
 # 7b left the drive unmounted, marked and consistent, as the owner's was.
@@ -439,10 +502,13 @@ in_runner "
 " | tee "${WORK}/clear.out"; rc=${PIPESTATUS[0]}
 check "storage.dirty-mark.clear succeeds (exit $rc)" test "$rc" -eq 0
 check "it says it cleared the mark" grep -q '"cleared":true' "${WORK}/clear.out"
-docker rm -f bp-holder >/dev/null; sc stop "$UNIT"
+# storage.dirty-mark.clear mounted the drive again with mount(8), outside systemd, and started the
+# app on it. Stopped before systemd has seen that mount, the unit stays as it was and the drive
+# stays mounted, carrying the mark the app's writes set; unmount_drive waits for systemd first.
+docker rm -f bp-holder >/dev/null; unmount_drive
 check "and the mark is clear on the drive" test "$(dirty)" -eq 0
-T=$(date +%s); mount_drive; sleep 1
-check "and the kernel no longer warns when it mounts it" bash -c "! journalctl -k --since @$T --no-pager | grep -q 'Volume was not properly unmounted'"
+kmark; mount_drive
+check "and the kernel no longer warns when it mounts it" not_warned
 
 section "7d. What each drive's filesystem says (storage.volume-state), from a PrivateTmp unit"
 # A second drive, ext4, beside the exFAT one: the kernel's word and the filesystem's side by side.
