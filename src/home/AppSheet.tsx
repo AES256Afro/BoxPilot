@@ -50,7 +50,7 @@ export function AppSheet({ app, protection, now, role, onClose, onNavigate, onSt
   ].filter(Boolean);
 
   return (
-    <Sheet kicker="App" title={app.name} size="sm" className="look-console app-sheet" onClose={onClose}
+    <Sheet kicker="App" title={app.name} className="look-console app-sheet" onClose={onClose}
       footer={<>
         <Button variant="ghost" onClick={() => { onClose(); onNavigate("catalog", { app: app.id }); }}>Manage in the App catalog</Button>
         {actions}
