@@ -33,8 +33,8 @@ export async function systemReboot({ delaySeconds = 5 } = {}, { run = fixedRun, 
   log?.(`Scheduling reboot in ${delay}s`, "stdout");
   const result = await run("/usr/bin/systemd-run", ["--quiet", "--on-active", String(delay), "--unit", "boxpilot-reboot", "/usr/bin/systemctl", "reboot"], { timeout: 30_000 });
   if (!result.ok) {
-    if (prepared) await resume(prepared, { run, log }).catch(() => {});
-    throw new Error(`Could not schedule the reboot: ${result.stderr.split("\n").slice(-2).join(" ")}${prepared?.dockerStopped || prepared?.drives?.some((drive) => drive.state === "unmounted") ? ". The drives were mounted again and Docker was started." : ""}`);
+    const resumed = prepared ? await resume(prepared, { run, log }).catch((error) => ({ error })) : null;
+    throw new Error(`Could not schedule the reboot: ${result.stderr.split("\n").slice(-2).join(" ")}${afterResume(resumed)}`);
   }
   return {
     scheduled: true,
@@ -42,6 +42,30 @@ export async function systemReboot({ delaySeconds = 5 } = {}, { run = fixedRun, 
     drives: (prepared?.drives ?? []).map(({ mountpoint, state, holders, volumeDirty }) => ({ mountpoint, state, holders, volumeDirty })),
     containers: prepared?.containers ?? null,
   };
+}
+
+/**
+ * The end of the error for a reboot that could not be scheduled: what putting the drives and Docker
+ * back did, as it happened. It used to say "The drives were mounted again and Docker was started"
+ * whatever the resume had done.
+ */
+export function afterResume(resumed) {
+  if (!resumed) return "";
+  if (resumed.error) return `. Putting the drives and Docker back failed as well (${resumed.error.message}); reconnect the drives from Repair and start docker.service from Services, or reboot.`;
+  const drives = resumed.drives ?? [];
+  const failed = drives.filter((drive) => !drive.ok);
+  if (failed.length) {
+    const which = failed.map((drive) => `${drive.mountpoint} did not mount again (${String(drive.reason ?? "").replace(/[.\s]+$/, "")})`).join("; ");
+    return resumed.docker === "left-stopped"
+      ? `. ${which}, so Docker was left stopped and no app writes into the empty folder instead. Reconnect the drive from Repair, then start docker.service from Services, or reboot.`
+      : `. ${which}. Reconnect the drive from Repair, or reboot.`;
+  }
+  const remounted = drives.some((drive) => drive.remounted);
+  if (resumed.docker === "failed") return `. ${remounted ? "The drives were mounted again, but Docker" : "Docker"} did not start again (${String(resumed.dockerError ?? "").replace(/[.\s]+$/, "") || "see its journal"}); start docker.service from Services.`;
+  if (remounted && resumed.docker === "started") return ". The drives were mounted again and Docker was started.";
+  if (remounted) return ". The drives were mounted again.";
+  if (resumed.docker === "started") return ". Docker was started again.";
+  return "";
 }
 
 /** Replace the 127.0.1.1 line Ubuntu uses for the host's own name; append one if missing. */

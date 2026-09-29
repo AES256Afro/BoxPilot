@@ -28,8 +28,8 @@ const pathOf = (unit) => `/${unit.replace(/\.(auto)?mount$/, "").replaceAll("-",
  * refuses the mount unit's stop until something lets go (Samba's close-share when `samba` is set);
  * `retrigger` has a client mount the share again through the automount between the two stops.
  */
-function fakeHost({ mounts = {}, fstype = "cifs", mountFails = null, startsButNothing = false, busy = false, samba = false, retrigger = false, containers = [], journal = "", readOnly = false } = {}) {
-  const state = { mounts: structuredClone(mounts), busy, journal, retriggered: false };
+function fakeHost({ mounts = {}, fstype = "cifs", mountFails = null, startsButNothing = false, noopStarts = 0, busy = false, samba = false, retrigger = false, containers = [], journal = "", readOnly = false } = {}) {
+  const state = { mounts: structuredClone(mounts), busy, journal, retriggered: false, noopStarts };
   const calls = [];
   const ok = (stdout = "") => ({ ok: true, code: 0, stdout, stderr: "" });
   const at = (target) => (state.mounts[target] ??= []);
@@ -54,6 +54,8 @@ function fakeHost({ mounts = {}, fstype = "cifs", mountFails = null, startsButNo
     if (verb === "start" && units[0].endsWith(".automount")) { if (!at(pathOf(units[0])).includes("autofs")) at(pathOf(units[0])).push("autofs"); return ok(); }
     if (verb === "start") {
       if (mountFails) { state.journal = mountFails; return { ok: false, code: 1, stdout: "", stderr: `Job for ${units[0]} failed because the control process exited with error code.` }; }
+      // A start systemd took as done already: exit 0, nothing mounted (mount-agreement.mjs).
+      if (state.noopStarts > 0) { state.noopStarts -= 1; return ok(); }
       if (!startsButNothing) at(pathOf(units[0])).push(fstype);
       return ok();
     }
@@ -318,6 +320,25 @@ describe("share.reconnect, the share's own remount", () => {
     expect(host.state.mounts["/mnt/nas-media"]).toEqual(["autofs", "cifs"]);
     expect(files.state.fstab).toBe(MANAGED_FSTAB);
     expect(files.state.written[credentialsPath("nas-media")]).toBeDefined();
+  });
+
+  it("starts the share once more when systemd's first start mounted nothing, and restarts the apps only once it is there", async () => {
+    const files = fakeFiles(MANAGED_FSTAB);
+    const host = fakeHost({ mounts: { "/mnt/nas-media": ["autofs", "cifs"] }, containers: ["bp-plex"], noopStarts: 1 });
+    const log = vi.fn();
+    await expect(shareReconnect({ name: "nas-media" }, { run: host.run, files, now, log, sleep: async () => {} })).resolves.toMatchObject({ reconnected: true, restarted: ["bp-plex"] });
+    const starts = host.calls.flatMap((call, index) => (call === "systemctl start mnt-nas\\x2dmedia.mount" ? [index] : []));
+    expect(starts).toHaveLength(2);
+    expect(host.calls.indexOf("docker restart bp-plex")).toBeGreaterThan(starts[1]);
+    expect(log).toHaveBeenCalledWith("systemctl start mnt-nas\\x2dmedia.mount exited 0 with nothing mounted at /mnt/nas-media; waiting for systemd to catch up, then starting it once more", "stderr");
+  });
+
+  it("restarts no app when systemd says the share started and nothing is there", async () => {
+    const files = fakeFiles(MANAGED_FSTAB);
+    const host = fakeHost({ mounts: { "/mnt/nas-media": ["autofs", "cifs"] }, containers: ["bp-plex"], startsButNothing: true });
+    await expect(shareReconnect({ name: "nas-media" }, { run: host.run, files, now, sleep: async () => {} }))
+      .rejects.toThrow("systemd started mnt-nas\\x2dmedia.mount but nothing is mounted at /mnt/nas-media. /mnt/nas-media is not mounted now; its fstab entry is kept, so it mounts by itself once the NAS answers.");
+    expect(host.calls.some((call) => call.startsWith("docker restart"))).toBe(false);
   });
 
   it("mounts a share that had gone idle without unmounting anything first", async () => {
