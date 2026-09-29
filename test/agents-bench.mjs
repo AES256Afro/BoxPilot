@@ -130,6 +130,8 @@ export async function createBench({ promptPerSecond = 20, generatePerSecond = 4,
    * run. `agent` asks another agent than Steve; `beforeExecute(claim)` may change the claim or the clock.
    */
   async function ask(question = ownerQuestion, { agent = keeper, beforeExecute = null } = {}) {
+    // On a real model the service's clock is the real one too, so each run's deadline is its own.
+    if (real) h.setTime(new Date());
     const queued = h.service.startRun(h.caller("owner"), agent.id, { kind: "ask", question });
     const claim = await h.service.runnerNext(h.runnerId, { waitMs: 0 });
     if (real?.threads) claim.runtime = { ...claim.runtime, threads: real.threads };
