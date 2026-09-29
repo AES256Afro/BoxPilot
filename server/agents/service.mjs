@@ -1619,7 +1619,8 @@ export function createAgentService({
       const run = store.listRuns({ agentId: agent.id, limit: 30 }).find((entry) => entry.outputKind === "digest" && ["completed", "degraded"].includes(entry.state) && canSeeRun(person, entry, agent));
       if (run && (!digest || run.finishedAt > digest.at)) digest = { agentId: agent.id, agentName: agent.name, runId: run.id, at: run.finishedAt, excerpt: clip(run.answer ?? "", 600), state: run.state };
     }
-    return { enabled: settings.enabled, paused: modulePaused(settings), runnerOnline: runnerOnline(), digest, cardsWaiting: store.listProposals().filter((proposal) => canSeeProposal(person, proposal)).length };
+    // queued: runs waiting for the runner, so Home and Ops can say what a stopped runner holds up.
+    return { enabled: settings.enabled, paused: modulePaused(settings), runnerOnline: runnerOnline(), queued: queueCounts().queued, digest, cardsWaiting: store.listProposals().filter((proposal) => canSeeProposal(person, proposal)).length };
   }
 
   function usage(caller) {

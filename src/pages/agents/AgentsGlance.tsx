@@ -9,6 +9,8 @@ import "./agents.css";
  * Agents at a glance, on Home and on Ops (M37): the latest digest the Server Keeper wrote, and how
  * many cards wait for someone. For the owner and operators only, and only once Agents are on or a
  * digest exists: a server without agents shows nothing here. One read when the page opens.
+ * A runner that is not answering leads, over the cards and this morning's digest: nothing runs
+ * until it starts, and the runs waiting for it are counted.
  */
 
 export interface AgentsGlanceProps {
@@ -31,8 +33,15 @@ export function AgentsGlance({ role, variant, onOpen, now = Date.now }: AgentsGl
 
   const verdict = moduleVerdict({ enabled: glance.enabled, paused: glance.paused, pausedUntil: null, killedAt: null, quietHours: { start: "", end: "" }, inQuietHours: false, notify: true }, glance.runnerOnline, 0);
   const cards = glance.cardsWaiting;
+  const stopped = glance.enabled && !glance.paused && !glance.runnerOnline;
+  const queued = glance.queued ?? 0;
   const body = (
     <div className="agents-glance__body">
+      {stopped && (
+        <p className="agents-glance__runner">
+          Nothing runs until the runner starts{queued ? <>: <b>{queued}</b> {queued === 1 ? "run waits" : "runs wait"} for it</> : null}.
+        </p>
+      )}
       {glance.digest
         ? <>
             <p className="agents-glance__meta">{glance.digest.agentName} · {relativeTime(glance.digest.at, now()) ?? "recently"}</p>
@@ -45,7 +54,7 @@ export function AgentsGlance({ role, variant, onOpen, now = Date.now }: AgentsGl
   const open = <Button variant="ghost" onClick={onOpen}>Open Agents</Button>;
   if (variant === "ops") {
     return (
-      <Panel className="agents-glance agents-glance--ops" title="Agents" count={{ status: verdict.status, label: cards ? `${cards} ${cards === 1 ? "card" : "cards"}` : verdict.label }} meta={glance.digest ? "latest digest" : undefined} actions={open} padded>
+      <Panel className="agents-glance agents-glance--ops" title="Agents" count={{ status: verdict.status, label: cards && !stopped ? `${cards} ${cards === 1 ? "card" : "cards"}` : verdict.label }} meta={glance.digest ? "latest digest" : undefined} actions={open} padded>
         {body}
       </Panel>
     );

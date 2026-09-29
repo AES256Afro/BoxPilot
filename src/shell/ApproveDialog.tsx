@@ -5,7 +5,7 @@ import { useDialogFocus } from "../useDialogFocus";
 import { jobWarnings } from "../JobWarnings";
 import { formatDuration, jobTimeout } from "../JobTimeout";
 import { JobLogView } from "../JobLogView";
-import { Button, Facts, Field, JobProgress, Notice, Progress, SecretInput, TextInput } from "../ui";
+import { Button, Facts, Field, JobProgress, Notice, Progress, SecretInput, TextInput, riskOf } from "../ui";
 import { CloseIcon, LockIcon } from "../ui/icons";
 import "./look.css";
 import "./approve.css";
@@ -62,12 +62,20 @@ export interface PendingOperation {
    * The dialog reads its current approval policy; closing it leaves the job waiting, as it found it.
    */
   existingJobId?: string;
+  /**
+   * The operation that comes after this one, offered as "Next" once this one has completed (Agents:
+   * install Unsloth, then download the model, then start the runner). Nothing is staged until the
+   * person presses it, and it opens in its own dialog, approved at its own tier like any other.
+   */
+  next?: PendingOperation;
 }
 
 interface Props extends PendingOperation {
   csrfToken: string;
   onClose: () => void;
   onFinished?: (job: Job) => void;
+  /** Opens `next` in place of this dialog; without it, no Next is offered. */
+  onNext?: (operation: PendingOperation) => void;
 }
 
 type Phase = "staging" | "ready" | "approving" | "running" | "done" | "error";
@@ -85,7 +93,7 @@ function ParameterList({ parameters }: { parameters: Record<string, unknown> }) 
   );
 }
 
-export function ApproveDialog({ operationId, title, parameters, preview, confirmText, csrfToken, onClose, onFinished, onStaged, handoff, moreTimeFor, existingJobId }: Props) {
+export function ApproveDialog({ operationId, title, parameters, preview, confirmText, csrfToken, onClose, onFinished, onStaged, handoff, moreTimeFor, existingJobId, next, onNext }: Props) {
   const [phase, setPhase] = useState<Phase>("staging");
   const [job, setJob] = useState<Job | null>(null);
   const [finished, setFinished] = useState<Job | null>(null);
@@ -340,7 +348,12 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
 
         <footer className="approve-foot">
           {ended ? (
-            <Button variant="primary" onClick={dismiss}>Close</Button>
+            phase === "done" && next && onNext
+              ? <>
+                  <Button onClick={dismiss}>Close</Button>
+                  <Button variant="primary" risk={riskOf(next.operationId)} onClick={() => onNext(next)}>Next: {next.title}</Button>
+                </>
+              : <Button variant="primary" onClick={dismiss}>Close</Button>
           ) : (
             <>
               <Button onClick={dismiss} disabled={busy}>Cancel</Button>
@@ -356,9 +369,10 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
 
 /** Hook: `const { start, dialog } = useOperation(csrfToken, onFinished)`; render `{dialog}` once in the page. */
 export function useOperation(csrfToken: string, onFinished?: (job: Job) => void) {
-  const [pending, setPending] = useState<PendingOperation | null>(null);
-  const start = useCallback((operation: PendingOperation) => setPending(operation), []);
+  // Each start is a dialog of its own (keyed), so an operation's `next` opens fresh in its place.
+  const [pending, setPending] = useState<{ operation: PendingOperation; key: number } | null>(null);
+  const start = useCallback((operation: PendingOperation) => setPending((current) => ({ operation, key: (current?.key ?? 0) + 1 })), []);
   const close = useCallback(() => setPending(null), []);
-  const dialog = pending ? <ApproveDialog {...pending} csrfToken={csrfToken} onClose={close} onFinished={onFinished} /> : null;
+  const dialog = pending ? <ApproveDialog key={pending.key} {...pending.operation} csrfToken={csrfToken} onClose={close} onFinished={onFinished} onNext={start} /> : null;
   return { start, close, dialog, active: pending !== null };
 }
