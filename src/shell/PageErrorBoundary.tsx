@@ -1,4 +1,6 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
+import { Button, CodeBlock, Notice } from "../ui";
+import "./page-error.css";
 
 /**
  * Keeps one broken page from taking the whole product with it.
@@ -9,7 +11,8 @@ import { Component, type ErrorInfo, type ReactNode } from "react";
  * "the storage page is confused", just nothing at all.
  *
  * A page that fails is worth saying so about plainly, and the rest of the product is worth keeping
- * usable while it does.
+ * usable while it does. M33.13 draws it in the console's look: the verdict as the kit's notice,
+ * with the way out on it, and the detail a support bundle needs in a CodeBlock.
  */
 interface Props { children: ReactNode; pageName: string; resetKey: string }
 
@@ -44,34 +47,28 @@ export default class PageErrorBoundary extends Component<Props, State> {
     // failed import - so the honest offer is the one that works: reload, and get the new version.
     if (isChunkLoadFailure(error)) {
       return (
-        <section className="panel" data-page-error={this.props.pageName} data-page-error-kind="stale-chunk">
-          <header className="panel-header">
-            <div>
-              <strong>BoxPilot was updated while this tab was open</strong>
-              <span>The {this.props.pageName} page belongs to the version that was running when you opened BoxPilot, and that version is gone from the server now. Reloading picks up the new one; nothing on this server is affected.</span>
-            </div>
-          </header>
-          <div className="recovery-actions">
-            <button className="primary-button" type="button" onClick={() => window.location.reload()}>Reload BoxPilot</button>
-          </div>
-        </section>
+        <div className="page-error-view" data-page-error={this.props.pageName} data-page-error-kind="stale-chunk">
+          <Notice tone="info" title="BoxPilot was updated while this tab was open" action={<Button variant="primary" onClick={() => window.location.reload()}>Reload BoxPilot</Button>}>
+            The {this.props.pageName} page belongs to the version that was running when you opened BoxPilot, and that version is gone from the server now. Reloading picks up the new one; nothing on this server is affected.
+          </Notice>
+        </div>
       );
     }
     return (
-      <section className="panel" data-page-error={this.props.pageName}>
-        <header className="panel-header">
-          <div>
-            <strong>The {this.props.pageName} page could not be shown</strong>
-            <span>Something this page read back was not the shape it expected. The rest of BoxPilot is unaffected. The other pages still work, and nothing on this server has changed.</span>
-          </div>
-        </header>
-        <p className="muted">This is a fault in BoxPilot rather than something you did. It is worth reporting with a support bundle, which includes the detail below.</p>
-        <pre className="log-view" aria-label="Error detail">{String(error?.message ?? error)}</pre>
-        <div className="recovery-actions">
-          <button className="primary-button" type="button" onClick={() => this.setState({ error: null })}>Try this page again</button>
-          <button className="secondary-button" type="button" onClick={() => window.location.reload()}>Reload BoxPilot</button>
-        </div>
-      </section>
+      <div className="page-error-view" data-page-error={this.props.pageName}>
+        <Notice
+          tone="danger"
+          title={`The ${this.props.pageName} page could not be shown`}
+          action={<>
+            <Button variant="primary" onClick={() => this.setState({ error: null })}>Try this page again</Button>
+            <Button onClick={() => window.location.reload()}>Reload BoxPilot</Button>
+          </>}
+        >
+          Something this page read back was not the shape it expected. The rest of BoxPilot is unaffected. The other pages still work, and nothing on this server has changed.
+        </Notice>
+        <p className="page-error-note">This is a fault in BoxPilot rather than something you did. It is worth reporting with a support bundle, which includes the detail below.</p>
+        <CodeBlock label="Error detail" maxHeight="16rem">{String(error?.message ?? error)}</CodeBlock>
+      </div>
     );
   }
 }

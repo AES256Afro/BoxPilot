@@ -1,13 +1,28 @@
-import { useEffect, useRef, useState } from "react";
-import { followJobOutput, terminalJobStates, type Job } from "./operations";
+import { useEffect, useState } from "react";
+import { followJobOutput, terminalJobStates, type Job, type JobStep } from "./operations";
 import { readJson } from "./http";
 import { jobOutputText } from "./jobOutputText";
 import { JobWarnings } from "./JobWarnings";
 import { JobTimeoutNotice, errorIsTheTimeout } from "./JobTimeout";
 import { ranAgain } from "./jobStatus";
+import { Button } from "./ui/Button";
+import { CodeBlock } from "./ui/CodeBlock";
+import { Notice } from "./ui/Notice";
+import type { Status } from "./ui/types";
+import "./shell/jobs.css";
+
+/** How a step ended, as a mark: done, failed, needs the owner, or still going. */
+function stepStatus(step: JobStep): Status {
+  if (step.state === "completed") return "good";
+  if (step.state === "failed") return "danger";
+  if (step.state === "required" || step.state === "staged") return "warning";
+  return "neutral";
+}
 
 /**
- * The terminal view of one job, usable from anywhere an action is shown.
+ * The terminal view of one job, usable from anywhere an action is shown (M33.13 in the console's
+ * look: the steps as rows with their marks, the job's error and notices as the kit's notices, the
+ * output in a CodeBlock).
  *
  * Every operation already writes its output to the same place; what was missing was the option to
  * look at it from wherever the action lives — an automation's step, a schedule's last run, an app
@@ -51,7 +66,6 @@ export function JobLogView({ job: given, jobId, title, onMoreTime }: { job?: Job
   const [output, setOutput] = useState("");
   const [outputError, setOutputError] = useState<string | null>(null);
   const [readingOutput, setReadingOutput] = useState(true);
-  const outputRef = useRef<HTMLPreElement | null>(null);
   const finished = job ? terminalJobStates.has(job.state) : false;
   const logUnreadable = Boolean(job?.steps.some((step) => step.name === "log" && step.state === "failed"));
 
@@ -77,43 +91,53 @@ export function JobLogView({ job: given, jobId, title, onMoreTime }: { job?: Job
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, job !== null, finished, retry]);
 
-  useEffect(() => { if (outputRef.current) outputRef.current.scrollTop = outputRef.current.scrollHeight; }, [output]);
+  const retryButton = <Button onClick={() => setRetry((value) => value + 1)}>Try reading again</Button>;
+  if (id && goneId === id) return <p className="jobs-quiet">{title ?? "This job"} is no longer in the history, which keeps the last 500 jobs for 90 days.</p>;
+  if (!job) return jobError ? <Notice tone="danger" live action={retryButton}>{jobError}</Notice> : <p className="jobs-quiet">Reading…</p>;
 
-  const retryButton = <button className="secondary-button" type="button" onClick={() => setRetry((value) => value + 1)}>Try reading again</button>;
-  if (id && goneId === id) return <p className="muted">{title ?? "This job"} is no longer in the history, which keeps the last 500 jobs for 90 days.</p>;
-  if (!job) return jobError ? <div role="alert"><p>{jobError}</p>{retryButton}</div> : <p className="muted">Reading…</p>;
-
+  const name = title ?? job.title;
+  const waiting = job.state === "awaiting_approval";
   return (
-    <div className="activity-detail">
-      {jobError && <div role="alert"><p>{jobError}</p>{retryButton}</div>}
+    <div className="jobs-log">
+      {jobError && <Notice tone="danger" live action={retryButton}>{jobError}</Notice>}
       {job.steps.length > 0 && (
-        <ul className="activity-steps">
+        <ol className="jobs-steps" aria-label={`Steps of ${name}`}>
           {job.steps.map((step, index) => (
-            <li key={`${step.name}-${index}`}><strong>{step.name}</strong> · {step.state} · {step.detail}</li>
+            <li key={`${step.name}-${index}`} className="jobs-step ui-marked" data-status={stepStatus(step)}>
+              <span className="ui-mark jobs-step__mark" aria-hidden="true" />
+              <span className="jobs-step__name">{step.name}</span>
+              <span className="jobs-step__state">{step.state}</span>
+              <span className="jobs-step__detail">{step.detail}</span>
+            </li>
           ))}
-        </ul>
+        </ol>
       )}
       {/* A restart cut this run off and BoxPilot already ran it again (M30.2): "check what it changed
           before retrying" is the wrong advice then, and red is the wrong colour. */}
       {ranAgain(job)
-        ? <p className="job-rerun-note" role="status">A BoxPilot restart cut this run off, so BoxPilot ran it again by itself. The newer entry for it in Activity says how that went.</p>
-        : job.error && !errorIsTheTimeout(job) && <div className="auth-error" role="alert">{job.error}</div>}
-      {job.recovery?.rerunOf && <p className="muted job-rerun-note">BoxPilot ran this again by itself after a restart cut the first run off.</p>}
+        ? <Notice tone="info" live>A BoxPilot restart cut this run off, so BoxPilot ran it again by itself. The newer entry for it in Activity says how that went.</Notice>
+        : job.error && !errorIsTheTimeout(job) && <Notice tone="danger" live>{job.error}</Notice>}
+      {job.recovery?.rerunOf && <p className="jobs-quiet">BoxPilot ran this again by itself after a restart cut the first run off.</p>}
       <JobTimeoutNotice job={job} onMoreTime={onMoreTime ? () => onMoreTime(job) : undefined} />
       <JobWarnings result={job.result} />
-      {outputError && <div role="alert"><p>{outputError}</p>{retryButton}</div>}
-      {readingOutput && <p className="muted">Reading saved output...</p>}
+      {outputError && <Notice tone="danger" live action={retryButton}>{outputError}</Notice>}
+      {readingOutput && <p className="jobs-quiet">Reading saved output...</p>}
       {/* A staged job has run nothing yet (M36): an empty "Live output" read as if it were stuck. */}
-      {job.state === "awaiting_approval" && !output && <p className="muted">Nothing has run yet: it waits for someone to approve it.</p>}
-      {(output || (!finished && job.state !== "awaiting_approval")) && (
-        <div className="job-terminal">
-          <div className="job-terminal-bar"><span>{finished ? "Output" : "Live output"}</span></div>
-          <pre ref={outputRef} aria-label={`Output for ${title ?? job.title}`}>{output || "Waiting for output..."}</pre>
-        </div>
+      {waiting && !output && <p className="jobs-quiet">Nothing has run yet: it waits for someone to approve it.</p>}
+      {(output || (!finished && !waiting)) && (
+        <CodeBlock
+          label={`Output for ${name}`}
+          meta={finished ? "saved" : "live"}
+          follow={!finished}
+          empty="Waiting for output..."
+          className="jobs-output"
+        >
+          {output}
+        </CodeBlock>
       )}
       {/* M30.1: an empty log is not "no output" when BoxPilot could not open the file the helper wrote. */}
-      {finished && !output && !outputError && !readingOutput && logUnreadable && <p role="alert">BoxPilot could not open this job's output, so none is shown. The log step above says why.</p>}
-      {finished && !output && !job.error && !outputError && !readingOutput && !logUnreadable && <p className="muted">This job recorded no output.</p>}
+      {finished && !output && !outputError && !readingOutput && logUnreadable && <Notice tone="danger" live>BoxPilot could not open this job's output, so none is shown. The log step above says why.</Notice>}
+      {finished && !output && !job.error && !outputError && !readingOutput && !logUnreadable && <p className="jobs-quiet">This job recorded no output.</p>}
     </div>
   );
 }

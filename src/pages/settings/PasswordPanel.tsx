@@ -1,7 +1,8 @@
 import { useState } from "react";
+import { Button, Field, Notice, Panel, SecretInput } from "../../ui";
 
 /** Self-service password change for the signed-in account (any role). Other sessions are signed out. */
-export default function PasswordSettings({ csrfToken }: { csrfToken: string }) {
+export default function PasswordPanel({ csrfToken }: { csrfToken: string }) {
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [message, setMessage] = useState<{ tone: "good" | "bad"; text: string } | null>(null);
@@ -23,14 +24,17 @@ export default function PasswordSettings({ csrfToken }: { csrfToken: string }) {
   };
 
   return (
-    <section className="panel">
-      <header className="panel-header"><div><strong>Your password</strong><span>Twelve characters or more. Changing it signs out your other devices; this one stays signed in.</span></div></header>
-      <form className="recovery-actions" onSubmit={(event) => { event.preventDefault(); void submit(); }}>
-        <input aria-label="Current password" type="password" placeholder="current password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} required />
-        <input aria-label="New password" type="password" placeholder="new password (12+)" autoComplete="new-password" minLength={12} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} required />
-        <button className="secondary-button" type="submit" disabled={busy}>Change password</button>
+    <Panel title="Your password" meta="12 characters or more" padded className="settings-panel">
+      <form className="settings-form" onSubmit={(event) => { event.preventDefault(); void submit(); }}>
+        <Field label="Current password">
+          <SecretInput autoComplete="current-password" value={currentPassword} onValueChange={setCurrentPassword} required />
+        </Field>
+        <Field label="New password" hint="Changing it signs out your other devices; this one stays signed in.">
+          <SecretInput autoComplete="new-password" minLength={12} value={newPassword} onValueChange={setNewPassword} required />
+        </Field>
+        <div className="settings-actions"><Button type="submit" busy={busy}>Change password</Button></div>
       </form>
-      {message && <div className={message.tone === "good" ? "surface-notice" : "auth-error"} role="status">{message.text}</div>}
-    </section>
+      {message && <Notice tone={message.tone === "good" ? "success" : "danger"} live>{message.text}</Notice>}
+    </Panel>
   );
 }

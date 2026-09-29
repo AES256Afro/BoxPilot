@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { inspectOperation } from "./operations";
-import { Button, Panel, StatusChip, type Status } from "./ui";
+import { inspectOperation } from "../operations";
+import { Button, CodeBlock, Panel, StatusChip, type Status } from "../ui";
 
 interface Check { id: string; title: string; status: "pass" | "warning" | "fail" | "unknown"; detail: string; next: string | null }
 interface Report { checkedAt: string; status: string; installedVersion?: string | null; checks: Check[] }
@@ -82,7 +82,7 @@ export default function ControllerDoctor({ onOpenBackups }: { onOpenBackups?: ()
       <details className="rp-more rp-body">
         <summary>If this web interface stops working</summary>
         <p className="rp-row__text">Connect to the server by SSH or its local console, then run:</p>
-        <pre className="rp-pre">sudo sh /opt/boxpilot/scripts/boxpilot-doctor.sh --control-plane</pre>
+        <CodeBlock label="On the server">sudo sh /opt/boxpilot/scripts/boxpilot-doctor.sh --control-plane</CodeBlock>
         <p className="rp-row__text">Add <code>--database</code> for the bounded SQLite checks, or <code>--json</code> for a structured report. It works without either service and restarts or replaces nothing.</p>
       </details>
     </Panel>

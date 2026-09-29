@@ -1,0 +1,104 @@
+/*
+ * The approval dialog (src/shell/ApproveDialog.tsx, M33.13), in the console's look wherever it
+ * opens (look.css). The tier leads: a band in the tier's colour, with its name in words and what
+ * approving asks, under the operation's name. Then what it will do, what approving needs, the run
+ * as it happens and how it ended. Tokens only; every selector starts with .approve-.
+ */
+
+.approve-backdrop {
+  position: fixed;
+  z-index: 110;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: var(--modal-bg);
+}
+
+.approve-dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(40rem, 100%);
+  max-height: calc(100vh - 40px);
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  color: var(--text);
+  background: var(--surface);
+  box-shadow: var(--elevation-3);
+}
+.approve-dialog:focus { outline: none; }
+
+/* The operation: what the dialog is at (Approval, Finished...), its name, and its id in mono. */
+.approve-head { display: flex; flex: none; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 14px 16px 12px; }
+.approve-heading { display: grid; gap: 3px; min-width: 0; }
+.approve-kicker { color: var(--text-muted); font-family: var(--font-mono); font-size: 10.5px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; }
+.approve-dialog[data-phase="done"] .approve-kicker { color: var(--status-good-text); }
+.approve-dialog[data-phase="error"] .approve-kicker { color: var(--status-danger-text); }
+.approve-title { margin: 0; color: var(--text-strong); font-size: 20px; font-weight: 650; line-height: 1.2; overflow-wrap: anywhere; }
+.approve-facts { margin: 2px 0 0; color: var(--text-muted); font-family: var(--font-mono); font-size: 12px; overflow-wrap: anywhere; }
+.approve-facts code { color: var(--text); font-size: inherit; }
+.approve-close { display: grid; flex: none; width: 30px; height: 30px; place-items: center; padding: 0; border: 1px solid var(--border-strong); border-radius: 3px; color: var(--text-muted); background: var(--surface-raised); cursor: pointer; }
+.approve-close:hover:not(:disabled) { color: var(--text-strong); }
+.approve-close:disabled { cursor: not-allowed; opacity: 0.45; }
+.approve-close svg { width: 15px; height: 15px; }
+
+/* The tier: its colour down the leading edge and behind it, its name in words, what it asks. */
+.approve-tier {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  padding: 10px 16px 10px 18px;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-muted);
+  box-shadow: inset 4px 0 0 var(--border-strong);
+}
+.approve-tier[data-tier="low"] { border-color: var(--risk-low-border); background: var(--risk-low-bg); box-shadow: inset 4px 0 0 var(--risk-low); }
+.approve-tier[data-tier="medium"] { border-color: var(--risk-medium-border); background: var(--risk-medium-bg); box-shadow: inset 4px 0 0 var(--risk-medium); }
+.approve-tier[data-tier="high"] { border-color: var(--risk-high-border); background: var(--risk-high-bg); box-shadow: inset 4px 0 0 var(--risk-high); }
+.approve-tier__name { display: inline-flex; flex: none; align-items: center; gap: 6px; color: var(--text-strong); font-family: var(--font-mono); font-size: 13px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+.approve-tier[data-tier="low"] .approve-tier__name { color: var(--risk-low-text); }
+.approve-tier[data-tier="medium"] .approve-tier__name { color: var(--risk-medium-text); }
+.approve-tier[data-tier="high"] .approve-tier__name { color: var(--risk-high-text); }
+.approve-tier__lock { width: 14px; height: 14px; }
+.approve-tier__asks { flex: 1 1 16rem; min-width: 0; color: var(--text-strong); font-size: 14px; line-height: 1.4; }
+
+.approve-body { display: grid; flex: 1 1 auto; align-content: start; gap: 14px; min-height: 0; padding: 14px 16px 16px; overflow-y: auto; }
+.approve-section { display: grid; gap: 8px; min-width: 0; margin: 0; }
+.approve-section__title { margin: 0; color: var(--text-muted); font-family: var(--font-mono); font-size: 10.5px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; }
+
+/* What it will do: the page's own words, in a box, so nothing else on the dialog is mistaken for it. */
+.approve-preview { margin: 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 4px; color: var(--text-strong); background: var(--surface-muted); font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+.approve-preview p { margin: 0 0 6px; }
+.approve-preview p:last-child { margin-bottom: 0; }
+.approve-preview code { font-size: 0.92em; }
+.approve-preview ul { margin: 4px 0 0; padding-left: 18px; }
+.approve-staged { display: grid; gap: 6px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface-muted); font-size: 13.5px; }
+.approve-staged strong { color: var(--text-strong); font-weight: 600; }
+.approve-params { display: grid; gap: 3px; margin: 0; padding: 0; list-style: none; font-family: var(--font-mono); font-size: 12.5px; }
+.approve-params li { display: flex; flex-wrap: wrap; gap: 2px 10px; min-width: 0; overflow-wrap: anywhere; }
+.approve-params code { flex: none; min-width: 9ch; color: var(--text-muted); font-size: inherit; }
+.approve-params span { min-width: 0; color: var(--text-strong); }
+.approve-more summary { width: fit-content; color: var(--text-muted); font-family: var(--font-mono); font-size: 11.5px; letter-spacing: 0.03em; cursor: pointer; }
+.approve-more summary:hover { color: var(--text-strong); }
+.approve-more[open] summary { margin-bottom: 6px; }
+
+.approve-form { gap: 12px; }
+.approve-note { margin: 0; color: var(--text-muted); font-size: 13px; line-height: 1.45; }
+.approve-form .ui-field__hint code { color: var(--text-strong); font-size: 12.5px; font-weight: 600; }
+
+.approve-foot { display: flex; flex: none; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; padding: 10px 16px; border-top: 1px solid var(--border); background: var(--surface); }
+.approve-foot .ui-button { min-height: 32px; padding: 0 14px; border-radius: 3px; font-size: 13.5px; }
+/* The button that approves a high-risk job carries the tier's edge as well as the band above. */
+.approve-go[data-tier="high"] { box-shadow: inset 3px 0 0 var(--risk-high); }
+
+@media (max-width: 640px) {
+  .approve-backdrop { align-items: flex-end; padding: 0; }
+  .approve-dialog { width: 100%; max-height: 94vh; border-width: 1px 0 0; border-radius: 8px 8px 0 0; }
+  .approve-title { font-size: 18px; }
+  .approve-foot .ui-button { flex: 1 1 auto; }
+}

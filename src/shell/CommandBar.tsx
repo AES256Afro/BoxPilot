@@ -4,7 +4,7 @@ import type { PendingOperation } from "../ApproveDialog";
 import type { ViewName } from "../data";
 import { appFactsFrom } from "../home/facts";
 import { readJson } from "../http";
-import { Button, RiskTag, type RiskTier } from "../ui";
+import { Button, Notice, RiskTag, type RiskTier } from "../ui";
 import { useDialogFocus } from "../useDialogFocus";
 import { AreaIcon, ExternalIcon, PlusIcon, RunIcon, SearchIcon, SparkIcon } from "./areaIcons";
 import { actionCommands, buildCommands, searchCommands, type AppActionFacts, type CatalogEntry, type Command, type CommandGroup } from "./commandIndex";
@@ -215,10 +215,10 @@ function CommandDialog({ csrfToken, onClose, onNavigate, onStart, role }: Comman
           <div className="command-answer" aria-live="polite" aria-busy={!asked.result && !asked.error}>
             <p className="command-answer__question">{asked.question}</p>
             {!asked.result && !asked.error && <p className="command-answer__wait">Asking {model}. On a processor without a GPU an answer can take a minute.</p>}
-            {asked.error && <p className="auth-error" role="alert">{asked.error}</p>}
+            {asked.error && <Notice tone="danger" live title="The assistant did not answer">{asked.error}</Notice>}
             {asked.result && (
               <>
-                {asked.result.degraded && <p className="notice">{asked.result.degraded.message}</p>}
+                {asked.result.degraded && <Notice tone="warning">{asked.result.degraded.message}</Notice>}
                 <div className="command-answer__text">{asked.result.answer}</div>
                 {(asked.result.sources ?? []).length > 0 && (
                   <details className="command-answer__sources">

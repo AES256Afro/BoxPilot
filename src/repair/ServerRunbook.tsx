@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { readJson } from "./http";
-import { Button, Panel, type Status } from "./ui";
+import { readJson } from "../http";
+import { Button, CodeBlock, Panel, type Status } from "../ui";
 
 /** Whether the copy the owner downloaded still describes this server (M34.4). From BoxPilot's own records only. */
 interface RunbookStatus {
@@ -50,7 +50,8 @@ function previewLine(preview: RunbookPreview): string {
 }
 
 /**
- * "Document this server": a runbook built from what BoxPilot knows, to keep off the server. Anyone
+ * "Document this server" (Repair's console, beside the recovery kit): a runbook built from what
+ * BoxPilot knows, to keep off the server. The preview is the kit's CodeBlock, so it can be copied. Anyone
  * who can operate the server may preview it; the owner downloads the full copy, which also says
  * where the second copies of the backups are kept.
  */
@@ -140,10 +141,7 @@ export default function ServerRunbook() {
         {preview && (
           <>
             <p className="rp-row__text">{previewLine(preview)}</p>
-            <details className="rp-more" open>
-              <summary>{preview.audience === "operator" ? "Operator's copy" : "Full runbook"}</summary>
-              <pre className="rp-pre">{preview.markdown}</pre>
-            </details>
+            <CodeBlock label={preview.audience === "operator" ? "Operator's copy" : "Full runbook"} maxHeight="28rem">{preview.markdown}</CodeBlock>
           </>
         )}
       </div>

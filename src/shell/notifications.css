@@ -1,0 +1,19 @@
+/*
+ * The notification centre's drawer (src/shell/NotificationCentre.tsx; M36, M33.13 in the console's
+ * look): the facts and Mark all seen at the top, then one row per thing BoxPilot said, a new one
+ * marked down its leading edge. Tokens only; every selector starts with .notifications-.
+ */
+
+.notifications-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 12px; }
+.notifications-facts { margin: 0; color: var(--text-muted); font-family: var(--font-mono); font-size: 12px; line-height: 1.5; }
+.notifications-facts b { color: var(--text-strong); font-weight: 600; }
+.notifications-quiet { margin: 0; color: var(--text-muted); font-size: 13px; }
+
+.notifications-list { display: grid; margin: 0 -14px; padding: 0; border-top: 1px solid var(--border); list-style: none; }
+.notifications-entry { display: grid; gap: 5px; min-width: 0; padding: 10px 14px 10px 16px; border-bottom: 1px solid var(--border-subtle); }
+.notifications-entry[data-new] { box-shadow: inset 3px 0 0 var(--accent); }
+.notifications-entry__head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; min-width: 0; }
+.notifications-entry__head strong { min-width: 0; color: var(--text-strong); font-size: 14px; font-weight: 600; line-height: 1.35; overflow-wrap: anywhere; }
+.notifications-entry__message { margin: 0; color: var(--text-muted); font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; }
+.notifications-entry__meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; color: var(--text-muted); font-family: var(--font-mono); font-size: 12px; }
+.notifications-entry__go { margin-left: auto; }

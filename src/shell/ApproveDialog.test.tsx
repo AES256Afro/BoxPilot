@@ -72,7 +72,8 @@ describe("approval dialog", () => {
     const api = vi.mocked(fetch); const normal = api.getMockImplementation()!;
     let observed: AbortSignal | undefined;
     api.mockImplementation((input, init) => {
-      if (input.toString() === "/api/v1/jobs/job-1" && !init?.method) return new Promise<Response>((_resolve, reject) => {
+      // The dialog's own wait for the end carries a signal; JobProgress's display reads do not.
+      if (input.toString() === "/api/v1/jobs/job-1" && !init?.method && init?.signal) return new Promise<Response>((_resolve, reject) => {
         observed = init?.signal ?? undefined;
         observed?.addEventListener("abort", () => reject(observed?.reason), { once: true });
       });
@@ -244,6 +245,76 @@ describe("approving a job that was already staged", () => {
     existingApi("completed");
     render(<ApproveDialog operationId="storage.format" title="Erase and format a disk" parameters={{}} existingJobId="job-1" csrfToken="csrf" onClose={vi.fn()} />);
     expect(await screen.findByText((text) => text.startsWith("This job is no longer waiting for approval (completed)"))).toBeTruthy();
+  });
+});
+
+// M33.13: the dialog in the console's look. The tier leads, in words, and asks what its tier asks.
+describe("the approval dialog's tiers", () => {
+  function stubTier(approval: Record<string, unknown>, finished: Record<string, unknown> = { state: "completed" }) {
+    const calls: Array<{ url: string; method: string; body: Record<string, unknown> }> = [];
+    const json = (body: unknown, status = 200) => Promise.resolve(new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      const method = init?.method ?? "GET";
+      calls.push({ url, method, body: init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : {} });
+      if (method === "POST" && url.endsWith("/jobs")) return json({ job: { ...stagedJob, risk: approval.tier, recovery: { reason: "Formats the disk with a new filesystem." } }, approval: { mode: "tiered", elevated: false, ...approval } }, 201);
+      if (url.endsWith("/approve")) return json({ job: { ...stagedJob, state: "applying" }, elevatedUntil: null }, 202);
+      if (url.endsWith("/output")) return json({ output: "" });
+      return json({ job: { ...stagedJob, ...finished } });
+    }));
+    return calls;
+  }
+
+  it("runs a low-risk operation with one click, and nothing more asked", async () => {
+    stubTier({ tier: "low", passwordRequired: false, confirmText: null });
+    render(<ApproveDialog operationId="apt.refresh" title="Refresh package lists" parameters={{}} preview={<span>Runs apt-get update.</span>} csrfToken="csrf" onClose={() => {}} />);
+    expect(await screen.findByText("Low risk")).toBeTruthy();
+    expect(screen.getByText("One click: nothing more is asked.")).toBeTruthy();
+    expect(screen.getByText("Runs apt-get update.")).toBeTruthy();
+    expect(screen.queryByLabelText("Approval password")).toBeNull();
+    expect(screen.queryByLabelText("Typed confirmation")).toBeNull();
+    expect((screen.getByRole("button", { name: "Run" }) as HTMLButtonElement).disabled).toBe(false);
+    // It is drawn over the page in the console's look, wherever it opened.
+    expect(screen.getByRole("dialog").classList.contains("look-console")).toBe(true);
+  });
+
+  it("asks a high-risk one for the password and the typed confirmation, and sends both", async () => {
+    const calls = stubTier({ tier: "high", passwordRequired: true, confirmText: "/dev/sdb" });
+    render(<ApproveDialog operationId="storage.format" title="Erase and format a disk" parameters={{ device: "/dev/sdb" }} csrfToken="csrf" onClose={() => {}} />);
+    expect(await screen.findByText("High risk")).toBeTruthy();
+    expect(screen.getByText("Your password and the typed confirmation.")).toBeTruthy();
+    // With no preview from the page, the operation's own description says what it does.
+    expect(screen.getByText("Formats the disk with a new filesystem.")).toBeTruthy();
+    const approve = screen.getByRole("button", { name: "Approve and run" }) as HTMLButtonElement;
+    expect(approve.disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText("Approval password"), { target: { value: "correct horse battery" } });
+    expect(approve.disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText("Typed confirmation"), { target: { value: "/dev/sdb" } });
+    expect(approve.disabled).toBe(false);
+    fireEvent.click(approve);
+    await waitFor(() => expect(calls.find((call) => call.url.endsWith("/approve"))?.body).toEqual({ password: "correct horse battery", confirmText: "/dev/sdb" }));
+    expect(await screen.findByText("Completed.")).toBeTruthy();
+  });
+
+  it("follows the run with JobProgress once it is approved", async () => {
+    stubTier({ tier: "medium", passwordRequired: false, confirmText: null }, { state: "applying" });
+    render(<ApproveDialog operationId="apt.upgrade" title="Install package updates" parameters={{}} csrfToken="csrf" onClose={() => {}} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm and run" }));
+    const progress = await screen.findByRole("progressbar", { name: /Install package updates/ });
+    expect(progress).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Close dialog" }).hasAttribute("disabled")).toBe(true);
+  });
+
+  it("tells a page the job it staged, and hands the run over when asked to (Repair, M35)", async () => {
+    const calls = stubTier({ tier: "medium", passwordRequired: false, confirmText: null });
+    const staged = vi.fn();
+    const handoff = vi.fn();
+    render(<ApproveDialog operationId="storage.writable" title="Let apps write to the drive" parameters={{}} csrfToken="csrf" onClose={() => {}} onStaged={staged} handoff={handoff} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm and run" }));
+    await waitFor(() => expect(handoff).toHaveBeenCalledWith(expect.objectContaining({ id: "job-1" })));
+    expect(staged).toHaveBeenCalledWith(expect.objectContaining({ id: "job-1" }));
+    // Handed over: the dialog does not wait for the end itself.
+    expect(calls.filter((call) => call.url === "/api/v1/jobs/job-1" && call.method === "GET")).toHaveLength(0);
   });
 });
 
