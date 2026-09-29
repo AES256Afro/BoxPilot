@@ -1,8 +1,42 @@
 import { defineOperation } from "./registry.mjs";
 import { parseServeStatus } from "../tailscale-serve.mjs";
 import { composeVerdicts, planProbes } from "../reachability.mjs";
+import { coversEveryAddress, serveUrl } from "../ports.mjs";
 
 export { parseServeStatus };
+
+/** What Tailscale Serve publishes now; empty when Tailscale cannot say. */
+async function serveStatus(run) {
+  const status = await Promise.resolve().then(() => run(tailscaleBinary(), ["serve", "status", "--json"], { timeout: 15_000, maxBuffer: 2 * 1024 * 1024 })).catch(() => null);
+  return status?.ok ? parseServeStatus(status.stdout) : [];
+}
+const urlOf = (serve) => serveUrl(serve);
+
+/** Serve again what was withdrawn, as it was; whether every one of them came back. */
+async function republish(run, serves, progress) {
+  let ok = true;
+  for (const serve of serves) {
+    const target = serve.target && /^https?:\/\/127\.0\.0\.1:\d+\/?$/.test(serve.target) ? serve.target.replace(/\/$/, "") : `http://127.0.0.1:${serve.port}`;
+    const args = ["serve", "--bg", "--yes", `--https=${serve.port}`, target];
+    progress?.(`$ tailscale ${args.join(" ")}`, "stdout");
+    ok = (await run(tailscaleBinary(), args, { timeout: 60_000 }).catch(() => ({ ok: false }))).ok && ok;
+  }
+  return ok;
+}
+
+/**
+ * Why an app published on the home network cannot also be served on the tailnet at the same port.
+ * tailscaled holds a served port on the tailnet address; Docker publishes a home-network app on
+ * every address; on Linux the second of the two to bind fails with "address already in use". That
+ * is how Dockge stopped starting on the owner's server (2026-09-29).
+ */
+export function servedOnEveryAddress(name, port, { hostNetwork = false } = {}) {
+  const where = hostNetwork ? `${name} shares this server's own network and listens on port ${port} on every address itself` : `${name} is on your home network at port ${port}, published on every address`;
+  const instead = hostNetwork
+    ? `It already reaches devices on your tailnet at http://<this server>:${port}, without HTTPS.`
+    : `To reach ${name} over HTTPS on your tailnet, change who can reach it to Tailnet only: it then answers at its tailnet HTTPS address and no longer on your home network. On the home network it already reaches devices on your tailnet at http://<this server>:${port}, without HTTPS.`;
+  return `${where}, and Tailscale Serve would hold the same port on the tailnet address. Linux does not let the two share it: whichever starts first keeps it and the other stops working, which is how an app ends up refusing to start after a restart or a reboot. ${instead}`;
+}
 
 const idField = { type: "string", pattern: /^[a-z0-9][a-z0-9-]{1,62}$/ };
 // An app's install values. secretEnvOf: env entries its manifest (named by `id`) calls a password or
@@ -140,26 +174,43 @@ export function appOperations() {
       },
     }),
     defineOperation({
-      id: "app.serve.set", title: "Publish an app on the tailnet", risk: "medium", timeoutMs: minutes(2),
-      description: "Serves the app's web port over HTTPS on your tailnet with a real certificate (tailnet only, Funnel stays off), or stops serving it.",
-      parameters: { fields: { id: idField, enabled: { type: "boolean" } } },
+      // With start, it may build the app's container again, which can pull its image.
+      id: "app.serve.set", title: "Publish an app on the tailnet", risk: "medium", timeoutMs: minutes(17),
+      description: "Serves the app's web port over HTTPS on your tailnet with a real certificate (tailnet only, Funnel stays off), or stops serving it. Serve fronts a port the app publishes on this server alone: an app published on your home network is refused, because Tailscale would hold the same port on the tailnet address and Linux will not let Docker publish it on every address beside that; change who can reach it to Tailnet only instead. With start, the app is started once it is no longer served, its container built again if it was removed.",
+      parameters: { fields: { id: idField, enabled: { type: "boolean" }, start: { type: "boolean", optional: true } } },
       run: async (parameters, { run, apps, progress }) => {
         const { applications } = await apps.inspect({ id: parameters.id });
         const application = applications[0];
         if (!application?.installed) throw new Error("The app is not installed");
         const port = application.urls[0]?.host;
         if (!port) throw new Error("The app has no web port to publish");
+        const name = application.name ?? parameters.id;
+        if (parameters.enabled) {
+          const published = (application.published ?? []).find((entry) => entry.host === port && entry.protocol === "tcp");
+          if (published && coversEveryAddress(published.bind)) throw new Error(servedOnEveryAddress(name, port, { hostNetwork: Boolean(published.hostNetwork) }));
+        }
+        const before = parameters.enabled ? [] : await serveStatus(run);
         const args = parameters.enabled
           ? ["serve", "--bg", "--yes", `--https=${port}`, `http://127.0.0.1:${port}`]
           : ["serve", "--yes", `--https=${port}`, "off"];
         progress?.(`$ tailscale ${args.join(" ")}`, "stdout");
         const result = await run(tailscaleBinary(), args, { timeout: 60_000 });
         if (!result.ok) throw new Error(`tailscale serve failed: ${result.stderr.split("\n").slice(-2).join(" ") || "is Tailscale running?"}`);
-        const status = await run(tailscaleBinary(), ["serve", "status", "--json"], { timeout: 15_000, maxBuffer: 2 * 1024 * 1024 });
-        const serves = status.ok ? parseServeStatus(status.stdout) : [];
+        const serves = await serveStatus(run);
         const entry = serves.find((serve) => serve.port === port) ?? null;
         if (parameters.enabled && !entry) throw new Error("tailscale accepted the command but the port is not being served; check tailscale serve status");
-        return { id: parameters.id, enabled: parameters.enabled, port, url: entry ? `https://${entry.dnsName}${entry.port === 443 ? "" : `:${entry.port}`}` : null };
+        const withdrawn = before.find((serve) => serve.port === port) ?? null;
+        // Repair's fix for a port Serve held (Dockge, 2026-09-29): the app can have it now, so start it.
+        let started = null;
+        if (!parameters.enabled && parameters.start) {
+          progress?.(`${name} no longer shares port ${port} with Tailscale Serve; starting it.`, "stdout");
+          started = await apps.action({ id: parameters.id, action: "start" }, { progress });
+        }
+        return {
+          id: parameters.id, enabled: parameters.enabled, port, url: entry ? urlOf(entry) : null,
+          ...(withdrawn ? { withdrawn: urlOf(withdrawn) } : {}),
+          ...(started ? { started: true, status: started.status ?? null, recreated: Boolean(started.recreated) } : {}),
+        };
       },
     }),
     defineOperation({
@@ -305,14 +356,39 @@ export function appOperations() {
     }),
     defineOperation({
       id: "app.exposure.set", title: "Change who can reach an application", risk: "medium", timeoutMs: minutes(15),
-      description: "Tailnet only publishes the app on your tailnet over HTTPS and stops it listening on the network, so Tailscale authenticates every visitor before the app sees them. Home network publishes it on the LAN address instead, where anything on your network can reach it and only the firewall stands in the way.",
+      description: "Tailnet only publishes the app on your tailnet over HTTPS and stops it listening on the network, so Tailscale authenticates every visitor before the app sees them. Home network publishes it on the LAN address instead, where anything on your network can reach it and only the firewall stands in the way; its tailnet HTTPS address is withdrawn first, because Tailscale holds that port on the tailnet address and Docker cannot publish it on every address beside it.",
       parameters: { fields: { id: idField, mode: { type: "string", validate: (value) => (["lan", "tailnet"].includes(value) ? null : "must be lan or tailnet") }, devices: devicesField } },
       run: async (parameters, { apps, run, progress }) => {
         const tailnet = parameters.mode === "tailnet";
-        // Rebind first, then publish. Doing it the other way round would leave Serve pointing at a
-        // port that is still answering the whole LAN.
+        // Home network: stop serving first. tailscaled holds a served port on the tailnet address, and
+        // Docker cannot publish that port on every address while it does ("address already in use"),
+        // so rebinding first failed, and so did its rollback. Serve is put back if the rebind fails.
+        let withdrawn = [];
+        if (!tailnet) {
+          const { applications } = await apps.inspect({ id: parameters.id });
+          const webPorts = new Set((applications[0]?.urls ?? []).map((url) => url.host));
+          for (const serve of (await serveStatus(run)).filter((entry) => webPorts.has(entry.port))) {
+            const args = ["serve", "--yes", `--https=${serve.port}`, "off"];
+            progress?.(`$ tailscale ${args.join(" ")}`, "stdout");
+            const result = await run(tailscaleBinary(), args, { timeout: 60_000 });
+            if (!result.ok) {
+              await republish(run, withdrawn, progress);
+              throw new Error(`Could not stop serving ${urlOf(serve)} on the tailnet, so the app was left as it was: ${result.stderr.split("\n").slice(-2).join(" ").trim() || "is Tailscale running?"}`);
+            }
+            withdrawn.push(serve);
+          }
+        }
+        // Tailnet only: rebind first, then publish. Doing it the other way round would leave Serve
+        // pointing at a port that is still answering the whole LAN.
         progress?.(tailnet ? "Binding the app to this server only..." : "Publishing the app on the LAN address...", "stdout");
-        const reconfigured = await apps.reconfigure({ id: parameters.id, values: { exposure: parameters.mode }, devices: parameters.devices ?? null }, { progress, checkpoint: false });
+        let reconfigured;
+        try {
+          reconfigured = await apps.reconfigure({ id: parameters.id, values: { exposure: parameters.mode }, devices: parameters.devices ?? null }, { progress, checkpoint: false });
+        } catch (error) {
+          // The app is still on this server only, where Serve reaches it: publish it as it was.
+          const back = await republish(run, withdrawn, progress);
+          throw Object.assign(new Error(`${error.message}${withdrawn.length ? (back ? ` Tailscale Serve publishes it again at ${withdrawn.map(urlOf).join(", ")}.` : ` Publishing it on the tailnet again failed too; turn it back on from the app's card.`) : ""}`), { code: error.code });
+        }
         const hostPorts = reconfigured.hostPorts ?? [];
         // Only the app's HTTP ports can go through Serve, which terminates HTTPS and proxies HTTP.
         // The rest moved to the tailnet address or stayed on the LAN when the compose was written,
@@ -320,25 +396,23 @@ export function appOperations() {
         const webPorts = hostPorts.filter((entry) => entry.protocol !== "udp" && (entry.tailnet ?? "serve") === "serve").map((entry) => entry.host);
         const elsewhere = hostPorts.filter((entry) => entry.protocol === "udp" || (entry.tailnet ?? "serve") !== "serve")
           .map((entry) => ({ id: entry.id, host: entry.host, protocol: entry.protocol, reach: entry.exposure }));
-        if (!webPorts.length) return { id: parameters.id, mode: parameters.mode, port: null, ports: [], urls: [], url: null, served: false, elsewhere };
+        const gone = withdrawn.map(urlOf);
+        if (!webPorts.length) return { id: parameters.id, mode: parameters.mode, port: null, ports: [], urls: [], url: null, served: false, elsewhere, ...(gone.length ? { withdrawn: gone } : {}) };
 
+        // Home network: whatever was served was withdrawn before the rebind, above.
         const failures = [];
-        for (const port of webPorts) {
-          const args = tailnet
-            ? ["serve", "--bg", "--yes", `--https=${port}`, `http://127.0.0.1:${port}`]
-            : ["serve", "--yes", `--https=${port}`, "off"];
+        for (const port of tailnet ? webPorts : []) {
+          const args = ["serve", "--bg", "--yes", `--https=${port}`, `http://127.0.0.1:${port}`];
           progress?.(`$ tailscale ${args.join(" ")}`, "stdout");
           const result = await run(tailscaleBinary(), args, { timeout: 60_000 });
           if (!result.ok) failures.push(`${port}: ${result.stderr.split("\n").slice(-2).join(" ").trim() || "is Tailscale running?"}`);
         }
-        // A tailnet-only app that is not published has no way in at all, so that failure has to be
-        // loud. Turning publishing off when it was never on is not a failure.
+        // A tailnet-only app that is not published has no way in at all, so that failure has to be loud.
         if (failures.length && tailnet) throw new Error(`The app is now reachable only on this server, but publishing it on the tailnet failed: ${failures.join("; ")}`);
 
-        const status = await run(tailscaleBinary(), ["serve", "status", "--json"], { timeout: 15_000, maxBuffer: 2 * 1024 * 1024 });
-        const serves = status.ok ? parseServeStatus(status.stdout) : [];
+        const serves = await serveStatus(run);
         const urls = webPorts.map((port) => serves.find((serve) => serve.port === port)).filter(Boolean).map((serve) => `https://${serve.dnsName}:${serve.port}`);
-        return { id: parameters.id, mode: parameters.mode, port: webPorts[0], ports: webPorts, urls, url: urls[0] ?? null, served: urls.length > 0, elsewhere };
+        return { id: parameters.id, mode: parameters.mode, port: webPorts[0], ports: webPorts, urls, url: urls[0] ?? null, served: urls.length > 0, elsewhere, ...(gone.length ? { withdrawn: gone } : {}) };
       },
     }),
     defineOperation({
@@ -379,7 +453,7 @@ export function appOperations() {
     }),
     defineOperation({
       id: "app.action", title: "Start, stop, pause, or restart application", risk: "low", timeoutMs: minutes(5),
-      description: "Pause freezes the container (0 CPU, keeps its memory, resumes instantly); stop shuts it down and frees its memory. Start, restart, and unpause bring it back; start and restart build the container again from its saved compose project if it was removed (by docker system prune, say).",
+      description: "Pause freezes the container (0 CPU, keeps its memory, resumes instantly); stop shuts it down and frees its memory. Start, restart, and unpause bring it back; start and restart build the container again from its saved compose project if it was removed (by docker system prune, say). Start and restart first check that nothing else holds the app's ports, and name what does when something does.",
       parameters: { fields: { id: idField, action: { type: "string", enum: ["start", "stop", "restart", "pause", "unpause"] } } },
       run: (parameters, { apps, progress }) => apps.action(parameters, { progress }),
     }),
