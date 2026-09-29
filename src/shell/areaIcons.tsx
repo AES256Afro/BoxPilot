@@ -64,6 +64,11 @@ export function MoreIcon(props: Omit<SVGProps<SVGSVGElement>, "children">) {
   return <Svg {...props}><circle cx="5" cy="12" r="1.4" /><circle cx="12" cy="12" r="1.4" /><circle cx="19" cy="12" r="1.4" /></Svg>;
 }
 
+/** Something the command bar does rather than opens (M36). */
+export function RunIcon(props: Omit<SVGProps<SVGSVGElement>, "children">) {
+  return <Svg {...props}><path d="M8 5.5v13l10-6.5z" /></Svg>;
+}
+
 export function ExternalIcon(props: Omit<SVGProps<SVGSVGElement>, "children">) {
   return <Svg {...props}><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" /></Svg>;
 }

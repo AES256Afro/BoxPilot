@@ -151,8 +151,12 @@ export function parseBlockInventory(output) {
   return { available: true, devices };
 }
 
-/** `usb-bridge-unsupported`: the USB enclosure passes no SMART through, even with -d sat. */
-const smartReasons = Object.freeze(["ok", "smartctl-read-failed", "unsupported-device", "usb-bridge-unsupported"]);
+/**
+ * `usb-bridge-unsupported`: the USB enclosure passes no SMART through, even with -d sat.
+ * `asleep`: the disk was in standby, and the scan left it asleep rather than wake it (M36).
+ */
+const smartReasons = Object.freeze(["ok", "smartctl-read-failed", "unsupported-device", "usb-bridge-unsupported", "asleep"]);
+const isoOrNull = (value) => (typeof value === "string" && Number.isFinite(Date.parse(value)) ? new Date(Date.parse(value)).toISOString() : null);
 
 function normalizedSmartDisk(item) {
   const device = typeof item?.device === "string" && fixedDevicePattern.test(item.device) ? item.device : null;
@@ -172,6 +176,10 @@ function normalizedSmartDisk(item) {
     // with -d sat. Absent from evidence written before the scanner asked; null then.
     transport: typeof item.transport === "string" && /^[a-z0-9]{1,16}$/.test(item.transport) ? item.transport : null,
     deviceType: ["auto", "sat"].includes(item.deviceType) ? item.deviceType : null,
+    // When this reading was taken; for a disk left asleep, what it said the last time it was read.
+    readAt: isoOrNull(item.readAt),
+    lastHealth: ["healthy", "warning", "critical"].includes(item.lastHealth) ? item.lastHealth : null,
+    lastReadAt: isoOrNull(item.lastReadAt),
   };
 }
 
@@ -192,11 +200,12 @@ export function normalizeSmartEvidence(value, { now = () => new Date() } = {}) {
   // A disk behind a USB enclosure that passes no SMART through will never have a reading, and no
   // amount of looking changes that. It is still listed, and still counted as unavailable, but it
   // does not hold the whole reading at "needs a look" forever.
-  const unexplained = disks.filter((item) => item.health === "unavailable" && item.reason !== "usb-bridge-unsupported").length;
+  // A disk left asleep is the same: nothing is wrong with it, it was just not woken to be asked.
+  const unexplained = disks.filter((item) => item.health === "unavailable" && !["usb-bridge-unsupported", "asleep"].includes(item.reason)).length;
   return {
     available,
     status: !available ? "unavailable" : stale ? "stale" : summary.critical > 0 ? "critical" : summary.warning > 0 || unexplained > 0 ? "warning" : "healthy",
-    reason: available ? (stale ? "storage-scan-evidence-stale" : "fixed-root-scan") : ["smartctl-not-installed", "no-supported-disks", "storage-scan-failed"].includes(value.reason) ? value.reason : "storage-scan-unavailable",
+    reason: available ? (stale ? "storage-scan-evidence-stale" : "fixed-root-scan") : ["smartctl-not-installed", "no-supported-disks", "storage-scan-failed", "disks-asleep"].includes(value.reason) ? value.reason : "storage-scan-unavailable",
     generatedAt: Number.isFinite(generatedTime) ? new Date(generatedTime).toISOString() : null,
     stale,
     disks,

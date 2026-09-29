@@ -4,7 +4,7 @@ import YAML from "yaml";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { onWindows } from "../test/platform.mjs";
-import { createAppHelper } from "./app-helper.mjs";
+import { createAppHelper, keepsBackupData } from "./app-helper.mjs";
 import { createCatalogService } from "./catalog/index.mjs";
 import { fixedRun } from "./exec.mjs";
 
@@ -1636,5 +1636,22 @@ describe.skipIf(onWindows)("restoring one path from an application backup", () =
     await apps.restoreAppBackupPath({ id: "demo", backup: artifact, path: "data/config/app.conf" });
     expect(await readFile(path.join(config, "app.conf"), "utf8")).toBe("from the backup");
     expect((await readdir(catalogRoot)).sort()).toEqual(["demo"]);
+  });
+});
+
+// M36: Immich's database lives in its postgres sidecar, and its photo library in a host folder kept
+// out of backups on purpose; counting only the app's own volumes called it "nothing to back up".
+describe("which apps keep data a backup archives", () => {
+  it("counts a sidecar's volume as well as the app's own", async () => {
+    const catalog = createCatalogService({ root: path.resolve("catalog") });
+    const immich = await catalog.get("immich");
+    expect(immich.volumes.every((volume) => !volume.backup)).toBe(true);
+    expect(keepsBackupData(immich)).toBe(true);
+  });
+
+  it("still leaves out an app whose only data is a cache or a folder of the owner's", () => {
+    expect(keepsBackupData({ volumes: [{ id: "media", hostPath: "/srv/media", backup: false }], sidecars: [{ id: "cache", volumes: [{ id: "models", path: "models", backup: false }] }] })).toBe(false);
+    expect(keepsBackupData({ volumes: [{ id: "config", path: "config", backup: true }] })).toBe(true);
+    expect(keepsBackupData({})).toBe(false);
   });
 });

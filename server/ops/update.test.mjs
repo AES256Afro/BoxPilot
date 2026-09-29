@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createRegistry } from "./registry.mjs";
-import { parseUpdateUnits, updateOperations, updateOutcome } from "./update.mjs";
+import { parseUpdateUnits, updateOperations, updateOutcome, updateSuperseded } from "./update.mjs";
 
 const registry = createRegistry([updateOperations]);
 const sha = "d".repeat(40);
@@ -32,5 +32,17 @@ describe("self-update operations", () => {
     expect(registry.validate("system.update", { tag: "main", expectedCommit: sha })).toBeTruthy();
     expect(registry.validate("system.update", { tag: "v0.62.0", expectedCommit: "nope" })).toBeTruthy();
     expect(registry.get("system.update").risk).toBe("high");
+  });
+});
+
+// M36: an update staged for a version the server has since reached has nothing left to do.
+describe("an update staged before the server moved on", () => {
+  it("is superseded by the same or a newer running version, and not by an older one", () => {
+    expect(updateSuperseded({ tag: "v1.116.0" }, { version: "1.138.0" })).toBe("BoxPilot is already at 1.138.0, so the update to v1.116.0 has nothing to do");
+    expect(updateSuperseded({ tag: "v1.138.0" }, { version: "1.138.0" })).toMatch(/already at 1.138.0/);
+    expect(updateSuperseded({ tag: "v1.139.0" }, { version: "1.138.0" })).toBeNull();
+    expect(updateSuperseded({ tag: "v1.139.0-rc.1" }, { version: "1.138.0" })).toBeNull();
+    expect(updateSuperseded({}, { version: "1.138.0" })).toBeNull();
+    expect(registry.get("system.update").supersededWhen).toBe(updateSuperseded);
   });
 });

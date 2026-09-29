@@ -65,6 +65,8 @@ export const noticeKinds = Object.freeze({
   "signin.new": "A sign-in from a new address",
   "report.weekly": "The weekly report",
   "drive.reconnected": "A drive was reconnected automatically",
+  // M36: a staged job left a week without an approval, cancelled.
+  "approval.lapsed": "A staged job was not approved in time",
 });
 export const isNotice = (key) => Object.hasOwn(noticeKinds, String(key).split(":")[0]);
 export const noticeLimit = 20;
@@ -153,6 +155,12 @@ export function evaluateHealth(inventory) {
     alerts.push({ key: `storage.mount.readonly:${mount.target}`, priority: "high", title: `${mount.target} has gone read-only`, message: `The filesystem on ${mount.source} hit errors and is refusing every write since. Saving to it from another computer fails with an I/O error. Open Repair to reconnect it; if it keeps happening, the cable, port or enclosure is the thing to change.` });
   }
   for (const disk of inventory?.storage?.smart?.disks ?? []) {
+    // A disk the scan left asleep (M36) stands on what it said when it was last read: a failing
+    // disk that happens to be asleep is still failing, and must not read as resolved.
+    if (disk.reason === "asleep" && ["warning", "critical"].includes(disk.lastHealth)) {
+      alerts.push({ key: `storage.smart:${disk.device}`, priority: "high", title: `Disk ${disk.device} reports SMART problems`, message: `Health: ${disk.lastHealth} when it was last read${disk.lastReadAt ? `, ${new Date(disk.lastReadAt).toLocaleString()}` : ""}; it was asleep at the latest check. Back up what matters and plan a replacement.` });
+      continue;
+    }
     if (["healthy", "unavailable"].includes(disk.health)) continue;
     alerts.push({ key: `storage.smart:${disk.device}`, priority: "high", title: `Disk ${disk.device} reports SMART problems`, message: `Health: ${disk.health}${disk.mediaErrors ? `, ${disk.mediaErrors} media errors` : ""}${disk.temperatureCelsius !== null && disk.temperatureCelsius !== undefined ? `, ${disk.temperatureCelsius} °C` : ""}. Back up what matters and plan a replacement.` });
   }
@@ -201,7 +209,7 @@ export function collectorAvailability(inventory) {
   };
 }
 
-export function createHealthAlerts({ inventory, notifications, store, resolveScheduleTitle = (operationId) => operationId, intervalMs = 15 * 60 * 1000, initialDelayMs = 3 * 60 * 1000, now = () => new Date(), setInterval: schedule = globalThis.setInterval, setTimeout: delay = globalThis.setTimeout, clearInterval: unschedule = globalThis.clearInterval, clearTimeout: cancel = globalThis.clearTimeout } = {}) {
+export function createHealthAlerts({ inventory, notifications, store, history = null, resolveScheduleTitle = (operationId) => operationId, intervalMs = 15 * 60 * 1000, initialDelayMs = 3 * 60 * 1000, now = () => new Date(), setInterval: schedule = globalThis.setInterval, setTimeout: delay = globalThis.setTimeout, clearInterval: unschedule = globalThis.clearInterval, clearTimeout: cancel = globalThis.clearTimeout } = {}) {
   const settingKey = "healthAlertsState";
   // The round below and raise()/clear() each read the state, may wait on a send, and write it back.
   // One at a time, or a round that started before a schedule failed would write over its entry.
@@ -221,15 +229,21 @@ export function createHealthAlerts({ inventory, notifications, store, resolveSch
     return () => listeners.delete(listener);
   }
 
-  /** Send one announcement: true when the target took it, false when there is none or it failed. */
-  async function announce(key, { title, message, priority = "default" }) {
-    if (!notifications.getTarget()) return false;
+  /**
+   * Send one announcement: true when the target took it, false when there is none or it failed.
+   * Either way the notification centre records what was said and whether it arrived (M36).
+   */
+  async function announce(key, { title, message, priority = "default" }, kind = "alert") {
+    const said = (delivered, reason = null) => history?.record({ key, kind, title, message, priority, delivered, reason });
+    if (!notifications.getTarget()) { said(false, "no-target"); return false; }
     try {
       await notifications.send({ title: `BoxPilot: ${title}`, message, priority });
       store.recordAudit("health.alert.sent", { actorId: null, subjectId: key, details: { title, at: now().toISOString() } });
+      said(true);
       return true;
     } catch (error) {
       store.recordAudit("health.alert.failed", { actorId: null, subjectId: key, details: { error: error.message } });
+      said(false, "failed");
       return false;
     }
   }
@@ -274,7 +288,7 @@ export function createHealthAlerts({ inventory, notifications, store, resolveSch
         // until it is a month old and no longer news.
         if (isNotice(key)) {
           if (now().getTime() - Date.parse(toldAt(entry)) > noticeMaxAgeMs) continue;
-          const delivered = target ? await announce(key, { title: entry.title ?? key, message: entry.message ?? entry.title ?? key, priority: entry.priority ?? "default" }) : false;
+          const delivered = target ? await announce(key, { title: entry.title ?? key, message: entry.message ?? entry.title ?? key, priority: entry.priority ?? "default" }, "notice") : false;
           if (delivered) sent.push(key); else nextState[key] = entry;
           continue;
         }
@@ -290,10 +304,11 @@ export function createHealthAlerts({ inventory, notifications, store, resolveSch
         }
         // Evidence that is temporarily missing (stale SMART file, systemctl timeout) carries the alert forward unchanged.
         if (availability[key.split(":")[0]] === false) { nextState[key] = entry; continue; }
-        if (entry?.notified === false) continue; // never announced, so there is nothing to say it cleared
-        if (!target) continue;
+        if (entry?.notified === false) { history?.resolve(key); continue; } // never announced, so there is nothing to say it cleared
+        if (!target) { history?.resolve(key); continue; }
         try {
           await notifications.send({ title: `BoxPilot: resolved. ${entry.title ?? key}`, message: `This condition cleared at ${now().toLocaleString()}.`, priority: "default" });
+          history?.resolve(key);
           sent.push(`resolved:${key}`);
           store.recordAudit("health.alert.resolved", { actorId: null, subjectId: key, details: { since: entry.since, at: now().toISOString() } });
         } catch (error) {
@@ -342,6 +357,7 @@ export function createHealthAlerts({ inventory, notifications, store, resolveSch
       if (!entry) return { key, cleared: false, sent: false };
       delete state[key];
       writeState(state);
+      history?.resolve(key);
       if (quietly || entry.notified === false || !notifications.getTarget()) return { key, cleared: true, sent: false };
       try {
         await notifications.send({ title: `BoxPilot: resolved. ${entry.title ?? key}`, message: `Its next run succeeded, at ${now().toLocaleString()}.`, priority: "default" });
@@ -365,7 +381,7 @@ export function createHealthAlerts({ inventory, notifications, store, resolveSch
   function tell({ key, title, message, priority = "default" }) {
     return exclusive(async () => {
       const text = String(message ?? title).slice(0, 1000);
-      const notified = await announce(key, { title, message: text, priority });
+      const notified = await announce(key, { title, message: text, priority }, "notice");
       const state = readState();
       if (notified) {
         if (state[key]) { delete state[key]; writeState(state); }

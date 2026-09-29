@@ -2321,6 +2321,10 @@ textarea {
   font-size: 10px;
 }
 
+/* What an already-staged job was staged with, in the approval dialog (M36). */
+.approve-staged ul { margin: 2px 0 0; padding-left: 16px; overflow-wrap: anywhere; }
+.approve-staged code { color: var(--text-strong); }
+
 .notice span {
   color: var(--text-success-dim);
   font-size: 11px;
@@ -3305,6 +3309,17 @@ textarea {
   margin: 0 0 22px;
   font-size: 12px;
   line-height: 1.65;
+}
+
+/* Why the session ended (M36): said before the form, in the card's own voice, not as an error. */
+.auth-card p.auth-notice {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-control);
+  color: var(--text);
+  background: var(--surface-notice);
+  font-size: 13px;
 }
 
 .bootstrap-command {
@@ -4438,6 +4453,21 @@ textarea {
 .activity-header h2 { margin: 2px 0 0; font-size: 17px; }
 .activity-list { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 12px 20px; }
 .activity-empty { padding: 12px 8px; color: var(--text-muted); font-size: 13px; }
+
+/* The notification centre (M36): the bell beside Activity, and its panel in Activity's drawer. */
+.notice-bell { position: relative; display: inline-flex; align-items: center; gap: 4px; min-height: 32px; }
+.notice-bell__icon { width: 18px; height: 18px; }
+.notice-centre__head-actions { display: flex; align-items: center; gap: var(--space-2); }
+.notice-centre__target { margin: 4px 8px 10px; padding: 10px 12px; border: 1px solid var(--border); border-left: 3px solid var(--status-warning); border-radius: var(--radius-control); color: var(--text); background: var(--surface-notice); font-size: 13px; line-height: 1.5; }
+.notice-centre__list { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; }
+.notice-entry { display: grid; gap: 6px; padding: 12px 8px; border-bottom: 1px solid var(--border-subtle); }
+.notice-entry[data-new] { box-shadow: inset 3px 0 0 var(--accent); }
+.notice-entry__head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-2); }
+.notice-entry__head strong { color: var(--text-strong); font-size: 14px; overflow-wrap: anywhere; }
+.notice-entry__new { flex: none; color: var(--accent); font-size: var(--font-size-xs); font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+.notice-entry__message { margin: 0; color: var(--text-muted); font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+.notice-entry__meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; color: var(--text-muted); font-size: 12px; }
+.notice-entry__go { margin-left: auto; }
 .activity-item { border-bottom: 1px solid var(--border-subtle); }
 .activity-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; padding: 12px 8px; border: 0; background: none; text-align: left; cursor: pointer; }
 .activity-row:hover { background: var(--surface-muted); }
@@ -4445,6 +4475,10 @@ textarea {
 .activity-meta { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
 .activity-time { color: var(--text-muted); font-size: 12px; }
 .activity-detail { display: grid; gap: 10px; padding: 0 8px 14px; }
+/* M36: approve, cancel or dismiss a job from where it is listed. */
+.activity-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); padding: 0 8px 10px; }
+.activity-actions .muted { font-size: var(--font-size-xs); }
+.activity-actions .auth-error { flex-basis: 100%; margin: 0; }
 .job-rerun-note { margin: 0; font-size: 13px; line-height: 1.5; }
 .activity-steps { margin: 0; padding: 0 0 0 16px; color: var(--text-strong); font-size: 12px; display: grid; gap: 4px; }
 
@@ -5678,6 +5712,20 @@ a.ui-tile:hover {
 .updates-install input::placeholder { color: var(--text-muted); }
 
 .updates-security-inline { display: none; }
+
+/* The database copies updates take (M36), on the System page. */
+.db-copies .ui-section { display: grid; gap: var(--space-3); }
+.db-copies-hint { margin: 0; color: var(--text-muted); font-size: var(--font-size-sm); }
+.db-copies-rule { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); margin: 0; padding: 0; border: 0; min-width: 0; }
+.db-copies-rule legend { padding: 0; margin-bottom: var(--space-1); color: var(--text-muted); font-size: var(--font-size-xs); letter-spacing: 0.04em; text-transform: uppercase; }
+.db-copies-rule label { display: inline-flex; align-items: center; gap: var(--space-2); color: var(--text); font-size: var(--font-size-sm); }
+.db-copies-rule input { width: 5.5em; min-height: var(--control-height); padding: 0 var(--space-2); border: 1px solid var(--border-input); border-radius: var(--radius-control); color: var(--text); background: var(--surface-muted); font: inherit; font-size: var(--font-size-md); }
+.db-copies-rule input[aria-invalid="true"] { border-color: var(--status-danger); }
+.db-copies-rule .muted { flex: 1 1 12rem; font-size: var(--font-size-sm); }
+.db-copies-name { display: block; overflow-wrap: anywhere; color: var(--text-muted); font-family: var(--font-mono); font-size: var(--font-size-xs); }
+.db-copies-note { display: block; margin-top: var(--space-1); color: var(--text-muted); font-size: var(--font-size-xs); }
+.db-copies-preview ul { max-height: 14rem; margin: var(--space-2) 0; padding-left: var(--space-4); overflow-y: auto; }
+.db-copies-preview code { overflow-wrap: anywhere; }
 
 @media (max-width: 900px) {
   .updates-figures { grid-template-columns: minmax(0, 1fr); }

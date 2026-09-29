@@ -63,7 +63,9 @@ export function usbSmartState(device, smart) {
   if (!smart || smart.stale !== false || !Array.isArray(smart.disks)) return "unread";
   const reading = smart.disks.find((disk) => disk.device === device);
   if (!reading) return "unread";
-  if (reading.health !== "unavailable") return reading.deviceType === "sat" ? "answers-through-bridge" : "answers";
+  // A disk left asleep at the last scan answered the one before it, and will again when it is awake.
+  const answered = reading.health !== "unavailable" || (reading.reason === "asleep" && reading.lastHealth);
+  if (answered) return reading.deviceType === "sat" ? "answers-through-bridge" : "answers";
   return reading.reason === "usb-bridge-unsupported" ? "bridge-unsupported" : "unread";
 }
 

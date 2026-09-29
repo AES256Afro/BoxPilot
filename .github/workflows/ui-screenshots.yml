@@ -86,9 +86,10 @@ jobs:
           # With none given, the states worth a look on every run: checking a drive (M26), which
           # names the apps it pauses and the file shares it disconnects; the command bar and an
           # app's sheet on Home (M33.2); Home in the unwell and the empty worlds; and Ops (M33.3)
-          # in the unwell one. Home and Ops themselves come with every page, from the navigation
+          # in the unwell one; the notification centre (M36) in the lived-in and the unwell worlds,
+          # and a staged job opened in Activity, and in the approval dialog, from Ops. Home and Ops themselves come with every page, from the navigation
           # in src/data.ts.
-          STATES: ${{ inputs.states || 'storage-check=?view=storage>Check this drive;command-bar=?view=home>Search pages, apps and settings;app-sheet=?view=home>📷Immich;home-trouble=?view=home&scenario=trouble;home-fresh=?view=home&scenario=fresh;ops-trouble=?view=ops&scenario=trouble;areas-sheet=?view=home>More' }}
+          STATES: "${{ inputs.states || 'storage-check=?view=storage>Check this drive;command-bar=?view=home>Search pages, apps and settings;app-sheet=?view=home>📷Immich;home-trouble=?view=home&scenario=trouble;home-fresh=?view=home&scenario=fresh;ops-trouble=?view=ops&scenario=trouble;areas-sheet=?view=home>More;notifications=?view=home>Notifications;notifications-trouble=?view=system&scenario=trouble>Notifications;activity-approval=?view=ops&scenario=trouble>Needs a look: Waiting for approval;review-approval=?view=ops&scenario=trouble>Review: Waiting for approval' }}"
           SCHEMES: dark,light
           FULL_PAGE: "1"
           SCALE: "1"

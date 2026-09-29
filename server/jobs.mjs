@@ -5,10 +5,18 @@ import { registry } from "./ops/index.mjs";
 import { budgetFor, nextBudgetMs, placeholderPaths, restoreSecrets, secretPaths, secretPlaceholder, splitSecrets } from "./ops/registry.mjs";
 import { asSentence } from "./health-alerts.mjs";
 import { formatDuration, jobTimeoutRecord, timeoutMessage, timeoutOf } from "./timeouts.mjs";
+import { productVersion } from "./version.mjs";
 
 /** What a secret parameter looks like in the database and the job API. */
 export { secretPlaceholder };
 export const stagedSecretTtlMs = 30 * 60_000;
+/**
+ * How long a staged job may wait for an approval nobody gives (M36). Past this it is cancelled, with
+ * a notice: a job staged three weeks ago was staged against a server that has moved on since.
+ */
+export const approvalMaxAgeMs = 7 * 24 * 60 * 60_000;
+/** A failed job someone has looked at and let go: it stays in Activity and stops asking for attention. */
+export const dismissed = (job) => (job?.steps ?? []).some((step) => step.name === "dismissed" && step.state === "completed");
 /** A job that ran but whose result BoxPilot could not save; it carries a failed "record" step. */
 export const recordFailed = (job) => (job?.steps ?? []).some((step) => step.name === "record" && step.state === "failed");
 
@@ -55,6 +63,8 @@ export function createJobService(store, helper, {
   alerts = null,
   now = () => Date.now(),
   secretTtlMs = stagedSecretTtlMs,
+  approvalMaxAge = approvalMaxAgeMs,
+  version = productVersion,
 } = {}) {
   // Announcing never holds up or fails the job: the ledger may wait on a notification target.
   const tell = (call) => { try { Promise.resolve(call()).catch(() => {}); } catch { /* the job's outcome stands */ } };
@@ -136,6 +146,13 @@ export function createJobService(store, helper, {
     const approvalMethod = passwordProvided ? "password" : policy.elevated && policy.tier === "high" ? "elevated" : "confirm";
     const registeredOperation = job.type.startsWith("op:") ? registry.get(job.type.slice(3)) : null;
     if (!registeredOperation) throw new Error("Job type is not supported by this executor");
+    // Staged for a server that has moved on (an update to a version already running): approving it
+    // would do nothing or harm, so it is cancelled with the reason instead of run (M36).
+    const superseded = supersededReason(job, registeredOperation);
+    if (superseded) {
+      withdraw(job, `Superseded: ${superseded}.`, "job.superseded");
+      throw Object.assign(new Error(`${superseded}, so BoxPilot cancelled it. Nothing ran.`), { code: "job_superseded" });
+    }
     const parameters = restoreSecrets(job.parameters ?? {}, stagedSecrets.get(jobId)?.values);
     // A placeholder still present, anywhere, means the staged copy is gone (the service restarted):
     // refuse rather than run with the literal text "[secret]" as a password or an app's token.
@@ -383,6 +400,62 @@ export function createJobService(store, helper, {
     return store.getJob(jobId);
   }
 
+  /** Why a staged job no longer has anything to do, from its operation's own rule, or null. */
+  function supersededReason(job, operation = job?.type?.startsWith("op:") ? registry.get(job.type.slice(3)) : null) {
+    if (typeof operation?.supersededWhen !== "function") return null;
+    try { return operation.supersededWhen(job.parameters ?? {}, { version }) ?? null; } catch { return null; }
+  }
+
+  /** Cancel a job still awaiting approval on BoxPilot's own account, saying why on the job itself. */
+  function withdraw(job, reason, action) {
+    try {
+      store.transitionJob(job.id, "awaiting_approval", "cancelled", { error: reason });
+    } catch { return false; } // approved or cancelled in the meantime: nothing to withdraw
+    stagedSecrets.delete(job.id);
+    store.addJobStep(job.id, "cancelled", "completed", reason.slice(0, 500));
+    store.recordAudit(action, { actorId: null, subjectId: job.id, details: { type: job.type, reason } });
+    return true;
+  }
+
+  /**
+   * Staged jobs nobody will approve (M36): one its operation says has been superseded - an update to
+   * a version the server already runs - is cancelled with that reason; one that has waited longer
+   * than `approvalMaxAge` is cancelled too, and the owner is told, once, through the ledger. Run at
+   * startup, so an update that just landed clears the approvals it made pointless, and hourly.
+   */
+  function sweepStaleApprovals() {
+    const swept = [];
+    for (const job of store.listAwaitingApproval?.() ?? []) {
+      const superseded = supersededReason(job);
+      if (superseded) {
+        if (withdraw(job, `Superseded: ${superseded}.`, "job.superseded")) swept.push({ id: job.id, why: "superseded", reason: superseded });
+        continue;
+      }
+      const waited = now() - Date.parse(job.updatedAt ?? job.createdAt ?? "");
+      if (!Number.isFinite(waited) || waited <= approvalMaxAge) continue;
+      const days = Math.round(approvalMaxAge / 86_400_000);
+      if (!withdraw(job, `Nobody approved it in ${days} days, so BoxPilot cancelled it. Nothing ran; stage it again if it is still wanted.`, "job.approval.lapsed")) continue;
+      swept.push({ id: job.id, why: "lapsed" });
+      if (alerts) tell(() => alerts.tell({ key: `approval.lapsed:${job.id}`, title: `Not approved in ${days} days: ${job.title}`, message: `${job.title} waited ${days} days for an approval, so BoxPilot cancelled it. Nothing ran. Stage it again from its page if it is still wanted.`, priority: "default" }));
+    }
+    return swept;
+  }
+
+  /**
+   * "I have seen this failure" (M36): a failed job the owner or its creator has looked at stops
+   * asking for attention on Home and Ops. It stays in Activity, failed, with who let it go.
+   */
+  function dismissFailure(jobId, ownerId, { role = "owner" } = {}) {
+    const job = store.getJob(jobId);
+    if (!job || (job.createdBy !== ownerId && role !== "owner")) throw new Error("Job not found");
+    if (job.state !== "failed") throw new Error("Only a failed job can be dismissed");
+    if (dismissed(job)) return job;
+    const who = store.findOwnerById(ownerId)?.username ?? "someone";
+    store.addJobStep(jobId, "dismissed", "completed", `Dismissed by ${who}. It stays here, but no longer asks for attention.`);
+    store.recordAudit("job.dismissed", { actorId: ownerId, subjectId: jobId, details: { type: job.type } });
+    return store.getJob(jobId);
+  }
+
   /** Read-only: what approving this job would require for the given session. */
   function describeApproval(jobId, session = null) {
     const job = store.getJob(jobId);
@@ -413,5 +486,5 @@ export function createJobService(store, helper, {
     return dropped;
   }
 
-  return { pruneStagedSecrets, holdsStagedSecrets, createOperationJob, retryWithMoreTime, approveAndRun, approveAndStart, describeApproval, approvalPolicy, cancelJob, prepareParameters };
+  return { pruneStagedSecrets, holdsStagedSecrets, createOperationJob, retryWithMoreTime, approveAndRun, approveAndStart, describeApproval, approvalPolicy, cancelJob, prepareParameters, sweepStaleApprovals, dismissFailure, supersededReason };
 }

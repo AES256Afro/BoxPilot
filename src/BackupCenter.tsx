@@ -10,6 +10,7 @@ import { useTailnetHosts } from "./tailnetHosts";
 import { behindBackupSchedules, judgeProtection, type AppProtection, type ProtectionVerdict, type ScheduleLike } from "./backupProtection";
 import { offBoxVerdict, offBoxWarning, mirrorOperations, type OffBoxInputs } from "./offBox";
 import { formatBytes } from "./formatBytes";
+import { Button, riskOf } from "./ui";
 
 interface BackupRecord { id: string; applicationId: string; destination: string; checksumSha256: string; sizeBytes: number; downtimeMs: number; restoreDrill: { passed?: boolean } | null; createdAt: string }
 interface ControllerProtection { id: string; backupId: string; snapshotId?: string; createdAt: string; protected?: boolean; retained?: boolean }
@@ -372,7 +373,7 @@ export default function BackupCenter({ csrfToken }: { csrfToken: string; onOpenR
           : (
           <div className="table-scroll">
             <table className="perf-table">
-              <thead><tr><th>App</th><th>Last backup</th><th>Keeps happening</th></tr></thead>
+              <thead><tr><th>App</th><th>Last backup</th><th>Keeps happening</th><th><span className="ui-visually-hidden">Back up now</span></th></tr></thead>
               <tbody>
                 {[...appProtection.verdicts]
                   .sort((left, right) => Number(left.state === "ok") - Number(right.state === "ok") || left.name.localeCompare(right.name))
@@ -388,6 +389,11 @@ export default function BackupCenter({ csrfToken }: { csrfToken: string; onOpenR
                       {verdict.scheduled
                         ? <span className="muted">nightly</span>
                         : <button className="text-button" type="button" onClick={() => void protectEverything([verdict])}>Schedule it</button>}
+                    </td>
+                    {/* M36: the app that has never been backed up is backed up from here, not from its card. */}
+                    <td>
+                      <Button risk={riskOf("app.backup")} variant={verdict.state === "ok" ? "ghost" : "secondary"} aria-label={`Back up ${verdict.name} now`}
+                        onClick={() => start({ operationId: "app.backup", title: `Back up ${verdict.name}`, parameters: { id: verdict.id }, preview: <span>Stops {verdict.name} briefly, archives its data and configuration, restarts it, and keeps the newest 5 copies.</span> })}>Back up now</Button>
                     </td>
                   </tr>
                 ))}
