@@ -33,8 +33,11 @@ export const operationRisk = {
   "controller.backup.create": "low",
   "controller.backup.protect": "medium",
   "controller.backup.retention.apply": "medium",
+  "credentials.remove": "medium",
+  "credentials.set": "medium",
   "dns.names.apply": "medium",
   "dns.names.clear": "medium",
+  "docker.logging.set": "medium",
   "fail2ban.apply": "medium",
   "firewall.profile.apply": "high",
   "firewall.rule.add": "medium",
@@ -52,6 +55,7 @@ export const operationRisk = {
   "prerequisite.docker.install": "medium",
   "prerequisite.drive-tools.install": "medium",
   "prerequisite.restic.install": "medium",
+  "prerequisite.smartmontools.install": "medium",
   "prerequisite.virtualization.install": "medium",
   "router.connect": "medium",
   "samba.apply": "medium",
@@ -78,17 +82,39 @@ export const operationRisk = {
   "storage.lvm.snapshot.rollback": "high",
   "storage.mount": "medium",
   "storage.remount": "medium",
+  "storage.swapfile.set": "medium",
   "storage.unmount": "medium",
   "storage.writable": "medium",
+  "system.hostname.set": "medium",
+  "system.locale.set": "medium",
   "system.manager.reexec": "medium",
   "system.reboot": "high",
+  "system.swappiness.set": "medium",
+  "system.timezone.set": "medium",
   "system.update": "high",
   "system.web.lan.set": "medium",
   "system.web.tls.provision": "medium",
   "tailscale.set": "medium",
+  "ups.setup": "medium",
   "users.add": "medium",
   "users.keys.import": "high",
   "users.sudo.set": "high",
+  "vm.action": "medium",
+  "vm.backup.restore-drill": "medium",
+  "vm.backup.retention.apply": "medium",
+  "vm.backup.snapshot.forget": "high",
+  "vm.cloud.create": "medium",
+  "vm.create": "high",
+  "vm.delete": "high",
+  "vm.export.create": "medium",
+  "vm.export.protect": "medium",
+  "vm.force-off": "medium",
+  "vm.foundation.initialize": "medium",
+  "vm.media.import": "medium",
+  "vm.recovery.create": "medium",
+  "vm.snapshot.create": "medium",
+  "vm.snapshot.delete": "medium",
+  "vm.snapshot.revert": "high",
   "vpn.profile.clear": "medium",
   "vpn.profile.set": "medium",
 } as const satisfies Record<string, RiskTier>;
@@ -99,7 +125,7 @@ export type KnownOperation = keyof typeof operationRisk;
  * Operations whose registry entry says `minimumRole: "owner"`: an operator may not stage them
  * whatever their tier. The same test holds this list to the registry.
  */
-export const ownerOnlyOperations: ReadonlySet<string> = new Set<KnownOperation>(["backup.cloud.setup", "backup.cloud.sync", "backup.cloud.test", "housekeeping.database-copies.remove", "notifications.ntfy.connect", "router.connect", "system.web.lan.set", "system.web.tls.provision", "vpn.profile.clear", "vpn.profile.set"]);
+export const ownerOnlyOperations: ReadonlySet<string> = new Set<KnownOperation>(["backup.cloud.setup", "backup.cloud.sync", "backup.cloud.test", "credentials.remove", "credentials.set", "housekeeping.database-copies.remove", "notifications.ntfy.connect", "router.connect", "system.web.lan.set", "system.web.tls.provision", "vm.backup.snapshot.forget", "vpn.profile.clear", "vpn.profile.set"]);
 
 /** The tier for an operation. An id missing from the table is high, as it is on the server. */
 export function riskOf(operationId: string): RiskTier {

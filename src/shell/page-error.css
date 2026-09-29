@@ -1,0 +1,7 @@
+/*
+ * A page that could not be drawn (src/shell/PageErrorBoundary.tsx, M33.13): the kit's notice with
+ * the way out, a sentence, and the detail for a support bundle. Tokens only; every selector starts
+ * with .page-error-.
+ */
+.page-error-view { display: grid; gap: 10px; min-width: 0; max-width: 60rem; }
+.page-error-note { margin: 0; color: var(--text-muted); font-size: 13.5px; line-height: 1.45; }
