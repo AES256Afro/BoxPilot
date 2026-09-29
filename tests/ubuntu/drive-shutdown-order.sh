@@ -56,7 +56,7 @@ sc() {
 
 cleanup() {
   section "cleanup"
-  docker rm -f bp-holder bp-bootwatch >/dev/null 2>&1
+  docker rm -f bp-holder bp-bootwatch bp-reader >/dev/null 2>&1
   pkill -f 'bp-drive-test-holder' 2>/dev/null
   sc stop "$UNIT" >/dev/null 2>&1 || umount -l "$MNT" >/dev/null 2>&1
   cp "${WORK}/fstab.runner" /etc/fstab
@@ -487,9 +487,13 @@ section "7f. Reconnect (storage.remount) a busy drive: an app with it bound and 
 # folder bound and a PC had the share mapped, and told the owner to stop them by hand. It now goes
 # through the check's pipeline: stop the app, close the share, unmount on the host, mount, start.
 run_holder
+# The PC connects afresh (7e's check disconnected the last one) and holds a file on the share.
+umount -l /mnt/pc 2>/dev/null
+mount -t cifs //127.0.0.1/Media /mnt/pc -o guest,vers=3.0 || fail "could not mount the share as a client again"
 ( exec 3< /mnt/pc/held.txt; exec sleep 600 ) &
 PC=$!
 sleep 2
+note "smbd's open files: $(smbstatus -L 2>/dev/null | grep -c held.txt) on held.txt"
 if umount "$MNT" 2>"${WORK}/umount3.err"; then fail "the drive was not busy, so this shows nothing"; mount "$MNT"; else pass "the drive is busy before the reconnect: $(cat "${WORK}/umount3.err")"; fi
 watch_host
 in_runner "
@@ -506,13 +510,18 @@ check "it says whom it disconnected from the share" grep -qE 'Closed file-sharin
 check "the drive is read-write" bash -c "findmnt -n -o OPTIONS '$MNT' | grep -q '^rw'"
 check "and the app writes to the drive as it is mounted now" bash -c "before=\$(wc -l < '${MNT}/held.log'); sleep 2; [ \$(wc -l < '${MNT}/held.log') -gt \$before ]"
 
-section "7g. Reconnect a drive the kernel turned read-only, with the app still holding it (M35)"
+section "7g. Reconnect a drive the kernel turned read-only, with an app still holding it (M35)"
 # errors=remount-ro, as a drive that drops off USB for a moment leaves it. While any container still
 # holds the filesystem, mounting the same device again hands back that same read-only filesystem
 # (or is refused: "would change RO state"), which is why the app is stopped first, not just
-# restarted afterwards.
-mount -o remount,ro "$MNT"
+# restarted afterwards. The kernel turns a filesystem read-only with files open for writing; a
+# remount by hand refuses that, so the app here only reads, and still holds the filesystem.
+docker rm -f bp-holder >/dev/null
+docker run -d --name bp-reader --restart unless-stopped -v "${MNT}:/data" "$IMAGE" sh -c 'trap "exit 0" TERM; while :; do ls /data > /dev/null; sleep 1 & wait $!; done' >/dev/null
+wait_running bp-reader
+mount -o remount,ro "$MNT" || note "remount,ro refused: $(findmnt -n -o OPTIONS "$MNT")"
 check "the drive is read-only before" bash -c "findmnt -n -o OPTIONS '$MNT' | grep -q '^ro'"
+check "with the app holding it" container_running bp-reader
 in_runner "
   import { storageRemount } from '${REPO}/server/tasks/storage.mjs';
   console.log(JSON.stringify(await storageRemount({ name: '${NAME}' }, { log: (line, stream) => console.log('   [' + stream + '] ' + line) })));
@@ -521,8 +530,9 @@ result="$(tail -1 "${WORK}/remount3.out")"
 check "storage.remount reconnects the read-only drive (exit $rc)" test "$rc" -eq 0
 check "and it says it was read-only before" grep -q '"readOnlyBefore":true' <<< "$result"
 check "it is read-write now, a fresh filesystem" bash -c "findmnt -n -o OPTIONS '$MNT' | grep -q '^rw'"
-check "and the app is running on it again" wait_running bp-holder
-docker rm -f bp-holder >/dev/null
+check "it stopped the app holding the read-only filesystem and started it again" bash -c "grep -q '\"stopped\":\[\"bp-reader\"\]' <<< '$result' && grep -q '\"restarted\":\[\"bp-reader\"\]' <<< '$result'"
+check "and the app is running on it again" wait_running bp-reader
+docker rm -f bp-reader >/dev/null
 kill "$PC" 2>/dev/null; wait 2>/dev/null; umount -l /mnt/pc 2>/dev/null
 sc stop smbd; cp "${WORK}/smb.conf.orig" /etc/samba/smb.conf 2>/dev/null
 

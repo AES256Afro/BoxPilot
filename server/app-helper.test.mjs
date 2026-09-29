@@ -382,7 +382,8 @@ sidecars:
     ].join("\n") + "\n");
     await apps.install({ id: "arr", values: { volumes: { media: mediaRoot } } });
     const before = (await apps.inspect({ id: "arr" })).applications[0];
-    expect(before.folderProblems).toEqual([{ path: mediaRoot, volume: "media", reason: "owned by user root, while the app runs as user 1000" }]);
+    // With the owners as numbers, so Repair can tell root's folder (a redeploy hands it over) from somebody's own (M35).
+    expect(before.folderProblems).toEqual([{ path: mediaRoot, volume: "media", reason: "owned by user root, while the app runs as user 1000", ownerUid: 0, appUid: 1000 }]);
     ownerUid = 1000;
     const after = (await apps.inspect({ id: "arr" })).applications[0];
     expect(after.folderProblems).toEqual([]);
