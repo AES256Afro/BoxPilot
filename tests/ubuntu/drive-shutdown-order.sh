@@ -472,9 +472,10 @@ underneath() { ls -A "$MNT" | tr '\n' ' '; }
 
 # systemReboot as boxpilot-run@ runs it, with the reboot refused, so it takes the path it takes when
 # the reboot cannot be scheduled: prepareDrivesForReboot, then resumeAfterCancelledReboot. $1 = hold
-# makes the preparation's unmount of the drive with systemd held back, as in the hazard above; $2 is
-# JavaScript run between the preparation and the resume. The last line is { outcome, seen }: the
-# job's error, and what the unit and PID 1's table said at each step.
+# makes the preparation's unmount of the drive with systemd held back, as above, and has systemd
+# behind the drive again when the resume begins; $2 is JavaScript run between the preparation and
+# the resume. The last line is { outcome, seen }: the job's error, and what the unit and PID 1's
+# table said at each step.
 cancelled_reboot() {
   local hold=false; [ "$1" = hold ] && hold=true
   in_runner "
@@ -498,6 +499,15 @@ cancelled_reboot() {
         return result;
       }
       if (name === 'systemd-run') {
+        // The rest of the preparation can outlast that lag (it did in one run of three), so it is
+        // made again here, the same way, just before the resume: the drive mounted back outside
+        // systemd, the quiet second in which systemd sees it, the burst, and the drive unmounted
+        // outside systemd again. The resume then always begins with the unit still saying mounted.
+        if (${hold}) {
+          quiet('/usr/bin/mount', ['-N', '/proc/1/ns/mnt', mnt]);
+          holdSystemdBack();
+          quiet('/usr/bin/umount', ['-N', '/proc/1/ns/mnt', mnt]);
+        }
         seen.atResume = look();
         ${2:-}
         return { ok: false, code: 1, stdout: '', stderr: 'Failed to start transient timer unit: refused by the test' };
@@ -548,7 +558,7 @@ wait_unit_in_step; mounted_here || mount_drive
 run_holder
 cancelled_reboot hold
 check "systemd had not seen the preparation's unmount: the unit said '$(cfield seen.afterUnmount.unit)' with the drive unmounted" bash -c "[ '$(cfield seen.afterUnmount.unit)' = active ] && [ -z '$(cfield seen.afterUnmount.source)' ]"
-check "and still had not when the resume began ('$(cfield seen.atResume.unit)'), so the resume starts with systemd behind" bash -c "[ '$(cfield seen.atResume.unit)' = active ] && [ -z '$(cfield seen.atResume.source)' ]"
+check "and the resume began with systemd behind: the unit said '$(cfield seen.atResume.unit)' with the drive unmounted" bash -c "[ '$(cfield seen.atResume.unit)' = active ] && [ -z '$(cfield seen.atResume.source)' ]"
 check "the resume waited for systemd before starting the drive" grep -qE 'systemd took [0-9]+ ms to see /mnt/the-dump unmounted' "${WORK}/cancelled.out"
 check "and started it once, with the unit saying '$(cfield seen.atStart.0.unit)'" bash -c "[ '$(cfield seen.atStart.length)' = 1 ] && [ '$(cfield seen.atStart.0.unit)' = inactive ]"
 check "Docker was started only with the drive mounted from ${PART} ($(cfield seen.atDocker.source))" test "$(cfield seen.atDocker.source)" = "$PART"
