@@ -42,8 +42,8 @@ const VirtualMachines = lazy(() => import("./VirtualMachines"));
 // it is the demo, so a real BoxPilot never shows it and never fetches its chunk.
 const Gallery = lazy(() => import("./ui/Gallery"));
 
-function StatusPill({ children, tone = "good" }: { children: ReactNode; tone?: string }) {
-  return <span className={`status-pill status-${tone}`}>{children}</span>;
+function StatusPill({ children, tone = "good", className }: { children: ReactNode; tone?: string; className?: string }) {
+  return <span className={`status-pill status-${tone}${className ? ` ${className}` : ""}`}>{children}</span>;
 }
 
 const Settings = lazy(() => import("./SettingsView"));
@@ -200,7 +200,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
             {authStatus.owner?.role && authStatus.owner.role !== "owner" ? <span className="status-pill status-neutral" title="Your role on this server">{authStatus.owner.role}</span> : null}
             {elevated
               ? <button className="text-button elevation-lock" type="button" title="High-risk approvals skip the password until this time. Click to lock now." aria-label={`Elevated until ${elevatedLabel}. Lock now`} onClick={() => void dropElevation(csrfToken).then(refreshAuth).catch(() => refreshAuth())}><span className="elevation-long">Elevated until </span><span className="elevation-short">Until </span>{elevatedLabel} · Lock</button>
-              : <StatusPill tone="neutral">Tiered approvals</StatusPill>}
+              : <StatusPill tone="neutral" className="approvals-pill">Tiered approvals</StatusPill>}
             <span className="signed-in-user" title={authStatus.owner?.username}>
               {authStatus.owner?.username && <span className="signed-in-user__avatar" aria-hidden="true">{authStatus.owner.username.slice(0, 1).toUpperCase()}</span>}
               <span className="signed-in-user__name">{authStatus.owner?.username}</span>

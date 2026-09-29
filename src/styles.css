@@ -6134,8 +6134,8 @@ body {
   z-index: -1;
   inset: 0;
   background:
-    radial-gradient(55% 75% at 10% 6%, var(--wall-glow-sea), transparent 62%),
-    radial-gradient(42% 60% at 94% 8%, var(--wall-glow-sun), transparent 60%),
+    radial-gradient(62% 82% at 10% 6%, var(--wall-glow-sea), transparent 64%),
+    radial-gradient(50% 68% at 94% 8%, var(--wall-glow-sun), transparent 62%),
     radial-gradient(70% 70% at 62% 108%, var(--wall-glow-deep), transparent 65%),
     linear-gradient(160deg, var(--wall-base-start), var(--wall-base-end));
   content: "";
@@ -6319,7 +6319,7 @@ body {
 .lx .ui-button--ghost:hover:not(:disabled) { border-color: var(--lx-glass-border); background: var(--lx-glass-raised); text-decoration: underline; }
 
 /* The apps: large colour squares on the wallpaper, a health badge on the corner. */
-.lx-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 18px 10px; }
+.lx-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(128px, 1fr)); gap: 22px 12px; }
 .lx .ui-tile { gap: 7px; padding: 8px 4px 10px; border: 0; border-radius: 18px; color: var(--lx-ink); }
 .lx button.ui-tile:hover { border-color: transparent; background: var(--lx-glass); }
 .lx .ui-tile__icon {
@@ -6696,6 +6696,7 @@ body {
    and the avatar says who is signed in (its name is the tooltip). */
 @media (max-width: 1599px) {
   .app-shell[data-view="ops"] .connection-pill,
+  .app-shell[data-view="ops"] .approvals-pill,
   .app-shell[data-view="ops"] .signed-in-user__name { display: none; }
 }
 
