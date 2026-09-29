@@ -60,6 +60,12 @@ export function SystemUpdates({ release, releaseError, checking, onCheck, status
         <p className="system-note">The update downloads the commit the release points at, copies the database, builds, swaps it in and restarts BoxPilot. It rolls back by itself if the new version fails its health check, and does not start without room for the database copy.</p>
       </Panel>
 
+      {!updating && status?.outcome === "failed" && (
+        <Notice tone="danger" title="The last update stopped">
+          {facts.error ?? "The update log below says why."}{/nothing was changed/i.test(facts.error ?? "") ? "" : " A failed health check restores the previous version automatically."}
+        </Notice>
+      )}
+
       {updating && (
         <Notice live tone={outcome === "live" ? "success" : outcome === "failed" || outcome === "timeout" ? "danger" : "info"}
           title={outcome === "live" ? `BoxPilot ${updating} is live` : outcome === "failed" ? `The update to ${updating} stopped` : outcome === "timeout" ? "The update is taking longer than ten minutes" : `Updating to ${updating}…`}>

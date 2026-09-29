@@ -98,6 +98,21 @@ describe("System page", () => {
     expect(screen.getByText("Last update log, live")).toBeTruthy();
   });
 
+  it("says the last update stopped, and why, in the verdict and on its tab", async () => {
+    serve({
+      "/operations/system.update.status/inspect": () => json({ operation: "system.update.status", result: { units: [], outcome: "failed", log: [
+        "[boxpilot-upgrade] ERROR: could not copy the database to /var/lib/boxpilot: database or disk is full. Nothing was changed: BoxPilot 0.61.0 is still running from /opt/boxpilot.",
+      ] } }),
+    });
+    render(<SystemPage csrfToken="csrf-token" />);
+    await waitFor(() => expect(document.querySelector(".ui-page-header__verdict")?.textContent).toBe("Last update failed"));
+    expect(document.querySelector(".ui-page-header__verdict")?.getAttribute("data-status")).toBe("danger");
+    fireEvent.click(screen.getByRole("tab", { name: /Updates/ }));
+    const notice = screen.getByText("The last update stopped").closest(".ui-notice");
+    expect(notice?.getAttribute("data-status")).toBe("danger");
+    expect(notice?.textContent).toMatch(/database or disk is full\. Nothing was changed/);
+  });
+
   it("reclaims only the categories chosen, and never one that needs a review", async () => {
     const staged = serve();
     window.history.replaceState(null, "", "/?tab=housekeeping");
