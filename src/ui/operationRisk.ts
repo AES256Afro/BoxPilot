@@ -27,9 +27,17 @@ export const operationRisk = {
   "backup.remote.sync": "medium",
   "backup.sync": "medium",
   "controller.backup.create": "low",
+  "dns.names.apply": "medium",
+  "dns.names.clear": "medium",
   "docker.logging.set": "medium",
+  "fail2ban.apply": "medium",
+  "firewall.profile.apply": "high",
+  "firewall.rule.add": "medium",
+  "firewall.rule.delete": "medium",
+  "firewall.set": "high",
   "housekeeping.database-copies.remove": "medium",
   "housekeeping.reclaim": "medium",
+  "network.wake": "low",
   "notifications.ntfy.connect": "high",
   "prerequisite.apt-metadata.refresh": "low",
   "prerequisite.docker.install": "medium",
@@ -37,10 +45,12 @@ export const operationRisk = {
   "prerequisite.restic.install": "medium",
   "prerequisite.smartmontools.install": "medium",
   "prerequisite.virtualization.install": "medium",
+  "router.connect": "medium",
   "samba.discovery.set": "medium",
   "samba.share.writable": "medium",
   "service.action": "medium",
   "share.reconnect": "medium",
+  "ssh.password-auth.set": "high",
   "storage.backup.relocate": "medium",
   "storage.check": "medium",
   "storage.dirty-mark.clear": "medium",
@@ -56,7 +66,13 @@ export const operationRisk = {
   "system.swappiness.set": "medium",
   "system.timezone.set": "medium",
   "system.update": "high",
+  "system.web.lan.set": "medium",
+  "system.web.tls.provision": "medium",
+  "tailscale.set": "medium",
   "ups.setup": "medium",
+  "users.add": "medium",
+  "users.keys.import": "high",
+  "users.sudo.set": "high",
   "vm.action": "medium",
   "vm.backup.restore-drill": "medium",
   "vm.backup.retention.apply": "medium",
@@ -73,6 +89,8 @@ export const operationRisk = {
   "vm.snapshot.create": "medium",
   "vm.snapshot.delete": "medium",
   "vm.snapshot.revert": "high",
+  "vpn.profile.clear": "medium",
+  "vpn.profile.set": "medium",
 } as const satisfies Record<string, RiskTier>;
 
 export type KnownOperation = keyof typeof operationRisk;
@@ -81,7 +99,7 @@ export type KnownOperation = keyof typeof operationRisk;
  * Operations whose registry entry says `minimumRole: "owner"`: an operator may not stage them
  * whatever their tier. The same test holds this list to the registry.
  */
-export const ownerOnlyOperations: ReadonlySet<string> = new Set<KnownOperation>(["backup.cloud.sync", "housekeeping.database-copies.remove", "notifications.ntfy.connect", "vm.backup.snapshot.forget"]);
+export const ownerOnlyOperations: ReadonlySet<string> = new Set<KnownOperation>(["backup.cloud.sync", "housekeeping.database-copies.remove", "notifications.ntfy.connect", "router.connect", "system.web.lan.set", "system.web.tls.provision", "vm.backup.snapshot.forget", "vpn.profile.clear", "vpn.profile.set"]);
 
 /** The tier for an operation. An id missing from the table is high, as it is on the server. */
 export function riskOf(operationId: string): RiskTier {
