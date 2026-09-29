@@ -1539,6 +1539,29 @@ the milestones they overlap.
   (`src/shell/shellCss.test.ts`), and the Classic rules only these surfaces used are deleted. The
   demo can show the sign-in page (`?signin`) and stages each operation at its registry tier, so
   the dialog is reviewed at low, medium and high.
+- ✅ **M33.14 The final sweep** (unreleased). The owner: "never see the old bones again". What no
+  page owned is rebuilt on the kit: **Home's app sheet** and **Repair's confirmations** (the batch
+  of safe fixes, a nightly schedule, dismissing a finding) were Classic modals, drawn on Home in the
+  Classic palette; they are the kit's `Sheet` in the console's look (`look-console`). **Repair**
+  uses `PageHeader` like every other page, its name in the bar, and its approval desk's typed
+  confirmation and password are the kit's fields. The shell's loading line is the kit's
+  `Progress` (`src/shell/PageLoading.tsx`); Firewall's plan preview drops its Classic classes.
+  `src/ApproveDialog.tsx`, the re-export, is deleted and everything imports
+  `src/shell/ApproveDialog.tsx`. **The CSS:** `src/styles.css` holds only what is rendered (the
+  tokens, the base, the shell, Home and Ops, the kit): 3,609 lines, from 5,629. The Classic page
+  rules and the console's stopgap for their classes are gone, each selector checked against every
+  class the source can render; KeyValue's small-capital labels and bold values, which came from the
+  Classic `dt`/`dd` rules, are the kit's own now, and a bare link is drawn in `--link` everywhere.
+  **Kit fixes** that pages had patched for themselves: a tab's hidden status label no longer
+  widens a phone's page, and a sheet's body, a select and a code block keep to their width; the
+  patches in Backups and Storage are removed. On a primary (amber) button the medium tier's mark
+  was a hollow box (amber on amber, ringed); it is a solid bar in the button's ink, light and dark.
+  **Promoted to the kit**, with tests and a place in the gallery: `AppIcon` (the app colour square
+  Catalog, Performance and Home each drew), `CopyButton` (Settings' and Storage's copies, and the
+  unused Classic one), `MetricStrip` (the figure strips of Ops, Performance, System and Updates)
+  and `Facts` (the mono facts line of Activity, the notifications, the approval dialog, Settings and
+  `PageHeader`). Setup's profile squares stay Setup's: larger, shadowed, a profile's rather than an
+  app's.
 - The owner wants every concept from the study (2026-09-28): the assistant (B5) is M34; the phone
   layout (B6) is M25; recipes and a GPU page (B7) belong to M22.
 
