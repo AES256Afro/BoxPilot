@@ -2437,6 +2437,10 @@ textarea {
   font-size: 10px;
 }
 
+/* What an already-staged job was staged with, in the approval dialog (M36). */
+.approve-staged ul { margin: 2px 0 0; padding-left: 16px; overflow-wrap: anywhere; }
+.approve-staged code { color: var(--text-strong); }
+
 .notice span {
   color: var(--text-success-dim);
   font-size: 11px;

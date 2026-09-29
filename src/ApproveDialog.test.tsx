@@ -232,6 +232,8 @@ describe("approving a job that was already staged", () => {
     const onClose = vi.fn();
     render(<ApproveDialog operationId="storage.format" title="Erase and format a disk" parameters={{}} existingJobId="job-1" csrfToken="csrf" onClose={onClose} />);
     expect(await screen.findByText("Medium risk")).toBeTruthy();
+    // What it was staged with, since the approver may not be who staged it.
+    expect(screen.getByText("device").closest("li")?.textContent).toBe("device /dev/sdb");
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(onClose).toHaveBeenCalled();
     expect(calls.some((call) => call.method === "POST")).toBe(false);

@@ -193,6 +193,15 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
         <div className="modal-copy">
           {policy && <p><span className={`status-pill ${tierTone[tier]}`}>{tierLabel[tier]}</span>{policy.elevated && tier === "high" ? <span className="good-text"> Session elevated, no password needed right now.</span> : null}</p>}
           {preview && <div className="notice">{preview}</div>}
+          {/* Approving what someone else staged (M36): say what it was staged with, and when. */}
+          {existingJobId && job && (
+            <div className="notice approve-staged">
+              <strong>Staged {job.createdAt ? new Date(job.createdAt).toLocaleString() : ""}</strong>
+              {Object.keys(job.parameters ?? {}).length > 0
+                ? <ul>{Object.entries(job.parameters ?? {}).map(([name, value]) => <li key={name}><code>{name}</code> {typeof value === "string" || typeof value === "number" || typeof value === "boolean" ? String(value) : JSON.stringify(value)}</li>)}</ul>
+                : <span> with no settings.</span>}
+            </div>
+          )}
           {/* What "more time" changes, before it is approved: the same job, with a larger budget. */}
           {retryFrom && job?.recovery?.budgetMs ? <div className="notice">Runs it again with the same settings and gives it {formatDuration(job.recovery.budgetMs)} to finish.</div> : null}
           {phase === "ready" && policy?.expiresAt && <p role="status">{approvalExpired ? "This approval expired. Close it and stage the operation again with its credentials." : `Credentials are held temporarily. Approve before ${new Date(policy.expiresAt).toLocaleTimeString()}, or stage the operation again.`}</p>}
