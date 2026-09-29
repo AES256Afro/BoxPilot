@@ -5,7 +5,7 @@
  * can never reach into another setting, and that a password survives storage exactly as typed.
  */
 import { describe, expect, it } from "vitest";
-import { deployedImages, envFileLine, renderCompose, securityOptFor } from "./compose.mjs";
+import { deployedImages, envFileLine, publishedPorts, renderCompose, securityOptFor } from "./compose.mjs";
 
 describe("values the owner typed", () => {
   const manifest = {
@@ -230,5 +230,44 @@ describe("reading back what a deployed compose file runs", () => {
   it("skips a service with no image, rather than recording an empty reference", () => {
     const text = "services:\n  app:\n    image: nginx:1.27\n  built:\n    build: .\n";
     expect(deployedImages(text)).toEqual({ app: "nginx:1.27" });
+  });
+});
+
+describe("the ports a deployed compose file publishes (the Dockge port trap, 2026-09-29)", () => {
+  it("reads back what renderCompose writes, with the address each binds", () => {
+    const manifest = { id: "dockge", sha256: "x", image: { reference: "louislam/dockge:1" }, network: "bridge", ports: [{ id: "web", host: 5001, container: 5001, protocol: "tcp", exposure: "lan" }, { id: "dns", host: 53, container: 53, protocol: "udp", exposure: "lan" }], volumes: [], env: [], capabilities: [], extraHosts: [], devices: [] };
+    const lan = renderCompose(manifest, { ports: { web: 5001, dns: 53 }, env: {}, volumes: {} }, { lanAddress: "0.0.0.0" });
+    expect(publishedPorts(lan.composeYaml)).toEqual([
+      { service: "dockge", host: 5001, protocol: "tcp", bind: "0.0.0.0" },
+      { service: "dockge", host: 53, protocol: "udp", bind: "0.0.0.0" },
+    ]);
+    const tailnet = renderCompose(manifest, { ports: { web: 5001, dns: 53 }, env: {}, volumes: {}, exposure: "tailnet" }, { lanAddress: "0.0.0.0", tailnetAddress: "100.64.0.10" });
+    expect(publishedPorts(tailnet.composeYaml)[0]).toEqual({ service: "dockge", host: 5001, protocol: "tcp", bind: "127.0.0.1" });
+  });
+
+  it("reads a hand-edited file too: no address, IPv6, ranges, the long syntax, host networking", () => {
+    const text = [
+      "services:",
+      "  a:",
+      "    ports: [\"8080:80\", \"[::1]:9000:9000\", \"6881-6883:6881-6883/udp\", \"3000\", \"${WEB_PORT}:80\"]",
+      "  b:",
+      "    ports:",
+      "      - target: 80",
+      "        published: \"8443\"",
+      "        host_ip: 192.168.1.10",
+      "        protocol: tcp",
+      "  c:",
+      "    network_mode: host",
+      "    ports: [\"7000:7000\"]",
+    ].join("\n");
+    expect(publishedPorts(text)).toEqual([
+      { service: "a", host: 8080, protocol: "tcp", bind: "" },
+      { service: "a", host: 9000, protocol: "tcp", bind: "::1" },
+      { service: "a", host: 6881, protocol: "udp", bind: "" },
+      { service: "a", host: 6882, protocol: "udp", bind: "" },
+      { service: "a", host: 6883, protocol: "udp", bind: "" },
+      { service: "b", host: 8443, protocol: "tcp", bind: "192.168.1.10" },
+    ]);
+    expect(publishedPorts("not: [valid")).toEqual([]);
   });
 });

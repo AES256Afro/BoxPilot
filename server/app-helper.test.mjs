@@ -11,7 +11,7 @@ import { fixedRun } from "./exec.mjs";
 const directories = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((d) => rm(d, { recursive: true, force: true }))); });
 
-async function setup({ healthKind = "running", exitOnUp = false, failUp = false, crashLoop = false, networkGone_ = false, listDevices = undefined, chownDirectory = undefined, statPath = undefined, lstatPath = undefined, runCommand = undefined, vpnProfile = undefined, nvidiaReady = undefined, execTable = { vpn: "running", leaks: false, noCurl: false } } = {}) {
+async function setup({ healthKind = "running", exitOnUp = false, failUp = false, crashLoop = false, networkGone_ = false, listDevices = undefined, chownDirectory = undefined, statPath = undefined, lstatPath = undefined, runCommand = undefined, vpnProfile = undefined, nvidiaReady = undefined, execTable = { vpn: "running", leaks: false, noCurl: false }, hostListeners = undefined, lanAddress = "192.168.1.10", dockerPs = [] } = {}) {
   const catalogDirectory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-cat-")); directories.push(catalogDirectory);
   const catalogRoot = await mkdtemp(path.join(os.tmpdir(), "boxpilot-approot-")); directories.push(catalogRoot);
   await writeFile(path.join(catalogDirectory, "demo.yaml"), `schemaVersion: 2\nid: demo\nname: Demo\ncategory: T\ndescription: d\nimage:\n  reference: nginx:1.27\nports:\n  - id: web\n    container: 80\n    host: 8080\nvolumes:\n  - id: data\n    container: /data\n    path: data\n  - id: docker\n    container: /var/run/docker.sock\n    hostPath: /var/run/docker.sock\nenv:\n  - name: ADMIN_PASSWORD\n    type: password\n    generate: true\n  - name: TZ\n    default: Etc/UTC\nhealth:\n  kind: ${healthKind}\n  stableSeconds: 4\n  timeoutSeconds: 30\n`);
@@ -38,6 +38,8 @@ async function setup({ healthKind = "running", exitOnUp = false, failUp = false,
       return { ok: true, stdout: lines.join("\n"), stderr: "" };
     }
     if (args[0] === "logs") return { ok: true, stdout: "line1\npassword=hunter2", stderr: "" };
+    // `docker ps --format '{{json .}}'`, as the port check reads it: who publishes what.
+    if (args[0] === "ps") return { ok: true, stdout: dockerPs.map((row) => JSON.stringify(row)).join("\n"), stderr: "" };
     if (args[0] === "exec") {
       // The kill-switch drill speaks to gluetun's control endpoint and probes the internet from
       // inside the app's namespace; the table scripts both, keyed by URL substring.
@@ -82,7 +84,7 @@ async function setup({ healthKind = "running", exitOnUp = false, failUp = false,
   const wait = vi.fn(async (ms) => { nowMs += ms; });
   const catalog = createCatalogService({ directory: catalogDirectory, ttlMs: 0 });
   const backupRoot = await mkdtemp(path.join(os.tmpdir(), "boxpilot-appbk-")); directories.push(backupRoot);
-  const apps = createAppHelper({ catalogRoot, backupRoot, runDocker, catalog, wait, clock, scanCommand: async (folder) => ({ binary: "du", args: ["-sbx", folder], priority: "fixture" }), lanAddress: "192.168.1.10", ...(listDevices ? { listDevices } : {}), ...(chownDirectory ? { chownDirectory } : {}), ...(statPath ? { statPath } : {}), ...(lstatPath ? { lstatPath } : {}), ...(runCommand ? { runCommand } : {}), ...(vpnProfile ? { vpnProfile } : {}), ...(nvidiaReady ? { nvidiaReady } : {}) });
+  const apps = createAppHelper({ catalogRoot, backupRoot, runDocker, catalog, wait, clock, scanCommand: async (folder) => ({ binary: "du", args: ["-sbx", folder], priority: "fixture" }), lanAddress, ...(hostListeners ? { hostListeners } : {}), ...(listDevices ? { listDevices } : {}), ...(chownDirectory ? { chownDirectory } : {}), ...(statPath ? { statPath } : {}), ...(lstatPath ? { lstatPath } : {}), ...(runCommand ? { runCommand } : {}), ...(vpnProfile ? { vpnProfile } : {}), ...(nvidiaReady ? { nvidiaReady } : {}) });
   const advance = (ms) => { nowMs += ms; };
   return { apps, calls, containers, catalogRoot, catalogDirectory, backupRoot, advance, runDocker };
 }
@@ -1715,6 +1717,135 @@ describe.skipIf(onWindows)("restoring one path from an application backup", () =
     await apps.restoreAppBackupPath({ id: "demo", backup: artifact, path: "data/config/app.conf" });
     expect(await readFile(path.join(config, "app.conf"), "utf8")).toBe("from the backup");
     expect((await readdir(catalogRoot)).sort()).toEqual(["demo"]);
+  });
+});
+
+/**
+ * The Dockge port trap (2026-09-29): Dockge's Start on the owner's server rebuilt its container, and Docker then failed with
+ * "failed to bind host port 0.0.0.0:5001/tcp: address already in use": Tailscale Serve published
+ * Dockge on the tailnet at the same port, so tailscaled held 100.x.y.z:5001. The port check runs
+ * before `compose up` and says who holds the port instead.
+ */
+describe("ports something else holds, checked before compose up (the Dockge port trap, 2026-09-29)", () => {
+  const tailscaled = (port) => ({ protocol: "tcp", address: "100.64.0.10", port, scope: "address", process: { name: "tailscaled", pid: 812 } });
+  const nginx = (port) => ({ protocol: "tcp", address: "0.0.0.0", port, scope: "wildcard", process: { name: "nginx", pid: 4242 } });
+  const dockerProxy = (address, port) => ({ protocol: "tcp", address, port, scope: address === "127.0.0.1" ? "loopback" : "wildcard", process: { name: "docker-proxy", pid: 2201 } });
+  const serveStatusFor = (ports) => JSON.stringify({ Web: Object.fromEntries(ports.map((port) => [`homebox.tailXXXX.ts.net:${port}`, { Handlers: { "/": { Proxy: `http://127.0.0.1:${port}` } } }])) });
+
+  /** Demo installed on the home network (every address), with the host's listeners and Serve under the test's control. */
+  async function onEveryAddress({ dockerPs = [], installValues = { setup: [] }, listenersFail = false } = {}) {
+    const held = []; const serving = [];
+    const runCommand = vi.fn(async (_binary, args) => (args[0] === "serve" && args[1] === "status" ? { ok: true, stdout: serveStatusFor(serving), stderr: "" } : { ok: false, stdout: "", stderr: "" }));
+    let failing = false;
+    const hostListeners = vi.fn(async () => { if (failing) throw new Error("Root task host.listeners produced no result"); return held; });
+    const context = await setup({ lanAddress: "0.0.0.0", hostListeners, runCommand, dockerPs });
+    await context.apps.install({ id: "demo", values: installValues });
+    failing = listenersFail;
+    return { ...context, held, serving, runCommand, hostListeners };
+  }
+
+  it("refuses Start when Tailscale Serve holds the port on the tailnet address, naming it, and builds nothing", async () => {
+    const { apps, containers, calls, held, serving } = await onEveryAddress();
+    containers.delete("bp-demo"); // the nightly clean-up removed it
+    serving.push(8080); held.push(tailscaled(8080));
+    calls.length = 0;
+    const lines = [];
+    const failure = apps.action({ id: "demo", action: "start" }, { progress: (line) => lines.push(line) });
+    await expect(failure).rejects.toThrow("Demo was not started. Port 8080 is taken on the tailnet address (100.64.0.10) by Tailscale Serve, which publishes Demo itself at https://homebox.tailXXXX.ts.net:8080. Demo publishes it on every address, and Linux will not let that share a port with a program holding it on one address: whichever of the two starts first keeps it. Serve Demo only through Tailscale (its port moves to 127.0.0.1, where Serve reaches it), or stop serving it on the tailnet: Repair offers both in one click.");
+    await expect(failure).rejects.toMatchObject({ code: "port_conflict" });
+    expect(calls.some((call) => / up /.test(call))).toBe(false);
+    expect(lines.join("\n")).not.toMatch(/address already in use/);
+  });
+
+  it("starts as before once the port is free, and says it checked", async () => {
+    const { apps, containers } = await onEveryAddress();
+    containers.delete("bp-demo");
+    const lines = [];
+    await expect(apps.action({ id: "demo", action: "start" }, { progress: (line) => lines.push(line) })).resolves.toMatchObject({ recreated: true, running: true });
+    expect(lines).toContain("Ports 8080/tcp are free.");
+  });
+
+  it("refuses a restart while Serve claims the same port, even with the app holding it now", async () => {
+    // Demo holds 0.0.0.0:8080 through docker-proxy, and tailscaled keeps retrying 100.x:8080: a
+    // restart lets go of the port, and whichever binds first after it keeps it.
+    const own = [{ Names: "bp-demo", Ports: "0.0.0.0:8080->80/tcp", Labels: "io.boxpilot.app=demo,com.docker.compose.project=bp-demo" }];
+    const { apps, held, serving, calls } = await onEveryAddress({ dockerPs: own });
+    held.push(dockerProxy("0.0.0.0", 8080));
+    // Its own container is never a conflict with itself.
+    await expect(apps.action({ id: "demo", action: "restart" })).resolves.toMatchObject({ action: "restart" });
+    serving.push(8080);
+    calls.length = 0;
+    await expect(apps.action({ id: "demo", action: "restart" })).rejects.toThrow("Demo was not restarted. Port 8080 is also claimed on the tailnet address by Tailscale Serve, which publishes Demo itself at https://homebox.tailXXXX.ts.net:8080.");
+    expect(calls.some((call) => / restart$/.test(call))).toBe(false);
+    // Starting what already runs binds nothing, so it is not refused.
+    await expect(apps.action({ id: "demo", action: "start" })).resolves.toMatchObject({ action: "start" });
+  });
+
+  it("names another app's container, or the process, holding the port", async () => {
+    const other = [{ Names: "bp-ntfy", Ports: "0.0.0.0:8080->80/tcp", Labels: "io.boxpilot.app=ntfy,com.docker.compose.project=bp-ntfy" }];
+    const { apps, containers, held } = await onEveryAddress({ dockerPs: other });
+    Object.assign(containers.get("bp-demo"), { running: false, status: "exited" });
+    held.push(dockerProxy("0.0.0.0", 8080));
+    await expect(apps.action({ id: "demo", action: "start" })).rejects.toThrow("Demo was not started. Port 8080 is taken on every address by container bp-ntfy (ntfy). Demo publishes it on every address, and Linux will not let that share a port with a program holding it on one address. Move Demo to a free port in its Settings (Repair offers one), or stop what holds the port if it should not be running.");
+    held.splice(0, held.length, nginx(8080));
+    await expect(apps.action({ id: "demo", action: "start" })).rejects.toThrow("Port 8080 is taken on every address by process nginx (pid 4242).");
+  });
+
+  it("goes ahead, and says so, when the host's listeners cannot be read", async () => {
+    const { apps, containers } = await onEveryAddress({ listenersFail: true });
+    containers.delete("bp-demo");
+    const lines = [];
+    await expect(apps.action({ id: "demo", action: "start" }, { progress: (line) => lines.push(line) })).resolves.toMatchObject({ recreated: true });
+    expect(lines.some((line) => line.startsWith("Could not read which ports are in use (Root task host.listeners produced no result)"))).toBe(true);
+  });
+
+  it("refuses to put a served app on the home network, and leaves its compose file as it was", async () => {
+    // Tailnet only: 127.0.0.1:8080, which Serve reaches and which does not collide with 100.x:8080.
+    const own = [{ Names: "bp-demo", Ports: "127.0.0.1:8080->80/tcp", Labels: "io.boxpilot.app=demo" }];
+    const { apps, catalogRoot, held, serving, calls } = await onEveryAddress({ dockerPs: own, installValues: { setup: [], exposure: "tailnet" } });
+    const compose = path.join(catalogRoot, "demo", "compose.yaml");
+    const before = await readFile(compose, "utf8");
+    expect(before).toContain("127.0.0.1:8080:80");
+    serving.push(8080); held.push(dockerProxy("127.0.0.1", 8080), tailscaled(8080));
+    // Changing any other setting keeps it on loopback, next to Serve: fine.
+    await expect(apps.reconfigure({ id: "demo", values: { env: { TZ: "Europe/Berlin" } } }, { checkpoint: false })).resolves.toMatchObject({ reconfigured: true });
+    calls.length = 0;
+    await expect(apps.reconfigure({ id: "demo", values: { exposure: "lan" } }, { checkpoint: false })).rejects.toThrow("Demo's settings were not changed; nothing was restarted. Port 8080 is taken on the tailnet address (100.64.0.10) by Tailscale Serve, which publishes Demo itself");
+    expect(await readFile(compose, "utf8")).toContain("127.0.0.1:8080:80");
+    expect(calls.some((call) => / up /.test(call))).toBe(false);
+  });
+
+  it("checks Reinstall's start but not a container created stopped, and Install before anything is pulled", async () => {
+    const { apps, containers, held, catalogRoot, calls } = await onEveryAddress();
+    containers.delete("bp-demo");
+    held.push(nginx(8080));
+    await expect(apps.reinstall({ id: "demo" })).rejects.toThrow("Demo was not started again; nothing was built. Its data folder and saved settings are as they were. Port 8080 is taken on every address by process nginx (pid 4242).");
+    // Creating it stopped binds no port.
+    await expect(apps.reinstall({ id: "demo", start: false })).resolves.toMatchObject({ reinstalled: true, started: false });
+    await apps.uninstall({ id: "demo", purge: true });
+    calls.length = 0;
+    await expect(apps.install({ id: "demo", values: { setup: [] } })).rejects.toThrow("Demo was not installed; nothing was started. Port 8080 is taken on every address by process nginx (pid 4242).");
+    expect(calls.some((call) => / (up|pull) /.test(call))).toBe(false);
+    expect(await readdir(catalogRoot)).toEqual([]);
+  });
+
+  it("says what Docker's bind failure was when the port was taken after the check", async () => {
+    const held = [];
+    let checks = 0;
+    // Free when checked, taken by the time `up` binds.
+    const hostListeners = async () => (checks++ === 0 ? [] : held);
+    const { apps, catalogRoot } = await setup({ lanAddress: "0.0.0.0", failUp: true, hostListeners });
+    await mkdir(path.join(catalogRoot, "demo"), { recursive: true });
+    await writeFile(path.join(catalogRoot, "demo", "boxpilot.json"), JSON.stringify({ id: "demo", installed: true, values: { ports: { web: 8080 }, env: {}, volumes: {} } }));
+    await writeFile(path.join(catalogRoot, "demo", "compose.yaml"), "services:\n  demo:\n    image: nginx:1.27\n    ports:\n      - 0.0.0.0:8080:80\n");
+    held.push(nginx(8080));
+    await expect(apps.action({ id: "demo", action: "start" })).rejects.toThrow("Demo was not started. Port 8080 is taken on every address by process nginx (pid 4242).");
+  });
+
+  it("lists what each installed app publishes, and on which address", async () => {
+    const { apps } = await onEveryAddress();
+    const [demo] = (await apps.inspect({ id: "demo" })).applications;
+    expect(demo).toMatchObject({ name: "Demo", published: [{ id: "web", host: 8080, protocol: "tcp", bind: "0.0.0.0", fixed: false, web: true }] });
   });
 });
 
