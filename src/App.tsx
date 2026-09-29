@@ -80,7 +80,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
   // The app the catalog opens at (?app=jellyfin), when a tile or the command bar sent us there.
   const [focusApp, setFocusApp] = useState<string | null>(() => new URLSearchParams(window.location.search).get("app"));
   const [galleryAsked, setGalleryAsked] = useState(() => new URLSearchParams(window.location.search).has("gallery"));
-  const setView = useCallback((asked: ViewName, options: { app?: string } = {}) => {
+  const setView = useCallback((asked: ViewName, options: { app?: string; tab?: string } = {}) => {
     // A link to a page that is gone (an older server's "Open Overview") lands on Home.
     const next: ViewName = Object.hasOwn(viewCopy, asked) ? asked : "home";
     setViewState(next);
@@ -90,6 +90,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
     for (const name of [...url.searchParams.keys()]) if (!keptParams.has(name)) url.searchParams.delete(name);
     if (next !== "home") url.searchParams.set("view", next);
     if (options.app) url.searchParams.set("app", options.app);
+    if (options.tab) url.searchParams.set("tab", options.tab); // a tabbed page opens at this tab
     window.history.replaceState(null, "", url);
   }, []);
   const refreshAuth = () => fetchAuthStatus().then((status) => onAuthChanged?.(status)).catch(() => undefined);
