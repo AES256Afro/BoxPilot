@@ -23,23 +23,31 @@ export interface PendingOperation {
   preview?: ReactNode;
   /** When set, the exact text must be typed before the operation can be approved (destructive actions). */
   confirmText?: string;
+  /** Told the job once it is staged, before anything is approved (Repair records which finding it fixes). */
+  onStaged?: (job: Job) => void;
+  /**
+   * Once the job is approved and running, hand it over rather than following it here: Repair streams
+   * its log in the finding's card and re-checks the finding when it ends (M35). The approval itself is
+   * exactly the same; only who watches the run changes. The caller closes the dialog.
+   */
+  handoff?: (job: Job) => void;
+  /**
+   * Stage "Try again with more time" for this timed-out job instead of staging `operationId` with
+   * `parameters` (M30.3). Activity opens the dialog this way, and so does a timed-out job on Home;
+   * the dialog does it for itself when a job it ran out of time.
+   */
+  moreTimeFor?: string;
 }
 
 interface Props extends PendingOperation {
   csrfToken: string;
   onClose: () => void;
   onFinished?: (job: Job) => void;
-  /**
-   * Stage "Try again with more time" for this timed-out job instead of staging `operationId` with
-   * `parameters` (M30.3). Activity opens the dialog this way; the dialog does it for itself when a
-   * job it ran out of time.
-   */
-  moreTimeFor?: string;
 }
 
 type Phase = "staging" | "ready" | "approving" | "running" | "done" | "error";
 
-export function ApproveDialog({ operationId, title, parameters, preview, confirmText, csrfToken, onClose, onFinished, moreTimeFor }: Props) {
+export function ApproveDialog({ operationId, title, parameters, preview, confirmText, csrfToken, onClose, onFinished, onStaged, handoff, moreTimeFor }: Props) {
   const [phase, setPhase] = useState<Phase>("staging");
   const [job, setJob] = useState<Job | null>(null);
   const [policy, setPolicy] = useState<ApprovalPolicy | null>(null);
@@ -57,6 +65,11 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
   const stagedRef = useRef<{ jobId: string | null; approvalStarted: boolean; withdrawn: boolean } | null>(null);
   // The timed-out job being tried again with more time, if that is what is staged.
   const [retryFrom, setRetryFrom] = useState<string | null>(moreTimeFor ?? null);
+  // Read through refs so a caller's new callback does not stage the job again.
+  const onStagedRef = useRef(onStaged);
+  onStagedRef.current = onStaged;
+  const handoffRef = useRef(handoff);
+  handoffRef.current = handoff;
   useDialogFocus(dialogRef);
 
   useEffect(() => { if (outputRef.current) outputRef.current.scrollTop = outputRef.current.scrollHeight; }, [output]);
@@ -78,7 +91,7 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
     // A retry with more time is staged by the server from the timed-out job, and then approved
     // here exactly like anything else: same tier, same password or typed confirmation.
     (retryFrom ? retryWithMoreTime(retryFrom, csrfToken) : stageOperation(operationId, parameters, csrfToken))
-      .then((staged) => { stagedState.jobId = staged.job.id; if (cancelled) { withdraw(); return; } setJob(staged.job); setPolicy(staged.approval); setPhase("ready"); })
+      .then((staged) => { stagedState.jobId = staged.job.id; if (cancelled) { withdraw(); return; } setJob(staged.job); setPolicy(staged.approval); setPhase("ready"); onStagedRef.current?.(staged.job); })
       .catch((stageError: unknown) => { if (cancelled) return; setError(stageError instanceof Error ? stageError.message : "Could not prepare this action"); setPhase("error"); });
     return () => { cancelled = true; withdraw(); };
   }, [operationId, parameters, csrfToken, retryFrom]);
@@ -114,6 +127,7 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
       if (!mounted.current || tracking.signal.aborted) return;
       if (password) window.dispatchEvent(new Event("boxpilot:auth-changed"));
       setPassword("");
+      if (handoffRef.current) { handoffRef.current(job); return; }
       setPhase("running");
       setOutput("");
       stopFollowing.current?.();

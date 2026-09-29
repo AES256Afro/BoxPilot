@@ -6437,12 +6437,16 @@ body {
 }
 
 /* ── Ops: near-black and hairlines, or paper in light ────────────────────── */
+/* Repair wears the same palette (M35): it is where the fixing is done, so it reads like Ops, with
+   the Classic bar and dock and Figtree kept for the prose its findings are written in. */
 .app-shell[data-view="ops"] {
+  font-family: var(--font-condensed);
+  --font-sans: var(--font-condensed);
+}
+.app-shell:is([data-view="ops"], [data-view="repairs"]) {
   min-height: 100vh;
   background: var(--cc-canvas);
-  font-family: var(--font-condensed);
   /* What the components read, pointed at the Command Center's own tokens. */
-  --font-sans: var(--font-condensed);
   --canvas: var(--cc-canvas);
   --topbar-bg: var(--cc-topbar);
   --surface: var(--cc-panel);
@@ -6501,7 +6505,7 @@ body {
   --risk-high-border: var(--cc-red-border);
 }
 
-.app-shell[data-view="ops"] :is(button, a, input, select, textarea, summary):focus-visible {
+.app-shell:is([data-view="ops"], [data-view="repairs"]) :is(button, a, input, select, textarea, summary):focus-visible {
   outline: 2px solid var(--cc-amber);
   outline-offset: 1px;
 }
@@ -6722,4 +6726,80 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .ui-button { transition: none; }
   .shell-dock--rail .ui-dock__label { transition: none; }
+}
+
+/* ── Repair (M35): findings that fix in place, in the Command Center's panels ── */
+.rp { display: grid; gap: 12px; min-width: 0; }
+.rp-status { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 12px 14px; border: 1px solid var(--cc-line); border-radius: 4px; background: var(--cc-panel); }
+.rp-status > p { flex: 1 1 20rem; min-width: 0; margin: 0; color: var(--cc-text-strong); font-size: 15px; line-height: 1.4; }
+.rp-status__actions { display: flex; flex-wrap: wrap; gap: 8px; margin-left: auto; }
+.rp-status__incomplete { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 0; color: var(--cc-muted); font-size: 13.5px; line-height: 1.4; }
+
+.rp-panel { display: flex; flex-direction: column; min-width: 0; overflow: hidden; border: 1px solid var(--cc-line); border-radius: 4px; background: var(--cc-panel); }
+.rp-panel__head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; min-height: 36px; padding: 6px 12px; border-bottom: 1px solid var(--cc-line); }
+.rp-panel__head h2 { display: flex; align-items: center; gap: 9px; margin: 0; color: var(--cc-muted); font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.09em; line-height: 1.2; text-transform: uppercase; }
+.rp-panel__head .cc-count { letter-spacing: 0; }
+.rp-panel__meta { min-width: 0; margin: 0 0 0 auto; color: var(--cc-muted); font-size: 12.5px; line-height: 1.35; }
+.rp-panel__body { display: grid; gap: 10px; padding: 12px; }
+.rp-panel__body h3 { margin: 0; color: var(--cc-text-strong); font-size: 15px; }
+.rp-panel__body > p { margin: 0; color: var(--cc-text); font-size: 14px; line-height: 1.45; }
+.rp-panel--dismissed .ui-table td { white-space: normal; }
+.rp-list { display: grid; }
+
+.rp-finding { display: grid; gap: 8px; min-width: 0; padding: 12px 14px; border-top: 1px solid var(--cc-hairline); box-shadow: inset 3px 0 0 var(--cc-line-strong); }
+.rp-finding:first-child { border-top: 0; }
+.rp-finding[data-severity="critical"] { box-shadow: inset 3px 0 0 var(--status-danger); }
+.rp-finding[data-severity="warning"] { box-shadow: inset 3px 0 0 var(--status-warning); }
+.rp-finding.rp-finding--gone { box-shadow: inset 3px 0 0 var(--status-good); }
+.rp-finding__head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; min-width: 0; }
+.rp-finding__head h3 { flex: 1 1 16rem; min-width: 0; margin: 0; color: var(--cc-text-strong); font-size: 16px; font-weight: 650; line-height: 1.3; overflow-wrap: anywhere; }
+.rp-finding__detail { max-width: 80ch; margin: 0; color: var(--cc-text); font-size: 14px; line-height: 1.5; }
+.rp-finding__note { max-width: 80ch; margin: 0; padding: 6px 10px; border-left: 2px solid var(--cc-line-strong); color: var(--cc-text); font-size: 13.5px; line-height: 1.45; background: var(--cc-inset); overflow-wrap: anywhere; }
+.rp-finding__note--failed { border-left-color: var(--status-danger); }
+.rp-finding__manual { max-width: 80ch; margin: 0; color: var(--cc-text); font-size: 13.5px; line-height: 1.45; }
+.rp-finding__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.rp-evidence summary, .rp-log summary { width: fit-content; color: var(--cc-muted); font-family: var(--font-mono); font-size: 12px; cursor: pointer; }
+.rp-evidence ul { display: grid; gap: 2px; margin: 6px 0 0; padding-left: 18px; color: var(--cc-text); font-family: var(--font-mono); font-size: 12.5px; line-height: 1.45; overflow-wrap: anywhere; }
+
+.rp-run { display: grid; gap: 8px; min-width: 0; padding: 10px 12px; border: 1px solid var(--cc-line); border-radius: 4px; background: var(--cc-inset); }
+.rp-run__head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; color: var(--cc-text-strong); font-size: 14px; line-height: 1.4; }
+.rp-run__head > span:last-child { flex: 1 1 16rem; min-width: 0; overflow-wrap: anywhere; }
+.rp-run.rp-run--still { border-color: var(--status-danger-border); }
+.rp-run.rp-run--fixed { border-color: var(--status-good-border); }
+.rp-run__next { margin: 0; color: var(--cc-text); font-size: 13.5px; line-height: 1.45; }
+.rp-run .activity-detail { padding: 0; }
+.rp-run .job-terminal pre { max-height: 18rem; }
+
+.rp-grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(16rem, 1fr); gap: 12px; align-items: start; }
+.rp-checks { display: grid; }
+.rp-check { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px 12px; align-items: start; padding: 10px 12px; border-top: 1px solid var(--cc-hairline); }
+.rp-check:first-child { border-top: 0; }
+.rp-check > div { display: grid; gap: 2px; min-width: 0; }
+.rp-check small { color: var(--cc-muted); font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; }
+.rp-check strong { color: var(--cc-text-strong); font-size: 14.5px; }
+.rp-check p, .rp-check em { margin: 0; color: var(--cc-text); font-size: 13.5px; font-style: normal; line-height: 1.45; }
+.rp-check em { color: var(--cc-muted); }
+
+.rp-clear { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.rp-wrap { white-space: normal; overflow-wrap: anywhere; }
+.rp-jobs { display: grid; }
+
+.rp-modal__list { display: grid; gap: 8px; margin: 8px 0 0; padding-left: 20px; font-size: 14px; line-height: 1.45; }
+.rp-modal__reason { box-sizing: border-box; width: 100%; min-height: 4.5rem; resize: vertical; font: inherit; }
+
+/* Home and Ops: the buttons a need offers, and a fix's progress under its words (M35). */
+.need__acts { display: inline-flex; flex: none; flex-wrap: wrap; justify-content: flex-end; gap: 6px; margin-left: auto; }
+.need__acts .need__act { margin-left: 0; }
+.need__run { color: var(--text-muted); font-size: var(--font-size-sm); line-height: 1.4; overflow-wrap: anywhere; }
+.lx-fixed { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 8px 0 0; color: var(--text); font-size: 13.5px; line-height: 1.4; }
+
+@media (max-width: 900px) {
+  .rp-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 620px) {
+  .rp-check { grid-template-columns: minmax(0, 1fr); }
+  .rp-status__actions { margin-left: 0; }
+  .rp-finding { padding: 12px; }
+  .need__acts { flex: 1 1 100%; justify-content: flex-start; margin-left: 0; }
 }

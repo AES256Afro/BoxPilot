@@ -1,0 +1,47 @@
+import type { Job } from "../operations";
+import type { Finding } from "./types";
+
+/*
+ * What a fix did, in a sentence, and what to do when it did not work (M35). Read from the job's own
+ * result, so "Fixed" says what changed rather than only that something ran.
+ */
+
+type Result = Record<string, unknown>;
+const list = (value: unknown): string[] => (Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : []);
+const joined = (names: string[]) => (names.length <= 1 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`);
+const apps = (names: string[]) => joined(names.map((name) => name.replace(/^bp-/, "")));
+
+/** One sentence: what the job changed, from its result, or its own last words when there is nothing better. */
+export function whatChanged(job: Pick<Job, "type" | "result" | "steps">): string {
+  const result = (job.result && typeof job.result === "object" ? job.result : {}) as Result;
+  const operation = job.type.replace(/^op:/, "");
+  const restarted = list(result.restarted);
+  const closed = list(result.sharingClosedFor);
+  const afterApps = restarted.length ? ` ${apps(restarted)} ${restarted.length === 1 ? "was" : "were"} started again.` : "";
+  const afterSharing = closed.length ? ` File sharing from ${joined(closed)} was disconnected and reconnects by itself.` : "";
+  if (operation === "storage.remount" && result.remounted) {
+    const moved = result.deviceChanged ? ` from ${String(result.source)} (it was ${String(result.previousSource)})` : result.source ? ` from ${String(result.source)}` : "";
+    return `${String(result.mountpoint ?? "The drive")} is mounted again${moved}, reads, and is writable.${afterApps}${afterSharing}`;
+  }
+  if (operation === "storage.writable" && result.writable) return `${String(result.mountpoint)} now belongs to ${String(result.owner)}, so apps and file shares can write there.${afterApps}${afterSharing}`;
+  if (operation === "share.reconnect" && result.reconnected) return `${String(result.mountpoint)} is mounted again, read-write.${afterApps}`;
+  if (operation === "samba.share.writable" && result.writable) return `${String(result.path)} now belongs to ${String(result.owner)}, and the ${String(result.share)} share writes as ${String(result.forceUser)}.`;
+  if (operation === "app.reinstall" && result.reinstalled) return `${String(result.name ?? result.id)} has a container again and is running${result.projectRewritten ? ", from its saved settings" : ", from its saved compose project"}.`;
+  if (operation === "app.uninstall" && result.uninstalled) return `${String(result.id)} is no longer listed as installed; its data folder is kept.`;
+  if (operation === "app.backup.many" && Array.isArray(result.apps)) return `Backed up ${joined((result.apps as Array<{ id?: string }>).map((entry) => String(entry.id)))}.`;
+  if (operation === "app.backup" && result.backedUp) return `Backed up to ${String(result.artifact ?? "a new archive")}.`;
+  if (operation === "notifications.ntfy.connect" && result.connected) return "ntfy on this server accepted a test message, and BoxPilot's alerts now go to it.";
+  if (operation === "storage.check" && result.checked) return result.clean ? `${String(result.mountpoint)} checked clean.${afterApps}` : `The check found problems on ${String(result.mountpoint)}: ${String(result.summary ?? "see the log")}`;
+  if (operation === "storage.docker-order.apply") return result.changed ? "The drives are ordered around Docker now: it waits for them at boot and stops before they are unmounted." : "The drives were already ordered around Docker.";
+  if (operation === "app.action") return `${String(result.id ?? "The app")} is ${String(result.status ?? "running")} now.`;
+  const verified = [...(job.steps ?? [])].reverse().find((step) => step.name === "verify" && step.state === "completed");
+  return verified?.detail ? `${verified.detail}.` : "The job finished.";
+}
+
+/** What to do next when a fix did not clear its finding: its own words when it has them. */
+export function nextStep(finding: Pick<Finding, "manual" | "fixes" | "fix"> | null, failed: boolean): string {
+  if (finding?.manual) return finding.manual;
+  return failed
+    ? "Read the job's log below: it says where it stopped. Fix what it names, then try again."
+    : "The fix ran, but the scan still finds this. Read the evidence and the job's log, then try again or dismiss it with a reason.";
+}
