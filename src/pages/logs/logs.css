@@ -1,0 +1,23 @@
+/* Logs (M33.8): the page's own layout, on the kit's components. Tokens only, and every selector
+   starts with .logs-, so no other page is touched (docs/UI-PAGES.md). */
+
+.logs-page { display: grid; gap: 10px; min-width: 0; }
+
+/* Choosing a source: the journal groups, then a unit by name, then a container, on one row that
+   wraps on a narrow screen. */
+.logs-source__rows { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; min-width: 0; }
+.logs-source__unit { display: flex; flex: 1 1 18rem; gap: 6px; min-width: 0; max-width: 30rem; }
+.logs-source__unit .ui-input { flex: 1 1 auto; }
+.logs-source__container { flex: 0 1 16rem; min-width: 10rem; }
+
+/* The output: the controls across the top of the panel, the lines filling the rest of the screen. */
+.logs-toolbar { padding: 8px 12px; border-bottom: 1px solid var(--border); }
+.logs-toolbar__filter { flex: 1 1 12rem; max-width: 22rem; }
+.logs-output .ui-code { border: 0; border-radius: 0; }
+.logs-output .ui-code__text { min-height: 18rem; max-height: calc(100vh - 330px); }
+
+@media (max-width: 640px) {
+  .logs-source__unit { max-width: none; }
+  .logs-source__container { flex-basis: 100%; }
+  .logs-output .ui-code__text { max-height: 70vh; }
+}

@@ -1364,6 +1364,40 @@ the milestones they overlap.
   network throughput and a GPU tile on Ops (no endpoint); history for the sparklines and the range
   control; the study's notification bell and "Tailnet" pill on Home's bar (BoxPilot has no
   notification centre, and the connection pill says how this browser connected).
+- ✅ **M33.8 The console** (wave 1, unreleased; ADR-004 second addendum). The owner, after 1.138.0:
+  tapping any icon under Ops "just reverts me back to the old box pilot... I want it gone." Every
+  page but Home now opens inside Ops' shell: the rail (the dock on a phone), the compact bar with
+  the page's name after the server's (`homebox / firewall`, the name read once from the inventory
+  when a page is opened first), and the Command Center's tokens on `<html>` (`data-shell`), so
+  dialogs, sheets, Activity and the command bar opened over a page share its look. The Classic
+  header (eyebrow, title, description) and the "What you can do" strip are gone; a page not yet
+  rebuilt gets the kit's `PageHeader` from the shell, its description behind an info toggle.
+  Switching pages keys the page's Suspense boundary, so the page left behind takes its name out of
+  the bar at once. **The kit** (`src/ui`, each with tests and a place in the gallery):
+  `PageHeader`, `Panel`, `Field`, `TextInput`, `Textarea`, `Select` (the native select, styled),
+  `SecretInput`, `Switch`, `Checkbox`, `Segmented`, `Tabs` (with `useUrlParam`, so
+  `?view=storage&tab=shares` opens that tab), `KeyValue` (rows, columns, the study's strip),
+  `Notice`, `EmptyState`, `Toolbar` and `SearchField`, `Sheet` (`useDialogFocus`), `CodeBlock`,
+  `Progress`, `JobProgress` (the job log's own stream) and `Tag` (reach and tier); `Table` sorts
+  from its headers with `aria-sort`. Ops' header and panels are the kit's, and `Panel` is the one Repair (M35) uses too. **The page CSS
+  convention:** a rebuilt page's styles live in `src/pages/<area>/<area>.css`, tokens only, every
+  selector under `.<area>-`, held by `src/pages/pageCss.test.ts`; `src/styles.css` keeps tokens and
+  shared components. **The stopgap:** the Classic pages' classes (panels and their headers, stat
+  cards, buttons, pills, notices, legacy tables, inputs and selects, modals) are restyled to the
+  console until wave 2 rebuilds each. **The Classic overview is retired:** Ops gains Disks (each
+  drive's SMART health, a USB bridge or a sleeping drive said as such), Key services, Power (the
+  UPS) and Setup (the checklist); Home shows drive health and the UPS as figures; `?view=overview`
+  and an older server's "Open Overview" land on Home, and the action centre recommends Ops.
+  **Reference pages:** Services and Logs rebuilt on the kit with every feature (scopes with counts,
+  search, sortable units, tiered actions, a journal sheet; groups, units, containers, lines, window,
+  filter, follow, download and the support bundle, now in Logs' own header), and
+  `docs/UI-PAGES.md` says how to build a page: facts first, tiers on every action, explanations
+  behind the toggle. The contrast check runs the main pairs under the console's tokens as well,
+  which found light amber and green chips at 4.37:1 on the page; they are a shade darker
+  (`#935700`, `#147447`). Left for wave 2: rebuilding Storage, Backups, Network, Firewall, Users,
+  GitHub, Apps, Automations, Metrics, VMs, System, Settings, Setup, sign-in, Activity and
+  the approval dialog on the kit, and deleting stopgap rules as their classes go; Repair is
+  M35's; Updates, built on the components in M33.1, still takes its header from the shell.
 - The owner wants every concept from the study (2026-09-28): the assistant (B5) is M34; the phone
   layout (B6) is M25; recipes and a GPU page (B7) belong to M22.
 

@@ -27,7 +27,7 @@
  *   SCENARIO     the demo world for every page: default, fresh or trouble. Files get a suffix.
  *   STATES       extra captures of states a page only reaches by clicking, separated by ";":
  *                name=query>click>click, for example
- *                "overview-alerts=?scenario=trouble>Show;activity=?scenario=trouble>Activity".
+ *                "home-trouble=?scenario=trouble;activity=?scenario=trouble>Activity".
  *                Each click presses the first button, link or summary whose text or aria-label
  *                is that text (exact match first, then the first one starting with it); "text@2"
  *                presses the second. With STATES and no PAGES, only the states are photographed.
@@ -59,9 +59,9 @@ const settleMs = 2500;
 const settleFor = (query) => (/[?&]view=ops(&|$)/.test(query) ? 11_500 : settleMs);
 const tallest = 12_000;
 
-/** page file name → query string. The README's pages, in its order. */
+/** page file name → query string. The README's pages, in its order ("overview" is its first picture, now Home). */
 const readmePages = [
-  ["overview", "?view=overview"], ["catalog", "?view=catalog"], ["automations", "?view=automations"], ["firewall", "?view=firewall"],
+  ["overview", "?view=home"], ["catalog", "?view=catalog"], ["automations", "?view=automations"], ["firewall", "?view=firewall"],
   ["storage", "?view=storage"], ["backups", "?view=backups"], ["network", "?view=network"], ["updates", "?view=updates"], ["system", "?view=system"],
   ["repairs", "?view=repairs"],
 ];
@@ -82,7 +82,7 @@ function chooseStates() {
   return (process.env.STATES ?? "").split(";").map((entry) => entry.trim()).filter(Boolean).map((entry) => {
     const [name, rest = ""] = entry.split(/=(.*)/s);
     const [query, ...clicks] = rest.split(">").map((part) => part.trim());
-    if (!/^[a-z0-9-]+$/.test(name ?? "") || !query?.startsWith("?")) throw new Error(`STATES entries look like name=?view=overview>Show, not ${entry}`);
+    if (!/^[a-z0-9-]+$/.test(name ?? "") || !query?.startsWith("?")) throw new Error(`STATES entries look like name=?view=storage>Check this drive, not ${entry}`);
     return [name, query, clicks.filter(Boolean)];
   });
 }

@@ -54,7 +54,7 @@ describe("read-only local Action Center", () => {
     const inventory = { inspect: vi.fn(async () => ({ storage: { filesystems: { available: true, summary: { healthy: 1, warning: 0, critical: 1, unavailable: 0 } }, smart: { available: false, status: "unavailable", reason: "smartctl-not-installed" } } })) };
     const result = await createActionCenterService({ recoveryKit, inventory, now }).inspect();
     expect(result.notices).toEqual([
-      expect.objectContaining({ id: "storage.filesystem-capacity", severity: "critical", recommendation: { view: "overview", title: "Open Overview", steps: expect.any(Array) } }),
+      expect.objectContaining({ id: "storage.filesystem-capacity", severity: "critical", recommendation: { view: "ops", title: "Open Ops", steps: expect.any(Array) } }),
       expect.objectContaining({ id: "storage.smart-evidence", severity: "warning", boundary: expect.objectContaining({ automaticFixAvailable: false }) }),
     ]);
     expect(JSON.stringify(result)).not.toContain("apt-get");

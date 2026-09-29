@@ -180,7 +180,7 @@ export function createActionCenterService({ recoveryKit, inventory = null, listJ
           title: "Could not read the drives",
           summary: "BoxPilot could not read this server's mounts just now, so it cannot say whether the drives are healthy.",
           evidence: ["The mount list could not be read."],
-          recommendation: { view: "overview", title: "Open Overview", steps: ["Open the Overview and press Refresh.", "If it still fails, check the BoxPilot service on the Services page."] },
+          recommendation: { view: "ops", title: "Open Ops", steps: ["Open Ops and press Read again.", "If it still fails, check the BoxPilot service on the Services page."] },
           boundary: boundary(),
         });
       } else {
@@ -194,7 +194,7 @@ export function createActionCenterService({ recoveryKit, inventory = null, listJ
             title: critical ? "A filesystem is critically full" : "A filesystem is approaching capacity",
             summary: "Look at which drive it is on the Storage page before adding backups, apps, or VM disks to it.",
             evidence: [`${filesystemSummary.critical ?? 0} critical and ${filesystemSummary.warning ?? 0} warning filesystem capacity state(s) were reported.`],
-            recommendation: { view: "overview", title: "Open Overview", steps: ["Open the Storage page: the drive is marked with how full it is and what is filling it.", "Free space on it, or point new data somewhere else, before creating anything large."] },
+            recommendation: { view: "ops", title: "Open Ops", steps: ["Open the Storage page: the drive is marked with how full it is and what is filling it.", "Free space on it, or point new data somewhere else, before creating anything large."] },
             boundary: boundary(),
           });
         }
@@ -208,7 +208,7 @@ export function createActionCenterService({ recoveryKit, inventory = null, listJ
             title: critical ? "An ext4 filesystem has recorded kernel errors" : "An ext4 error counter is unavailable",
             summary: critical ? "The kernel has logged errors on this filesystem. Keep a copy of what matters on it before doing anything that writes to it." : "BoxPilot could not read this filesystem's error counter, so it cannot say whether it is healthy.",
             evidence: [`${filesystemErrors.critical ?? 0} ext4 critical and ${filesystemErrors.unavailable ?? 0} ext4 unavailable error-counter state(s) were reported.`],
-            recommendation: { view: "overview", title: "Open Overview", steps: ["Open the Storage page to see which drive it is.", "Check the drive from the server console before writing to it again; if it keeps logging errors, replace it."] },
+            recommendation: { view: "ops", title: "Open Ops", steps: ["Open the Storage page to see which drive it is.", "Check the drive from the server console before writing to it again; if it keeps logging errors, replace it."] },
             boundary: boundary(),
           });
         } else if ((filesystemErrors?.unsupported ?? 0) > 0) {
@@ -219,7 +219,7 @@ export function createActionCenterService({ recoveryKit, inventory = null, listJ
             title: "Some drives cannot report errors to BoxPilot",
             summary: "Their filesystem type does not keep an error counter BoxPilot can read, so they are listed as unchecked rather than assumed healthy.",
             evidence: [`${filesystemErrors.unsupported} mounted drive(s) have no error counter BoxPilot can read.`],
-            recommendation: { view: "overview", title: "Open Overview", steps: ["Open the Storage page to see which drives these are.", "Rely on the drive's own SMART health for these, which BoxPilot checks separately."] },
+            recommendation: { view: "ops", title: "Open Ops", steps: ["Open the Storage page to see which drives these are.", "Rely on the drive's own SMART health for these, which BoxPilot checks separately."] },
             boundary: boundary(),
           });
         }
@@ -235,7 +235,7 @@ export function createActionCenterService({ recoveryKit, inventory = null, listJ
             title: critical ? "A drive is reporting problems" : smart?.status === "stale" ? "The drive health reading is out of date" : smart?.available ? "A drive health reading needs a look" : "Drive health has not been checked",
             summary: critical ? "A drive is reporting problems in its own health data. Keep a copy of what matters on it now." : "BoxPilot has no current drive health reading, so it cannot say the drives are fine.",
             evidence: [`Drive health check: ${smart?.status ?? "unavailable"}. Reason: ${smart?.reason ?? "storage-scan-unavailable"}.`],
-            recommendation: { view: "overview", title: "Open Overview", steps: ["Open the Overview: the drive and its health numbers are on the Disks panel.", "If a drive is failing, copy its data off before anything else, then replace it."] },
+            recommendation: { view: "ops", title: "Open Ops", steps: ["Open Ops: each drive and its health are on the Disks panel.", "If a drive is failing, copy its data off before anything else, then replace it."] },
             boundary: boundary(),
           });
         }
@@ -250,7 +250,7 @@ export function createActionCenterService({ recoveryKit, inventory = null, listJ
             title: "No battery backup is set up",
             summary: "BoxPilot is not reading a UPS, so a power cut will stop this server without warning.",
             evidence: [ups.installed ? "The UPS software is installed, but no UPS is connected to it." : "The NUT client is not installed on this server."],
-            recommendation: { view: "overview", title: "Open Overview", steps: ["Decide whether this server needs one; a UPS lets it shut down cleanly when the power goes.", "Set it up on the System page once it is plugged in."] },
+            recommendation: { view: "ops", title: "Open Ops", steps: ["Decide whether this server needs one; a UPS lets it shut down cleanly when the power goes.", "Set it up on the System page once it is plugged in."] },
             boundary: boundary(),
           });
         } else if (!ups.available || ["on-battery", "bypass", "offline"].includes(ups.state)) {
@@ -261,7 +261,7 @@ export function createActionCenterService({ recoveryKit, inventory = null, listJ
             title: ups.state === "on-battery" ? "The power is out; the server is on battery" : "Could not read the UPS clearly",
             summary: ups.state === "on-battery" ? "The power is out and the server is running on its battery." : "BoxPilot cannot read the UPS clearly right now.",
             evidence: [`Local UPS state: ${ups.state}.`],
-            recommendation: { view: "overview", title: "Open Overview", steps: ["Check the mains power and the UPS itself.", "If the power does not come back, stop anything that is writing and let the server shut down cleanly."] },
+            recommendation: { view: "ops", title: "Open Ops", steps: ["Check the mains power and the UPS itself.", "If the power does not come back, stop anything that is writing and let the server shut down cleanly."] },
             boundary: boundary(),
           });
         } else if (["low-battery", "forced-shutdown"].includes(ups.state)) {
@@ -272,7 +272,7 @@ export function createActionCenterService({ recoveryKit, inventory = null, listJ
             title: ups.state === "low-battery" ? "The local UPS battery is low" : "The local UPS reports forced shutdown",
             summary: "The battery is nearly gone. Anything still writing is about to lose power.",
             evidence: [`Local UPS state: ${ups.state}.`],
-            recommendation: { view: "overview", title: "Open Overview", steps: ["Stop what you can now.", "The server will shut itself down; let it."] },
+            recommendation: { view: "ops", title: "Open Ops", steps: ["Stop what you can now.", "The server will shut itself down; let it."] },
             boundary: boundary(),
           });
         }
@@ -299,7 +299,7 @@ export function createActionCenterService({ recoveryKit, inventory = null, listJ
             title: "Ubuntu reports that a reboot is required",
             summary: "An update installed something that only takes effect after a restart.",
             evidence: ["Ubuntu has flagged that a reboot is needed."],
-            recommendation: { view: "overview", title: "Open Overview", steps: ["Pick a quiet moment; running apps and VMs will be stopped while it restarts.", "Restart from the System page."] },
+            recommendation: { view: "ops", title: "Open Ops", steps: ["Pick a quiet moment; running apps and VMs will be stopped while it restarts.", "Restart from the System page."] },
             boundary: boundary(),
           });
         }
@@ -311,7 +311,7 @@ export function createActionCenterService({ recoveryKit, inventory = null, listJ
             title: "Some system services have failed",
             summary: "At least one service on this server is not running as it should.",
             evidence: [`${maintenance.system.failedServiceCount ?? "Unknown"} failed service(s) were counted.`],
-            recommendation: { view: "overview", title: "Open Overview", steps: ["Open the Services page to see which ones and why.", "Fix or restart them before relying on this server for anything important."] },
+            recommendation: { view: "ops", title: "Open Ops", steps: ["Open the Services page to see which ones and why.", "Fix or restart them before relying on this server for anything important."] },
             boundary: boundary(),
           });
         }
@@ -324,7 +324,7 @@ export function createActionCenterService({ recoveryKit, inventory = null, listJ
             title: "Could not read the server's update state",
             summary: "BoxPilot could not read whether updates, a reboot, or failed services are pending.",
             evidence: ["One of the update checks could not be read."],
-            recommendation: { view: "overview", title: "Open Overview", steps: ["Open the Overview and press Refresh.", "If it still cannot read them, check the BoxPilot service on the Services page."] },
+            recommendation: { view: "ops", title: "Open Ops", steps: ["Open Ops and press Read again.", "If it still cannot read them, check the BoxPilot service on the Services page."] },
             boundary: boundary(),
           });
         }
@@ -350,7 +350,7 @@ export function createActionCenterService({ recoveryKit, inventory = null, listJ
             title: "Security updates are not installing on their own",
             summary: "Unattended upgrades are not both enabled and running, so security fixes wait for someone to install them.",
             evidence: [`Automatic security update state: ${maintenance.automaticSecurityUpdates.state}.`],
-            recommendation: { view: "overview", title: "Open Overview", steps: ["Turn them on from the Updates page.", "If you prefer to install updates yourself, do it weekly."] },
+            recommendation: { view: "ops", title: "Open Ops", steps: ["Turn them on from the Updates page.", "If you prefer to install updates yourself, do it weekly."] },
             boundary: boundary(),
           });
         }
@@ -380,7 +380,7 @@ export function createActionCenterService({ recoveryKit, inventory = null, listJ
         title: "Nothing could be read from this host",
         summary: "Disk health, power protection and update state could not be read, so none of them is being reported either way.",
         evidence: ["The server inventory could not be read."],
-        recommendation: { view: "overview", title: "Open Overview", steps: ["Refresh the Overview page.", "Check that the BoxPilot helper service is running.", "Read this page again once evidence returns."] },
+        recommendation: { view: "ops", title: "Open Ops", steps: ["Read Ops again.", "Check that the BoxPilot helper service is running.", "Read this page again once evidence returns."] },
         boundary: boundary(),
       });
     }

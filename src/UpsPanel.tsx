@@ -30,7 +30,7 @@ export default function UpsPanel({ start }: { start: (operation: PendingOperatio
   return (
     <section className="panel" id="ups">
       <header className="panel-header">
-        <div><strong>UPS (battery backup)</strong><span>Plug the UPS's USB cable into this server and BoxPilot sets up monitoring: status on the Overview page and a clean shutdown before the battery runs out.</span></div>
+        <div><strong>UPS (battery backup)</strong><span>Plug the UPS's USB cable into this server and BoxPilot sets up monitoring: status on Home and Ops, and a clean shutdown before the battery runs out.</span></div>
         <button className="secondary-button" type="button" onClick={() => void refresh()}>Look again</button>
       </header>
       {error && <div className="auth-error" role="alert">{error}</div>}

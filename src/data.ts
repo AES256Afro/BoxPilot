@@ -1,7 +1,6 @@
 export type ViewName =
   | "home"
   | "ops"
-  | "overview"
   | "updates"
   | "catalog"
   | "services"
@@ -22,14 +21,13 @@ export type ViewName =
 
 /**
  * Every page, in the order the dock and the command bar list them. Home and Ops are the two views
- * the top bar switches between (ADR-004); the rest are the admin areas in the dock. The Overview is
- * the page Home replaced, kept reachable as Classic until Home shows everything it does. The
+ * the top bar switches between (ADR-004); the rest are the admin areas in the dock and the rail.
+ * The Classic overview Home replaced is gone (M33.8): Home and Ops show everything it did. The
  * screenshot and sweep scripts read this list, so a page added here is photographed and swept.
  */
 export const navItems: Array<{ id: ViewName; label: string; short: string }> = [
   { id: "home", label: "Home", short: "HM" },
   { id: "ops", label: "Ops", short: "OP" },
-  { id: "overview", label: "Overview (Classic)", short: "OV" },
   { id: "updates", label: "Updates & packages", short: "UP" },
   { id: "catalog", label: "App catalog", short: "AC" },
   { id: "services", label: "Services", short: "SV" },

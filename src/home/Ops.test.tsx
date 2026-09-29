@@ -146,6 +146,75 @@ describe("Ops", () => {
     for (const name of homeApps) expect(within(containers).getByRole("button", { name: new RegExp(name ?? "") })).toBeTruthy();
   });
 
+  it("shows what the Classic overview did: each drive's health, the key services, the UPS and the setup checklist", async () => {
+    const GiB = 1024 ** 3;
+    vi.stubGlobal("fetch", stubFetch({
+      ...busier,
+      "/api/v1/inventory": {
+        host: { hostname: "homebox", operatingSystem: "Ubuntu 24.04 LTS", kernel: "6.8.0", uptimeSeconds: 90_000 },
+        compute: { cpuCount: 8, cpuModel: "fixture", load1: 0.84, loadPercent: 11, totalMemoryBytes: 32 * GiB, usedMemoryBytes: 11 * GiB, memoryUsedPercent: 34 },
+        storage: {
+          root: { totalBytes: 100 * GiB, usedBytes: 20 * GiB, usedPercent: 20 }, filesystems: { mounts: [] },
+          smart: { available: true, status: "healthy", reason: "fixed-root-scan", generatedAt: new Date(Date.now() - 2 * 3_600_000).toISOString(), stale: false, disks: [
+            { device: "/dev/nvme0n1", health: "healthy", passed: true, temperatureCelsius: 42, percentageUsed: 4, mediaErrors: 0 },
+            { device: "/dev/sdb", health: "healthy", passed: true, temperatureCelsius: 38, percentageUsed: null, mediaErrors: null, reason: "ok", deviceType: "sat" },
+            { device: "/dev/sdc", health: "unavailable", passed: null, temperatureCelsius: null, percentageUsed: null, mediaErrors: null, reason: "usb-bridge-unsupported", deviceType: "sat" },
+          ] },
+        },
+        power: { ups: { installed: true, configured: true, available: true, state: "online", reason: "ok", deviceCount: 1, statusTokens: ["CHRG", "OL"], batteryChargePercent: 96, estimatedRuntimeSeconds: 2700, loadPercent: 23 } },
+        services: [
+          { unit: "boxpilot.service", load: "loaded", active: "active", sub: "running", enabled: "enabled" },
+          { unit: "docker.service", load: "loaded", active: "failed", sub: "failed", enabled: "enabled" },
+          { unit: "nfs-server.service", load: "not-found", active: "inactive", sub: "dead", enabled: "" },
+        ],
+        network: { addresses: [{ interface: "eno1", address: "192.0.2.10" }], tailscale: { installed: true, connected: true, dnsName: null } },
+      },
+      "/api/v1/setup/checklist": { done: 1, total: 2, items: [
+        { id: "backups", title: "Back up BoxPilot's database", detail: "Nightly, with a restore drill", done: true, optional: false, view: "backups" },
+        { id: "firewall", title: "Turn the firewall on", detail: "Keeps SSH and BoxPilot reachable", done: false, optional: false, view: "firewall" },
+      ] },
+    }));
+    const onNavigate = vi.fn();
+    render(<FactsProvider><Ops csrfToken="csrf" role="owner" onNavigate={onNavigate} pollMs={60_000} /></FactsProvider>);
+
+    const disks = await screen.findByRole("table", { name: "Each drive's health" });
+    const rows = within(disks).getAllByRole("row").slice(1);
+    expect(rows.map((row) => within(row).getAllByRole("cell")[0].textContent)).toEqual(["nvme0n1", "sdb", "sdc"]);
+    expect(within(rows[0]).getByText("healthy")).toBeTruthy();
+    expect(within(rows[0]).getByText("42°C")).toBeTruthy();
+    // A drive whose USB enclosure passes nothing through is not known, and says why.
+    expect(rows[2].getAttribute("data-status")).toBe("unknown");
+    expect(within(rows[2]).getByText("no SMART").getAttribute("title")).toBe("Its USB enclosure does not pass SMART through");
+    expect(within(rows[1]).getByRole("button", { name: "sdb" }).getAttribute("title")).toContain("read through its USB bridge");
+    expect(screen.getByRole("region", { name: /^Disks/ }).textContent).toContain("read 2 hours ago");
+
+    const services = screen.getByRole("table", { name: "Key system services" });
+    expect(within(services).getAllByRole("row").slice(1).map((row) => within(row).getAllByRole("cell")[0].textContent)).toEqual(["boxpilot", "docker"]);
+    expect(within(services).getByText("failed").closest("tr")?.getAttribute("data-status")).toBe("danger");
+    expect(screen.getByRole("region", { name: /^Key services/ }).textContent).toContain("1 of 2 running");
+    fireEvent.click(within(services).getByRole("button", { name: "docker" }));
+    expect(onNavigate).toHaveBeenLastCalledWith("services");
+
+    const power = screen.getByRole("region", { name: /^Power/ });
+    expect(within(power).getByText("The UPS is on mains power")).toBeTruthy();
+    expect(within(power).getByText("96%")).toBeTruthy();
+    expect(within(power).getByText("45m 00s")).toBeTruthy();
+    expect(within(power).getByText("CHRG OL")).toBeTruthy();
+
+    const setup = await screen.findByRole("region", { name: /^Setup/ });
+    expect(within(setup).getByRole("heading").textContent).toContain("1/2");
+    expect(within(setup).getByText("Back up BoxPilot's database").closest("li")?.getAttribute("data-state")).toBe("done");
+    fireEvent.click(within(setup).getByRole("button", { name: "Open: Turn the firewall on" }));
+    expect(onNavigate).toHaveBeenLastCalledWith("firewall");
+  });
+
+  it("says why disk health and the UPS are not known rather than calling them fine", async () => {
+    renderOps();
+    const disks = await screen.findByRole("region", { name: /^Disks/ });
+    await vi.waitFor(() => expect(disks.textContent).toContain("This server did not say how its drives are."));
+    expect(screen.getByRole("region", { name: /^Power/ }).textContent).toContain("This server did not say whether a UPS is set up");
+  });
+
   it("gives a viewer the same facts and no fixes", async () => {
     renderOps("viewer");
     const inbox = await screen.findByRole("region", { name: /Action inbox/ });

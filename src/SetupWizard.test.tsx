@@ -43,7 +43,7 @@ describe("setup wizard", () => {
       "POST /api/v1/jobs/job-1/approve {}",
       'POST /api/v1/schedules {"operationId":"controller.backup.create","parameters":{},"frequency":"daily","minute":15,"hour":3,"weekday":null}',
     ]);
-    fireEvent.click(screen.getByRole("button", { name: "Go to overview" }));
+    fireEvent.click(screen.getByRole("button", { name: "Go to Home" }));
     expect(onDone).toHaveBeenCalled();
   });
 
