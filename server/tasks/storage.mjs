@@ -782,6 +782,16 @@ export function sharesOnMount(smbConf, mountpoint) {
 }
 
 /** Who is connected to which share, from `smbstatus -S --json`, or its table when JSON is not on offer. */
+export async function smbConnections(run) {
+  // --json is Samba 4.17's. 4.15 (Ubuntu 22.04) refuses it, "Invalid option --json: unknown
+  // option", and prints nothing on stdout, so the table is asked for then.
+  const asJson = await run(binaries.smbstatus, ["-S", "--json"], { timeout: 15_000 });
+  if (asJson.ok && asJson.stdout.trim().startsWith("{")) return parseSmbstatusShares(asJson.stdout);
+  const table = await run(binaries.smbstatus, ["-S"], { timeout: 15_000 });
+  return table.ok ? parseSmbstatusShares(table.stdout) : [];
+}
+
+/** The service and machine of each connection in smbstatus's JSON, or in its table (the same layout in 4.15, 4.19 and 4.23). */
 export function parseSmbstatusShares(text) {
   const raw = String(text ?? "").trim();
   try {
@@ -811,8 +821,7 @@ export async function unmountFromHost(mountpoint, { run = fixedRun, log = null, 
   if (first.ok) return { ok: true, result: first, clients: [] };
   const shares = sharesOnMount(await files.readFile(smbConfPath, "utf8").catch(() => ""), mountpoint);
   if (!shares.length) return { ok: false, result: first, clients: [] };
-  const status = await run(binaries.smbstatus, ["-S", "--json"], { timeout: 15_000 });
-  const clients = [...new Set(parseSmbstatusShares(status.stdout).filter((row) => shares.includes(row.service)).map((row) => row.machine))];
+  const clients = [...new Set((await smbConnections(run)).filter((row) => shares.includes(row.service)).map((row) => row.machine))];
   let result = first;
   for (let attempt = 1; attempt <= tries; attempt += 1) {
     for (const share of shares) await run(binaries.smbcontrol, ["smbd", "close-share", share], { timeout: 10_000 });
