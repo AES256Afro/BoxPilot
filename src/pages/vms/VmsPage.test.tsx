@@ -295,8 +295,10 @@ describe("Virtual machines page", () => {
     expect(go.getAttribute("data-risk")).toBe("high");
     fireEvent.click(go);
     expect(await screen.findByText("Create VM new-lab")).toBeTruthy();
-    // The dialog's own words say what to type: the new VM's name.
-    expect((await screen.findByLabelText("Typed confirmation")).closest("label")?.textContent).toBe("Type new-lab to confirm");
+    // The dialog's own words say what to type: the new VM's name, shown exactly as it must be typed.
+    const typed = await screen.findByLabelText("Typed confirmation");
+    const dialog = typed.closest("[role='dialog']") as HTMLElement;
+    expect(within(dialog).getByText((_, element) => element?.textContent === "Type new-lab exactly as shown.")).toBeTruthy();
     expect(staged).toEqual([{ operationId: "vm.create", parameters: plan.input }]);
   });
 

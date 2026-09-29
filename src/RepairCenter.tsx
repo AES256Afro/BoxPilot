@@ -2,8 +2,8 @@ import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } f
 import { readJson } from "./http";
 import RuntimeHealth from "./RuntimeHealth";
 import PackageRecovery from "./PackageRecovery";
-import ControllerDoctor from "./ControllerDoctor";
-import ServerRunbook from "./ServerRunbook";
+import ControllerDoctor from "./repair/ControllerDoctor";
+import ServerRunbook from "./repair/ServerRunbook";
 import { useOperation } from "./ApproveDialog";
 import { useAutoReconnect } from "./AutoReconnect";
 import { inspectOperation } from "./operations";
