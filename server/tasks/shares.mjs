@@ -130,11 +130,26 @@ const shareIn = (mounts) => mounts.find((mount) => mount.fstype !== "autofs") ??
 /**
  * What the unit's mount or umount printed, and what systemd said about the unit, since `since`.
  * PID 1 runs them, so their words go to the journal instead of back through systemctl.
+ *
+ * From `since` to the millisecond. Rounded down to the whole second, the read reached back to
+ * whatever the unit logged earlier in that second: a share.mount of a NAS that did not answer,
+ * started in the second a wrong password for the same share was refused, read that refusal too and
+ * said the NAS refused the credentials.
  */
 async function unitJournal(run, unit, since) {
   await run(binaries.journalctl, ["--sync"], { timeout: 15_000 });
-  const read = await run(binaries.journalctl, ["--no-pager", "-o", "cat", "-u", unit, `--since=@${Math.floor(since.getTime() / 1000)}`], { timeout: 15_000 });
+  const read = await run(binaries.journalctl, ["--no-pager", "-o", "cat", "-u", unit, `--since=@${(since.getTime() / 1000).toFixed(3)}`], { timeout: 15_000 });
   return read.ok ? read.stdout : "";
+}
+/**
+ * The mount unit's last attempt: its journal from the last line with which systemd began mounting
+ * it ("Mounting <unit> - <path>..."), or all of it when there is none. What an earlier attempt said
+ * never explains why this one failed, whatever the clock did in between.
+ */
+function lastAttempt(journal) {
+  const lines = String(journal ?? "").split("\n");
+  const start = lines.findLastIndex((line) => /^Mounting /.test(line));
+  return start === -1 ? lines.join("\n") : lines.slice(start).join("\n");
 }
 /** A unit's journal without systemd's own lines about it, which say only that it failed. */
 function helperWords(journal, unit) {
@@ -201,7 +216,7 @@ export async function shareMount({ kind, host, share, name, username = null, pas
   const mounted = started.ok && shareIn(await hostMountsAt(run, mountpoint).catch(() => []));
   if (!mounted) {
     const failed = armed.ok ? units.mount : units.automount;
-    const said = await unitJournal(run, failed, since);
+    const said = lastAttempt(await unitJournal(run, failed, since));
     await run(binaries.systemctl, ["stop", units.mount, units.automount], { timeout: 60_000 });
     // A failed unit stays in `systemctl --failed` after its fstab line has gone. Cleared while the
     // line is still there, so the unit is still loaded and the reload then lets it go.
@@ -315,7 +330,7 @@ export async function shareReconnect({ name } = {}, { run = fixedRun, log = null
   await run(binaries.systemctl, ["start", units.automount], { timeout: 30_000 });
   const started = await run(binaries.systemctl, ["start", units.mount], { timeout: 90_000 });
   if (!started.ok || !shareIn(await hostMountsAt(run, mountpoint).catch(() => []))) {
-    const said = await unitJournal(run, units.mount, mountedFrom);
+    const said = lastAttempt(await unitJournal(run, units.mount, mountedFrom));
     const reason = explainMountError(kind, `${said}\n${started.stderr}`, helperWords(said, units.mount) || tail(started.stderr) || `systemd started ${units.mount} but nothing is mounted at ${mountpoint}`);
     throw new Error(`${reason}${/[.!?]$/.test(reason) ? "" : "."} ${mountpoint} is not mounted now; its fstab entry is kept, so it mounts by itself once the NAS answers.`);
   }

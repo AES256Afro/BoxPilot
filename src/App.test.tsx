@@ -49,7 +49,8 @@ describe("BoxPilot console", () => {
     fireEvent.click(within(dock()).getByRole("button", { name: "Backups" }));
     // The console (M33.8): the rail, the compact bar with the page's name in it, and the look set on
     // the page's root too, so a sheet or dialog opened over the page is drawn the same way.
-    const heading = screen.getByRole("heading", { level: 1, name: "Backups" });
+    // Backups draws its own header (M33.9), so its name arrives with the page.
+    const heading = await screen.findByRole("heading", { level: 1, name: "Backups" });
     expect(heading.closest(".topbar")).not.toBeNull();
     expect(container.querySelector(".app-shell")?.getAttribute("data-shell")).toBe("console");
     expect(document.documentElement.dataset.shell).toBe("console");
@@ -87,7 +88,9 @@ describe("BoxPilot console", () => {
     expect(screen.getByText(viewCopy.firewall.description).closest("[hidden]")).not.toBeNull();
     fireEvent.click(about);
     expect(screen.getByText(viewCopy.firewall.description).closest("[hidden]")).toBeNull();
-  });
+    // Each rebuilt page draws its own name once its chunk has loaded, so walking every area takes
+    // longer than the default five seconds on a busy runner.
+  }, 20_000);
 
   it("has retired the Classic overview: its link opens Home and leaves the address clean", async () => {
     vi.stubGlobal("fetch", vi.fn(authenticatedFetch));
