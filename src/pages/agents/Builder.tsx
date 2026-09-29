@@ -1,21 +1,27 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from "react";
 import { relativeTime } from "../../home/format";
 import { Button, Checkbox, CodeBlock, Field, Notice, Panel, Segmented, Select, Sheet, StatusChip, Switch, Table, Tag, TextInput, Textarea, type TableColumn } from "../../ui";
-import { agentsApi, type AgentDetail, type AgentSpec, type AgentVersion, type Catalog, type Schedule, type SpecChange, type ToolInfo, type ToolPermission, type VersionDetail } from "./api";
+import { agentsApi, type AgentDetail, type AgentSpec, type AgentSummary, type AgentVersion, type Catalog, type OutputField, type Schedule, type SpecChange, type ToolInfo, type ToolPermission, type VersionDetail } from "./api";
 import { errorText, scheduleWords, triggerWords } from "./format";
 
 /*
- * The Agent Builder (M37). Without an agent chosen: the templates, each made into an agent with one
- * click. With one: everything an agent is, on one form - who it is and what it is told, who may ask
- * it, what it reads, each tool's permission (on, only when a person asked, off), when it runs, its
- * budget under ceilings no spec can lift, what it writes and what it remembers. Saving makes a new
- * version; every version can be compared field by field, the instructions line by line, and rolled
- * back to (which is a new version too). What the model is told, BoxPilot's rules included, is one
- * click away.
+ * The Agent Builder (M37), in the order an agent is built:
+ * 1. Scope: one specific job and how the owner will know it did it; the Builder warns when the scope
+ *    reads like "do everything".
+ * 2. The system prompt, structured: rules, operational steps, the output format (text, or JSON with
+ *    named fields the answer is checked against), what to escalate - templates prefill it, and it
+ *    is versioned with line diffs.
+ * 3. Data and tools: who may ask it, what it reads, each tool from the registry with its category,
+ *    cost and permission, and the apps and operations it may touch.
+ * 4. When it runs, 5. its guardrails (budget, outputs, escalation, thinking), 6. its memory, and
+ *    7. its team (a supervisor that hands subtasks to specialists).
+ * Then test it in the console. Saving makes a new version; every version compares field by field
+ * and can be rolled back to. An agent exports as JSON and imports back.
  */
 
 export interface BuilderProps {
   agentId: string | null;
+  agents: AgentSummary[];
   catalog: Catalog | null;
   canCreate: boolean;
   csrfToken: string;
@@ -29,6 +35,12 @@ export interface BuilderProps {
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 const knowledgeWords: Record<keyof AgentSpec["knowledge"], string> = { docs: "BoxPilot's documents", registry: "Registered operations", catalog: "The app catalog", notes: "Its own notes", documents: "Your documents" };
 const outputWords = { notes: "Notes about the server", digest: "A daily digest on Home and Ops", proposals: "Cards with a plan to approve" } as const;
+const escalationWords: Record<keyof AgentSpec["escalation"], { label: string; description: string }> = {
+  lowConfidence: { label: "When it is unsure what was meant", description: "A card when it is less than half sure it understood." },
+  limits: { label: "When it reaches a limit", description: "A card when it runs out of steps, time or model time." },
+  actions: { label: "When something needs doing", description: "A plan to approve, never an action." },
+  risk: { label: "When something looks risky", description: "A card and a notification when what it read looked like an instruction." },
+};
 const budgetWords: Record<keyof AgentSpec["budget"], { label: string; unit: string }> = {
   runsPerDay: { label: "Runs a day", unit: "runs" },
   modelSecondsPerDay: { label: "Model time a day", unit: "seconds" },
@@ -38,12 +50,14 @@ const budgetWords: Record<keyof AgentSpec["budget"], { label: string; unit: stri
 };
 const weekdays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const permissionOptions = [{ value: "auto" as const, label: "On" }, { value: "ask" as const, label: "Asked" }, { value: "off" as const, label: "Off" }];
+const article = (word: string) => (/^[aeiou]/i.test(word) || /^IT\b/.test(word) ? "an" : "a");
 
-// ---- the templates ----
+// ---- the templates, and importing a definition ----
 
 function TemplatePicker({ catalog, canCreate, csrfToken, onCreated }: Pick<BuilderProps, "catalog" | "canCreate" | "csrfToken" | "onCreated">) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const file = useRef<HTMLInputElement | null>(null);
   const create = async (template: string) => {
     setBusy(template);
     try {
@@ -56,21 +70,41 @@ function TemplatePicker({ catalog, canCreate, csrfToken, onCreated }: Pick<Build
       setBusy(null);
     }
   };
+  const importFile = async (event: ChangeEvent<HTMLInputElement>) => {
+    const chosen = event.target.files?.[0];
+    event.target.value = "";
+    if (!chosen) return;
+    setBusy("import");
+    try {
+      const agent = await agentsApi.importAgent(csrfToken, await chosen.text());
+      setError(null);
+      onCreated(agent.id);
+    } catch (requestError) {
+      setError(errorText(requestError, "That file could not be imported"));
+    } finally {
+      setBusy(null);
+    }
+  };
   if (!catalog) return <Panel title="Templates" padded><p className="agents-quiet">Reading the templates…</p></Panel>;
   return (
-    <Panel className="agents-templates" title="Start from a template" count={catalog.templates.length} meta="each becomes an agent you can change" padded>
+    <Panel className="agents-templates" title="Start from a template" count={catalog.templates.length} meta="each becomes an agent you can change" padded
+      actions={canCreate ? <>
+        <input ref={file} type="file" accept="application/json,.json" className="agents-file" aria-label="An agent definition to import" onChange={(event) => void importFile(event)} />
+        <Button variant="ghost" busy={busy === "import"} onClick={() => file.current?.click()}>Import from a file</Button>
+      </> : undefined}>
       {error && <Notice tone="danger" live>{error}</Notice>}
       <div className="agents-templates__grid">
         {catalog.templates.map((template) => {
           const tools = Object.values(template.spec.tools).filter((permission) => permission !== "off").length;
           return (
             <article key={template.id} className="agents-template" aria-label={template.title}>
-              <h3 className="agents-template__title">{template.title}</h3>
+              <h3 className="agents-template__title">{template.title}{template.spec.orchestration?.supervisor ? <Tag tone="accent">supervisor</Tag> : null}</h3>
               <p className="agents-template__summary">{template.summary}</p>
+              <p className="agents-template__job"><span className="agents-dim">Its job:</span> {template.spec.job}</p>
               <p className="agents-template__facts">
                 {tools} {tools === 1 ? "tool" : "tools"} · {triggerWords({ triggers: template.spec.triggers })} · asked by {template.spec.audience.join(", ")}
               </p>
-              {canCreate && <Button variant={template.id === "server-keeper" ? "primary" : "secondary"} busy={busy === template.id} onClick={() => void create(template.id)}>{template.id === "blank" ? "Start blank" : `Make a ${template.title}`}</Button>}
+              {canCreate && <Button variant={template.id === "server-keeper" ? "primary" : "secondary"} busy={busy === template.id} onClick={() => void create(template.id)}>{template.id === "blank" ? "Start blank" : `Make ${article(template.title)} ${template.title}`}</Button>}
             </article>
           );
         })}
@@ -86,14 +120,28 @@ interface FormProps {
   setDraft: (update: (draft: AgentSpec) => AgentSpec) => void;
   catalog: Catalog;
   disabled: boolean;
+  others: AgentSummary[];
 }
 
 function numberOf(text: string, fallback: number): number {
   const value = Number.parseInt(text, 10);
   return Number.isFinite(value) ? value : fallback;
 }
+const linesOf = (text: string) => text.split("\n");
+const idList = (text: string) => text.split(/[\s,]+/).map((part) => part.trim()).filter(Boolean);
+
+function FormSection({ id, title, step, children, flush = false }: { id: string; title: string; step: number; children: ReactNode; flush?: boolean }) {
+  return (
+    <section className={`agents-form__section${flush ? " agents-form__section--flush" : ""}`} aria-labelledby={`agents-form-${id}`}>
+      <h3 id={`agents-form-${id}`} className="agents-form__heading"><span className="agents-form__step">{step}</span>{title}</h3>
+      {children}
+    </section>
+  );
+}
 
 function ToolTable({ draft, setDraft, catalog, disabled }: FormProps) {
+  const order = Object.keys(catalog.categories ?? {});
+  const tools = [...catalog.tools].sort((a, b) => order.indexOf(a.category) - order.indexOf(b.category));
   const columns: Array<TableColumn<ToolInfo>> = [
     {
       id: "tool", header: "Tool", cell: (tool) => (
@@ -104,11 +152,13 @@ function ToolTable({ draft, setDraft, catalog, disabled }: FormProps) {
       ),
     },
     {
-      id: "facts", header: "Reads as", hideOnPhone: true, cell: (tool) => (
+      id: "facts", header: "Kind", hideOnPhone: true, cell: (tool) => (
         <span className="agents-tool__tags">
-          {tool.role === "operator" ? <Tag tone="warning" title="An operator read: only for runs of the owner or an operator">operator</Tag> : <Tag>anyone</Tag>}
+          <Tag tone={tool.category === "web" ? "warning" : tool.category === "action" || tool.category === "orchestration" ? "accent" : "neutral"}>{tool.categoryTitle ?? tool.category}</Tag>
+          {tool.role === "operator" ? <Tag tone="warning" title="An operator read: only for runs of the owner or an operator">operator</Tag> : null}
           <Tag tone={tool.cost === "heavy" ? "warning" : "neutral"}>{tool.cost}</Tag>
           {tool.writes && <Tag tone="info" title={`Writes ${tool.writes}; never anything on the server`}>writes {tool.writes}</Tag>}
+          {tool.defaultOff && <Tag tone="warning" title="Also needs the owner to turn it on for the whole server">opt-in</Tag>}
         </span>
       ),
     },
@@ -118,15 +168,15 @@ function ToolTable({ draft, setDraft, catalog, disabled }: FormProps) {
           label={`${tool.title}: permission`}
           value={draft.tools[tool.id] ?? "off"}
           onChange={(value) => { if (!disabled) setDraft((current) => ({ ...current, tools: { ...current.tools, [tool.id]: value } })); }}
-          options={permissionOptions.map((option) => ({ ...option, disabled }))}
+          options={permissionOptions.map((option) => ({ ...option, disabled: disabled || (tool.id === "agents.handoff" && !draft.orchestration.supervisor) }))}
         />
       ),
     },
   ];
-  return <Table caption="Tools and their permissions" columns={columns} rows={catalog.tools} rowKey={(tool) => tool.id} />;
+  return <Table caption="Tools and their permissions" columns={columns} rows={tools} rowKey={(tool) => tool.id} />;
 }
 
-function ScheduleFields({ draft, setDraft, disabled }: Omit<FormProps, "catalog">) {
+function ScheduleFields({ draft, setDraft, disabled }: Omit<FormProps, "catalog" | "others">) {
   const schedule = draft.triggers.schedule;
   const set = (next: Schedule | null) => setDraft((current) => ({ ...current, triggers: { ...current.triggers, schedule: next } }));
   const every = schedule?.every ?? "none";
@@ -136,7 +186,7 @@ function ScheduleFields({ draft, setDraft, disabled }: Omit<FormProps, "catalog"
         <Select value={every} disabled={disabled} onValueChange={(value) => set(value === "none" ? null : { every: value as Schedule["every"], minute: schedule?.minute ?? 30, hour: value === "daily" || value === "weekly" ? schedule?.hour ?? 5 : null, weekday: value === "weekly" ? schedule?.weekday ?? 1 : null, quietHours: schedule?.quietHours ?? true })}
           options={[{ value: "none", label: "No schedule" }, { value: "hourly", label: "Every hour" }, { value: "every-6-hours", label: "Every 6 hours" }, { value: "daily", label: "Every day" }, { value: "weekly", label: "Every week" }]} />
       </Field>
-      {schedule && (schedule.every === "weekly") && (
+      {schedule && schedule.every === "weekly" && (
         <Field label="Day">
           <Select value={String(schedule.weekday ?? 1)} disabled={disabled} onValueChange={(value) => set({ ...schedule, weekday: Number(value) })} options={weekdays.map((day, index) => ({ value: String(index), label: day }))} />
         </Field>
@@ -159,63 +209,106 @@ function ScheduleFields({ draft, setDraft, disabled }: Omit<FormProps, "catalog"
   );
 }
 
-function SpecForm({ draft, setDraft, catalog, disabled }: FormProps) {
-  const events = catalog.events;
+function OutputFields({ draft, setDraft, disabled }: Omit<FormProps, "catalog" | "others">) {
+  const output = draft.prompt.output;
+  const setOutput = (next: Partial<AgentSpec["prompt"]["output"]>) => setDraft((current) => ({ ...current, prompt: { ...current.prompt, output: { ...current.prompt.output, ...next } } }));
+  const setField = (index: number, change: Partial<OutputField>) => setOutput({ fields: output.fields.map((field, at) => (at === index ? { ...field, ...change } : field)) });
+  return (
+    <div className="agents-form__output">
+      <Segmented<"text" | "json"> label="Its answer" value={output.format} onChange={(format) => { if (!disabled) setOutput({ format, fields: format === "json" && !output.fields.length ? [{ name: "answer", description: "" }] : output.fields }); }}
+        options={[{ value: "text", label: "Sentences", disabled }, { value: "json", label: "JSON fields", disabled }]} />
+      {output.format === "text"
+        ? <Field label="How it writes its answer" optional><TextInput value={output.style} maxLength={300} placeholder="Short sentences, facts first, each with its citation." onValueChange={(value) => setOutput({ style: value })} /></Field>
+        : (
+          <div className="agents-form__fields">
+            {output.fields.map((field, index) => (
+              <div key={index} className="agents-form__field-row">
+                <Field label={`Field ${index + 1}`}><TextInput mono value={field.name} maxLength={32} placeholder="fullestDisk" onValueChange={(value) => setField(index, { name: value })} /></Field>
+                <Field label="What it holds"><TextInput value={field.description} maxLength={200} onValueChange={(value) => setField(index, { description: value })} /></Field>
+                <Button variant="ghost" disabled={disabled || output.fields.length <= 1} onClick={() => setOutput({ fields: output.fields.filter((_, at) => at !== index) })} aria-label={`Remove field ${index + 1}`}>Remove</Button>
+              </div>
+            ))}
+            <Button variant="ghost" disabled={disabled || output.fields.length >= 8} onClick={() => setOutput({ fields: [...output.fields, { name: "", description: "" }] })}>Add a field</Button>
+          </div>
+        )}
+    </div>
+  );
+}
+
+function SpecForm({ draft, setDraft, catalog, disabled, others }: FormProps) {
   const limits = catalog.limits.budget;
+  const setPrompt = (key: "rules" | "steps" | "escalate", value: string) => setDraft((current) => ({ ...current, prompt: { ...current.prompt, [key]: linesOf(value) } }));
+  const allow = draft.allow;
+  const delegates = draft.orchestration.delegates;
   return (
     <fieldset className="agents-form" disabled={disabled}>
-      <section className="agents-form__section" aria-labelledby="agents-form-who">
-        <h3 id="agents-form-who" className="agents-form__heading">Who it is</h3>
+      <FormSection id="scope" title="Its job" step={1}>
         <div className="agents-form__row">
           <Field label="Name"><TextInput value={draft.name} maxLength={60} onValueChange={(value) => setDraft((current) => ({ ...current, name: value }))} /></Field>
         </div>
-        <Field label="Purpose" hint="One sentence: what it is for. People who may ask it see this.">
+        <Field label="Its one job" hint="One specific job, in a sentence. A small model does one job well and many badly.">
+          <TextInput value={draft.job} maxLength={200} onValueChange={(value) => setDraft((current) => ({ ...current, job: value }))} />
+        </Field>
+        <Field label="It did its job when" hint="One per line. These are what its evaluation checks.">
+          <Textarea rows={3} value={draft.successCriteria.join("\n")} onValueChange={(value) => setDraft((current) => ({ ...current, successCriteria: linesOf(value) }))} />
+        </Field>
+        <Field label="Purpose" optional hint="What people who may ask it see.">
           <TextInput value={draft.purpose} maxLength={300} onValueChange={(value) => setDraft((current) => ({ ...current, purpose: value }))} />
         </Field>
-        <Field label="Instructions" hint="What it is told, below BoxPilot's own rules, which it cannot change: read before answering, cite tool output, propose and never act.">
-          <Textarea rows={8} value={draft.instructions} maxLength={8000} onValueChange={(value) => setDraft((current) => ({ ...current, instructions: value }))} />
-        </Field>
-      </section>
+      </FormSection>
 
-      <section className="agents-form__section" aria-labelledby="agents-form-ask">
-        <h3 id="agents-form-ask" className="agents-form__heading">Who may ask it</h3>
+      <FormSection id="prompt" title="What it is told" step={2}>
+        <p className="agents-form__note">Below BoxPilot's own rules, which it cannot change: read before answering, cite tool output, do sums with the exact tools, propose and never act.</p>
+        <Field label="Rules" optional hint="One per line."><Textarea rows={3} value={draft.prompt.rules.join("\n")} onValueChange={(value) => setPrompt("rules", value)} /></Field>
+        <Field label="How it works" optional hint="Its steps, one per line, in order."><Textarea rows={4} value={draft.prompt.steps.join("\n")} onValueChange={(value) => setPrompt("steps", value)} /></Field>
+        <OutputFields draft={draft} setDraft={setDraft} disabled={disabled} />
+        <Field label="What it hands to you" optional hint="One per line: what it tells you about or proposes a plan for."><Textarea rows={2} value={draft.prompt.escalate.join("\n")} onValueChange={(value) => setPrompt("escalate", value)} /></Field>
+        <Field label="Anything else" optional><Textarea rows={3} value={draft.instructions} maxLength={8000} onValueChange={(value) => setDraft((current) => ({ ...current, instructions: value }))} /></Field>
+      </FormSection>
+
+      <FormSection id="data" title="Data and tools" step={3} flush>
         <div className="agents-form__checks">
           {(["owner", "operator", "viewer"] as const).map((role) => (
-            <Checkbox key={role} label={role === "owner" ? "The owner" : role === "operator" ? "Operators" : "Viewers"} description={role === "viewer" ? "Their runs read only what a viewer may: never logs or Pi-hole." : undefined}
-              checked={draft.audience.includes(role)} onChange={(checked) => setDraft((current) => ({ ...current, audience: checked ? [...new Set([...current.audience, role])] : current.audience.filter((entry) => entry !== role) }))} />
+            <Checkbox key={role} label={role === "owner" ? "The owner may ask it" : role === "operator" ? "Operators may ask it" : "Viewers may ask it"} description={role === "viewer" ? "Their runs read only what a viewer may: never logs or Pi-hole." : undefined}
+              checked={draft.audience.includes(role)} disabled={role === "owner"} onChange={(checked) => setDraft((current) => ({ ...current, audience: checked ? [...new Set([...current.audience, role])] : current.audience.filter((entry) => entry !== role) }))} />
           ))}
         </div>
-      </section>
-
-      <section className="agents-form__section" aria-labelledby="agents-form-reads">
-        <h3 id="agents-form-reads" className="agents-form__heading">What it reads</h3>
         <div className="agents-form__checks">
           {(Object.keys(knowledgeWords) as Array<keyof AgentSpec["knowledge"]>).map((source) => (
-            <Checkbox key={source} label={knowledgeWords[source]} checked={draft.knowledge[source]} onChange={(checked) => setDraft((current) => ({ ...current, knowledge: { ...current.knowledge, [source]: checked } }))} />
+            <Checkbox key={source} label={`Reads ${knowledgeWords[source].toLowerCase()}`} checked={draft.knowledge[source]} onChange={(checked) => setDraft((current) => ({ ...current, knowledge: { ...current.knowledge, [source]: checked } }))} />
           ))}
         </div>
-      </section>
+        <p className="agents-form__note">Every tool reads; none changes the server. "Asked" means only when a person asked, never on a schedule, an event or a webhook. Tool output reaches the model as data, redacted, never as instructions.</p>
+        <ToolTable draft={draft} setDraft={setDraft} catalog={catalog} disabled={disabled} others={others} />
+        <div className="agents-form__row">
+          <Field label="Apps it may look at" hint={allow.apps === "*" ? "Any app" : "App ids, separated by commas"}>
+            {allow.apps === "*"
+              ? <Button variant="ghost" onClick={() => setDraft((current) => ({ ...current, allow: { ...current.allow, apps: [] } }))}>Only some apps</Button>
+              : <TextInput mono value={allow.apps.join(", ")} placeholder="pi-hole, jellyfin" onValueChange={(value) => setDraft((current) => ({ ...current, allow: { ...current.allow, apps: idList(value) } }))} />}
+          </Field>
+          <Field label="Operations it may propose" hint={allow.operations === "*" ? "Any it may propose" : "Operation ids, separated by commas"}>
+            {allow.operations === "*"
+              ? <Button variant="ghost" onClick={() => setDraft((current) => ({ ...current, allow: { ...current.allow, operations: [] } }))}>Only some operations</Button>
+              : <TextInput mono value={allow.operations.join(", ")} placeholder="app.backup, app.update" onValueChange={(value) => setDraft((current) => ({ ...current, allow: { ...current.allow, operations: idList(value) } }))} />}
+          </Field>
+          {(allow.apps !== "*" || allow.operations !== "*") && <Button variant="ghost" onClick={() => setDraft((current) => ({ ...current, allow: { apps: "*", operations: "*" } }))}>Allow any again</Button>}
+        </div>
+      </FormSection>
 
-      <section className="agents-form__section agents-form__section--flush" aria-labelledby="agents-form-tools">
-        <h3 id="agents-form-tools" className="agents-form__heading">Tools</h3>
-        <p className="agents-form__note">Every tool reads; none changes the server. "Asked" means only when a person asked, never on a schedule or an event. Tool output reaches the model as data, redacted, never as instructions.</p>
-        <ToolTable draft={draft} setDraft={setDraft} catalog={catalog} disabled={disabled} />
-      </section>
-
-      <section className="agents-form__section" aria-labelledby="agents-form-when">
-        <h3 id="agents-form-when" className="agents-form__heading">When it runs</h3>
+      <FormSection id="when" title="When it runs" step={4}>
         <Switch label="When someone asks" checked={draft.triggers.ask} disabled={disabled} onChange={(checked) => setDraft((current) => ({ ...current, triggers: { ...current.triggers, ask: checked } }))} />
         <ScheduleFields draft={draft} setDraft={setDraft} disabled={disabled} />
         <div className="agents-form__checks">
-          {events.map((event) => (
+          {catalog.events.map((event) => (
             <Checkbox key={event.id} label={event.title} description="At most once every half hour." checked={draft.triggers.events.includes(event.id)}
               onChange={(checked) => setDraft((current) => ({ ...current, triggers: { ...current.triggers, events: checked ? [...new Set([...current.triggers.events, event.id])] : current.triggers.events.filter((entry) => entry !== event.id) } }))} />
           ))}
+          <Checkbox label="A webhook" description="Another system (n8n, for one) can start it with a secret URL; it chooses only when." checked={draft.triggers.webhook}
+            onChange={(checked) => setDraft((current) => ({ ...current, triggers: { ...current.triggers, webhook: checked } }))} />
         </div>
-      </section>
+      </FormSection>
 
-      <section className="agents-form__section" aria-labelledby="agents-form-budget">
-        <h3 id="agents-form-budget" className="agents-form__heading">Budget</h3>
+      <FormSection id="guardrails" title="Guardrails" step={5}>
         <div className="agents-form__grid">
           {(Object.keys(budgetWords) as Array<keyof AgentSpec["budget"]>).map((key) => (
             <Field key={key} label={budgetWords[key].label} hint={`${limits[key].min}–${limits[key].max} ${budgetWords[key].unit}`}>
@@ -224,13 +317,9 @@ function SpecForm({ draft, setDraft, catalog, disabled }: FormProps) {
             </Field>
           ))}
         </div>
-      </section>
-
-      <section className="agents-form__section" aria-labelledby="agents-form-writes">
-        <h3 id="agents-form-writes" className="agents-form__heading">What it writes</h3>
         <div className="agents-form__checks">
           {(Object.keys(outputWords) as Array<keyof typeof outputWords>).map((key) => (
-            <Checkbox key={key} label={outputWords[key]} checked={draft.outputs[key]} onChange={(checked) => setDraft((current) => ({ ...current, outputs: { ...current.outputs, [key]: checked } }))} />
+            <Checkbox key={key} label={`Writes ${outputWords[key].toLowerCase()}`} checked={draft.outputs[key]} onChange={(checked) => setDraft((current) => ({ ...current, outputs: { ...current.outputs, [key]: checked } }))} />
           ))}
         </div>
         <div className="agents-form__row">
@@ -239,18 +328,52 @@ function SpecForm({ draft, setDraft, catalog, disabled }: FormProps) {
               options={[{ value: "important", label: "Only what is important" }, { value: "never", label: "Never" }]} />
           </Field>
         </div>
-      </section>
+        <p className="agents-form__note">It hands the matter to you as a card, and never acts:</p>
+        <div className="agents-form__checks">
+          {(Object.keys(escalationWords) as Array<keyof AgentSpec["escalation"]>).map((key) => (
+            <Checkbox key={key} label={escalationWords[key].label} description={escalationWords[key].description} checked={draft.escalation[key]}
+              onChange={(checked) => setDraft((current) => ({ ...current, escalation: { ...current.escalation, [key]: checked } }))} />
+          ))}
+        </div>
+        <Switch label="Thinking" description="Off by default: on this processor a small model can spend minutes thinking and never answer. Turn it on only for hard tasks; it counts against the budget." checked={draft.model.thinking} disabled={disabled}
+          onChange={(checked) => setDraft((current) => ({ ...current, model: { thinking: checked } }))} />
+      </FormSection>
 
-      <section className="agents-form__section" aria-labelledby="agents-form-memory">
-        <h3 id="agents-form-memory" className="agents-form__heading">Memory</h3>
+      <FormSection id="memory" title="Memory" step={6}>
         <Switch label="Keeps notes between runs" checked={draft.memory.enabled} disabled={disabled} onChange={(checked) => setDraft((current) => ({ ...current, memory: { ...current.memory, enabled: checked } }))} />
         {draft.memory.enabled && (
           <div className="agents-form__row">
             <Field label="A note stays fresh for" hint="days"><TextInput mono type="number" min={1} max={90} value={String(draft.memory.freshDays)} onValueChange={(value) => setDraft((current) => ({ ...current, memory: { ...current.memory, freshDays: numberOf(value, current.memory.freshDays) } }))} /></Field>
             <Field label="At most" hint="notes"><TextInput mono type="number" min={1} max={200} value={String(draft.memory.maxNotes)} onValueChange={(value) => setDraft((current) => ({ ...current, memory: { ...current.memory, maxNotes: numberOf(value, current.memory.maxNotes) } }))} /></Field>
+            <Checkbox className="agents-form__check" label="Other agents may read its notes" description="Each as far as its own runs may read." checked={draft.memory.share} onChange={(checked) => setDraft((current) => ({ ...current, memory: { ...current.memory, share: checked } }))} />
           </div>
         )}
-      </section>
+        <div className="agents-form__row">
+          <Checkbox className="agents-form__check" label="Remembers the conversation with each person" checked={draft.memory.threads} onChange={(checked) => setDraft((current) => ({ ...current, memory: { ...current.memory, threads: checked } }))} />
+          {draft.memory.threads && <Field label="Turns kept word for word" hint="older ones are summarised"><TextInput mono type="number" min={1} max={20} value={String(draft.memory.turns)} onValueChange={(value) => setDraft((current) => ({ ...current, memory: { ...current.memory, turns: numberOf(value, current.memory.turns) } }))} /></Field>}
+        </div>
+      </FormSection>
+
+      <FormSection id="team" title="Team" step={7}>
+        <Switch label="A supervisor" description="Hands subtasks to specialists and answers from what they find, on the one queue, as the person who asked." checked={draft.orchestration.supervisor} disabled={disabled}
+          onChange={(checked) => setDraft((current) => ({ ...current, orchestration: { ...current.orchestration, supervisor: checked }, tools: { ...current.tools, "agents.handoff": checked ? "auto" : "off" } }))} />
+        {draft.orchestration.supervisor && (
+          <>
+            <div className="agents-form__checks">
+              <Checkbox label="Any other agent" checked={delegates === "*"} onChange={(checked) => setDraft((current) => ({ ...current, orchestration: { ...current.orchestration, delegates: checked ? "*" : [] } }))} />
+              {delegates !== "*" && others.map((other) => (
+                <Checkbox key={other.id} label={other.name} checked={delegates.includes(other.id)}
+                  onChange={(checked) => setDraft((current) => ({ ...current, orchestration: { ...current.orchestration, delegates: checked ? [...new Set([...(current.orchestration.delegates === "*" ? [] : current.orchestration.delegates), other.id])] : (current.orchestration.delegates === "*" ? [] : current.orchestration.delegates.filter((entry) => entry !== other.id)) } }))} />
+              ))}
+            </div>
+            <div className="agents-form__row">
+              <Field label="How deep hand-offs may go" hint="1 to 3; never in a loop">
+                <Select mono value={String(draft.orchestration.maxDepth)} disabled={disabled} onValueChange={(value) => setDraft((current) => ({ ...current, orchestration: { ...current.orchestration, maxDepth: Number(value) } }))} options={[1, 2, 3].map((depth) => ({ value: String(depth), label: String(depth) }))} />
+              </Field>
+            </div>
+          </>
+        )}
+      </FormSection>
     </fieldset>
   );
 }
@@ -260,7 +383,7 @@ function SpecForm({ draft, setDraft, catalog, disabled }: FormProps) {
 function valueWords(value: unknown): string {
   if (value === null || value === undefined) return "—";
   if (typeof value === "string") return value.length > 80 ? `${value.slice(0, 79)}…` : value;
-  if (Array.isArray(value)) return value.length ? value.join(", ") : "none";
+  if (Array.isArray(value)) return value.length ? value.map((entry) => (typeof entry === "object" ? JSON.stringify(entry) : String(entry))).join(", ") : "none";
   if (typeof value === "object") return scheduleWords(value as Schedule) ?? JSON.stringify(value);
   return String(value);
 }
@@ -295,9 +418,8 @@ function Versions({ agent, csrfToken, now, onRolledBack }: { agent: AgentDetail;
   const versions = [...agent.versions].sort((a, b) => b.version - a.version);
   const columns: Array<TableColumn<AgentVersion>> = [
     { id: "version", header: "Version", cell: (version) => <span className="agents-mono">v{version.version}{version.version === agent.version ? " · current" : ""}</span> },
-    { id: "note", header: "What changed", cell: (version) => <span className="agents-dim">{version.note ?? (version.version === 1 ? "Made" : "Edited")}</span> },
-    { id: "when", header: "When", hideOnPhone: true, cell: (version) => <span className="agents-dim">{relativeTime(version.createdAt, now) ?? ""}</span> },
-    { id: "compare", header: <span className="ui-visually-hidden">Compare</span>, label: "Compare", className: "agents-actions-cell", cell: (version) => <Button variant="ghost" onClick={() => void compare(version.version)} aria-label={`Compare version ${version.version}`}>Compare</Button> },
+    { id: "note", header: "What changed", cell: (version) => <span className="agents-name"><span>{version.note ?? (version.version === 1 ? "Made" : "Edited")}</span><span className="agents-name__purpose">{relativeTime(version.createdAt, now) ?? ""}</span></span> },
+    { id: "compare", header: <span className="ui-visually-hidden">Compare</span>, label: "Actions", className: "agents-actions-cell", cell: (version) => <Button variant="ghost" onClick={() => void compare(version.version)} aria-label={`Compare version ${version.version}`}>Compare</Button> },
   ];
   return (
     <Panel className="agents-versions" title="Versions" count={agent.versions.length} meta={<>v<b>{agent.version}</b> in use</>}>
@@ -316,9 +438,31 @@ function Versions({ agent, csrfToken, now, onRolledBack }: { agent: AgentDetail;
   );
 }
 
+/** The webhook that starts the agent: its URL is shown once, when it is made. */
+function Webhook({ agent, csrfToken, onChanged }: { agent: AgentDetail; csrfToken: string; onChanged: () => void }) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const act = async (work: () => Promise<void>) => { setBusy(true); try { await work(); setError(null); onChanged(); } catch (requestError) { setError(errorText(requestError, "That did not work")); } finally { setBusy(false); } };
+  if (!agent.webhook.enabled) return null;
+  return (
+    <Panel className="agents-webhook" title="Webhook" count={agent.webhook.minted ? { status: "good", label: "set" } : { status: "neutral", label: "none" }} padded>
+      <p className="agents-dim">A POST to this URL starts {agent.name} once, as a schedule would. The caller chooses only when: nothing it sends reaches the run.</p>
+      {url && <><Notice tone="warning" title="Copy it now">It is shown once; BoxPilot keeps only a digest of it.</Notice><CodeBlock label="The webhook's URL">{url}</CodeBlock></>}
+      {error && <Notice tone="danger" live>{error}</Notice>}
+      {agent.canEdit && (
+        <div className="agents-editor__foot">
+          {agent.webhook.minted && <Button variant="ghost" busy={busy} onClick={() => void act(async () => { await agentsApi.clearWebhook(csrfToken, agent.id); setUrl(null); })}>Take it away</Button>}
+          <Button busy={busy} onClick={() => void act(async () => { const made = await agentsApi.mintWebhook(csrfToken, agent.id); setUrl(`${window.location.origin}${made.path}`); })}>{agent.webhook.minted ? "Make a new URL" : "Make its URL"}</Button>
+        </div>
+      )}
+    </Panel>
+  );
+}
+
 // ---- the builder ----
 
-export function Builder({ agentId, catalog, canCreate, csrfToken, now, onCreated, onChanged, onDeleted, onTest }: BuilderProps) {
+export function Builder({ agentId, agents, catalog, canCreate, csrfToken, now, onCreated, onChanged, onDeleted, onTest }: BuilderProps) {
   const [agent, setAgent] = useState<AgentDetail | null>(null);
   const [draft, setDraftState] = useState<AgentSpec | null>(null);
   const [note, setNote] = useState("");
@@ -366,6 +510,19 @@ export function Builder({ agentId, catalog, canCreate, csrfToken, now, onCreated
   const remove = async () => {
     try { await agentsApi.remove(csrfToken, agent.id); onDeleted(); } catch (requestError) { setError(errorText(requestError, "The agent could not be deleted")); setConfirmDelete(false); }
   };
+  const exportIt = async () => {
+    try {
+      const definition = await agentsApi.exportAgent(agent.id);
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(new Blob([JSON.stringify(definition, null, 2)], { type: "application/json" }));
+      link.download = `${agent.name.replace(/[^A-Za-z0-9 _-]/g, "").trim().replace(/\s+/g, "-").toLowerCase() || "agent"}.boxpilot-agent.json`;
+      link.click();
+      URL.revokeObjectURL(link.href);
+    } catch (requestError) {
+      setError(errorText(requestError, "The agent could not be exported"));
+    }
+  };
+  const others = agents.filter((entry) => entry.id !== agent.id);
 
   return (
     <div className="agents-builder">
@@ -374,7 +531,7 @@ export function Builder({ agentId, catalog, canCreate, csrfToken, now, onCreated
         title={agent.name}
         count={`v${agent.version}`}
         meta={agent.template ? `from the ${catalog.templates.find((template) => template.id === agent.template)?.title ?? agent.template} template` : "made from scratch"}
-        actions={<Button variant="ghost" onClick={() => onTest(agent.id)}>Test it</Button>}
+        actions={<><Button variant="ghost" onClick={() => void exportIt()}>Export</Button><Button variant="ghost" onClick={() => onTest(agent.id)}>Test it</Button></>}
         padded
         footer={agent.canEdit ? (
           <div className="agents-editor__foot">
@@ -385,14 +542,16 @@ export function Builder({ agentId, catalog, canCreate, csrfToken, now, onCreated
         ) : undefined}
       >
         {!agent.canEdit && <Notice tone="info">Only the owner and the person who made it change it. You can read it and test it.</Notice>}
+        {agent.warnings?.length > 0 && <Notice tone="warning" title="About its scope">{agent.warnings.join(" ")}</Notice>}
         {error && <Notice tone="danger" live title="Not saved">{error}</Notice>}
         {saved && <Notice tone={saved.tone} live>{saved.text}</Notice>}
-        <SpecForm draft={draft} setDraft={setDraft} catalog={catalog} disabled={!agent.canEdit} />
+        <SpecForm draft={draft} setDraft={setDraft} catalog={catalog} disabled={!agent.canEdit} others={others} />
       </Panel>
 
       <div className="agents-builder__side">
         <Versions agent={agent} csrfToken={csrfToken} now={now} onRolledBack={(next) => { setAgent(next); setDraftState(clone(next.spec)); setSaved({ tone: "success", text: `Rolled back: version ${next.version} is the old one again.` }); onChanged(); }} />
-        <Panel className="agents-prompt" title="What the model is told" meta="BoxPilot's rules, then the instructions" actions={<Button variant="ghost" aria-expanded={showPrompt} onClick={() => setShowPrompt((value) => !value)}>{showPrompt ? "Hide" : "Show"}</Button>}>
+        <Webhook agent={agent} csrfToken={csrfToken} onChanged={() => void load(agent.id)} />
+        <Panel className="agents-prompt" title="What the model is told" meta="BoxPilot's rules, then yours" actions={<Button variant="ghost" aria-expanded={showPrompt} onClick={() => setShowPrompt((value) => !value)}>{showPrompt ? "Hide" : "Show"}</Button>}>
           {showPrompt && <CodeBlock label="The system prompt" maxHeight="420px">{agent.prompt}</CodeBlock>}
         </Panel>
         {agent.canEdit && (

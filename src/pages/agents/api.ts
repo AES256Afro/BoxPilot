@@ -9,25 +9,38 @@ import type { RiskTier } from "../../ui";
 export type ToolPermission = "auto" | "ask" | "off";
 export type AgentStatus = "off" | "module-paused" | "paused" | "running" | "queued" | "idle";
 export type RunState = "queued" | "running" | "completed" | "degraded" | "failed" | "cancelled" | "killed" | "interrupted" | "refused" | "timeout";
-export type RunKind = "ask" | "manual" | "schedule" | "event" | "learn" | "eval";
+export type RunKind = "ask" | "manual" | "schedule" | "event" | "learn" | "eval" | "webhook" | "handoff" | "continue" | "index";
 export type Cadence = "hourly" | "every-6-hours" | "daily" | "weekly";
 
-export interface ModuleState { enabled: boolean; paused: boolean; pausedUntil: string | null; killedAt: string | null; quietHours: { start: string; end: string }; inQuietHours: boolean; notify: boolean }
+export interface ModuleBudget { runsUsed: number; runsPerDay: number; modelMsUsed: number; modelSecondsPerDay: number; modelMsLeft: number; refusal: string | null }
+export interface Connectors { notion: { enabled: boolean; credential: string | null }; slack: { enabled: boolean; credential: string | null; channels: string[] } }
+export interface ModuleState {
+  enabled: boolean; paused: boolean; pausedUntil: string | null; killedAt: string | null; quietHours: { start: string; end: string }; inQuietHours: boolean; notify: boolean;
+  budget?: ModuleBudget; embeddings?: boolean; webSearch?: { enabled: boolean; endpoint: string | null }; folder?: { enabled: boolean; path: string | null }; connectors?: Connectors;
+}
 export interface RunnerUsage { state: string; cpuPercent: number; memoryBytes: number; memoryPeakBytes: number | null; cpuQuotaPercent: number | null; memoryMaxBytes: number | null; throttledMs: number; modelLoaded: boolean; model: string | null; cgroup: boolean; readAt: string }
 export interface RunnerStatus { online: boolean; lastSeenAt: string | null; version: string | null; startedAt: string | null; hostBusy: boolean; usage: RunnerUsage | null }
 export interface Schedule { every: Cadence; minute: number; hour: number | null; weekday: number | null; quietHours: boolean }
 
+export interface OutputField { name: string; description: string }
 export interface AgentSpec {
   name: string;
   purpose: string;
+  job: string;
+  successCriteria: string[];
+  prompt: { rules: string[]; steps: string[]; output: { format: "text" | "json"; fields: OutputField[]; style: string }; escalate: string[] };
   instructions: string;
   audience: Array<"owner" | "operator" | "viewer">;
   knowledge: Record<"docs" | "registry" | "catalog" | "notes" | "documents", boolean>;
   tools: Record<string, ToolPermission>;
-  triggers: { ask: boolean; schedule: Schedule | null; events: string[] };
+  triggers: { ask: boolean; schedule: Schedule | null; events: string[]; webhook: boolean };
   budget: { runsPerDay: number; modelSecondsPerDay: number; stepsPerRun: number; tokensPerRun: number; runSeconds: number };
   outputs: { notes: boolean; digest: boolean; notify: "important" | "never"; proposals: boolean };
-  memory: { enabled: boolean; freshDays: number; maxNotes: number };
+  memory: { enabled: boolean; freshDays: number; maxNotes: number; share: boolean; threads: boolean; turns: number };
+  escalation: { lowConfidence: boolean; limits: boolean; actions: boolean; risk: boolean };
+  allow: { apps: "*" | string[]; operations: "*" | string[] };
+  model: { thinking: boolean };
+  orchestration: { supervisor: boolean; delegates: "*" | string[]; maxDepth: number };
 }
 
 export interface AgentSummary {
@@ -53,7 +66,7 @@ export interface AgentSummary {
 }
 
 export interface AgentVersion { version: number; note: string | null; createdBy: string | null; createdAt: string }
-export interface AgentDetail extends AgentSummary { spec: AgentSpec; versions: AgentVersion[]; createdBy: string | null; prompt: string }
+export interface AgentDetail extends AgentSummary { spec: AgentSpec; versions: AgentVersion[]; createdBy: string | null; prompt: string; warnings: string[]; webhook: { enabled: boolean; minted: boolean }; specialists: Array<{ id: string; name: string }> }
 export type SpecChange = { field: string; before?: unknown; after?: unknown; lines?: Array<{ op: "keep" | "add" | "remove"; text: string }> };
 export interface VersionDetail { version: AgentVersion & { spec: AgentSpec }; changes: SpecChange[]; againstCurrent: SpecChange[] }
 
@@ -66,15 +79,21 @@ export interface Overview {
   can: { create: boolean; configure: boolean; pause: boolean };
 }
 
-export interface ToolInfo { id: string; fn: string; title: string; description: string; role: "viewer" | "operator"; cost: "cheap" | "moderate" | "heavy"; writes: string | null; params: Array<{ name: string; type: string; required: boolean; description: string }> }
+export interface ToolInfo { id: string; fn: string; title: string; description: string; category: string; categoryTitle: string; role: "viewer" | "operator"; cost: "cheap" | "moderate" | "heavy"; writes: string | null; defaultOff: boolean; params: Array<{ name: string; type: string; required: boolean; description: string }> }
 export interface Question { id: string; question: string; expect: { fact?: string; includes?: string[] } }
 export interface Template { id: string; title: string; summary: string; spec: AgentSpec; questions: Question[] }
-export interface Catalog { templates: Template[]; tools: ToolInfo[]; events: Array<{ id: string; title: string }>; limits: { budget: Record<keyof AgentSpec["budget"], { min: number; max: number; default: number }> } }
+export interface Catalog {
+  templates: Template[]; tools: ToolInfo[]; events: Array<{ id: string; title: string }>;
+  limits: { budget: Record<keyof AgentSpec["budget"], { min: number; max: number; default: number }>; module: Record<"runsPerDay" | "modelSecondsPerDay", { min: number; max: number }> };
+  categories: Record<string, string>; outputFormats: Array<"text" | "json">; memoryTiers: Record<string, string>;
+}
 
-export interface RunStep { seq: number; kind: "model" | "tool" | "proposal" | "note" | "notify" | "system"; name: string | null; state: "done" | "failed" | "refused"; input: unknown; output: string | null; flags: Record<string, unknown>; startedAt: string; durationMs: number | null; tokensIn: number | null; tokensOut: number | null }
+export interface RunStep { seq: number; kind: "model" | "tool" | "proposal" | "note" | "notify" | "system" | "intent" | "plan" | "recall" | "memory" | "handoff"; name: string | null; state: "done" | "failed" | "refused"; input: unknown; output: string | null; flags: Record<string, unknown>; startedAt: string; durationMs: number | null; tokensIn: number | null; tokensOut: number | null }
 export interface PlanStep { operationId: string; title: string; risk: RiskTier; readOnly: boolean; approval: string; typedConfirmation: boolean; parameters: Record<string, unknown>; why: string }
 export interface Proposal {
   id: string;
+  kind: "plan" | "question" | "escalation";
+  question: string | null;
   agentId: string | null;
   agentName: string;
   runId: string | null;
@@ -110,6 +129,11 @@ export interface Run {
   usage: RunUsage;
   flags: { injection?: boolean; degraded?: string; citations?: { cited: number; unknown: string[] } };
   eval?: { evalId: string; questionId: string } | null;
+  parentRunId?: string | null;
+  rootRunId?: string;
+  depth?: number;
+  feedback?: { verdict: "up" | "down"; note: string | null; mine: boolean } | null;
+  tree?: Array<{ id: string; parentRunId: string | null; depth: number; agentId: string; agentName: string; kind: RunKind; state: RunState; question: string | null; finishedAt: string | null }>;
   proposals: Proposal[];
   steps?: RunStep[];
 }
@@ -138,12 +162,28 @@ export interface RuntimeState {
 }
 
 export interface KnowledgeSource { id: "docs" | "registry" | "catalog" | "notes" | "documents"; title: string; enabled: boolean; items: number | null; size: number | null; unit: string; indexedAt: string | null }
-export interface OwnerDocument { id: string; title: string; enabled: boolean; createdAt: string; characters: number }
-export interface Knowledge { sources: KnowledgeSource[]; documents: OwnerDocument[]; search: { kind: string; embeddings: string }; learning: { quietHours: { start: string; end: string }; agents: Array<{ agentId: string; name: string; state: RunState | null; at: string | null }> }; canChange: boolean }
+export interface OwnerDocument { id: string; title: string; enabled: boolean; createdAt: string; characters: number; source: string; externalId: string | null; pinned: boolean }
+export interface Knowledge {
+  sources: KnowledgeSource[]; documents: OwnerDocument[];
+  search: { kind: string; embeddings: string; pending?: number; vectors?: number; enabled?: boolean };
+  learning: { quietHours: { start: string; end: string }; agents: Array<{ agentId: string; name: string; state: RunState | null; at: string | null }> };
+  canChange: boolean;
+  connectors?: Connectors; folder?: { enabled: boolean; path: string | null }; webSearch?: { enabled: boolean; endpoint: string | null };
+}
+export interface MemoryNote { id: string; title: string; body: string; source: Note["source"]; createdAt: string; updatedAt: string; freshUntil: string | null; stale: boolean; pinned: boolean; shared: boolean; readRole: string; indexed: boolean }
+export interface Memory {
+  facts: MemoryNote[];
+  shared: Array<{ id: string; title: string; body: string; from: string; updatedAt: string; stale: boolean }>;
+  episodes: Array<{ id: string; runId: string | null; text: string; createdAt: string; indexed: boolean }>;
+  thread: { summary: string; turns: Array<{ role: "user" | "agent"; text: string; at?: string }>; updatedAt: string } | null;
+  settings: { enabled: boolean; share: boolean; threads: boolean; turns: number; freshDays: number; maxNotes: number };
+  search: { byMeaning: boolean; model: string; pending: number; vectors: number };
+}
+export interface Accuracy { version: number; model: string | null; evaluations: number; score: number | null; up: number; down: number; since: string | null }
 export interface Note { id: string; title: string; body: string; source: { runId?: string; by?: string; tools?: string[]; injection?: boolean }; createdAt: string; updatedAt: string; freshUntil: string | null; stale: boolean }
 export interface EvalResult { questionId: string; question: string; expected: { fact?: string; value?: unknown; includes?: string[] }; runId: string | null; passed: boolean | null; found: string | null }
-export interface EvalRun { id: string; version: number; state: "running" | "done"; results: EvalResult[]; score: number | null; createdAt: string; finishedAt: string | null }
-export interface Evaluation { questions: Question[]; runs: EvalRun[]; canEdit: boolean }
+export interface EvalRun { id: string; version: number; model?: string | null; state: "running" | "done"; results: EvalResult[]; score: number | null; createdAt: string; finishedAt: string | null }
+export interface Evaluation { questions: Question[]; runs: EvalRun[]; canEdit: boolean; successCriteria?: string[]; accuracy?: Accuracy[] }
 export interface Glance { enabled: boolean; paused: boolean; runnerOnline: boolean; digest: { agentId: string; agentName: string; runId: string; at: string; excerpt: string; state: RunState } | null; cardsWaiting: number }
 
 const base = "/api/v1/agents";
@@ -182,6 +222,20 @@ export const agentsApi = {
   saveEvaluation: (csrf: string, id: string, questions: Question[]) => send<Evaluation>("PUT", `/${encodeURIComponent(id)}/evaluation`, csrf, { questions }),
   runEvaluation: (csrf: string, id: string) => send<EvalRun>("POST", `/${encodeURIComponent(id)}/evaluation/run`, csrf),
   decide: (csrf: string, proposalId: string, decision: "dismissed" | "staged", jobIds: string[] = []) => send<Proposal>("POST", `/proposals/${encodeURIComponent(proposalId)}/decide`, csrf, { decision, jobIds }),
+  memory: (id: string) => get<Memory>(`/${encodeURIComponent(id)}/memory`),
+  editMemory: (csrf: string, id: string, noteId: string, patch: { title?: string; body?: string; freshDays?: number | null; pinned?: boolean; shared?: boolean }) => send<MemoryNote>("PUT", `/${encodeURIComponent(id)}/memory/notes/${encodeURIComponent(noteId)}`, csrf, patch),
+  forget: (csrf: string, id: string, kind: "notes" | "episodes", itemId: string) => send<{ forgotten: boolean }>("DELETE", `/${encodeURIComponent(id)}/memory/${kind}/${encodeURIComponent(itemId)}`, csrf),
+  forgetThread: (csrf: string, id: string) => send<{ forgotten: boolean }>("DELETE", `/${encodeURIComponent(id)}/memory/thread`, csrf),
+  feedback: (csrf: string, runId: string, verdict: "up" | "down", note?: string) => send<{ verdict: "up" | "down"; note: string | null; mine: boolean }>("POST", `/runs/${encodeURIComponent(runId)}/feedback`, csrf, { verdict, note: note || null }),
+  exportAgent: (id: string) => get<Record<string, unknown>>(`/${encodeURIComponent(id)}/export`),
+  importAgent: (csrf: string, definition: string) => send<AgentDetail>("POST", "/import", csrf, { definition }),
+  mintWebhook: (csrf: string, id: string) => send<{ token: string; path: string }>("POST", `/${encodeURIComponent(id)}/webhook`, csrf),
+  clearWebhook: (csrf: string, id: string) => send<{ removed: boolean }>("DELETE", `/${encodeURIComponent(id)}/webhook`, csrf),
+  pinDocument: (csrf: string, documentId: string, pinned: boolean) => send<{ pinned: boolean }>("PUT", `/knowledge/documents/${encodeURIComponent(documentId)}/pin`, csrf, { pinned }),
+  syncFolder: (csrf: string) => send<{ files?: number; changed?: number; removed?: number; skipped?: string[] | string; error?: string }>("POST", "/knowledge/folder/sync", csrf),
+  reindex: (csrf: string) => send<{ queued: boolean; pending: number }>("POST", "/knowledge/reindex", csrf),
+  /** A PDF, Markdown or text file, sent as it is. */
+  upload: (csrf: string, file: File) => fetch(`${base}/knowledge/upload?name=${encodeURIComponent(file.name)}`, { method: "POST", headers: { "Content-Type": "application/octet-stream", "X-BoxPilot-CSRF": csrf }, body: file }).then((response) => readJson<OwnerDocument & { detail: string | null }>(response)),
   pauseAll: (csrf: string, until: string | null) => send<ModuleState>("POST", "/module/pause", csrf, { until }),
   resumeAll: (csrf: string) => send<ModuleState>("POST", "/module/resume", csrf),
   kill: (csrf: string) => send<{ module: ModuleState; cancelled: number; stopped: number }>("POST", "/module/kill", csrf),
@@ -190,7 +244,11 @@ export const agentsApi = {
   removeDocument: (csrf: string, documentId: string) => send<{ deleted: boolean }>("DELETE", `/knowledge/documents/${encodeURIComponent(documentId)}`, csrf),
   relearn: (csrf: string, agentId: string | null) => send<{ queued: number }>("POST", "/knowledge/relearn", csrf, { agentId }),
   /** The owner's switch, quiet hours, sources and runtime; always with the owner's password. */
-  saveSettings: (csrf: string, body: { password: string; enabled?: boolean; quietHours?: { start: string; end: string }; notify?: boolean; knowledge?: Partial<Record<KnowledgeSource["id"], boolean>>; runtime?: Partial<RuntimeSettings> }) =>
+  saveSettings: (csrf: string, body: {
+    password: string; enabled?: boolean; quietHours?: { start: string; end: string }; notify?: boolean; knowledge?: Partial<Record<KnowledgeSource["id"], boolean>>; runtime?: Partial<RuntimeSettings>;
+    budget?: { runsPerDay?: number; modelSecondsPerDay?: number }; embeddings?: boolean; webSearch?: { enabled: boolean; endpoint: string | null }; folder?: { enabled: boolean; path: string | null };
+    connectors?: { notion?: { enabled: boolean; credential: string | null }; slack?: { enabled: boolean; credential: string | null; channels?: string[] } };
+  }) =>
     send<{ module: ModuleState }>("PUT", "/api/v1/settings/agents", csrf, body),
 };
 

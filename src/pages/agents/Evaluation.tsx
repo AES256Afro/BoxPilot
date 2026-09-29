@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { relativeTime } from "../../home/format";
-import { Button, EmptyState, Field, Notice, Panel, Select, StatusChip, Table, TextInput, type TableColumn } from "../../ui";
+import { Button, EmptyState, Field, Notice, Panel, Progress, Select, StatusChip, Table, TextInput, type TableColumn } from "../../ui";
 import { agentsApi, type AgentSummary, type EvalResult, type EvalRun, type Evaluation as EvaluationState, type Question } from "./api";
 import { errorText } from "./format";
 
@@ -98,7 +98,7 @@ export function Evaluation({ agents, agentId, csrfToken, now, enabled, onSelectA
     { id: "question", header: "Question", cell: (result) => <span className="agents-name"><span>{result.question}</span><span className="agents-name__purpose">{result.expected.fact ? `${factLabel(result.expected.fact)}: ${result.expected.value ?? "not known on this server"}` : `contains ${(result.expected.includes ?? []).join(", ")}`}</span></span> },
     { id: "found", header: "Found", hideOnPhone: true, cell: (result) => <span className="agents-dim">{result.found ?? "—"}</span> },
     { id: "passed", header: "Right?", cell: (result) => (result.passed === null ? <StatusChip status="neutral">waiting</StatusChip> : <StatusChip status={result.passed ? "good" : "danger"}>{result.passed ? "right" : "wrong"}</StatusChip>) },
-    { id: "open", header: <span className="ui-visually-hidden">Open</span>, label: "Open", className: "agents-actions-cell", cell: (result) => (result.runId ? <Button variant="ghost" onClick={() => onOpenRun(agent.id, result.runId!)} aria-label="Open this answer">Open</Button> : null) },
+    { id: "open", header: <span className="ui-visually-hidden">Open</span>, label: "Actions", className: "agents-actions-cell", cell: (result) => (result.runId ? <Button variant="ghost" onClick={() => onOpenRun(agent.id, result.runId!)} aria-label="Open this answer">Open</Button> : null) },
   ];
   const score = (entry: EvalRun) => (entry.score === null ? "—" : `${Math.round(entry.score * 100)}%`);
   const passed = latest ? latest.results.filter((result) => result.passed).length : 0;
@@ -107,6 +107,12 @@ export function Evaluation({ agents, agentId, csrfToken, now, enabled, onSelectA
     <div className="agents-tab agents-evaluation">
       {error && <Notice tone="danger" live onDismiss={() => setError(null)}>{error}</Notice>}
       {notice && <Notice tone="success" live onDismiss={() => setNotice(null)}>{notice}</Notice>}
+
+      {(state.successCriteria?.length ?? 0) > 0 && (
+        <Panel className="agents-criteria" title="It did its job when" count={state.successCriteria!.length} padded meta="from the Build tab: write a question for each">
+          <ul className="agents-criteria__list">{state.successCriteria!.map((line, index) => <li key={index}>{line}</li>)}</ul>
+        </Panel>
+      )}
 
       <Panel className="agents-questions" title="Golden questions" count={drafts.length}
         actions={<Select aria-label="Which agent" value={agent.id} onValueChange={onSelectAgent} options={usable.map((entry) => ({ value: entry.id, label: entry.name }))} />}
@@ -140,6 +146,19 @@ export function Evaluation({ agents, agentId, csrfToken, now, enabled, onSelectA
           rowStatus={(result) => (result.passed === false ? "danger" : undefined)}
           empty={<EmptyState title="Not run yet">Run the evaluation to score this version.</EmptyState>} />
       </Panel>
+
+      {(state.accuracy?.length ?? 0) > 0 && (
+        <Panel className="agents-accuracy" title="Accuracy over time" count={state.accuracy!.length} meta="by version and model: the golden questions and people's verdicts">
+          <Table caption="Accuracy by version and model" rows={state.accuracy!} rowKey={(entry) => `${entry.version}|${entry.model ?? ""}`}
+            rowStatus={(entry) => (entry.score !== null && entry.score < 0.6 ? "warning" : undefined)}
+            columns={[
+              { id: "version", header: "Version", cell: (entry) => <span className="agents-mono">v{entry.version}</span> },
+              { id: "model", header: "Model", hideOnPhone: true, cell: (entry) => <span className="agents-mono">{(entry.model ?? "—").replace(/^unsloth\//, "")}</span> },
+              { id: "score", header: "Golden questions", cell: (entry) => (entry.score === null ? <span className="agents-dim">not run</span> : <span className="agents-accuracy__score"><Progress label={`Version ${entry.version}: score`} hideLabel value={Math.round(entry.score * 100)} max={100} status={entry.score >= 0.8 ? "good" : "warning"} /><span className="agents-mono">{Math.round(entry.score * 100)}% · {entry.evaluations} {entry.evaluations === 1 ? "run" : "runs"}</span></span>) },
+              { id: "people", header: "People said", cell: (entry) => <span className="agents-mono">{entry.up} right · {entry.down} wrong</span> },
+            ]} />
+        </Panel>
+      )}
 
       {state.runs.length > 1 && (
         <Panel className="agents-evals" title="Earlier evaluations" count={state.runs.length - 1}>

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { PendingOperation } from "../../ApproveDialog";
+import type { PendingOperation } from "../../shell/ApproveDialog";
 import { relativeTime } from "../../home/format";
-import { Button, EmptyState, Field, Notice, Panel, Select, StatusChip, Table, Textarea, type TableColumn } from "../../ui";
+import { Button, EmptyState, Field, Notice, Panel, Select, StatusChip, Table, TextInput, Textarea, type TableColumn } from "../../ui";
 import { agentsApi, followRun, type AgentSummary, type Proposal, type Run } from "./api";
 import { errorText, finishedRunStates, kindWords, runState, seconds } from "./format";
 import { ProposalCard } from "./ProposalCard";
@@ -25,6 +25,31 @@ export interface ConsoleProps {
   onSelectAgent: (agentId: string) => void;
   onStage: (operation: PendingOperation) => void;
   onRunFinished: () => void;
+}
+
+/** "Was this right?": one person's verdict on an answer, which the evaluation counts. */
+function Feedback({ run, csrfToken, onGiven }: { run: Run; csrfToken: string; onGiven: (feedback: NonNullable<Run["feedback"]>) => void }) {
+  const [note, setNote] = useState("");
+  const [wrong, setWrong] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const give = async (verdict: "up" | "down") => {
+    try { onGiven(await agentsApi.feedback(csrfToken, run.id, verdict, verdict === "down" ? note : undefined)); setError(null); setWrong(false); } catch (requestError) { setError(errorText(requestError, "That was not saved")); }
+  };
+  return (
+    <div className="agents-feedback" role="group" aria-label="Was this right?">
+      <span className="agents-feedback__ask">Was this right?</span>
+      {run.feedback?.mine && <StatusChip status={run.feedback.verdict === "up" ? "good" : "warning"}>{run.feedback.verdict === "up" ? "you said right" : "you said wrong"}</StatusChip>}
+      <Button variant={run.feedback?.mine && run.feedback.verdict === "up" ? "secondary" : "ghost"} onClick={() => void give("up")} aria-pressed={run.feedback?.mine && run.feedback.verdict === "up"}>Right</Button>
+      <Button variant={run.feedback?.mine && run.feedback.verdict === "down" ? "secondary" : "ghost"} onClick={() => setWrong(true)} aria-pressed={run.feedback?.mine && run.feedback.verdict === "down"}>Wrong</Button>
+      {wrong && (
+        <span className="agents-feedback__note">
+          <TextInput aria-label="What was wrong" value={note} maxLength={300} placeholder="What was wrong (optional)" onValueChange={setNote} />
+          <Button onClick={() => void give("down")}>Send</Button>
+        </span>
+      )}
+      {error && <Notice tone="danger" live>{error}</Notice>}
+    </div>
+  );
 }
 
 export function Console({ agents, agentId, runId, csrfToken, role, now, enabled, onSelectAgent, onStage, onRunFinished }: ConsoleProps) {
@@ -59,8 +84,14 @@ export function Console({ agents, agentId, runId, csrfToken, role, now, enabled,
   useEffect(() => () => stopFollowing.current?.(), []);
 
   const currentId = agent?.id ?? null;
-  useEffect(() => { if (currentId) void readHistory(currentId); }, [currentId, readHistory]);
+  useEffect(() => { if (currentId) { setHistory(null); void readHistory(currentId); } }, [currentId, readHistory]);
   useEffect(() => { if (runId) follow(runId); }, [runId, follow]);
+  // With nothing chosen, the agent's latest run opens, so the console never starts blank.
+  const latest = history?.[0]?.id ?? null;
+  const showing = run?.agentId ?? null;
+  useEffect(() => {
+    if (!runId && latest && showing !== currentId) follow(latest);
+  }, [runId, latest, showing, currentId, follow]);
 
   const start = async (kind: "ask" | "test") => {
     if (!agent) return;
@@ -95,7 +126,7 @@ export function Console({ agents, agentId, runId, csrfToken, role, now, enabled,
     { id: "what", header: "Asked or started by", cell: (entry) => <span className="agents-name"><span>{entry.question ?? entry.trigger?.title ?? kindWords[entry.kind]}</span><span className="agents-name__purpose">{kindWords[entry.kind]} · read as {entry.readRole}</span></span> },
     { id: "when", header: "When", hideOnPhone: true, cell: (entry) => <span className="agents-dim">{relativeTime(entry.finishedAt ?? entry.queuedAt, now) ?? ""}</span> },
     { id: "took", header: "Model", hideOnPhone: true, cell: (entry) => <span className="agents-mono">{seconds(entry.usage?.modelMs ?? null)}</span> },
-    { id: "open", header: <span className="ui-visually-hidden">Open</span>, label: "Open", className: "agents-actions-cell", cell: (entry) => <Button variant="ghost" onClick={() => follow(entry.id)} aria-label="Open this run">Open</Button> },
+    { id: "open", header: <span className="ui-visually-hidden">Open</span>, label: "Actions", className: "agents-actions-cell", cell: (entry) => <Button variant="ghost" onClick={() => follow(entry.id)} aria-label="Open this run">Open</Button> },
   ];
 
   return (
@@ -124,7 +155,22 @@ export function Console({ agents, agentId, runId, csrfToken, role, now, enabled,
           ? <p className="agents-quiet">Ask something or run the agent once, and each step shows here as it happens.</p>
           : <>
               {run.state === "queued" && <p className="agents-quiet" role="status">Waiting for the runner: one run goes at a time, and a question goes before scheduled work.</p>}
+              {run.tree && run.tree.length > 1 && (
+                <nav className="agents-tree" aria-label="This request's runs">
+                  <span className="agents-step__label">One request, {run.tree.length} runs</span>
+                  <ol>
+                    {run.tree.map((entry) => (
+                      <li key={entry.id} className="agents-tree__item" data-depth={Math.min(entry.depth, 3)} data-current={entry.id === run.id}>
+                        <button type="button" className="agents-link" aria-current={entry.id === run.id ? "true" : undefined} onClick={() => follow(entry.id)}>{entry.agentName}</button>
+                        <span className="agents-dim"> {kindWords[entry.kind]}</span>
+                        <StatusChip status={runState(entry.state).status}>{runState(entry.state).label}</StatusChip>
+                      </li>
+                    ))}
+                  </ol>
+                </nav>
+              )}
               <RunView run={run} />
+              {finishedRunStates.has(run.state) && run.kind !== "index" && <Feedback run={run} csrfToken={csrfToken} onGiven={(feedback) => setRun((current) => (current ? { ...current, feedback } : current))} />}
               {run.proposals.length > 0 && (
                 <div className="agents-cards__list">
                   {run.proposals.map((proposal) => <ProposalCard key={proposal.id} proposal={proposal} csrfToken={csrfToken} role={role} onStage={onStage} onDecided={decided} />)}
@@ -137,7 +183,7 @@ export function Console({ agents, agentId, runId, csrfToken, role, now, enabled,
         <Panel className="agents-history" title="Earlier runs" count={history?.length}>
           <Table caption={`Runs of ${agent.name}`} columns={columns} rows={history ?? []} rowKey={(entry) => entry.id}
             rowStatus={(entry) => (["failed", "timeout", "killed"].includes(entry.state) ? "danger" : undefined)}
-            empty={history === null ? "The runs could not be read." : "No runs yet."} />
+            empty={history === null ? "Reading the runs…" : "No runs yet."} />
         </Panel>
       )}
     </div>
