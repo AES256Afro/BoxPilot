@@ -46,39 +46,42 @@ export function PageHeader({ title, status, summary, meta, actions, about, barFa
   const aboutId = useId();
   const [open, setOpen] = useState(false);
   const name = host ?? shellHost ?? "boxpilot";
+  const toggle = about ? (
+    <button type="button" className="ui-info-toggle" aria-expanded={open} aria-controls={aboutId} onClick={() => setOpen((value) => !value)}>
+      <InfoIcon />
+      <span className="ui-visually-hidden">About {title}</span>
+    </button>
+  ) : null;
+  const explained = about ? <div id={aboutId} className="ui-page-header__about" hidden={!open}>{about}</div> : null;
+  // With nothing else to say under the bar (a page not yet rebuilt), the toggle sits beside the
+  // name, and the page starts with its own content rather than a row holding one button.
+  const facts = status || summary || meta || actions;
   const crumb = (
     <div className="cc-crumb ui-crumb">
       <span className="cc-crumb__host">{name}</span>
       <span className="cc-crumb__sep" aria-hidden="true">/</span>
       <h1>{title}</h1>
+      {!facts && toggle}
       {barFacts && <span className="cc-kv">{barFacts}</span>}
     </div>
   );
-  const row = status || summary || meta || actions || about;
   return (
     <>
       {placement === "inline" ? crumb : <TopBarSlot inPlace>{crumb}</TopBarSlot>}
-      {row && (
+      {facts ? (
         <div className={cx("ui-page-header", className)}>
           <div className="ui-page-header__facts">
             {status && <StatusChip status={status.status} className="ui-page-header__verdict">{status.label}</StatusChip>}
             {summary && <p className="ui-page-header__summary">{summary}</p>}
             {meta && <p className="ui-page-header__meta">{meta}</p>}
           </div>
-          {(actions || about) && (
-            <div className="ui-page-header__actions">
-              {about && (
-                <button type="button" className="ui-info-toggle" aria-expanded={open} aria-controls={aboutId} onClick={() => setOpen((value) => !value)}>
-                  <InfoIcon />
-                  <span className="ui-visually-hidden">About {title}</span>
-                </button>
-              )}
-              {actions}
-            </div>
-          )}
-          {about && <div id={aboutId} className="ui-page-header__about" hidden={!open}>{about}</div>}
+          <div className="ui-page-header__actions">
+            {toggle}
+            {actions}
+          </div>
+          {explained}
         </div>
-      )}
+      ) : explained}
     </>
   );
 }

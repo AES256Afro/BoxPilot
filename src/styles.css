@@ -6571,6 +6571,10 @@ body {
 .ui-info-toggle { display: inline-grid; width: 30px; height: 30px; place-items: center; padding: 0; border: 1px solid var(--border-strong); border-radius: 3px; color: var(--text-muted); background: transparent; cursor: pointer; }
 .ui-info-toggle svg { width: 16px; height: 16px; }
 .ui-info-toggle:hover, .ui-info-toggle[aria-expanded="true"] { color: var(--text-strong); background: var(--surface-raised); }
+/* Beside the page's name in the bar, when the page has nothing else to say under it. */
+.cc-crumb .ui-info-toggle { flex: none; align-self: center; width: 24px; height: 24px; margin-left: 4px; border-color: transparent; }
+.cc-crumb .ui-info-toggle svg { width: 15px; height: 15px; }
+.content--console > .ui-page-header__about { margin: 0; }
 
 /* The metric strip: a label in small capitals, the figure in mono, a sparkline in the corner. */
 .cc .ops-strip { grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: 8px; }
@@ -6657,8 +6661,8 @@ body {
 :root[data-shell="console"] .ui-table .ops-link { max-width: 9rem; color: var(--cc-text-strong); font-weight: 500; }
 :root[data-shell="console"] .ui-table .ui-chip { padding: 0; border: 0; background: none; font-family: var(--font-mono); font-size: 12px; font-weight: 500; }
 :root[data-shell="console"] .ui-table__mark { width: 7px; height: 7px; }
-:root[data-shell="console"] .ui-table .ui-table__empty { height: auto; padding: 0; font-family: var(--font-condensed); }
-:root[data-shell="console"] .ui-table .ui-table__empty > :not(.ui-empty) { display: block; padding: 12px; }
+:root[data-shell="console"] .ui-table .ui-table__empty { height: auto; padding: 12px; color: var(--text-muted); font-family: var(--font-condensed); font-size: 14px; }
+:root[data-shell="console"] .ui-table .ui-table__empty:has(> .ui-empty) { padding: 0; }
 .ui-table th[aria-sort] { padding: 0; }
 .ui-table__sort { display: inline-flex; align-items: center; gap: 4px; width: 100%; height: 100%; min-height: inherit; padding: 0 7px; border: 0; color: inherit; background: none; font: inherit; letter-spacing: inherit; text-align: inherit; text-transform: inherit; cursor: pointer; }
 .ui-table th[aria-sort]:first-child .ui-table__sort { padding-left: 11px; }

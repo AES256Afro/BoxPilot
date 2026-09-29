@@ -87,9 +87,11 @@ jobs:
           # names the apps it pauses and the file shares it disconnects; the command bar and an
           # app's sheet on Home (M33.2); Home in the unwell and the empty worlds; and Ops (M33.3)
           # in the unwell one; the notification centre (M36) in the lived-in and the unwell worlds,
-          # and a staged job opened in Activity, and in the approval dialog, from Ops. Home and Ops themselves come with every page, from the navigation
-          # in src/data.ts.
-          STATES: "${{ inputs.states || 'storage-check=?view=storage>Check this drive;command-bar=?view=home>Search pages, apps and settings;app-sheet=?view=home>📷Immich;home-trouble=?view=home&scenario=trouble;home-fresh=?view=home&scenario=fresh;ops-trouble=?view=ops&scenario=trouble;areas-sheet=?view=home>More;notifications=?view=home>Notifications;notifications-trouble=?view=system&scenario=trouble>Notifications;activity-approval=?view=ops&scenario=trouble>Needs a look: Waiting for approval;review-approval=?view=ops&scenario=trouble>Review: Waiting for approval' }}"
+          # and a staged job opened in Activity, and in the approval dialog, from Ops; and the
+          # console's kit (M33.8): a unit's journal in its sheet, a page's info toggle open, and a
+          # drawer in the gallery. Home and Ops themselves come with every page, from the
+          # navigation in src/data.ts.
+          STATES: "${{ inputs.states || 'storage-check=?view=storage>Check this drive;command-bar=?view=home>Search pages, apps and settings;app-sheet=?view=home>📷Immich;home-trouble=?view=home&scenario=trouble;home-fresh=?view=home&scenario=fresh;ops-trouble=?view=ops&scenario=trouble;areas-sheet=?view=home>More;notifications=?view=home>Notifications;notifications-trouble=?view=system&scenario=trouble>Notifications;activity-approval=?view=ops&scenario=trouble>Needs a look: Waiting for approval;review-approval=?view=ops&scenario=trouble>Review: Waiting for approval;services-journal=?view=services>Journal of boxpilot.service;page-about=?view=storage>About Storage;gallery-drawer=?gallery>Open a drawer' }}"
           SCHEMES: dark,light
           FULL_PAGE: "1"
           SCALE: "1"
