@@ -29,12 +29,40 @@ export function apiRolePolicy() {
     const reading = reads.has(request.method);
     const pathname = request.path.toLowerCase().replace(/(.)\/+$/, "$1");
     const readOnlyRun = /^\/operations\/[^/]+\/run$/.test(pathname);
-    const asking = request.method === "POST" && pathname === "/assistant/ask";
+    // Asking the assistant, or an agent someone may borrow (M37): both only read, as the asker.
+    const asking = request.method === "POST" && (pathname === "/assistant/ask" || /^\/agents\/[^/]+\/ask$/.test(pathname));
     // Marking the notification centre seen (M36) is the caller's own, like signing out.
     const selfService = pathname === "/auth/logout" || pathname === "/auth/elevate" || pathname === "/auth/password" || pathname === "/notifications/seen";
     if (role === "disabled") return response.status(403).json({ error: "This account is disabled", code: "forbidden" });
     if (role === "viewer" && !reading && !readOnlyRun && !asking && !selfService) return response.status(403).json({ error: "Viewers can look but not change anything", code: "forbidden" });
     if (role === "operator" && !reading && (pathname.startsWith("/settings") || pathname.startsWith("/people"))) return response.status(403).json({ error: "Only the owner can change settings or people", code: "forbidden" });
+    return next();
+  };
+}
+
+/**
+ * The agents runner's identity (M37): not a person and not a session, but one scoped key that opens
+ * the runner's own routes (/api/v1/agent-runner/...) and nothing else. Every other route asks for a
+ * session, which this key is not, so it is refused there as an anonymous caller would be. On its
+ * own routes it can only ask for work, report steps, ask for a read-only tool by name on a run it
+ * holds the lease of, and finish; it can stage, approve and run nothing.
+ *
+ * Only from this machine: the runner talks over loopback, and a request that came through a proxy
+ * (Tailscale Serve, which also connects from loopback, sets forwarding headers) is refused even
+ * with the right key. `verify(token)` compares digests; `limit` is a rate limit for the runner.
+ */
+const loopbackPeer = /^(127\.\d+\.\d+\.\d+|::1|::ffff:127\.\d+\.\d+\.\d+)$/;
+const proxyHeaders = ["x-forwarded-for", "x-forwarded-host", "forwarded", "tailscale-user-login", "x-real-ip"];
+
+export function agentRunnerAuth({ verify, limit = null }) {
+  return function runnerAuth(request, response, next) {
+    const local = loopbackPeer.test(String(request.socket?.remoteAddress ?? "")) && !proxyHeaders.some((name) => request.get(name) !== undefined);
+    const match = /^Bearer ([A-Za-z0-9_-]{20,200})$/.exec(request.get("authorization") ?? "");
+    if (!local || !match || !verify(match[1])) return response.status(401).json({ error: "The agents runner's key is missing or wrong", code: "runner_unauthorized" });
+    if (limit && !limit.take("runner")) return response.status(429).json({ error: "The agents runner is calling too often", code: "runner_rate_limited" });
+    const runnerId = request.body?.runnerId;
+    if (typeof runnerId !== "string" || !/^[0-9a-f-]{36}$/i.test(runnerId)) return response.status(400).json({ error: "runnerId must be the runner's id", code: "invalid_runner" });
+    request.agentRunner = { runnerId };
     return next();
   };
 }
@@ -64,7 +92,8 @@ export function watchEntryFor(request, key, entry, label, scheduleOwner = () => 
   const theirs = family === "schedule.failed" || family === "schedule.overdue" ? Boolean(self && scheduleOwner(subject) === self)
     : family === "signin.new" ? Boolean(self && subject === self)
     // Named by operation and subject rather than by job, so whose it was cannot be told apart.
-    : family === "job.interrupted" || family === "record.failed" || family === "approval.lapsed" ? false
+    // An agent's notice (M37) is written from what its maker's run read, so its words are the owner's.
+    : family === "job.interrupted" || family === "record.failed" || family === "approval.lapsed" || family === "agent.important" ? false
     : true;
   return theirs ? { title, key } : { title: label, key: family };
 }
