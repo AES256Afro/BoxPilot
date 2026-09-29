@@ -125,11 +125,15 @@ export async function createBench({ promptPerSecond = 20, generatePerSecond = 4,
   }
   const runner = makeRunner({ api: directRunnerApi(h.service, h.runnerId), runtime, client: recording, now, options: runnerOptions });
 
-  /** Ask one question and time it: each call's tokens (read, cached, written) and seconds, and the run. */
-  async function ask(question = ownerQuestion) {
-    const queued = h.service.startRun(h.caller("owner"), keeper.id, { kind: "ask", question });
+  /**
+   * Ask one question and time it: each call's tokens (read, cached, written) and seconds, and the
+   * run. `agent` asks another agent than Steve; `beforeExecute(claim)` may change the claim or the clock.
+   */
+  async function ask(question = ownerQuestion, { agent = keeper, beforeExecute = null } = {}) {
+    const queued = h.service.startRun(h.caller("owner"), agent.id, { kind: "ask", question });
     const claim = await h.service.runnerNext(h.runnerId, { waitMs: 0 });
     if (real?.threads) claim.runtime = { ...claim.runtime, threads: real.threads };
+    await beforeExecute?.(claim);
     const from = calls.length;
     const fakeFrom = h.fake.calls().length;
     const started = now();
@@ -137,7 +141,7 @@ export async function createBench({ promptPerSecond = 20, generatePerSecond = 4,
     const wallMs = now() - started;
     const run = h.service.getRun(h.caller("owner"), queued.id);
     const mine = calls.slice(from).map(({ request, result }, index) => {
-      const fake = real ? null : h.fake.calls()[fakeFrom + index];
+      const fake = real ? null : h.fake.calls()[fakeFrom + index] ?? { promptMs: 0, generateMs: 0 };
       const timings = result.timings ?? {};
       const promptTokens = result.usage?.promptTokens ?? null;
       const cachedTokens = timings.cachedTokens ?? result.usage?.cachedTokens ?? null;

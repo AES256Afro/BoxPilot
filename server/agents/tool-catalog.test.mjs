@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 import { registry } from "../ops/index.mjs";
-import { describeTools, lesserRole, readToolInput, roleAtLeast, toModelTool, toolAllowed, toolById, toolCatalog } from "./tool-catalog.mjs";
+import { actToolIds, actToolLimit, describeTools, lesserRole, readToolInput, roleAtLeast, toModelTool, toolAllowed, toolById, toolCatalog, toolIdOf } from "./tool-catalog.mjs";
 
 describe("the tools catalog", () => {
   it("names each tool once, in a form a model can call, with a role and a cost", () => {
@@ -29,6 +29,41 @@ describe("the tools catalog", () => {
     expect(schema).toMatchObject({ type: "function", function: { name: "logs_query", parameters: { type: "object", required: ["kind", "target"], additionalProperties: false } } });
     expect(schema.function.parameters.properties.lines).toMatchObject({ type: "integer", minimum: 10, maximum: 200 });
     expect(describeTools().find((tool) => tool.id === "plan.propose").params.map((param) => param.name)).toEqual(["title", "reason", "steps"]);
+  });
+});
+
+describe("the tools a call that acts carries", () => {
+  const keeper = ["calc", "time.calc", "units.convert", "server.facts", "apps.list", "services.status", "logs.query", "storage.health", "docs.search", "document.read", "memory.search", "notes.read", "notes.write", "jobs.recent", "records.query", "alerts.active", "backups.status", "pihole.stats", "where.runs", "plan.propose", "notify.owner", "agents.handoff"];
+
+  it("are the always-on ones offered, then the plan's, each group in the catalog's order whatever order the plan gave", () => {
+    expect(actToolIds(keeper, { planned: ["storage.health", "alerts_active", "apps-list"] })).toEqual(["memory.search", "plan.propose", "notify.owner", "agents.handoff", "apps.list", "storage.health", "alerts.active"]);
+    // The same plan in another order is the same tools, byte for byte.
+    expect(actToolIds(keeper, { planned: ["apps.list", "alerts.active", "storage.health"] })).toEqual(actToolIds(keeper, { planned: ["storage.health", "alerts_active", "apps-list"] }));
+    // Only what was offered: an agent without memory or hand-offs gets neither.
+    expect(actToolIds(["server.facts", "alerts.active", "docs.search"], { planned: ["alerts.active", "shell.run"] })).toEqual(["alerts.active"]);
+  });
+
+  it("are capped at ten, and without a plan are the cheap reads first", () => {
+    expect(actToolIds(keeper, { planned: keeper })).toHaveLength(actToolLimit);
+    expect(actToolIds(keeper, { planned: keeper }).slice(0, 4)).toEqual(["memory.search", "plan.propose", "notify.owner", "agents.handoff"]);
+    expect(actToolIds(keeper, { planned: null })).toEqual(["memory.search", "plan.propose", "notify.owner", "agents.handoff", "server.facts", "apps.list", "services.status", "storage.health", "alerts.active", "where.runs"]);
+    // A learning run keeps its notes whatever it planned.
+    expect(actToolIds(keeper, { planned: ["server.facts"], kind: "learn" })).toEqual(["memory.search", "notes.read", "notes.write", "plan.propose", "notify.owner", "agents.handoff", "server.facts"]);
+  });
+
+  it("describe themselves to the model in fewer words when they are sent every time, and in full to the Builder", () => {
+    for (const tool of toolCatalog.filter((entry) => entry.always)) {
+      expect(toModelTool(tool).function.description, tool.id).toBe(tool.brief);
+      expect(tool.brief.length, tool.id).toBeLessThan(`${tool.title}: ${tool.description}`.length);
+      expect(describeTools().find((entry) => entry.id === tool.id).description).toBe(tool.description);
+    }
+    expect(toModelTool(toolById("alerts.active")).function.description).toBe(`Health alerts: ${toolById("alerts.active").description}`);
+  });
+
+  it("are found however the model spelled them", () => {
+    for (const [name, id] of [["alerts.active", "alerts.active"], ["alerts_active", "alerts.active"], ["alerts-active", "alerts.active"], ["Alerts Active", "alerts.active"], ["functions.memory_search", "memory.search"], ["time_calc", "time.calc"], ["calc", "calc"]]) expect(toolIdOf(name), name).toBe(id);
+    for (const name of ["shell_run", "", "alerts", null, 42]) expect(toolIdOf(name), String(name)).toBeNull();
+    expect(toolById("alerts-active")).toBe(toolById("alerts.active"));
   });
 });
 

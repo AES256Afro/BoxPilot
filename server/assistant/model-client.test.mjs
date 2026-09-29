@@ -9,7 +9,7 @@ import { createEndpointGuard, isLoopbackAddress } from "./local-endpoint.mjs";
 let fake;
 beforeAll(async () => { fake = await startFakeModel({ apiKey: "sk-test-key" }); });
 afterAll(async () => { await fake?.close(); });
-afterEach(() => { fake.reset(); Object.assign(fake.state, { chat: "policy", script: null, delayMs: 0 }); });
+afterEach(() => { fake.reset(); Object.assign(fake.state, { chat: "policy", script: null, delayMs: 0, speed: null, clock: null, timeScale: 1 }); });
 
 describe("the OpenAI-compatible client, against a stand-in model server", () => {
   const client = createOpenAiClient();
@@ -62,6 +62,36 @@ describe("the OpenAI-compatible client, against a stand-in model server", () => 
     await expect(client.chat(fake.url, { model: "m", messages: [] }, { apiKey: "sk-test-key" })).rejects.toMatchObject({ code: "model_error" });
     fake.state.chat = "broken";
     await expect(client.chat(fake.url, { model: "m", messages: [] }, { apiKey: "sk-test-key" })).rejects.toThrow(/out of memory/);
+  });
+
+  it("reads llama-server's timings and the cached tokens from the last chunk, and how long the first token took", async () => {
+    fake.state.speed = { promptPerSecond: 2_000, generatePerSecond: 1_000 };
+    fake.state.script = () => ({ content: "All is well [T1]." });
+    const messages = [{ role: "system", content: "Rules. ".repeat(600) }, { role: "user", content: "How is the server?" }];
+    const first = await client.chat(fake.url, { model: "m", messages }, { apiKey: "sk-test-key" });
+    expect(first.timings).toMatchObject({ promptTokens: first.usage.promptTokens, cachedTokens: 0, promptPerSecond: 2_000, predictedPerSecond: 1_000 });
+    expect(first.usage.cachedTokens).toBe(0);
+    // Reading about 1,000 tokens at 2,000 a second comes before the first token.
+    expect(first.firstTokenMs).toBeGreaterThanOrEqual(first.timings.promptMs * 0.8);
+    expect(first.elapsedMs).toBeGreaterThanOrEqual(first.firstTokenMs);
+    // The same conversation grown: the model server reads only the new part.
+    const second = await client.chat(fake.url, { model: "m", messages: [...messages, { role: "assistant", content: "All is well [T1]." }, { role: "user", content: "And the disks?" }] }, { apiKey: "sk-test-key" });
+    expect(second.usage.cachedTokens).toBeGreaterThan(first.usage.promptTokens - 10);
+    expect(second.timings.promptTokens).toBeLessThan(40);
+  });
+
+  it("keeps the tools in the prompt when none may be called", async () => {
+    const tools = [{ type: "function", function: { name: "alerts_active", parameters: { type: "object" } } }];
+    await client.chat(fake.url, { model: "m", messages: [{ role: "user", content: "hi" }], tools, toolChoice: "none" }, { apiKey: "sk-test-key" });
+    expect(fake.prompts()[0]).toMatchObject({ tools, tool_choice: "none" });
+  });
+
+  it("asks Unsloth to cancel a request by its cancel_id, and never throws doing so", async () => {
+    expect(await client.cancel(fake.url, "boxpilot-1", { apiKey: "sk-test-key" })).toBe(true);
+    expect(fake.state.cancels.at(-1)).toBe("boxpilot-1");
+    expect(fake.requests.at(-1)).toMatchObject({ path: "/api/inference/cancel", body: { cancel_id: "boxpilot-1" }, authorization: "Bearer sk-test-key" });
+    expect(await client.cancel(fake.url, "")).toBe(false);
+    expect(await client.cancel("http://127.0.0.1:9", "boxpilot-2", { timeoutMs: 500 })).toBe(false);
   });
 
   it("gives up at its deadline", async () => {

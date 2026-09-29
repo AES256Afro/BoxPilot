@@ -86,13 +86,14 @@ export function fallbackTools(claim, understanding = null) {
 
 /**
  * The model's speed on this server, in tokens a second: reading the prompt and writing the answer.
- * It starts from what BoxPilot measured before (or slow defaults) and learns from every call.
+ * It starts from what BoxPilot measured before (or slow defaults); this run's first measurement
+ * replaces that (the server may be busier or quieter now), and later ones are averaged in.
  */
 export function createSpeed({ promptPerSecond, generatePerSecond, source = "default" }) {
   const speed = { promptPerSecond, generatePerSecond, source, samples: 0 };
   const blend = (old, sample, fresh) => (fresh ? sample : Math.round((old * 0.5 + sample * 0.5) * 100) / 100);
-  let freshPrompt = source === "default";
-  let freshGenerate = source === "default";
+  let freshPrompt = true;
+  let freshGenerate = true;
   return {
     get: () => ({ ...speed }),
     /** One call's measurement: tokens read and the milliseconds it took, tokens written and theirs. */
