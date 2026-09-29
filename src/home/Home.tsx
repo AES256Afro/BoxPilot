@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { openActivity } from "../activityEvents";
 import { useOperation } from "../ApproveDialog";
 import { judgeProtection } from "../backupProtection";
 import { countOf, sentenceList, type ViewName } from "../data";
@@ -56,7 +57,8 @@ export default function Home({ csrfToken, role, onNavigate, now = Date.now }: Ho
   const hostname = inventory?.hostname ?? "This server";
   const verdict = verdictFor(needs, { hostname, checking, unread });
 
-  const open = (need: Need) => onNavigate(need.view, need.appId && need.view === "catalog" ? { app: need.appId } : undefined);
+  // A staged or failed job opens in Activity, where it can be approved, cancelled or dismissed (M36).
+  const open = (need: Need) => (need.jobId ? openActivity(need.jobId) : onNavigate(need.view, need.appId && need.view === "catalog" ? { app: need.appId } : undefined));
   const act = (need: Need) => {
     if (!need.action) return;
     start({ operationId: need.action.operationId, title: need.action.title, parameters: need.action.parameters, preview: <span>{need.action.preview}</span> });

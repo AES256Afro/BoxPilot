@@ -3423,6 +3423,17 @@ textarea {
   line-height: 1.65;
 }
 
+/* Why the session ended (M36): said before the form, in the card's own voice, not as an error. */
+.auth-card p.auth-notice {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-control);
+  color: var(--text);
+  background: var(--surface-notice);
+  font-size: 13px;
+}
+
 .bootstrap-command {
   display: grid;
   gap: 8px;
@@ -4578,6 +4589,10 @@ textarea {
 .activity-meta { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
 .activity-time { color: var(--text-muted); font-size: 12px; }
 .activity-detail { display: grid; gap: 10px; padding: 0 8px 14px; }
+/* M36: approve, cancel or dismiss a job from where it is listed. */
+.activity-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); padding: 0 8px 10px; }
+.activity-actions .muted { font-size: var(--font-size-xs); }
+.activity-actions .auth-error { flex-basis: 100%; margin: 0; }
 .job-rerun-note { margin: 0; font-size: 13px; line-height: 1.5; }
 .activity-steps { margin: 0; padding: 0 0 0 16px; color: var(--text-strong); font-size: 12px; display: grid; gap: 4px; }
 

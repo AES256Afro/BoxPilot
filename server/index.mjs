@@ -452,6 +452,16 @@ const pruneHistory = () => { try { state.pruneHistory(); jobs.pruneStagedSecrets
 setInterval(() => { try { jobs.pruneStagedSecrets(); } catch (error) { console.warn(`Staged credential expiry failed: ${error.message}`); } }, 60_000).unref?.();
 setTimeout(pruneHistory, 2 * 60_000).unref?.();
 setInterval(pruneHistory, 24 * 3600_000).unref?.();
+// Staged jobs nobody will approve (M36): superseded ones (an update to a version this one already
+// is) go at startup, which is right after an update lands; ones left waiting a week, hourly.
+const sweepApprovals = () => {
+  try {
+    const swept = jobs.sweepStaleApprovals();
+    if (swept.length) console.log(`Cancelled ${swept.length} staged job(s) nobody will approve: ${swept.map((entry) => `${entry.id} (${entry.why})`).join(", ")}`);
+  } catch (error) { console.warn(`Stale approval sweep failed: ${error.message}`); }
+};
+sweepApprovals();
+setInterval(sweepApprovals, 3600_000).unref?.();
 
 app.listen(port, host, () => {
   console.log(`BoxPilot ${productVersion} listening on http://${host}:${port}`);

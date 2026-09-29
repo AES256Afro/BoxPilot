@@ -135,6 +135,17 @@ export function createJobsRouter({ state, jobs, scheduler, flows = null, autoRec
     }
   });
 
+  // "I have seen this failure" (M36): it stays in Activity and stops asking for attention on Home and
+  // Ops. Its creator or the owner; the role policy keeps viewers out, as for every other change.
+  router.post("/jobs/:id/dismiss", auth.requireCsrf, (request, response) => {
+    try {
+      const owner = request.boxpilotSession.owner;
+      response.json({ job: jobs.dismissFailure(request.params.id, owner.id, { role: owner.role ?? "owner" }) });
+    } catch (error) {
+      response.status(error.message === "Job not found" ? 404 : 409).json({ error: error.message, code: "job_dismiss_failed" });
+    }
+  });
+
   router.delete("/jobs/:id", auth.requireCsrf, (request, response) => {
     try {
       response.json({ job: jobs.cancelJob(request.params.id, request.boxpilotSession.owner.id, { role: request.boxpilotSession.owner.role ?? "owner" }) });
