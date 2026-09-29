@@ -36,6 +36,7 @@ const CatalogPage = lazy(() => import("./pages/catalog/CatalogPage"));
 const AutomationsPage = lazy(() => import("./pages/automations/AutomationsPage"));
 const ServicesPage = lazy(() => import("./pages/services/ServicesPage"));
 const SystemPage = lazy(() => import("./pages/system/SystemPage"));
+const AgentsPage = lazy(() => import("./pages/agents/AgentsPage"));
 const PerformancePage = lazy(() => import("./pages/performance/PerformancePage"));
 const UsersPage = lazy(() => import("./pages/users/UsersPage"));
 const FirewallPage = lazy(() => import("./pages/firewall/FirewallPage"));
@@ -53,7 +54,7 @@ const Settings = lazy(() => import("./pages/settings/SettingsPage"));
  * its name in the bar and what it is for behind the info toggle, until wave 2 rebuilds it (M33.8).
  * A rebuilt page adds itself here. Repair (M35) draws its own crumb and verdict in the page.
  */
-const ownHeader = new Set<ViewName>(["home", "ops", "services", "logs", "repairs", "network", "firewall", "users", "github", "settings", "virtualization", "system", "setup", "storage", "backups", "updates", "catalog", "automations", "performance"]);
+const ownHeader = new Set<ViewName>(["home", "ops", "services", "logs", "repairs", "network", "firewall", "users", "github", "settings", "virtualization", "system", "setup", "storage", "backups", "updates", "catalog", "automations", "performance", "agents"]);
 
 /**
  * Deep link: /?view=firewall opens that page, and a reload keeps the page you were on (Setup
@@ -162,6 +163,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
     if (view === "backups") return <BackupsPage csrfToken={csrfToken} role={role} onNavigate={setView} />;
     if (view === "github") return <GitHubPage />;
     if (view === "logs") return <LogsPage csrfToken={csrfToken} role={role} />;
+    if (view === "agents") return <AgentsPage csrfToken={csrfToken} role={role} />;
     return <Settings csrfToken={csrfToken} role={role} />;
   }, [csrfToken, focusApp, role, setView, view]);
 

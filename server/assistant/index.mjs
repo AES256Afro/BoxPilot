@@ -5,8 +5,10 @@
  * anything; a plan's steps go through the ordinary job path, approved one by one at their tier.
  *
  * Guardrails, in the order they apply:
- * - Only a local model (ollama.mjs): an address on this server or the owner's network, set by the
- *   owner, or the catalog's Ollama when it is installed. With none, the answer is the sources.
+ * - Only a local model (local-endpoint.mjs): an address on this server or the owner's network, set
+ *   by the owner, or the catalog's Ollama when it is installed. With none, the answer is the
+ *   sources. It is reached through model-client.mjs (M37): the OpenAI-compatible API that Unsloth,
+ *   llama.cpp and Ollama all serve, or Ollama's own API for settings saved before M37.
  * - The context is read as the person asking (facts.mjs), secrets masked by secretPaths, then every
  *   piece of text passes the redactor once more on its way into the prompt (prompt.mjs).
  * - Bounded: the question, the prompt, the answer and the time taken each have a limit, and one
@@ -19,7 +21,8 @@ import { createRedactor, loadRedactionPolicy } from "../redaction.mjs";
 import { seesEveryAccount } from "../routes/access.mjs";
 import { asRequest, gatherFacts } from "./facts.mjs";
 import { createKnowledgeIndex, tokenize } from "./knowledge.mjs";
-import { createOllamaClient, isEmbeddingModel, normalizeEndpoint, ollamaApiPort } from "./ollama.mjs";
+import { createOllamaAdapter, createOpenAiClient, modelProviders } from "./model-client.mjs";
+import { isEmbeddingModel, normalizeEndpoint, ollamaApiPort } from "./ollama.mjs";
 import { extractPlan, planFence, validatePlan } from "./plan.mjs";
 import { buildPrompt, degradedMessages, fallbackAnswer, finalRedaction, verifyCitations } from "./prompt.mjs";
 
@@ -80,7 +83,11 @@ export function normalizeAssistantSettings(input) {
     if (typeof value !== "string" || !modelNamePattern.test(value.trim())) throw new AssistantError(400, `${what} must be a model name such as hermes3:8b`, "invalid_setting");
     return value.trim();
   };
-  return { endpoint, model: name(input.model, "The model"), embedModel: name(input.embedModel, "The embedding model") };
+  // The OpenAI-compatible API is the default (M37); "ollama" is Ollama's own API, kept for settings
+  // saved before it existed.
+  const provider = unset(input.provider) ? "openai" : input.provider;
+  if (!modelProviders.includes(provider)) throw new AssistantError(400, `The provider must be one of ${modelProviders.join(", ")}`, "invalid_setting");
+  return { provider, endpoint, model: name(input.model, "The model"), embedModel: name(input.embedModel, "The embedding model") };
 }
 
 /** The question and its focus, checked; throws an AssistantError (400) on anything else. */
@@ -144,7 +151,10 @@ export function createAssistantService({
   helper = null,
   inventory = null,
   secretEnvNamesFor = null,
-  ollama = createOllamaClient(),
+  // The model clients, by provider (model-client.mjs). `ollama` is a legacy Ollama client to wrap
+  // instead of the default one, which the tests pass.
+  ollama = null,
+  openai = null,
   knowledge = null,
   redactor = null,
   loadRedaction = loadRedactionPolicy,
@@ -154,6 +164,8 @@ export function createAssistantService({
   recordAudit = null,
 } = {}) {
   const limits = { ...defaultLimits, ...overrides };
+  const clients = { ollama: createOllamaAdapter(ollama ? { client: ollama } : {}), openai: openai ?? createOpenAiClient() };
+  const clientFor = (provider) => clients[provider] ?? clients.openai;
   const index = knowledge ?? createKnowledgeIndex({ registry, catalog, now });
   // One answer at a time per account, a few across the server: a CPU model serves one well.
   const budget = generations ?? createStreamBudget({ perAccount: limits.perAccount, total: limits.total });
@@ -163,7 +175,9 @@ export function createAssistantService({
 
   function settings() {
     const saved = state.getSetting?.(assistantSettingKey, null) ?? {};
-    return { endpoint: saved.endpoint ?? null, model: saved.model ?? null, embedModel: saved.embedModel ?? null };
+    // A setting saved before M37 has no provider: it was an Ollama address, and still is.
+    const provider = modelProviders.includes(saved.provider) ? saved.provider : "ollama";
+    return { provider, endpoint: saved.endpoint ?? null, model: saved.model ?? null, embedModel: saved.embedModel ?? null };
   }
 
   // app.inspect answers both "where is the catalog's Ollama" and "what state are the apps in".
@@ -181,7 +195,7 @@ export function createAssistantService({
   /** The owner's address, else the catalog's own model server when it is installed, else none. */
   async function resolveEndpoint() {
     const saved = settings();
-    if (saved.endpoint) return { endpoint: saved.endpoint, source: "setting" };
+    if (saved.endpoint) return { endpoint: saved.endpoint, source: "setting", provider: saved.provider };
     const apps = await readApps().catch(() => null);
     const installed = (Array.isArray(apps?.applications) ? apps.applications : []).filter((entry) => entry?.installed);
     installed.sort((a, b) => Number(b.id === "ollama") - Number(a.id === "ollama"));
@@ -196,20 +210,20 @@ export function createAssistantService({
       if (!port) continue;
       const hostNetworked = (entry.state?.values?.networkMode ?? manifest.network) === "host";
       const published = Number(hostNetworked ? port.container : entry.state?.values?.ports?.[port.id] ?? port.host);
-      if (Number.isInteger(published) && published > 0 && published < 65536) return { endpoint: `http://127.0.0.1:${published}`, source: "catalog", appId: entry.id };
+      if (Number.isInteger(published) && published > 0 && published < 65536) return { endpoint: `http://127.0.0.1:${published}`, source: "catalog", appId: entry.id, provider: "ollama" };
     }
-    return { endpoint: null, source: "none" };
+    return { endpoint: null, source: "none", provider: saved.provider };
   }
 
   let modelRead = null;
   async function probeModels() {
     const saved = settings();
-    const { endpoint, source } = await resolveEndpoint();
-    const none = { endpoint, source, reachable: false, models: [], chatModel: null, embedModel: null };
+    const { endpoint, source, provider } = await resolveEndpoint();
+    const none = { endpoint, source, provider, reachable: false, models: [], chatModel: null, embedModel: null };
     if (!endpoint) return { ...none, problem: "no-model" };
     let models;
     try {
-      models = await ollama.tags(endpoint, { timeoutMs: limits.tagsTimeoutMs });
+      models = await clientFor(provider).models(endpoint, { timeoutMs: limits.tagsTimeoutMs });
     } catch {
       return { ...none, problem: "unreachable" };
     }
@@ -218,7 +232,7 @@ export function createAssistantService({
     const chatNames = names.filter((name) => !isEmbeddingModel(name));
     const chatModel = saved.model ? present(saved.model) : preferredChatModels.map((prefix) => chatNames.find((name) => name.startsWith(prefix))).find(Boolean) ?? chatNames[0] ?? null;
     const embedModel = saved.embedModel ? present(saved.embedModel) : names.find(isEmbeddingModel) ?? null;
-    return { endpoint, source, reachable: true, models: names, chatModel, embedModel, problem: chatModel ? null : saved.model ? "model-missing" : "no-model" };
+    return { endpoint, source, provider, reachable: true, models: names, chatModel, embedModel, problem: chatModel ? null : saved.model ? "model-missing" : "no-model" };
   }
   async function modelState({ fresh = false } = {}) {
     const at = now().getTime();
@@ -234,14 +248,14 @@ export function createAssistantService({
   // stops it after the batch in hand; the next answer to finish, or the next status read, resumes it.
   let warming = null;
   let resumeWarming = null;
-  function warmEmbeddings(endpoint, model) {
+  function warmEmbeddings(endpoint, model, provider) {
     if (warming || !endpoint || !model) return;
     warming = (async () => {
       for (let round = 0; round < 500; round += 1) {
         if (budget.stats().active > 0) break;
         const batch = index.missingEmbeddings(model, { limit: 16 });
         if (!batch.length) break;
-        const vectors = await ollama.embed(endpoint, model, batch.map((chunk) => documentText(model, chunk)), { timeoutMs: 60_000 });
+        const vectors = await clientFor(provider).embed(endpoint, model, batch.map((chunk) => documentText(model, chunk)), { timeoutMs: 60_000 });
         batch.forEach((chunk, position) => index.embeddings.set(model, chunk.hash, vectors[position]));
       }
     })().catch(() => {}).finally(() => { warming = null; });
@@ -250,7 +264,7 @@ export function createAssistantService({
   /** The question's vector, embedding the best keyword matches alongside it if they are not cached yet. */
   async function embedQuestion(model, query, signal) {
     const missing = index.missingEmbeddings(model.embedModel, { question: query, limit: 16 });
-    const vectors = await ollama.embed(model.endpoint, model.embedModel, [queryText(model.embedModel, query), ...missing.map((chunk) => documentText(model.embedModel, chunk))], { timeoutMs: limits.embedTimeoutMs, signal });
+    const vectors = await clientFor(model.provider).embed(model.endpoint, model.embedModel, [queryText(model.embedModel, query), ...missing.map((chunk) => documentText(model.embedModel, chunk))], { timeoutMs: limits.embedTimeoutMs, signal });
     missing.forEach((chunk, position) => index.embeddings.set(model.embedModel, chunk.hash, vectors[position + 1]));
     return vectors[0];
   }
@@ -273,7 +287,7 @@ export function createAssistantService({
     if (model.embedModel) {
       // The embedding goes to the model server as surely as the prompt does, so it is redacted too.
       vector = await embedQuestion(model, finalRedaction(query, redactor), signal).catch(() => null);
-      resumeWarming = { endpoint: model.endpoint, model: model.embedModel };
+      resumeWarming = { endpoint: model.endpoint, model: model.embedModel, provider: model.provider };
     }
     const search = (options) => index.search(query, { ...options, vector, model: model.embedModel });
     const pinned = [operationOf(focusJob) ? index.get(`op:${operationOf(focusJob)}`) : null, context.appId ? index.get(`app:${context.appId}`) : null].filter(Boolean);
@@ -302,10 +316,12 @@ export function createAssistantService({
       timer.unref?.();
       const filter = createPlanFilter((piece) => onEvent("delta", { text: piece }));
       try {
-        const finished = await ollama.chat(model.endpoint, {
+        const finished = await clientFor(model.provider).chat(model.endpoint, {
           model: model.chatModel,
           messages: prompt.messages,
-          options: { temperature: limits.temperature, num_predict: limits.numPredict, num_ctx: limits.numCtx },
+          temperature: limits.temperature,
+          maxTokens: limits.numPredict,
+          contextTokens: limits.numCtx,
         }, {
           signal: signal ? AbortSignal.any([deadline.signal, signal]) : deadline.signal,
           timeoutMs: limits.timeoutMs + 5_000,
@@ -395,7 +411,7 @@ export function createAssistantService({
           return await answer(caller, input, focusJob, { onEvent, signal });
         } finally {
           release();
-          if (resumeWarming && budget.stats().active === 0) warmEmbeddings(resumeWarming.endpoint, resumeWarming.model);
+          if (resumeWarming && budget.stats().active === 0) warmEmbeddings(resumeWarming.endpoint, resumeWarming.model, resumeWarming.provider);
         }
       },
       cancel: release,
@@ -412,13 +428,14 @@ export function createAssistantService({
       index.ensure().catch(() => index.stats()),
       modelState({ fresh: true }),
     ]);
-    if (model.embedModel) warmEmbeddings(model.endpoint, model.embedModel);
+    if (model.embedModel) warmEmbeddings(model.endpoint, model.embedModel, model.provider);
     const operatorView = role === "owner" || role === "operator";
     return {
       ready: Boolean(model.chatModel),
       reachable: model.reachable,
       problem: model.problem ? { reason: model.problem, message: statusMessages[model.problem] } : null,
       source: model.source,
+      provider: model.provider,
       chatModel: model.chatModel,
       embeddings: Boolean(model.embedModel),
       // Which models the server holds, and where it is, like app.models.inspect: an operator's to read (M29.6).
@@ -433,7 +450,7 @@ export function createAssistantService({
     const value = normalizeAssistantSettings(input);
     state.setSetting(assistantSettingKey, value, { updatedBy: actorId });
     modelRead = null;
-    audit("settings.assistant.changed", { actorId, subjectId: actorId, details: { endpoint: value.endpoint, model: value.model, embedModel: value.embedModel } });
+    audit("settings.assistant.changed", { actorId, subjectId: actorId, details: { provider: value.provider, endpoint: value.endpoint, model: value.model, embedModel: value.embedModel } });
     return value;
   }
 

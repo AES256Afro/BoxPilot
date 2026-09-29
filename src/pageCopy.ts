@@ -35,6 +35,10 @@ export const viewCopy: Record<ViewName, { title: string; description: string }> 
     title: "Automations",
     description: "Chains of the operations you already trust, run in order as recorded jobs. Add one from the shelf or build your own.",
   },
+  agents: {
+    title: "Agents",
+    description: "Build agents that learn this server, answer questions, watch Pi-hole and the backups, and propose fixes for you to approve. Local models only, capped so they never run hot.",
+  },
   system: {
     title: "System",
     description: "Hostname, time zone, swap, and maintenance timers for this server.",
@@ -88,6 +92,7 @@ export const viewCopy: Record<ViewName, { title: string; description: string }> 
 export const viewFeatures: Record<ViewName, string[]> = {
   home: ["Apps with their health", "What needs you, worst first", "System and backups at a glance"],
   ops: ["Load, memory, disks and network", "What needs you, by risk tier", "Containers with their numbers", "Job queue", "Backup matrix"],
+  agents: ["Agent builder with templates", "Test console with a live trace", "Cards to approve, never acted on alone", "Pause all, or until tomorrow", "Usage against hard caps", "Unsloth and Qwen models", "Golden-question evaluation"],
   automations: ["Ready-made flows", "Build your own", "Steps run as recorded jobs", "A failed step stops the run"],
   setup: ["Setup profiles", "Checks what is already in place", "Installs the rest in order", "Autoinstall files for a new server"],
   updates: ["APT updates, all or selected", "Automatic security updates", "Restart hints", "Common tools with one click", "Snapshot before upgrading", "Install and remove packages"],

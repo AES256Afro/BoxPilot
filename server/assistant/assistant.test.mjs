@@ -416,9 +416,11 @@ describe("embeddings", () => {
 
 describe("settings and status", () => {
   it("keeps the model on this network", () => {
-    expect(normalizeAssistantSettings({ endpoint: "http://192.168.1.20:11434/", model: "qwen3:8b", embedModel: "" })).toEqual({ endpoint: "http://192.168.1.20:11434", model: "qwen3:8b", embedModel: null });
+    expect(normalizeAssistantSettings({ endpoint: "http://192.168.1.20:11434/", model: "qwen3:8b", embedModel: "" })).toEqual({ provider: "openai", endpoint: "http://192.168.1.20:11434", model: "qwen3:8b", embedModel: null });
+    expect(normalizeAssistantSettings({ provider: "ollama", endpoint: "http://192.168.1.20:11434" })).toMatchObject({ provider: "ollama" });
     expect(() => normalizeAssistantSettings({ endpoint: "https://api.example.com" })).toThrow(AssistantError);
     expect(() => normalizeAssistantSettings({ model: "bad model name!" })).toThrow(AssistantError);
+    expect(() => normalizeAssistantSettings({ provider: "cloud" })).toThrow(AssistantError);
   });
 
   it("records a change of model server in the audit trail", () => {
