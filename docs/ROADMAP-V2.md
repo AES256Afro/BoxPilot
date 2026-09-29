@@ -1398,6 +1398,34 @@ the milestones they overlap.
   GitHub, Apps, Automations, Metrics, VMs, System, Settings, Setup, sign-in, Activity and
   the approval dialog on the kit, and deleting stopgap rules as their classes go; Repair is
   M35's; Updates, built on the components in M33.1, still takes its header from the shell.
+- ✅ **M33.9 Storage and Backups on the kit** (wave 2A, unreleased). Both pages rebuilt in
+  `src/pages/storage/` and `src/pages/backups/` with every feature the Classic pages had, organised
+  by what the owner does. **Storage:** the verdict (a mount 90% full, a filesystem filling within
+  two weeks, a share that dropped, or room to spare; "Not read" when the drives could not be read),
+  then disks, mounts, shares and free LVM space in mono, then tabs kept in the address: *Drives*
+  (BoxPilot's drives with Check, Unmount and a switch to reconnect by itself, the rule stated once;
+  every disk and partition with Mount…, Format and Share…; unused LVM space to claim), *Shares*
+  (NAS folders mounted here, missing client tools to install), *File sharing* (Samba and NFS, the
+  draft kept across tabs until applied, users, the diagnosis, the address to type on each machine),
+  *Snapshots* (LVM with roll back, btrfs and ZFS) and *Mounts* (what is filling up and why, where
+  data lives, every mounted filesystem). Mounting a drive or a share, adding a share or a user and
+  taking a snapshot are sheets. **Backups:** the verdict (a backup that stopped, an app never
+  backed up, nothing off the box, or protected; never green about app data it could not read),
+  then tabs: *Apps* (each app's last backup and whether it keeps happening, back up or schedule
+  from its row), *This server* (the database's drilled backups with Protect and retention, machine
+  snapshots with how many apps would come back with their data), *Off-box* (whether a copy is kept
+  elsewhere, then the backup drive, SSH and cloud destinations, each set in a sheet) and *Restore*
+  (every snapshot this server can restore from, restored from a sheet, and what a restore staged
+  for review). Every action carries its tier and is left out for a role that cannot start it;
+  `operationRisk` gains the 24 operations the two pages start. The Classic `StorageCenter`,
+  `SambaPanel`, `NfsPanel`, `BackupCenter`, `CloudBackupPanel`, `RestorePanel`,
+  `RestoreReviewPanel`, `ConnectPaths` and the Storage-only half of `AutoReconnect` are deleted,
+  with the Classic CSS only they used. **The flaky share-mount-host check:** share.mount read its
+  unit's journal from the start of the second its attempt began, so a NAS that did not answer,
+  tried in the same second a wrong password for the same share was refused, read that refusal too
+  and was said to refuse the credentials. The journal is now read from the millisecond the attempt
+  began, only the last attempt's lines explain it, and the Ubuntu test puts a refusal in that
+  second on every run.
 - ✅ **M33.10 Network and security on the kit** (wave 2B, unreleased). Network, Firewall, Users & SSH
   and GitHub are rebuilt in `src/pages/{network,firewall,users,github}/`, each with its own sheet
   and tests, and the Classic components (`NetworkCenter`, `TailnetPanel`, `TailscalePanel`,
@@ -1430,6 +1458,38 @@ the milestones they overlap.
   `/integrations/github` with fictional metadata, so the page can be reviewed. Page-local pieces
   worth promoting to the kit: a Copy button for one value, a link drawn as a Button, radio cards,
   and a list of suggestion rows with a tag, words and one action.
+- ✅ **M33.11 Apps, Automations, Performance and Updates** (wave 2C, unreleased). Four pages
+  rebuilt in the console on the kit, every feature kept, the Classic components deleted
+  (`AppCatalog`, `AutomationsCenter`, `PerformanceCenter`, `UpdatesCenter`, the old
+  `SchedulesPanel`) with the stopgap rules only they used, and the Classic Updates rules, whose
+  names the new page reuses. **App catalog**
+  (`src/pages/catalog/`): the verdict counts apps that need a look (a leak outside the VPN or a
+  folder the app cannot write to is red, a paused app or a broken helper container amber), then
+  three tabs with one search and a category across them: the installed apps as Home's colour
+  squares with their health, the catalog as cards, and the Compose stacks BoxPilot did not start.
+  Each app opens its sheet (`?view=catalog&app=<id>`, and `&sheet=backups` for a tab): its facts
+  first, then Reach (every address, home network or tailnet only with the switch and what each
+  port does, the reachability check, the wiring between apps), Backups (the rehearsal's record,
+  weekly rehearsal, restore whole or one file, rehearse, delete), VPN (exit, forwarded port, the
+  kill-switch drill and its weekly check), Logs (helper containers too), Config (masked .env, the
+  owner-only raw Compose file and its editor), Models, Sign-in and Secrets. Install and settings
+  are a form in a sheet with a section per kind of setting, prechecked as before. Tailnet
+  addresses that lead nowhere are listed with their withdrawal. **Automations**
+  (`src/pages/automations/`): failed and late runs first, then Automations (steps, tier, facts,
+  what the last run did in a sheet, schedule and webhook controls, confirmations inline), Schedules
+  (the panel System also shows, now with its log and its form in sheets) and Ready to use (the
+  suggested flows first, with the tier of their steps); building one is a sheet. **Performance**
+  (`src/pages/performance/`, "Metrics" in the dock): the verdict names the busiest measure, the
+  strip has each figure with Ops' thresholds, every app with its square, live CPU and memory and
+  its controls, then each filesystem and sensor; it no longer reads while the tab is hidden.
+  **Updates** (`src/pages/updates/`): its own header, the strip, the services still running old
+  libraries, and tabs for the packages, the common tools and installing anything by name. Every
+  button carries its tier (fourteen more operations in `src/ui/operationRisk.ts`, held to the
+  registry) and a role that cannot run it does not see it; a viewer reads everything.
+  System's Schedules tab (M33.12) draws the same panel from `src/pages/automations/` with the
+  signed-in role, so a viewer there sees no Pause or Delete either. Left: the Classic rules
+  outside the stopgap that only the old pages used are listed in the pull request for a sweep;
+  `AppSquare` and the sheet's "act, then close" pattern are candidates for the kit.
 - ✅ **M33.12 Virtual Machines, System and Setup** (wave 2D, unreleased). Rebuilt under
   `src/pages/{vms,system,setup}/` on the kit, facts first, every feature kept; the Classic
   components, their tests and the CSS only they used are gone. **Virtual Machines:** the verdict

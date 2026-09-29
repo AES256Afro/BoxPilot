@@ -1,0 +1,46 @@
+/* Performance (M33.11): the page's own layout, on the kit's components. Tokens only, and every
+   selector starts with .performance-, so no other page is touched (docs/UI-PAGES.md). */
+
+.performance-page { display: grid; gap: 10px; min-width: 0; }
+
+/* The strip of figures, as Ops draws its own. */
+.performance-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 9.5rem), 1fr)); gap: 8px; }
+
+/* An app: its colour square, its name, and what it is. */
+.performance-app { display: inline-flex; align-items: center; gap: 8px; min-width: 0; white-space: nowrap; }
+.performance-app__name { overflow: hidden; color: var(--text-strong); font-family: var(--font-condensed); font-size: 13.5px; font-weight: 600; text-overflow: ellipsis; }
+.performance-app__count { color: var(--text-muted); font-size: 11.5px; }
+.performance-square {
+  display: grid;
+  flex: none;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  border-radius: 6px;
+  color: var(--brand-glyph);
+  background: linear-gradient(140deg, var(--app-a, var(--brand-slate-a)), var(--app-b, var(--brand-slate-b)));
+  font-family: var(--font-condensed);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+.performance-square[data-emoji] { font-size: 13px; font-weight: 400; }
+
+/* A small bar before a figure, cyan for what is measured; amber and red when it needs a look. */
+.performance-bar { display: inline-block; width: 34px; height: 4px; margin-right: 8px; overflow: hidden; border-radius: 1px; background: var(--meter-track); vertical-align: middle; }
+.performance-bar > i { display: block; height: 100%; background: var(--cc-cyan, var(--accent)); }
+.performance-bar[data-status="warning"] > i { background: var(--status-warning); }
+.performance-bar[data-status="danger"] > i { background: var(--status-danger); }
+.performance-mount { color: var(--text-strong); font-size: 12.5px; }
+
+/* The controls on each app's row, right-aligned and a size smaller than the page's. */
+.performance-actions-cell { width: 1%; }
+.performance-actions { display: flex; justify-content: flex-end; gap: 4px; white-space: nowrap; }
+.performance-actions .ui-button { min-height: 26px; padding-right: 8px; padding-left: 8px; font-size: 12.5px; }
+.performance-note { margin: 8px 12px; }
+
+@media (max-width: 640px) {
+  .performance-actions { flex-wrap: wrap; justify-content: flex-start; padding-top: 4px; }
+  .performance-actions-cell { width: auto; }
+  .performance-app { white-space: normal; }
+}
