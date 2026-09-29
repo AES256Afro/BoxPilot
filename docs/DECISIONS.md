@@ -251,3 +251,31 @@ wear the study's own look, and every Classic page shares its type and surfaces:
 - **Tokens, not literals.** Home and Ops point the Classic token names at their own on the shell
   (`.app-shell[data-view]`), so every component inside them takes the look without per-component
   colours, and a Classic page's layout is untouched (M33.5 moves them).
+
+**Addendum (2026-09-29, unreleased, M33.8): the console.** The owner, after v1.138.0: "when I go
+under Ops and I tap on any icon, it just reverts me back to the old box pilot... I want it gone."
+So there are two shells now, not a Classic one beside them:
+
+- **Home is the Launcher; every other page is the console.** The rail (the dock on a phone), the
+  compact bar with the page's name after the server's (`homebox / services`), and the Command
+  Center's tokens, set as `data-shell="console"` on `<html>` as well as on `.app-shell`, so a
+  sheet, the approval dialog, Activity or the command bar opened over a page is drawn like it.
+  The old header (an eyebrow, a large title, a paragraph) and the "What you can do" strip are gone.
+  The rail is led by Ops, the console's overview.
+- **Facts first.** A page opens with its verdict (one status chip), then its facts in mono, then
+  its panels. What a page is for sits behind an info toggle in its header; a longer explanation is
+  the assistant's (M34), never a paragraph above the facts. Every action still carries its tier.
+- **One kit, one sheet per page.** `src/ui` gains the page kit (PageHeader, Panel, the form
+  controls, Tabs, KeyValue, Notice, EmptyState, Toolbar, Sheet, CodeBlock, Progress, JobProgress,
+  Tag); a page's own layout lives in `src/pages/<area>/<area>.css`, tokens only and scoped to the
+  area, so the pages rebuilt in parallel (wave 2) cannot collide. `docs/UI-PAGES.md` is the how-to;
+  Services and Logs are the reference pages.
+- **A stopgap for the rest.** Until each page is rebuilt, the Classic pages' own classes (panels,
+  stat cards, buttons, pills, notices, tables, inputs, modals) are restyled to the console in one
+  block of `src/styles.css`, so none of them reads as the old app.
+- **The Classic overview is retired.** What it showed that Home and Ops did not (each drive's SMART
+  health, the UPS, the key services, the setup checklist) is on Ops, with drive health and the UPS
+  as figures on Home; `?view=overview` opens Home.
+- **Light amber and green, a shade darker.** Checking the main pairs under the console's tokens
+  found a chip's amber or green on its own tint over the paper page at 4.37:1; they are now
+  `#935700` and `#147447`.

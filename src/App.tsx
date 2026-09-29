@@ -1,7 +1,7 @@
 import PageErrorBoundary from "./PageErrorBoundary";
-import { Suspense, lazy, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useState, type ReactNode } from "react";
 import { viewLabel, type ViewName } from "./data";
-import { viewCopy, viewFeatures } from "./pageCopy";
+import { viewCopy } from "./pageCopy";
 import AuthScreen from "./AuthScreen";
 import ActivityDrawer from "./ActivityDrawer";
 import { useOperation } from "./ApproveDialog";
@@ -14,26 +14,26 @@ import { FactsProvider } from "./home/facts";
 import { CommandBar } from "./shell/CommandBar";
 import { NotificationCentre } from "./shell/NotificationCentre";
 import { ShellDock, ViewSwitch } from "./shell/ShellNav";
+import { ShellHost } from "./shell/ShellHost";
 import { TopBarSlotProvider } from "./shell/TopBarSlot";
+import { PageHeader } from "./ui/PageHeader";
 
 // Every page is its own chunk, fetched the first time it is opened. All eighteen used to ride in
-// the one bundle: 688 KB of JavaScript to show the Overview, about sixty percent of it pages the
+// the one bundle: 688 KB of JavaScript to show the first page, about sixty percent of it pages the
 // visitor might never reach. Now the shell is what first paint waits for; each page arrives on
 // navigation, once, and the immutable asset cache keeps it after that.
 const BackupCenter = lazy(() => import("./BackupCenter"));
 const GitHubCenter = lazy(() => import("./GitHubCenter"));
 const Home = lazy(() => import("./home/Home"));
 const Ops = lazy(() => import("./home/Ops"));
-const HomeDashboard = lazy(() => import("./HomeDashboard"));
 const SetupWizard = lazy(() => import("./SetupWizard"));
-const HostOverview = lazy(() => import("./HostOverview"));
 const NetworkCenter = lazy(() => import("./NetworkCenter"));
 const RepairCenter = lazy(() => import("./RepairCenter"));
-const SystemLogs = lazy(() => import("./SystemLogs"));
+const LogsPage = lazy(() => import("./pages/logs/LogsPage"));
 const UpdatesCenter = lazy(() => import("./UpdatesCenter"));
 const AppCatalog = lazy(() => import("./AppCatalog"));
 const AutomationsCenter = lazy(() => import("./AutomationsCenter"));
-const ServicesCenter = lazy(() => import("./ServicesCenter"));
+const ServicesPage = lazy(() => import("./pages/services/ServicesPage"));
 const SystemCenter = lazy(() => import("./SystemCenter"));
 const PerformanceCenter = lazy(() => import("./PerformanceCenter"));
 const UsersCenter = lazy(() => import("./UsersCenter"));
@@ -50,32 +50,48 @@ function StatusPill({ children, tone = "good", className }: { children: ReactNod
 
 const Settings = lazy(() => import("./SettingsView"));
 
-/** Home and Ops draw their own headers; every other page gets the Classic one. */
-const ownHeader = new Set<ViewName>(["home", "ops", "repairs"]);
+/**
+ * Pages that draw their own PageHeader (src/ui/PageHeader.tsx): Home its greeting, Ops and the
+ * pages rebuilt on the kit their verdict and facts. Every other page gets one from the shell, with
+ * its name in the bar and what it is for behind the info toggle, until wave 2 rebuilds it (M33.8).
+ * A rebuilt page adds itself here. Repair (M35) draws its own crumb and verdict in the page.
+ */
+const ownHeader = new Set<ViewName>(["home", "ops", "services", "logs", "repairs"]);
 
 /**
  * Deep link: /?view=firewall opens that page, and a reload keeps the page you were on (Setup
- * included). No view is Home, the landing page since M33.2; the old landing page is ?view=overview.
+ * included). No view is Home, the landing page since M33.2. The Classic overview is gone (M33.8):
+ * ?view=overview, and any page that no longer exists, opens Home and leaves the address clean.
  */
 function viewFromLocation(): ViewName {
-  const candidate = new URLSearchParams(window.location.search).get("view");
-  return candidate && Object.hasOwn(viewCopy, candidate) ? (candidate as ViewName) : "home";
+  const params = new URLSearchParams(window.location.search);
+  const candidate = params.get("view");
+  if (candidate && Object.hasOwn(viewCopy, candidate)) return candidate as ViewName;
+  if (candidate) {
+    const url = new URL(window.location.href);
+    url.searchParams.delete("view");
+    window.history.replaceState(null, "", url);
+  }
+  return "home";
 }
+
+/** A page's own address parameters (a tab, a filter) belong to it; these outlive a change of page. */
+const keptParams = new Set(["scenario"]);
 
 function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthStatus; onSignedOut: (reason: SignedOutReason | null) => void; onAuthChanged?: (status: AuthStatus) => void }) {
   const [view, setViewState] = useState<ViewName>(viewFromLocation);
   // The app the catalog opens at (?app=jellyfin), when a tile or the command bar sent us there.
   const [focusApp, setFocusApp] = useState<string | null>(() => new URLSearchParams(window.location.search).get("app"));
   const [galleryAsked, setGalleryAsked] = useState(() => new URLSearchParams(window.location.search).has("gallery"));
-  const setView = useCallback((next: ViewName, options: { app?: string } = {}) => {
+  const setView = useCallback((asked: ViewName, options: { app?: string } = {}) => {
+    // A link to a page that is gone (an older server's "Open Overview") lands on Home.
+    const next: ViewName = Object.hasOwn(viewCopy, asked) ? asked : "home";
     setViewState(next);
     setFocusApp(options.app ?? null);
     setGalleryAsked(false);
     const url = new URL(window.location.href);
-    url.searchParams.delete("gallery");
-    url.searchParams.delete("app");
-    if (next === "home") url.searchParams.delete("view");
-    else url.searchParams.set("view", next);
+    for (const name of [...url.searchParams.keys()]) if (!keptParams.has(name)) url.searchParams.delete(name);
+    if (next !== "home") url.searchParams.set("view", next);
     if (options.app) url.searchParams.set("app", options.app);
     window.history.replaceState(null, "", url);
   }, []);
@@ -108,12 +124,20 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
   }, []);
   useSessionEnded(onSignedOut); // M36: a request that finds no session goes to sign-in, saying why
   const [apiMode, setApiMode] = useState("browser preview");
-  const [bundleError, setBundleError] = useState<string | null>(null);
   const role = authStatus.owner?.role ?? "owner";
   const csrfToken = authStatus.csrfToken ?? "";
 
   const copy = viewCopy[view];
   const showGallery = galleryAsked && apiMode === "demo";
+  // Home is the Launcher; every other page, the gallery included, is inside the console (M33.8):
+  // the rail, the compact bar and the Command Center's look. On a phone the rail is the dock.
+  const shell = showGallery || view !== "home" ? "console" : "launcher";
+  // The look is set on the page's root too, so what opens over the page (a sheet, Activity, the
+  // command bar, the approval dialog) is drawn in the same look as the page under it.
+  useLayoutEffect(() => {
+    document.documentElement.dataset.shell = shell;
+    return () => { delete document.documentElement.dataset.shell; };
+  }, [shell]);
   // A step the command bar's assistant suggested goes through the same approval dialog as any other.
   const { start: startOperation, dialog: operationDialog } = useOperation(csrfToken);
 
@@ -134,12 +158,9 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
     if (view === "home") return <Home csrfToken={csrfToken} role={role} onNavigate={setView} />;
     if (view === "ops") return <Ops csrfToken={csrfToken} role={role} onNavigate={setView} />;
     if (view === "setup") return <SetupWizard csrfToken={csrfToken} onDone={() => setView("home")} />;
-    if (view === "overview") {
-      return <><HomeDashboard onNavigate={setView} /><HostOverview /></>;
-    }
     if (view === "updates") return <UpdatesCenter csrfToken={csrfToken} />;
     if (view === "catalog") return <AppCatalog key={focusApp ?? ""} csrfToken={csrfToken} focusApp={focusApp ?? undefined} />;
-    if (view === "services") return <ServicesCenter csrfToken={csrfToken} />;
+    if (view === "services") return <ServicesPage csrfToken={csrfToken} role={role} />;
     if (view === "system") return <SystemCenter csrfToken={csrfToken} role={role} />;
     if (view === "automations") return <AutomationsCenter csrfToken={csrfToken} />;
     if (view === "performance") return <PerformanceCenter csrfToken={csrfToken} />;
@@ -151,43 +172,20 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
     if (view === "virtualization") return <VirtualMachines csrfToken={csrfToken} onOpenRepair={() => setView("repairs")} />;
     if (view === "backups") return <BackupCenter csrfToken={csrfToken} onOpenRepair={() => setView("repairs")} />;
     if (view === "github") return <GitHubCenter />;
-    if (view === "logs") return <SystemLogs csrfToken={csrfToken} />;
+    if (view === "logs") return <LogsPage csrfToken={csrfToken} role={role} />;
     return <Settings csrfToken={csrfToken} role={role} />;
   }, [csrfToken, focusApp, role, setView, view]);
 
-  const downloadSupportBundle = async () => {
-    setBundleError(null);
-    try {
-      const response = await fetch("/api/v1/support-bundle");
-      // A crashed service or a proxy answers with HTML; say what to do rather than showing a parser error.
-      const bundle = await response.json().catch(() => ({})) as Record<string, unknown> & { error?: string };
-      if (!response.ok) throw new Error(bundle.error ?? "BoxPilot could not build the support bundle. Check the BoxPilot service on the Services page, then try again.");
-      const url = URL.createObjectURL(new Blob([JSON.stringify(bundle, null, 2)], { type: "application/json" }));
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = "boxpilot-support-bundle.json";
-      anchor.click();
-      // Revoking in the same tick can cancel the download before the browser has read the blob.
-      setTimeout(() => URL.revokeObjectURL(url), 0);
-    } catch (error) {
-      setBundleError(error instanceof Error ? error.message : "Support bundle is unavailable");
-    }
-  };
-
-  const handlePrimaryAction = () => {
-    if (view === "logs") void downloadSupportBundle();
-  };
-
-  const wide = !showGallery && ownHeader.has(view);
-  // Where Home and Ops draw the start of the top bar (src/shell/TopBarSlot.tsx).
+  // Where Home and every console page draw the start of the top bar (src/shell/TopBarSlot.tsx).
   const [topBarSlot, setTopBarSlot] = useState<HTMLDivElement | null>(null);
 
   return (
     <FactsProvider>
       <TopBarSlotProvider value={topBarSlot}>
-      {/* data-view picks the shell's look (M33.7): Home's floats over its wallpaper, Ops' is the
-          compact dark bar beside a rail, every other page the Classic bar and the dock. */}
-      <div className="app-shell" data-view={showGallery ? "gallery" : view}>
+      <ShellHost ask={shell === "console"}>
+      {/* data-shell picks the shell's look (M33.8): Home's Launcher floats over its wallpaper; the
+          console, everywhere else, is the compact bar beside a rail. data-view names the page. */}
+      <div className="app-shell" data-view={showGallery ? "gallery" : view} data-shell={shell}>
         <a className="skip-link" href="#content">Skip to the page</a>
         <header className="topbar">
           <div className="topbar-left">
@@ -213,32 +211,21 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
           </div>
         </header>
 
-        <ShellDock view={showGallery ? null : view} onSelect={setView} variant={!showGallery && view === "ops" ? "rail" : "dock"} />
+        <ShellDock view={showGallery ? null : view} onSelect={setView} variant={shell === "console" ? "rail" : "dock"} />
 
         <main id="content" tabIndex={-1}>
-          <div className={wide ? "content content--wide" : "content"}>
+          <div className={shell === "console" ? "content content--console" : "content content--wide"} data-density={shell === "console" ? "compact" : undefined}>
             {showGallery ? <Suspense fallback={<p className="muted page-loading">Loading…</p>}><Gallery /></Suspense> : <>
-              {!ownHeader.has(view) && (
-                <header className="page-header">
-                  <div><span className="eyebrow">{view === "overview" ? "Classic overview" : "BoxPilot"}</span><h1>{copy.title}</h1><p>{copy.description}</p></div>
-                  {copy.action && (
-                    <button className="primary-button" type="button" onClick={handlePrimaryAction}>
-                      {copy.action}
-                    </button>
-                  )}
-                </header>
-              )}
-              {view !== "repairs" && !ownHeader.has(view) && <section className="surface-notice surface-live feature-strip" aria-label="Features">
-                <strong>What you can do</strong>
-                <ul className="feature-list">{viewFeatures[view].map((feature) => <li key={feature}>{feature}</li>)}</ul>
-              </section>}
-              {bundleError && <div className="auth-error" role="alert">{bundleError}</div>}
-              <PageErrorBoundary pageName={viewLabel(view)} resetKey={view}><Suspense fallback={<p className="muted page-loading">Loading…</p>}>{pageContent}</Suspense></PageErrorBoundary>
+              {!ownHeader.has(view) && <PageHeader title={copy.title} about={copy.description} />}
+              {/* Keyed by the page, so the page left behind unmounts at once rather than waiting, hidden,
+                  behind the next one's loading: its name in the bar would otherwise linger. */}
+              <PageErrorBoundary pageName={viewLabel(view)} resetKey={view}><Suspense key={view} fallback={<p className="muted page-loading">Loading…</p>}>{pageContent}</Suspense></PageErrorBoundary>
             </>}
           </div>
         </main>
         {operationDialog}
       </div>
+      </ShellHost>
       </TopBarSlotProvider>
     </FactsProvider>
   );

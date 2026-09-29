@@ -103,7 +103,20 @@ export const pairs = [
   ["--cc-amber", "--cc-track", 3, "a warning bar against its track"],
   ["--cc-icon", "--cc-rail", 3, "an icon on the rail"],
   ["--cc-amber", "--cc-raised", 3, "the rail's current item"],
+  // The console's page kit (M33.8): what its tags and chips put on the page itself as well as in a panel.
+  ["--cc-cyan", ["--cc-panel", "--cc-cyan-fill"], 4.5, "an info tag"],
+  ["--cc-amber", ["--cc-canvas", "--cc-amber-bg"], 4.5, "a warning chip on the page (a verdict)"],
+  ["--cc-green", ["--cc-canvas", "--cc-green-bg"], 4.5, "a good chip on the page (a verdict)"],
+  ["--cc-red-text", ["--cc-canvas", "--cc-red-bg"], 4.5, "a danger chip on the page (a verdict)"],
+  ["--cc-amber-ink", "--cc-amber", 4.5, "a switch's thumb, a checked box's tick"],
 ];
+
+/**
+ * The console (M33.8): every page but Home points the Classic names at the Command Center's tokens
+ * (:root[data-shell="console"] in src/styles.css), so the main pairs are checked again under that
+ * block, in light and dark, before Home's wallpaper pairs are added below.
+ */
+export const consolePairs = [...pairs];
 
 /**
  * Home's wallpaper (M33.7). Text sits on it and on glass over it, so every ink is judged at each
@@ -263,16 +276,22 @@ export function checkTokens(css) {
   const brandPairs = [...dark.keys()].filter((name) => /^--brand-[a-z]+-[ab]$/.test(name)).map((name) => ["--brand-glyph", name, 3, "an app's glyph on its square"]);
 
   const themes = { dark, light };
+  // The console's block, over each theme: the Classic pages and the kit as the console draws them.
+  const consoleBlock = all.find((rule) => !rule.media && rule.selector === ':root[data-shell="console"]');
+  if (consoleBlock) {
+    themes["console dark"] = new Map([...dark, ...consoleBlock.declarations]);
+    themes["console light"] = new Map([...light, ...consoleBlock.declarations]);
+  }
   const results = [];
   for (const [themeName, theme] of Object.entries(themes)) {
     const canvas = parseColor(resolve("var(--canvas)", theme));
     const solid = (token, under) => over(parseColor(resolve(`var(${token})`, theme)), under);
-    for (const [fg, bg, minimum, what] of [...pairs, ...brandPairs]) {
+    for (const [fg, bg, minimum, what] of themeName.startsWith("console") ? consolePairs : [...pairs, ...brandPairs]) {
       const background = (Array.isArray(bg) ? bg : [bg]).reduce((under, layer) => solid(layer, under), canvas);
       const ratio = contrast(solid(fg, background), background);
       const ok = ratio >= minimum;
       const on = Array.isArray(bg) ? bg.join(" + ") : bg;
-      results.push({ theme: themeName, fg, bg: on, minimum, what, ratio, ok, line: `${ok ? "ok  " : "FAIL"}  ${ratio.toFixed(2).padStart(5)}  ${themeName.padEnd(5)}  ${fg} on ${on} (${what}, needs ${minimum})` });
+      results.push({ theme: themeName, fg, bg: on, minimum, what, ratio, ok, line: `${ok ? "ok  " : "FAIL"}  ${ratio.toFixed(2).padStart(5)}  ${themeName.padEnd(13)}  ${fg} on ${on} (${what}, needs ${minimum})` });
     }
   }
 

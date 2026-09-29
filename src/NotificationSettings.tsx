@@ -46,7 +46,7 @@ function WeeklyReport({ csrfToken, targetConfigured }: { csrfToken: string; targ
         <span className="muted">
           {status.enabled ? `${status.cadence}, server time${status.nextDueAt ? `; next ${when(status.nextDueAt)}` : ""}.` : "Off."}
           {status.lastResult === "sent" && status.lastSentAt ? ` Last sent ${when(status.lastSentAt)}.` : ""}
-          {status.lastResult === "not-announced" ? " The last one reached no one; it is listed on the Overview." : ""}
+          {status.lastResult === "not-announced" ? " The last one reached no one; Home and Ops list it." : ""}
         </span>
       </div>
       <p className="muted">One push a week: what ran, what failed, what did not run and why, and what is not covered yet.</p>
@@ -152,7 +152,7 @@ export default function NotificationSettings({ csrfToken }: { csrfToken: string 
         <div><strong>Notifications</strong><span>Where alerts and the weekly report go{current?.configured ? "" : ". ntfy and Gotify are both in the app catalog"}</span></div>
         <span className={`status-pill ${current?.configured ? "status-good" : "status-neutral"}`}>{current?.configured ? `${current.kind} configured` : "Off"}</span>
       </header>
-      <p className="muted">You get a push for a failed job, a new BoxPilot release, a sign-in from a new address, and a short report once a week. BoxPilot also watches your server for the conditions below and notifies you when one turns bad — and again when it clears — checking every 15 minutes. A scheduled task or automation that keeps failing is one push until it works again. Anything that could not be sent is listed on the Overview.</p>
+      <p className="muted">You get a push for a failed job, a new BoxPilot release, a sign-in from a new address, and a short report once a week. BoxPilot also watches your server for the conditions below and notifies you when one turns bad — and again when it clears — checking every 15 minutes. A scheduled task or automation that keeps failing is one push until it works again. Anything that could not be sent is listed on Home and Ops.</p>
       {watch && (
         <div className="watch-status">
           <div className="watch-summary">{watch.activeCount === 0 ? <span className="good-text">All clear</span> : <span className="auth-error" style={{ display: "inline", padding: "2px 8px" }}>{watch.activeCount} needs attention</span>}{!watch.targetConfigured && <span className="muted"> · set a target below so these can reach you</span>}</div>

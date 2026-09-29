@@ -1,6 +1,9 @@
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
+import { navItems, viewLabel } from "./data";
+import { viewCopy } from "./pageCopy";
+import { dockAreas } from "./shell/ShellNav";
 import { connectionLabel } from "./appLinks";
 
 afterEach(() => {
@@ -36,29 +39,64 @@ describe("BoxPilot console", () => {
   const greeting = /^Good (morning|afternoon|evening)$/;
   const dock = () => screen.getByRole("navigation", { name: "Admin areas" });
 
-  it("lands on Home and reaches every area from the dock", async () => {
+  it("lands on Home, and opens every other area inside the console", async () => {
     vi.stubGlobal("fetch", vi.fn(authenticatedFetch));
-    render(<App />);
+    const { container } = render(<App />);
     expect(await screen.findByRole("heading", { level: 1, name: greeting })).toBeTruthy();
-    expect(screen.queryByRole("region", { name: "Features" })).toBeNull();
+    expect(container.querySelector(".app-shell")?.getAttribute("data-shell")).toBe("launcher");
+    expect(dock().classList.contains("shell-dock--rail")).toBe(false);
     expect(within(screen.getByRole("navigation", { name: "Views" })).getByRole("button", { name: "Home" }).getAttribute("aria-current")).toBe("page");
     fireEvent.click(within(dock()).getByRole("button", { name: "Backups" }));
-    expect(screen.getByRole("heading", { name: "Backups" })).toBeTruthy();
-    expect(screen.getByRole("region", { name: "Features" }).textContent).toContain("Restore from a snapshot");
+    // The console (M33.8): the rail, the compact bar with the page's name in it, and the look set on
+    // the page's root too, so a sheet or dialog opened over the page is drawn the same way.
+    const heading = screen.getByRole("heading", { level: 1, name: "Backups" });
+    expect(heading.closest(".topbar")).not.toBeNull();
+    expect(container.querySelector(".app-shell")?.getAttribute("data-shell")).toBe("console");
+    expect(document.documentElement.dataset.shell).toBe("console");
+    expect(dock().classList.contains("shell-dock--rail")).toBe(true);
     expect(within(dock()).getByRole("button", { name: "Backups" }).getAttribute("aria-current")).toBe("page");
     expect(within(screen.getByRole("navigation", { name: "Views" })).getByRole("button", { name: "Home" }).hasAttribute("aria-current")).toBe(false);
+    // The server's name leads the bar once the inventory answers.
+    await vi.waitFor(() => expect(heading.closest(".cc-crumb")?.querySelector(".cc-crumb__host")?.textContent).toBe("homebox"));
+    fireEvent.click(within(screen.getByRole("navigation", { name: "Views" })).getByRole("button", { name: "Home" }));
+    expect(await screen.findByRole("heading", { level: 1, name: greeting })).toBeTruthy();
+    expect(document.documentElement.dataset.shell).toBe("launcher");
   });
 
-  it("keeps the Classic overview reachable", async () => {
+  it("never draws the old frame: no page header, no feature strip, the description behind the info toggle", async () => {
     vi.stubGlobal("fetch", vi.fn(authenticatedFetch));
+    const { container } = render(<App />);
+    await screen.findByRole("heading", { level: 1, name: greeting });
+    for (const area of dockAreas) {
+      fireEvent.click(within(dock()).getByRole("button", { name: new RegExp(`^${viewLabel(area.id).replace(/[&()]/g, "\\$&")}`) }));
+      // Repair (M35) draws its own crumb and verdict at the top of the page; every other page's
+      // name is in the bar.
+      const title = area.id === "repairs" ? "Repair" : viewCopy[area.id].title;
+      const heading = await screen.findByRole("heading", { level: 1, name: title });
+      if (area.id !== "repairs") expect(heading.closest(".topbar")).not.toBeNull();
+      expect(container.querySelector(".page-header, .feature-strip, [aria-label='Features']")).toBeNull();
+      const described = screen.queryByText(viewCopy[area.id].description);
+      if (described) expect(described.closest("[hidden]")).not.toBeNull();
+      // One name in the bar: the page left behind takes its name with it.
+      expect(screen.getAllByRole("heading", { level: 1 }).map((h) => h.textContent)).toEqual([title]);
+      expect(container.querySelector(".app-shell")?.getAttribute("data-shell")).toBe("console");
+    }
+    // A page not yet rebuilt says what it is for only when asked.
+    fireEvent.click(within(dock()).getByRole("button", { name: "Firewall" }));
+    const about = await screen.findByRole("button", { name: "About Firewall" });
+    expect(screen.getByText(viewCopy.firewall.description).closest("[hidden]")).not.toBeNull();
+    fireEvent.click(about);
+    expect(screen.getByText(viewCopy.firewall.description).closest("[hidden]")).toBeNull();
+  });
+
+  it("has retired the Classic overview: its link opens Home and leaves the address clean", async () => {
+    vi.stubGlobal("fetch", vi.fn(authenticatedFetch));
+    window.history.replaceState(null, "", "/?view=overview");
     render(<App />);
-    fireEvent.click(within(await screen.findByRole("navigation", { name: "Admin areas" })).getByRole("button", { name: "Overview (Classic)" }));
-    expect(await screen.findByRole("heading", { name: "Server overview" })).toBeTruthy();
-    expect(screen.getByText("Classic overview")).toBeTruthy();
-    expect(screen.getByRole("region", { name: "Features" }).textContent).toContain("Setup checklist");
-    expect(await screen.findByText("homebox")).toBeTruthy();
-    expect(window.location.search).toBe("?view=overview");
-    window.history.replaceState(null, "", "/");
+    expect(await screen.findByRole("heading", { level: 1, name: greeting })).toBeTruthy();
+    expect(window.location.search).toBe("");
+    expect(within(dock()).queryByRole("button", { name: /Classic|Overview/ })).toBeNull();
+    expect(navItems.some((item) => (item.id as string) === "overview")).toBe(false);
   });
 
   it("opens the page named in the URL and keeps the URL in step", async () => {
@@ -118,7 +156,7 @@ describe("BoxPilot console", () => {
     fireEvent.click(within(dock()).getByRole("button", { name: "Logs" }));
 
     expect(await screen.findByText(/BoxPilot listening/)).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Kernel" })).toBeTruthy();
+    expect(screen.getByRole("radio", { name: "Kernel" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Download support bundle" }));
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/v1/support-bundle"));
   });
@@ -142,7 +180,11 @@ describe("BoxPilot console", () => {
     window.history.replaceState(null, "", "/?view=catalog");
     render(<App />);
     expect(await screen.findByRole("heading", { name: "App catalog" })).toBeTruthy();
-    expect(screen.getByRole("region", { name: "Features" }).textContent).toContain(`apps in ${categories.size} categories`);
+    // The features the pages list are what the command bar finds (the strip that showed them is gone).
+    fireEvent.keyDown(window, { key: "k", ctrlKey: true });
+    const input = within(screen.getByRole("dialog", { name: "Search BoxPilot" })).getByRole("combobox");
+    fireEvent.change(input, { target: { value: "categories" } });
+    expect(screen.getAllByRole("option").some((option) => option.textContent?.includes(`apps in ${categories.size} categories`))).toBe(true);
     window.history.replaceState(null, "", "/");
   });
 

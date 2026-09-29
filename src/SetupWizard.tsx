@@ -154,7 +154,7 @@ export default function SetupWizard({ csrfToken, onDone }: { csrfToken: string; 
         <header className="panel-header">
           <div><strong>{profile.icon} {profile.name}</strong><span>{profile.description}</span></div>
           {phase === "choose" && <div className="recovery-actions"><button className="text-button" type="button" onClick={() => setSelected(null)}>Back</button><button className="primary-button" type="button" disabled={runnable.length === 0} onClick={() => void run(profile)}>{runnable.length === 0 ? "Nothing to do" : `Install everything (${runnable.length})`}</button></div>}
-          {phase === "finished" && <button className="primary-button" type="button" onClick={onDone}>Go to overview</button>}
+          {phase === "finished" && <button className="primary-button" type="button" onClick={onDone}>Go to Home</button>}
         </header>
         <ol className="setup-steps">
           {profile.steps.map((step) => {

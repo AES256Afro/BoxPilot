@@ -1,12 +1,12 @@
 import type { ViewName } from "./data";
 
 /*
- * What each page is called and what it does. The shell draws the Classic pages' headers from it,
- * and the command bar (M33.2) searches it, so typing "swap" finds System and "fail2ban" finds
- * Firewall.
+ * What each page is called and what it does. The shell names each page in its bar from it and keeps
+ * the description behind the page header's info toggle (M33.8), and the command bar (M33.2)
+ * searches both, so typing "swap" finds System and "fail2ban" finds Firewall.
  */
 
-export const viewCopy: Record<ViewName, { title: string; description: string; action?: string }> = {
+export const viewCopy: Record<ViewName, { title: string; description: string }> = {
   home: {
     title: "Home",
     description: "Your apps, and what needs you.",
@@ -18,10 +18,6 @@ export const viewCopy: Record<ViewName, { title: string; description: string; ac
   setup: {
     title: "Set up this server",
     description: "Pick what this server should be. BoxPilot checks what is already in place and installs the rest, in order, through the normal approved jobs.",
-  },
-  overview: {
-    title: "Server overview",
-    description: "What is running on this server and what needs attention.",
   },
   updates: {
     title: "Updates and packages",
@@ -82,7 +78,6 @@ export const viewCopy: Record<ViewName, { title: string; description: string; ac
   logs: {
     title: "Logs",
     description: "Read and download logs from any unit, container, or journal group.",
-    action: "Download support bundle",
   },
   settings: {
     title: "Settings",
@@ -95,7 +90,6 @@ export const viewFeatures: Record<ViewName, string[]> = {
   ops: ["Load, memory, disks and network", "What needs you, by risk tier", "Containers with their numbers", "Job queue", "Backup matrix"],
   automations: ["Ready-made flows", "Build your own", "Steps run as recorded jobs", "A failed step stops the run"],
   setup: ["Setup profiles", "Checks what is already in place", "Installs the rest in order", "Autoinstall files for a new server"],
-  overview: ["Updates and failed services", "Apps and VMs running", "Backup health", "Setup checklist", "Needs attention", "Installed apps"],
   updates: ["APT updates, all or selected", "Automatic security updates", "Restart hints", "Common tools with one click", "Snapshot before upgrading", "Install and remove packages"],
   catalog: [`${__BOXPILOT_CATALOG_SIZE__} apps${__BOXPILOT_CATALOG_CATEGORIES__ > 0 ? ` in ${__BOXPILOT_CATALOG_CATEGORIES__} categories` : ""}`, "Install, update, configure, uninstall", "Per-app backups and restores", "Logs and resource use", "HTTPS on your tailnet", "Image tags verified"],
   services: ["systemd units and timers", "Start, stop, restart", "Enable and disable", "Journal", "SSH, Tailscale, and BoxPilot protected"],

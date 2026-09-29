@@ -9,7 +9,9 @@ describe("the dock", () => {
     render(<ShellDock view="backups" onSelect={vi.fn()} />);
     const dock = screen.getByRole("navigation", { name: "Admin areas" });
     const labels = Array.from(dock.querySelectorAll(".ui-dock__label")).map((label) => label.textContent);
-    expect(labels).toEqual(expect.arrayContaining(["Updates", "Storage", "VMs", "Repair", "Apps", "Automate", "Metrics", "Classic", "Settings", "More"]));
+    expect(labels).toEqual(expect.arrayContaining(["Updates", "Storage", "VMs", "Repair", "Apps", "Automate", "Metrics", "Settings", "More"]));
+    // The Classic overview left the dock when Home and Ops came to show all it did (M33.8).
+    expect(labels).not.toContain("Classic");
     expect(within(dock).getByRole("button", { name: "Backups" }).getAttribute("aria-current")).toBe("page");
     // A phone keeps four areas and More; every area is still reachable through More.
     expect(dockAreas.filter((area) => area.priority === 1).map((area) => area.id)).toEqual(["updates", "storage", "backups", "repairs"]);
@@ -27,7 +29,7 @@ describe("the dock", () => {
     expect(screen.queryByRole("dialog", { name: "All areas" })).toBeNull();
   });
 
-  it("stands up as Ops' rail: the same areas under the BoxPilot mark, led by Ops as the current one", () => {
+  it("stands up as the console's rail: the same areas under the BoxPilot mark, led by Ops", () => {
     const onSelect = vi.fn();
     render(<ShellDock view="ops" onSelect={onSelect} variant="rail" />);
     const rail = screen.getByRole("navigation", { name: "Admin areas" });
@@ -40,6 +42,17 @@ describe("the dock", () => {
     for (const area of dockAreas) expect(rail.querySelector(`[data-area="${area.id}"]`)).not.toBeNull();
     fireEvent.click(within(rail).getByRole("button", { name: "Firewall" }));
     expect(onSelect).toHaveBeenCalledWith("firewall");
+    cleanup();
+
+    // On any other console page Ops still leads the rail, and the page itself is the current area.
+    render(<ShellDock view="services" onSelect={onSelect} variant="rail" />);
+    const again = screen.getByRole("navigation", { name: "Admin areas" });
+    const first = within(again).getAllByRole("button").filter((button) => button.classList.contains("ui-dock__item"))[0];
+    expect(within(first).getByText("Ops", { selector: ".ui-visually-hidden" })).toBeTruthy();
+    expect(first.hasAttribute("aria-current")).toBe(false);
+    expect(within(again).getByRole("button", { name: "Services" }).getAttribute("aria-current")).toBe("page");
+    fireEvent.click(first);
+    expect(onSelect).toHaveBeenLastCalledWith("ops");
   });
 
   it("closes the sheet on Escape without going anywhere", () => {
