@@ -87,9 +87,13 @@ const bound = await docker(["port", "bp-zulip"]);
 say(`docker port bp-zulip: ${String(bound.stdout).trim().replace(/\n/g, "; ")}`);
 if (!/^80\/tcp -> 127\.0\.0\.1:\d+$/m.test(String(bound.stdout)) || /0\.0\.0\.0|\[::\]/.test(String(bound.stdout))) fail("Zulip's web port is published somewhere other than 127.0.0.1");
 
-const health = await throughServe(port, "/health", `boxpilot-ci.example-tailnet.ts.net:${port}`);
-say(`/health through Serve's headers: ${health.status}`);
-if (health.status !== 200) fail(`Zulip's health endpoint answered ${health.status}: ${health.body.slice(0, 200)}`);
+// Zulip keeps /health to itself (its nginx answers it only from inside); its public settings
+// answer anyone, so they show a request through Serve reaches Zulip and is taken as HTTPS.
+const served = await throughServe(port, "/api/v1/server_settings", `boxpilot-ci.example-tailnet.ts.net:${port}`);
+let version = null;
+try { version = JSON.parse(served.body).zulip_version ?? null; } catch { version = null; }
+say(`/api/v1/server_settings through Serve's headers: ${served.status}${version ? `, Zulip ${version}` : ""}`);
+if (served.status !== 200 || !version) fail(`Zulip did not answer through Serve's headers (${served.status}): ${served.body.slice(0, 200)}`);
 
 const made = await operations["app.zulip.organization.link"].run({ id: "zulip" }, { apps, progress }).catch((error) => fail(`Create your organization failed: ${error.message}`));
 const link = new URL(made.link);
