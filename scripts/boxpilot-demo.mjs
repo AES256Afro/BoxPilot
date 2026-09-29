@@ -487,7 +487,9 @@ api.delete("/flows/:id/webhook", (_request, response) => response.status(204).en
 api.get("/jobs/:id", (request, response) => {
   // 404 like the product: falling back to the first job meant an unknown id quietly opened
   // somebody else's terminal, and the pruned-job message never showed anywhere.
-  const job = jobs.find((entry) => entry.id === request.params.id);
+  // The unwell world's own jobs too, so Activity and the approval dialog can open one (M36).
+  const pool = scenarioOf(request.get("referer")) === "trouble" ? [...troubleJobs, ...jobs] : jobs;
+  const job = pool.find((entry) => entry.id === request.params.id);
   return job ? json(response, { job }) : response.status(404).json({ error: "Job not found" });
 });
 api.get("/jobs/:id/output", (request, response) => json(response, { output: jobOutputs[request.params.id] ?? "" }));
