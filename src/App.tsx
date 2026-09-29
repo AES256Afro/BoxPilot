@@ -12,6 +12,7 @@ import { connectionLabel } from "./appLinks";
 import { FactsProvider } from "./home/facts";
 import { CommandBar } from "./shell/CommandBar";
 import { ShellDock, ViewSwitch } from "./shell/ShellNav";
+import { TopBarSlotProvider } from "./shell/TopBarSlot";
 
 // Every page is its own chunk, fetched the first time it is opened. All eighteen used to ride in
 // the one bundle: 688 KB of JavaScript to show the Overview, about sixty percent of it pages the
@@ -175,14 +176,20 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
   };
 
   const wide = !showGallery && ownHeader.has(view);
+  // Where Home and Ops draw the start of the top bar (src/shell/TopBarSlot.tsx).
+  const [topBarSlot, setTopBarSlot] = useState<HTMLDivElement | null>(null);
 
   return (
     <FactsProvider>
-      <div className="app-shell">
+      <TopBarSlotProvider value={topBarSlot}>
+      {/* data-view picks the shell's look (M33.7): Home's floats over its wallpaper, Ops' is the
+          compact dark bar beside a rail, every other page the Classic bar and the dock. */}
+      <div className="app-shell" data-view={showGallery ? "gallery" : view}>
         <a className="skip-link" href="#content">Skip to the page</a>
         <header className="topbar">
           <div className="topbar-left">
             <div className="brand" title={`BoxPilot ${__BOXPILOT_VERSION__}`}><span aria-hidden="true">B</span><div>BoxPilot<small>v{__BOXPILOT_VERSION__}</small></div></div>
+            <div className="topbar-slot" ref={setTopBarSlot} />
             <ViewSwitch view={showGallery ? null : view} onSelect={setView} />
           </div>
           <CommandBar csrfToken={csrfToken} onNavigate={setView} onStart={startOperation} />
@@ -194,12 +201,15 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
             {elevated
               ? <button className="text-button elevation-lock" type="button" title="High-risk approvals skip the password until this time. Click to lock now." aria-label={`Elevated until ${elevatedLabel}. Lock now`} onClick={() => void dropElevation(csrfToken).then(refreshAuth).catch(() => refreshAuth())}><span className="elevation-long">Elevated until </span><span className="elevation-short">Until </span>{elevatedLabel} · Lock</button>
               : <StatusPill tone="neutral">Tiered approvals</StatusPill>}
-            <span className="signed-in-user" title={authStatus.owner?.username}>{authStatus.owner?.username}</span>
+            <span className="signed-in-user" title={authStatus.owner?.username}>
+              {authStatus.owner?.username && <span className="signed-in-user__avatar" aria-hidden="true">{authStatus.owner.username.slice(0, 1).toUpperCase()}</span>}
+              <span className="signed-in-user__name">{authStatus.owner?.username}</span>
+            </span>
             <button className="text-button" type="button" onClick={() => void logoutOwner(csrfToken).then(onSignedOut).catch(onSignedOut)}>Sign out</button>
           </div>
         </header>
 
-        <ShellDock view={showGallery ? null : view} onSelect={setView} />
+        <ShellDock view={showGallery ? null : view} onSelect={setView} variant={!showGallery && view === "ops" ? "rail" : "dock"} />
 
         <main id="content" tabIndex={-1}>
           <div className={wide ? "content content--wide" : "content"}>
@@ -225,6 +235,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
         </main>
         {operationDialog}
       </div>
+      </TopBarSlotProvider>
     </FactsProvider>
   );
 }

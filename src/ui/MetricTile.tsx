@@ -17,20 +17,30 @@ export interface MetricTileProps {
    * button, so `children` are not drawn: a button cannot hold other buttons.
    */
   onSelect?: () => void;
+  /**
+   * A picture of the figure that says nothing the words do not, such as Ops' sparkline of the last
+   * few minutes (M33.7). Drawn inside a button too, and hidden from assistive technology.
+   */
+  graphic?: ReactNode;
   /** Actions for this figure, under it. */
   children?: ReactNode;
   className?: string;
 }
 
-/** A figure with its label: the Ops metric strip, the widgets on Home, the Updates page's counts. */
-export function MetricTile({ label, value, caption, status, bar, onSelect, children, className }: MetricTileProps) {
+/**
+ * A figure with its label: the Ops metric strip, the widgets on Home, the Updates page's counts.
+ * With a status, the label carries the status's own mark as well as the tile its colour, so a
+ * figure that needs a look never says so in colour alone; the page's styles decide where it shows.
+ */
+export function MetricTile({ label, value, caption, status, bar, onSelect, graphic, children, className }: MetricTileProps) {
   const max = bar?.max ?? 100;
   const share = bar ? Math.min(100, Math.max(0, (bar.value / (max || 1)) * 100)) : 0;
   const body = (
     <>
-      <span className="ui-metric__label">{label}</span>
+      <span className="ui-metric__label">{status && <span className="ui-mark ui-metric__mark" aria-hidden="true" />}{label}</span>
       <strong className="ui-metric__value">{value}</strong>
       {caption !== undefined && caption !== null && <span className="ui-metric__caption">{caption}</span>}
+      {graphic && <span className="ui-metric__graphic" aria-hidden="true">{graphic}</span>}
       {bar && (
         <span className="ui-metric__bar" role={onSelect ? undefined : "meter"} aria-hidden={onSelect ? true : undefined} aria-valuemin={onSelect ? undefined : 0} aria-valuemax={onSelect ? undefined : max} aria-valuenow={onSelect ? undefined : bar.value} aria-label={onSelect ? undefined : bar.label ?? (typeof label === "string" ? label : undefined)}>
           <i style={{ width: `${share}%` }} />

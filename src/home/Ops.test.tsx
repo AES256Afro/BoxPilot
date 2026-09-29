@@ -18,7 +18,8 @@ describe("Ops", () => {
   it("puts load, memory, disks and network in a strip, each figure opening its page", async () => {
     const onNavigate = renderOps();
     const strip = screen.getByRole("region", { name: "Load, memory, disks and network" });
-    expect(await within(strip).findByText("27.4%")).toBeTruthy();
+    // The figure in mono with its unit drawn smaller (M33.7): "27.4" and "%" are two pieces of one value.
+    await vi.waitFor(() => expect(within(strip).getByRole("button", { name: /^CPU/ }).querySelector(".ui-metric__value")?.textContent).toBe("27.4%"));
     fireEvent.click(within(strip).getByRole("button", { name: /^CPU/ }));
     expect(onNavigate).toHaveBeenLastCalledWith("performance");
     fireEvent.click(within(strip).getByRole("button", { name: /^System disk/ }));
@@ -29,6 +30,28 @@ describe("Ops", () => {
     fireEvent.click(network);
     expect(onNavigate).toHaveBeenLastCalledWith("network");
     expect(within(strip).getByRole("button", { name: /^Hottest sensor/ }).textContent).toContain("52°C");
+  });
+
+  it("draws the processor's last reads as a sparkline, and nothing from a single read", async () => {
+    renderOps();
+    const strip = screen.getByRole("region", { name: "Load, memory, disks and network" });
+    const cpu = await within(strip).findByRole("button", { name: /^CPU/ });
+    await vi.waitFor(() => expect(cpu.querySelector(".ui-metric__value")?.textContent).toBe("27.4%"));
+    expect(cpu.querySelector(".ui-spark")).toBeNull();
+    cleanup();
+
+    vi.stubGlobal("fetch", stubFetch(busier));
+    render(<FactsProvider><Ops csrfToken="csrf" role="owner" onNavigate={vi.fn()} pollMs={10} /></FactsProvider>);
+    const again = await within(screen.getByRole("region", { name: "Load, memory, disks and network" })).findByRole("button", { name: /^CPU/ });
+    await vi.waitFor(() => expect(again.querySelector(".ui-metric__graphic .ui-spark polyline")).not.toBeNull());
+    expect(again.querySelector(".ui-metric__graphic")?.getAttribute("aria-hidden")).toBe("true");
+  });
+
+  it("names itself and its server where the shell's bar starts, or in place without a shell", async () => {
+    renderOps();
+    const heading = screen.getByRole("heading", { level: 1, name: "Ops" });
+    await vi.waitFor(() => expect(heading.closest(".cc-crumb")?.querySelector(".cc-crumb__host")?.textContent).toBe("homebox"));
+    expect(heading.closest(".cc-crumb")?.querySelector(".cc-kv")?.textContent).toContain("kernel 6.8.0");
   });
 
   it("groups what can be run by its tier, and keeps the rest as alerts", async () => {
@@ -99,10 +122,12 @@ describe("Ops", () => {
   it("has every fact Home shows, one click from its page", async () => {
     vi.stubGlobal("fetch", stubFetch(busier));
     const { unmount } = render(<FactsProvider><Home csrfToken="csrf" role="owner" onNavigate={vi.fn()} /></FactsProvider>);
-    const needs = await screen.findByRole("region", { name: /What needs you/ });
-    // Six things need the owner on this server: two problems, three to look at, one suggestion.
+    await screen.findByRole("region", { name: /What needs you/ });
+    // Six things need the owner on this server: two problems and three to look at down the side,
+    // and one suggestion in the strip of what can wait.
     const homeFacts = await vi.waitFor(() => {
-      const titles = within(needs).getAllByRole("button").filter((button) => button.className.includes("need__title")).map((button) => button.textContent);
+      const titles = [/What needs you/, /Can wait/].flatMap((name) => within(screen.getByRole("region", { name })).getAllByRole("button"))
+        .filter((button) => button.className.includes("need__title")).map((button) => button.textContent);
       expect(titles).toHaveLength(6);
       return titles;
     });

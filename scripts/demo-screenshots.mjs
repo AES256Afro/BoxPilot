@@ -54,6 +54,9 @@ const viewport = { width: viewportWidth, height: viewportHeight, deviceScaleFact
 const scenario = (process.env.SCENARIO ?? "").trim();
 if (scenario && !["default", "fresh", "trouble"].includes(scenario)) throw new Error(`SCENARIO takes default, fresh or trouble, not ${scenario}`);
 const settleMs = 2500;
+// Ops draws a sparkline from its own reads, one every five seconds from when it opens (M33.7);
+// three reads are the first picture with a line worth looking at.
+const settleFor = (query) => (/[?&]view=ops(&|$)/.test(query) ? 11_500 : settleMs);
 const tallest = 12_000;
 
 /** page file name → query string. The README's pages, in its order. */
@@ -259,7 +262,7 @@ async function main() {
         const loaded = devtools.once("Page.loadEventFired");
         await devtools.send("Page.navigate", { url: `${baseUrl}/${query}` });
         await loaded;
-        await sleep(settleMs);
+        await sleep(settleFor(query));
         for (const text of clicks) {
           if (!(await devtools.evaluate(clickScript(text)))) throw new Error(`nothing to click named "${text}"`);
           await sleep(900);

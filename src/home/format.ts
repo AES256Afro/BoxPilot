@@ -73,6 +73,20 @@ export function mountStatus(mount: MountFact): Status {
 /** "/" is the system disk; anything else is named by where it is mounted. */
 export const mountName = (target: string) => (target === "/" ? "System disk" : target);
 
+/**
+ * A processor's name as a person says it: "AMD Ryzen 7 7800X3D 8-Core Processor" is "AMD Ryzen 7
+ * 7800X3D", "Intel(R) Core(TM) i5-8500T CPU @ 2.10GHz" is "Intel Core i5-8500T". Empty stays empty.
+ */
+export function shortCpu(model: string): string {
+  return model
+    .replace(/\((R|TM|C)\)/gi, "")
+    .replace(/@\s*[\d.]+\s*GHz/i, "")
+    .replace(/\b\d+-Core\b/gi, "")
+    .replace(/\b(Processor|CPU|with Radeon Graphics)\b/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 /** Good morning, afternoon or evening, by the browser's own clock. */
 export function greeting(now: number): string {
   const hour = new Date(now).getHours();

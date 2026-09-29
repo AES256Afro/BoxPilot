@@ -29,16 +29,20 @@ export interface DockProps {
   onSelect: (id: string) => void;
   /** The navigation's name for assistive technology. */
   label?: string;
+  /** Drawn before the items, such as the rail's logo (M33.7). Decoration: give it aria-hidden. */
+  lead?: ReactNode;
   className?: string;
 }
 
 /**
  * The admin areas as a row of buttons, as on the Launcher's home screen, each with its name under
- * its icon so none has to be guessed. Each button is read by its full name and its count.
+ * its icon so none has to be guessed. Each button is read by its full name and its count. The
+ * page's styles may stand it on its side as a rail (Ops), where the name shows on hover and focus.
  */
-export function Dock({ items, onSelect, label = "Admin areas", className }: DockProps) {
+export function Dock({ items, onSelect, label = "Admin areas", lead, className }: DockProps) {
   return (
     <nav className={cx("ui-dock", className)} aria-label={label}>
+      {lead}
       <ul>
         {items.map((item) => {
           const counted = item.badge !== undefined && item.badge !== "";
@@ -46,8 +50,8 @@ export function Dock({ items, onSelect, label = "Admin areas", className }: Dock
           const priority = item.priority === undefined ? undefined : String(item.priority);
           return (
             <Fragment key={item.id}>
-              {item.separatorBefore && <li className="ui-dock__separator" data-priority={priority} aria-hidden="true" />}
-              <li data-priority={priority}>
+              {item.separatorBefore && <li className="ui-dock__separator" data-priority={priority} data-before={item.id} aria-hidden="true" />}
+              <li data-priority={priority} data-area={item.id}>
                 <button type="button" className="ui-dock__item" aria-current={item.current ? "page" : undefined} onClick={() => onSelect(item.id)}>
                   <span className="ui-dock__icon" aria-hidden="true">
                     {item.icon}

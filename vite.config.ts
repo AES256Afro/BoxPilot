@@ -1,4 +1,5 @@
 import { readFileSync, readdirSync } from "node:fs";
+import type { Plugin } from "vite";
 import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 
@@ -29,9 +30,26 @@ function countCategories() {
 const categoryCount = countCategories();
 const catalogSize = manifestCount >= 10 ? `${Math.floor(manifestCount / 10) * 10}+` : "Many";
 
+// The typefaces in src/styles.css (M33.7) are under the SIL Open Font License, which asks that the
+// licence travel with the fonts. The woff2 files carry their copyright in their own metadata; the
+// build also writes each package's LICENSE next to them, from the installed package so it cannot
+// fall out of step with the files it covers.
+const fontPackages = ["@fontsource-variable/figtree", "@fontsource/ibm-plex-sans-condensed", "@fontsource-variable/jetbrains-mono"];
+function fontLicences(): Plugin {
+  return {
+    name: "boxpilot-font-licences",
+    apply: "build",
+    generateBundle() {
+      for (const name of fontPackages) {
+        this.emitFile({ type: "asset", fileName: `licenses/${name.split("/")[1]}-OFL.txt`, source: readFileSync(new URL(`./node_modules/${name}/LICENSE`, import.meta.url)) });
+      }
+    },
+  };
+}
+
 export default defineConfig({
   define: { __BOXPILOT_VERSION__: JSON.stringify(version), __BOXPILOT_CATALOG_SIZE__: JSON.stringify(catalogSize), __BOXPILOT_CATALOG_CATEGORIES__: JSON.stringify(categoryCount) },
-  plugins: [react()],
+  plugins: [react(), fontLicences()],
   server: {
     host: "127.0.0.1",
     port: 5173,
