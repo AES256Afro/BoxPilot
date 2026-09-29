@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import AuthScreen from "./AuthScreen";
+import AuthScreen, { signedOutWords } from "./AuthScreen";
 
 afterEach(() => {
   cleanup();
@@ -53,5 +53,18 @@ describe("owner authentication screen", () => {
     expect((screen.getByRole("button", { name: "Sign in with GitHub" }) as HTMLButtonElement).disabled).toBe(false);
     await act(async () => { polls[0](json({ status: "pending" })); await vi.advanceTimersByTimeAsync(20_000); });
     expect(polls).toHaveLength(1);
+  });
+});
+
+describe("signing in again after a session ended (M36)", () => {
+  it("says the session ended, why, and which page signing in goes back to", () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ tailscale: { available: false, login: null, displayName: null, node: null, linked: false }, github: { configured: false } }), { status: 200, headers: { "Content-Type": "application/json" } })));
+    render(<AuthScreen bootstrapRequired={false} onAuthenticated={vi.fn()} notice={{ reason: "expired", page: "System" }} />);
+    expect(screen.getByRole("heading", { name: "Your session ended" })).toBeTruthy();
+    expect(screen.getByRole("status").textContent).toBe("Your session ended: a sign-in lasts twelve hours, and restarts and updates do not end it. Sign in to go back to System.");
+  });
+
+  it("tells a session ended elsewhere from one that ran out", () => {
+    expect(signedOutWords({ reason: "ended", page: null })).toMatch(/^You were signed out from somewhere else: .* Sign in to carry on.$/);
   });
 });

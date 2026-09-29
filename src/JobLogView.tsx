@@ -103,7 +103,9 @@ export function JobLogView({ job: given, jobId, title, onMoreTime }: { job?: Job
       <JobWarnings result={job.result} />
       {outputError && <div role="alert"><p>{outputError}</p>{retryButton}</div>}
       {readingOutput && <p className="muted">Reading saved output...</p>}
-      {(output || !finished) && (
+      {/* A staged job has run nothing yet (M36): an empty "Live output" read as if it were stuck. */}
+      {job.state === "awaiting_approval" && !output && <p className="muted">Nothing has run yet: it waits for someone to approve it.</p>}
+      {(output || (!finished && job.state !== "awaiting_approval")) && (
         <div className="job-terminal">
           <div className="job-terminal-bar"><span>{finished ? "Output" : "Live output"}</span></div>
           <pre ref={outputRef} aria-label={`Output for ${title ?? job.title}`}>{output || "Waiting for output..."}</pre>

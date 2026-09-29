@@ -2,9 +2,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { JobLogView } from "./JobLogView";
 import { ApproveDialog } from "./ApproveDialog";
 import { activeJobStates, jobStatus } from "./jobStatus";
+import { openActivityEvent } from "./activityEvents";
+import { JobActions } from "./JobActions";
 import { useDialogFocus } from "./useDialogFocus";
 import { createPortal } from "react-dom";
-import { followJobOutput, followJobs, terminalJobStates, type Job, type JobFeedStatus } from "./operations";
+import { followJobs, type Job, type JobFeedStatus } from "./operations";
 
 /** A retry with more time is staged from the job itself; the dialog's own parameters go unused. */
 const noParameters: Record<string, unknown> = {};
@@ -33,11 +35,13 @@ function upsert(jobs: Job[], job: Job): Job[] {
 }
 
 
-export function ActivityDrawer({ csrfToken = "" }: { csrfToken?: string }) {
+export function ActivityDrawer({ csrfToken = "", role = "owner" }: { csrfToken?: string; role?: string }) {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [open, setOpen] = useState(false);
   // The timed-out job being staged again with more time, through the ordinary approval dialog.
   const [moreTime, setMoreTime] = useState<Job | null>(null);
+  // A staged job being approved from here (M36), through the same dialog at its own tier.
+  const [reviewing, setReviewing] = useState<Job | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [feedStatus, setFeedStatus] = useState<JobFeedStatus>("loading");
   const [retry, setRetry] = useState(0);
@@ -58,9 +62,20 @@ export function ActivityDrawer({ csrfToken = "" }: { csrfToken?: string }) {
 
   const runningCount = jobs.filter((job) => activeJobStates.has(job.state)).length;
   const expanded = expandedId ? jobs.find((job) => job.id === expandedId) ?? null : null;
+  // Home, Ops and the notification centre open Activity at one job (M36).
+  useEffect(() => {
+    const onOpen = (event: Event) => {
+      const jobId = (event as CustomEvent<{ jobId: string | null }>).detail?.jobId ?? null;
+      setOpen(true);
+      if (jobId) setExpandedId(jobId);
+    };
+    window.addEventListener(openActivityEvent, onOpen);
+    return () => window.removeEventListener(openActivityEvent, onOpen);
+  }, []);
   const toggle = useCallback((jobId: string) => setExpandedId((current) => (current === jobId ? null : jobId)), []);
   // The drawer closes first: two modals would each hold keyboard focus against the other.
   const tryWithMoreTime = useCallback((job: Job) => { setOpen(false); setMoreTime(job); }, []);
+  const review = useCallback((job: Job) => { setOpen(false); setReviewing(job); }, []);
 
   return (
     <>
@@ -88,6 +103,8 @@ export function ActivityDrawer({ csrfToken = "" }: { csrfToken?: string }) {
               {feedStatus === "loading" && <p className="activity-empty">Reading job history...</p>}
               {feedStatus === "unavailable" && <div role="alert"><p>Activity could not be refreshed. {jobs.length > 0 ? "The entries below may be out of date." : "Job history is unavailable."}</p><button className="secondary-button" type="button" onClick={() => setRetry((value) => value + 1)}>Try refreshing Activity</button></div>}
               {feedStatus === "polling" && <p className="muted" role="status">Activity refreshes every few seconds while this tab is visible.</p>}
+              {/* Asked for from elsewhere, and older than the fifty listed here. */}
+              {expandedId && !expanded && feedStatus !== "loading" && <div className="activity-item"><JobLogView jobId={expandedId} /></div>}
               {jobs.length === 0 && (feedStatus === "live" || feedStatus === "polling") && <p className="activity-empty">No jobs are visible to this account in the recent history. Approved operations appear here.</p>}
               {jobs.map((job) => (
                 <div key={job.id} className="activity-item">
@@ -98,12 +115,17 @@ export function ActivityDrawer({ csrfToken = "" }: { csrfToken?: string }) {
                       <span className="activity-time">{timeLabel(job.createdAt)}</span>
                     </span>
                   </button>
-                  {expanded?.id === job.id && <JobLogView job={expanded} onMoreTime={csrfToken ? tryWithMoreTime : undefined} />}
+                  {expanded?.id === job.id && <><JobActions job={expanded} role={role} csrfToken={csrfToken} onReview={review} /><JobLogView job={expanded} onMoreTime={csrfToken ? tryWithMoreTime : undefined} /></>}
                 </div>
               ))}
             </div>
           </aside>
         </div>,
+        document.body,
+      )}
+      {reviewing && createPortal(
+        <ApproveDialog operationId={reviewing.type.slice(3)} title={reviewing.title} parameters={noParameters} existingJobId={reviewing.id} csrfToken={csrfToken}
+          preview={reviewing.recovery?.reason ? <span>{reviewing.recovery.reason}</span> : undefined} onClose={() => setReviewing(null)} />,
         document.body,
       )}
       {moreTime && createPortal(

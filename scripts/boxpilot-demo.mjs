@@ -26,6 +26,7 @@ import { setupProfiles } from "../server/setup-profiles.mjs";
 import { productVersion } from "../server/version.mjs";
 import { securityHeaders } from "../server/security-headers.mjs";
 import { databaseCopyReport, databaseCopyRule, describeDatabaseCopy, humanBytes } from "../server/housekeeping.mjs";
+import { keepsBackupData } from "../server/catalog/schema.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const dist = path.join(root, "dist");
@@ -98,7 +99,9 @@ const inventory = () => ({
       { target: "/mnt/media", source: "/dev/sda1", filesystem: "ext4", totalBytes: 4000 * GiB, usedBytes: 2710 * GiB, availableBytes: 1290 * GiB, usedPercent: 68, capacityState: "healthy", readOnly: false, optionNames: ["nofail", "relatime", "rw"], errorEvidence: { supported: true, state: "healthy", errorsCount: 0, source: "ext4-sysfs-errors-count", reason: "ok" } },
     ], summary: { healthy: 2, warning: 0, critical: 0, unavailable: 0 }, errors: { healthy: 2, critical: 0, unavailable: 0, unsupported: 0 } },
     blockDevices: { available: true, devices: [{ name: "/dev/nvme0n1", parent: null, type: "disk", filesystem: null, sizeBytes: 1024209543168, mountTargets: [], rotational: false, readOnly: false, transport: "nvme", model: "Example NVMe SSD 1TB" }, { name: "/dev/sda", parent: null, type: "disk", filesystem: null, sizeBytes: 4000 * GiB, mountTargets: [], rotational: true, readOnly: false, transport: "usb", model: "Example USB HDD 4TB" }] },
-    smart: { available: true, status: "healthy", reason: "fixed-root-scan", generatedAt: ago(2), stale: false, disks: [{ device: "/dev/nvme0n1", health: "healthy", passed: true, temperatureCelsius: 41, powerOnHours: 6120, percentageUsed: 3, mediaErrors: 0, unsafeShutdowns: 2 }, { device: "/dev/sda", health: "healthy", passed: true, temperatureCelsius: 36, powerOnHours: 14800, percentageUsed: null, mediaErrors: 0, unsafeShutdowns: 0, reason: "ok", transport: "usb", deviceType: "sat" }] },
+    smart: { available: true, status: "healthy", reason: "fixed-root-scan", generatedAt: ago(2), stale: false, disks: [{ device: "/dev/nvme0n1", health: "healthy", passed: true, temperatureCelsius: 41, powerOnHours: 6120, percentageUsed: 3, mediaErrors: 0, unsafeShutdowns: 2 }, { device: "/dev/sda", health: "healthy", passed: true, temperatureCelsius: 36, powerOnHours: 14800, percentageUsed: null, mediaErrors: 0, unsafeShutdowns: 0, reason: "ok", transport: "usb", deviceType: "sat", readAt: ago(2) },
+      // A data drive that spins down: the scan leaves it asleep and keeps what it last said (M36).
+      { device: "/dev/sdb", health: "unavailable", passed: null, temperatureCelsius: null, powerOnHours: null, percentageUsed: null, mediaErrors: null, unsafeShutdowns: null, reason: "asleep", transport: "sata", deviceType: "auto", lastHealth: "healthy", lastReadAt: ago(26) }] },
   },
   maintenance: { system: { available: true, state: "running", failedServiceCount: 0, failedServiceCountTruncated: false }, reboot: { available: true, required: false }, packageManager: { available: true, state: "ready", pendingUpdateFragments: 0, countTruncated: false }, aptMetadata: { available: true, state: "current", updatedAt: ago(5), ageHours: 5 }, automaticSecurityUpdates: { available: true, state: "enabled-active", enabled: true, active: true } },
   power: { ups: { installed: true, configured: true, available: true, state: "online", reason: "ok", deviceCount: 1, statusTokens: ["OL"], batteryChargePercent: 100, estimatedRuntimeSeconds: 2460, loadPercent: 18, source: "nut-localhost-fixed", boundary: { mutationPerformed: false, powerCommandAvailable: false, shutdownPolicyChanged: false, localhostOnly: true, remoteNetworkProbePerformed: false, browserTargetAccepted: false, rawOutputIncluded: false, deviceNameIncluded: false, serialIncluded: false } } },
@@ -411,6 +414,7 @@ const freshRest = {
   "/settings/backup-destination": () => ({ destination: null, lastSync: null }),
   "/settings/cloud-destination": () => ({ destination: null, lastSync: null }),
   "/settings/notifications": (body) => ({ ...body, configured: false, kind: null, topic: null, hasToken: false }),
+  "/notifications": () => ({ entries: [], seenAt: null, unseen: 0, targetConfigured: false }),
   "/controller-backup-protection": (body) => ({ destination: { ...body.destination, ready: false, encrypted: false, blockers: ["Encrypted copies are not set up yet"] }, protections: [] }),
   "/controller-backup-retention": (body) => ({ ...body, candidates: [] }),
   "/storage/samba": (body) => ({ ...body, installed: false, running: false, configured: false, config: { ...body.config, managed: false, shares: [] }, users: [] }),
@@ -483,7 +487,9 @@ api.delete("/flows/:id/webhook", (_request, response) => response.status(204).en
 api.get("/jobs/:id", (request, response) => {
   // 404 like the product: falling back to the first job meant an unknown id quietly opened
   // somebody else's terminal, and the pruned-job message never showed anywhere.
-  const job = jobs.find((entry) => entry.id === request.params.id);
+  // The unwell world's own jobs too, so Activity and the approval dialog can open one (M36).
+  const pool = scenarioOf(request.get("referer")) === "trouble" ? [...troubleJobs, ...jobs] : jobs;
+  const job = pool.find((entry) => entry.id === request.params.id);
   return job ? json(response, { job }) : response.status(404).json({ error: "Job not found" });
 });
 api.get("/jobs/:id/output", (request, response) => json(response, { output: jobOutputs[request.params.id] ?? "" }));
@@ -500,6 +506,14 @@ api.get("/settings/watch", (_request, response) => json(response, { targetConfig
   ["docker.unhealthy", "A container is unhealthy"], ["docker.restarting", "A container keeps restarting (crash-looping)"], ["schedule.overdue", "A scheduled task (such as a backup) has stopped running"],
   ["schedule.failed", "A scheduled task failed or did not run"], ["flow.failed", "An automation stopped or did not run"], ["record.failed", "A job ran but its result was not saved"],
 ].map(([key, label]) => ({ key, label, active: false, details: [] })), notices: [], unannouncedCount: 0 }));
+// The notification centre (M36): what the server said lately and whether the phone got it.
+api.get("/notifications", (_request, response) => json(response, { seenAt: ago(30), unseen: 2, targetConfigured: true, entries: [
+  { id: "n1", kind: "notice", key: "release.available", family: "release.available", title: `BoxPilot v${productVersion} is out`, message: "Update from the System page: it copies the database first, and puts the old version back by itself if the new one does not start.", at: ago(20), delivered: true, reason: null, deliveredAt: ago(20), resolvedAt: null, live: false },
+  { id: "n2", kind: "alert", key: "storage.mount.full:/mnt/media", family: "storage.mount.full", title: "/mnt/media is 91% full", message: "The filesystem mounted at /mnt/media is nearly full.", at: ago(26), delivered: true, reason: null, deliveredAt: ago(26), resolvedAt: ago(22), live: false },
+  { id: "n3", kind: "job", key: "job.failed:d3", family: "job.failed", title: "Mirror local backups to the cloud destination failed", message: "rclone: the bucket answered 503; the next scheduled run tries again.", at: ago(50), delivered: true, reason: null, deliveredAt: ago(50), resolvedAt: null, live: false },
+  { id: "n4", kind: "notice", key: "drive.reconnected:media", family: "drive.reconnected", title: "The media drive was reconnected automatically", message: "It dropped off USB at 03:12 and was checked and mounted again at 03:14.", at: ago(96), delivered: true, reason: null, deliveredAt: ago(96), resolvedAt: null, live: false },
+] }));
+api.post("/notifications/seen", (_request, response) => json(response, { seenAt: now().toISOString() }));
 api.get("/settings/weekly-report", (_request, response) => json(response, { enabled: true, cadence: "Sundays at 09:00", nextDueAt: new Date(Date.now() + 4 * 24 * 3600_000).toISOString(), lastSentAt: ago(72), lastResult: "sent", targetConfigured: true }));
 api.get("/settings/weekly-report/preview", (_request, response) => json(response, { title: "Weekly report, nothing failed", message: "Sep 20 to Sep 27: 41 jobs ran, none failed.\nBackups: 7 app backups this week; database backed up today." }));
 api.get("/settings/approval-mode", (_request, response) => json(response, { mode: "tiered", modes: ["tiered", "always-ask"] }));
@@ -701,7 +715,8 @@ api.get("/catalog", async (request, response) => {
     applications: manifests.map((manifest) => {
       const port = present[manifest.id];
       const live = { id: manifest.id, installed: Boolean(port), dataPresent: Boolean(port), state: port ? { installedAt: ago(19 * 24), updatedAt: ago(50), manifestSha256: manifest.sha256, image: { reference: manifest.image.reference, id: "sha256:demo" }, values: { ports: {}, env: {}, volumes: {}, setup: [] }, pinnedRollback: false, uninstalledAt: null } : null, container: port ? { exists: true, running: true, status: manifest.id === "open-webui" ? "paused" : "running", health: manifest.health.kind === "healthcheck" ? "healthy" : "none", restarts: 0, image: "sha256:demo" } : { exists: false, running: false, status: "absent", health: "none", restarts: 0, image: null }, sidecars: port ? (manifest.sidecars ?? []).map((entry) => ({ id: entry.id, running: true, status: "running", restarts: 0 })) : [], urls: port ? manifest.ports.filter((entry) => entry.protocol === "tcp").map((entry) => ({ id: entry.id, label: entry.label, host: entry.host, exposure: entry.exposure })) : [], updateAvailable: manifest.id === "jellyfin", installedImage: port ? manifest.image.reference : null, updateHistory: port && manifest.id === "pi-hole" ? [{ at: ago(30), from: { "pi-hole": "pihole/pihole:2025.07.1" }, to: { "pi-hole": manifest.image.reference } }, { at: ago(30 * 24), from: { "pi-hole": "pihole/pihole:2025.05.0" }, to: { "pi-hole": "pihole/pihole:2025.07.1" } }] : [], backupVerification: port && manifest.id === "jellyfin" ? { verified: true, backup: "20260825T031400Z.tar.gz", reason: null, checkedAt: ago(11), history: [{ verified: true, backup: "20260825T031400Z.tar.gz", reason: null, checkedAt: ago(11) }, { verified: true, backup: "20260818T031400Z.tar.gz", reason: null, checkedAt: ago(11 + 168) }, { verified: false, backup: "20260811T031400Z.tar.gz", reason: "The archive could not be unpacked: unexpected end of file", checkedAt: ago(11 + 336) }] } : null };
-      return { manifest, live };
+      // As the product's summary says it (M36): whether an app backup archives anything of it.
+      return { manifest: { ...manifest, keepsBackup: keepsBackupData(manifest) }, live };
     }),
     problems, liveError: null, host: { lanAddress: host.lan, tailscaleDnsName: host.tailnet },
   });
@@ -846,6 +861,12 @@ const troubleRest = {
     : flow)) }),
   // The same failed flow, and the notification target that did not take it: the Overview's
   // "could not tell you" line has something to count in the unwell world.
+  // The same failed flow in the notification centre: said, and not delivered, and still going.
+  "/notifications": (body) => ({ ...body, unseen: 3, entries: [
+    { id: "t1", kind: "alert", key: "flow.failed:f1", family: "flow.failed", title: "Automation stopped: Update night", message: "Step 3 (Install package updates) failed: apt-get upgrade failed: E: Could not get lock /var/lib/dpkg/lock-frontend", at: ago(30), delivered: false, reason: "failed", deliveredAt: null, resolvedAt: null, live: true },
+    { id: "t2", kind: "job", key: "job.failed:t2", family: "job.failed", title: "Back up application data failed", message: "tar failed: No space left on device", at: ago(15.9), delivered: false, reason: "failed", deliveredAt: null, resolvedAt: null, live: false },
+    ...body.entries,
+  ].sort((left, right) => right.at.localeCompare(left.at)) }),
   "/settings/watch": (body) => {
     const failed = { title: "Automation stopped: Update night", since: ago(30), announced: false };
     const conditions = body.conditions.map((condition) => (condition.key === "flow.failed" ? { ...condition, active: true, details: [failed] } : condition));
