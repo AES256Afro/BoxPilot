@@ -12,6 +12,7 @@ import { useFacts, valuesOf, type AppFact } from "./facts";
 import { greeting, loadStatus, mountName, mountStatus, relativeTime, shortCpu, size, uptime } from "./format";
 import { smartSummary, upsSummary } from "./hostFacts";
 import { NeedRow } from "./NeedRow";
+import { AgentsGlance } from "../pages/agents/AgentsGlance";
 import { useNeedActions } from "./useNeedActions";
 import { appHealth, buildNeeds, needsLabel, verdictFor, verdictSources, type Need } from "./needs";
 
@@ -188,6 +189,7 @@ export default function Home({ csrfToken, role, onNavigate, now = Date.now }: Ho
             </div>
           </Section>
         </div>
+        <AgentsGlance variant="home" role={role} onOpen={() => onNavigate("agents")} now={now} />
       </div>
 
       <div className="lx-main">

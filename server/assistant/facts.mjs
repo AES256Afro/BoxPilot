@@ -40,7 +40,7 @@ export async function maskedParameters(job, { registry, secretEnvNamesFor = null
   return maskSecrets(parameters, await secretPaths(operation, parameters, { secretEnvNamesFor }));
 }
 
-async function jobSources(job, { registry, secretEnvNamesFor, state, logLines, sourceChars, focus }) {
+export async function jobSources(job, { registry, secretEnvNamesFor, state, logLines, sourceChars, focus }) {
   const operationId = operationOf(job);
   const parameters = await maskedParameters(job, { registry, secretEnvNamesFor });
   const lines = [
@@ -56,7 +56,7 @@ async function jobSources(job, { registry, secretEnvNamesFor, state, logLines, s
   return sources;
 }
 
-function alertSources({ caller, state, focusKey, limit }) {
+export function alertSources({ caller, state, focusKey, limit }) {
   const request = asRequest(caller);
   const ledger = state.getSetting?.("healthAlertsState", {}) ?? {};
   const scheduleOwner = (id) => state.getSchedule?.(id)?.createdBy ?? null;
@@ -83,7 +83,7 @@ function alertSources({ caller, state, focusKey, limit }) {
   return sources.slice(0, limit);
 }
 
-function appSummary(applications, { sourceChars }) {
+export function appSummary(applications, { sourceChars }) {
   const installed = applications.filter((entry) => entry?.installed);
   if (!installed.length) return { key: "fact:apps", kind: "fact", title: "Installed apps", ref: { fact: "apps" }, text: "No catalog apps are installed." };
   const describe = (entry) => {
@@ -115,7 +115,7 @@ function appDetail(entry, manifest) {
   ].filter(Boolean).join("\n");
 }
 
-function storageSummary(snapshot, { sourceChars }) {
+export function storageSummary(snapshot, { sourceChars }) {
   if (!snapshot?.storage) return null;
   const { storage } = snapshot;
   const lines = [];
@@ -134,7 +134,7 @@ function storageSummary(snapshot, { sourceChars }) {
   return { key: "fact:storage", kind: "fact", title: "Storage and drive health", ref: { fact: "storage" }, text: clip(lines.join("\n"), sourceChars) };
 }
 
-function backupSummary(state, { sourceChars }) {
+export function backupSummary(state, { sourceChars }) {
   const lines = [];
   const backups = state.listBackups?.(5) ?? [];
   if (backups.length) {

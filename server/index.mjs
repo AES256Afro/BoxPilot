@@ -33,8 +33,13 @@ import { createChecklistRouter } from "./routes/checklist.mjs";
 import { createPeopleRouter } from "./routes/people.mjs";
 import { createRunbookRouter } from "./routes/runbook.mjs";
 import { createAssistantRouter } from "./routes/assistant.mjs";
+import { createAgentsRouter } from "./routes/agents.mjs";
+import { createAgentRunnerRouter } from "./routes/agent-runner.mjs";
 import { apiRolePolicy } from "./routes/access.mjs";
 import { createAssistantService } from "./assistant/index.mjs";
+import { createAgentStore } from "./agents/store.mjs";
+import { createAgentService } from "./agents/service.mjs";
+import { createRateLimit } from "./agents/budget.mjs";
 import { createHelperClient } from "./helper-client.mjs";
 import { createHelperLibvirtService } from "./helper-libvirt.mjs";
 import { createInventoryService } from "./inventory.mjs";
@@ -210,6 +215,11 @@ const jobs = createJobService(state, helper, {
     "vpn.profile.clear": (job) => state.setSetting("vpnProfile", null, { updatedBy: job.createdBy }),
     // Repair's "Send alerts to the ntfy on this server" (M35): the helper proved the topic answers.
     "notifications.ntfy.connect": (job, result) => { notifications.adoptLocalNtfy(result, { updatedBy: job.createdBy }); },
+    // M37: the helper checked the model is downloaded whole; the runner uses it from its next run.
+    "agents.model.switch": (job, result) => agents.useModel(result, { actorId: job.createdBy }),
+    "agents.runtime.install": (job, result) => agents.noteRuntimeInstalled(result, { actorId: job.createdBy }),
+    // M37: a connector's documents, read in the root task with its credential, into the library.
+    "agents.connector.sync": (job, result) => agents.ingestConnector(result, { actorId: job.createdBy }),
   },
   // Prepare hooks pin server-derived expectations into the staged parameters.
   operationPrepareHooks: {
@@ -240,6 +250,8 @@ const jobs = createJobService(state, helper, {
       if (notifications.describe().configured) throw new Error("A notification target is already set; change it under Settings, Notifications");
       return parameters ?? {};
     },
+    // M37: the model agents use now is pinned into the job, so the root task can refuse to remove it.
+    "agents.model.remove": (parameters) => ({ repo: parameters?.repo, file: parameters?.file, projector: parameters?.projector ?? null, current: agents.currentModel() }),
   },
 });
 state.deleteExpiredSessions();
@@ -315,6 +327,16 @@ createSmartSampler({ inventory, store: state }).start();
 // status, not here: most servers never run a model, and building it at every start cost ~50 ms of
 // CPU and kept ~3 MiB of heap (7 MiB before its postings were packed) for nothing.
 const assistant = createAssistantService({ state, registry, catalog: catalogService, helper, inventory, secretEnvNamesFor });
+// Agents (M37): their specs, runs and notes live here; the model runs only in the capped
+// boxpilot-agents.service, which asks this process for work and for read-only tools. Off until the
+// owner turns Agents on; with none made, a minute's timer that finds nothing to do.
+const agentStore = createAgentStore({ databasePath: state.databasePath });
+const agents = createAgentService({
+  state, store: agentStore, registry, helper, inventory, knowledge: assistant.index, secretEnvNamesFor, healthAlerts, productVersion,
+  // The daily look for a newer small Qwen reads Hugging Face's public model list; it never switches anything.
+  fetchJson: (url) => fetch(url, { headers: { Accept: "application/json", "User-Agent": `BoxPilot/${productVersion}` }, signal: AbortSignal.timeout(15_000), redirect: "error" }).then((response) => (response.ok ? response.json() : null)),
+});
+agents.start({ subscribeJobs: (listener) => state.subscribeJobs(listener), afterRound: (listener) => healthAlerts.afterRound(listener) });
 
 app.disable("x-powered-by");
 app.use(jsonGzip());
@@ -368,6 +390,18 @@ app.post("/api/v1/hooks/flows/:id/:token", (request, response) => {
   if (outcome === "rate-limited") return response.status(429).json({ error: "This flow's webhook is being fired too often; wait a minute" });
   return response.status(404).json({ error: "Not found" });
 });
+// Start an agent by webhook (M37), the same door as a flow's: the token is the auth, only its digest
+// is kept, a wrong one looks like a missing agent, and nothing from the request reaches the run -
+// the caller chooses only when the agent does its job, never what it does.
+app.post("/api/v1/hooks/agents/:id/:token", (request, response) => {
+  const outcome = agents.fireAgentWebhook(request.params.id, request.params.token, { source: request.get("user-agent") ?? null });
+  if (outcome === "accepted") return response.status(202).json({ accepted: true });
+  if (outcome === "rate-limited") return response.status(429).json({ error: "This agent's webhook is being fired too often; wait a minute" });
+  return response.status(404).json({ error: "Not found" });
+});
+// The agents runner's own door (M37), also before the session wall: one scoped key, loopback only,
+// and its routes can only take work, report it and ask for read-only tools (routes/access.mjs).
+app.use("/api/v1", createAgentRunnerRouter({ agents, limit: createRateLimit({ capacity: 100, refillPerSecond: 40 }) }));
 
 app.use("/api/v1", createIdentityRouter({ store: state, auth, identity }));
 app.use("/api/v1", createPasskeyRouter({ store: state, auth, passkeys, identity }));
@@ -412,6 +446,7 @@ app.use("/api/v1", createOidcAdminRouter({ oidc, auth }));
 const runbook = createRunbookService({ store: state, helper, catalogService, inventory, network, notifications, autoReconnect, identity, secretEnvNamesFor, collect: storageRead, webHost: host, webPort: port, tlsDir });
 app.use("/api/v1", createRunbookRouter({ runbook, auth }));
 app.use("/api/v1", createAssistantRouter({ assistant, state, auth }));
+app.use("/api/v1", createAgentsRouter({ agents, state, auth }));
 
 // OIDC provider endpoints (M19.3) live at the site root, not under /api/v1: discovery, JWKS, token
 // and userinfo are public by design, and /oidc/authorize reads the owner's session itself.

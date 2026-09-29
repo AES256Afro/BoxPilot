@@ -34,7 +34,7 @@ export function ViewSwitch({ view, onSelect }: { view: ViewName | null; onSelect
 export const dockAreas: Array<{ id: ViewName; short?: string; priority: 1 | 2 | 3; separatorBefore?: boolean }> = [
   { id: "updates", short: "Updates", priority: 1 }, { id: "storage", priority: 1 }, { id: "firewall", priority: 2 }, { id: "network", priority: 2 },
   { id: "backups", priority: 1 }, { id: "virtualization", short: "VMs", priority: 2 }, { id: "repairs", short: "Repair", priority: 1 }, { id: "logs", priority: 2 },
-  { id: "catalog", short: "Apps", priority: 3, separatorBefore: true }, { id: "automations", short: "Automate", priority: 3 }, { id: "services", priority: 3 }, { id: "system", priority: 3 },
+  { id: "catalog", short: "Apps", priority: 3, separatorBefore: true }, { id: "automations", short: "Automate", priority: 3 }, { id: "agents", priority: 3 }, { id: "services", priority: 3 }, { id: "system", priority: 3 },
   { id: "performance", short: "Metrics", priority: 3 }, { id: "users", short: "Users", priority: 3 }, { id: "github", priority: 3 },
   { id: "settings", priority: 3, separatorBefore: true },
 ];
