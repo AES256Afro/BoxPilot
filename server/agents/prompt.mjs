@@ -90,6 +90,15 @@ export function checkCitations(answer, given) {
 }
 
 /**
+ * What the runner adds to the end of the last tool round when the run has no tool calls left: the
+ * end, so everything the model already read stays the same, and outside the tool's <tool_output>
+ * box, so it is BoxPilot's words and not the tool's.
+ */
+export function answerNowNote(structured = false) {
+  return `\n\nBoxPilot: this run has no tool calls left. Answer now with what you have${structured ? ", as the JSON fields" : ""}. Do not call more tools.`;
+}
+
+/**
  * The answer when the model could not write one: what the tools said, each with its id, so a
  * person still gets the facts. `reason` says why there is no prose.
  */

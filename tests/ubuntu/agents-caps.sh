@@ -1,14 +1,17 @@
 #!/bin/bash
 # The agents runner's hard caps on real systemd (M37): deploy/boxpilot-agents.service as shipped,
-# the real runner (server/agents/runner-main.mjs), and the fake model made to burn three threads - three
-# times what the unit allows. The owner's requirement is that agents never make the server run hot,
-# so this measures the unit's own cgroup, from the kernel's counters:
+# the real runner (server/agents/runner-main.mjs), and the fake model made to burn three threads. The
+# owner's requirement is that agents never make the server run hot, so this measures the unit's own
+# cgroup, from the kernel's counters:
 #
-#   1. The unit carries the caps (CPUQuota=100%, CPUWeight=idle, Nice=19, IOSchedulingClass=idle,
-#      MemoryMax=8G, loopback only), its key comes from LoadCredential, and it runs as its own user.
-#   2. Under the busy model the whole service - runner and model server in one cgroup - stays at or
-#      under one processor (100%), and the kernel throttled it to keep it there. One processor and one
-#      thread are the Unsloth spike's numbers (docs/spikes/2026-09-unsloth-headless.md).
+#   1. The unit carries the caps as shipped (CPUQuota=400%: four processors, CPUWeight=idle, Nice=19,
+#      IOSchedulingClass=idle, MemoryMax=8G, loopback only), its key comes from LoadCredential, and it
+#      runs as its own user.
+#   2. The quota is enforced. GitHub's runners have four processors, so the shipped 400% can never be
+#      reached there; the test lowers the running unit's quota to 200% (systemctl set-property
+#      --runtime, a drop-in under /run that goes with the machine) and burns three threads under it:
+#      the whole service - runner and model server in one cgroup - stays at or under 200%, and the
+#      kernel throttled it to keep it there.
 #   3. The model server is the runner's child, niced and in the idle I/O class with it.
 #   4. When the run is over the runner stops the model server, and the service idles near 0%.
 #
@@ -26,6 +29,8 @@ UNIT=boxpilot-agents.service
 PORT=18787
 TOKEN="$(head -c 32 /dev/urandom | base64 | tr -d '/+=\n' | cut -c1-43)"
 CGROUP=/sys/fs/cgroup/system.slice/${UNIT}
+# The quota section 2 enforces: below this machine's four processors and the three the busy model wants.
+TEST_QUOTA=200
 FAILURES=0
 RESULTS=""
 API_PID=""
@@ -98,18 +103,23 @@ took_run() { [ "$(field claimed)" = "true" ]; }
 finished() { [ "$(field finished)" = "true" ]; }
 model_running() { [ "$(procs)" -ge 2 ]; }
 model_stopped() { [ "$(procs)" -eq 1 ]; }
-check "CPUQuota is 100% ($(show CPUQuotaPerSecUSec) a second)" [ "$(show CPUQuotaPerSecUSec)" = "1s" ]
+check "the shipped unit file says CPUQuota=400%" grep -qx 'CPUQuota=400%' "/etc/systemd/system/${UNIT}"
+check "CPUQuota is 400% ($(show CPUQuotaPerSecUSec) a second)" [ "$(show CPUQuotaPerSecUSec)" = "4s" ]
 check "CPUWeight is idle ($(show CPUWeight))" weight_idle
 check "Nice is 19" [ "$(show Nice)" = "19" ]
 check "IOSchedulingClass is idle ($(show IOSchedulingClass))" io_idle
 check "MemoryMax is 8G ($(show MemoryMax))" [ "$(show MemoryMax)" = "$((8 * 1024 * 1024 * 1024))" ]
-check "the cgroup's cpu.max is 100000 per 100000" [ "$(cut -d' ' -f1-2 "${CGROUP}/cpu.max")" = "100000 100000" ]
+check "the cgroup's cpu.max is 400000 per 100000" [ "$(cut -d' ' -f1-2 "${CGROUP}/cpu.max")" = "400000 100000" ]
 check "only loopback is allowed ($(show IPAddressDeny))" [ -n "$(show IPAddressDeny)" ]
 check "it runs as boxpilot-agents" [ "$(show User)" = "boxpilot-agents" ]
 check "the runner said hello with its key" wait_for 30 said_hello
 check "no request came without the key" [ "$(field refused)" = "0" ]
 
-section "2. Under a model that wants three processors"
+section "2. Under a model that wants three processors, with the quota lowered to ${TEST_QUOTA}%"
+# This machine has $(nproc) processors, so the shipped 400% cannot be reached here: the test lowers
+# the running unit's quota (a runtime drop-in under /run) to prove the kernel enforces whatever it is.
+systemctl set-property --runtime "$UNIT" "CPUQuota=${TEST_QUOTA}%"
+check "the lowered quota is in the cgroup ($(cut -d' ' -f1-2 "${CGROUP}/cpu.max"))" [ "$(cut -d' ' -f1-2 "${CGROUP}/cpu.max")" = "$((TEST_QUOTA * 1000)) 100000" ]
 curl -fsS -X POST "http://127.0.0.1:${PORT}/control/start" >/dev/null
 check "the runner took the run" wait_for 30 took_run
 # Give the model server time to start and the burn to begin, then measure a window inside it.
@@ -118,9 +128,9 @@ sleep 6
 THROTTLED_BEFORE="$(throttled)"
 BUSY="$(cpu_percent 15)"
 THROTTLED_AFTER="$(throttled)"
-note "processor use under load: ${BUSY}% of one processor (the cap is 100%)"
-check "stays at or under the 100% cap (${BUSY}%)" awk -v v="$BUSY" 'BEGIN { exit !(v <= 105) }'
-check "was really busy, so the cap is what held it (${BUSY}% >= 60%)" awk -v v="$BUSY" 'BEGIN { exit !(v >= 60) }'
+note "processor use under load: ${BUSY}% of one processor (the quota is ${TEST_QUOTA}%)"
+check "stays at or under the ${TEST_QUOTA}% quota (${BUSY}%)" awk -v v="$BUSY" -v q="$TEST_QUOTA" 'BEGIN { exit !(v <= q + 5) }'
+check "was really busy, so the quota is what held it (${BUSY}% >= $((TEST_QUOTA * 6 / 10))%)" awk -v v="$BUSY" -v q="$TEST_QUOTA" 'BEGIN { exit !(v >= q * 0.6) }'
 check "the kernel throttled it ($((THROTTLED_AFTER - THROTTLED_BEFORE)) times)" [ "$((THROTTLED_AFTER - THROTTLED_BEFORE))" -gt 0 ]
 
 section "3. The model server is the runner's child, under the same caps"
@@ -146,5 +156,5 @@ check "holds little memory idle ($((MEMORY / 1024 / 1024)) MiB < 200 MiB)" [ "$M
 
 section "Results"
 printf '%s' "$RESULTS"
-printf '{"busyCpuPercent":%s,"idleCpuPercent":%s,"capPercent":100,"idleMemoryBytes":%s}\n' "$BUSY" "$IDLE" "$MEMORY" | tee /tmp/agents-caps-results.json
+printf '{"busyCpuPercent":%s,"idleCpuPercent":%s,"capPercent":400,"testQuotaPercent":%s,"idleMemoryBytes":%s}\n' "$BUSY" "$IDLE" "$TEST_QUOTA" "$MEMORY" | tee /tmp/agents-caps-results.json
 [ "$FAILURES" -eq 0 ] || { echo "${FAILURES} check(s) failed" >&2; exit 1; }

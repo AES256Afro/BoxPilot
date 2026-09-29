@@ -44,7 +44,9 @@ export const agentTemplates = Object.freeze([
       audience: ["owner", "operator"],
       tools: { ...off, ...exact, "server.facts": "auto", "apps.list": "auto", "services.status": "auto", "logs.query": "ask", "storage.health": "auto", "docs.search": "auto", "document.read": "auto", "memory.search": "auto", "notes.read": "auto", "notes.write": "auto", "jobs.recent": "auto", "records.query": "auto", "alerts.active": "auto", "backups.status": "auto", "pihole.stats": "ask", "where.runs": "auto", "plan.propose": "auto", "notify.owner": "auto", "agents.handoff": "auto" },
       triggers: { ask: true, schedule: { every: "daily", hour: 5, minute: 30, quietHours: true }, events: ["health.alert", "drive.dropped"] },
-      budget: { runsPerDay: 24, modelSecondsPerDay: 1_800, stepsPerRun: 6, tokensPerRun: 12_000, runSeconds: 600 },
+      // An hour of model time a day: its 24 runs (questions, the digest, alerts, learning) take a few
+      // minutes each on a CPU, and half an hour ran out after three questions on a small machine.
+      budget: { runsPerDay: 24, modelSecondsPerDay: 3_600, stepsPerRun: 6, tokensPerRun: 12_000, runSeconds: 900 },
       outputs: { notes: true, digest: true, notify: "important", proposals: true },
       memory: { enabled: true, freshDays: 14, maxNotes: 80, share: true, threads: true, turns: 6 },
       orchestration: { supervisor: true, delegates: "*", maxDepth: 2 },
