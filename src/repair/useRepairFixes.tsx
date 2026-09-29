@@ -85,7 +85,7 @@ export function useRepairFixes({ csrfToken, recheck }: { csrfToken: string; rech
       const now = scan ? scan.findings.find((entry) => entry.id === finding.id) ?? null : finding;
       if (job.state === "completed" && scan && !now) { set(finding.id, { phase: "fixed", jobId: job.id, label: fix.label, changed: whatChanged(job) }); continue; }
       const error = job.state === "completed" ? (scan ? null : "The scan could not be read again, so whether this is fixed is not known yet. Check again in a moment.") : job.error ?? `The job ended ${job.state}.`;
-      set(finding.id, { phase: "still", jobId: job.id, label: fix.label, error, next: nextStep(now ?? finding, job.state !== "completed") });
+      set(finding.id, { phase: "still", jobId: job.id, label: fix.label, error, next: nextStep(now ?? finding, job.state !== "completed", error) });
     }
   }, [set]);
 
@@ -131,7 +131,7 @@ export function useRepairFixes({ csrfToken, recheck }: { csrfToken: string; rech
         // Shown as it ends, with the verdict from the one scan read after the last.
         set(finding.id, finished.state === "completed"
           ? { phase: "checking", jobId: finished.id, label: fix.label }
-          : { phase: "still", jobId: finished.id, label: fix.label, error: finished.error ?? `The job ended ${finished.state}.`, next: nextStep(finding, true) });
+          : { phase: "still", jobId: finished.id, label: fix.label, error: finished.error ?? `The job ended ${finished.state}.`, next: nextStep(finding, true, finished.error ?? null) });
       } catch (error) {
         set(finding.id, { phase: "still", jobId: null, label: fix.label, error: error instanceof Error ? error.message : "Could not run it", next: nextStep(finding, true) });
       }

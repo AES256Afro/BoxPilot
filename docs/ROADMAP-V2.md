@@ -1625,6 +1625,24 @@ the owner does. Approvals and tiers are unchanged: every fix is an ordinary job 
   failure drops off as M36's `failureSettled` says (dismissed, re-run, or the same operation tried
   again), or once Repair shows it on its finding or that finding is gone.
 - ✅ **M35.11 Home and Ops offer the same fixes**, from the same runner, and say "Fixed".
+- ✅ **M35.12 Ports something else holds** (unreleased). On 2026-09-29 Repair's Start for Dockge
+  rebuilt its container and Docker failed with "address already in use": Dockge was on the home
+  network (`0.0.0.0:5001`) and Tailscale Serve published it at the same port, so tailscaled held
+  `100.x.y.z:5001`, and on Linux a publish on every address fails beside any one address holding the
+  port. Serve now fronts only a port bound to 127.0.0.1 ("Tailnet only"): `app.serve.set` refuses an
+  app published on every address, `app.exposure.set` withdraws Serve before putting an app on the
+  home network (and serves it again if that fails). Publishing the LAN side on the host's LAN
+  addresses was rejected (a DHCP change or a slow network at boot leaves the app unable to start,
+  and a second NIC, a VM bridge or IPv6 each need their own entry), and so was serving on another
+  port (the HTTPS address moves, every page matches Serve to an app by port, and the new port is a
+  trap for the next app published there). Start, restart, reinstall, install, reconfigure and update
+  check the host's listeners before `compose up` (root task `host.listeners`: `ss -p`, since the
+  helper has no network of its own) and name the holder: Tailscale Serve and the app it publishes,
+  another app's container, or a process. Repair finds the trap on running apps too, and offers
+  **Serve it only through Tailscale**, **Stop serving it on the tailnet** (which starts it), or
+  **Move it to port N**. A failed job no longer leaves `apply` running. The demo showed Immich and
+  Vaultwarden in the same trap; `server/serve-audit.test.mjs` holds the catalog to it and
+  `tests/ubuntu/port-preflight.sh` proves the check on a real host.
 
 ## M36 — Value and quality of life
 
