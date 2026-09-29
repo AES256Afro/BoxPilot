@@ -14,8 +14,12 @@ const directives = (name) => [...unit.matchAll(new RegExp(`^${name}=(.*)$`, "gm"
 describe("the agents runner's unit", () => {
   it("holds the caps caps.mjs describes, once each", () => {
     for (const [name, value] of Object.entries(unitDirectives(runnerCaps))) expect(directives(name), name).toEqual([value]);
-    expect(runnerCaps.cpuQuotaPercent).toBeLessThanOrEqual(400);
-    expect(runnerCaps.modelThreads).toBeLessThanOrEqual(runnerCaps.cpuQuotaPercent / 100);
+    // The owner's four processors: at most a quarter of the 16-thread server this was written for.
+    expect(runnerCaps.cpuQuotaPercent).toBe(400);
+    expect(unitDirectives(runnerCaps).CPUQuota).toBe("400%");
+    // One model thread for each whole processor in the quota: more would spend it and sit throttled.
+    expect(runnerCaps.modelThreads).toBe(runnerCaps.cpuQuotaPercent / 100);
+    expect(directives("Description")[0]).toMatch(/four processors/);
   });
 
   it("reaches this machine only", () => {

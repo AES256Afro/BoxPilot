@@ -25,7 +25,7 @@ function claim() {
     agent: { id: "agent", name: "Cap test", version: 1, outputs: {} },
     messages: [{ role: "system", content: "You are a test." }, { role: "user", content: "Work hard for a while." }],
     tools: [],
-    runtime: { driver: "fake", model: null, contextTokens: 2048, threads: 1, idleStopMs: 5_000, maxTokens: 64, temperature: 0.2, extra: {} },
+    runtime: { driver: "fake", model: null, contextTokens: 2048, threads: 4, idleStopMs: 5_000, maxTokens: 64, temperature: 0.2, extra: {} },
     limits: { steps: 1, tokens: 4_000, runSeconds: 600, remainingModelMs: 600_000, toolCallsPerStep: 3, maxToolCalls: 3, heartbeatMs: 5_000 },
   };
 }
