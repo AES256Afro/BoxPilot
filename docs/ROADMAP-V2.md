@@ -1430,6 +1430,26 @@ the milestones they overlap.
   `/integrations/github` with fictional metadata, so the page can be reviewed. Page-local pieces
   worth promoting to the kit: a Copy button for one value, a link drawn as a Button, radio cards,
   and a list of suggestion rows with a tag, words and one action.
+- ✅ **M33.12 Virtual Machines, System and Setup** (wave 2D, unreleased). Rebuilt under
+  `src/pages/{vms,system,setup}/` on the kit, facts first, every feature kept; the Classic
+  components, their tests and the CSS only they used are gone. **Virtual Machines:** the verdict
+  (host ready, needs setup, libvirt not connected) and the counts in the header; tabs for the
+  machines, their backups, the installation media and the host. Each VM opens a sheet with its
+  facts, live use, snapshots, disks, interfaces and every action; making a VM from a cloud image or
+  planning one from an ISO are sheets. High-risk actions (create from a plan, delete, revert a
+  snapshot, forget an unrecorded snapshot) say beside the button that they ask for the password and
+  the name typed out, and creating from a plan now does ask for the name, as the page always said.
+  **System:** BoxPilot's update as the verdict; Overview (figures that open their tab), Updates,
+  Housekeeping (reclaimable space, Docker's disk, the database copies), Time & name, Hardware
+  (memory and swap, swappiness, the swap file, SSD trim as a tiered switch, the UPS) and
+  Schedules. **Setup:** the welcoming start of the product, in the console: the server greeted by
+  name and the profiles on the Launcher's colour squares, each saying what is in place; a profile
+  lists its steps with state and tier and runs the rest as before; preparing a new server is the
+  second tab. The VM and system operations are in `operationRisk`, and roles see only what they
+  may start. The demo's VM backups, media, planning, stats, Docker disk and update fixtures now have
+  the server's shapes. Page-local pieces worth promoting to the kit: a file picker, a
+  "what this asks for" line beside a high-risk button, and a sheet body whose rows keep their
+  height (`grid-auto-rows: max-content`) so a panel in a sheet scrolls instead of being clipped.
 - ✅ **M33.13 Settings, sign-in and the shell's dialogs** (wave 2E, unreleased). The pieces seen on
   every page, rebuilt on the kit with every behaviour kept. **The approval dialog**
   (`src/shell/ApproveDialog.tsx`; the old path re-exports it for pages still being rebuilt) leads
