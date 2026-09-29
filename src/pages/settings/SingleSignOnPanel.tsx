@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Button, CodeBlock, EmptyState, Field, Notice, Panel, Table, TextInput, Textarea, type TableColumn } from "../../ui";
-import { CopyText } from "./CopyText";
+import { Button, CodeBlock, CopyButton, EmptyState, Field, Notice, Panel, Table, TextInput, Textarea, type TableColumn } from "../../ui";
 
 /**
  * Settings → Single sign-on (M19.3; owner only): register the apps that may offer "Sign in with
@@ -57,7 +56,7 @@ export default function SingleSignOnPanel({ csrfToken }: { csrfToken: string }) 
     {
       id: "action", header: <span className="ui-visually-hidden">Actions</span>, label: "Actions", className: "settings-cell-action", cell: (client) => (
         <span className="settings-cell-buttons">
-          <CopyText value={client.id} label="Copy id" name={`${client.name}'s client id`} />
+          <CopyButton value={client.id} label="Copy id" name={`${client.name}'s client id`} />
           <Button variant="ghost" disabled={busy} onClick={() => void remove(client)} aria-label={`Remove ${client.name}`}>Remove</Button>
         </span>
       ),

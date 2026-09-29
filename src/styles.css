@@ -3547,10 +3547,11 @@ textarea {
   background: var(--risk-high);
 }
 
-/* On the accent fill a hue alone would not stand out, so the mark gets a rim of the text colour. */
+/* On the accent fill the tier's hue does not stand out (the console's amber on amber drew a hollow
+   box), so the bar is drawn solid in the button's own ink. High still has its lock and Password. */
 .ui-button--primary.ui-button--risk-medium::before,
 .ui-button--primary.ui-button--risk-high::before {
-  box-shadow: 0 0 0 1.5px var(--accent-text-on);
+  background: var(--accent-text-on);
 }
 
 .ui-button--secondary.ui-button--risk-high,
@@ -4267,7 +4268,6 @@ a.ui-tile:hover {
 /* ── Ops (M33.3): the same facts as Home, compact, on a twelve-column grid ── */
 .ops { display: grid; gap: var(--space-4); }
 .ops-verdict { margin: 0; color: var(--text); font-size: var(--font-size-md); }
-.ops-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: var(--space-3); }
 .ops-grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); align-items: start; gap: var(--space-3); }
 .ops-alerts { grid-column: span 3; }
 .ops-containers { grid-column: span 5; }
@@ -4644,7 +4644,10 @@ body {
 .lx .ui-button--risk-medium,
 .lx .ui-button--risk-high { padding-left: 21px; }
 .lx .ui-button--risk-medium::before,
-.lx .ui-button--risk-high::before { left: 9px; box-shadow: none; }
+.lx .ui-button--risk-high::before { left: 9px; }
+/* Every button on Home is the same pill, so a primary one keeps its tier's hue too. */
+.lx .ui-button--primary.ui-button--risk-medium::before { background: var(--risk-medium); }
+.lx .ui-button--primary.ui-button--risk-high::before { background: var(--risk-high); }
 .lx .ui-button__lock,
 .lx .ui-button .ui-button__tier { color: var(--lx-pill-high); }
 .lx .ui-button .ui-button__tier { border-color: var(--lx-pill-high); background: transparent; }
@@ -4990,8 +4993,6 @@ body {
 .ui-page-header { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; min-width: 0; }
 .ui-page-header__facts { display: flex; flex: 1 1 22rem; flex-wrap: wrap; align-items: center; gap: 4px 12px; min-width: 0; }
 .ui-page-header__summary { flex: 0 1 auto; min-width: 0; margin: 0; color: var(--text); font-size: 14px; line-height: 1.4; }
-.ui-page-header__meta { min-width: 0; margin: 0; color: var(--text-muted); font-family: var(--font-mono); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
-.ui-page-header__meta b { color: var(--text); font-weight: 500; }
 .ui-page-header__actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px; margin-left: auto; }
 .ui-page-header__about { flex: 1 1 100%; max-width: 80ch; margin: 2px 0 0; padding: 8px 12px; border-left: 2px solid var(--border-strong); color: var(--text-muted); font-size: 13.5px; line-height: 1.5; }
 .ui-page-header__about[hidden] { display: none; }
@@ -5006,7 +5007,6 @@ body {
 .content--console > .ui-page-header__about { margin: 0; }
 
 /* The metric strip: a label in small capitals, the figure in mono, a sparkline in the corner. */
-.cc .ops-strip { grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: 8px; }
 :root[data-shell="console"] .ui-metric {
   position: relative;
   gap: 3px;
@@ -5212,6 +5212,7 @@ body {
   :root[data-shell="console"] .ui-theme-switch--compact .ui-theme-switch__option { width: 24px; }
   :root[data-shell="console"] .signed-in-user { display: none; }
   .cc-crumb { flex: 1 1 auto; }
+  /* Two figures to a row on a phone (the kit's MetricStrip would give each its own). */
   .cc .ops-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   :root[data-shell="console"] .ui-metric { min-height: 0; padding: 10px; }
   :root[data-shell="console"] .ui-metric__value { font-size: 22px; }
@@ -5273,8 +5274,9 @@ body {
 .ui-input[aria-invalid="true"], .ui-textarea[aria-invalid="true"], .ui-select__control[aria-invalid="true"] { border-color: var(--status-danger); }
 .ui-input[readonly] { color: var(--text); background: var(--surface); }
 
-/* A select is the browser's own, with the kit's face and chevron. */
-.ui-select { position: relative; display: inline-grid; min-width: 0; }
+/* A select is the browser's own, with the kit's face and chevron. Its one track may shrink below
+   the longest option, so a narrow sheet or a phone's panel holds it instead of growing to it. */
+.ui-select { position: relative; display: inline-grid; grid-template-columns: minmax(0, 1fr); min-width: 0; }
 .ui-field .ui-select { display: grid; }
 .ui-select__control { padding-right: 30px; appearance: none; cursor: pointer; }
 .ui-select__control option { color: var(--text-strong); background: var(--surface); }
@@ -5331,7 +5333,9 @@ body {
 /* ── Tabs: an underlined row, the open one amber ── */
 .ui-tabs { display: grid; gap: 10px; min-width: 0; }
 .ui-tabs__list { display: flex; gap: 2px; min-width: 0; overflow-x: auto; border-bottom: 1px solid var(--border); scrollbar-width: thin; }
-.ui-tabs__tab { display: inline-flex; flex: none; align-items: center; gap: 7px; min-height: 34px; margin-bottom: -1px; padding: 0 12px; border: 0; border-bottom: 2px solid transparent; color: var(--text-muted); background: none; font: inherit; font-size: 14px; font-weight: 600; white-space: nowrap; cursor: pointer; }
+/* Positioned, so a tab's status said in words (visually hidden, absolutely placed) stays inside the
+   list's scroll rather than widening a phone's whole page. */
+.ui-tabs__tab { position: relative; display: inline-flex; flex: none; align-items: center; gap: 7px; min-height: 34px; margin-bottom: -1px; padding: 0 12px; border: 0; border-bottom: 2px solid transparent; color: var(--text-muted); background: none; font: inherit; font-size: 14px; font-weight: 600; white-space: nowrap; cursor: pointer; }
 .ui-tabs__tab:hover { color: var(--text-strong); }
 .ui-tabs__tab[aria-selected="true"] { border-bottom-color: var(--accent); color: var(--text-strong); }
 .ui-tabs__count { color: var(--text-muted); font-family: var(--font-mono); font-size: 11.5px; font-weight: 500; }
@@ -5424,7 +5428,9 @@ body {
 .ui-sheet__close { display: grid; flex: none; width: 30px; height: 30px; place-items: center; padding: 0; border: 1px solid var(--border-strong); border-radius: 3px; color: var(--text-muted); background: var(--surface-raised); cursor: pointer; }
 .ui-sheet__close:hover { color: var(--text-strong); }
 .ui-sheet__close svg { width: 15px; height: 15px; }
-.ui-sheet__body { display: grid; flex: 1 1 auto; align-content: start; gap: 12px; min-height: 0; padding: 14px; overflow-y: auto; }
+/* One track that may shrink: without it the body grows to its widest child (a select's longest
+   option, a table), past a phone's screen. */
+.ui-sheet__body { display: grid; flex: 1 1 auto; grid-template-columns: minmax(0, 1fr); align-content: start; gap: 12px; min-height: 0; padding: 14px; overflow-y: auto; }
 .ui-sheet__foot { display: flex; flex: none; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--border); }
 @media (max-width: 640px) {
   .ui-sheet-backdrop--right, .ui-sheet-backdrop--center { align-items: flex-end; justify-content: stretch; padding: 0; }
@@ -5432,7 +5438,8 @@ body {
 }
 
 /* ── CodeBlock: text shown exactly, with a bar that names it ── */
-.ui-code { display: grid; min-width: 0; overflow: hidden; border: 1px solid var(--border); border-radius: 4px; background: var(--code-bg); }
+/* Its track may shrink, or a long bar label would push the block past a phone's panel. */
+.ui-code { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; overflow: hidden; border: 1px solid var(--border); border-radius: 4px; background: var(--code-bg); }
 .ui-code__bar { display: flex; align-items: center; gap: 10px; min-height: 30px; padding: 0 6px 0 11px; border-bottom: 1px solid var(--border); background: var(--surface); }
 .ui-code__label { min-width: 0; overflow: hidden; color: var(--text-muted); font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
 .ui-code__meta { min-width: 0; margin-left: auto; overflow: hidden; color: var(--text-muted); font-family: var(--font-mono); font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
@@ -5485,6 +5492,28 @@ body {
 .ui-tag--tier-medium { border-color: var(--risk-medium-border); color: var(--risk-medium-text); background: var(--risk-medium-bg); }
 .ui-tag--tier-high { border-color: var(--risk-high-border); color: var(--risk-high-text); background: var(--risk-high-bg); }
 .ui-tag__lock { width: 1em; height: 1em; }
+
+/* ── AppIcon: an app's colour square, its emoji or its initials in white on its hue (M33.14) ── */
+.ui-app-icon { display: grid; flex: none; place-items: center; color: var(--brand-glyph); background: linear-gradient(140deg, var(--app-a, var(--brand-slate-a)), var(--app-b, var(--brand-slate-b))); font-family: var(--font-condensed); font-weight: 800; letter-spacing: -0.02em; line-height: 1; }
+.ui-app-icon[data-emoji] { font-weight: 400; letter-spacing: 0; }
+.ui-app-icon--sm { width: 22px; height: 22px; border-radius: 6px; font-size: 10px; }
+.ui-app-icon--sm[data-emoji] { font-size: 13px; }
+.ui-app-icon--md { width: 34px; height: 34px; border-radius: 10px; font-size: 13px; }
+.ui-app-icon--md[data-emoji] { font-size: 18px; }
+.ui-app-icon--lg { width: 52px; height: 52px; border-radius: 15px; font-size: 20px; }
+.ui-app-icon--lg[data-emoji] { font-size: 27px; }
+
+/* ── CopyButton: a ghost button, and what to do when the clipboard refuses ── */
+.ui-copy { flex: none; }
+.ui-copy__failed { color: var(--status-warning-text); font-size: 12.5px; line-height: 1.35; }
+
+/* ── MetricStrip: the figures across the top of a page, as many to a row as fit ── */
+.ui-metric-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--ui-strip-min, 11rem)), 1fr)); gap: 8px; min-width: 0; }
+
+/* ── Facts: a line of facts in mono, the figures brought forward ── */
+.ui-facts { min-width: 0; margin: 0; color: var(--text-muted); font-family: var(--font-mono); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.ui-facts b { color: var(--text); font-weight: 500; }
+.ui-facts code { color: var(--text); font-size: inherit; }
 
 /* ═════════════════════════════════════════════════════════════════════════ */
 /*  The stopgap (M33.8): the Classic pages' own classes in the console's look */

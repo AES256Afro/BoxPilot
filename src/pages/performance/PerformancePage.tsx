@@ -5,7 +5,7 @@ import { formatBytes } from "../../formatBytes";
 import { readJson } from "../../http";
 import { loadStatus } from "../../home/format";
 import { inspectOperation } from "../../operations";
-import { Button, KeyValue, MetricTile, Notice, PageHeader, Panel, StatusChip, Table, Tag, appHue, initials, mayStart, riskOf, type Status, type TableColumn } from "../../ui";
+import { AppIcon, Button, KeyValue, MetricStrip, MetricTile, Notice, PageHeader, Panel, StatusChip, Table, Tag, mayStart, riskOf, type Status, type TableColumn } from "../../ui";
 import "./performance.css";
 
 /*
@@ -46,11 +46,6 @@ const cpuStatus = (percent: number | null) => loadStatus(percent, 80, 95);
 const memoryStatus = (percent: number) => loadStatus(percent, 85, 95);
 const diskStatus = (percent: number) => loadStatus(percent, 85, 95);
 const tempStatus = (celsius: number) => loadStatus(celsius, 80, 90);
-
-/** An app's colour square, as Home draws it: its emoji, or its initials. */
-function AppSquare({ id, name, icon }: { id: string; name: string; icon: string | null }) {
-  return <span className="performance-square" data-hue={appHue(id)} data-emoji={icon ? true : undefined} aria-hidden="true">{icon ?? initials(name)}</span>;
-}
 
 export interface PerformancePageProps {
   csrfToken: string;
@@ -131,7 +126,7 @@ export default function PerformancePage({ csrfToken, role = "owner", pollMs = 30
     {
       id: "app", header: "App", sortValue: (app) => nameOf(app.id), cell: (app) => (
         <span className="performance-app">
-          <AppSquare id={app.id} name={nameOf(app.id)} icon={meta[app.id]?.icon ?? null} />
+          <AppIcon id={app.id} name={nameOf(app.id)} icon={meta[app.id]?.icon} size="sm" />
           <span className="performance-app__name">{nameOf(app.id)}</span>
           {isAI(app.id) && <Tag tone="info">AI</Tag>}
           {app.containers > 1 && <span className="performance-app__count">{countOf(app.containers, "container")}</span>}
@@ -188,7 +183,7 @@ export default function PerformancePage({ csrfToken, role = "owner", pollMs = 30
 
       {error && <Notice tone={perf ? "warning" : "danger"} live title="Performance could not be read just now">{error.replace(/\.?$/, ".")} It is read again every few seconds.</Notice>}
 
-      <section className="performance-strip" aria-label="Processor, memory, disks and temperature">
+      <MetricStrip label="Processor, memory, disks and temperature" minTile="9.5rem">
         {perf ? <>
           <MetricTile label="CPU" value={cpu === null ? "measuring…" : `${cpu}%`} caption={`${perf.cpu.model.replace(/\s+\d+-Core Processor$/, "")} · ${perf.cpu.cores} threads`} status={cpu === null ? "neutral" : cpuStatus(cpu)} bar={{ value: cpu ?? 0, label: "CPU in use" }} />
           <MetricTile label="Memory" value={formatBytes(perf.memory.usedBytes)} caption={`of ${formatBytes(perf.memory.totalBytes)} · ${perf.memory.usedPercent}% used`} status={memoryStatus(perf.memory.usedPercent)} bar={{ value: perf.memory.usedPercent, label: "Memory in use" }} />
@@ -202,7 +197,7 @@ export default function PerformancePage({ csrfToken, role = "owner", pollMs = 30
         </> : (
           <MetricTile label="CPU and memory" value="—" caption={error ? "Could not be read" : "Reading…"} status="unknown" />
         )}
-      </section>
+      </MetricStrip>
 
       <Panel className="performance-apps" title="What's running" count={perf ? apps.length : undefined} meta={perf ? <><b>{running}</b> running · heaviest first{Object.values(meta).some((entry) => entry.category === "AI") ? " · AI pinned" : ""}</> : undefined}>
         {perf && !perf.statsAvailable && <Notice tone="info" className="performance-note" title="Live CPU and memory per app are not answering">They come from Docker's stats stream, which is not answering right now. The states and controls still work.</Notice>}

@@ -1,7 +1,7 @@
-import { useEffect, useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import type { AutoReconnectControl } from "../../AutoReconnect";
 import { mountpointFor } from "../../mountpoints";
-import { Button, Switch } from "../../ui";
+import { CopyButton, Switch } from "../../ui";
 import type { Status } from "../../ui";
 import { gib, percentUsed, type DiagnosticCheck } from "./types";
 
@@ -28,27 +28,6 @@ export function UsageMeter({ used, size, label }: { used: number | null; size: n
   );
 }
 
-/** Copy one value, saying so; a clipboard that refuses leaves the text there to select. */
-export function CopyText({ value, name }: { value: string; name: string }) {
-  const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
-  useEffect(() => { setState("idle"); }, [value]);
-  const copy = async () => {
-    try {
-      if (!navigator.clipboard?.writeText) throw new Error("Clipboard unavailable");
-      await navigator.clipboard.writeText(value);
-      setState("copied");
-    } catch {
-      setState("failed");
-    }
-  };
-  return (
-    <>
-      <Button variant="ghost" className="storage-copy__button" aria-label={`Copy ${name}`} onClick={() => void copy()}>{state === "copied" ? "Copied" : "Copy"}</Button>
-      {state === "failed" && <span role="status" className="storage-copy__failed">The clipboard is not available here. Select the text and copy it by hand.</span>}
-    </>
-  );
-}
-
 /** What to type on each kind of machine, each line with its own Copy. */
 export function CopyLines({ lines, subject }: { lines: Array<{ os: string; path: string; hint?: string }>; subject: string }) {
   return (
@@ -57,7 +36,7 @@ export function CopyLines({ lines, subject }: { lines: Array<{ os: string; path:
         <li key={`${line.os}:${line.path}`}>
           <span className="storage-copy__os">{line.os}</span>
           <code className="storage-copy__path">{line.path}</code>
-          <CopyText value={line.path} name={`the ${line.os} form for ${subject}`} />
+          <CopyButton value={line.path} name={`the ${line.os} form for ${subject}`} className="storage-copy__button" />
           {line.hint && <span className="storage-copy__hint">{line.hint}</span>}
         </li>
       ))}

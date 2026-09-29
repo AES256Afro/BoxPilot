@@ -1,12 +1,16 @@
 import { useEffect, useState } from "react";
 import { navItems } from "../data";
+import { AppIcon } from "./AppIcon";
 import { Button, RiskTag, riskCopy } from "./Button";
 import { Card } from "./Card";
 import { CodeBlock } from "./CodeBlock";
+import { CopyButton } from "./CopyButton";
 import { Dock } from "./Dock";
+import { Facts } from "./Facts";
 import { Field } from "./Field";
 import { JobProgress } from "./JobProgress";
 import { KeyValue } from "./KeyValue";
+import { MetricStrip } from "./MetricStrip";
 import { MetricTile } from "./MetricTile";
 import { EmptyState, Notice } from "./Notice";
 import { PageHeader } from "./PageHeader";
@@ -269,6 +273,22 @@ function PageKit() {
         <Tabs label="Storage" tabs={[{ id: "disks", label: "Disks", count: 3 }, { id: "shares", label: "Shares", count: 2, status: "warning", statusLabel: "1 needs a look" }, { id: "swap", label: "Swap" }]}>
           {(tab) => <p className="ui-gallery__note">The {tab} tab. With urlParam="tab" the open tab lives in the address, as ?view=storage&amp;tab={tab}.</p>}
         </Tabs>
+      </Panel>
+
+      <Panel padded title="AppIcon, CopyButton, Facts and MetricStrip" meta="promoted from the pages in M33.14">
+        <div className="ui-gallery__row">
+          <AppIcon id="immich" name="Immich" icon="📷" size="sm" />
+          <AppIcon id="jellyfin" name="Jellyfin" icon="🎬" />
+          <AppIcon id="home-assistant" name="Home Assistant" size="lg" />
+          <code>/srv/media</code>
+          <CopyButton value="/srv/media" name="the folder's path" />
+        </div>
+        <Facts><b>12</b> entries · <b>3</b> new · target <b>set</b> · for <code>homebox</code></Facts>
+        <MetricStrip label="Example figures" minTile="9rem">
+          <MetricTile label="CPU" value="12%" caption="load 0.48" />
+          <MetricTile label="Memory" value="61%" caption="of 32 GB" bar={{ value: 61 }} />
+          <MetricTile label="Disks" value="3" caption="1 needs a look" status="warning" />
+        </MetricStrip>
       </Panel>
 
       <div className="ui-gallery__grid">
