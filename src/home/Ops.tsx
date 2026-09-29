@@ -156,7 +156,8 @@ export default function Ops({ csrfToken, role, onNavigate, now = Date.now, pollM
   const database = values.database;
 
   const workloadColumns: Array<TableColumn<WorkloadRow>> = [
-    { id: "name", header: "Name", cell: (row) => <button type="button" className="ops-link" title={row.name} onClick={() => (row.kind === "vm" ? onNavigate("virtualization") : onNavigate("catalog", { app: row.id }))}>{row.icon && <span className="ops-icon" aria-hidden="true">{row.icon}</span>}{row.name}</button> },
+    // Names only, as the study's table has them (M33.7): the emoji is Home's, on each app's square.
+    { id: "name", header: "Name", cell: (row) => <button type="button" className="ops-link" title={row.name} onClick={() => (row.kind === "vm" ? onNavigate("virtualization") : onNavigate("catalog", { app: row.id }))}>{row.name}</button> },
     { id: "state", header: "State", cell: (row) => <StatusChip status={row.status}>{row.state}</StatusChip> },
     { id: "cpu", header: "CPU", numeric: true, cell: (row) => (row.cpuPercent === null ? "—" : <><span className="ops-bar" aria-hidden="true"><i style={{ width: `${Math.min(100, row.cpuPercent)}%` }} /></span>{`${row.cpuPercent.toFixed(1)}%`}</>) },
     { id: "memory", header: "Memory", numeric: true, cell: (row) => (row.memBytes === null ? "—" : size(row.memBytes)) },
