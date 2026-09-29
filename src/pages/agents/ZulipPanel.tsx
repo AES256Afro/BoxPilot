@@ -56,11 +56,13 @@ export function ZulipPanel({ csrfToken, role, now, onStart, refreshKey }: ZulipP
 
   const owner = state.canChange;
   const shown = verdict(state);
+  // Where cards in chat link back to: this page's own address, when it is one the server takes.
+  const here = /^https?:\/\/[A-Za-z0-9.-]{1,180}(?::\d{1,5})?$/.test(window.location.origin) ? window.location.origin : null;
   const connect = () => onStart({
     operationId: "agents.zulip.connect",
     title: state.connected ? "Connect the agents to Zulip again" : "Connect the agents to Zulip",
-    parameters: { boxpilotUrl: window.location.origin },
-    preview: <span>Runs Zulip's own manage.py inside its container to make a bot for the agents, owned by your organization's owner, and four private channels only you and the bot are in: {Object.values(state.channels).map((name, index) => <span key={name}>{index ? ", " : ""}<code>#{name}</code></span>)}. The bot's key goes straight into BoxPilot's credential store and is never shown. Cards in chat link back to <code>{window.location.origin}</code>, where approvals happen. Safe to run again: it repairs what is missing.</span>,
+    parameters: here ? { boxpilotUrl: here } : {},
+    preview: <span>Runs Zulip's own manage.py inside its container to make a bot for the agents, owned by your organization's owner, and four private channels only you and the bot are in: {Object.values(state.channels).map((name, index) => <span key={name}>{index ? ", " : ""}<code>#{name}</code></span>)}. The bot's key goes straight into BoxPilot's credential store and is never shown. {here ? <>Cards in chat link back to <code>{here}</code>, where approvals happen.</> : "Cards in chat say to decide on the Agents page, where approvals happen."} Safe to run again: it repairs what is missing.</span>,
   });
   const disconnect = () => onStart({
     operationId: "agents.zulip.disconnect",
