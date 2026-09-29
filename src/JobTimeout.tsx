@@ -1,5 +1,5 @@
 import type { Job, JobTimeout, RiskTier } from "./operations";
-import { Button } from "./ui";
+import { Button } from "./ui/Button";
 
 /** "40 seconds", "25 minutes", "2 hours 30 minutes": how a budget is said. Same as the server's. */
 export function formatDuration(ms: number): string {
