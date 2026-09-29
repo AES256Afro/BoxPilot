@@ -17,8 +17,13 @@
  *   or heavy. The Builder shows it; heavy tools wait for quiet hours on unattended runs.
  * - `params`: what it accepts, checked here before it runs. The model sees them as JSON schema.
  * - `defaultOff`: never on unless the owner turns it on for an agent (web search).
+ * - `always`: sent with every call that acts, whatever the plan names (memory, and proposing,
+ *   telling and handing off, which answer what a tool finds rather than what was asked), with a
+ *   `brief` description for the model, since it is read on every call; `alwaysFor` names run kinds
+ *   it is always sent for.
  *
- * The model calls tools by `fn` (underscores): OpenAI-style function names allow no dots.
+ * The model calls tools by `fn` (underscores): OpenAI-style function names allow no dots. Whatever
+ * spelling comes back - alerts_active, alerts-active, alerts.active - is read as the registry's id.
  */
 
 export const toolCategories = Object.freeze({
@@ -119,8 +124,9 @@ export const toolCatalog = Object.freeze([
     },
   },
   {
-    id: "memory.search", title: "Search memory", category: "memory", role: "viewer", cost: "cheap",
+    id: "memory.search", title: "Search memory", category: "memory", role: "viewer", cost: "cheap", always: true,
     description: "What this agent remembers, searched by meaning and by words together: facts it learned, facts other agents share, what past runs found, and knowledge the owner pinned. Each result says where it came from and how fresh it is.",
+    brief: "What you and the other agents remember: facts, past runs and the owner's pinned knowledge, each with its source and age.",
     params: {
       query: { type: "string", maxLength: 300, required: true, description: "What to recall." },
       tier: { type: "string", enum: ["any", "fact", "episode", "pinned"], description: "Only one kind of memory. Default any." },
@@ -128,12 +134,12 @@ export const toolCatalog = Object.freeze([
     },
   },
   {
-    id: "notes.read", title: "Read own notes", category: "memory", role: "viewer", cost: "cheap",
+    id: "notes.read", title: "Read own notes", category: "memory", role: "viewer", cost: "cheap", alwaysFor: ["learn"],
     description: "This agent's own notes from earlier runs, newest first, each with where it came from and whether it is still fresh.",
     params: { query: { type: "string", maxLength: 200, description: "Only notes about this." } },
   },
   {
-    id: "notes.write", title: "Write own notes", category: "memory", role: "viewer", cost: "cheap", writes: "notes",
+    id: "notes.write", title: "Write own notes", category: "memory", role: "viewer", cost: "cheap", writes: "notes", alwaysFor: ["learn"],
     description: "Keep a short note for later runs: a fact learned about this server. Notes are this agent's memory; they change nothing on the server.",
     params: {
       title: { type: "string", maxLength: 120, required: true, description: "A short title." },
@@ -193,8 +199,9 @@ export const toolCatalog = Object.freeze([
     },
   },
   {
-    id: "plan.propose", title: "Propose a plan", category: "action", role: "viewer", cost: "cheap", writes: "proposal",
+    id: "plan.propose", title: "Propose a plan", category: "action", role: "viewer", cost: "cheap", writes: "proposal", always: true,
     description: "Suggest a fix as registered BoxPilot operations. It becomes an approval card; nothing runs until a person approves each step at its own risk tier. An outgoing webhook (to n8n, for instance) is the registered operation http.request.",
+    brief: "Suggest a fix as registered BoxPilot operations. It becomes a card; nothing runs until a person approves each step. A webhook is the operation http.request.",
     params: {
       title: { type: "string", maxLength: 120, required: true, description: "What the plan does, in a few words." },
       reason: { type: "string", maxLength: 600, required: true, description: "Why, citing the tool output it is based on." },
@@ -202,16 +209,18 @@ export const toolCatalog = Object.freeze([
     },
   },
   {
-    id: "notify.owner", title: "Tell the owner (important only)", category: "action", role: "viewer", cost: "cheap", writes: "notification",
+    id: "notify.owner", title: "Tell the owner (important only)", category: "action", role: "viewer", cost: "cheap", writes: "notification", always: true,
     description: "Send the owner a short notification. Only for something important that needs a person soon; at most one every few hours.",
+    brief: "Send the owner a short notification: only for something important that needs a person soon.",
     params: {
       title: { type: "string", maxLength: 80, required: true, description: "One line." },
       message: { type: "string", maxLength: 400, required: true, description: "What is wrong and what to look at." },
     },
   },
   {
-    id: "agents.handoff", title: "Hand off to another agent", category: "orchestration", role: "viewer", cost: "moderate", writes: "subtask",
+    id: "agents.handoff", title: "Hand off to another agent", category: "orchestration", role: "viewer", cost: "moderate", writes: "subtask", always: true,
     description: "Give a subtask to a specialist agent. It runs after this run, as the same person, and its answer comes back to you in a follow-up run. Only for supervisors.",
+    brief: "Give a subtask to a specialist agent; its answer comes back to you in a follow-up run.",
     params: {
       agent: { type: "string", maxLength: 60, required: true, description: "The specialist's name, as listed in your instructions." },
       task: { type: "string", maxLength: 1000, required: true, description: "What it should find out or check, in a sentence or two." },
@@ -220,7 +229,49 @@ export const toolCatalog = Object.freeze([
 ].map((tool) => Object.freeze({ ...tool, fn: tool.id.replace(/\./g, "_") })));
 
 export const toolIds = toolCatalog.map((tool) => tool.id);
-export const toolById = (id) => toolCatalog.find((tool) => tool.id === id || tool.fn === id) ?? null;
+
+/**
+ * The registry id for a tool name as a model writes it: the id (alerts.active), the function name
+ * it was offered (alerts_active), or the same with hyphens, spaces or capitals, with or without a
+ * "functions." prefix. Null for a name that is no tool.
+ */
+export function toolIdOf(name) {
+  if (typeof name !== "string") return null;
+  const exact = toolCatalog.find((tool) => tool.id === name || tool.fn === name);
+  if (exact) return exact.id;
+  const key = name.trim().toLowerCase().replace(/^functions?[.:_]/, "").replace(/[\s_\-:/]+/g, ".").replace(/\.+/g, ".").replace(/^\.|\.$/g, "");
+  return toolCatalog.find((tool) => tool.id === key)?.id ?? null;
+}
+export const toolById = (name) => { const id = toolIdOf(name); return id ? toolCatalog.find((tool) => tool.id === id) : null; };
+
+/** The most tools a call that acts carries: every schema is read on every call, on a CPU. */
+export const actToolLimit = 10;
+/** Tools a run acts with when it has no plan to go by: cheap reads first, then the rest. */
+const defaultActOrder = ["server.facts", "alerts.active", "storage.health", "services.status", "apps.list", "backups.status", "jobs.recent", "docs.search", "where.runs", "pihole.stats"];
+const defaultActCount = 6;
+
+/**
+ * The tools a run's calls that act carry, as ids, in the catalog's order so the prompt's prefix is
+ * the same byte for byte from one call (and one run) to the next: the always-on ones this run was
+ * offered, then the ones its plan named. Without a plan (none was asked for, or it did not parse),
+ * the cheap reads come first. At most `limit`, the always-on ones and the plan's first steps kept.
+ */
+export function actToolIds(offered, { planned = null, kind = null, limit = actToolLimit } = {}) {
+  const offeredIds = new Set((offered ?? []).map((entry) => toolIdOf(typeof entry === "string" ? entry : entry?.id ?? entry?.fn)).filter(Boolean));
+  const always = toolCatalog.filter((tool) => offeredIds.has(tool.id) && (tool.always || (kind && tool.alwaysFor?.includes(kind)))).map((tool) => tool.id);
+  const fromPlan = Array.isArray(planned);
+  const wanted = fromPlan ? planned.map(toolIdOf) : [...defaultActOrder, ...toolIds];
+  const room = Math.max(0, limit - always.length);
+  const chosen = [];
+  for (const id of wanted) {
+    if (chosen.length >= (fromPlan ? room : Math.min(room, defaultActCount))) break;
+    if (!id || !offeredIds.has(id) || always.includes(id) || chosen.includes(id)) continue;
+    chosen.push(id);
+  }
+  // The catalog's order within each group: the same set is always the same bytes.
+  const inOrder = (ids) => toolCatalog.filter((tool) => ids.includes(tool.id)).map((tool) => tool.id);
+  return [...inOrder(always), ...inOrder(chosen)];
+}
 
 /** Permissions an agent can give a tool: use it freely, only when a person asked, or not at all. */
 export const toolPermissions = Object.freeze(["auto", "ask", "off"]);
@@ -251,7 +302,8 @@ export function toModelTool(tool) {
     properties[name] = property;
     if (spec.required) required.push(name);
   }
-  return { type: "function", function: { name: tool.fn, description: `${tool.title}: ${tool.description}`, parameters: { type: "object", properties, required, additionalProperties: false } } };
+  // A tool sent with every call that acts says what it is in fewer words: every word is read each time.
+  return { type: "function", function: { name: tool.fn, description: tool.brief ?? `${tool.title}: ${tool.description}`, parameters: { type: "object", properties, required, additionalProperties: false } } };
 }
 
 /**

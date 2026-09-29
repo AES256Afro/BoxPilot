@@ -91,26 +91,41 @@ describe("asking an agent", () => {
     const [understanding, first, second] = h.fake.prompts();
     expect(understanding.response_format).toMatchObject({ type: "json_schema", json_schema: { name: "understanding", strict: true } });
     expect(understanding.tools ?? null).toBeNull();
+    // The planner's own small conversation: the agent's job and the tools it may name, then the task.
+    expect(understanding.messages[0].content).toMatch(/^You work out what a request to Server Keeper asks for/);
+    expect(understanding.messages[0].content).toMatch(/Its job: Keep an up-to-date picture of this server/);
     const [intent, plan] = run.steps.filter((step) => ["intent", "plan"].includes(step.kind));
-    expect(intent).toMatchObject({ kind: "intent", state: "done", input: { tools: ["pihole_stats", "where_runs"], confidence: 0.9 } });
-    expect(plan.input.map((entry) => entry.tool)).toEqual(["pihole_stats", "where_runs", null]);
-    expect(first.messages.at(-1).content).toMatch(/^Your plan:/);
+    // The trace names tools by the registry's ids, as the pages do.
+    expect(intent).toMatchObject({ kind: "intent", state: "done", input: { tools: ["pihole.stats", "where.runs"], confidence: 0.9 } });
+    expect(plan.input.map((entry) => entry.tool)).toEqual(["pihole.stats", "where.runs", null]);
+    expect(plan.output).toMatch(/^1\. Read pihole\.stats \(pihole\.stats\)\n2\. Read where\.runs \(where\.runs\)\n3\. Answer with citations$/);
+    expect(first.messages.at(-1).content).toMatch(/<\/question>\n\nYour plan:\n1\. Read pihole\.stats \(pihole_stats\)/);
     expect(first.messages[0].content).toMatch(/^You are an agent on a home server managed by BoxPilot/);
-    expect(first.tools.map((tool) => tool.function.name)).toContain("pihole_stats");
+    // Only the tools the plan named, and the always-on ones this run was offered, in the catalog's order.
+    expect(first.tools.map((tool) => tool.function.name)).toEqual(["memory_search", "plan_propose", "notify_owner", "where_runs", "pihole_stats"]);
     expect(first.stream).toBe(true);
+    expect(first).toMatchObject({ cache_prompt: true, tool_choice: "auto" });
     expect(JSON.stringify(second.messages)).toContain('<tool_output id=\\"T1\\" tool=\\"pihole_stats\\" trust=\\"untrusted\\">');
+    // The second call to act is the first one grown: the same tools and messages, then the tool round.
+    expect(second.tools).toEqual(first.tools);
+    expect(second.messages.slice(0, first.messages.length)).toEqual(first.messages);
+    expect(h.fake.calls()[2].cachedTokens).toBeGreaterThanOrEqual(h.fake.calls()[1].promptTokens);
     expect(run.usage.modelCalls).toBe(3);
     expect(run.usage.promptTokens).toBeGreaterThan(0);
+    expect(run.usage.cachedTokens).toBeGreaterThan(0);
+    expect(run.usage.readTokens).toBeLessThan(run.usage.promptTokens);
   });
 
-  it("hands the runner Unsloth's model, the name to ask for, one thread and Qwen's thinking turned off", async () => {
+  it("hands the runner Unsloth's model, the name to ask for, the cap's threads and Qwen's thinking turned off", async () => {
     h.enable();
     h.state.setSetting(agentsRuntimeKey, defaultRuntimeSettings());
     ask(make("it-support"), "owner", "Hi");
     const claim = await h.service.runnerNext(h.runnerId, { waitMs: 0 });
-    // One thread under a one-processor cap (the spike: two spend the quota and sit throttled), and an
-    // hour before the idle model server stops.
-    expect(claim.runtime).toMatchObject({ driver: "unsloth", model: "unsloth/Qwen3.5-4B-GGUF:UD-Q4_K_XL", requestModel: "unsloth/Qwen3.5-4B-GGUF", threads: 1, contextTokens: 8192, endpoint: null, idleStopMs: 3_600_000, extra: { enable_thinking: false } });
+    // Four threads under the four-processor cap (one for each; the spike: more spend the quota and
+    // sit throttled), and an hour before the idle model server stops.
+    expect(claim.runtime).toMatchObject({ driver: "unsloth", model: "unsloth/Qwen3.5-4B-GGUF:UD-Q4_K_XL", requestModel: "unsloth/Qwen3.5-4B-GGUF", threads: 4, contextTokens: 8192, endpoint: null, idleStopMs: 3_600_000, extra: { enable_thinking: false }, speed: null });
+    // What the planner reads about the agent.
+    expect(claim.agent).toMatchObject({ name: "IT Support helper", job: "Answer how-to questions about this server and BoxPilot in plain words.", steps: expect.arrayContaining(["Answer how-to questions from docs.search."]) });
     expect(claim.limits).toMatchObject({ steps: 4, tokens: 8000, runSeconds: 300, toolCallsPerStep: 3, maxToolCalls: 12 });
     expect(Date.parse(claim.run.deadlineAt) - Date.parse(claim.run.startedAt)).toBe(300_000);
   });
@@ -418,7 +433,7 @@ describe("the runtime as the Agents section shows it", () => {
     const shown = await h.service.runtimeState(h.caller("owner"));
     expect(shown.unsloth).toMatchObject({ version: "unsloth 2026.10.3 rm -rf", installerSha256: "f".repeat(64), testedVersion: testedUnslothVersion });
     expect(shown.library.map((model) => [model.id, model.fitsCap])).toEqual([["qwen3.5-4b", true], ["qwen3.5-2b", true], ["qwen3.5-9b", false]]);
-    expect(shown.caps).toMatchObject({ cpuQuotaPercent: 100, modelThreads: 1 });
+    expect(shown.caps).toMatchObject({ cpuQuotaPercent: 400, modelThreads: 4 });
   });
 
   it("keeps an idle model server between five minutes and twelve hours, an hour unless the owner says", () => {

@@ -1,0 +1,100 @@
+name: Agents benchmark
+
+# Manual. The owner's first question on the real model - Unsloth serving Qwen 3.5 4B, started by
+# BoxPilot's own runtime the way the agents runner starts it - at four threads under a 400% quota
+# (the shipped cap) and at one thread under 100% for comparison, on a GitHub runner (4 processors).
+# Driver: tests/bench/agents-real.mjs. Nothing here gates a merge or a release.
+on:
+  workflow_dispatch:
+    inputs:
+      threads:
+        description: "Comma-separated thread counts to measure (each under a quota of that many processors)"
+        default: "4,1"
+        type: string
+  push:
+    branches: [fix/agents-first-run]
+    paths: [".github/workflows/agents-bench.yml", "tests/bench/**"]
+
+permissions:
+  contents: read
+
+env:
+  HF_CACHE_KEY: agents-bench-qwen35-4b-udq4kxl-mmproj-bge-v1
+
+jobs:
+  bench:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Restore the model cache
+        id: cache
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ runner.temp }}/agents-state/hf
+          key: ${{ env.HF_CACHE_KEY }}
+
+      - name: Download the model and the embedder as BoxPilot does (checksums verified)
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          node scripts/boxpilot-agents-download.mjs download "$RUNNER_TEMP/agents-state" '{"repo":"unsloth/Qwen3.5-4B-GGUF","file":"Qwen3.5-4B-UD-Q4_K_XL.gguf","projector":"mmproj-F16.gguf"}' | tail -n 2
+          node scripts/boxpilot-agents-download.mjs download "$RUNNER_TEMP/agents-state" '{"repo":"unsloth/bge-small-en-v1.5-GGUF","file":"bge-small-en-v1.5-f16.gguf"}' | tail -n 2
+
+      - name: Save the model cache
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ runner.temp }}/agents-state/hf
+          key: ${{ env.HF_CACHE_KEY }}
+
+      - name: Install Unsloth as BoxPilot does (GGUF only, unprivileged)
+        run: |
+          dpkg -s libgomp1 >/dev/null 2>&1 || { sudo apt-get update -q && sudo apt-get install -y --no-install-recommends libgomp1; }
+          curl -fsSL https://unsloth.ai/install.sh -o "$RUNNER_TEMP/unsloth-install.sh"
+          sha256sum "$RUNNER_TEMP/unsloth-install.sh"
+          env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 USER="$(id -un)" HOME="$RUNNER_TEMP/agents-state" \
+            UNSLOTH_NO_TORCH=1 UNSLOTH_SKIP_AUTOSTART=1 UNSLOTH_STUDIO_HOME="$RUNNER_TEMP/unsloth" \
+            sh "$RUNNER_TEMP/unsloth-install.sh" >"$RUNNER_TEMP/unsloth-install.log" 2>&1 || { tail -n 60 "$RUNNER_TEMP/unsloth-install.log"; exit 1; }
+          env UNSLOTH_STUDIO_HOME="$RUNNER_TEMP/unsloth" "$RUNNER_TEMP/unsloth/bin/unsloth" --version
+          lscpu | grep -E '^(Model name|CPU\(s\)|Thread)'
+
+      - name: Ask the owner's question under each cap
+        env:
+          THREADS: ${{ inputs.threads || '4,1' }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/bench"
+          {
+            echo '## Agents benchmark'
+            echo
+            echo "$(lscpu | grep '^Model name' | sed 's/  */ /g'), $(nproc) processors; Unsloth $(env UNSLOTH_STUDIO_HOME="$RUNNER_TEMP/unsloth" "$RUNNER_TEMP/unsloth/bin/unsloth" --version 2>/dev/null | tail -n 1)"
+            echo
+          } >>"$GITHUB_STEP_SUMMARY"
+          for threads in $(echo "$THREADS" | tr ',' ' '); do
+            # The runner's caps as the unit sets them: this many processors, idle weight, niced, idle I/O.
+            sudo systemd-run --scope --quiet -p "CPUQuota=$((threads * 100))%" -p CPUWeight=idle -- \
+              sudo -u "$(id -un)" env PATH="$PATH" HOME="$HOME" \
+              nice -n 19 ionice -c 3 node tests/bench/agents-real.mjs --runtime "$RUNNER_TEMP/unsloth" --state "$RUNNER_TEMP/agents-state" --threads "$threads" --out "$RUNNER_TEMP/bench/threads-$threads.json" \
+              2>"$RUNNER_TEMP/bench/threads-$threads.log" | tee "$RUNNER_TEMP/bench/threads-$threads.txt"
+            { echo "### ${threads} thread(s) under CPUQuota=$((threads * 100))%"; echo; echo '```'; cat "$RUNNER_TEMP/bench/threads-$threads.txt"; echo '```'; echo; } >>"$GITHUB_STEP_SUMMARY"
+          done
+
+      - name: Keep the results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: agents-bench
+          path: |
+            ${{ runner.temp }}/bench
+            ${{ runner.temp }}/unsloth-install.log
+          retention-days: 30
