@@ -1,7 +1,8 @@
 import { readdir, readFile, readlink, rename, unlink, writeFile } from "node:fs/promises";
 import { mountpointFor } from "../backup-mount.mjs";
 import { fixedRun } from "../exec.mjs";
-import { exfatVolumeFlags, parseManagedFstab, processesUsing, readBootSector, unmountFromHost, withDockerOrder } from "./storage.mjs";
+import { deviceFor, exfatVolumeFlags, parseManagedFstab, processesUsing, readBootSector, unmountFromHost, withDockerOrder } from "./storage.mjs";
+import { startMountUnit } from "./mount-agreement.mjs";
 
 /**
  * Drives and shutdowns (M26): giving existing drive entries the Docker ordering new ones get, the
@@ -253,7 +254,7 @@ export async function prepareDrivesForReboot(_parameters = {}, {
   for (const entry of managedDriveEntries(content).filter((candidate) => candidate.drive)) {
     const where = await run(binaries.findmnt, ["--task", "1", "-n", "-o", "SOURCE,FSTYPE,MAJ:MIN", "--mountpoint", entry.mountpoint], { timeout: 15_000 });
     const [source, fstype, majMin] = where.ok ? where.stdout.trim().split(/\s+/) : [];
-    drives.push({ name: entry.name, mountpoint: entry.mountpoint, unit: mountUnitName(entry.mountpoint), source: source ?? null, fstype: fstype ?? entry.fstype, majMin: majMin ?? null, mounted: Boolean(source), state: source ? "mounted" : "not-mounted", holders: [], volumeDirty: null });
+    drives.push({ name: entry.name, mountpoint: entry.mountpoint, unit: mountUnitName(entry.mountpoint), entrySource: entry.source ?? null, source: source ?? null, fstype: fstype ?? entry.fstype, majMin: majMin ?? null, mounted: Boolean(source), state: source ? "mounted" : "not-mounted", holders: [], volumeDirty: null });
   }
   const mounted = drives.filter((drive) => drive.mounted);
   const summary = { drives, containers: { stopped: [], signalled: [], killed: [], stillRunning: [] }, dockerStopped: false };
@@ -393,15 +394,46 @@ export async function storageVolumeState(_parameters = {}, { run = fixedRun, fil
   return { available: true, readAt: now().toISOString(), drives };
 }
 
-/** Put back what the preparation stopped, when the reboot it prepared for could not be scheduled. */
-export async function resumeAfterCancelledReboot(summary, { run = fixedRun, log = null } = {}) {
+/**
+ * Put back what the preparation stopped, when the reboot it prepared for could not be scheduled:
+ * every drive that was mounted before it, and then Docker.
+ *
+ * Every drive that was mounted is looked at, not only those it reports unmounted: one it calls busy
+ * because a container still had it in its own namespace is gone from the host all the same. The
+ * drive was unmounted outside systemd moments ago, so its unit may still say it is mounted, and
+ * before systemd 252 a start then does nothing and exits 0 (mount-agreement.mjs). startMountUnit
+ * waits for systemd first and proves the mount from PID 1's table, from the device it was
+ * unmounted from.
+ *
+ * Docker starts every app by its restart policy, those with folders on the drives included, so it
+ * is started only when every drive is back. With one missing it stays stopped, and says so: an app
+ * started now would bind the empty folder and write to the system disk.
+ *
+ * Returns `{ drives, docker, dockerError, missing }`: each drive's outcome, what happened to Docker
+ * ("started", "failed", "left-stopped", or "untouched" when the preparation did not stop it), and
+ * the mount points that did not come back.
+ */
+export async function resumeAfterCancelledReboot(summary, { run = fixedRun, log = null, sleep, clock, settleMs } = {}) {
+  const drives = [];
   for (const drive of summary?.drives ?? []) {
-    if (drive.state !== "unmounted") continue;
-    const started = await run(binaries.systemctl, ["start", drive.unit], { timeout: 120_000 });
-    log?.(started.ok ? `Mounted ${drive.mountpoint} again` : `Could not mount ${drive.mountpoint} again: ${tail(started.stderr)}`, started.ok ? "stdout" : "stderr");
+    if (!drive.mounted) continue;
+    const resolved = drive.entrySource ? (await deviceFor(run, drive.entrySource)).device : null;
+    const back = await startMountUnit(run, drive.unit, drive.mountpoint, { sources: [drive.source, resolved], log, sleep, clock, timeoutMs: settleMs });
+    if (back.ok && back.started) log?.(`Mounted ${drive.mountpoint} again, from ${back.mount.source}`, "stdout");
+    if (!back.ok) log?.(`${drive.mountpoint} did not mount again: ${back.reason}`, "stderr");
+    drives.push({ mountpoint: drive.mountpoint, ok: back.ok, remounted: back.ok && back.started, source: back.mount?.source ?? null, reason: back.reason });
   }
-  if (summary?.dockerStopped) {
+  const missing = drives.filter((drive) => !drive.ok).map((drive) => drive.mountpoint);
+  let docker = "untouched";
+  let dockerError = null;
+  if (summary?.dockerStopped && missing.length) {
+    docker = "left-stopped";
+    log?.(`Docker was left stopped, so no app starts on the empty folder at ${missing.join(", ")} and writes to the system disk`, "stderr");
+  } else if (summary?.dockerStopped) {
     const started = await run(binaries.systemctl, ["start", "docker.socket", "docker.service"], { timeout: 120_000 });
-    log?.(started.ok ? "Started Docker again; it starts its containers by their restart policies" : `Could not start Docker again: ${tail(started.stderr)}`, started.ok ? "stdout" : "stderr");
+    docker = started.ok ? "started" : "failed";
+    dockerError = started.ok ? null : tail(started.stderr) || "systemctl start failed";
+    log?.(started.ok ? "Started Docker again; it starts its containers by their restart policies" : `Could not start Docker again: ${dockerError}`, started.ok ? "stdout" : "stderr");
   }
+  return { drives, docker, dockerError, missing };
 }

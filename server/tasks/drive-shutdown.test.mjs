@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { hostView, managedDriveEntries, mountUnitName, parseContainers, parseExtState, parseVerifySummary, planDockerOrder, prepareDrivesForReboot, resumeAfterCancelledReboot, stopSignalOf, storageDockerOrder, storageVolumeState, verificationAllows } from "./drive-shutdown.mjs";
-import { systemReboot } from "./system.mjs";
+import { afterResume, systemReboot } from "./system.mjs";
 import { exfatVolumeFlags, withDockerOrder } from "./storage.mjs";
+import { laggingSystemd } from "../../test/lagging-systemd.mjs";
 
 const ORDER = "x-systemd.before=docker.service,x-systemd.device-timeout=30s";
 // The owner's line as it is on the server, under BoxPilot's marker, among lines BoxPilot never wrote.
@@ -422,11 +423,93 @@ describe("the reboot itself", () => {
   });
 
   it("mounts the drives again and starts Docker when the reboot cannot be scheduled", async () => {
-    const calls = [];
-    const run = vi.fn(async (binary, args) => { calls.push(`${binary.split("/").pop()} ${args.join(" ")}`); return binary.endsWith("systemd-run") ? { ok: false, stdout: "", stderr: "Failed to connect to bus" } : { ok: true, stdout: "", stderr: "" }; });
-    const prepared = { drives: [{ mountpoint: "/mnt/the-dump", unit: "mnt-the\\x2ddump.mount", state: "unmounted" }, { mountpoint: "/mnt/busy", unit: "mnt-busy.mount", state: "busy" }], containers: {}, dockerStopped: true };
-    await expect(systemReboot({}, { run, prepare: async () => prepared, resume: resumeAfterCancelledReboot })).rejects.toThrow("The drives were mounted again and Docker was started");
-    expect(calls.slice(1)).toEqual(["systemctl start mnt-the\\x2ddump.mount", "systemctl start docker.socket docker.service"]);
+    // Unmounted a moment ago, outside systemd: the kernel's table says so, the unit does not yet.
+    const host = laggingSystemd({ mounted: null, unitActive: true, lagMs: 300 });
+    const run = vi.fn(async (binary, args, options) => (binary.endsWith("systemd-run") ? { ok: false, stdout: "", stderr: "Failed to connect to bus" } : host.run(binary, args, options)));
+    const resume = (summary, options) => resumeAfterCancelledReboot(summary, { ...options, sleep: host.sleep, clock: host.clock });
+    await expect(systemReboot({}, { run, log: host.log, prepare: async () => prepared(), resume })).rejects.toThrow("Could not schedule the reboot: Failed to connect to bus. The drives were mounted again and Docker was started.");
+    const starts = host.calls.filter((call) => call.startsWith("systemctl start"));
+    expect(starts).toEqual(["systemctl start mnt-the\\x2ddump.mount", "systemctl start docker.socket docker.service"]);
+    expect(host.state).toMatchObject({ mounted: "/dev/sda2", dockerActive: true });
+    expect(host.log).toHaveBeenCalledWith("Mounted /mnt/the-dump again, from /dev/sda2", "stdout");
+  });
+});
+
+/** What the preparation reports for the owner's drive, unmounted cleanly (or otherwise). */
+const prepared = (drive = {}) => ({
+  drives: [{ name: "the-dump", mountpoint: "/mnt/the-dump", unit: "mnt-the\\x2ddump.mount", entrySource: "UUID=0023-7927", source: "/dev/sda2", fstype: "exfat", majMin: "8:2", mounted: true, state: "unmounted", holders: [], volumeDirty: false, ...drive }],
+  containers: { stopped: ["bp-plex"], signalled: [], killed: [], stillRunning: [] },
+  dockerStopped: true,
+});
+
+describe("putting things back when the reboot cannot be scheduled", () => {
+  const resume = (host, summary = prepared()) => resumeAfterCancelledReboot(summary, { run: host.run, log: host.log, sleep: host.sleep, clock: host.clock });
+
+  it("waits for systemd to see the drive unmounted before starting it, where a start would have done nothing", async () => {
+    // The race: the unit still says mounted, so a start at once is a no-op that exits 0, and
+    // Docker then starts every app on the empty folder. This used to log "Mounted ... again".
+    const host = laggingSystemd({ mounted: null, unitActive: true, lagMs: 400 });
+    const result = await resume(host);
+    expect(result).toEqual({ drives: [{ mountpoint: "/mnt/the-dump", ok: true, remounted: true, source: "/dev/sda2", reason: null }], docker: "started", dockerError: null, missing: [] });
+    const lastLook = host.calls.lastIndexOf("systemctl show mnt-the\\x2ddump.mount --property=ActiveState,SubState");
+    expect(host.calls.indexOf("systemctl start mnt-the\\x2ddump.mount")).toBeGreaterThan(lastLook);
+    expect(host.calls.filter((call) => call === "systemctl start mnt-the\\x2ddump.mount")).toHaveLength(1);
+    expect(host.calls.indexOf("systemctl start docker.socket docker.service")).toBeGreaterThan(host.calls.indexOf("systemctl start mnt-the\\x2ddump.mount"));
+    expect(host.log).toHaveBeenCalledWith(expect.stringMatching(/^systemd took \d+ ms to see \/mnt\/the-dump unmounted$/), "stdout");
+  });
+
+  it("leaves Docker stopped, and says why, when a drive does not mount again", async () => {
+    const host = laggingSystemd({ mounted: null, unitActive: false, starts: [{ fails: "A dependency job for mnt-the\\x2ddump.mount failed. See 'journalctl -xe' for details." }] });
+    const result = await resume(host);
+    expect(result).toMatchObject({ docker: "left-stopped", missing: ["/mnt/the-dump"], drives: [{ ok: false, remounted: false }] });
+    expect(host.calls).not.toContain("systemctl start docker.socket docker.service");
+    expect(host.state.dockerActive).toBe(false);
+    expect(host.log).toHaveBeenCalledWith("Docker was left stopped, so no app starts on the empty folder at /mnt/the-dump and writes to the system disk", "stderr");
+    expect(host.log).not.toHaveBeenCalledWith(expect.stringContaining("Mounted /mnt/the-dump again"), "stdout");
+  });
+
+  it("leaves Docker stopped when systemd keeps saying started and nothing mounts", async () => {
+    const host = laggingSystemd({ mounted: null, unitActive: true, lagMs: 60_000 });
+    const result = await resumeAfterCancelledReboot(prepared(), { run: host.run, log: host.log, sleep: host.sleep, clock: host.clock, settleMs: 500 });
+    expect(result).toMatchObject({ docker: "left-stopped", drives: [{ ok: false, reason: "systemd said mnt-the\\x2ddump.mount started, twice, but nothing is mounted at /mnt/the-dump" }] });
+    expect(host.state.dockerActive).toBe(false);
+  });
+
+  it("mounts a drive reported busy because a container still had it: the host's mount is gone all the same", async () => {
+    const host = laggingSystemd({ mounted: null, unitActive: false });
+    const result = await resume(host, prepared({ state: "busy", holders: [{ pid: 999, command: "rsync" }] }));
+    expect(result).toMatchObject({ docker: "started", drives: [{ ok: true, remounted: true }] });
+  });
+
+  it("starts nothing for a drive that never let go, and nothing for one that was not mounted", async () => {
+    const busy = laggingSystemd({ mounted: "/dev/sda2" });
+    expect(await resume(busy, prepared({ state: "busy" }))).toMatchObject({ docker: "started", drives: [{ ok: true, remounted: false }] });
+    expect(busy.calls).not.toContain("systemctl start mnt-the\\x2ddump.mount");
+    const absent = laggingSystemd();
+    expect(await resume(absent, { ...prepared({ mounted: false, source: null, state: "not-mounted" }), dockerStopped: false })).toEqual({ drives: [], docker: "untouched", dockerError: null, missing: [] });
+    expect(absent.calls).toEqual([]);
+  });
+
+  it("takes the drive back under the name its fstab entry has now, and nothing else", async () => {
+    // Unplugged and back within the seconds of a cancelled reboot: sda2 is sdb2 now.
+    const moved = laggingSystemd({ blkid: { "0023-7927": "/dev/sdb2" }, starts: [{ mounts: "/dev/sdb2" }] });
+    expect(await resume(moved)).toMatchObject({ docker: "started", drives: [{ ok: true, source: "/dev/sdb2" }] });
+    const other = laggingSystemd({ blkid: { "0023-7927": "/dev/sda2" }, starts: [{ mounts: "/dev/sdc1" }] });
+    expect(await resume(other)).toMatchObject({ docker: "left-stopped", drives: [{ ok: false, reason: "/mnt/the-dump is mounted from /dev/sdc1, not from /dev/sda2" }] });
+  });
+
+  it("says in the reboot's error what putting things back did, never assuming it worked", () => {
+    const back = { mountpoint: "/mnt/the-dump", ok: true, remounted: true };
+    const lost = { mountpoint: "/mnt/the-dump", ok: false, remounted: false, reason: "systemctl start mnt-the\\x2ddump.mount failed: A dependency job failed." };
+    expect(afterResume(null)).toBe("");
+    expect(afterResume({ drives: [back], docker: "started" })).toBe(". The drives were mounted again and Docker was started.");
+    expect(afterResume({ drives: [back], docker: "untouched" })).toBe(". The drives were mounted again.");
+    expect(afterResume({ drives: [], docker: "started" })).toBe(". Docker was started again.");
+    expect(afterResume({ drives: [], docker: "untouched" })).toBe("");
+    expect(afterResume({ drives: [lost], docker: "left-stopped" })).toBe(". /mnt/the-dump did not mount again (systemctl start mnt-the\\x2ddump.mount failed: A dependency job failed), so Docker was left stopped and no app writes into the empty folder instead. Reconnect the drive from Repair, then start docker.service from Services, or reboot.");
+    expect(afterResume({ drives: [lost], docker: "untouched" })).toBe(". /mnt/the-dump did not mount again (systemctl start mnt-the\\x2ddump.mount failed: A dependency job failed). Reconnect the drive from Repair, or reboot.");
+    expect(afterResume({ drives: [back], docker: "failed", dockerError: "Job for docker.service failed." })).toBe(". The drives were mounted again, but Docker did not start again (Job for docker.service failed); start docker.service from Services.");
+    expect(afterResume({ error: new Error("fstab unreadable") })).toBe(". Putting the drives and Docker back failed as well (fstab unreadable); reconnect the drives from Repair and start docker.service from Services, or reboot.");
   });
 });
 
