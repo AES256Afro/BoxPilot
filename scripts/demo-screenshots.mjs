@@ -275,10 +275,20 @@ async function main() {
             await sleep(400);
           }
           const applied = await devtools.evaluate("getComputedStyle(document.documentElement).colorScheme");
+          // A page wider than the window scrolls sideways, which a picture clipped to the window hides.
+          const overflow = Number(await devtools.evaluate("document.documentElement.scrollWidth - window.innerWidth")) || 0;
+          // The typefaces are served by BoxPilot itself (M33.7): say so when one did not arrive.
+          const fonts = String(await devtools.evaluate("[...document.fonts].filter((face) => face.status === 'error').map((face) => face.family).join(', ')") ?? "");
           const file = store(schemes.length > 1 ? `${name}-${scheme}` : name, await capture(devtools));
           written += 1;
           const mismatch = applied && !String(applied).includes(scheme) ? `  WARNING: the page rendered color-scheme "${applied}"` : "";
-          console.log(`${file}  (${title}, ${scheme})${mismatch}`);
+          const wide = overflow > 0 ? `  WARNING: ${overflow}px wider than the window` : "";
+          const missing = fonts ? `  WARNING: fonts failed to load: ${fonts}` : "";
+          console.log(`${file}  (${title}, ${scheme})${mismatch}${wide}${missing}`);
+          if (index === 0 && (name === "home" || name === "ops")) {
+            const loaded = await devtools.evaluate("[...new Set([...document.fonts].filter((face) => face.status === 'loaded').map((face) => `${face.family} ${face.weight}`))].join(', ')");
+            console.log(`  fonts loaded from ${baseUrl}: ${loaded || "none"}`);
+          }
         }
       } catch (error) {
         skipped.push(`${name}: ${error.message}`);
