@@ -4,7 +4,7 @@ import { readJson } from "../http";
 import { approveJob, cancelJob, stageOperation, waitForJob, type Job } from "../operations";
 import { riskOf } from "../ui/operationRisk";
 import type { RiskTier } from "../ui/types";
-import { BatchDialog, DismissDialog, ScheduleDialog, type DismissTarget } from "./RepairDialogs";
+import { BatchDialog, DismissDialog, ScheduleDialog, type DismissTarget, type FindingTarget } from "./RepairDialogs";
 import { nextStep, whatChanged } from "./outcome";
 import type { Finding, RepairFix, RepairScan } from "./types";
 
@@ -66,7 +66,7 @@ export function useRepairFixes({ csrfToken, recheck }: { csrfToken: string; rech
   const [approving, setApproving] = useState<BatchEntry | null>(null);
   const [scheduling, setScheduling] = useState<BatchEntry | null>(null);
   const [batching, setBatching] = useState<BatchEntry[] | null>(null);
-  const [dismissing, setDismissing] = useState<DismissTarget | null>(null);
+  const [dismissing, setDismissing] = useState<FindingTarget | null>(null);
   const [batchBusy, setBatchBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const live = useRef(true);
@@ -179,7 +179,17 @@ export function useRepairFixes({ csrfToken, recheck }: { csrfToken: string; rech
     }
   }, [csrfToken]);
 
-  const dismiss = useCallback((target: DismissTarget) => setDismissing(target), []);
+  // A finding is set aside with a reason; a failed job is let go on the job itself, with M36's own
+  // mark (POST /jobs/:id/dismiss) that Activity, Home and Ops all read, so the two never disagree.
+  const [jobProblem, setJobProblem] = useState<string | null>(null);
+  const dismiss = useCallback((target: DismissTarget) => {
+    if (target.kind === "finding") { setDismissing(target); return; }
+    setJobProblem(null);
+    void fetch(`/api/v1/jobs/${encodeURIComponent(target.jobId)}/dismiss`, { method: "POST", headers: { "X-BoxPilot-CSRF": csrfToken } })
+      .then((response) => readJson(response))
+      .then(() => recheckRef.current().catch(() => null))
+      .catch((error: unknown) => setJobProblem(`Could not dismiss "${target.title}": ${error instanceof Error ? error.message : "that did not work"}`));
+  }, [csrfToken]);
 
   let dialog: ReactNode = null;
   if (approving) {
@@ -203,6 +213,7 @@ export function useRepairFixes({ csrfToken, recheck }: { csrfToken: string; rech
   } else if (dismissing) {
     dialog = <DismissDialog target={dismissing} csrfToken={csrfToken} onClose={() => setDismissing(null)} onDone={() => { setDismissing(null); void recheckRef.current().catch(() => null); }} />;
   }
+  if (jobProblem) dialog = <>{dialog}<p className="rp-dialog__error" role="alert">{jobProblem}</p></>;
 
   return { runs, remembered, start, startBatch, dismiss, restore, busy: batchBusy, notice, dialog };
 }

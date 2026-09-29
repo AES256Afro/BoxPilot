@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { collectFilesystemErrors, createStorageScanner, needsSatRetry, parseSmartctlEvidence, smartEvidenceFor, usbBridgeUnrecognized, writeStorageEvidence } from "./boxpilot-storage-scan.mjs";
+import { carryLastReadings, collectFilesystemErrors, createStorageScanner, diskAsleep, needsSatRetry, parseSmartctlEvidence, smartEvidenceFor, usbBridgeUnrecognized, writeStorageEvidence } from "./boxpilot-storage-scan.mjs";
 
 const directories = [];
 /** smartctl 7.4 --json output for USB disks, scrubbed: placeholder models, serials and USB ids. */
@@ -30,7 +30,7 @@ describe("fixed root-only storage scan", () => {
       if (binary.endsWith("findmnt")) return { ok: true, stdout: JSON.stringify({ filesystems: [{ target: "/", source: "/dev/nvme0n1p2", fstype: "ext4", size: 1000, used: 500, avail: 500, "use%": "50%", options: "rw,relatime,password=secret" }] }) };
       if (binary.endsWith("lsblk") && args[0] === "--noheadings") return { ok: true, stdout: "nvme0n1p2" };
       if (binary.endsWith("lsblk")) return { ok: true, stdout: JSON.stringify({ blockdevices: [{ name: "/dev/nvme0n1", type: "disk" }, { name: "/dev/mapper/private", type: "disk" }, { name: "/dev/nvme0n1p1", type: "part" }] }) };
-      expect(args).toEqual(["--json=c", "--all", "/dev/nvme0n1"]);
+      expect(args).toEqual(["--json=c", "--all", "-n", "standby", "/dev/nvme0n1"]);
       return { ok: true, stdout: JSON.stringify({ smart_status: { passed: false }, serial_number: "secret" }) };
     });
     const loadFile = vi.fn(async (file) => file === "/sys/fs/ext4/nvme0n1p2/errors_count" ? "0\n" : Promise.reject(new Error("unexpected path")));
@@ -119,8 +119,8 @@ describe("SMART through a USB bridge", () => {
         return { ok: true, stdout: JSON.stringify({ blockdevices: [{ name: "/dev/nvme0n1", type: "disk", tran: "nvme" }, { name: "/dev/sdb", type: "disk", tran: "usb" }] }) };
       }
       if (args.at(-1) === "/dev/nvme0n1") return { ok: true, stdout: JSON.stringify({ smart_status: { passed: true }, nvme_smart_health_information_log: { percentage_used: 3 } }) };
-      if (args.includes("sat")) { expect(args).toEqual(["--json=c", "--all", "-d", "sat", "/dev/sdb"]); return { ok: true, stdout: outputs.sat }; }
-      expect(args).toEqual(["--json=c", "--all", "/dev/sdb"]);
+      if (args.includes("sat")) { expect(args).toEqual(["--json=c", "--all", "-n", "standby", "-d", "sat", "/dev/sdb"]); return { ok: true, stdout: outputs.sat }; }
+      expect(args).toEqual(["--json=c", "--all", "-n", "standby", "/dev/sdb"]);
       return { ok: false, stdout: outputs.direct };
     });
     const scanner = createStorageScanner({ run, loadFile: vi.fn(async () => "0"), checkAccess: vi.fn(async () => {}), now: () => new Date("2026-09-28T06:00:00.000Z") });
@@ -131,5 +131,70 @@ describe("SMART through a USB bridge", () => {
     ]);
     expect(run.mock.calls.filter(([binary]) => binary.endsWith("smartctl"))).toHaveLength(3);
     expect(result.boundary).toMatchObject({ mutationPerformed: false, serialsIncluded: false });
+  });
+});
+
+// M36: a check every six hours used to spin up every drive that had gone to sleep.
+describe("a sleeping disk", () => {
+  const asleepRun = (outputs) => vi.fn(async (binary, args) => {
+    if (binary.endsWith("findmnt")) return { ok: true, stdout: JSON.stringify({ filesystems: [] }) };
+    if (binary.endsWith("lsblk")) return { ok: true, stdout: JSON.stringify({ blockdevices: [{ name: "/dev/sdb", type: "disk", tran: "usb" }] }) };
+    return args.includes("sat") ? outputs.sat : outputs.direct;
+  });
+
+  it("is left asleep and recorded as asleep, not as a failed read", async () => {
+    const standby = await fixture("usb-standby");
+    expect(diskAsleep(standby)).toBe(true);
+    expect(diskAsleep(await fixture("usb-open-failed"))).toBe(false);
+    expect(parseSmartctlEvidence("/dev/sdb", standby)).toMatchObject({ health: "unavailable", passed: null, reason: "asleep" });
+  });
+
+  it("is not asked a second time through its bridge, which would wake it", async () => {
+    const standby = await fixture("usb-standby");
+    expect(needsSatRetry("usb", standby)).toBe(false);
+    const run = asleepRun({ direct: { ok: false, stdout: standby }, sat: { ok: true, stdout: await fixture("usb-sat") } });
+    const scanner = createStorageScanner({ run, loadFile: vi.fn(async () => "0"), checkAccess: vi.fn(async () => {}), now: () => new Date("2026-09-29T06:00:00.000Z") });
+    const result = await scanner.scan();
+    expect(run.mock.calls.filter(([binary]) => binary.endsWith("smartctl")).map(([, args]) => args)).toEqual([["--json=c", "--all", "-n", "standby", "/dev/sdb"]]);
+    // Every disk asleep is a quiet server, not a failed scan.
+    expect(result).toMatchObject({ available: false, reason: "disks-asleep", disks: [{ device: "/dev/sdb", health: "unavailable", reason: "asleep", transport: "usb" }] });
+  });
+
+  it("asleep behind a bridge smartctl did not know is found asleep when asked through it", async () => {
+    const result = smartEvidenceFor("/dev/sdb", { transport: "usb", direct: await fixture("usb-bridge-unknown"), sat: await fixture("usb-standby") });
+    expect(result).toMatchObject({ health: "unavailable", reason: "asleep", transport: "usb", deviceType: "sat" });
+  });
+
+  it("keeps the health it had when it was last read, and when that was", () => {
+    const previous = { generatedAt: "2026-09-28T00:00:00.000Z", disks: [
+      { device: "/dev/sdb", health: "critical", reason: "ok", readAt: "2026-09-27T18:00:00.000Z" },
+      { device: "/dev/sdc", health: "unavailable", reason: "asleep", lastHealth: "healthy", lastReadAt: "2026-09-20T06:00:00.000Z" },
+      { device: "/dev/sdd", health: "healthy", reason: "ok" },
+    ] };
+    const now = { generatedAt: "2026-09-29T06:00:00.000Z", disks: [
+      { device: "/dev/sdb", health: "unavailable", reason: "asleep" },
+      { device: "/dev/sdc", health: "unavailable", reason: "asleep" },
+      { device: "/dev/sdd", health: "unavailable", reason: "asleep" },
+      { device: "/dev/sde", health: "unavailable", reason: "asleep" },
+    ] };
+    expect(carryLastReadings(now, previous).disks).toEqual([
+      { device: "/dev/sdb", health: "unavailable", reason: "asleep", lastHealth: "critical", lastReadAt: "2026-09-27T18:00:00.000Z" },
+      { device: "/dev/sdc", health: "unavailable", reason: "asleep", lastHealth: "healthy", lastReadAt: "2026-09-20T06:00:00.000Z" },
+      // Read before readAt was recorded: the scan it came from is when.
+      { device: "/dev/sdd", health: "unavailable", reason: "asleep", lastHealth: "healthy", lastReadAt: "2026-09-28T00:00:00.000Z" },
+      { device: "/dev/sde", health: "unavailable", reason: "asleep" },
+    ]);
+    expect(carryLastReadings(now, null).disks).toEqual(now.disks);
+  });
+
+  it("carries the last reading through the evidence file it rewrites", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-storage-scan-"));
+    directories.push(directory);
+    const outputPath = path.join(directory, "storage-health.json");
+    const scan = (disks, at) => ({ scan: async () => ({ schemaVersion: 2, generatedAt: at, available: true, reason: "fixed-root-scan", filesystems: { available: false }, disks, boundary: {} }) });
+    await writeStorageEvidence({ outputPath, stateDirectory: directory, scanner: scan([{ device: "/dev/sdb", health: "healthy", reason: "ok", readAt: "2026-09-28T06:00:00.000Z" }], "2026-09-28T06:00:00.000Z") });
+    await writeStorageEvidence({ outputPath, stateDirectory: directory, scanner: scan([{ device: "/dev/sdb", health: "unavailable", reason: "asleep" }], "2026-09-28T12:00:00.000Z") });
+    const written = JSON.parse(await readFile(outputPath, "utf8"));
+    expect(written.disks[0]).toMatchObject({ reason: "asleep", lastHealth: "healthy", lastReadAt: "2026-09-28T06:00:00.000Z" });
   });
 });

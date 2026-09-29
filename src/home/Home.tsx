@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { openActivity, openNotifications } from "../activityEvents";
 import { useOperation } from "../ApproveDialog";
 import { judgeProtection } from "../backupProtection";
 import { countOf, sentenceList, type ViewName } from "../data";
@@ -59,7 +60,9 @@ export default function Home({ csrfToken, role, onNavigate, now = Date.now }: Ho
   const hostname = inventory?.hostname ?? "This server";
   const verdict = verdictFor(needs, { hostname, checking, unread });
 
-  const open = (need: Need) => onNavigate(need.view, need.appId && need.view === "catalog" ? { app: need.appId } : undefined);
+  // A staged or failed job opens in Activity, where it can be approved, cancelled or dismissed (M36).
+  // What BoxPilot could not tell anyone is read in the notification centre, which says what it was.
+  const open = (need: Need) => (need.jobId ? openActivity(need.jobId) : need.id === "unannounced" ? openNotifications() : onNavigate(need.view, need.appId && need.view === "catalog" ? { app: need.appId } : undefined));
   const runOf = (need: Need) => (need.finding ? runs[need.finding.id] : undefined);
   // Fixed from here and gone from the list since: said once, under it (M35).
   const listed = new Set(needs.flatMap((need) => (need.finding ? [need.finding.id] : [])));

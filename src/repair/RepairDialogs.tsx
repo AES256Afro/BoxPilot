@@ -71,22 +71,22 @@ export function BatchDialog({ entries, onClose, onConfirm }: { entries: Array<{ 
   );
 }
 
-export type DismissTarget = { kind: "finding"; finding: Finding } | { kind: "job"; jobId: string; title: string };
+export type FindingTarget = { kind: "finding"; finding: Finding };
+/** What Dismiss acts on: a finding, set aside here with a reason, or a failed job, let go on the job itself (M36). */
+export type DismissTarget = FindingTarget | { kind: "job"; jobId: string; title: string };
 
 /** "Not now", with the reason in the owner's words. A finding comes back by itself when it changes. */
-export function DismissDialog({ target, csrfToken, onClose, onDone }: { target: DismissTarget; csrfToken: string; onClose: () => void; onDone: () => void }) {
+export function DismissDialog({ target, csrfToken, onClose, onDone }: { target: FindingTarget; csrfToken: string; onClose: () => void; onDone: () => void }) {
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const reasonId = useId();
-  const title = target.kind === "finding" ? target.finding.title : target.title;
+  const title = target.finding.title;
   const submit = async () => {
     setBusy(true);
     setError(null);
     try {
-      const body = target.kind === "finding"
-        ? { id: target.finding.id, fingerprint: target.finding.fingerprint, severity: target.finding.severity, reason: reason.trim() }
-        : { jobId: target.jobId, reason: reason.trim() };
+      const body = { id: target.finding.id, fingerprint: target.finding.fingerprint, severity: target.finding.severity, reason: reason.trim() };
       await readJson(await fetch("/api/v1/remediations/dismissals", { method: "POST", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify(body) }));
       onDone();
     } catch (submitError) {
@@ -95,12 +95,10 @@ export function DismissDialog({ target, csrfToken, onClose, onDone }: { target: 
     }
   };
   return (
-    <Modal title={target.kind === "finding" ? "Dismiss this finding" : "Dismiss this failure"} eyebrow="Not now" onClose={onClose} busy={busy}
+    <Modal title="Dismiss this finding" eyebrow="Not now" onClose={onClose} busy={busy}
       footer={<><Button onClick={onClose} disabled={busy}>Cancel</Button><Button variant="primary" busy={busy} disabled={reason.trim().length === 0} onClick={() => void submit()}>Dismiss</Button></>}>
       <p><strong>{title}</strong></p>
-      <p className="rp-dialog__dim">{target.kind === "finding"
-        ? "It moves to Dismissed at the bottom of Repair, with your reason, and leaves Home. If what it says changes, it comes back by itself."
-        : "It stops being listed on Home and Ops. The job stays in Activity with its log."}</p>
+      <p className="rp-dialog__dim">It moves to Dismissed at the bottom of Repair, with your reason, and leaves Home. If what it says changes, it comes back by itself.</p>
       <label className="rp-dialog__label" htmlFor={reasonId}>Why? Whoever reads this later will see it.</label>
       <textarea id={reasonId} className="rp-modal__reason" value={reason} maxLength={200} rows={3} onChange={(event) => setReason(event.target.value)} placeholder="It is deliberate: the downloads drive is separate on purpose" />
       {error && <p className="rp-dialog__error" role="alert">{error}</p>}

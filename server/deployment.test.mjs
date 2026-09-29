@@ -149,10 +149,12 @@ describe("native systemd network boundaries", () => {
     expect(service).toContain("ConditionPathIsDirectory=/var/lib/boxpilot");
     expect(service).not.toContain("StateDirectory=boxpilot");
     expect(timer).toContain("OnUnitActiveSec=6h");
-    expect(scanner).toContain('["--json=c", "--all", device]');
+    // Every read leaves a sleeping disk asleep (M36): -n standby, then the device.
+    expect(scanner).toContain('Object.freeze(["--json=c", "--all", "-n", "standby"])');
+    expect(scanner).toContain("[...smartReadArgs, device]");
     // A USB disk that did not answer is asked once more through its bridge. Still a read: SMART is
     // never switched on or off from here.
-    expect(scanner).toContain('["--json=c", "--all", "-d", "sat", device]');
+    expect(scanner).toContain('[...smartReadArgs, "-d", "sat", device]');
     expect(scanner).not.toMatch(/["'](?:-s|--smart=on|--smart=off)["']/);
     expect(scanner).toContain('["--noheadings", "--nodeps", "--output", "KNAME", source]');
     expect(scanner).toContain('`/sys/fs/ext4/${kernelName}/errors_count`');

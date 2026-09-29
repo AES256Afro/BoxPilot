@@ -185,15 +185,17 @@ describe("Repair's memory: fixes tried and findings set aside (M35)", () => {
     } finally { await close(); }
   });
 
-  it("refuses a dismissal without a reason or of a critical finding, and a failed job nobody may see", async () => {
+  it("refuses a dismissal without a reason, of a critical finding, or of a job, and a job nobody may see", async () => {
     const theirs = { id: "job-9", type: "op:app.update", title: "Update", state: "failed", error: "x", createdBy: "owner-1" };
     const state = fakeState([theirs]);
     const { call, close } = await serve(state, "operator", "operator-1");
     try {
       expect((await call("POST", "/remediations/dismissals", { id: "stale-mount:media", fingerprint: "0123456789abcdef", severity: "critical", reason: "later" })).status).toBe(400);
       expect((await call("POST", "/remediations/dismissals", { id: "split-data-folders", fingerprint: "0123456789abcdef", severity: "info", reason: "" })).status).toBe(400);
-      // The owner's job is not the operator's to set aside, or to record as a fix attempt.
-      expect((await call("POST", "/remediations/dismissals", { jobId: "job-9", reason: "done" })).status).toBe(404);
+      // A failed job is let go on the job itself (M36's POST /jobs/:id/dismiss), not in Repair's ledger.
+      const job = await call("POST", "/remediations/dismissals", { jobId: "job-9", reason: "done" });
+      expect(job).toMatchObject({ status: 400, body: { error: expect.stringContaining("/jobs/:id/dismiss") } });
+      // The owner's job is not the operator's to record as a fix attempt.
       expect((await call("POST", "/remediations/attempts", { findingId: "x", jobId: "job-9" })).status).toBe(404);
     } finally { await close(); }
   });

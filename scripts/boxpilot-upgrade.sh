@@ -5,16 +5,24 @@
 #   curl -fsSL https://raw.githubusercontent.com/AES256Afro/BoxPilot/main/scripts/boxpilot-upgrade.sh | sudo sh -s -- phase-0
 #
 # What it does:
+#   0. Holds /run/boxpilot-upgrade.lock for the whole run: a second upgrade started meanwhile refuses
+#      and says which one to wait for
 #   1. Downloads the ref as a tarball from GitHub into /opt/boxpilot.staging.<stamp>
 #   2. npm ci, npm run build, npm prune --omit=dev in the staging directory
-#   3. Swaps /opt/boxpilot atomically (previous tree kept as /opt/boxpilot.prev.<stamp>)
-#   4. Installs any changed deploy/*.service and *.timer units (old copies kept as *.pre-<stamp>)
-#   5. Moves a backup destination still mounted at /mnt/boxpilot-backup to /mnt/boxpilot/backup
+#   3. Copies the database the running version wrote (VACUUM INTO, integrity-checked, the live
+#      file's owner and mode) to /var/lib/boxpilot/boxpilot-rollback-<old version>-<stamp>.sqlite3,
+#      and refuses to go on if that copy cannot be made
+#   4. Swaps /opt/boxpilot atomically (previous tree kept as /opt/boxpilot.prev.<stamp>)
+#   5. Installs any changed deploy/*.service and *.timer units (old copies kept as *.pre-<stamp>)
+#   6. Moves a backup destination still mounted at /mnt/boxpilot-backup to /mnt/boxpilot/backup
 #      (one fstab entry, saved first as /etc/fstab.boxpilot-<stamp>; see scripts/boxpilot-backup-mount-move.mjs)
-#   6. daemon-reload, restarts boxpilot-helper and boxpilot, and checks /api/v1/health reports the new version
-#   7. Rolls the directory swap, the units and that move back and restarts the old tree if the health check fails
+#   7. daemon-reload, restarts boxpilot-helper and boxpilot, and checks /api/v1/health reports the new version
+#   8. Rolls the directory swap, the units and that move back and restarts the old tree if the health check
+#      fails, and names the database copy that matches the old tree
 #
-# It does not touch /etc/boxpilot, /var/lib/boxpilot, systemd drop-ins, or the owner account.
+# It does not touch /etc/boxpilot, systemd drop-ins, or the owner account. In /var/lib/boxpilot it only
+# adds the database copy: it never changes the database itself, and never deletes a copy (the System
+# page's housekeeping lets the owner choose which old copies go).
 set -eu
 # sudo keeps the caller's umask: a strict one would make /opt and node_modules unreadable to the service user.
 umask 022
@@ -31,8 +39,60 @@ KEEP_PREVIOUS="${BOXPILOT_KEEP_PREVIOUS:-2}"
 log() { printf '[boxpilot-upgrade] %s\n' "$*"; }
 fail() { printf '[boxpilot-upgrade] ERROR: %s\n' "$*" >&2; exit 1; }
 
+# The database the running BoxPilot keeps its state in: where the service's environment file says,
+# otherwise the default. BOXPILOT_DATABASE and BOXPILOT_DB_COPY_DIR override both for a test or an
+# unusual layout; the copy goes beside the database unless told otherwise.
+STATE_DIR="${BOXPILOT_STATE_DIRECTORY:-}"
+if [ -z "$STATE_DIR" ] && [ -f /etc/boxpilot/boxpilot.env ]; then
+  STATE_DIR="$(sed -n 's/^BOXPILOT_STATE_DIRECTORY=//p' /etc/boxpilot/boxpilot.env | tail -n 1 | sed "s/^[\"']//; s/[\"']\$//")"
+fi
+STATE_DIR="${STATE_DIR:-/var/lib/boxpilot}"
+DATABASE="${BOXPILOT_DATABASE:-${STATE_DIR}/boxpilot.sqlite3}"
+DB_COPY_DIR="${BOXPILOT_DB_COPY_DIR:-$(dirname "$DATABASE")}"
+# The copy this run made, once it has made one; the rollback names it.
+DB_COPY=""
+
+# Read-only open, VACUUM INTO (one consistent file, WAL included, while the service keeps running),
+# then an integrity check of the copy. Prints the copy's size in bytes, or one line saying why not
+# on stderr with a non-zero exit. Runs under the Node the service uses.
+DB_COPY_JS='
+import { DatabaseSync } from "node:sqlite";
+import { statSync } from "node:fs";
+const [source, target] = process.argv.slice(1);
+try {
+  const live = new DatabaseSync(source, { readOnly: true });
+  try {
+    live.exec("PRAGMA busy_timeout = 15000");
+    live.prepare("VACUUM INTO ?").run(target);
+  } finally { live.close(); }
+  const copy = new DatabaseSync(target, { readOnly: true });
+  let verdict;
+  try { verdict = copy.prepare("PRAGMA integrity_check").all().map((row) => String(Object.values(row)[0])); } finally { copy.close(); }
+  if (verdict.length !== 1 || verdict[0] !== "ok") throw new Error(`the copy failed its integrity check (${verdict.slice(0, 3).join("; ")})`);
+  process.stdout.write(`${statSync(target).size}\n`);
+} catch (error) {
+  process.stderr.write(`${String(error?.message ?? error).split("\n")[0]}\n`);
+  process.exitCode = 1;
+}
+'
+
 [ "$(id -u)" -eq 0 ] || fail "run with sudo (root is required to replace ${INSTALL_DIR} and restart units)"
-for tool in curl tar; do command -v "$tool" >/dev/null 2>&1 || fail "$tool is required"; done
+for tool in curl tar flock; do command -v "$tool" >/dev/null 2>&1 || fail "$tool is required"; done
+
+# One upgrade at a time, for the whole run. Two started two seconds apart on the owner's server: two
+# previous trees (one of them the new version itself), two database copies, the service started
+# twice, and a healthy end only by luck. The lock lives in /run, so a reboot never leaves one behind,
+# and it is released when this shell exits, however it exits. Who holds it is written into the lock
+# file, so a second run can say who to wait for. The System page's update checks the same lock
+# before it starts one (server/tasks/update.mjs).
+UPGRADE_LOCK="${BOXPILOT_UPGRADE_LOCK:-/run/boxpilot-upgrade.lock}"
+exec 9>>"$UPGRADE_LOCK"
+if ! flock -n 9; then
+  holder="$(tr '\n' ' ' < "$UPGRADE_LOCK" 2>/dev/null | sed 's/ *$//')"
+  fail "another BoxPilot update is already running (${holder:-it holds ${UPGRADE_LOCK}}). Nothing was changed; wait for it to finish, then run this again if it is still needed."
+fi
+: > "$UPGRADE_LOCK"
+printf 'pid=%s ref=%s started=%s by=%s\n' "$$" "$REF" "$STAMP" "${BOXPILOT_UPDATE_UNIT:-hand}" > "$UPGRADE_LOCK"
 
 # Resolve the Node.js runtime. Prefer an explicit override, then the unit drop-in, then PATH, then the documented path.
 NODE_BIN="${BOXPILOT_NODE_BIN:-}"
@@ -81,7 +141,55 @@ set -e
 chown -R root:root "$STAGING"
 chmod 0755 "$STAGING"
 
-# 3. Swap
+OLD_VERSION=""
+if [ -d "$INSTALL_DIR" ]; then
+  OLD_VERSION="$("$NODE_BIN" -p 'try { require(process.argv[1]).version } catch { "unknown" }' "${INSTALL_DIR}/package.json" 2>/dev/null || echo unknown)"
+fi
+
+# 3. A copy of the database, before anything changes.
+#
+# A release can migrate or rewrite the database (new settings, the stored-secret scrub), and the
+# rollback below only puts the old code back. The old code with a database the new one changed is
+# not the old BoxPilot, so the copy is taken here, from the version still running, as late as
+# possible (after the build) so it misses as little as it can. No copy, no upgrade: a server
+# without room for one is also a server where the upgrade is the riskiest.
+if [ -n "$OLD_VERSION" ]; then
+  if [ ! -f "$DATABASE" ]; then
+    log "no database at ${DATABASE}; nothing to copy"
+  else
+    DB_COPY="${DB_COPY_DIR}/boxpilot-rollback-${OLD_VERSION}-${STAMP}.sqlite3"
+    log "copying the database ${OLD_VERSION} wrote to ${DB_COPY}"
+    # umask 077 in the subshell: VACUUM INTO creates the file 0644, and a copy of the database holds
+    # everything the database does. It gets the live file's owner and mode below.
+    # Opened as the database's own user, the way the service opens it: root opening it while the
+    # service is stopped could create its -wal/-shm files owned by root, and the service could then
+    # not open its own database. From /, so root's home not being readable to that user is no matter.
+    DB_OWNER="$(stat -c %U "$DATABASE")"
+    AS_OWNER=""
+    if [ "$DB_OWNER" != root ]; then
+      command -v runuser >/dev/null 2>&1 || fail "runuser is required to copy the database as ${DB_OWNER}"
+      AS_OWNER="runuser -u ${DB_OWNER} --"
+    fi
+    COPY_OK=0; reason=""
+    # shellcheck disable=SC2086 # AS_OWNER is a command prefix, empty or three words.
+    if ! copied="$(cd / && umask 077 && $AS_OWNER "$NODE_BIN" --no-warnings --input-type=module -e "$DB_COPY_JS" "$DATABASE" "$DB_COPY" 2>&1)"; then
+      reason="$(printf '%s\n' "$copied" | tail -n 1)"
+    elif ! chown --reference="$DATABASE" "$DB_COPY" || ! chmod --reference="$DATABASE" "$DB_COPY"; then
+      reason="the copy could not be given the database's owner and mode"
+    else
+      COPY_OK=1
+    fi
+    if [ "$COPY_OK" -ne 1 ]; then
+      rm -f "$DB_COPY" "${DB_COPY}-journal" "${DB_COPY}-wal" "${DB_COPY}-shm"
+      DB_COPY=""
+      cleanup_staging
+      fail "could not copy the database to ${DB_COPY_DIR}: ${reason:-no reason given}. Nothing was changed: BoxPilot ${OLD_VERSION} is still running from ${INSTALL_DIR}. Make room in ${DB_COPY_DIR} (or fix what the reason names) and run the update again."
+    fi
+    log "database copy: ${DB_COPY} ($(printf '%s\n' "$copied" | tail -n 1) bytes, integrity ok)"
+  fi
+fi
+
+# 4. Swap
 #
 # Units this run replaced, so a rollback can put the old ones back with the old tree.
 REPLACED_UNITS=""
@@ -122,6 +230,12 @@ rollback() {
   systemctl daemon-reload 2>/dev/null || true
   systemctl restart boxpilot-helper.service 2>/dev/null || true
   systemctl restart boxpilot.service 2>/dev/null || true
+  # The code is back; the database is whatever the new version left. Usually that is fine - most
+  # releases change nothing in it - but if the old version cannot read it, this is the way back.
+  if [ -n "$DB_COPY" ]; then
+    log "the database as ${OLD_VERSION} left it is ${DB_COPY}"
+    log "if ${OLD_VERSION} misbehaves on the current database: systemctl stop boxpilot, copy that file over ${DATABASE} (keeping its owner and mode), delete ${DATABASE}-wal and ${DATABASE}-shm, and start boxpilot. Anything recorded after ${STAMP} is not in the copy."
+  fi
   if [ -d "${INSTALL_DIR}.failed.${STAMP}" ]; then
     fail "upgrade failed; previous tree restored (failed tree kept at ${INSTALL_DIR}.failed.${STAMP})"
   fi
@@ -130,7 +244,6 @@ rollback() {
 
 HAD_PREVIOUS=0
 if [ -d "$INSTALL_DIR" ]; then
-  OLD_VERSION="$("$NODE_BIN" -p 'try { require(process.argv[1]).version } catch { "unknown" }' "${INSTALL_DIR}/package.json" 2>/dev/null || echo unknown)"
   log "stopping services and replacing ${INSTALL_DIR} (${OLD_VERSION} -> ${NEW_VERSION})"
   HAD_PREVIOUS=1
   # Armed BEFORE the service is stopped and the tree moved, not after. It used to be armed only
@@ -146,7 +259,7 @@ else
 fi
 mv "$STAGING" "$INSTALL_DIR"
 
-# 4. Units (only when changed; keep a copy of the old one)
+# 5. Units (only when changed; keep a copy of the old one)
 UNITS_CHANGED=0
 for unit in "${INSTALL_DIR}"/deploy/*.service "${INSTALL_DIR}"/deploy/*.timer; do
   [ -f "$unit" ] || continue
@@ -160,7 +273,7 @@ for unit in "${INSTALL_DIR}"/deploy/*.service "${INSTALL_DIR}"/deploy/*.timer; d
 done
 systemctl daemon-reload
 
-# 5. The backup destination's new place. The helper's sandbox is given /mnt/boxpilot, never an
+# 6. The backup destination's new place. The helper's sandbox is given /mnt/boxpilot, never an
 # automount point, so a NAS that is off can no longer stop the helper from starting; a destination
 # still at /mnt/boxpilot-backup is moved under it. Nothing to move is the common case. A move that
 # cannot happen (the share is in use) leaves fstab as it was and the upgrade goes on: the helper
@@ -178,7 +291,7 @@ if [ -f "${INSTALL_DIR}/scripts/boxpilot-backup-mount-move.mjs" ]; then
   fi
 fi
 
-# 6. Restart and verify
+# 7. Restart and verify
 WEB_RESTARTED=0
 systemctl restart boxpilot-helper.service || { [ "$HAD_PREVIOUS" -eq 1 ] && rollback || fail "helper failed to start"; }
 if systemctl is-enabled boxpilot.service >/dev/null 2>&1; then
@@ -206,7 +319,7 @@ trap - EXIT
 # The old unit files are only stale once the new version is answering.
 for name in $REPLACED_UNITS; do rm -f "/etc/systemd/system/${name}.pre-${STAMP}"; done
 
-# 7. Prune old previous trees.
+# 8. Prune old previous trees.
 #
 # Both kinds, because only pruning .prev.* is how this server accumulated sixty-nine leftover
 # trees: every upgrade that failed its health check left a .failed.<stamp> copy behind and nothing
@@ -214,4 +327,6 @@ for name in $REPLACED_UNITS; do rm -f "/etc/systemd/system/${name}.pre-${STAMP}"
 ls -d "${INSTALL_DIR}".prev.* 2>/dev/null | sort | head -n -"$KEEP_PREVIOUS" | while read -r old; do rm -rf "$old"; log "removed ${old}"; done
 ls -d "${INSTALL_DIR}".failed.* 2>/dev/null | sort | head -n -1 | while read -r old; do rm -rf "$old"; log "removed ${old}"; done
 
+# Kept, never pruned here: which old copies to let go of is the owner's call (System, Housekeeping).
+if [ -n "$DB_COPY" ]; then log "the database as ${OLD_VERSION} left it stays at ${DB_COPY}"; fi
 log "BoxPilot ${NEW_VERSION} (${REF}) is live; ${UNITS_CHANGED} unit file(s) updated; previous tree at ${PREVIOUS}"

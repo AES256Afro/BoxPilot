@@ -185,6 +185,8 @@ const selfRoutes = [
   "DELETE /api/v1/auth/sessions/:id", "POST /api/v1/auth/sessions/revoke-others",
   "POST /api/v1/auth/passkey/register/options", "POST /api/v1/auth/passkey/register/verify", "PUT /api/v1/auth/passkey/:id", "DELETE /api/v1/auth/passkey/:id", "POST /api/v1/auth/passkey/recovery-codes",
   "POST /api/v1/auth/identity/tailscale", "DELETE /api/v1/auth/identity/tailscale", "POST /api/v1/auth/identity/github/start", "DELETE /api/v1/auth/identity/github",
+  // M36: the notification centre's "mark seen", which only moves the caller's own marker.
+  "POST /api/v1/notifications/seen",
 ];
 
 /** Registered operations: the registry decides (minimumRole, ADR-003, elevation). Tested below and in authorization.test.mjs. */
@@ -193,7 +195,7 @@ const directRoutes = ["POST /api/v1/operations/:id/run", "POST /api/v1/operation
 /** Everything else that is not a GET: refused to a viewer before it runs, and settings and people changes to an operator. */
 const changeRoutes = [
   "POST /api/v1/catalog/:id/precheck", "POST /api/v1/setup/autoinstall", "POST /api/v1/network/plans",
-  "POST /api/v1/jobs/:id/approve", "POST /api/v1/jobs/:id/more-time", "DELETE /api/v1/jobs/:id",
+  "POST /api/v1/jobs/:id/approve", "POST /api/v1/jobs/:id/more-time", "POST /api/v1/jobs/:id/dismiss", "DELETE /api/v1/jobs/:id",
   "POST /api/v1/flows", "PUT /api/v1/flows/:id", "DELETE /api/v1/flows/:id", "POST /api/v1/flows/:id/webhook", "DELETE /api/v1/flows/:id/webhook", "POST /api/v1/flows/:id/run",
   "POST /api/v1/schedules", "PUT /api/v1/schedules/:id", "DELETE /api/v1/schedules/:id",
   "POST /api/v1/drives/:name/auto-reconnect", "DELETE /api/v1/drives/:name/auto-reconnect",
@@ -286,6 +288,22 @@ const dataRoutes = {
         operator: ["A scheduled task failed or did not run", "Scheduled task failed: operator-marker"],
         owner: ["Scheduled task failed: operator-marker", "Scheduled task failed: owner-marker"],
       }[role]);
+    },
+  }],
+  // M36: what BoxPilot said lately. Every role reads that it said something; the words of another
+  // account's job or schedule are the kind only, and no message goes with them.
+  "GET /api/v1/notifications": [{
+    ...open,
+    check: ({ role, body }) => {
+      expect(body.entries.map((entry) => entry.kind), role).toEqual(["job", "job", "alert", "notice"]);
+      const [operatorsFailure, ownersFailure, schedule, interrupted] = body.entries;
+      expect(ownersFailure.title, role).toBe(role === "owner" ? "Refresh package lists (owner-marker) failed" : "A job failed");
+      expect(ownersFailure.message === null, role).toBe(role !== "owner");
+      expect(operatorsFailure.title, role).toBe(role === "viewer" ? "A job failed" : "Refresh package lists (operator-marker) failed");
+      expect(schedule.title, role).toBe(role === "owner" ? "Scheduled task failed: owner-marker" : "A scheduled task failed or did not run");
+      expect(schedule.live, role).toBe(true);
+      expect(interrupted.title, role).toBe(role === "owner" ? "Refresh package lists (owner-marker) was interrupted" : "A job was cut off by a restart");
+      expect(JSON.stringify(body).includes(role === "owner" ? "no-such-marker" : "owner-marker"), role).toBe(false);
     },
   }],
   "GET /api/v1/settings/weekly-report": [open],
@@ -554,6 +572,12 @@ beforeAll(async () => {
     [`signin.new:${owner.id}:192.0.2.10`]: { title: "New sign-in from 192.0.2.10 (owner-marker)", since: checkedAt, notified: false },
     [`signin.new:${operator.id}:192.0.2.11`]: { title: "New sign-in from 192.0.2.11 (operator-marker)", since: checkedAt, notified: false },
   });
+  state.setSetting("notificationHistory", [
+    { id: "n1", key: "job.interrupted:apt.refresh:owner-marker", kind: "notice", title: "Refresh package lists (owner-marker) was interrupted", message: "owner-marker detail", at: new Date(Date.now() - 4 * 60_000).toISOString(), delivered: false, reason: "no-target" },
+    { id: "n2", key: `schedule.failed:${ownerSchedule.id}`, kind: "alert", title: "Scheduled task failed: owner-marker", message: "owner-marker detail", at: new Date(Date.now() - 3 * 60_000).toISOString(), delivered: false, reason: "no-target" },
+    { id: "n3", key: `job.failed:${fixtures.ownerJob.id}`, kind: "job", title: "Refresh package lists (owner-marker) failed", message: "owner-marker error", at: new Date(Date.now() - 2 * 60_000).toISOString(), delivered: true, deliveredAt: checkedAt },
+    { id: "n4", key: `job.failed:${fixtures.operatorJob.id}`, kind: "job", title: "Refresh package lists (operator-marker) failed", message: "operator-marker error", at: new Date(Date.now() - 60_000).toISOString(), delivered: true, deliveredAt: checkedAt },
+  ]);
   await audit.record("vm.plan.created", { actorId: owner.id, domain: "owner-marker-vm" });
   await audit.record("vm.plan.created", { actorId: operator.id, domain: "operator-marker-vm" });
 

@@ -5,6 +5,7 @@
 import express from "express";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createSettingsRouter } from "./settings.mjs";
+import { createNotificationHistory } from "../notification-history.mjs";
 
 let server; let base; const settings = new Map();
 // Role-aware stub: a request carries its role in x-test-role; owner satisfies any requireRole.
@@ -151,5 +152,34 @@ describe("GET /settings/vpn-profile role gate", () => {
     expect((await ownerResponse.json()).profile.openvpnUser).toBe("acct-9931");
     // A sibling GET with no per-route gate stays open to lower roles, proving the gate is specific.
     expect((await fetch(`${base}/api/v1/settings/cloud-destination`, { headers: { "x-test-role": "viewer" } })).status).toBe(200);
+  });
+});
+
+describe("the notification centre (M36)", () => {
+  it("lists what was said, whether it arrived and whether it is still going, and marks it seen for the caller", async () => {
+    const stored = new Map();
+    const store = { getSetting: (key, fallback) => stored.get(key) ?? fallback, setSetting: (key, value) => stored.set(key, value), getJob: () => null };
+    let clock = Date.parse("2026-09-29T08:00:00Z");
+    const history = createNotificationHistory({ store, now: () => new Date(clock) });
+    history.record({ key: "storage.root.full", kind: "alert", title: "Root disk is 91% full", message: "Free space on / is running out.", delivered: false, reason: "no-target" });
+    stored.set("healthAlertsState", { "storage.root.full": { title: "Root disk is 91% full", since: "2026-09-29T08:00:00Z", notified: false } });
+    const app = express();
+    app.use(express.json());
+    app.use((request, _response, next) => { request.boxpilotSession = { owner: { id: request.headers["x-test-owner"] ?? "owner-1", role: "owner" } }; next(); });
+    app.use("/api/v1", createSettingsRouter({ state: store, notifications: { describe: () => ({ configured: false }) }, notificationHistory: history, auth }));
+    const local = app.listen(0);
+    await new Promise((resolve) => local.once("listening", resolve));
+    const url = `http://127.0.0.1:${local.address().port}/api/v1`;
+    try {
+      const listed = await (await fetch(`${url}/notifications`)).json();
+      expect(listed).toMatchObject({ unseen: 1, seenAt: null, targetConfigured: false, entries: [{ kind: "alert", title: "Root disk is 91% full", delivered: false, reason: "no-target", live: true, resolvedAt: null }] });
+      clock += 60_000;
+      expect((await (await fetch(`${url}/notifications/seen`, { method: "POST" })).json()).seenAt).toBe("2026-09-29T08:01:00.000Z");
+      expect((await (await fetch(`${url}/notifications`)).json()).unseen).toBe(0);
+      // Another account's marker is its own.
+      expect((await (await fetch(`${url}/notifications`, { headers: { "x-test-owner": "operator-1" } })).json()).unseen).toBe(1);
+    } finally {
+      local.close();
+    }
   });
 });

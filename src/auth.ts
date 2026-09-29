@@ -34,6 +34,37 @@ async function authRequest(path: string, body?: Record<string, string>): Promise
   return result;
 }
 
+/*
+ * Why this browser is looking at the sign-in page (M36). Sessions live in BoxPilot's database and
+ * survive a restart or an update; they end after twelve hours, or when ended from elsewhere (a
+ * password change, "sign out everywhere else", a role change). The page used to go back to signing
+ * in without a word, which after an update looked as if the update had signed the owner out. Only
+ * the session's end time is remembered here, per browser, and signing out forgets it.
+ */
+const sessionMark = "boxpilot:signed-in-until";
+
+export type SignedOutReason = "expired" | "ended";
+
+export function rememberSession(status: AuthStatus | null): void {
+  try { if (status?.authenticated && status.expiresAt) window.localStorage.setItem(sessionMark, status.expiresAt); } catch { /* private window: nothing to say later */ }
+}
+
+export function forgetSession(): void {
+  try { window.localStorage.removeItem(sessionMark); } catch { /* nothing kept */ }
+}
+
+/** Whether a session this browser had ran out (its twelve hours were up) or was ended elsewhere; null if it had none. */
+export function signedOutReason(now = Date.now()): SignedOutReason | null {
+  let until: string | null = null;
+  try { until = window.localStorage.getItem(sessionMark); } catch { return null; }
+  if (!until) return null;
+  const at = Date.parse(until);
+  return Number.isFinite(at) && at <= now + 60_000 ? "expired" : "ended";
+}
+
+/** Said when an API answer shows the session has gone, so the page can go to sign-in and say why. */
+export const sessionEndedEvent = "boxpilot:session-ended";
+
 export function fetchAuthStatus(): Promise<AuthStatus> {
   return authRequest("/api/v1/auth/status");
 }

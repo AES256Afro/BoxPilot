@@ -9,7 +9,7 @@ import { runtimeDiagnostics } from "../runtime-diagnostics.mjs";
 import { registry, riskTiers } from "../ops/index.mjs";
 import { approvalModes, elevationTtlMs } from "../ops/risk.mjs";
 import { findPortConflicts, listListeners } from "../ports.mjs";
-import { resolveValues } from "../catalog/schema.mjs";
+import { keepsBackupData, resolveValues } from "../catalog/schema.mjs";
 import { hashPassword, renderAutoinstall, validateAutoinstallInput } from "../autoinstall.mjs";
 import { readTlsStatus } from "../tls-status.mjs";
 import { collectStorage } from "../storage-inventory.mjs";
@@ -107,6 +107,9 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
       description: manifest.description, image: { version: manifest.image?.version ?? null },
       ports: (manifest.ports ?? []).map((port) => ({ id: port.id, label: port.label, host: port.host, protocol: port.protocol, exposure: port.exposure })),
       volumes: (manifest.volumes ?? []).map((volume) => ({ id: volume.id, label: volume.label ?? null, hostPath: volume.hostPath ?? null, configurable: Boolean(volume.configurable), readOnly: Boolean(volume.readOnly) })),
+      // Whether an app backup archives anything of it, sidecars included, so the command bar offers
+      // a quick "Back up X" (M36) only where it means something.
+      keepsBackup: keepsBackupData(manifest),
     } : manifest);
     // The verdicts say who ran the drill; only the owner is told when that was another account.
     const applications = manifests.map((manifest) => {
@@ -302,24 +305,20 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
   });
 
   /**
-   * Set a finding aside, or a failed job (M35): "not now", with the reason in the owner's words. A
-   * finding comes back by itself when what it says changes, and a critical one is never set aside.
-   * Viewers are refused by the role policy before this runs; operators may, as they may fix.
+   * Set a finding aside (M35): "not now", with the reason in the owner's words. It comes back by
+   * itself when what it says changes, and a critical one is never set aside. A failed job is let go
+   * on the job itself (M36, POST /jobs/:id/dismiss). Viewers are refused by the role policy before
+   * this runs; operators may, as they may fix.
    */
   router.post("/remediations/dismissals", auth.requireCsrf, (request, response) => {
     const made = dismissalFrom(request.body, { by: callerId(request) });
     if (made.error) return response.status(400).json({ error: made.error, code: "dismissal_rejected" });
-    if (made.entry.kind === "job") {
-      const job = state.getJob?.(request.body.jobId);
-      if (!job || (!seesEveryAccount(request) && job.createdBy !== callerId(request))) return response.status(404).json({ error: "Job not found", code: "job_not_found" });
-      if (job.state !== "failed") return response.status(409).json({ error: "Only a failed job is set aside; this one did not fail", code: "dismissal_rejected" });
-    }
     state.updateSetting(dismissalsKey, {}, (entries) => ({ value: withDismissal(entries, made.key, made.entry) }), callerId(request));
     state.recordAudit?.("repair.dismissed", { actorId: callerId(request), subjectId: made.key, details: { reason: made.entry.reason } });
     return response.status(201).json({ dismissed: made.key });
   });
 
-  /** Bring a set-aside finding or failed job back. */
+  /** Bring a set-aside finding back. */
   router.delete("/remediations/dismissals/:id", auth.requireCsrf, (request, response) => {
     const key = String(request.params.id ?? "");
     const entries = state.getSetting(dismissalsKey, {}) ?? {};

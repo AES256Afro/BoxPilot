@@ -446,7 +446,9 @@ describe("durable job executor", () => {
 describe("guarding restarts against running jobs (M4.5 / self-update safety)", () => {
   it("refuses to start a service-restarting job while another job runs, then allows it once idle", async () => {
     const helper = { request: vi.fn(async () => ({ started: true })) };
-    const { store, owner, jobs } = await setup(helper);
+    const { store, owner } = await setup(helper);
+    // Running 1.61.0, so an update to 1.62.0 is still worth approving (M36 cancels one that is not).
+    const jobs = createJobService(store, helper, { version: "1.61.0" });
     const expectedCommit = "a".repeat(40);
 
     // A job that is actively running (an update now would cut it off).
@@ -490,6 +492,71 @@ describe("cancelling staged jobs", () => {
     expect(() => jobs.cancelJob(job.id, owner.id)).toThrow("awaiting approval");
     await expect(jobs.approveAndRun(job.id, owner.id, { session: store.getSession(store.createSession(owner.id).token) })).rejects.toThrow();
     expect(helper.request).not.toHaveBeenCalled();
+    store.close();
+  });
+});
+
+// M36: two updates staged for 1.116 waited three weeks for approval on a server running 1.138.
+describe("staged jobs nobody will approve", () => {
+  const day = 86_400_000;
+  const expectedCommit = "a".repeat(40);
+
+  it("cancels an update to a version already running, at approval and in the sweep, and says why", async () => {
+    const helper = { request: vi.fn(async () => ({ started: true })) };
+    const { store, owner } = await setup(helper);
+    const staged = createJobService(store, helper, { version: "1.116.0" });
+    const older = await staged.createOperationJob("system.update", { tag: "v1.116.0", expectedCommit }, owner.id);
+    const newer = await staged.createOperationJob("system.update", { tag: "v1.139.0", expectedCommit }, owner.id);
+    const other = await staged.createOperationJob("apt.refresh", {}, owner.id);
+
+    // The server has been updated to 1.138.0 since.
+    const jobs = createJobService(store, helper, { version: "1.138.0" });
+    await expect(jobs.approveAndRun(older.id, owner.id, { password: "correct horse battery" })).rejects.toThrow("BoxPilot is already at 1.138.0, so the update to v1.116.0 has nothing to do, so BoxPilot cancelled it. Nothing ran.");
+    expect(helper.request).not.toHaveBeenCalled();
+    expect(store.getJob(older.id)).toMatchObject({ state: "cancelled", error: "Superseded: BoxPilot is already at 1.138.0, so the update to v1.116.0 has nothing to do." });
+
+    const again = await staged.createOperationJob("system.update", { tag: "v1.116.1", expectedCommit }, owner.id);
+    expect(jobs.sweepStaleApprovals()).toEqual([{ id: again.id, why: "superseded", reason: "BoxPilot is already at 1.138.0, so the update to v1.116.1 has nothing to do" }]);
+    expect(store.getJob(again.id).steps.at(-1)).toMatchObject({ name: "cancelled", detail: expect.stringMatching(/^Superseded: /) });
+    // An update to a newer version, and any other operation, keep waiting.
+    expect(store.getJob(newer.id).state).toBe("awaiting_approval");
+    expect(store.getJob(other.id).state).toBe("awaiting_approval");
+    store.close();
+  });
+
+  it("cancels a job left a week without an approval, and tells the owner once", async () => {
+    const helper = { request: vi.fn() };
+    const { store, owner } = await setup(helper);
+    let clock = Date.now();
+    const told = [];
+    const alerts = { raise: async () => ({}), clear: async () => ({}), tell: vi.fn(async (entry) => { told.push(entry); return { notified: false }; }) };
+    const jobs = createJobService(store, helper, { alerts, now: () => clock });
+    const job = await jobs.createOperationJob("apt.refresh", {}, owner.id);
+    clock += 6 * day;
+    expect(jobs.sweepStaleApprovals()).toEqual([]);
+    clock += 2 * day;
+    expect(jobs.sweepStaleApprovals()).toEqual([{ id: job.id, why: "lapsed" }]);
+    expect(store.getJob(job.id)).toMatchObject({ state: "cancelled", error: expect.stringMatching(/^Nobody approved it in 7 days/) });
+    await vi.waitFor(() => expect(told).toHaveLength(1));
+    expect(told[0]).toMatchObject({ key: `approval.lapsed:${job.id}`, title: "Not approved in 7 days: Refresh package lists" });
+    expect(jobs.sweepStaleApprovals()).toEqual([]);
+    expect(told).toHaveLength(1);
+    store.close();
+  });
+
+  it("lets a failed job be dismissed by its creator or the owner, once, and only a failed one", async () => {
+    const helper = { request: vi.fn(async () => { throw new Error("operation failed"); }) };
+    const { store, owner, jobs } = await setup(helper);
+    const job = await jobs.createOperationJob("apt.refresh", {}, owner.id);
+    await expect(jobs.approveAndRun(job.id, owner.id, {})).rejects.toThrow("operation failed");
+    const dismissedJob = jobs.dismissFailure(job.id, owner.id);
+    expect(dismissedJob.state).toBe("failed");
+    expect(dismissedJob.steps.filter((step) => step.name === "dismissed")).toHaveLength(1);
+    expect(dismissedJob.steps.at(-1).detail).toMatch(/^Dismissed by operator\./);
+    expect(jobs.dismissFailure(job.id, owner.id).steps.filter((step) => step.name === "dismissed")).toHaveLength(1);
+    expect(() => jobs.dismissFailure(job.id, "someone-else", { role: "operator" })).toThrow("Job not found");
+    const pending = await jobs.createOperationJob("apt.refresh", {}, owner.id);
+    expect(() => jobs.dismissFailure(pending.id, owner.id)).toThrow("Only a failed job can be dismissed");
     store.close();
   });
 });

@@ -23,6 +23,8 @@ export function useNeedActions({ csrfToken, refresh, accept }: { csrfToken: stri
     try {
       const scan = await loadRepairs();
       accept("repairs", scan);
+      // A failure dismissed or tried again drops off by its own mark (M36), which the job event
+      // stream brings in; nothing to read again for it.
       refresh(["catalog", "protection", "schedules", "watch"]);
       return scan;
     } catch {
@@ -35,7 +37,9 @@ export function useNeedActions({ csrfToken, refresh, accept }: { csrfToken: stri
     if (!action) return;
     if (action.kind === "dismiss") { if (need.jobId) repair.dismiss({ kind: "job", jobId: need.jobId, title: need.title }); return; }
     if (need.finding && action.fix) { repair.start(need.finding, action.fix); return; }
-    start({ operationId: action.operationId, title: action.title, parameters: action.parameters, preview: <span>{action.preview}</span>, ...(action.moreTimeFor ? { moreTimeFor: action.moreTimeFor } : {}) });
+    // A job already staged is reviewed and approved as it is (M36's Review); nothing new is staged.
+    start({ operationId: action.operationId, title: action.title, parameters: action.parameters, preview: action.preview ? <span>{action.preview}</span> : undefined,
+      ...(action.moreTimeFor ? { moreTimeFor: action.moreTimeFor } : {}), ...(action.existingJobId ? { existingJobId: action.existingJobId } : {}) });
   }, [repair, start]);
   return { act, runs: repair.runs, remembered: repair.remembered, dialog: <>{operationDialog}{repair.dialog}</> };
 }
