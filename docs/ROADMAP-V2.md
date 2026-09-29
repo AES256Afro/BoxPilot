@@ -2039,12 +2039,18 @@ the content). The engine is `feat/m37-agents-engine`; the section is `feat/m37-a
     written), the same question went from 14,390 tokens read over four calls (the first to act 4,039
     tokens and 22 tools, 214 s) to 3,294 (2,067 and 8 tools, 115 s; 4,601 more from the cache), and
     from 378 s to 250 s. On the real model (`agents-bench.yml`: Unsloth and Qwen 3.5 4B started by
-    BoxPilot's runtime, under `CPUQuota=400%` at four threads on a four-processor GitHub runner, which
-    read about 15 tokens a second and wrote 8 to 9), the owner's question finished in 242 s: the plan
-    50 s, the first call to act 135 s (2,029 tokens), then 31 s and 19 s reading only 285 and 69 new
-    tokens (2,082 and 2,471 from the cache). Asked again, the plan's 534-token system message came
-    from llama-server's prompt cache. The home server's four real cores should be several times
-    faster; its own speed is measured on every run.
+    BoxPilot's runtime, under `CPUQuota=400%` at four threads on a four-processor GitHub runner - two
+    cores - which read about 15 tokens a second and wrote 6 to 9), the owner's question finished in
+    242 to 306 s over three runs: the plan about 50 s, the first call to act about 135 s (2,029
+    tokens), then 30 s and less for each later call, reading only what it added (285 and 69 new
+    tokens, 2,082 and 2,471 from the cache). Asked again, the plan's 534-token system message came
+    from llama-server's prompt cache, and when the plan picked the same tools the first call to act
+    did too (1,557 of 2,436 tokens): 163 s. At one thread under 100% on the same runner the question
+    took 537 s. The home server's four real cores should be several times faster than the runner's
+    two; its own speed is measured on every run.
+  - **The Server Keeper's day.** Three questions at one thread used up the template's 1,800 s of
+    model time; new Server Keepers get 3,600 s (an hour) for their 24 runs. Agents already saved keep
+    theirs.
   - **Starting again.** Unsloth takes `UNSLOTH_STUDIO_PASSWORD` only as the first admin password and
     refuses to start when given it again, so every start after the first failed, silently (the line
     says "password" and was kept out of the log). It is now passed until Studio has one
