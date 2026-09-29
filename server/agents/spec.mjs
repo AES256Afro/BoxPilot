@@ -42,14 +42,21 @@ const operationIdPattern = /^[a-z][a-z0-9-]*(\.[a-z0-9-]+)+$/;
 const agentIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const fieldNamePattern = /^[a-z][A-Za-z0-9_]{0,31}$/;
 
-/** Ceilings no agent may raise itself past, whatever its spec says. */
+/**
+ * Ceilings no agent may raise itself past, whatever its spec says. A run may take 15 minutes by
+ * default (the owner's choice after the first real run timed out), and a day's model time defaults
+ * to two such runs, so the default day never cuts the default run short.
+ */
 export const budgetCeilings = Object.freeze({
   runsPerDay: { min: 1, max: 200, default: 12 },
-  modelSecondsPerDay: { min: 10, max: 7_200, default: 900 },
+  modelSecondsPerDay: { min: 10, max: 7_200, default: 1_800 },
   stepsPerRun: { min: 1, max: 12, default: 6 },
   tokensPerRun: { min: 500, max: 32_000, default: 12_000 },
-  runSeconds: { min: 30, max: 1_800, default: 600 },
+  runSeconds: { min: 30, max: 1_800, default: 900 },
 });
+
+/** The longest run's default before 15 minutes: an agent saved with it is moved to the new one. */
+export const previousRunSecondsDefault = 600;
 
 export class SpecError extends Error {
   constructor(message) {

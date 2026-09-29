@@ -28,6 +28,23 @@ function modelError(message, code = "model_error") {
   return Object.assign(new Error(message), { code });
 }
 
+const count = (value) => (Number.isFinite(Number(value)) && Number(value) >= 0 ? Number(value) : null);
+
+/**
+ * llama-server's `timings` in the names BoxPilot uses: how many prompt tokens it read (prompt_n, the
+ * ones it did not have cached), how long that took, how many it wrote, how long that took, and how
+ * many it had cached (cache_n). Null for anything the server left out.
+ */
+export function readTimings(timings) {
+  if (!timings || typeof timings !== "object") return null;
+  const read = {
+    promptTokens: count(timings.prompt_n), promptMs: count(timings.prompt_ms), promptPerSecond: count(timings.prompt_per_second),
+    predictedTokens: count(timings.predicted_n), predictedMs: count(timings.predicted_ms), predictedPerSecond: count(timings.predicted_per_second),
+    cachedTokens: count(timings.cache_n),
+  };
+  return Object.values(read).some((value) => value !== null) ? read : null;
+}
+
 /** The OpenAI-compatible client. `apiKey` is the per-start key Unsloth prints; none for most servers. */
 export function createOpenAiClient({
   fetch: fetchImpl = globalThis.fetch,
@@ -96,8 +113,15 @@ export function createOpenAiClient({
    * reading); tool calls are put together from their pieces and returned whole at the end, with
    * the token counts the server reported. A server that ignores `stream` and answers with one JSON
    * body is read the same way.
+   *
+   * Also returned, for the caller's timing: llama-server's own `timings` when the server passes them
+   * on (Unsloth relays them on its last chunk), how many of the prompt's tokens it had cached, how
+   * long the first token took (the prompt being read) and how long the whole answer took.
+   * `toolChoice` "none" keeps the tools in the prompt, so it stays the same, and lets none be called.
+   * Aborting (`signal`, or `timeoutMs` passing) closes the connection, which is what makes
+   * llama-server stop working on the request.
    */
-  async function chat(endpoint, { model, messages, tools = null, temperature = 0.2, maxTokens = 1024, extra = {} }, { signal, timeoutMs = 120_000, onDelta = () => {}, apiKey = null } = {}) {
+  async function chat(endpoint, { model, messages, tools = null, toolChoice = "auto", temperature = 0.2, maxTokens = 1024, extra = {} }, { signal, timeoutMs = 120_000, onDelta = () => {}, apiKey = null } = {}) {
     const body = {
       model,
       messages,
@@ -105,12 +129,13 @@ export function createOpenAiClient({
       stream_options: { include_usage: true },
       temperature,
       max_tokens: maxTokens,
-      ...(tools?.length ? { tools, tool_choice: "auto" } : {}),
+      ...(tools?.length ? { tools, tool_choice: toolChoice } : {}),
       ...extra,
     };
+    const started = now();
     const response = await send(endpoint, "/v1/chat/completions", { method: "POST", body, signal, timeoutMs, apiKey, stream: true });
     if (!response.ok) throw await failure(response, model);
-    const state = { content: "", toolCalls: [], usage: null, reason: null, stopped: false, done: false };
+    const state = { content: "", toolCalls: [], usage: null, timings: null, reason: null, stopped: false, done: false, firstAt: null };
     const addToolDelta = (delta) => {
       const index = Number.isInteger(delta?.index) ? delta.index : state.toolCalls.length;
       if (index < 0 || index >= limits.toolCalls) throw modelError(`The model asked for more than ${limits.toolCalls} tools at once`);
@@ -124,10 +149,15 @@ export function createOpenAiClient({
     };
     const handle = (event) => {
       if (event?.error) throw modelError(`The model stopped with an error: ${String(event.error?.message ?? event.error).slice(0, 200)}`);
-      if (event?.usage) state.usage = { promptTokens: Number(event.usage.prompt_tokens) || 0, completionTokens: Number(event.usage.completion_tokens) || 0 };
+      if (event?.usage) {
+        const cached = Number(event.usage.prompt_tokens_details?.cached_tokens);
+        state.usage = { promptTokens: Number(event.usage.prompt_tokens) || 0, completionTokens: Number(event.usage.completion_tokens) || 0, ...(Number.isFinite(cached) ? { cachedTokens: cached } : {}) };
+      }
+      if (event?.timings && typeof event.timings === "object") state.timings = readTimings(event.timings);
       const choice = Array.isArray(event?.choices) ? event.choices[0] : null;
       if (!choice) return true;
       const delta = choice.delta ?? choice.message ?? {};
+      if (state.firstAt === null && ((typeof delta.content === "string" && delta.content) || (Array.isArray(delta.tool_calls) && delta.tool_calls.length) || (typeof delta.reasoning_content === "string" && delta.reasoning_content))) state.firstAt = now();
       if (typeof delta.content === "string" && delta.content) {
         state.content += delta.content;
         if (onDelta(delta.content) === false) { state.stopped = true; return false; }
@@ -143,6 +173,9 @@ export function createOpenAiClient({
       content: state.content,
       toolCalls: state.toolCalls.filter((call) => call.name).map((call, index) => ({ id: call.id ?? `call_${index}`, name: call.name, arguments: call.arguments })),
       usage: state.usage,
+      timings: state.timings,
+      firstTokenMs: state.firstAt === null ? null : Math.max(0, state.firstAt - started),
+      elapsedMs: Math.max(0, now() - started),
     });
 
     if (!/\btext\/event-stream\b/.test(response.headers.get("content-type") ?? "")) {
@@ -150,7 +183,7 @@ export function createOpenAiClient({
       try { parsed = JSON.parse(await readBounded(response, limits.totalBytes)); } catch { throw modelError("The model server sent something that is not a chat answer"); }
       const choice = parsed?.choices?.[0];
       if (!choice) throw modelError("The model server sent no answer");
-      handle({ usage: parsed.usage, choices: [{ delta: { content: choice.message?.content ?? "", tool_calls: (choice.message?.tool_calls ?? []).map((call, index) => ({ index, ...call })) }, finish_reason: choice.finish_reason ?? "stop" }] });
+      handle({ usage: parsed.usage, timings: parsed.timings, choices: [{ delta: { content: choice.message?.content ?? "", tool_calls: (choice.message?.tool_calls ?? []).map((call, index) => ({ index, ...call })) }, finish_reason: choice.finish_reason ?? "stop" }] });
       return finished();
     }
 
@@ -185,7 +218,23 @@ export function createOpenAiClient({
     }
   }
 
-  return { provider: "openai", models, chat, embed, guard };
+  /**
+   * Ask Unsloth Studio to stop a chat it is still working on: POST /api/inference/cancel with the
+   * `cancel_id` the request carried. Closing the connection already stops it; this also reaches a
+   * request Studio has not started yet. Never throws: false when it could not be asked.
+   */
+  async function cancel(endpoint, cancelId, { apiKey = null, timeoutMs = 3_000 } = {}) {
+    if (typeof cancelId !== "string" || !cancelId) return false;
+    try {
+      const response = await send(endpoint, "/api/inference/cancel", { method: "POST", body: { cancel_id: cancelId }, timeoutMs, apiKey });
+      await readBounded(response, 4 * 1024).catch(() => "");
+      return response.ok;
+    } catch {
+      return false;
+    }
+  }
+
+  return { provider: "openai", models, chat, embed, cancel, guard };
 }
 
 /**

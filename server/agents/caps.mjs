@@ -6,16 +6,18 @@
  * systemd enforces. The runner and everything it starts - the model server included - live in the
  * one cgroup these apply to.
  *
- * From the Unsloth spike (docs/spikes/2026-09-unsloth-headless.md): one processor and one thread is
- * the best a small Qwen gets under a cap of one processor or less (two threads spend the quota
- * faster and then sit throttled), the 4B needs about 2.6 GB of memory plus its 3.6 GB of files as
- * page cache, and a reload that forgets its context asks for 8 GB more - which the memory cap stops.
- * On the server this was written for (8 cores / 16 threads, about 29 GB) that is a sixteenth of the
- * processor, and only when nothing else wants it.
+ * Four processors and four threads, the owner's choice (2026-09-29) after the first real run: one
+ * processor read a prompt at about 20 tokens a second on the home server, too slow for a question.
+ * The Unsloth spike (docs/spikes/2026-09-unsloth-headless.md) found that the model's threads should
+ * match the whole processors in the cap (more threads than that spend the quota and sit throttled).
+ * The 4B needs about 2.6 GB of memory plus its 3.6 GB of files as page cache, and a reload that
+ * forgets its context asks for 8 GB more - which the memory cap stops. On the server this was
+ * written for (8 cores / 16 threads, about 29 GB) that is a quarter of the processor at most, only
+ * while a run is going, and only when nothing else wants it.
  */
 export const runnerCaps = Object.freeze({
-  // One processor's worth of time at most, whatever the model asks for.
-  cpuQuotaPercent: 100,
+  // Four processors' worth of time at most, whatever the model asks for.
+  cpuQuotaPercent: 400,
   // CPUWeight=idle: the runner only gets processor time nothing else wants.
   cpuWeight: "idle",
   nice: 19,
@@ -26,8 +28,8 @@ export const runnerCaps = Object.freeze({
   memoryMaxBytes: 8 * 1024 ** 3,
   memorySwapMaxBytes: 0,
   tasksMax: 256,
-  // The model server's threads: one, as the spike measured best under a one-processor cap.
-  modelThreads: 1,
+  // The model server's threads: one for each whole processor in the quota.
+  modelThreads: 4,
 });
 
 /** The unit's own words for the caps, as systemd reads them. */

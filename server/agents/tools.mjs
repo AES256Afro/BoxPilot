@@ -25,6 +25,15 @@ export class ToolError extends Error {
   constructor(message) { super(message); this.code = "tool_failed"; }
 }
 
+/**
+ * BoxPilot's documents for the people building it rather than the owner running it: the roadmap,
+ * the decision records, the architecture and page notes, hand-offs and the contributors' guide.
+ */
+export const internalDocuments = /^(AGENTS\.md|docs\/(ROADMAP[^/]*|DECISIONS|ARCHITECTURE|UI-PAGES|HANDOFF[^/]*|spikes\/[^/]+)\.md)$/i;
+export const internalDocument = (chunk) => chunk?.kind === "doc" && internalDocuments.test(String(chunk.ref?.path ?? chunk.title?.split(" › ")[0] ?? ""));
+/** A question about how BoxPilot itself is planned or built, which those documents do answer. */
+export const aboutBuildingBoxPilot = (query) => /\b(roadmap|milestones?|M\d{2}(?:\.\d+)?|ADR-?\d+|decisions? records?|architecture|design decisions?|release plan|changelog|contribut\w*|hand-?off notes?|spike)\b/i.test(String(query ?? ""));
+
 /** Longest a `since` may reach back: a week. */
 export function sinceWithinWeek(since) {
   const match = /^(\d{1,3})([mhd])$/.exec(String(since ?? ""));
@@ -119,7 +128,11 @@ export function createToolRunner({ state, store, registry, helper = null, invent
       const hits = [];
       if (knowledge && kinds.length) {
         await knowledge.ensure().catch(() => null);
-        for (const hit of knowledge.search(query, { limit, kinds })) hits.push({ score: hit.score, title: hit.chunk.title, text: hit.chunk.text });
+        // BoxPilot's own plans and records of how it is built answer questions about building BoxPilot,
+        // never about this server: they come back only when that is what was asked.
+        const internalToo = aboutBuildingBoxPilot(query);
+        const found = knowledge.search(query, { limit: internalToo ? limit : limit + 24, kinds }).filter((hit) => internalToo || !internalDocument(hit.chunk));
+        for (const hit of found.slice(0, limit)) hits.push({ score: hit.score, title: hit.chunk.title, text: hit.chunk.text });
       }
       if (sources.documents !== false) {
         const documents = store.listDocuments().filter((document) => document.enabled);

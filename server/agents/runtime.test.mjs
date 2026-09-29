@@ -4,12 +4,16 @@
  * key read from its output and never kept anywhere else, stopped when idle, and a failure to start
  * reported as the model being unavailable. Driven with the fake model as a real child process.
  */
+import { spawn as spawnProcess } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { createOpenAiClient } from "../assistant/model-client.mjs";
-import { ModelUnavailable, createRuntime, findLlamaServer, ownSecret, serverCommand, storedUnslothKey } from "./runtime.mjs";
+import { ModelUnavailable, createRuntime, findLlamaServer, ownSecret, serverCommand, storedUnslothKey, studioPasswordSetFile } from "./runtime.mjs";
+
+const fakeModelPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "fake-model.mjs");
 
 const onWindows = process.platform === "win32";
 let scratch;
@@ -22,28 +26,31 @@ afterEach(async () => { await Promise.all(runtimes.splice(0).map((runtime) => ru
 const make = (options = {}) => { const runtime = createRuntime({ client, pollMs: 100, ...options }); runtimes.push(runtime); return runtime; };
 
 describe("the command that serves a model", () => {
-  it("is the spike's unsloth run: loopback, tools off, one thread, the context pinned for the reload, offline", () => {
-    const { command, args, env } = serverCommand({ driver: "unsloth", model: "unsloth/Qwen3.5-4B-GGUF:UD-Q4_K_XL", contextTokens: 8192, threads: 1 }, { port: 18888, runtimeDir: "/var/lib/boxpilot-agents/unsloth", stateDir: "/var/lib/boxpilot-agents", secrets: { studioPassword: "p".repeat(32) } });
+  it("is the spike's unsloth run: loopback, tools off, the cap's threads, the context pinned for the reload, offline", () => {
+    const { command, args, env } = serverCommand({ driver: "unsloth", model: "unsloth/Qwen3.5-4B-GGUF:UD-Q4_K_XL", contextTokens: 8192, threads: 4 }, { port: 18888, runtimeDir: "/var/lib/boxpilot-agents/unsloth", stateDir: "/var/lib/boxpilot-agents", secrets: { studioPassword: "p".repeat(32) } });
     expect(command.replaceAll("\\", "/")).toBe("/var/lib/boxpilot-agents/unsloth/bin/unsloth");
+    // Batches of 512 so a call given up on stops soon; a gigabyte of prompt cache inside the memory cap.
     expect(args).toEqual(["run", "--model", "unsloth/Qwen3.5-4B-GGUF:UD-Q4_K_XL", "--api-only", "--disable-tools", "-H", "127.0.0.1", "-p", "18888",
-      "--context-length", "8192", "--parallel", "1", "--threads", "1", "-c", "8192", "--ctx-checkpoints", "4"]);
+      "--context-length", "8192", "--parallel", "1", "--threads", "4", "-c", "8192", "--ctx-checkpoints", "4", "--batch-size", "512", "--cache-ram", "1024"]);
     expect(env).toMatchObject({ HF_HUB_OFFLINE: "1", HF_HUB_DISABLE_TELEMETRY: "1", DO_NOT_TRACK: "1", UNSLOTH_STUDIO_DISABLE_PUBLIC_CHECK: "1", UNSLOTH_MODEL_IDLE_TTL: "900", UNSLOTH_STUDIO_PASSWORD: "p".repeat(32) });
     expect(env.HF_HOME.replaceAll("\\", "/")).toBe("/var/lib/boxpilot-agents/hf");
     expect(env.UNSLOTH_STUDIO_HOME.replaceAll("\\", "/")).toBe("/var/lib/boxpilot-agents/unsloth");
   });
 
-  it("never starts Unsloth without Studio's password, so it cannot make and print its own", () => {
+  it("never starts Unsloth without Studio's password, so it cannot make and print its own, and passes it only until Studio has it", () => {
     expect(() => serverCommand({ driver: "unsloth", model: "unsloth/Qwen3.5-4B-GGUF:UD-Q4_K_XL" }, { port: 1, runtimeDir: "/", stateDir: "/" })).toThrow(ModelUnavailable);
+    const later = serverCommand({ driver: "unsloth", model: "unsloth/Qwen3.5-4B-GGUF:UD-Q4_K_XL" }, { port: 1, runtimeDir: "/", stateDir: "/", secrets: { studioPassword: "p".repeat(32), studioPasswordSet: true } });
+    expect(later.env.UNSLOTH_STUDIO_PASSWORD).toBeUndefined();
   });
 
   it("serves llama.cpp's own server when the owner chose it: loopback, a key from a file, the files it was handed", () => {
-    const { command, args } = serverCommand({ driver: "llama-server", requestModel: "unsloth/Qwen3.5-4B-GGUF", contextTokens: 8192, threads: 1 }, {
+    const { command, args } = serverCommand({ driver: "llama-server", requestModel: "unsloth/Qwen3.5-4B-GGUF", contextTokens: 8192, threads: 4 }, {
       port: 18889, runtimeDir: "/r", stateDir: "/s", secrets: { apiKeyFile: "/s/llama-server.key" },
       files: { binary: "/r/bin/llama-server", model: "/s/hf/hub/m/snapshots/c/model.gguf", projector: "/s/hf/hub/m/snapshots/c/mmproj-F16.gguf" },
     });
     expect(command).toBe("/r/bin/llama-server");
     expect(args).toEqual(["-m", "/s/hf/hub/m/snapshots/c/model.gguf", "--mmproj", "/s/hf/hub/m/snapshots/c/mmproj-F16.gguf", "--alias", "unsloth/Qwen3.5-4B-GGUF",
-      "--host", "127.0.0.1", "--port", "18889", "-c", "8192", "--parallel", "1", "--threads", "1", "--ctx-checkpoints", "4", "--jinja", "--no-webui", "--api-key-file", "/s/llama-server.key"]);
+      "--host", "127.0.0.1", "--port", "18889", "-c", "8192", "--parallel", "1", "--threads", "4", "--ctx-checkpoints", "4", "--batch-size", "512", "--cache-ram", "1024", "--jinja", "--no-webui", "--api-key-file", "/s/llama-server.key"]);
     expect(args.join(" ")).not.toContain("0.0.0.0");
   });
 
@@ -78,6 +85,32 @@ describe("starting and stopping", () => {
     await expect(runtime.ensure({ driver: "unsloth", model: "unsloth/Qwen3.5-4B-GGUF:UD-Q4_K_XL" })).rejects.toBeInstanceOf(ModelUnavailable);
     expect(runtime.status().state).toBe("idle");
   });
+
+  it("gives Studio its admin password only until it has one, and starts again without it when Studio already has one", async () => {
+    // A stand-in for `unsloth run`: like Unsloth 2026.9.12, it refuses to start when handed a
+    // password once one is set, and otherwise serves the fake model and prints its key.
+    const stateDir = await mkdtemp(path.join(scratch, "studio-state-"));
+    const studio = path.join(stateDir, "studio.mjs");
+    await writeFile(studio, [
+      `import { startFakeModel } from ${JSON.stringify(pathToFileURL(fakeModelPath).href)};`,
+      "const args = process.argv.slice(2);",
+      "if (process.env.UNSLOTH_STUDIO_PASSWORD && process.env.STUDIO_HAS_PASSWORD === '1') { console.error(\"Error: an Unsloth admin password is already set; --password only sets the initial password.\"); process.exit(1); }",
+      "const fake = await startFakeModel({ port: Number(args[args.indexOf('-p') + 1]), apiKey: 'sk-unsloth-' + 'k'.repeat(24) });",
+      "console.log('API Key: ' + fake.apiKey);",
+    ].join("\n"));
+    const started = [];
+    const spawn = (_command, args, options) => { started.push(options.env); return spawnProcess(process.execPath, [studio, ...args], { ...options, env: { ...options.env, STUDIO_HAS_PASSWORD: "1" } }); };
+    const runtime = make({ spawn, stateDir, runtimeDir: path.join(stateDir, "unsloth") });
+    const unsloth = { driver: "unsloth", model: "unsloth/Qwen3.5-4B-GGUF:UD-Q4_K_XL", threads: 4 };
+    // The owner's server: the password was set by an earlier start, before BoxPilot kept track.
+    expect((await runtime.ensure(unsloth)).apiKey).toBe(`sk-unsloth-${"k".repeat(24)}`);
+    expect(started.map((env) => Boolean(env.UNSLOTH_STUDIO_PASSWORD))).toEqual([true, false]);
+    expect((await stat(path.join(stateDir, studioPasswordSetFile))).isFile()).toBe(true);
+    // After an idle stop, the next start passes no password at all.
+    await runtime.stop("idle");
+    await runtime.ensure(unsloth);
+    expect(started.map((env) => Boolean(env.UNSLOTH_STUDIO_PASSWORD))).toEqual([true, false, false]);
+  }, 30_000);
 
   it("only checks a model server someone else runs, and never starts one", async () => {
     const runtime = make();

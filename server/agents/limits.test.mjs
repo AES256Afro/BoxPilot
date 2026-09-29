@@ -25,14 +25,21 @@ describe("steps, tool calls and tokens a run", () => {
   it("stops a model that keeps calling tools at its steps, and asks it for an answer without tools", async () => {
     await setup();
     const agent = withBudget(make("it-support"), { stepsPerRun: 3 });
-    h.fake.state.script = toolHungry;
+    h.fake.state.script = (body) => (body.tool_choice === "none" ? { content: "Out of steps, so here is what I have [T1]." } : toolHungry(body));
     ask(agent, "owner");
     const run = await h.runNext();
     expect(run.state).toBe("completed");
     expect(run.steps.filter((step) => step.kind === "model")).toHaveLength(3);
-    const last = h.fake.prompts().at(-1);
-    expect(last.tools).toBeUndefined();
-    expect(last.messages.at(-1)).toEqual({ role: "user", content: "Answer now with what you have. Do not call more tools." });
+    const prompts = h.fake.prompts();
+    const [last, before] = [prompts.at(-1), prompts.at(-2)];
+    // The same tools stay in the prompt, so it is the one the model already read; none may be called.
+    expect(last.tools).toEqual(before.tools);
+    expect(last.tool_choice).toBe("none");
+    // Told at the end of the last tool round, outside the tool's box: nothing before it changes.
+    expect(last.messages.slice(0, before.messages.length)).toEqual(before.messages);
+    expect(last.messages.at(-1)).toMatchObject({ role: "tool" });
+    expect(last.messages.at(-1).content).toMatch(/<\/tool_output>\n\nBoxPilot: this run has no tool calls left\. Answer now with what you have\. Do not call more tools\.$/);
+    expect(h.fake.calls().at(-1).cachedTokens).toBeGreaterThan(h.fake.calls().at(-2).promptTokens);
   });
 
   it("refuses tool calls past the run's allowance, whatever the runner asks", async () => {
@@ -97,7 +104,9 @@ describe("budgets a day", () => {
   });
 
   it("ends a run degraded, with the tools' facts, when its model time runs out mid-way", async () => {
-    await setup();
+    // A model measured as fast, so each call's time is only the 400 ms this model takes.
+    h = await createAgentsHarness({ runnerOptions: { promptPerSecond: 100_000, generatePerSecond: 10_000, minAnswerTokens: 8 } });
+    h.enable();
     const agent = withBudget(make("it-support"), { modelSecondsPerDay: 10 });
     ask(agent, "owner");
     const first = await h.service.runnerNext(h.runnerId, { waitMs: 0 });
@@ -107,9 +116,10 @@ describe("budgets a day", () => {
     ask(agent, "owner", "What is this server called?");
     const run = await h.runNext();
     expect(run).toMatchObject({ state: "degraded", flags: { degraded: "budget", limitReached: true } });
-    // The understanding and one call to act fit; the next would not.
+    // The understanding and one call to act fit; the next would not, and the trace says so up front.
     expect(run.steps.filter((step) => step.kind === "intent")).toHaveLength(1);
     expect(run.steps.filter((step) => step.kind === "model")).toHaveLength(1);
+    expect(run.steps.find((step) => step.kind === "system" && /^Not starting the next step/.test(step.flags?.detail ?? ""))?.flags.detail).toMatch(/of model time \(\d+ tokens to read at [\d.]+ a second, then a short answer\) and 0 s are left today\.$/);
     expect(run.answer).toMatch(/model time for today is used up/);
   });
 });
@@ -255,14 +265,36 @@ describe("a model that is missing, broken or slow", () => {
     expect(run.answer).toMatch(/stopped with an error/);
   });
 
-  it("gives up on a model that never answers, and still answers", async () => {
-    h = await createAgentsHarness({ runnerOptions: { modelCallMs: 300 } });
+  it("gives up on a model that never answers when the run's time is up, and still answers", async () => {
+    // No call has a time of its own: a call may use what the run has left, here half a second.
+    h = await createAgentsHarness({ runnerOptions: { reserveMs: 0, promptPerSecond: 1e6, generatePerSecond: 1e6, minAnswerTokens: 1 } });
     h.enable();
     h.fake.state.chat = "hang";
-    ask(make("it-support"), "owner");
-    const run = await h.runNext();
+    ask(withBudget(make("it-support"), { runSeconds: 30 }), "owner");
+    const claim = await h.service.runnerNext(h.runnerId, { waitMs: 0 });
+    h.advance(29_500);
+    const started = Date.now();
+    await h.runner.execute(claim);
+    expect(Date.now() - started).toBeLessThan(4_000);
+    const run = h.service.getRun(h.caller("owner"), claim.run.id);
     expect(run).toMatchObject({ state: "degraded", flags: { degraded: "timeout" } });
     expect(run.answer).toMatch(/took too long/);
+  });
+
+  it("does not start a call that cannot fit in what the run has left, and says so", async () => {
+    await setup();
+    // The default speeds before anything is measured: 8 tokens a second read, 4 written.
+    ask(withBudget(make("it-support"), { runSeconds: 60 }), "owner", "What is this server called?");
+    const claim = await h.service.runnerNext(h.runnerId, { waitMs: 0 });
+    h.advance(40_000);
+    await h.runner.execute(claim);
+    const run = h.service.getRun(h.caller("owner"), claim.run.id);
+    expect(h.fake.prompts()).toEqual([]);
+    expect(run).toMatchObject({ state: "degraded", flags: { degraded: "timeout" } });
+    expect(run.steps.find((step) => step.kind === "system" && step.state === "failed")?.flags.detail).toMatch(/^Not starting the plan: it needs about \d+ s \(\d+ tokens to read at 8 a second, then a short answer\) and the run has \d s left\.$/);
+    // The tools the question needs still answer it.
+    expect(run.answer).toMatch(/^The model took too long, so this is what the tools found/);
+    expect(run.answer).toContain("testbox");
   });
 });
 

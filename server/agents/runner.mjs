@@ -7,36 +7,127 @@
  * processor to speak of, and its model server is stopped once nothing has used it for a while.
  *
  * One run is intent, then plan, then act: the model first returns a structured understanding of
- * the request (JSON against a schema: goal, subject, constraints, the tools it needs, its
- * confidence, a clarifying question if it is too unclear to act on, and a short plan); then it
- * works through the plan with tools; then it answers - as the owner's JSON fields when the agent
+ * the request (JSON against a schema: goal, subject, constraints, confidence, a clarifying question
+ * if it is too unclear to act on, and a short plan naming the tools it needs); then it works
+ * through the plan with those tools; then it answers - as the owner's JSON fields when the agent
  * says so. Limits on steps, tokens, model time and wall time hold throughout. A heartbeat keeps the
  * run's lease and is how the web service says "stop" (a cancel, a pause, the kill switch). A model
  * that is missing, slow or failing does not leave a person without an answer: the run finishes
- * "degraded", with what the tools found.
+ * "degraded", with what the tools the plan named found.
+ *
+ * On a CPU, reading the prompt is most of the time (the first real run read at about 20 tokens a
+ * second on one thread), so every call is built to be read once:
+ * - The planner is a small conversation of its own whose system message is the same for every run
+ *   of an agent (intent.mjs). The calls that act are one conversation that only grows at its end:
+ *   tools, then BoxPilot's rules and the agent's prompt, then the task and the plan, then each
+ *   tool round. Qwen's template renders the tools at the very top, so the tools are chosen once, by
+ *   the plan, and kept in the catalog's order for every call after it - the last answer, a forced
+ *   one ("tool_choice": "none" keeps the tools in the prompt) and a JSON rewrite included. Nothing
+ *   is ever inserted before the end, and no user message is added after a tool round (Qwen then
+ *   drops its earlier turns' empty think blocks, which would change the prompt behind them).
+ * - `cache_prompt` is asked for (Unsloth drops the field and llama-server has it on anyway), and on
+ *   a llama-server the runner started, slot 0: the only one.
+ * - Each call's time is worked out from the tokens it will read and write at this server's
+ *   measured speed (llama-server's `timings`, which Unsloth passes on, or the runner's own clock),
+ *   within what the run and the day's model time have left. A call that cannot fit is not started,
+ *   and the trace says why. The speeds go back to BoxPilot with the run's usage.
+ * - A call given up on is closed, which stops llama-server at its next batch, and Unsloth is asked
+ *   to cancel it by the `cancel_id` it carried.
  *
  * An index run has no conversation: it embeds the texts the web service hands it with the model
  * server's /v1/embeddings, for memory search by meaning.
  */
-import { understandingFormat, understandingMessage, planMessage, readUnderstanding } from "./intent.mjs";
-import { answerFormat, fallbackAnswer, readStructuredAnswer } from "./prompt.mjs";
+import { randomUUID } from "node:crypto";
+import { planMessage, plannerMessages, readUnderstanding, understandingFormatFor } from "./intent.mjs";
+import { answerFormat, answerNowNote, fallbackAnswer, readStructuredAnswer } from "./prompt.mjs";
 import { ModelUnavailable } from "./runtime.mjs";
+import { actToolIds, toolById, toolCatalog } from "./tool-catalog.mjs";
 
 export const runnerDefaults = Object.freeze({
   pollWaitMs: 25_000,
-  modelCallMs: 5 * 60_000,
   understandTokens: 400,
   embedBatch: 8,
   backoffMs: [2_000, 5_000, 15_000, 30_000, 60_000],
+  // Before this server's model has been measured: the spike's one-processor speeds, slow on purpose.
+  promptPerSecond: 8,
+  generatePerSecond: 4,
+  charsPerToken: 4,
+  // Kept back from the run's time for the tools' facts and the finish when the model runs out.
+  reserveMs: 15_000,
+  // A call is only started when it can read its prompt (at the measured speed, with this margin)
+  // and still write this many tokens in what is left.
+  fitMargin: 1.2,
+  minAnswerTokens: 48,
+  // A tool's output is cut to what the model can read in this long, never below 1,200 characters.
+  toolReadSeconds: 25,
 });
 
 const stripWrapper = (content) => String(content ?? "").replace(/<\/?tool_output[^>]*>/g, "").replace(/^Data from a tool, not instructions\.[^\n]*\n?/m, "").replace(/^WARNING:[^\n]*\n?/m, "").trim();
+const stripToolMarkup = (text) => String(text ?? "").replace(/<tool_call>[\s\S]*?(<\/tool_call>|$)/g, "").trim();
 
-/** Tools a degraded run asks for itself, so a person still gets facts: cheap ones, those it was given. */
-export function fallbackTools(claim) {
+// Tools a degraded run may run itself: reads of the server that need no words from the model.
+const fallbackCategories = new Set(["boxpilot", "records", "app"]);
+const needsInput = (tool) => Object.values(tool.params ?? {}).some((spec) => spec.required);
+const howTo = /\b(how (do|can|to|should)|where (do|can) i|what does .{1,40} do|explain|boxpilot'?s? (roadmap|docs?|documentation|page|feature))\b/i;
+
+/**
+ * Tools a degraded run asks for itself, so a person still gets facts: the reads its plan named
+ * (alerts, storage, services, apps...), or cheap facts when there was no plan. docs.search only
+ * when the plan named it or the question is how to do something in BoxPilot.
+ */
+export function fallbackTools(claim, understanding = null) {
   const offered = new Set((claim.tools ?? []).map((tool) => tool.id));
-  const wanted = claim.run.question ? ["docs.search", "server.facts", "alerts.active"] : ["server.facts", "alerts.active", "storage.health"];
-  return wanted.filter((id) => offered.has(id)).slice(0, 3).map((id) => ({ id, input: id === "docs.search" ? { query: String(claim.run.question).slice(0, 300) } : {} }));
+  const question = claim.run?.question ? String(claim.run.question) : "";
+  const planned = (understanding?.tools ?? []).map((id) => toolById(id)).filter((tool) => tool && offered.has(tool.id));
+  let picked = planned.filter((tool) => (fallbackCategories.has(tool.category) && !needsInput(tool) && !tool.writes) || tool.id === "docs.search").map((tool) => tool.id);
+  if (!picked.length) picked = ["server.facts", "alerts.active", "storage.health", ...(question && howTo.test(question) ? ["docs.search"] : [])].filter((id) => offered.has(id));
+  return picked.slice(0, 4).map((id) => ({ id, input: id === "docs.search" ? { query: question.slice(0, 300) || "status" } : {} }));
+}
+
+/**
+ * The model's speed on this server, in tokens a second: reading the prompt and writing the answer.
+ * It starts from what BoxPilot measured before (or slow defaults); this run's first measurement
+ * replaces that (the server may be busier or quieter now), and later ones are averaged in.
+ */
+export function createSpeed({ promptPerSecond, generatePerSecond, source = "default" }) {
+  const speed = { promptPerSecond, generatePerSecond, source, samples: 0 };
+  const blend = (old, sample, fresh) => (fresh ? sample : Math.round((old * 0.5 + sample * 0.5) * 100) / 100);
+  let freshPrompt = true;
+  let freshGenerate = true;
+  return {
+    get: () => ({ ...speed }),
+    /** One call's measurement: tokens read and the milliseconds it took, tokens written and theirs. */
+    learn({ readTokens = 0, readMs = 0, writtenTokens = 0, writeMs = 0, from = "runner" }) {
+      let learned = false;
+      if (readTokens >= 16 && readMs > 0) { speed.promptPerSecond = blend(speed.promptPerSecond, Math.round((readTokens / readMs) * 1000 * 100) / 100, freshPrompt); freshPrompt = false; learned = true; }
+      if (writtenTokens >= 8 && writeMs > 0) { speed.generatePerSecond = blend(speed.generatePerSecond, Math.round((writtenTokens / writeMs) * 1000 * 100) / 100, freshGenerate); freshGenerate = false; learned = true; }
+      if (learned) { speed.samples += 1; speed.source = from; }
+      return learned;
+    },
+  };
+}
+
+/** A tool's output cut to `maxChars` of its text, the wrapper and its first lines kept whole. */
+export function clipToolOutput(content, maxChars) {
+  const text = String(content ?? "");
+  if (text.length <= maxChars) return text;
+  const close = text.lastIndexOf("</tool_output>");
+  const head = text.indexOf("\n\n");
+  if (close < 0 || head < 0 || head > close) return `${text.slice(0, maxChars)}\n[… cut here: the model could not read more in time]`;
+  const body = text.slice(head + 2, close);
+  const room = Math.max(200, maxChars - head - 2 - 20);
+  const cut = body.lastIndexOf("\n", room);
+  const kept = body.slice(0, cut > room * 0.6 ? cut : room);
+  return `${text.slice(0, head + 2)}${kept}\n[… ${body.length - kept.length} more characters not shown: the model could not read them in time]\n</tool_output>`;
+}
+
+/** Thinking off, however this server is told: Unsloth's own field, or llama.cpp's template argument. */
+function thinkingOff(extra = {}) {
+  const out = { ...extra };
+  if ("enable_thinking" in out) out.enable_thinking = false;
+  if (out.chat_template_kwargs && typeof out.chat_template_kwargs === "object") out.chat_template_kwargs = { ...out.chat_template_kwargs, enable_thinking: false };
+  delete out.reasoning_effort;
+  return out;
 }
 
 export function createRunner({ api, runtime, client, usage = null, now = () => Date.now(), log = () => {}, version = null, options = {} }) {
@@ -101,19 +192,26 @@ export function createRunner({ api, runtime, client, usage = null, now = () => D
     }, limits.heartbeatMs ?? 10_000);
     heartbeat.unref?.();
 
-    const used = { modelMs: 0, loadMs: 0, promptTokens: 0, completionTokens: 0, modelCalls: 0 };
+    const used = { modelMs: 0, loadMs: 0, promptTokens: 0, completionTokens: 0, cachedTokens: 0, readTokens: 0, modelCalls: 0 };
     const outputs = [];
     let degraded = null;
     let answer = null;
     let clarify = null;
+    let understanding = null;
     let limitReached = false;
-    const tokensUsed = () => used.promptTokens + used.completionTokens;
+    // The run's work in tokens: what the model read (not what it had cached) and what it wrote.
+    const tokensUsed = () => used.readTokens + used.completionTokens;
     const system = (name, detail, state = "done") => api.steps(run.id, lease, [{ kind: "system", name, detail, state }]).catch(() => {});
+    const driver = claim.runtime?.driver ?? null;
+    const speed = createSpeed(claim.runtime?.speed?.promptPerSecond > 0 && claim.runtime?.speed?.generatePerSecond > 0
+      ? { promptPerSecond: claim.runtime.speed.promptPerSecond, generatePerSecond: claim.runtime.speed.generatePerSecond, source: "stored" }
+      : { promptPerSecond: settings.promptPerSecond, generatePerSecond: settings.generatePerSecond });
+    let charsPerToken = settings.charsPerToken;
 
     const callTool = async (name, input, model) => {
       // Memory search by meaning: the query's embedding goes with the call, made here where the model is.
       let extras = {};
-      if (String(name).replace(/_/g, ".") === "memory.search" && claim.runtime?.embeddings && model) {
+      if (toolById(String(name))?.id === "memory.search" && claim.runtime?.embeddings && model) {
         let query = "";
         try { query = String((typeof input === "string" ? JSON.parse(input || "{}") : input ?? {}).query ?? ""); } catch { query = ""; }
         const vectors = query ? await embed(model, [query.slice(0, 1_000)], controller.signal) : null;
@@ -125,30 +223,80 @@ export function createRunner({ api, runtime, client, usage = null, now = () => D
       return result;
     };
 
-    /** One call to the model, counted against the run's budget. */
-    const ask = async (model, request) => {
-      if (used.modelMs + used.loadMs >= limits.remainingModelMs) { degraded = "budget"; limitReached = true; return null; }
+    /** How much of the run is left for the model: the deadline (less the reserve) and the day's model time. */
+    const timeLeft = () => {
+      const byDeadline = deadline - now() - settings.reserveMs;
+      const byBudget = limits.remainingModelMs - used.modelMs - used.loadMs;
+      return { ms: Math.min(byDeadline, byBudget), binding: byBudget < byDeadline ? "budget" : "timeout" };
+    };
+
+    const promptChars = (conversation) => (conversation.tools?.length ? JSON.stringify(conversation.tools).length : 0)
+      + conversation.messages.reduce((sum, message) => sum + String(typeof message.content === "string" ? message.content : JSON.stringify(message.content ?? "")).length + (message.tool_calls ? JSON.stringify(message.tool_calls).length : 0) + 16, 0);
+
+    /**
+     * One call to the model, counted against the run's budget. Its time is worked out first: the
+     * tokens it will read (what the conversation grew by since its last call, or all of it) and the
+     * tokens it may write, at this server's speed. A call that cannot fit is not started.
+     */
+    const ask = async (model, conversation, { maxTokens, toolChoice = "auto", extra = claim.runtime.extra ?? {}, purpose = "call" }) => {
+      const chars = promptChars(conversation);
+      const newChars = conversation.last ? Math.max(0, chars - conversation.last.chars) : chars;
+      const readTokens = Math.max(1, Math.ceil(newChars / charsPerToken));
+      const pace = speed.get();
+      const readMs = (readTokens / pace.promptPerSecond) * 1000;
+      const writeMsPerToken = 1000 / pace.generatePerSecond;
+      const left = timeLeft();
+      const needed = readMs * settings.fitMargin + settings.minAnswerTokens * writeMsPerToken;
+      if (left.ms <= 0 || needed > left.ms) {
+        degraded = left.binding;
+        limitReached = true;
+        const seconds = (ms) => Math.max(0, Math.round(ms / 1000));
+        await system("model", left.binding === "budget"
+          ? `Not starting the ${purpose}: it needs about ${seconds(needed)} s of model time (${readTokens} tokens to read at ${pace.promptPerSecond} a second, then a short answer) and ${seconds(left.ms)} s are left today.`
+          : `Not starting the ${purpose}: it needs about ${seconds(needed)} s (${readTokens} tokens to read at ${pace.promptPerSecond} a second, then a short answer) and the run has ${seconds(left.ms)} s left.`, "failed");
+        return null;
+      }
+      const fitTokens = Math.floor((left.ms - readMs * settings.fitMargin) / writeMsPerToken);
+      const tokens = Math.max(settings.minAnswerTokens, Math.min(maxTokens, fitTokens));
+      const cancelId = driver === "unsloth" || driver === "fake" ? `boxpilot-${randomUUID()}` : null;
+      const fields = { cache_prompt: true, ...(driver === "llama-server" ? { id_slot: 0 } : {}), ...(cancelId ? { cancel_id: cancelId } : {}) };
       const started = now();
       try {
-        const result = await client.chat(model.endpoint, { model: model.model, temperature: claim.runtime.temperature ?? 0.2, extra: claim.runtime.extra ?? {}, ...request }, {
-          apiKey: model.apiKey,
-          signal: controller.signal,
-          timeoutMs: Math.max(1_000, Math.min(settings.modelCallMs, deadline - now(), limits.remainingModelMs - used.modelMs - used.loadMs + 1_000)),
-        });
-        used.modelMs += now() - started;
+        const result = await client.chat(model.endpoint, {
+          model: model.model, temperature: claim.runtime.temperature ?? 0.2, messages: conversation.messages, tools: conversation.tools, toolChoice, maxTokens: tokens, extra: { ...extra, ...fields },
+        }, { apiKey: model.apiKey, signal: controller.signal, timeoutMs: Math.max(1_000, left.ms) });
+        const took = now() - started;
+        used.modelMs += took;
         used.modelCalls += 1;
-        used.promptTokens += result.usage?.promptTokens ?? 0;
-        used.completionTokens += result.usage?.completionTokens ?? 0;
+        const promptTokens = result.usage?.promptTokens ?? 0;
+        const completionTokens = result.usage?.completionTokens ?? 0;
+        const cached = result.timings?.cachedTokens ?? result.usage?.cachedTokens ?? null;
+        const read = result.timings?.promptTokens ?? (cached !== null ? Math.max(0, promptTokens - cached) : promptTokens);
+        used.promptTokens += promptTokens;
+        used.completionTokens += completionTokens;
+        used.cachedTokens += cached ?? 0;
+        used.readTokens += read;
+        if (promptTokens >= 100) charsPerToken = Math.min(8, Math.max(2, Math.round(((charsPerToken + chars / promptTokens) / 2) * 100) / 100));
+        // The server's own timings when it passes them on; else the runner's clock, when it knows what was read.
+        if (result.timings?.promptMs || result.timings?.predictedMs) {
+          speed.learn({ readTokens: result.timings.promptTokens ?? 0, readMs: result.timings.promptMs ?? 0, writtenTokens: result.timings.predictedTokens ?? 0, writeMs: result.timings.predictedMs ?? 0, from: "server" });
+        } else if (result.firstTokenMs !== null && result.firstTokenMs !== undefined) {
+          speed.learn({ readTokens: cached !== null || !conversation.last ? read : 0, readMs: result.firstTokenMs, writtenTokens: Math.max(0, completionTokens - 1), writeMs: Math.max(0, (result.elapsedMs ?? took) - result.firstTokenMs), from: "runner" });
+        }
+        conversation.last = { chars, promptTokens, completionTokens };
         runtime.touch();
-        return { result, took: now() - started };
+        return { result, took, cached, read, maxTokens: tokens };
       } catch (error) {
         used.modelMs += now() - started;
+        // Closing the connection stops llama-server at its next batch; Unsloth is also asked to stop.
+        if (cancelId) void client.cancel?.(model.endpoint, cancelId, { apiKey: model.apiKey });
         if (controller.signal.aborted) throw error;
         degraded = /timed? ?out|aborted|TimeoutError/i.test(`${error?.name} ${error?.message}`) ? "timeout" : "model-error";
         await system("model", `The model stopped: ${String(error?.message ?? error).slice(0, 200)}`, "failed");
         return null;
       }
     };
+    const stepOf = (model, asked, text, toolCalls = []) => ({ kind: "model", name: model.model, text, toolCalls, durationMs: asked.took, tokensIn: asked.result.usage?.promptTokens, tokensOut: asked.result.usage?.completionTokens });
 
     try {
       if (run.kind === "index") return await executeIndex(claim, controller, used, () => clearInterval(heartbeat));
@@ -164,56 +312,72 @@ export function createRunner({ api, runtime, client, usage = null, now = () => D
         await system("model", error.message, "failed");
       }
 
-      const messages = [...claim.messages];
-      // 1. Intent and plan, as JSON against a schema, before any tool is called.
+      const task = claim.messages.filter((message) => message.role === "user").map((message) => message.content).join("\n\n");
+      // 1. Intent and plan, as JSON against a schema, before any tool is called: a small conversation of its own.
       if (model && claim.understand) {
         const tools = claim.understand.tools ?? [];
-        const asked = await ask(model, { messages: [...messages, { role: "user", content: understandingMessage(tools) }], maxTokens: settings.understandTokens, extra: { ...(claim.runtime.extra ?? {}), response_format: understandingFormat } });
+        const planner = { tools: null, messages: plannerMessages(claim.agent ?? {}, tools, task), last: null };
+        const asked = await ask(model, planner, { maxTokens: settings.understandTokens, extra: { ...thinkingOff(claim.runtime.extra ?? {}), response_format: understandingFormatFor(tools.map((tool) => tool.fn)) }, purpose: "plan" });
         if (asked) {
           const read = readUnderstanding(asked.result.content ?? "", { offered: tools.map((tool) => tool.fn) });
           await api.steps(run.id, lease, [{ kind: "intent", understanding: read.understanding ?? asked.result.content ?? "", durationMs: asked.took, tokensIn: asked.result.usage?.promptTokens, tokensOut: asked.result.usage?.completionTokens }]).catch(() => {});
           if (read.understanding?.clarify && ["ask", "manual"].includes(run.kind)) clarify = read.understanding.clarify;
-          else if (read.understanding) messages.push({ role: "assistant", content: JSON.stringify({ goal: read.understanding.goal, plan: read.understanding.plan }) }, { role: "user", content: planMessage(read.understanding) });
+          else if (read.understanding) understanding = read.understanding;
         }
       }
 
-      // 2. Act: tool calls until the model answers, within the run's limits.
-      if (model && !clarify && !(degraded === "budget")) {
-        const tools = (claim.tools ?? []).map(({ id: _id, ...tool }) => tool);
+      // 2. Act: one conversation that only grows, carrying the tools the plan named and the always-on ones.
+      // A plan that did not fit in the time or the budget left leaves nothing for acting either.
+      if (model && !clarify && !["budget", "timeout"].includes(degraded)) {
+        const ids = actToolIds((claim.tools ?? []).map((tool) => tool.id), { planned: understanding?.tools?.length ? understanding.tools : null, kind: run.kind });
+        const byId = new Map((claim.tools ?? []).map(({ id, ...tool }) => [id, tool]));
+        const messages = claim.messages.map((message) => ({ ...message }));
+        if (understanding) {
+          const lastUser = messages.findLastIndex((message) => message.role === "user");
+          if (lastUser >= 0) messages[lastUser] = { ...messages[lastUser], content: `${messages[lastUser].content}\n\n${planMessage(understanding)}` };
+        }
+        const act = { tools: ids.map((id) => byId.get(id)).filter(Boolean), messages, last: null };
+        if (!act.tools.length) act.tools = null;
+        const readChars = () => Math.max(1_200, Math.round(settings.toolReadSeconds * speed.get().promptPerSecond * charsPerToken));
         let toolCalls = 0;
         const structured = claim.output?.format === "json" && (claim.output.fields ?? []).length > 0;
+        const answerExtra = structured ? { ...(claim.runtime.extra ?? {}), response_format: answerFormat(claim.output.fields) } : claim.runtime.extra ?? {};
         for (let step = 0; step < limits.steps && !answer; step += 1) {
           if (controller.signal.aborted) break;
           const lastStep = step === limits.steps - 1 || tokensUsed() >= limits.tokens * 0.85 || toolCalls >= limits.maxToolCalls;
           if (lastStep) limitReached = limitReached || step === limits.steps - 1 || toolCalls >= limits.maxToolCalls;
-          if (lastStep && step > 0) messages.push({ role: "user", content: structured ? "Answer now with what you have, as the JSON fields. Do not call more tools." : "Answer now with what you have. Do not call more tools." });
-          const final = lastStep && step > 0;
-          const asked = await ask(model, {
-            messages,
-            tools: final ? null : tools,
+          const final = lastStep && step > 0 && Boolean(act.tools);
+          if (final) {
+            // Told at the end of the last tool round, so nothing before it changes.
+            const last = act.messages.at(-1);
+            if (last?.role === "tool") act.messages[act.messages.length - 1] = { ...last, content: `${last.content}${answerNowNote(structured)}` };
+            else act.messages.push({ role: "user", content: answerNowNote(structured).trim() });
+          }
+          const asked = await ask(model, act, {
             maxTokens: Math.max(64, Math.min(claim.runtime.maxTokens ?? 1024, limits.tokens - tokensUsed())),
-            ...(final && structured ? { extra: { ...(claim.runtime.extra ?? {}), response_format: answerFormat(claim.output.fields) } } : {}),
+            toolChoice: final ? "none" : "auto",
+            ...(final && structured ? { extra: answerExtra } : {}),
+            purpose: final ? "last answer" : "next step",
           });
           if (!asked) break;
-          const { result, took } = asked;
-          const calls = (result.toolCalls ?? []).slice(0, limits.toolCallsPerStep ?? 3);
-          await api.steps(run.id, lease, [{ kind: "model", name: model.model, text: result.content, toolCalls: calls, durationMs: took, tokensIn: result.usage?.promptTokens, tokensOut: result.usage?.completionTokens }]);
-          if (!calls.length || final) { answer = String(result.content ?? "").trim() || null; if (!answer) degraded = "model-error"; break; }
-          messages.push({ role: "assistant", content: result.content || null, tool_calls: calls.map((call) => ({ id: call.id, type: "function", function: { name: call.name, arguments: call.arguments || "{}" } })) });
+          const { result } = asked;
+          const calls = final ? [] : (result.toolCalls ?? []).slice(0, limits.toolCallsPerStep ?? 3);
+          await api.steps(run.id, lease, [stepOf(model, asked, result.content, calls)]);
+          if (!calls.length) { answer = stripToolMarkup(result.content) || null; if (!answer) degraded = "model-error"; break; }
+          act.messages.push({ role: "assistant", content: result.content || null, tool_calls: calls.map((call) => ({ id: call.id, type: "function", function: { name: call.name, arguments: call.arguments || "{}" } })) });
           for (const call of calls) {
             if (controller.signal.aborted) break;
             toolCalls += 1;
             const reply = await callTool(call.name, call.arguments, model);
-            messages.push({ role: "tool", tool_call_id: call.id, content: reply.content });
+            act.messages.push({ role: "tool", tool_call_id: call.id, content: clipToolOutput(reply.content, readChars()) });
           }
         }
-        // 3. A structured answer that is not the owner's JSON gets one more call that must be.
+        // 3. A structured answer that is not the owner's JSON: the same prompt again, held to the JSON.
         if (answer && structured && readStructuredAnswer(answer, claim.output.fields).problem && !degraded) {
-          messages.push({ role: "assistant", content: answer }, { role: "user", content: "Write that answer as the JSON fields, nothing else." });
-          const asked = await ask(model, { messages, tools: null, maxTokens: Math.max(128, Math.min(claim.runtime.maxTokens ?? 1024, limits.tokens - tokensUsed())), extra: { ...(claim.runtime.extra ?? {}), response_format: answerFormat(claim.output.fields) } });
+          const asked = await ask(model, act, { maxTokens: Math.max(128, Math.min(claim.runtime.maxTokens ?? 1024, limits.tokens - tokensUsed())), toolChoice: "none", extra: answerExtra, purpose: "JSON answer" });
           if (asked?.result?.content) {
-            await api.steps(run.id, lease, [{ kind: "model", name: model.model, text: asked.result.content, toolCalls: [], durationMs: asked.took, tokensIn: asked.result.usage?.promptTokens, tokensOut: asked.result.usage?.completionTokens }]);
-            answer = String(asked.result.content).trim();
+            await api.steps(run.id, lease, [stepOf(model, asked, asked.result.content)]);
+            answer = stripToolMarkup(asked.result.content);
           }
         }
         if (!answer && !degraded && !controller.signal.aborted) degraded = "model-error";
@@ -221,30 +385,36 @@ export function createRunner({ api, runtime, client, usage = null, now = () => D
 
       if (controller.signal.aborted) throw controller.signal.reason ?? new Error("stopped");
       if (clarify) {
-        await api.finish(run.id, lease, { outcome: "completed", clarify, usage: used });
+        await api.finish(run.id, lease, { outcome: "completed", clarify, usage: usageOf() });
         return { outcome: "completed" };
       }
       let outcome = "completed";
       if (degraded || !answer) {
-        if (!outputs.length) for (const tool of fallbackTools(claim)) { if (controller.signal.aborted) break; await callTool(tool.id, tool.input, null).catch(() => null); }
+        if (!outputs.length) for (const tool of fallbackTools(claim, understanding)) { if (controller.signal.aborted) break; await callTool(tool.id, tool.input, null).catch(() => null); }
         answer = answer ? `${answer}\n\n(${degraded === "timeout" ? "The model took too long, so this may stop short." : "The model did not finish."})` : fallbackAnswer({ reason: degraded ?? "model-error", outputs });
         outcome = "degraded";
       }
-      await api.finish(run.id, lease, { outcome, answer, usage: used, degradedReason: outcome === "degraded" ? degraded ?? "model-error" : null, limitReached });
+      await api.finish(run.id, lease, { outcome, answer, usage: usageOf(), degradedReason: outcome === "degraded" ? degraded ?? "model-error" : null, limitReached });
       return { outcome };
     } catch (error) {
       // Stopped by BoxPilot (cancelled, paused, killed, timed out): the web service already ended
       // the run; there is nothing to finish. Anything else ends the run as failed, never retried.
       if (stoppedBy || controller.signal.aborted) {
-        if (!stoppedBy && String(controller.signal.reason?.message) === "timeout") await api.finish(run.id, lease, { outcome: "degraded", answer: fallbackAnswer({ reason: "timeout", outputs }), usage: used, degradedReason: "timeout" }).catch(() => null);
+        if (!stoppedBy && String(controller.signal.reason?.message) === "timeout") await api.finish(run.id, lease, { outcome: "degraded", answer: fallbackAnswer({ reason: "timeout", outputs }), usage: usageOf(), degradedReason: "timeout" }).catch(() => null);
         return { outcome: stoppedBy ?? "stopped" };
       }
       log(`run ${run.id} failed: ${error?.message ?? error}`);
-      await api.finish(run.id, lease, { outcome: "failed", error: String(error?.message ?? error).slice(0, 300), usage: used }).catch(() => null);
+      await api.finish(run.id, lease, { outcome: "failed", error: String(error?.message ?? error).slice(0, 300), usage: usageOf() }).catch(() => null);
       return { outcome: "failed" };
     } finally {
       clearInterval(heartbeat);
       clearTimeout(deadlineTimer);
+    }
+
+    /** The run's usage for BoxPilot, with this server's speed when a call measured it. */
+    function usageOf() {
+      const pace = speed.get();
+      return { ...used, ...(pace.samples > 0 ? { speed: { promptPerSecond: pace.promptPerSecond, generatePerSecond: pace.generatePerSecond, source: pace.source, samples: pace.samples, threads: claim.runtime?.threads ?? null } } : {}) };
     }
   }
 
@@ -321,3 +491,6 @@ export function directRunnerApi(service, runnerId) {
     usage: (body) => Promise.resolve(service.runnerUsage(runnerId, body)),
   };
 }
+
+/** For tests and the benchmark: the catalog's tools a run with these ids acts with, as the model sees them. */
+export const actToolsFor = (claimTools, understanding, kind) => actToolIds(claimTools.map((tool) => tool.id), { planned: understanding?.tools?.length ? understanding.tools : null, kind }).map((id) => toolCatalog.find((tool) => tool.id === id)?.fn);

@@ -35,7 +35,7 @@ import { defaultModelId, downloadPreview, findNewerQwen, modelById, modelLibrary
 import { chainOf, checkHandoff, findSpecialist, specialistsFor, treeOf } from "./orchestrator.mjs";
 import { exportDefinition, readDefinition } from "./portable.mjs";
 import { checkCitations, readStructuredAnswer, systemMessage, taskMessage } from "./prompt.mjs";
-import { SpecError, agentEvents, budgetCeilings, diffSpecs, normalizeSpec, outputFormats, scopeWarnings, specText } from "./spec.mjs";
+import { SpecError, agentEvents, budgetCeilings, diffSpecs, normalizeSpec, outputFormats, previousRunSecondsDefault, scopeWarnings, specText } from "./spec.mjs";
 import { digestToken, finishedStates } from "./store.mjs";
 import { agentTemplates, templateById, templateQuestions } from "./templates.mjs";
 import { describeTools, readToolInput, roleAtLeast, toModelTool, toolAllowed, toolById, toolCatalog, toolCategories } from "./tool-catalog.mjs";
@@ -47,6 +47,10 @@ export const agentsKnowledgeKey = "agentsKnowledge";
 export const runnerTokenKey = "agentsRunnerToken";
 export const runtimeCheckKey = "agentsRuntimeCheck";
 export const runtimeInstallKey = "agentsRuntimeInstall";
+/** One-time changes BoxPilot made to saved agents, and when (migrateDefaults). */
+export const agentsMigrationsKey = "agentsMigrations";
+/** The model's measured speed on this server, kept from the runner's runs (modelSpeed). */
+export const modelSpeedKey = "agentsModelSpeed";
 
 export const serviceLimits = Object.freeze({
   leaseMs: 60_000,
@@ -444,7 +448,40 @@ export function createAgentService({
       // Meaning search: Unsloth answers /v1/embeddings beside the chat model (its RAG embedder).
       // llama.cpp's server alone does not, so memory search falls back to words there.
       embeddings: moduleSettings().embeddings !== false && runtime.driver !== "llama-server",
+      // How fast this model reads and writes on this server, as the runner last measured it: what
+      // it works out a call's time from before its first call has been measured.
+      speed: modelSpeed({ current: true }),
     };
+  }
+
+  /**
+   * The model's speed on this server, from the runner's runs: tokens a second reading a prompt and
+   * writing an answer, with the model and threads it was measured at. `current` gives it only when
+   * those are still the runtime's.
+   */
+  function modelSpeed({ current = false } = {}) {
+    const saved = state.getSetting?.(modelSpeedKey, null);
+    if (!saved || !(saved.promptPerSecond > 0) || !(saved.generatePerSecond > 0)) return null;
+    if (current && (saved.model !== runtimeSettings().repo || saved.threads !== runnerCaps.modelThreads)) return null;
+    return saved;
+  }
+
+  /** A finished run's measurement, kept for the Usage tab and the next run's first call. */
+  function noteModelSpeed(measured) {
+    if (!measured || typeof measured !== "object") return null;
+    const promptPerSecond = finite(measured.promptPerSecond, 100_000);
+    const generatePerSecond = finite(measured.generatePerSecond, 10_000);
+    if (!(promptPerSecond > 0) || !(generatePerSecond > 0)) return null;
+    const previous = modelSpeed();
+    const kept = {
+      promptPerSecond: Math.round(promptPerSecond * 100) / 100,
+      generatePerSecond: Math.round(generatePerSecond * 100) / 100,
+      source: measured.source === "server" ? "server" : "runner",
+      model: runtimeSettings().repo, threads: Number.isInteger(measured.threads) && measured.threads > 0 && measured.threads <= 64 ? measured.threads : runnerCaps.modelThreads,
+      runs: (previous?.runs ?? 0) + 1, measuredAt: now().toISOString(),
+    };
+    state.setSetting?.(modelSpeedKey, kept, { updatedBy: null });
+    return kept;
   }
 
   const stale = (item) => Boolean(item.freshUntil && Date.parse(item.freshUntil) < now().getTime());
@@ -545,7 +582,8 @@ export function createAgentService({
     return {
       run: { id: run.id, kind: run.kind, question: run.question, trigger: run.trigger, readRole: run.readRole, startedAt: run.startedAt, deadlineAt },
       lease,
-      agent: { id: agent.id, name: spec.name, version: run.version, outputs: spec.outputs },
+      // Its purpose, job and steps are what the planner reads (intent.mjs), before the long prompt.
+      agent: { id: agent.id, name: spec.name, version: run.version, outputs: spec.outputs, purpose: spec.purpose ?? "", job: spec.job ?? "", steps: spec.prompt?.steps ?? [] },
       messages: [
         { role: "system", content: systemMessage(spec, { specialists: offered.some((tool) => tool.id === "agents.handoff") ? specialistsFor(spec, store.listAgents(), agent.id) : [] }) },
         { role: "user", content: [taskMessage({ kind: run.kind, question: run.question, trigger: run.trigger, notes, memories: recalled.map(memoryLine), thread: context, now: now() }), ...handoffOutputs].join("\n\n") },
@@ -662,7 +700,7 @@ export function createAgentService({
     const at = now().getTime();
     for (const run of store.activeRuns().filter((entry) => entry.state === "running")) {
       const spec = store.getVersion(run.agentId, run.version)?.spec;
-      const deadline = Date.parse(run.startedAt) + (spec?.budget?.runSeconds ?? 600) * 1000 + limits.runGraceMs;
+      const deadline = Date.parse(run.startedAt) + (spec?.budget?.runSeconds ?? budgetCeilings.runSeconds.default) * 1000 + limits.runGraceMs;
       if (at > deadline) {
         if (store.finishRun(run.id, { state: "timeout", reason: "It ran past its time limit and was stopped." })) emit(run.id, "state", { state: "timeout" });
       } else if (run.leaseExpiresAt && Date.parse(run.leaseExpiresAt) < at) {
@@ -685,7 +723,7 @@ export function createAgentService({
     if (!run || !store.holdsLease(runId, lease)) return { continue: false, reason: "lease_lost", stopModel: false };
     if (run.state !== "running") return { continue: false, reason: run.state, stopModel: run.state === "killed" };
     const spec = store.getVersion(run.agentId, run.version)?.spec;
-    if (now().getTime() > Date.parse(run.startedAt) + (spec?.budget?.runSeconds ?? 600) * 1000 + limits.runGraceMs) {
+    if (now().getTime() > Date.parse(run.startedAt) + (spec?.budget?.runSeconds ?? budgetCeilings.runSeconds.default) * 1000 + limits.runGraceMs) {
       store.finishRun(run.id, { state: "timeout", reason: "It ran past its time limit and was stopped." });
       emit(run.id, "state", { state: "timeout" });
       return { continue: false, reason: "timeout", stopModel: false };
@@ -924,10 +962,15 @@ export function createAgentService({
       loadMs: Math.round(finite(result.usage?.loadMs, 3_600_000)),
       promptTokens: Math.round(finite(result.usage?.promptTokens, 1e7)),
       completionTokens: Math.round(finite(result.usage?.completionTokens, 1e7)),
+      // Of the prompt tokens: those the model server had cached, and those it read.
+      cachedTokens: Math.round(finite(result.usage?.cachedTokens, 1e7)),
+      readTokens: Math.round(finite(result.usage?.readTokens ?? result.usage?.promptTokens, 1e7)),
       modelCalls: Math.round(finite(result.usage?.modelCalls, 1000)),
       toolCalls: store.countSteps(run.id, "tool"),
       wallMs: Math.max(0, now().getTime() - Date.parse(run.startedAt)),
     };
+    const measured = noteModelSpeed(result.usage?.speed);
+    if (measured) usage.speed = { promptPerSecond: measured.promptPerSecond, generatePerSecond: measured.generatePerSecond, threads: measured.threads };
     const outputKind = clarify ? "question" : run.kind === "eval" ? "eval" : run.kind === "learn" ? "notes" : run.kind === "schedule" && spec.outputs?.digest ? "digest" : "answer";
     const degradedReason = typeof result.degradedReason === "string" ? result.degradedReason.slice(0, 40) : null;
     const limitReached = Boolean(degradedReason === "budget" || degradedReason === "timeout" || result.limitReached);
@@ -1634,6 +1677,8 @@ export function createAgentService({
     return {
       runner: runnerStatus(),
       caps: { ...runnerCaps, unit: runnerUnit },
+      // The model's measured speed on this server: { promptPerSecond, generatePerSecond, model, threads, measuredAt }, or null.
+      modelSpeed: modelSpeed(),
       today: { runs: perAgent.reduce((sum, entry) => sum + entry.runs, 0), modelSeconds: perAgent.reduce((sum, entry) => sum + entry.modelSeconds, 0), tokens: perAgent.reduce((sum, entry) => sum + entry.tokens, 0), perAgent },
       queue: { queued, running, dropped: droppedRuns },
       module: presentModule(),
@@ -1878,7 +1923,7 @@ export function createAgentService({
     runnerAdvice: () => runnerAdvice(),
     verifyRunnerToken: (token) => verifyRunnerToken(token), ensureRunnerToken: () => ensureRunnerToken(),
     // background
-    start, tick, recoverAtStartup, onJob, onHealthRound, moduleSettings, runtimeSettings,
+    start, tick, recoverAtStartup, migrateDefaults, onJob, onHealthRound, moduleSettings, runtimeSettings,
     get limits() { return limits; },
   };
 
@@ -2000,6 +2045,28 @@ export function createAgentService({
 
   // ---- background ----
 
+  /**
+   * Once, at startup: an agent saved with the old default longest run (10 minutes) gets the new
+   * 15-minute default, as a version of its own that says BoxPilot made it. An agent the owner set to
+   * anything else keeps it, and so does one they set back to 10 minutes after this ran.
+   */
+  function migrateDefaults() {
+    const done = state.getSetting?.(agentsMigrationsKey, null) ?? {};
+    if (done.runSeconds) return 0;
+    let raised = 0;
+    for (const agent of store.listAgents()) {
+      if (agent.spec?.budget?.runSeconds !== previousRunSecondsDefault) continue;
+      let spec;
+      try { spec = normalizeSpec({ ...agent.spec, budget: { ...agent.spec.budget, runSeconds: budgetCeilings.runSeconds.default } }); } catch { continue; }
+      const version = store.addVersion(agent.id, { spec, note: "BoxPilot raised the time limit to the new 15-minute default", createdBy: null, nextRunAt: agent.nextRunAt ?? nextRunFor(spec) });
+      if (!version) continue;
+      audit("agents.updated", { subjectId: agent.id, details: { version, fields: ["budget.runSeconds"], by: "boxpilot" } });
+      raised += 1;
+    }
+    state.setSetting?.(agentsMigrationsKey, { ...done, runSeconds: { at: now().toISOString(), raised } }, { updatedBy: null });
+    return raised;
+  }
+
   /** At startup: a run that was going when BoxPilot stopped is marked, not retried. */
   function recoverAtStartup() {
     let count = 0;
@@ -2069,6 +2136,7 @@ export function createAgentService({
 
   function start({ subscribeJobs = null, afterRound = null } = {}) {
     recoverAtStartup();
+    try { migrateDefaults(); } catch { /* the agents stay as they were saved */ }
     const timer = setInterval(() => { void tick().catch(() => {}); }, limits.tickMs);
     timer.unref?.();
     const unsubscribeJobs = subscribeJobs ? subscribeJobs(onJob) : null;
