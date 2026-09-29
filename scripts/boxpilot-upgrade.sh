@@ -5,6 +5,8 @@
 #   curl -fsSL https://raw.githubusercontent.com/AES256Afro/BoxPilot/main/scripts/boxpilot-upgrade.sh | sudo sh -s -- phase-0
 #
 # What it does:
+#   0. Holds /run/boxpilot-upgrade.lock for the whole run: a second upgrade started meanwhile refuses
+#      and says which one to wait for
 #   1. Downloads the ref as a tarball from GitHub into /opt/boxpilot.staging.<stamp>
 #   2. npm ci, npm run build, npm prune --omit=dev in the staging directory
 #   3. Copies the database the running version wrote (VACUUM INTO, integrity-checked, the live
@@ -75,7 +77,22 @@ try {
 '
 
 [ "$(id -u)" -eq 0 ] || fail "run with sudo (root is required to replace ${INSTALL_DIR} and restart units)"
-for tool in curl tar; do command -v "$tool" >/dev/null 2>&1 || fail "$tool is required"; done
+for tool in curl tar flock; do command -v "$tool" >/dev/null 2>&1 || fail "$tool is required"; done
+
+# One upgrade at a time, for the whole run. Two started two seconds apart on the owner's server: two
+# previous trees (one of them the new version itself), two database copies, the service started
+# twice, and a healthy end only by luck. The lock lives in /run, so a reboot never leaves one behind,
+# and it is released when this shell exits, however it exits. Who holds it is written into the lock
+# file, so a second run can say who to wait for. The System page's update checks the same lock
+# before it starts one (server/tasks/update.mjs).
+UPGRADE_LOCK="${BOXPILOT_UPGRADE_LOCK:-/run/boxpilot-upgrade.lock}"
+exec 9>>"$UPGRADE_LOCK"
+if ! flock -n 9; then
+  holder="$(tr '\n' ' ' < "$UPGRADE_LOCK" 2>/dev/null | sed 's/ *$//')"
+  fail "another BoxPilot update is already running (${holder:-it holds ${UPGRADE_LOCK}}). Nothing was changed; wait for it to finish, then run this again if it is still needed."
+fi
+: > "$UPGRADE_LOCK"
+printf 'pid=%s ref=%s started=%s by=%s\n' "$$" "$REF" "$STAMP" "${BOXPILOT_UPDATE_UNIT:-hand}" > "$UPGRADE_LOCK"
 
 # Resolve the Node.js runtime. Prefer an explicit override, then the unit drop-in, then PATH, then the documented path.
 NODE_BIN="${BOXPILOT_NODE_BIN:-}"
