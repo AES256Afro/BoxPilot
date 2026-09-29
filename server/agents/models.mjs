@@ -4,10 +4,13 @@
  * builds of the newest small Qwen that reads text and images.
  *
  * Sizes here are what the previews say before a download starts; the download itself takes the
- * exact sizes and checksums from Hugging Face and verifies every byte (download.mjs). Speeds and
- * memory are the Unsloth spike's (docs/spikes/2026-09-unsloth-headless.md, EPYC 7763 cores, one
- * processor, one thread; the home server is likely faster): tool calling 5 of 5 and chart reading
- * right for all three sizes.
+ * exact sizes and checksums from Hugging Face and verifies every byte (download.mjs). Memory, and
+ * the 2B's and the 9B's speeds, are the Unsloth spike's (docs/spikes/2026-09-unsloth-headless.md,
+ * EPYC 7763 cores, one processor); the 4B's speed is BoxPilot's own benchmark at four threads under
+ * a 400% quota on a four-processor GitHub runner (.github/workflows/agents-bench.yml), where the
+ * runner's caps now put it. `measuredAt` says which. The home server is faster than either, and
+ * the Usage tab shows its own measured speed once a run has gone. Tool calling 5 of 5 and chart
+ * reading right for all three sizes.
  *
  * memoryBytes is what the runner's memory cap is charged for a model: its memory after a few
  * requests plus its files, which are mapped and count as the cgroup's page cache once read.
@@ -30,11 +33,12 @@ export const modelLibrary = Object.freeze([
     approxProjectorBytes: 680_000_000,
     memoryBytes: 6_200_000_000, // 2.6 GB + 3.6 GB of files
     contextTokens: 8_192,
-    tokensPerSecond: 4.2,
+    tokensPerSecond: 8,
+    measuredAt: "4 threads (a four-processor GitHub runner)",
     vision: true,
     tools: true,
     recommended: true,
-    note: "The default: the better answers of the two small ones. About 4 words a second on one processor, so a digest or a triage in the background, and a question in under a minute when the prompt is short.",
+    note: "The default: the better answers of the two small ones. About 8 words a second written and 15 read at four threads on a small four-processor machine (4 written on one processor), so a digest or a triage in the background, and a question in a few minutes.",
   },
   {
     id: "qwen3.5-2b",
@@ -50,10 +54,11 @@ export const modelLibrary = Object.freeze([
     memoryBytes: 3_700_000_000, // 1.7 GB + 2.0 GB of files
     contextTokens: 8_192,
     tokensPerSecond: 8.3,
+    measuredAt: "one processor (the spike)",
     vision: true,
     tools: true,
     recommended: false,
-    note: "Twice as fast as the 4B with the same tool calling and chart reading in the spike: the one to choose when waiting matters more than wording.",
+    note: "Twice as fast as the 4B with the same tool calling and chart reading in the spike (8.3 words a second, measured on one processor): the one to choose when waiting matters more than wording.",
   },
   {
     id: "qwen3.5-9b",
@@ -69,10 +74,11 @@ export const modelLibrary = Object.freeze([
     memoryBytes: 10_700_000_000, // 3.8 GB + 6.9 GB of files: more than the 8 GB cap
     contextTokens: 8_192,
     tokensPerSecond: 2.3,
+    measuredAt: "one processor (the spike)",
     vision: true,
     tools: true,
     recommended: false,
-    note: "Too slow under a one-processor cap (about 2 words a second, four minutes to read a long prompt), and with its 6.9 GB of files it needs more than the 8 GB memory cap: every word would read the disk. Not recommended.",
+    note: "Slow (about 2 words a second and four minutes to read a long prompt, measured on one processor), and with its 6.9 GB of files it needs more than the 8 GB memory cap: every word would read the disk. Not recommended.",
   },
 ]);
 
