@@ -62,7 +62,7 @@ export default function Home({ csrfToken, role, onNavigate, now = Date.now }: Ho
   const open = (need: Need) => (need.jobId ? openActivity(need.jobId) : need.id === "unannounced" ? openNotifications() : onNavigate(need.view, need.appId && need.view === "catalog" ? { app: need.appId } : undefined));
   const act = (need: Need) => {
     if (!need.action) return;
-    start({ operationId: need.action.operationId, title: need.action.title, parameters: need.action.parameters, preview: <span>{need.action.preview}</span> });
+    start({ operationId: need.action.operationId, title: need.action.title, parameters: need.action.parameters, preview: need.action.preview ? <span>{need.action.preview}</span> : undefined, existingJobId: need.action.existingJobId });
   };
 
   const catalog = facts.catalog.value;

@@ -54,7 +54,7 @@ describe("what needs you", () => {
     const repair = needs.find((need) => need.id === "repair:stale-mount:media")!;
     expect(repair.action).toMatchObject({ operationId: "storage.remount", label: "Reconnect the drive", risk: "medium", parameters: { name: "media" } });
     expect(repair.view).toBe("repairs");
-    expect(needs.find((need) => need.id === "approval:s1")).toMatchObject({ risk: "medium", action: null, view: "repairs" });
+    expect(needs.find((need) => need.id === "approval:s1")).toMatchObject({ risk: "medium", view: "repairs", action: { operationId: "storage.remount", label: "Review", risk: "medium", existingJobId: "s1", parameters: {} } });
     expect(needs.find((need) => need.id === "alert:flow.failed:0")).toMatchObject({ view: "automations", detail: "Since 30 hours ago" });
     expect(needs.find((need) => need.id === "updates")).toMatchObject({ title: "4 updates available", detail: "1 security fix among them", action: { operationId: "apt.upgrade", risk: "medium" } });
   });
@@ -147,7 +147,10 @@ describe("what needs you", () => {
 
   it("opens a job waiting for approval at that job", () => {
     const needs = buildNeeds(facts({ jobs: [job({ id: "s", type: "op:storage.remount", title: "Reconnect a drive", state: "awaiting_approval" })] }), { now, role: "owner" });
-    expect(needs.find((need) => need.kind === "approval")).toMatchObject({ jobId: "s", risk: "medium", action: null });
+    expect(needs.find((need) => need.kind === "approval")).toMatchObject({ jobId: "s", risk: "medium", action: { label: "Review", existingJobId: "s", risk: "medium" } });
+    // A viewer only looks; an operator may not approve what only the owner can.
+    expect(buildNeeds(facts({ jobs: [job({ id: "s", type: "op:storage.remount", state: "awaiting_approval" })] }), { now, role: "viewer" })[0].action).toBeNull();
+    expect(buildNeeds(facts({ jobs: [job({ id: "r", type: "op:system.reboot", risk: "high", state: "awaiting_approval" })] }), { now, role: "operator" })[0].action).toBeNull();
   });
 
   it("offers to copy the backups off the box when a destination is set up but behind", () => {

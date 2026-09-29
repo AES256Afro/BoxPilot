@@ -23,6 +23,11 @@ export interface PendingOperation {
   preview?: ReactNode;
   /** When set, the exact text must be typed before the operation can be approved (destructive actions). */
   confirmText?: string;
+  /**
+   * Approve a job someone already staged instead of staging a new one (M36: Home, Ops, Activity).
+   * The dialog reads its current approval policy; closing it leaves the job waiting, as it found it.
+   */
+  existingJobId?: string;
 }
 
 interface Props extends PendingOperation {
@@ -35,11 +40,6 @@ interface Props extends PendingOperation {
    * job it ran out of time.
    */
   moreTimeFor?: string;
-  /**
-   * Approve a job someone already staged instead of staging a new one (M36: from Activity). The
-   * dialog reads its current approval policy; closing it leaves the job waiting, as it found it.
-   */
-  existingJobId?: string;
 }
 
 type Phase = "staging" | "ready" | "approving" | "running" | "done" | "error";
