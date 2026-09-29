@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { registry } from "./index.mjs";
-import { newTopic } from "./notifications.mjs";
+import { newTopic, subscribeAddress } from "./notifications.mjs";
 
 /**
  * "Send alerts to the ntfy on this server" (M35): on the owner's server ntfy already ran from the
@@ -33,6 +33,20 @@ describe("sending alerts to the ntfy on this server (M35)", () => {
     // The helper has no network of its own: the request goes from the root task runner.
     expect(given.runUnit.runTask).toHaveBeenCalledWith("http.request", { url: `http://127.0.0.1:8093/${result.topic}`, method: "POST", body: expect.stringContaining("BoxPilot can reach you here"), contentType: "text/plain" }, expect.objectContaining({ logPath: "/run/boxpilot/jobs/job-1.log" }));
     expect(newTopic()).not.toBe(newTopic());
+  });
+
+  it("says where a phone subscribes over Tailscale: HTTPS through Serve, or the short name on the port", async () => {
+    const given = deps();
+    given.run = vi.fn(async (_binary, args) => (args[0] === "serve"
+      ? { ok: true, stdout: JSON.stringify({ TCP: {}, Web: {} }), stderr: "" }
+      : { ok: true, stdout: JSON.stringify({ Self: { DNSName: "homebox.tail0a1b.ts.net." } }), stderr: "" }));
+    expect((await operation.run({}, given)).subscribeUrl).toBe("http://homebox:8093");
+    expect(subscribeAddress({ port: 8093, serves: [{ port: 8093, dnsName: "homebox.tail0a1b.ts.net" }], dnsName: "homebox.tail0a1b.ts.net." })).toBe("https://homebox.tail0a1b.ts.net:8093");
+    expect(subscribeAddress({ port: 8093, exposure: "loopback", dnsName: "homebox.tail0a1b.ts.net." })).toBeNull();
+    expect(subscribeAddress({ port: 8093, dnsName: null })).toBeNull();
+    // Without Tailscale the fix still works; the page tells the owner to use the address they open ntfy at.
+    given.run = vi.fn(async () => ({ ok: false, stdout: "", stderr: "tailscale not running" }));
+    expect((await operation.run({}, given)).subscribeUrl).toBeNull();
   });
 
   it("says what to do when ntfy is not there, not running, or asks for a login", async () => {

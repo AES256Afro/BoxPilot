@@ -1,7 +1,22 @@
 import { randomBytes } from "node:crypto";
 import { defineOperation } from "./registry.mjs";
+import { parseServeStatus } from "../tailscale-serve.mjs";
 
 const minutes = (value) => value * 60_000;
+const tailscaleBinary = () => process.env.BOXPILOT_TAILSCALE_BINARY ?? "/usr/bin/tailscale";
+
+/**
+ * Where a phone subscribes: the address of this ntfy over Tailscale, which reaches it from anywhere
+ * the phone has Tailscale on. HTTPS through Serve when Serve publishes the port; otherwise the short
+ * MagicDNS name on the plain port, since all of ts.net is on the browsers' HTTPS preload list and
+ * the full name would never open over http (src/appLinks.ts). Null when Tailscale cannot say.
+ */
+export function subscribeAddress({ port, exposure = "lan", serves = [], dnsName = null }) {
+  const served = serves.find((serve) => serve.port === port);
+  if (served) return `https://${served.dnsName}${served.port === 443 ? "" : `:${served.port}`}`;
+  if (!dnsName || exposure === "loopback") return null;
+  return `http://${dnsName.replace(/\.$/, "").split(".")[0]}:${port}`;
+}
 
 /**
  * A topic nobody can guess. On ntfy a topic is the whole of the access control: whoever knows it
@@ -31,7 +46,7 @@ export function notificationOperations() {
       id: "notifications.ntfy.connect", title: "Send alerts to the ntfy on this server", risk: "high", minimumRole: "owner", timeoutMs: minutes(2),
       description: "Finds the ntfy app installed on this server, makes a new topic nobody can guess, sends a test message to it from this server, and once ntfy accepts it makes that topic BoxPilot's notification target. Subscribe to the topic in the ntfy app on your phone to receive the alerts. Refused when a notification target is already set: change that one under Settings, Notifications.",
       parameters: { fields: {} },
-      run: async (_parameters, { apps, runUnit, jobLog, progress }) => {
+      run: async (_parameters, { apps, run, runUnit, jobLog, progress }) => {
         const { applications = [] } = await apps.inspect({ id: "ntfy" });
         const app = applications.find((entry) => entry.id === "ntfy");
         if (!app?.installed) throw new Error("ntfy is not installed on this server; install it from the App catalog first");
@@ -51,7 +66,20 @@ export function notificationOperations() {
             : `ntfy on this server did not accept the test (it answered ${answer?.status ?? "nothing"}). Nothing was changed.`);
         }
         progress?.("ntfy accepted the test message", "stdout");
-        return { connected: true, kind: "ntfy", url, port, topic, exposure: app.urls?.[0]?.exposure ?? null };
+        // How the phone reaches it, for the subscribe instructions. Optional: without Tailscale the
+        // owner is told to use the address they open ntfy's page at.
+        const exposure = app.urls?.[0]?.exposure ?? null;
+        let subscribeUrl = null;
+        if (run) {
+          const [serve, status] = await Promise.all([
+            run(tailscaleBinary(), ["serve", "status", "--json"], { timeout: 15_000, maxBuffer: 2 * 1024 * 1024 }).catch(() => null),
+            run(tailscaleBinary(), ["status", "--json"], { timeout: 15_000, maxBuffer: 4 * 1024 * 1024 }).catch(() => null),
+          ]);
+          let dnsName = null;
+          try { dnsName = status?.ok ? JSON.parse(status.stdout)?.Self?.DNSName ?? null : null; } catch { dnsName = null; }
+          subscribeUrl = subscribeAddress({ port, exposure, serves: serve?.ok ? parseServeStatus(serve.stdout) : [], dnsName });
+        }
+        return { connected: true, kind: "ntfy", url, port, topic, exposure, subscribeUrl };
       },
     }),
   ];
