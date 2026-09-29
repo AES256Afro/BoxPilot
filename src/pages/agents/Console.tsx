@@ -3,7 +3,8 @@ import type { PendingOperation } from "../../shell/ApproveDialog";
 import { relativeTime } from "../../home/format";
 import { Button, EmptyState, Field, Notice, Panel, Select, StatusChip, Table, TextInput, Textarea, type TableColumn } from "../../ui";
 import { agentsApi, followRun, type AgentSummary, type Proposal, type Run } from "./api";
-import { errorText, finishedRunStates, kindWords, runState, seconds } from "./format";
+import { errorText, finishedRunStates, kindWords, runState, seconds, waitingWords } from "./format";
+import type { RunnerWait } from "./setup";
 import { ProposalCard } from "./ProposalCard";
 import { RunView } from "./Trace";
 
@@ -22,6 +23,8 @@ export interface ConsoleProps {
   role: string;
   now: number;
   enabled: boolean;
+  /** Set while Agents are on and the runner is not answering. */
+  runnerWait?: RunnerWait | null;
   onSelectAgent: (agentId: string) => void;
   onStage: (operation: PendingOperation) => void;
   onRunFinished: () => void;
@@ -52,7 +55,7 @@ function Feedback({ run, csrfToken, onGiven }: { run: Run; csrfToken: string; on
   );
 }
 
-export function Console({ agents, agentId, runId, csrfToken, role, now, enabled, onSelectAgent, onStage, onRunFinished }: ConsoleProps) {
+export function Console({ agents, agentId, runId, csrfToken, role, now, enabled, runnerWait = null, onSelectAgent, onStage, onRunFinished }: ConsoleProps) {
   const staff = role === "owner" || role === "operator";
   const usable = agents.filter((agent) => agent.canAsk || (staff && agent.canEdit) || (staff && role === "owner"));
   const agent = usable.find((entry) => entry.id === agentId) ?? usable[0] ?? null;
@@ -62,6 +65,10 @@ export function Console({ agents, agentId, runId, csrfToken, role, now, enabled,
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<Run[] | null>(null);
   const stopFollowing = useRef<(() => void) | null>(null);
+  // The page hands a new callback on every render; following a run must not restart because of it,
+  // or the page's chosen run snaps back over the one opened from Earlier runs.
+  const finishedCallback = useRef(onRunFinished);
+  useEffect(() => { finishedCallback.current = onRunFinished; }, [onRunFinished]);
 
   const readHistory = useCallback(async (id: string) => {
     if (!staff) { setHistory([]); return; }
@@ -73,14 +80,14 @@ export function Console({ agents, agentId, runId, csrfToken, role, now, enabled,
     stopFollowing.current = followRun(id, (event) => {
       if (event.event === "snapshot") {
         setRun(event.data);
-        if (finishedRunStates.has(event.data.state)) onRunFinished();
+        if (finishedRunStates.has(event.data.state)) finishedCallback.current();
       } else if (event.event === "step") {
         setRun((current) => (current ? { ...current, steps: [...(current.steps ?? []).filter((step) => step.seq !== event.data.seq), event.data] } : current));
       } else if (event.event === "state") {
         setRun((current) => (current ? { ...current, state: event.data.state } : current));
       }
     });
-  }, [onRunFinished]);
+  }, []);
   useEffect(() => () => stopFollowing.current?.(), []);
 
   const currentId = agent?.id ?? null;
@@ -113,6 +120,12 @@ export function Console({ agents, agentId, runId, csrfToken, role, now, enabled,
     if (!run) return;
     try { setRun(await agentsApi.cancel(csrfToken, run.id)); } catch (requestError) { setError(errorText(requestError, "The run could not be stopped")); }
   };
+  // Opening an earlier run shows it in the Run panel above, which is out of sight from the list.
+  const open = (id: string) => {
+    follow(id);
+    const reduced = typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    document.getElementById("agents-run")?.scrollIntoView?.({ behavior: reduced ? "auto" : "smooth", block: "start" });
+  };
   const decided = (proposal: Proposal) => setRun((current) => (current ? { ...current, proposals: current.proposals.map((entry) => (entry.id === proposal.id ? proposal : entry)) } : current));
 
   if (!agent) {
@@ -126,7 +139,9 @@ export function Console({ agents, agentId, runId, csrfToken, role, now, enabled,
     { id: "what", header: "Asked or started by", cell: (entry) => <span className="agents-name"><span>{entry.question ?? entry.trigger?.title ?? kindWords[entry.kind]}</span><span className="agents-name__purpose">{kindWords[entry.kind]} · read as {entry.readRole}</span></span> },
     { id: "when", header: "When", hideOnPhone: true, cell: (entry) => <span className="agents-dim">{relativeTime(entry.finishedAt ?? entry.queuedAt, now) ?? ""}</span> },
     { id: "took", header: "Model", hideOnPhone: true, cell: (entry) => <span className="agents-mono">{seconds(entry.usage?.modelMs ?? null)}</span> },
-    { id: "open", header: <span className="ui-visually-hidden">Open</span>, label: "Actions", className: "agents-actions-cell", cell: (entry) => <Button variant="ghost" onClick={() => follow(entry.id)} aria-label="Open this run">Open</Button> },
+    { id: "open", header: <span className="ui-visually-hidden">Open</span>, label: "Actions", className: "agents-actions-cell", cell: (entry) => (entry.id === run?.id
+      ? <Button variant="secondary" onClick={() => open(entry.id)} aria-current="true" aria-label="Showing this run above">Showing</Button>
+      : <Button variant="ghost" onClick={() => open(entry.id)} aria-label="Open this run">Open</Button>) },
   ];
 
   return (
@@ -149,12 +164,14 @@ export function Console({ agents, agentId, runId, csrfToken, role, now, enabled,
         </div>
       </Panel>
 
-      <Panel className="agents-live" title="Run" count={run ? { status: runState(run.state).status, label: runState(run.state).label } : undefined}
+      <Panel id="agents-run" className="agents-live" title="Run" count={run ? { status: runState(run.state).status, label: runState(run.state).label } : undefined}
         meta={run ? <>{run.agentName} · {relativeTime(run.startedAt ?? run.queuedAt, now) ?? "just now"}{running ? " · live" : ""}</> : undefined} padded>
         {!run
           ? <p className="agents-quiet">Ask something or run the agent once, and each step shows here as it happens.</p>
           : <>
-              {run.state === "queued" && <p className="agents-quiet" role="status">Waiting for the runner: one run goes at a time, and a question goes before scheduled work.</p>}
+              {run.state === "queued" && (runnerWait
+                ? <Notice tone="warning" title={runnerWait.words} action={runnerWait.action ?? undefined}>It starts as soon as the runner does.</Notice>
+                : <p className="agents-quiet" role="status">{waitingWords(true)}</p>)}
               {run.tree && run.tree.length > 1 && (
                 <nav className="agents-tree" aria-label="This request's runs">
                   <span className="agents-step__label">One request, {run.tree.length} runs</span>
