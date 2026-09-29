@@ -41,6 +41,11 @@ const digest = (seed) => createHash("sha256").update(`demo:${seed}`).digest("hex
 // ---------- the fictional server ----------
 const host = { hostname: "homebox", lan: "192.168.50.20", gateway: "192.168.50.1", tailnet: "homebox.tail0a1b.ts.net", tailscaleIp: "100.101.102.103", owner: "alex" };
 const installed = { "open-webui": 8088, jellyfin: 8096, "pi-hole": 8084, immich: 2283, vaultwarden: 8222, "uptime-kuma": 3001, homepage: 3000, nextcloud: 8087, scrutiny: 8086, qbittorrent: 8095, ntfy: 8093 };
+// Apps set to "Tailnet only": their web port is on 127.0.0.1 and Tailscale Serve publishes it at the
+// same port. Only these are served (app.serve.inspect below): an app on the home network publishes
+// on every address, and Serve beside it at the same port is the trap Dockge fell into on 2026-09-29, which
+// the demo depicted for Immich and Vaultwarden until scripts/demo-fixtures.test.mjs looked.
+const tailnetOnly = new Set(["vaultwarden"]);
 const stats = { jellyfin: { cpuPercent: 3.2, memBytes: 412 * 1024 ** 2, containers: 1 }, "pi-hole": { cpuPercent: 0.4, memBytes: 96 * 1024 ** 2, containers: 2 }, immich: { cpuPercent: 6.1, memBytes: 1.4 * GiB, containers: 4 }, vaultwarden: { cpuPercent: 0.1, memBytes: 48 * 1024 ** 2, containers: 1 }, "uptime-kuma": { cpuPercent: 0.8, memBytes: 120 * 1024 ** 2, containers: 1 }, homepage: { cpuPercent: 0.2, memBytes: 70 * 1024 ** 2, containers: 1 }, nextcloud: { cpuPercent: 1.9, memBytes: 620 * 1024 ** 2, containers: 3 }, scrutiny: { cpuPercent: 0.3, memBytes: 110 * 1024 ** 2, containers: 1 } };
 
 const lsblk = JSON.stringify({ blockdevices: [
@@ -236,7 +241,8 @@ export const inspections = {
     { unit: "e2scrub_all.timer", description: "Periodic ext4 Online Metadata Check for All Filesystems", load: "loaded", active: "active", sub: "waiting", enabled: "enabled", guarded: null, critical: false },
     { unit: "systemd-journald.service", description: "Journal Service", load: "loaded", active: "active", sub: "running", enabled: "static", guarded: null, critical: true },
   ] },
-  "app.serve.inspect": { available: true, serves: [{ dnsName: host.tailnet, port: 2283, target: "http://127.0.0.1:2283" }, { dnsName: host.tailnet, port: 8222, target: "http://127.0.0.1:8222" }, { dnsName: host.tailnet, port: 9001, target: "http://127.0.0.1:9001" }] },
+  // Vaultwarden, which is tailnet only, and an old entry for MinIO, which is not installed any more.
+  "app.serve.inspect": { available: true, serves: [{ dnsName: host.tailnet, port: 8222, target: "http://127.0.0.1:8222" }, { dnsName: host.tailnet, port: 9001, target: "http://127.0.0.1:9001" }] },
   "app.stats.inspect": { available: true, stats },
   "host.snapshot.inspect": machineState,
   "backup.remote.inspect": { keyReady: true, publicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExampleExampleExampleExampleExampleExampleExam boxpilot-backup-mirror", fingerprint: "SHA256:ExampleFingerprintExampleFingerprintExample0", hostKeysPinned: 1, rsyncInstalled: true },
@@ -829,7 +835,13 @@ const troubleFacts = () => ({
     // Stopped on purpose last night and deleted by the 03:00 clean-up: it comes back stopped.
     { id: "homepage", name: "Homepage", installedAt: ago(24 * 40), stoppedAt: ago(13), missingContainer: missing("homepage") },
     { id: "scrutiny", name: "Scrutiny", installedAt: ago(24 * 52), missingContainer: missing("scrutiny") },
+    // Dockge on the owner's server (2026-09-29): on the home network, every address, and served on the
+    // tailnet at the same port. The clean-up removed its container, and Tailscale took the port.
+    { id: "uptime-kuma", name: "Uptime Kuma", installedAt: ago(24 * 30), missingContainer: missing("uptime-kuma"), published: [{ id: "web", host: 3001, protocol: "tcp", bind: "0.0.0.0", fixed: false, web: true }] },
   ],
+  listeners: [{ protocol: "tcp", address: host.tailscaleIp, port: 3001, scope: "address" }],
+  serves: [{ dnsName: host.tailnet, port: 3001, target: "http://127.0.0.1:3001" }],
+  lanAddress: host.lan,
   pruneRuns: [{ at: ago(24 * 7 + 9), scheduled: true, frequency: "daily" }, { at: ago(9), scheduled: true, frequency: "daily" }],
   protection: protectionFixture(),
   schedules: [{ operationId: "app.backup", parameters: { id: "immich" }, enabled: true }],
@@ -839,7 +851,7 @@ const troubleFacts = () => ({
 // The reconnect the owner tried, as it failed then: the old remount stopped at "target is busy".
 const refusedRemount = { id: "t4", type: "op:storage.remount", title: "Reconnect a drive", state: "failed", risk: "medium", result: null, createdAt: ago(1.2), updatedAt: ago(1.19), approvals: [],
   parameters: { name: "media" }, error: "/mnt/media is in use, so it was left alone: umount: /mnt/media: target is busy. Stop whatever is using it — an app with that folder mounted, or the file server — and try again.",
-  steps: [{ name: "verify", state: "failed", detail: "Reconnect a drive failed; review the recorded error and job log", createdAt: ago(1.19) }] };
+  steps: [{ name: "apply", state: "running", detail: "Running Reconnect a drive", createdAt: ago(1.2) }, { name: "apply", state: "failed", detail: "Reconnect a drive failed: /mnt/media is in use, so it was left alone", createdAt: ago(1.19) }] };
 function demoScan(world) {
   if (world === "fresh") return { findings: [], dismissed: [], counts: { critical: 0, warning: 0, info: 0 }, jobs: { attached: [], resolved: [], dismissed: [] }, checkedAt: now().toISOString(), sourceStatus: "ready", unavailableChecks: [] };
   const facts = world === "trouble" ? troubleFacts() : { now: Date.now(), protection: protectionFixture(), schedules: [{ operationId: "app.backup", parameters: { id: "immich" }, enabled: true }] };
@@ -868,7 +880,9 @@ api.get("/catalog", async (request, response) => {
   json(response, {
     applications: manifests.map((manifest) => {
       const port = present[manifest.id];
-      const live = { id: manifest.id, installed: Boolean(port), dataPresent: Boolean(port), state: port ? { installedAt: ago(19 * 24), updatedAt: ago(50), manifestSha256: manifest.sha256, image: { reference: manifest.image.reference, id: "sha256:demo" }, values: { ports: {}, env: {}, volumes: {}, setup: [] }, pinnedRollback: false, uninstalledAt: null } : null, container: port ? { exists: true, running: true, status: manifest.id === "open-webui" ? "paused" : "running", health: manifest.health.kind === "healthcheck" ? "healthy" : "none", restarts: 0, image: "sha256:demo" } : { exists: false, running: false, status: "absent", health: "none", restarts: 0, image: null }, sidecars: port ? (manifest.sidecars ?? []).map((entry) => ({ id: entry.id, running: true, status: "running", restarts: 0 })) : [], urls: port ? manifest.ports.filter((entry) => entry.protocol === "tcp").map((entry) => ({ id: entry.id, label: entry.label, host: entry.host, exposure: entry.exposure })) : [], updateAvailable: manifest.id === "jellyfin", installedImage: port ? manifest.image.reference : null, updateHistory: port && manifest.id === "pi-hole" ? [{ at: ago(30), from: { "pi-hole": "pihole/pihole:2025.07.1" }, to: { "pi-hole": manifest.image.reference } }, { at: ago(30 * 24), from: { "pi-hole": "pihole/pihole:2025.05.0" }, to: { "pi-hole": "pihole/pihole:2025.07.1" } }] : [], backupVerification: port && manifest.id === "jellyfin" ? { verified: true, backup: "20260825T031400Z.tar.gz", reason: null, checkedAt: ago(11), history: [{ verified: true, backup: "20260825T031400Z.tar.gz", reason: null, checkedAt: ago(11) }, { verified: true, backup: "20260818T031400Z.tar.gz", reason: null, checkedAt: ago(11 + 168) }, { verified: false, backup: "20260811T031400Z.tar.gz", reason: "The archive could not be unpacked: unexpected end of file", checkedAt: ago(11 + 336) }] } : null };
+      // As describe() says it (the Dockge port trap, 2026-09-29): each published port and the address it binds.
+      const published = port && manifest.network !== "host" ? manifest.ports.map((entry) => ({ id: entry.id, host: entry.host, protocol: entry.protocol, bind: entry.exposure === "loopback" || (tailnetOnly.has(manifest.id) && entry.protocol === "tcp" && (entry.tailnet ?? "serve") === "serve") ? "127.0.0.1" : "0.0.0.0", fixed: Boolean(entry.fixed), web: entry.protocol === "tcp" && (entry.tailnet ?? "serve") === "serve" })) : [];
+      const live = { id: manifest.id, name: manifest.name, published, installed: Boolean(port), dataPresent: Boolean(port), state: port ? { installedAt: ago(19 * 24), updatedAt: ago(50), manifestSha256: manifest.sha256, image: { reference: manifest.image.reference, id: "sha256:demo" }, values: { ports: {}, env: {}, volumes: {}, setup: [], ...(tailnetOnly.has(manifest.id) ? { exposure: "tailnet" } : {}) }, pinnedRollback: false, uninstalledAt: null } : null, container: port ? { exists: true, running: true, status: manifest.id === "open-webui" ? "paused" : "running", health: manifest.health.kind === "healthcheck" ? "healthy" : "none", restarts: 0, image: "sha256:demo" } : { exists: false, running: false, status: "absent", health: "none", restarts: 0, image: null }, sidecars: port ? (manifest.sidecars ?? []).map((entry) => ({ id: entry.id, running: true, status: "running", restarts: 0 })) : [], urls: port ? manifest.ports.filter((entry) => entry.protocol === "tcp").map((entry) => ({ id: entry.id, label: entry.label, host: entry.host, exposure: entry.exposure })) : [], updateAvailable: manifest.id === "jellyfin", installedImage: port ? manifest.image.reference : null, updateHistory: port && manifest.id === "pi-hole" ? [{ at: ago(30), from: { "pi-hole": "pihole/pihole:2025.07.1" }, to: { "pi-hole": manifest.image.reference } }, { at: ago(30 * 24), from: { "pi-hole": "pihole/pihole:2025.05.0" }, to: { "pi-hole": "pihole/pihole:2025.07.1" } }] : [], backupVerification: port && manifest.id === "jellyfin" ? { verified: true, backup: "20260825T031400Z.tar.gz", reason: null, checkedAt: ago(11), history: [{ verified: true, backup: "20260825T031400Z.tar.gz", reason: null, checkedAt: ago(11) }, { verified: true, backup: "20260818T031400Z.tar.gz", reason: null, checkedAt: ago(11 + 168) }, { verified: false, backup: "20260811T031400Z.tar.gz", reason: "The archive could not be unpacked: unexpected end of file", checkedAt: ago(11 + 336) }] } : null };
       // As the product's summary says it (M36): whether an app backup archives anything of it.
       return { manifest: { ...manifest, keepsBackup: keepsBackupData(manifest) }, live };
     }),
