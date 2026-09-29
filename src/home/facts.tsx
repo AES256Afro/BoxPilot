@@ -58,6 +58,43 @@ export interface CatalogFacts {
 
 export interface MountFact { target: string; source: string; total: number | null; used: number | null; percent: number | null; state: string }
 
+/**
+ * One drive's SMART health, as the storage scan last read it (M33.8, from the Classic overview).
+ * `reason` says why a drive has no reading: its USB bridge does not pass SMART through, or it was
+ * asleep and reading it would have woken it (then `lastHealth` is its last reading awake).
+ */
+export interface SmartDiskFact {
+  device: string;
+  health: string;
+  temperature: number | null;
+  wear: number | null;
+  mediaErrors: number | null;
+  reason: string | null;
+  viaBridge: boolean;
+  lastHealth: string | null;
+  lastReadAt: string | null;
+}
+
+/** Disk health: whether smartmontools answered, and each drive it read. */
+export interface SmartFacts { available: boolean; status: string; reason: string; readAt: string | null; stale: boolean; disks: SmartDiskFact[] }
+
+/** The UPS plugged into this server, as NUT on localhost reports it (M33.8, from the Classic overview). */
+export interface UpsFact {
+  installed: boolean;
+  configured: boolean;
+  available: boolean;
+  /** online, on-battery, low-battery, forced-shutdown, bypass, offline or unavailable. */
+  state: string;
+  reason: string;
+  charge: number | null;
+  runtimeSeconds: number | null;
+  load: number | null;
+  tokens: string[];
+}
+
+/** One of the system services the inventory names as key: BoxPilot, Docker, SSH, Tailscale… */
+export interface ServiceFact { unit: string; active: string; sub: string; enabled: string }
+
 export interface InventoryFacts {
   hostname: string;
   operatingSystem: string;
@@ -72,7 +109,12 @@ export interface InventoryFacts {
   memoryPercent: number;
   root: { total: number; used: number; percent: number } | null;
   mounts: MountFact[];
-  smart: { status: string; disks: number } | null;
+  /** Null when the inventory said nothing about disk health (an older server). */
+  smart: SmartFacts | null;
+  /** Null when the inventory said nothing about power. */
+  ups: UpsFact | null;
+  /** The key services, loaded ones only. */
+  services: ServiceFact[];
   addresses: Array<{ interface: string; address: string }>;
   tailscale: { installed: boolean; connected: boolean; dnsName: string | null };
 }
@@ -217,16 +259,57 @@ async function loadCatalog(): Promise<CatalogFacts> {
 }
 
 type RawMount = { target?: string; source?: string; totalBytes?: number | null; usedBytes?: number | null; usedPercent?: number | null; capacityState?: string };
+type RawSmartDisk = { device?: string; health?: string; temperatureCelsius?: number | null; percentageUsed?: number | null; mediaErrors?: number | null; reason?: string; deviceType?: string | null; lastHealth?: string | null; lastReadAt?: string | null };
+type RawUps = { installed?: boolean; configured?: boolean; available?: boolean; state?: string; reason?: string; statusTokens?: string[]; batteryChargePercent?: number | null; estimatedRuntimeSeconds?: number | null; loadPercent?: number | null };
 type RawInventory = {
   host?: { hostname?: string; operatingSystem?: string; kernel?: string; uptimeSeconds?: number };
   compute?: { cpuCount?: number; cpuModel?: string; load1?: number; loadPercent?: number; totalMemoryBytes?: number; usedMemoryBytes?: number; memoryUsedPercent?: number };
   storage?: {
     root?: { totalBytes?: number; usedBytes?: number; usedPercent?: number } | null;
     filesystems?: { mounts?: RawMount[] };
-    smart?: { available?: boolean; status?: string; disks?: unknown[] };
+    smart?: { available?: boolean; status?: string; reason?: string; generatedAt?: string | null; stale?: boolean; disks?: RawSmartDisk[] };
   };
+  power?: { ups?: RawUps };
+  services?: Array<{ unit?: string; load?: string; active?: string; sub?: string; enabled?: string }>;
   network?: { addresses?: Array<{ interface?: string; address?: string }>; tailscale?: { installed?: boolean; connected?: boolean; dnsName?: string | null } };
 };
+
+function smartFactsFrom(smart: NonNullable<RawInventory["storage"]>["smart"]): SmartFacts | null {
+  if (!smart || typeof smart !== "object") return null;
+  return {
+    available: Boolean(smart.available),
+    status: text(smart.status, "unavailable"),
+    reason: text(smart.reason),
+    readAt: smart.generatedAt ?? null,
+    stale: Boolean(smart.stale),
+    disks: list<RawSmartDisk>(smart.disks).filter((disk) => typeof disk?.device === "string").map((disk) => ({
+      device: disk.device as string,
+      health: text(disk.health, "unavailable"),
+      temperature: number(disk.temperatureCelsius),
+      wear: number(disk.percentageUsed),
+      mediaErrors: number(disk.mediaErrors),
+      reason: typeof disk.reason === "string" && disk.reason ? disk.reason : null,
+      viaBridge: disk.deviceType === "sat",
+      lastHealth: disk.lastHealth ?? null,
+      lastReadAt: disk.lastReadAt ?? null,
+    })),
+  };
+}
+
+function upsFactFrom(ups: RawUps | undefined): UpsFact | null {
+  if (!ups || typeof ups !== "object") return null;
+  return {
+    installed: Boolean(ups.installed),
+    configured: Boolean(ups.configured),
+    available: Boolean(ups.available),
+    state: text(ups.state, "unavailable"),
+    reason: text(ups.reason),
+    charge: number(ups.batteryChargePercent),
+    runtimeSeconds: number(ups.estimatedRuntimeSeconds),
+    load: number(ups.loadPercent),
+    tokens: list<string>(ups.statusTokens).filter((token) => typeof token === "string"),
+  };
+}
 
 export function inventoryFactsFrom(body: RawInventory): InventoryFacts {
   if (!body?.host || !body.compute) throw new Error("The inventory's answer had no host or compute section");
@@ -247,7 +330,11 @@ export function inventoryFactsFrom(body: RawInventory): InventoryFacts {
     mounts: list<RawMount>(body.storage?.filesystems?.mounts).map((mount) => ({
       target: text(mount.target), source: text(mount.source), total: number(mount.totalBytes), used: number(mount.usedBytes), percent: number(mount.usedPercent), state: text(mount.capacityState, "unavailable"),
     })).filter((mount) => mount.target),
-    smart: body.storage?.smart?.available ? { status: text(body.storage.smart.status, "unavailable"), disks: list(body.storage.smart.disks).length } : null,
+    smart: smartFactsFrom(body.storage?.smart),
+    ups: upsFactFrom(body.power?.ups),
+    services: list<{ unit?: string; load?: string; active?: string; sub?: string; enabled?: string }>(body.services)
+      .filter((service) => typeof service?.unit === "string" && service.load !== "not-found")
+      .map((service) => ({ unit: service.unit as string, active: text(service.active, "unknown"), sub: text(service.sub), enabled: text(service.enabled) })),
     addresses: list<{ interface?: string; address?: string }>(body.network?.addresses).map((entry) => ({ interface: text(entry.interface), address: text(entry.address) })),
     tailscale: { installed: Boolean(body.network?.tailscale?.installed), connected: Boolean(body.network?.tailscale?.connected), dnsName: body.network?.tailscale?.dnsName ?? null },
   };
