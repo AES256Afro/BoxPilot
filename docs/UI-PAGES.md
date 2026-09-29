@@ -36,7 +36,9 @@ The shell also owns what opens over any page (M33.13), so a page never draws the
   "What it will do" box, and without one the dialog falls back to the registry's description.
   The tier, the password, the typed confirmation, the run (`JobProgress`) and the ending (the job
   log) are the dialog's. `onStaged`, `handoff`, `moreTimeFor` and `existingJobId` are there for
-  Repair, Activity, Home and Ops.
+  Repair, Activity, Home and Ops. `next` is the operation that follows (Agents: install Unsloth,
+  download the model, start the runner): once the job has completed the dialog offers it as
+  "Next", and it is staged only when pressed, in a dialog of its own at its own tier.
 - **Activity and the notifications**, the job log (`src/JobLogView.tsx`) and the page error
   (`src/shell/PageErrorBoundary.tsx`). Show one job inline with the kit's `JobProgress`, or its
   whole log with `JobLogView`.

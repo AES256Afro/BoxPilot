@@ -3,7 +3,8 @@ import type { PendingOperation } from "../../shell/ApproveDialog";
 import { relativeTime } from "../../home/format";
 import { Button, EmptyState, Field, Notice, Panel, Select, StatusChip, Table, TextInput, Textarea, type TableColumn } from "../../ui";
 import { agentsApi, followRun, type AgentSummary, type Proposal, type Run } from "./api";
-import { errorText, finishedRunStates, kindWords, runState, seconds } from "./format";
+import { errorText, finishedRunStates, kindWords, runState, seconds, waitingWords } from "./format";
+import type { RunnerWait } from "./setup";
 import { ProposalCard } from "./ProposalCard";
 import { RunView } from "./Trace";
 
@@ -22,6 +23,8 @@ export interface ConsoleProps {
   role: string;
   now: number;
   enabled: boolean;
+  /** Set while Agents are on and the runner is not answering. */
+  runnerWait?: RunnerWait | null;
   onSelectAgent: (agentId: string) => void;
   onStage: (operation: PendingOperation) => void;
   onRunFinished: () => void;
@@ -52,7 +55,7 @@ function Feedback({ run, csrfToken, onGiven }: { run: Run; csrfToken: string; on
   );
 }
 
-export function Console({ agents, agentId, runId, csrfToken, role, now, enabled, onSelectAgent, onStage, onRunFinished }: ConsoleProps) {
+export function Console({ agents, agentId, runId, csrfToken, role, now, enabled, runnerWait = null, onSelectAgent, onStage, onRunFinished }: ConsoleProps) {
   const staff = role === "owner" || role === "operator";
   const usable = agents.filter((agent) => agent.canAsk || (staff && agent.canEdit) || (staff && role === "owner"));
   const agent = usable.find((entry) => entry.id === agentId) ?? usable[0] ?? null;
@@ -154,7 +157,9 @@ export function Console({ agents, agentId, runId, csrfToken, role, now, enabled,
         {!run
           ? <p className="agents-quiet">Ask something or run the agent once, and each step shows here as it happens.</p>
           : <>
-              {run.state === "queued" && <p className="agents-quiet" role="status">Waiting for the runner: one run goes at a time, and a question goes before scheduled work.</p>}
+              {run.state === "queued" && (runnerWait
+                ? <Notice tone="warning" title={runnerWait.words} action={runnerWait.action ?? undefined}>It starts as soon as the runner does.</Notice>
+                : <p className="agents-quiet" role="status">{waitingWords(true)}</p>)}
               {run.tree && run.tree.length > 1 && (
                 <nav className="agents-tree" aria-label="This request's runs">
                   <span className="agents-step__label">One request, {run.tree.length} runs</span>

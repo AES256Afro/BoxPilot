@@ -3,8 +3,9 @@ import type { PendingOperation } from "../../shell/ApproveDialog";
 import { relativeTime } from "../../home/format";
 import { Button, Field, KeyValue, MetricStrip, MetricTile, Notice, Panel, Progress, Select, StatusChip, Switch, Table, Tag, TextInput, mayStart, riskOf, type Status, type TableColumn } from "../../ui";
 import { agentsApi, type LibraryModel, type ModuleState, type RuntimeDriver, type RuntimeState, type Usage as UsageState } from "./api";
-import { bytes, errorText, gibibytes } from "./format";
+import { bytes, errorText, gibibytes, processorWords } from "./format";
 import { PasswordSheet } from "./PasswordSheet";
+import { SetupAction, chainSteps, downloadStep, enableStep, installStep, modelParameters, setupSteps, unitUp, type SetupStep, type SetupStepId } from "./setup";
 
 /*
  * Usage and the runtime (M37). First whether agents are running cool, from the runner's own cgroup:
@@ -12,7 +13,9 @@ import { PasswordSheet } from "./PasswordSheet";
  * the kernel had to throttle it. Then the caps themselves, today's budgets per agent and the queue.
  * Then what runs the model: Unsloth, the capped runner unit, and the model library - size, time to
  * download, memory against the cap and speed before anything is fetched - each step an operation
- * approved at its tier. The owner's settings close the tab.
+ * approved at its tier, and each offering the next that is missing once it completes (setup.tsx).
+ * While Agents are on and the runner is stopped, the Model tile says the model cannot load until it
+ * starts, with the step that starts it. The owner's settings close the tab.
  */
 
 export interface UsageProps {
@@ -84,7 +87,18 @@ export function Usage({ module, csrfToken, role, now, onStart, onModuleChanged, 
   const service = installed?.service ?? null;
   const operation = (operationId: string, title: string, parameters: Record<string, unknown>, preview: string) => onStart({ operationId, title, parameters, preview: <span>{preview}</span> });
   const may = (operationId: string) => mayStart(role, operationId);
-  const modelParameters = (model: LibraryModel) => ({ repo: model.repo, file: model.file, projector: model.projector });
+  // What is still missing to run an agent, in order. A step pressed here opens with the ones after
+  // it chained, so installing Unsloth goes on to the model and the runner, one approval at a time.
+  const steps = setupSteps(runtime, { enabled: module.enabled });
+  const walkFrom = (id: SetupStepId, alone: SetupStep) => {
+    const index = steps?.findIndex((step) => step.id === id) ?? -1;
+    onStart((steps && index >= 0 ? chainSteps(steps, index) : null) ?? alone.operation);
+  };
+  // On, and the runner not answering: the model cannot load, and the tile says what starts it.
+  const down = module.enabled && !usage.runner.online;
+  const silent = unitUp(service?.active);
+  const fix = down && steps?.length && steps.every((step) => may(step.operation.operationId)) ? <SetupAction steps={steps} onStart={onStart} /> : null;
+  const modelLoaded = usage.runner.online && live?.modelLoaded === true;
 
   const perAgent = usage.today.perAgent;
   const modelColumns: Array<TableColumn<LibraryModel>> = [
@@ -103,7 +117,7 @@ export function Usage({ module, csrfToken, role, now, onStart, onModuleChanged, 
       id: "actions", header: <span className="ui-visually-hidden">Actions</span>, label: "Actions", className: "agents-actions-cell", cell: (model) => (
         <span className="agents-actions">
           {!model.downloaded && may("agents.model.download") && (
-            <Button risk={riskOf("agents.model.download")} onClick={() => operation("agents.model.download", `Download ${model.title}`, modelParameters(model), `${bytes(model.preview.bytes)} from huggingface.co, every byte checked; about ${model.preview.fastMinutes} minutes on a fast connection, ${model.preview.slowMinutes} on a slow one.`)} aria-label={`Download ${model.title}`}>Download</Button>
+            <Button risk={riskOf("agents.model.download")} onClick={() => (model.current ? walkFrom("download", downloadStep(model)) : onStart(downloadStep(model).operation))} aria-label={`Download ${model.title}`}>Download</Button>
           )}
           {model.downloaded && !model.current && may("agents.model.switch") && (
             <Button risk={riskOf("agents.model.switch")} onClick={() => operation("agents.model.switch", `Use ${model.title} for agents`, modelParameters(model), "The next run uses it. The model in use now stays downloaded, to switch back to.")} aria-label={`Use ${model.title}`}>Use</Button>
@@ -131,12 +145,16 @@ export function Usage({ module, csrfToken, role, now, onStart, onModuleChanged, 
       {error && <Notice tone="danger" live onDismiss={() => setError(null)}>{error}</Notice>}
 
       <Panel className="agents-now" title="Right now" count={{ status: verdict.status, label: verdict.label }}
-        meta={usage.runner.online ? <>runner <b>{usage.runner.version ?? "?"}</b> · seen {relativeTime(usage.runner.lastSeenAt, now) ?? "just now"}</> : "the runner is not answering"} padded>
+        meta={usage.runner.online ? <>runner <b>{usage.runner.version ?? "?"}</b> · seen {relativeTime(usage.runner.lastSeenAt, now) ?? "just now"}</> : service && !silent ? "the runner is stopped" : "the runner is not answering"} padded>
         <MetricStrip label="The runner right now: processor, memory, model and throttling">
-          <MetricTile label="Processor" value={cpu === null ? "—" : `${cpu}%`} caption={`of a ${caps.cpuQuotaPercent}% cap (one processor)`} status={verdict.status} bar={cpu === null ? undefined : { value: cpu, max: caps.cpuQuotaPercent }} />
+          <MetricTile label="Processor" value={cpu === null ? "—" : `${cpu}%`} caption={`of a ${caps.cpuQuotaPercent}% cap (${processorWords(caps.cpuQuotaPercent)})`} status={verdict.status} bar={cpu === null ? undefined : { value: cpu, max: caps.cpuQuotaPercent }} />
           <MetricTile label="Memory" value={live ? bytes(live.memoryBytes) : "—"} caption={`of ${gibibytes(live?.memoryMaxBytes ?? caps.memoryMaxBytes)}${live?.memoryPeakBytes ? ` · peak ${bytes(live.memoryPeakBytes)}` : ""}`}
             status={live ? (live.memoryBytes > caps.memoryMaxBytes * 0.9 ? "warning" : "good") : "unknown"} bar={live ? { value: live.memoryBytes, max: live.memoryMaxBytes ?? caps.memoryMaxBytes } : undefined} />
-          <MetricTile label="Model" value={live?.modelLoaded ? "Loaded" : "Not loaded"} caption={live?.modelLoaded ? live.model ?? "" : "starts when a run needs it, stops when idle"} status={live?.modelLoaded ? "good" : "neutral"} />
+          <MetricTile label="Model" value={modelLoaded ? "Loaded" : "Not loaded"}
+            caption={modelLoaded ? live?.model ?? "" : usage.runner.online ? "starts when a run needs it, stops when idle" : silent ? "cannot load until the runner answers" : "cannot load until the runner starts"}
+            status={modelLoaded ? "good" : down ? "warning" : "neutral"}>
+            {fix}
+          </MetricTile>
           <MetricTile label="Throttled" value={live ? `${Math.round(live.throttledMs / 1000)} s` : "—"} caption="time the kernel held it to its cap" status={live ? "neutral" : "unknown"} />
         </MetricStrip>
         {live && !live.cgroup && <p className="agents-dim">Measured from the runner's own process: it is not running in its capped unit.</p>}
@@ -182,8 +200,8 @@ export function Usage({ module, csrfToken, role, now, onStart, onModuleChanged, 
         meta={<>{driverWords[runtime.settings.driver]}{unsloth.version ? <> · <b>{unsloth.version}</b></> : null}</>} padded
         actions={
           <span className="agents-actions">
-            {installed && !installed.runtime?.installed && may("agents.runtime.install") && <Button risk={riskOf("agents.runtime.install")} onClick={() => operation("agents.runtime.install", "Install Unsloth for agents", {}, "Unsloth's own installer, GGUF only, run as the runner's user into its own folder. About 2 GB.")}>Install Unsloth</Button>}
-            {service && service.active !== "active" && may("agents.runtime.enable") && module.enabled && <Button risk={riskOf("agents.runtime.enable")} onClick={() => operation("agents.runtime.enable", "Start the agents runner", {}, `${caps.unit}: one processor at most, idle priority, ${gibibytes(caps.memoryMaxBytes)}, this machine only.`)}>Start the runner</Button>}
+            {installed && !installed.runtime?.installed && may("agents.runtime.install") && <Button risk={riskOf("agents.runtime.install")} onClick={() => walkFrom("install", installStep())}>Install Unsloth</Button>}
+            {service && service.active !== "active" && may("agents.runtime.enable") && module.enabled && <Button risk={riskOf("agents.runtime.enable")} onClick={() => walkFrom("enable", enableStep(runtime))}>Start the runner</Button>}
             {service && service.active === "active" && may("agents.runtime.disable") && <Button risk={riskOf("agents.runtime.disable")} onClick={() => operation("agents.runtime.disable", "Stop the agents runner", {}, "Stops the runner and any model it runs. Agents wait until it starts again.")}>Stop the runner</Button>}
           </span>
         }>

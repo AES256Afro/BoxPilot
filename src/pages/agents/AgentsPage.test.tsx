@@ -192,6 +192,8 @@ describe("the builder", () => {
 
     const name = await screen.findByLabelText("Name");
     expect((name as HTMLInputElement).value).toBe("Server Keeper");
+    // Each guardrail's range and default, as the server gives them.
+    expect(screen.getByText("30–1800 seconds, 600 by default")).toBeTruthy();
     // Each tool's permission, with the operator reads marked.
     expect(screen.getByRole("radiogroup", { name: "Logs: permission" })).toBeTruthy();
     expect(screen.getByRole("table", { name: "Tools and their permissions" }).textContent).toContain("operator");
@@ -337,6 +339,252 @@ describe("usage and the runtime", () => {
     expect(within(models).queryByRole("button", { name: "Remove Qwen 3.5 4B" })).toBeNull();
     expect(screen.getByRole("button", { name: /Stop the runner/ }).getAttribute("data-risk")).toBe("low");
   });
+});
+
+// The owner's server: Agents on, Unsloth installed and the model downloaded, the runner's unit
+// never started, a question waiting. Every step that fixes it is staged and approved at its tier.
+describe("a runner that is not running", () => {
+  const offline = { ...runner, online: false, lastSeenAt: null, usage: null };
+  const inactive = { unit: "boxpilot-agents.service", loaded: true, active: "inactive", sub: "dead", enabled: "disabled" };
+  /** The runtime as the helper reads it: Unsloth there or not, the model downloaded or not, the unit's state. */
+  const runtimeWith = ({ unsloth = true, downloaded = true, active = "inactive" } = {}): RuntimeState => ({
+    ...runtime, runner: offline,
+    library: [libraryModel("Qwen3.5-4B-GGUF", "Qwen 3.5 4B", { recommended: true, downloaded, current: true }), libraryModel("Qwen3.5-2B-GGUF", "Qwen 3.5 2B", {})] as RuntimeState["library"],
+    installed: { runtime: { installed: unsloth, path: "/var/lib/boxpilot-agents/unsloth/bin/unsloth" }, service: { ...inactive, active, sub: active === "active" ? "running" : "dead" }, models: [], diskFreeBytes: 200e9 },
+  });
+  const waitingRun: Run = { ...finishedRun, id: "77777777-7777-4777-8777-777777777777", kind: "ask", question: "Why is Jellyfin restarting?", state: "queued", startedAt: null, finishedAt: null, answer: null, outputKind: null, usage: {}, proposals: [], steps: [] };
+  const stoppedOverview = (extra: Partial<Overview> = {}) => overview({
+    runner: offline, queue: { queued: 1, running: 0, dropped: 0 },
+    agents: [summary(keeperId, "Server Keeper", { status: "queued" }), summary(helperId, "IT Support helper", { lastRun: null })] as Overview["agents"], ...extra,
+  });
+  /** Staging, approving and reading each job: a job is named after its operation, and completes. */
+  const jobs = (operations: string[]) => Object.fromEntries(operations.flatMap((operationId) => {
+    const job = (state: string) => ({ id: operationId, type: `op:${operationId}`, title: operationId, state, risk: "medium", error: null, result: null, steps: [], approvals: [], parameters: {} });
+    return [
+      [`POST /api/v1/operations/${operationId}/jobs`, () => json({ job: job("awaiting_approval"), approval: { tier: "medium", passwordRequired: false, elevated: false, mode: "tiered", reason: "medium risk", confirmText: null } }, 201)],
+      [`POST /api/v1/jobs/${operationId}/approve`, () => json({ job: job("applying"), elevatedUntil: null }, 202)],
+      [`GET /api/v1/jobs/${operationId}`, () => json({ job: job("completed") })],
+    ];
+  }));
+  const staged = (calls: Array<{ method: string; path: string }>) => calls.filter((call) => call.method === "POST" && /^\/api\/v1\/operations\/[^/]+\/jobs$/.test(call.path)).map((call) => call.path.split("/")[4]);
+  const header = () => document.querySelector(".ui-page-header") as HTMLElement;
+
+  it("turns Agents on and walks the owner through each missing step, ending with the runner started", async () => {
+    let enabled = false;
+    const calls = serve(base({
+      "GET /api/v1/agents": () => json(overview({ module: { ...module, enabled }, runner: offline })),
+      "GET /api/v1/agents/runtime": runtimeWith({ unsloth: false, downloaded: false }),
+      "PUT /api/v1/settings/agents": () => { enabled = true; return json({ module }); },
+      ...jobs(["agents.runtime.install", "agents.model.download", "agents.runtime.enable"]),
+    }));
+    render(<AgentsPage csrfToken="csrf" now={() => now} />);
+    await waitFor(() => expect(calls.some((call) => call.path === "/api/v1/agents/runtime")).toBe(true));
+    fireEvent.click((await screen.findAllByRole("button", { name: "Turn Agents on" }))[0]);
+    const sheet = await screen.findByRole("dialog", { name: "Turn Agents on" });
+    // The sheet says what follows, one approval at a time.
+    await waitFor(() => expect(Array.from(sheet.querySelectorAll(".agents-setup li")).map((item) => item.textContent)).toEqual(["Install Unsloth for agents", "Download Qwen 3.5 4B", "Start the agents runner"]));
+    fireEvent.change(within(sheet).getByLabelText("Your password"), { target: { value: "right" } });
+    fireEvent.click(within(sheet).getByRole("button", { name: "Turn on" }));
+
+    // The first step opens at once, at its tier; nothing after it is staged yet.
+    expect(await screen.findByRole("dialog", { name: "Install Unsloth for agents" })).toBeTruthy();
+    expect(screen.queryByRole("dialog", { name: "Turn Agents on" })).toBeNull();
+    expect(await screen.findByText("Medium risk")).toBeTruthy();
+    expect(staged(calls)).toEqual(["agents.runtime.install"]);
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm and run" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Next: Download Qwen 3.5 4B" }));
+    expect(await screen.findByRole("dialog", { name: "Download Qwen 3.5 4B" })).toBeTruthy();
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm and run" }));
+    const last = await screen.findByRole("button", { name: "Next: Start the agents runner" });
+    expect(last.getAttribute("data-risk")).toBe("medium");
+    fireEvent.click(last);
+    expect(await screen.findByRole("dialog", { name: "Start the agents runner" })).toBeTruthy();
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm and run" }));
+    expect(await screen.findByText("Completed.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Next/ })).toBeNull();
+
+    // Three jobs, in order, each approved on its own: the last one starts the runner.
+    expect(staged(calls)).toEqual(["agents.runtime.install", "agents.model.download", "agents.runtime.enable"]);
+    expect(calls.filter((call) => call.path.endsWith("/approve")).map((call) => call.path.split("/")[4])).toEqual(["agents.runtime.install", "agents.model.download", "agents.runtime.enable"]);
+    expect(calls.find((call) => call.path === "/api/v1/operations/agents.model.download/jobs")?.body).toEqual({ parameters: { repo: "unsloth/Qwen3.5-4B-GGUF", file: "Qwen3.5-4B-GGUF-UD-Q4_K_XL.gguf", projector: "mmproj-F16.gguf" } });
+  }, 20_000);
+
+  it("offers the runner at once when Unsloth and the model are already there", async () => {
+    let enabled = false;
+    const calls = serve(base({
+      "GET /api/v1/agents": () => json(overview({ module: { ...module, enabled }, runner: offline })),
+      "GET /api/v1/agents/runtime": runtimeWith(),
+      "PUT /api/v1/settings/agents": () => { enabled = true; return json({ module }); },
+      ...jobs(["agents.runtime.enable"]),
+    }));
+    render(<AgentsPage csrfToken="csrf" now={() => now} />);
+    await waitFor(() => expect(calls.some((call) => call.path === "/api/v1/agents/runtime")).toBe(true));
+    fireEvent.click((await screen.findAllByRole("button", { name: "Turn Agents on" }))[0]);
+    const sheet = await screen.findByRole("dialog", { name: "Turn Agents on" });
+    fireEvent.change(within(sheet).getByLabelText("Your password"), { target: { value: "right" } });
+    fireEvent.click(within(sheet).getByRole("button", { name: "Turn on" }));
+    expect(await screen.findByRole("dialog", { name: "Start the agents runner" })).toBeTruthy();
+    await waitFor(() => expect(staged(calls)).toEqual(["agents.runtime.enable"]));
+  });
+
+  it("says the runner is stopped at the top and offers the step that starts it; a run waiting says why", async () => {
+    const calls = serve(base({
+      "GET /api/v1/agents": stoppedOverview(),
+      "GET /api/v1/agents/runtime": runtimeWith(),
+      "GET /api/v1/agents/glance": { enabled: true, paused: false, runnerOnline: false, queued: 1, digest: null, cardsWaiting: 1 },
+      ...jobs(["agents.runtime.enable"]),
+    }));
+    render(<AgentsPage csrfToken="csrf" now={() => now} />);
+    const chip = (await screen.findByText("Runner stopped")).closest(".ui-chip");
+    expect(chip?.getAttribute("data-status")).toBe("warning");
+    await waitFor(() => expect(header().textContent).toContain("Agents are on, but nothing runs until the runner is started."));
+    // In the header's actions, beside Pause all, with its tier.
+    const start = await within(header()).findByRole("button", { name: "Start the runner" });
+    expect(start.getAttribute("data-risk")).toBe("medium");
+    expect(within(header()).getByRole("button", { name: "Pause all" })).toBeTruthy();
+    // The list says why the run waits, with the same step, and the agent says it waits for the runner.
+    const waiting = screen.getByText("Waiting for the runner, which is stopped").closest(".ui-notice") as HTMLElement;
+    expect(waiting.textContent).toContain("1 run waits, and it starts as soon as the runner does.");
+    expect(within(waiting).getByRole("button", { name: "Start the runner" })).toBeTruthy();
+    const keeper = within(screen.getByRole("table", { name: "Agents on this server" })).getAllByRole("row").find((row) => row.textContent?.includes("Server Keeper"));
+    expect(keeper?.textContent).toContain("waiting for the runner");
+    expect(screen.getByRole("tab", { name: /Usage/ }).textContent).toContain("the runner is stopped");
+
+    fireEvent.click(start);
+    expect(await screen.findByRole("dialog", { name: "Start the agents runner" })).toBeTruthy();
+    await waitFor(() => expect(staged(calls)).toEqual(["agents.runtime.enable"]));
+  });
+
+  it("offers the missing step instead when Unsloth or the model is not there yet", async () => {
+    const cases = [
+      { runtime: runtimeWith({ unsloth: false, downloaded: false }), action: "Install Unsloth", sentence: "nothing runs until Unsloth is installed, the model is downloaded and the runner is started." },
+      { runtime: runtimeWith({ downloaded: false }), action: "Download the model", sentence: "nothing runs until the model is downloaded and the runner is started." },
+    ];
+    for (const entry of cases) {
+      serve(base({ "GET /api/v1/agents": stoppedOverview(), "GET /api/v1/agents/runtime": entry.runtime }));
+      render(<AgentsPage csrfToken="csrf" now={() => now} />);
+      await screen.findByText("Runner stopped");
+      const action = await within(header()).findByRole("button", { name: entry.action });
+      expect(action.getAttribute("data-risk")).toBe("medium");
+      expect(within(header()).queryByRole("button", { name: "Start the runner" })).toBeNull();
+      expect(header().textContent).toContain(entry.sentence);
+      cleanup();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("says a unit that runs but a runner that does not answer, and offers nothing to start", async () => {
+    serve(base({ "GET /api/v1/agents": stoppedOverview(), "GET /api/v1/agents/runtime": runtimeWith({ active: "active" }) }));
+    render(<AgentsPage csrfToken="csrf" now={() => now} />);
+    expect(await screen.findByText("Runner not answering")).toBeTruthy();
+    expect(screen.getByText("Waiting for the runner, which is not answering")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Start the runner" })).toBeNull();
+  });
+
+  it("shows an operator the words, and no step they cannot take", async () => {
+    serve(base({ "GET /api/v1/agents": stoppedOverview(), "GET /api/v1/agents/runtime": runtimeWith() }));
+    render(<AgentsPage csrfToken="csrf" role="operator" now={() => now} />);
+    expect(await screen.findByText("Runner stopped")).toBeTruthy();
+    await waitFor(() => expect(header().textContent).toContain("nothing runs until the runner is started."));
+    const waiting = screen.getByText("Waiting for the runner, which is stopped").closest(".ui-notice") as HTMLElement;
+    expect(within(waiting).queryByRole("button")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Start the runner" })).toBeNull();
+    expect(within(header()).getByRole("button", { name: "Pause all" })).toBeTruthy();
+  });
+
+  it("says in the console that a question waits for the stopped runner, with the owner's step", async () => {
+    window.history.replaceState(null, "", `/?view=agents&tab=test&agent=${keeperId}`);
+    const calls = serve(base({
+      "GET /api/v1/agents": stoppedOverview(),
+      "GET /api/v1/agents/runtime": runtimeWith(),
+      [`GET /api/v1/agents/${keeperId}/runs`]: { runs: [waitingRun] },
+      [`GET /api/v1/agents/runs/${waitingRun.id}`]: waitingRun,
+      ...jobs(["agents.runtime.enable"]),
+    }));
+    vi.stubGlobal("EventSource", undefined);
+    render(<AgentsPage csrfToken="csrf" now={() => now} />);
+    const live = await screen.findByRole("region", { name: "Run" });
+    const notice = (await within(live).findByText("Waiting for the runner, which is stopped", {}, { timeout: 6000 })).closest(".ui-notice") as HTMLElement;
+    expect(notice.textContent).toContain("It starts as soon as the runner does.");
+    fireEvent.click(await within(notice).findByRole("button", { name: "Start the runner" }));
+    expect(await screen.findByRole("dialog", { name: "Start the agents runner" })).toBeTruthy();
+    await waitFor(() => expect(staged(calls)).toEqual(["agents.runtime.enable"]));
+  }, 15_000);
+
+  it("shows a viewer who asked only the words", async () => {
+    window.history.replaceState(null, "", "/?view=agents&tab=test");
+    const asked = { ...waitingRun, agentId: helperId, agentName: "IT Support helper", readRole: "viewer" };
+    const calls = serve({
+      "GET /api/v1/agents": stoppedOverview({ agents: [summary(helperId, "IT Support helper", { canEdit: false, lastRun: null, status: "queued" })] as Overview["agents"], cardsWaiting: 0, can: { create: false, configure: false, pause: false } }),
+      "GET /api/v1/agents/catalog": catalog,
+      [`POST /api/v1/agents/${helperId}/ask`]: () => json(asked, 202),
+      [`GET /api/v1/agents/runs/${asked.id}`]: asked,
+    });
+    vi.stubGlobal("EventSource", undefined);
+    render(<AgentsPage csrfToken="csrf" role="viewer" now={() => now} />);
+    fireEvent.change(await screen.findByLabelText("Question"), { target: { value: "Why is Jellyfin restarting?" } });
+    fireEvent.click(screen.getByRole("button", { name: "Ask" }));
+    const notice = (await screen.findByText("Waiting for the runner, which is stopped")).closest(".ui-notice") as HTMLElement;
+    expect(within(notice).queryByRole("button")).toBeNull();
+    // A viewer never asks for the runtime: what the unit is doing is not theirs to read.
+    expect(calls.some((call) => call.path === "/api/v1/agents/runtime")).toBe(false);
+  });
+
+  it("says on Usage that the model cannot load until the runner starts, with the same step, and keeps Start and Stop in Runtime", async () => {
+    window.history.replaceState(null, "", "/?view=agents&tab=usage");
+    const calls = serve(base({
+      "GET /api/v1/agents": stoppedOverview(),
+      "GET /api/v1/agents/usage": { ...usage, runner: offline, queue: { queued: 1, running: 0, dropped: 0 } },
+      "GET /api/v1/agents/runtime": runtimeWith(),
+      ...jobs(["agents.runtime.enable"]),
+    }));
+    render(<AgentsPage csrfToken="csrf" now={() => now} />);
+    const tile = (await screen.findByText("cannot load until the runner starts")).closest(".ui-metric") as HTMLElement;
+    expect(tile.textContent).toContain("Not loaded");
+    expect(tile.textContent).not.toContain("starts when a run needs it");
+    expect(tile.getAttribute("data-status")).toBe("warning");
+    const panel = screen.getByRole("region", { name: "Runtime" });
+    expect(within(panel).getByRole("button", { name: "Start the runner" }).getAttribute("data-risk")).toBe("medium");
+    expect(within(panel).queryByRole("button", { name: "Stop the runner" })).toBeNull();
+    fireEvent.click(within(tile).getByRole("button", { name: "Start the runner" }));
+    expect(await screen.findByRole("dialog", { name: "Start the agents runner" })).toBeTruthy();
+    await waitFor(() => expect(staged(calls)).toEqual(["agents.runtime.enable"]));
+  });
+
+  it("says the caps the server reports, four processors as four, never one assumed", async () => {
+    window.history.replaceState(null, "", "/?view=agents&tab=usage");
+    const wide = { ...caps, cpuQuotaPercent: 400, modelThreads: 4 };
+    serve(base({
+      "GET /api/v1/agents": stoppedOverview(),
+      "GET /api/v1/agents/usage": { ...usage, runner: offline, caps: wide },
+      "GET /api/v1/agents/runtime": { ...runtimeWith(), caps: wide },
+      ...jobs(["agents.runtime.enable"]),
+    }));
+    render(<AgentsPage csrfToken="csrf" now={() => now} />);
+    expect(await screen.findByText("of a 400% cap (four processors)")).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Hard caps" }).textContent).toContain("Model threads4");
+    fireEvent.click(within(screen.getByRole("region", { name: "Runtime" })).getByRole("button", { name: "Start the runner" }));
+    expect(await screen.findByText("boxpilot-agents.service: four processors at most, idle priority, 8 GiB, this machine only.")).toBeTruthy();
+    // What the page is for says the same caps.
+    expect(document.querySelector(".ui-page-header__about")?.textContent).toContain("(four processors at most, idle priority, 8 GiB, this machine only)");
+  });
+
+  it("goes on from downloading the model on Usage to starting the runner", async () => {
+    window.history.replaceState(null, "", "/?view=agents&tab=usage");
+    const calls = serve(base({
+      "GET /api/v1/agents": stoppedOverview(),
+      "GET /api/v1/agents/usage": { ...usage, runner: offline },
+      "GET /api/v1/agents/runtime": runtimeWith({ downloaded: false }),
+      ...jobs(["agents.model.download", "agents.runtime.enable"]),
+    }));
+    render(<AgentsPage csrfToken="csrf" now={() => now} />);
+    const models = await screen.findByRole("table", { name: "Models agents can use" });
+    fireEvent.click(within(models).getByRole("button", { name: "Download Qwen 3.5 4B" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm and run" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Next: Start the agents runner" }));
+    expect(await screen.findByRole("dialog", { name: "Start the agents runner" })).toBeTruthy();
+    await waitFor(() => expect(staged(calls)).toEqual(["agents.model.download", "agents.runtime.enable"]));
+  }, 15_000);
 });
 
 describe("a viewer", () => {

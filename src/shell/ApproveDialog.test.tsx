@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ApproveDialog } from "./ApproveDialog";
+import { ApproveDialog, useOperation, type PendingOperation } from "./ApproveDialog";
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
@@ -315,6 +315,79 @@ describe("the approval dialog's tiers", () => {
     expect(staged).toHaveBeenCalledWith(expect.objectContaining({ id: "job-1" }));
     // Handed over: the dialog does not wait for the end itself.
     expect(calls.filter((call) => call.url === "/api/v1/jobs/job-1" && call.method === "GET")).toHaveLength(0);
+  });
+});
+
+// Agents: one step after another (install, download, start the runner), each its own approval.
+describe("an operation with a next step", () => {
+  const medium = { tier: "medium", passwordRequired: false, elevated: false, mode: "tiered", reason: "medium risk", confirmText: null };
+  /** Stages each operation as a job named after it; `ended` is how every job finishes. */
+  function stubSteps(ended = "completed") {
+    const calls: Array<{ url: string; method: string }> = [];
+    const json = (body: unknown, status = 200) => Promise.resolve(new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } }));
+    const job = (id: string, state: string) => ({ ...stagedJob, id, type: `op:${id}`, title: id, risk: "medium", parameters: {}, state, error: state === "failed" ? "It did not work" : null });
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString(); const method = init?.method ?? "GET";
+      calls.push({ url, method });
+      const staging = url.match(/^\/api\/v1\/operations\/([^/]+)\/jobs$/);
+      if (staging && method === "POST") return json({ job: job(staging[1], "awaiting_approval"), approval: medium }, 201);
+      const approving = url.match(/^\/api\/v1\/jobs\/([^/]+)\/approve$/);
+      if (approving) return json({ job: job(approving[1], "applying"), elevatedUntil: null }, 202);
+      if (url.endsWith("/output")) return json({ output: "" });
+      const reading = url.match(/^\/api\/v1\/jobs\/([^/]+)$/);
+      if (reading && method === "GET") return json({ job: job(reading[1], ended) });
+      return json({ error: "unexpected" }, 500);
+    }));
+    return calls;
+  }
+  const staged = (calls: Array<{ url: string; method: string }>) => calls.filter((call) => call.method === "POST" && call.url.endsWith("/jobs")).map((call) => call.url.split("/")[4]);
+  const install: PendingOperation = { operationId: "agents.runtime.install", title: "Install Unsloth for agents", parameters: {}, next: { operationId: "agents.runtime.enable", title: "Start the agents runner", parameters: {} } };
+  function Page({ operation }: { operation: PendingOperation }) {
+    const { start, dialog } = useOperation("csrf");
+    return <><button type="button" onClick={() => start(operation)}>Begin</button>{dialog}</>;
+  }
+
+  it("offers the next once this one has completed, and stages it only when pressed, at its own tier", async () => {
+    const calls = stubSteps();
+    render(<Page operation={install} />);
+    fireEvent.click(screen.getByRole("button", { name: "Begin" }));
+    expect(await screen.findByRole("dialog", { name: "Install Unsloth for agents" })).toBeTruthy();
+    // Nothing is offered before it has run.
+    expect(screen.queryByRole("button", { name: /^Next/ })).toBeNull();
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm and run" }));
+    expect(await screen.findByText("Completed.")).toBeTruthy();
+    const next = screen.getByRole("button", { name: "Next: Start the agents runner" });
+    expect(next.getAttribute("data-risk")).toBe("medium");
+    expect(screen.getByRole("button", { name: "Close" })).toBeTruthy();
+    expect(staged(calls)).toEqual(["agents.runtime.install"]);
+
+    fireEvent.click(next);
+    // Its own dialog, staged fresh and waiting for its own confirmation.
+    expect(await screen.findByRole("dialog", { name: "Start the agents runner" })).toBeTruthy();
+    await waitFor(() => expect(staged(calls)).toEqual(["agents.runtime.install", "agents.runtime.enable"]));
+    expect(calls.filter((call) => call.url.endsWith("/approve")).map((call) => call.url)).toEqual(["/api/v1/jobs/agents.runtime.install/approve"]);
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm and run" }));
+    expect(await screen.findByText("Completed.")).toBeTruthy();
+    // The last step offers nothing more.
+    expect(screen.queryByRole("button", { name: /^Next/ })).toBeNull();
+  });
+
+  it("offers no next step after a job that did not complete", async () => {
+    stubSteps("failed");
+    render(<Page operation={install} />);
+    fireEvent.click(screen.getByRole("button", { name: "Begin" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm and run" }));
+    expect(await screen.findByText("Needs attention")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Next/ })).toBeNull();
+    expect(screen.getByRole("button", { name: "Close" })).toBeTruthy();
+  });
+
+  it("offers nothing more where the page gives no way to open it", async () => {
+    stubSteps();
+    render(<ApproveDialog {...install} csrfToken="csrf" onClose={() => {}} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm and run" }));
+    expect(await screen.findByText("Completed.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Next/ })).toBeNull();
   });
 });
 
