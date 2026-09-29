@@ -220,6 +220,9 @@ const jobs = createJobService(state, helper, {
     "agents.runtime.install": (job, result) => agents.noteRuntimeInstalled(result, { actorId: job.createdBy }),
     // M37: a connector's documents, read in the root task with its credential, into the library.
     "agents.connector.sync": (job, result) => agents.ingestConnector(result, { actorId: job.createdBy }),
+    // M38: where Zulip is and what Connect made; the bot's key stayed in the helper's credential store.
+    "agents.zulip.connect": (job, result) => { agents.zulipConnected(result, { actorId: job.createdBy, boxpilotUrl: job.parameters?.boxpilotUrl ?? null }); },
+    "agents.zulip.disconnect": (job) => { agents.zulipDisconnected({ actorId: job.createdBy }); },
   },
   // Prepare hooks pin server-derived expectations into the staged parameters.
   operationPrepareHooks: {
