@@ -9,8 +9,9 @@
  *     nice -n 19 ionice -c 3 node tests/bench/agents-real.mjs --runtime DIR --state DIR --threads 4 --out FILE
  *
  * It asks the owner's question twice (the second time the model server has the agent's prompts
- * cached) and one typical question, and writes each call's tokens and llama-server's own timings to
- * --out as JSON, and a table to stdout. .github/workflows/agents-bench.yml runs it.
+ * cached) and one typical question, each with the run's own 15 minutes, and writes each call's
+ * tokens and llama-server's own timings to --out as JSON, and a table to stdout.
+ * .github/workflows/agents-bench.yml runs it.
  */
 import { writeFile } from "node:fs/promises";
 import { createBench, describe, ownerQuestion, typicalQuestion } from "../../test/agents-bench.mjs";
