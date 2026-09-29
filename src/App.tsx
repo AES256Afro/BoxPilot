@@ -11,6 +11,7 @@ import { dropElevation, fetchAuthStatus, forgetSession, logoutOwner, rememberSes
 import { connectionLabel } from "./appLinks";
 import { FactsProvider } from "./home/facts";
 import { CommandBar } from "./shell/CommandBar";
+import { NotificationCentre } from "./shell/NotificationCentre";
 import { ShellDock, ViewSwitch } from "./shell/ShellNav";
 import { TopBarSlotProvider } from "./shell/TopBarSlot";
 
@@ -209,6 +210,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
           <div className="topbar-right">
             <span className="connection-pill" title="How this browser reached BoxPilot">{connectionLabel(window.location)}</span>
             <ThemeSwitch compact />
+            <NotificationCentre csrfToken={csrfToken} onNavigate={setView} />
             <ActivityDrawer csrfToken={csrfToken} role={role} />
             {authStatus.owner?.role && authStatus.owner.role !== "owner" ? <span className="status-pill status-neutral" title="Your role on this server">{authStatus.owner.role}</span> : null}
             {elevated
