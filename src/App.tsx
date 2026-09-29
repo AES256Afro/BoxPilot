@@ -23,11 +23,11 @@ import { PageHeader } from "./ui/PageHeader";
 // visitor might never reach. Now the shell is what first paint waits for; each page arrives on
 // navigation, once, and the immutable asset cache keeps it after that.
 const BackupsPage = lazy(() => import("./pages/backups/BackupsPage"));
-const GitHubCenter = lazy(() => import("./GitHubCenter"));
+const GitHubPage = lazy(() => import("./pages/github/GitHubPage"));
 const Home = lazy(() => import("./home/Home"));
 const Ops = lazy(() => import("./home/Ops"));
 const SetupWizard = lazy(() => import("./SetupWizard"));
-const NetworkCenter = lazy(() => import("./NetworkCenter"));
+const NetworkPage = lazy(() => import("./pages/network/NetworkPage"));
 const RepairCenter = lazy(() => import("./RepairCenter"));
 const LogsPage = lazy(() => import("./pages/logs/LogsPage"));
 const UpdatesCenter = lazy(() => import("./UpdatesCenter"));
@@ -36,8 +36,8 @@ const AutomationsCenter = lazy(() => import("./AutomationsCenter"));
 const ServicesPage = lazy(() => import("./pages/services/ServicesPage"));
 const SystemCenter = lazy(() => import("./SystemCenter"));
 const PerformanceCenter = lazy(() => import("./PerformanceCenter"));
-const UsersCenter = lazy(() => import("./UsersCenter"));
-const FirewallCenter = lazy(() => import("./FirewallCenter"));
+const UsersPage = lazy(() => import("./pages/users/UsersPage"));
+const FirewallPage = lazy(() => import("./pages/firewall/FirewallPage"));
 const StoragePage = lazy(() => import("./pages/storage/StoragePage"));
 const VirtualMachines = lazy(() => import("./VirtualMachines"));
 // The design system's gallery (M33.1), for the demo only: /?gallery opens it when the server says
@@ -56,7 +56,7 @@ const Settings = lazy(() => import("./SettingsView"));
  * its name in the bar and what it is for behind the info toggle, until wave 2 rebuilds it (M33.8).
  * A rebuilt page adds itself here. Repair (M35) draws its own crumb and verdict in the page.
  */
-const ownHeader = new Set<ViewName>(["home", "ops", "services", "logs", "repairs", "storage", "backups"]);
+const ownHeader = new Set<ViewName>(["home", "ops", "services", "logs", "repairs", "network", "firewall", "users", "github", "storage", "backups"]);
 
 /**
  * Deep link: /?view=firewall opens that page, and a reload keeps the page you were on (Setup
@@ -164,14 +164,14 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
     if (view === "system") return <SystemCenter csrfToken={csrfToken} role={role} />;
     if (view === "automations") return <AutomationsCenter csrfToken={csrfToken} />;
     if (view === "performance") return <PerformanceCenter csrfToken={csrfToken} />;
-    if (view === "users") return <UsersCenter csrfToken={csrfToken} />;
-    if (view === "firewall") return <FirewallCenter csrfToken={csrfToken} />;
+    if (view === "users") return <UsersPage csrfToken={csrfToken} role={role} />;
+    if (view === "firewall") return <FirewallPage csrfToken={csrfToken} role={role} />;
     if (view === "storage") return <StoragePage csrfToken={csrfToken} role={role} onNavigate={setView} />;
-    if (view === "network") return <NetworkCenter csrfToken={csrfToken} onOpenRepair={() => setView("repairs")} />;
+    if (view === "network") return <NetworkPage csrfToken={csrfToken} role={role} />;
     if (view === "repairs") return <RepairCenter csrfToken={csrfToken} role={role} onNavigate={setView} />;
     if (view === "virtualization") return <VirtualMachines csrfToken={csrfToken} onOpenRepair={() => setView("repairs")} />;
     if (view === "backups") return <BackupsPage csrfToken={csrfToken} role={role} onNavigate={setView} />;
-    if (view === "github") return <GitHubCenter />;
+    if (view === "github") return <GitHubPage />;
     if (view === "logs") return <LogsPage csrfToken={csrfToken} role={role} />;
     return <Settings csrfToken={csrfToken} role={role} />;
   }, [csrfToken, focusApp, role, setView, view]);
