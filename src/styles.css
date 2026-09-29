@@ -6485,12 +6485,16 @@ body {
 }
 
 /* ── Ops: near-black and hairlines, or paper in light ────────────────────── */
+/* Repair wears the same palette (M35): it is where the fixing is done, so it reads like Ops, with
+   the Classic bar and dock and Figtree kept for the prose its findings are written in. */
 .app-shell[data-view="ops"] {
+  font-family: var(--font-condensed);
+  --font-sans: var(--font-condensed);
+}
+.app-shell:is([data-view="ops"], [data-view="repairs"]) {
   min-height: 100vh;
   background: var(--cc-canvas);
-  font-family: var(--font-condensed);
   /* What the components read, pointed at the Command Center's own tokens. */
-  --font-sans: var(--font-condensed);
   --canvas: var(--cc-canvas);
   --topbar-bg: var(--cc-topbar);
   --surface: var(--cc-panel);
@@ -6549,7 +6553,7 @@ body {
   --risk-high-border: var(--cc-red-border);
 }
 
-.app-shell[data-view="ops"] :is(button, a, input, select, textarea, summary):focus-visible {
+.app-shell:is([data-view="ops"], [data-view="repairs"]) :is(button, a, input, select, textarea, summary):focus-visible {
   outline: 2px solid var(--cc-amber);
   outline-offset: 1px;
 }
@@ -6770,4 +6774,14 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .ui-button { transition: none; }
   .shell-dock--rail .ui-dock__label { transition: none; }
+}
+
+/* Home and Ops: the buttons a need offers, and a fix's progress under its words (M35). */
+.need__acts { display: inline-flex; flex: none; flex-wrap: wrap; justify-content: flex-end; gap: 6px; margin-left: auto; }
+.need__acts .need__act { margin-left: 0; }
+.need__run { color: var(--text-muted); font-size: var(--font-size-sm); line-height: 1.4; overflow-wrap: anywhere; }
+.lx-fixed { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 8px 0 0; color: var(--text); font-size: 13.5px; line-height: 1.4; }
+
+@media (max-width: 620px) {
+  .need__acts { flex: 1 1 100%; justify-content: flex-start; margin-left: 0; }
 }

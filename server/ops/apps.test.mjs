@@ -104,7 +104,8 @@ describe("operations that re-render an app's compose file carry the devices the 
   // lost its GPU render node when its password or exposure changed, and Zigbee2MQTT refused to start.
   it("covers every app operation that ends in writing the project", async () => {
     const { deviceResolvingOperations } = await import("../catalog/devices.mjs");
-    const rerendering = appOperations().filter((operation) => /apps\.(install|update|reconfigure|rollbackApp|setPassword)\(/.test(String(operation.run))).map((operation) => operation.id);
+    // app.reinstall writes the project again when its compose file is gone too (M35).
+    const rerendering = appOperations().filter((operation) => /apps\.(install|reinstall|update|reconfigure|rollbackApp|setPassword)\(/.test(String(operation.run))).map((operation) => operation.id);
     expect(rerendering.length).toBeGreaterThan(4);
     expect([...deviceResolvingOperations].sort()).toEqual([...rerendering].sort());
     for (const id of deviceResolvingOperations) expect(operations[id].parameters.fields.devices, id).toBeTruthy();

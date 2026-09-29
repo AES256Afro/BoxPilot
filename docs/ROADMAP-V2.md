@@ -1446,6 +1446,71 @@ answer can be caught. On a CPU a small model works; the GPU (1.119.0) makes it q
 - **M34.6 Learning the platform.** Later, with LLMCoach: a model tuned on BoxPilot's documents and
   registry, evaluated against the stock model before it replaces it.
 
+## M35 — Repair that fixes
+
+Asked for 2026-09-29: "Repair should be revamped to actually work with click of the button fixes."
+On the owner's server (2026-09-28) Reconnect the drive was refused four times as busy and told the
+owner to stop things by hand; "Nothing BoxPilot notices can reach you" said only "set a target"
+while ntfy ran on that very server; two apps without a recent backup and six apps with no container
+had nothing to press; and a refused reconnect stayed on Home as a failure. The rule now: a finding's
+fix does everything needed to succeed, or the finding says exactly why it cannot and the one thing
+the owner does. Approvals and tiers are unchanged: every fix is an ordinary job at its own tier.
+
+- ✅ **M35.1 Every detector audited** (unreleased): a finding carries `fixes` (the first is `fix`),
+  and each preview names the apps it stops and the shares it disconnects. `manual` is left for what
+  no operation can do: a cable (a flaky USB drive), a choice (apps split across drives, which is
+  often deliberate), and somebody else's folder, which BoxPilot does not take over. The table of
+  each detector before and after is in the PR.
+- ✅ **M35.2 Reconnect through the busy pipeline**: `storage.remount` checks the drive is connected
+  before anything stops, stops the containers with the folder bound, closes Samba with the
+  close-and-retry loop, unmounts in PID 1's namespace (a dead mount lazily, a healthy one never),
+  mounts again, proves it reads and is writable, and starts the apps. A fresh mount that is still
+  read-only is said, not called fixed; a drive that will not mount leaves the apps stopped so they
+  do not write into the empty folder. `tests/ubuntu/drive-shutdown-order.sh` 7f and 7g remount a
+  busy drive (an app and a Samba client) and a read-only one on real systemd.
+- ✅ **M35.3 Permission fixes that make the change**: `storage.writable` adds the apps' uid/gid to an
+  exFAT/FAT/NTFS drive's fstab entry and reconnects it (fstab copied, verified, put back if the
+  drive will not mount); `samba.share.writable` hands a root-owned share folder (not its contents)
+  to the apps' user and applies the shares so the share writes as them; an app's root-owned folder
+  is handed over by a redeploy, one on an exFAT drive by the drive's fix.
+- ✅ **M35.4 Alerts to the ntfy on this server**: `notifications.ntfy.connect` (high, the owner's,
+  the same password Settings asks for) makes a topic nobody can guess, sends a test from this
+  server, and the web service saves the target once ntfy accepted it. Refused when a target is set.
+  "Fixed" then says how to subscribe in the ntfy app on a phone: the address over Tailscale (Serve's
+  HTTPS when it publishes the port, the short MagicDNS name otherwise) and the topic. With ntfy
+  stopped the finding offers Start; without it, Install.
+- ✅ **M35.5 Backups due**: one finding for every app with data and no backup in 14 days, with
+  Back up now (`app.backup`, or `app.backup.many` for several, one job) and Back up nightly (a
+  schedule for each app without one, spread 02:00-04:00).
+- ✅ **M35.6 Apps the clean-up removed**: the nightly "Clean up Docker disk space" ran `docker system
+  prune`, which deletes every stopped container, so every app the owner had stopped was gone by
+  morning (the prune itself is fixed in #312). Each such app now says what happened ("Plex was
+  removed by the nightly clean-up; your data is intact"), with the stop and the clean-up as its
+  evidence, and comes back in one click: **Recreate (stays stopped)** (`app.reinstall` with
+  `start: false`, `docker compose up --no-start`) for an app stopped on purpose, which keeps its
+  stop on record; **Start** otherwise, since `app.action` start now builds a missing container
+  again from the saved compose project (`app.reinstall` when that file is gone too, from the saved
+  settings on the image it last ran); or **Uninstall** (data kept).
+- ✅ **M35.7 A page that fixes in place**: the whole page is the Command Center console, built from
+  src/ui alone (a new `Panel`, the console panel Ops draws) with its styles beside it in
+  `src/repair/repair.css`; no old panel, page header or feature strip is left, and the checks
+  below the findings (prerequisites, approval desk, helper, resources, installation, packages,
+  protection gaps, rebuild checklist, runbook, Activity) are console panels too. Findings worst first, each
+  fix with its tier on the button, approved in the ordinary dialog, its log streaming in the
+  finding's card, and the scan read again when it ends: "Fixed" with what changed, or "Still there"
+  with the job's own error and the next step. The last failed try shows on its finding, whose fix
+  becomes Try again.
+- ✅ **M35.8 Fix the safe ones**: every low-risk fix, listed in one confirmation, run in turn; each
+  is still staged, approved and audited on its own, and the batch stops at any job the server wants
+  more than a click for.
+- ✅ **M35.9 Dismiss, with a reason**: a finding set aside moves to Dismissed and leaves Home, and
+  comes back by itself when what it says changes. A critical finding is never set aside.
+- ✅ **M35.10 Failed jobs**: Try again (with more time for one that ran out of it) and Dismiss, which
+  sets M36's own "dismissed" mark on the job (`POST /jobs/:id/dismiss`), the one Activity reads; a
+  failure drops off as M36's `failureSettled` says (dismissed, re-run, or the same operation tried
+  again), or once Repair shows it on its finding or that finding is gone.
+- ✅ **M35.11 Home and Ops offer the same fixes**, from the same runner, and say "Fixed".
+
 ## M36 — Value and quality of life
 
 Asked for 2026-09-29: "Look for value. Look for usability. QoL." Started from what the owner hit on

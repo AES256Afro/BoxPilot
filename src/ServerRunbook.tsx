@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { readJson } from "./http";
+import { Button, Panel, type Status } from "./ui";
 
 /** Whether the copy the owner downloaded still describes this server (M34.4). From BoxPilot's own records only. */
 interface RunbookStatus {
@@ -115,36 +116,37 @@ export default function ServerRunbook() {
 
   if (forbidden) {
     return (
-      <section className="panel recovery-kit" aria-label="Document this server">
-        <header className="panel-header"><div><strong>Document this server</strong><span>Writing a runbook of this server needs an operator: it lists private paths and addresses and where the backups are.</span></div></header>
-      </section>
+      <Panel title="Runbook" label="Document this server" meta="operators only">
+        <p className="rp-quiet">Writing a runbook of this server needs an operator: it lists private paths and addresses and where the backups are.</p>
+      </Panel>
     );
   }
 
   const outdated = Boolean(status?.outOfDate);
+  const state: { status: Status; label: string } | undefined = status
+    ? { status: !status.lastDownload ? "neutral" : outdated ? "warning" : "good", label: !status.lastDownload ? "not downloaded" : outdated ? "out of date" : "up to date" }
+    : undefined;
   return (
-    <section className="panel recovery-kit" aria-label="Document this server">
-      <header className="panel-header">
-        <div><strong>Document this server</strong><span>A runbook built from what BoxPilot knows: what is installed, where each app keeps its data, who can reach what, how backups run and where the copies are, and how to restore each thing. It holds no passwords.</span></div>
-        {status && <span className={`status-pill status-${outdated ? "warning" : "neutral"}`}>{!status.lastDownload ? "not downloaded" : outdated ? "out of date" : "up to date"}</span>}
-      </header>
-      {statusError && <p className="muted" role="status">{statusError}</p>}
-      {status && <p>{statusLine(status)}</p>}
-      {error && <div className="notice warning-notice" role="alert"><strong>Runbook not ready</strong><span>{error}</span></div>}
-      <footer className="recovery-actions">
-        <button className="secondary-button" type="button" onClick={() => void showPreview()} disabled={busy !== null}>{busy === "preview" ? "Putting it together..." : "Preview runbook"}</button>
-        {status?.canDownload && <button className="secondary-button" type="button" onClick={() => void download()} disabled={busy !== null}>{busy === "download" ? "Putting it together..." : "Download runbook (.md)"}</button>}
-      </footer>
-      {status && !status.canDownload && <p className="muted">Only the owner can download it: the owner's copy also says where the second copies of the backups are kept.</p>}
-      {preview && (
-        <div className="restore-review-area">
-          <p>{previewLine(preview)}</p>
-          <details open>
-            <summary>{preview.audience === "operator" ? "Operator's copy" : "Full runbook"}</summary>
-            <pre>{preview.markdown}</pre>
-          </details>
-        </div>
-      )}
-    </section>
+    <Panel title="Runbook" label="Document this server" count={state} meta="what is installed, where data lives, how to restore; no passwords"
+      actions={<>
+        <Button onClick={() => void showPreview()} busy={busy === "preview"} disabled={busy !== null}>{busy === "preview" ? "Putting it together..." : "Preview runbook"}</Button>
+        {status?.canDownload && <Button onClick={() => void download()} busy={busy === "download"} disabled={busy !== null}>{busy === "download" ? "Putting it together..." : "Download runbook (.md)"}</Button>}
+      </>}>
+      {statusError && <p className="rp-note" data-tone="warning" role="status">{statusError}</p>}
+      {error && <p className="rp-note" data-tone="danger" role="alert"><strong>Runbook not ready</strong><span>{error}</span></p>}
+      <div className="rp-body">
+        {status && <p className="rp-row__text">{statusLine(status)}</p>}
+        {status && !status.canDownload && <p className="rp-row__text">Only the owner can download it: the owner's copy also says where the second copies of the backups are kept.</p>}
+        {preview && (
+          <>
+            <p className="rp-row__text">{previewLine(preview)}</p>
+            <details className="rp-more" open>
+              <summary>{preview.audience === "operator" ? "Operator's copy" : "Full runbook"}</summary>
+              <pre className="rp-pre">{preview.markdown}</pre>
+            </details>
+          </>
+        )}
+      </div>
+    </Panel>
   );
 }

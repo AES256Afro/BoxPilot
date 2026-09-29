@@ -72,6 +72,13 @@ export function sambaOperations() {
       run: (parameters, { runUnit, jobLog }) => runUnit.runTask("samba.discovery.set", { enabled: parameters.enabled }, { timeoutMs: minutes(5), logPath: jobLog?.path ?? null }),
     }),
     defineOperation({
+      // Repair's fix for a read-write share nobody can write to (M35).
+      id: "samba.share.writable", title: "Let people write to a share", risk: "medium", timeoutMs: minutes(4),
+      description: "For a read-write share served from a folder root owns, which nobody can write to: hands that one folder (not what is inside it) to the user apps run as, and applies the shares again so the share writes as that user. A folder on an exFAT or NTFS drive is refused, since those keep no owners; the drive's own fix handles it. Shares, users and permissions are otherwise unchanged.",
+      parameters: { fields: { share: { type: "string", maxLength: 31, pattern: shareNamePattern } } },
+      run: (parameters, { runUnit, jobLog }) => runUnit.runTask("samba.share.writable", { share: parameters.share }, { timeoutMs: minutes(3), logPath: jobLog?.path ?? null }),
+    }),
+    defineOperation({
       id: "samba.user.set", title: "Add or update a file-server user", risk: "medium", timeoutMs: minutes(2),
       description: "Creates a shell-less Linux account in the sambashare group if needed and sets its Samba password. The password never touches the database or a command line.",
       parameters: { fields: {

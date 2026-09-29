@@ -170,3 +170,9 @@ describe("inspection concurrency", () => {
 it("keeps completed-log cache release independent of long host work", () => {
   expect(laneFor("job.output.release", { jobId: "11111111-2222-4333-8444-555555555555" })).toEqual(["job-output"]);
 });
+
+it("holds every app a several-app backup touches, and the shared dashboard when an app is rebuilt (M35)", () => {
+  expect(laneFor("app.backup.many", { ids: ["audhdmap", "protec"] })).toEqual(["app:audhdmap", "app:protec", "host"]);
+  expect(laneFor("app.reinstall", { id: "homepage" })).toEqual(["app:homepage"]);
+  expect(laneFor("app.reinstall", { id: "it-tools" })).toEqual(["app:it-tools", "app:homepage"]);
+});

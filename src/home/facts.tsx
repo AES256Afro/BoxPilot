@@ -5,6 +5,7 @@ import type { ViewName } from "../data";
 import { readJson } from "../http";
 import { offBoxVerdict, type OffBoxInputs, type OffBoxVerdict } from "../offBox";
 import { followJobs, inspectOperation, type Job } from "../operations";
+import { scanFrom, type RepairScan } from "../repair/types";
 
 /*
  * What Home and Ops know about this server (M33.2, M33.3). One provider gathers it, from the
@@ -81,16 +82,9 @@ export interface UpdatesFacts { count: number; security: number; rebootRequired:
 export interface WatchAlert { family: string; title: string; since: string | null; announced: boolean }
 export interface WatchFacts { targetConfigured: boolean; alerts: WatchAlert[]; notices: WatchAlert[] }
 
-export interface Finding {
-  id: string;
-  severity: "critical" | "warning" | "info";
-  title: string;
-  detail: string;
-  evidence: string[];
-  fix: { operationId: string; parameters: Record<string, unknown>; label: string; preview: string } | null;
-  manual: string | null;
-}
-export interface RepairFacts { findings: Finding[]; unavailableChecks: string[] }
+export type { Finding } from "../repair/types";
+/** Repair's scan (M35): the findings, and - from a server that says - the ones set aside and which failed jobs are accounted for. */
+export type RepairFacts = Pick<RepairScan, "findings" | "unavailableChecks"> & Partial<Omit<RepairScan, "findings" | "unavailableChecks">>;
 
 export interface ScheduleFact {
   id: string;
@@ -289,11 +283,9 @@ export function watchFactsFrom(body: RawWatch): WatchFacts {
   };
 }
 
-type RawRepairs = { findings?: Finding[]; unavailableChecks?: string[] };
-async function loadRepairs(): Promise<RepairFacts> {
-  const body = await getJson<RawRepairs>("/api/v1/remediations");
-  if (!Array.isArray(body?.findings)) throw new Error("The problem scan had no findings list");
-  return { findings: body.findings.filter((finding) => finding && typeof finding.id === "string" && typeof finding.title === "string"), unavailableChecks: list<string>(body.unavailableChecks) };
+/** Repair's scan, checked for shape by the same reader the Repair page uses. */
+export async function loadRepairs(): Promise<RepairScan> {
+  return scanFrom(await getJson<unknown>("/api/v1/remediations"));
 }
 
 type RawSchedule = { id: string; operationId: string; title?: string; parameters?: ScheduleFact["parameters"]; enabled?: boolean; overdue?: boolean; cadence?: string; lastRunAt?: string | null; lastOutcome?: string | null; lastReason?: string | null };
@@ -405,6 +397,8 @@ interface FactsContextValue {
   facts: Facts;
   /** Read these sources again now (every source when none are named). */
   refresh: (keys?: Array<keyof Facts>) => void;
+  /** Take a source's answer read elsewhere, as if its loader had read it (a fix re-reading Repair's scan). */
+  accept: <K extends keyof Facts>(key: K, value: NonNullable<Facts[K]["value"]>) => void;
   /** A view that shows facts calls this while it is open; the returned function says it closed. */
   demand: () => () => void;
 }
@@ -471,7 +465,11 @@ export function FactsProvider({ children }: { children: ReactNode }) {
     loadRebuild().then((value) => set("rebuild", { state: "ready", value, error: null }), () => set("rebuild", { state: "ready", value: null, error: null }));
   }, [firstRun, set]);
 
-  const value = useMemo(() => ({ facts, refresh, demand }), [facts, refresh, demand]);
+  const accept = useCallback(<K extends keyof Facts>(key: K, value: NonNullable<Facts[K]["value"]>) => {
+    set(key, { state: "ready", value, error: null } as Facts[K]);
+  }, [set]);
+
+  const value = useMemo(() => ({ facts, refresh, accept, demand }), [facts, refresh, accept, demand]);
   return <FactsContext.Provider value={value}>{children}</FactsContext.Provider>;
 }
 
