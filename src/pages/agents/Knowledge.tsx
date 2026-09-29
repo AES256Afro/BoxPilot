@@ -22,7 +22,7 @@ export interface KnowledgeProps {
 }
 
 type ConnectorDraft = { folderEnabled: boolean; folderPath: string; webEnabled: boolean; webEndpoint: string; notionEnabled: boolean; notionCredential: string; slackEnabled: boolean; slackCredential: string; slackChannels: string };
-const sourceWords: Record<string, string> = { upload: "pasted or uploaded", pdf: "PDF", folder: "folder", notion: "Notion", slack: "Slack" };
+const sourceWords: Record<string, string> = { upload: "pasted or uploaded", pdf: "PDF", folder: "folder", notion: "Notion", slack: "Slack", zulip: "Zulip #agent-files" };
 
 export function Knowledge({ csrfToken, role, now, onStart }: KnowledgeProps) {
   const [state, setState] = useState<KnowledgeState | null>(null);
@@ -81,7 +81,7 @@ export function Knowledge({ csrfToken, role, now, onStart }: KnowledgeProps) {
     },
   ];
   const documentColumns: Array<TableColumn<OwnerDocument>> = [
-    { id: "title", header: "Document", cell: (document) => <span className="agents-name"><span className="agents-model__title">{document.title}<Tag>{sourceWords[document.source] ?? document.source}</Tag>{document.pinned && <Tag tone="accent">pinned</Tag>}</span><span className="agents-name__purpose">{document.characters.toLocaleString()} characters · added {relativeTime(document.createdAt, now) ?? ""}</span></span> },
+    { id: "title", header: "Document", cell: (document) => <span className="agents-name"><span className="agents-model__title">{document.title}<Tag>{sourceWords[document.source] ?? document.source}</Tag>{document.mediaType && <Tag>{document.describedAt ? "image, described" : "image, described in quiet hours"}</Tag>}{document.pinned && <Tag tone="accent">pinned</Tag>}</span><span className="agents-name__purpose">{document.characters.toLocaleString()} characters · added {relativeTime(document.createdAt, now) ?? ""}</span></span> },
     {
       id: "actions", header: <span className="ui-visually-hidden">Actions</span>, label: "Actions", className: "agents-actions-cell", cell: (document) => (owner ? (
         <span className="agents-actions">

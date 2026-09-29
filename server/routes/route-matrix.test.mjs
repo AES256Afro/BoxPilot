@@ -225,6 +225,8 @@ const changeRoutes = [
   "POST /api/v1/agents/module/pause", "POST /api/v1/agents/module/resume", "POST /api/v1/agents/module/kill",
   "POST /api/v1/agents/knowledge/documents", "PUT /api/v1/agents/knowledge/documents/:documentId", "DELETE /api/v1/agents/knowledge/documents/:documentId", "POST /api/v1/agents/knowledge/relearn",
   "PUT /api/v1/agents/knowledge/documents/:documentId/pin", "POST /api/v1/agents/knowledge/upload", "POST /api/v1/agents/knowledge/folder/sync", "POST /api/v1/agents/knowledge/reindex",
+  // M38: read #agent-files now (the owner's; refused while Zulip is not connected).
+  "POST /api/v1/agents/zulip/poll",
   "POST /api/v1/agents/import", "POST /api/v1/agents/:id/webhook", "DELETE /api/v1/agents/:id/webhook",
   "PUT /api/v1/agents/:id/memory/notes/:noteId", "DELETE /api/v1/agents/:id/memory/notes/:noteId", "DELETE /api/v1/agents/:id/memory/episodes/:episodeId",
   "PUT /api/v1/settings/agents",
@@ -483,6 +485,8 @@ const dataRoutes = {
   "GET /api/v1/agents/glance": [operatorUp],
   "GET /api/v1/agents/proposals": [{ ...open, check: ({ role, body }) => expect(body.proposals.length, role).toBe(role === "owner" ? 1 : 0) }],
   "GET /api/v1/agents/knowledge": [operatorUp],
+  // M38: the team chat's panel; the posts themselves only for the owner.
+  "GET /api/v1/agents/zulip": [{ ...operatorUp, check: ({ role, body }) => { if (role !== "viewer") expect(Array.isArray(body.recent), role).toBe(true); } }],
   "GET /api/v1/agents/runs/:runId": [
     { viewer: 404, operator: 404, owner: 200, params: () => ({ runId: fixtures.ownerRun }) },
     { viewer: 404, operator: 200, owner: 200, params: () => ({ runId: fixtures.operatorRun }) },

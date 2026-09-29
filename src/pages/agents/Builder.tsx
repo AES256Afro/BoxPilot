@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from "react";
 import { relativeTime } from "../../home/format";
 import { Button, Checkbox, CodeBlock, CopyButton, Facts, Field, Notice, Panel, Segmented, Select, Sheet, StatusChip, Switch, Table, Tag, TextInput, Textarea, type TableColumn } from "../../ui";
-import { agentsApi, type AgentDetail, type AgentSpec, type AgentSummary, type AgentVersion, type Catalog, type OutputField, type Schedule, type SpecChange, type ToolInfo, type ToolPermission, type VersionDetail } from "./api";
+import { agentsApi, type AgentDetail, type AgentSpec, type AgentSummary, type AgentVersion, type Catalog, type ChatKind, type ChatOutput, type ChatOutputs, type OutputField, type Schedule, type SpecChange, type ToolInfo, type ToolPermission, type VersionDetail } from "./api";
 import { errorText, scheduleWords, triggerWords } from "./format";
 
 /*
@@ -35,6 +35,17 @@ export interface BuilderProps {
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 const knowledgeWords: Record<keyof AgentSpec["knowledge"], string> = { docs: "BoxPilot's documents", registry: "Registered operations", catalog: "The app catalog", notes: "Its own notes", documents: "Your documents" };
 const outputWords = { notes: "Notes about the server", digest: "A daily digest on Home and Ops", proposals: "Cards with a plan to approve" } as const;
+
+/** Its team chat (M38): each kind on by default, to the connection's channel under its own name. */
+const chatKinds: readonly ChatKind[] = ["findings", "logs", "knowledge"];
+const chatWords: Record<ChatKind, { label: string; description: string; channel: string }> = {
+  findings: { label: "Findings", description: "Answers, digests and cards", channel: "agent-findings" },
+  logs: { label: "Logs", description: "Each run's trace", channel: "agent-logs" },
+  knowledge: { label: "Knowledge", description: "The notes it keeps", channel: "agent-knowledge" },
+};
+const defaultChat: ChatOutputs = { findings: { enabled: true, channel: null, topic: null }, logs: { enabled: true, channel: null, topic: null }, knowledge: { enabled: true, channel: null, topic: null } };
+/** An agent saved before M38 has none stored: every output on, as the server reads it. */
+const chatOf = (spec: AgentSpec): ChatOutputs => ({ ...defaultChat, ...(spec.outputs.chat ?? {}) });
 const escalationWords: Record<keyof AgentSpec["escalation"], { label: string; description: string }> = {
   lowConfidence: { label: "When it is unsure what was meant", description: "A card when it is less than half sure it understood." },
   limits: { label: "When it reaches a limit", description: "A card when it runs out of steps, time or model time." },
@@ -327,6 +338,25 @@ function SpecForm({ draft, setDraft, catalog, disabled, others }: FormProps) {
             <Select value={draft.outputs.notify} disabled={disabled} onValueChange={(value) => setDraft((current) => ({ ...current, outputs: { ...current.outputs, notify: value as "important" | "never" } }))}
               options={[{ value: "important", label: "Only what is important" }, { value: "never", label: "Never" }]} />
           </Field>
+        </div>
+        <p className="agents-form__note">Its team chat, once Zulip is connected on the Agents tab. BoxPilot posts from each run's outcome, redacted; the model never posts, and nothing is approved there.</p>
+        <div className="agents-chat">
+          {chatKinds.map((kind) => {
+            const output = chatOf(draft)[kind];
+            const change = (patch: Partial<ChatOutput>) => setDraft((current) => ({ ...current, outputs: { ...current.outputs, chat: { ...chatOf(current), [kind]: { ...chatOf(current)[kind], ...patch } } } }));
+            return (
+              <div key={kind} className="agents-chat__row">
+                <span className="agents-name"><span>{chatWords[kind].label}</span><span className="agents-name__purpose">{chatWords[kind].description}</span></span>
+                <Switch label={<span className="ui-visually-hidden">Post {chatWords[kind].label.toLowerCase()}</span>} checked={output.enabled} disabled={disabled} onChange={(checked) => change({ enabled: checked })} />
+                <Field label={`${chatWords[kind].label} channel`} hint={`#${chatWords[kind].channel} unless you name one`}>
+                  <TextInput mono value={output.channel ?? ""} placeholder={chatWords[kind].channel} disabled={disabled || !output.enabled} spellCheck={false} autoCapitalize="off" onValueChange={(value) => change({ channel: value.trim() ? value.replace(/^#/, "") : null })} />
+                </Field>
+                <Field label={`${chatWords[kind].label} topic`} hint="its name unless you name one">
+                  <TextInput value={output.topic ?? ""} placeholder={draft.name || "its name"} disabled={disabled || !output.enabled} maxLength={60} onValueChange={(value) => change({ topic: value.trim() ? value : null })} />
+                </Field>
+              </div>
+            );
+          })}
         </div>
         <p className="agents-form__note">It hands the matter to you as a card, and never acts:</p>
         <div className="agents-form__checks">

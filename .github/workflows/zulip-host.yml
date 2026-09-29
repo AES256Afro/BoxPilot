@@ -11,6 +11,9 @@ on:
       - "catalog/zulip.yaml"
       - "server/ops/zulip.mjs"
       - "server/catalog/compose.mjs"
+      - "server/agents/zulip.mjs"
+      - "server/agents/zulip-connect.py"
+      - "server/tasks/zulip.mjs"
       - "tests/zulip/**"
       - ".github/workflows/zulip-host.yml"
   workflow_dispatch:
