@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { readJson } from "./http";
-import { mountpointFor } from "./mountpoints";
 
 /**
  * Reconnecting a drive automatically (M26.5), armed where the owner already sees the drive: its row
- * on Storage, and the Repair notice that says it dropped. Arming creates the drive's automation, so
- * it also shows on Automations, where it can be paused or removed like any other.
+ * on Storage (src/pages/storage/parts.tsx) and the Repair finding that says it dropped. Arming creates
+ * the drive's automation, so it also shows on Automations, where it can be paused or removed.
  */
 export interface AutoReconnectDrive {
   flowId: string; flowName: string; enabled: boolean;
@@ -61,34 +60,4 @@ export function useAutoReconnect(csrfToken: string): AutoReconnectControl {
   };
 
   return { status, pending, error, arm: (drive) => change(drive, "POST"), disarm: (drive) => change(drive, "DELETE"), refresh };
-}
-
-/**
- * Arm or disarm one drive. `compact` is for a table row: the button and what is waiting, with the
- * rule stated once for the table. Otherwise the rule sits under the button, for a Repair notice.
- */
-export function AutoReconnectToggle({ drive, control, compact = false }: { drive: string; control: AutoReconnectControl; compact?: boolean }) {
-  const { status, pending, error } = control;
-  if (!status) return null;
-  const armed = status.drives[drive] ?? null;
-  const mountpoint = mountpointFor(drive);
-  // Where "by hand" is: the Repair notice this sits in has the Reconnect button; a drive's row does not.
-  const byHand = compact ? "Reconnect it from Repair Center to start again." : "Reconnecting it here by hand starts it again.";
-  const waiting = armed && !armed.enabled
-    ? "Paused on Automations."
-    : armed?.held ? `Waiting for you: ${armed.heldBecause ?? "the last automatic reconnect did not work"}. ${byHand}`
-      : armed?.lastCheckFoundErrors ? "Waiting for you: its last check found errors." : null;
-  // Arming does not reconnect anything now, so the label says when it acts; the name adds which drive.
-  const armLabel = compact ? "Reconnect automatically if it drops" : "Reconnect it automatically next time";
-  return (
-    <div className="auto-reconnect">
-      {armed
-        ? <button className="text-button" type="button" disabled={pending === drive} onClick={() => void control.disarm(drive)} aria-label={`Stop reconnecting automatically: ${mountpoint}`}>Stop reconnecting automatically</button>
-        : <button className={compact ? "text-button" : "secondary-button"} type="button" disabled={pending === drive} onClick={() => void control.arm(drive)} aria-label={`${armLabel}: ${mountpoint}`}>{armLabel}</button>}
-      {armed && <span className="muted">{`Reconnects automatically${armed.attempts ? `; ${armed.attempts} of ${status.limits.maxAttempts} used in the last ${status.limits.windowHours === 24 ? "day" : `${status.limits.windowHours} hours`}` : ""}.`}</span>}
-      {waiting && <span className="auto-reconnect-waiting">{waiting}</span>}
-      {!compact && <p className="muted">{autoReconnectRule(status.limits)}</p>}
-      {error?.drive === drive && <span className="auth-error" role="alert">{error.message}</span>}
-    </div>
-  );
 }

@@ -20,7 +20,7 @@ export const viewCopy: Record<ViewName, { title: string; description: string }> 
     description: "Pick what this server should be. BoxPilot checks what is already in place and installs the rest, in order, through the normal approved jobs.",
   },
   updates: {
-    title: "Updates and packages",
+    title: "Updates",
     description: "See what Ubuntu wants to update, install it, and add or remove packages.",
   },
   catalog: {
