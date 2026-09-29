@@ -6255,6 +6255,7 @@ body {
   background: transparent;
   box-shadow: none;
 }
+.lx .ui-metric--link { width: calc(100% + 16px); }
 .lx .ui-metric--link:hover { background: var(--lx-glass); box-shadow: none; }
 .lx .ui-metric__label { grid-column: 1; grid-row: 1; color: var(--lx-ink); font-size: 13.5px; font-weight: 500; letter-spacing: 0; text-transform: none; }
 .lx .ui-metric__value { grid-column: 2; grid-row: 1; color: var(--lx-ink); font-size: 13.5px; font-weight: 700; letter-spacing: 0; }
