@@ -170,21 +170,22 @@ describe("apps that are not running, on the owner's real server", () => {
     const absent = ["AnythingLLM", "AuDHDMAP", "Dockge", "Homepage", "IT-Tools", "Open WebUI"].map((name) => app({ id: name.toLowerCase(), name, running: false, status: "absent" }));
     const needs = buildNeeds(catalog(absent), { now, role: "owner" });
     expect(needs).toHaveLength(1);
-    expect(needs[0]).toMatchObject({ id: "apps-missing", severity: "warning", view: "catalog", title: "AnythingLLM, AuDHDMAP and 4 more have no container", action: null });
+    expect(needs[0]).toMatchObject({ id: "apps-missing", severity: "warning", view: "catalog", title: "AnythingLLM, AuDHDMAP and 4 more have lost their containers", action: null });
+    expect(needs[0].detail).toContain("Start each from the App catalog");
     expect(needs[0].appId).toBeUndefined();
     expect(appHealth(absent[0], undefined, now)).toMatchObject({ status: "warning", label: "No container" });
     const [one] = buildNeeds(catalog([absent[2]]), { now, role: "owner" });
-    expect(one).toMatchObject({ title: "Dockge has no container", appId: "dockge" });
+    expect(one).toMatchObject({ title: "Dockge has lost its container", appId: "dockge" });
   });
 
-  it("points at Repair, which lists each with Reinstall and Uninstall, once its scan has them (M35)", () => {
-    const absent = ["Homepage", "IT-Tools"].map((name) => app({ id: name.toLowerCase(), name, running: false, status: "absent" }));
-    const reinstall = { operationId: "app.reinstall", parameters: { id: "homepage" }, label: "Reinstall", preview: "", risk: "medium" as const };
-    const findings = absent.map((entry) => ({ id: `app-missing:${entry.id}`, severity: "warning" as const, title: `${entry.name} is listed as installed but has no container`, detail: "", evidence: [], fix: reinstall, fixes: [reinstall], manual: null }));
+  it("says what removed them and points at Repair, which puts each back in one click, once its scan has them (M35)", () => {
+    const absent = ["Plex", "Protec"].map((name) => app({ id: name.toLowerCase(), name, running: false, status: "absent" }));
+    const recreate = { operationId: "app.reinstall", parameters: { id: "plex", start: false }, label: "Recreate (stays stopped)", preview: "", risk: "medium" as const };
+    const findings = absent.map((entry) => ({ id: `app-missing:${entry.id}`, severity: "warning" as const, title: `${entry.name} was removed by the nightly clean-up; your data is intact`, detail: "", evidence: [], fix: recreate, fixes: [recreate], manual: null }));
     const needs = buildNeeds(facts({ catalog: { apps: absent, total: 160, liveKnown: true }, repairs: { findings, unavailableChecks: [] } }), { now, role: "owner" });
     // Still one line on Home, now opening Repair; not two more of its own.
     expect(ids(needs)).toEqual(["apps-missing"]);
-    expect(needs[0]).toMatchObject({ view: "repairs", detail: expect.stringContaining("Repair offers Reinstall or Uninstall for each") });
+    expect(needs[0]).toMatchObject({ view: "repairs", title: "Plex and Protec were removed by the nightly clean-up", detail: expect.stringContaining("Your data is intact. Repair puts each back in one click") });
   });
 });
 

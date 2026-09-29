@@ -65,6 +65,7 @@ async function setup({ healthKind = "running", exitOnUp = false, failUp = false,
       if (verb === "up") {
         if (args.includes("--force-recreate")) networkGone.value = false;
         if (failUp) return { ok: false, stdout: "", stderr: "Error response from daemon: port is already allocated" };
+        if (args.includes("--no-start")) { containers.set(name, { running: false, status: "created", health: "none", restarts: 0, image: "sha256:new", startedAt: "0001-01-01T00:00:00Z", exitCode: 0 }); return { ok: true, stdout: "", stderr: "" }; }
         containers.set(name, exitOnUp ? { running: false, status: "exited", health: "none", restarts: 0, image: "sha256:new", startedAt: "x", exitCode: 1 } : { running: true, status: "running", health: healthKind === "healthcheck" ? "healthy" : "none", restarts: 0, image: "sha256:new", startedAt: "x", exitCode: 0 });
       }
       if (verb === "down") containers.delete(name);
@@ -783,6 +784,28 @@ sidecars:
     expect((await apps.inspect({ id: "demo" })).applications[0].missingContainer).toBeUndefined();
     // An app with a container is started or restarted, never rebuilt from under itself.
     await expect(apps.reinstall({ id: "demo" })).rejects.toThrow("already has a container");
+  });
+
+  it("brings a pruned app back stopped, as the owner left it, or started from Start itself (M35)", async () => {
+    // Stopped on purpose at night, removed by the 03:00 prune: it comes back stopped. One that was
+    // not stopped on purpose is simply started, and Start builds the container it no longer has.
+    const { apps, containers, calls } = await setup();
+    await apps.install({ id: "demo" });
+    containers.delete("bp-demo");
+    calls.length = 0;
+    await expect(apps.reinstall({ id: "demo", start: false })).resolves.toMatchObject({ reinstalled: true, started: false, status: "created" });
+    expect(calls.some((call) => call.includes("up --no-start --remove-orphans"))).toBe(true);
+    expect(calls.some((call) => call.includes("up --detach"))).toBe(false);
+    expect(containers.get("bp-demo")).toMatchObject({ running: false });
+
+    containers.delete("bp-demo");
+    calls.length = 0;
+    await expect(apps.action({ id: "demo", action: "start" })).resolves.toMatchObject({ running: true, recreated: true });
+    expect(calls.some((call) => call.includes("up --detach --remove-orphans"))).toBe(true);
+    // With its compose project gone too, Start says where the rebuild from saved settings is.
+    containers.delete("bp-demo");
+    await rm(path.join((await apps.inspect({ id: "demo" })).applications[0].missingContainer.project));
+    await expect(apps.action({ id: "demo", action: "start" })).rejects.toThrow("its compose project is gone too; use Reinstall in Repair");
   });
 
   it("writes the project again from the saved settings when it is gone too, on the image the app last ran (M35)", async () => {

@@ -673,8 +673,11 @@ export function createAppHelper({
    * nothing to start. This brings the container back from what was saved: the compose project as it
    * is, or, when that file is gone too, written again from the catalog with the saved settings on
    * the image the app last ran. The data is used as it is; nothing is reset or deleted.
+   *
+   * `start: false` builds the container and leaves it stopped (`up --no-start`), for an app the
+   * owner had stopped on purpose: it comes back exactly as it was left.
    */
-  async function reinstall({ id, devices = null }, { progress = null, timeScale = 1 } = {}) {
+  async function reinstall({ id, devices = null, start = true }, { progress = null, timeScale = 1 } = {}) {
     const manifest = await ensureManifest(id);
     const state = await readState(id);
     if (!state?.installed) throw new Error(`${manifest.name} is not installed; install it from the App catalog`);
@@ -694,19 +697,26 @@ export function createAppHelper({
     }
     // `up` pulls the image first when a prune took it along with the container.
     const upBudgetMs = scaled(15 * 60_000, timeScale);
-    const up = await compose(id, ["up", "--detach", "--remove-orphans"], { timeout: upBudgetMs, progress });
+    const up = await compose(id, start ? ["up", "--detach", "--remove-orphans"] : ["up", "--no-start", "--remove-orphans"], { timeout: upBudgetMs, progress });
     try {
-      if (!up.ok) throw stepTimedOut(up, "Downloading the image and starting the app", upBudgetMs) ?? new Error(`docker compose up failed: ${redact(up.stderr).split("\n").slice(-4).join(" ")}`);
+      if (!up.ok) throw stepTimedOut(up, start ? "Downloading the image and starting the app" : "Downloading the image and creating the container", upBudgetMs) ?? new Error(`docker compose up failed: ${redact(up.stderr).split("\n").slice(-4).join(" ")}`);
+      if (!start) {
+        const created = await containerStatus(id);
+        if (!created.exists) throw new Error("docker compose made no container");
+        progress?.(`${manifest.name}'s container is back, stopped as you left it`, "stdout");
+        await writeState(id, { ...state, updatedAt: clock().toISOString() });
+        return { reinstalled: true, started: false, id, name: manifest.name, projectRewritten: rewritten, status: created.status };
+      }
       const status = await waitHealthy(manifest, progress);
       progress?.(`${manifest.name} is up again`, "stdout");
       await writeState(id, { ...state, updatedAt: clock().toISOString() });
       await refreshHomepage(id, progress);
-      return { reinstalled: true, id, name: manifest.name, projectRewritten: rewritten, image: status.image, health: status.health };
+      return { reinstalled: true, started: true, id, name: manifest.name, projectRewritten: rewritten, image: status.image, health: status.health };
     } catch (error) {
       progress?.(`${manifest.name} did not come up: ${error.message}. Taking down what started...`, "stderr");
       await compose(id, ["down", "--remove-orphans"], { timeout: 120_000, progress }).catch(() => {});
       recentlyTouched.add(id);
-      throw keepTimeout(error, new Error(`${manifest.name} could not be started again, so what started was taken down. Its data folder and saved settings are as they were. ${error.message}`));
+      throw keepTimeout(error, new Error(`${manifest.name} could not be ${start ? "started" : "created"} again, so what ${start ? "started" : "was made"} was taken down. Its data folder and saved settings are as they were. ${error.message}`));
     }
   }
 
@@ -990,6 +1000,20 @@ export function createAppHelper({
     if (!actions.includes(verb)) throw new Error("Action must be start, stop, restart, pause, or unpause");
     const state = await readState(id);
     if (!state?.installed) throw new Error(`${manifest.name} is not installed`);
+    // A container removed outright (M35): `docker system prune` deletes every stopped container,
+    // and `compose start` then has nothing to start. Start and restart build it again from the saved
+    // compose project, which is what they mean; the data is in volumes and folders a prune leaves.
+    if (verb === "start" || verb === "restart") {
+      const before = await containerStatus(id);
+      if (!before.exists) {
+        if ((await readProjectFiles(id)).compose === null) throw new Error(`${manifest.name} has no container and its compose project is gone too; use Reinstall in Repair, which writes it again from the saved settings`);
+        progress?.(`${manifest.name} has no container (removed while it was stopped); building it again from its saved compose project.`, "stdout");
+        const up = await compose(id, ["up", "--detach", "--remove-orphans"], { timeout: 15 * 60_000, progress });
+        if (!up.ok) throw new Error(`docker compose up failed: ${redact(up.stderr).split("\n").slice(-3).join(" ")}`);
+        const status = await containerStatus(id);
+        return { id, action: verb, running: status.running, status: status.status, recreated: true };
+      }
+    }
     let result = await compose(id, [verb], { timeout: 180_000, progress });
     // A stopped container is pinned to the network it was created on, and anything that prunes
     // Docker — `docker system prune`, Portainer, a compose UI the owner runs themselves — takes

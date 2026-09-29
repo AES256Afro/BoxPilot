@@ -27,6 +27,8 @@ describe("apps stopped on purpose", () => {
     expect(foldAppStop(stopped, job("app.backup", { id: "plex" }))).toBe(stopped);
     expect(foldAppStop(stopped, job("app.action", {}))).toBe(stopped);
     expect(foldAppStop(null, job("app.action", { id: "plex", action: "start" }))).toEqual({});
+    // Repair's "Recreate (stays stopped)" for an app the prune removed (M35): the stop still stands.
+    expect(foldAppStop(stopped, job("app.reinstall", { id: "plex", start: false }))).toBe(stopped);
   });
 
   it("is rebuilt from recent jobs on an install that stopped apps before it kept a record", () => {

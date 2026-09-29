@@ -270,9 +270,9 @@ export function appOperations() {
       // Repair's "Reinstall" for an app listed as installed with no container (M35). A container
       // pruned away can take its image with it, so this may pull, and may be given more time.
       id: "app.reinstall", title: "Rebuild an application's container", risk: "medium", timeoutMs: minutes(25), maxTimeoutMs: minutes(100),
-      description: "For an app BoxPilot lists as installed that has no container: builds its container again from its saved compose project (or, if that file is gone too, from the catalog with its saved settings on the image it last ran), starts it and waits for it to be healthy. Its data folder is used as it is; nothing is reset or deleted. If it does not come up, what started is taken down again.",
-      parameters: { fields: { id: idField, devices: devicesField } },
-      run: (parameters, { apps, progress, timeScale }) => apps.reinstall({ id: parameters.id, devices: parameters.devices ?? null }, { progress, timeScale }),
+      description: "For an app BoxPilot lists as installed that has no container: builds its container again from its saved compose project (or, if that file is gone too, from the catalog with its saved settings on the image it last ran), starts it and waits for it to be healthy. With start set to false it only creates the container and leaves it stopped, for an app that was stopped on purpose. Its data folder is used as it is; nothing is reset or deleted. If it does not come up, what started is taken down again.",
+      parameters: { fields: { id: idField, devices: devicesField, start: { type: "boolean", optional: true } } },
+      run: (parameters, { apps, progress, timeScale }) => apps.reinstall({ id: parameters.id, devices: parameters.devices ?? null, start: parameters.start !== false }, { progress, timeScale }),
     }),
     defineOperation({
       // Repair's "Back up now" for several apps at once (M35): one job, one approval, one log.
@@ -379,7 +379,7 @@ export function appOperations() {
     }),
     defineOperation({
       id: "app.action", title: "Start, stop, pause, or restart application", risk: "low", timeoutMs: minutes(5),
-      description: "Pause freezes the container (0 CPU, keeps its memory, resumes instantly); stop shuts it down and frees its memory. Start, restart, and unpause bring it back.",
+      description: "Pause freezes the container (0 CPU, keeps its memory, resumes instantly); stop shuts it down and frees its memory. Start, restart, and unpause bring it back; start and restart build the container again from its saved compose project if it was removed (by docker system prune, say).",
       parameters: { fields: { id: idField, action: { type: "string", enum: ["start", "stop", "restart", "pause", "unpause"] } } },
       run: (parameters, { apps, progress }) => apps.action(parameters, { progress }),
     }),

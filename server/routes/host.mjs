@@ -237,10 +237,23 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
       facts.ntfy = { installed: Boolean(ntfy?.installed), running: Boolean(ntfy?.container?.running) && ntfy?.container?.status !== "paused" };
     }
     facts.protection = protection;
-    facts.schedules = typeof state.listSchedules === "function" ? state.listSchedules().map((schedule) => ({ operationId: schedule.operationId, parameters: schedule.parameters ?? {}, enabled: schedule.enabled !== false })) : [];
+    const schedules = typeof state.listSchedules === "function" ? state.listSchedules() : [];
+    facts.schedules = schedules.map((schedule) => ({ operationId: schedule.operationId, parameters: schedule.parameters ?? {}, enabled: schedule.enabled !== false }));
     // The jobs this caller may see, newest first: the last try at each fix, and when Docker's cleanup ran.
     const visibleJobs = typeof state.listJobs === "function" ? state.listJobs(200, seesEveryAccount(request) ? {} : { createdBy: callerId(request) }) : [];
-    facts.pruneRuns = visibleJobs.filter((job) => job.type === "op:docker.prune" && job.state === "completed").map((job) => job.updatedAt ?? job.createdAt).filter(Boolean);
+    // Each clean-up, and whether a schedule started it (its last job, or a job begun at its time),
+    // so an app it removed can be told "removed by the nightly clean-up" (M35).
+    const pruneSchedules = schedules.filter((schedule) => schedule.operationId === "docker.prune");
+    const scheduleOf = (job) => pruneSchedules.find((schedule) => schedule.lastJobId === job.id) ?? pruneSchedules.find((schedule) => {
+      const started = new Date(job.createdAt ?? "");
+      return schedule.frequency !== "hourly" && !Number.isNaN(started.getTime()) && started.getHours() === schedule.hour && started.getMinutes() - schedule.minute >= 0 && started.getMinutes() - schedule.minute <= 5;
+    }) ?? null;
+    facts.pruneRuns = visibleJobs.filter((job) => job.type === "op:docker.prune" && job.state === "completed" && (job.updatedAt ?? job.createdAt)).map((job) => {
+      const schedule = scheduleOf(job);
+      return { at: job.updatedAt ?? job.createdAt, scheduled: Boolean(schedule), frequency: schedule?.frequency ?? null };
+    });
+    const stops = state.getSetting("appStops", {}) ?? {};
+    for (const app of facts.apps) app.stoppedAt = stops[app.id]?.at ?? null;
     // Which folders each installed app has bound, so a remount can say what needs restarting, and
     // which of those the owner chose, so a split across drives can be spotted. A volume with a
     // `path` is inside the app's own managed directory and is nobody else's business.

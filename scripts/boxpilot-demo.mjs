@@ -672,10 +672,11 @@ const troubleFacts = () => ({
   apps: [
     { id: "qbittorrent", name: "qBittorrent", dataFolders: ["/srv/media"], folderProblems: [{ path: "/srv/media", volume: "Media folder", reason: "owned by user root, while the app runs as user 1000", ownerUid: 0, appUid: 1000 }] },
     { id: "jellyfin", name: "Jellyfin", dataFolders: ["/mnt/media"] },
-    { id: "homepage", name: "Homepage", installedAt: ago(24 * 40), missingContainer: missing("homepage") },
+    // Stopped on purpose last night and deleted by the 03:00 clean-up: it comes back stopped.
+    { id: "homepage", name: "Homepage", installedAt: ago(24 * 40), stoppedAt: ago(13), missingContainer: missing("homepage") },
     { id: "scrutiny", name: "Scrutiny", installedAt: ago(24 * 52), missingContainer: missing("scrutiny") },
   ],
-  pruneRuns: [ago(24 * 6)],
+  pruneRuns: [{ at: ago(24 * 7 + 9), scheduled: true, frequency: "daily" }, { at: ago(9), scheduled: true, frequency: "daily" }],
   protection: protectionFixture(),
   schedules: [{ operationId: "app.backup", parameters: { id: "immich" }, enabled: true }],
   notifications: { configured: false },

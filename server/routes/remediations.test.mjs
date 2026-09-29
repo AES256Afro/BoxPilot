@@ -127,11 +127,28 @@ describe("Repair's memory: fixes tried and findings set aside (M35)", () => {
       expect((await call("POST", "/remediations/attempts", { findingId: "app-missing:homepage", jobId: "job-7" })).status).toBe(201);
       const { body } = await call("GET", "/remediations");
       const found = body.findings.find((finding) => finding.id === "app-missing:homepage");
-      expect(found.fixes.map((fix) => [fix.operationId, fix.risk])).toEqual([["app.reinstall", "medium"], ["app.uninstall", "medium"]]);
-      expect(found.fix.risk).toBe("medium");
+      expect(found.fixes.map((fix) => [fix.operationId, fix.risk])).toEqual([["app.action", "low"], ["app.uninstall", "medium"]]);
+      expect(found.fix.risk).toBe("low");
       expect(found.lastAttempt).toMatchObject({ jobId: "job-7", state: "failed", error: "compose up failed" });
       expect(found.fingerprint).toMatch(/^[0-9a-f]{16}$/);
       expect(body.jobs.attached).toEqual(["job-7"]);
+    } finally { await close(); }
+  });
+
+  it("says an app stopped on purpose was removed by the nightly clean-up, from the stop and the scheduled prune job", async () => {
+    // Stopped at 22:10, pruned at 03:00 by the schedule: it comes back stopped.
+    const prune = { id: "job-20", type: "op:docker.prune", title: "Clean up Docker disk space", state: "completed", parameters: {}, createdBy: "owner-1", createdAt: "2026-09-29T03:00:01.000Z", updatedAt: "2026-09-29T03:00:40.000Z" };
+    const state = fakeState([prune]);
+    state.listSchedules = () => [{ id: "s-1", operationId: "docker.prune", parameters: {}, frequency: "daily", hour: 3, minute: 0, enabled: true, lastJobId: "job-20" }];
+    state.updateSetting("appStops", {}, () => ({ value: { homepage: { at: "2026-09-28T22:10:20.000Z", by: "owner-1" } } }));
+    const { call, close } = await serve(state);
+    try {
+      const { body } = await call("GET", "/remediations");
+      const found = body.findings.find((finding) => finding.id === "app-missing:homepage");
+      expect(found.title).toBe("Homepage was removed by the nightly clean-up; your data is intact");
+      expect(found.evidence[1]).toContain("on its schedule");
+      expect(found.fixes.map((fix) => [fix.operationId, fix.label, fix.risk])).toEqual([["app.reinstall", "Recreate (stays stopped)", "medium"], ["app.uninstall", "Uninstall", "medium"]]);
+      expect(found.fix.parameters).toEqual({ id: "homepage", start: false });
     } finally { await close(); }
   });
 

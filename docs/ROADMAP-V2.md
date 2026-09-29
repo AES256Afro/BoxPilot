@@ -1476,16 +1476,21 @@ the owner does. Approvals and tiers are unchanged: every fix is an ordinary job 
 - ✅ **M35.4 Alerts to the ntfy on this server**: `notifications.ntfy.connect` (high, the owner's,
   the same password Settings asks for) makes a topic nobody can guess, sends a test from this
   server, and the web service saves the target once ntfy accepted it. Refused when a target is set.
-  With ntfy stopped the finding offers Start; without it, Install.
+  "Fixed" then says how to subscribe in the ntfy app on a phone: the address over Tailscale (Serve's
+  HTTPS when it publishes the port, the short MagicDNS name otherwise) and the topic. With ntfy
+  stopped the finding offers Start; without it, Install.
 - ✅ **M35.5 Backups due**: one finding for every app with data and no backup in 14 days, with
   Back up now (`app.backup`, or `app.backup.many` for several, one job) and Back up nightly (a
   schedule for each app without one, spread 02:00-04:00).
-- ◐ **M35.6 Apps with no container**: each gets Reinstall (`app.reinstall`: the saved compose
-  project, or the saved settings on the image it last ran; data untouched) and Uninstall (data
-  kept), and says which record says installed. The usual cause is BoxPilot's own "Clean up Docker
-  disk space" (`docker system prune`), which removes every stopped container; the finding names it
-  when it ran after the install. Changing that operation (it lives with M36's system operations)
-  is left to the owner's decision.
+- ✅ **M35.6 Apps the clean-up removed**: the nightly "Clean up Docker disk space" ran `docker system
+  prune`, which deletes every stopped container, so every app the owner had stopped was gone by
+  morning (the prune itself is fixed in #312). Each such app now says what happened ("Plex was
+  removed by the nightly clean-up; your data is intact"), with the stop and the clean-up as its
+  evidence, and comes back in one click: **Recreate (stays stopped)** (`app.reinstall` with
+  `start: false`, `docker compose up --no-start`) for an app stopped on purpose, which keeps its
+  stop on record; **Start** otherwise, since `app.action` start now builds a missing container
+  again from the saved compose project (`app.reinstall` when that file is gone too, from the saved
+  settings on the image it last ran); or **Uninstall** (data kept).
 - ✅ **M35.7 A page that fixes in place**: findings worst first on Ops' Command Center panels, each
   fix with its tier on the button, approved in the ordinary dialog, its log streaming in the
   finding's card, and the scan read again when it ends: "Fixed" with what changed, or "Still there"
