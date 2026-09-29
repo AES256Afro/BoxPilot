@@ -11,6 +11,8 @@ function snapshotNameFromPath(devicePath) {
 }
 
 const minutes = (value) => value * 60_000;
+/** A network share's managed name in fstab: `share-<name>`, reconnected by share.reconnect. */
+const sharePrefix = "share-";
 const lsblk = "/usr/bin/lsblk";
 const findmnt = process.env.BOXPILOT_FINDMNT_BINARY ?? "/usr/bin/findmnt";
 
@@ -271,9 +273,14 @@ export function storageOperations() {
     }),
     defineOperation({
       id: "storage.remount", title: "Reconnect a drive", risk: "medium", timeoutMs: minutes(10),
-      description: "Mounts a managed drive again from its fstab entry, which finds the drive by UUID wherever the kernel has put it: the fix for a drive that dropped off USB and came back under another name, one the kernel turned read-only after errors, and one that is simply busy. It first checks the drive is connected, then stops the containers using the folder, disconnects file-sharing clients from it (they reconnect by themselves), unmounts it on the host, mounts it again, proves it reads and is writable, and starts the containers again. A mount whose drive is gone is detached lazily; a healthy one that something else still holds is left as it was, with what holds it named. The fstab entry and everything on the drive are unchanged.",
+      description: "Mounts a managed drive again from its fstab entry, which finds the drive by UUID wherever the kernel has put it: the fix for a drive that dropped off USB and came back under another name, one the kernel turned read-only after errors, and one that is simply busy. It first checks the drive is connected, then stops the containers using the folder, disconnects file-sharing clients from it (they reconnect by themselves), unmounts it on the host, mounts it again, proves it reads and is writable, and starts the containers again. A mount whose drive is gone is detached lazily; a healthy one that something else still holds is left as it was, with what holds it named. The fstab entry and everything on the drive are unchanged. Given a network share (share-<name>), it reconnects the share the way Reconnect a network share does.",
       parameters: { fields: { name: { type: "string", maxLength: 32, pattern: mountNamePattern } } },
-      run: (parameters, { runUnit, jobLog }) => runUnit.runTask("storage.remount", { name: parameters.name }, { timeoutMs: minutes(9), logPath: jobLog?.path ?? null }),
+      // A network share has its own reconnect (share.reconnect), which the drive task refuses. Asked
+      // for a share, this does what was meant: "Try again" on a failed "Reconnect a drive" for
+      // share-boxpilot-backup repeated the same refusal three times on the owner's server.
+      run: (parameters, { runUnit, jobLog }) => (parameters.name.startsWith(sharePrefix)
+        ? runUnit.runTask("share.reconnect", { name: parameters.name.slice(sharePrefix.length) }, { timeoutMs: minutes(3), logPath: jobLog?.path ?? null })
+        : runUnit.runTask("storage.remount", { name: parameters.name }, { timeoutMs: minutes(9), logPath: jobLog?.path ?? null })),
     }),
     defineOperation({
       // Repair's fix for an exFAT/FAT/NTFS drive mounted without an owner (M35): "Remount it" used
