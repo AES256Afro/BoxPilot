@@ -161,8 +161,18 @@ if [ -n "$OLD_VERSION" ]; then
     log "copying the database ${OLD_VERSION} wrote to ${DB_COPY}"
     # umask 077 in the subshell: VACUUM INTO creates the file 0644, and a copy of the database holds
     # everything the database does. It gets the live file's owner and mode below.
+    # Opened as the database's own user, the way the service opens it: root opening it while the
+    # service is stopped could create its -wal/-shm files owned by root, and the service could then
+    # not open its own database. From /, so root's home not being readable to that user is no matter.
+    DB_OWNER="$(stat -c %U "$DATABASE")"
+    AS_OWNER=""
+    if [ "$DB_OWNER" != root ]; then
+      command -v runuser >/dev/null 2>&1 || fail "runuser is required to copy the database as ${DB_OWNER}"
+      AS_OWNER="runuser -u ${DB_OWNER} --"
+    fi
     COPY_OK=0; reason=""
-    if ! copied="$(umask 077 && "$NODE_BIN" --no-warnings --input-type=module -e "$DB_COPY_JS" "$DATABASE" "$DB_COPY" 2>&1)"; then
+    # shellcheck disable=SC2086 # AS_OWNER is a command prefix, empty or three words.
+    if ! copied="$(cd / && umask 077 && $AS_OWNER "$NODE_BIN" --no-warnings --input-type=module -e "$DB_COPY_JS" "$DATABASE" "$DB_COPY" 2>&1)"; then
       reason="$(printf '%s\n' "$copied" | tail -n 1)"
     elif ! chown --reference="$DATABASE" "$DB_COPY" || ! chmod --reference="$DATABASE" "$DB_COPY"; then
       reason="the copy could not be given the database's owner and mode"
