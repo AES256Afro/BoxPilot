@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import SchedulesPanel from "./SchedulesPanel";
 
@@ -11,38 +11,42 @@ const schedule = {
   title: "Back up application data", cadence: "daily at 03:00",
 };
 
+const answer = (schedules: unknown[]) => vi.fn(async (input: RequestInfo | URL) => {
+  const url = input.toString();
+  if (url.endsWith("/api/v1/schedules")) return json({ schedules });
+  if (url.includes("/api/v1/catalog")) return json({ applications: [], host: {} });
+  return json({ error: `unexpected ${url}` }, 500);
+});
+
 describe("Schedules panel", () => {
-  it("lists schedules and creates a nightly app backup", async () => {
+  it("lists schedules and creates a nightly app backup from its sheet", async () => {
     let created: string | undefined;
-    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = input.toString();
       if (url.endsWith("/api/v1/schedules") && init?.method === "POST") { created = init.body as string; return json({ schedule }, 201); }
       if (url.endsWith("/api/v1/schedules")) return json({ schedules: [schedule] });
       if (url.includes("/api/v1/catalog")) return json({ applications: [{ manifest: { id: "jellyfin", name: "Jellyfin" }, live: { installed: true } }], host: {} });
       return json({ error: `unexpected ${url}` }, 500);
-    });
-    vi.stubGlobal("fetch", fetchMock);
-    render(<SchedulesPanel csrfToken="csrf-token" />);
+    }));
+    render(<SchedulesPanel csrfToken="csrf-token" serverTimezone="Europe/Berlin" />);
 
     expect(await screen.findByText("daily at 03:00")).toBeTruthy();
     expect(screen.getByText(/^ran /)).toBeTruthy();
+    expect(screen.getByRole("columnheader", { name: /When \(Europe\/Berlin\)/ })).toBeTruthy();
 
-    fireEvent.change(await screen.findByLabelText("Scheduled action"), { target: { value: "backup:jellyfin" } });
-    fireEvent.change(screen.getByLabelText("Time of day"), { target: { value: "02:30" } });
-    fireEvent.click(screen.getByRole("button", { name: "Add schedule" }));
-    await screen.findByText("daily at 03:00"); // refreshed
+    fireEvent.click(screen.getByRole("button", { name: "Add a schedule" }));
+    const sheet = await screen.findByRole("dialog", { name: "Run something on its own" });
+    await within(sheet).findByRole("option", { name: "Back up Jellyfin" });
+    fireEvent.change(within(sheet).getByLabelText("What to run"), { target: { value: "backup:jellyfin" } });
+    fireEvent.change(within(sheet).getByLabelText("Time of day"), { target: { value: "02:30" } });
+    fireEvent.click(within(sheet).getByRole("button", { name: "Add schedule" }));
+    await vi.waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(JSON.parse(created ?? "{}")).toEqual({ operationId: "app.backup", parameters: { id: "jellyfin" }, frequency: "daily", minute: 30, hour: 2, weekday: null });
   });
 
   it("shows the approval-mode skip clearly", async () => {
     const blocked = { ...schedule, id: "s2", lastResult: "blocked-by-approval-mode", lastOutcome: "did-not-run", lastReason: "Approvals are set to always ask" };
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-      const url = input.toString();
-      if (url.endsWith("/api/v1/schedules")) return json({ schedules: [blocked] });
-      if (url.includes("/api/v1/catalog")) return json({ applications: [], host: {} });
-      return json({ error: `unexpected ${url}` }, 500);
-    });
-    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("fetch", answer([blocked]));
     render(<SchedulesPanel csrfToken="csrf-token" />);
     expect(await screen.findByText("did not run: Always-ask approvals")).toBeTruthy();
     // Not a dead end: the row says what stops it and where that is changed.
@@ -57,13 +61,7 @@ describe("Schedules panel", () => {
     const failed = { ...schedule, id: "s4", title: "Back up application data", lastResult: "failed: tar failed: disk full", lastOutcome: "failed", lastReason: "tar failed: disk full" };
     const refused = { ...schedule, id: "s5", title: "Refresh package lists", parameters: {}, lastResult: "error: previous run still active", lastOutcome: "did-not-run", lastReason: "previous run still active" };
     const running = { ...schedule, id: "s6", title: "Clean up Docker disk space", parameters: {}, lastResult: "started", lastOutcome: "running", lastReason: null };
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-      const url = input.toString();
-      if (url.endsWith("/api/v1/schedules")) return json({ schedules: [failed, refused, running] });
-      if (url.includes("/api/v1/catalog")) return json({ applications: [], host: {} });
-      return json({ error: `unexpected ${url}` }, 500);
-    });
-    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("fetch", answer([failed, refused, running]));
     render(<SchedulesPanel csrfToken="csrf-token" />);
     expect(await screen.findByText(/^failed /)).toBeTruthy();
     expect(screen.getByText("tar failed: disk full")).toBeTruthy();
@@ -71,19 +69,27 @@ describe("Schedules panel", () => {
     expect(screen.getByText("previous run still active")).toBeTruthy();
     expect(screen.getByText("running")).toBeTruthy();
     expect(screen.queryByText(/^ran /)).toBeNull();
+    expect(screen.getByText(/^failed /).closest("tr")?.getAttribute("data-status")).toBe("danger");
   });
 
   it("marks an overdue schedule as behind", async () => {
-    const overdue = { ...schedule, id: "s3", overdue: true };
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-      const url = input.toString();
-      if (url.endsWith("/api/v1/schedules")) return json({ schedules: [overdue] });
-      if (url.includes("/api/v1/catalog")) return json({ applications: [], host: {} });
-      return json({ error: `unexpected ${url}` }, 500);
-    });
-    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("fetch", answer([{ ...schedule, id: "s3", overdue: true }]));
     render(<SchedulesPanel csrfToken="csrf-token" />);
     expect(await screen.findByText("behind")).toBeTruthy();
+    expect(screen.getByText("behind").closest("tr")?.getAttribute("data-status")).toBe("warning");
   });
 
+  it("opens the last run's log in a sheet", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url.endsWith("/api/v1/schedules")) return json({ schedules: [schedule] });
+      if (url.endsWith("/api/v1/jobs/j1")) return json({ job: { id: "j1", type: "op:app.backup", title: "Back up", state: "completed", risk: "medium", error: null, result: null, createdAt: "x", updatedAt: "x", steps: [], approvals: [] } });
+      if (url.endsWith("/api/v1/jobs/j1/output")) return json({ output: "archive written" });
+      return json({ applications: [] });
+    }));
+    render(<SchedulesPanel csrfToken="csrf-token" />);
+    fireEvent.click(await screen.findByRole("button", { name: "View log: Back up application data" }));
+    const sheet = await screen.findByRole("dialog", { name: "Back up application data" });
+    expect(await within(sheet).findByText("archive written")).toBeTruthy();
+  });
 });
