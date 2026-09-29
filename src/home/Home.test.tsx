@@ -122,4 +122,33 @@ describe("Home", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Jellyfin, Healthy, update ready" }));
     expect(within(screen.getByRole("dialog", { name: "Jellyfin" })).queryByRole("button", { name: "Update" })).toBeNull();
   });
+
+  it("offers each of a Repair finding's fixes with its tier, runs one as Repair does, and says it is fixed (M35)", async () => {
+    const backupNow = { operationId: "app.backup", parameters: { id: "vaultwarden" }, label: "Back up now", preview: "Stops Vaultwarden briefly and archives it.", risk: "medium" };
+    const nightly = { kind: "schedule", operationId: "app.backup", label: "Back up nightly", preview: "Nightly.", risk: "medium", schedules: [{ parameters: { id: "vaultwarden" }, frequency: "daily", hour: 2, minute: 0 }] };
+    const due = { id: "backups-due", severity: "warning", title: "Vaultwarden has never been backed up", detail: "", evidence: ["Vaultwarden: never backed up, no schedule"], fix: backupNow, fixes: [backupNow, nightly], manual: null, fingerprint: "0123456789abcdef" };
+    let scans = 0;
+    const base = stubFetch({ "/api/v1/remediations": { findings: [due], dismissed: [], counts: { critical: 0, warning: 1, info: 0 }, jobs: { attached: [], resolved: [], dismissed: [] }, unavailableChecks: [] } });
+    const attempts: unknown[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url === "/api/v1/remediations") { scans += 1; if (scans > 1) return new Response(JSON.stringify({ findings: [], dismissed: [], counts: { critical: 0, warning: 0, info: 0 }, jobs: { attached: [], resolved: [], dismissed: [] }, unavailableChecks: [] })); }
+      if (url === "/api/v1/remediations/attempts") { attempts.push(JSON.parse(String(init?.body))); return new Response(JSON.stringify({ recorded: true }), { status: 201 }); }
+      if (url.endsWith("/approve")) return new Response(JSON.stringify({ job: { id: "staged", state: "applying" }, elevatedUntil: null }), { status: 202 });
+      if (url === "/api/v1/jobs/staged") return new Response(JSON.stringify({ job: { id: "staged", type: "op:app.backup", title: "Back up application data", state: "completed", risk: "medium", error: null, result: { backedUp: true, artifact: "20260929T120000Z.tar.gz" }, steps: [], approvals: [] } }));
+      return base(input, init);
+    }));
+    renderHome();
+    const needs = await screen.findByRole("region", { name: /What needs you/ });
+    const now = await within(needs).findByRole("button", { name: "Back up now: Vaultwarden has never been backed up" });
+    expect(now.getAttribute("data-risk")).toBe("medium");
+    expect(within(needs).getByRole("button", { name: "Back up nightly: Vaultwarden has never been backed up" }).getAttribute("data-risk")).toBe("medium");
+    // Said once: Home's own backup line gives way to Repair's, which has the buttons.
+    const titles = within(needs).getAllByRole("button").filter((button) => button.className.includes("need__title")).map((button) => button.textContent);
+    expect(titles.filter((title) => title?.includes("backed up"))).toEqual(["Needs a look: Vaultwarden has never been backed up"]);
+    fireEvent.click(now);
+    fireEvent.click(await screen.findByRole("button", { name: "Run" }));
+    expect(await screen.findByText(/Vaultwarden has never been backed up\. Backed up to 20260929T120000Z\.tar\.gz\./)).toBeTruthy();
+    expect(attempts).toEqual([{ findingId: "backups-due", jobId: "staged" }]);
+  });
 });
