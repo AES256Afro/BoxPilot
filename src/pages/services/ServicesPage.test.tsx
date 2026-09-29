@@ -22,7 +22,7 @@ describe("Services page", () => {
     // The name is the page's one h1, drawn in place without a shell.
     expect(screen.getByRole("heading", { level: 1, name: "Services" })).toBeTruthy();
     expect(screen.getByText("1 failed").closest(".ui-chip")?.getAttribute("data-status")).toBe("danger");
-    expect(document.querySelector(".ui-page-header__meta")?.textContent).toBe("5 units · 4 active · 1 failed · 1 timers · 1 protected");
+    expect(document.querySelector(".ui-page-header__meta")?.textContent).toBe("5 units · 4 active · 1 failed · 1 timer · 1 protected");
     // What the page is for waits behind the info toggle.
     const about = screen.getByRole("button", { name: "About Services" });
     expect(about.getAttribute("aria-expanded")).toBe("false");

@@ -24,10 +24,13 @@ export interface JobProgressProps {
 
 const toneOf = (tone: string): Status => (tone === "status-good" ? "good" : tone === "status-danger" ? "danger" : tone === "status-warning" ? "warning" : "neutral");
 
-/** "1m 12s" from milliseconds. */
+/** "41s", "1m 12s", "3h 01m" from milliseconds, as the job queue says it. */
 function took(ms: number): string {
   const seconds = Math.max(0, Math.round(ms / 1000));
-  return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, "0")}s`;
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ${String(seconds % 60).padStart(2, "0")}s`;
+  return `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, "0")}m`;
 }
 
 /**
