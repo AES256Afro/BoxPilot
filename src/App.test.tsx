@@ -82,7 +82,7 @@ describe("BoxPilot console", () => {
       expect(screen.getAllByRole("heading", { level: 1 }).map((h) => h.textContent)).toEqual([title]);
       expect(container.querySelector(".app-shell")?.getAttribute("data-shell")).toBe("console");
     }
-    // A page not yet rebuilt says what it is for only when asked.
+    // A page says what it is for only when asked.
     fireEvent.click(within(dock()).getByRole("button", { name: "Firewall" }));
     const about = await screen.findByRole("button", { name: "About Firewall" });
     expect(screen.getByText(viewCopy.firewall.description).closest("[hidden]")).not.toBeNull();
