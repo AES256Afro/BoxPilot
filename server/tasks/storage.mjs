@@ -3,6 +3,7 @@ import path from "node:path";
 import { fixedRun } from "../exec.mjs";
 import { parseSmbConf, smbConfPath } from "./samba.mjs";
 import { mountpointFor, reservedMountNames } from "../backup-mount.mjs";
+import { mountedFrom } from "./mount-agreement.mjs";
 
 /**
  * Root-side storage tasks executed by scripts/boxpilot-run.mjs inside boxpilot-run@.service.
@@ -455,7 +456,7 @@ export async function hostMountAt(run, mountpoint) {
  * a /dev path. Asked before anything is stopped, so a drive that is not plugged in costs nothing.
  * A spelling it does not know is not refused: the mount itself will say.
  */
-async function deviceFor(run, source) {
+export async function deviceFor(run, source) {
   const [tag, value] = String(source ?? "").split(/=(.*)/s);
   const ask = tag === "UUID" ? ["-U", value] : tag === "LABEL" ? ["-L", value] : tag === "PARTUUID" ? ["-t", `PARTUUID=${value}`, "-o", "device"] : null;
   if (ask && value) {
@@ -613,17 +614,44 @@ const defaultCheckFiles ={ readFile, readable: (target) => readdir(target).then(
 const readOnlyCheckers = (device) => ({ exfat: [binaries.fsckExfat, ["-n", device]], ext4: [binaries.e2fsck, ["-fn", device]], ext3: [binaries.e2fsck, ["-fn", device]], ext2: [binaries.e2fsck, ["-fn", device]], vfat: [binaries.fsckFat, ["-n", device]] });
 
 /**
+ * Mount a drive again from its fstab entry in PID 1's namespace, and prove it is there from the
+ * device expected before anything is started on it. mount can exit 0 having mounted nothing - a
+ * nofail entry whose device it cannot find is skipped without an error, and just after a checker
+ * has written to the drive udev can still be reading it again - so a mount that is not there is
+ * tried once more, a second later. One from another device is not retried.
+ */
+async function mountAgain(run, mountpoint, { sources, log, sleep }) {
+  let found = null;
+  for (let tries = 1; tries <= 2; tries += 1) {
+    log?.(`$ mount ${mountpoint}`, "stdout");
+    const mounted = await run(binaries.mount, mountArgs(mountpoint), { timeout: 120_000 });
+    found = await mountedFrom(run, mountpoint, sources);
+    if (found.ok || found.mount) return found;
+    if (!mounted.ok) found = { ...found, reason: `mount failed: ${tail(mounted.stderr) || "it gave no reason"}` };
+    if (tries === 1) {
+      log?.(`${mountpoint} is not mounted (${found.reason}); trying once more`, "stderr");
+      await sleep(1_000);
+    }
+  }
+  return found;
+}
+
+/**
  * Do `work` with a managed drive unmounted from the host, the way an operator would by hand: the
  * containers using it stopped, file-sharing clients let go of it, and everything mounted and
  * started again afterwards whatever `work` did. `prepare` runs before anything is stopped, so a
  * refusal there costs nothing.
+ *
+ * The apps are started again only once the drive is proven back (mountAgain). They used to be
+ * started whatever mount said, and one started on a drive that did not come back binds the empty
+ * folder underneath and writes to the system disk. Left stopped, they are named.
  */
-async function withDriveUnmounted(name, { verb, prepare, work }, { run, log, files, sleep, processes }) {
+async function withDriveUnmounted(name, { verb, purpose, prepare, work }, { run, log, files, sleep, processes }) {
   assertPlainMountName(name);
   const content = await files.readFile(fstabPath, "utf8");
   const entry = parseManagedFstab(content).find((row) => row.name === name);
   if (!entry) throw new Error(`${name} is not a BoxPilot-managed mount`);
-  const mountpoint = entry.line.trim().split(/\s+/)[1] ?? "";
+  const [entrySource = "", mountpoint = ""] = entry.line.trim().split(/\s+/);
   if (mountpoint !== mountpointFor(name)) throw new Error(`The ${name} entry is not a drive mounted at ${mountpointFor(name)}; nothing was changed`);
   const where = await run(binaries.findmnt, ["-n", "-o", "SOURCE,FSTYPE,MAJ:MIN", mountpoint], { timeout: 15_000 });
   const [device, fstype, majMin] = where.ok ? where.stdout.trim().split(/\s+/) : [];
@@ -648,14 +676,20 @@ async function withDriveUnmounted(name, { verb, prepare, work }, { run, log, fil
     throw new Error(`${mountpoint} is still in use${holders.length ? ` by ${holders.map((holder) => `${holder.command} (${holder.pid})`).join(", ")}` : ""}, so nothing was done to it: ${tail(unmounted.result.stderr)}. Stop whatever is using it - a copy in progress, a shell sitting in it - and try again.`);
   }
   let outcome;
+  let failure = null;
   try {
     outcome = await work({ ...drive, prepared });
-  } finally {
-    log?.(`$ mount ${mountpoint}`, "stdout");
-    const mounted = await run(binaries.mount, mountArgs(mountpoint), { timeout: 120_000 });
-    if (!mounted.ok) log?.(`could not mount ${mountpoint} again: ${tail(mounted.stderr)}`, "stderr");
-    await restart();
+  } catch (error) {
+    failure = error;
   }
+  const back = await mountAgain(run, mountpoint, { sources: [device, (await deviceFor(run, entrySource)).device], log, sleep });
+  if (back.ok) await restart();
+  else log?.(`${mountpoint} did not mount again: ${back.reason}`, "stderr");
+  const notBack = back.ok ? "" : `${mountpoint} did not mount again after it was unmounted ${purpose}: ${String(back.reason).replace(/[.\s]+$/, "")}.${bound.length
+    ? ` ${listOf(bound)} ${bound.length === 1 ? "was" : "were"} left stopped, so nothing writes into the empty folder under it; reconnect the drive from Repair, then start ${bound.length === 1 ? "it" : "them"} again.`
+    : " Reconnect the drive from Repair."}`;
+  if (failure) throw back.ok ? failure : new Error(`${String(failure.message).replace(/[.\s]+$/, "")}. ${notBack}`);
+  if (!back.ok) throw new Error(notBack);
   return { ...drive, outcome, restarted: started, restartFailed, sharingClosedFor: unmounted.clients ?? [] };
 }
 
@@ -672,6 +706,7 @@ async function withDriveUnmounted(name, { verb, prepare, work }, { run, log, fil
 export async function storageCheck({ name } = {}, { run = fixedRun, log = null, files = defaultCheckFiles, sleep = pause, processes = undefined } = {}) {
   const done = await withDriveUnmounted(name, {
     verb: "check",
+    purpose: "for the check",
     prepare: async ({ mountpoint, device, fstype }) => {
       const checker = readOnlyCheckers(device)[fstype];
       if (!checker) throw new Error(`BoxPilot has no read-only checker for ${fstype} filesystems`);
@@ -715,6 +750,7 @@ export async function storageCheck({ name } = {}, { run = fixedRun, log = null, 
 export async function storageClearMark({ name } = {}, { run = fixedRun, log = null, files = defaultCheckFiles, sleep = pause, processes = undefined } = {}) {
   const done = await withDriveUnmounted(name, {
     verb: "clear",
+    purpose: "to clear its mark",
     prepare: async ({ mountpoint, fstype }) => {
       if (fstype !== "exfat") throw new Error(`${mountpoint} is ${fstype}; only exFAT keeps a not-properly-unmounted mark this way, so there is nothing to clear`);
       if (!(await files.exists(binaries.fsckExfat))) throw new Error(`fsck.exfat is not installed, so nothing was stopped or unmounted. Install the drive check tools from Repair first.`);

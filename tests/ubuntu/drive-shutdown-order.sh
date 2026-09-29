@@ -10,7 +10,8 @@
 #      mounted dirty, what fsck.exfat -n says about it, and what clears it;
 #   4. the unit-stop half of a shutdown, Docker and the drive stopped in one go;
 #   5. boot: a drive that appears late and one that never does;
-#   6. BoxPilot's own code on this machine: the fstab migration, and the reboot's preparation.
+#   6. BoxPilot's own code on this machine: the fstab migration, the reboot's preparation, and
+#      putting things back when the reboot cannot be scheduled, with systemd behind the unmount.
 #
 # It attaches loop devices, edits /etc/fstab, and stops and restarts Docker, so it runs only on a
 # disposable machine (the GitHub runner), as root, with BOXPILOT_DISPOSABLE_TEST=1.
@@ -389,6 +390,8 @@ attach; udevadm trigger --action=change --settle "$PART"
 # ---- 6. BoxPilot's own code on this machine ----------------------------------------------------
 
 node_run() { node --input-type=module -e "$1"; }
+# A transient unit with the runner's PrivateTmp=, running the task the runner would.
+in_runner() { systemd-run --quiet --wait --pipe -p PrivateTmp=yes -p KillMode=process "$(command -v node)" --input-type=module -e "$1"; }
 
 section "6a. the fstab migration (storage.docker-order) on this runner's real fstab"
 fresh_drive; fstab_line "$TODAY"
@@ -453,10 +456,134 @@ check "with what holds it" bash -c "grep -q sleep <<< '$(field 'drives[0].holder
 pkill -f bp-drive-test-holder; wait 2>/dev/null
 sc stop "$UNIT"
 
+# ---- 6d. a reboot that could not be scheduled, with systemd behind -----------------------------
+
+# systemd rereads the mount table at a limited rate: five times in a second (mount.c), then not
+# until the second is up. A burst of changes uses that up, and a change made then reaches the mount
+# unit only when the second ends. A container starting or stopping makes such a burst in passing;
+# that is what left the drive's unit behind in 7c. Here the burst is made on purpose, a tmpfs
+# mounted and unmounted eight times, after a quiet second so that it opens a second of its own: an
+# unmount made straight after it goes unseen for most of that second.
+FLOOD="${WORK}/flood"; mkdir -p "$FLOOD"
+hold_systemd_back() { sleep 1.1; for _ in $(seq 1 8); do mount -t tmpfs bp-flood "$FLOOD" && umount "$FLOOD"; sleep 0.005; done; }
+unit_state() { systemctl show "$UNIT" -p ActiveState --value; }
+# What is in the drive's folder on the system disk, under the drive. Read with the drive unmounted.
+underneath() { ls -A "$MNT" | tr '\n' ' '; }
+
+# systemReboot as boxpilot-run@ runs it, with the reboot refused, so it takes the path it takes when
+# the reboot cannot be scheduled: prepareDrivesForReboot, then resumeAfterCancelledReboot. $1 = hold
+# makes the preparation's unmount of the drive with systemd held back, as above, and has systemd
+# behind the drive again when the resume begins; $2 is JavaScript run between the preparation and
+# the resume. The last line is { outcome, seen }: the job's error, and what the unit and PID 1's
+# table said at each step.
+cancelled_reboot() {
+  local hold=false; [ "$1" = hold ] && hold=true
+  in_runner "
+    import { execFileSync } from 'node:child_process';
+    import { fixedRun } from '${REPO}/server/exec.mjs';
+    import { systemReboot } from '${REPO}/server/tasks/system.mjs';
+    import { mountUnitName } from '${REPO}/server/tasks/drive-shutdown.mjs';
+    const mnt = '${MNT}';
+    const unit = mountUnitName(mnt);
+    const quiet = (binary, args) => { try { return execFileSync(binary, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim(); } catch { return null; } };
+    const look = () => ({ unit: quiet('/usr/bin/systemctl', ['show', unit, '-p', 'ActiveState', '--value']), source: quiet('/usr/bin/findmnt', ['--task', '1', '-n', '-o', 'SOURCE', '--mountpoint', mnt]) });
+    const pause = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+    const holdSystemdBack = () => { pause(1100); for (let i = 0; i < 8; i += 1) { quiet('/usr/bin/mount', ['-N', '/proc/1/ns/mnt', '-t', 'tmpfs', 'bp-flood', '${FLOOD}']); quiet('/usr/bin/umount', ['-N', '/proc/1/ns/mnt', '${FLOOD}']); pause(5); } };
+    const seen = { atStart: [] };
+    const run = async (binary, args, options) => {
+      const name = binary.split('/').pop();
+      if (name === 'umount' && args.at(-1) === mnt && !seen.afterUnmount) {
+        if (${hold}) holdSystemdBack();
+        const result = await fixedRun(binary, args, options);
+        seen.afterUnmount = look();
+        return result;
+      }
+      if (name === 'systemd-run') {
+        // The rest of the preparation can outlast that lag (it did in one run of three), so it is
+        // made again here, the same way, just before the resume: the drive mounted back outside
+        // systemd, the quiet second in which systemd sees it, the burst, and the drive unmounted
+        // outside systemd again. The resume then always begins with the unit still saying mounted.
+        if (${hold}) {
+          quiet('/usr/bin/mount', ['-N', '/proc/1/ns/mnt', mnt]);
+          holdSystemdBack();
+          quiet('/usr/bin/umount', ['-N', '/proc/1/ns/mnt', mnt]);
+        }
+        seen.atResume = look();
+        ${2:-}
+        return { ok: false, code: 1, stdout: '', stderr: 'Failed to start transient timer unit: refused by the test' };
+      }
+      if (name === 'systemctl' && args[0] === 'start' && args[1] === unit) seen.atStart.push(look());
+      if (name === 'systemctl' && args[0] === 'start' && args.includes('docker.service')) seen.atDocker = look();
+      return fixedRun(binary, args, options);
+    };
+    let outcome = 'scheduled';
+    try { await systemReboot({}, { run, log: (line, stream) => console.log('   [' + stream + '] ' + line) }); } catch (error) { outcome = error.message; }
+    console.log(JSON.stringify({ outcome, seen }));
+  " | tee "${WORK}/cancelled.out"
+  CANCELLED="$(tail -1 "${WORK}/cancelled.out")"
+}
+# A value from that line, by path (seen.atStart.0.unit); a string as it is, nothing for null.
+cfield() { node -e 'const v = process.argv[2].split(".").reduce((o, k) => (o == null ? o : o[k]), JSON.parse(process.argv[1])); console.log(v == null ? "" : typeof v === "string" ? v : JSON.stringify(v))' "$CANCELLED" "$1"; }
+
+section "6d. systemd behind an unmount made outside it, and what a start does then"
+fresh_drive; fstab_line "$NEW"
+# 4b's Docker restarts brought the holder back with the drive unmounted, onto this very folder:
+# what that app wrote there is on the system disk. Cleared, so this section starts from nothing.
+if not_mounted_here; then note "in ${MNT} under the drive before 6d: [$(underneath)]"; find "$MNT" -mindepth 1 -delete; fi
+# resumeAfterCancelledReboot used to do exactly this: the drive unmounted outside systemd moments
+# before, its unit started, and "Mounted again" said on the exit code. What that start does while
+# systemd is behind depends on systemd. From 252 on, unit_start() holds a mount unit's start until
+# systemd has reread the table, so it mounts. Before 252 (249 is Ubuntu 22.04's) it checks the stale
+# state first: the unit is "active", the start has nothing to do, exits 0 and mounts nothing. A stop
+# is not held in any version, which is the 7c flake. The product no longer relies on either.
+behind() {
+  wait_unit_in_step; mounted_here || mount_drive
+  systemctl reset-failed "$UNIT" 2>/dev/null
+  hold_systemd_back; umount "$MNT"; BEHIND="$(unit_state)"
+  timeout 150 systemctl start "$UNIT"; STARTED="$? $(mounted_here && echo mounted || echo unmounted)"
+  note "right after the unmount the unit said ${BEHIND}; systemctl start then exited, with the drive: ${STARTED}"
+  [ "$BEHIND" = active ]
+}
+for _ in 1 2 3; do behind && break; done
+check "a burst of mount changes leaves systemd behind: right after the unmount the unit still said '${BEHIND}'" test "$BEHIND" = active
+SYSTEMD_VERSION="$(systemctl --version | awk 'NR == 1 { print $2 }')"
+if [ "${SYSTEMD_VERSION:-0}" -ge 252 ]; then
+  check "systemd ${SYSTEMD_VERSION} held that start until it saw the unmount, so it mounted the drive" test "$STARTED" = "0 mounted"
+else
+  check "systemd ${SYSTEMD_VERSION} did not hold it: the start exited 0 and mounted nothing, the hazard itself" test "$STARTED" = "0 unmounted"
+fi
+
+section "6d. a reboot that could not be scheduled: the drive back before Docker, with systemd behind"
+wait_unit_in_step; mounted_here || mount_drive
+run_holder
+cancelled_reboot hold
+check "systemd had not seen the preparation's unmount: the unit said '$(cfield seen.afterUnmount.unit)' with the drive unmounted" bash -c "[ '$(cfield seen.afterUnmount.unit)' = active ] && [ -z '$(cfield seen.afterUnmount.source)' ]"
+check "and the resume began with systemd behind: the unit said '$(cfield seen.atResume.unit)' with the drive unmounted" bash -c "[ '$(cfield seen.atResume.unit)' = active ] && [ -z '$(cfield seen.atResume.source)' ]"
+check "the resume waited for systemd before starting the drive" grep -qE 'systemd took [0-9]+ ms to see /mnt/the-dump unmounted' "${WORK}/cancelled.out"
+check "and started it once, with the unit saying '$(cfield seen.atStart.0.unit)'" bash -c "[ '$(cfield seen.atStart.length)' = 1 ] && [ '$(cfield seen.atStart.0.unit)' = inactive ]"
+check "Docker was started only with the drive mounted from ${PART} ($(cfield seen.atDocker.source))" test "$(cfield seen.atDocker.source)" = "$PART"
+check "the job says what happened: $(cfield outcome)" grep -q 'The drives were mounted again and Docker was started\.' <<< "$(cfield outcome)"
+check "the drive is mounted from its own device" test "$(findmnt -n -o SOURCE "$MNT")" = "$PART"
+check "Docker brought the app back by its restart policy" wait_running bp-holder
+check "and the app writes to the drive" bash -c "before=\$(wc -l < '${MNT}/held.log'); sleep 2; [ \$(wc -l < '${MNT}/held.log') -gt \$before ]"
+docker rm -f bp-holder >/dev/null; unmount_drive
+check "nothing landed in the folder under the drive: [$(underneath)]" test -z "$(underneath)"
+
+section "6d. a reboot that could not be scheduled: a drive that does not come back keeps Docker stopped"
+# The drive is unplugged between the preparation and the resume: its loop device is detached, and
+# its entry gives up waiting for the device after 5 s rather than 30.
+fstab_line "${TODAY},x-systemd.before=docker.service,x-systemd.device-timeout=5s"
+mount_drive; run_holder
+cancelled_reboot keep "quiet('/usr/sbin/losetup', ['-d', '${DISK}']); quiet('/usr/bin/udevadm', ['settle']);"
+check "the job says the drive did not mount again and Docker was left stopped: $(cfield outcome)" bash -c "grep -q '/mnt/the-dump did not mount again (' <<< \"\$1\" && grep -q 'so Docker was left stopped and no app writes into the empty folder instead' <<< \"\$1\"" _ "$(cfield outcome)"
+check "Docker was not started" bash -c "[ -z '$(cfield seen.atDocker.unit)' ] && ! systemctl is-active --quiet docker.service"
+check "and nothing is in the drive's empty folder: [$(underneath)]" bash -c "! findmnt -n '$MNT' >/dev/null && [ -z \"\$(ls -A '$MNT')\" ]"
+attach; udevadm trigger --action=change --settle "$PART"; wait_for_device || fail "the test drive did not come back"
+wait_unit_in_step; mount_drive; sc start docker.socket docker.service
+wait_running bp-holder; docker rm -f bp-holder >/dev/null; unmount_drive
+
 # ---- 7. the storage tasks, run the way boxpilot-run@ runs them ---------------------------------
 
-# A transient unit with the runner's PrivateTmp=, running the task the runner would.
-in_runner() { systemd-run --quiet --wait --pipe -p PrivateTmp=yes -p KillMode=process "$(command -v node)" --input-type=module -e "$1"; }
 # The host's own mount table, watched for the drive going away: only a real unmount does that. (A
 # mount id cannot tell: the kernel hands the freed id straight to the next mount.)
 watch_host() { findmnt --poll=umount --first-only --timeout 120000 --mountpoint "$MNT" > "${WORK}/poll.out" 2>&1 & POLLER=$!; sleep 0.5; }
