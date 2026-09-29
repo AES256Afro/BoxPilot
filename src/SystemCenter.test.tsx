@@ -1,6 +1,7 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import SystemCenter from "./SystemCenter";
+import SystemCenter, { updateLogFacts } from "./SystemCenter";
+import DatabaseCopiesPanel, { type DatabaseCopies } from "./DatabaseCopiesPanel";
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -67,5 +68,91 @@ describe("System center", () => {
     render(<SystemCenter csrfToken="csrf-token" />);
     expect(await screen.findByRole("button", { name: "Enable" })).toBeTruthy();
     expect(screen.getByText(/Weekly trim keeps SSDs/)).toBeTruthy();
+  });
+});
+
+// M36: the update copies the database first, and says so; a copy it could not make stops it.
+describe("what the update log says", () => {
+  const line = (text: string) => `2026-09-29T10:15:00+0000 homebox boxpilot-upgrade[4242]: [boxpilot-upgrade] ${text}`;
+
+  it("finds the database copy the last update took", () => {
+    expect(updateLogFacts([
+      line("copying the database 1.138.0 wrote to /var/lib/boxpilot/boxpilot-rollback-1.138.0-20260929T101500Z.sqlite3"),
+      line("database copy: /var/lib/boxpilot/boxpilot-rollback-1.138.0-20260929T101500Z.sqlite3 (2048000 bytes, integrity ok)"),
+      line("BoxPilot 1.139.0 (abc) is live; 0 unit file(s) updated; previous tree at /opt/boxpilot.prev.20260929T101500Z"),
+    ])).toEqual({ error: null, databaseCopy: "/var/lib/boxpilot/boxpilot-rollback-1.138.0-20260929T101500Z.sqlite3" });
+  });
+
+  it("says why an update stopped, in the script's own words", () => {
+    expect(updateLogFacts([
+      line("copying the database 1.138.0 wrote to /var/lib/boxpilot/boxpilot-rollback-1.138.0-20260929T101500Z.sqlite3"),
+      line("ERROR: could not copy the database to /var/lib/boxpilot: database or disk is full. Nothing was changed: BoxPilot 1.138.0 is still running from /opt/boxpilot."),
+    ])).toEqual({ error: "could not copy the database to /var/lib/boxpilot: database or disk is full. Nothing was changed: BoxPilot 1.138.0 is still running from /opt/boxpilot.", databaseCopy: null });
+    expect(updateLogFacts(["an unrelated journal line with ERROR: in it"])).toEqual({ error: null, databaseCopy: null });
+  });
+});
+
+describe("the database copies updates took", () => {
+  const copies: DatabaseCopies = {
+    directory: "/var/lib/boxpilot",
+    rule: { keep: 3, keepDays: 30 },
+    defaults: { keep: 3, keepDays: 30 },
+    limits: { keep: [1, 50], keepDays: [0, 3650] },
+    secretScrubVersion: "1.127.0",
+    copies: [
+      { name: "boxpilot-rollback-1.138.0-20260929T101500Z.sqlite3", version: "1.138.0", takenAt: "2026-09-29T10:15:00.000Z", bytes: 4, humanBytes: "46.0 MiB", heldSecrets: false, goes: false, keptBecause: "newest" },
+      { name: "boxpilot-rollback-1.121.0-20260816T101700Z.sqlite3", version: "1.121.0", takenAt: "2026-08-16T10:17:00.000Z", bytes: 2, humanBytes: "38.0 MiB", heldSecrets: true, goes: true, keptBecause: null },
+      { name: "boxpilot-rollback-1.121.0-20260816T101500Z.sqlite3", version: "1.121.0", takenAt: "2026-08-16T10:15:00.000Z", bytes: 2, humanBytes: "38.0 MiB", heldSecrets: true, goes: true, keptBecause: null },
+    ],
+    goes: ["boxpilot-rollback-1.121.0-20260816T101700Z.sqlite3", "boxpilot-rollback-1.121.0-20260816T101500Z.sqlite3"],
+    goesHumanBytes: "76.0 MiB",
+    totalHumanBytes: "122.0 MiB",
+  };
+
+  it("lists each copy with what the rule does with it, and stages exactly the ones that go", async () => {
+    let staged: string | undefined;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url.endsWith("/operations/housekeeping.database-copies.inspect/inspect")) return json({ operation: "housekeeping.database-copies.inspect", result: copies });
+      if (url.endsWith("/operations/housekeeping.database-copies.remove/jobs")) { staged = init?.body as string; return json({ job: { id: "job-copies", type: "op:housekeeping.database-copies.remove", title: "Remove old database copies", state: "awaiting_approval", risk: "medium", error: null, result: null, steps: [], approvals: [] }, approval: { tier: "medium", passwordRequired: false, elevated: false, mode: "tiered", reason: "medium risk" } }, 201); }
+      return json({ error: `unexpected ${url}` }, 500);
+    }));
+    render(<DatabaseCopiesPanel csrfToken="csrf-token" role="owner" />);
+
+    const table = await screen.findByRole("table", { name: "Database copies, newest first" });
+    expect(within(table).getAllByText("Goes")).toHaveLength(2);
+    expect(within(table).getByText("Kept: newest")).toBeTruthy();
+    expect(screen.getByText(/2 copies were taken from a version before 1\.127\.0/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Remove 2 copies (76.0 MiB)" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("Medium risk")).toBeTruthy();
+    expect(within(dialog).getByText("boxpilot-rollback-1.121.0-20260816T101700Z.sqlite3")).toBeTruthy();
+    expect(JSON.parse(staged ?? "{}")).toEqual({ parameters: { keep: 3, keepDays: 30, names: copies.goes } });
+  });
+
+  it("asks again when the rule changes, and offers nothing until the answer matches it", async () => {
+    const asked: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url.endsWith("/inspect")) return json({ operation: "housekeeping.database-copies.inspect", result: copies });
+      if (url.endsWith("/operations/housekeeping.database-copies.inspect/run")) {
+        asked.push(init?.body as string);
+        return json({ operation: "housekeeping.database-copies.inspect", result: { ...copies, rule: { keep: 1, keepDays: 30 } } });
+      }
+      return json({ error: `unexpected ${url}` }, 500);
+    }));
+    render(<DatabaseCopiesPanel csrfToken="csrf-token" role="owner" />);
+    const keep = await screen.findByLabelText(/Keep the newest/);
+    fireEvent.change(keep, { target: { value: "1" } });
+    expect((screen.getByRole("button", { name: /Remove 2 copies/ }) as HTMLButtonElement).disabled).toBe(true);
+    await waitFor(() => expect(asked).toEqual([JSON.stringify({ parameters: { keep: 1, keepDays: 30 } })]));
+    await waitFor(() => expect((screen.getByRole("button", { name: /Remove 2 copies/ }) as HTMLButtonElement).disabled).toBe(false));
+  });
+
+  it("shows an operator the list but not the removal, which is the owner's", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => json({ operation: "housekeeping.database-copies.inspect", result: copies })));
+    render(<DatabaseCopiesPanel csrfToken="csrf-token" role="operator" />);
+    expect(await screen.findByRole("table", { name: "Database copies, newest first" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Remove/ })).toBeNull();
   });
 });

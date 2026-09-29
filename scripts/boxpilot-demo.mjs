@@ -25,7 +25,7 @@ import { drivesNeedingCheck, drivesNotOrderedAroundDocker } from "../server/reme
 import { setupProfiles } from "../server/setup-profiles.mjs";
 import { productVersion } from "../server/version.mjs";
 import { securityHeaders } from "../server/security-headers.mjs";
-import { humanBytes } from "../server/housekeeping.mjs";
+import { databaseCopyReport, databaseCopyRule, describeDatabaseCopy, humanBytes } from "../server/housekeeping.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const dist = path.join(root, "dist");
@@ -169,6 +169,20 @@ const machineState = {
 // Exported so a test can hold these to the operations the interface actually calls: a page whose
 // operation has no fixture here gets `{}` from the demo, and an empty object is exactly the shape
 // that breaks code expecting a field — which is how three crashes reached a real server.
+/**
+ * The database copies updates took (M36): three the owner made by hand one August evening, from
+ * before the secret scrub, and one per update since. Answered with the rule the page asks for, so
+ * changing it in the demo changes the list as it would on a server.
+ */
+function demoDatabaseCopies(parameters = {}) {
+  const stamp = (hours) => new Date(Date.now() - hours * 3600_000).toISOString().replace(/[-:]/g, "").replace(/\.\d+Z$/, "Z");
+  const made = [["1.121.0", 24 * 44 + 0.6, 38], ["1.121.0", 24 * 44 + 0.4, 38], ["1.121.0", 24 * 44, 38], ["1.126.0", 24 * 21, 41], ["1.131.0", 24 * 1.6, 44], ["1.132.0", 24 * 1.4, 44], ["1.136.0", 30, 46], ["1.137.0", 20, 46]];
+  const copies = made.map(([version, hours, mebibytes]) => describeDatabaseCopy(`boxpilot-rollback-${version}-${stamp(hours)}.sqlite3`, { bytes: mebibytes * 1024 ** 2, mtimeMs: Date.now() - hours * 3600_000 }));
+  let rule;
+  try { rule = databaseCopyRule(parameters); } catch { rule = databaseCopyRule(); }
+  return databaseCopyReport(copies, { rule, now: Date.now(), directory: "/var/lib/boxpilot" });
+}
+
 export const inspections = {
   "system.settings.inspect": {
     hostname: { static: host.hostname, live: host.hostname }, timezone: "UTC",
@@ -212,6 +226,7 @@ export const inspections = {
     sshActive: true,
   },
   "docker.disk.inspect": { images: { count: 22, sizeBytes: 9.4 * GiB, reclaimableBytes: 1.1 * GiB }, containers: { count: 14, sizeBytes: 0.6 * GiB }, volumes: { count: 9, sizeBytes: 3.2 * GiB }, buildCache: { sizeBytes: 0 } },
+  "housekeeping.database-copies.inspect": demoDatabaseCopies(),
   "housekeeping.inspect": (() => {
     const categories = [
       { id: "boxpilot-versions", title: "Previous BoxPilot releases", summary: "Copies of BoxPilot that past updates left in /opt. The most recent working version is kept, so you can still put it back by hand, and so is the last update that failed its health check.", items: 4, bytes: 1.4 * GiB, detail: ["boxpilot.prev.1750", "boxpilot.prev.1746", "boxpilot.rollback-1741", "boxpilot-prev-1738"], keeping: ["boxpilot.prev.1752"], safe: true },
@@ -728,6 +743,8 @@ export function emptied(value) {
 
 /** The words that only appear when there is nothing to show, which emptying cannot invent. */
 const freshWords = {
+  // A fresh box has had no update, so no database copies; the rule keeps its numbers.
+  "housekeeping.database-copies.inspect": { rule: databaseCopyRule(), defaults: databaseCopyRule(), limits: { keep: [1, 50], keepDays: [0, 3650] }, secretScrubVersion: "1.127.0" },
   // The rebuild persona: a fresh box with the old server's backup drive already mounted. This is
   // what makes the Overview's "Rebuilding this server?" card reviewable.
   "host.snapshot.discover": { locations: [
@@ -956,7 +973,12 @@ api.get("/operations/:id/inspect", (request, response) => {
 });
 // Read-only operations answer from the same fixtures the inspect route uses, so anything the UI
 // reads through /run (which is how it passes parameters) behaves here too.
-api.post("/operations/:id/run", (request, response) => json(response, { operation: request.params.id, result: fixturesFor(scenarioOf(request.get("referer")))[request.params.id] ?? {} }));
+api.post("/operations/:id/run", (request, response) => {
+  const fixture = fixturesFor(scenarioOf(request.get("referer")))[request.params.id];
+  // The one read whose answer depends on what it is asked: the database-copy rule (M36).
+  const result = request.params.id === "housekeeping.database-copies.inspect" && fixture?.copies?.length ? demoDatabaseCopies(request.body?.parameters ?? {}) : fixture ?? {};
+  return json(response, { operation: request.params.id, result });
+});
 api.post("/operations/:id/jobs", (request, response) => response.status(201).json({ job: { id: "demo-job", type: `op:${request.params.id}`, title: request.params.id, state: "awaiting_approval", risk: "medium", error: null, result: null, steps: [], approvals: [], createdAt: now().toISOString() }, approval: { tier: "medium", passwordRequired: false, elevated: false, mode: "tiered", reason: "demo: jobs never run here" } }));
 // "Try again with more time" (M30.3) stages the timed-out job again, like the product, and never runs it.
 api.post("/jobs/:id/more-time", (request, response) => {

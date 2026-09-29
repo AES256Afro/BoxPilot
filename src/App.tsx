@@ -137,7 +137,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
     if (view === "updates") return <UpdatesCenter csrfToken={csrfToken} />;
     if (view === "catalog") return <AppCatalog key={focusApp ?? ""} csrfToken={csrfToken} focusApp={focusApp ?? undefined} />;
     if (view === "services") return <ServicesCenter csrfToken={csrfToken} />;
-    if (view === "system") return <SystemCenter csrfToken={csrfToken} />;
+    if (view === "system") return <SystemCenter csrfToken={csrfToken} role={role} />;
     if (view === "automations") return <AutomationsCenter csrfToken={csrfToken} />;
     if (view === "performance") return <PerformanceCenter csrfToken={csrfToken} />;
     if (view === "users") return <UsersCenter csrfToken={csrfToken} />;
