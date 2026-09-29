@@ -226,6 +226,38 @@ describe("durable job executor", () => {
     store.close();
   });
 
+  // Dockge's failed Start (2026-09-29) read "apply · running" beside "verify · failed": the failure
+  // closed a step that never ran and left the one that did running forever.
+  it("ends the step that was running when the operation fails, and no step is left running", async () => {
+    const reason = "Dockge was not started. Port 5001 is taken on the tailnet address (100.64.0.10) by Tailscale Serve, which publishes Dockge itself at https://homebox.tailXXXX.ts.net:5001.";
+    const helper = { request: vi.fn(async () => { throw new Error(reason); }) };
+    const { store, owner, jobs } = await setup(helper);
+    const job = await jobs.createOperationJob("app.action", { id: "dockge", action: "start" }, owner.id);
+    await expect(jobs.approveAndRun(job.id, owner.id, "correct horse battery")).rejects.toThrow("Port 5001 is taken");
+    const failed = store.getJob(job.id);
+    expect(failed.state).toBe("failed");
+    const latest = new Map(failed.steps.map((step) => [step.name, step]));
+    expect([...latest.values()].filter((step) => step.state === "running")).toEqual([]);
+    expect(latest.get("apply")).toMatchObject({ state: "failed", detail: `Start, stop, pause, or restart application failed: ${reason}` });
+    // Verify never ran, so it is not said to have failed.
+    expect(failed.steps.some((step) => step.name === "verify")).toBe(false);
+    store.close();
+  });
+
+  it("fails verify, not apply, when the operation ran and its result could not be recorded", async () => {
+    const helper = { request: vi.fn(async () => ({ ok: true })) };
+    const { store, owner } = await setup(helper);
+    const jobs = createJobService(store, helper, { operationRecordHooks: { "apt.refresh": () => { throw new Error("disk full"); } } });
+    const job = await jobs.createOperationJob("apt.refresh", {}, owner.id);
+    await expect(jobs.approveAndRun(job.id, owner.id, "correct horse battery")).rejects.toThrow("disk full");
+    const steps = store.getJob(job.id).steps;
+    const latest = new Map(steps.map((step) => [step.name, step.state]));
+    expect(latest.get("apply")).toBe("completed");
+    expect(latest.get("verify")).toBe("failed");
+    expect([...latest.values()]).not.toContain("running");
+    store.close();
+  });
+
   it("pins prepared parameters, runs long operations in the background, and records evidence through the hook", async () => {
     let finish;
     const helper = { request: vi.fn(() => new Promise((resolve) => { finish = resolve; })) };

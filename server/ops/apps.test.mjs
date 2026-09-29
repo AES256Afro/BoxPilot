@@ -70,6 +70,55 @@ describe("app serve operations", () => {
     expect(run).toHaveBeenCalledWith(expect.stringContaining("tailscale"), ["serve", "--yes", "--https=8093", "off"], expect.anything());
   });
 
+  // The Dockge port trap (2026-09-29): Dockge was on the home network (every address) and served at the same port, so
+  // tailscaled held 100.x:5001 and Docker could not publish 0.0.0.0:5001 after a restart.
+  it("refuses to serve an app published on every address, and serves one on loopback", async () => {
+    const run = vi.fn(async (_binary, args) => (args[1] === "status" ? { ok: true, stdout: serveJson, stderr: "" } : { ok: true, stdout: "", stderr: "" }));
+    const published = (bind) => ({ inspect: vi.fn(async () => ({ applications: [{ id: "ntfy", name: "ntfy", installed: true, urls: [{ id: "web", host: 8093, exposure: "lan" }], published: [{ id: "web", host: 8093, protocol: "tcp", bind, fixed: false, web: true }] }] })) });
+    await expect(operations["app.serve.set"].run({ id: "ntfy", enabled: true }, { run, apps: published("0.0.0.0") })).rejects.toThrow("ntfy is on your home network at port 8093, published on every address, and Tailscale Serve would hold the same port on the tailnet address.");
+    await expect(operations["app.serve.set"].run({ id: "ntfy", enabled: true }, { run, apps: published("*") })).rejects.toThrow("change who can reach it to Tailnet only");
+    expect(run).not.toHaveBeenCalled();
+    await expect(operations["app.serve.set"].run({ id: "ntfy", enabled: true }, { run, apps: published("127.0.0.1") })).resolves.toMatchObject({ enabled: true, url: "https://homebox.tail1234.ts.net:8093" });
+  });
+
+  it("stops serving and starts the app, for Repair's fix of a port Serve held", async () => {
+    let served = true;
+    const run = vi.fn(async (_binary, args) => {
+      if (args[1] === "status") return { ok: true, stdout: served ? serveJson : "{}", stderr: "" };
+      if (args.includes("off")) served = false;
+      return { ok: true, stdout: "", stderr: "" };
+    });
+    const apps = { ...fakeApps(), action: vi.fn(async () => ({ id: "ntfy", action: "start", running: true, status: "running", recreated: true })) };
+    const result = await operations["app.serve.set"].run({ id: "ntfy", enabled: false, start: true }, { run, apps });
+    expect(result).toEqual({ id: "ntfy", enabled: false, port: 8093, url: null, withdrawn: "https://homebox.tail1234.ts.net:8093", started: true, status: "running", recreated: true });
+    expect(apps.action).toHaveBeenCalledWith({ id: "ntfy", action: "start" }, expect.anything());
+    // Without start it only withdraws, as before.
+    served = true;
+    apps.action.mockClear();
+    await operations["app.serve.set"].run({ id: "ntfy", enabled: false }, { run, apps });
+    expect(apps.action).not.toHaveBeenCalled();
+  });
+
+  it("withdraws a served app from the tailnet before putting it on the home network, and back if that fails", async () => {
+    const order = [];
+    let served = true;
+    const run = vi.fn(async (_binary, args) => {
+      if (args[1] === "status") return { ok: true, stdout: served ? serveJson : "{}", stderr: "" };
+      order.push(`tailscale ${args.slice(1).join(" ")}`);
+      served = !args.includes("off");
+      return { ok: true, stdout: "", stderr: "" };
+    });
+    const apps = { ...fakeApps(), reconfigure: vi.fn(async () => { order.push("reconfigure"); return { hostPorts: [{ id: "web", host: 8093, protocol: "tcp", exposure: "lan", tailnet: "serve" }] }; }) };
+    const result = await operations["app.exposure.set"].run({ id: "ntfy", mode: "lan" }, { run, apps });
+    expect(order).toEqual(["tailscale --yes --https=8093 off", "reconfigure"]);
+    expect(result).toMatchObject({ mode: "lan", served: false, urls: [], withdrawn: ["https://homebox.tail1234.ts.net:8093"] });
+
+    order.length = 0; served = true;
+    apps.reconfigure.mockImplementationOnce(async () => { order.push("reconfigure"); throw new Error("ntfy reconfiguration failed; the previous configuration was restored. Container exited"); });
+    await expect(operations["app.exposure.set"].run({ id: "ntfy", mode: "lan" }, { run, apps })).rejects.toThrow("Tailscale Serve publishes it again at https://homebox.tail1234.ts.net:8093.");
+    expect(order).toEqual(["tailscale --yes --https=8093 off", "reconfigure", "tailscale --bg --yes --https=8093 http://127.0.0.1:8093"]);
+  });
+
   it("refuses to publish apps that are not installed or have no web port", async () => {
     const run = vi.fn();
     await expect(operations["app.serve.set"].run({ id: "ntfy", enabled: true }, { run, apps: fakeApps(false) })).rejects.toThrow("not installed");
@@ -115,6 +164,7 @@ describe("operations that re-render an app's compose file carry the devices the 
     const apps = {
       setPassword: vi.fn(async () => ({ changed: true })),
       reconfigure: vi.fn(async () => ({ hostPorts: [] })),
+      inspect: vi.fn(async () => ({ applications: [{ id: "jellyfin", installed: true, urls: [{ id: "web", host: 8096, exposure: "lan" }] }] })),
     };
     await operations["app.password.set"].run({ id: "jellyfin", password: "correct horse", devices: ["/dev/dri/renderD128"] }, { apps });
     expect(apps.setPassword).toHaveBeenCalledWith(expect.objectContaining({ id: "jellyfin", devices: ["/dev/dri/renderD128"] }), expect.anything());
