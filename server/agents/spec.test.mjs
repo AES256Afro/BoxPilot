@@ -13,7 +13,8 @@ describe("an agent's spec", () => {
     expect(spec.tools["server.facts"]).toBe("auto");
     expect(Object.keys(spec.tools)).toEqual(toolCatalog.map((tool) => tool.id));
     expect(Object.values(spec.tools).filter((permission) => permission !== "off")).toEqual(["auto"]);
-    expect(spec.budget).toEqual({ runsPerDay: 12, modelSecondsPerDay: 900, stepsPerRun: 6, tokensPerRun: 12_000, runSeconds: 600 });
+    // Fifteen minutes a run by default, and a day's model time that holds two of them.
+    expect(spec.budget).toEqual({ runsPerDay: 12, modelSecondsPerDay: 1_800, stepsPerRun: 6, tokensPerRun: 12_000, runSeconds: 900 });
   });
 
   it("refuses what it does not know rather than guessing", () => {
