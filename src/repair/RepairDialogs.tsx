@@ -1,8 +1,8 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { readJson } from "../http";
-import { Button, RiskTag } from "../ui";
+import "../shell/look.css";
+import { Button, Field, Notice, RiskTag, Sheet, Textarea } from "../ui";
 import { riskOf } from "../ui/operationRisk";
-import { useDialogFocus } from "../useDialogFocus";
 import type { Finding, RepairFix } from "./types";
 import "./dialogs.css";
 
@@ -10,28 +10,17 @@ import "./dialogs.css";
  * The confirmations Repair adds around its fixes (M35). Each one says, before the click, what will
  * happen and at which tier; none of them approves a job - a job's approval is still the approval
  * dialog's, or, for the batch, the server's own one click for a low-risk job.
+ *
+ * M33.14 draws them on the kit's Sheet, as a centred dialog in the console's look (look-console),
+ * so they are the same from Repair, Home and Ops.
  */
 
-function Modal({ title, eyebrow, onClose, busy = false, children, footer }: { title: string; eyebrow: string; onClose: () => void; busy?: boolean; children: ReactNode; footer: ReactNode }) {
-  const ref = useRef<HTMLElement | null>(null);
-  const headingId = useId();
-  useDialogFocus(ref);
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape" && !busy) onClose(); };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [busy, onClose]);
+function Dialog({ title, kicker, onClose, busy = false, children, footer }: { title: string; kicker: string; onClose: () => void; busy?: boolean; children: ReactNode; footer: ReactNode }) {
+  // While a request is in flight, Escape, the backdrop and the close button leave it open.
   return (
-    <div className="modal-backdrop" role="presentation" onMouseDown={busy ? undefined : onClose}>
-      <section ref={ref} tabIndex={-1} className="modal rp-dialog" role="dialog" aria-modal="true" aria-labelledby={headingId} onMouseDown={(event) => event.stopPropagation()}>
-        <header className="rp-dialog__head">
-          <div><span className="rp-dialog__kicker">{eyebrow}</span><h2 id={headingId}>{title}</h2></div>
-          <Button variant="ghost" onClick={onClose} aria-label="Close dialog" disabled={busy}>Close</Button>
-        </header>
-        <div className="rp-dialog__body">{children}</div>
-        <footer className="rp-dialog__foot">{footer}</footer>
-      </section>
-    </div>
+    <Sheet side="center" title={title} kicker={kicker} onClose={() => { if (!busy) onClose(); }} footer={footer} className="look-console rp-dialog">
+      {children}
+    </Sheet>
   );
 }
 
@@ -42,14 +31,14 @@ export function ScheduleDialog({ fix, onClose, onConfirm }: { fix: RepairFix; on
   const specs = fix.schedules ?? [];
   const risk = fix.risk ?? riskOf(fix.operationId);
   return (
-    <Modal title={fix.label} eyebrow="Schedule" onClose={onClose}
+    <Dialog title={fix.label} kicker="Schedule" onClose={onClose}
       footer={<><Button onClick={onClose}>Cancel</Button><Button variant="primary" risk={risk} onClick={onConfirm}>{specs.length === 1 ? "Create the schedule" : `Create ${specs.length} schedules`}</Button></>}>
       <p className="rp-dialog__tier"><RiskTag risk={risk} /> <span>Each run is this tier's job, approved as you, like any schedule.</span></p>
-      <p>{fix.preview}</p>
-      <ul className="rp-modal__list">
+      <p className="rp-dialog__text">{fix.preview}</p>
+      <ul className="rp-dialog__list">
         {specs.map((spec) => <li key={JSON.stringify(spec.parameters)}><code>{String(spec.parameters.id ?? spec.parameters.subject ?? "")}</code> every night at {time(spec.hour, spec.minute)}</li>)}
       </ul>
-    </Modal>
+    </Dialog>
   );
 }
 
@@ -59,15 +48,15 @@ export function ScheduleDialog({ fix, onClose, onConfirm }: { fix: RepairFix; on
  */
 export function BatchDialog({ entries, onClose, onConfirm }: { entries: Array<{ finding: Finding; fix: RepairFix }>; onClose: () => void; onConfirm: () => void }) {
   return (
-    <Modal title="Fix the safe ones" eyebrow="Approval · low risk" onClose={onClose}
+    <Dialog title="Fix the safe ones" kicker="Approval · low risk" onClose={onClose}
       footer={<><Button onClick={onClose}>Cancel</Button><Button variant="primary" risk="low" onClick={onConfirm}>{entries.length === 1 ? "Run it" : `Run all ${entries.length}`}</Button></>}>
       <p className="rp-dialog__tier"><RiskTag risk="low" /> <span>Each is a low-risk job: one click, audited on its own. They run one after another, and this page checks each finding again when they are done.</span></p>
-      <ol className="rp-modal__list">
+      <ol className="rp-dialog__list">
         {entries.map(({ finding, fix }) => (
           <li key={finding.id}><strong>{fix.label}</strong><span className="rp-dialog__dim"> for “{finding.title}”</span><br /><span>{fix.preview}</span></li>
         ))}
       </ol>
-    </Modal>
+    </Dialog>
   );
 }
 
@@ -80,7 +69,6 @@ export function DismissDialog({ target, csrfToken, onClose, onDone }: { target: 
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const reasonId = useId();
   const title = target.finding.title;
   const submit = async () => {
     setBusy(true);
@@ -95,13 +83,14 @@ export function DismissDialog({ target, csrfToken, onClose, onDone }: { target: 
     }
   };
   return (
-    <Modal title="Dismiss this finding" eyebrow="Not now" onClose={onClose} busy={busy}
+    <Dialog title="Dismiss this finding" kicker="Not now" onClose={onClose} busy={busy}
       footer={<><Button onClick={onClose} disabled={busy}>Cancel</Button><Button variant="primary" busy={busy} disabled={reason.trim().length === 0} onClick={() => void submit()}>Dismiss</Button></>}>
-      <p><strong>{title}</strong></p>
+      <p className="rp-dialog__text"><strong>{title}</strong></p>
       <p className="rp-dialog__dim">It moves to Dismissed at the bottom of Repair, with your reason, and leaves Home. If what it says changes, it comes back by itself.</p>
-      <label className="rp-dialog__label" htmlFor={reasonId}>Why? Whoever reads this later will see it.</label>
-      <textarea id={reasonId} className="rp-modal__reason" value={reason} maxLength={200} rows={3} onChange={(event) => setReason(event.target.value)} placeholder="It is deliberate: the downloads drive is separate on purpose" />
-      {error && <p className="rp-dialog__error" role="alert">{error}</p>}
-    </Modal>
+      <Field label="Why? Whoever reads this later will see it.">
+        <Textarea value={reason} maxLength={200} rows={3} onValueChange={setReason} placeholder="It is deliberate: the downloads drive is separate on purpose" />
+      </Field>
+      {error && <Notice tone="danger" live>{error}</Notice>}
+    </Dialog>
   );
 }

@@ -1,0 +1,5 @@
+/*
+ * A page on its way (src/shell/PageLoading.tsx, M33.14): the kit's Progress, as wide as a label
+ * needs. Tokens only; every selector starts with .page-loading-.
+ */
+.page-loading-view { max-width: 24rem; padding: 6px 2px; }

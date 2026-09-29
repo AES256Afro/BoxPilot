@@ -14,6 +14,7 @@ import { connectionLabel } from "./appLinks";
 import { FactsProvider } from "./home/facts";
 import { CommandBar } from "./shell/CommandBar";
 import { NotificationCentre } from "./shell/NotificationCentre";
+import { PageLoading } from "./shell/PageLoading";
 import { ShellDock, ViewSwitch } from "./shell/ShellNav";
 import { ShellHost } from "./shell/ShellHost";
 import { TopBarSlotProvider } from "./shell/TopBarSlot";
@@ -196,11 +197,11 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
 
         <main id="content" tabIndex={-1}>
           <div className={shell === "console" ? "content content--console" : "content content--wide"} data-density={shell === "console" ? "compact" : undefined}>
-            {showGallery ? <Suspense fallback={<p className="muted page-loading">Loading…</p>}><Gallery /></Suspense> : <>
+            {showGallery ? <Suspense fallback={<PageLoading name="the design system" />}><Gallery /></Suspense> : <>
               {!ownHeader.has(view) && <PageHeader title={copy.title} about={copy.description} />}
               {/* Keyed by the page, so the page left behind unmounts at once rather than waiting, hidden,
                   behind the next one's loading: its name in the bar would otherwise linger. */}
-              <PageErrorBoundary pageName={viewLabel(view)} resetKey={view}><Suspense key={view} fallback={<p className="muted page-loading">Loading…</p>}>{pageContent}</Suspense></PageErrorBoundary>
+              <PageErrorBoundary pageName={viewLabel(view)} resetKey={view}><Suspense key={view} fallback={<PageLoading name={viewLabel(view)} />}>{pageContent}</Suspense></PageErrorBoundary>
             </>}
           </div>
         </main>
