@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import type { PendingOperation } from "../../shell/ApproveDialog";
 import { Button, riskOf, type ButtonVariant } from "../../ui";
 import type { LibraryModel, RuntimeState } from "./api";
-import { bytes, gibibytes, type RunnerDetail, type SetupStepId } from "./format";
+import { bytes, capsWords, type RunnerDetail, type SetupStepId } from "./format";
 
 /*
  * What stands between Agents being on and an agent answering (M37): Unsloth installed, the model
@@ -53,7 +53,7 @@ export function downloadStep(model: LibraryModel): SetupStep {
 export function enableStep(runtime: RuntimeState): SetupStep {
   return {
     id: "enable", label: "Start the runner",
-    operation: { operationId: "agents.runtime.enable", title: "Start the agents runner", parameters: {}, preview: <span>{runtime.caps.unit}: one processor at most, idle priority, {gibibytes(runtime.caps.memoryMaxBytes)}, this machine only.</span> },
+    operation: { operationId: "agents.runtime.enable", title: "Start the agents runner", parameters: {}, preview: <span>{runtime.caps.unit}: {capsWords(runtime.caps)}, this machine only.</span> },
   };
 }
 
