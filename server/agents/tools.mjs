@@ -1,0 +1,192 @@
+/**
+ * The read-only tools, as the web process runs them for the agents runner (M37). The runner never
+ * reads the server itself: it asks for a tool by name on a run it holds the lease of, and this
+ * reads - as that run's person, through the same helpers and rules the pages use - and returns
+ * text. The helper is reached only through registered read-only operations, and an operator read
+ * (ADR-003) is never run for a run that reads as a viewer.
+ *
+ * Notes, plans and notifications are the service's (service.mjs); everything here only reads.
+ */
+import { alertSources, appSummary, asRequest, backupSummary, maskedParameters, storageSummary } from "../assistant/facts.mjs";
+import { createBm25, tokenize } from "../assistant/knowledge.mjs";
+import { seesEveryAccount } from "../routes/access.mjs";
+import { describePihole } from "./pihole.mjs";
+
+const clip = (text, max) => { const value = String(text ?? ""); return value.length > max ? `${value.slice(0, max - 1)}…` : value; };
+const gigabytes = (bytes) => (Number.isFinite(bytes) ? `${(bytes / 1e9).toFixed(bytes >= 100e9 ? 0 : 1)} GB` : "unknown");
+const hours = (seconds) => (Number.isFinite(seconds) ? `${Math.floor(seconds / 86_400)} days ${Math.floor((seconds % 86_400) / 3600)} hours` : "unknown");
+
+export class ToolError extends Error {
+  constructor(message) { super(message); this.code = "tool_failed"; }
+}
+
+/** Longest a `since` may reach back: a week. */
+export function sinceWithinWeek(since) {
+  const match = /^(\d{1,3})([mhd])$/.exec(String(since ?? ""));
+  if (!match) return false;
+  const minutes = Number(match[1]) * { m: 1, h: 60, d: 1440 }[match[2]];
+  return minutes >= 1 && minutes <= 7 * 1440;
+}
+
+export function createToolRunner({ state, store, registry, helper = null, inventory = null, knowledge = null, secretEnvNamesFor = null, now = () => new Date(), helperTimeoutMs = 30_000 }) {
+  let appsRead = null;
+  /** app.inspect, shared for fifteen seconds: a run asks several tools that all start from it. */
+  function readApps() {
+    if (!helper) return Promise.resolve(null);
+    const at = now().getTime();
+    if (appsRead && at - appsRead.at < 15_000) return appsRead.promise;
+    const promise = helper.request("app.inspect", {}, { timeoutMs: helperTimeoutMs });
+    appsRead = { at, promise };
+    promise.catch(() => { if (appsRead?.promise === promise) appsRead = null; });
+    return promise;
+  }
+
+  /** A registered read, refused for a role it is not open to - the same check the operations route makes. */
+  async function read(operationId, parameters, { readRole }) {
+    const operation = registry.get(operationId);
+    if (!operation?.readOnly) throw new ToolError(`${operationId} is not a read`);
+    if (operation.elevatedOnly) throw new ToolError(`${operation.title} reveals secrets, so no agent reads it`);
+    if (operation.minimumRole === "operator" && !["owner", "operator"].includes(readRole)) throw new ToolError(`${operation.title} needs an operator`);
+    if (operation.minimumRole === "owner" && readRole !== "owner") throw new ToolError(`${operation.title} is the owner's to read`);
+    const problem = registry.validate(operationId, parameters);
+    if (problem) throw new ToolError(problem);
+    if (!helper) throw new ToolError("The helper is not available");
+    return helper.request(operationId, parameters, { timeoutMs: Math.min(operation.timeoutMs ?? helperTimeoutMs, helperTimeoutMs) });
+  }
+
+  const tools = {
+    async "server.facts"() {
+      const snapshot = await inventory?.inspect();
+      if (!snapshot) throw new ToolError("The server's facts could not be read");
+      const { host = {}, compute = {}, network = {}, services = [] } = snapshot;
+      const addresses = (network.addresses ?? []).slice(0, 8).map((entry) => `${entry.interface} ${entry.address}`).join(", ");
+      return [
+        `Name: ${host.hostname ?? "unknown"}. Operating system: ${host.operatingSystem ?? "unknown"}, kernel ${host.kernel ?? "unknown"} (${host.architecture ?? "?"}). Up ${hours(host.uptimeSeconds)}.`,
+        `Processor: ${compute.cpuModel ?? "unknown"}, ${compute.cpuCount ?? "?"} threads, load ${Number(compute.load1 ?? 0).toFixed(2)} (${compute.loadPercent ?? "?"}%).`,
+        `Memory: ${gigabytes(compute.usedMemoryBytes)} used of ${gigabytes(compute.totalMemoryBytes)} (${compute.memoryUsedPercent ?? "?"}%).`,
+        `Network: ${addresses || "no addresses read"}. Tailscale: ${network.tailscale?.connected ? `connected as ${network.tailscale.dnsName ?? "unknown"}` : network.tailscale?.installed ? "installed, not connected" : "not installed"}.`,
+        `Key services: ${services.map((service) => `${service.unit} ${service.active}`).join(", ") || "not read"}.`,
+      ].join("\n");
+    },
+
+    async "apps.list"() {
+      const [apps, snapshot] = await Promise.all([readApps().catch(() => null), inventory?.inspect().catch(() => null)]);
+      const applications = Array.isArray(apps?.applications) ? apps.applications : null;
+      const lines = [];
+      if (applications) lines.push(appSummary(applications, { sourceChars: 3_000 }).text);
+      else lines.push("Which BoxPilot apps are installed could not be read.");
+      const others = (snapshot?.docker?.containers ?? []).filter((container) => !container.app && !String(container.name ?? "").startsWith("bp-"));
+      if (others.length) lines.push(`Other Docker containers (not installed by BoxPilot): ${others.slice(0, 20).map((container) => `${container.name} (${container.image}, ${container.state}${container.health !== "none" ? `, ${container.health}` : ""})`).join("; ")}.`);
+      return lines.join("\n");
+    },
+
+    async "services.status"({ unit = null }, context) {
+      const listed = await read("service.list", {}, context);
+      const units = Array.isArray(listed?.units) ? listed.units : [];
+      if (unit) {
+        const found = units.find((entry) => entry.unit === unit);
+        return found ? `${found.unit}: ${found.active} (${found.sub}), ${found.enabled}${found.description ? ` - ${found.description}` : ""}.` : `${unit} is not a unit on this server.`;
+      }
+      const failed = units.filter((entry) => entry.active === "failed");
+      return [
+        `${listed?.counts?.total ?? units.length} units, ${listed?.counts?.active ?? "?"} active, ${failed.length} failed.`,
+        failed.length ? `Failed: ${failed.slice(0, 15).map((entry) => entry.unit).join(", ")}.` : "Nothing has failed.",
+      ].join("\n");
+    },
+
+    async "logs.query"({ kind, target, lines = 60, since = null, filter = null }, context) {
+      if (since && !sinceWithinWeek(since)) throw new ToolError("since reaches back at most 7d");
+      const result = await read("logs.read", { kind, target, lines, ...(since ? { since } : {}), ...(filter ? { filter } : {}) }, context);
+      const entries = Array.isArray(result?.lines) ? result.lines.slice(-lines) : [];
+      return entries.length ? `${entries.length} lines from ${kind} ${target}${since ? ` since ${since}` : ""}:\n${entries.join("\n")}` : `No lines from ${kind} ${target}${since ? ` since ${since}` : ""}.`;
+    },
+
+    async "storage.health"() {
+      const snapshot = await inventory?.inspect();
+      const summary = storageSummary(snapshot, { sourceChars: 3_000 });
+      return summary ? summary.text : "Storage and drive health could not be read.";
+    },
+
+    async "docs.search"({ query, limit = 4 }, context) {
+      const sources = context.spec.knowledge ?? {};
+      const kinds = [sources.docs !== false && "doc", sources.registry !== false && "operation", sources.catalog !== false && "app"].filter(Boolean);
+      const hits = [];
+      if (knowledge && kinds.length) {
+        await knowledge.ensure().catch(() => null);
+        for (const hit of knowledge.search(query, { limit, kinds })) hits.push({ score: hit.score, title: hit.chunk.title, text: hit.chunk.text });
+      }
+      if (sources.documents !== false) {
+        const documents = store.listDocuments().filter((document) => document.enabled);
+        if (documents.length) {
+          const chunks = documents.map((document) => ({ title: `Owner's document: ${document.title}`, text: document.text.slice(0, 4_000), weight: 1.2 }));
+          for (const [index, score] of createBm25(chunks).search(tokenize(query))) hits.push({ score, title: chunks[index].title, text: chunks[index].text });
+        }
+      }
+      if (!hits.length) return `Nothing in the documents matched "${clip(query, 80)}".`;
+      return hits.sort((a, b) => b.score - a.score).slice(0, limit).map((hit) => `## ${hit.title}\n${clip(hit.text, 900)}`).join("\n\n");
+    },
+
+    async "jobs.recent"({ state: which = "failed", limit = 5 }, context) {
+      const request = asRequest({ id: context.readAs, role: context.readRole });
+      const scope = seesEveryAccount(request) ? {} : { createdBy: context.readAs };
+      const jobs = (state.listJobs?.(50, scope) ?? []).filter((job) => which === "all" || job.state === "failed").slice(0, limit);
+      if (!jobs.length) return which === "failed" ? "No failed jobs to see." : "No jobs to see.";
+      const pieces = [];
+      for (const job of jobs) {
+        const operationId = typeof job.type === "string" && job.type.startsWith("op:") ? job.type.slice(3) : null;
+        const parameters = await maskedParameters(job, { registry, secretEnvNamesFor });
+        pieces.push([
+          `Job ${job.id}: ${job.title ?? "untitled"}${operationId ? ` (operation ${operationId})` : ""}, ${job.state}, last changed ${job.updatedAt ?? job.createdAt ?? "at an unknown time"}.`,
+          job.error ? `Error: ${clip(job.error, 500)}` : null,
+          job.timeout ? "It ran out of time." : null,
+          parameters && Object.keys(parameters).length ? `Parameters: ${clip(JSON.stringify(parameters), 300)}` : null,
+        ].filter(Boolean).join("\n"));
+      }
+      return pieces.join("\n\n");
+    },
+
+    async "alerts.active"(_input, context) {
+      const sources = alertSources({ caller: { id: context.readAs, role: context.readRole }, state, focusKey: null, limit: 20 });
+      return sources.length ? sources.map((source) => source.text).join("\n") : "No health alerts are live, and no news is waiting.";
+    },
+
+    async "backups.status"() {
+      return backupSummary(state, { sourceChars: 3_000 }).text;
+    },
+
+    async "pihole.stats"(_input, context) {
+      return describePihole(await read("app.pihole.inspect", {}, context));
+    },
+
+    async "where.runs"({ name }) {
+      const wanted = name.toLowerCase().replace(/[\s._-]+/g, "");
+      const matches = (value) => String(value ?? "").toLowerCase().replace(/[\s._-]+/g, "").includes(wanted);
+      const [apps, snapshot, units] = await Promise.all([
+        readApps().catch(() => null),
+        inventory?.inspect().catch(() => null),
+        helper ? helper.request("service.list", {}, { timeoutMs: helperTimeoutMs }).catch(() => null) : null,
+      ]);
+      const found = [];
+      for (const app of (apps?.applications ?? []).filter((entry) => entry?.installed && (matches(entry.id) || matches(entry.name)))) {
+        found.push(`${app.id} is a BoxPilot app: container bp-${app.id}, ${app.container?.running ? "running" : app.container?.status ?? "not running"}.`);
+      }
+      for (const container of (snapshot?.docker?.containers ?? []).filter((entry) => !String(entry.name ?? "").startsWith("bp-") && (matches(entry.name) || matches(entry.image)))) {
+        found.push(`${container.name} is a Docker container BoxPilot did not install, from image ${container.image}, ${container.state}.`);
+      }
+      for (const unit of (units?.units ?? []).filter((entry) => matches(entry.unit.replace(/\.(service|timer|socket|mount)$/, "")))) {
+        found.push(`${unit.unit} runs natively on the host as a systemd unit: ${unit.active} (${unit.sub}).`);
+      }
+      if (!found.length) return `Nothing called "${name}" runs here: no BoxPilot app, no Docker container and no systemd unit by that name.${!apps || !snapshot || !units ? " (Some of these could not be read.)" : ""}`;
+      return found.slice(0, 12).join("\n");
+    },
+  };
+
+  /** Run one read tool. `context` carries the run's role, whom it reads as, and the agent's spec. */
+  async function run(toolId, input, context) {
+    const tool = tools[toolId];
+    if (!tool) throw new ToolError(`${toolId} is not a read tool`);
+    return tool(input ?? {}, context);
+  }
+
+  return { run, has: (toolId) => Object.hasOwn(tools, toolId), readApps };
+}
