@@ -8,7 +8,7 @@ import { useOperation } from "./shell/ApproveDialog";
 import { useAutoReconnect } from "./AutoReconnect";
 import { inspectOperation } from "./operations";
 import { countOf, type ViewName } from "./data";
-import { Button, PageHeader, Panel, RiskTag, StatusChip, Table, type RiskTier, type Status, type TableColumn } from "./ui";
+import { Button, Field, PageHeader, Panel, RiskTag, SecretInput, StatusChip, Table, TextInput, type RiskTier, type Status, type TableColumn } from "./ui";
 import { mayStart, riskOf } from "./ui/operationRisk";
 import { DriveAutoReconnect } from "./repair/DriveAutoReconnect";
 import { FindingCard, severityStatus } from "./repair/FindingCard";
@@ -477,8 +477,16 @@ export default function RepairCenter({ csrfToken, role = "owner", onNavigate = (
                   return (
                     <>
                       <p className="rp-row__text"><strong>{passwordRequired ? `${copy.label} · password required` : `${copy.label} · ${tier === "low" ? "one click" : "confirm to run"}`}</strong> {passwordRequired ? tierCopy.high.description : copy.description}{approvalPolicy?.elevated && tier === "high" ? " Your session is elevated, so no password is needed right now." : ""}</p>
-                      {approvalPolicy?.confirmText && <label className="rp-field">Type {approvalPolicy.confirmText} to confirm<input className="rp-input" aria-label="Typed confirmation" autoComplete="off" spellCheck="false" value={confirmTyped} onChange={(event) => setConfirmTyped(event.target.value)} /></label>}
-                      {passwordRequired && <input className="rp-input" aria-label="Approval password" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} />}
+                      {approvalPolicy?.confirmText && (
+                        <Field label="Typed confirmation" hint={<>Type <code>{approvalPolicy.confirmText}</code> exactly as shown.</>}>
+                          <TextInput mono autoComplete="off" spellCheck={false} autoCapitalize="off" value={confirmTyped} onValueChange={setConfirmTyped} />
+                        </Field>
+                      )}
+                      {passwordRequired && (
+                        <Field label="Approval password">
+                          <SecretInput autoComplete="current-password" value={password} onValueChange={setPassword} revealLabel="Show" />
+                        </Field>
+                      )}
                       <div className="rp-finding__actions">
                         <Button variant="primary" risk={tier} onClick={() => void approve()} disabled={pending || (passwordRequired && password.length < 12) || Boolean(approvalPolicy?.confirmText && confirmTyped !== approvalPolicy.confirmText)}>{pending ? "Working..." : tier === "low" && !passwordRequired ? "Run" : "Approve and run"}</Button>
                         <Button variant="ghost" onClick={() => void withdraw()} disabled={pending}>Withdraw</Button>

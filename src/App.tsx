@@ -49,10 +49,9 @@ const Gallery = lazy(() => import("./ui/Gallery"));
 const Settings = lazy(() => import("./pages/settings/SettingsPage"));
 
 /**
- * Pages that draw their own PageHeader (src/ui/PageHeader.tsx): Home its greeting, Ops and the
- * pages rebuilt on the kit their verdict and facts. Every other page gets one from the shell, with
- * its name in the bar and what it is for behind the info toggle, until wave 2 rebuilds it (M33.8).
- * A rebuilt page adds itself here. Repair (M35) draws its own crumb and verdict in the page.
+ * Pages that draw their own PageHeader (src/ui/PageHeader.tsx): Home its greeting, every other
+ * page its verdict and facts; since M33.14 that is all of them. A page not listed would get a
+ * plain one from the shell, its name in the bar and what it is for behind the info toggle.
  */
 const ownHeader = new Set<ViewName>(["home", "ops", "services", "logs", "repairs", "network", "firewall", "users", "github", "settings", "virtualization", "system", "setup", "storage", "backups", "updates", "catalog", "automations", "performance"]);
 
