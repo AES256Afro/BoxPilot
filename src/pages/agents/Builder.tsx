@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from "react";
 import { relativeTime } from "../../home/format";
-import { Button, Checkbox, CodeBlock, Field, Notice, Panel, Segmented, Select, Sheet, StatusChip, Switch, Table, Tag, TextInput, Textarea, type TableColumn } from "../../ui";
+import { Button, Checkbox, CodeBlock, CopyButton, Facts, Field, Notice, Panel, Segmented, Select, Sheet, StatusChip, Switch, Table, Tag, TextInput, Textarea, type TableColumn } from "../../ui";
 import { agentsApi, type AgentDetail, type AgentSpec, type AgentSummary, type AgentVersion, type Catalog, type OutputField, type Schedule, type SpecChange, type ToolInfo, type ToolPermission, type VersionDetail } from "./api";
 import { errorText, scheduleWords, triggerWords } from "./format";
 
@@ -101,9 +101,9 @@ function TemplatePicker({ catalog, canCreate, csrfToken, onCreated }: Pick<Build
               <h3 className="agents-template__title">{template.title}{template.spec.orchestration?.supervisor ? <Tag tone="accent">supervisor</Tag> : null}</h3>
               <p className="agents-template__summary">{template.summary}</p>
               <p className="agents-template__job"><span className="agents-dim">Its job:</span> {template.spec.job}</p>
-              <p className="agents-template__facts">
-                {tools} {tools === 1 ? "tool" : "tools"} · {triggerWords({ triggers: template.spec.triggers })} · asked by {template.spec.audience.join(", ")}
-              </p>
+              <Facts>
+                <b>{tools}</b> {tools === 1 ? "tool" : "tools"} · {triggerWords({ triggers: template.spec.triggers })} · asked by {template.spec.audience.join(", ")}
+              </Facts>
               {canCreate && <Button variant={template.id === "server-keeper" ? "primary" : "secondary"} busy={busy === template.id} onClick={() => void create(template.id)}>{template.id === "blank" ? "Start blank" : `Make ${article(template.title)} ${template.title}`}</Button>}
             </article>
           );
@@ -448,7 +448,10 @@ function Webhook({ agent, csrfToken, onChanged }: { agent: AgentDetail; csrfToke
   return (
     <Panel className="agents-webhook" title="Webhook" count={agent.webhook.minted ? { status: "good", label: "set" } : { status: "neutral", label: "none" }} padded>
       <p className="agents-dim">A POST to this URL starts {agent.name} once, as a schedule would. The caller chooses only when: nothing it sends reaches the run.</p>
-      {url && <><Notice tone="warning" title="Copy it now">It is shown once; BoxPilot keeps only a digest of it.</Notice><CodeBlock label="The webhook's URL">{url}</CodeBlock></>}
+      {url && <>
+        <Notice tone="warning" title="Copy it now">It is shown once; BoxPilot keeps only a digest of it.</Notice>
+        <div className="agents-webhook__url"><code>{url}</code><CopyButton value={url} name="the webhook's URL" /></div>
+      </>}
       {error && <Notice tone="danger" live>{error}</Notice>}
       {agent.canEdit && (
         <div className="agents-editor__foot">
