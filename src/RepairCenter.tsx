@@ -4,12 +4,11 @@ import RuntimeHealth from "./RuntimeHealth";
 import PackageRecovery from "./PackageRecovery";
 import ControllerDoctor from "./repair/ControllerDoctor";
 import ServerRunbook from "./repair/ServerRunbook";
-import { useOperation } from "./ApproveDialog";
+import { useOperation } from "./shell/ApproveDialog";
 import { useAutoReconnect } from "./AutoReconnect";
 import { inspectOperation } from "./operations";
 import { countOf, type ViewName } from "./data";
-import { useOptionalFacts, valuesOf } from "./home/facts";
-import { Button, Panel, RiskTag, StatusChip, Table, type RiskTier, type Status, type TableColumn } from "./ui";
+import { Button, PageHeader, Panel, RiskTag, StatusChip, Table, type RiskTier, type Status, type TableColumn } from "./ui";
 import { mayStart, riskOf } from "./ui/operationRisk";
 import { DriveAutoReconnect } from "./repair/DriveAutoReconnect";
 import { FindingCard, severityStatus } from "./repair/FindingCard";
@@ -25,7 +24,7 @@ import "./repair/repair.css";
  * a finding can be set aside with a reason, and a set-aside one comes back when it changes.
  *
  * The page is Ops' Command Center console (ADR-004, M33.7), built from src/ui alone: the verdict
- * first, then console panels with small-capital titles, mono figures and a tier on every button.
+ * first (the kit's PageHeader, its name in the bar, since M33.14), then console panels with small-capital titles, mono figures and a tier on every button.
  * Below the findings are the checks that are not findings - prerequisites, the approval desk, the
  * helper, BoxPilot's own resources, installation and packages, protection gaps, the rebuild
  * checklist, the runbook and Activity. Its styles are beside it, in src/repair/repair.css.
@@ -138,9 +137,6 @@ export default function RepairCenter({ csrfToken, role = "owner", onNavigate = (
   const [canaryResult, setCanaryResult] = useState<string | null>(null);
   const [scan, setScan] = useState<RepairScan | null>(null);
   const [showDismissed, setShowDismissed] = useState(false);
-  // The server's name for the crumb, from the facts the shell already reads; none in a bare test.
-  const shellFacts = useOptionalFacts();
-  const hostname = (shellFacts ? valuesOf(shellFacts.facts).inventory?.hostname : null) ?? "this server";
 
   /** The problem scan alone: what a fix reads again when it ends. */
   const loadScan = useCallback(async (): Promise<RepairScan | null> => {
@@ -408,26 +404,17 @@ export default function RepairCenter({ csrfToken, role = "owner", onNavigate = (
 
   return (
     <div className="rp cc" data-density="compact">
-      <header className="rp-head">
-        <div className="cc-crumb">
-          <span className="cc-crumb__host">{hostname}</span>
-          <span className="cc-crumb__sep" aria-hidden="true">/</span>
-          <h1>Repair</h1>
-        </div>
-        <span className="cc-kv">
-          critical <b>{counts.critical}</b> · to fix <b>{counts.warning}</b> · suggestions <b>{counts.info}</b> · dismissed <b>{dismissed.length}</b>
-          {scan?.checkedAt ? <> · checked <b>{time(scan.checkedAt)}</b></> : null}
-        </span>
-      </header>
-
-      <div className="cc-status">
-        <StatusChip status={verdict.status}>{verdict.label}</StatusChip>
-        <p className="ops-verdict">{verdict.sentence}</p>
-        <div className="rp-status__actions">
+      <PageHeader
+        title="Repair"
+        status={{ status: verdict.status, label: verdict.label }}
+        summary={verdict.sentence}
+        meta={<>critical <b>{counts.critical}</b> · to fix <b>{counts.warning}</b> · suggestions <b>{counts.info}</b> · dismissed <b>{dismissed.length}</b>{scan?.checkedAt ? <> · checked <b>{time(scan.checkedAt)}</b></> : null}</>}
+        actions={<>
           {safe.length > 0 && <Button variant="primary" risk="low" onClick={() => fixes.startBatch(safe)} disabled={fixes.busy}>{fixes.busy ? "Fixing…" : `Fix the safe ones (${safe.length})`}</Button>}
           <Button variant="ghost" onClick={() => void refresh()} disabled={loading}>{loading ? "Checking..." : "Check again"}</Button>
-        </div>
-      </div>
+        </>}
+        about="What is wrong on this server, worst first, each with the fix that fixes it. A fix runs through the approval dialog at its own tier, and the finding is checked again when it ends. Below the findings: prerequisites, the approval desk, the helper, BoxPilot's own resources, protection gaps, the rebuild checklist, the runbook and Activity."
+      />
 
       {(scanError || prerequisiteError || jobError) && !loading && <p className="rp-note" data-tone="warning" role="status"><StatusChip status="unknown">Checks incomplete</StatusChip><span>Some checks could not finish. What could be read is below; check again for the rest.</span></p>}
       {scanError && <p className="rp-note" data-tone="warning" role="status"><strong>Problem scan incomplete</strong><span>{scanError}</span></p>}
