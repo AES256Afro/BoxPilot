@@ -168,6 +168,7 @@ export default function SharesTab({ csrfToken, role, report, loading, tailnetHos
 
       {open && (
         <Sheet
+          className="storage-sheet"
           kicker="Network share"
           title="Mount a share"
           onClose={() => setOpen(false)}

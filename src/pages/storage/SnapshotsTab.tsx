@@ -168,6 +168,7 @@ export default function SnapshotsTab({ csrfToken, role, report, loading, fsSnaps
 
       {lvmForm && (
         <Sheet
+          className="storage-sheet"
           kicker="LVM snapshot"
           title="Take a snapshot"
           onClose={() => setLvmForm(null)}
@@ -191,6 +192,7 @@ export default function SnapshotsTab({ csrfToken, role, report, loading, fsSnaps
 
       {fsForm && (
         <Sheet
+          className="storage-sheet"
           side="center"
           size="sm"
           kicker="btrfs or ZFS snapshot"

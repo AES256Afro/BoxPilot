@@ -395,6 +395,7 @@ export default function FileSharingTab({ csrfToken, role, samba, nfs, folders, p
 
       {form && (
         <Sheet
+          className="storage-sheet"
           kicker="Samba"
           title="Add a share"
           onClose={() => setForm(null)}
@@ -435,6 +436,7 @@ export default function FileSharingTab({ csrfToken, role, samba, nfs, folders, p
 
       {user && (
         <Sheet
+          className="storage-sheet"
           side="center"
           size="sm"
           kicker="File-server user"

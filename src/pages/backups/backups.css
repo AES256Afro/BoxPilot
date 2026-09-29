@@ -2,6 +2,9 @@
    selector starts with .backups-, so no other page is touched (docs/UI-PAGES.md). */
 
 .backups-page { display: grid; gap: 10px; min-width: 0; }
+/* A tab's status said in words is absolutely placed; held by its tab, it stays inside the tab list's
+   scroll instead of widening the whole page on a phone. */
+.backups-page .ui-tabs__tab { position: relative; }
 .backups-dim { color: var(--text-muted); font-family: var(--font-condensed); font-size: 12.5px; line-height: 1.4; }
 .backups-mono { color: var(--text); font-family: var(--font-mono); font-size: 12.5px; }
 .backups-name { color: var(--text-strong); font-family: var(--font-condensed); font-size: 14px; font-weight: 600; }
@@ -36,6 +39,10 @@
 .backups-review__label { margin: 0; color: var(--text-muted); font-family: var(--font-mono); font-size: 10.5px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
 .backups-review__guidance { max-width: 84ch; margin: 0 0 2px; color: var(--text); font-size: 13px; line-height: 1.45; }
 .backups-disclose { display: grid; gap: 6px; }
+/* A sheet keeps to its width, whatever its select or table would like (see storage.css). */
+.backups-sheet .ui-sheet__body { grid-template-columns: minmax(0, 1fr); }
+.backups-sheet .ui-select { min-width: 0; grid-template-columns: minmax(0, 1fr); }
+.backups-sheet .ui-select__control { min-width: 0; }
 /* A code block keeps to its panel however long its bar is (its own track would take the bar's full width). */
 .backups-page .ui-code { grid-template-columns: minmax(0, 1fr); }
 .backups-disclose > summary { width: fit-content; max-width: 100%; color: var(--text-strong); font-size: 13px; cursor: pointer; overflow-wrap: anywhere; }
@@ -49,4 +56,6 @@
   .backups-actions { flex-wrap: wrap; justify-content: flex-start; padding-top: 4px; white-space: normal; }
   .backups-actions-cell { width: auto; }
   .backups-pick { width: auto; }
+  /* The restore sheet's rows stacked: the box needs no "Restore:" before it. */
+  .backups-sheet td.backups-pick[data-label]::before { content: none; }
 }

@@ -2,6 +2,9 @@
    selector starts with .storage-, so no other page is touched (docs/UI-PAGES.md). */
 
 .storage-page { display: grid; gap: 10px; min-width: 0; }
+/* A tab's status said in words is absolutely placed; held by its tab, it stays inside the tab list's
+   scroll instead of widening the whole page on a phone. */
+.storage-page .ui-tabs__tab { position: relative; }
 .storage-dim { color: var(--text-muted); font-family: var(--font-condensed); font-size: 12.5px; line-height: 1.4; }
 .storage-pad { margin: 0; padding: 12px; }
 .storage-inset { margin: 10px 12px 0; }
@@ -46,6 +49,12 @@
 .storage-reconnect__waiting { display: flex; align-items: baseline; gap: 6px; margin: 0; color: var(--status-warning-text); font-family: var(--font-condensed); font-size: 12.5px; line-height: 1.35; }
 .storage-reconnect__waiting .ui-mark { width: 7px; height: 7px; }
 .storage-rule { display: block; max-width: 96ch; color: var(--text-muted); font-family: var(--font-condensed); font-size: 12.5px; line-height: 1.45; }
+
+/* A sheet keeps to its width: its body's one track would otherwise grow to a select's longest
+   option, past a phone's screen. */
+.storage-sheet .ui-sheet__body { grid-template-columns: minmax(0, 1fr); }
+.storage-sheet .ui-select { min-width: 0; grid-template-columns: minmax(0, 1fr); }
+.storage-sheet .ui-select__control { min-width: 0; }
 
 /* A sheet's small rows: finding a NAS, listing its shares. */
 .storage-find { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
