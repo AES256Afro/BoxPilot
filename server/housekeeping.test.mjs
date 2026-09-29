@@ -304,3 +304,109 @@ describe("where housekeeping looks for job logs", () => {
     expect(defaultJobLogDirectory).toBe("/run/boxpilot/logs");
   });
 });
+
+/**
+ * The database copies updates take (M36). Nothing removes them on its own; the owner sets a rule,
+ * reads the list and approves it, and the removal takes exactly that list, re-checked against the
+ * same rule when it runs.
+ */
+describe("the database copies updates take", () => {
+  const now = Date.parse("2026-09-29T12:00:00.000Z");
+  async function copiesFixture() {
+    const root = await mkdtemp(path.join(os.tmpdir(), "boxpilot-db-copies-"));
+    directories.push(root);
+    const state = path.join(root, "var-lib-boxpilot");
+    await mkdir(state, { recursive: true });
+    await writeFile(path.join(state, "boxpilot.sqlite3"), "live");
+    await writeFile(path.join(state, "boxpilot.sqlite3-wal"), "live wal");
+    await writeFile(path.join(state, "storage-health.json"), "{}");
+    const names = [
+      "boxpilot-rollback-1.121.0-20260816T101500Z.sqlite3",
+      "boxpilot-rollback-1.121.0-20260816T101700Z.sqlite3",
+      "boxpilot-rollback-1.126.0-20260901T101500Z.sqlite3",
+      "boxpilot-rollback-1.131.0-20260928T101500Z.sqlite3",
+      "boxpilot-rollback-1.138.0-20260929T101500Z.sqlite3",
+    ];
+    for (const name of names) await writeFile(path.join(state, name), "x".repeat(1000));
+    // One left open by something, with its WAL beside it; and one made by hand, dated by its file.
+    await writeFile(path.join(state, `${names[0]}-wal`), "y".repeat(500));
+    await writeFile(path.join(state, "boxpilot-rollback-by-hand.sqlite3"), "z".repeat(200));
+    const handMade = new Date(now - 60 * 86_400_000);
+    await utimes(path.join(state, "boxpilot-rollback-by-hand.sqlite3"), handMade, handMade);
+    const service = createHousekeepingService({ run: vi.fn(), liveDatabase: path.join(state, "boxpilot.sqlite3"), now: () => new Date(now) });
+    return { state, names, service };
+  }
+
+  it("lists every copy newest first, and says which a rule lets go of and why the rest stay", async () => {
+    const { names, service } = await copiesFixture();
+    const report = await service.databaseCopies({ keep: 2, keepDays: 30 });
+    expect(report.copies.map((copy) => [copy.name, copy.goes, copy.keptBecause])).toEqual([
+      [names[4], false, "newest"],
+      [names[3], false, "newest"],
+      [names[2], false, "recent"],
+      [names[1], true, null],
+      [names[0], true, null],
+      ["boxpilot-rollback-by-hand.sqlite3", true, null],
+    ]);
+    expect(report.goes).toEqual([names[1], names[0], "boxpilot-rollback-by-hand.sqlite3"]);
+    // Its WAL is part of the copy's size; the live database and other files are not copies at all.
+    expect(report.copies.find((copy) => copy.name === names[0]).bytes).toBe(1500);
+    expect(report.copies.some((copy) => copy.name.startsWith("boxpilot.sqlite3"))).toBe(false);
+    expect(report.goesBytes).toBe(1000 + 1500 + 200);
+  });
+
+  it("marks the copies taken before the secret scrub, which may still hold passwords", async () => {
+    const { service } = await copiesFixture();
+    const report = await service.databaseCopies();
+    const held = Object.fromEntries(report.copies.map((copy) => [copy.version, copy.heldSecrets]));
+    expect(held).toMatchObject({ "1.121.0": true, "1.126.0": true, "1.131.0": false, "1.138.0": false, "by-hand": true });
+    expect(report.rule).toEqual({ keep: 3, keepDays: 30 });
+  });
+
+  it("refuses a rule that would keep nothing, or a fraction", async () => {
+    const { service } = await copiesFixture();
+    await expect(service.databaseCopies({ keep: 0 })).rejects.toThrow(/keep must be a whole number from 1/);
+    await expect(service.databaseCopies({ keepDays: 1.5 })).rejects.toThrow(/keepDays/);
+  });
+
+  it("removes exactly the listed copies the rule still lets go of, with anything beside them", async () => {
+    const { state, names, service } = await copiesFixture();
+    const said = [];
+    const result = await service.removeDatabaseCopies({ keep: 2, keepDays: 20, names: [names[0], names[1]], progress: (line) => said.push(line) });
+    expect(result.removed.sort()).toEqual([names[0], names[1]]);
+    await expect(stat(path.join(state, names[0]))).rejects.toThrow();
+    await expect(stat(path.join(state, `${names[0]}-wal`))).rejects.toThrow();
+    // Not listed, so kept even though the rule would let it go; and the live database untouched.
+    expect((await stat(path.join(state, "boxpilot-rollback-by-hand.sqlite3"))).isFile()).toBe(true);
+    expect((await stat(path.join(state, "boxpilot.sqlite3"))).isFile()).toBe(true);
+    expect((await stat(path.join(state, "boxpilot.sqlite3-wal"))).isFile()).toBe(true);
+    expect(said.at(-1)).toMatch(/Removed 2 of 2/);
+  });
+
+  it("keeps a listed copy that the rule, applied again, now keeps", async () => {
+    const { state, names, service } = await copiesFixture();
+    // Listed under keep 2; by the time it runs the rule says keep 4, so names[1] is one of those.
+    const result = await service.removeDatabaseCopies({ keep: 4, keepDays: 20, names: [names[1], names[0]] });
+    expect(result.removed).toEqual([names[0]]);
+    expect(result.kept).toEqual([{ name: names[1], reason: "now one of the newest 4" }]);
+    expect((await stat(path.join(state, names[1]))).isFile()).toBe(true);
+  });
+
+  it("never touches a name that is not a copy, even if it is listed", async () => {
+    const { state, service } = await copiesFixture();
+    const result = await service.removeDatabaseCopies({ keep: 1, keepDays: 0, names: ["boxpilot.sqlite3", "../boxpilot.sqlite3", "storage-health.json"] });
+    expect(result.removed).toEqual([]);
+    expect(result.kept.every((entry) => entry.reason === "not among the copies")).toBe(true);
+    expect((await stat(path.join(state, "boxpilot.sqlite3"))).isFile()).toBe(true);
+    await expect(service.removeDatabaseCopies({ keep: 1, keepDays: 0, names: [] })).rejects.toThrow(/Name the copies/);
+  });
+
+  it("offers the removal to the owner only, as a medium-risk job that names each copy", async () => {
+    const { registry } = await import("./ops/index.mjs");
+    expect(registry.get("housekeeping.database-copies.remove")).toMatchObject({ risk: "medium", minimumRole: "owner", readOnly: false });
+    expect(registry.validate("housekeeping.database-copies.remove", { keep: 3, keepDays: 30, names: ["boxpilot-rollback-1.121.0-20260816T101500Z.sqlite3"] })).toBeNull();
+    expect(registry.validate("housekeeping.database-copies.remove", { keep: 3, keepDays: 30, names: ["boxpilot.sqlite3"] })).toMatch(/boxpilot-rollback/);
+    expect(registry.validate("housekeeping.database-copies.remove", { keep: 0, keepDays: 30, names: ["boxpilot-rollback-x.sqlite3"] })).toMatch(/keep/);
+    expect(registry.get("housekeeping.database-copies.inspect")).toMatchObject({ readOnly: true, minimumRole: "operator" });
+  });
+});

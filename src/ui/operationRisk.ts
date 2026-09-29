@@ -22,6 +22,8 @@ export const operationRisk = {
   "backup.remote.sync": "medium",
   "backup.sync": "medium",
   "controller.backup.create": "low",
+  "housekeeping.database-copies.remove": "medium",
+  "housekeeping.reclaim": "medium",
   "prerequisite.drive-tools.install": "medium",
   "samba.discovery.set": "medium",
   "service.action": "medium",
@@ -34,6 +36,7 @@ export const operationRisk = {
   "storage.remount": "medium",
   "system.manager.reexec": "medium",
   "system.reboot": "high",
+  "system.update": "high",
 } as const satisfies Record<string, RiskTier>;
 
 export type KnownOperation = keyof typeof operationRisk;
@@ -42,7 +45,7 @@ export type KnownOperation = keyof typeof operationRisk;
  * Operations whose registry entry says `minimumRole: "owner"`: an operator may not stage them
  * whatever their tier. The same test holds this list to the registry.
  */
-export const ownerOnlyOperations: ReadonlySet<string> = new Set<KnownOperation>(["backup.cloud.sync"]);
+export const ownerOnlyOperations: ReadonlySet<string> = new Set<KnownOperation>(["backup.cloud.sync", "housekeeping.database-copies.remove"]);
 
 /** The tier for an operation. An id missing from the table is high, as it is on the server. */
 export function riskOf(operationId: string): RiskTier {

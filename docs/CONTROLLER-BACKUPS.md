@@ -95,6 +95,33 @@ Forgotten protection records remain visible as historical evidence but are not r
 
 Because forgetting a snapshot reference cannot be automatically undone, recovery guidance points to another retained protected snapshot. Pack data may still exist until a separately designed prune workflow, but BoxPilot never claims a forgotten snapshot is recoverable.
 
+## The copy every update takes
+
+Every update, whether the System page's *Update to vX.Y.Z* or `scripts/boxpilot-upgrade.sh` run by
+hand, copies the database before it swaps the new code in (M36). A release can migrate or rewrite
+the database, and rolling the code back does not roll the database back; the copy is the database
+as the old version left it.
+
+- Where: beside the database, `/var/lib/boxpilot/boxpilot-rollback-<old version>-<UTC stamp>.sqlite3`.
+- How: the live file opened read-only, `VACUUM INTO` while BoxPilot keeps running, `PRAGMA
+  integrity_check` on the copy, then the live file's owner and mode (`0600`). It is taken after the
+  new version has built, as close to the swap as it can be.
+- If it cannot be made (no room, an unreadable database, a copy that fails its check), the update
+  stops there: nothing is swapped or restarted, the partial copy and the build are removed, and the
+  update log says why. The System page shows that line.
+- If the new version fails its health check, the update puts the old code back and its log names the
+  copy that matches it. The database is not put back on its own: most releases leave it unchanged,
+  and anything recorded since the copy would be lost. To use the copy, stop `boxpilot`, copy the file
+  over `/var/lib/boxpilot/boxpilot.sqlite3` keeping its owner and mode, delete the `-wal` and `-shm`
+  files beside it, and start `boxpilot`.
+
+Copies are never deleted by an update. *System → Housekeeping → Database copies from updates* lists
+them, newest first, with a rule the owner sets (keep the newest N, and any younger than D days) and
+exactly which copies that rule lets go of. The removal (`housekeeping.database-copies.remove`,
+medium risk, owner only) deletes exactly the listed copies, each only if the same rule still lets it
+go when the job runs. Copies taken from a version before 1.127.0 predate the secret scrub and may
+still hold passwords; the list marks them.
+
 ## Why a normal file copy is unsafe
 
 BoxPilot uses SQLite write-ahead logging. A live database can have committed state in `boxpilot.sqlite3-wal` that is not yet present in the main `boxpilot.sqlite3` file. Copying only that main file can therefore produce a stale or incomplete recovery point even when the file opens successfully.

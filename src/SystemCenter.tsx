@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useOperation } from "./ApproveDialog";
 import UpsPanel from "./UpsPanel";
+import DatabaseCopiesPanel from "./DatabaseCopiesPanel";
 import SchedulesPanel from "./SchedulesPanel";
 import { inspectOperation } from "./operations";
 import { readJson } from "./http";
+import { Button, riskOf } from "./ui";
 
 interface HousekeepingCategory { id: string; title: string; summary: string; items: number | null; bytes: number; humanBytes: string; detail: string[]; keeping: string[]; safe: boolean; unavailable?: string | null }
 interface Housekeeping { generatedAt: string; categories: HousekeepingCategory[]; totalBytes: number; totalHumanBytes: string }
@@ -29,7 +31,16 @@ function gib(kib: number | null): string {
 interface ReleaseUpdate { current: { version: string }; latest: { tag: string; version: string; name: string; url: string; publishedAt: string | null; prerelease: boolean; notes: string | null } | null; updateAvailable: boolean; checkedAt: string; error: string | null }
 interface UpdateStatus { units: Array<{ unit: string; active: string; sub: string }>; log: string[]; outcome: "running" | "live" | "failed" | null }
 
-export default function SystemCenter({ csrfToken }: { csrfToken: string }) {
+/** What the upgrade script said last, from the update log: why it stopped, and the database copy it took (M36). */
+export function updateLogFacts(log: string[]): { error: string | null; databaseCopy: string | null } {
+  const marked = log.filter((line) => line.includes("[boxpilot-upgrade]"));
+  const failed = marked.filter((line) => line.includes("ERROR: ")).at(-1);
+  const error = failed ? failed.slice(failed.indexOf("ERROR: ") + "ERROR: ".length).trim() : null;
+  const copies = marked.map((line) => /database copy: (\S+\.sqlite3)/.exec(line)?.[1]).filter((path): path is string => Boolean(path));
+  return { error, databaseCopy: copies.at(-1) ?? null };
+}
+
+export default function SystemCenter({ csrfToken, role = "owner" }: { csrfToken: string; role?: string }) {
   const [settings, setSettings] = useState<SystemSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -45,7 +56,7 @@ export default function SystemCenter({ csrfToken }: { csrfToken: string }) {
   const [release, setRelease] = useState<ReleaseUpdate | null>(null);
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
   const [updating, setUpdating] = useState<string | null>(null);
-  const [updateOutcome, setUpdateOutcome] = useState<"live" | "timeout" | null>(null);
+  const [updateOutcome, setUpdateOutcome] = useState<"live" | "timeout" | "failed" | null>(null);
   const updateTarget = useRef<string | null>(null);
   const [releaseError, setReleaseError] = useState<string | null>(null);
   const [checkingRelease, setCheckingRelease] = useState(false);
@@ -78,8 +89,18 @@ export default function SystemCenter({ csrfToken }: { csrfToken: string }) {
       }).catch(() => {});
       if (Date.now() - started > 10 * 60 * 1000) { setUpdateOutcome("timeout"); window.clearInterval(timer); }
     }, 3000);
-    return () => window.clearInterval(timer);
+    // The update can stop before it restarts anything - a database copy that could not be made, a
+    // build that failed - and health goes on answering the old version. The update's own log says
+    // so at once; waiting ten minutes for a version that was never coming did not.
+    const watch = window.setInterval(() => {
+      inspectOperation<UpdateStatus>("system.update.status").then(({ result }) => {
+        setUpdateStatus(result);
+        if (result?.outcome === "failed") { setUpdateOutcome("failed"); window.clearInterval(timer); window.clearInterval(watch); }
+      }).catch(() => {});
+    }, 6000);
+    return () => { window.clearInterval(timer); window.clearInterval(watch); };
   }, [updating]);
+  const lastUpdate = updateLogFacts(updateStatus?.log ?? []);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -161,9 +182,9 @@ export default function SystemCenter({ csrfToken }: { csrfToken: string }) {
 
       <section className="panel">
         <header className="panel-header">
-          <div><strong>BoxPilot updates</strong><span>Running {release?.current.version ?? __BOXPILOT_VERSION__}. Releases come from GitHub: the update downloads the exact commit the release points at, builds it, swaps it in, restarts BoxPilot, and rolls back by itself if the new version fails its health check.</span></div>
+          <div><strong>BoxPilot updates</strong><span>Running {release?.current.version ?? __BOXPILOT_VERSION__}. Releases come from GitHub: the update downloads the exact commit the release points at, copies the database, builds it, swaps it in, restarts BoxPilot, and rolls back by itself if the new version fails its health check. With no room for the database copy it does not start.</span></div>
           {release?.updateAvailable && release.latest && !updating && (
-            <button className="primary-button" type="button" onClick={() => { const target = release.latest!; updateTarget.current = target.version; start({ operationId: "system.update", title: `Update BoxPilot to ${target.tag}`, parameters: { tag: target.tag }, confirmText: target.tag, preview: <span>Downloads the commit <code>{target.tag}</code> points at from GitHub, builds it, and swaps it in. BoxPilot restarts for about a minute; running jobs are interrupted, so let them finish first. If the new version does not answer its health check, the previous version is restored automatically.</span> }); }}>Update to {release.latest.tag}</button>
+            <Button variant="primary" risk={riskOf("system.update")} onClick={() => { const target = release.latest!; updateTarget.current = target.version; start({ operationId: "system.update", title: `Update BoxPilot to ${target.tag}`, parameters: { tag: target.tag }, confirmText: target.tag, preview: <span>Downloads the commit <code>{target.tag}</code> points at from GitHub and builds it. Then it copies the database, so this version can be put back with the data it wrote, and stops there if the copy cannot be made; otherwise it swaps the new version in. BoxPilot restarts for about a minute; running jobs are interrupted, so let them finish first. If the new version does not answer its health check, the previous version is restored automatically.</span> }); }}>Update to {release.latest.tag}</Button>
           )}
         </header>
         <div className="recovery-actions">
@@ -178,9 +199,15 @@ export default function SystemCenter({ csrfToken }: { csrfToken: string }) {
           <button className="secondary-button" type="button" disabled={checkingRelease} onClick={() => void loadRelease(true)}>{checkingRelease ? "Checking…" : "Check again"}</button>
         </div>
         {updating && (
-          <div className={updateOutcome === "timeout" ? "auth-error" : "surface-notice"} role="status">
-            {updateOutcome === "live" ? `BoxPilot ${updating} is live. Reloading.` : updateOutcome === "timeout" ? "The update is taking longer than ten minutes. Check the update log below; a failed health check restores the previous version automatically." : `Updating to ${updating}… BoxPilot restarts when the build finishes. This page reconnects by itself.`}
+          <div className={updateOutcome === "timeout" || updateOutcome === "failed" ? "auth-error" : "surface-notice"} role="status">
+            {updateOutcome === "live" ? `BoxPilot ${updating} is live. Reloading.`
+              : updateOutcome === "failed" ? `The update to ${updating} stopped: ${lastUpdate.error ?? "the update log below says why"}${/nothing was changed/i.test(lastUpdate.error ?? "") ? "" : " A failed health check restores the previous version automatically."}`
+                : updateOutcome === "timeout" ? "The update is taking longer than ten minutes. Check the update log below; a failed health check restores the previous version automatically."
+                  : `Updating to ${updating}… It copies the database first, then builds; BoxPilot restarts when the build finishes. This page reconnects by itself.`}
           </div>
+        )}
+        {lastUpdate.databaseCopy && !updating && (
+          <p className="muted">The last update copied the database first, to <code>{lastUpdate.databaseCopy}</code>. That copy matches the version it replaced; Housekeeping below lists every copy.</p>
         )}
         {updateStatus && updateStatus.log.length > 0 && (
           <details className="vm-domain-details">
@@ -260,9 +287,9 @@ export default function SystemCenter({ csrfToken }: { csrfToken: string }) {
           </div>
           <div className="recovery-actions">
             <button className="text-button" type="button" disabled={scanning} onClick={() => void scanHousekeeping()}>{scanning ? "Looking…" : "Rescan"}</button>
-            <button
-              className="primary-button"
-              type="button"
+            <Button
+              variant="primary"
+              risk={riskOf("housekeeping.reclaim")}
               disabled={loading || chosenCleanup.size === 0}
               onClick={() => start({
                 operationId: "housekeeping.reclaim",
@@ -275,7 +302,7 @@ export default function SystemCenter({ csrfToken }: { csrfToken: string }) {
                   </span>
                 ),
               })}
-            >Reclaim {chosenCleanup.size > 0 ? chosenHumanBytes : "space"}</button>
+            >Reclaim {chosenCleanup.size > 0 ? chosenHumanBytes : "space"}</Button>
           </div>
         </header>
         {!housekeeping && <p className="muted">{scanning ? "Working out what can go…" : "Press Rescan to look."}</p>}
@@ -329,6 +356,9 @@ export default function SystemCenter({ csrfToken }: { csrfToken: string }) {
           {dockerDisk.logging?.configured && <p className="muted">Log rotation: {dockerDisk.logging.maxSize} per file{dockerDisk.logging.liveRestore ? " · live-restore on" : ""}. Applies to containers created after it was set.</p>}
         </section>
       )}
+
+      {/* Listing them reads the state directory as root, which is an operator's (ADR-003). */}
+      {role !== "viewer" && <DatabaseCopiesPanel csrfToken={csrfToken} role={role} />}
 
       <UpsPanel start={start} />
       <section className="panel">
