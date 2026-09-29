@@ -51,7 +51,8 @@ describe("Performance page", () => {
     expect(verdict?.textContent).toBe("Memory 93%");
     expect(verdict?.getAttribute("data-status")).toBe("warning");
     expect(document.querySelector(".ui-page-header__meta")?.textContent).toBe("up 3d 4h · 16 threads · load 0.52 · 2 of 4 apps running · read every 60 s");
-    expect(screen.getByText("30.0 GiB / 32.0 GiB")).toBeTruthy();
+    expect(screen.getByText("30.0 GiB")).toBeTruthy();
+    expect(screen.getByText("of 32.0 GiB · 93% used")).toBeTruthy();
     expect(screen.getByText("no swap file")).toBeTruthy();
     const table = screen.getByRole("table", { name: "Each app's live CPU and memory" });
     const rows = within(table).getAllByRole("row").slice(1);

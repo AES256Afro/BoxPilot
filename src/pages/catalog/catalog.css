@@ -34,7 +34,7 @@
 .catalog-tile { --tile-icon: 48px; gap: 6px; padding: 10px 4px; border-radius: 6px; }
 .catalog-tile .ui-tile__icon { border: 0; color: var(--brand-glyph); background: linear-gradient(140deg, var(--app-a, var(--brand-slate-a)), var(--app-b, var(--brand-slate-b))); box-shadow: none; font-size: 18px; }
 .catalog-tile .ui-tile__name { font-family: var(--font-condensed); font-size: 13.5px; }
-.catalog-tile .ui-tile__detail { max-width: 100%; overflow: hidden; font-family: var(--font-mono); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.catalog-tile .ui-tile__detail { display: -webkit-box; max-width: 100%; overflow: hidden; font-family: var(--font-mono); font-size: 11px; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .catalog-tile__emoji { font-size: 25px; font-weight: 400; line-height: 1; }
 
 /* The catalog to browse: a card each, the app's square and name opening its sheet. */
@@ -54,6 +54,11 @@
 .catalog-actions { display: flex; justify-content: flex-end; gap: 4px; white-space: nowrap; }
 .catalog-actions .ui-button { min-height: 26px; padding-right: 8px; padding-left: 8px; font-size: 12.5px; }
 .catalog-actions .ui-button--risk-medium, .catalog-actions .ui-button--risk-high { padding-left: 14px; }
+.catalog-actions--wrap { flex-wrap: wrap; white-space: normal; }
+
+/* An archive: when, then its size and how long the app was offline for it. */
+.catalog-archive__when { color: var(--text-strong); font-family: var(--font-mono); font-size: 12.5px; }
+.catalog-archive__facts { display: flex; flex-wrap: wrap; gap: 2px 12px; color: var(--text-muted); font-family: var(--font-mono); font-size: 12px; }
 
 /* An app's sheet: its square, state and image first, then its tabs. */
 .catalog-sheet__head { display: flex; align-items: flex-start; gap: 12px; min-width: 0; }
@@ -79,6 +84,7 @@
 .catalog-row__main { display: grid; flex: 1 1 16rem; gap: 2px; min-width: 0; color: var(--text); font-size: 13.5px; line-height: 1.4; overflow-wrap: anywhere; }
 .catalog-row__main code { color: var(--text-strong); font-size: 12.5px; }
 .catalog-row__main a { color: var(--accent); text-underline-offset: 2px; }
+.catalog-row__main a code { color: inherit; }
 .catalog-row__dim { color: var(--text-muted); font-family: var(--font-condensed); font-size: 12.5px; }
 .catalog-row__mark { flex: none; width: 8px; height: 8px; margin-top: 6px; }
 
@@ -91,8 +97,8 @@
 
 /* Forms in the sheet: the compose read, a model to download, the owner's password, a new one. */
 .catalog-compose__read { display: grid; justify-items: start; gap: 10px; }
-.catalog-models__pull, .catalog-access__unlock, .catalog-access__change { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px 10px; }
-.catalog-models__pull .ui-field, .catalog-access__unlock .ui-field, .catalog-access__change .ui-field { flex: 1 1 16rem; }
+.catalog-models__pull, .catalog-access__unlock, .catalog-access__change { display: grid; justify-items: start; gap: 8px; }
+.catalog-models__pull .ui-field, .catalog-access__unlock .ui-field, .catalog-access__change .ui-field { width: min(100%, 28rem); }
 .catalog-logs__bar { justify-content: space-between; }
 
 /* The install and settings form: a section per kind of setting. */

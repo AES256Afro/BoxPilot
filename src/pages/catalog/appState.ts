@@ -38,10 +38,20 @@ export function appStatus(live: LiveState | null | undefined): { status: Status;
   return { status: "warning", label: "Stopped" };
 }
 
-/** The one short fact under an app's tile: what is wrong, else an update, else what it costs. */
+/**
+ * The one short fact under an app's tile: what is wrong (in the fewest words: the tile reads out
+ * the whole of it with the name), else an update, else what it costs.
+ */
 export function tileDetail(manifest: Manifest, live: LiveState | null, stats: AppStats | undefined): string {
   const state = appStatus(live);
-  if (state.status !== "good") return state.label;
+  if (state.status !== "good") {
+    if (live?.killSwitchDrill?.leaked) return "Leaked";
+    if ((live?.folderProblems ?? []).length > 0) return "Cannot write";
+    const troubled = live && !isPaused(live) && live.container.running ? troubledSidecar(live) : null;
+    if (troubled) return `${troubled.id} ${troubled.status === "restarting" ? "restarting" : "down"}`;
+    if (live?.container.running && live.container.health === "unhealthy") return "Unhealthy";
+    return state.label;
+  }
   if (live?.updateAvailable) return "Update ready";
   if (stats) return `${stats.cpuPercent.toFixed(1)}% · ${Math.round(stats.memBytes / 1024 / 1024)} MiB`;
   return manifest.image.version ?? "Running";

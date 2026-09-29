@@ -4,7 +4,7 @@
 .performance-page { display: grid; gap: 10px; min-width: 0; }
 
 /* The strip of figures, as Ops draws its own. */
-.performance-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr)); gap: 8px; }
+.performance-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 9.5rem), 1fr)); gap: 8px; }
 
 /* An app: its colour square, its name, and what it is. */
 .performance-app { display: inline-flex; align-items: center; gap: 8px; min-width: 0; white-space: nowrap; }

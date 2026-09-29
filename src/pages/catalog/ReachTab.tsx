@@ -61,6 +61,7 @@ export function ReachTab({ entry, ctx }: { entry: Entry; ctx: CatalogContext }) 
   const served = (serves ?? []).find((serve) => serve.port === primaryPort);
   const names = (ports: ManifestPort[]) => ports.map((port) => port.label).join(", ");
   const { tailnetOnly } = reachOf(entry);
+  const addresses = live.urls.flatMap((port) => appAddresses(port, { lanAddress: data.host.lanAddress ?? null, tailnetDnsName: data.host.tailscaleDnsName ?? null, serves: serves ?? [], https }).map((address) => ({ port, address })));
   const toLan = () => act({ operationId: "app.exposure.set", title: `Publish ${manifest.name} on your home network`, parameters: { id: manifest.id, mode: "lan" }, preview: <span>Recreates {manifest.name} listening on this server's network address{primaryPort ? <> on port {primaryPort}</> : null}{servePorts.length > 0 ? ", and stops publishing it on your tailnet" : ""}. Anything on your home network will be able to reach it. The firewall is then the only thing deciding who can.</span> });
   const toTailnet = () => act({ operationId: "app.exposure.set", title: `Make ${manifest.name} reachable only through Tailscale`, parameters: { id: manifest.id, mode: "tailnet" }, preview: <span>{servePorts.length > 0
     ? <>Recreates {manifest.name} so its web interface no longer listens on your home network, then publishes it at <code>https://…ts.net:{primaryPort}</code> with a real certificate. Tailscale authenticates every visitor before {manifest.name} sees them; nothing is opened on your router.</>
@@ -102,17 +103,17 @@ export function ReachTab({ entry, ctx }: { entry: Entry; ctx: CatalogContext }) 
         </div>
       )}
 
-      {live.urls.length > 0 && (
-        <Panel level={3} title="Addresses" count={live.urls.length} className="catalog-addresses">
+      {addresses.length > 0 && (
+        <Panel level={3} title="Addresses" count={addresses.length} className="catalog-addresses">
           <ul className="catalog-rows">
-            {live.urls.flatMap((port) => appAddresses(port, { lanAddress: data.host.lanAddress ?? null, tailnetDnsName: data.host.tailscaleDnsName ?? null, serves: serves ?? [], https }).map((address) => (
+            {addresses.map(({ port, address }) => (
               <li key={`${port.id}-${address.url}`} className="catalog-row">
                 <span className="catalog-row__main">
                   <a href={address.url} target="_blank" rel="noreferrer"><code>{address.url}</code></a>
                   <span className="catalog-row__dim">{live.urls.length > 1 ? `${port.label} · ` : ""}{address.label}{address.reachedThisPageBy ? " · you are on this one now" : ""}{address.caveat ? ` · ${address.caveat}` : ""}</span>
                 </span>
               </li>
-            )))}
+            ))}
           </ul>
         </Panel>
       )}

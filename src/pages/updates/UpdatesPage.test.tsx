@@ -22,11 +22,11 @@ describe("Updates page", () => {
     }));
     render(<UpdatesPage csrfToken="csrf-token" />);
     expect(await screen.findByText("htop")).toBeTruthy();
-    expect(screen.getByRole("heading", { level: 1, name: "Updates and packages" })).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 1, name: "Updates" })).toBeTruthy();
     expect(screen.getByText("1 security update").closest(".ui-chip")?.getAttribute("data-status")).toBe("warning");
     expect(document.querySelector(".ui-page-header__meta")?.textContent).toBe("2 upgradable · 1 security · reboot required · automatic updates off");
     expect(screen.getByText("Required")).toBeTruthy();
-    const about = screen.getByRole("button", { name: "About Updates and packages" });
+    const about = screen.getByRole("button", { name: "About Updates" });
     expect(about.getAttribute("aria-expanded")).toBe("false");
     // The security update carries its mark and its word.
     const row = screen.getByText("libssl3t64").closest("tr")!;
