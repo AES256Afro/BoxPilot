@@ -2,6 +2,7 @@ import { access, mkdir, readFile, rmdir, unlink, writeFile } from "node:fs/promi
 import { fixedRun } from "../exec.mjs";
 import { appendFstabEntry, containersBoundTo, mountNamePattern, parseManagedFstab, processesUsing, removeManagedEntry, unmountFromHost } from "./storage.mjs";
 import { mountpointFor, reservedMountNames } from "../backup-mount.mjs";
+import { hostMountsAt as mountsInHostTable, realMount, startMountUnit } from "./mount-agreement.mjs";
 
 /**
  * Root-side network-share tasks (SMB/CIFS and NFS) executed by scripts/boxpilot-run.mjs.
@@ -120,12 +121,12 @@ async function unitsFor(run, mountpoint) {
  * listed rather than looked up by path, so nothing waits on a share whose NAS has gone.
  */
 async function hostMountsAt(run, mountpoint) {
-  const listed = await run(binaries.findmnt, ["--task", "1", "-rn", "-o", "TARGET,FSTYPE,MAJ:MIN"], { timeout: 15_000, maxBuffer: 4 * 1024 * 1024 });
-  if (!listed.ok) throw new Error(`findmnt could not read the host's mounts: ${tail(listed.stderr)}`);
-  return listed.stdout.split("\n").map((row) => row.trim().split(/\s+/)).filter(([target]) => target === mountpoint).map(([, fstype, majMin]) => ({ fstype, majMin }));
+  const mounts = await mountsInHostTable(run, mountpoint);
+  if (!mounts) throw new Error("findmnt could not read the host's mount table");
+  return mounts;
 }
 /** The share itself among the mounts at its mount point: anything but the automount's autofs. */
-const shareIn = (mounts) => mounts.find((mount) => mount.fstype !== "autofs") ?? null;
+const shareIn = realMount;
 
 /**
  * What the unit's mount or umount printed, and what systemd said about the unit, since `since`.
@@ -304,7 +305,7 @@ export async function shareUnmount({ name } = {}, { run = fixedRun, log = null, 
  * they are restarted afterwards to see the new one (Docker resolves a bind when a container
  * starts). Anything else still using the share - a shell, a copy - leaves it alone, named.
  */
-export async function shareReconnect({ name } = {}, { run = fixedRun, log = null, files = { readFile }, sleep = pause, processes = undefined, now = () => new Date() } = {}) {
+export async function shareReconnect({ name } = {}, { run = fixedRun, log = null, files = { readFile }, sleep = pause, clock = () => Date.now(), processes = undefined, now = () => new Date() } = {}) {
   if (typeof name !== "string" || !mountNamePattern.test(name)) throw new Error("Name is invalid");
   const entry = parseManagedFstab(await files.readFile(fstabPath, "utf8")).find((row) => row.name === `share-${name}`);
   if (!entry) throw new Error(`${name} is not a BoxPilot-managed share`);
@@ -326,12 +327,16 @@ export async function shareReconnect({ name } = {}, { run = fixedRun, log = null
   }
   // The automount is still there; starting it again is a no-op unless something had stopped it.
   // Then the share itself, now, so a NAS that is still away is found while the owner is watching.
+  // As for a drive after a cancelled reboot (startMountUnit): the unit must agree the share is gone
+  // before it is started, a start that did nothing is made once more, and only PID 1's table says
+  // it mounted. The apps are restarted only after that.
   const mountedFrom = now();
   await run(binaries.systemctl, ["start", units.automount], { timeout: 30_000 });
-  const started = await run(binaries.systemctl, ["start", units.mount], { timeout: 90_000 });
-  if (!started.ok || !shareIn(await hostMountsAt(run, mountpoint).catch(() => []))) {
+  const back = await startMountUnit(run, units.mount, mountpoint, { log, sleep, clock });
+  if (!back.ok) {
+    const stderr = back.result?.stderr ?? "";
     const said = lastAttempt(await unitJournal(run, units.mount, mountedFrom));
-    const reason = explainMountError(kind, `${said}\n${started.stderr}`, helperWords(said, units.mount) || tail(started.stderr) || `systemd started ${units.mount} but nothing is mounted at ${mountpoint}`);
+    const reason = explainMountError(kind, `${said}\n${stderr}`, helperWords(said, units.mount) || tail(stderr) || `systemd started ${units.mount} but nothing is mounted at ${mountpoint}`);
     throw new Error(`${reason}${/[.!?]$/.test(reason) ? "" : "."} ${mountpoint} is not mounted now; its fstab entry is kept, so it mounts by itself once the NAS answers.`);
   }
   const options = await run(binaries.findmnt, ["--task", "1", "-ln", "-o", "FSTYPE,FS-OPTIONS", "--mountpoint", mountpoint], { timeout: 15_000 });
