@@ -1398,6 +1398,38 @@ the milestones they overlap.
   GitHub, Apps, Automations, Metrics, VMs, System, Settings, Setup, sign-in, Activity and
   the approval dialog on the kit, and deleting stopgap rules as their classes go; Repair is
   M35's; Updates, built on the components in M33.1, still takes its header from the shell.
+- ✅ **M33.11 Apps, Automations, Performance and Updates** (wave 2C, unreleased). Four pages
+  rebuilt in the console on the kit, every feature kept, the Classic components deleted
+  (`AppCatalog`, `AutomationsCenter`, `PerformanceCenter`, `UpdatesCenter`, the old
+  `SchedulesPanel`) with the stopgap rules only they used, and the Classic Updates rules, whose
+  names the new page reuses. **App catalog**
+  (`src/pages/catalog/`): the verdict counts apps that need a look (a leak outside the VPN or a
+  folder the app cannot write to is red, a paused app or a broken helper container amber), then
+  three tabs with one search and a category across them: the installed apps as Home's colour
+  squares with their health, the catalog as cards, and the Compose stacks BoxPilot did not start.
+  Each app opens its sheet (`?view=catalog&app=<id>`, and `&sheet=backups` for a tab): its facts
+  first, then Reach (every address, home network or tailnet only with the switch and what each
+  port does, the reachability check, the wiring between apps), Backups (the rehearsal's record,
+  weekly rehearsal, restore whole or one file, rehearse, delete), VPN (exit, forwarded port, the
+  kill-switch drill and its weekly check), Logs (helper containers too), Config (masked .env, the
+  owner-only raw Compose file and its editor), Models, Sign-in and Secrets. Install and settings
+  are a form in a sheet with a section per kind of setting, prechecked as before. Tailnet
+  addresses that lead nowhere are listed with their withdrawal. **Automations**
+  (`src/pages/automations/`): failed and late runs first, then Automations (steps, tier, facts,
+  what the last run did in a sheet, schedule and webhook controls, confirmations inline), Schedules
+  (the panel System also shows, now with its log and its form in sheets) and Ready to use (the
+  suggested flows first, with the tier of their steps); building one is a sheet. **Performance**
+  (`src/pages/performance/`, "Metrics" in the dock): the verdict names the busiest measure, the
+  strip has each figure with Ops' thresholds, every app with its square, live CPU and memory and
+  its controls, then each filesystem and sensor; it no longer reads while the tab is hidden.
+  **Updates** (`src/pages/updates/`): its own header, the strip, the services still running old
+  libraries, and tabs for the packages, the common tools and installing anything by name. Every
+  button carries its tier (fourteen more operations in `src/ui/operationRisk.ts`, held to the
+  registry) and a role that cannot run it does not see it; a viewer reads everything. Left:
+  System still draws the schedules through `src/SchedulesPanel.tsx`, a re-export, until it is
+  rebuilt; the Classic rules outside the stopgap that only the old pages used are listed in the
+  pull request for a sweep; `AppSquare` and the sheet's "act, then close" pattern are candidates
+  for the kit.
 - The owner wants every concept from the study (2026-09-28): the assistant (B5) is M34; the phone
   layout (B6) is M25; recipes and a GPU page (B7) belong to M22.
 
