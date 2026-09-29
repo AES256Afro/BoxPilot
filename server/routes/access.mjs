@@ -62,7 +62,7 @@ export function watchEntryFor(request, key, entry, label, scheduleOwner = () => 
   const theirs = family === "schedule.failed" || family === "schedule.overdue" ? Boolean(self && scheduleOwner(subject) === self)
     : family === "signin.new" ? Boolean(self && subject === self)
     // Named by operation and subject rather than by job, so whose it was cannot be told apart.
-    : family === "job.interrupted" || family === "record.failed" ? false
+    : family === "job.interrupted" || family === "record.failed" || family === "approval.lapsed" ? false
     : true;
   return theirs ? { title, key } : { title: label, key: family };
 }

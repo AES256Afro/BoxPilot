@@ -1,4 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { openActivity } from "../activityEvents";
 import { useOperation } from "../ApproveDialog";
 import { countOf, sentenceList, type ViewName } from "../data";
 import { readJson } from "../http";
@@ -123,7 +124,8 @@ export default function Ops({ csrfToken, role, onNavigate, now = Date.now, pollM
   const unread = verdictSources.filter(([key]) => facts[key].state === "failed").map(([, words]) => words);
   const verdict = verdictFor(needs, { hostname, checking, unread });
 
-  const open = (need: Need) => onNavigate(need.view, need.appId && need.view === "catalog" ? { app: need.appId } : undefined);
+  // A staged or failed job opens in Activity, where it can be approved, cancelled or dismissed (M36).
+  const open = (need: Need) => (need.jobId ? openActivity(need.jobId) : onNavigate(need.view, need.appId && need.view === "catalog" ? { app: need.appId } : undefined));
   const act = (need: Need) => {
     if (need.action) start({ operationId: need.action.operationId, title: need.action.title, parameters: need.action.parameters, preview: <span>{need.action.preview}</span> });
   };

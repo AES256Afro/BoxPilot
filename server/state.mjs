@@ -971,6 +971,11 @@ export function createStateStore({
     return hydrateJobs(database.prepare("SELECT * FROM jobs WHERE state IN ('applying', 'verifying') ORDER BY created_at").all());
   }
 
+  /** Every job still waiting for someone to approve it, oldest first (M36: stale approvals). */
+  function listAwaitingApproval() {
+    return hydrateJobs(database.prepare("SELECT * FROM jobs WHERE state = 'awaiting_approval' ORDER BY created_at").all());
+  }
+
   function normalizeSchedule(row) {
     if (!row) return null;
     return {
@@ -1669,6 +1674,7 @@ export function createStateStore({
     forgetTrustedDevices,
     pruneHistory,
     listActiveJobs,
+    listAwaitingApproval,
     createFlow,
     getFlow,
     listFlows,

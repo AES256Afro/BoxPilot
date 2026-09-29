@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { approveJob, followJobOutput, getJobApproval, retryWithMoreTime, stageOperation, waitForJob, type ApprovalPolicy, type Job, type RiskTier, cancelJob } from "./operations";
+import { approveJob, followJobOutput, getJob, getJobApproval, retryWithMoreTime, stageOperation, waitForJob, type ApprovalPolicy, type Job, type RiskTier, cancelJob } from "./operations";
 import { useDialogFocus } from "./useDialogFocus";
 import { jobOutputText } from "./jobOutputText";
 import { JobWarnings, jobWarnings } from "./JobWarnings";
@@ -35,11 +35,16 @@ interface Props extends PendingOperation {
    * job it ran out of time.
    */
   moreTimeFor?: string;
+  /**
+   * Approve a job someone already staged instead of staging a new one (M36: from Activity). The
+   * dialog reads its current approval policy; closing it leaves the job waiting, as it found it.
+   */
+  existingJobId?: string;
 }
 
 type Phase = "staging" | "ready" | "approving" | "running" | "done" | "error";
 
-export function ApproveDialog({ operationId, title, parameters, preview, confirmText, csrfToken, onClose, onFinished, moreTimeFor }: Props) {
+export function ApproveDialog({ operationId, title, parameters, preview, confirmText, csrfToken, onClose, onFinished, moreTimeFor, existingJobId }: Props) {
   const [phase, setPhase] = useState<Phase>("staging");
   const [job, setJob] = useState<Job | null>(null);
   const [policy, setPolicy] = useState<ApprovalPolicy | null>(null);
@@ -54,7 +59,7 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
   const dialogRef = useRef<HTMLElement | null>(null);
   const observation = useRef<AbortController | null>(null);
   const mounted = useRef(false);
-  const stagedRef = useRef<{ jobId: string | null; approvalStarted: boolean; withdrawn: boolean } | null>(null);
+  const stagedRef = useRef<{ jobId: string | null; approvalStarted: boolean; withdrawn: boolean; owned: boolean } | null>(null);
   // The timed-out job being tried again with more time, if that is what is staged.
   const [retryFrom, setRetryFrom] = useState<string | null>(moreTimeFor ?? null);
   useDialogFocus(dialogRef);
@@ -67,25 +72,32 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
 
   useEffect(() => {
     let cancelled = false;
-    const stagedState = { jobId: null as string | null, approvalStarted: false, withdrawn: false };
+    // A job this dialog did not stage is not its to withdraw: closing leaves it waiting.
+    const owned = !(existingJobId && !retryFrom);
+    const stagedState = { jobId: null as string | null, approvalStarted: false, withdrawn: false, owned };
     stagedRef.current = stagedState;
     const withdraw = () => {
-      if (!stagedState.jobId || stagedState.approvalStarted || stagedState.withdrawn) return;
+      if (!stagedState.owned || !stagedState.jobId || stagedState.approvalStarted || stagedState.withdrawn) return;
       stagedState.withdrawn = true;
       void cancelJob(stagedState.jobId, csrfToken).catch(() => undefined);
     };
     setPhase("staging"); setJob(null); setPolicy(null); setError(null); setPassword(""); setTypedConfirm(""); setOutput("");
     // A retry with more time is staged by the server from the timed-out job, and then approved
     // here exactly like anything else: same tier, same password or typed confirmation.
-    (retryFrom ? retryWithMoreTime(retryFrom, csrfToken) : stageOperation(operationId, parameters, csrfToken))
+    const existing = async () => {
+      const [{ job: current }, approval] = await Promise.all([getJob(existingJobId!), getJobApproval(existingJobId!)]);
+      if (current.state !== "awaiting_approval") throw new Error(`This job is no longer waiting for approval (${current.state.replaceAll("_", " ")}). Activity shows how it ended.`);
+      return { job: current, approval };
+    };
+    (retryFrom ? retryWithMoreTime(retryFrom, csrfToken) : owned ? stageOperation(operationId, parameters, csrfToken) : existing())
       .then((staged) => { stagedState.jobId = staged.job.id; if (cancelled) { withdraw(); return; } setJob(staged.job); setPolicy(staged.approval); setPhase("ready"); })
       .catch((stageError: unknown) => { if (cancelled) return; setError(stageError instanceof Error ? stageError.message : "Could not prepare this action"); setPhase("error"); });
     return () => { cancelled = true; withdraw(); };
-  }, [operationId, parameters, csrfToken, retryFrom]);
+  }, [operationId, parameters, csrfToken, retryFrom, existingJobId]);
 
   // Dismissing a staged-but-unapproved job withdraws it so Activity does not fill with orphans.
   const dismiss = useCallback(() => {
-    if (job && phase === "ready" && stagedRef.current && !stagedRef.current.withdrawn) {
+    if (job && phase === "ready" && stagedRef.current?.owned && !stagedRef.current.withdrawn) {
       stagedRef.current.withdrawn = true;
       void cancelJob(job.id, csrfToken).catch(() => undefined);
     }

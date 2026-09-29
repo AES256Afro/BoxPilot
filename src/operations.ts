@@ -51,7 +51,7 @@ export interface Job {
   parameters?: Record<string, unknown> | null;
   timeout?: JobTimeout | null;
   /** Where this run came from: a larger budget, or the run it repeats (M30.2/M30.3). */
-  recovery?: { budgetMs?: number; rerunOf?: string; retryOf?: string };
+  recovery?: { budgetMs?: number; rerunOf?: string; retryOf?: string; /** The operation's description, as staged. */ reason?: string };
   createdAt?: string;
   updatedAt?: string;
   steps: JobStep[];

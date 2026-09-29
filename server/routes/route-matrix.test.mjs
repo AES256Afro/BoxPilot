@@ -193,7 +193,7 @@ const directRoutes = ["POST /api/v1/operations/:id/run", "POST /api/v1/operation
 /** Everything else that is not a GET: refused to a viewer before it runs, and settings and people changes to an operator. */
 const changeRoutes = [
   "POST /api/v1/catalog/:id/precheck", "POST /api/v1/setup/autoinstall", "POST /api/v1/network/plans",
-  "POST /api/v1/jobs/:id/approve", "POST /api/v1/jobs/:id/more-time", "DELETE /api/v1/jobs/:id",
+  "POST /api/v1/jobs/:id/approve", "POST /api/v1/jobs/:id/more-time", "POST /api/v1/jobs/:id/dismiss", "DELETE /api/v1/jobs/:id",
   "POST /api/v1/flows", "PUT /api/v1/flows/:id", "DELETE /api/v1/flows/:id", "POST /api/v1/flows/:id/webhook", "DELETE /api/v1/flows/:id/webhook", "POST /api/v1/flows/:id/run",
   "POST /api/v1/schedules", "PUT /api/v1/schedules/:id", "DELETE /api/v1/schedules/:id",
   "POST /api/v1/drives/:name/auto-reconnect", "DELETE /api/v1/drives/:name/auto-reconnect",
