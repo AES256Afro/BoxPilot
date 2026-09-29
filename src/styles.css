@@ -7189,6 +7189,8 @@ body {
 :root[data-shell="console"] :is(input[type="checkbox"], input[type="radio"], input[type="range"]):not(.ui-control) { accent-color: var(--cc-amber); }
 :root[data-shell="console"] select:not(.ui-control) option { color: var(--cc-text-strong); background: var(--cc-panel); }
 :root[data-shell="console"] :is(.field-label, label) { color: var(--cc-text); }
+/* A bare link in a Classic page (Release notes, a project's site) in the console's ink, not the browser's blue. */
+:root[data-shell="console"] :is(.content, .modal) a:not([class]) { color: var(--cc-amber); text-underline-offset: 2px; }
 :root[data-shell="console"] summary { color: var(--cc-text-strong); }
 :root[data-shell="console"] :is(.app-logs, .log-output) { border: 1px solid var(--cc-line); border-radius: 4px; color: var(--cc-text); background: var(--cc-inset); font-family: var(--font-mono); font-size: 12.5px; }
 
