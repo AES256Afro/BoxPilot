@@ -23,7 +23,7 @@ import { PageHeader } from "./ui/PageHeader";
 // the one bundle: 688 KB of JavaScript to show the first page, about sixty percent of it pages the
 // visitor might never reach. Now the shell is what first paint waits for; each page arrives on
 // navigation, once, and the immutable asset cache keeps it after that.
-const BackupCenter = lazy(() => import("./BackupCenter"));
+const BackupsPage = lazy(() => import("./pages/backups/BackupsPage"));
 const GitHubPage = lazy(() => import("./pages/github/GitHubPage"));
 const Home = lazy(() => import("./home/Home"));
 const Ops = lazy(() => import("./home/Ops"));
@@ -39,7 +39,7 @@ const SystemPage = lazy(() => import("./pages/system/SystemPage"));
 const PerformanceCenter = lazy(() => import("./PerformanceCenter"));
 const UsersPage = lazy(() => import("./pages/users/UsersPage"));
 const FirewallPage = lazy(() => import("./pages/firewall/FirewallPage"));
-const StorageCenter = lazy(() => import("./StorageCenter"));
+const StoragePage = lazy(() => import("./pages/storage/StoragePage"));
 const VmsPage = lazy(() => import("./pages/vms/VmsPage"));
 // The design system's gallery (M33.1), for the demo only: /?gallery opens it when the server says
 // it is the demo, so a real BoxPilot never shows it and never fetches its chunk.
@@ -53,7 +53,7 @@ const Settings = lazy(() => import("./pages/settings/SettingsPage"));
  * its name in the bar and what it is for behind the info toggle, until wave 2 rebuilds it (M33.8).
  * A rebuilt page adds itself here. Repair (M35) draws its own crumb and verdict in the page.
  */
-const ownHeader = new Set<ViewName>(["home", "ops", "services", "logs", "repairs", "network", "firewall", "users", "github", "settings", "virtualization", "system", "setup"]);
+const ownHeader = new Set<ViewName>(["home", "ops", "services", "logs", "repairs", "network", "firewall", "users", "github", "settings", "virtualization", "system", "setup", "storage", "backups"]);
 
 /**
  * Deep link: /?view=firewall opens that page, and a reload keeps the page you were on (Setup
@@ -155,11 +155,11 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
     if (view === "performance") return <PerformanceCenter csrfToken={csrfToken} />;
     if (view === "users") return <UsersPage csrfToken={csrfToken} role={role} />;
     if (view === "firewall") return <FirewallPage csrfToken={csrfToken} role={role} />;
-    if (view === "storage") return <StorageCenter csrfToken={csrfToken} onNavigate={setView} />;
+    if (view === "storage") return <StoragePage csrfToken={csrfToken} role={role} onNavigate={setView} />;
     if (view === "network") return <NetworkPage csrfToken={csrfToken} role={role} />;
     if (view === "repairs") return <RepairCenter csrfToken={csrfToken} role={role} onNavigate={setView} />;
     if (view === "virtualization") return <VmsPage csrfToken={csrfToken} role={role} onOpenRepair={() => setView("repairs")} />;
-    if (view === "backups") return <BackupCenter csrfToken={csrfToken} onOpenRepair={() => setView("repairs")} />;
+    if (view === "backups") return <BackupsPage csrfToken={csrfToken} role={role} onNavigate={setView} />;
     if (view === "github") return <GitHubPage />;
     if (view === "logs") return <LogsPage csrfToken={csrfToken} role={role} />;
     return <Settings csrfToken={csrfToken} role={role} />;

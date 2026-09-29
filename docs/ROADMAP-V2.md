@@ -1398,6 +1398,34 @@ the milestones they overlap.
   GitHub, Apps, Automations, Metrics, VMs, System, Settings, Setup, sign-in, Activity and
   the approval dialog on the kit, and deleting stopgap rules as their classes go; Repair is
   M35's; Updates, built on the components in M33.1, still takes its header from the shell.
+- ✅ **M33.9 Storage and Backups on the kit** (wave 2A, unreleased). Both pages rebuilt in
+  `src/pages/storage/` and `src/pages/backups/` with every feature the Classic pages had, organised
+  by what the owner does. **Storage:** the verdict (a mount 90% full, a filesystem filling within
+  two weeks, a share that dropped, or room to spare; "Not read" when the drives could not be read),
+  then disks, mounts, shares and free LVM space in mono, then tabs kept in the address: *Drives*
+  (BoxPilot's drives with Check, Unmount and a switch to reconnect by itself, the rule stated once;
+  every disk and partition with Mount…, Format and Share…; unused LVM space to claim), *Shares*
+  (NAS folders mounted here, missing client tools to install), *File sharing* (Samba and NFS, the
+  draft kept across tabs until applied, users, the diagnosis, the address to type on each machine),
+  *Snapshots* (LVM with roll back, btrfs and ZFS) and *Mounts* (what is filling up and why, where
+  data lives, every mounted filesystem). Mounting a drive or a share, adding a share or a user and
+  taking a snapshot are sheets. **Backups:** the verdict (a backup that stopped, an app never
+  backed up, nothing off the box, or protected; never green about app data it could not read),
+  then tabs: *Apps* (each app's last backup and whether it keeps happening, back up or schedule
+  from its row), *This server* (the database's drilled backups with Protect and retention, machine
+  snapshots with how many apps would come back with their data), *Off-box* (whether a copy is kept
+  elsewhere, then the backup drive, SSH and cloud destinations, each set in a sheet) and *Restore*
+  (every snapshot this server can restore from, restored from a sheet, and what a restore staged
+  for review). Every action carries its tier and is left out for a role that cannot start it;
+  `operationRisk` gains the 24 operations the two pages start. The Classic `StorageCenter`,
+  `SambaPanel`, `NfsPanel`, `BackupCenter`, `CloudBackupPanel`, `RestorePanel`,
+  `RestoreReviewPanel`, `ConnectPaths` and the Storage-only half of `AutoReconnect` are deleted,
+  with the Classic CSS only they used. **The flaky share-mount-host check:** share.mount read its
+  unit's journal from the start of the second its attempt began, so a NAS that did not answer,
+  tried in the same second a wrong password for the same share was refused, read that refusal too
+  and was said to refuse the credentials. The journal is now read from the millisecond the attempt
+  began, only the last attempt's lines explain it, and the Ubuntu test puts a refusal in that
+  second on every run.
 - ✅ **M33.10 Network and security on the kit** (wave 2B, unreleased). Network, Firewall, Users & SSH
   and GitHub are rebuilt in `src/pages/{network,firewall,users,github}/`, each with its own sheet
   and tests, and the Classic components (`NetworkCenter`, `TailnetPanel`, `TailscalePanel`,

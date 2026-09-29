@@ -1735,57 +1735,6 @@ main:focus {
   border-bottom: 0;
 }
 
-/* A drive that is filling carries the apps filling it underneath, so the row keeps its own layout
-   and the blame list runs the full width rather than being squeezed into the first column. */
-.workload-stacked {
-  display: block;
-}
-
-.workload-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 13px;
-}
-
-/* The stacked row is no longer a direct child of .workload, so it needs the label/detail stacking
-   that .workload > div was giving it - without this the mount point and its free space run together. */
-.workload-row > div {
-  display: grid;
-  gap: 3px;
-}
-
-.filling-blame {
-  margin: 8px 0 0;
-  padding: 0;
-  list-style: none;
-  display: grid;
-  gap: 4px;
-}
-
-.filling-blame li {
-  color: var(--text-muted);
-  font-size: 11px;
-  line-height: 1.5;
-}
-
-.filling-blame strong {
-  color: var(--text);
-}
-
-/* The measured size rides inside the app chip, dimmer than the name: the name is what is being
-   pointed at, the size is why it is first in the list. */
-.chip-size {
-  margin-left: 6px;
-  opacity: 0.65;
-  font-variant-numeric: tabular-nums;
-}
-
-.filling-blame code {
-  font-size: 10px;
-  word-break: break-all;
-}
-
 .workload > div {
   display: grid;
   gap: 3px;
@@ -3236,33 +3185,6 @@ textarea {
 /* Notification settings (M8.4) */
 /* The weekly self-report (M30.4) */
 
-/* Storage page (M2.8) */
-.storage-center { display: grid; gap: 16px; }
-.storage-center td .status-pill { margin-left: 8px; }
-.storage-mount-form { margin-top: 12px; flex-wrap: wrap; }
-.storage-mount-form input { min-width: 160px; }
-.storage-grow .panel-header { align-items: center; }
-.share-tools { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; font-size: 13px; margin-bottom: 14px; }
-.share-discover { display: grid; gap: 10px; margin: 14px 0; }
-.discovered-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
-.discovered { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; padding: 10px 12px; border: 1px solid var(--border-subtle); border-radius: 10px; background: var(--surface-muted); font-size: 14px; }
-.share-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px 16px; align-items: end; margin-top: 6px; }
-.share-form > label { display: grid; gap: 5px; font-size: 13px; }
-.share-form input, .share-form select { padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-muted); color: var(--text); font: inherit; }
-.share-form input:disabled { opacity: 0.5; }
-.share-form .share-readonly { align-self: center; }
-.share-form .share-actions, .share-form .share-error, .share-form .share-list { grid-column: 1 / -1; }
-.share-list { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; font-size: 14px; }
-.share-note { margin-top: 16px; font-size: 13px; line-height: 1.5; }
-.samba-scope { display: grid; gap: 8px; margin: 4px 0 14px; font-size: 14px; }
-.samba-scope label { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-.samba-scope .samba-workgroup { gap: 10px; }
-.samba-scope .samba-workgroup input { width: 160px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-muted); color: var(--text); font: inherit; text-transform: uppercase; }
-.samba-users { display: grid; gap: 8px; margin-bottom: 14px; font-size: 14px; }
-.samba-users .status-pill button { margin-left: 4px; padding: 0 2px; font-size: 13px; line-height: 1; }
-.samba-users input { padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-muted); color: var(--text); font: inherit; min-width: 180px; }
-.samba-apply { margin-top: 14px; align-items: center; }
-
 /* Changelog links (M2.1) */
 .changelog-link { color: inherit; text-decoration: none; border-bottom: 1px dotted var(--text-muted); }
 .changelog-link:hover { border-bottom-color: var(--accent); }
@@ -3273,12 +3195,7 @@ textarea {
 /* Raw compose editor (M3.3) */
 .compose-editor { width: 100%; font-family: var(--font-mono); font-size: 12px; }
 
-/* Backups page (controller snapshots + machine snapshot + off-box mirror) */
-.backup-center { display: grid; gap: 16px; }
-.backup-center .recovery-actions { padding: 12px 15px; align-items: center; }
-.backup-center .metric-grid .recovery-actions { padding: 4px 0 0; }
 .recovery-actions .muted { font-size: 12px; line-height: 1.5; }
-.backup-center .metric-grid { margin-bottom: 0; }
 
 /* Backup file browser */
 .backup-browser { display: grid; gap: 8px; margin-bottom: 12px; }
@@ -3332,15 +3249,6 @@ textarea {
 .stranded-serves li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.5rem; font-size: 0.9rem; }
 .stranded-serves li code { word-break: break-all; }
 
-/* What a restore staged for review, grouped by what each area is. */
-.restore-review { display: grid; gap: 0.7rem; padding: 0.85rem 0; border-top: 1px solid var(--border-subtle); }
-.restore-review-head { display: flex; align-items: baseline; justify-content: space-between; gap: 0.6rem; }
-.restore-review-area { display: grid; gap: 0.3rem; }
-.restore-review-area > p { margin: 0; max-width: 72ch; }
-.restore-review-area details { border: 1px solid var(--border); border-radius: 8px; padding: 0.35rem 0.6rem; }
-.restore-review-area summary { cursor: pointer; font-size: 0.88rem; }
-.restore-review-area pre { margin: 0.5rem 0 0.2rem; max-height: 18rem; overflow: auto; }
-
 /* Automations: the shelf, the list, and the small builder. */
 .automations { display: grid; gap: 1rem; }
 .shelf-grid { display: grid; gap: 0.8rem; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
@@ -3384,59 +3292,13 @@ textarea {
 .flow-draft-policy { display: flex; gap: 0.7rem; align-items: center; flex-wrap: wrap; }
 .flow-draft-retry { display: flex; gap: 0.35rem; align-items: center; font-size: 0.9rem; color: var(--text-muted); }
 
-/* Samba: the LAN firewall reminder + the "Share on network" prefill flow */
-.samba-firewall-note { margin: 8px 0 0; padding: 8px 12px; border-left: 3px solid var(--status-warning); background: color-mix(in srgb, var(--status-warning) 8%, transparent); border-radius: 4px; }
-.samba-firewall-note .text-button { color: var(--accent); }
-
-/* Samba: inline recycle-bin toggle on each share row */
-.share-recycle-toggle { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; white-space: nowrap; cursor: pointer; }
-.share-recycle-toggle input { width: auto; margin: 0; }
-
 /* A generic chip token (previously only scoped under .vpn-profile-tags) */
 .chip { display: inline-flex; align-items: center; padding: 3px 10px; border: 1px solid var(--border); border-radius: 999px; font-size: 12px; color: var(--text-muted); margin-right: 6px; }
-
-/* Storage map (M23.4): one card per place data lives */
-.storage-map { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
-.storage-map-card { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; display: grid; gap: 8px; align-content: start; }
-.storage-map-card header { display: grid; gap: 2px; }
-.storage-map-card header strong { font-size: 14px; }
-.storage-map-usage { display: grid; gap: 4px; }
-.storage-map-bar { height: 6px; border-radius: 3px; background: color-mix(in srgb, var(--border) 60%, transparent); overflow: hidden; }
-.storage-map-bar span { display: block; height: 100%; border-radius: 3px; background: var(--accent); }
-.storage-map-bar span.bar-hot { background: var(--status-warning); }
-.storage-map-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-.storage-map-row .eyebrow { margin-right: 2px; }
 
 /* App card: the folder-not-writable warning (silent failure made loud) */
 .app-folder-warning { border-left: 3px solid var(--status-warning); background: color-mix(in srgb, var(--status-warning) 8%, transparent); border-radius: 4px; padding: 8px 12px; display: grid; gap: 6px; font-size: 13px; }
 .app-folder-warning p { margin: 0; }
 .app-folder-warning .secondary-button { justify-self: start; }
-.share-autoclean { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
-
-/* Filesystem snapshots (M23.2) */
-.fs-snapshot-target { display: grid; gap: 8px; padding: 10px 0; border-top: 1px solid var(--border); }
-.fs-snapshot-target:first-of-type { border-top: none; }
-.fs-snapshot-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
-.fs-snapshot-list li { display: flex; align-items: center; gap: 10px; }
-
-/* Share connect paths and Windows discovery (M22.5) */
-.share-connect { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 6px; }
-.share-connect li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; }
-.share-connect li > strong { min-width: 9ch; }
-.samba-discovery { margin-top: 4px; }
-
-/* File-sharing diagnostic (M22.5) */
-.samba-diagnose { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 10px; }
-.samba-diagnose > .muted { flex: 1 1 18ch; }
-.diagnose-results { flex: 1 0 100%; list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 6px; }
-.diagnose-results li { display: flex; gap: 8px; align-items: baseline; }
-.diagnose-body { display: grid; gap: 1px; }
-.diagnose-body > span { color: var(--text-muted); }
-.diagnose-mark { width: 1.5em; flex: none; text-align: center; font-weight: 700; }
-.diagnose-ok .diagnose-mark { color: var(--accent-light); }
-.diagnose-problem .diagnose-mark { color: var(--danger); }
-.diagnose-warn .diagnose-mark { color: var(--warn); }
-.diagnose-info .diagnose-mark { color: var(--text-muted); }
 
 /* Restore-rehearsal verdict (M20.3) */
 .backup-verdict-ok { color: var(--accent-light); }
@@ -3462,14 +3324,6 @@ textarea {
 .problem-evidence li { color: var(--text-muted); font-size: 11px; border: 1px solid var(--border); border-radius: 999px; padding: 1px 8px; }
 .problem-card > button { justify-self: start; }
 .problem-manual { color: var(--text-muted); margin: 0; max-width: 82ch; }
-/* Reconnect a drive automatically (M26.5): on a Repair notice and on a Storage row */
-.auto-reconnect { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; min-width: 0; white-space: normal; }
-td .auto-reconnect { max-width: 38ch; }
-td .auto-reconnect > span { flex-basis: 100%; }
-.auto-reconnect > p { flex-basis: 100%; margin: 0; max-width: 82ch; font-size: 13px; }
-.auto-reconnect-waiting { color: var(--warn-text); }
-.auto-reconnect .auth-error { flex-basis: 100%; }
-.mount-rule { margin: 10px 15px 14px; max-width: 82ch; font-size: 13px; line-height: 1.5; }
 .repair-prereq-header { margin-top: 4px; }
 .repair-prerequisites { display: grid; gap: 12px; min-width: 0; }
 .repair-page { min-width: 0; font-size: 14px; line-height: 1.55; }
@@ -3501,16 +3355,6 @@ td .auto-reconnect > span { flex-basis: 100%; }
   .repair-page .recovery-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .repair-page .recovery-check > div, .repair-page .action-card-heading { flex-wrap: wrap; }
 }
-
-/* Per-OS paths to a share, shown wherever a share is named (M22.7) */
-.connect-paths { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 4px; }
-.connect-paths li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
-.connect-os { min-width: 7ch; color: var(--text-muted); font-size: 11px; }
-.connect-hint { font-size: 11px; }
-.connect-paths-compact .connect-os { min-width: 6ch; }
-.share-connect-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
-.storage-map-connect { margin-top: 6px; }
-.storage-map-connect summary { cursor: pointer; color: var(--text-muted); font-size: 11px; }
 
 /* One-click notification target from an installed app (M8.6) */
 
@@ -4352,7 +4196,6 @@ a.ui-tile:hover {
   table.stack-on-phone td { padding: 3px 15px; border-bottom: 0; white-space: normal; overflow-wrap: anywhere; }
   table.stack-on-phone td[data-label]::before { content: attr(data-label) ": "; color: var(--text-muted); font-weight: 600; }
   table.stack-on-phone td:empty { display: none; }
-  table.stack-on-phone td .auto-reconnect { max-width: none; }
 }
 
 /* ── The gallery (demo only, /?gallery) ── */
@@ -4553,9 +4396,9 @@ body {
 .secondary-button { border-color: var(--border-bright); border-radius: var(--radius-md); font-size: 11px; }
 /* Words and forms set straight into a panel under its header used to touch its edge; with rounder
    corners that clip, they keep the header's inset instead. */
-.panel > .panel-header ~ :is(p.muted, p.auth-error, div.auth-error, .approval-settings, .restore-review, .share-form, .foreign-projects, .stranded-serves, .flow-list, .flow-builder) { margin-inline: 15px; }
+.panel > .panel-header ~ :is(p.muted, p.auth-error, div.auth-error, .approval-settings, .foreign-projects, .stranded-serves, .flow-list, .flow-builder) { margin-inline: 15px; }
 .panel > .panel-header ~ p.muted { margin-block: 10px; font-size: 13px; line-height: 1.5; }
-.panel > .panel-header ~ :is(.approval-settings, .share-form, .restore-review, .foreign-projects, .stranded-serves, .flow-list):last-child { margin-bottom: 15px; }
+.panel > .panel-header ~ :is(.approval-settings, .foreign-projects, .stranded-serves, .flow-list):last-child { margin-bottom: 15px; }
 .brand > span { border-radius: 10px; background: var(--accent); box-shadow: none; }
 
 /* The signed-in person: an initial in a circle, then the name while there is room. */
