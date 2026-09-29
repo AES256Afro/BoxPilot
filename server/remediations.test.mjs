@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { backupDestinationToMove, containersOnStaleMounts, detectRemediations, mountFor, nothingCanReachYou, splitDataFolders, failedRehearsals, permissionlessMounts, staleMounts, unwritableShares, vpnLeaks, windowsCannotDiscover, readOnlyRemounts, exfatCheckerMissing, flakyDrives, drivesNeedingCheck, installDriveToolsFix, drivesNotOrderedAroundDocker } from "./remediations.mjs";
+import { appsWithoutContainer, backupDestinationToMove, backupsDue, containersOnStaleMounts, detectRemediations, fingerprintOf, mountFor, nothingCanReachYou, splitDataFolders, failedRehearsals, permissionlessMounts, staleMounts, unwritableAppFolders, unwritableShares, vpnLeaks, windowsCannotDiscover, readOnlyRemounts, exfatCheckerMissing, flakyDrives, drivesNeedingCheck, installDriveToolsFix, drivesNotOrderedAroundDocker } from "./remediations.mjs";
 
 /**
  * The situation each of these was written from, on a real server:
@@ -33,39 +33,56 @@ describe("a mount whose drive has gone", () => {
 });
 
 describe("a container left holding the old folder", () => {
-  it("names the container that needs restarting after a remount", () => {
-    // Plex bind-mounts /mnt/the-dump; remounting underneath it leaves it on the empty filesystem.
+  it("names the container that started before its drive was last mounted", () => {
+    // Plex bind-mounts /mnt/the-dump; a remount by hand underneath it leaves it on the old filesystem.
     const containers = [
-      { name: "bp-plex", appId: "plex", binds: ["/mnt/the-dump", "/var/lib/boxpilot-managed/catalog/plex/config"] },
+      { name: "bp-plex", appId: "plex", appName: "Plex", binds: ["/mnt/the-dump", "/var/lib/boxpilot-managed/catalog/plex/config"], startedAt: "2026-09-28T06:00:00Z" },
       { name: "bp-jellyfin", appId: "jellyfin", binds: ["/srv/media"] },
     ];
-    const found = containersOnStaleMounts({ containers, staleTargets: ["/mnt/the-dump"] });
+    const found = containersOnStaleMounts({ containers, remountedTargets: ["/mnt/the-dump"] });
     expect(found).toHaveLength(1);
-    expect(found[0]).toMatchObject({ id: "stale-bind:bp-plex", severity: "warning" });
-    expect(found[0].fix).toMatchObject({ operationId: "app.action", parameters: { id: "plex", action: "restart" } });
+    expect(found[0]).toMatchObject({ id: "stale-bind:bp-plex", severity: "warning", title: "Plex is still using the old copy of its folder" });
+    expect(found[0].fix).toMatchObject({ operationId: "app.action", parameters: { id: "plex", action: "restart" }, label: "Restart Plex" });
   });
 
   it("matches a bind below the mount, not just the mount itself", () => {
     const containers = [{ name: "bp-plex", appId: "plex", binds: ["/mnt/the-dump/movies"] }];
-    expect(containersOnStaleMounts({ containers, staleTargets: ["/mnt/the-dump"] })).toHaveLength(1);
+    expect(containersOnStaleMounts({ containers, remountedTargets: ["/mnt/the-dump"] })).toHaveLength(1);
   });
 
   it("does not match a folder that merely starts with the same letters", () => {
     const containers = [{ name: "bp-x", appId: "x", binds: ["/mnt/the-dump-backup"] }];
-    expect(containersOnStaleMounts({ containers, staleTargets: ["/mnt/the-dump"] })).toEqual([]);
+    expect(containersOnStaleMounts({ containers, remountedTargets: ["/mnt/the-dump"] })).toEqual([]);
   });
 
   it("says nothing when no mount is suspect", () => {
     expect(containersOnStaleMounts({ containers: [{ name: "bp-plex", binds: ["/mnt/the-dump"] }] })).toEqual([]);
   });
+
+  it("leaves a drive that is still dead or read-only to its Reconnect, which restarts the apps as part of the fix", () => {
+    // "Fix the safe ones" would otherwise restart Plex on the broken mount, which changes nothing.
+    const containers = [{ name: "bp-plex", appId: "plex", binds: ["/mnt/the-dump"] }];
+    const { findings } = detectRemediations({ mounts: [theDump], devices: afterReconnect, containers, remountedTargets: ["/mnt/the-dump"] });
+    expect(findings.map((entry) => entry.id)).toContain("stale-mount:the-dump");
+    expect(findings.some((entry) => entry.id.startsWith("stale-bind:"))).toBe(false);
+  });
 });
 
 describe("shares and drives nobody can write to", () => {
-  it("catches the root-owned read-write share", () => {
-    const [found] = unwritableShares({ shares: [{ name: "the-dump", path: "/mnt/the-dump", readOnly: false, ownerUid: 0, forceUser: null }] });
+  it("catches the root-owned read-write share, and hands its folder over rather than describing how", () => {
+    const [found] = unwritableShares({ shares: [{ name: "Media", path: "/srv/media", readOnly: false, ownerUid: 0, forceUser: null }] });
     expect(found.severity).toBe("warning");
     expect(found.title).toContain("Nobody can write");
-    expect(found.manual).toContain("Storage page");
+    expect(found.fix).toMatchObject({ operationId: "samba.share.writable", parameters: { share: "Media" }, label: "Let people write to it" });
+    expect(found.fix.preview).toContain("not the folders inside it");
+    expect(found.manual).toBeNull();
+  });
+
+  it("fixes a share on an exFAT drive mounted without an owner through the drive, which is what decides it", () => {
+    const exfat = { target: "/mnt/the-dump", source: "/dev/sdb2", fstype: "exfat", options: "rw,nofail", managedName: "the-dump" };
+    const [found] = unwritableShares({ mounts: [exfat], shares: [{ name: "Media", path: "/mnt/the-dump/media", readOnly: false, ownerUid: 0, forceUser: null }] });
+    expect(found.fix).toMatchObject({ operationId: "storage.writable", parameters: { name: "the-dump" } });
+    expect(found.evidence).toContain("/mnt/the-dump is exfat, mounted without uid=");
   });
 
   it("needs the real owner, not one inferred from whether a force user exists", () => {
@@ -82,10 +99,16 @@ describe("shares and drives nobody can write to", () => {
     expect(unwritableShares({ shares: [{ name: "b", path: "/mnt/b", readOnly: true, ownerUid: 0, forceUser: null }] })).toEqual([]);
   });
 
-  it("catches exFAT mounted with no uid, which is the same failure by another route", () => {
-    const [found] = permissionlessMounts({ mounts: [{ ...theDump, source: "/dev/sdb2", options: "rw,relatime" }] });
+  it("catches exFAT mounted with no uid, which is the same failure by another route, and changes the mount", () => {
+    // "Remount it" mounted the same fstab line again and changed nothing.
+    const [found] = permissionlessMounts({ mounts: [{ ...theDump, source: "/dev/sdb2", options: "rw,relatime" }], containers: [{ name: "bp-plex", appName: "Plex", binds: ["/mnt/the-dump"] }], sambaShares: [{ name: "Media", path: "/mnt/the-dump/media" }] });
     expect(found.title).toContain("Only root can write");
-    expect(found.fix.operationId).toBe("storage.remount");
+    expect(found.fix).toMatchObject({ operationId: "storage.writable", parameters: { name: "the-dump" }, label: "Let apps write to the drive" });
+    expect(found.fix.preview).toContain("uid=1000,gid=1000");
+    expect(found.fix.preview).toContain("stops Plex");
+    expect(found.fix.preview).toContain("the Media share");
+    // A drive mounted read-only on purpose is not this.
+    expect(permissionlessMounts({ mounts: [{ ...theDump, options: "ro,nofail" }] })).toEqual([]);
     // With uid= present it is fine, and an ext4 drive is never flagged.
     expect(permissionlessMounts({ mounts: [{ ...theDump, source: "/dev/sdb2" }] })).toEqual([]);
     expect(permissionlessMounts({ mounts: [{ target: "/mnt/m", fstype: "ext4", options: "rw", managedName: "m" }] })).toEqual([]);
@@ -126,12 +149,15 @@ describe("the whole sweep", () => {
       apps: [{ id: "qbittorrent", name: "qBittorrent", killSwitchDrill: { leaked: true, at: "2026-08-30T04:00:00Z" } }],
     };
     const { findings, counts } = detectRemediations(facts);
-    expect(counts).toEqual({ critical: 2, warning: 2, info: 1 });
-    expect(findings.map((entry) => entry.severity)).toEqual(["critical", "critical", "warning", "warning", "info"]);
-    // The container finding is derived from the stale mount detected in the same pass.
-    expect(findings.some((entry) => entry.id === "stale-bind:bp-plex")).toBe(true);
+    expect(counts).toEqual({ critical: 2, warning: 1, info: 1 });
+    expect(findings.map((entry) => entry.severity)).toEqual(["critical", "critical", "warning", "info"]);
+    // Plex is restarted by the stale mount's own Reconnect, so it is not a finding of its own.
+    expect(findings.some((entry) => entry.id === "stale-bind:bp-plex")).toBe(false);
+    expect(findings.find((entry) => entry.id === "stale-mount:the-dump").fix.preview).toContain("stops bp-plex");
     // And a drive mounted before the Docker ordering existed, with an app on it, is offered it.
     expect(findings.some((entry) => entry.id === "drive-order")).toBe(true);
+    // Every finding lists its fixes, the first of which is its fix.
+    for (const entry of findings) expect(entry.fix).toEqual(entry.fixes[0] ?? null);
 
     expect(detectRemediations({}).findings).toEqual([]);
     expect(detectRemediations({}).counts).toEqual({ critical: 0, warning: 0, info: 0 });
@@ -239,9 +265,20 @@ describe("a mount the kernel turned read-only", () => {
     expect(readOnlyRemounts({ mounts: [{ ...dump, managedName: null }] })).toEqual([]);
   });
 
-  it("lists the containers bound to it for a restart, since the fix replaces the filesystem under them", () => {
-    const { findings } = detectRemediations({ mounts: [dump], devices: [{ path: "/dev/sdb2" }], containers: [{ name: "bp-plex", appId: "plex", binds: ["/mnt/the-dump"] }, { name: "bp-ntfy", appId: "ntfy", binds: ["/srv/ntfy"] }] });
-    expect(findings.map((entry) => entry.id).filter((id) => id !== "drive-order")).toEqual(["read-only-remount:the-dump", "stale-bind:bp-plex"]);
+  it("names the apps its reconnect stops and starts, and the shares it disconnects, since the fix replaces the filesystem under them", () => {
+    // The owner's refusals: Plex held one copy of the read-only filesystem and a PC held the share.
+    const facts = { mounts: [dump], devices: [{ path: "/dev/sdb2" }], containers: [{ name: "bp-plex", appId: "plex", appName: "Plex", binds: ["/mnt/the-dump"] }, { name: "bp-ntfy", appId: "ntfy", appName: "ntfy", binds: ["/srv/ntfy"] }], sambaShares: [{ name: "Media", path: "/mnt/the-dump" }, { name: "Docs", path: "/srv/docs" }] };
+    const { findings } = detectRemediations(facts);
+    expect(findings.map((entry) => entry.id).filter((id) => id !== "drive-order")).toEqual(["read-only-remount:the-dump"]);
+    const { preview } = findings[0].fix;
+    expect(preview).toContain("stops Plex (it uses this folder)");
+    expect(preview).toContain("disconnects anyone using the Media share from other computers");
+    expect(preview).toContain("starts Plex again");
+    expect(preview).toContain("First checks the drive is connected");
+    expect(preview).not.toContain("ntfy");
+    expect(preview).not.toContain("Docs");
+    expect(findings[0].evidence).toContain("Plex uses it");
+    expect(findings[0].manual).toContain("check the drive next");
   });
 
   // The backup destination is a network share (share-boxpilot-backup) at /mnt/boxpilot/backup.
@@ -256,9 +293,11 @@ describe("a mount the kernel turned read-only", () => {
     expect(found.detail).not.toMatch(/USB|drive/);
   });
 
-  it("lists the containers on a read-only share at the share's own mount point", () => {
-    const { findings } = detectRemediations({ mounts: [backupShare], devices: [], containers: [{ name: "bp-duplicati", appId: "duplicati", binds: ["/mnt/boxpilot/backup/duplicati"] }] });
-    expect(findings.map((entry) => entry.id)).toEqual(expect.arrayContaining(["read-only-remount:share-boxpilot-backup", "stale-bind:bp-duplicati"]));
+  it("names the apps on a read-only share at the share's own mount point, which its reconnect restarts", () => {
+    const { findings } = detectRemediations({ mounts: [backupShare], devices: [], containers: [{ name: "bp-duplicati", appId: "duplicati", appName: "Duplicati", binds: ["/mnt/boxpilot/backup/duplicati"] }] });
+    const found = findings.find((entry) => entry.id === "read-only-remount:share-boxpilot-backup");
+    expect(found.fix.preview).toContain("restarts Duplicati");
+    expect(findings.some((entry) => entry.id === "stale-bind:bp-duplicati")).toBe(false);
   });
 });
 
@@ -424,6 +463,9 @@ describe("a drive that keeps dropping off USB", () => {
     expect(found.detail).toContain("cable");
     expect(found.severity).toBe("warning");
     expect(found.fix).toBeNull();   // nothing BoxPilot can run fixes a cable
+    // ...so it says the one thing to do by hand, and what to turn on until then.
+    expect(found.manual).toContain("shorter one");
+    expect(found.manual).toContain("reconnecting it automatically");
   });
 
   it("blames power when the port reported a fault", () => {
@@ -495,5 +537,145 @@ describe("a backup destination still where it used to be", () => {
   it("says nothing once it has moved, or when there is none", () => {
     expect(backupDestinationToMove({ fstab: [fstab[0], { ...fstab[1], mountpoint: "/mnt/boxpilot/backup" }] })).toEqual([]);
     expect(backupDestinationToMove({})).toEqual([]);
+  });
+});
+
+describe("apps listed as installed with no container (M35)", () => {
+  // The owner's server listed six apps as installed while Docker had no container for any of them.
+  const record = (id) => ({ record: `/var/lib/boxpilot-managed/catalog/${id}/boxpilot.json`, project: `/var/lib/boxpilot-managed/catalog/${id}/compose.yaml`, projectPresent: true, container: `bp-${id}` });
+  const apps = [
+    { id: "homepage", name: "Homepage", installedAt: "2026-08-01T10:00:00.000Z", missingContainer: record("homepage") },
+    { id: "it-tools", name: "IT-Tools", installedAt: "2026-09-20T10:00:00.000Z", missingContainer: { ...record("it-tools"), projectPresent: false } },
+    { id: "jellyfin", name: "Jellyfin", installedAt: "2026-08-01T10:00:00.000Z", missingContainer: null },
+  ];
+
+  const when = (iso) => new Date(iso).toLocaleString(undefined, { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  const nightly = { at: "2026-09-29T03:00:40.000Z", scheduled: true, frequency: "daily" };
+
+  it("says the nightly clean-up removed an app the owner had stopped, and brings it back stopped in one click", () => {
+    // Plex was stopped at 22:10 and gone by morning: the 03:00 prune deletes every stopped container.
+    const plex = { id: "plex", name: "Plex", installedAt: "2026-08-01T10:00:00.000Z", stoppedAt: "2026-09-28T22:10:20.000Z", missingContainer: record("plex") };
+    const [found] = appsWithoutContainer({ apps: [plex], pruneRuns: [{ at: "2026-09-20T03:00:00.000Z", scheduled: true, frequency: "daily" }, nightly] });
+    expect(found).toMatchObject({ id: "app-missing:plex", severity: "warning", title: "Plex was removed by the nightly clean-up; your data is intact" });
+    expect(found.detail).toContain(`You stopped Plex ${when(plex.stoppedAt)}, and the nightly clean-up ran ${when(nightly.at)}`);
+    expect(found.detail).toContain("it no longer removes containers. It never touched volumes or folders");
+    // The stop and the clean-up that followed it, not an earlier one.
+    expect(found.evidence.slice(0, 2)).toEqual([`you stopped it ${when(plex.stoppedAt)}`, `the nightly clean-up (docker system prune) ran ${when(nightly.at)}, on its schedule`]);
+    expect(found.fixes.map((fix) => [fix.operationId, fix.label, fix.parameters])).toEqual([
+      ["app.reinstall", "Recreate (stays stopped)", { id: "plex", start: false }],
+      ["app.uninstall", "Uninstall", { id: "plex" }],
+    ]);
+    // Uninstall keeps the data: nothing on this finding deletes anything.
+    expect(found.fixes[1].preview).toContain("Its data folder is kept");
+    expect(found.fixes[1].preview).toContain("Nothing is deleted");
+  });
+
+  it("offers Start for an app that was not stopped on purpose, which builds the container again", () => {
+    const found = appsWithoutContainer({ apps, pruneRuns: [{ at: "2026-09-10T03:00:00.000Z", scheduled: false, frequency: null }] });
+    expect(found.map((entry) => entry.id)).toEqual(["app-missing:homepage", "app-missing:it-tools"]);
+    const [homepage, tools] = found;
+    expect(homepage.title).toBe("Homepage was most likely removed by Docker's clean-up; your data is intact");
+    expect(homepage.fixes.map((fix) => [fix.operationId, fix.label, fix.parameters])).toEqual([["app.action", "Start", { id: "homepage", action: "start" }], ["app.uninstall", "Uninstall", { id: "homepage" }]]);
+    expect(homepage.evidence).toContain("Docker has no container named bp-homepage");
+    expect(homepage.evidence).toContain("/var/lib/boxpilot-managed/catalog/homepage/boxpilot.json still says installed");
+    // IT-Tools was installed after that clean-up, so the clean-up is not its story; and with its
+    // compose project gone too, Start writes it again from the saved settings.
+    expect(tools.title).toBe("The container for IT-Tools was removed outside BoxPilot; its data folder is still here");
+    expect(tools.evidence.some((line) => line.includes("docker system prune"))).toBe(false);
+    expect(tools.fixes[0]).toMatchObject({ operationId: "app.reinstall", label: "Start", parameters: { id: "it-tools" } });
+    expect(tools.fixes[0].preview).toContain("the file is gone too");
+  });
+});
+
+describe("apps that have not been backed up lately (M35)", () => {
+  const now = Date.parse("2026-09-29T12:00:00.000Z");
+  const daysAgo = (days) => new Date(now - days * 86_400_000).toISOString();
+  const protection = { available: true, apps: [
+    { id: "audhdmap", name: "AuDHDMAP", protectable: true, backups: 2, newestAt: daysAgo(23) },
+    { id: "protec", name: "Protec", protectable: true, backups: 0, newestAt: null },
+    { id: "jellyfin", name: "Jellyfin", protectable: true, backups: 9, newestAt: daysAgo(1) },
+    { id: "it-tools", name: "IT-Tools", protectable: false, backups: 0, newestAt: null },
+  ] };
+
+  it("is one finding for all of them, with Back up now in one job and Back up nightly for those without a schedule", () => {
+    const [found] = backupsDue({ protection, schedules: [{ operationId: "app.backup", parameters: { id: "audhdmap" }, enabled: true }], now });
+    expect(found).toMatchObject({ id: "backups-due", severity: "warning", title: "AuDHDMAP and Protec have not been backed up recently" });
+    expect(found.evidence).toEqual(["AuDHDMAP: newest backup 23 days old, scheduled", "Protec: never backed up, no schedule"]);
+    expect(found.fixes[0]).toMatchObject({ operationId: "app.backup.many", parameters: { ids: ["audhdmap", "protec"] }, label: "Back up now" });
+    expect(found.fixes[1]).toMatchObject({ kind: "schedule", operationId: "app.backup", label: "Back up nightly", schedules: [{ parameters: { id: "protec" }, frequency: "daily", hour: 2, minute: 0 }] });
+  });
+
+  it("backs up one app with the ordinary backup, spreads the nightly schedules out, and needs no schedule it already has", () => {
+    const [one] = backupsDue({ protection: { available: true, apps: [protection.apps[1]] }, now });
+    expect(one.fixes[0]).toMatchObject({ operationId: "app.backup", parameters: { id: "protec" } });
+    expect(one.title).toBe("Protec has never been backed up");
+    const [both] = backupsDue({ protection, now });
+    expect(both.fixes[1].schedules.map((schedule) => `${schedule.hour}:${schedule.minute}`)).toEqual(["2:0", "3:0"]);
+    const [scheduled] = backupsDue({ protection, schedules: ["audhdmap", "protec"].map((id) => ({ operationId: "app.backup", parameters: { id }, enabled: true })), now });
+    expect(scheduled.fixes.map((fix) => fix.label)).toEqual(["Back up now"]);
+    // A paused schedule protects nothing.
+    const [paused] = backupsDue({ protection, schedules: [{ operationId: "app.backup", parameters: { id: "protec" }, enabled: false }], now });
+    expect(paused.fixes[1].schedules.map((schedule) => schedule.parameters.id)).toEqual(["audhdmap", "protec"]);
+  });
+
+  it("is quiet when every app has a recent backup, when none is worth backing up, or when it could not be read", () => {
+    expect(backupsDue({ protection: { available: true, apps: [protection.apps[2], protection.apps[3]] }, now })).toEqual([]);
+    expect(backupsDue({ protection: { available: false, apps: [] }, now })).toEqual([]);
+    expect(backupsDue({ protection: null, now })).toEqual([]);
+  });
+});
+
+describe("somewhere for alerts to go (M35)", () => {
+  const apps = [{ id: "plex", name: "Plex" }];
+
+  it("sends them to the ntfy already running on this server, in one high-risk step", () => {
+    // The owner's server ran ntfy from the catalog while this said only "set a target under Settings".
+    const [found] = nothingCanReachYou({ notifications: { configured: false }, apps, ntfy: { installed: true, running: true } });
+    expect(found.fix).toMatchObject({ operationId: "notifications.ntfy.connect", parameters: {}, label: "Send alerts to ntfy here" });
+    expect(found.fix.preview).toContain("topic nobody can guess");
+    expect(found.fix.preview).toContain("subscribe to that topic in the ntfy app on your phone");
+    expect(found.evidence).toContain("ntfy is installed here and running");
+  });
+
+  it("starts ntfy first when it is stopped, installs it when it is not there, and keeps Settings as the other way", () => {
+    expect(nothingCanReachYou({ notifications: { configured: false }, apps, ntfy: { installed: true, running: false } })[0].fix).toMatchObject({ operationId: "app.action", parameters: { id: "ntfy", action: "start" } });
+    expect(nothingCanReachYou({ notifications: { configured: false }, apps, ntfy: { installed: false, running: false } })[0].fix).toMatchObject({ operationId: "app.install", parameters: { id: "ntfy", values: {} } });
+    const [unknown] = nothingCanReachYou({ notifications: { configured: false }, apps });
+    expect(unknown.fix).toBeNull();
+    expect(unknown.manual).toContain("Settings, Notifications");
+  });
+});
+
+describe("an app that cannot write to its folder (M35)", () => {
+  const exfat = { target: "/mnt/the-dump", source: "/dev/sdb2", fstype: "exfat", options: "rw,nofail", managedName: "the-dump" };
+  const problem = (fields) => ({ path: "/srv/media", volume: "Media folder", reason: "owned by user root, while the app runs as user 1000", ownerUid: 0, appUid: 1000, ...fields });
+
+  it("redeploys an app whose folder root owns, which hands it over", () => {
+    const [found] = unwritableAppFolders({ apps: [{ id: "qbittorrent", name: "qBittorrent", folderProblems: [problem()] }] });
+    expect(found.fix).toMatchObject({ operationId: "app.reconfigure", parameters: { id: "qbittorrent", values: {} } });
+    expect(found.fix.preview).toContain("hands /srv/media, which root owns, to the user qBittorrent runs as");
+  });
+
+  it("changes the drive's mount for a folder on exFAT, where no owner can be set on the folder", () => {
+    const [found] = unwritableAppFolders({ mounts: [exfat], apps: [{ id: "qbittorrent", name: "qBittorrent", folderProblems: [problem({ path: "/mnt/the-dump/torrents" })] }] });
+    expect(found.fix).toMatchObject({ operationId: "storage.writable", parameters: { name: "the-dump" } });
+  });
+
+  it("leaves somebody's own folder to them, and says the one thing to do", () => {
+    const [found] = unwritableAppFolders({ apps: [{ id: "qbittorrent", name: "qBittorrent", folderProblems: [problem({ ownerUid: 1001, reason: "owned by user 1001, while the app runs as user 1000" })] }] });
+    expect(found.fix).toBeNull();
+    expect(found.manual).toContain("belongs to user 1001");
+    expect(found.manual).toContain("in its Settings");
+  });
+});
+
+describe("what a dismissal holds on to (M35)", () => {
+  it("is the same for a finding that says the same, and different when it says anything else", () => {
+    const [first] = appsWithoutContainer({ apps: [{ id: "homepage", name: "Homepage", missingContainer: { record: "r", project: "p", projectPresent: true, container: "bp-homepage" } }] });
+    const [again] = appsWithoutContainer({ apps: [{ id: "homepage", name: "Homepage", missingContainer: { record: "r", project: "p", projectPresent: true, container: "bp-homepage" } }] });
+    expect(fingerprintOf(first)).toMatch(/^[0-9a-f]{16}$/);
+    expect(fingerprintOf(again)).toBe(fingerprintOf(first));
+    expect(fingerprintOf({ ...first, evidence: [...first.evidence, "one more line"] })).not.toBe(fingerprintOf(first));
+    expect(fingerprintOf({ ...first, severity: "critical" })).not.toBe(fingerprintOf(first));
   });
 });

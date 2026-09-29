@@ -54,9 +54,9 @@ const Settings = lazy(() => import("./SettingsView"));
  * Pages that draw their own PageHeader (src/ui/PageHeader.tsx): Home its greeting, Ops and the
  * pages rebuilt on the kit their verdict and facts. Every other page gets one from the shell, with
  * its name in the bar and what it is for behind the info toggle, until wave 2 rebuilds it (M33.8).
- * A rebuilt page adds itself here.
+ * A rebuilt page adds itself here. Repair (M35) draws its own crumb and verdict in the page.
  */
-const ownHeader = new Set<ViewName>(["home", "ops", "services", "logs"]);
+const ownHeader = new Set<ViewName>(["home", "ops", "services", "logs", "repairs"]);
 
 /**
  * Deep link: /?view=firewall opens that page, and a reload keeps the page you were on (Setup
@@ -168,7 +168,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
     if (view === "firewall") return <FirewallCenter csrfToken={csrfToken} />;
     if (view === "storage") return <StorageCenter csrfToken={csrfToken} onNavigate={setView} />;
     if (view === "network") return <NetworkCenter csrfToken={csrfToken} onOpenRepair={() => setView("repairs")} />;
-    if (view === "repairs") return <RepairCenter csrfToken={csrfToken} onNavigate={setView} />;
+    if (view === "repairs") return <RepairCenter csrfToken={csrfToken} role={role} onNavigate={setView} />;
     if (view === "virtualization") return <VirtualMachines csrfToken={csrfToken} onOpenRepair={() => setView("repairs")} />;
     if (view === "backups") return <BackupCenter csrfToken={csrfToken} onOpenRepair={() => setView("repairs")} />;
     if (view === "github") return <GitHubCenter />;

@@ -150,7 +150,6 @@ export default function ServicesPage({ csrfToken, role = "owner" }: ServicesPage
       {error && <Notice tone="danger" live title="The service list could not be read" action={<Button onClick={() => void refresh()}>Try again</Button>}>{error}</Notice>}
 
       <Panel
-        flush
         className="services-units"
         title="Units"
         count={data ? visible.length : undefined}

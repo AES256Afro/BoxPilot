@@ -49,16 +49,18 @@ describe("PageHeader", () => {
 });
 
 describe("Panel", () => {
-  it("is a region named by its heading and count, with facts, a body and a footer", () => {
+  it("is a region named by its title, with its count in the heading, facts, a body and a footer", () => {
     render(<Panel title="Alerts" count={{ status: "warning", label: "2" }} meta="each opens its page" footer="read 1m ago"><p>rows</p></Panel>);
-    const region = screen.getByRole("region", { name: "Alerts, 2" });
+    const region = screen.getByRole("region", { name: "Alerts" });
+    expect(within(region).getByRole("heading", { level: 2 }).textContent).toBe("Alerts, 2");
     expect(region.querySelector(".ui-panel__count")?.getAttribute("data-status")).toBe("warning");
     expect(within(region).getByText("each opens its page")).toBeTruthy();
     expect(within(region).getByText("read 1m ago").tagName).toBe("FOOTER");
     cleanup();
-    render(<Panel title="Units" count={12} level={3} flush><p>rows</p></Panel>);
+    render(<Panel title="Units" count={12} level={3} padded label="Units, 12 of 214"><p>rows</p></Panel>);
     expect(screen.getByRole("heading", { level: 3, name: "Units, 12" })).toBeTruthy();
-    expect(screen.getByRole("region").classList.contains("ui-panel--flush")).toBe(true);
+    // A label names the region when the title alone would not do (Repair's "Critical, 2").
+    expect(screen.getByRole("region", { name: "Units, 12 of 214" }).classList.contains("ui-panel--padded")).toBe(true);
   });
 });
 

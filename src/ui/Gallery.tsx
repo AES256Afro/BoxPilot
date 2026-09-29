@@ -191,7 +191,7 @@ function PageKit() {
     <section className="ui-gallery__kit" aria-labelledby="ui-gallery-kit">
       <h2 id="ui-gallery-kit" className="ui-gallery__heading">The page kit</h2>
 
-      <Panel title="PageHeader" meta="the name goes in the bar; here it is drawn in place">
+      <Panel padded title="PageHeader" meta="the name goes in the bar; here it is drawn in place">
         <PageHeader
           placement="inline"
           title="Firewall"
@@ -212,7 +212,7 @@ function PageKit() {
       ]} />
 
       <div className="ui-gallery__grid">
-        <Panel title="Panel" count={{ status: "warning", label: "2" }} meta={<><b>1</b> running · <b>1</b> waiting</>} footer={<>9/9 local · <b>7/9</b> off-box · last run 03:10</>} actions={<Button variant="ghost">All jobs</Button>}>
+        <Panel padded title="Panel" count={{ status: "warning", label: "2" }} meta={<><b>1</b> running · <b>1</b> waiting</>} footer={<>9/9 local · <b>7/9</b> off-box · last run 03:10</>} actions={<Button variant="ghost">All jobs</Button>}>
           <KeyValue layout="rows" items={[
             { id: "kernel", label: "Kernel", value: "6.8.0-45-generic", mono: true },
             { id: "uptime", label: "Uptime", value: "23d 04h", mono: true },
@@ -220,7 +220,7 @@ function PageKit() {
           ]} />
         </Panel>
 
-        <Panel title="Form controls">
+        <Panel padded title="Form controls">
           <Field label="Hostname" hint="Letters, digits and hyphens" error={problem} required>
             <TextInput value={hostname} onValueChange={setHostname} mono />
           </Field>
@@ -235,7 +235,7 @@ function PageKit() {
           </Field>
         </Panel>
 
-        <Panel title="Choices">
+        <Panel padded title="Choices">
           <Switch label="Automatic security updates" description="Installs them overnight, with a restart hint" risk="medium" checked={automatic} onChange={setAutomatic} />
           <Switch label="Follow" checked={follow} onChange={setFollow} />
           <Checkbox label="Include named volumes" description="The app's data that lives in Docker volumes" checked={volumes} onChange={setVolumes} />
@@ -243,7 +243,7 @@ function PageKit() {
           <Segmented label="Which units" value={scope} onChange={setScope} options={[{ value: "common", label: "Common", count: 38 }, { value: "failed", label: "Failed", count: 1 }, { value: "all", label: "All", count: 214 }]} />
         </Panel>
 
-        <Panel title="Notices and empty states">
+        <Panel padded title="Notices and empty states">
           <Notice tone="info" title="The package lists are 3 days old">Refresh them before installing.</Notice>
           <Notice tone="success" title="Backup finished" action={<Button variant="ghost">Open</Button>}>Immich, 412 GB, verified.</Notice>
           <Notice tone="warning" title="No off-box copy" action={<Button risk="medium">Copy now</Button>}>Two apps are only on this server.</Notice>
@@ -252,7 +252,7 @@ function PageKit() {
         </Panel>
       </div>
 
-      <Panel flush title="Toolbar, Table and Tag" count={packages.length} meta="sort by Package or Size">
+      <Panel title="Toolbar, Table and Tag" count={packages.length} meta="sort by Package or Size">
         <Toolbar
           label="Packages"
           className="ui-gallery__toolbar"
@@ -265,20 +265,20 @@ function PageKit() {
           empty={<EmptyState title="No packages match">Search looks at the package's name.</EmptyState>} />
       </Panel>
 
-      <Panel title="Tabs">
+      <Panel padded title="Tabs">
         <Tabs label="Storage" tabs={[{ id: "disks", label: "Disks", count: 3 }, { id: "shares", label: "Shares", count: 2, status: "warning", statusLabel: "1 needs a look" }, { id: "swap", label: "Swap" }]}>
           {(tab) => <p className="ui-gallery__note">The {tab} tab. With urlParam="tab" the open tab lives in the address, as ?view=storage&amp;tab={tab}.</p>}
         </Tabs>
       </Panel>
 
       <div className="ui-gallery__grid">
-        <Panel title="CodeBlock and Progress">
+        <Panel padded title="CodeBlock and Progress">
           <CodeBlock label="Journal for docker.service" meta="3 lines">{journal}</CodeBlock>
           <Progress label="Backing up Immich" value={62} detail="62%" />
           <Progress label="Restarting docker.service" detail="indeterminate" />
           <Progress label="Restore drill" value={100} status="good" detail="passed" />
         </Panel>
-        <Panel title="JobProgress and Sheet">
+        <Panel padded title="JobProgress and Sheet">
           {job ? <JobProgress jobId={job} /> : <p className="ui-gallery__note">JobProgress follows a job by its id; the demo has none yet.</p>}
           <div className="ui-gallery__row">
             <Button onClick={() => setSheet("right")}>Open a drawer</Button>
@@ -313,7 +313,7 @@ export default function Gallery() {
         about="The components pages are built from (src/ui): Home's comfortable density and the console's compact one, and the page kit every console page uses. docs/UI-PAGES.md says how a page is put together."
       />
 
-      <Panel title="Tokens">
+      <Panel padded title="Tokens">
         <ul className="ui-gallery__swatches">
           {swatches.map((token) => (
             <li key={token}><span className="ui-gallery__swatch" style={{ background: `var(--${token})` }} /><code>--{token}</code></li>

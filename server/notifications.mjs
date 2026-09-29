@@ -95,6 +95,19 @@ export function createNotificationService({ store, fetcher = fetch, now = () => 
     return saved;
   }
 
+  /**
+   * Save the target "Send alerts to the ntfy on this server" proved (notifications.ntfy.connect,
+   * M35): the helper found the local ntfy, made the topic and sent the test, and ntfy accepted it,
+   * so this only records where it went. It never replaces a target somebody set in Settings, which
+   * asks for the owner's password there; the job is refused at staging for the same reason, and
+   * this catches one set while it ran.
+   */
+  function adoptLocalNtfy(result, { updatedBy = null } = {}) {
+    if (getTarget()) throw new Error("A notification target was set while this ran, so it was left as it is");
+    if (result?.kind !== "ntfy" || !/^http:\/\/127\.0\.0\.1:\d{1,5}$/.test(String(result?.url ?? ""))) throw new Error("The ntfy check did not say where ntfy answers");
+    return setTarget({ kind: "ntfy", url: result.url, topic: result.topic }, { updatedBy });
+  }
+
   /** Redacted view for the UI: never returns the token. */
   function describe() {
     const target = getTarget();
@@ -141,5 +154,5 @@ export function createNotificationService({ store, fetcher = fetch, now = () => 
     return store.subscribeJobs(onJob);
   }
 
-  return { getTarget, setTarget, describe, send, onJob, start };
+  return { getTarget, setTarget, adoptLocalNtfy, describe, send, onJob, start };
 }

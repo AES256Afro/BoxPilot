@@ -48,7 +48,7 @@ a header for it, and render your own `PageHeader`.
 | Component | What it is for |
 | --- | --- |
 | `PageHeader` | The page's name in the bar, the verdict, a sentence, the mono facts, the actions, and `about` behind the info toggle. `placement="inline"` draws the name in place (the gallery). |
-| `Panel` | The console's panel: an uppercase mono title, a count (`12`, or `{ status, label }` with its mark), facts on the right, actions, a body, a footer. `flush` for a table or list that draws to the edge. A region named by its heading. |
+| `Panel` | The console's panel (Ops' and Repair's): an uppercase mono title, a count (`12`, or `{ status, label }` with its mark), facts on the right, actions, a body, a footer. The body draws its rows to the edges; `padded` for words, a form or facts. A region named by its title, or by `label` when the title alone would not do. |
 | `Field` | A label, one control, then its hint or error. The control inside takes the field's id, description and invalid state. |
 | `TextInput`, `Textarea` | Text, with `mono` for paths, units, addresses and keys, and `onValueChange`. |
 | `Select` | The browser's own select with the kit's face: keyboard, screen readers and a phone's picker all work. `options`, `placeholder`, `onValueChange`. |
