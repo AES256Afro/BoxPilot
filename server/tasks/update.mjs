@@ -1,4 +1,4 @@
-import { chmod, copyFile, mkdir } from "node:fs/promises";
+import { chmod, copyFile, mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fixedRun } from "../exec.mjs";
 import { productVersion } from "../version.mjs";
@@ -14,6 +14,20 @@ import { productVersion } from "../version.mjs";
 export const releaseTagPattern = /^v\d+\.\d+\.\d+(?:-[A-Za-z0-9.]+)?$/;
 const shaPattern = /^[a-f0-9]{40}$/;
 const repository = process.env.BOXPILOT_REPO ?? "AES256Afro/BoxPilot";
+/** The upgrade script's lock (M36): held by a running upgrade for its whole run. */
+export const upgradeLockPath = process.env.BOXPILOT_UPGRADE_LOCK ?? "/run/boxpilot-upgrade.lock";
+
+/**
+ * Whether an upgrade is running now, and which, from the script's own lock: `flock -n` exits 1 when
+ * it is held. Null when none is. Anything else (no flock) says nothing either way and is left to the
+ * script, which takes the same lock before it changes anything.
+ */
+export async function runningUpgrade({ run = fixedRun, lockPath = upgradeLockPath, read = readFile } = {}) {
+  const probe = await run("/usr/bin/flock", ["-n", lockPath, "/bin/true"], { timeout: 10_000 });
+  if (probe.ok || probe.code !== 1) return null;
+  const holder = await read(lockPath, "utf8").then((text) => text.replace(/\s+/g, " ").trim()).catch(() => "");
+  return holder || `it holds ${lockPath}`;
+}
 
 export async function systemUpdate({ tag, expectedCommit } = {}, {
   run = fixedRun,
@@ -23,6 +37,7 @@ export async function systemUpdate({ tag, expectedCommit } = {}, {
   stagingDirectory = "/run/boxpilot",
   nodeBinary = process.execPath,
   now = () => new Date(),
+  lockPath = upgradeLockPath,
 } = {}) {
   if (typeof tag !== "string" || !releaseTagPattern.test(tag)) throw new Error("Release tag must look like v1.2.3");
   if (typeof expectedCommit !== "string" || !shaPattern.test(expectedCommit)) throw new Error("Expected commit must be a full SHA-1");
@@ -36,6 +51,12 @@ export async function systemUpdate({ tag, expectedCommit } = {}, {
   const commit = await response.json();
   if (commit?.sha !== expectedCommit) throw new Error(`${tag} now points at ${String(commit?.sha ?? "unknown").slice(0, 12)}, not the reviewed ${expectedCommit.slice(0, 12)}; check the release again`);
 
+  // Two updates two seconds apart left the owner's server with two previous trees and the service
+  // started twice (M36). The script refuses a second run itself; this says so in the job instead of
+  // starting a unit that would only refuse.
+  const running = await runningUpgrade({ run, lockPath });
+  if (running) throw new Error(`Another BoxPilot update is already running (${running}). Nothing was started; wait for it to finish, then check the version before updating again.`);
+
   const stamp = now().toISOString().replaceAll(/[-:]/g, "").replace(/\.\d+Z$/, "Z");
   const scriptCopy = path.join(stagingDirectory, `update-${stamp}.sh`);
   await mkdir(stagingDirectory, { recursive: true });
@@ -46,7 +67,7 @@ export async function systemUpdate({ tag, expectedCommit } = {}, {
   const unit = `boxpilot-update-${stamp}`;
   // The script downloads by the reviewed commit, not the tag, so a moved tag cannot swap the code in.
   log?.(`$ systemd-run --unit ${unit} /bin/sh ${scriptCopy} ${expectedCommit}`, "stdout");
-  const started = await run("/usr/bin/systemd-run", ["--quiet", "--unit", unit, "--description", `BoxPilot update to ${tag}`, `--setenv=BOXPILOT_NODE_BIN=${nodeBinary}`, "/bin/sh", scriptCopy, expectedCommit], { timeout: 30_000 });
+  const started = await run("/usr/bin/systemd-run", ["--quiet", "--unit", unit, "--description", `BoxPilot update to ${tag}`, `--setenv=BOXPILOT_NODE_BIN=${nodeBinary}`, `--setenv=BOXPILOT_UPDATE_UNIT=${unit}`, "/bin/sh", scriptCopy, expectedCommit], { timeout: 30_000 });
   if (!started.ok) throw new Error(`Could not start the update unit: ${started.stderr.split("\n").slice(-2).join(" ")}`);
   log?.("Update unit started. BoxPilot restarts when the build finishes and rolls back on a failed health check.", "stdout");
   return { started: true, unit, tag, expectedCommit, fromVersion: productVersion, startedAt: now().toISOString() };

@@ -17,7 +17,8 @@ describe("setting a finding aside (M35)", () => {
     expect(dismissalFrom({ id: split.id, fingerprint: fingerprintOf(split), reason: "" }).error).toContain("Say why");
     expect(dismissalFrom({ id: split.id, reason: "x" }).error).toContain("fingerprint");
     expect(dismissalFrom({ id: "../../etc", fingerprint: fingerprintOf(split), reason: "x" }).error).toBe("That is not a finding id");
-    expect(dismissalFrom({ jobId: "job-1", reason: "done by hand" }, { now })).toMatchObject({ key: "job:job-1", entry: { kind: "job", reason: "done by hand" } });
+    // A failed job is let go on the job itself (M36), the one mark Activity, Home and Ops read.
+    expect(dismissalFrom({ jobId: "job-1", reason: "done by hand" }, { now }).error).toContain("POST /api/v1/jobs/:id/dismiss");
   });
 
   it("hides a finding that still says what it said, and brings it back, marked, once it says anything else", () => {
@@ -75,10 +76,10 @@ describe("the last try at a fix (M35)", () => {
     const attempts = withAttempt({}, "j1", readOnly.id, { now });
     const gone = applyLedger([], { jobs: [refused], attempts });
     expect(gone.jobs.resolved).toEqual(["j1"]);
-    const dismissed = applyLedger([], { jobs: [job("j9", { type: "op:app.update" })], dismissals: { "job:j9": { kind: "job", reason: "done by hand" } } });
+    // A failure dismissed carries M36's "dismissed" step; only jobs this caller may see are named.
+    const dismissed = applyLedger([], { jobs: [job("j9", { type: "op:app.update", steps: [{ name: "dismissed", state: "completed", detail: "Dismissed by owner." }] }), job("j10")] });
     expect(dismissed.jobs.dismissed).toEqual(["j9"]);
-    // Only jobs this caller may see are named at all.
-    expect(applyLedger([], { jobs: [], dismissals: { "job:j9": { kind: "job", reason: "x" } } }).jobs.dismissed).toEqual([]);
+    expect(applyLedger([], { jobs: [] }).jobs.dismissed).toEqual([]);
   });
 
   it("remembers a bounded number of attempts", () => {

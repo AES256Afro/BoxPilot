@@ -1,7 +1,8 @@
 import { act } from "react";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import ActivityDrawer from "./ActivityDrawer";
+import { openActivity } from "./activityEvents";
 import type { Job } from "./operations";
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); FakeEventSource.instances.length = 0; });
@@ -204,5 +205,59 @@ describe("a job that ran out of time, in Activity (M30.3)", () => {
     expect(screen.queryByRole("button", { name: "Try again with more time" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /Install packages/ }));
     expect(screen.queryByText("Ran out of time")).toBeNull();
+  });
+});
+
+// M36: what can be done with a job from where it is listed.
+describe("acting on a job from Activity", () => {
+  const staged = job({ id: "22222222-2222-4222-8222-222222222222", type: "op:storage.remount", title: "Reconnect a drive", state: "awaiting_approval", risk: "medium" });
+  const failed = job({ id: "33333333-3333-4333-8333-333333333333", type: "op:apt.upgrade", title: "Install package updates", state: "failed", error: "dpkg lock" });
+
+  function openWith(jobs: Job[], role = "owner") {
+    const calls: Array<{ url: string; method: string }> = [];
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      calls.push({ url, method: init?.method ?? "GET" });
+      if (url.endsWith("/output")) return json({ output: "" });
+      if (init?.method === "DELETE") return json({ job: { ...staged, state: "cancelled" } });
+      if (url.endsWith("/dismiss")) return json({ job: failed });
+      return json({ error: "unexpected" }, 500);
+    }));
+    render(<ActivityDrawer csrfToken="csrf" role={role} />);
+    act(() => FakeEventSource.instances.at(-1)?.emit("snapshot", { jobs }));
+    return calls;
+  }
+
+  it("opens at a job another page asks for, with its approval and its way out", async () => {
+    openWith([staged]);
+    act(() => openActivity(staged.id));
+    const drawer = screen.getByRole("dialog", { name: "Activity" });
+    const approve = within(drawer).getByRole("button", { name: "Review and approve" });
+    expect(approve.getAttribute("data-risk")).toBe("medium");
+    expect(within(drawer).getByRole("button", { name: "Cancel it" })).toBeTruthy();
+    expect(within(drawer).getByText("Nothing has run yet: it waits for someone to approve it.")).toBeTruthy();
+    expect(within(drawer).queryByText("Live output")).toBeNull();
+  });
+
+  it("cancels a staged job, and dismisses a failure, through the job routes", async () => {
+    const calls = openWith([staged, failed]);
+    act(() => openActivity(staged.id));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel it" }));
+    await waitFor(() => expect(calls).toContainEqual({ url: `/api/v1/jobs/${staged.id}`, method: "DELETE" }));
+    act(() => openActivity(failed.id));
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+    await waitFor(() => expect(calls).toContainEqual({ url: `/api/v1/jobs/${failed.id}/dismiss`, method: "POST" }));
+  });
+
+  it("offers a viewer nothing to do, and a dismissed failure no second dismissal", () => {
+    openWith([staged, { ...failed, steps: [{ name: "dismissed", state: "completed", detail: "Dismissed by alex", createdAt: "2026-08-20T11:00:00.000Z" }] }], "viewer");
+    act(() => openActivity(staged.id));
+    expect(screen.queryByRole("button", { name: "Review and approve" })).toBeNull();
+    cleanup();
+    openWith([{ ...failed, steps: [{ name: "dismissed", state: "completed", detail: "Dismissed by alex", createdAt: "2026-08-20T11:00:00.000Z" }] }]);
+    act(() => openActivity(failed.id));
+    expect(screen.getByText("Failed, dismissed")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Dismiss" })).toBeNull();
   });
 });

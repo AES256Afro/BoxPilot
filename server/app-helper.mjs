@@ -16,7 +16,7 @@ import { bindingFor, deployedImages, deviceMatchesPattern, renderCompose, projec
 import { createNvidiaInspector } from "./nvidia.mjs";
 import { isDeniedHostPath } from "./catalog/schema.mjs";
 import { measurableFolders, mountFor } from "./app-data-growth.mjs";
-import { resolveValues, sanitizeStoredValues } from "./catalog/schema.mjs";
+import { keepsBackupData, resolveValues, sanitizeStoredValues } from "./catalog/schema.mjs";
 import { profileConnectionEnv, profileSecurityEnv } from "./vpn-profile.mjs";
 import { dataScanCommand } from "./scan-resources.mjs";
 import { shared } from "./cache.mjs";
@@ -36,6 +36,7 @@ const stepTimedOut = (result, step, budgetMs) => (result?.timedOut ? timedOut(`$
 const actions = Object.freeze(["start", "stop", "restart", "pause", "unpause"]);
 const idPattern = /^[a-z0-9][a-z0-9-]{1,62}$/;
 export const backupNamePattern = /^\d{8}T\d{6}Z\.tar\.gz$/;
+export { keepsBackupData };
 /** How many updates to remember per app. Enough to step back through a bad week, small enough to store. */
 export const updateHistoryLimit = 10;
 /** Pre-change checkpoints kept per app, counted separately from the owner's own backups. */
@@ -1519,7 +1520,7 @@ export function createAppHelper({
     for (const manifest of manifests) {
       const state = await readState(manifest.id);
       if (!state?.installed) continue;
-      const protectable = manifest.volumes.some((volume) => volume.backup && (volume.path || volume.hostPath));
+      const protectable = keepsBackupData(manifest);
       const directory = path.join(backupRootPath, manifest.id);
       let names = [];
       try { names = (await readdir(directory)).filter((name) => backupNamePattern.test(name)); }

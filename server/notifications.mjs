@@ -72,7 +72,7 @@ export function buildRequest(target, { title, message, priority = "default" }) {
   };
 }
 
-export function createNotificationService({ store, fetcher = fetch, now = () => new Date(), claimed = () => false }) {
+export function createNotificationService({ store, fetcher = fetch, now = () => new Date(), claimed = () => false, history = null }) {
   const notified = new Set();
 
   function getTarget() {
@@ -142,9 +142,12 @@ export function createNotificationService({ store, fetcher = fetch, now = () => 
     // audited, not kept in the ledger. The unattended case - a job a restart cut off, whose page
     // lost its connection before the end - is kept there instead (health-alerts tellInterrupted).
     if (!getTarget()) return;
-    void send({ title: `BoxPilot: ${job.title} failed`, message: (job.error ?? "The job failed; open Activity for the log.").slice(0, 500), priority: "high" })
-      .then(() => store.recordAudit("notifications.sent", { subjectId: job.id, details: { title: job.title } }))
-      .catch((error) => store.recordAudit("notifications.failed", { subjectId: job.id, details: { error: error.message, at: now().toISOString() } }));
+    const message = (job.error ?? "The job failed; open Activity for the log.").slice(0, 500);
+    // The notification centre's record of it (M36): what was pushed, and whether it arrived.
+    const said = (delivered) => history?.record({ key: `job.failed:${job.id}`, kind: "job", title: `${job.title} failed`, message, priority: "high", delivered, reason: delivered ? null : "failed" });
+    void send({ title: `BoxPilot: ${job.title} failed`, message, priority: "high" })
+      .then(() => { store.recordAudit("notifications.sent", { subjectId: job.id, details: { title: job.title } }); said(true); })
+      .catch((error) => { store.recordAudit("notifications.failed", { subjectId: job.id, details: { error: error.message, at: now().toISOString() } }); said(false); });
   }
 
   function start() {

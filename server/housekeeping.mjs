@@ -10,7 +10,7 @@
  * remove. Anything that could still be wanted — an image a container uses, the release BoxPilot
  * would roll back to, the newest backups — is never a candidate, and says so.
  */
-import { lstat, readFile, rm, stat } from "node:fs/promises";
+import { lstat, readFile, readdir, rm, stat } from "node:fs/promises";
 // The writer decides where job logs live; a second copy of that path here is the one that drifts.
 // This category spent a month scanning a directory nothing had ever written to.
 import { defaultJobLogDirectory } from "./job-log.mjs";
@@ -56,6 +56,94 @@ export const humanBytes = (bytes) => {
 /** How many of each kind of application backup "Older application backups" always keeps. */
 export const defaultKeepBackupsPerApp = 3;
 
+/**
+ * The copies of BoxPilot's database an update takes before it swaps the code in (M36,
+ * scripts/boxpilot-upgrade.sh): `boxpilot-rollback-<version>-<UTC stamp>.sqlite3` beside the
+ * database. Copies made by hand before the script took them itself used the same prefix, sometimes
+ * without the stamp, so any `boxpilot-rollback-*.sqlite3` counts. Nothing removes them on its own:
+ * which go is the owner's call, by a rule the owner sets and a list the owner reads first.
+ */
+export const databaseCopyPattern = /^boxpilot-rollback-([A-Za-z0-9._+-]{1,80})\.sqlite3$/;
+const stampedCopyPattern = /^boxpilot-rollback-(.+)-(\d{8}T\d{6}Z)\.sqlite3$/;
+/** The rule's defaults: the newest three, and anything younger than thirty days. */
+export const defaultDatabaseCopyRule = Object.freeze({ keep: 3, keepDays: 30 });
+export const databaseCopyLimits = Object.freeze({ keep: [1, 50], keepDays: [0, 3650] });
+/**
+ * The first release whose startup masks secrets stored in the database (M29.3). A copy taken from
+ * an older version was taken before that ran, so it may still hold passwords and tokens that the
+ * live database no longer does.
+ */
+export const secretScrubVersion = "1.127.0";
+
+/** "20260816T101500Z" as a time, or null. */
+function stampTime(stamp) {
+  const match = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/.exec(stamp ?? "");
+  return match ? Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]), Number(match[4]), Number(match[5]), Number(match[6])) : null;
+}
+
+/** Numeric x.y.z order, enough to tell a copy from before the scrub; anything unparsed sorts low. */
+function olderThan(version, than) {
+  const parts = (value) => (/^(\d+)\.(\d+)\.(\d+)/.exec(String(value ?? "")) ?? []).slice(1).map(Number);
+  const [a, b] = [parts(version), parts(than)];
+  if (a.length !== 3) return true;
+  for (let index = 0; index < 3; index += 1) if (a[index] !== b[index]) return a[index] < b[index];
+  return false;
+}
+
+/**
+ * Which copies a rule lets go of: everything except the newest `keep` and any taken less than
+ * `keepDays` days ago. Pure; `copies` carry `takenAt` in milliseconds. Each copy comes back with
+ * `goes` and, when kept, why.
+ */
+export function planDatabaseCopies(copies, { keep = defaultDatabaseCopyRule.keep, keepDays = defaultDatabaseCopyRule.keepDays, now = Date.now() } = {}) {
+  const newestFirst = [...copies].sort((left, right) => right.takenAt - left.takenAt || right.name.localeCompare(left.name));
+  const cutoff = now - keepDays * 86_400_000;
+  return newestFirst.map((copy, index) => {
+    const keptBecause = index < keep ? "newest" : copy.takenAt > cutoff ? "recent" : null;
+    return { ...copy, goes: keptBecause === null, keptBecause };
+  });
+}
+
+/**
+ * One copy from its file name and what `lstat` said: the version it was taken from and when (the
+ * stamp in the name, or the file's time for a copy made by hand without one), its size, and whether
+ * it predates the secret scrub.
+ */
+export function describeDatabaseCopy(name, { bytes, mtimeMs }) {
+  const stamped = stampedCopyPattern.exec(name);
+  const version = stamped ? stamped[1] : (databaseCopyPattern.exec(name)?.[1] ?? "unknown");
+  const takenAt = (stamped && stampTime(stamped[2])) ?? mtimeMs;
+  return { name, version, takenAt, bytes, heldSecrets: olderThan(version, secretScrubVersion) };
+}
+
+/** What `housekeeping.database-copies.inspect` answers, from the copies and a rule. Pure. */
+export function databaseCopyReport(copies, { rule, now, directory }) {
+  const planned = planDatabaseCopies(copies, { ...rule, now });
+  const going = planned.filter((copy) => copy.goes);
+  const goesBytes = going.reduce((sum, copy) => sum + copy.bytes, 0);
+  return {
+    directory,
+    rule,
+    defaults: defaultDatabaseCopyRule,
+    limits: databaseCopyLimits,
+    secretScrubVersion,
+    copies: planned.map((copy) => ({ ...copy, takenAt: new Date(copy.takenAt).toISOString(), humanBytes: humanBytes(copy.bytes) })),
+    goes: going.map((copy) => copy.name),
+    goesBytes,
+    goesHumanBytes: humanBytes(goesBytes),
+    totalHumanBytes: humanBytes(planned.reduce((sum, copy) => sum + copy.bytes, 0)),
+  };
+}
+
+/** A rule from parameters: integers within the limits, or the defaults. Throws on anything else. */
+export function databaseCopyRule({ keep = defaultDatabaseCopyRule.keep, keepDays = defaultDatabaseCopyRule.keepDays } = {}) {
+  for (const [name, value] of Object.entries({ keep, keepDays })) {
+    const [low, high] = databaseCopyLimits[name];
+    if (!Number.isInteger(value) || value < low || value > high) throw new Error(`${name} must be a whole number from ${low} to ${high}`);
+  }
+  return { keep, keepDays };
+}
+
 /** A `docker system df` reclaimable cell, which reads like "1.1GB (32%)". */
 export function parseReclaimable(cell) {
   const match = /^\s*([\d.]+\s*[KMGT]?B)/i.exec(String(cell ?? ""));
@@ -87,10 +175,75 @@ export function createHousekeepingService({
   runUnit = null,
   keepBackupsPerApp = defaultKeepBackupsPerApp,
   jobLogMaxAgeDays = 90,
+  // Where the database lives, and so where the update's copies of it are (the helper's unit names it).
+  liveDatabase = process.env.BOXPILOT_CONTROLLER_DATABASE ?? "/var/lib/boxpilot/boxpilot.sqlite3",
   now = () => new Date(),
   treeScanLimits = {},
 } = {}) {
   const docker = (args, options = {}) => run(dockerBinary, args, { timeout: 60_000, maxBuffer: 8 * 1024 * 1024, ...options });
+  const copyDirectory = path.dirname(path.resolve(liveDatabase));
+
+  /** Every copy beside the database, with its size (the file and any -wal, -shm or -journal beside it). */
+  async function listDatabaseCopies() {
+    const entries = await readdir(copyDirectory, { withFileTypes: true }).catch((error) => { if (error.code === "ENOENT") return []; throw error; });
+    const copies = [];
+    for (const entry of entries) {
+      if (!entry.isFile() || !databaseCopyPattern.test(entry.name)) continue;
+      const full = path.join(copyDirectory, entry.name);
+      if (full === path.resolve(liveDatabase)) continue;
+      const info = await lstat(full).catch(() => null);
+      if (!info?.isFile()) continue;
+      let bytes = info.size;
+      for (const suffix of ["-wal", "-shm", "-journal"]) bytes += (await lstat(`${full}${suffix}`).catch(() => null))?.size ?? 0;
+      copies.push(describeDatabaseCopy(entry.name, { bytes, mtimeMs: info.mtimeMs }));
+    }
+    return copies;
+  }
+
+  /**
+   * The update's database copies and what a rule would do with them (M36): every copy, newest
+   * first, each saying whether it goes, and the totals. Read-only; the owner reads this list before
+   * approving the removal, and the removal takes exactly the names it showed.
+   */
+  async function databaseCopies(parameters = {}) {
+    return databaseCopyReport(await listDatabaseCopies(), { rule: databaseCopyRule(parameters), now: now().getTime(), directory: copyDirectory });
+  }
+
+  /**
+   * Remove the copies the owner saw listed. A name goes only if it was listed AND the same rule,
+   * applied now, still lets it go: a copy an update took since the list was read, or one that became
+   * one of the newest, stays whatever the list said. Nothing outside the directory, nothing that is
+   * not a copy, and never the live database.
+   */
+  async function removeDatabaseCopies({ keep, keepDays, names = [], progress = null } = {}) {
+    const rule = databaseCopyRule({ keep, keepDays });
+    if (!Array.isArray(names) || names.length === 0) throw new Error("Name the copies to remove");
+    const listed = new Set(names);
+    const planned = planDatabaseCopies(await listDatabaseCopies(), { ...rule, now: now().getTime() });
+    const say = (message, stream = "stdout") => progress?.(message, stream);
+    const removed = [];
+    const kept = [];
+    let freedBytes = 0;
+    for (const name of listed) {
+      const copy = planned.find((entry) => entry.name === name);
+      if (!copy) { kept.push({ name, reason: "not among the copies" }); say(`${name}: not among the copies`); continue; }
+      if (!copy.goes) { kept.push({ name, reason: copy.keptBecause === "newest" ? `now one of the newest ${rule.keep}` : `younger than ${rule.keepDays} days` }); say(`${name}: kept, it is ${copy.keptBecause === "newest" ? `now one of the newest ${rule.keep}` : `younger than ${rule.keepDays} days`}`); continue; }
+      const full = path.join(copyDirectory, name);
+      try {
+        for (const suffix of ["-wal", "-shm", "-journal"]) await rm(`${full}${suffix}`, { force: true });
+        await rm(full);
+        removed.push(name);
+        freedBytes += copy.bytes;
+        say(`removed ${name} (${humanBytes(copy.bytes)})`);
+      } catch (error) {
+        kept.push({ name, reason: error.message });
+        say(`could not remove ${name}: ${error.message}`, "stderr");
+      }
+    }
+    const left = planned.filter((copy) => !removed.includes(copy.name)).length;
+    say(`Removed ${removed.length} of ${listed.size} (${humanBytes(freedBytes)}); ${left} cop${left === 1 ? "y" : "ies"} remain${left === 1 ? "s" : ""}.`);
+    return { removed, kept, freedBytes, freedHumanBytes: humanBytes(freedBytes), remaining: left, rule };
+  }
 
   /** Releases of BoxPilot left in /opt by past upgrades, newest kept as the rollback target. */
   async function previousTrees({ budget = createTreeScanBudget(treeScanLimits) } = {}) {
@@ -445,5 +598,5 @@ export function createHousekeepingService({
     return { reclaimed: failures.length === 0, targets: [...chosen], removed, failures, freedBytes, freedHumanBytes: humanBytes(freedBytes) };
   }
 
-  return { inspect: shared(inspect), reclaim, internals: { previousTrees, imageInventory, danglingLayers, oldApplicationBackups, restoreLeftovers, orphanedJobLogs, humanBytes } };
+  return { inspect: shared(inspect), reclaim, databaseCopies, removeDatabaseCopies, internals: { listDatabaseCopies, previousTrees, imageInventory, danglingLayers, oldApplicationBackups, restoreLeftovers, orphanedJobLogs, humanBytes } };
 }

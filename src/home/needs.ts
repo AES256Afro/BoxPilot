@@ -2,7 +2,7 @@ import type { AppProtection } from "../backupProtection";
 import { behindBackupSchedules, judgeProtection, protectionWarning } from "../backupProtection";
 import { countOf, sentenceList, type ViewName } from "../data";
 import { jobTimeout } from "../JobTimeout";
-import { ranAgain } from "../jobStatus";
+import { dismissedFailure, failureSettled, ranAgain } from "../jobStatus";
 import { mirrorOperations, offBoxWarning } from "../offBox";
 import type { Job } from "../operations";
 import { fixesOf, type Finding, type RepairFix } from "../repair/types";
@@ -40,6 +40,8 @@ export interface NeedAction {
   parameters: Record<string, unknown>;
   preview: string;
   risk: RiskTier;
+  /** A job already staged: the dialog approves that one, at the tier it was staged at (M36). */
+  existingJobId?: string;
 }
 
 export interface Need {
@@ -58,11 +60,14 @@ export interface Need {
   actions?: NeedAction[];
   /** The Repair finding this is, so its fix runs as Repair runs it. */
   finding?: Finding;
-  /** The failed job this is about. */
-  jobId?: string;
   /** The tier of something already staged (a job waiting for approval), shown beside it. */
   risk?: RiskTier;
+  /** The job it is about: its title opens that job in Activity, where it can be approved, cancelled or dismissed (M36). */
+  jobId?: string;
 }
+
+/** How long a failed job stays on the list if nobody deals with it; Activity keeps it after that (M36). */
+export const failureShownForMs = 7 * 86_400_000;
 
 /** Where the owner goes about a watched condition: schedules live on System, flows on Automations. */
 export function watchView(family: string): ViewName {
@@ -201,8 +206,13 @@ export function buildNeeds(facts: FactValues, { now, role }: { now: number; role
   // ── Jobs someone staged and nobody has approved yet. Repair holds the approval. ──
   const jobs = facts.jobs ?? [];
   for (const job of jobs.filter((entry) => entry.state === "awaiting_approval")) {
+    // Reviewed and approved from the list itself (M36), through the dialog, at the tier it was staged at.
+    const operationId = job.type.startsWith("op:") ? job.type.slice(3) : null;
+    const tier = tierOf(job.risk);
+    const review: NeedAction | null = operationId && tier && mayStart(role, operationId)
+      ? { operationId, label: "Review", title: job.title, parameters: {}, preview: job.recovery?.reason ?? "", risk: tier, existingJobId: job.id } : null;
     needs.push({ id: `approval:${job.id}`, kind: "approval", severity: "warning", title: `Waiting for approval: ${job.title}`,
-      detail: job.createdAt ? `Staged ${relativeTime(job.createdAt, now)}` : null, view: "repairs", action: null, risk: tierOf(job.risk) });
+      detail: job.createdAt ? `Staged ${relativeTime(job.createdAt, now)}` : null, view: "repairs", action: review, risk: tier, jobId: job.id });
   }
 
   // ── Updates. ──
@@ -229,7 +239,7 @@ export function buildNeeds(facts: FactValues, { now, role }: { now: number; role
     if (job.type === "op:app.backup" && typeof id === "string" && !newestBackup.has(id)) newestBackup.set(id, job);
   }
   for (const [id, job] of newestBackup) {
-    if (job.state !== "failed" || ranAgain(job)) continue;
+    if (job.state !== "failed" || ranAgain(job) || dismissedFailure(job)) continue;
     failedBackupApps.add(id);
     needs.push({ id: `backup-failed:${id}`, kind: "backup", severity: "danger", title: `The last backup of ${appName(id)} failed`, detail: job.error ?? null, view: "backups", appId: id,
       action: act("app.backup", "Back up again", `Back up ${appName(id)}`, { id }, `Stops ${appName(id)} briefly, archives its data and configuration, restarts it, and keeps the newest 5 copies.`) });
@@ -274,12 +284,16 @@ export function buildNeeds(facts: FactValues, { now, role }: { now: number; role
     }
   }
 
-  // ── The latest job that failed on its own (a backup's failure is said above). Not one Repair shows
-  //    on its finding, one whose finding is gone since, one set aside, or one a later run of the
-  //    same thing got through (M35). It can be tried again, or dismissed. ──
-  const settled = new Set([...(facts.repairs?.jobs?.attached ?? []), ...(facts.repairs?.jobs?.resolved ?? []), ...(facts.repairs?.jobs?.dismissed ?? [])]);
-  const failedJob = jobs.find((job) => job.state === "failed" && !ranAgain(job) && job.type !== "op:app.backup" && !settled.has(job.id) && !succeededSince(job, jobs));
+  // ── The latest job that failed on its own (a backup's failure is said above), unless it has been
+  //    dealt with since: dismissed (M36's mark on the job, which Dismiss here sets too), run again, or
+  //    tried again (M36), or shown by Repair on the finding it was fixing, or that finding gone since
+  //    (M35). A week on, Activity keeps it. It can be tried again, or dismissed. ──
+  const repairSettled = new Set([...(facts.repairs?.jobs?.attached ?? []), ...(facts.repairs?.jobs?.resolved ?? [])]);
+  const failures = jobs.filter((job) => job.state === "failed" && job.type !== "op:app.backup" && !failureSettled(job, jobs) && !repairSettled.has(job.id)
+    && !(now - Date.parse(job.createdAt ?? "") > failureShownForMs));
+  const failedJob = failures[0];
   if (failedJob) {
+    const more = failures.length - 1;
     const operationId = failedJob.type.replace(/^op:/, "");
     const parameters = failedJob.parameters ?? {};
     // A run that ran out of time is offered the more time it can have, as Activity offers it.
@@ -291,7 +305,8 @@ export function buildNeeds(facts: FactValues, { now, role }: { now: number; role
     const dismiss: NeedAction | null = role === "owner" || role === "operator" ? { kind: "dismiss", operationId: "", label: "Dismiss", title: `Dismiss: ${failedJob.title}`, parameters: {}, preview: "", risk: "low" } : null;
     const actions = [again, dismiss].filter((entry): entry is NeedAction => Boolean(entry));
     needs.push({ id: `job:${failedJob.id}`, kind: "job", severity: "warning", title: `${jobTimeout(failedJob) ? "Ran out of time" : "Failed"}: ${failedJob.title}`, jobId: failedJob.id,
-      detail: failedJob.error ?? null, view: "repairs", action: again, ...(actions.length ? { actions } : {}) });
+      detail: [failedJob.error, more > 0 ? `${countOf(more, "more failed job")} in Activity` : null].filter(Boolean).join(" · ") || null,
+      view: "repairs", action: again, ...(actions.length ? { actions } : {}) });
   }
 
   // ── Setting up: a rebuild found, a fresh box, the essentials not yet done. ──
@@ -310,13 +325,6 @@ export function buildNeeds(facts: FactValues, { now, role }: { now: number; role
   }
 
   return sortNeeds(needs);
-}
-
-/** Whether the same operation, on the same subject, completed after this job failed. */
-export function succeededSince(failed: Job, jobs: Job[]): boolean {
-  const at = failed.updatedAt ?? failed.createdAt ?? "";
-  const same = JSON.stringify(failed.parameters ?? {});
-  return jobs.some((job) => job.id !== failed.id && job.type === failed.type && job.state === "completed" && (job.createdAt ?? "") > at && JSON.stringify(job.parameters ?? {}) === same);
 }
 
 /** The buttons a need shows, `action` first. */

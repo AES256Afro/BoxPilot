@@ -25,14 +25,15 @@ export const dismissalLimit = 200;
 export const findingIdPattern = /^[A-Za-z0-9][A-Za-z0-9 :._-]{0,160}$/;
 export const jobIdPattern = /^[A-Za-z0-9-]{1,64}$/;
 
-/** A dismissal to store, or the reason it is refused. `key` is a finding id, or job:<id> for a failed job. */
+/**
+ * A finding's dismissal to store, or the reason it is refused. A failed job is not dismissed here: it
+ * carries its own "dismissed" step (M36, POST /api/v1/jobs/:id/dismiss), which Activity, Home and Ops
+ * all read, so there is one mark for it rather than two that could disagree.
+ */
 export function dismissalFrom(body, { by = null, now = () => new Date() } = {}) {
+  if (body?.jobId !== undefined) return { error: "A failed job is dismissed on the job itself: POST /api/v1/jobs/:id/dismiss" };
   const reason = typeof body?.reason === "string" ? body.reason.trim() : "";
   if (reason.length < 1 || reason.length > 200) return { error: "Say why in 1 to 200 characters, so whoever reads this later knows" };
-  if (typeof body?.jobId === "string") {
-    if (!jobIdPattern.test(body.jobId)) return { error: "That is not a job id" };
-    return { key: `job:${body.jobId}`, entry: { kind: "job", reason, at: now().toISOString(), by } };
-  }
   if (typeof body?.id !== "string" || !findingIdPattern.test(body.id)) return { error: "That is not a finding id" };
   if (body.severity === "critical") return { error: "A critical finding stays until it is fixed, so it cannot be dismissed" };
   if (typeof body.fingerprint !== "string" || !/^[0-9a-f]{16}$/.test(body.fingerprint)) return { error: "Dismiss the finding as it is shown now: its fingerprint is missing" };
@@ -108,6 +109,7 @@ export function applyLedger(findings = [], { dismissals = {}, attempts = {}, job
   const present = new Set(findings.map((entry) => entry.id));
   // A failed job started from a finding that is gone now: what it was fixing is fixed, one way or another.
   const resolved = Object.entries(attempts ?? {}).filter(([jobId, attempt]) => byId.get(jobId)?.state === "failed" && !present.has(attempt?.findingId)).map(([jobId]) => jobId);
-  const dismissedJobs = Object.entries(dismissals ?? {}).filter(([key, entry]) => entry?.kind === "job" && key.startsWith("job:")).map(([key]) => key.slice(4)).filter((jobId) => byId.has(jobId));
+  // Failures let go of with M36's mark on the job itself.
+  const dismissedJobs = jobs.filter((job) => job.state === "failed" && (job.steps ?? []).some((step) => step.name === "dismissed" && step.state === "completed")).map((job) => job.id);
   return { findings: active, dismissed, jobs: { attached: [...attached], resolved, dismissed: dismissedJobs } };
 }

@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { TopBarSlotProvider } from "../shell/TopBarSlot";
 import { FactsProvider } from "./facts";
@@ -150,5 +150,22 @@ describe("Home", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Run" }));
     expect(await screen.findByText(/Vaultwarden has never been backed up\. Backed up to 20260929T120000Z\.tar\.gz\./)).toBeTruthy();
     expect(attempts).toEqual([{ findingId: "backups-due", jobId: "staged" }]);
+  });
+
+  it("dismisses a failed job with M36's mark on the job itself, the one Activity reads (M35)", async () => {
+    const failed = { id: "f1", type: "op:app.update", title: "Update Immich", state: "failed", risk: "medium", error: "pull failed", parameters: { id: "immich" }, steps: [], approvals: [], createdAt: new Date(Date.now() - 3_600_000).toISOString() };
+    const base = stubFetch({ "/api/v1/jobs?limit=50": { jobs: [failed] } });
+    const posted: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (init?.method === "POST" && url.endsWith("/dismiss")) { posted.push(url); return new Response(JSON.stringify({ job: { ...failed, steps: [{ name: "dismissed", state: "completed", detail: "Dismissed by alex." }] } })); }
+      return base(input, init);
+    }));
+    renderHome();
+    const needs = await screen.findByRole("region", { name: /What needs you/ });
+    fireEvent.click(await within(needs).findByRole("button", { name: "Dismiss: Failed: Update Immich" }));
+    await waitFor(() => expect(posted).toEqual(["/api/v1/jobs/f1/dismiss"]));
+    // Not Repair's ledger: one mark for a failed job, wherever it is let go.
+    expect(vi.mocked(fetch).mock.calls.some(([input]) => String(input).includes("/remediations/dismissals"))).toBe(false);
   });
 });

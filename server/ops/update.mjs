@@ -1,5 +1,17 @@
 import { defineOperation } from "./registry.mjs";
 import { releaseTagPattern } from "../tasks/update.mjs";
+import { compareVersions } from "../release-updates.mjs";
+
+/**
+ * An update staged for a version this server already runs, or an older one, has nothing to do: two
+ * staged for 1.116 sat waiting for approval while the server ran 1.138, and approving one would
+ * have put the old code back (M36).
+ */
+export function updateSuperseded(parameters, { version }) {
+  const tag = typeof parameters?.tag === "string" ? parameters.tag : null;
+  if (!tag || !version || compareVersions(tag.slice(1), version) > 0) return null;
+  return `BoxPilot is already at ${version}, so the update to ${tag} has nothing to do`;
+}
 
 const systemctl = process.env.BOXPILOT_SYSTEMCTL_BINARY ?? "/usr/bin/systemctl";
 const journalctl = process.env.BOXPILOT_JOURNALCTL_BINARY ?? "/usr/bin/journalctl";
@@ -41,8 +53,9 @@ export function updateOperations() {
     }),
     defineOperation({
       id: "system.update", title: "Update BoxPilot", risk: "high", timeoutMs: 10 * 60_000, restartsService: true,
-      description: "Downloads the chosen GitHub release, builds it, swaps it into place, and restarts BoxPilot. If the new version does not pass its health check the previous tree is restored automatically. Let running jobs finish first; the restart interrupts them.",
+      description: "Downloads the chosen GitHub release and builds it, then copies the database (and stops, changing nothing, if the copy cannot be made), swaps the new version into place and restarts BoxPilot. If the new version does not pass its health check the previous tree is restored automatically, and the update log names the database copy that matches it. Let running jobs finish first; the restart interrupts them.",
       parameters: { fields: { tag: { type: "string", pattern: releaseTagPattern }, expectedCommit: { type: "string", pattern: /^[a-f0-9]{40}$/ } } },
+      supersededWhen: updateSuperseded,
       run: (parameters, { runUnit, jobLog }) => runUnit.runTask("system.update", { tag: parameters.tag, expectedCommit: parameters.expectedCommit }, { timeoutMs: 5 * 60_000, logPath: jobLog?.path ?? null }),
     }),
   ];
