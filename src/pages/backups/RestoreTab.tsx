@@ -202,6 +202,7 @@ export default function RestoreTab({ csrfToken, role, restores, onChanged }: Res
 
       {chosen && (
         <Sheet
+          className="backups-sheet"
           kicker={chosen.where}
           title={chosen.snapshot.createdAt ? `Snapshot of ${when(chosen.snapshot.createdAt)}` : chosen.snapshot.artifact}
           size="lg"

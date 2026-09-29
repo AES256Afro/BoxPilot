@@ -214,6 +214,7 @@ export default function DrivesTab({ csrfToken, role, report, loading, autoReconn
 
       {form && (
         <Sheet
+          className="storage-sheet"
           kicker="Mount a drive"
           title={form.device.path ?? "Drive"}
           onClose={() => setForm(null)}

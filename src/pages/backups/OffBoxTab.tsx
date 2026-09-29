@@ -199,6 +199,7 @@ export default function OffBoxTab({ csrfToken, role, tailnetHosts, machine, remo
 
       {ssh && (
         <Sheet
+          className="backups-sheet"
           kicker="Another machine over SSH"
           title={destination ? "Change the destination" : "Set the destination"}
           onClose={() => setSsh(null)}
@@ -229,6 +230,7 @@ export default function OffBoxTab({ csrfToken, role, tailnetHosts, machine, remo
 
       {cloudForm && cloud && (
         <Sheet
+          className="backups-sheet"
           kicker="Cloud bucket"
           title={savedCloud ? "Change the cloud destination" : "Set the cloud destination"}
           onClose={() => setCloudForm(null)}
