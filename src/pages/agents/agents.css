@@ -196,7 +196,7 @@
 
 @media (max-width: 640px) {
   .agents-actions { flex-wrap: wrap; justify-content: flex-start; padding-top: 4px; white-space: normal; }
-  .agents-actions-cell { width: auto; }
+  .agents-actions-cell, .agents-tool__permission { width: auto; }
   .agents-budget { grid-template-columns: minmax(0, 1fr); }
   .agents-question { grid-template-columns: minmax(0, 1fr); }
   .agents-form__field-row { grid-template-columns: minmax(0, 1fr); }
