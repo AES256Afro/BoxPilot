@@ -34,7 +34,8 @@ try {
     const result = await bench.ask(question);
     const entry = { label, question, threads, wallMs: result.wallMs, state: result.run.state, degraded: result.run.flags?.degraded ?? null, usage: result.run.usage, calls: result.calls, answer: result.run.answer, plan: result.run.steps.find((step) => step.kind === "plan")?.output ?? null, steps: result.run.steps.map((step) => ({ kind: step.kind, name: step.name, state: step.state, detail: step.flags?.detail ?? null, durationMs: step.durationMs ?? null })) };
     results.push(entry);
-    console.log(`${describe(result, `${label} (${threads} thread${threads === 1 ? "" : "s"}): "${question}"`)}\n  plan: ${String(entry.plan).replace(/\n/g, " | ")}\n  answer: ${String(entry.answer).slice(0, 600).replace(/\n/g, " ")}\n  (${Math.round((Date.now() - started) / 1000)} s)\n`);
+    const failed = entry.steps.filter((step) => step.state === "failed").map((step) => `${step.name}: ${step.detail ?? "(no detail)"}`);
+    console.log(`${describe(result, `${label} (${threads} thread${threads === 1 ? "" : "s"}): "${question}"`)}\n  plan: ${String(entry.plan).replace(/\n/g, " | ")}\n${failed.length ? `  failed: ${failed.join(" | ")}\n` : ""}  answer: ${String(entry.answer).slice(0, 600).replace(/\n/g, " ")}\n  (${Math.round((Date.now() - started) / 1000)} s)\n`);
   }
   console.log(`modelSpeed kept for the Usage tab: ${JSON.stringify(bench.usage().modelSpeed)}`);
 } finally {
