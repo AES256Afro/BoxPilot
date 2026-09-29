@@ -1398,6 +1398,87 @@ the milestones they overlap.
   GitHub, Apps, Automations, Metrics, VMs, System, Settings, Setup, sign-in, Activity and
   the approval dialog on the kit, and deleting stopgap rules as their classes go; Repair is
   M35's; Updates, built on the components in M33.1, still takes its header from the shell.
+- ✅ **M33.10 Network and security on the kit** (wave 2B, unreleased). Network, Firewall, Users & SSH
+  and GitHub are rebuilt in `src/pages/{network,firewall,users,github}/`, each with its own sheet
+  and tests, and the Classic components (`NetworkCenter`, `TailnetPanel`, `TailscalePanel`,
+  `DnsCheckPanel`, `LocalNamesPanel`, `RouterPanel`, `VpnProfilePanel`, `FirewallCenter`,
+  `Fail2banPanel`, `UsersCenter`, `GitHubCenter`) are deleted with the Classic and stopgap CSS only
+  they used. Every feature stays; the facts come first. **Network** leads with whether the server
+  has a way out (no default route is red, an unread source amber), a strip of gateway, address,
+  resolvers and Tailscale, then five tabs (`?tab=`): Overview (every address BoxPilot answers on
+  with Copy, LAN access and HTTPS on the LAN side by side, the LAN's devices with Wake), Tailnet
+  (exit node and subnet router as one `tailscale.set`, every tailnet device and how it is reached),
+  Names & DNS (the blocker check and who uses it, local names, port 53, the DNS assessment in a
+  sheet, device roles), Router (read only; connecting takes the password in a sheet) and VPN (the
+  owner's profile, edited in a sheet). How to trust the certificate on each device is a sheet
+  rather than a `<details>` above the facts. **Firewall** leads with on or off and the default
+  policy; its tabs are Overview (suggestions, each one click with its tier; the profile in force;
+  what always stays open), Rules (delete with its tier, protected rules marked "kept open", adding
+  one in a sheet that refuses a deny on a protected port) and Brute force (fail2ban's facts, banned
+  now and since start, thresholds and what is never banned, shown to every role per ADR-003's
+  addendum; the thresholds form only to a role that may apply it). Choosing a profile is a sheet
+  of radio cards, services and options, and the approval dialog still lists every ufw command. A
+  suggestion with no label of its own says what it does ("Remove 53/tcp"). **Users & SSH** leads
+  with whether SSH takes passwords, then sshd's settings, then the accounts; adding a user and
+  importing keys are sheets that check names as `useradd` and GitHub would. **GitHub** leads with
+  how many allowlisted repositories answered and a strip of what BoxPilot may do with GitHub (read
+  public metadata, nothing else), then each repository's head, release and assets. Each page takes
+  the signed-in role: a viewer sees the facts and no buttons, an operator no owner-only or
+  high-risk ones, and reads that need an operator (accounts, the router) or the owner (the VPN
+  profile) say so instead of failing. `operationRisk` gains the eighteen operations these pages
+  start, held to the registry by `server/ops/ui-risk.test.mjs`. The demo answers
+  `/integrations/github` with fictional metadata, so the page can be reviewed. Page-local pieces
+  worth promoting to the kit: a Copy button for one value, a link drawn as a Button, radio cards,
+  and a list of suggestion rows with a tag, words and one action.
+- ✅ **M33.12 Virtual Machines, System and Setup** (wave 2D, unreleased). Rebuilt under
+  `src/pages/{vms,system,setup}/` on the kit, facts first, every feature kept; the Classic
+  components, their tests and the CSS only they used are gone. **Virtual Machines:** the verdict
+  (host ready, needs setup, libvirt not connected) and the counts in the header; tabs for the
+  machines, their backups, the installation media and the host. Each VM opens a sheet with its
+  facts, live use, snapshots, disks, interfaces and every action; making a VM from a cloud image or
+  planning one from an ISO are sheets. High-risk actions (create from a plan, delete, revert a
+  snapshot, forget an unrecorded snapshot) say beside the button that they ask for the password and
+  the name typed out, and creating from a plan now does ask for the name, as the page always said.
+  **System:** BoxPilot's update as the verdict; Overview (figures that open their tab), Updates,
+  Housekeeping (reclaimable space, Docker's disk, the database copies), Time & name, Hardware
+  (memory and swap, swappiness, the swap file, SSD trim as a tiered switch, the UPS) and
+  Schedules. **Setup:** the welcoming start of the product, in the console: the server greeted by
+  name and the profiles on the Launcher's colour squares, each saying what is in place; a profile
+  lists its steps with state and tier and runs the rest as before; preparing a new server is the
+  second tab. The VM and system operations are in `operationRisk`, and roles see only what they
+  may start. The demo's VM backups, media, planning, stats, Docker disk and update fixtures now have
+  the server's shapes. Page-local pieces worth promoting to the kit: a file picker, a
+  "what this asks for" line beside a high-risk button, and a sheet body whose rows keep their
+  height (`grid-auto-rows: max-content`) so a panel in a sheet scrolls instead of being clipped.
+- ✅ **M33.13 Settings, sign-in and the shell's dialogs** (wave 2E, unreleased). The pieces seen on
+  every page, rebuilt on the kit with every behaviour kept. **The approval dialog**
+  (`src/shell/ApproveDialog.tsx`; the old path re-exports it for pages still being rebuilt) leads
+  with the tier: a band in the tier's colour with its name in words (a lock for high) and what
+  approving asks, under the operation's name and id. Then "What it will do" (the page's preview,
+  or the registry's description when a page gives none; exactly what the job is given behind a
+  toggle, or in full when approving what someone else staged), then what approving needs (the
+  typed confirmation and the password as the kit's fields; the approval's expiry), then the run
+  followed with `JobProgress`, and its ending with the job log. Existing jobs (M36), `onStaged`,
+  `handoff` and `moreTimeFor` (M35, M30.3) are unchanged, as are the labels other pages' tests
+  press. It is drawn over the page in the console's look wherever it opens, Home included
+  (`src/shell/look.css`). **Activity** and **the notifications** are the kit's `Sheet` with the
+  facts on top (running, waiting, failed); a job's row carries its state in words, and M36's
+  review, cancel and dismiss stay on it. **The job log**, its timeout and follow-up notices and
+  the page error are the kit's notices, rows and `CodeBlock`. **The top bar's own controls**
+  (Activity, the bell, the role, the elevated lock, Sign out) are the shell's
+  (`src/shell/SessionControls.tsx`). **Settings** (`src/pages/settings/`) is tabbed, the tab in
+  the address: Account & sign-in (password, passkeys and recovery codes, sign-in methods, where
+  you are signed in), People, Notifications, Approvals, Single sign-on, Credentials, Appearance;
+  the owner's tabs stay the owner's and a viewer has no sign-in methods (ADR-003); the header says
+  whether alerts can reach the owner and how approvals are set; saving or removing a credential
+  carries its tier. **Sign-in** (`src/pages/signin/`) is the Launcher's wallpaper and a glass
+  card, the ways in best first (passkey, GitHub, Tailscale, then the password), with M36's reason
+  the session ended and the page it goes back to. The runbook and the installation doctor, shown
+  only in Repair, move into `src/repair/`. The areas sheet is the kit's `Sheet`, and the command
+  bar has its own overlay. The shell's stylesheets follow the page convention
+  (`src/shell/shellCss.test.ts`), and the Classic rules only these surfaces used are deleted. The
+  demo can show the sign-in page (`?signin`) and stages each operation at its registry tier, so
+  the dialog is reviewed at low, medium and high.
 - The owner wants every concept from the study (2026-09-28): the assistant (B5) is M34; the phone
   layout (B6) is M25; recipes and a GPU page (B7) belong to M22.
 

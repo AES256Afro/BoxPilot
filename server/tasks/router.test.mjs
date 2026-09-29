@@ -173,7 +173,7 @@ describe("the advice the router error gives", () => {
     const error = await routerLogin({ host: "192.168.1.1", password: "x" }, harness({ denyAt: "challenge" })).catch((thrown) => thrown);
     const quoted = error.message.match(/"([^"]+)"/g).map((value) => value.slice(1, -1));
     const control = quoted.find((value) => value.length > 12);
-    const panel = readFileSync(path.resolve(process.cwd(), "src/RouterPanel.tsx"), "utf8");
+    const panel = readFileSync(path.resolve(process.cwd(), "src/pages/network/NetworkRouter.tsx"), "utf8");
     expect(control, "the error should quote a control worth pointing at").toBeTruthy();
     expect(panel, `the error sends the owner to "${control}", which the panel does not offer`).toContain(control);
   });
