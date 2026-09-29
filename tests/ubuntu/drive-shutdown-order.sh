@@ -125,6 +125,22 @@ held_in() {
 }
 mounted_here() { findmnt -n "$MNT" >/dev/null; }
 not_mounted_here() { ! mounted_here; }
+# Unmounts the drive, marks it, and mounts it afresh with the mark. A namespace still going away
+# (the last step's app or runner unit) can keep the filesystem alive for a moment after the host
+# unmounts it; a mount then reuses it without reading the mark, and its last unmount writes the
+# mark clear again. So this waits for the kernel's warning, and marks and mounts again without it.
+mount_marked() {
+  local T
+  for _ in 1 2 3 4 5; do
+    sc stop "$UNIT"; for _ in $(seq 1 20); do mounted_here || break; sleep 0.25; done
+    [ -z "$(held_in)" ] || sleep 1
+    set_dirty; T=$(date +%s); mount_drive; sleep 1
+    journalctl -k --since "@$T" --no-pager | grep -q 'Volume was not properly unmounted' && { sleep 1; return 0; }
+    note "the mount reused a filesystem still held elsewhere, so it never read the mark; again"
+    sleep 1
+  done
+  return 1
+}
 kernel_since() { journalctl -k --since "@$1" --no-pager 2>/dev/null | grep -i 'exfat' | sed 's/^/   kernel: /'; }
 
 # ---- Docker -------------------------------------------------------------------------------------
@@ -396,7 +412,9 @@ check "the host saw its own mount go ($(tr '\n' ' ' < "${WORK}/poll.out")) and i
 check "and restarted the app using it" wait_running bp-holder
 
 section "7b. Check (storage.check) from a PrivateTmp unit, on a drive still carrying the mark"
-docker rm -f bp-holder >/dev/null; sc stop "$UNIT"; set_dirty; mount_drive; run_holder
+docker rm -f bp-holder >/dev/null
+mount_marked || fail "could not mount the drive afresh with the mark set"
+run_holder
 watch_host; T=$(date +%s)
 in_runner "
   import { storageCheck } from '${REPO}/server/tasks/storage.mjs';
