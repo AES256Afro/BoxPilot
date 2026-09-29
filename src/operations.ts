@@ -67,6 +67,15 @@ export function inspectOperation<T>(id: string): Promise<{ operation: string; re
   return fetch(`/api/v1/operations/${encodeURIComponent(id)}/inspect`).then((response) => readJson(response));
 }
 
+/** Run a read-only operation that takes parameters, immediately (POST /operations/:id/run). */
+export function runReadOperation<T>(id: string, parameters: Record<string, unknown>, csrfToken: string): Promise<{ operation: string; result: T }> {
+  return fetch(`/api/v1/operations/${encodeURIComponent(id)}/run`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
+    body: JSON.stringify({ parameters }),
+  }).then((response) => readJson(response));
+}
+
 /** Stage a mutating operation as a job; returns the job and what approving it will need. */
 export function stageOperation(id: string, parameters: Record<string, unknown>, csrfToken: string): Promise<{ job: Job; approval: ApprovalPolicy }> {
   return fetch(`/api/v1/operations/${encodeURIComponent(id)}/jobs`, {
