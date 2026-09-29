@@ -766,6 +766,61 @@ sidecars:
     expect(calls.some((call) => call.includes("up --detach --force-recreate"))).toBe(true);
   });
 
+  it("builds a container a prune took away again from its saved project, and says where the record is (M35)", async () => {
+    // The owner's six apps: listed as installed, project and data still there, no container at all,
+    // so install refused ("already installed") and Start had nothing to start.
+    const { apps, containers, catalogRoot, calls } = await setup();
+    await apps.install({ id: "demo" });
+    containers.delete("bp-demo");   // what `docker system prune` does to a stopped container
+    const [listed] = (await apps.inspect({ id: "demo" })).applications;
+    expect(listed).toMatchObject({ installed: true, container: { exists: false, status: "absent" }, missingContainer: { record: path.join(catalogRoot, "demo", "boxpilot.json"), project: path.join(catalogRoot, "demo", "compose.yaml"), projectPresent: true, container: "bp-demo" } });
+    const saved = await readFile(path.join(catalogRoot, "demo", "compose.yaml"), "utf8");
+    calls.length = 0;
+    await expect(apps.reinstall({ id: "demo" })).resolves.toMatchObject({ reinstalled: true, projectRewritten: false });
+    expect(calls.some((call) => call.includes("up --detach"))).toBe(true);
+    expect(await readFile(path.join(catalogRoot, "demo", "compose.yaml"), "utf8")).toBe(saved);   // the project as it was saved
+    expect((await apps.inspect({ id: "demo" })).applications[0].missingContainer).toBeUndefined();
+    // An app with a container is started or restarted, never rebuilt from under itself.
+    await expect(apps.reinstall({ id: "demo" })).rejects.toThrow("already has a container");
+  });
+
+  it("writes the project again from the saved settings when it is gone too, on the image the app last ran (M35)", async () => {
+    const { apps, containers, catalogRoot } = await setup();
+    await apps.install({ id: "demo" });
+    containers.delete("bp-demo");
+    const statePath = path.join(catalogRoot, "demo", "boxpilot.json");
+    const state = JSON.parse(await readFile(statePath, "utf8"));
+    await writeFile(statePath, JSON.stringify({ ...state, image: { ...state.image, reference: "nginx:1.26" } }));
+    await rm(path.join(catalogRoot, "demo", "compose.yaml"));
+    await expect(apps.reinstall({ id: "demo" })).resolves.toMatchObject({ reinstalled: true, projectRewritten: true });
+    const compose = await readFile(path.join(catalogRoot, "demo", "compose.yaml"), "utf8");
+    expect(compose).toContain("nginx:1.26");
+    expect(compose).not.toContain("nginx:1.27");
+  });
+
+  it("takes down what started when a rebuilt app does not come up, and leaves its record and data alone (M35)", async () => {
+    const { apps, catalogRoot, calls } = await setup({ failUp: true });
+    await mkdir(path.join(catalogRoot, "demo", "data"), { recursive: true });
+    const record = { id: "demo", installed: true, installedAt: "2026-08-01T00:00:00.000Z", image: { reference: "nginx:1.27" }, values: { ports: {}, env: {}, volumes: {}, setup: [] } };
+    await writeFile(path.join(catalogRoot, "demo", "boxpilot.json"), JSON.stringify(record));
+    await writeFile(path.join(catalogRoot, "demo", "compose.yaml"), "name: bp-demo\nservices:\n  demo:\n    image: nginx:1.27\n");
+    await expect(apps.reinstall({ id: "demo" })).rejects.toThrow("Demo could not be started again, so what started was taken down. Its data folder and saved settings are as they were.");
+    expect(calls.some((call) => call.includes("down --remove-orphans"))).toBe(true);
+    expect(JSON.parse(await readFile(path.join(catalogRoot, "demo", "boxpilot.json"), "utf8"))).toEqual(record);
+    await expect(stat(path.join(catalogRoot, "demo", "data"))).resolves.toBeTruthy();
+    await expect(apps.reinstall({ id: "nothing" })).rejects.toThrow();
+  });
+
+  // Linux only: needs /usr/bin/tar.
+  it.skipIf(onWindows)("backs up several apps in one job, one at a time, and names the one that failed without losing the others (M35)", async () => {
+    const { apps, advance } = await setup();
+    await apps.install({ id: "demo" });
+    await expect(apps.backupMany({ ids: ["demo"] })).resolves.toMatchObject({ backedUp: true, apps: [{ id: "demo", artifact: expect.stringMatching(/\.tar\.gz$/) }] });
+    advance(60_000);
+    await expect(apps.backupMany({ ids: ["nothing", "demo"] })).rejects.toThrow(/^nothing: .*\. demo was backed up\.$/);
+    expect((await apps.listAppBackups({ id: "demo" })).backups).toHaveLength(2);
+  });
+
   // Linux only: needs /usr/bin/tar.
   it.skipIf(onWindows)("edits the raw compose file with validation and rollback", async () => {
     const { apps, catalogRoot } = await setup();

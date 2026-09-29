@@ -532,7 +532,9 @@ export function createAppHelper({
       const info = await statPath(chosen).catch(() => null);
       if (!info) continue; // missing folders are created (and handed over) at the next deploy
       const reason = folderUnwritableReason(info, owner);
-      if (reason) problems.push({ path: chosen, volume: volume.label, reason });
+      // The owners as numbers too, so Repair can tell a folder a deploy hands over (root's) from
+      // somebody's own, which it never touches (M35).
+      if (reason) problems.push({ path: chosen, volume: volume.label, reason, ownerUid: info.uid, appUid: owner.uid });
     }
     return problems;
   }
@@ -570,6 +572,9 @@ export function createAppHelper({
       updateHistory: state?.updateHistory ?? [],
       installedImage: state?.image?.reference ?? null,
       folderProblems: await folderProblems(manifest, state).catch(() => []),
+      // An app BoxPilot lists as installed with no container at all (M35): what is left of it, so
+      // Repair can say where the record is and what "Reinstall" would build from.
+      ...(state?.installed && !status.exists ? { missingContainer: { record: path.join(dirFor(manifest.id), "boxpilot.json"), project: path.join(dirFor(manifest.id), "compose.yaml"), projectPresent: await stat(path.join(dirFor(manifest.id), "compose.yaml")).then(() => true, () => false), container: projectNameFor(manifest.id) } } : {}),
     };
   }
 
@@ -655,6 +660,76 @@ export function createAppHelper({
     await rm(path.join(dirFor(id), "compose.yaml"), { force: true });
     await refreshHomepage(id, progress);
     return { uninstalled: true, purged: false, id, dataRemoved: false, dataDirectory: dirFor(id) };
+  }
+
+  /**
+   * Build an installed app's container again when it has none (M35).
+   *
+   * The owner's server listed six apps as installed while Docker had no container for any of them.
+   * BoxPilot's record of an install is the app's boxpilot.json, and a container can go without it:
+   * `docker system prune` removes every stopped container (BoxPilot's own "Clean up Docker disk
+   * space" runs it), and so does removing one by hand or from another compose tool. The data folder
+   * and the compose project are still there, so install refused ("already installed") and Start had
+   * nothing to start. This brings the container back from what was saved: the compose project as it
+   * is, or, when that file is gone too, written again from the catalog with the saved settings on
+   * the image the app last ran. The data is used as it is; nothing is reset or deleted.
+   */
+  async function reinstall({ id, devices = null }, { progress = null, timeScale = 1 } = {}) {
+    const manifest = await ensureManifest(id);
+    const state = await readState(id);
+    if (!state?.installed) throw new Error(`${manifest.name} is not installed; install it from the App catalog`);
+    const before = await containerStatus(id);
+    if (before.exists) throw new Error(`${manifest.name} already has a container (${before.status}); start or restart it instead`);
+    const saved = await readProjectFiles(id);
+    let rewritten = false;
+    if (saved.compose === null) {
+      const { values, errors } = resolveValues(manifest, state.values ?? {});
+      if (errors.length) throw new Error(`${manifest.name}'s saved settings no longer fit the catalog (${errors.join("; ")}); uninstall it and install it again from the App catalog`);
+      const pinned = state.image?.reference ? { ...manifest, image: { ...manifest.image, reference: state.image.reference } } : manifest;
+      progress?.(`${manifest.name}'s compose project is gone too; writing it again from its saved settings, on ${pinned.image.reference}`, "stdout");
+      await writeProject(pinned, values, { existingEnv: await readEnv(id), devices });
+      rewritten = true;
+    } else {
+      progress?.(`Building ${manifest.name}'s container again from its saved project, ${path.join(dirFor(id), "compose.yaml")}`, "stdout");
+    }
+    // `up` pulls the image first when a prune took it along with the container.
+    const upBudgetMs = scaled(15 * 60_000, timeScale);
+    const up = await compose(id, ["up", "--detach", "--remove-orphans"], { timeout: upBudgetMs, progress });
+    try {
+      if (!up.ok) throw stepTimedOut(up, "Downloading the image and starting the app", upBudgetMs) ?? new Error(`docker compose up failed: ${redact(up.stderr).split("\n").slice(-4).join(" ")}`);
+      const status = await waitHealthy(manifest, progress);
+      progress?.(`${manifest.name} is up again`, "stdout");
+      await writeState(id, { ...state, updatedAt: clock().toISOString() });
+      await refreshHomepage(id, progress);
+      return { reinstalled: true, id, name: manifest.name, projectRewritten: rewritten, image: status.image, health: status.health };
+    } catch (error) {
+      progress?.(`${manifest.name} did not come up: ${error.message}. Taking down what started...`, "stderr");
+      await compose(id, ["down", "--remove-orphans"], { timeout: 120_000, progress }).catch(() => {});
+      recentlyTouched.add(id);
+      throw keepTimeout(error, new Error(`${manifest.name} could not be started again, so what started was taken down. Its data folder and saved settings are as they were. ${error.message}`));
+    }
+  }
+
+  /**
+   * Back up several apps in one job (M35: Repair's "Back up now" for every app that has gone without
+   * one). Each is backed up exactly as app.backup does it, one after another so only one app is
+   * stopped at a time; one that fails does not stop the others, and the job fails at the end naming
+   * it, with the others' backups kept.
+   */
+  async function backupMany({ ids, keep = 5 }, { progress = null } = {}) {
+    const done = []; const failed = [];
+    for (const id of ids) {
+      progress?.(`── ${id} ──`, "stdout");
+      try {
+        const result = await backup({ id, keep }, { progress });
+        done.push({ id, artifact: result.artifact, sizeBytes: result.sizeBytes });
+      } catch (error) {
+        failed.push({ id, error: error.message });
+        progress?.(`${id}: ${error.message}`, "stderr");
+      }
+    }
+    if (failed.length) throw new Error(`${failed.map((entry) => `${entry.id}: ${entry.error}`).join("; ")}${done.length ? `. ${done.map((entry) => entry.id).join(", ")} ${done.length === 1 ? "was" : "were"} backed up.` : ""}`);
+    return { backedUp: true, apps: done };
   }
 
   /**
@@ -1910,5 +1985,5 @@ export function createAppHelper({
     return installed;
   }
 
-  return { syncHomepage, inspect, installedIds, dataUsage: shared(dataUsage), reachabilityFacts, vpnKillSwitchDrill, foreignProjects, foreignProjectAction, foreignProjectLogs, vpnStatus, listModels, pullModel, removeModel, countAppBackups, backupProtection, install, uninstall, update, reconfigure, action, logs, config, readComposeConfig, editCompose, secrets, setPassword, backup, listAppBackups, verifyAppBackup, restoreAppBackup, rollbackApp, listAppBackupFiles, restoreAppBackupPath, deleteAppBackup, checkUpdates, catalogRoot: root, internals: { imageDeclaredOwner, parseModelList, containerStatus, waitHealthy, writeProject, readState, parseEnvFile } };
+  return { syncHomepage, inspect, installedIds, dataUsage: shared(dataUsage), reachabilityFacts, vpnKillSwitchDrill, foreignProjects, foreignProjectAction, foreignProjectLogs, vpnStatus, listModels, pullModel, removeModel, countAppBackups, backupProtection, install, uninstall, reinstall, backupMany, update, reconfigure, action, logs, config, readComposeConfig, editCompose, secrets, setPassword, backup, listAppBackups, verifyAppBackup, restoreAppBackup, rollbackApp, listAppBackupFiles, restoreAppBackupPath, deleteAppBackup, checkUpdates, catalogRoot: root, internals: { imageDeclaredOwner, parseModelList, containerStatus, waitHealthy, writeProject, readState, parseEnvFile } };
 }

@@ -205,6 +205,8 @@ const jobs = createJobService(state, helper, {
     // The VPN section reads this non-secret description; the profile's secrets stay in the root file.
     "vpn.profile.set": (job, result) => state.setSetting("vpnProfile", result, { updatedBy: job.createdBy }),
     "vpn.profile.clear": (job) => state.setSetting("vpnProfile", null, { updatedBy: job.createdBy }),
+    // Repair's "Send alerts to the ntfy on this server" (M35): the helper proved the topic answers.
+    "notifications.ntfy.connect": (job, result) => { notifications.adoptLocalNtfy(result, { updatedBy: job.createdBy }); },
   },
   // Prepare hooks pin server-derived expectations into the staged parameters.
   operationPrepareHooks: {
@@ -230,6 +232,11 @@ const jobs = createJobService(state, helper, {
     "backup.remote.sync": () => pinnedBackupDestination(),
     "backup.cloud.test": () => pinnedCloudDestination(),
     "backup.cloud.sync": () => pinnedCloudDestination(),
+    // It never replaces a target set in Settings, which asks for the password there.
+    "notifications.ntfy.connect": (parameters) => {
+      if (notifications.describe().configured) throw new Error("A notification target is already set; change it under Settings, Notifications");
+      return parameters ?? {};
+    },
   },
 });
 state.deleteExpiredSessions();

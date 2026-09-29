@@ -52,6 +52,21 @@ describe("failed-job notifications", () => {
     store.close();
   });
 
+  it("takes the ntfy on this server as the target once its test was accepted, and never replaces one set in Settings (M35)", async () => {
+    const { store, owner, service } = await setup();
+    expect(service.adoptLocalNtfy({ kind: "ntfy", url: "http://127.0.0.1:8093", topic: "boxpilot-Abc_123-xyz" }, { updatedBy: owner.id })).toMatchObject({ kind: "ntfy", url: "http://127.0.0.1:8093", topic: "boxpilot-Abc_123-xyz" });
+    expect(service.describe()).toMatchObject({ configured: true, kind: "ntfy", topic: "boxpilot-Abc_123-xyz" });
+    // A second one is refused: the target set is somebody's, changed only with the password in Settings.
+    expect(() => service.adoptLocalNtfy({ kind: "ntfy", url: "http://127.0.0.1:8093", topic: "other" }, { updatedBy: owner.id })).toThrow("was left as it is");
+    expect(service.describe().topic).toBe("boxpilot-Abc_123-xyz");
+    store.close();
+    // Only the local ntfy the helper proved, never an address from anywhere else.
+    const fresh = await setup();
+    expect(() => fresh.service.adoptLocalNtfy({ kind: "ntfy", url: "https://ntfy.example", topic: "t" })).toThrow("did not say where ntfy answers");
+    expect(() => fresh.service.adoptLocalNtfy({ kind: "webhook", url: "http://127.0.0.1:8093", topic: "t" })).toThrow("did not say where ntfy answers");
+    fresh.store.close();
+  });
+
   it("pushes once per failed job through the job-event stream and audits delivery", async () => {
     const { store, owner, service, requests } = await setup();
     service.setTarget({ kind: "ntfy", url: "http://127.0.0.1:8093", topic: "boxpilot" }, { updatedBy: owner.id });

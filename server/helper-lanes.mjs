@@ -17,13 +17,13 @@ const exclusiveOperations = new Set(["host.snapshot.create", "host.snapshot.rest
 
 /** Installing or removing an app rewrites the dashboard's shared services.yaml as well as the app. */
 export const homepageLane = "app:homepage";
-const homepageOperations = new Set(["homepage.sync", "app.install", "app.uninstall", "app.purge"]);
+const homepageOperations = new Set(["homepage.sync", "app.install", "app.uninstall", "app.purge", "app.reinstall"]);
 
 /** Everything shared with no subject of its own: apt, systemd, storage, firewall, users. */
 export const hostLane = "host";
 
 /** Operations that read or write the shared backup tree; they hold the host lane as well as their own. */
-const backupTreeOperations = new Set(["app.backup", "app.backup.restore", "app.backup.verify", "backup.sync", "backup.remote.sync", "backup.cloud.sync"]);
+const backupTreeOperations = new Set(["app.backup", "app.backup.many", "app.backup.restore", "app.backup.verify", "backup.sync", "backup.remote.sync", "backup.cloud.sync"]);
 
 /** The lanes an operation must hold, as an array. Read-only operations never queue, so never get here. */
 export function laneFor(operation, parameters = {}) {
@@ -35,6 +35,8 @@ export function laneFor(operation, parameters = {}) {
   if (id.startsWith("app.")) {
     const app = subject(parameters?.id);
     if (app) lanes.push(`app:${app}`);
+    // Several apps in one job (app.backup.many) hold every one of their lanes.
+    if (Array.isArray(parameters?.ids)) for (const entry of parameters.ids) { const each = subject(entry); if (each) lanes.push(`app:${each}`); }
   }
   if (id.startsWith("vm.")) {
     const vm = subject(parameters?.name) ?? subject(parameters?.domain);
