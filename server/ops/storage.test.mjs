@@ -46,6 +46,17 @@ describe("storage operations", () => {
     expect(operations["storage.format"].risk).toBe("high");
     expect(operations["storage.mount"].risk).toBe("medium");
   });
+
+  it("reconnects a network share as a share when asked to reconnect it as a drive", async () => {
+    // "Try again" on a failed Reconnect a drive for share-boxpilot-backup repeated the task's
+    // refusal; the share has its own reconnect, at the same tier.
+    const runUnit = { runTask: vi.fn(async (task, parameters) => ({ task, parameters })) };
+    await expect(operations["storage.remount"].run({ name: "share-boxpilot-backup" }, { runUnit, jobLog: null }))
+      .resolves.toEqual({ task: "share.reconnect", parameters: { name: "boxpilot-backup" } });
+    await expect(operations["storage.remount"].run({ name: "the-dump" }, { runUnit, jobLog: null }))
+      .resolves.toEqual({ task: "storage.remount", parameters: { name: "the-dump" } });
+    expect(operations["storage.remount"].risk).toBe("medium");
+  });
 });
 
 describe("lvm snapshot operations", () => {
