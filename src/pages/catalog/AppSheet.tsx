@@ -117,7 +117,8 @@ function Overview({ entry, ctx, onTab }: { entry: Entry; ctx: CatalogContext; on
   const history = (live?.updateHistory ?? []).filter((update) => update.from?.[manifest.id]);
 
   const facts: KeyValueItem[] = [
-    { id: "state", label: "State", value: stateWords(entry), status: appStatus(live).status, hint: live && installed && live.container.restarts > 0 ? `${live.container.restarts} restarts` : undefined },
+    // The container's own state here; a folder it cannot write to is said above, in its notice.
+    { id: "state", label: "State", value: stateWords(entry), status: appStatus(live ? { ...live, folderProblems: [] } : live).status, hint: live && installed && live.container.restarts > 0 ? `${live.container.restarts} restarts` : undefined },
     { id: "version", label: "Version", mono: true, value: manifest.image.version ?? manifest.image.reference, hint: live?.updateAvailable ? `update ready: ${live.installedImage ?? "installed image"} → ${manifest.image.reference}` : installed ? "up to date" : undefined },
     ...(reach ? [{ id: "reach", label: "Reach", value: reach.tailnetOnly ? "Tailscale only" : "Your home network", hint: live!.urls.length ? live!.urls.map((url) => `${url.label} ${url.host}`).join(" · ") : "No web page" }] : []),
     ...(!installed && manifest.ports.length ? [{ id: "ports", label: "Ports", mono: true, value: manifest.ports.map((port) => `${port.label} ${port.host}/${port.protocol}`).join(" · ") }] : []),
