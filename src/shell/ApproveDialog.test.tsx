@@ -40,6 +40,34 @@ describe("approval dialog", () => {
     expect(screen.queryByText("Completed.")).toBeNull();
   });
 
+  // M38: Zulip's organization link. The job never stored it; the dialog asks for it once.
+  it("shows a result that is given once, asks for it once, and says it will not be shown again", async () => {
+    const link = "https://homebox.tail1234.ts.net:8543/new/abcdefghij2345klmnopqrst";
+    const calls = stubApi({ confirmText: "", result: { expiresInDays: 7, host: "homebox.tail1234.ts.net:8543", oneTime: ["link"] } });
+    const answered = vi.mocked(fetch).getMockImplementation()!;
+    let taken = 0;
+    vi.mocked(fetch).mockImplementation((input, init) => {
+      if (input.toString().endsWith("/jobs/job-1/once")) {
+        taken += 1;
+        calls.push({ url: input.toString(), method: init?.method ?? "GET", body: {} });
+        return Promise.resolve(taken === 1
+          ? new Response(JSON.stringify({ jobId: "job-1", value: { link } }), { status: 200, headers: { "Content-Type": "application/json" } })
+          : new Response(JSON.stringify({ error: "This was shown once already" }), { status: 410, headers: { "Content-Type": "application/json" } }));
+      }
+      return answered(input, init);
+    });
+    render(<ApproveDialog operationId="app.zulip.organization.link" title="Create your organization (Zulip)" parameters={{ id: "zulip" }} csrfToken="csrf" onClose={() => {}} />);
+    const run = await screen.findByRole("button", { name: "Confirm and run" });
+    await waitFor(() => expect(run.hasAttribute("disabled")).toBe(false));
+    fireEvent.click(run);
+    expect(await screen.findByText(link)).toBeTruthy();
+    expect((screen.getByRole("link", { name: "Open" }) as HTMLAnchorElement).href).toBe(link);
+    expect(screen.getByRole("button", { name: /Copy/ })).toBeTruthy();
+    expect(screen.getByText(/Shown this once: BoxPilot did not keep it/)).toBeTruthy();
+    expect(taken).toBe(1);
+    expect(calls.find((call) => call.url.endsWith("/once"))?.method).toBe("POST");
+  });
+
   it("contains keyboard focus and returns it to the opener", async () => {
     stubApi({ confirmText: "" });
     const opener = document.createElement("button"); document.body.append(opener); opener.focus();

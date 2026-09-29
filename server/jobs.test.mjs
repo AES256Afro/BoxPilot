@@ -831,3 +831,32 @@ describe("a job that ran out of time (M30.3)", () => {
     } finally { store.close(); }
   });
 });
+
+describe("a result shown once (M38: Zulip's organization link)", () => {
+  const link = "https://homebox.tail1234.ts.net:8543/new/abcdefghij2345klmnopqrst";
+  it("never stores the field, and gives it to the person who ran the job once", async () => {
+    const helper = { request: vi.fn(async () => ({ link, expiresInDays: 7, host: "homebox.tail1234.ts.net:8543" })) };
+    let now = Date.parse("2026-09-29T12:00:00.000Z");
+    const { store, owner } = await setup(helper);
+    try {
+      const jobs = createJobService(store, helper, { now: () => now });
+      const sam = store.createOwnerAccount({ username: "sam", passwordHash: "x", role: "operator", createdBy: owner.id });
+      const job = await jobs.createOperationJob("app.zulip.organization.link", { id: "zulip" }, owner.id);
+      const done = await jobs.approveAndRun(job.id, owner.id, {});
+      expect(done.state).toBe("completed");
+      expect(done.result).toEqual({ expiresInDays: 7, host: "homebox.tail1234.ts.net:8543", oneTime: ["link"] });
+      // Not in the job, not in the list, not anywhere the store can hand out.
+      expect(JSON.stringify(store.getJob(job.id))).not.toContain("/new/");
+      expect(JSON.stringify(store.listJobs(50, {}))).not.toContain("/new/");
+      expect(jobs.takeOneTime(job.id, sam.id)).toBeNull();
+      expect(jobs.takeOneTime(job.id, owner.id)).toEqual({ link });
+      expect(jobs.takeOneTime(job.id, owner.id)).toBeNull();
+
+      // Unclaimed, it is gone after a quarter of an hour.
+      const again = await jobs.createOperationJob("app.zulip.organization.link", { id: "zulip" }, owner.id);
+      await jobs.approveAndRun(again.id, owner.id, {});
+      now += 16 * 60_000;
+      expect(jobs.takeOneTime(again.id, owner.id)).toBeNull();
+    } finally { store.close(); }
+  });
+});

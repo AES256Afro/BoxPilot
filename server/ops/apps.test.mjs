@@ -172,3 +172,30 @@ describe("operations that re-render an app's compose file carry the devices the 
     expect(apps.reconfigure).toHaveBeenCalledWith(expect.objectContaining({ id: "jellyfin", devices: ["/dev/dri/renderD128"] }), expect.anything());
   });
 });
+
+describe("installing an app for the tailnet only (M38)", () => {
+  const zulipServe = JSON.stringify({ TCP: { 8543: { HTTPS: true } }, Web: { "homebox.tail1234.ts.net:8543": { Handlers: { "/": { Proxy: "http://127.0.0.1:8543" } } } } });
+  const installed = (exposure) => ({ install: vi.fn(async () => ({ installed: true, id: "zulip", name: "Zulip", exposure, hostPorts: [{ id: "web", host: 8543, protocol: "tcp", exposure: exposure === "tailnet" ? "loopback" : "lan", tailnet: "serve" }] })) });
+
+  it("publishes its web port with Tailscale Serve once it is up, and says where", async () => {
+    const run = vi.fn(async (_binary, args) => (args[1] === "status" ? { ok: true, stdout: zulipServe, stderr: "" } : { ok: true, stdout: "", stderr: "" }));
+    const result = await operations["app.install"].run({ id: "zulip", values: {} }, { apps: installed("tailnet"), run });
+    expect(run).toHaveBeenCalledWith(expect.stringContaining("tailscale"), ["serve", "--bg", "--yes", "--https=8543", "http://127.0.0.1:8543"], expect.anything());
+    expect(result).toMatchObject({ installed: true, served: true, urls: ["https://homebox.tail1234.ts.net:8543"] });
+    expect(result.warnings).toBeUndefined();
+  });
+
+  it("keeps the install and says how to publish it when Serve fails", async () => {
+    const run = vi.fn(async (_binary, args) => (args[0] === "serve" && args[1] === "--bg" ? { ok: false, stdout: "", stderr: "serve: Tailscale is stopped" } : { ok: true, stdout: "{}", stderr: "" }));
+    const result = await operations["app.install"].run({ id: "zulip", values: {} }, { apps: installed("tailnet"), run });
+    expect(result).toMatchObject({ installed: true, served: false });
+    expect(result.warnings[0]).toMatch(/publishing it with Tailscale Serve failed \(8543: serve: Tailscale is stopped\).*choose Publish on the tailnet/);
+  });
+
+  it("leaves an app on the home network alone", async () => {
+    const run = vi.fn();
+    const result = await operations["app.install"].run({ id: "zulip", values: { exposure: "lan" } }, { apps: installed("lan"), run });
+    expect(run).not.toHaveBeenCalled();
+    expect(result.served).toBeUndefined();
+  });
+});

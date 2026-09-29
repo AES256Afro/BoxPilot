@@ -368,6 +368,50 @@ describe("App catalog: an installed app's sheet", () => {
     for (const tab of ["Reach", "Backups", "Logs", "Config"]) expect(within(sheet).getByRole("tab", { name: tab })).toBeTruthy();
   });
 
+  // M38: what an app's manifest offers to do inside it, like Zulip's "Create your organization".
+  const zulip = {
+    ...manifest, id: "zulip", name: "Zulip", category: "Communication", description: "Team chat", notes: null, defaultExposure: "tailnet",
+    ports: [{ id: "web", label: "Web UI and apps", container: 80, host: 8543, protocol: "tcp", exposure: "lan", fixed: false }], volumes: [], env: [],
+    actions: [{ id: "create-organization", label: "Create your organization", description: "Zulip makes a single-use link.", operation: "app.zulip.organization.link" }],
+  };
+  it("offers the app's own actions to the owner, and stages them with the app's id", async () => {
+    let staged: string | undefined;
+    serve(catalogOf([{ manifest: zulip, live: running("zulip", 8543) }]), (url, init) => {
+      if (url.endsWith("/operations/app.zulip.organization.link/jobs")) { staged = init?.body as string; return stagedJob("app.zulip.organization.link"); }
+      return undefined;
+    });
+    render(<CatalogPage csrfToken="csrf-token" />);
+    const sheet = await openApp("Zulip");
+    expect(within(sheet).getByRole("heading", { name: "In Zulip" })).toBeTruthy();
+    expect(within(sheet).getByText("Zulip makes a single-use link.")).toBeTruthy();
+    const button = within(sheet).getByRole("button", { name: "Create your organization" });
+    expect(button.getAttribute("data-risk")).toBe("medium");
+    fireEvent.click(button);
+    expect(await screen.findByText("Medium risk")).toBeTruthy();
+    expect(JSON.parse(staged ?? "{}")).toEqual({ parameters: { id: "zulip" } });
+  });
+
+  it("keeps an owner-only action from an operator, and waits for a stopped app", async () => {
+    serve(catalogOf([{ manifest: zulip, live: running("zulip", 8543) }]));
+    render(<CatalogPage csrfToken="csrf-token" role="operator" />);
+    const sheet = await openApp("Zulip");
+    expect(within(sheet).queryByRole("button", { name: "Create your organization" })).toBeNull();
+    cleanup();
+    serve(catalogOf([{ manifest: zulip, live: running("zulip", 8543, { container: { exists: true, running: false, status: "exited", health: "none", restarts: 0, image: "sha256:1" } }) }]));
+    render(<CatalogPage csrfToken="csrf-token" />);
+    const stopped = await openApp("Zulip");
+    expect((within(stopped).getByRole("button", { name: "Create your organization" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(within(stopped).getByText("Zulip is not running; start it first.")).toBeTruthy();
+  });
+
+  it("says at install that a tailnet-only app is published with Tailscale Serve", async () => {
+    serve(catalogOf([{ manifest: zulip, live: absent("zulip") }]));
+    render(<CatalogPage csrfToken="csrf-token" />);
+    const sheet = await openInstall("Zulip");
+    expect(within(sheet).getByText(/Reached through Tailscale only: its web page stays on this server and Tailscale Serve publishes it/)).toBeTruthy();
+    expect(within(sheet).getByText(/your tailnet, over HTTPS/)).toBeTruthy();
+  });
+
   it("closes the sheet and stages an update through the approval dialog", async () => {
     let staged: string | undefined;
     serve(catalogOf([{ manifest, live: running("jellyfin", 8096, { updateAvailable: true, installedImage: "jellyfin/jellyfin:10.10.6" }) }]), (url, init) => {

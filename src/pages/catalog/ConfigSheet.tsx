@@ -129,6 +129,9 @@ export function ConfigSheet({ manifest, live, mode, csrfToken, onSubmit, onCance
           </Notice>
         )}
         {nothingToAsk && <p className="catalog-form__hint">{manifest.name} needs no settings: {mode === "install" ? "it installs with the catalog's defaults." : "there is nothing here to change."}</p>}
+        {mode === "install" && manifest.defaultExposure === "tailnet" && (
+          <p className="catalog-form__hint">Reached through Tailscale only: its web page stays on this server and Tailscale Serve publishes it on your tailnet over HTTPS, with a valid certificate. Nothing on your home network can open it. You can change that later on its Reach tab.</p>
+        )}
 
         {(manifest.networkModes?.length ?? 0) > 1 && (
           <Section title="Network">
@@ -144,7 +147,7 @@ export function ConfigSheet({ manifest, live, mode, csrfToken, onSubmit, onCance
         {editablePorts.length > 0 && (
           <Section title="Ports">
             {editablePorts.map((port) => (
-              <Field key={port.id} label={`${port.label} port`} hint={`${port.containerFollowsHost ? "The app listens here" : `Container ${port.container}/${port.protocol}`} · ${port.exposure === "loopback" ? "this server only" : "your network"}`}>
+              <Field key={port.id} label={`${port.label} port`} hint={`${port.containerFollowsHost ? "The app listens here" : `Container ${port.container}/${port.protocol}`} · ${port.exposure === "loopback" ? "this server only" : mode === "install" && manifest.defaultExposure === "tailnet" && port.protocol === "tcp" ? "your tailnet, over HTTPS" : "your network"}`}>
                 <TextInput type="number" mono min={1} max={65535} value={values.ports[port.id] ?? port.host} onValueChange={(value) => setPort(port.id, value)} />
               </Field>
             ))}

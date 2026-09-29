@@ -20,6 +20,10 @@ export interface Manifest {
   usesVpnProfile?: boolean;
   sidecars?: Array<{ id: string }>;
   modelRunner?: { kind: string; service: string } | null;
+  /** Who can reach it when installed without choosing: "tailnet" publishes it with Tailscale Serve only (M38). */
+  defaultExposure?: "lan" | "tailnet";
+  /** Buttons on an installed app's sheet, each a registered operation run with { id } (Zulip's "Create your organization"). */
+  actions?: Array<{ id: string; label: string; description: string | null; operation: string }>;
   sha256: string;
 }
 

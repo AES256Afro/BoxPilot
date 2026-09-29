@@ -91,6 +91,29 @@ export function createJobService(store, helper, {
   // Secret parameters (share passwords) staged with a job live here until it runs; they are
   // never written to SQLite or the job log. A restart forgets them and the job must be re-staged.
   const stagedSecrets = new Map();
+  // Result fields an operation shows once (its oneTimeFields: Zulip's single-use organization
+  // link) wait here for the person who ran the job, for a quarter of an hour. They are never
+  // written to SQLite; the stored result says only which fields were given (`oneTime`).
+  const oneTimeResults = new Map();
+  const oneTimeTtlMs = 15 * 60_000;
+  function splitOneTime(job, result) {
+    const fields = job.type.startsWith("op:") ? registry.get(job.type.slice(3))?.oneTimeFields ?? [] : [];
+    if (!fields.length || !result || typeof result !== "object" || Array.isArray(result)) return result;
+    const stored = { ...result };
+    const kept = {};
+    for (const field of fields) if (Object.hasOwn(stored, field)) { kept[field] = stored[field]; delete stored[field]; }
+    if (!Object.keys(kept).length) return stored;
+    oneTimeResults.set(job.id, { value: kept, createdBy: job.createdBy, expiresAt: now() + oneTimeTtlMs });
+    return { ...stored, oneTime: Object.keys(kept) };
+  }
+  /** What a job showed once, to the person who ran it, the first time they ask; null after that. */
+  function takeOneTime(jobId, callerId) {
+    for (const [key, entry] of oneTimeResults) if (entry.expiresAt <= now()) oneTimeResults.delete(key);
+    const entry = oneTimeResults.get(jobId);
+    if (!entry || !callerId || entry.createdBy !== callerId) return null;
+    oneTimeResults.delete(jobId);
+    return entry.value;
+  }
 
   /**
    * Decide how a job must be approved for this session (ADR-001 risk tiers).
@@ -261,11 +284,11 @@ export function createJobService(store, helper, {
       try { await onOperationSettled(job); } catch { /* preserve the operation's actual outcome */ }
     };
     try {
-      const result = execution.run
+      const result = splitOneTime(job, execution.run
         ? await execution.run()
         : execution.timeoutMs
           ? await helper.request(execution.operation, execution.parameters, { timeoutMs: execution.timeoutMs, jobId, ...(execution.budgetMs ? { budgetMs: execution.budgetMs } : {}) })
-          : await helper.request(execution.operation, execution.parameters, { jobId });
+          : await helper.request(execution.operation, execution.parameters, { jobId }));
       store.transitionJob(jobId, "applying", "verifying", { result });
       store.addJobStep(jobId, "apply", "completed", execution.applied);
       if (!execution.validate(result)) throw new Error(execution.run ? "Operation returned an invalid result" : "Helper returned an invalid operation result");
@@ -492,5 +515,5 @@ export function createJobService(store, helper, {
     return dropped;
   }
 
-  return { pruneStagedSecrets, holdsStagedSecrets, createOperationJob, retryWithMoreTime, approveAndRun, approveAndStart, describeApproval, approvalPolicy, cancelJob, prepareParameters, sweepStaleApprovals, dismissFailure, supersededReason };
+  return { pruneStagedSecrets, holdsStagedSecrets, createOperationJob, retryWithMoreTime, approveAndRun, approveAndStart, describeApproval, approvalPolicy, cancelJob, prepareParameters, sweepStaleApprovals, dismissFailure, supersededReason, takeOneTime };
 }
