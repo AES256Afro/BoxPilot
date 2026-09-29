@@ -18,6 +18,7 @@
  */
 import { createHash } from "node:crypto";
 import { backupMountpoint, legacyBackupMountpoint, mountpointFor } from "./backup-mount.mjs";
+import { coversEveryAddress, findPortConflicts, freePortNear, holderWords, portHolders, serveTargetPort, serveUrl } from "./ports.mjs";
 
 export const severities = Object.freeze(["critical", "warning", "info"]);
 
@@ -656,7 +657,7 @@ export function backupDestinationToMove({ fstab = [] } = {}) {
  * owner stopped on purpose (server/app-stops.mjs) is recreated and left stopped, as it was left;
  * any other is started, which builds the container again. Or Uninstall, for one no longer wanted.
  */
-export function appsWithoutContainer({ apps = [], pruneRuns = [] } = {}) {
+export function appsWithoutContainer({ apps = [], pruneRuns = [], portBlocked = new Map() } = {}) {
   const runs = pruneRuns
     .map((run) => (typeof run === "string" ? { at: run, scheduled: false, frequency: null } : run))
     .filter((run) => run?.at && Number.isFinite(Date.parse(run.at)))
@@ -702,6 +703,11 @@ export function appsWithoutContainer({ apps = [], pruneRuns = [] } = {}) {
             label: "Start",
             preview: `Writes ${app.name}'s compose project again from its saved settings, on the image it last ran (the file is gone too), builds its container, starts it and waits for it to be healthy. Its data is used as it is; nothing is reset or deleted. If it does not come up, what started is taken down again.`,
           };
+      // Starting it again would fail on a port something else holds: Dockge's Start (2026-09-29) failed
+      // exactly so. That finding carries the fixes, and each one also starts it; creating the
+      // container stopped binds no port, so that one stays.
+      const blocked = portBlocked.get(app.id) ?? null;
+      const startsIt = recreate.operationId === "app.action" || recreate.parameters?.start !== false;
       return finding({
         id: `app-missing:${app.id}`,
         severity: "warning",
@@ -713,8 +719,10 @@ export function appsWithoutContainer({ apps = [], pruneRuns = [] } = {}) {
           `Docker has no container named ${missing.container}`,
           `${missing.record} still says installed`,
           missing.projectPresent ? `${missing.project} is there` : `${missing.project} is gone too`,
+          ...(blocked ? [`its port is taken: see "${blocked.title}"`] : []),
         ],
-        fixes: [recreate, {
+        manual: blocked && startsIt ? `${app.name} cannot start again until its port is free. "${blocked.title}" has the choices, and each one also builds its container again and starts it.` : null,
+        fixes: [...(blocked && startsIt ? [] : [recreate]), {
           operationId: "app.uninstall",
           parameters: { id: app.id },
           label: "Uninstall",
@@ -722,6 +730,159 @@ export function appsWithoutContainer({ apps = [], pruneRuns = [] } = {}) {
         }],
       });
     });
+}
+
+/**
+ * Apps whose ports something else holds, or will take (the Dockge port trap, 2026-09-29).
+ *
+ * The case this is written from: Dockge was published on the home network on every address
+ * (0.0.0.0:5001) and served on the tailnet by Tailscale Serve at the same port, so tailscaled held
+ * 100.x.y.z:5001. On Linux a publish on every address fails while any one address holds the port,
+ * so whichever of the two bound first after a restart kept it. The nightly clean-up had removed
+ * Dockge's container; Start built it again and Docker failed with "address already in use", and
+ * Repair could only show Docker's sentence.
+ *
+ * Two ways to be found here:
+ *   - served on the tailnet at a port the app publishes on every address, whether it runs or not:
+ *     the trap is set either way, and a restart or a reboot springs it;
+ *   - an app that is not running, whose port a listener on the host holds (a container of another
+ *     app, a process, tailscaled): it cannot start until that changes.
+ *
+ * `facts.listeners` are the host's listening sockets (the web service's `ss`, which cannot name
+ * root's processes), `facts.serves` what Serve publishes, `facts.dockerContainers` Docker's running
+ * containers, and each app's `published` the ports its compose file binds. The fixes:
+ *   - Serve fronting this very app: serve it only through Tailscale (its port moves to 127.0.0.1,
+ *     which Serve reaches and which does not collide), or stop serving it (it stays on the home
+ *     network, and reaches the tailnet over plain HTTP);
+ *   - anything else holding it: move the app to a port nothing uses.
+ */
+export function portConflicts({ apps = [], listeners = null, serves = [], dockerContainers = null, lanAddress = null } = {}) {
+  const taken = new Set(apps.flatMap((app) => (app.published ?? []).map((port) => `${port.host}/${port.protocol}`)));
+  const nameOf = (id) => apps.find((app) => app.id === id)?.name ?? null;
+  const findings = [];
+  for (const app of apps) {
+    const published = (app.published ?? []).filter((port) => Number.isInteger(port.host));
+    if (!published.length) continue;
+    // Paused and restarting containers hold their ports too.
+    const running = Boolean(app.container?.running);
+    const project = `bp-${app.id}`;
+    const own = (container) => container.app === app.id || container.name === project || String(container.name ?? "").startsWith(`${project}-`);
+    const selfPorts = [...new Set(published.map((port) => port.host))];
+    const conflicts = new Map();
+    const add = (port, holder) => {
+      const key = `${port.host}/${port.protocol}`;
+      if (!conflicts.has(key)) conflicts.set(key, { port, holders: [] });
+      conflicts.get(key).holders.push(holder);
+    };
+    if (!running && Array.isArray(listeners)) {
+      for (const conflict of findPortConflicts(published.map((port) => ({ id: port.id, host: port.host, protocol: port.protocol, bind: port.bind })), listeners)) {
+        const port = published.find((entry) => entry.host === conflict.port && entry.protocol === conflict.protocol);
+        for (const holder of portHolders(conflict, { serves, containers: dockerContainers, own, selfPorts })) add(port, holder);
+      }
+    }
+    for (const port of published) {
+      if (port.protocol !== "tcp" || !coversEveryAddress(port.bind)) continue;
+      const serve = serves.find((entry) => entry.port === port.host);
+      if (!serve || conflicts.get(`${port.host}/tcp`)?.holders.some((holder) => holder.kind === "serve")) continue;
+      const targetPort = serveTargetPort(serve);
+      add(port, { kind: "serve", address: null, serve, url: serveUrl(serve), targetPort, self: targetPort === null || selfPorts.includes(targetPort), armed: true });
+    }
+    if (!conflicts.size) continue;
+    // A Serve target that is another app's port names that app.
+    for (const holder of [...conflicts.values()].flatMap((entry) => entry.holders)) {
+      if (holder.kind === "serve" && !holder.self && holder.targetPort) holder.targetApp = apps.find((other) => other.id !== app.id && (other.published ?? []).some((port) => port.host === holder.targetPort))?.id ?? null;
+    }
+    findings.push(portConflictFinding(app, [...conflicts.values()], { running, listeners, serves, taken, nameOf, lanAddress }));
+  }
+  return findings;
+}
+
+function portConflictFinding(app, conflicts, { running, listeners, serves, taken, nameOf, lanAddress }) {
+  const name = app.name ?? app.id;
+  const holders = conflicts.flatMap((conflict) => conflict.holders);
+  const selfServe = conflicts.find((conflict) => conflict.holders.some((holder) => holder.kind === "serve" && holder.self)) ?? null;
+  const first = selfServe ?? conflicts[0];
+  const port = first.port;
+  const serve = first.holders.find((holder) => holder.kind === "serve")?.serve ?? null;
+  const tailnetName = String(serve?.dnsName ?? serves[0]?.dnsName ?? "").split(".")[0] || null;
+  const home = lanAddress ? `http://${lanAddress}:${port.host}` : `port ${port.host} on your home network`;
+  const plainTailnet = tailnetName ? `http://${tailnetName}:${port.host}` : `port ${port.host} over Tailscale`;
+  const sentences = conflicts.map((conflict) => {
+    const verb = conflict.holders.every((holder) => holder.armed) ? "is also claimed" : "is taken";
+    return `Port ${conflict.port.host}${conflict.port.protocol === "udp" ? "/udp" : ""} ${verb} ${conflict.holders.map((holder) => holderWords(holder, { appName: name, nameOf })).join(", and ")}.`;
+  });
+  const evidence = [
+    ...conflicts.map((conflict) => `${name} publishes ${conflict.port.bind === "*" ? "" : `${conflict.port.bind}:`}${conflict.port.host}/${conflict.port.protocol}${coversEveryAddress(conflict.port.bind) ? " (every address)" : ""}`),
+    ...holders.map((holder) => (holder.kind === "serve"
+      ? `tailscale serve: ${holder.url ?? `port ${holder.serve?.port}`} forwards to ${holder.serve?.target ?? "?"}${holder.armed ? "" : `, and tailscaled is listening on ${holder.address}:${holder.serve?.port}`}`
+      : holder.kind === "container" ? `container ${holder.container.name} publishes port ${port.host}`
+        : `listening on ${holder.address}:${port.host}${holder.process ? ` (${holder.process.name})` : ""}`)),
+    running ? `${name} is running` : app.missingContainer ? `${name} has no container` : `${name} is not running`,
+  ];
+  const restartNote = running ? "" : app.stoppedAt ? " It stays stopped, as you left it." : ` Then it starts ${name}${app.missingContainer ? ", building its container again" : ""}.`;
+
+  if (selfServe) {
+    const url = serveUrl(serve) ?? `its tailnet address at port ${port.host}`;
+    // app.serve.set withdraws the app's first web port; any other served port is withdrawn by number.
+    const firstWeb = (app.published ?? []).find((entry) => entry.web)?.host ?? null;
+    const stopServing = firstWeb === port.host
+      ? { operationId: "app.serve.set", parameters: { id: app.id, enabled: false, ...(!running && !app.stoppedAt ? { start: true } : {}) } }
+      : { operationId: "app.serve.withdraw", parameters: { port: port.host } };
+    // On the host's own network the app binds the port itself: there is nothing to move to 127.0.0.1.
+    const tailnetOnly = port.hostNetwork ? [] : [{
+      operationId: "app.exposure.set",
+      parameters: { id: app.id, mode: "tailnet" },
+      label: `Serve ${name} only through Tailscale`,
+      preview: `Moves ${name}'s port ${port.host} to this server only (127.0.0.1), where Tailscale Serve reaches it and where it does not collide with Tailscale, and keeps publishing it at ${url}. Its address stays ${url} on every device on your tailnet; it stops answering on your home network at ${home}. It recreates ${name}'s container ${running ? "and starts it again" : `and starts it${app.stoppedAt ? " (you had stopped it)" : ""}`}. Its data and settings are untouched.`,
+    }];
+    return finding({
+      id: `port-conflict:${app.id}`,
+      severity: "warning",
+      title: running ? `${name} and Tailscale Serve both claim port ${port.host}` : `${name} cannot start: Tailscale Serve holds port ${port.host}`,
+      detail: `${name} is ${port.hostNetwork ? `on this server's own network and listens on every address at port ${port.host} itself` : `on your home network, published on every address at port ${port.host}`}, and Tailscale Serve also publishes it on your tailnet at ${url}. On Linux, a port held on every address and the same port held on the tailnet address cannot both be had, so whichever of the two starts first keeps it and the other fails. ${running ? `${name} has it now; after a restart or a reboot it can be Tailscale, and then ${name} will not start.` : `Tailscale has it now, so ${name} cannot start.`} Pick one way in.`,
+      evidence,
+      fixes: [...tailnetOnly, {
+        ...stopServing,
+        label: "Stop serving it on the tailnet",
+        preview: `Stops Tailscale Serve publishing ${url}, so port ${port.host} is ${name}'s alone. ${name} stays on your home network at ${home}, and devices on your tailnet still reach it at ${plainTailnet}, over plain HTTP: ${url} stops working.${stopServing.operationId === "app.serve.set" ? restartNote : ` Then start ${name} from its card.`} Its data and settings are untouched.`,
+      }],
+    });
+  }
+
+  const holder = first.holders[0];
+  const free = port.id && !port.fixed ? freePortNear(port.host, { protocol: port.protocol, listeners: listeners ?? [], taken, serves }) : null;
+  const stranded = holders.find((entry) => entry.kind === "serve" && !entry.self && !entry.targetApp) ?? null;
+  const fixes = [];
+  if (free) {
+    fixes.push({
+      operationId: "app.reconfigure",
+      parameters: { id: app.id, values: { ports: { [port.id]: free } }, checkpoint: false },
+      label: `Move it to port ${free}`,
+      preview: `Changes ${name}'s port ${port.host} to ${free}, which nothing on this server uses, and recreates its container there${running ? "" : app.stoppedAt ? " (it starts; you had stopped it)" : ", which starts it"}. Its address changes: ${lanAddress ? `http://${lanAddress}:${port.host} becomes http://${lanAddress}:${free}` : `port ${port.host} becomes ${free}`}, so update any bookmarks. Whatever holds ${port.host} keeps it. Its data and other settings are untouched.`,
+    });
+  }
+  if (stranded) {
+    fixes.push({
+      operationId: "app.serve.withdraw",
+      parameters: { port: port.host },
+      label: "Stop publishing the old tailnet address",
+      preview: `Withdraws ${stranded.url ?? `the tailnet address at port ${port.host}`}, which forwards to port ${stranded.targetPort ?? "?"}, where no app BoxPilot installed answers. Nothing about any app changes. Then start ${name} from its card.`,
+    });
+  }
+  const what = holder.kind === "container" ? `container ${holder.container.name}` : holder.kind === "process" ? `${holder.process.name}` : holder.kind === "serve" ? "that Serve entry" : holder.kind === "tailscale" ? "Tailscale" : "the program holding it";
+  return finding({
+    id: `port-conflict:${app.id}`,
+    severity: "warning",
+    title: running ? `${name} and ${what} both claim port ${port.host}` : `${name} cannot start: port ${port.host} is taken`,
+    detail: `${sentences.join(" ")} ${running ? `${name} holds it now; after a restart or a reboot it may not.` : `${name} cannot start until it is free: Docker would fail with "address already in use".`}`,
+    evidence,
+    fixes,
+    manual: port.fixed
+      ? `${name}'s port ${port.host} is fixed. Stop ${what} if it should not be running, then start ${name}.`
+      : holder.kind === "process" || holder.kind === "unknown"
+        ? `Or stop ${what} if it should not be running (\`sudo ss -ltnup 'sport = :${port.host}'\` names it), then start ${name}.`
+        : holder.kind === "container" ? `Or stop ${what} if it should not be running, then start ${name}.` : null,
+  });
 }
 
 /** A moment in the server's own locale, as the owner's clock would say it. */
@@ -785,6 +946,8 @@ export function detectRemediations(facts = {}) {
     ...readOnlyRemounts(facts).map((entry) => entry.id.replace("read-only-remount:", "")),
   ].map((name) => mountpointFor(name.startsWith("share-") ? name.slice("share-".length) : name)));
   const remountedTargets = (facts.remountedTargets ?? []).filter((target) => !broken.has(target));
+  const ports = portConflicts(facts);
+  const portBlocked = new Map(ports.map((entry) => [entry.id.slice("port-conflict:".length), entry]));
   const findings = [
     ...staleMounts(facts),
     ...readOnlyRemounts(facts),
@@ -795,7 +958,8 @@ export function detectRemediations(facts = {}) {
     ...drivesNotOrderedAroundDocker(facts),
     ...vpnLeaks(facts),
     ...failedRehearsals(facts),
-    ...appsWithoutContainer(facts),
+    ...appsWithoutContainer({ ...facts, portBlocked }),
+    ...ports,
     ...backupsDue(facts),
     ...unwritableAppFolders(facts),
     ...splitDataFolders(facts),

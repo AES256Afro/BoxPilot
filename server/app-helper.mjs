@@ -12,7 +12,8 @@ import { fixedRun } from "./exec.mjs";
 import { parseServeStatus } from "./tailscale-serve.mjs";
 import { createCatalogService } from "./catalog/index.mjs";
 import { parseExit, parseForwardedPort } from "./vpn-exit.mjs";
-import { bindingFor, deployedImages, deviceMatchesPattern, renderCompose, projectNameFor, resolveDevices, wantsGpu } from "./catalog/compose.mjs";
+import { bindingFor, deployedImages, deviceMatchesPattern, publishedPorts, renderCompose, projectNameFor, resolveDevices, wantsGpu } from "./catalog/compose.mjs";
+import { coversEveryAddress, findPortConflicts, holderWords, normalizeBind, portHolders, serveTargetPort, serveUrl } from "./ports.mjs";
 import { createNvidiaInspector } from "./nvidia.mjs";
 import { isDeniedHostPath } from "./catalog/schema.mjs";
 import { measurableFolders, mountFor } from "./app-data-growth.mjs";
@@ -123,6 +124,10 @@ export function createAppHelper({
   vpnProfile = null,
   // Whether Docker can give containers an NVIDIA GPU; asked only for apps marked `gpu: optional`.
   nvidiaReady = null,
+  // Every listening socket on the host, with the process holding it (`ss -l -p`), for the port check
+  // before `compose up`. This process runs with PrivateNetwork=true and sees none of them itself, so
+  // the helper passes the root task that can (tasks/listeners.mjs). Null skips the listener half.
+  hostListeners = null,
 } = {}) {
   const root = path.resolve(catalogRoot);
   const dirFor = (id) => path.join(root, id);
@@ -260,6 +265,131 @@ export function createAppHelper({
     const manifest = await catalog.get(id);
     if (!manifest) throw new Error(`Application ${id} is not in the catalog`);
     return manifest;
+  }
+
+  /** Containers running now, as the port check needs them: name, published ports, owning app. Null when Docker cannot say. */
+  async function runningContainers() {
+    const result = await docker(["ps", "--format", "{{json .}}"], { timeout: 15_000 }).catch(() => null);
+    if (!result?.ok) return null;
+    return String(result.stdout ?? "").split("\n").filter(Boolean).map((line) => { try { return JSON.parse(line); } catch { return null; } }).filter(Boolean).map((item) => {
+      const label = (key) => new RegExp(`(?:^|,)${key.replace(/\./g, "\\.")}=([^,]*)`).exec(String(item.Labels ?? ""))?.[1] || null;
+      return { name: item.Names ?? null, ports: item.Ports ?? "", app: label("io.boxpilot.app"), composeProject: label("com.docker.compose.project") };
+    });
+  }
+
+  /** What Tailscale Serve publishes right now; empty when Tailscale is absent. */
+  async function serveEntries() {
+    const result = await runCommand(tailscaleBinary, ["serve", "status", "--json"], { timeout: 15_000, maxBuffer: 2 * 1024 * 1024 }).catch(() => ({ ok: false, stdout: "" }));
+    return result.ok ? parseServeStatus(result.stdout) : [];
+  }
+
+  /**
+   * Whether the ports a compose project is about to publish are free, and if not, who holds each.
+   *
+   * Dockge's Start rebuilt its container and Docker then failed with "failed to bind host port
+   * 0.0.0.0:5001/tcp: address already in use": Tailscale Serve published Dockge on the tailnet at
+   * the same port, so tailscaled held 100.x.y.z:5001, and on Linux a publish on every address fails
+   * while any one address holds the port. The owner got Docker's sentence and "read the log". This
+   * asks first: every listener on the host (the root task names each one's process), whose container
+   * each Docker listener is, and what Serve publishes. The app's own containers are never a conflict
+   * with itself. A port Serve publishes that this project would publish on every address is a
+   * conflict even when tailscaled is not holding it at this moment: tailscaled keeps retrying, and
+   * whichever of the two binds first after a restart or a reboot wins.
+   *
+   * Returns `{ checked, conflicts }`; `checked` is false when the listeners could not be read (the
+   * Serve half still ran). Each conflict is `{ port, protocol, bind, holders }` (ports.mjs portHolders).
+   */
+  async function portCheck(manifest, composeText, { progress = null } = {}) {
+    const requested = publishedPorts(composeText).map((entry) => ({ id: entry.service, host: entry.host, protocol: entry.protocol, bind: entry.bind }));
+    if (!requested.length) return { checked: true, conflicts: [] };
+    let listeners = null;
+    if (hostListeners) {
+      try { listeners = await hostListeners(); } catch (error) { progress?.(`Could not read which ports are in use (${error.message}); going ahead without that check.`, "stderr"); }
+    }
+    const everyAddress = requested.filter((entry) => entry.protocol === "tcp" && coversEveryAddress(entry.bind));
+    const live = Array.isArray(listeners) ? findPortConflicts(requested, listeners) : [];
+    const serves = everyAddress.length || live.length ? await serveEntries() : [];
+    const selfPorts = [...new Set(requested.map((entry) => entry.host))];
+    const project = projectNameFor(manifest.id);
+    const own = (container) => container.app === manifest.id || container.name === project || String(container.name ?? "").startsWith(`${project}-`);
+    let containers = live.length ? await runningContainers() : null;
+    const found = new Map();
+    for (const conflict of live) {
+      const holders = portHolders(conflict, { serves, containers, own, selfPorts });
+      if (holders.length) found.set(`${conflict.port}/${conflict.protocol}`, { port: conflict.port, protocol: conflict.protocol, bind: conflict.bind, holders });
+    }
+    for (const entry of everyAddress) {
+      const serve = serves.find((candidate) => candidate.port === entry.host);
+      const key = `${entry.host}/tcp`;
+      if (!serve || found.get(key)?.holders.some((holder) => holder.kind === "serve")) continue;
+      const targetPort = serveTargetPort(serve);
+      const holder = { kind: "serve", address: null, serve, url: serveUrl(serve), targetPort, self: targetPort === null || selfPorts.includes(targetPort), armed: true };
+      found.set(key, { port: entry.host, protocol: "tcp", bind: normalizeBind(entry.bind), holders: [...(found.get(key)?.holders ?? []), holder] });
+    }
+    // Serve fronting another app names that app, from the container publishing the port it forwards to.
+    const conflicts = [...found.values()];
+    const others = conflicts.flatMap((conflict) => conflict.holders).filter((holder) => holder.kind === "serve" && !holder.self && holder.targetPort);
+    if (others.length) {
+      containers ??= await runningContainers();
+      for (const holder of others) holder.targetApp = (containers ?? []).find((container) => container.app && String(container.ports).includes(`:${holder.targetPort}->`))?.app ?? null;
+    }
+    return { checked: Array.isArray(listeners), conflicts };
+  }
+
+  /** The conflicts in words: who holds each port, and what the owner can do about it. */
+  async function portConflictWords(manifest, conflicts) {
+    const names = new Map(((await catalog.all().catch(() => null))?.manifests ?? []).map((entry) => [entry.id, entry.name]));
+    const nameOf = (id) => names.get(id) ?? null;
+    const sentences = conflicts.map((conflict) => {
+      const verb = conflict.holders.every((holder) => holder.armed) ? "is also claimed" : "is taken";
+      return `Port ${conflict.port}${conflict.protocol === "udp" ? "/udp" : ""} ${verb} ${conflict.holders.map((holder) => holderWords(holder, { appName: manifest.name, nameOf })).join(", and ")}.`;
+    });
+    const everyAddress = conflicts.some((conflict) => coversEveryAddress(conflict.bind));
+    const serveSelf = conflicts.some((conflict) => conflict.holders.some((holder) => holder.kind === "serve" && holder.self));
+    const why = everyAddress
+      ? ` ${manifest.name} publishes ${conflicts.length === 1 ? "it" : "them"} on every address, and Linux will not let that share a port with a program holding it on one address${serveSelf ? ": whichever of the two starts first keeps it" : ""}.`
+      : "";
+    const next = serveSelf
+      ? ` Serve ${manifest.name} only through Tailscale (its port moves to 127.0.0.1, where Serve reaches it), or stop serving it on the tailnet: Repair offers both in one click.`
+      : ` Move ${manifest.name} to a free port in its Settings (Repair offers one), or stop what holds ${conflicts.length === 1 ? "the port" : "those ports"} if it should not be running.`;
+    return `${sentences.join(" ")}${why}${next}`;
+  }
+
+  /**
+   * Refuse, before `compose up`, a project whose ports something else holds (see portCheck).
+   * `refused` opens the sentence: "Dockge was not started." The error carries `code: "port_conflict"`
+   * and the conflicts themselves. A Serve port being withdrawn (app.exposure.set does that first)
+   * is let go of a moment after Tailscale is told, so tailscaled alone, with no Serve entry left,
+   * is given a few seconds.
+   */
+  async function assertPortsFree(manifest, composeText, { progress = null, refused } = {}) {
+    let result = await portCheck(manifest, composeText, { progress });
+    for (let attempt = 0; attempt < 5 && result.conflicts.length && result.conflicts.every((conflict) => conflict.holders.every((holder) => holder.kind === "tailscale")); attempt += 1) {
+      await wait(1000);
+      result = await portCheck(manifest, composeText, { progress });
+    }
+    if (!result.conflicts.length) {
+      if (result.checked) progress?.(`Ports ${[...new Set(publishedPorts(composeText).map((entry) => `${entry.host}/${entry.protocol}`))].join(", ")} are free.`, "stdout");
+      return result;
+    }
+    const words = await portConflictWords(manifest, result.conflicts);
+    progress?.(words, "stderr");
+    throw Object.assign(new Error(`${refused} ${words}`), { code: "port_conflict", conflicts: result.conflicts });
+  }
+
+  /**
+   * Docker's own "address already in use" or "port is already allocated", said the way the check
+   * above says it: something took the port between the check and `up`, or the check could not run.
+   * Null when the failure was something else.
+   */
+  async function bindFailure(manifest, stderr, composeText, refused) {
+    const text = String(stderr ?? "");
+    if (!/address already in use|port is already allocated/i.test(text)) return null;
+    const result = await portCheck(manifest, composeText).catch(() => null);
+    if (result?.conflicts.length) return Object.assign(new Error(`${refused} ${await portConflictWords(manifest, result.conflicts)}`), { code: "port_conflict", conflicts: result.conflicts });
+    const port = /(?:bind host port|Bind for|listen (?:tcp|udp)\d?)\s+\[?[^\s\]]*\]?:(\d{1,5})/i.exec(text)?.[1] ?? null;
+    const said = redact(text).split("\n").map((line) => line.trim()).filter(Boolean).at(-1)?.replace(/^Error response from daemon:\s*/i, "").slice(0, 200) ?? "";
+    return Object.assign(new Error(`${refused} ${port ? `Port ${port}` : "One of its ports"} is already in use on this server, so Docker could not publish it for ${manifest.name} (Docker said: "${said}"). \`sudo ss -ltnup 'sport = :${port ?? "<port>"}'\` names what holds it. Move ${manifest.name} to a free port in its Settings, or stop what holds it if it should not be running.`), { code: "port_conflict" });
   }
 
   /** What boxpilot.json persists: never secrets, never values the operator cannot change. */
@@ -540,6 +670,31 @@ export function createAppHelper({
     return problems;
   }
 
+  /**
+   * The ports an installed app publishes: `{ id, host, protocol, bind, fixed, web }`, `bind` being
+   * the address Docker binds ("*" for every address of both families). From the deployed compose
+   * file, which is what `up` binds even after a raw edit; from the saved settings when the file is
+   * gone (Reinstall writes it again from them). `id` is the manifest port it is, so a fix can move
+   * it; `web` marks the ports Tailscale Serve can front.
+   */
+  async function publishedFor(manifest, state) {
+    const stored = state.values?.ports ?? {};
+    const web = (port) => Boolean(port && port.protocol === "tcp" && (port.tailnet ?? "serve") === "serve");
+    // On the host's own network nothing is published: the app binds its ports itself, and nearly
+    // every app binds every address. Said so, because Serve beside it collides just the same.
+    if ((state.values?.networkMode ?? manifest.network) === "host" || manifest.network === "host") {
+      return manifest.ports.map((port) => ({ id: port.id, host: port.container, protocol: port.protocol, bind: "*", fixed: true, web: web(port), hostNetwork: true }));
+    }
+    const text = await readFile(path.join(dirFor(manifest.id), "compose.yaml"), "utf8").catch(() => null);
+    const entries = text !== null
+      ? publishedPorts(text)
+      : manifest.ports.map((port) => ({ host: stored[port.id] ?? port.host, protocol: port.protocol, bind: bindingFor(port, state.values?.exposure ?? "lan", { lanAddress, tailnetAddress: null }).bind }));
+    return entries.map((entry) => {
+      const port = manifest.ports.find((candidate) => candidate.protocol === entry.protocol && (stored[candidate.id] ?? candidate.host) === entry.host) ?? null;
+      return { id: port?.id ?? null, host: entry.host, protocol: entry.protocol, bind: normalizeBind(entry.bind), fixed: Boolean(port?.fixed), web: web(port) };
+    });
+  }
+
   async function describe(manifest, status = null, known = undefined, batch = null) {
     const state = known ? known.state : await readState(manifest.id);
     if (!status && !known) status = await containerStatus(manifest.id);
@@ -558,9 +713,13 @@ export function createAppHelper({
     return {
       sidecars,
       id: manifest.id,
+      name: manifest.name,
       installed: Boolean(state && state.installed),
+      // The host ports it publishes and the address each binds, from its deployed compose file:
+      // what Repair's port check compares with the host's listeners and with Tailscale Serve.
+      published: state?.installed ? await publishedFor(manifest, state) : [],
       dataPresent: Boolean(state),
-      state: state ? { installedAt: state.installedAt, updatedAt: state.updatedAt, manifestSha256: state.manifestSha256, image: state.image, values: { ports: state.values?.ports ?? {}, env: state.values?.env ?? {}, volumes: state.values?.volumes ?? {}, setup: Array.isArray(state.values?.setup) ? state.values.setup : [] }, pinnedRollback: state.pinnedRollback ?? false, uninstalledAt: state.uninstalledAt ?? null } : null,
+      state: state ? { installedAt: state.installedAt, updatedAt: state.updatedAt, manifestSha256: state.manifestSha256, image: state.image, values: { ports: state.values?.ports ?? {}, env: state.values?.env ?? {}, volumes: state.values?.volumes ?? {}, setup: Array.isArray(state.values?.setup) ? state.values.setup : [], ...(state.values?.exposure ? { exposure: state.values.exposure } : {}) }, pinnedRollback: state.pinnedRollback ?? false, uninstalledAt: state.uninstalledAt ?? null } : null,
       container: status,
       // Only the ports that speak HTTP get an "Open" link. Listing every TCP port offered to open
       // Pi-hole's DNS on 53 and Forgejo's SSH on 2222 in a browser tab, and made the Overview's
@@ -625,11 +784,19 @@ export function createAppHelper({
     try { await stat(dirFor(id)); } catch { directoryExisted = false; }
     progress?.(`Writing compose project for ${manifest.name} (${manifest.image.reference})`, "stdout");
     const rendered = await writeProject(manifest, values, { existingEnv: await readEnv(id), devices });
+    // Before anything is pulled or started: a port something else holds would fail `up` after the
+    // download, with Docker's sentence instead of who holds it.
+    try {
+      await assertPortsFree(manifest, rendered.composeYaml, { progress, refused: `${manifest.name} was not installed; nothing was started.` });
+    } catch (error) {
+      if (!directoryExisted) await rm(dirFor(id), { recursive: true, force: true }).catch(() => {});
+      throw error;
+    }
     // `up` downloads every image the app does not have yet before it starts anything.
     const upBudgetMs = scaled(15 * 60_000, timeScale);
     const up = await compose(id, ["up", "--detach", "--remove-orphans"], { timeout: upBudgetMs, progress });
     try {
-      if (!up.ok) throw stepTimedOut(up, "Downloading the images and starting the app", upBudgetMs) ?? new Error(`docker compose up failed: ${redact(up.stderr).split("\n").slice(-4).join(" ")}`);
+      if (!up.ok) throw stepTimedOut(up, "Downloading the images and starting the app", upBudgetMs) ?? await bindFailure(manifest, up.stderr, rendered.composeYaml, "Docker could not publish its ports.") ?? new Error(`docker compose up failed: ${redact(up.stderr).split("\n").slice(-4).join(" ")}`);
       const status = await waitHealthy(manifest, progress);
       progress?.(`${manifest.name} is up`, "stdout");
       await writeState(id, { id, installed: true, installedAt: clock().toISOString(), updatedAt: clock().toISOString(), manifestSha256: manifest.sha256 ?? null, image: { reference: manifest.image.reference, id: status.image }, values: storableValues(manifest, values, rendered.env), pinnedRollback: false });
@@ -696,11 +863,14 @@ export function createAppHelper({
     } else {
       progress?.(`Building ${manifest.name}'s container again from its saved project, ${path.join(dirFor(id), "compose.yaml")}`, "stdout");
     }
+    // Ports are bound when a container starts, not when it is created, so only a start is checked.
+    const project = rewritten ? await readFile(path.join(dirFor(id), "compose.yaml"), "utf8").catch(() => "") : saved.compose;
+    if (start) await assertPortsFree(manifest, project, { progress, refused: `${manifest.name} was not started again; nothing was built. Its data folder and saved settings are as they were.` });
     // `up` pulls the image first when a prune took it along with the container.
     const upBudgetMs = scaled(15 * 60_000, timeScale);
     const up = await compose(id, start ? ["up", "--detach", "--remove-orphans"] : ["up", "--no-start", "--remove-orphans"], { timeout: upBudgetMs, progress });
     try {
-      if (!up.ok) throw stepTimedOut(up, start ? "Downloading the image and starting the app" : "Downloading the image and creating the container", upBudgetMs) ?? new Error(`docker compose up failed: ${redact(up.stderr).split("\n").slice(-4).join(" ")}`);
+      if (!up.ok) throw stepTimedOut(up, start ? "Downloading the image and starting the app" : "Downloading the image and creating the container", upBudgetMs) ?? await bindFailure(manifest, up.stderr, project, "Docker could not publish its ports.") ?? new Error(`docker compose up failed: ${redact(up.stderr).split("\n").slice(-4).join(" ")}`);
       if (!start) {
         const created = await containerStatus(id);
         if (!created.exists) throw new Error("docker compose made no container");
@@ -788,6 +958,9 @@ export function createAppHelper({
       const pullBudgetMs = scaled(30 * 60_000, timeScale);
       const pull = await compose(id, ["pull"], { timeout: pullBudgetMs, progress });
       if (!pull.ok) throw stepTimedOut(pull, "Downloading the new images", pullBudgetMs) ?? new Error(`docker compose pull failed: ${redact(pull.stderr).split("\n").slice(-3).join(" ")}`);
+      // `up` recreates the containers, which lets go of their ports and binds them again: something
+      // waiting for one (Tailscale Serve on the same port) takes it in between.
+      await assertPortsFree(manifest, await readFile(path.join(dirFor(id), "compose.yaml"), "utf8").catch(() => ""), { progress, refused: "Its ports are not free." });
     } catch (error) {
       // Nothing has been restarted yet, so the containers still run the old version: put the files
       // that describe them back, or the next restart would quietly move the app forward.
@@ -940,9 +1113,19 @@ export function createAppHelper({
     const previousCompose = await readFile(path.join(dirFor(id), "compose.yaml"), "utf8").catch(() => null);
     const previousEnv = await readFile(path.join(dirFor(id), ".env"), "utf8").catch(() => "");
     const rendered = await writeProject(manifest, values, { existingEnv: parseEnvFile(previousEnv), devices });
+    // The new ports are checked before the containers are recreated. Putting a served app on the
+    // home network (every address) while Serve still holds its port on the tailnet address is the
+    // Dockge trap: refused here, with the old files back, rather than found by a failed `up` whose
+    // rollback then fails the same way.
+    try {
+      await assertPortsFree(manifest, rendered.composeYaml, { progress, refused: `${manifest.name}'s settings were not changed; nothing was restarted.` });
+    } catch (error) {
+      if (previousCompose !== null) await restoreProjectFiles(id, { compose: previousCompose, env: previousEnv }).catch(() => {});
+      throw error;
+    }
     const up = await compose(id, ["up", "--detach", "--remove-orphans"], { timeout: 15 * 60_000, progress });
     try {
-      if (!up.ok) throw new Error(`docker compose up failed: ${redact(up.stderr).split("\n").slice(-4).join(" ")}`);
+      if (!up.ok) throw await bindFailure(manifest, up.stderr, rendered.composeYaml, "Docker could not publish its ports.") ?? new Error(`docker compose up failed: ${redact(up.stderr).split("\n").slice(-4).join(" ")}`);
       await waitHealthy(manifest, progress);
       await writeState(id, { ...state, updatedAt: clock().toISOString(), values: storableValues(manifest, values, rendered.env) });
       const setup = await applySetup(manifest, values, progress);
@@ -1004,16 +1187,23 @@ export function createAppHelper({
     // A container removed outright (M35): `docker system prune` deletes every stopped container,
     // and `compose start` then has nothing to start. Start and restart build it again from the saved
     // compose project, which is what they mean; the data is in volumes and folders a prune leaves.
+    let project = null;
     if (verb === "start" || verb === "restart") {
       const before = await containerStatus(id);
+      project = (await readProjectFiles(id)).compose;
+      const refused = `${manifest.name} was not ${verb === "start" ? "started" : "restarted"}.`;
       if (!before.exists) {
-        if ((await readProjectFiles(id)).compose === null) throw new Error(`${manifest.name} has no container and its compose project is gone too; use Reinstall in Repair, which writes it again from the saved settings`);
+        if (project === null) throw new Error(`${manifest.name} has no container and its compose project is gone too; use Reinstall in Repair, which writes it again from the saved settings`);
         progress?.(`${manifest.name} has no container (removed while it was stopped); building it again from its saved compose project.`, "stdout");
+        await assertPortsFree(manifest, project, { progress, refused });
         const up = await compose(id, ["up", "--detach", "--remove-orphans"], { timeout: 15 * 60_000, progress });
-        if (!up.ok) throw new Error(`docker compose up failed: ${redact(up.stderr).split("\n").slice(-3).join(" ")}`);
+        if (!up.ok) throw await bindFailure(manifest, up.stderr, project, refused) ?? new Error(`docker compose up failed: ${redact(up.stderr).split("\n").slice(-3).join(" ")}`);
         const status = await containerStatus(id);
         return { id, action: verb, running: status.running, status: status.status, recreated: true };
       }
+      // Starting what already runs binds nothing. A restart lets go of every port and binds it again,
+      // which is when something waiting for one takes it.
+      if (project !== null && (verb === "restart" || !before.running)) await assertPortsFree(manifest, project, { progress, refused });
     }
     let result = await compose(id, [verb], { timeout: 180_000, progress });
     // A stopped container is pinned to the network it was created on, and anything that prunes
@@ -1025,7 +1215,7 @@ export function createAppHelper({
       progress?.(`${manifest.name}'s network was removed while it was stopped; building the container again.`, "stdout");
       result = await compose(id, ["up", "--detach", "--force-recreate", "--remove-orphans"], { timeout: 15 * 60_000, progress });
     }
-    if (!result.ok) throw new Error(`docker compose ${verb} failed: ${redact(result.stderr).split("\n").slice(-3).join(" ")}`);
+    if (!result.ok) throw (project !== null ? await bindFailure(manifest, result.stderr, project, `${manifest.name} was not ${verb === "start" ? "started" : "restarted"}.`) : null) ?? new Error(`docker compose ${verb} failed: ${redact(result.stderr).split("\n").slice(-3).join(" ")}`);
     const status = await containerStatus(id);
     return { id, action: verb, running: status.running, status: status.status };
   }

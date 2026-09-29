@@ -4,6 +4,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { inspections, scenarios, scenarioNames, freshRest, troubleRest, app } from "./boxpilot-demo.mjs";
 import { operationModules } from "../server/ops/index.mjs";
+import { portConflicts } from "../server/remediations.mjs";
+import { bindingFor } from "../server/catalog/compose.mjs";
 
 /**
  * The demo is where every page gets looked at before it reaches a real server, so a page the demo
@@ -245,6 +247,42 @@ describe("the rewritten REST routes are the same routes", () => {
       await new Promise((resolve) => server.close(resolve));
     }
     expect(complaints, "a rewritten route that changes shape is a different server, not an emptier one").toEqual([]);
+  });
+});
+
+/**
+ * The Dockge port trap (2026-09-29): the demo showed Immich and Vaultwarden on the home network (every address) and served on
+ * the tailnet at the same ports: Dockge's trap, drawn as a healthy server. Served apps are Tailnet
+ * only now, and the trap appears where it belongs, as a finding in the trouble world's Repair.
+ */
+describe("the demo draws no app in Dockge's trap", () => {
+  it("serves only apps published on loopback, and shows the trap in the trouble world's Repair", async () => {
+    const server = app.listen(0, "127.0.0.1");
+    await new Promise((resolve) => server.once("listening", resolve));
+    const { port } = server.address();
+    const body = (route, scenario) => fetch(`http://127.0.0.1:${port}/api/v1${route}`, { headers: { referer: `http://127.0.0.1:${port}/?scenario=${scenario}` } }).then((response) => response.json());
+    try {
+      const { applications } = await body("/catalog", "default");
+      // What each app's compose file would publish, by the renderer's own rule, from the demo's
+      // saved settings: an app with no exposure saved is on the home network. The demo's `published`
+      // has to say the same.
+      const derived = ({ manifest, live }) => (manifest.network === "host" ? [] : manifest.ports.map((entry) => ({
+        id: entry.id, host: live.state?.values?.ports?.[entry.id] ?? entry.host, protocol: entry.protocol,
+        bind: bindingFor(entry, live.state?.values?.exposure ?? "lan", { lanAddress: "0.0.0.0", tailnetAddress: null }).bind,
+        fixed: Boolean(entry.fixed), web: entry.protocol === "tcp" && (entry.tailnet ?? "serve") === "serve",
+      })));
+      const installedApps = applications.filter((entry) => entry.live?.installed);
+      for (const entry of installedApps) expect(entry.live.published, entry.manifest.id).toEqual(derived(entry));
+      const apps = installedApps.map((entry) => ({ id: entry.manifest.id, name: entry.manifest.name, container: entry.live.container, published: derived(entry) }));
+      expect(apps.length).toBeGreaterThan(5);
+      const serves = inspections["app.serve.inspect"].serves;
+      expect(serves.length).toBeGreaterThan(0);
+      expect(portConflicts({ apps, serves, listeners: [] }).map((finding) => finding.title)).toEqual([]);
+      const trouble = await body("/remediations", "trouble");
+      expect(trouble.findings.find((finding) => finding.id === "port-conflict:uptime-kuma")).toMatchObject({ title: "Uptime Kuma cannot start: Tailscale Serve holds port 3001" });
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
+    }
   });
 });
 
