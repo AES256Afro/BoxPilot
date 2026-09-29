@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { TopBarSlotProvider } from "../shell/TopBarSlot";
 import { FactsProvider } from "./facts";
 import Home from "./Home";
 import { stubFetch } from "./testData";
@@ -19,9 +20,17 @@ describe("Home", () => {
     expect(screen.getByRole("heading", { level: 1 }).textContent).toMatch(/^Good (morning|afternoon|evening)$/);
     expect(await screen.findByText("homebox needs you: 1 problem and 1 thing to look at. One more thing can wait.")).toBeTruthy();
 
+    // What needs a look is down the side; what can wait is in the strip under the apps (M33.7).
+    // Between them they are the verdict's whole list: one problem, one to look at, one that can wait.
     const needs = screen.getByRole("region", { name: /What needs you/ });
     const titles = within(needs).getAllByRole("button").filter((button) => button.className.includes("need__title")).map((button) => button.textContent);
-    expect(titles).toEqual(["Problem: Vaultwarden is not running", "Needs a look: 4 updates available", "Suggestion: An update for Jellyfin"]);
+    expect(titles).toEqual(["Problem: Vaultwarden is not running", "Needs a look: 4 updates available"]);
+    const waiting = screen.getByRole("region", { name: /Can wait/ });
+    expect(within(waiting).getAllByRole("button").filter((button) => button.className.includes("need__title")).map((button) => button.textContent)).toEqual(["Suggestion: An update for Jellyfin"]);
+    // The tier is on the button and, as the study drew it, beside the words; only the button's is read out.
+    const tag = within(needs).getByRole("button", { name: "Install: 4 updates available" }).closest("li")?.querySelector(".need__tier-tag");
+    expect(tag?.getAttribute("aria-hidden")).toBe("true");
+    expect(tag?.textContent).toBe("Medium risk");
 
     const start = within(needs).getByRole("button", { name: "Start: Vaultwarden is not running" });
     expect(start.getAttribute("data-risk")).toBe("low");
@@ -45,6 +54,9 @@ describe("Home", () => {
     expect(vaultwarden.textContent).toContain("V"); // initials: no icon in its manifest
     const jellyfin = within(apps).getByRole("button", { name: "Jellyfin, Healthy, update ready" });
     expect(jellyfin.textContent).toContain("🎬");
+    // Each app on its own colour square (M33.7): Jellyfin's known violet; any other app one from its id.
+    expect(jellyfin.querySelector(".ui-tile__icon")?.getAttribute("data-hue")).toBe("violet");
+    expect(vaultwarden.querySelector(".ui-tile__icon")?.getAttribute("data-hue")).toBe("blue");
     expect(within(apps).getByRole("button", { name: /Add an app/ }).textContent).toContain("3 in the catalog");
     expect(within(apps).queryByText("Mealie")).toBeNull();
 
@@ -85,6 +97,19 @@ describe("Home", () => {
     expect(screen.queryByText("Healthy")).toBeNull();
     expect(screen.getByText("Which apps are installed could not be read.", { exact: false })).toBeTruthy();
     expect(screen.getByRole("button", { name: /^Processor/ }).getAttribute("data-status")).toBe("unknown");
+  });
+
+  it("names the server at the start of the shell's bar, with the verdict's mark", async () => {
+    vi.stubGlobal("fetch", stubFetch());
+    const slot = document.createElement("div");
+    document.body.append(slot);
+    render(<FactsProvider><TopBarSlotProvider value={slot}><Home csrfToken="csrf" role="owner" onNavigate={vi.fn()} /></TopBarSlotProvider></FactsProvider>);
+    await vi.waitFor(() => expect(slot.querySelector(".lx-host strong")?.textContent).toBe("homebox"));
+    const host = slot.querySelector(".lx-host")!;
+    expect(host.getAttribute("data-status")).toBe("danger");
+    expect(host.querySelector(".lx-host__facts")?.textContent).toMatch(/ · up \d+d \d+h$/);
+    cleanup();
+    slot.remove();
   });
 
   it("shows a viewer the same facts and no buttons it could not use", async () => {

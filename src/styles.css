@@ -1,44 +1,131 @@
-/* BoxPilot design tokens (M33.1, ADR-004)
+/* BoxPilot design tokens (M33.1, ADR-004; the look, M33.7)
  *
  * One set of token names with two sources of values:
- *   1. Dark, the default: the GitHub-dark palette BoxPilot has always had, in :root.
+ *   1. Dark, the default, in :root.
  *   2. Light: under @media (prefers-color-scheme: light) when the choice is System (no
  *      data-theme attribute), and under html[data-theme="light"] when it is Light. The two
  *      light blocks must stay identical; scripts/check-contrast.mjs fails when they drift.
  * html[data-theme="dark"] needs no block of its own: it only keeps the light media query out.
  * index.html sets data-theme before first paint; src/useTheme.ts owns it after.
  *
+ * Three families share the names: the Classic pages' (--canvas, --surface, --text...), Home's
+ * Launcher (--wall-*, --lx-*) and Ops' Command Center (--cc-*). Home and Ops point the Classic
+ * names at their own on the shell (.app-shell[data-view]), so every component inside them takes
+ * their look without a line of its own. App squares (--brand-*) are the same in both themes.
+ *
  * Pages and src/ui components use the semantic tokens (--status-*, --risk-*, --elevation-*) and
- * the density tokens instead of colour literals. scripts/check-contrast.mjs checks the main
- * text pairs in both themes (4.5:1 for body text, 3:1 for large text).
+ * the density tokens instead of colour literals. scripts/check-contrast.mjs checks the text and
+ * mark pairs in both themes (4.5:1 for body text, 3:1 for large text and marks), text on Home's
+ * wallpaper and glass at its lightest and darkest points, and every app square's glyph.
  */
 
-/* ── Dark: today's Raw (GitHub-dark) palette, the default ───────────────── */
+/* ── Typefaces (M33.7) ────────────────────────────────────────────────────
+ * Figtree for the interface, IBM Plex Sans Condensed for Ops, JetBrains Mono for every number, id
+ * and path. All three are under the SIL Open Font License 1.1. The files come from the @fontsource
+ * packages and Vite bundles them into dist/assets, so BoxPilot serves them itself: the policy is
+ * `font-src 'self'` (server/security-headers.mjs) and no font is ever fetched from another origin.
+ * Latin and Latin Extended, upright only (a unicode-range means a face is fetched only when a
+ * page uses its characters). Figtree and JetBrains Mono are variable, one file for every weight;
+ * Plex is the two weights Ops draws. vite.config.ts writes the three licences into dist/licenses. */
+@font-face {
+  font-family: "Figtree";
+  font-style: normal;
+  font-weight: 300 900;
+  font-display: swap;
+  src: url("@fontsource-variable/figtree/files/figtree-latin-wght-normal.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "Figtree";
+  font-style: normal;
+  font-weight: 300 900;
+  font-display: swap;
+  src: url("@fontsource-variable/figtree/files/figtree-latin-ext-wght-normal.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 100 800;
+  font-display: swap;
+  src: url("@fontsource-variable/jetbrains-mono/files/jetbrains-mono-latin-wght-normal.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 100 800;
+  font-display: swap;
+  src: url("@fontsource-variable/jetbrains-mono/files/jetbrains-mono-latin-ext-wght-normal.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+@font-face {
+  font-family: "IBM Plex Sans Condensed";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("@fontsource/ibm-plex-sans-condensed/files/ibm-plex-sans-condensed-latin-400-normal.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "IBM Plex Sans Condensed";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("@fontsource/ibm-plex-sans-condensed/files/ibm-plex-sans-condensed-latin-ext-400-normal.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+@font-face {
+  font-family: "IBM Plex Sans Condensed";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("@fontsource/ibm-plex-sans-condensed/files/ibm-plex-sans-condensed-latin-600-normal.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "IBM Plex Sans Condensed";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("@fontsource/ibm-plex-sans-condensed/files/ibm-plex-sans-condensed-latin-ext-600-normal.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+/* ── Dark, the default: the Classic pages' palette (refreshed in M33.7 from the old GitHub-dark
+   greys to a deeper blue-slate that sits beside Home's wallpaper), then Home's and Ops' own ── */
 :root {
   color-scheme: dark;
 
   /* Canvas */
-  --canvas: #0d1117;
-  --sidebar-bg: #0d1117;
-  --topbar-bg: rgba(13, 17, 23, 0.95);
+  --canvas: #0b1117;
+  --sidebar-bg: #0b1117;
+  --topbar-bg: rgba(11, 17, 23, 0.92);
   --modal-bg: rgba(0, 0, 0, 0.6);
   --backdrop-bg: rgba(0, 0, 0, 0.4);
 
   /* Surfaces */
-  --surface: #161b22;
-  --surface-raised: #21262d;
-  --surface-muted: #0d1117;
-  --surface-hover: #1c2128;
-  --surface-header: #161b22;
-  --surface-notice: #161b22;
-  --surface-live: #0f2d1c;
-  --code-bg: #161b22;
+  --surface: #121a22;
+  --surface-raised: #1a2430;
+  --surface-muted: #0e151c;
+  --surface-hover: #1b2633;
+  --surface-header: #141d27;
+  --surface-notice: #121a22;
+  --surface-live: #0f2a1f;
+  --code-bg: #0f171f;
 
   /* Text */
-  --text: #c9d1d9;
-  --text-strong: #e6edf3;
-  --text-muted: #8b949e;
-  --text-dim: #484f58;
+  --text: #ccd5de;
+  --text-strong: #eef2f6;
+  --text-muted: #93a1af;
+  --text-dim: #4c5866;
   --text-inverted: #ffffff;
   --text-inverted-dim: #d5dfe8;
   --text-secondary: #b4bcd0;
@@ -91,17 +178,17 @@
   --danger-text: #ff7b72;
 
   /* Borders */
-  --border: #30363d;
-  --border-subtle: #21262d;
-  --border-bright: #484f58;
-  --border-strong: #6e7681;
-  --border-notice: #484f58;
+  --border: #27333f;
+  --border-subtle: #1c2631;
+  --border-bright: #3b4856;
+  --border-strong: #6b7a8a;
+  --border-notice: #3b4856;
   --border-private: #1f6feb;
   --border-active: #1f6feb;
 
   /* Active states */
-  --bg-active-start: #1c2128;
-  --bg-active-end: #161b22;
+  --bg-active-start: #1b2633;
+  --bg-active-end: #121a22;
 
   /* Link */
   --link: #58a6ff;
@@ -131,15 +218,20 @@
   --gradient-radial-body: radial-gradient(circle at 78% -12%, var(--accent-radial-body), transparent 34rem);
   --gradient-radial-top: radial-gradient(circle at 50% 0%, var(--accent-radial));
 
-  /* Typography */
-  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  /* Typography (M33.7): the faces above, then what each system has if they have not arrived */
+  --font-sans: "Figtree", ui-sans-serif, system-ui, -apple-system, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+  --font-condensed: "IBM Plex Sans Condensed", "Arial Narrow", "Roboto Condensed", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
 
-  /* Radius */
-  --radius-sm: 6px;
-  --radius-md: 6px;
-  --radius-lg: 6px;
+  /* Radius: softer since M33.7, as on Home */
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
   --radius-pill: 999px;
+
+  /* The glow behind the Classic pages: Home's wallpaper, faintly (no blur, no image) */
+  --page-glow-sea: rgba(46, 125, 122, 0.16);
+  --page-glow-sun: rgba(214, 138, 80, 0.07);
 
   /* Text on an emphasis fill: a filled check mark, a count on a badge */
   --text-on-emphasis: #ffffff;
@@ -154,7 +246,7 @@
   --surface-warn: #2c2213;
   --surface-warn-inset: #16130f;
   --surface-danger: #281515;
-  --meter-track: #273647;
+  --meter-track: #243242;
   --border-good: #286453;
   --border-good-subtle: #294a43;
   --border-hover: #4b786c;
@@ -166,10 +258,118 @@
 
   /* Neutral status keeps the look of the neutral pill */
   --status-neutral-text: #a8b7c7;
-  --status-neutral-bg: #172535;
+  --status-neutral-bg: #182636;
 
   /* Elevation 1 is a resting card; dark cards have always been flat */
   --elevation-1: none;
+
+  /* ── Home, the Launcher (M33.7). A wallpaper of three glows over a two-colour base, frosted
+     glass panels and white ink. scripts/check-contrast.mjs judges every ink at each base end
+     bare and under each glow at full strength, on the wallpaper and on glass over it, so the
+     glows are a shade deeper than the study's: its brightest corner held muted text at 2.4:1. */
+  --wall-base-start: #193240;
+  --wall-base-end: #161e2c;
+  --wall-glow-sea: rgba(30, 110, 108, 0.7);
+  --wall-glow-sun: rgba(210, 108, 44, 0.46);
+  --wall-glow-deep: rgba(33, 60, 108, 0.95);
+  --lx-ink: #ffffff;
+  --lx-ink-muted: rgba(255, 255, 255, 0.8);
+  --lx-glass: rgba(255, 255, 255, 0.09);
+  --lx-glass-raised: rgba(255, 255, 255, 0.15);
+  --lx-glass-border: rgba(255, 255, 255, 0.16);
+  /* Glass without the see-through: reduced transparency, or no backdrop-filter at all */
+  --lx-glass-solid: #233847;
+  --lx-hairline: rgba(255, 255, 255, 0.12);
+  --lx-track: rgba(0, 0, 0, 0.3);
+  --lx-bar: #ffffff;
+  --lx-pill: #ffffff;
+  --lx-pill-ink: #16232e;
+  --lx-pill-hover: #dfe8ef;
+  --lx-pill-medium: #b45309;
+  --lx-pill-high: #c81e1e;
+  --lx-good: #4ade80;
+  --lx-warning: #fbbf24;
+  --lx-danger: #fda4a4;
+  --lx-good-text: #86efac;
+  --lx-warning-text: #fcd34d;
+  --lx-danger-text: #fecaca;
+  --lx-good-bg: rgba(4, 58, 30, 0.6);
+  --lx-warning-bg: rgba(70, 46, 0, 0.6);
+  --lx-danger-bg: rgba(84, 14, 14, 0.6);
+  --lx-warning-ink: #241300;
+  --lx-danger-ink: #2a0707;
+  --lx-badge-ring: #1d2e3c;
+  --lx-shadow: 0 8px 22px rgba(0, 0, 0, 0.28);
+  --lx-focus: #ffffff;
+  --lx-avatar: #f2c49b;
+  --lx-avatar-ink: #4a2a12;
+
+  /* ── Ops, the Command Center (M33.7): near-black, hairlines, amber for what to do and cyan for
+     what is measured. The study's greys for secondary text sat under 4.5:1; these are lifted. */
+  --cc-canvas: #0a0d10;
+  --cc-topbar: #0c1014;
+  --cc-rail: #07090b;
+  --cc-panel: #10151a;
+  --cc-raised: #151b22;
+  --cc-inset: #080b0e;
+  --cc-line: #1c232b;
+  --cc-hairline: #161c22;
+  --cc-line-strong: #2a333d;
+  --cc-text: #c3cbd5;
+  --cc-text-strong: #eef2f6;
+  --cc-muted: #8a95a1;
+  --cc-icon: #6f7b88;
+  --cc-amber: #ffb547;
+  --cc-amber-ink: #1a1000;
+  --cc-amber-bg: rgba(255, 181, 71, 0.08);
+  --cc-amber-border: rgba(255, 181, 71, 0.38);
+  --cc-cyan: #56c8e0;
+  --cc-cyan-fill: rgba(86, 200, 224, 0.12);
+  --cc-green: #3dd68c;
+  --cc-green-bg: rgba(61, 214, 140, 0.08);
+  --cc-green-border: rgba(61, 214, 140, 0.35);
+  --cc-red: #ff6b6b;
+  --cc-red-text: #ff8a8a;
+  --cc-red-bg: rgba(255, 107, 107, 0.08);
+  --cc-red-border: rgba(255, 107, 107, 0.45);
+  --cc-track: #1c232b;
+}
+
+/* ── An app's colour square (M33.7), the same in light and dark: a white glyph on a deep hue,
+   picked per app by src/ui/appColor.ts. The checker holds the glyph to 3:1 on each (it is large
+   text, 24px at 800); the few that clear 4.5 do so by being darker, never muddier. ── */
+:root {
+  --brand-glyph: #ffffff;
+  --brand-violet-a: #7b5cd6;
+  --brand-violet-b: #4c35a8;
+  --brand-indigo-a: #5360d8;
+  --brand-indigo-b: #2e3799;
+  --brand-blue-a: #2f6fe4;
+  --brand-blue-b: #1846b0;
+  --brand-sky-a: #1c8ad0;
+  --brand-sky-b: #0b5b97;
+  --brand-cyan-a: #0f8fa2;
+  --brand-cyan-b: #0a5c6c;
+  --brand-teal-a: #13917f;
+  --brand-teal-b: #0a5c51;
+  --brand-green-a: #2e8b57;
+  --brand-green-b: #17552f;
+  --brand-olive-a: #6a9530;
+  --brand-olive-b: #41621a;
+  --brand-amber-a: #cc7419;
+  --brand-amber-b: #954808;
+  --brand-orange-a: #dc552f;
+  --brand-orange-b: #a3301a;
+  --brand-red-a: #d93a44;
+  --brand-red-b: #8e1520;
+  --brand-pink-a: #c8408a;
+  --brand-pink-b: #8a1f5a;
+  --brand-plum-a: #9b45b8;
+  --brand-plum-b: #62237a;
+  --brand-slate-a: #4b5b73;
+  --brand-slate-b: #2a3444;
+  --brand-graphite-a: #3f4654;
+  --brand-graphite-b: #1c2029;
 }
 
 /* ── Semantic tokens: defined once, derived from whichever palette is active ── */
@@ -263,7 +463,7 @@
     color-scheme: light;
 
     /* Canvas */
-    --canvas: #f6f8fa;
+    --canvas: #f2f4f7;
     --sidebar-bg: #ffffff;
     --topbar-bg: rgba(255, 255, 255, 0.92);
     --modal-bg: rgba(31, 35, 40, 0.45);
@@ -337,8 +537,8 @@
     --danger-text: #a40e26;
 
     /* Borders */
-    --border: #d1d9e0;
-    --border-subtle: #dfe4e9;
+    --border: #d6dde5;
+    --border-subtle: #e2e7ed;
     --border-bright: #afb8c1;
     --border-strong: #8c959f;
     --border-notice: #d1d9e0;
@@ -384,6 +584,76 @@
     --status-neutral-bg: #eff2f5;
 
     --elevation-1: 0 1px 2px rgba(31, 35, 40, 0.06), 0 1px 3px rgba(31, 35, 40, 0.04);
+
+    /* Typography and radius need no light values; the page glow does */
+    --page-glow-sea: rgba(46, 125, 122, 0.09);
+    --page-glow-sun: rgba(214, 138, 80, 0.08);
+
+    /* Home in daylight: a pale sky, peach and cream wallpaper, white frosted glass, dark ink */
+    --wall-base-start: #e4eef5;
+    --wall-base-end: #f6ece2;
+    --wall-glow-sea: rgba(150, 200, 222, 0.8);
+    --wall-glow-sun: rgba(250, 190, 150, 0.75);
+    --wall-glow-deep: rgba(198, 212, 244, 0.9);
+    --lx-ink: #13212c;
+    --lx-ink-muted: rgba(19, 33, 44, 0.76);
+    --lx-glass: rgba(255, 255, 255, 0.5);
+    --lx-glass-raised: rgba(255, 255, 255, 0.72);
+    --lx-glass-border: rgba(255, 255, 255, 0.85);
+    --lx-glass-solid: #f7f9fb;
+    --lx-hairline: rgba(19, 33, 44, 0.1);
+    --lx-track: rgba(19, 33, 44, 0.12);
+    --lx-bar: #13212c;
+    --lx-pill: #13212c;
+    --lx-pill-ink: #ffffff;
+    --lx-pill-hover: #283b4b;
+    --lx-pill-medium: #fbbf24;
+    --lx-pill-high: #fb7185;
+    --lx-good: #15803d;
+    --lx-warning: #b45309;
+    --lx-danger: #c81e1e;
+    --lx-good-text: #14532d;
+    --lx-warning-text: #7c2d12;
+    --lx-danger-text: #7f1d1d;
+    --lx-good-bg: rgba(21, 128, 61, 0.14);
+    --lx-warning-bg: rgba(217, 119, 6, 0.16);
+    --lx-danger-bg: rgba(220, 38, 38, 0.13);
+    --lx-warning-ink: #ffffff;
+    --lx-danger-ink: #ffffff;
+    --lx-badge-ring: #eef3f6;
+    --lx-shadow: 0 8px 22px rgba(40, 60, 80, 0.16);
+    --lx-focus: #13212c;
+    --lx-avatar: #f2c49b;
+    --lx-avatar-ink: #4a2a12;
+
+    /* Ops on paper: an off-white page, dark ink, the amber and cyan darkened until they read */
+    --cc-canvas: #f3f2ee;
+    --cc-topbar: #fbfaf7;
+    --cc-rail: #ebe9e3;
+    --cc-panel: #ffffff;
+    --cc-raised: #f1efe9;
+    --cc-inset: #f7f6f2;
+    --cc-line: #dedbd2;
+    --cc-hairline: #ebe8e1;
+    --cc-line-strong: #c9c5ba;
+    --cc-text: #2b3139;
+    --cc-text-strong: #101418;
+    --cc-muted: #59626d;
+    --cc-icon: #6a7380;
+    --cc-amber: #9a5b00;
+    --cc-amber-ink: #ffffff;
+    --cc-amber-bg: rgba(154, 91, 0, 0.08);
+    --cc-amber-border: rgba(154, 91, 0, 0.4);
+    --cc-cyan: #0b7489;
+    --cc-cyan-fill: rgba(11, 116, 137, 0.1);
+    --cc-green: #16794a;
+    --cc-green-bg: rgba(22, 121, 74, 0.08);
+    --cc-green-border: rgba(22, 121, 74, 0.4);
+    --cc-red: #b42318;
+    --cc-red-text: #a01b12;
+    --cc-red-bg: rgba(180, 35, 24, 0.07);
+    --cc-red-border: rgba(180, 35, 24, 0.4);
+    --cc-track: #e6e3dc;
   }
 }
 
@@ -392,7 +662,7 @@
   color-scheme: light;
 
   /* Canvas */
-  --canvas: #f6f8fa;
+  --canvas: #f2f4f7;
   --sidebar-bg: #ffffff;
   --topbar-bg: rgba(255, 255, 255, 0.92);
   --modal-bg: rgba(31, 35, 40, 0.45);
@@ -466,8 +736,8 @@
   --danger-text: #a40e26;
 
   /* Borders */
-  --border: #d1d9e0;
-  --border-subtle: #dfe4e9;
+  --border: #d6dde5;
+  --border-subtle: #e2e7ed;
   --border-bright: #afb8c1;
   --border-strong: #8c959f;
   --border-notice: #d1d9e0;
@@ -513,6 +783,76 @@
   --status-neutral-bg: #eff2f5;
 
   --elevation-1: 0 1px 2px rgba(31, 35, 40, 0.06), 0 1px 3px rgba(31, 35, 40, 0.04);
+
+  /* Typography and radius need no light values; the page glow does */
+  --page-glow-sea: rgba(46, 125, 122, 0.09);
+  --page-glow-sun: rgba(214, 138, 80, 0.08);
+
+  /* Home in daylight: a pale sky, peach and cream wallpaper, white frosted glass, dark ink */
+  --wall-base-start: #e4eef5;
+  --wall-base-end: #f6ece2;
+  --wall-glow-sea: rgba(150, 200, 222, 0.8);
+  --wall-glow-sun: rgba(250, 190, 150, 0.75);
+  --wall-glow-deep: rgba(198, 212, 244, 0.9);
+  --lx-ink: #13212c;
+  --lx-ink-muted: rgba(19, 33, 44, 0.76);
+  --lx-glass: rgba(255, 255, 255, 0.5);
+  --lx-glass-raised: rgba(255, 255, 255, 0.72);
+  --lx-glass-border: rgba(255, 255, 255, 0.85);
+  --lx-glass-solid: #f7f9fb;
+  --lx-hairline: rgba(19, 33, 44, 0.1);
+  --lx-track: rgba(19, 33, 44, 0.12);
+  --lx-bar: #13212c;
+  --lx-pill: #13212c;
+  --lx-pill-ink: #ffffff;
+  --lx-pill-hover: #283b4b;
+  --lx-pill-medium: #fbbf24;
+  --lx-pill-high: #fb7185;
+  --lx-good: #15803d;
+  --lx-warning: #b45309;
+  --lx-danger: #c81e1e;
+  --lx-good-text: #14532d;
+  --lx-warning-text: #7c2d12;
+  --lx-danger-text: #7f1d1d;
+  --lx-good-bg: rgba(21, 128, 61, 0.14);
+  --lx-warning-bg: rgba(217, 119, 6, 0.16);
+  --lx-danger-bg: rgba(220, 38, 38, 0.13);
+  --lx-warning-ink: #ffffff;
+  --lx-danger-ink: #ffffff;
+  --lx-badge-ring: #eef3f6;
+  --lx-shadow: 0 8px 22px rgba(40, 60, 80, 0.16);
+  --lx-focus: #13212c;
+  --lx-avatar: #f2c49b;
+  --lx-avatar-ink: #4a2a12;
+
+  /* Ops on paper: an off-white page, dark ink, the amber and cyan darkened until they read */
+  --cc-canvas: #f3f2ee;
+  --cc-topbar: #fbfaf7;
+  --cc-rail: #ebe9e3;
+  --cc-panel: #ffffff;
+  --cc-raised: #f1efe9;
+  --cc-inset: #f7f6f2;
+  --cc-line: #dedbd2;
+  --cc-hairline: #ebe8e1;
+  --cc-line-strong: #c9c5ba;
+  --cc-text: #2b3139;
+  --cc-text-strong: #101418;
+  --cc-muted: #59626d;
+  --cc-icon: #6a7380;
+  --cc-amber: #9a5b00;
+  --cc-amber-ink: #ffffff;
+  --cc-amber-bg: rgba(154, 91, 0, 0.08);
+  --cc-amber-border: rgba(154, 91, 0, 0.4);
+  --cc-cyan: #0b7489;
+  --cc-cyan-fill: rgba(11, 116, 137, 0.1);
+  --cc-green: #16794a;
+  --cc-green-bg: rgba(22, 121, 74, 0.08);
+  --cc-green-border: rgba(22, 121, 74, 0.4);
+  --cc-red: #b42318;
+  --cc-red-text: #a01b12;
+  --cc-red-bg: rgba(180, 35, 24, 0.07);
+  --cc-red-border: rgba(180, 35, 24, 0.4);
+  --cc-track: #e6e3dc;
 }
 
 
@@ -524,7 +864,7 @@
 /* Colour-scheme and the token values live above; the old aliases here (--canvas: var(--canvas)
    and friends) were cyclic, which left the page without a background until data-theme was set. */
 :root {
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: var(--font-sans);
   color: var(--text);
   background: var(--canvas);
   font-synthesis: none;
@@ -602,7 +942,7 @@ summary:focus-visible {
   flex: none;
   align-items: center;
   gap: 10px;
-  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-sans);
   font-weight: 800;
   letter-spacing: -0.02em;
   white-space: nowrap;
@@ -1182,7 +1522,7 @@ main:focus {
 .page-header h1,
 .modal-header h2 {
   margin: 0;
-  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-sans);
   font-size: clamp(23px, 3vw, 30px);
   letter-spacing: -0.04em;
 }
@@ -1409,7 +1749,7 @@ main:focus {
 .metric > strong {
   display: block;
   margin: 8px 0 10px;
-  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-sans);
   font-size: 18px;
 }
 
@@ -1712,7 +2052,7 @@ main:focus {
 .source-panel h3,
 .safety-panel h3 {
   margin: 16px 0 7px;
-  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-sans);
   font-size: 13px;
 }
 
@@ -1839,7 +2179,7 @@ dd {
 }
 
 .log-panel {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
 }
 
 .log-toolbar {
@@ -1890,7 +2230,7 @@ dd {
 .log-empty {
   padding: 28px 15px;
   color: var(--text-muted);
-  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-sans);
   font-size: 11px;
 }
 
@@ -1909,6 +2249,8 @@ dd {
   grid-template-columns: minmax(220px, 0.8fr) minmax(0, 1.2fr);
   gap: 20px;
   align-items: center;
+  /* The panel clips to its rounded corners, so its words keep clear of them. */
+  padding: 14px 16px;
 }
 
 .inventory-network h3 {
@@ -2039,7 +2381,7 @@ textarea {
   border-radius: 10px;
   color: var(--text-code);
   background: var(--surface-muted);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 10px;
   line-height: 1.55;
 }
@@ -2061,7 +2403,7 @@ textarea {
 }
 
 .inspection strong {
-  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-sans);
   font-size: 15px;
 }
 
@@ -4176,7 +4518,7 @@ textarea {
 .approval-option input { margin-top: 4px; }
 .approval-option strong { display: block; }
 .approval-option span { color: var(--text-muted); font-size: 13px; }
-.settings-panel textarea { width: 100%; box-sizing: border-box; font-family: var(--mono, ui-monospace, monospace); font-size: 13px; resize: vertical; padding: 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: inherit; }
+.settings-panel textarea { width: 100%; box-sizing: border-box; font-family: var(--font-mono); font-size: 13px; resize: vertical; padding: 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: inherit; }
 .settings-panel label.field { display: grid; gap: 4px; font-size: 13px; }
 .settings-panel label.field input { width: 100%; box-sizing: border-box; }
 
@@ -4186,7 +4528,7 @@ textarea {
 .cloud-vm-form .app-config-form { margin-top: 12px; }
 .cloud-vm-sizes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 .cloud-vm-check { display: flex !important; align-items: center; gap: 8px; }
-.cloud-vm-form textarea { width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+.cloud-vm-form textarea { width: 100%; font-family: var(--font-mono); font-size: 12px; }
 
 .identity-signin { display: grid; gap: 10px; margin: 12px 0; }
 .identity-divider { display: flex; align-items: center; gap: 10px; color: var(--text-muted); font-size: 12px; }
@@ -4197,7 +4539,7 @@ textarea {
 /* Passkeys and recovery codes (M19.1) */
 .auth-recovery-link { margin-top: 12px; align-self: flex-start; }
 .recovery-signin { margin-top: 12px; }
-.recovery-signin input { font-family: var(--mono, monospace); letter-spacing: 0.08em; text-transform: uppercase; }
+.recovery-signin input { font-family: var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; }
 .recovery-codes-box { margin-top: 10px; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-raised); }
 .recovery-code-list { list-style: none; margin: 8px 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 16px; }
 .recovery-code-list code { font-size: 15px; letter-spacing: 0.06em; }
@@ -4247,7 +4589,7 @@ textarea {
 /* Users & SSH page (M2.5) */
 .users-center { display: grid; gap: 16px; }
 .users-center .recovery-actions input { min-width: 220px; flex: 1; max-width: 320px; }
-.users-center textarea { width: 100%; margin-top: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+.users-center textarea { width: 100%; margin-top: 10px; font-family: var(--font-mono); font-size: 12px; }
 
 /* Firewall page (M2.6) */
 .firewall-center { display: grid; gap: 16px; }
@@ -4363,7 +4705,7 @@ textarea {
 .app-stats { font-size: 12px; margin-top: -6px; }
 
 /* Raw compose editor (M3.3) */
-.compose-editor { width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+.compose-editor { width: 100%; font-family: var(--font-mono); font-size: 12px; }
 
 /* Backups page (controller snapshots + machine snapshot + off-box mirror) */
 .backup-center { display: grid; gap: 16px; }
@@ -4426,7 +4768,7 @@ textarea {
 .sign-in-details { display: grid; grid-template-columns: max-content 1fr; gap: 0.45rem 1rem; align-items: center; margin: 0; }
 .sign-in-details dt { font-weight: 600; color: var(--text-muted, var(--icon-muted)); }
 .sign-in-details dd { margin: 0; }
-.sign-in-details input[readonly] { width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.sign-in-details input[readonly] { width: 100%; font-family: var(--font-mono); }
 .sign-in-panel form input[type="password"] { flex: 1 1 16rem; min-width: 12rem; }
 
 /* Performance page: load at a glance, and the controls next to what is causing it. */
@@ -5532,43 +5874,33 @@ a.ui-tile:hover {
 .ui-gallery__swatches li { display: flex; align-items: center; gap: var(--space-2); font-size: var(--font-size-xs); }
 .ui-gallery__swatch { flex: none; width: 28px; height: 20px; border: 1px solid var(--border-strong); border-radius: 6px; }
 
-/* ── Home (M33.2): the Launcher. What needs you down the side; the apps beside it, with the system
-   and the backups under them. ── */
-.home { display: grid; gap: var(--space-5); }
-.home-hello { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: var(--space-3) var(--space-5); }
-.home-hello h1 { margin: 0; color: var(--text-strong); font-size: clamp(26px, 3.2vw, 34px); font-weight: 800; letter-spacing: -0.02em; line-height: 1.1; }
-.home-verdict { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); margin: var(--space-2) 0 0; color: var(--text); font-size: var(--font-size-lg); line-height: 1.4; }
-.home-layout {
-  display: grid;
-  grid-template-areas: "needs apps apps" "needs system backups";
-  grid-template-columns: minmax(0, 24rem) minmax(0, 1fr) minmax(0, 1fr);
-  grid-template-rows: auto 1fr;
-  align-items: start;
-  gap: var(--space-4);
+
+/* ── Status marks on anything that carries data-status (M33.7): a metric, the host, a count ── */
+.ui-marked,
+.ui-metric {
+  --mark: var(--status-neutral);
+  --mark-radius: 50%;
+  --mark-clip: none;
+  --mark-transform: none;
+  --mark-border: 0;
+  --mark-fill: var(--mark);
 }
-.home-needs { grid-area: needs; }
-.home-apps { grid-area: apps; }
-.home-system { grid-area: system; }
-.home-backups { grid-area: backups; }
-.home-card > .ui-section { gap: var(--space-4); }
-.home-quiet { margin: 0; color: var(--text-muted); font-size: var(--font-size-md); line-height: var(--line-height-body); }
-.home-unread { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin: 0; color: var(--text-muted); font-size: var(--font-size-sm); }
-.home-more { justify-self: start; }
-.home-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2); }
-.home-metrics .ui-metric { padding: var(--space-3); }
-.home-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(calc(var(--tile-icon) + 3.75rem), 1fr)); gap: var(--space-4) var(--space-2); }
+.ui-marked[data-status="good"], .ui-metric[data-status="good"] { --mark: var(--status-good); }
+.ui-marked[data-status="warning"], .ui-metric[data-status="warning"] { --mark: var(--status-warning); --mark-radius: 0; --mark-clip: polygon(50% 0, 100% 100%, 0 100%); }
+.ui-marked[data-status="danger"], .ui-metric[data-status="danger"] { --mark: var(--status-danger); --mark-radius: 1px; --mark-transform: rotate(45deg) scale(0.84); }
+.ui-marked[data-status="unknown"], .ui-metric[data-status="unknown"] { --mark: var(--status-unknown); --mark-fill: transparent; --mark-border: 1.5px dashed var(--status-unknown); }
+
+/* A figure that needs a look says so with its mark as well as its colour; a good one needs neither. */
+.ui-metric__mark { display: none; }
+.ui-metric:is([data-status="warning"], [data-status="danger"], [data-status="unknown"]) .ui-metric__mark { display: inline-block; margin-right: 6px; vertical-align: 1px; }
+
+/* ── Home (M33.2): the Launcher ── */
 /* A long name or fact takes a second line rather than losing its end. */
 .home-tile .ui-tile__name,
 .home-tile .ui-tile__detail { display: -webkit-box; max-width: 100%; overflow: hidden; white-space: normal; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
-.home-tile--emoji .ui-tile__icon { border-color: var(--border); background: var(--surface-raised); }
-.home-tile__emoji { font-size: calc(var(--tile-icon) * 0.5); font-weight: 400; line-height: 1; }
-.home-tile--add .ui-tile__icon { border: 1.5px dashed var(--border-strong); color: var(--text-muted); background: transparent; box-shadow: none; }
-.home-tile--add .ui-tile__icon > svg:not(.ui-mark) { width: 42%; height: 42%; }
 
 /* One thing that needs you: its mark, what it is, and the fix with its tier. */
 .need-list { display: grid; margin: 0; padding: 0; list-style: none; }
-/* What can wait, after what needs a look: the headline counts only the first part. */
-.need-list__heading { margin: var(--space-2) 0 0; padding-top: var(--space-3); border-top: 1px solid var(--border-subtle); color: var(--text-muted); font-size: var(--font-size-xs); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
 .need {
   --mark: var(--status-neutral);
   --mark-radius: 50%;
@@ -5588,17 +5920,21 @@ a.ui-tile:hover {
 .need[data-severity="danger"] { --mark: var(--status-danger); --mark-radius: 1px; --mark-transform: rotate(45deg) scale(0.84); }
 .need__mark { align-self: flex-start; width: 10px; height: 10px; margin-top: 5px; }
 .need__body { display: grid; flex: 1 1 12rem; gap: 2px; min-width: 0; }
+.need__head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; }
 .need__title { padding: 0; border: 0; color: var(--text-strong); background: none; font: inherit; font-size: var(--font-size-md); font-weight: 600; line-height: 1.35; text-align: left; cursor: pointer; overflow-wrap: anywhere; }
 .need__title:hover { color: var(--link); text-decoration: underline; }
 .need__title:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
 .need__detail { color: var(--text-muted); font-size: var(--font-size-sm); line-height: 1.4; overflow-wrap: anywhere; }
-.need__act, .need__tier { flex: none; }
+.need__act, .need__tier, .need__tier-tag { flex: none; }
+.need__tier-tag { display: inline-flex; }
+.need__icon { position: relative; display: grid; flex: none; place-items: center; align-self: flex-start; }
+.need__icon > .need__mark { position: absolute; top: -4px; right: -4px; width: 11px; height: 11px; margin: 0; }
 
 /* An app's sheet, opened from its tile. */
 .app-sheet { display: grid; gap: var(--space-4); width: min(520px, 100%); }
 .app-sheet__head { display: flex; align-items: center; gap: var(--space-3); }
-.app-sheet__icon { display: grid; flex: none; place-items: center; width: 52px; height: 52px; border: 1px solid var(--accent-border); border-radius: 14px; color: var(--accent-light); background: var(--accent-bg); font-size: 20px; font-weight: 800; }
-.app-sheet__icon[data-emoji] { border-color: var(--border); background: var(--surface-raised); font-size: 28px; font-weight: 400; }
+.app-sheet__icon { display: grid; flex: none; place-items: center; width: 52px; height: 52px; border-radius: 15px; color: var(--brand-glyph); background: linear-gradient(140deg, var(--app-a, var(--brand-slate-a)), var(--app-b, var(--brand-slate-b))); font-size: 20px; font-weight: 800; }
+.app-sheet__icon[data-emoji] { font-size: 26px; font-weight: 400; }
 .app-sheet__title { display: grid; flex: 1; justify-items: start; gap: 4px; min-width: 0; }
 .app-sheet__title h2 { margin: 0; color: var(--text-strong); font-size: 20px; line-height: 1.2; }
 .app-sheet__facts { display: grid; margin: 0; }
@@ -5609,36 +5945,21 @@ a.ui-tile:hover {
 .app-sheet__actions a.ui-button { text-decoration: none; }
 .app-sheet__actions a.ui-button svg { width: 14px; height: 14px; }
 
-/* ── Ops (M33.3): the Command Center. The same facts as Home, compact, on a twelve-column grid. ── */
+/* ── Ops (M33.3): the same facts as Home, compact, on a twelve-column grid ── */
 .ops { display: grid; gap: var(--space-4); }
-.ops-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-4); }
-.ops-head h1 { margin: 0; color: var(--text-strong); font-size: 22px; font-weight: 800; letter-spacing: -0.01em; line-height: 1.2; }
-.ops-head > .ui-button { margin-left: auto; }
-.ops-kv { min-width: 0; color: var(--text-muted); font-family: var(--font-mono); font-size: var(--font-size-sm); overflow-wrap: anywhere; }
-.ops-kv b { color: var(--text-strong); font-weight: 600; }
-.ops-verdict { margin: calc(var(--space-2) * -1) 0 0; color: var(--text); font-size: var(--font-size-md); }
+.ops-verdict { margin: 0; color: var(--text); font-size: var(--font-size-md); }
 .ops-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: var(--space-3); }
 .ops-grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); align-items: start; gap: var(--space-3); }
 .ops-alerts { grid-column: span 3; }
-.ops-containers { grid-column: span 6; }
-.ops-inbox { grid-column: span 3; }
+.ops-containers { grid-column: span 5; }
+.ops-inbox { grid-column: span 4; }
 .ops-jobs { grid-column: span 7; }
 .ops-backups { grid-column: span 5; }
-.ops-panel > .ui-section { gap: var(--space-3); padding-bottom: var(--space-3); }
-.ops-panel > .ui-section > .ui-section__head { padding: var(--space-4) var(--space-4) 0; }
-.ops-panel > .ui-section > .need-list,
-.ops-panel > .ui-section > .ops-quiet,
-.ops-tier { padding: 0 var(--space-4); }
-.ops-panel > .ui-section > .ui-table-wrap { border-top: 1px solid var(--border-subtle); }
-.ops-panel > .ui-section:has(> .ui-table-wrap) { padding-bottom: 0; }
-.ops-tier { display: grid; gap: var(--space-2); }
-.ops-tier + .ops-tier { padding-top: var(--space-3); border-top: 1px solid var(--border-subtle); }
-.ops-tier__head { display: flex; align-items: center; gap: var(--space-2); margin: 0; color: var(--text-muted); font-size: var(--font-size-xs); font-weight: 600; }
-.ops-quiet { margin: 0; color: var(--text-muted); font-size: var(--font-size-md); }
+.ops-tier { display: grid; }
+.ops-quiet { margin: 0; padding: var(--space-3) var(--space-4); color: var(--text-muted); font-size: var(--font-size-md); }
 .ops-link { padding: 0; border: 0; color: var(--text-strong); background: none; font: inherit; font-weight: 600; text-align: left; cursor: pointer; }
 .ops-link:hover { color: var(--link); text-decoration: underline; }
 .ops-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
-.ops-icon { margin-right: var(--space-2); font-weight: 400; }
 /* A long app name ends in an ellipsis rather than pushing the numbers out of the panel. */
 .ui-table .ops-link { display: inline-block; max-width: 13rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; }
 .ops-mono { color: var(--text-muted); font-family: var(--font-mono); }
@@ -5672,22 +5993,733 @@ a.ui-tile:hover {
 
 @media (max-width: 760px) {
   .ops-grid > * { grid-column: 1 / -1; }
-  .ops-head > .ui-button { margin-left: 0; }
+}
+
+/* ═════════════════════════════════════════════════════════════════════════ */
+/*  The look (M33.7, ADR-004). Home is the study's Launcher, Ops its Command   */
+/*  Center, and the Classic pages share their type and softer surfaces. Every */
+/*  colour is a token at the top of this file, with a light and a dark value. */
+/* ═════════════════════════════════════════════════════════════════════════ */
+
+/* ── Every page ── */
+code, kbd, samp, pre { font-family: var(--font-mono); }
+
+/* Home's wallpaper, faintly, behind the Classic pages: two glows, no image and no blur. */
+body {
+  background:
+    radial-gradient(60rem 34rem at 4% -10%, var(--page-glow-sea), transparent 70%),
+    radial-gradient(46rem 28rem at 100% -8%, var(--page-glow-sun), transparent 70%),
+    var(--canvas);
+}
+
+/* The Classic pages keep their layouts (moving them is M33.5) and take the new surfaces. */
+.panel { border-radius: var(--radius-lg); }
+.metric, .metric-grid > .panel { border-radius: 14px; }
+.modal { border-radius: 18px; }
+.surface-notice { border-radius: var(--radius-md); }
+.page-header h1, .modal-header h2 { font-weight: 800; letter-spacing: -0.025em; }
+.page-header p { font-size: 13px; }
+.primary-button {
+  border-radius: var(--radius-md);
+  background: var(--accent);
+  box-shadow: none;
+  font-size: 12px;
+}
+.primary-button:hover {
+  transform: none;
+  background: color-mix(in srgb, var(--accent) 88%, var(--text-strong));
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+.secondary-button { border-color: var(--border-bright); border-radius: var(--radius-md); font-size: 11px; }
+/* Words and forms set straight into a panel under its header used to touch its edge; with rounder
+   corners that clip, they keep the header's inset instead. */
+.panel > .panel-header ~ :is(p.muted, p.auth-error, div.auth-error, .approval-settings, .restore-review, .share-form, .foreign-projects, .stranded-serves, .flow-list, .flow-builder) { margin-inline: 15px; }
+.panel > .panel-header ~ p.muted { margin-block: 10px; font-size: 13px; line-height: 1.5; }
+.panel > .panel-header ~ :is(.approval-settings, .share-form, .restore-review, .foreign-projects, .stranded-serves, .flow-list):last-child { margin-bottom: 15px; }
+.brand > span { border-radius: 10px; background: var(--accent); box-shadow: none; }
+
+/* The signed-in person: an initial in a circle, then the name while there is room. */
+.signed-in-user { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; }
+.signed-in-user__avatar {
+  display: grid;
+  flex: none;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--lx-avatar-ink);
+  background: var(--lx-avatar);
+  font-size: 11px;
+  font-weight: 800;
+}
+.signed-in-user__name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+
+/* Where Home and Ops put the start of the bar; empty, it takes no room. */
+.topbar-slot { display: flex; min-width: 0; align-items: center; }
+.topbar-slot:empty { display: none; }
+
+/* An app's colour square: a white glyph on the app's hue (src/ui/appColor.ts). */
+[data-hue="violet"] { --app-a: var(--brand-violet-a); --app-b: var(--brand-violet-b); }
+[data-hue="indigo"] { --app-a: var(--brand-indigo-a); --app-b: var(--brand-indigo-b); }
+[data-hue="blue"] { --app-a: var(--brand-blue-a); --app-b: var(--brand-blue-b); }
+[data-hue="sky"] { --app-a: var(--brand-sky-a); --app-b: var(--brand-sky-b); }
+[data-hue="cyan"] { --app-a: var(--brand-cyan-a); --app-b: var(--brand-cyan-b); }
+[data-hue="teal"] { --app-a: var(--brand-teal-a); --app-b: var(--brand-teal-b); }
+[data-hue="green"] { --app-a: var(--brand-green-a); --app-b: var(--brand-green-b); }
+[data-hue="olive"] { --app-a: var(--brand-olive-a); --app-b: var(--brand-olive-b); }
+[data-hue="amber"] { --app-a: var(--brand-amber-a); --app-b: var(--brand-amber-b); }
+[data-hue="orange"] { --app-a: var(--brand-orange-a); --app-b: var(--brand-orange-b); }
+[data-hue="red"] { --app-a: var(--brand-red-a); --app-b: var(--brand-red-b); }
+[data-hue="pink"] { --app-a: var(--brand-pink-a); --app-b: var(--brand-pink-b); }
+[data-hue="plum"] { --app-a: var(--brand-plum-a); --app-b: var(--brand-plum-b); }
+[data-hue="slate"] { --app-a: var(--brand-slate-a); --app-b: var(--brand-slate-b); }
+[data-hue="graphite"] { --app-a: var(--brand-graphite-a); --app-b: var(--brand-graphite-b); }
+
+/* ── Home: the wallpaper, the glass, the ink ─────────────────────────────── */
+.app-shell[data-view="home"] {
+  position: relative;
+  isolation: isolate;
+  color: var(--lx-ink);
+  /* What the components read, pointed at the Launcher's own tokens. */
+  --text: var(--lx-ink);
+  --text-strong: var(--lx-ink);
+  --text-muted: var(--lx-ink-muted);
+  --text-secondary: var(--lx-ink);
+  --accent: var(--lx-ink);
+  --accent-faint: var(--lx-glass);
+  --link: var(--lx-ink);
+  --border: var(--lx-glass-border);
+  --border-subtle: var(--lx-hairline);
+  --border-strong: var(--lx-glass-border);
+  --meter-track: var(--lx-track);
+  --status-good: var(--lx-good);
+  --status-good-text: var(--lx-good-text);
+  --status-good-bg: var(--lx-good-bg);
+  --status-good-border: transparent;
+  --status-warning: var(--lx-warning);
+  --status-warning-text: var(--lx-warning-text);
+  --status-warning-bg: var(--lx-warning-bg);
+  --status-warning-border: transparent;
+  --status-danger: var(--lx-danger);
+  --status-danger-text: var(--lx-danger-text);
+  --status-danger-bg: var(--lx-danger-bg);
+  --status-danger-border: transparent;
+  --status-neutral: var(--lx-ink-muted);
+  --status-neutral-text: var(--lx-ink);
+  --status-neutral-bg: var(--lx-glass-raised);
+  --status-neutral-border: transparent;
+  --status-unknown: var(--lx-ink-muted);
+  --status-unknown-text: var(--lx-ink);
+  --status-unknown-bg: transparent;
+  --status-unknown-border: var(--lx-ink-muted);
+  --risk-low: var(--lx-good);
+  --risk-low-text: var(--lx-good-text);
+  --risk-low-bg: var(--lx-good-bg);
+  --risk-low-border: transparent;
+  /* On Home a fix's button is a pill; its medium and high marks are drawn for the pill. */
+  --risk-medium: var(--lx-pill-medium);
+  --risk-medium-text: var(--lx-warning-text);
+  --risk-medium-bg: var(--lx-warning-bg);
+  --risk-medium-border: transparent;
+  --risk-high: var(--lx-pill-high);
+  --risk-high-text: var(--lx-danger-text);
+  --risk-high-bg: var(--lx-danger-bg);
+  --risk-high-border: transparent;
+}
+
+/* The wallpaper: fixed behind the page, so scrolling moves nothing but the content, and only on
+   Home. Nothing blurs it as a whole; the glass panels blur what is behind them. */
+.app-shell[data-view="home"]::before {
+  position: fixed;
+  z-index: -1;
+  inset: 0;
+  background:
+    radial-gradient(62% 82% at 10% 6%, var(--wall-glow-sea), transparent 64%),
+    radial-gradient(50% 68% at 94% 8%, var(--wall-glow-sun), transparent 62%),
+    radial-gradient(70% 70% at 62% 108%, var(--wall-glow-deep), transparent 65%),
+    linear-gradient(160deg, var(--wall-base-start), var(--wall-base-end));
+  content: "";
+  pointer-events: none;
+}
+
+.app-shell[data-view="home"] :is(button, a, input, select, textarea, summary):focus-visible {
+  outline: 2px solid var(--lx-focus);
+  outline-offset: 2px;
+}
+
+/* The bar floats over the wallpaper: no fill, no line, no blur. */
+.app-shell[data-view="home"] .topbar {
+  position: relative;
+  min-height: 60px;
+  border-bottom-color: transparent;
+  background: transparent;
+  backdrop-filter: none;
+}
+.app-shell[data-view="home"] .brand,
+.app-shell[data-view="ops"] .brand { display: none; }
+
+.lx-host { display: flex; align-items: center; gap: 8px; min-width: 0; color: var(--lx-ink); font-size: 13px; white-space: nowrap; }
+.lx-host strong { font-size: 14px; font-weight: 700; }
+.lx-host__mark { width: 9px; height: 9px; }
+.lx-host[data-status="good"] .lx-host__mark { box-shadow: 0 0 0 3px color-mix(in srgb, var(--lx-good) 24%, transparent); }
+.lx-host__facts { min-width: 0; overflow: hidden; color: var(--lx-ink-muted); text-overflow: ellipsis; }
+
+.app-shell[data-view="home"] .view-switch,
+.app-shell[data-view="home"] .ui-theme-switch {
+  border-color: var(--lx-glass-border);
+  background: var(--lx-glass);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  backdrop-filter: blur(20px) saturate(140%);
+}
+.app-shell[data-view="home"] .view-switch__option,
+.app-shell[data-view="home"] .ui-theme-switch__option { color: var(--lx-ink-muted); }
+.app-shell[data-view="home"] .view-switch__option:hover,
+.app-shell[data-view="home"] .ui-theme-switch__option:hover { color: var(--lx-ink); }
+.app-shell[data-view="home"] .view-switch__option[aria-current="page"],
+.app-shell[data-view="home"] .ui-theme-switch__option[aria-checked="true"] {
+  border-color: transparent;
+  color: var(--lx-pill-ink);
+  background: var(--lx-pill);
+  box-shadow: none;
+}
+.app-shell[data-view="home"] .command-trigger {
+  max-width: 26rem;
+  min-height: 36px;
+  border-color: var(--lx-glass-border);
+  color: var(--lx-ink-muted);
+  background: var(--lx-glass-raised);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  backdrop-filter: blur(20px) saturate(140%);
+}
+.app-shell[data-view="home"] .command-trigger:hover { color: var(--lx-ink); }
+.app-shell[data-view="home"] .command-trigger__keys { border-color: transparent; color: var(--lx-ink); background: var(--lx-glass-raised); }
+.app-shell[data-view="home"] .connection-pill,
+.app-shell[data-view="home"] .topbar-right .status-pill {
+  border-color: transparent;
+  color: var(--lx-ink);
+  background: var(--lx-glass-raised);
+}
+.app-shell[data-view="home"] .connection-pill::before { background: var(--lx-good); }
+.app-shell[data-view="home"] .signed-in-user { color: var(--lx-ink); }
+
+/* The page: the glass panels down the left, the greeting and the apps on the right. */
+.lx {
+  display: grid;
+  grid-template-areas: "side hello" "side main";
+  grid-template-columns: minmax(17rem, 22rem) minmax(0, 1fr);
+  grid-template-rows: auto 1fr;
+  align-items: start;
+  gap: 18px 36px;
+  color: var(--lx-ink);
+}
+.lx-hello { display: grid; grid-area: hello; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 4px 16px; padding-top: 4px; }
+.lx-hello h1 { grid-column: 1; margin: 0; color: var(--lx-ink); font-size: clamp(30px, 3.2vw, 40px); font-weight: 800; letter-spacing: -0.02em; line-height: 1.05; }
+.lx-verdict { display: flex; flex-wrap: wrap; grid-column: 1; align-items: center; gap: 6px 10px; margin: 6px 0 0; color: var(--lx-ink-muted); font-size: 15px; line-height: 1.4; }
+.lx-again { grid-column: 2; grid-row: 1 / span 2; }
+.lx-side { display: grid; grid-area: side; align-content: start; gap: 12px; min-width: 0; }
+.lx-main { display: grid; grid-area: main; align-content: start; gap: 22px; min-width: 0; }
+
+.lx-panel {
+  min-width: 0;
+  padding: 14px 16px 16px;
+  border: 1px solid var(--lx-glass-border);
+  border-radius: 20px;
+  background: var(--lx-glass);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  backdrop-filter: blur(20px) saturate(140%);
+}
+
+/* A panel's heading, as the study drew it: small capitals, its status, and a fact on the right. */
+.lx .ui-section { gap: 12px; }
+.lx .ui-section__head { flex-wrap: nowrap; align-items: center; gap: 8px; }
+.lx .ui-section__heading { display: flex; flex: 1 1 auto; align-items: center; gap: 8px; min-width: 0; }
+.lx .ui-section__title { flex: none; gap: 8px; color: var(--lx-ink-muted); font-size: 11.5px; font-weight: 700; letter-spacing: 0.07em; line-height: 1.3; text-transform: uppercase; }
+.lx .ui-section__title > span:last-child { display: inline-flex; align-items: center; gap: 7px; }
+.lx-title-icon { flex: none; width: 15px; height: 15px; }
+.lx .ui-section__summary { min-width: 0; margin-left: auto; overflow: hidden; color: var(--lx-ink-muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.lx .ui-chip { padding: 1px 8px; font-size: 11px; }
+.lx-quiet { margin: 0; color: var(--lx-ink-muted); font-size: 14px; line-height: 1.45; }
+.lx-unread { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0; color: var(--lx-ink-muted); font-size: 12.5px; }
+.lx-more { justify-self: start; }
+
+/* Figures as rows: the name, the number, a thin bar; the caption under it. */
+.lx-metrics { display: grid; gap: 4px; }
+.lx .ui-metric {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 3px 10px;
+  margin: 0 -8px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  box-shadow: none;
+}
+.lx .ui-metric--link { width: calc(100% + 16px); }
+.lx .ui-metric--link:hover { background: var(--lx-glass); box-shadow: none; }
+.lx .ui-metric__label { grid-column: 1; grid-row: 1; color: var(--lx-ink); font-size: 13.5px; font-weight: 500; letter-spacing: 0; text-transform: none; }
+.lx .ui-metric__value { grid-column: 2; grid-row: 1; color: var(--lx-ink); font-size: 13.5px; font-weight: 700; letter-spacing: 0; }
+.lx .ui-metric__bar { order: 1; grid-column: 1 / -1; height: 6px; margin: 3px 0 1px; background: var(--lx-track); }
+.lx .ui-metric__bar > i,
+.lx .ui-metric[data-status="good"] .ui-metric__bar > i,
+.lx .ui-metric[data-status="neutral"] .ui-metric__bar > i { background: var(--lx-bar); }
+.lx .ui-metric__caption { order: 2; grid-column: 1 / -1; color: var(--lx-ink-muted); font-size: 12px; line-height: 1.35; }
+
+/* What needs you, and what can wait: an icon, the words, the tier, the fix as a pill. */
+/* The words keep at least ten characters' room beside the icon; a long button wraps under them. */
+.lx .need { align-items: center; gap: 8px 12px; padding: 10px 0; border-top-color: var(--lx-hairline); }
+.lx .need:first-child { padding-top: 2px; }
+.lx .need__icon { align-self: flex-start; }
+.lx .need__body { flex: 1 1 10rem; }
+.lx .need__act { margin-left: auto; }
+.lx .need__title { color: var(--lx-ink); font-size: 13.5px; font-weight: 600; line-height: 1.3; }
+.lx .need__detail { color: var(--lx-ink-muted); font-size: 12px; line-height: 1.35; }
+.lx .ui-risk { padding: 1px 6px; border: 0; border-radius: 6px; font-size: 10px; font-weight: 800; letter-spacing: 0.05em; line-height: 1.6; }
+.lx-square {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: 10px;
+  color: var(--brand-glyph);
+  background: linear-gradient(140deg, var(--app-a, var(--brand-slate-a)), var(--app-b, var(--brand-slate-b)));
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+.lx-square__emoji { font-size: 1.35em; font-weight: 400; line-height: 1; }
+.lx-well { display: grid; width: 34px; height: 34px; place-items: center; border-radius: 10px; color: var(--lx-ink); background: var(--lx-glass-raised); }
+.lx-well svg { width: 18px; height: 18px; }
+
+/* Buttons are pills: white with dark ink over the dark wallpaper, dark with white over the light.
+   The tier stays on them: medium an amber mark, high a red one with a lock and "Password". */
+.lx .ui-button,
+.lx a.ui-button {
+  min-height: 32px;
+  padding: 0 15px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  color: var(--lx-pill-ink);
+  background: var(--lx-pill);
+  font-size: 12.5px;
+  font-weight: 700;
+}
+.lx .ui-button:hover:not(:disabled) { border-color: transparent; background: var(--lx-pill-hover); }
+.lx .ui-button--risk-medium,
+.lx .ui-button--risk-high { padding-left: 21px; }
+.lx .ui-button--risk-medium::before,
+.lx .ui-button--risk-high::before { left: 9px; box-shadow: none; }
+.lx .ui-button__lock,
+.lx .ui-button .ui-button__tier { color: var(--lx-pill-high); }
+.lx .ui-button .ui-button__tier { border-color: var(--lx-pill-high); background: transparent; }
+.lx .ui-button--ghost {
+  border: 1px solid var(--lx-glass-border);
+  color: var(--lx-ink);
+  background: var(--lx-glass-raised);
+}
+.lx .ui-button--ghost:hover:not(:disabled) { border-color: var(--lx-glass-border); background: var(--lx-glass-raised); text-decoration: underline; }
+
+/* The apps: large colour squares on the wallpaper, a health badge on the corner. */
+.lx-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(128px, 1fr)); gap: 22px 12px; }
+.lx .ui-tile { gap: 7px; padding: 8px 4px 10px; border: 0; border-radius: 18px; color: var(--lx-ink); }
+.lx button.ui-tile:hover { border-color: transparent; background: var(--lx-glass); }
+.lx .ui-tile__icon {
+  width: 66px;
+  height: 66px;
+  border: 0;
+  border-radius: 19px;
+  color: var(--brand-glyph);
+  background: linear-gradient(140deg, var(--app-a, var(--brand-slate-a)), var(--app-b, var(--brand-slate-b)));
+  box-shadow: var(--lx-shadow);
+  font-size: 24px;
+  font-weight: 800;
+}
+.lx .ui-tile__icon .lx-square__emoji { font-size: 31px; }
+.lx .ui-tile__name { color: var(--lx-ink); font-size: 13.5px; font-weight: 700; line-height: 1.15; }
+.lx .ui-tile__detail { color: var(--lx-ink-muted); font-size: 12px; line-height: 1.2; }
+.lx .ui-tile[data-status="warning"] .ui-tile__detail { color: var(--lx-warning-text); }
+.lx .ui-tile[data-status="danger"] .ui-tile__detail { color: var(--lx-danger-text); }
+
+/* The badge: a dot for good and neutral, "!" in amber for a look, "×" in red for a problem, and a
+   dashed ring for not known; each inside a ring of its own so it holds on any wallpaper. */
+.lx .ui-tile__mark {
+  top: -5px;
+  right: -6px;
+  display: grid;
+  width: 16px;
+  height: 16px;
+  min-width: 0;
+  min-height: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  color: transparent;
+  background: var(--lx-good);
+  box-shadow: 0 0 0 2.5px var(--lx-badge-ring);
+  clip-path: none;
+  transform: none;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+}
+.lx .ui-tile[data-status="neutral"] .ui-tile__mark { background: var(--lx-ink-muted); }
+.lx .ui-tile[data-status="warning"] .ui-tile__mark,
+.lx .ui-tile[data-status="danger"] .ui-tile__mark { top: -7px; right: -8px; width: 21px; height: 21px; }
+.lx .ui-tile[data-status="warning"] .ui-tile__mark { color: var(--lx-warning-ink); background: var(--lx-warning); }
+.lx .ui-tile[data-status="danger"] .ui-tile__mark { color: var(--lx-danger-ink); background: var(--lx-danger); font-size: 15px; }
+.lx .ui-tile[data-status="warning"] .ui-tile__mark::after { content: "!"; }
+.lx .ui-tile[data-status="danger"] .ui-tile__mark::after { content: "×"; }
+.lx .ui-tile[data-status="unknown"] .ui-tile__mark { border: 2px dashed var(--lx-ink-muted); background: var(--lx-badge-ring); }
+.lx .home-tile--add .ui-tile__icon { border: 1.5px dashed var(--lx-ink-muted); color: var(--lx-ink); background: var(--lx-glass); box-shadow: none; }
+.lx .home-tile--add .ui-tile__icon > svg:not(.ui-mark) { width: 40%; height: 40%; }
+
+/* What can wait: a glass strip under the apps, two to a row. */
+.lx-wait .need-list { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 28px; }
+.lx-wait .need,
+.lx-wait .need:first-child { padding: 0; border-top: 0; }
+
+/* The dock over the wallpaper: glass, with each area on a tile of its own. */
+.app-shell[data-view="home"] .ui-dock.shell-dock ul {
+  border-color: var(--lx-glass-border);
+  border-radius: 24px;
+  background: var(--lx-glass);
+  box-shadow: var(--lx-shadow);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  backdrop-filter: blur(20px) saturate(140%);
+}
+.app-shell[data-view="home"] .shell-dock .ui-dock__icon { border-color: transparent; border-radius: 13px; color: var(--lx-ink); background: var(--lx-glass-raised); }
+.app-shell[data-view="home"] .shell-dock .ui-dock__item:hover .ui-dock__icon { border-color: transparent; color: var(--lx-pill-ink); background: var(--lx-pill); }
+.app-shell[data-view="home"] .ui-dock__badge { color: var(--lx-pill-ink); background: var(--lx-pill); box-shadow: 0 0 0 2px var(--lx-badge-ring); }
+
+/* Glass needs a backdrop filter to be glass. Without one, and for anyone who asked for less
+   transparency, every glass surface is drawn solid. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .lx-panel,
+  .app-shell[data-view="home"] .ui-dock.shell-dock ul,
+  .app-shell[data-view="home"] .view-switch,
+  .app-shell[data-view="home"] .ui-theme-switch,
+  .app-shell[data-view="home"] .command-trigger { background: var(--lx-glass-solid); }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .lx-panel,
+  .app-shell[data-view="home"] .ui-dock.shell-dock ul,
+  .app-shell[data-view="home"] .view-switch,
+  .app-shell[data-view="home"] .ui-theme-switch,
+  .app-shell[data-view="home"] .command-trigger {
+    background: var(--lx-glass-solid);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
 }
 
 @media (max-width: 1100px) {
-  .home-layout { grid-template-areas: "needs needs" "apps apps" "system backups"; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: none; }
+  .lx { grid-template-columns: minmax(15rem, 19rem) minmax(0, 1fr); gap: 16px 24px; }
+  .lx-host__facts { display: none; }
 }
 
-@media (max-width: 700px) {
-  .home-layout { grid-template-areas: "needs" "apps" "system" "backups"; grid-template-columns: minmax(0, 1fr); }
-  .home-tiles { grid-template-columns: repeat(auto-fill, minmax(calc(var(--tile-icon) + 2.5rem), 1fr)); gap: var(--space-3) var(--space-1); }
-  /* Room for a whole word on each line of a name: the tile gives up its side padding instead. */
-  .home-tile { padding-inline: 0; }
-  .home-tile .ui-tile__name, .home-tile .ui-tile__detail { overflow-wrap: break-word; }
+/* A phone, and anything narrow: one column, read top to bottom. */
+@media (max-width: 860px) {
+  .lx { grid-template-areas: "hello" "side" "main"; grid-template-columns: minmax(0, 1fr); grid-template-rows: none; }
+  .lx-wait .need-list { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 620px) {
+  .app-shell[data-view="home"] .topbar-slot { display: none; }
+  .lx-hello { grid-template-columns: minmax(0, 1fr); }
+  .lx-again { grid-column: 1; grid-row: auto; justify-self: start; margin-top: 6px; }
+  .lx-tiles { grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap: 14px 4px; }
+  .lx .ui-tile { padding-inline: 0; }
+  .lx .ui-tile__icon { width: 58px; height: 58px; border-radius: 16px; font-size: 21px; }
+  .lx .ui-tile__icon .lx-square__emoji { font-size: 27px; }
+  .lx .ui-tile__name, .lx .ui-tile__detail { overflow-wrap: break-word; }
   .app-sheet__facts > div { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+}
+
+/* ── Ops: near-black and hairlines, or paper in light ────────────────────── */
+.app-shell[data-view="ops"] {
+  min-height: 100vh;
+  background: var(--cc-canvas);
+  font-family: var(--font-condensed);
+  /* What the components read, pointed at the Command Center's own tokens. */
+  --font-sans: var(--font-condensed);
+  --canvas: var(--cc-canvas);
+  --topbar-bg: var(--cc-topbar);
+  --surface: var(--cc-panel);
+  --surface-raised: var(--cc-raised);
+  --surface-muted: var(--cc-inset);
+  --surface-hover: var(--cc-raised);
+  --surface-header: var(--cc-panel);
+  --border: var(--cc-line);
+  --border-subtle: var(--cc-hairline);
+  --border-strong: var(--cc-line-strong);
+  --border-bright: var(--cc-line-strong);
+  --text: var(--cc-text);
+  --text-strong: var(--cc-text-strong);
+  --text-muted: var(--cc-muted);
+  --text-secondary: var(--cc-text);
+  --accent: var(--cc-amber);
+  --accent-text-on: var(--cc-amber-ink);
+  --accent-faint: var(--cc-amber-bg);
+  --accent-bg: var(--cc-amber-bg);
+  --accent-border: var(--cc-amber-border);
+  --link: var(--cc-amber);
+  --meter-track: var(--cc-track);
+  --elevation-1: none;
+  --elevation-2: none;
+  --status-good: var(--cc-green);
+  --status-good-text: var(--cc-green);
+  --status-good-bg: var(--cc-green-bg);
+  --status-good-border: var(--cc-green-border);
+  --status-warning: var(--cc-amber);
+  --status-warning-text: var(--cc-amber);
+  --status-warning-bg: var(--cc-amber-bg);
+  --status-warning-border: var(--cc-amber-border);
+  --status-danger: var(--cc-red);
+  --status-danger-text: var(--cc-red-text);
+  --status-danger-bg: var(--cc-red-bg);
+  --status-danger-border: var(--cc-red-border);
+  --status-neutral: var(--cc-muted);
+  --status-neutral-text: var(--cc-text);
+  --status-neutral-bg: var(--cc-raised);
+  --status-neutral-border: var(--cc-line-strong);
+  --status-unknown: var(--cc-muted);
+  --status-unknown-text: var(--cc-muted);
+  --status-unknown-bg: transparent;
+  --status-unknown-border: var(--cc-muted);
+  --risk-low: var(--cc-green);
+  --risk-low-text: var(--cc-green);
+  --risk-low-bg: var(--cc-green-bg);
+  --risk-low-border: var(--cc-green-border);
+  --risk-medium: var(--cc-amber);
+  --risk-medium-text: var(--cc-amber);
+  --risk-medium-bg: var(--cc-amber-bg);
+  --risk-medium-border: var(--cc-amber-border);
+  --risk-high: var(--cc-red);
+  --risk-high-text: var(--cc-red-text);
+  --risk-high-bg: var(--cc-red-bg);
+  --risk-high-border: var(--cc-red-border);
+}
+
+.app-shell[data-view="ops"] :is(button, a, input, select, textarea, summary):focus-visible {
+  outline: 2px solid var(--cc-amber);
+  outline-offset: 1px;
+}
+
+/* The compact bar: the page's name and the host's facts, then the controls, all on one line. */
+.app-shell[data-view="ops"] .topbar {
+  min-height: 46px;
+  padding: 0 14px;
+  gap: 14px;
+  border-bottom: 1px solid var(--cc-line);
+  background: var(--cc-topbar);
+  backdrop-filter: none;
+}
+.app-shell[data-view="ops"] .topbar-left { flex: 1 1 auto; gap: 14px; }
+.cc-crumb { display: flex; align-items: baseline; gap: 6px; min-width: 0; white-space: nowrap; }
+.cc-crumb__host { color: var(--cc-text-strong); font-size: 16px; font-weight: 600; }
+.cc-crumb__sep { color: var(--cc-muted); font-size: 16px; }
+.cc-crumb h1 { margin: 0; color: var(--cc-muted); font-size: 16px; font-weight: 400; line-height: 1.2; text-transform: lowercase; }
+.cc-kv { min-width: 0; margin-left: 10px; overflow: hidden; color: var(--cc-muted); font-family: var(--font-mono); font-size: 12px; text-overflow: ellipsis; }
+.cc-kv b { color: var(--cc-text); font-weight: 500; }
+.app-shell[data-view="ops"] .view-switch { border-color: var(--cc-line-strong); border-radius: 4px; background: var(--cc-inset); }
+.app-shell[data-view="ops"] .view-switch__option { min-height: 26px; padding: 0 10px; border-radius: 3px; font-size: 13px; font-weight: 600; }
+.app-shell[data-view="ops"] .view-switch__option[aria-current="page"] { border-color: transparent; color: var(--cc-amber); background: var(--cc-raised); }
+.app-shell[data-view="ops"] .command-trigger { flex: 0 1 17rem; min-height: 30px; border-color: var(--cc-line-strong); border-radius: 4px; color: var(--cc-muted); background: var(--cc-inset); }
+.app-shell[data-view="ops"] .command-trigger__keys { border-color: var(--cc-line-strong); border-radius: 3px; color: var(--cc-muted); background: transparent; font-size: 11px; }
+.app-shell[data-view="ops"] .ui-theme-switch { border-radius: 4px; background: var(--cc-inset); }
+.app-shell[data-view="ops"] .ui-theme-switch__option { border-radius: 3px; }
+.app-shell[data-view="ops"] .connection-pill,
+.app-shell[data-view="ops"] .topbar-right .status-pill { border-color: var(--cc-line-strong); border-radius: 4px; color: var(--cc-muted); background: transparent; font-family: var(--font-mono); font-size: 11px; font-weight: 500; }
+.app-shell[data-view="ops"] .connection-pill::before { background: var(--cc-green); }
+.app-shell[data-view="ops"] .signed-in-user { color: var(--cc-muted); font-family: var(--font-mono); font-size: 12px; }
+
+/* The page under the bar: edge to edge, as dense as the study. */
+.app-shell[data-view="ops"] .content { width: 100%; max-width: 1760px; padding: 12px 14px calc(var(--shell-bottom-inset, 0px) + 28px); }
+.cc { gap: 8px; color: var(--cc-text); }
+.cc-status { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; min-width: 0; }
+.cc-status .ops-verdict { flex: 1 1 18rem; min-width: 0; color: var(--cc-text); font-size: 14px; }
+.cc-status .ui-button { margin-left: auto; }
+
+/* The metric strip: a label in small capitals, the figure in mono, a sparkline in the corner. */
+.cc .ops-strip { grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: 8px; }
+.cc .ui-metric {
+  position: relative;
+  gap: 3px;
+  min-height: 104px;
+  padding: 11px 12px 10px;
+  border: 1px solid var(--cc-line);
+  border-radius: 4px;
+  background: var(--cc-panel);
+}
+.cc .ui-metric--link:hover { background: var(--cc-raised); box-shadow: none; }
+.cc .ui-metric__label { color: var(--cc-muted); font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.09em; }
+.cc .ui-metric__value { margin-top: 5px; color: var(--cc-text-strong); font-family: var(--font-mono); font-size: 26px; font-weight: 500; letter-spacing: -0.03em; line-height: 1.1; }
+.cc .ui-metric__value small { margin-left: 2px; color: var(--cc-muted); font-size: 13px; font-weight: 400; letter-spacing: 0; }
+.cc .ui-metric[data-status="warning"] .ui-metric__value { color: var(--cc-amber); }
+.cc .ui-metric[data-status="danger"] .ui-metric__value { color: var(--cc-red-text); }
+.cc .ui-metric__caption { padding-right: 76px; color: var(--cc-muted); font-size: 13px; line-height: 1.3; }
+.cc .ui-metric__bar { height: 4px; margin-top: 7px; border-radius: 1px; background: var(--cc-track); }
+.cc .ui-metric__bar > i,
+.cc .ui-metric[data-status="good"] .ui-metric__bar > i { border-radius: 1px; background: var(--cc-cyan); }
+.cc .ui-metric__graphic { position: absolute; right: 10px; bottom: 11px; width: 70px; height: 28px; }
+.ui-spark { display: block; width: 100%; height: 100%; overflow: visible; }
+.ui-spark__line { fill: none; stroke: var(--cc-cyan); stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.ui-spark__area { fill: var(--cc-cyan-fill); stroke: none; }
+
+/* Panels: hairlines, a small mono heading with its count, the facts on the right. */
+/* Panels in a row share its height, as the study's grid does. */
+.cc .ops-grid { align-items: stretch; gap: 8px; }
+.cc-panel { display: flex; flex-direction: column; min-width: 0; overflow: hidden; border: 1px solid var(--cc-line); border-radius: 4px; background: var(--cc-panel); }
+.cc-panel__head { display: flex; flex: none; align-items: center; gap: 10px; min-height: 34px; padding: 0 12px; border-bottom: 1px solid var(--cc-line); }
+.cc-panel__head h2 { display: flex; flex: none; align-items: center; gap: 9px; margin: 0; color: var(--cc-muted); font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.09em; line-height: 1.2; text-transform: uppercase; }
+.cc-count { display: inline-flex; align-items: center; gap: 5px; color: var(--mark); letter-spacing: 0; }
+.cc-count[data-status="unknown"], .cc-count[data-status="neutral"] { color: var(--cc-muted); }
+.cc-count .ui-mark { width: 7px; height: 7px; }
+.cc-panel__meta { min-width: 0; margin: 0 0 0 auto; overflow: hidden; color: var(--cc-muted); font-family: var(--font-mono); font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
+.cc-panel__meta b { color: var(--cc-text); font-weight: 600; }
+.cc .ops-quiet { padding: 12px; color: var(--cc-muted); font-size: 14px; }
+
+/* Alerts carry their colour down the leading edge, with the mark beside the words. */
+.cc .need { align-items: flex-start; gap: 6px 9px; padding: 9px 12px; border-top: 1px solid var(--cc-hairline); box-shadow: inset 3px 0 0 var(--mark); }
+.cc .need:first-child { padding-top: 9px; border-top: 0; }
+.cc .need[data-severity="neutral"] { box-shadow: inset 3px 0 0 var(--cc-line-strong); }
+/* The words keep room beside the tier; a long button wraps under them, to the right. */
+.cc .need__body { flex: 1 1 9rem; }
+.cc .need__act { margin-left: auto; }
+.cc .need__mark { width: 8px; height: 8px; margin-top: 6px; }
+.cc .need__title { color: var(--cc-text-strong); font-size: 14.5px; font-weight: 600; line-height: 1.3; }
+.cc .need__detail { color: var(--cc-muted); font-size: 13px; line-height: 1.35; }
+.cc .ui-risk { padding: 2px 6px; border-radius: 3px; font-family: var(--font-mono); font-size: 10.5px; font-weight: 700; letter-spacing: 0.05em; }
+/* The inbox: each row led by its tier, as the study drew it. */
+.cc .need.need--lead { align-items: center; box-shadow: none; }
+.cc .need--lead .need__tier-tag { flex: 0 0 3.2rem; }
+.cc .need--lead .need__tier-tag .ui-risk { justify-content: center; width: 100%; }
+.cc .ops-tier + .ops-tier { border-top: 1px solid var(--cc-hairline); }
+
+/* Buttons: square-cornered, the tier's mark still on each. */
+.cc .ui-button { min-height: 30px; padding: 0 11px; border-color: var(--cc-line-strong); border-radius: 3px; color: var(--cc-text-strong); background: var(--cc-raised); font-size: 13.5px; font-weight: 600; }
+.cc .ui-button:hover:not(:disabled) { border-color: var(--cc-muted); background: var(--cc-raised); }
+.cc .ui-button--risk-medium, .cc .ui-button--risk-high { padding-left: 17px; }
+.cc .ui-button--ghost { border-color: transparent; color: var(--cc-amber); background: transparent; }
+
+/* Tables: mono figures and names, small-capital headings, a coloured word for each state. */
+.cc .ui-table { font-size: 13px; }
+.cc .ui-table th { height: 30px; padding: 0 9px; border-bottom-color: var(--cc-line); color: var(--cc-muted); background: var(--cc-panel); font-family: var(--font-mono); font-size: 10.5px; font-weight: 600; letter-spacing: 0.07em; }
+.cc .ui-table td { height: 28px; padding: 0 9px; border-bottom-color: var(--cc-hairline); color: var(--cc-text); font-family: var(--font-mono); font-size: 12.5px; }
+.cc .ui-table tbody tr:hover td { background: var(--cc-raised); }
+.cc .ui-table .ops-link { max-width: 9rem; color: var(--cc-text-strong); font-weight: 500; }
+.cc .ui-table :is(th, td) { padding: 0 7px; }
+.cc .ui-table :is(th, td):first-child { padding-left: 11px; }
+.cc .ui-table .ui-chip { padding: 0; border: 0; background: none; font-family: var(--font-mono); font-size: 12px; font-weight: 500; }
+.cc .ui-table__mark { width: 7px; height: 7px; }
+.cc .ops-bar { width: 34px; border-radius: 1px; }
+.cc .ops-bar > i { background: var(--cc-cyan); }
+.cc-tag { display: inline-block; padding: 1px 6px; border-radius: 2px; color: var(--cc-muted); background: var(--cc-raised); font-size: 11.5px; line-height: 1.5; }
+.cc-tag[data-reach="LAN"] { color: var(--cc-amber); background: var(--cc-amber-bg); }
+
+/* The rail: the admin areas down the left edge under the BoxPilot mark (a phone keeps the dock). */
+@media (min-width: 761px) {
+  .app-shell[data-view="ops"] { padding-left: 56px; }
+  .shell-dock.shell-dock--rail {
+    top: 0;
+    right: auto;
+    bottom: var(--shell-bottom-inset, 0px);
+    left: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    width: 56px;
+    padding: 10px 0;
+    border-right: 1px solid var(--cc-line);
+    background: var(--cc-rail);
+    pointer-events: auto;
+  }
+  .ui-dock.shell-dock--rail ul {
+    flex: 1;
+    flex-direction: column;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 3px;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: none;
+    box-shadow: none;
+    backdrop-filter: none;
+  }
+  .shell-dock.shell-dock--rail [data-priority] { display: block; }
+  .shell-dock.shell-dock--rail [data-priority="overflow"] { display: none; }
+  .shell-dock--rail .ui-dock__separator { width: 24px; height: 1px; margin: 4px 0; background: var(--cc-line); }
+  .shell-dock--rail .ui-dock__separator[data-before="settings"] { margin-top: auto; }
+  .shell-dock--rail .ui-dock__item { position: relative; width: 40px; }
+  .shell-dock--rail .ui-dock__icon { width: 40px; height: 34px; border: 0; border-radius: 5px; color: var(--cc-icon); background: none; }
+  .shell-dock--rail .ui-dock__icon svg { width: 19px; height: 19px; }
+  .shell-dock--rail .ui-dock__item:hover .ui-dock__icon { color: var(--cc-text-strong); background: var(--cc-raised); }
+  .shell-dock--rail .ui-dock__item[aria-current="page"] .ui-dock__icon { color: var(--cc-amber); background: var(--cc-raised); box-shadow: inset 2px 0 0 var(--cc-amber); }
+  /* The name, beside the icon, on hover and on keyboard focus. */
+  .shell-dock--rail .ui-dock__label {
+    position: absolute;
+    z-index: 1;
+    top: 50%;
+    left: calc(100% + 10px);
+    max-width: none;
+    padding: 4px 8px;
+    border: 1px solid var(--cc-line-strong);
+    border-radius: 4px;
+    color: var(--cc-text-strong);
+    background: var(--cc-topbar);
+    font-family: var(--font-condensed);
+    font-size: 13px;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(-50%);
+    transition: opacity 120ms ease;
+  }
+  .shell-dock--rail .ui-dock__item:is(:hover, :focus-visible) .ui-dock__label { opacity: 1; }
+  .shell-dock--rail .ui-dock__badge { top: 5px; right: 6px; width: 7px; min-width: 0; height: 7px; padding: 0; overflow: hidden; color: transparent; background: var(--cc-amber); box-shadow: 0 0 0 2px var(--cc-rail); font-size: 0; }
+  .shell-rail__logo { display: grid; flex: none; width: 34px; height: 34px; margin-bottom: 8px; place-items: center; border-radius: 6px; color: var(--cc-amber-ink); background: var(--cc-amber); font-family: var(--font-mono); font-size: 12.5px; font-weight: 700; }
+}
+
+@media (min-width: 761px) and (max-height: 820px) {
+  .shell-dock--rail .ui-dock__icon { height: 28px; }
+  .shell-rail__logo { width: 30px; height: 30px; margin-bottom: 4px; }
+}
+
+@media (max-width: 760px) {
+  .shell-rail__logo { display: none; }
+}
+
+.topbar .text-button { white-space: nowrap; }
+
+/* The compact bar gives the host's facts the room: how this browser connected is on Home's bar,
+   and the avatar says who is signed in (its name is the tooltip). */
+@media (max-width: 1599px) {
+  .app-shell[data-view="ops"] .connection-pill,
+  .app-shell[data-view="ops"] .approvals-pill,
+  .app-shell[data-view="ops"] .signed-in-user__name { display: none; }
+}
+
+@media (max-width: 1280px) {
+  .cc-kv { display: none; }
+}
+
+@media (max-width: 620px) {
+  .app-shell[data-view="ops"] .command-trigger { flex: 0 0 36px; }
+  .cc .ops-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .cc .ui-metric { min-height: 0; padding: 10px; }
+  .cc .ui-metric__value { font-size: 22px; }
+  .cc .ui-metric__caption { padding-right: 0; font-size: 12px; }
+  .cc .ui-metric__graphic { position: static; width: 100%; height: 24px; margin-top: 6px; }
+}
+
+/* A table stacked on a phone keeps the stacked rows' own spacing, not Ops' row height. */
+@media (max-width: 640px) {
+  .cc .ui-table.ui-table--stack td { height: auto; padding: 2px 12px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .ui-button { transition: none; }
+  .shell-dock--rail .ui-dock__label { transition: none; }
 }

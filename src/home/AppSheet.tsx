@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import type { PendingOperation } from "../ApproveDialog";
 import type { AppProtection } from "../backupProtection";
 import { countOf, type ViewName } from "../data";
-import { Button, StatusChip, initials, mayStart, riskOf } from "../ui";
+import { Button, StatusChip, appHue, initials, mayStart, riskOf } from "../ui";
 import { useDialogFocus } from "../useDialogFocus";
 import { ExternalIcon } from "../shell/areaIcons";
 import type { AppFact } from "./facts";
@@ -61,7 +61,7 @@ export function AppSheet({ app, protection, now, role, onClose, onNavigate, onSt
     <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
       <section ref={ref} tabIndex={-1} className="modal app-sheet" role="dialog" aria-modal="true" aria-labelledby={titleId} onMouseDown={(event) => event.stopPropagation()} data-density="comfortable">
         <header className="app-sheet__head">
-          <span className="app-sheet__icon" data-emoji={app.icon ? true : undefined} aria-hidden="true">{app.icon ?? initials(app.name)}</span>
+          <span className="app-sheet__icon" data-emoji={app.icon ? true : undefined} data-hue={appHue(app.id)} aria-hidden="true">{app.icon ?? initials(app.name)}</span>
           <div className="app-sheet__title">
             <h2 id={titleId}>{app.name}</h2>
             <StatusChip status={health.status}>{health.label}</StatusChip>

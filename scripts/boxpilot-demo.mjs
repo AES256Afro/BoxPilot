@@ -930,10 +930,29 @@ api.get("/runbook/download", (_request, response) => {
   response.setHeader("Content-Disposition", 'attachment; filename="boxpilot-runbook-homebox-demo.md"');
   response.send(demoRunbook);
 });
+/**
+ * A live machine's figures move between reads; the fixture's would not, and Ops draws each read it
+ * makes into a sparkline (M33.7). So each read of the performance fixture moves the processor, the
+ * memory and the sensors a little around their fixed values, as a real box does. Only here: every
+ * other read, and every figure a test holds, comes from the fixture unchanged.
+ */
+let performanceReads = 0;
+function breathing(result) {
+  if (!result?.cpu || !result.memory || !Array.isArray(result.temps)) return result;
+  performanceReads += 1;
+  const wave = (scale, phase) => scale * (Math.sin(performanceReads * 0.9 + phase) * 0.6 + Math.sin(performanceReads * 2.3 + phase * 2) * 0.4);
+  const round = (value, places = 1) => Math.round(value * 10 ** places) / 10 ** places;
+  return {
+    ...result,
+    cpu: { ...result.cpu, usagePercent: round(Math.max(1, result.cpu.usagePercent + wave(6, 0))) },
+    memory: { ...result.memory, usedPercent: Math.round(result.memory.usedPercent + wave(1.5, 1)) },
+    temps: result.temps.map((temp, index) => ({ ...temp, celsius: round(temp.celsius + wave(1.8, 2 + index)) })),
+  };
+}
 api.get("/operations/:id/inspect", (request, response) => {
   const result = fixturesFor(scenarioOf(request.get("referer")))[request.params.id];
   if (!result) return response.status(404).json({ error: "Not in the demo", code: "demo_missing" });
-  return json(response, { operation: request.params.id, result });
+  return json(response, { operation: request.params.id, result: request.params.id === "system.performance.inspect" ? breathing(result) : result });
 });
 // Read-only operations answer from the same fixtures the inspect route uses, so anything the UI
 // reads through /run (which is how it passes parameters) behaves here too.

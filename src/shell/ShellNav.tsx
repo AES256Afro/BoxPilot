@@ -40,8 +40,12 @@ export const dockAreas: Array<{ id: ViewName; short?: string; priority: 1 | 2 | 
   { id: "settings", priority: 3, separatorBefore: true },
 ];
 
-/** The dock, with counts from what Home or Ops last read (nothing is fetched for them). */
-export function ShellDock({ view, onSelect }: { view: ViewName | null; onSelect: (view: ViewName) => void }) {
+/**
+ * The dock, with counts from what Home or Ops last read (nothing is fetched for them). On Ops it is
+ * the study's rail instead (M33.7): the same areas stood down the left edge under the BoxPilot mark,
+ * led by Ops itself as the current item; on a narrow screen the rail folds back into the dock.
+ */
+export function ShellDock({ view, onSelect, variant = "dock" }: { view: ViewName | null; onSelect: (view: ViewName) => void; variant?: "dock" | "rail" }) {
   const facts = useOptionalFacts()?.facts;
   const [allOpen, setAllOpen] = useState(false);
   const updates = facts?.updates.value?.count ?? 0;
@@ -52,13 +56,16 @@ export function ShellDock({ view, onSelect }: { view: ViewName | null; onSelect:
     badgeLabel: id === "repairs" ? "to fix" : "waiting",
   }));
   const more: DockItem = { id: "more", label: "All areas", short: "More", icon: <MoreIcon />, priority: "overflow" };
+  const rail = variant === "rail";
+  const lead: DockItem[] = rail && view ? [{ id: view, label: viewLabel(view), icon: <AreaIcon view={view} />, current: true, priority: 3 }] : [];
   return (
     <>
       <Dock
-        className="shell-dock"
+        className={rail ? "shell-dock shell-dock--rail" : "shell-dock"}
         label="Admin areas"
+        lead={rail ? <span className="shell-rail__logo" aria-hidden="true">BP</span> : undefined}
         onSelect={(id) => (id === "more" ? setAllOpen(true) : onSelect(id as ViewName))}
-        items={[...areas, more]}
+        items={[...lead, ...areas, more]}
       />
       {allOpen && <AreasSheet areas={areas} onClose={() => setAllOpen(false)} onSelect={(id) => { setAllOpen(false); onSelect(id); }} />}
     </>

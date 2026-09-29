@@ -27,6 +27,21 @@ describe("the dock", () => {
     expect(screen.queryByRole("dialog", { name: "All areas" })).toBeNull();
   });
 
+  it("stands up as Ops' rail: the same areas under the BoxPilot mark, led by Ops as the current one", () => {
+    const onSelect = vi.fn();
+    render(<ShellDock view="ops" onSelect={onSelect} variant="rail" />);
+    const rail = screen.getByRole("navigation", { name: "Admin areas" });
+    expect(rail.classList.contains("shell-dock--rail")).toBe(true);
+    expect(rail.querySelector(".shell-rail__logo")?.getAttribute("aria-hidden")).toBe("true");
+    const items = within(rail).getAllByRole("button").filter((button) => button.classList.contains("ui-dock__item"));
+    expect(items[0].getAttribute("aria-current")).toBe("page");
+    expect(within(items[0]).getByText("Ops", { selector: ".ui-visually-hidden" })).toBeTruthy();
+    // Every area of the dock is on the rail, each still named in full for assistive technology.
+    for (const area of dockAreas) expect(rail.querySelector(`[data-area="${area.id}"]`)).not.toBeNull();
+    fireEvent.click(within(rail).getByRole("button", { name: "Firewall" }));
+    expect(onSelect).toHaveBeenCalledWith("firewall");
+  });
+
   it("closes the sheet on Escape without going anywhere", () => {
     const onSelect = vi.fn();
     render(<ShellDock view="home" onSelect={onSelect} />);

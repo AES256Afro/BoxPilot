@@ -54,6 +54,9 @@ const viewport = { width: viewportWidth, height: viewportHeight, deviceScaleFact
 const scenario = (process.env.SCENARIO ?? "").trim();
 if (scenario && !["default", "fresh", "trouble"].includes(scenario)) throw new Error(`SCENARIO takes default, fresh or trouble, not ${scenario}`);
 const settleMs = 2500;
+// Ops draws a sparkline from its own reads, one every five seconds from when it opens (M33.7);
+// three reads are the first picture with a line worth looking at.
+const settleFor = (query) => (/[?&]view=ops(&|$)/.test(query) ? 11_500 : settleMs);
 const tallest = 12_000;
 
 /** page file name → query string. The README's pages, in its order. */
@@ -259,7 +262,7 @@ async function main() {
         const loaded = devtools.once("Page.loadEventFired");
         await devtools.send("Page.navigate", { url: `${baseUrl}/${query}` });
         await loaded;
-        await sleep(settleMs);
+        await sleep(settleFor(query));
         for (const text of clicks) {
           if (!(await devtools.evaluate(clickScript(text)))) throw new Error(`nothing to click named "${text}"`);
           await sleep(900);
@@ -272,10 +275,20 @@ async function main() {
             await sleep(400);
           }
           const applied = await devtools.evaluate("getComputedStyle(document.documentElement).colorScheme");
+          // A page wider than the window scrolls sideways, which a picture clipped to the window hides.
+          const overflow = Number(await devtools.evaluate("document.documentElement.scrollWidth - window.innerWidth")) || 0;
+          // The typefaces are served by BoxPilot itself (M33.7): say so when one did not arrive.
+          const fonts = String(await devtools.evaluate("[...document.fonts].filter((face) => face.status === 'error').map((face) => face.family).join(', ')") ?? "");
           const file = store(schemes.length > 1 ? `${name}-${scheme}` : name, await capture(devtools));
           written += 1;
           const mismatch = applied && !String(applied).includes(scheme) ? `  WARNING: the page rendered color-scheme "${applied}"` : "";
-          console.log(`${file}  (${title}, ${scheme})${mismatch}`);
+          const wide = overflow > 0 ? `  WARNING: ${overflow}px wider than the window` : "";
+          const missing = fonts ? `  WARNING: fonts failed to load: ${fonts}` : "";
+          console.log(`${file}  (${title}, ${scheme})${mismatch}${wide}${missing}`);
+          if (index === 0 && (name === "home" || name === "ops")) {
+            const loaded = await devtools.evaluate("[...new Set([...document.fonts].filter((face) => face.status === 'loaded').map((face) => `${face.family} ${face.weight}`))].join(', ')");
+            console.log(`  fonts loaded from ${baseUrl}: ${loaded || "none"}`);
+          }
         }
       } catch (error) {
         skipped.push(`${name}: ${error.message}`);
