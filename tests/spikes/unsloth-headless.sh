@@ -8,7 +8,7 @@
 # product code: nothing in BoxPilot calls it.
 #
 #   tests/spikes/unsloth-headless.sh <step>
-#   steps: build models perf capability lifecycle embeddings official
+#   steps: build models perf capability lifecycle embeddings recommended official
 #
 # Every measurement is one JSON line in $SPIKE_OUT/results.jsonl; logs land in $SPIKE_OUT/logs.
 set -uo pipefail
@@ -152,6 +152,10 @@ established() { # remote ends of established TCP connections inside the containe
 }
 
 processes() { docker top "$1" -eo pid,ni,rss,args 2>/dev/null | tail -n +2 | awk '{$1=$1; print}' | cut -c1-160 | jq -R . | jq -sc .; }
+
+reload_args() { # the context and threads of the last llama-server Unsloth started
+  docker logs "$1" 2>&1 | grep -o 'Starting llama-server: [^"]*' | tail -1 | grep -oE ' -c [0-9]+| --threads [0-9]+' | tr '\n' ' '
+}
 
 # ---- starting the server -----------------------------------------------------------------------
 
@@ -382,14 +386,20 @@ step_capability() {
 step_lifecycle() {
   # Idle unload inside Unsloth (UNSLOTH_MODEL_IDLE_TTL, 60 s floor), then pause, stop/start with a
   # warm page cache, and stop/start after dropping caches (a cold boot's disk reads).
+  # Unsloth's reload after an idle unload forgets --context-length and relaunches at the GGUF's
+  # 262,144 tokens (an 8 GB KV cache, OOM-killed under the cap), but it keeps the llama-server
+  # arguments passed through, so the context is pinned there too (-c), with fewer checkpoints.
   local name=uns-life tmp t0 since llama
   tmp="$(mktemp)"
-  run_unsloth "$name" 1.0 2 -e UNSLOTH_MODEL_IDLE_TTL=60 || return 1
-  start_and_time "$name" lifecycle cpus=1.0 threads=2 idle_ttl=60 || { docker rm -f "$name"; return 1; }
+  run_unsloth "$name" 1.0 1 -e UNSLOTH_MODEL_IDLE_TTL=60 -- -c "$CTX" --ctx-checkpoints 4 || return 1
+  start_and_time "$name" lifecycle cpus=1.0 threads=1 idle_ttl=60 pinned_ctx=true || { docker rm -f "$name"; return 1; }
   probe first-token --key "$KEY" >"$tmp"
+  # Unsloth answers /v1/embeddings beside the chat model by starting a second llama-server.
+  record lifecycle "$(probe embed --key "$KEY" --timeout 300 | tail -1)" phase=embeddings-beside-chat
   llama="$(docker top "$name" -eo comm | grep -c llama-server)"
   read -r mcur _ manon mfile < <(cg_mem "$CG")
-  record lifecycle "$(tail -1 "$tmp")" phase=first-request llama_server_procs="$llama" mem_mb="$mcur" anon_mb="$manon" file_mb="$mfile"
+  record lifecycle "$(tail -1 "$tmp")" phase=first-request llama_server_procs="$llama" mem_mb="$mcur" anon_mb="$manon" file_mb="$mfile" \
+    processes="$(processes "$name")"
 
   log "lifecycle: waiting past the idle TTL"
   sleep 100
@@ -401,7 +411,9 @@ step_lifecycle() {
   t0="$(date +%s.%N)"
   probe first-token --key "$KEY" --retry 600 >"$tmp"
   llama="$(docker top "$name" -eo comm | grep -c llama-server)"
-  record lifecycle "$(tail -1 "$tmp")" phase=request-after-unload to_first_token_s="$(sub "$(jq -r '.first_token_epoch // empty' "$tmp")" "$t0")" llama_server_procs="$llama"
+  read -r mcur _ manon mfile < <(cg_mem "$CG")
+  record lifecycle "$(tail -1 "$tmp")" phase=request-after-unload to_first_token_s="$(sub "$(jq -r '.first_token_epoch // empty' "$tmp")" "$t0")" \
+    llama_server_procs="$llama" mem_mb="$mcur" anon_mb="$manon" reload_args="$(reload_args "$name")"
 
   docker pause "$name" >/dev/null
   sleep 5
@@ -432,6 +444,43 @@ step_lifecycle() {
       to_ready_s="$(sub "$(ts_of "$name" 'API Key' "$since")" "$t0")" \
       to_first_token_s="$(sub "$(jq -r '.first_token_epoch // empty' "$tmp")" "$t0")"
   done
+  save_logs "$name"
+  docker rm -f "$name" >/dev/null 2>&1
+  rm -f "$tmp"
+}
+
+step_recommended() {
+  # The configuration the findings recommend, end to end: 1 CPU, 1 thread, nice 19, 8K context
+  # pinned in llama-server's own arguments, four context checkpoints, and idle measured for five
+  # minutes with the chat model and Unsloth's embedding sidecar both loaded.
+  local name=uns-rec tmp
+  tmp="$(mktemp)"
+  run_unsloth "$name" 1.0 1 -- -c "$CTX" --ctx-checkpoints 4 || return 1
+  start_and_time "$name" recommended cpus=1.0 threads=1 mem="$MEM" || { docker rm -f "$name"; return 1; }
+  measure "$CG" "$tmp" probe first-token --key "$KEY"
+  record recommended "$(tail -1 "$tmp")" kind=warmup cpu_pct="$CPU_PCT"
+  measure "$CG" "$tmp" probe bench --kind short --key "$KEY"
+  record recommended "$(tail -1 "$tmp")" cpu_pct="$CPU_PCT" throttled_s="$THROTTLED_S"
+  measure "$CG" "$tmp" probe tools --key "$KEY" --trials 5
+  record recommended-tools "$(tail -1 "$tmp")" cpu_pct="$CPU_PCT"
+  measure "$CG" "$tmp" probe embed --key "$KEY" --timeout 300
+  record recommended-embed "$(tail -1 "$tmp")" embedder=studio-default cpu_pct="$CPU_PCT"
+  sleep 30
+  read -r mcur mpeak manon mfile < <(cg_mem "$CG")
+  record recommended-idle "$(idle_window "$name" "${SPIKE_LONG_IDLE_S:-300}")" mem_mb="$mcur" mem_peak_mb="$mpeak" anon_mb="$manon" \
+    file_mb="$mfile" processes="$(processes "$name")" listening_in_container="$(listening "$name")" established="$(established "$name")"
+  save_logs "$name"
+  docker rm -f "$name" >/dev/null 2>&1
+
+  # Unsloth's embedder swapped for Qwen3-Embedding through RAG_EMBEDDING_MODEL.
+  name=uns-rag
+  run_unsloth "$name" 1.0 1 -e RAG_EMBEDDING_MODEL=Qwen/Qwen3-Embedding-0.6B-GGUF -- -c "$CTX" --ctx-checkpoints 4 || return 1
+  if start_and_time "$name" recommended-load rag_model=Qwen/Qwen3-Embedding-0.6B-GGUF; then
+    measure "$CG" "$tmp" probe embed --key "$KEY" --timeout 600
+    read -r mcur _ manon mfile < <(cg_mem "$CG")
+    record recommended-embed "$(tail -1 "$tmp")" embedder=Qwen/Qwen3-Embedding-0.6B-GGUF cpu_pct="$CPU_PCT" mem_mb="$mcur" \
+      anon_mb="$manon" processes="$(processes "$name")"
+  fi
   save_logs "$name"
   docker rm -f "$name" >/dev/null 2>&1
   rm -f "$tmp"
@@ -554,9 +603,9 @@ step_official() {
 main() {
   local step="${1:-}"
   case "$step" in
-    build | models | perf | capability | lifecycle | embeddings | official) ;;
+    build | models | perf | capability | lifecycle | embeddings | recommended | official) ;;
     *)
-      echo "usage: $0 build|models|perf|capability|lifecycle|embeddings|official" >&2
+      echo "usage: $0 build|models|perf|capability|lifecycle|embeddings|recommended|official" >&2
       exit 2
       ;;
   esac

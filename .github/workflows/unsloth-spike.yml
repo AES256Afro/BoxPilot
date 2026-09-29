@@ -7,8 +7,8 @@ on:
   workflow_dispatch:
     inputs:
       jobs:
-        description: "Comma-separated jobs to run: perf, capability, official, nine-b (9B and 2B comparison)"
-        default: "perf,capability,official,nine-b"
+        description: "Comma-separated jobs to run: perf, capability, recommended, official, nine-b (9B and 2B comparison)"
+        default: "perf,capability,recommended,official,nine-b"
         type: string
 
 permissions:
@@ -104,6 +104,39 @@ jobs:
         if: always()
         with:
           name: unsloth-spike-capability
+          path: ${{ runner.temp }}/unsloth-spike
+          retention-days: 30
+
+  # The configuration the findings recommend, then idle unload, pause and cold start with its flags.
+  recommended:
+    needs: models
+    if: contains(format(',{0},', inputs.jobs), ',recommended,')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - uses: actions/cache/restore@v6
+        with:
+          path: ${{ runner.temp }}/hf
+          key: ${{ env.HF_CACHE_KEY }}
+          fail-on-cache-miss: true
+      - name: Build the slim image with Unsloth's installer
+        run: bash tests/spikes/unsloth-headless.sh build
+      - name: Recommended flags, five minutes idle, embeddings beside chat
+        run: bash tests/spikes/unsloth-headless.sh recommended
+      - name: Idle unload with the context pinned, pause, cold start
+        if: always()
+        run: bash tests/spikes/unsloth-headless.sh lifecycle
+      - name: Summary
+        if: always()
+        run: node tests/spikes/unsloth-probe.mjs summarize --in "$RUNNER_TEMP/unsloth-spike/results.jsonl" --title "recommended (Qwen3.5-4B)" >> "$GITHUB_STEP_SUMMARY" || true
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: unsloth-spike-recommended
           path: ${{ runner.temp }}/unsloth-spike
           retention-days: 30
 
