@@ -254,3 +254,43 @@ export function deployedImages(composeText) {
   }
   return images;
 }
+
+/**
+ * The host ports a deployed compose file publishes, as Docker will bind them: one entry per port,
+ * `{ service, host, protocol, bind }`, where `bind` is the address given ("" when none, which is
+ * every address of both families). Ranges are expanded (up to 128 ports each); a port Docker picks
+ * itself, or one written as a variable, is left out because nothing can be said about it.
+ *
+ * The inverse of the `ports:` renderCompose writes, and the only exact record of what `compose up`
+ * is about to ask the kernel for: a raw-edited file can say anything, and the stored settings
+ * describe what the renderer would write, not what is there.
+ */
+export function publishedPorts(composeText) {
+  let parsed = null;
+  try { parsed = YAML.parse(String(composeText ?? "")); } catch { return []; }
+  const services = parsed?.services;
+  if (!services || typeof services !== "object") return [];
+  const published = [];
+  const add = (service, hostSpec, protocol, bind) => {
+    const range = /^(\d+)(?:-(\d+))?$/.exec(String(hostSpec ?? "").trim());
+    if (!range) return;
+    const low = Number(range[1]);
+    const high = range[2] ? Number(range[2]) : low;
+    if (!(low >= 1 && high <= 65535 && high >= low)) return;
+    for (let host = low; host <= Math.min(high, low + 127); host += 1) published.push({ service, host, protocol: protocol === "udp" ? "udp" : "tcp", bind: String(bind ?? "") });
+  };
+  for (const [service, definition] of Object.entries(services)) {
+    if (!definition || typeof definition !== "object" || definition.network_mode === "host") continue;
+    for (const entry of Array.isArray(definition.ports) ? definition.ports : []) {
+      if (entry && typeof entry === "object") {
+        // Long syntax: { target, published, host_ip, protocol }.
+        if (entry.published !== undefined && entry.published !== null) add(service, entry.published, entry.protocol, entry.host_ip);
+        continue;
+      }
+      // Short syntax: [host_ip:]host:container[/protocol], host_ip possibly [bracketed] IPv6.
+      const match = /^(?:(\[[^\]]+\]|[^:[\]]+):)?(\d+(?:-\d+)?):(\d+(?:-\d+)?)(?:\/(tcp|udp))?$/.exec(String(entry).trim());
+      if (match) add(service, match[2], match[4], match[1] ? match[1].replace(/^\[|\]$/g, "") : "");
+    }
+  }
+  return published;
+}
