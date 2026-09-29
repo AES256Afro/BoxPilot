@@ -69,9 +69,11 @@ describe("BoxPilot console", () => {
     await screen.findByRole("heading", { level: 1, name: greeting });
     for (const area of dockAreas) {
       fireEvent.click(within(dock()).getByRole("button", { name: new RegExp(`^${viewLabel(area.id).replace(/[&()]/g, "\\$&")}`) }));
-      const title = viewCopy[area.id].title;
+      // Repair (M35) draws its own crumb and verdict at the top of the page; every other page's
+      // name is in the bar.
+      const title = area.id === "repairs" ? "Repair" : viewCopy[area.id].title;
       const heading = await screen.findByRole("heading", { level: 1, name: title });
-      expect(heading.closest(".topbar")).not.toBeNull();
+      if (area.id !== "repairs") expect(heading.closest(".topbar")).not.toBeNull();
       expect(container.querySelector(".page-header, .feature-strip, [aria-label='Features']")).toBeNull();
       const described = screen.queryByText(viewCopy[area.id].description);
       if (described) expect(described.closest("[hidden]")).not.toBeNull();

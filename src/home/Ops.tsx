@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { openActivity, openNotifications } from "../activityEvents";
-import { useOperation } from "../ApproveDialog";
+import { useNeedActions } from "./useNeedActions";
 import { countOf, sentenceList, type ViewName } from "../data";
 import { readJson } from "../http";
 import { inspectOperation, type Job } from "../operations";
@@ -94,14 +94,16 @@ function figure(text: string): ReactNode {
 
 
 export default function Ops({ csrfToken, role, onNavigate, now = Date.now, pollMs = 5000 }: OpsProps) {
-  const { facts, refresh } = useFacts();
+  const { facts, refresh, accept } = useFacts();
   const clock = now();
   const values = useMemo(() => valuesOf(facts), [facts]);
   const needs = buildNeeds(values, { now: clock, role });
   const tiers = groupByTier(needs);
   const performance = usePerformance(pollMs, now);
   const history = useJobHistory();
-  const { start, dialog } = useOperation(csrfToken, () => refresh());
+  // Every button in the alerts and the inbox, Repair's fixes included, run as Repair runs them (M35).
+  const { act, runs, dialog } = useNeedActions({ csrfToken, refresh, accept });
+  const runOf = (need: Need) => (need.finding ? runs[need.finding.id] : undefined);
 
   const inventory = values.inventory;
   const hostname = inventory?.hostname ?? "This server";
@@ -112,9 +114,6 @@ export default function Ops({ csrfToken, role, onNavigate, now = Date.now, pollM
   // A staged or failed job opens in Activity, where it can be approved, cancelled or dismissed (M36).
   // What BoxPilot could not tell anyone is read in the notification centre, which says what it was.
   const open = (need: Need) => (need.jobId ? openActivity(need.jobId) : need.id === "unannounced" ? openNotifications() : onNavigate(need.view, need.appId && need.view === "catalog" ? { app: need.appId } : undefined));
-  const act = (need: Need) => {
-    if (need.action) start({ operationId: need.action.operationId, title: need.action.title, parameters: need.action.parameters, preview: need.action.preview ? <span>{need.action.preview}</span> : undefined, existingJobId: need.action.existingJobId });
-  };
 
   // ── The metric strip: the live read when it answers, the inventory's otherwise. ──
   const perf = performance.value;
@@ -249,37 +248,37 @@ export default function Ops({ csrfToken, role, onNavigate, now = Date.now, pollM
       </section>
 
       <div className="ops-grid">
-        <Panel flush className="ops-alerts" title="Alerts" count={{ status: worstLook, label: String(tiers.look.length) }} meta={tiers.look.length ? "each opens its page" : undefined}>
+        <Panel className="ops-alerts" title="Alerts" count={{ status: worstLook, label: String(tiers.look.length) }} meta={tiers.look.length ? "each opens its page" : undefined}>
           {tiers.look.length === 0
             ? <p className="ops-quiet">{checking ? "Reading…" : unread.length ? `Not read: ${sentenceList(unread)}.` : "No alerts."}</p>
-            : <ul className="need-list">{tiers.look.map((need) => <NeedRow key={need.id} need={need} onOpen={open} onAct={act} />)}</ul>}
+            : <ul className="need-list">{tiers.look.map((need) => <NeedRow key={need.id} need={need} onOpen={open} onAct={act} run={runOf(need)} />)}</ul>}
         </Panel>
 
-        <Panel flush className="ops-containers" title="Containers & VMs"
+        <Panel className="ops-containers" title="Containers & VMs"
           count={facts.catalog.state === "failed" ? { status: "unknown", label: "not read" } : undefined}
           meta={values.catalog ? `${countOf(rows.filter((row) => row.kind === "app").length, "app")}, ${containersUp} up${values.vms ? ` · ${countOf(values.vms.domains.length, "VM")}` : ""}${perf && !perf.statsAvailable ? " · Docker's stats are not answering" : ""}` : undefined}>
           <Table caption="Containers and virtual machines" columns={workloadColumns} rows={rows} rowKey={(row) => row.id} rowStatus={(row) => row.status}
             empty={facts.catalog.state === "failed" ? "Which apps are installed could not be read." : values.catalog ? "No apps are installed yet." : "Reading…"} />
         </Panel>
 
-        <Panel flush className="ops-inbox" title="Action inbox" count={{ status: inboxCount ? "warning" : "good", label: String(inboxCount) }}
+        <Panel className="ops-inbox" title="Action inbox" count={{ status: inboxCount ? "warning" : "good", label: String(inboxCount) }}
           meta={<><b>L</b> one click · <b>M</b> preview · <b>H</b> password</>}>
           {inboxCount === 0 && <p className="ops-quiet">{checking ? "Reading…" : "Nothing waiting to be run."}</p>}
           {tierGroups.filter(([, list]) => list.length > 0).map(([tier, list]) => (
             <section key={tier} className="ops-tier" aria-label={`${tier} risk`}>
               <h3 className="ui-visually-hidden">{tierHeading[tier]}</h3>
-              <ul className="need-list">{list.map((need) => <NeedRow key={need.id} need={need} onOpen={open} onAct={act} tier="lead" />)}</ul>
+              <ul className="need-list">{list.map((need) => <NeedRow key={need.id} need={need} onOpen={open} onAct={act} tier="lead" run={runOf(need)} />)}</ul>
             </section>
           ))}
         </Panel>
 
-        <Panel flush className="ops-jobs" title="Job queue" count={facts.jobs.state === "failed" ? { status: "unknown", label: "not read" } : undefined}
+        <Panel className="ops-jobs" title="Job queue" count={facts.jobs.state === "failed" ? { status: "unknown", label: "not read" } : undefined}
           meta={`${running} running · ${waiting} waiting for approval · ${failedToday} failed today`}>
           <Table caption="Recent jobs" columns={jobColumns} rows={queue} rowKey={(job) => job.id} rowStatus={(job) => jobState(job).status}
             empty={facts.jobs.state === "failed" ? "Job history could not be read." : values.jobs ? "No jobs yet." : "Reading…"} />
         </Panel>
 
-        <Panel flush className="ops-backups" title="Backups" count={facts.protection.state === "failed" ? { status: "unknown", label: "not read" } : undefined}
+        <Panel className="ops-backups" title="Backups" count={facts.protection.state === "failed" ? { status: "unknown", label: "not read" } : undefined}
           meta={<>{offBox ? (offBox.state === "ok" ? `off-box ${relativeTime(offBox.lastSyncAt, clock)}` : offBox.state === "none" ? "no off-box copy" : "off-box copy behind") : "off-box not read"} · database {database?.lastBackupAt ? relativeTime(database.lastBackupAt, clock) : database ? "never backed up" : "not read"}</>}>
           <Table caption="Backups of each app, with its last runs" columns={backupColumns} rows={matrix} rowKey={(row) => row.id} rowStatus={(row) => row.status}
             empty={facts.protection.state === "failed" ? "Which apps have backups could not be read." : values.protection ? "No app holds data to back up." : "Reading…"} />
@@ -287,20 +286,20 @@ export default function Ops({ csrfToken, role, onNavigate, now = Date.now, pollM
 
         {/* What the Classic overview showed and Ops now does (M33.8): each drive's health, the key
             services, the UPS and the setup checklist. */}
-        <Panel flush className="ops-disks" title="Disks" count={inventory ? smartCount : undefined}
+        <Panel className="ops-disks" title="Disks" count={inventory ? smartCount : undefined}
           meta={smart?.readAt ? `read ${relativeTime(smart.readAt, clock)}${smart.stale ? " · stale" : ""}` : undefined}>
           {smart?.available && smart.disks.length > 0
             ? <Table caption="Each drive's health" columns={diskColumns} rows={smart.disks} rowKey={(disk) => disk.device} rowStatus={(disk) => diskHealth(disk).status} />
             : <p className="ops-quiet">{!inventory ? (facts.inventory.state === "failed" ? "The drives could not be read." : "Reading…") : smart?.available ? "No drive reported its health." : smartUnreadReason(smart)}</p>}
         </Panel>
 
-        <Panel flush className="ops-services" title="Key services" count={servicesDown ? { status: "danger", label: `${servicesDown} down` } : undefined}
+        <Panel className="ops-services" title="Key services" count={servicesDown ? { status: "danger", label: `${servicesDown} down` } : undefined}
           meta={inventory ? `${keyServices.length - servicesDown} of ${keyServices.length} running` : undefined}>
           <Table caption="Key system services" columns={serviceColumns} rows={keyServices} rowKey={(service) => service.unit} rowStatus={(service) => serviceState(service).status}
             empty={!inventory ? (facts.inventory.state === "failed" ? "The services could not be read." : "Reading…") : "This server named no key services."} />
         </Panel>
 
-        <Panel className="ops-power" title="Power" count={inventory ? { status: power.status, label: power.label } : undefined}>
+        <Panel padded className="ops-power" title="Power" count={inventory ? { status: power.status, label: power.label } : undefined}>
           <p className="ops-power__headline">{inventory ? power.headline : facts.inventory.state === "failed" ? "The UPS could not be read." : "Reading…"}</p>
           {ups?.available && (
             <KeyValue layout="rows" items={[
@@ -313,7 +312,7 @@ export default function Ops({ csrfToken, role, onNavigate, now = Date.now, pollM
           {inventory && !ups?.configured && <Button variant="ghost" onClick={() => onNavigate("system")}>Set up a UPS on System</Button>}
         </Panel>
 
-        <Panel flush className="ops-setup" title="Setup" count={values.checklist ? { status: setup.status, label: setup.label } : undefined}
+        <Panel className="ops-setup" title="Setup" count={values.checklist ? { status: setup.status, label: setup.label } : undefined}
           meta={values.checklist ? "essentials in place" : undefined}>
           {!values.checklist
             ? <p className="ops-quiet">{facts.checklist.state === "failed" ? "The setup checklist could not be read." : "Reading…"}</p>

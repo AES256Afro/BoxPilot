@@ -184,7 +184,7 @@ describe("more time for an operation that ran out of it (M30.3)", () => {
 
   it("is offered by the pulls and nothing else, each at most four times its budget", () => {
     const offered = registry.list().filter((operation) => operation.maxTimeoutMs).map((operation) => operation.id).sort();
-    expect(offered).toEqual(["app.install", "app.model.pull", "app.rollback", "app.update"]);
+    expect(offered).toEqual(["app.install", "app.model.pull", "app.reinstall", "app.rollback", "app.update"]);
     for (const id of offered) expect(registry.get(id).maxTimeoutMs).toBe(registry.get(id).timeoutMs * 4);
   });
 });

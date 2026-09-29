@@ -17,8 +17,9 @@ const reads = new Set(["GET", "HEAD", "OPTIONS"]);
 /**
  * The /api/v1 role policy, ahead of every router: viewers look (and run read-only operations, which
  * the operations router checks one by one, and ask the assistant, which only reads and answers from
- * what the asker may read); operators change the box but not its settings or people; disabled
- * accounts get nothing. Express routes case-insensitively and with or without a trailing slash, so
+ * what the asker may read); operators change the box but not its settings or people - Repair's
+ * dismissals and fix attempts (M35) are theirs as fixing is - and disabled accounts get nothing.
+ * Express routes case-insensitively and with or without a trailing slash, so
  * the policy compares the path lower-cased and without one: `/Operations/x/run/` is the route
  * `/operations/x/run`, and must be judged as that route.
  */

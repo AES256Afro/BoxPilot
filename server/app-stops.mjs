@@ -8,7 +8,7 @@
  * unpause, an update, a reinstall or reconfigure, a rollback, and removing the app. A pause leaves
  * it as it was. Only operations that finished are folded in (operationRecordHooks run on success).
  */
-export const appStopClearingOperations = Object.freeze(["app.install", "app.update", "app.reconfigure", "app.rollback", "app.uninstall", "app.purge"]);
+export const appStopClearingOperations = Object.freeze(["app.install", "app.reinstall", "app.update", "app.reconfigure", "app.rollback", "app.uninstall", "app.purge"]);
 
 /** The record after `job`: a new object, or the same one when the job changes nothing. */
 export function foldAppStop(entries, job, { now = () => new Date() } = {}) {
@@ -18,6 +18,9 @@ export function foldAppStop(entries, job, { now = () => new Date() } = {}) {
   const operation = String(job.type ?? "").replace(/^op:/, "");
   const action = job.parameters?.action;
   if (operation === "app.action" && action === "stop") return { ...current, [id]: { at: now().toISOString(), by: job.createdBy ?? null } };
+  // Repair's "Recreate (stays stopped)" (M35) builds a pruned app's container and leaves it stopped:
+  // it is still stopped on purpose, since the owner's stop stands.
+  if (operation === "app.reinstall" && job.parameters?.start === false) return current;
   const clears = (operation === "app.action" && ["start", "restart", "unpause"].includes(action)) || appStopClearingOperations.includes(operation);
   if (!clears || !(id in current)) return current;
   const { [id]: _cleared, ...rest } = current;

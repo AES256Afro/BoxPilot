@@ -6555,6 +6555,11 @@ body {
 .content--console { display: grid; align-content: start; gap: 10px; }
 .content--console > .page-loading { margin: 0; }
 .cc { gap: 8px; color: var(--cc-text); }
+/* A verdict row a page draws by hand (Repair, M35): the chip, a sentence, the actions. PageHeader
+   draws the same row for a page built on the kit. */
+.cc-status { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; min-width: 0; }
+.cc-status .ops-verdict { flex: 1 1 18rem; min-width: 0; margin: 0; color: var(--cc-text); font-size: 14px; }
+.cc-status .ui-button { margin-left: auto; }
 
 /* ── The page header (src/ui/PageHeader.tsx): the verdict, a sentence, the facts in mono, and the
    page's actions on one row under the bar. ── */
@@ -6617,8 +6622,9 @@ body {
 .ui-panel__meta b { color: var(--text); font-weight: 600; }
 .ui-panel__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-left: auto; }
 .ui-panel__meta + .ui-panel__actions { margin-left: 0; }
-.ui-panel__body { display: grid; flex: 1 1 auto; align-content: start; gap: 10px; min-width: 0; padding: 12px; }
-.ui-panel--flush > .ui-panel__body { display: block; padding: 0; }
+/* The body draws its rows to the edges, as a table or a list does; padded, for words, a form or facts. */
+.ui-panel__body { flex: 1 1 auto; min-width: 0; }
+.ui-panel--padded > .ui-panel__body { display: grid; align-content: start; gap: 10px; padding: 12px; }
 .ui-panel__foot { flex: none; padding: 6px 12px; border-top: 1px solid var(--border); color: var(--text-muted); font-family: var(--font-mono); font-size: 11.5px; line-height: 1.5; }
 .ui-panel__foot b { color: var(--text); font-weight: 600; }
 .cc .ops-quiet { padding: 12px; color: var(--cc-muted); font-size: 14px; }
@@ -7186,4 +7192,14 @@ body {
 
 @media (max-width: 640px) {
   :root[data-shell="console"] table.stack-on-phone td { padding: 3px 12px; }
+}
+
+/* Home and Ops: the buttons a need offers, and a fix's progress under its words (M35). */
+.need__acts { display: inline-flex; flex: none; flex-wrap: wrap; justify-content: flex-end; gap: 6px; margin-left: auto; }
+.need__acts .need__act { margin-left: 0; }
+.need__run { color: var(--text-muted); font-size: var(--font-size-sm); line-height: 1.4; overflow-wrap: anywhere; }
+.lx-fixed { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 8px 0 0; color: var(--text); font-size: 13.5px; line-height: 1.4; }
+
+@media (max-width: 620px) {
+  .need__acts { flex: 1 1 100%; justify-content: flex-start; margin-left: 0; }
 }

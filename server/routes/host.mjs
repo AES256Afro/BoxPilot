@@ -14,6 +14,7 @@ import { hashPassword, renderAutoinstall, validateAutoinstallInput } from "../au
 import { readTlsStatus } from "../tls-status.mjs";
 import { collectStorage } from "../storage-inventory.mjs";
 import { detectRemediations } from "../remediations.mjs";
+import { applyLedger, attemptsKey, dismissalFrom, dismissalsKey, findingIdPattern, jobIdPattern, withAttempt, withDismissal } from "../repair-ledger.mjs";
 import { callerId, readsThroughHelper, seesEveryAccount, withOwnActors } from "./access.mjs";
 import { access, readFile } from "node:fs/promises";
 import path from "node:path";
@@ -165,12 +166,12 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
    * that fixes each one; nothing runs until the owner approves it.
    */
   router.get("/remediations", async (request, response) => {
-    const facts = { mounts: [], devices: [], containers: [], shares: [], apps: [], samba: null };
+    const facts = { mounts: [], devices: [], containers: [], shares: [], sambaShares: [], apps: [], samba: null, now: Date.now() };
     // File sharing (share folder owners, stat'd as root) and USB history (the kernel's journal) are
     // operator reads (ADR-003). A viewer is not handed what they hold as findings: they are not read
     // on a viewer's behalf, and the scan says which checks it left to an operator (M29.4).
     const operatorReads = readsThroughHelper(request);
-    const [storage, live, samba, usb, unclean, volumes] = await Promise.all([
+    const [storage, live, samba, usb, unclean, volumes, protection] = await Promise.all([
       collect().catch(() => null),
       helper.request("app.inspect", {}, { timeoutMs: 30_000 }).catch(() => null),
       operatorReads ? helper.request("samba.inspect", {}, { timeoutMs: 30_000 }).catch(() => null) : null,
@@ -179,6 +180,8 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
       // What each drive's filesystem says about its last unmount (M26): the kernel's warnings are
       // only evidence for the mount they were printed at.
       operatorReads ? helper.request("storage.volumes.state", {}, { timeoutMs: 90_000 }).catch(() => null) : null,
+      // Which apps have a recent backup (M35), the same read Home's backup panel makes.
+      helper.request("app.backup.protection", {}, { timeoutMs: 60_000 }).catch(() => null),
     ]);
     facts.usb = usb;
     facts.unclean = unclean;
@@ -213,6 +216,8 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
       facts.shares = shares
         .filter((share) => Number.isInteger(share.ownerUid))
         .map((share) => ({ name: share.name, path: share.path, readOnly: Boolean(share.readOnly), forceUser: share.forceUser ?? null, ownerUid: share.ownerUid }));
+      // Every share, so a fix that unmounts a drive can say which shares it disconnects (M35).
+      facts.sambaShares = shares.filter((share) => typeof share.path === "string").map((share) => ({ name: share.name, path: share.path }));
     }
     const verifications = state.getSetting("appBackupVerifications", {}) ?? {};
     const drills = state.getSetting("killSwitchDrills", {}) ?? {};
@@ -224,7 +229,38 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
       folderProblems: app.folderProblems ?? [],
       backupVerification: verifications[app.id] ?? null,
       killSwitchDrill: drills[app.id] ?? null,
+      installedAt: app.state?.installedAt ?? null,
+      container: app.container ?? null,
+      // Installed, with no container at all (M35): where the record is, and what is left to rebuild from.
+      missingContainer: app.missingContainer ?? (app.container && app.container.exists === false ? { record: `the app's boxpilot.json`, project: "its compose.yaml", projectPresent: true, container: `bp-${app.id}` } : null),
     }));
+    // ntfy on this server, for "Nothing BoxPilot notices can reach you" (M35): whether there is one to send to.
+    if (catalogManifests?.some((manifest) => manifest.id === "ntfy") && live) {
+      const ntfy = (live.applications ?? []).find((app) => app.id === "ntfy");
+      facts.ntfy = { installed: Boolean(ntfy?.installed), running: Boolean(ntfy?.container?.running) && ntfy?.container?.status !== "paused" };
+    }
+    facts.protection = protection;
+    const schedules = typeof state.listSchedules === "function" ? state.listSchedules() : [];
+    facts.schedules = schedules.map((schedule) => ({ operationId: schedule.operationId, parameters: schedule.parameters ?? {}, enabled: schedule.enabled !== false }));
+    // The jobs this caller may see, newest first: the last try at each fix, and when Docker's cleanup ran.
+    const visibleJobs = typeof state.listJobs === "function" ? state.listJobs(200, seesEveryAccount(request) ? {} : { createdBy: callerId(request) }) : [];
+    // Each clean-up, and whether a schedule started it (its last job, or a job begun at its time),
+    // so an app it removed can be told "removed by the nightly clean-up" (M35).
+    const pruneSchedules = schedules.filter((schedule) => schedule.operationId === "docker.prune");
+    const scheduleOf = (job) => pruneSchedules.find((schedule) => schedule.lastJobId === job.id) ?? pruneSchedules.find((schedule) => {
+      const started = new Date(job.createdAt ?? "");
+      return schedule.frequency !== "hourly" && !Number.isNaN(started.getTime()) && started.getHours() === schedule.hour && started.getMinutes() - schedule.minute >= 0 && started.getMinutes() - schedule.minute <= 5;
+    }) ?? null;
+    // Only a clean-up that ran `docker system prune` removed containers. Since #312 it prunes images,
+    // the build cache and networks alone, and says so in the description each job keeps as its
+    // recovery reason; one of those is nobody's story.
+    const removedContainers = (job) => !/containers are never removed/i.test(String(job.recovery?.reason ?? ""));
+    facts.pruneRuns = visibleJobs.filter((job) => job.type === "op:docker.prune" && job.state === "completed" && (job.updatedAt ?? job.createdAt) && removedContainers(job)).map((job) => {
+      const schedule = scheduleOf(job);
+      return { at: job.updatedAt ?? job.createdAt, scheduled: Boolean(schedule), frequency: schedule?.frequency ?? null };
+    });
+    const stops = state.getSetting("appStops", {}) ?? {};
+    for (const app of facts.apps) app.stoppedAt = stops[app.id]?.at ?? null;
     // Which folders each installed app has bound, so a remount can say what needs restarting, and
     // which of those the owner chose, so a split across drives can be spotted. A volume with a
     // `path` is inside the app's own managed directory and is nobody else's business.
@@ -235,17 +271,75 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
       app.binds = (manifest?.volumes ?? []).map(chosen).filter((bind) => typeof bind === "string" && bind.startsWith("/"));
       app.dataFolders = (manifest?.volumes ?? []).filter((volume) => !volume.path && !volume.readOnly).map(chosen).filter((folder) => typeof folder === "string" && folder.startsWith("/"));
     }
-    facts.containers = facts.apps.filter((app) => app.binds.length > 0).map((app) => ({ name: `bp-${app.id}`, appId: app.id, binds: app.binds }));
+    facts.containers = facts.apps.filter((app) => app.binds.length > 0).map((app) => ({ name: `bp-${app.id}`, appId: app.id, appName: app.name, binds: app.binds, startedAt: app.container?.running ? app.container.startedAt ?? null : null }));
+    // A drive mounted after an app using it started: that app holds whatever was there before.
+    // Both times are known only from an operator's read of the drives (mountedAt) and Docker.
+    facts.remountedTargets = (volumes?.available && Array.isArray(volumes.drives) ? volumes.drives : [])
+      .filter((drive) => drive.mounted !== false && drive.mountedAt && facts.containers.some((container) => container.startedAt
+        && (container.binds ?? []).some((bind) => bind === drive.mountpoint || bind.startsWith(`${drive.mountpoint}/`))
+        && Date.parse(container.startedAt) < Date.parse(drive.mountedAt) - 5_000))
+      .map((drive) => drive.mountpoint);
     // Every finding here, and every health condition the watcher tracks, ends at a notification
     // target. Whether there is one is therefore part of whether any of this reaches anybody.
     try { facts.notifications = { configured: notifications?.describe?.().configured === true }; } catch { facts.notifications = null; }
-    const unavailableChecks = [["Drives and mounts", storage, true], ["Applications", live, true], ["File sharing", samba, operatorReads], ["USB history", usb, operatorReads], ["Unclean unmounts", unclean, operatorReads], ["Drive filesystems", volumes, operatorReads]]
+    const unavailableChecks = [["Drives and mounts", storage, true], ["Applications", live, true], ["File sharing", samba, operatorReads], ["USB history", usb, operatorReads], ["Unclean unmounts", unclean, operatorReads], ["Drive filesystems", volumes, operatorReads], ["App backups", protection, true]]
       .filter(([, value]) => !value || value.available === false)
       .map(([name, , allowed]) => (allowed ? name : `${name} (needs an operator)`));
     if (storage?.availability?.mounts === false) unavailableChecks.push("Current mounts");
     if (storage?.availability?.fstab === false) unavailableChecks.push("Saved mount configuration");
     if (!catalogManifests) unavailableChecks.push("Application definitions");
-    response.json({ ...detectRemediations(facts), checkedAt: new Date().toISOString(), sourceStatus: unavailableChecks.length ? "partial" : "ready", unavailableChecks });
+    const detected = detectRemediations(facts);
+    // Each fix carries its tier from the registry, the same the approval dialog will ask for.
+    const tiered = detected.findings.map((entry) => {
+      const fixes = entry.fixes.map((fix) => ({ ...fix, risk: registry.get(fix.operationId)?.risk ?? "high" }));
+      return { ...entry, fix: fixes[0] ?? null, fixes };
+    });
+    // What the owner set aside, and the last try at each fix (M35).
+    const ledger = applyLedger(tiered, { dismissals: state.getSetting(dismissalsKey, {}) ?? {}, attempts: state.getSetting(attemptsKey, {}) ?? {}, jobs: visibleJobs });
+    const count = (severity) => ledger.findings.filter((entry) => entry.severity === severity).length;
+    response.json(withOwnActors(request, {
+      findings: ledger.findings, dismissed: ledger.dismissed, jobs: ledger.jobs,
+      counts: { critical: count("critical"), warning: count("warning"), info: count("info") },
+      checkedAt: new Date().toISOString(), sourceStatus: unavailableChecks.length ? "partial" : "ready", unavailableChecks,
+    }));
+  });
+
+  /**
+   * Set a finding aside (M35): "not now", with the reason in the owner's words. It comes back by
+   * itself when what it says changes, and a critical one is never set aside. A failed job is let go
+   * on the job itself (M36, POST /jobs/:id/dismiss). Viewers are refused by the role policy before
+   * this runs; operators may, as they may fix.
+   */
+  router.post("/remediations/dismissals", auth.requireCsrf, (request, response) => {
+    const made = dismissalFrom(request.body, { by: callerId(request) });
+    if (made.error) return response.status(400).json({ error: made.error, code: "dismissal_rejected" });
+    state.updateSetting(dismissalsKey, {}, (entries) => ({ value: withDismissal(entries, made.key, made.entry) }), callerId(request));
+    state.recordAudit?.("repair.dismissed", { actorId: callerId(request), subjectId: made.key, details: { reason: made.entry.reason } });
+    return response.status(201).json({ dismissed: made.key });
+  });
+
+  /** Bring a set-aside finding back. */
+  router.delete("/remediations/dismissals/:id", auth.requireCsrf, (request, response) => {
+    const key = String(request.params.id ?? "");
+    const entries = state.getSetting(dismissalsKey, {}) ?? {};
+    if (!Object.hasOwn(entries, key)) return response.status(404).json({ error: "Nothing is set aside under that name", code: "dismissal_not_found" });
+    state.updateSetting(dismissalsKey, {}, (current) => { const { [key]: _gone, ...rest } = current ?? {}; return { value: rest }; }, callerId(request));
+    state.recordAudit?.("repair.restored", { actorId: callerId(request), subjectId: key });
+    return response.json({ restored: key });
+  });
+
+  /**
+   * Which finding a job was started from (M35), so its outcome is shown on that finding and a failure
+   * drops away once the finding is gone. Only a job the caller may read, and only an operation's.
+   */
+  router.post("/remediations/attempts", auth.requireCsrf, (request, response) => {
+    const { findingId, jobId } = request.body ?? {};
+    if (typeof findingId !== "string" || !findingIdPattern.test(findingId) || typeof jobId !== "string" || !jobIdPattern.test(jobId)) return response.status(400).json({ error: "Name the finding and the job", code: "attempt_rejected" });
+    const job = state.getJob?.(jobId);
+    if (!job || (!seesEveryAccount(request) && job.createdBy !== callerId(request))) return response.status(404).json({ error: "Job not found", code: "job_not_found" });
+    if (!String(job.type).startsWith("op:")) return response.status(400).json({ error: "Only an operation's job fixes a finding", code: "attempt_rejected" });
+    state.updateSetting(attemptsKey, {}, (entries) => ({ value: withAttempt(entries, jobId, findingId) }), callerId(request));
+    return response.status(201).json({ recorded: jobId });
   });
 
   /**

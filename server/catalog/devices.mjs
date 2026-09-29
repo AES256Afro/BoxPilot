@@ -17,7 +17,7 @@ const globCharacters = /[?*[]/;
  * resolver as its prepare hook: one left out re-resolves inside the helper, finds nothing, and
  * drops an optional device (Jellyfin's GPU) or refuses a required one (Zigbee2MQTT's stick).
  */
-export const deviceResolvingOperations = Object.freeze(["app.install", "app.update", "app.reconfigure", "app.rollback", "app.exposure.set", "app.password.set"]);
+export const deviceResolvingOperations = Object.freeze(["app.install", "app.update", "app.reconfigure", "app.reinstall", "app.rollback", "app.exposure.set", "app.password.set"]);
 
 /**
  * Add a `devices` list to the parameters when the app's manifest globs for devices.

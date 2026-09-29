@@ -12,6 +12,7 @@ import { useFacts, valuesOf, type AppFact } from "./facts";
 import { greeting, loadStatus, mountName, mountStatus, relativeTime, shortCpu, size, uptime } from "./format";
 import { smartSummary, upsSummary } from "./hostFacts";
 import { NeedRow } from "./NeedRow";
+import { useNeedActions } from "./useNeedActions";
 import { appHealth, buildNeeds, needsLabel, verdictFor, verdictSources, type Need } from "./needs";
 
 /*
@@ -43,11 +44,13 @@ function AppSquare({ app }: { app: Pick<AppFact, "id" | "name" | "icon"> }) {
 }
 
 export default function Home({ csrfToken, role, onNavigate, now = Date.now }: HomeProps) {
-  const { facts, refresh } = useFacts();
+  const { facts, refresh, accept } = useFacts();
   const clock = now();
   const values = useMemo(() => valuesOf(facts), [facts]);
   const needs = buildNeeds(values, { now: clock, role });
+  // The app sheet's own buttons; every button in the needs goes through useNeedActions (M35).
   const { start, dialog } = useOperation(csrfToken, () => refresh());
+  const { act, runs, remembered, dialog: needDialog } = useNeedActions({ csrfToken, refresh, accept });
   const [sheetFor, setSheetFor] = useState<string | null>(null);
   const [allUrgent, setAllUrgent] = useState(false);
   const [allWaiting, setAllWaiting] = useState(false);
@@ -61,10 +64,10 @@ export default function Home({ csrfToken, role, onNavigate, now = Date.now }: Ho
   // A staged or failed job opens in Activity, where it can be approved, cancelled or dismissed (M36).
   // What BoxPilot could not tell anyone is read in the notification centre, which says what it was.
   const open = (need: Need) => (need.jobId ? openActivity(need.jobId) : need.id === "unannounced" ? openNotifications() : onNavigate(need.view, need.appId && need.view === "catalog" ? { app: need.appId } : undefined));
-  const act = (need: Need) => {
-    if (!need.action) return;
-    start({ operationId: need.action.operationId, title: need.action.title, parameters: need.action.parameters, preview: need.action.preview ? <span>{need.action.preview}</span> : undefined, existingJobId: need.action.existingJobId });
-  };
+  const runOf = (need: Need) => (need.finding ? runs[need.finding.id] : undefined);
+  // Fixed from here and gone from the list since: said once, under it (M35).
+  const listed = new Set(needs.flatMap((need) => (need.finding ? [need.finding.id] : [])));
+  const justFixed = Object.values(remembered).filter((finding) => !listed.has(finding.id) && runs[finding.id] && ["fixed", "scheduled"].includes(runs[finding.id].phase));
 
   const catalog = facts.catalog.value;
   const apps = catalog?.apps ?? [];
@@ -111,6 +114,7 @@ export default function Home({ csrfToken, role, onNavigate, now = Date.now }: Ho
   return (
     <div className="home lx" data-density="comfortable">
       {dialog}
+      {needDialog}
       <TopBarSlot>
         <div className="lx-host ui-marked" data-status={verdict.status} title={verdict.sentence}>
           <span className="ui-mark lx-host__mark" aria-hidden="true" />
@@ -130,7 +134,11 @@ export default function Home({ csrfToken, role, onNavigate, now = Date.now }: Ho
           <Section title={<><BellIcon className="lx-title-icon" />What needs you</>} status={needsStatus}>
             {urgent.length === 0
               ? <p className="lx-quiet">{checking ? "Reading this server…" : unread.length ? "Nothing wrong in what could be read." : "Nothing needs you right now."}</p>
-              : <ul className="need-list">{shownNeeds.map((need) => <NeedRow key={need.id} need={need} onOpen={open} onAct={act} icon={iconFor(need)} tier="inline" />)}</ul>}
+              : <ul className="need-list">{shownNeeds.map((need) => <NeedRow key={need.id} need={need} onOpen={open} onAct={act} icon={iconFor(need)} tier="inline" run={runOf(need)} />)}</ul>}
+            {justFixed.map((finding) => {
+              const run = runs[finding.id];
+              return <p key={finding.id} className="lx-fixed" role="status"><StatusChip status="good">{run.phase === "scheduled" ? "Scheduled" : "Fixed"}</StatusChip><span>{finding.title}. {run.phase === "fixed" ? run.changed : run.phase === "scheduled" ? run.message : ""}</span></p>;
+            })}
             {urgent.length > shownUrgent && <Button variant="ghost" className="lx-more" aria-expanded={allUrgent} onClick={() => setAllUrgent((value) => !value)}>{allUrgent ? "Show fewer" : `Show all ${urgent.length}`}</Button>}
             {unread.length > 0 && <p className="lx-unread"><StatusChip status="unknown">Not read</StatusChip><span>BoxPilot could not read {sentenceList(unread)}, so this list may be missing something.</span></p>}
           </Section>
@@ -225,7 +233,7 @@ export default function Home({ csrfToken, role, onNavigate, now = Date.now }: Ho
         {waiting.length > 0 && (
           <div className="lx-panel lx-wait home-wait">
             <Section title={<><SparkIcon className="lx-title-icon" />Can wait</>} status={{ status: "neutral", label: String(waiting.length) }}>
-              <ul className="need-list lx-wait__list">{shownWait.map((need) => <NeedRow key={need.id} need={need} onOpen={open} onAct={act} icon={iconFor(need)} tier="inline" />)}</ul>
+              <ul className="need-list lx-wait__list">{shownWait.map((need) => <NeedRow key={need.id} need={need} onOpen={open} onAct={act} icon={iconFor(need)} tier="inline" run={runOf(need)} />)}</ul>
               {waiting.length > shownWaiting && <Button variant="ghost" className="lx-more" aria-expanded={allWaiting} onClick={() => setAllWaiting((value) => !value)}>{allWaiting ? "Show fewer" : `Show all ${waiting.length}`}</Button>}
             </Section>
           </div>

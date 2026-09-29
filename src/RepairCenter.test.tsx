@@ -130,12 +130,18 @@ describe("Repair Center", () => {
     vi.stubGlobal("fetch", fetchMock);
     const { unmount } = render(<RepairCenter csrfToken="csrf-token" />);
 
-    expect(await screen.findByText("2 things to fix")).toBeTruthy();
+    expect(await screen.findByText(/^2 things to fix, 1 of them critical/)).toBeTruthy();
     expect(screen.getByText("/mnt/the-dump is mounted from a drive that is gone")).toBeTruthy();
+    // Worst first: the critical group comes before the suggestions.
+    const groups = screen.getAllByRole("region").map((region) => region.getAttribute("aria-label")).filter((label) => /^(Critical|To fix|Suggestions)/.test(label ?? ""));
+    expect(groups).toEqual(["Critical, 1", "Suggestions, 1"]);
     // A finding with no automatic fix shows what to do by hand instead of an unusable button.
-    expect(screen.getByText("Hand the folder to a user on the Storage page.")).toBeTruthy();
+    expect(screen.getByText(/Hand the folder to a user on the Storage page\./)).toBeTruthy();
+    // The fix carries its tier on the button, before the click.
+    const reconnect = screen.getByRole("button", { name: /^Reconnect the drive: / });
+    expect(reconnect.getAttribute("data-risk")).toBe("medium");
 
-    fireEvent.click(screen.getByRole("button", { name: "Reconnect the drive" }));
+    fireEvent.click(reconnect);
     await waitFor(() => expect(staged).toMatchObject({ parameters: { name: "the-dump" } }));
     unmount();
   });
@@ -300,6 +306,166 @@ describe("Repair Center", () => {
     expect(armed).toEqual({ method: "POST", csrf: "csrf-token" });
     expect(screen.getByRole("button", { name: "Stop reconnecting automatically: /mnt/the-dump" })).toBeTruthy();
     // The one-off fix is still there beside it.
-    expect(screen.getByRole("button", { name: "Reconnect the drive" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Reconnect the drive: / })).toBeTruthy();
+  });
+});
+
+describe("Repair that fixes (M35)", () => {
+  const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+  const writable = { operationId: "storage.writable", parameters: { name: "the-dump" }, label: "Let apps write to the drive", preview: "Adds uid=1000,gid=1000 to /mnt/the-dump's fstab entry, then reconnects it.", risk: "medium" };
+  const exfat = { id: "permissionless-mount:the-dump", severity: "warning", title: "Only root can write to /mnt/the-dump", detail: "exfat does not store owners.", evidence: ["exfat mounted without uid="], fix: writable, fixes: [writable], manual: null, fingerprint: "0123456789abcdef", lastAttempt: null };
+  const scan = (findings: unknown[], extra: Record<string, unknown> = {}) => ({ findings, dismissed: [], counts: { critical: 0, warning: findings.length, info: 0 }, jobs: { attached: [], resolved: [], dismissed: [] }, sourceStatus: "ready", unavailableChecks: [], ...extra });
+  const staged = (id: string, operation: string, tier = "medium", passwordRequired = false) => json({ job: { id, type: `op:${operation}`, title: operation, state: "awaiting_approval", risk: tier, error: null, result: null, steps: [], approvals: [] }, approval: { tier, passwordRequired, elevated: false, mode: "tiered", reason: `${tier} risk` } }, 201);
+
+  /** The server around one fix: scans answered in turn, staging, approval, and the job's ending. */
+  function server({ scans, finished }: { scans: unknown[]; finished: (id: string) => Record<string, unknown> }) {
+    const requests: Array<{ method: string; url: string; body: unknown }> = [];
+    let scanned = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      const method = init?.method ?? "GET";
+      requests.push({ method, url, body: init?.body ? JSON.parse(String(init.body)) : null });
+      if (url.includes("prerequisites")) return json({ checks: [] });
+      if (url.includes("action-center") || url.includes("recovery-kit")) return json({ error: "unavailable" }, 503);
+      if (url === "/api/v1/remediations") { const answer = scans[Math.min(scanned, scans.length - 1)]; scanned += 1; return json(answer); }
+      if (url === "/api/v1/remediations/attempts") return json({ recorded: true }, 201);
+      if (url === "/api/v1/remediations/dismissals") return json({ dismissed: true }, 201);
+      const stage = url.match(/^\/api\/v1\/operations\/([^/]+)\/jobs$/);
+      if (stage) return staged(`job-${requests.filter((entry) => /\/jobs$/.test(entry.url) && entry.method === "POST").length}`, stage[1], stage[1] === "app.action" ? "low" : "medium");
+      if (/\/approve$/.test(url)) return json({ job: { id: url.split("/")[4], state: "applying" }, elevatedUntil: null }, 202);
+      const job = url.match(/^\/api\/v1\/jobs\/([^/?]+)$/);
+      if (job && method === "GET") return json({ job: { id: job[1], type: "op:storage.writable", title: "Let apps write to a drive", risk: "medium", steps: [], approvals: [], ...finished(job[1]) } });
+      if (job && method === "DELETE") return json({ job: { id: job[1], state: "cancelled" } });
+      if (/\/output$/.test(url)) return json({ output: "$ docker stop bp-plex\n$ umount /mnt/the-dump\n$ mount /mnt/the-dump\n" });
+      return json({ jobs: [] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    return { requests };
+  }
+
+  it("runs a fix through the approval dialog, streams its log in the card, and says Fixed with what changed", async () => {
+    const { requests } = server({ scans: [scan([exfat]), scan([])], finished: () => ({ state: "completed", error: null, result: { writable: true, mountpoint: "/mnt/the-dump", owner: "1000:1000", restarted: ["bp-plex"], sharingClosedFor: [] } }) });
+    render(<RepairCenter csrfToken="csrf-token" />);
+    fireEvent.click(await screen.findByRole("button", { name: /^Let apps write to the drive: / }));
+    // The ordinary approval dialog, at the fix's own tier.
+    expect(await screen.findByText("Medium risk")).toBeTruthy();
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm and run" }));
+    expect(await screen.findByText(/\/mnt\/the-dump now belongs to 1000:1000, so apps and file shares can write there\. plex was started again\./)).toBeTruthy();
+    expect(screen.getByText("Fixed")).toBeTruthy();
+    // The job was recorded against the finding it fixes, approved without a password, and the scan read again.
+    expect(requests.find((entry) => entry.url === "/api/v1/remediations/attempts")?.body).toEqual({ findingId: "permissionless-mount:the-dump", jobId: "job-1" });
+    expect(requests.find((entry) => entry.url.endsWith("/approve"))?.body).toEqual({});
+    expect(requests.filter((entry) => entry.url === "/api/v1/remediations")).toHaveLength(2);
+  });
+
+  it("says Still there, with the job's own error and the next step, when the fix fails", async () => {
+    const failing = { ...exfat, manual: "Plug the drive in again, then try again." };
+    server({ scans: [scan([failing])], finished: () => ({ state: "failed", error: "/mnt/the-dump is still in use by smbd (4242), so it was left mounted as it was", result: null }) });
+    render(<RepairCenter csrfToken="csrf-token" />);
+    fireEvent.click(await screen.findByRole("button", { name: /^Let apps write to the drive: / }));
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm and run" }));
+    expect(await screen.findByText("Still there")).toBeTruthy();
+    // Said at the head of the card's run, and again by the job's own log view below it.
+    expect(screen.getByText("/mnt/the-dump is still in use by smbd (4242), so it was left mounted as it was", { selector: ".rp-run__head > span:last-child" })).toBeTruthy();
+    expect(screen.getByText(/Plug the drive in again, then try again\./, { selector: ".rp-run__next" })).toBeTruthy();
+    // Its log is right there in the card.
+    expect(await screen.findByLabelText("Output for Let apps write to the drive")).toBeTruthy();
+  });
+
+  it("shows the last failed try on its finding, and its fix as Try again", async () => {
+    const tried = { ...exfat, lastAttempt: { jobId: "job-0", state: "failed", error: "umount: /mnt/the-dump: target is busy", at: "2026-09-29T10:00:00.000Z", title: "Let apps write to a drive", operationId: "storage.writable", label: "Let apps write to the drive" } };
+    server({ scans: [scan([tried])], finished: () => ({ state: "failed" }) });
+    render(<RepairCenter csrfToken="csrf-token" />);
+    expect(await screen.findByText(/umount: \/mnt\/the-dump: target is busy/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Try again: Let apps write to the drive: / })).toBeTruthy();
+  });
+
+  it("runs every low-risk fix after one confirmation that lists them, and leaves the rest to their own buttons", async () => {
+    const restart = (id: string) => ({ id: `stale-bind:bp-${id}`, severity: "warning", title: `${id} is still using the old copy of its folder`, detail: "", evidence: [], fix: { operationId: "app.action", parameters: { id, action: "restart" }, label: `Restart ${id}`, preview: `Restarts ${id}.`, risk: "low" }, fixes: [{ operationId: "app.action", parameters: { id, action: "restart" }, label: `Restart ${id}`, preview: `Restarts ${id}.`, risk: "low" }], manual: null, fingerprint: "0123456789abcdef" });
+    const { requests } = server({ scans: [scan([restart("plex"), restart("jellyfin"), exfat]), scan([exfat])], finished: () => ({ state: "completed", error: null, result: { id: "x", status: "running" } }) });
+    render(<RepairCenter csrfToken="csrf-token" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Fix the safe ones (2)" }));
+    const dialog = await screen.findByRole("dialog", { name: "Fix the safe ones" });
+    expect(dialog.textContent).toContain("Restart plex");
+    expect(dialog.textContent).toContain("Restart jellyfin");
+    expect(dialog.textContent).not.toContain("Let apps write to the drive");
+    fireEvent.click(screen.getByRole("button", { name: "Run all 2" }));
+    await waitFor(() => expect(requests.filter((entry) => entry.url === "/api/v1/remediations")).toHaveLength(2));
+    const staging = requests.filter((entry) => entry.method === "POST" && /\/operations\/[^/]+\/jobs$/.test(entry.url));
+    expect(staging.map((entry) => [entry.url, entry.body])).toEqual([
+      ["/api/v1/operations/app.action/jobs", { parameters: { id: "plex", action: "restart" } }],
+      ["/api/v1/operations/app.action/jobs", { parameters: { id: "jellyfin", action: "restart" } }],
+    ]);
+    // Each is approved as its own job with one click: no password rides along.
+    expect(requests.filter((entry) => entry.url.endsWith("/approve")).map((entry) => entry.body)).toEqual([{}, {}]);
+    expect(await screen.findAllByText("Fixed")).toHaveLength(2);
+  });
+
+  it("stops the batch where the server wants more than one click, and runs nothing it did not approve", async () => {
+    const restart = { id: "stale-bind:bp-plex", severity: "warning", title: "plex is still using the old copy", detail: "", evidence: [], fix: { operationId: "app.action", parameters: { id: "plex", action: "restart" }, label: "Restart plex", preview: "Restarts plex.", risk: "low" }, manual: null, fingerprint: "0123456789abcdef" };
+    const { requests } = server({ scans: [scan([restart])], finished: () => ({ state: "completed" }) });
+    // Approvals set to always ask: every job wants the password, low risk included.
+    const base = (globalThis.fetch as unknown as (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>);
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (!/\/operations\/app\.action\/jobs$/.test(input.toString())) return base(input, init);
+      await base(input, init);   // recorded like any other request
+      return staged("job-9", "app.action", "low", true);
+    }));
+    render(<RepairCenter csrfToken="csrf-token" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Fix the safe ones (1)" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Run it" }));
+    expect(await screen.findByText(/Approvals ask for your password on every job right now/)).toBeTruthy();
+    expect(requests.some((entry) => entry.url.endsWith("/approve"))).toBe(false);
+    expect(requests.some((entry) => entry.method === "DELETE" && entry.url === "/api/v1/jobs/job-9")).toBe(true);
+  });
+
+  it("sets a finding aside with a reason, and never offers that for a critical one", async () => {
+    const critical = { ...exfat, id: "read-only-remount:the-dump", severity: "critical", title: "/mnt/the-dump has gone read-only" };
+    const { requests } = server({ scans: [scan([critical, exfat]), scan([critical], { dismissed: [{ ...exfat, dismissal: { reason: "Only a camera card", at: "2026-09-29T11:00:00.000Z", by: "owner-1" } }] })], finished: () => ({ state: "completed" }) });
+    render(<RepairCenter csrfToken="csrf-token" />);
+    await screen.findByText("/mnt/the-dump has gone read-only");
+    expect(screen.queryByRole("button", { name: "Dismiss: /mnt/the-dump has gone read-only" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss: Only root can write to /mnt/the-dump" }));
+    const dismiss = screen.getByRole("button", { name: "Dismiss" });
+    expect((dismiss as HTMLButtonElement).disabled).toBe(true);   // a reason first
+    fireEvent.change(screen.getByLabelText(/Why\?/), { target: { value: "Only a camera card" } });
+    fireEvent.click(dismiss);
+    await waitFor(() => expect(requests.find((entry) => entry.url === "/api/v1/remediations/dismissals")?.body).toEqual({ id: "permissionless-mount:the-dump", fingerprint: "0123456789abcdef", severity: "warning", reason: "Only a camera card" }));
+    // It moves to Dismissed, with the reason, where it can be brought back.
+    fireEvent.click(await screen.findByRole("button", { name: "Show" }));
+    expect(screen.getByText("Only a camera card")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Bring back: Only root can write to /mnt/the-dump" })).toBeTruthy();
+  });
+
+  it("creates the nightly schedules Back up nightly lists, after saying what they are", async () => {
+    const nightly = { kind: "schedule", operationId: "app.backup", label: "Back up nightly", preview: "Schedules a nightly backup of AuDHDMAP and Protec.", risk: "medium", schedules: [{ parameters: { id: "audhdmap" }, frequency: "daily", hour: 2, minute: 0 }, { parameters: { id: "protec" }, frequency: "daily", hour: 3, minute: 0 }] };
+    const now = { operationId: "app.backup.many", parameters: { ids: ["audhdmap", "protec"] }, label: "Back up now", preview: "Backs up both.", risk: "medium" };
+    const due = { id: "backups-due", severity: "warning", title: "AuDHDMAP and Protec have not been backed up recently", detail: "", evidence: [], fix: now, fixes: [now, nightly], manual: null, fingerprint: "0123456789abcdef" };
+    const posted: unknown[] = [];
+    server({ scans: [scan([due])], finished: () => ({ state: "completed" }) });
+    const base = (globalThis.fetch as unknown as (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>);
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (input.toString() === "/api/v1/schedules" && init?.method === "POST") { posted.push(JSON.parse(String(init.body))); return json({ schedule: { id: "s1" } }, 201); }
+      return base(input, init);
+    }));
+    render(<RepairCenter csrfToken="csrf-token" />);
+    const button = await screen.findByRole("button", { name: /^Back up nightly: / });
+    expect(button.getAttribute("data-risk")).toBe("medium");
+    fireEvent.click(button);
+    expect(await screen.findByText(/every night at 02:00/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Create 2 schedules" }));
+    await waitFor(() => expect(posted).toEqual([
+      { operationId: "app.backup", parameters: { id: "audhdmap" }, frequency: "daily", minute: 0, hour: 2, weekday: null },
+      { operationId: "app.backup", parameters: { id: "protec" }, frequency: "daily", minute: 0, hour: 3, weekday: null },
+    ]));
+    expect(await screen.findByText(/Scheduled 2 nightly backups; the first runs tonight/)).toBeTruthy();
+  });
+
+  it("offers no fix buttons, and no dismissing, to a viewer", async () => {
+    server({ scans: [scan([exfat])], finished: () => ({ state: "completed" }) });
+    render(<RepairCenter csrfToken="csrf-token" role="viewer" />);
+    await screen.findByText("Only root can write to /mnt/the-dump");
+    expect(screen.queryByRole("button", { name: /^Let apps write to the drive/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Dismiss/ })).toBeNull();
   });
 });

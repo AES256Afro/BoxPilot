@@ -167,7 +167,7 @@ export default function LogsPage({ csrfToken = "", role = "owner" }: LogsPagePro
 
       {canRead && (
         <>
-          <Panel className="logs-source" title="Source" meta={sources ? `${sources.units.length} units · ${sources.dockerAvailable ? `${sources.containers.length} containers` : "Docker not answering"}` : undefined}>
+          <Panel padded className="logs-source" title="Source" meta={sources ? `${sources.units.length} units · ${sources.dockerAvailable ? `${sources.containers.length} containers` : "Docker not answering"}` : undefined}>
             <div className="logs-source__rows">
               <Segmented label="Journal group" value={kind === "group" ? target : null} onChange={(id) => select("group", id)} options={groups.map((group) => ({ value: group.id, label: group.label }))} />
               <form className="logs-source__unit" onSubmit={(event) => { event.preventDefault(); const chosen = unitOptions.find((unit) => unit.unit === pick) ?? unitOptions[0]; if (chosen) select("unit", chosen.unit); }}>
@@ -185,7 +185,7 @@ export default function LogsPage({ csrfToken = "", role = "owner" }: LogsPagePro
 
           {error && <Notice tone="danger" live title="The logs could not be read" action={<Button onClick={() => void read()}>Try again</Button>}>{error}</Notice>}
 
-          <Panel flush className="logs-output" title="Output" count={entries.length} meta={follow ? "following, every 5 s" : undefined}>
+          <Panel className="logs-output" title="Output" count={entries.length} meta={follow ? "following, every 5 s" : undefined}>
             <Toolbar
               label="Log output"
               className="logs-toolbar"

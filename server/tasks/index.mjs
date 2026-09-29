@@ -9,13 +9,14 @@ import { sshPasswordAuthSet, userAdd, userKeysImport, userSudoSet } from "./user
 import { firewallProfileApply, firewallRuleAdd, firewallRuleDelete, firewallSet } from "./firewall.mjs";
 import { storageCheck, storageClearMark, storageFormat, storageLvmExtend, storageLvmSnapshotCreate, storageLvmSnapshotDelete, storageLvmSnapshotRollback, storageMount, storageRemount, storageUnmount, swapFileSet } from "./storage.mjs";
 import { storageDockerOrder, storageVolumeState } from "./drive-shutdown.mjs";
+import { storageWritable } from "./drive-writable.mjs";
 import { shareMount, shareReconnect, shareUnmount } from "./shares.mjs";
 import { moveBackupMount } from "./backup-mount-move.mjs";
 import { housekeepingRemoveTrees } from "./housekeeping.mjs";
 import { aptClean, journalVacuum } from "./space.mjs";
 import { routerConnect, routerInspect, routerLeases } from "./router.mjs";
 import { dnsBlockerVerify } from "./dns-check.mjs";
-import { sambaApply, sambaDiscoverySet, sambaRecycleEmpty, sambaUserRemove, sambaUserSet } from "./samba.mjs";
+import { sambaApply, sambaDiscoverySet, sambaRecycleEmpty, sambaShareWritable, sambaUserRemove, sambaUserSet } from "./samba.mjs";
 import { fsSnapshotCreate, fsSnapshotDelete } from "./fs-snapshots.mjs";
 import { nfsApply } from "./nfs.mjs";
 import { upsSetup } from "./ups.mjs";
@@ -56,6 +57,7 @@ export const tasks = Object.freeze({
   "storage.mount": storageMount,
   "storage.unmount": storageUnmount,
   "storage.remount": storageRemount,
+  "storage.writable": storageWritable,
   "storage.check": storageCheck,
   "storage.clear-mark": storageClearMark,
   "storage.docker-order": storageDockerOrder,
@@ -86,6 +88,7 @@ export const tasks = Object.freeze({
   "samba.apply": sambaApply,
   "samba.recycle.empty": sambaRecycleEmpty,
   "samba.discovery.set": sambaDiscoverySet,
+  "samba.share.writable": sambaShareWritable,
   "samba.user.set": sambaUserSet,
   "samba.user.remove": sambaUserRemove,
   "nfs.apply": nfsApply,
