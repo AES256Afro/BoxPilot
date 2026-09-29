@@ -30,7 +30,10 @@ export function whatChanged(job: Pick<Job, "type" | "result" | "steps">): string
   if (operation === "app.uninstall" && result.uninstalled) return `${String(result.id)} is no longer listed as installed; its data folder is kept.`;
   if (operation === "app.backup.many" && Array.isArray(result.apps)) return `Backed up ${joined((result.apps as Array<{ id?: string }>).map((entry) => String(entry.id)))}.`;
   if (operation === "app.backup" && result.backedUp) return `Backed up to ${String(result.artifact ?? "a new archive")}.`;
-  if (operation === "notifications.ntfy.connect" && result.connected) return "ntfy on this server accepted a test message, and BoxPilot's alerts now go to it.";
+  if (operation === "notifications.ntfy.connect" && result.connected) {
+    const where = typeof result.subscribeUrl === "string" && result.subscribeUrl ? result.subscribeUrl : "the address you open ntfy's page at";
+    return `ntfy on this server accepted a test message, and BoxPilot's alerts now go to it. To get them on your phone: install the ntfy app, add a subscription, turn on "Use another server" and enter ${where}, then subscribe to the topic ${String(result.topic)}. The topic works like a password: keep it to yourself.`;
+  }
   if (operation === "storage.check" && result.checked) return result.clean ? `${String(result.mountpoint)} checked clean.${afterApps}` : `The check found problems on ${String(result.mountpoint)}: ${String(result.summary ?? "see the log")}`;
   if (operation === "storage.docker-order.apply") return result.changed ? "The drives are ordered around Docker now: it waits for them at boot and stops before they are unmounted." : "The drives were already ordered around Docker.";
   if (operation === "app.action") return `${String(result.id ?? "The app")} is ${String(result.status ?? "running")} now.`;

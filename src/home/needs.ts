@@ -98,6 +98,8 @@ function containerWords(status: string): string {
   return "Its container is stopped";
 }
 const tierOf = (value: string): RiskTier | undefined => (value === "low" || value === "medium" || value === "high" ? value : undefined);
+/** At most `limit` characters, cut at a word with an ellipsis. */
+export const brief = (text: string, limit = 110): string => (text.length <= limit ? text : `${text.slice(0, limit).replace(/\s+\S*$/, "").replace(/[\s,:;.]+$/, "")}…`);
 
 export function buildNeeds(facts: FactValues, { now, role }: { now: number; role: string | null | undefined }): Need[] {
   const needs: Need[] = [];
@@ -186,7 +188,8 @@ export function buildNeeds(facts: FactValues, { now, role }: { now: number; role
       id: `repair:${finding.id}`, kind: "repair", finding,
       severity: finding.severity === "critical" ? "danger" : finding.severity === "warning" ? "warning" : "neutral",
       title: finding.title,
-      detail: failedBefore ? `Last try failed: ${finding.lastAttempt?.error ?? "no error was recorded"}` : finding.evidence?.[0] ?? null,
+      // A row holds a line or two; the whole error is on Repair's card, with the job's log.
+      detail: failedBefore ? brief(`Last try failed: ${finding.lastAttempt?.error ?? "no error was recorded"}`) : finding.evidence?.[0] ?? null,
       view: "repairs", action: actions[0] ?? null, ...(actions.length > 1 ? { actions } : {}),
     });
   }
