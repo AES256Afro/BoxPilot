@@ -1,0 +1,115 @@
+/* The App catalog (M33.11): the page's own layout, on the kit's components. Tokens only, and every
+   selector starts with .catalog-, so no other page is touched (docs/UI-PAGES.md). The app's sheet
+   and the install form are drawn over the page, so their rules stand on their own. */
+
+.catalog-page { display: grid; gap: 10px; min-width: 0; }
+.catalog-quiet { margin: 0; padding: 10px 12px; color: var(--text-muted); font-size: 13.5px; line-height: 1.45; }
+.catalog-list { display: grid; gap: 3px; margin: 4px 0 0; padding-left: 18px; }
+.catalog-strong { color: var(--text-strong); }
+.catalog-dim { color: var(--text-muted); overflow-wrap: anywhere; }
+.catalog-toolbar { padding: 8px 12px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); }
+.catalog-toolbar .ui-select { flex: 0 1 15rem; min-width: 10rem; }
+
+/* An app's colour square, as Home draws its apps: the manifest's emoji or the initials. */
+.catalog-square {
+  display: grid;
+  flex: none;
+  place-items: center;
+  color: var(--brand-glyph);
+  background: linear-gradient(140deg, var(--app-a, var(--brand-slate-a)), var(--app-b, var(--brand-slate-b)));
+  font-family: var(--font-condensed);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+.catalog-square[data-emoji] { font-weight: 400; }
+.catalog-square--sm { width: 22px; height: 22px; border-radius: 6px; font-size: 10px; }
+.catalog-square--sm[data-emoji] { font-size: 13px; }
+.catalog-square--md { width: 36px; height: 36px; border-radius: 10px; font-size: 14px; }
+.catalog-square--md[data-emoji] { font-size: 19px; }
+.catalog-square--lg { width: 52px; height: 52px; border-radius: 15px; font-size: 20px; }
+.catalog-square--lg[data-emoji] { font-size: 27px; }
+
+/* The apps on this server: Home's squares with their health mark, in a grid that fills the row. */
+.catalog-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 6px; padding: 12px; }
+.catalog-tile { --tile-icon: 48px; gap: 6px; padding: 10px 4px; border-radius: 6px; }
+.catalog-tile .ui-tile__icon { border: 0; color: var(--brand-glyph); background: linear-gradient(140deg, var(--app-a, var(--brand-slate-a)), var(--app-b, var(--brand-slate-b))); box-shadow: none; font-size: 18px; }
+.catalog-tile .ui-tile__name { font-family: var(--font-condensed); font-size: 13.5px; }
+.catalog-tile .ui-tile__detail { max-width: 100%; overflow: hidden; font-family: var(--font-mono); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.catalog-tile__emoji { font-size: 25px; font-weight: 400; line-height: 1; }
+
+/* The catalog to browse: a card each, the app's square and name opening its sheet. */
+.catalog-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 17rem), 1fr)); gap: 8px; margin: 0; padding: 12px; list-style: none; }
+.catalog-card { display: grid; grid-template-rows: auto 1fr auto; gap: 8px; min-width: 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface-raised); }
+.catalog-card__open { display: flex; align-items: center; gap: 10px; min-width: 0; margin: -4px; padding: 4px; border: 0; border-radius: 4px; color: inherit; background: none; font: inherit; text-align: left; cursor: pointer; }
+.catalog-card__open:hover .catalog-card__name { color: var(--accent); text-decoration: underline; }
+.catalog-card__open:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.catalog-card__title { display: grid; gap: 1px; min-width: 0; }
+.catalog-card__name { overflow: hidden; color: var(--text-strong); font-size: 14.5px; font-weight: 650; line-height: 1.25; text-overflow: ellipsis; white-space: nowrap; }
+.catalog-card__meta { overflow: hidden; color: var(--text-muted); font-family: var(--font-mono); font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
+.catalog-card__description { display: -webkit-box; margin: 0; overflow: hidden; color: var(--text); font-size: 13px; line-height: 1.4; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
+.catalog-card__foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+
+/* Rows of actions in a table: right-aligned, a size smaller than the page's. */
+.catalog-actions-cell { width: 1%; }
+.catalog-actions { display: flex; justify-content: flex-end; gap: 4px; white-space: nowrap; }
+.catalog-actions .ui-button { min-height: 26px; padding-right: 8px; padding-left: 8px; font-size: 12.5px; }
+.catalog-actions .ui-button--risk-medium, .catalog-actions .ui-button--risk-high { padding-left: 14px; }
+
+/* An app's sheet: its square, state and image first, then its tabs. */
+.catalog-sheet__head { display: flex; align-items: flex-start; gap: 12px; min-width: 0; }
+.catalog-sheet__lead { display: grid; flex: 1 1 auto; justify-items: start; gap: 4px; min-width: 0; }
+.catalog-sheet__meta { margin: 0; color: var(--text-muted); font-family: var(--font-mono); font-size: 12px; overflow-wrap: anywhere; }
+.catalog-sheet__description { margin: 0; color: var(--text); font-size: 13.5px; line-height: 1.45; }
+.catalog-sheet__tabs { gap: 12px; }
+.catalog-sheet a:not([class]), .catalog-config a:not([class]) { color: var(--accent); text-underline-offset: 2px; }
+.catalog-tab { display: grid; gap: 12px; min-width: 0; }
+.catalog-sheet__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.catalog-sheet__actions a.ui-button { text-decoration: none; }
+.catalog-sheet__more { display: flex; flex-wrap: wrap; gap: 6px; padding-top: 10px; border-top: 1px solid var(--border); }
+.catalog-facts { min-width: 0; }
+.catalog-paths { display: grid; gap: 2px; }
+.catalog-note { margin: 0; padding: 7px 10px; border-left: 2px solid var(--border-strong); color: var(--text); background: var(--surface-muted); font-size: 13px; line-height: 1.45; }
+.catalog-inline { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; min-width: 0; }
+.catalog-inset { margin: 8px 12px; }
+
+/* Lists inside the sheet's panels: addresses, the reachability check, wiring, files, versions. */
+.catalog-rows { display: grid; margin: 0; padding: 0; list-style: none; }
+.catalog-row { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 6px 12px; min-width: 0; padding: 7px 12px; border-top: 1px solid var(--border); }
+.catalog-row:first-child { border-top: 0; }
+.catalog-row__main { display: grid; flex: 1 1 16rem; gap: 2px; min-width: 0; color: var(--text); font-size: 13.5px; line-height: 1.4; overflow-wrap: anywhere; }
+.catalog-row__main code { color: var(--text-strong); font-size: 12.5px; }
+.catalog-row__main a { color: var(--accent); text-underline-offset: 2px; }
+.catalog-row__dim { color: var(--text-muted); font-family: var(--font-condensed); font-size: 12.5px; }
+.catalog-row__mark { flex: none; width: 8px; height: 8px; margin-top: 6px; }
+
+/* Backups: the rehearsals' record as marks, the schedule, the files in an archive. */
+.catalog-ticks { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0; }
+.catalog-ticks__label { color: var(--text-muted); font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
+.catalog-tick { display: inline-grid; place-items: center; width: 14px; height: 14px; }
+.catalog-tick .ui-mark { width: 8px; height: 8px; }
+.catalog-files__search { padding: 8px 12px; border-bottom: 1px solid var(--border); }
+
+/* Forms in the sheet: the compose read, a model to download, the owner's password, a new one. */
+.catalog-compose__read { display: grid; justify-items: start; gap: 10px; }
+.catalog-models__pull, .catalog-access__unlock, .catalog-access__change { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px 10px; }
+.catalog-models__pull .ui-field, .catalog-access__unlock .ui-field, .catalog-access__change .ui-field { flex: 1 1 16rem; }
+.catalog-logs__bar { justify-content: space-between; }
+
+/* The install and settings form: a section per kind of setting. */
+.catalog-form { display: grid; gap: 14px; min-width: 0; }
+.catalog-form__section { display: grid; gap: 8px; min-width: 0; margin: 0; padding: 10px 0 0; border: 0; border-top: 1px solid var(--border); }
+.catalog-form__section:first-of-type { padding-top: 0; border-top: 0; }
+.catalog-form__legend { padding: 0 0 6px; color: var(--text-muted); font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; }
+.catalog-form__fields { display: grid; gap: 10px; min-width: 0; }
+.catalog-form__hint { margin: 0; color: var(--text-muted); font-size: 13px; line-height: 1.45; }
+.catalog-form__hint code { font-size: 12px; overflow-wrap: anywhere; }
+.catalog-form__problems { display: grid; gap: 4px; margin: 0; padding-left: 18px; }
+.catalog-form .ui-check__description a { color: var(--accent); }
+
+@media (max-width: 640px) {
+  .catalog-tiles { grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); padding: 8px; }
+  .catalog-cards { padding: 8px; }
+  .catalog-actions { flex-wrap: wrap; justify-content: flex-start; padding-top: 4px; }
+  .catalog-actions-cell { width: auto; }
+  .catalog-sheet__head { gap: 10px; }
+}
