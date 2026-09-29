@@ -28,7 +28,11 @@
  *     backend too, after the owner's longer idle time (an hour by default).
  *   - UNSLOTH_STUDIO_PASSWORD: Studio's management API stays mounted under --api-only and creates an
  *     admin account on first start; its password is a secret the runner keeps in its own state
- *     (0600), not the generated one Studio would print.
+ *     (0600), not the generated one Studio would print. Studio takes it only as the first password:
+ *     given again once one is set, `unsloth run` stops at once ("an Unsloth admin password is
+ *     already set"). So it is passed until a start has taken it (studio-password.set, in the
+ *     runner's state), and a start refused that way - a password set before that file existed - is
+ *     tried once more without it.
  *   - The API key Studio mints ("API Key: sk-unsloth-...", kept in its auth folder) is read from the
  *     output or that file, sent on every request, and never logged or reported. Lines that carry a
  *     key or a password never reach the log tail either.
@@ -58,6 +62,9 @@ export const unslothIdleUnloadSeconds = 900;
 export const contextCheckpoints = 4;
 export const promptBatch = 512;
 export const promptCacheMiB = 1024;
+/** In the runner's state once Studio has taken its admin password: it is not passed again. */
+export const studioPasswordSetFile = "studio-password.set";
+const passwordAlreadySet = /admin password is already set/i;
 
 export class ModelUnavailable extends Error {
   constructor(message, reason = "model-unavailable") { super(message); this.reason = reason; }
@@ -149,7 +156,8 @@ export function serverCommand(runtime, { port, runtimeDir, stateDir, node = proc
         UNSLOTH_STUDIO_HOME: runtimeDir,
         UNSLOTH_STUDIO_DISABLE_PUBLIC_CHECK: "1",
         UNSLOTH_MODEL_IDLE_TTL: String(unslothIdleUnloadSeconds),
-        UNSLOTH_STUDIO_PASSWORD: secrets.studioPassword,
+        // Only until Studio has it: given again, `unsloth run` refuses to start.
+        ...(secrets.studioPasswordSet ? {} : { UNSLOTH_STUDIO_PASSWORD: secrets.studioPassword }),
       },
     };
   }
@@ -187,8 +195,12 @@ export function createRuntime({
   const specOf = (runtime) => [runtime.driver, runtime.model, runtime.requestModel, runtime.file, runtime.projector, runtime.contextTokens, runtime.threads].map((part) => part ?? "").join("|");
 
   /** The secrets and files a start needs, found before anything is run. */
+  const passwordSetPath = path.join(stateDir, studioPasswordSetFile);
   async function prepare(runtime) {
-    if (runtime.driver === "unsloth") return { secrets: { studioPassword: await ownSecret(path.join(stateDir, "studio-password")) }, files: {} };
+    if (runtime.driver === "unsloth") {
+      const studioPassword = await ownSecret(path.join(stateDir, "studio-password"));
+      return { secrets: { studioPassword, studioPasswordSet: Boolean((await lstat(passwordSetPath).catch(() => null))?.isFile()) }, files: {} };
+    }
     if (runtime.driver === "llama-server") {
       const apiKeyFile = path.join(stateDir, "llama-server.key");
       const apiKey = await ownSecret(apiKeyFile);
@@ -221,7 +233,7 @@ export function createRuntime({
     throw new ModelUnavailable(`The model server did not answer within ${Math.round(startTimeoutMs / 60_000)} minutes`);
   }
 
-  async function start(runtime, signal) {
+  async function start(runtime, signal, { retried = false } = {}) {
     await stop("switching");
     const port = await freePort();
     let prepared;
@@ -246,6 +258,7 @@ export function createRuntime({
       for (const line of String(chunk).split("\n")) {
         const key = keyPattern.exec(line);
         if (key) entry.apiKey = key[1];
+        if (passwordAlreadySet.test(line)) entry.passwordAlreadySet = true;
         // Kept for a failure message. A line that carries a key or a password is not kept at all:
         // Studio prints its generated admin password on first start.
         if (key || secretLine.test(line)) continue;
@@ -265,11 +278,23 @@ export function createRuntime({
       entry.model = await waitReady(entry, runtime, signal);
     } catch (error) {
       await stop("failed to start");
-      throw error;
+      // Studio already has its admin password (set before BoxPilot kept track): again without it.
+      if (entry.passwordAlreadySet && runtime.driver === "unsloth" && !prepared.secrets.studioPasswordSet && !retried) {
+        await notePasswordSet();
+        log("Studio's admin password was already set; starting again without passing it");
+        return start(runtime, signal, { retried: true });
+      }
+      throw entry.passwordAlreadySet ? new ModelUnavailable("Unsloth Studio refused to start: its admin password is already set, and starting without passing it failed too") : error;
     }
     phase = "running";
     entry.loadMs = now() - entry.startedAt;
+    if (runtime.driver === "unsloth" && !prepared.secrets.studioPasswordSet) await notePasswordSet();
     return entry;
+  }
+
+  /** Studio has its admin password now: later starts leave it out. */
+  async function notePasswordSet() {
+    await writeFile(passwordSetPath, `${new Date(now()).toISOString()}\n`, { mode: 0o600 }).catch((error) => log(`could not note that Studio's password is set: ${error.message}`));
   }
 
   /**

@@ -4,12 +4,16 @@
  * key read from its output and never kept anywhere else, stopped when idle, and a failure to start
  * reported as the model being unavailable. Driven with the fake model as a real child process.
  */
+import { spawn as spawnProcess } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { createOpenAiClient } from "../assistant/model-client.mjs";
-import { ModelUnavailable, createRuntime, findLlamaServer, ownSecret, serverCommand, storedUnslothKey } from "./runtime.mjs";
+import { ModelUnavailable, createRuntime, findLlamaServer, ownSecret, serverCommand, storedUnslothKey, studioPasswordSetFile } from "./runtime.mjs";
+
+const fakeModelPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "fake-model.mjs");
 
 const onWindows = process.platform === "win32";
 let scratch;
@@ -33,8 +37,10 @@ describe("the command that serves a model", () => {
     expect(env.UNSLOTH_STUDIO_HOME.replaceAll("\\", "/")).toBe("/var/lib/boxpilot-agents/unsloth");
   });
 
-  it("never starts Unsloth without Studio's password, so it cannot make and print its own", () => {
+  it("never starts Unsloth without Studio's password, so it cannot make and print its own, and passes it only until Studio has it", () => {
     expect(() => serverCommand({ driver: "unsloth", model: "unsloth/Qwen3.5-4B-GGUF:UD-Q4_K_XL" }, { port: 1, runtimeDir: "/", stateDir: "/" })).toThrow(ModelUnavailable);
+    const later = serverCommand({ driver: "unsloth", model: "unsloth/Qwen3.5-4B-GGUF:UD-Q4_K_XL" }, { port: 1, runtimeDir: "/", stateDir: "/", secrets: { studioPassword: "p".repeat(32), studioPasswordSet: true } });
+    expect(later.env.UNSLOTH_STUDIO_PASSWORD).toBeUndefined();
   });
 
   it("serves llama.cpp's own server when the owner chose it: loopback, a key from a file, the files it was handed", () => {
@@ -79,6 +85,32 @@ describe("starting and stopping", () => {
     await expect(runtime.ensure({ driver: "unsloth", model: "unsloth/Qwen3.5-4B-GGUF:UD-Q4_K_XL" })).rejects.toBeInstanceOf(ModelUnavailable);
     expect(runtime.status().state).toBe("idle");
   });
+
+  it("gives Studio its admin password only until it has one, and starts again without it when Studio already has one", async () => {
+    // A stand-in for `unsloth run`: like Unsloth 2026.9.12, it refuses to start when handed a
+    // password once one is set, and otherwise serves the fake model and prints its key.
+    const stateDir = await mkdtemp(path.join(scratch, "studio-state-"));
+    const studio = path.join(stateDir, "studio.mjs");
+    await writeFile(studio, [
+      `import { startFakeModel } from ${JSON.stringify(pathToFileURL(fakeModelPath).href)};`,
+      "const args = process.argv.slice(2);",
+      "if (process.env.UNSLOTH_STUDIO_PASSWORD && process.env.STUDIO_HAS_PASSWORD === '1') { console.error(\"Error: an Unsloth admin password is already set; --password only sets the initial password.\"); process.exit(1); }",
+      "const fake = await startFakeModel({ port: Number(args[args.indexOf('-p') + 1]), apiKey: 'sk-unsloth-' + 'k'.repeat(24) });",
+      "console.log('API Key: ' + fake.apiKey);",
+    ].join("\n"));
+    const started = [];
+    const spawn = (_command, args, options) => { started.push(options.env); return spawnProcess(process.execPath, [studio, ...args], { ...options, env: { ...options.env, STUDIO_HAS_PASSWORD: "1" } }); };
+    const runtime = make({ spawn, stateDir, runtimeDir: path.join(stateDir, "unsloth") });
+    const unsloth = { driver: "unsloth", model: "unsloth/Qwen3.5-4B-GGUF:UD-Q4_K_XL", threads: 4 };
+    // The owner's server: the password was set by an earlier start, before BoxPilot kept track.
+    expect((await runtime.ensure(unsloth)).apiKey).toBe(`sk-unsloth-${"k".repeat(24)}`);
+    expect(started.map((env) => Boolean(env.UNSLOTH_STUDIO_PASSWORD))).toEqual([true, false]);
+    expect((await stat(path.join(stateDir, studioPasswordSetFile))).isFile()).toBe(true);
+    // After an idle stop, the next start passes no password at all.
+    await runtime.stop("idle");
+    await runtime.ensure(unsloth);
+    expect(started.map((env) => Boolean(env.UNSLOTH_STUDIO_PASSWORD))).toEqual([true, false, false]);
+  }, 30_000);
 
   it("only checks a model server someone else runs, and never starts one", async () => {
     const runtime = make();
