@@ -35,7 +35,7 @@ export function agentsOperations() {
     }),
     defineOperation({
       id: "agents.runtime.enable", title: "Start the agents runner", risk: "medium", minimumRole: "owner", timeoutMs: minutes(3),
-      description: "Enables and starts boxpilot-agents.service: the capped runner (one processor at most, idle priority, 8 GB of memory, loopback only). It starts the model server only when an agent runs, and stops it after an hour with nothing to do.",
+      description: "Enables and starts boxpilot-agents.service: the capped runner (four processors at most, idle priority, 8 GB of memory, loopback only). It starts the model server only when an agent runs, and stops it after an hour with nothing to do.",
       run: (_parameters, { runUnit, jobLog }) => runUnit.runTask("agents.enable", {}, { timeoutMs: minutes(2), logPath: jobLog?.path ?? null }),
     }),
     defineOperation({

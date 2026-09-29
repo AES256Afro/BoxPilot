@@ -1,5 +1,5 @@
 [Unit]
-Description=BoxPilot agents runner (capped: idle priority, one processor, 8 GB, loopback only)
+Description=BoxPilot agents runner (capped: idle priority, four processors, 8 GB, loopback only)
 Documentation=https://github.com/AES256Afro/BoxPilot/blob/main/docs/DECISIONS.md
 # It asks the web service for work; without it there is nothing to do, so it waits for it.
 Wants=boxpilot.service
@@ -32,8 +32,9 @@ TimeoutStopSec=30s
 UMask=0077
 
 # ---- Hard caps (server/agents/caps.mjs holds these values; caps.test.mjs keeps them equal) ----
-# Agents must never make the server run hot. These cover the runner and the model server together.
-CPUQuota=100%
+# Agents must never make the server run hot. These cover the runner and the model server together:
+# four processors at most (the model runs four threads), and only time nothing else wants.
+CPUQuota=400%
 CPUWeight=idle
 Nice=19
 IOSchedulingClass=idle
