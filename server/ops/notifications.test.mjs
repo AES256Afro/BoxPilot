@@ -22,7 +22,7 @@ describe("sending alerts to the ntfy on this server (M35)", () => {
   it("is the owner's, at the tier Settings asks for (the password), and takes no parameters from the page", () => {
     expect(operation).toMatchObject({ risk: "high", minimumRole: "owner" });
     expect(registry.validate("notifications.ntfy.connect", {})).toBeNull();
-    expect(registry.validate("notifications.ntfy.connect", { url: "https://elsewhere.example" })).toContain("does not accept");
+    expect(registry.validate("notifications.ntfy.connect", { url: "https://elsewhere.example" })).toContain("accepts no parameters");
   });
 
   it("makes a topic nobody can guess and sends the test to it from this server, over loopback", async () => {

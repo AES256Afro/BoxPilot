@@ -365,7 +365,8 @@ describe("Repair that fixes (M35)", () => {
     fireEvent.click(await screen.findByRole("button", { name: /^Let apps write to the drive: / }));
     fireEvent.click(await screen.findByRole("button", { name: "Confirm and run" }));
     expect(await screen.findByText("Still there")).toBeTruthy();
-    expect(screen.getByText("/mnt/the-dump is still in use by smbd (4242), so it was left mounted as it was")).toBeTruthy();
+    // Said at the head of the card's run, and again by the job's own log view below it.
+    expect(screen.getByText("/mnt/the-dump is still in use by smbd (4242), so it was left mounted as it was", { selector: ".rp-run__head > span:last-child" })).toBeTruthy();
     expect(screen.getByText(/Plug the drive in again, then try again\./, { selector: ".rp-run__next" })).toBeTruthy();
     // Its log is right there in the card.
     expect(await screen.findByLabelText("Output for Let apps write to the drive")).toBeTruthy();
