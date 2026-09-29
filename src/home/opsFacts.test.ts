@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Job } from "../operations";
 import type { AppFact } from "./facts";
 import { reachOf } from "./needs";
-import { backupMatrix, jobState, jobTarget, performanceFrom, shortReach, workloads, type Performance } from "./opsFacts";
+import { backupMatrix, jobState, jobTarget, performanceFrom, pushSample, sampleFrom, sampleLimit, shortReach, workloads, type Performance, type Sample } from "./opsFacts";
 
 const now = Date.parse("2026-09-28T12:00:00Z");
 const hoursAgo = (hours: number) => new Date(now - hours * 3_600_000).toISOString();
@@ -110,5 +110,32 @@ describe("the backup matrix", () => {
   it("calls a backup that is weeks old stale", () => {
     const [immich] = backupMatrix({ protection: protection.slice(1, 2), jobs: [], apps: [], now });
     expect(immich).toMatchObject({ status: "warning", summary: "63 days old" });
+  });
+});
+
+describe("the sparklines' reads", () => {
+  it("keeps the processor, the memory and the hottest sensor from each read", () => {
+    const read = performanceFrom({
+      cpu: { model: "x", cores: 8, usagePercent: 27.4, load1: 1, load5: 1, load15: 1, loadPercent: 12 }, memory: { totalBytes: 1, usedBytes: 1, availableBytes: 0, usedPercent: 34 },
+      temps: [{ label: "nvme: Composite", celsius: 41.9 }, { label: "k10temp: Tctl", celsius: 52.4 }], disks: [], statsAvailable: true, apps: [], uptimeSeconds: 1,
+    });
+    expect(sampleFrom(read, now)).toEqual({ at: now, cpu: 27.4, memory: 34, hottest: 52.4 });
+  });
+
+  it("leaves out what a read did not have, rather than calling it zero", () => {
+    const read = performance([]);
+    const sample = sampleFrom({ ...read, cpu: { ...read.cpu, usagePercent: null } }, now);
+    expect(sample).toMatchObject({ cpu: null, memory: 50, hottest: null });
+  });
+
+  it("rolls: the newest read in, the oldest out past the limit, the buffer itself untouched", () => {
+    const sample = (at: number): Sample => ({ at, cpu: at, memory: null, hottest: null });
+    let buffer: Sample[] = [];
+    for (let at = 1; at <= 5; at += 1) buffer = pushSample(buffer, sample(at), 3);
+    expect(buffer.map((entry) => entry.at)).toEqual([3, 4, 5]);
+    const before = [...buffer];
+    pushSample(buffer, sample(6), 3);
+    expect(buffer).toEqual(before);
+    expect(sampleLimit).toBe(60);
   });
 });

@@ -1336,6 +1336,34 @@ the milestones they overlap.
 - **M33.6 Topology** (from the study's direction 4): the picture at the top of Storage and Network -
   drives to folders and apps, the firewall's gates, the LAN and the tailnet - drawn from the same
   facts as the pages beneath it.
+- ✅ **M33.7 The look** (unreleased; ADR-004 addendum). Home and Ops had the study's layouts in the
+  old skin; now they have its look, light and dark, and every Classic page its type and surfaces.
+  Fonts: Figtree, IBM Plex Sans Condensed and JetBrains Mono, OFL, self-hosted from `@fontsource`
+  (Latin, upright, the weights used) under `font-src 'self'`, licences in `dist/licenses/`.
+  **Home** is the Launcher: a wallpaper of three glows (a fixed layer on Home only), frosted glass
+  panels down the left (what needs you, the system, backups and disks), the greeting and verdict
+  and the apps as colour squares on the right, what can wait in a glass strip under them, the dock
+  in glass at the bottom; light is a daylight wallpaper with white glass and dark ink. Buttons are
+  pills that keep the tier (medium's amber mark, high's red mark, lock and Password), with the
+  tier also beside the words as in the study. App colours come from `src/ui/appColor.ts` (fifteen
+  deep hues, the known colour for about forty well-known apps, otherwise stable from the id;
+  manifests carry no colour); each tile's badge has its own shape (a dot, "!", "×", a dashed ring).
+  The top bar floats over the wallpaper with the host and its verdict's mark, a glass search box
+  and glass controls. **Ops** is the Command Center: near-black (paper in light), hairlines, Plex
+  Condensed, every figure in mono, amber and cyan, panels with small capitals and a count, alerts
+  with a coloured leading edge, the inbox led by each fix's tier, a compact bar reading
+  "homebox / ops" with the host's facts (`src/shell/TopBarSlot.tsx`), and the dock stood up as a
+  56px rail under the BoxPilot mark (a phone keeps the dock). CPU, memory and the hottest sensor
+  draw sparklines from the reads Ops makes while open (a sixty-read buffer; no history API, so
+  none is invented, and no time-range control). The Classic pages move to the new sans, a
+  blue-slate palette with Home's glows faint behind it, softer radii and flat buttons, layouts
+  untouched. The contrast check judges text on the wallpaper and on glass at its lightest and
+  darkest points, Ops' pairs and every app square's glyph (554 pairs). The demo's performance read
+  moves a little between reads so its sparklines have something to draw, and the screenshots wait
+  for Ops' third read. Left: real app logos (the squares carry the manifest's emoji or initials);
+  network throughput and a GPU tile on Ops (no endpoint); history for the sparklines and the range
+  control; the study's notification bell and "Tailnet" pill on Home's bar (BoxPilot has no
+  notification centre, and the connection pill says how this browser connected).
 - The owner wants every concept from the study (2026-09-28): the assistant (B5) is M34; the phone
   layout (B6) is M25; recipes and a GPU page (B7) belong to M22.
 
