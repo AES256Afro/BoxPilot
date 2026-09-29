@@ -70,6 +70,14 @@ describe("the notification centre (M36)", () => {
     window.removeEventListener(openActivityEvent, listener);
   });
 
+  it("sends the owner to Settings' Notifications tab to set a target (M33.13)", async () => {
+    const { onNavigate } = mount();
+    fireEvent.click(await screen.findByRole("button", { name: "Notifications, 2 new" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Set one in Settings" }));
+    expect(onNavigate).toHaveBeenCalledWith("settings", { tab: "notifications" });
+    expect(destinationOf(entry({ family: "report.weekly", key: "report.weekly" }))).toMatchObject({ view: "settings", tab: "notifications" });
+  });
+
   it("opens when Home's 'could not tell you' item asks for it", async () => {
     mount();
     await screen.findByRole("button", { name: "Notifications, 2 new" });

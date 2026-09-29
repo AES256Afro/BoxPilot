@@ -36,7 +36,7 @@ export interface NotificationEntry {
 export interface NotificationList { entries: NotificationEntry[]; seenAt: string | null; unseen: number; targetConfigured: boolean }
 
 /** Where an entry leads: a job opens in Activity, everything else on the page that has its detail. */
-export function destinationOf(entry: NotificationEntry): { kind: "activity"; jobId: string | null; label: string } | { kind: "view"; view: ViewName; label: string } {
+export function destinationOf(entry: NotificationEntry): { kind: "activity"; jobId: string | null; label: string } | { kind: "view"; view: ViewName; label: string; tab?: string } {
   const [, subject] = entry.key.split(/:(.*)/s);
   if (entry.family === "job.failed" || entry.family === "approval.lapsed") return { kind: "activity", jobId: subject && entry.key !== entry.family ? subject : null, label: "Open in Activity" };
   if (entry.family === "job.interrupted" || entry.family === "record.failed" || entry.family === "joblog.unreadable") return { kind: "activity", jobId: null, label: "Open Activity" };
@@ -51,7 +51,9 @@ export function destinationOf(entry: NotificationEntry): { kind: "activity"; job
     : entry.family === "flow.failed" ? "automations"
       : entry.family === "drive.reconnected" ? "storage"
         : entry.family === "signin.new" || entry.family === "report.weekly" ? "settings" : "repairs";
-  return { kind: "view", view, label: `Open ${viewLabel(view)}` };
+  // Settings opens at the tab the entry is about (M33.13).
+  const tab = entry.family === "report.weekly" ? "notifications" : entry.family === "signin.new" ? "account" : undefined;
+  return { kind: "view", view, label: `Open ${viewLabel(view)}`, ...(tab ? { tab } : {}) };
 }
 
 /** Whether it arrived, in words, with the status that goes with them. */
@@ -63,7 +65,7 @@ export function deliveryOf(entry: NotificationEntry): { status: Status; words: s
 
 const pollMs = 60_000;
 
-export function NotificationCentre({ csrfToken, onNavigate }: { csrfToken: string; onNavigate: (view: ViewName) => void }) {
+export function NotificationCentre({ csrfToken, onNavigate }: { csrfToken: string; onNavigate: (view: ViewName, options?: { tab?: string }) => void }) {
   const [list, setList] = useState<NotificationList | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
@@ -105,6 +107,7 @@ export function NotificationCentre({ csrfToken, onNavigate }: { csrfToken: strin
     const destination = destinationOf(entry);
     setOpen(false);
     if (destination.kind === "activity") openActivity(destination.jobId ?? undefined);
+    else if (destination.tab) onNavigate(destination.view, { tab: destination.tab });
     else onNavigate(destination.view);
   };
 
@@ -128,7 +131,7 @@ export function NotificationCentre({ csrfToken, onNavigate }: { csrfToken: strin
           )}
           {problem && <Notice tone="danger" live title="The notifications could not be read">{problem}</Notice>}
           {list && !list.targetConfigured && (
-            <Notice tone="warning" action={<Button onClick={() => { setOpen(false); onNavigate("settings"); }}>Set one in Settings</Button>}>
+            <Notice tone="warning" action={<Button onClick={() => { setOpen(false); onNavigate("settings", { tab: "notifications" }); }}>Set one in Settings</Button>}>
               No notification target is set, so none of this reached your phone.
             </Notice>
           )}
