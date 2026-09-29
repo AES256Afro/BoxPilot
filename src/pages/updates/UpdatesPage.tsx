@@ -111,13 +111,10 @@ export default function UpdatesPage({ csrfToken, role = "owner" }: UpdatesPagePr
   });
 
   const packageColumns: Array<TableColumn<UpgradablePackage>> = [
-    ...(may("apt.upgrade") ? [{
-      id: "select", header: <span className="ui-visually-hidden">Selected</span>, label: "Select", className: "updates-select-cell",
-      cell: (item: UpgradablePackage) => <Checkbox className="updates-check" label={<span className="ui-visually-hidden">Select {item.name}</span>} checked={selected.has(item.name)} onChange={() => toggle(item.name)} />,
-    }] : []),
     {
       id: "package", header: "Package", sortValue: (item) => item.name, cell: (item) => (
         <span className="updates-package">
+          {may("apt.upgrade") && <Checkbox className="updates-check" label={<span className="ui-visually-hidden">Select {item.name}</span>} checked={selected.has(item.name)} onChange={() => toggle(item.name)} />}
           <a className="updates-package__link" href={`https://launchpad.net/ubuntu/+source/${encodeURIComponent(item.source ?? item.name)}/+changelog`} target="_blank" rel="noreferrer" title="Changelog on Launchpad"><code>{item.name}</code></a>
           {isSecurity(item) && <Tag tone="warning" title="A security update">security</Tag>}
         </span>
@@ -159,7 +156,7 @@ export default function UpdatesPage({ csrfToken, role = "owner" }: UpdatesPagePr
     <div className="updates-page">
       {dialog}
       <PageHeader
-        title="Updates and packages"
+        title="Updates"
         status={verdict}
         meta={report ? <><b>{report.count}</b> upgradable · <b>{securityCount}</b> security · reboot <b>{report.rebootRequired ? "required" : "not needed"}</b>{unattended ? <> · automatic updates <b>{unattended.enabled ? "on" : "off"}</b></> : null}</> : undefined}
         actions={<Button variant="ghost" onClick={() => void refresh()} busy={loading && Boolean(report)}>Read again</Button>}

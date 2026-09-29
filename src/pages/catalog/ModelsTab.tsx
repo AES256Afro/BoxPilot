@@ -55,7 +55,7 @@ export function ModelsTab({ entry, ctx }: { entry: Entry; ctx: CatalogContext })
           : <Table caption={`${manifest.name}'s models`} columns={columns} rows={state.rows} rowKey={(row) => row.name} empty={state.loading ? `Asking ${manifest.name} what it has…` : "No models could be listed."} />}
       </Panel>
       {state.available && mayStart(role, "app.model.pull") && (
-        <form className="catalog-inline catalog-models__pull" onSubmit={(event) => { event.preventDefault(); pull(); }}>
+        <form className="catalog-models__pull" onSubmit={(event) => { event.preventDefault(); pull(); }}>
           <Field label="Model to download" hint={<>Names come from <a href="https://ollama.com/library" target="_blank" rel="noreferrer">the Ollama library</a>, such as <code>hermes3:8b</code>.</>}>
             <TextInput mono value={wanted} onValueChange={setWanted} placeholder="hermes3:8b" autoCapitalize="off" spellCheck={false} />
           </Field>

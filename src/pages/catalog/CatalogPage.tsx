@@ -314,7 +314,7 @@ export default function CatalogPage({ csrfToken, focusApp, role = "owner" }: Cat
           </Panel>
         ) : current === "installed" ? (
           <>
-            {toolbar}
+            {installedAll.length > 0 && toolbar}
             <Panel className="catalog-installed" title="On this server" count={data ? installedVisible.length : undefined} meta={data ? `${runningCount} running of ${installedVisible.length} installed` : undefined}>
               {!data ? <p className="catalog-quiet">{error ? "The apps could not be read." : "Reading…"}</p>
                 : installedVisible.length === 0 ? (

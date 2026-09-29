@@ -193,13 +193,14 @@ export default function AutomationsPage({ csrfToken, role = "owner" }: Automatio
   const flowFacts = (flow: Flow): KeyValueItem[] => {
     const facts: KeyValueItem[] = [];
     const failedRun = flowFailed(flow);
+    const when = flow.lastRunAt ? new Date(flow.lastRunAt).toLocaleString() : null;
     facts.push({
-      id: "last", label: "Last run", mono: true,
+      id: "last", label: "Last run",
       status: flow.running ? "neutral" : !flow.lastResult ? undefined : failedRun ? "danger" : "good",
-      value: flow.lastResult ? `${flow.lastRunAt ? `${new Date(flow.lastRunAt).toLocaleString()}: ` : ""}${flow.lastResult}` : "never run",
-      hint: flow.lastRunElsewhere ? `${flow.running ? "Someone else is running this now." : "Someone else ran this last."} Its steps are in their Activity.` : undefined,
+      value: flow.lastResult ?? "never run",
+      hint: [when, flow.lastRunElsewhere ? `${flow.running ? "Someone else is running this now." : "Someone else ran this last."} Its steps are in their Activity.` : null].filter(Boolean).join(" · ") || undefined,
     });
-    if (flow.frequency) facts.push({ id: "schedule", label: "Schedule", mono: true, value: `${cadenceLabel(flow)}${flow.enabled && flow.nextDueAt ? `; next ${new Date(flow.nextDueAt).toLocaleString()}` : ""}${flow.enabled ? "" : "; paused"}`, hint: "Runs under your account, the same as pressing Run." });
+    if (flow.frequency) facts.push({ id: "schedule", label: "Schedule", value: `${cadenceLabel(flow)}${flow.enabled ? "" : ", paused"}`, hint: `${flow.enabled && flow.nextDueAt ? `next ${new Date(flow.nextDueAt).toLocaleString()} · ` : ""}runs as you, the same as pressing Run` });
     if (flow.triggerFlowId) facts.push({ id: "after", label: "Runs after", value: `${list.find((other) => other.id === flow.triggerFlowId)?.name ?? "another flow"} completes${flow.enabled ? "" : " (paused)"}`, hint: "Under its own creator's account." });
     if (flow.triggerDrive) facts.push({ id: "drive", label: "Runs when", value: <><code>{mountpointFor(flow.triggerDrive)}</code> drops or goes read-only{flow.enabled ? "" : " (paused)"}</>, hint: "Under its creator's account, within the limits shown beside the drive on Storage." });
     if (flow.webhookEnabled) facts.push({ id: "webhook", label: "Webhook", value: "on", mono: true, hint: "The URL was shown once when it was made; regenerate it to get a new one." });
@@ -331,7 +332,7 @@ export default function AutomationsPage({ csrfToken, role = "owner" }: Automatio
         tabs={[
           { id: "flows", label: "Automations", count: flows ? list.length : undefined, status: failedFlows ? "danger" : undefined, statusLabel: failedFlows ? `${failedFlows} failed` : undefined },
           { id: "schedules", label: "Schedules", count: schedules.schedules ? scheduleList.length : undefined, status: failedSchedules ? "danger" : behind ? "warning" : undefined, statusLabel: failedSchedules ? `${failedSchedules} failed` : behind ? `${behind} behind` : undefined },
-          { id: "shelf", label: "Ready to use", count: shelf.length || undefined, status: suggestedShelf ? "warning" : undefined, statusLabel: suggestedShelf ? `${countOf(suggestedShelf, "suggestion")}` : undefined },
+          { id: "shelf", label: "Ready to use", count: shelf.length || undefined, status: suggestedShelf ? "neutral" : undefined, statusLabel: suggestedShelf ? `${countOf(suggestedShelf, "suggestion")}` : undefined },
         ]}
       >
         {(current) => (current === "flows" ? flowPanel : current === "schedules" ? <SchedulesPanel csrfToken={csrfToken} role={role} serverTimezone={timezone} source={schedules} /> : shelfPanel)}

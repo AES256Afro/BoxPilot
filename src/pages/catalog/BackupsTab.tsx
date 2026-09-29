@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { formatBytes } from "../../formatBytes";
-import { Button, EmptyState, Notice, Panel, SearchField, StatusChip, Table, mayStart, riskOf, type TableColumn } from "../../ui";
+import { Button, EmptyState, Notice, Panel, SearchField, StatusChip, mayStart, riskOf } from "../../ui";
 import { offlineFor, runRead } from "./appState";
 import type { CatalogContext, Entry } from "./types";
 
@@ -51,21 +51,8 @@ export function BackupsTab({ entry, ctx }: { entry: Entry; ctx: CatalogContext }
   };
 
   const when = (backup: Backup) => (backup.createdAt ? new Date(backup.createdAt).toLocaleString() : backup.artifact);
-  const columns: Array<TableColumn<Backup>> = [
-    { id: "created", header: "Created", sortValue: (backup) => backup.createdAt ?? backup.artifact, cell: (backup) => when(backup) },
-    { id: "size", header: "Size", numeric: true, sortValue: (backup) => backup.sizeBytes, cell: (backup) => formatBytes(backup.sizeBytes) },
-    { id: "offline", header: "Offline for", hideOnPhone: true, sortValue: (backup) => backup.downtimeMs, cell: (backup) => offlineFor(backup.downtimeMs) },
-    {
-      id: "actions", header: <span className="ui-visually-hidden">Actions</span>, label: "Actions", className: "catalog-actions-cell", cell: (backup) => (
-        <span className="catalog-actions">
-          {may("app.backup.restore") && <Button risk={riskOf("app.backup.restore")} aria-label={`Restore ${when(backup)}`} onClick={() => act({ operationId: "app.backup.restore", title: `Restore ${name} from ${when(backup)}`, parameters: { id: manifest.id, backup: backup.artifact }, preview: <span>Saves the current state as a safety copy first, then replaces {name}'s data and configuration with this backup and starts it.</span> })}>Restore</Button>}
-          <Button variant="ghost" aria-label={`Browse ${when(backup)}`} onClick={() => void browse(backup.artifact)}>Browse</Button>
-          {may("app.backup.verify") && <Button risk={riskOf("app.backup.verify")} aria-label={`Rehearse restoring ${when(backup)}`} onClick={() => act({ operationId: "app.backup.verify", title: `Rehearse restoring ${name}`, parameters: { id: manifest.id, backup: backup.artifact }, preview: <span>Checks this archive against its recorded checksum, unpacks all of it into scratch space to prove it opens and holds what it claims, then deletes the scratch copy. {name} keeps running and nothing it holds is changed.</span> })}>Rehearse</Button>}
-          {may("app.backup.delete") && <Button risk={riskOf("app.backup.delete")} aria-label={`Delete ${when(backup)}`} onClick={() => act({ operationId: "app.backup.delete", title: `Delete backup of ${name}`, parameters: { id: manifest.id, backup: backup.artifact }, preview: <span>Deletes the archive from {when(backup)}. This cannot be undone.</span> })}>Delete</Button>}
-        </span>
-      ),
-    },
-  ];
+  // Newest first; one without a date (an older record) goes last.
+  const archives = useMemo(() => [...(backups ?? [])].sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? "")), [backups]);
 
   const shownFiles = useMemo(() => (browsing?.files ?? []).filter((file) => file.type !== "directory" && (!filter || file.path.toLowerCase().includes(filter.toLowerCase()))).slice(0, 200), [browsing, filter]);
   const skippedVolumes = [...new Set((backups ?? []).flatMap((backup) => backup.skippedVolumes ?? []))];
@@ -124,7 +111,25 @@ export function BackupsTab({ entry, ctx }: { entry: Entry; ctx: CatalogContext }
       <Panel level={3} title="Archives" count={backups ? backups.length : undefined} className="catalog-archives">
         {backups && backups.length === 0
           ? <EmptyState title="No backups yet" action={live?.installed && may("app.backup") ? <Button risk={riskOf("app.backup")} onClick={() => act({ operationId: "app.backup", title: `Back up ${name}`, parameters: { id: manifest.id }, preview: <span>Stops {name} briefly, archives its data and configuration, restarts it, and keeps the newest 5 copies.</span> })}>Back up now</Button> : undefined}>A backup is a consistent archive of the app's data and configuration.</EmptyState>
-          : <Table caption={`Backups of ${name}`} columns={columns} rows={backups ?? []} rowKey={(backup) => backup.artifact} defaultSort={{ column: "created", direction: "descending" }} empty={error ? "The backups could not be read." : "Reading…"} />}
+          : !backups ? <p className="catalog-quiet">{error ? "The backups could not be read." : "Reading…"}</p>
+            : (
+              <ul className="catalog-rows" aria-label={`Backups of ${name}`}>
+                {archives.map((backup) => (
+                  <li key={backup.artifact} className="catalog-row">
+                    <span className="catalog-row__main">
+                      <span className="catalog-archive__when">{when(backup)}</span>
+                      <span className="catalog-archive__facts"><span>{formatBytes(backup.sizeBytes)}</span><span>offline for <span className="catalog-archive__offline">{offlineFor(backup.downtimeMs)}</span></span></span>
+                    </span>
+                    <span className="catalog-actions catalog-actions--wrap">
+                      {may("app.backup.restore") && <Button risk={riskOf("app.backup.restore")} aria-label={`Restore ${when(backup)}`} onClick={() => act({ operationId: "app.backup.restore", title: `Restore ${name} from ${when(backup)}`, parameters: { id: manifest.id, backup: backup.artifact }, preview: <span>Saves the current state as a safety copy first, then replaces {name}'s data and configuration with this backup and starts it.</span> })}>Restore</Button>}
+                      <Button variant="ghost" aria-label={`Browse ${when(backup)}`} onClick={() => void browse(backup.artifact)}>Browse</Button>
+                      {may("app.backup.verify") && <Button risk={riskOf("app.backup.verify")} aria-label={`Rehearse restoring ${when(backup)}`} onClick={() => act({ operationId: "app.backup.verify", title: `Rehearse restoring ${name}`, parameters: { id: manifest.id, backup: backup.artifact }, preview: <span>Checks this archive against its recorded checksum, unpacks all of it into scratch space to prove it opens and holds what it claims, then deletes the scratch copy. {name} keeps running and nothing it holds is changed.</span> })}>Rehearse</Button>}
+                      {may("app.backup.delete") && <Button risk={riskOf("app.backup.delete")} aria-label={`Delete ${when(backup)}`} onClick={() => act({ operationId: "app.backup.delete", title: `Delete backup of ${name}`, parameters: { id: manifest.id, backup: backup.artifact }, preview: <span>Deletes the archive from {when(backup)}. This cannot be undone.</span> })}>Delete</Button>}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
       </Panel>
       {skippedVolumes.length > 0 && <p className="catalog-quiet">Not included in these archives: {skippedVolumes.join(", ")}.</p>}
       {skippedHostPaths.length > 0 && <p className="catalog-quiet">Volumes at operator-managed host paths are not included: {skippedHostPaths.join(", ")}</p>}
