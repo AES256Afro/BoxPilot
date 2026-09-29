@@ -1,0 +1,74 @@
+[Unit]
+Description=BoxPilot agents runner (capped: idle priority, two threads, 8 GB, loopback only)
+Documentation=https://github.com/AES256Afro/BoxPilot/blob/main/docs/DECISIONS.md
+# It asks the web service for work; without it there is nothing to do, so it waits for it.
+Wants=boxpilot.service
+After=network-online.target boxpilot.service
+# Installed with every other unit and enabled only when the owner turns Agents on (agents.runtime.enable).
+ConditionPathExists=/var/lib/boxpilot/agents/runner.token
+
+[Service]
+Type=simple
+User=boxpilot-agents
+Group=boxpilot-agents
+WorkingDirectory=/opt/boxpilot
+EnvironmentFile=-/etc/boxpilot/boxpilot.env
+Environment=NODE_ENV=production
+Environment=BOXPILOT_AGENTS_STATE=/var/lib/boxpilot-agents
+Environment=BOXPILOT_AGENTS_RUNTIME=/opt/boxpilot-agents/unsloth
+# The runner's key, made by the web service when Agents were turned on. systemd reads it as root and
+# hands a copy to this service alone; the runner never reads /var/lib/boxpilot itself.
+LoadCredential=runner-token:/var/lib/boxpilot/agents/runner.token
+StateDirectory=boxpilot-agents
+StateDirectoryMode=0750
+ExecStart=/usr/local/bin/node /opt/boxpilot/server/agents/runner-main.mjs
+Restart=on-failure
+RestartSec=30s
+# The model server is the runner's child: stopping the service stops it too, in one cgroup.
+KillMode=control-group
+TimeoutStopSec=30s
+UMask=0077
+
+# ---- Hard caps (server/agents/caps.mjs holds these values; caps.test.mjs keeps them equal) ----
+# Agents must never make the server run hot. These cover the runner and the model server together.
+CPUQuota=200%
+CPUWeight=idle
+Nice=19
+IOSchedulingClass=idle
+MemoryMax=8G
+MemoryHigh=7G
+MemorySwapMax=0
+TasksMax=256
+LimitNOFILE=4096
+
+# ---- Network: this machine only ----
+# The web service and the model server it starts; nothing else, whatever the model asks for.
+IPAddressAllow=localhost
+IPAddressDeny=any
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+# ---- Sandbox ----
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectClock=true
+ProtectControlGroups=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectHostname=true
+ProtectProc=invisible
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+[Install]
+WantedBy=multi-user.target
