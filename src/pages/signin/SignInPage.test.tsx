@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import AuthScreen, { signedOutWords } from "./AuthScreen";
+import AuthScreen, { SignInLoading, SignInUnavailable, signedOutWords } from "./SignInPage";
 
 afterEach(() => {
   cleanup();
@@ -66,5 +66,39 @@ describe("signing in again after a session ended (M36)", () => {
 
   it("tells a session ended elsewhere from one that ran out", () => {
     expect(signedOutWords({ reason: "ended", page: null })).toMatch(/^You were signed out from somewhere else: .* Sign in to carry on.$/);
+  });
+});
+
+describe("the sign-in page's ways in (M33.13)", () => {
+  const identity = (body: unknown) => vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } })));
+
+  it("offers a passkey first, then GitHub, then Tailscale, then the password", async () => {
+    identity({ tailscale: { available: true, login: "alex@example.com", displayName: "Alex", node: "workbook", linked: true }, github: { configured: true }, passkey: { registered: true } });
+    vi.stubGlobal("PublicKeyCredential", function PublicKeyCredential() {});
+    vi.stubGlobal("isSecureContext", true);
+    render(<AuthScreen bootstrapRequired={false} onAuthenticated={vi.fn()} />);
+    const ways = await screen.findByRole("group", { name: "Ways to sign in" });
+    expect([...ways.querySelectorAll("button")].map((button) => button.textContent)).toEqual(["Sign in with a passkey", "Sign in with GitHub", "Continue as Alex (Tailscale)"]);
+    // The first way offered is the card's main button; the password's Sign in is not.
+    expect(screen.getByRole("button", { name: "Sign in with a passkey" }).className).toContain("ui-button--primary");
+    expect(screen.getByRole("button", { name: "Sign in" }).className).not.toContain("ui-button--primary");
+  });
+
+  it("makes the password the main way in when it is the only one", async () => {
+    identity({ tailscale: { available: false, login: null, displayName: null, node: null, linked: false }, github: { configured: false } });
+    render(<AuthScreen bootstrapRequired={false} onAuthenticated={vi.fn()} />);
+    expect(await screen.findByText(/sign-in is not set up yet/)).toBeTruthy();
+    expect(screen.queryByRole("group", { name: "Ways to sign in" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Sign in" }).className).toContain("ui-button--primary");
+  });
+
+  it("says plainly when BoxPilot does not answer, with a way to try again", () => {
+    render(<SignInUnavailable problem="BoxPilot is not answering" />);
+    expect(screen.getByRole("heading", { name: "BoxPilot is unavailable" })).toBeTruthy();
+    expect(screen.getByRole("alert").textContent).toBe("BoxPilot is not answering");
+    expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
+    cleanup();
+    render(<SignInLoading />);
+    expect(screen.getByRole("heading", { name: "Loading BoxPilot..." })).toBeTruthy();
   });
 });

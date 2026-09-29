@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import SignInSettings from "./SignInSettings";
+import SignInSettings from "./SignInMethodsPanel";
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -18,7 +18,7 @@ describe("Sign-in settings", () => {
     render(<SignInSettings csrfToken="csrf-token" />);
     const button = (await screen.findByRole("button", { name: "Link me@example.com" })) as HTMLButtonElement;
     expect(button.disabled).toBe(true);
-    fireEvent.change(screen.getByLabelText("Owner password for sign-in settings"), { target: { value: "correct horse battery" } });
+    fireEvent.change(screen.getByLabelText("Your password"), { target: { value: "correct horse battery" } });
     expect(button.disabled).toBe(false);
     fireEvent.click(button);
     expect(await screen.findByText(/Tailscale identity linked/)).toBeTruthy();
@@ -38,7 +38,7 @@ describe("Sign-in settings", () => {
   };
   const startLinking = async () => {
     render(<SignInSettings csrfToken="csrf-token" />);
-    fireEvent.change(await screen.findByLabelText("Owner password for sign-in settings"), { target: { value: "correct horse battery" } });
+    fireEvent.change(await screen.findByLabelText("Your password"), { target: { value: "correct horse battery" } });
     const link = await screen.findByRole("button", { name: "Link a GitHub account" });
     vi.useFakeTimers();
     await act(async () => { fireEvent.click(link); await vi.advanceTimersByTimeAsync(0); });
@@ -53,7 +53,7 @@ describe("Sign-in settings", () => {
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(screen.queryByText("ABCD-1234")).toBeNull();
     // Not busy any more: with the password typed again, linking can start over.
-    fireEvent.change(screen.getByLabelText("Owner password for sign-in settings"), { target: { value: "correct horse battery" } });
+    fireEvent.change(screen.getByLabelText("Your password"), { target: { value: "correct horse battery" } });
     expect((screen.getByRole("button", { name: "Link a GitHub account" }) as HTMLButtonElement).disabled).toBe(false);
     // The answer to the poll that was already out does not schedule another.
     await act(async () => { polls[0](json({ status: "pending" })); await vi.advanceTimersByTimeAsync(20_000); });
