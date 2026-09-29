@@ -34,9 +34,11 @@ const whole = (value: string, min: number, max: number) => {
 
 export function FirewallBruteForce({ state, error, role, start, onRetry }: FirewallBruteForceProps) {
   // What the owner has typed, over the thresholds in force (or fail2ban's usual ones when BoxPilot
-  // does not manage the jail); a new read of the state starts over from what is in force.
+  // does not manage the jail); when what is in force changes, it starts over from that. Another read
+  // that says the same keeps what was typed: a refresh landing after an edit used to wipe it.
   const [draft, setDraft] = useState<{ maxRetry?: string; findTime?: string; banTime?: string; ignoreLan?: boolean }>({});
-  useEffect(() => { setDraft({}); }, [state]);
+  const inForce = JSON.stringify(state?.config ?? null);
+  useEffect(() => { setDraft({}); }, [inForce]);
   const managed = state?.config.managed ? state.config : null;
   const maxRetry = draft.maxRetry ?? String(managed?.maxRetry ?? 5);
   const findTime = draft.findTime ?? String(managed?.findTimeMinutes ?? 10);
