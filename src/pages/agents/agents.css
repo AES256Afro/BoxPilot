@@ -31,6 +31,8 @@
 /* ---- cards ---- */
 .agents-cards__list { display: grid; gap: 8px; padding: 10px 12px; }
 .agents-live .agents-cards__list { padding: 0; }
+/* Opening an earlier run scrolls here; clear the console's top bar. */
+.agents-live { scroll-margin-top: 72px; }
 .agents-card { display: grid; gap: 8px; padding: 10px 12px; border: 1px solid var(--border); border-left: 3px solid var(--risk-medium); border-radius: var(--radius-sm); background: var(--surface-raised); }
 .agents-card[data-state="dismissed"], .agents-card[data-state="staged"] { border-left-color: var(--border); opacity: 0.85; }
 .agents-card__head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
