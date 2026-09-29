@@ -1,6 +1,6 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { openActivityEvent } from "../activityEvents";
+import { openActivityEvent, openNotifications } from "../activityEvents";
 import { NotificationCentre, destinationOf, deliveryOf, type NotificationEntry, type NotificationList } from "./NotificationCentre";
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
@@ -68,6 +68,13 @@ describe("the notification centre (M36)", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Open Storage" }));
     expect(onNavigate).toHaveBeenCalledWith("storage");
     window.removeEventListener(openActivityEvent, listener);
+  });
+
+  it("opens when Home's 'could not tell you' item asks for it", async () => {
+    mount();
+    await screen.findByRole("button", { name: "Notifications, 2 new" });
+    act(() => openNotifications());
+    expect(await screen.findByRole("dialog", { name: "Notifications" })).toBeTruthy();
   });
 
   it("closes on Escape and holds the keyboard while open", async () => {
