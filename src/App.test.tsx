@@ -87,7 +87,9 @@ describe("BoxPilot console", () => {
     expect(screen.getByText(viewCopy.firewall.description).closest("[hidden]")).not.toBeNull();
     fireEvent.click(about);
     expect(screen.getByText(viewCopy.firewall.description).closest("[hidden]")).toBeNull();
-  });
+    // Every page in the dock, each loaded for the first time with its own stylesheet (about a third
+    // of a second each once rebuilt): more than the default five seconds on a busy runner.
+  }, 20_000);
 
   it("has retired the Classic overview: its link opens Home and leaves the address clean", async () => {
     vi.stubGlobal("fetch", vi.fn(authenticatedFetch));
