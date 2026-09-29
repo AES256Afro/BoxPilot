@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useOperation } from "./ApproveDialog";
-import { inspectOperation, runReadOperation } from "./operations";
-import { Button, Section, StatusChip, Table, mayStart, riskOf, type Status } from "./ui";
+import { useOperation } from "../../ApproveDialog";
+import { inspectOperation, runReadOperation } from "../../operations";
+import { Button, Field, Notice, Panel, StatusChip, Table, TextInput, mayStart, riskOf, type Status } from "../../ui";
 
 /*
  * The database copies updates take (M36). Every update copies BoxPilot's database before it swaps
@@ -21,7 +21,7 @@ interface DatabaseCopy {
   keptBecause: "newest" | "recent" | null;
 }
 
-export interface DatabaseCopies {
+export interface DatabaseCopiesReport {
   directory: string;
   rule: { keep: number; keepDays: number };
   defaults: { keep: number; keepDays: number };
@@ -44,8 +44,8 @@ function takenOn(iso: string): string {
   return Number.isFinite(time) ? new Date(time).toLocaleString([], { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "unknown";
 }
 
-export default function DatabaseCopiesPanel({ csrfToken, role }: { csrfToken: string; role: string }) {
-  const [report, setReport] = useState<DatabaseCopies | null>(null);
+export function DatabaseCopies({ csrfToken, role }: { csrfToken: string; role: string }) {
+  const [report, setReport] = useState<DatabaseCopiesReport | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [reading, setReading] = useState(true);
   const [keepText, setKeepText] = useState("");
@@ -57,8 +57,8 @@ export default function DatabaseCopiesPanel({ csrfToken, role }: { csrfToken: st
     setReading(true);
     try {
       const { result } = rule
-        ? await runReadOperation<DatabaseCopies>("housekeeping.database-copies.inspect", rule, csrfToken)
-        : await inspectOperation<DatabaseCopies>("housekeeping.database-copies.inspect");
+        ? await runReadOperation<DatabaseCopiesReport>("housekeeping.database-copies.inspect", rule, csrfToken)
+        : await inspectOperation<DatabaseCopiesReport>("housekeeping.database-copies.inspect");
       if (!Array.isArray(result?.copies)) throw new Error("BoxPilot sent a list the page could not read");
       setReport(result);
       answered.current = `${result.rule.keep}/${result.rule.keepDays}`;
@@ -70,7 +70,6 @@ export default function DatabaseCopiesPanel({ csrfToken, role }: { csrfToken: st
       setReading(false);
     }
   }, [csrfToken]);
-
   useEffect(() => { void load(null); }, [load]);
 
   const keep = report ? whole(keepText, report.limits.keep) : null;
@@ -91,9 +90,9 @@ export default function DatabaseCopiesPanel({ csrfToken, role }: { csrfToken: st
   const going = copies.filter((copy) => copy.goes);
   const kept = copies.length - going.length;
   const oldSecrets = copies.filter((copy) => copy.heldSecrets).length;
-  const status: { status: Status; label: string } = !report
-    ? { status: "unknown", label: reading ? "Reading" : "Not read" }
-    : copies.length === 0 ? { status: "good", label: "None yet" }
+  const verdict: { status: Status; label: string } = !report
+    ? { status: "unknown", label: reading ? "reading" : "not read" }
+    : copies.length === 0 ? { status: "good", label: "none yet" }
       : going.length === 0 ? { status: "good", label: plural(copies.length, "copy", "copies") }
         : { status: "neutral", label: `${going.length} can go` };
 
@@ -104,9 +103,9 @@ export default function DatabaseCopiesPanel({ csrfToken, role }: { csrfToken: st
       title: `Remove ${plural(going.length, "database copy", "database copies")}`,
       parameters: { keep: report.rule.keep, keepDays: report.rule.keepDays, names: going.map((copy) => copy.name) },
       preview: (
-        <div className="db-copies-preview">
+        <div className="system-preview">
           <p>Deletes exactly these {plural(going.length, "copy", "copies")} from <code>{report.directory}</code>, {report.goesHumanBytes} in all:</p>
-          <ul>{going.map((copy) => <li key={copy.name}><code>{copy.name}</code> <span className="muted">{copy.humanBytes}</span></li>)}</ul>
+          <ul>{going.map((copy) => <li key={copy.name}><code>{copy.name}</code> <span className="system-sub">{copy.humanBytes}</span></li>)}</ul>
           <p>Keeps {plural(kept, "copy", "copies")}: the newest {report.rule.keep} and any younger than {plural(report.rule.keepDays, "day", "days")}. A copy that becomes one of those before this runs is kept whatever this list says, and the live database is never touched. Deleted copies cannot be brought back.</p>
         </div>
       ),
@@ -114,60 +113,53 @@ export default function DatabaseCopiesPanel({ csrfToken, role }: { csrfToken: st
   };
 
   return (
-    <div className="db-copies panel" data-density="comfortable">
+    <Panel className="system-copies" title="Database copies from updates" count={verdict}
+      meta={report ? <><b>{report.totalHumanBytes}</b> in <code>{report.directory}</code></> : undefined}
+      actions={mayStart(role, "housekeeping.database-copies.remove") && report ? (
+        <Button risk={riskOf("housekeeping.database-copies.remove")} disabled={!current || reading || going.length === 0} onClick={remove}>
+          {going.length === 0 ? "Nothing to remove" : `Remove ${plural(going.length, "copy", "copies")} (${report.goesHumanBytes})`}
+        </Button>
+      ) : undefined}>
       {dialog}
-      <Section
-        title="Database copies from updates"
-        status={status}
-        summary={report
-          ? `Each update copies the database before it swaps the code in, so the old version can be put back with the data it wrote. They are never removed on their own. ${report.totalHumanBytes} in ${report.directory}.`
-          : "Each update copies the database before it swaps the code in, so the old version can be put back with the data it wrote."}
-        actions={mayStart(role, "housekeeping.database-copies.remove") && report ? (
-          <Button risk={riskOf("housekeeping.database-copies.remove")} disabled={!current || reading || going.length === 0} onClick={remove}>
-            {going.length === 0 ? "Nothing to remove" : `Remove ${plural(going.length, "copy", "copies")} (${report.goesHumanBytes})`}
-          </Button>
-        ) : undefined}
-      >
-        {problem && <p className="auth-error" role="alert">{problem}</p>}
-        {report && (
-          <>
-            <fieldset className="db-copies-rule">
-              <legend>Which copies to keep</legend>
-              <label>Keep the newest
-                <input inputMode="numeric" type="number" min={report.limits.keep[0]} max={report.limits.keep[1]} value={keepText} aria-invalid={keep === null} onChange={(event) => setKeepText(event.target.value)} />
-              </label>
-              <label>and any younger than
-                <input inputMode="numeric" type="number" min={report.limits.keepDays[0]} max={report.limits.keepDays[1]} value={daysText} aria-invalid={keepDays === null} onChange={(event) => setDaysText(event.target.value)} />
-                days
-              </label>
-              <span className="muted" role="status">{!ruleValid ? `The newest ${report.limits.keep[0]} to ${report.limits.keep[1]}, and ${report.limits.keepDays[0]} to ${report.limits.keepDays[1]} days.` : !current || reading ? "Working out which go…" : `${plural(going.length, "goes", "go")}, ${plural(kept, "stays", "stay")}.`}</span>
-            </fieldset>
-            {oldSecrets > 0 && (
-              <p className="db-copies-hint">{plural(oldSecrets, "copy was", "copies were")} taken from a version before {report.secretScrubVersion}, which stopped keeping passwords in the database, so {oldSecrets === 1 ? "it" : "they"} may still hold some.</p>
-            )}
-            <Table
-              caption="Database copies, newest first"
-              rows={copies}
-              rowKey={(copy) => copy.name}
-              rowStatus={(copy) => (copy.goes ? "neutral" : "good")}
-              empty="No update has copied the database yet. The next one will."
-              columns={[
-                { id: "version", header: "Taken from", cell: (copy) => <><strong>{copy.version}</strong><small className="db-copies-name">{copy.name}</small></> },
-                { id: "taken", header: "When", cell: (copy) => takenOn(copy.takenAt) },
-                { id: "size", header: "Size", numeric: true, cell: (copy) => copy.humanBytes },
-                {
-                  id: "verdict", header: "This rule", cell: (copy) => (
-                    <>
-                      <StatusChip status={copy.goes ? "neutral" : "good"}>{copy.goes ? "Goes" : copy.keptBecause === "newest" ? "Kept: newest" : "Kept: recent"}</StatusChip>
-                      {copy.heldSecrets && <small className="db-copies-note">May hold old passwords</small>}
-                    </>
-                  ),
-                },
-              ]}
-            />
-          </>
-        )}
-      </Section>
-    </div>
+      {problem && <Notice tone="danger" live title="The copies could not be listed" action={<Button onClick={() => void load(null)}>Try again</Button>}>{problem}</Notice>}
+      {report && (
+        <>
+          <p className="system-note system-pad">Each update copies the database before it swaps the code in, so the old version can be put back with the data it wrote. They are never removed on their own.</p>
+          <fieldset className="system-rule">
+            <legend>Which copies to keep</legend>
+            <Field label="Keep the newest" error={keep === null ? `${report.limits.keep[0]} to ${report.limits.keep[1]}` : undefined}>
+              <TextInput mono inputMode="numeric" type="number" min={report.limits.keep[0]} max={report.limits.keep[1]} value={keepText} onValueChange={setKeepText} />
+            </Field>
+            <Field label="and any younger than (days)" error={keepDays === null ? `${report.limits.keepDays[0]} to ${report.limits.keepDays[1]} days` : undefined}>
+              <TextInput mono inputMode="numeric" type="number" min={report.limits.keepDays[0]} max={report.limits.keepDays[1]} value={daysText} onValueChange={setDaysText} />
+            </Field>
+            <span className="system-rule__answer" role="status">{!ruleValid ? "Choose numbers inside the limits." : !current || reading ? "Working out which go…" : `${plural(going.length, "goes", "go")}, ${plural(kept, "stays", "stay")}.`}</span>
+          </fieldset>
+          {oldSecrets > 0 && (
+            <p className="system-hint">{plural(oldSecrets, "copy was", "copies were")} taken from a version before {report.secretScrubVersion}, which stopped keeping passwords in the database, so {oldSecrets === 1 ? "it" : "they"} may still hold some.</p>
+          )}
+          <Table
+            caption="Database copies, newest first"
+            rows={copies}
+            rowKey={(copy) => copy.name}
+            rowStatus={(copy) => (copy.goes ? "neutral" : "good")}
+            empty="No update has copied the database yet. The next one will."
+            columns={[
+              { id: "version", header: "Taken from", cell: (copy) => <span className="system-cell"><strong>{copy.version}</strong><code className="system-sub">{copy.name}</code></span> },
+              { id: "taken", header: "When", hideOnPhone: true, cell: (copy) => takenOn(copy.takenAt) },
+              { id: "size", header: "Size", numeric: true, cell: (copy) => copy.humanBytes },
+              {
+                id: "verdict", header: "This rule", cell: (copy) => (
+                  <span className="system-cell">
+                    <StatusChip status={copy.goes ? "neutral" : "good"}>{copy.goes ? "Goes" : copy.keptBecause === "newest" ? "Kept: newest" : "Kept: recent"}</StatusChip>
+                    {copy.heldSecrets && <span className="system-sub">May hold old passwords</span>}
+                  </span>
+                ),
+              },
+            ]}
+          />
+        </>
+      )}
+    </Panel>
   );
 }
