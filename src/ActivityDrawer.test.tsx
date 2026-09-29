@@ -236,6 +236,8 @@ describe("acting on a job from Activity", () => {
     const approve = within(drawer).getByRole("button", { name: "Review and approve" });
     expect(approve.getAttribute("data-risk")).toBe("medium");
     expect(within(drawer).getByRole("button", { name: "Cancel it" })).toBeTruthy();
+    expect(within(drawer).getByText("Nothing has run yet: it waits for someone to approve it.")).toBeTruthy();
+    expect(within(drawer).queryByText("Live output")).toBeNull();
   });
 
   it("cancels a staged job, and dismisses a failure, through the job routes", async () => {
