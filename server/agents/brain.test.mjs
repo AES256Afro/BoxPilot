@@ -6,24 +6,72 @@
  */
 import { describe, expect, it } from "vitest";
 import { ExactError, calculate, convertUnits, extractJson, matchPattern, timeCalc } from "./deterministic.mjs";
-import { planMessage, readUnderstanding, understandingSchema } from "./intent.mjs";
+import { planMessage, plannerMessages, readUnderstanding, understandingFormatFor, understandingSchema } from "./intent.mjs";
 import { cosine, decodeVector, encodeVector, episodeOf, foldThread, hybridSearch, readVector, threadBudget } from "./memory.mjs";
 import { answerFormat, readStructuredAnswer, systemMessage } from "./prompt.mjs";
 import { normalizeSpec } from "./spec.mjs";
+import { toolIdOf } from "./tool-catalog.mjs";
 
 describe("the understanding a model returns", () => {
   const offered = ["server_facts", "pihole_stats"];
-  it("keeps the known fields, the offered tools only, and a bounded plan", () => {
+  it("keeps the known fields, the offered tools only, and a bounded plan, naming tools by their registry ids", () => {
     const read = readUnderstanding(JSON.stringify({
       goal: "Say whether Pi-hole blocks", subject: "Pi-hole", constraints: ["network-wide only"], tools: ["pihole_stats", "shell_run", "server.facts"],
       confidence: 0.834, clarify: null, plan: [{ step: "Read Pi-hole", tool: "pihole_stats" }, { step: "Run a shell", tool: "shell_run" }, { step: "Answer", tool: null }],
     }), { offered });
     expect(read.understanding).toEqual({
-      goal: "Say whether Pi-hole blocks", subject: "Pi-hole", constraints: ["network-wide only"], tools: ["pihole_stats", "server_facts"], confidence: 0.83, clarify: null,
-      plan: [{ step: "Read Pi-hole", tool: "pihole_stats" }, { step: "Run a shell", tool: null }, { step: "Answer", tool: null }],
+      goal: "Say whether Pi-hole blocks", subject: "Pi-hole", constraints: ["network-wide only"], tools: ["pihole.stats", "server.facts"], confidence: 0.83, clarify: null,
+      plan: [{ step: "Read Pi-hole", tool: "pihole.stats" }, { step: "Run a shell", tool: null }, { step: "Answer", tool: null }],
     });
     expect(read.dropped).toEqual(["shell_run"]);
+    // The model is told its plan with the names it calls the tools by.
     expect(planMessage(read.understanding)).toMatch(/^Your plan:\n1\. Read Pi-hole \(pihole_stats\)/);
+  });
+
+  it("reads the plan the first real run got, and never shows punctuation or a number as a step", () => {
+    // Qwen 3.5 4B's reply on the owner's server (2026-09-29), under the old schema: valid JSON, the
+    // steps' words "}," and numbers, the tools spelled with underscores.
+    const owners = { goal: "Find the most important issue to focus on", subject: "the server", constraints: [], tools: ["alerts_active", "storage_health", "services_status", "apps_list", "memory_search"], confidence: 0.7, clarify: null,
+      plan: [{ step: "},", tool: "alerts_active" }, { step: "2", tool: "storage_health" }, { step: "3", tool: "services_status" }, { step: "4", tool: "apps_list" }, { step: "5", tool: "memory_search" }, { step: "6", tool: null }] };
+    const offeredFns = ["alerts_active", "storage_health", "services_status", "apps_list", "memory_search", "docs_search", "server_facts"];
+    const read = readUnderstanding(JSON.stringify(owners), { offered: offeredFns });
+    expect(read.understanding.tools).toEqual(["alerts.active", "storage.health", "services.status", "apps.list", "memory.search"]);
+    expect(read.understanding.plan).toEqual([
+      { step: "Use Health alerts", tool: "alerts.active" }, { step: "Use Storage and SMART", tool: "storage.health" }, { step: "Use Service status", tool: "services.status" },
+      { step: "Use Apps and containers", tool: "apps.list" }, { step: "Use Search memory", tool: "memory.search" },
+    ]);
+    expect(read.dropped).toEqual([]);
+    const told = planMessage(read.understanding);
+    expect(told).not.toMatch(/},|\d\. \d\b/);
+    expect(told).toMatch(/^Your plan:\n1\. Use Health alerts \(alerts_active\)\n2\. Use Storage and SMART \(storage_health\)/);
+  });
+
+  it("reads a tool however the model spelled it", () => {
+    const read = readUnderstanding({ goal: "Check the alerts", plan: [{ step: "Read alerts", tool: "alerts-active" }, { step: "Read disks", tool: "Storage.Health" }, { step: "Read facts", tool: "functions.server_facts" }] }, { offered: ["alerts.active", "storage_health", "server.facts"] });
+    expect(read.understanding.plan.map((entry) => entry.tool)).toEqual(["alerts.active", "storage.health", "server.facts"]);
+    expect(toolIdOf("alerts_active")).toBe("alerts.active");
+    expect(toolIdOf("time-calc")).toBe("time.calc");
+    expect(toolIdOf("shell_run")).toBeNull();
+  });
+
+  it("asks for a bounded plan whose tools can only be ones the run was offered", () => {
+    const format = understandingFormatFor(["alerts_active", "server_facts"]);
+    const step = format.json_schema.schema.properties.plan.items.properties;
+    expect(step.tool.enum).toEqual(["alerts_active", "server_facts", null]);
+    expect(step.step).toMatchObject({ type: "string", minLength: 3, maxLength: 80 });
+    expect(format.json_schema.schema.properties.plan.maxItems).toBe(5);
+    expect(format.json_schema.schema.required).not.toContain("tools");
+  });
+
+  it("gives the planner the same system message for every run of an agent, with the JSON's shape", () => {
+    const agent = { name: "Server Keeper", purpose: "Knows this server.", job: "Answer questions about it.", steps: ["Read server.facts."] };
+    const tools = [{ fn: "server_facts", title: "Server facts" }, { fn: "alerts_active", title: "Health alerts" }];
+    const [system, user] = plannerMessages(agent, tools, "Now: 2026-09-29T10:00:00.000Z\n<question>\nIs all well?\n</question>");
+    expect(system.content).toBe(plannerMessages(agent, tools, "Something else entirely")[0].content);
+    expect(system.content).not.toMatch(/2026/);
+    expect(system.content).toContain('"plan":[{"step":"Read what the answer needs","tool":"server_facts"},{"step":"Answer with citations","tool":null}]');
+    expect(system.content).toMatch(/Tools:\n- server_facts: Server facts\n- alerts_active: Health alerts$/);
+    expect(user.content).toMatch(/Is all well\?[\s\S]*Answer only with the JSON\.$/);
   });
 
   it("is refused when it is not JSON or has no goal, and a clarifying question is kept", () => {

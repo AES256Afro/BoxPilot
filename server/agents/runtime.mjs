@@ -7,14 +7,22 @@
  * Built to the Unsloth spike (docs/spikes/2026-09-unsloth-headless.md):
  *
  * - unsloth: `unsloth run --model <repo:quant> --api-only --disable-tools -H 127.0.0.1 -p <port>
- *   --context-length 8192 --parallel 1 --threads 1 -c 8192 --ctx-checkpoints 4`, offline against the
- *   models the download operation put in the Hugging Face cache.
+ *   --context-length 8192 --parallel 1 --threads 4 -c 8192 --ctx-checkpoints 4 --batch-size 512
+ *   --cache-ram 1024`, offline against the models the download operation put in the Hugging Face
+ *   cache.
  *   - --disable-tools is not optional: Studio's server-side tools (Python, a shell, web search) are on
  *     by default for every bind in the release the spike measured.
  *   - -c 8192 is passed through to llama-server as well as --context-length, because Unsloth's idle
  *     reload forgets --context-length and relaunches at the GGUF's 262,144 tokens, which the memory
  *     cap kills. --ctx-checkpoints 4 stops the hybrid model's checkpoints growing memory after load.
- *   - One thread: under a one-processor cap, two spend the quota faster and then sit throttled.
+ *   - Threads: one for each whole processor in the runner's quota (caps.mjs: four); more spend the
+ *     quota faster and then sit throttled, as the spike measured at one processor.
+ *   - --batch-size 512: llama-server notices a closed connection between batches, so a call the
+ *     runner gives up on stops within 512 tokens instead of 2,048 (the physical batch is 512 anyway,
+ *     so reading is no slower).
+ *   - --cache-ram 1024: llama-server keeps earlier prompts in memory to reuse them (8 GiB unless
+ *     told), and each of this hybrid model's holds its checkpoints too; a gigabyte keeps the last
+ *     few inside the 8 GB memory cap.
  *   - UNSLOTH_MODEL_IDLE_TTL=900: Unsloth frees the model itself after 15 quiet minutes (about 2 GB)
  *     and reloads it in about 4 s on the next request; this runner stops the whole server, its Python
  *     backend too, after the owner's longer idle time (an hour by default).
@@ -48,6 +56,8 @@ const secretLine = /password|api[ _-]?key|secret|bearer/i;
 const ownGroup = process.platform !== "win32";
 export const unslothIdleUnloadSeconds = 900;
 export const contextCheckpoints = 4;
+export const promptBatch = 512;
+export const promptCacheMiB = 1024;
 
 export class ModelUnavailable extends Error {
   constructor(message, reason = "model-unavailable") { super(message); this.reason = reason; }
@@ -130,7 +140,7 @@ export function serverCommand(runtime, { port, runtimeDir, stateDir, node = proc
       args: ["run", "--model", runtime.model, "--api-only", "--disable-tools", "-H", "127.0.0.1", "-p", String(port),
         "--context-length", context, "--parallel", "1", "--threads", threads,
         // Passed through to llama-server: kept by Unsloth's idle reload, which forgets --context-length.
-        "-c", context, "--ctx-checkpoints", String(contextCheckpoints)],
+        "-c", context, "--ctx-checkpoints", String(contextCheckpoints), "--batch-size", String(promptBatch), "--cache-ram", String(promptCacheMiB)],
       env: {
         ...quiet,
         PATH: `${path.join(runtimeDir, "bin")}:${basePath}`,
@@ -149,7 +159,7 @@ export function serverCommand(runtime, { port, runtimeDir, stateDir, node = proc
       command: files.binary,
       args: ["-m", files.model, ...(files.projector ? ["--mmproj", files.projector] : []), "--alias", runtime.requestModel ?? "agents",
         "--host", "127.0.0.1", "--port", String(port), "-c", context, "--parallel", "1", "--threads", threads,
-        "--ctx-checkpoints", String(contextCheckpoints), "--jinja", "--no-webui", "--api-key-file", secrets.apiKeyFile],
+        "--ctx-checkpoints", String(contextCheckpoints), "--batch-size", String(promptBatch), "--cache-ram", String(promptCacheMiB), "--jinja", "--no-webui", "--api-key-file", secrets.apiKeyFile],
       env: { ...quiet, PATH: basePath, LD_LIBRARY_PATH: path.dirname(files.binary) },
     };
   }

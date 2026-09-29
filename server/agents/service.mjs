@@ -448,7 +448,40 @@ export function createAgentService({
       // Meaning search: Unsloth answers /v1/embeddings beside the chat model (its RAG embedder).
       // llama.cpp's server alone does not, so memory search falls back to words there.
       embeddings: moduleSettings().embeddings !== false && runtime.driver !== "llama-server",
+      // How fast this model reads and writes on this server, as the runner last measured it: what
+      // it works out a call's time from before its first call has been measured.
+      speed: modelSpeed({ current: true }),
     };
+  }
+
+  /**
+   * The model's speed on this server, from the runner's runs: tokens a second reading a prompt and
+   * writing an answer, with the model and threads it was measured at. `current` gives it only when
+   * those are still the runtime's.
+   */
+  function modelSpeed({ current = false } = {}) {
+    const saved = state.getSetting?.(modelSpeedKey, null);
+    if (!saved || !(saved.promptPerSecond > 0) || !(saved.generatePerSecond > 0)) return null;
+    if (current && (saved.model !== runtimeSettings().repo || saved.threads !== runnerCaps.modelThreads)) return null;
+    return saved;
+  }
+
+  /** A finished run's measurement, kept for the Usage tab and the next run's first call. */
+  function noteModelSpeed(measured) {
+    if (!measured || typeof measured !== "object") return null;
+    const promptPerSecond = finite(measured.promptPerSecond, 100_000);
+    const generatePerSecond = finite(measured.generatePerSecond, 10_000);
+    if (!(promptPerSecond > 0) || !(generatePerSecond > 0)) return null;
+    const previous = modelSpeed();
+    const kept = {
+      promptPerSecond: Math.round(promptPerSecond * 100) / 100,
+      generatePerSecond: Math.round(generatePerSecond * 100) / 100,
+      source: measured.source === "server" ? "server" : "runner",
+      model: runtimeSettings().repo, threads: Number.isInteger(measured.threads) && measured.threads > 0 && measured.threads <= 64 ? measured.threads : runnerCaps.modelThreads,
+      runs: (previous?.runs ?? 0) + 1, measuredAt: now().toISOString(),
+    };
+    state.setSetting?.(modelSpeedKey, kept, { updatedBy: null });
+    return kept;
   }
 
   const stale = (item) => Boolean(item.freshUntil && Date.parse(item.freshUntil) < now().getTime());
@@ -549,7 +582,8 @@ export function createAgentService({
     return {
       run: { id: run.id, kind: run.kind, question: run.question, trigger: run.trigger, readRole: run.readRole, startedAt: run.startedAt, deadlineAt },
       lease,
-      agent: { id: agent.id, name: spec.name, version: run.version, outputs: spec.outputs },
+      // Its purpose, job and steps are what the planner reads (intent.mjs), before the long prompt.
+      agent: { id: agent.id, name: spec.name, version: run.version, outputs: spec.outputs, purpose: spec.purpose ?? "", job: spec.job ?? "", steps: spec.prompt?.steps ?? [] },
       messages: [
         { role: "system", content: systemMessage(spec, { specialists: offered.some((tool) => tool.id === "agents.handoff") ? specialistsFor(spec, store.listAgents(), agent.id) : [] }) },
         { role: "user", content: [taskMessage({ kind: run.kind, question: run.question, trigger: run.trigger, notes, memories: recalled.map(memoryLine), thread: context, now: now() }), ...handoffOutputs].join("\n\n") },
@@ -928,10 +962,15 @@ export function createAgentService({
       loadMs: Math.round(finite(result.usage?.loadMs, 3_600_000)),
       promptTokens: Math.round(finite(result.usage?.promptTokens, 1e7)),
       completionTokens: Math.round(finite(result.usage?.completionTokens, 1e7)),
+      // Of the prompt tokens: those the model server had cached, and those it read.
+      cachedTokens: Math.round(finite(result.usage?.cachedTokens, 1e7)),
+      readTokens: Math.round(finite(result.usage?.readTokens ?? result.usage?.promptTokens, 1e7)),
       modelCalls: Math.round(finite(result.usage?.modelCalls, 1000)),
       toolCalls: store.countSteps(run.id, "tool"),
       wallMs: Math.max(0, now().getTime() - Date.parse(run.startedAt)),
     };
+    const measured = noteModelSpeed(result.usage?.speed);
+    if (measured) usage.speed = { promptPerSecond: measured.promptPerSecond, generatePerSecond: measured.generatePerSecond, threads: measured.threads };
     const outputKind = clarify ? "question" : run.kind === "eval" ? "eval" : run.kind === "learn" ? "notes" : run.kind === "schedule" && spec.outputs?.digest ? "digest" : "answer";
     const degradedReason = typeof result.degradedReason === "string" ? result.degradedReason.slice(0, 40) : null;
     const limitReached = Boolean(degradedReason === "budget" || degradedReason === "timeout" || result.limitReached);
@@ -1637,6 +1676,8 @@ export function createAgentService({
     return {
       runner: runnerStatus(),
       caps: { ...runnerCaps, unit: runnerUnit },
+      // The model's measured speed on this server: { promptPerSecond, generatePerSecond, model, threads, measuredAt }, or null.
+      modelSpeed: modelSpeed(),
       today: { runs: perAgent.reduce((sum, entry) => sum + entry.runs, 0), modelSeconds: perAgent.reduce((sum, entry) => sum + entry.modelSeconds, 0), tokens: perAgent.reduce((sum, entry) => sum + entry.tokens, 0), perAgent },
       queue: { queued, running, dropped: droppedRuns },
       module: presentModule(),
