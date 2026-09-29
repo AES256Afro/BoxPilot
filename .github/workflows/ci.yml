@@ -51,9 +51,16 @@ jobs:
 
   # Needs the runner itself, not a container: real systemd ordering, loop devices, the kernel's
   # exFAT driver and the Docker daemon. It edits /etc/fstab and restarts Docker, which is why it
-  # runs only here, on a machine thrown away afterwards.
+  # runs only here, on a machine thrown away afterwards. Also on 22.04, the oldest release BoxPilot
+  # installs on, which differs where this job looks: systemd 249, from before a mount unit's start
+  # waited for systemd to see the mount table (part 6d); Samba 4.15, which has no smbstatus --json;
+  # and a 6.8 kernel, which clears the exFAT mark a write set at every sync.
   drive-shutdown-order:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-22.04]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 25
     steps:
       - name: Check out repository
