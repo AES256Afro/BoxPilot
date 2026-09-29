@@ -31,10 +31,10 @@ export const runbookSections = Object.freeze([
  * does not make the document wrong; these do. Every id is checked against the registry in tests.
  */
 export const layoutOperations = Object.freeze([
-  "app.install", "app.uninstall", "app.purge", "app.update", "app.rollback", "app.reconfigure", "app.exposure.set", "app.serve.set", "app.serve.withdraw", "app.compose.edit", "app.backup.restore",
+  "app.install", "app.reinstall", "app.uninstall", "app.purge", "app.update", "app.rollback", "app.reconfigure", "app.exposure.set", "app.serve.set", "app.serve.withdraw", "app.compose.edit", "app.backup.restore",
   "host.snapshot.restore",
-  "storage.mount", "storage.unmount", "storage.format", "storage.lvm.extend", "share.mount", "share.unmount",
-  "samba.apply", "nfs.apply",
+  "storage.mount", "storage.unmount", "storage.writable", "storage.format", "storage.lvm.extend", "share.mount", "share.unmount",
+  "samba.apply", "samba.share.writable", "nfs.apply",
   "firewall.set", "firewall.rule.add", "firewall.rule.delete", "firewall.profile.apply",
   "tailscale.set", "system.web.lan.set", "system.web.tls.provision", "system.hostname.set",
   "backup.remote.setup", "backup.cloud.setup",

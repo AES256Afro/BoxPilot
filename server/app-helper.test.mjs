@@ -65,6 +65,7 @@ async function setup({ healthKind = "running", exitOnUp = false, failUp = false,
       if (verb === "up") {
         if (args.includes("--force-recreate")) networkGone.value = false;
         if (failUp) return { ok: false, stdout: "", stderr: "Error response from daemon: port is already allocated" };
+        if (args.includes("--no-start")) { containers.set(name, { running: false, status: "created", health: "none", restarts: 0, image: "sha256:new", startedAt: "0001-01-01T00:00:00Z", exitCode: 0 }); return { ok: true, stdout: "", stderr: "" }; }
         containers.set(name, exitOnUp ? { running: false, status: "exited", health: "none", restarts: 0, image: "sha256:new", startedAt: "x", exitCode: 1 } : { running: true, status: "running", health: healthKind === "healthcheck" ? "healthy" : "none", restarts: 0, image: "sha256:new", startedAt: "x", exitCode: 0 });
       }
       if (verb === "down") containers.delete(name);
@@ -382,7 +383,8 @@ sidecars:
     ].join("\n") + "\n");
     await apps.install({ id: "arr", values: { volumes: { media: mediaRoot } } });
     const before = (await apps.inspect({ id: "arr" })).applications[0];
-    expect(before.folderProblems).toEqual([{ path: mediaRoot, volume: "media", reason: "owned by user root, while the app runs as user 1000" }]);
+    // With the owners as numbers, so Repair can tell root's folder (a redeploy hands it over) from somebody's own (M35).
+    expect(before.folderProblems).toEqual([{ path: mediaRoot, volume: "media", reason: "owned by user root, while the app runs as user 1000", ownerUid: 0, appUid: 1000 }]);
     ownerUid = 1000;
     const after = (await apps.inspect({ id: "arr" })).applications[0];
     expect(after.folderProblems).toEqual([]);
@@ -764,6 +766,83 @@ sidecars:
     calls.length = 0;
     await expect(apps.action({ id: "demo", action: "start" })).resolves.toMatchObject({ running: true });
     expect(calls.some((call) => call.includes("up --detach --force-recreate"))).toBe(true);
+  });
+
+  it("builds a container a prune took away again from its saved project, and says where the record is (M35)", async () => {
+    // The owner's six apps: listed as installed, project and data still there, no container at all,
+    // so install refused ("already installed") and Start had nothing to start.
+    const { apps, containers, catalogRoot, calls } = await setup();
+    await apps.install({ id: "demo" });
+    containers.delete("bp-demo");   // what `docker system prune` does to a stopped container
+    const [listed] = (await apps.inspect({ id: "demo" })).applications;
+    expect(listed).toMatchObject({ installed: true, container: { exists: false, status: "absent" }, missingContainer: { record: path.join(catalogRoot, "demo", "boxpilot.json"), project: path.join(catalogRoot, "demo", "compose.yaml"), projectPresent: true, container: "bp-demo" } });
+    const saved = await readFile(path.join(catalogRoot, "demo", "compose.yaml"), "utf8");
+    calls.length = 0;
+    await expect(apps.reinstall({ id: "demo" })).resolves.toMatchObject({ reinstalled: true, projectRewritten: false });
+    expect(calls.some((call) => call.includes("up --detach"))).toBe(true);
+    expect(await readFile(path.join(catalogRoot, "demo", "compose.yaml"), "utf8")).toBe(saved);   // the project as it was saved
+    expect((await apps.inspect({ id: "demo" })).applications[0].missingContainer).toBeUndefined();
+    // An app with a container is started or restarted, never rebuilt from under itself.
+    await expect(apps.reinstall({ id: "demo" })).rejects.toThrow("already has a container");
+  });
+
+  it("brings a pruned app back stopped, as the owner left it, or started from Start itself (M35)", async () => {
+    // Stopped on purpose at night, removed by the 03:00 prune: it comes back stopped. One that was
+    // not stopped on purpose is simply started, and Start builds the container it no longer has.
+    const { apps, containers, calls } = await setup();
+    await apps.install({ id: "demo" });
+    containers.delete("bp-demo");
+    calls.length = 0;
+    await expect(apps.reinstall({ id: "demo", start: false })).resolves.toMatchObject({ reinstalled: true, started: false, status: "created" });
+    expect(calls.some((call) => call.includes("up --no-start --remove-orphans"))).toBe(true);
+    expect(calls.some((call) => call.includes("up --detach"))).toBe(false);
+    expect(containers.get("bp-demo")).toMatchObject({ running: false });
+
+    containers.delete("bp-demo");
+    calls.length = 0;
+    await expect(apps.action({ id: "demo", action: "start" })).resolves.toMatchObject({ running: true, recreated: true });
+    expect(calls.some((call) => call.includes("up --detach --remove-orphans"))).toBe(true);
+    // With its compose project gone too, Start says where the rebuild from saved settings is.
+    containers.delete("bp-demo");
+    await rm(path.join((await apps.inspect({ id: "demo" })).applications[0].missingContainer.project));
+    await expect(apps.action({ id: "demo", action: "start" })).rejects.toThrow("its compose project is gone too; use Reinstall in Repair");
+  });
+
+  it("writes the project again from the saved settings when it is gone too, on the image the app last ran (M35)", async () => {
+    const { apps, containers, catalogRoot } = await setup();
+    await apps.install({ id: "demo" });
+    containers.delete("bp-demo");
+    const statePath = path.join(catalogRoot, "demo", "boxpilot.json");
+    const state = JSON.parse(await readFile(statePath, "utf8"));
+    await writeFile(statePath, JSON.stringify({ ...state, image: { ...state.image, reference: "nginx:1.26" } }));
+    await rm(path.join(catalogRoot, "demo", "compose.yaml"));
+    await expect(apps.reinstall({ id: "demo" })).resolves.toMatchObject({ reinstalled: true, projectRewritten: true });
+    const compose = await readFile(path.join(catalogRoot, "demo", "compose.yaml"), "utf8");
+    expect(compose).toContain("nginx:1.26");
+    expect(compose).not.toContain("nginx:1.27");
+  });
+
+  it("takes down what started when a rebuilt app does not come up, and leaves its record and data alone (M35)", async () => {
+    const { apps, catalogRoot, calls } = await setup({ failUp: true });
+    await mkdir(path.join(catalogRoot, "demo", "data"), { recursive: true });
+    const record = { id: "demo", installed: true, installedAt: "2026-08-01T00:00:00.000Z", image: { reference: "nginx:1.27" }, values: { ports: {}, env: {}, volumes: {}, setup: [] } };
+    await writeFile(path.join(catalogRoot, "demo", "boxpilot.json"), JSON.stringify(record));
+    await writeFile(path.join(catalogRoot, "demo", "compose.yaml"), "name: bp-demo\nservices:\n  demo:\n    image: nginx:1.27\n");
+    await expect(apps.reinstall({ id: "demo" })).rejects.toThrow("Demo could not be started again, so what started was taken down. Its data folder and saved settings are as they were.");
+    expect(calls.some((call) => call.includes("down --remove-orphans"))).toBe(true);
+    expect(JSON.parse(await readFile(path.join(catalogRoot, "demo", "boxpilot.json"), "utf8"))).toEqual(record);
+    await expect(stat(path.join(catalogRoot, "demo", "data"))).resolves.toBeTruthy();
+    await expect(apps.reinstall({ id: "nothing" })).rejects.toThrow();
+  });
+
+  // Linux only: needs /usr/bin/tar.
+  it.skipIf(onWindows)("backs up several apps in one job, one at a time, and names the one that failed without losing the others (M35)", async () => {
+    const { apps, advance } = await setup();
+    await apps.install({ id: "demo" });
+    await expect(apps.backupMany({ ids: ["demo"] })).resolves.toMatchObject({ backedUp: true, apps: [{ id: "demo", artifact: expect.stringMatching(/\.tar\.gz$/) }] });
+    advance(60_000);
+    await expect(apps.backupMany({ ids: ["nothing", "demo"] })).rejects.toThrow(/^nothing: .*\. demo was backed up\.$/);
+    expect((await apps.listAppBackups({ id: "demo" })).backups).toHaveLength(2);
   });
 
   // Linux only: needs /usr/bin/tar.

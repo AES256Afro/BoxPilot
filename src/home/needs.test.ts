@@ -206,11 +206,80 @@ describe("apps that are not running, on the owner's real server", () => {
     const absent = ["AnythingLLM", "AuDHDMAP", "Dockge", "Homepage", "IT-Tools", "Open WebUI"].map((name) => app({ id: name.toLowerCase(), name, running: false, status: "absent" }));
     const needs = buildNeeds(catalog(absent), { now, role: "owner" });
     expect(needs).toHaveLength(1);
-    expect(needs[0]).toMatchObject({ id: "apps-missing", severity: "warning", view: "catalog", title: "AnythingLLM, AuDHDMAP and 4 more have no container", action: null });
+    expect(needs[0]).toMatchObject({ id: "apps-missing", severity: "warning", view: "catalog", title: "AnythingLLM, AuDHDMAP and 4 more have lost their containers", action: null });
+    expect(needs[0].detail).toContain("Start each from the App catalog");
     expect(needs[0].appId).toBeUndefined();
     expect(appHealth(absent[0], undefined, now)).toMatchObject({ status: "warning", label: "No container" });
     const [one] = buildNeeds(catalog([absent[2]]), { now, role: "owner" });
-    expect(one).toMatchObject({ title: "Dockge has no container", appId: "dockge" });
+    expect(one).toMatchObject({ title: "Dockge has lost its container", appId: "dockge" });
+  });
+
+  it("says what removed them and points at Repair, which puts each back in one click, once its scan has them (M35)", () => {
+    const absent = ["Plex", "Protec"].map((name) => app({ id: name.toLowerCase(), name, running: false, status: "absent" }));
+    const recreate = { operationId: "app.reinstall", parameters: { id: "plex", start: false }, label: "Recreate (stays stopped)", preview: "", risk: "medium" as const };
+    const findings = absent.map((entry) => ({ id: `app-missing:${entry.id}`, severity: "warning" as const, title: `${entry.name} was removed by the nightly clean-up; your data is intact`, detail: "", evidence: [], fix: recreate, fixes: [recreate], manual: null }));
+    const needs = buildNeeds(facts({ catalog: { apps: absent, total: 160, liveKnown: true }, repairs: { findings, unavailableChecks: [] } }), { now, role: "owner" });
+    // Still one line on Home, now opening Repair; not two more of its own.
+    expect(ids(needs)).toEqual(["apps-missing"]);
+    expect(needs[0]).toMatchObject({ view: "repairs", title: "Plex and Protec were removed by the nightly clean-up", detail: expect.stringContaining("Your data is intact. Repair puts each back in one click") });
+  });
+});
+
+describe("Repair's fixes on Home and Ops (M35)", () => {
+  const now2 = { operationId: "app.backup.many", parameters: { ids: ["audhdmap", "protec"] }, label: "Back up now", preview: "Backs up both.", risk: "medium" as const };
+  const nightly = { kind: "schedule" as const, operationId: "app.backup", label: "Back up nightly", preview: "Nightly.", risk: "medium" as const, schedules: [{ parameters: { id: "protec" }, frequency: "daily" as const, hour: 2, minute: 0 }] };
+  const due = { id: "backups-due", severity: "warning" as const, title: "AuDHDMAP and Protec have not been backed up recently", detail: "", evidence: ["AuDHDMAP: newest backup 23 days old, scheduled"], fix: now2, fixes: [now2, nightly], manual: null };
+
+  it("offers every fix a finding has, the finding's own, with its tier, and says it instead of Home's own backup line", () => {
+    const needs = buildNeeds(facts({
+      repairs: { findings: [due], unavailableChecks: [] },
+      protection: [{ id: "protec", name: "Protec", protectable: true, backups: 0, newestAt: null }],
+    }), { now, role: "owner" });
+    expect(ids(needs)).toEqual(["repair:backups-due"]);
+    const [need] = needs;
+    expect(need.finding).toBe(due);
+    expect(need.action).toMatchObject({ kind: "operation", operationId: "app.backup.many", label: "Back up now", risk: "medium", fix: now2 });
+    expect(need.actions?.map((action) => [action.kind, action.label, action.risk])).toEqual([["operation", "Back up now", "medium"], ["schedule", "Back up nightly", "medium"]]);
+    expect(groupByTier(needs).medium).toHaveLength(1);
+  });
+
+  it("says a fix's last failure on its finding, with Try again, rather than as a failure of its own", () => {
+    const remount = { operationId: "storage.remount", parameters: { name: "media" }, label: "Reconnect the drive", preview: "", risk: "medium" as const };
+    const finding = { id: "read-only-remount:media", severity: "critical" as const, title: "/mnt/media has gone read-only", detail: "", evidence: ["mounted from /dev/sda1 with ro"], fix: remount, fixes: [remount], manual: null,
+      lastAttempt: { jobId: "r4", state: "failed", error: "target is busy", at: hoursAgo(1), title: "Reconnect a drive", operationId: "storage.remount", label: "Reconnect the drive" } };
+    const refused = job({ id: "r4", type: "op:storage.remount", title: "Reconnect a drive", state: "failed", error: "target is busy", parameters: { name: "media" } });
+    const needs = buildNeeds(facts({ repairs: { findings: [finding], unavailableChecks: [], jobs: { attached: ["r4"], resolved: [], dismissed: [] } }, jobs: [refused] }), { now, role: "owner" });
+    expect(ids(needs)).toEqual(["repair:read-only-remount:media"]);
+    expect(needs[0]).toMatchObject({ detail: "Last try failed: target is busy", action: { label: "Try again", operationId: "storage.remount" } });
+  });
+
+  it("lets a failed job go once its finding is gone, it was dismissed, or the same thing later worked", () => {
+    const failed = job({ id: "x1", type: "op:storage.remount", title: "Reconnect a drive", state: "failed", error: "target is busy", parameters: { name: "media" }, createdAt: hoursAgo(3), updatedAt: hoursAgo(3) });
+    const withJobs = (jobs: Job[], settled: { resolved?: string[] } = {}) => ids(buildNeeds(facts({ jobs, repairs: { findings: [], unavailableChecks: [], jobs: { attached: [], resolved: settled.resolved ?? [], dismissed: [] } } }), { now, role: "owner" }));
+    expect(withJobs([failed])).toEqual(["job:x1"]);
+    expect(withJobs([failed], { resolved: ["x1"] })).toEqual([]);
+    // Dismissed with M36's mark on the job, the one Home's Dismiss sets too.
+    expect(withJobs([{ ...failed, steps: [{ name: "dismissed", state: "completed", detail: "Dismissed by owner.", createdAt: hoursAgo(2) }] }])).toEqual([]);
+    const later = job({ id: "x2", type: "op:storage.remount", title: "Reconnect a drive", state: "completed", parameters: { name: "media" }, createdAt: hoursAgo(1) });
+    expect(withJobs([later, failed])).toEqual([]);
+    // Another drive's reconnect working says nothing about this one.
+    expect(withJobs([{ ...later, parameters: { name: "backup" } }, failed])).toEqual(["job:x1"]);
+  });
+
+  it("offers Try again and Dismiss on a failed job, more time for one that ran out of it, and neither to a viewer", () => {
+    const failed = job({ id: "x1", type: "op:app.update", title: "Update Immich", state: "failed", error: "pull failed", parameters: { id: "immich" } });
+    const [need] = buildNeeds(facts({ jobs: [failed] }), { now, role: "owner" });
+    expect(need).toMatchObject({ id: "job:x1", jobId: "x1", action: { operationId: "app.update", label: "Try again", parameters: { id: "immich" } } });
+    expect(need.actions?.map((action) => action.kind ?? "operation")).toEqual(["operation", "dismiss"]);
+    const timedOut = { ...failed, timeout: { scope: "operation" as const, budgetMs: 1, elapsedMs: 1, phase: "running" as const, step: null, lastOutput: null, moreTimeMs: 2 } };
+    const [slow] = buildNeeds(facts({ jobs: [timedOut] }), { now, role: "owner" });
+    expect(slow.action).toMatchObject({ label: "Try again with more time", moreTimeFor: "x1" });
+    // A job staged with a password cannot be run again from here: the password is gone.
+    const secret = { ...failed, type: "op:samba.user.set", parameters: { username: "sam", password: "[secret]" } };
+    expect(buildNeeds(facts({ jobs: [secret] }), { now, role: "owner" })[0].action).toBeNull();
+    const [viewed] = buildNeeds(facts({ jobs: [failed] }), { now, role: "viewer" });
+    expect(viewed.action).toBeNull();
+    expect(viewed.actions).toBeUndefined();
   });
 });
 

@@ -5,6 +5,7 @@ import { jobTimeout } from "../JobTimeout";
 import { dismissedFailure, failureSettled, ranAgain } from "../jobStatus";
 import { mirrorOperations, offBoxWarning } from "../offBox";
 import type { Job } from "../operations";
+import { fixesOf, type Finding, type RepairFix } from "../repair/types";
 import { mayStart, riskOf } from "../ui/operationRisk";
 import type { RiskTier, Status } from "../ui/types";
 import type { AppFact, FactValues, Facts } from "./facts";
@@ -20,8 +21,17 @@ import { relativeTime } from "./format";
 export type NeedKind = "alert" | "repair" | "approval" | "updates" | "backup" | "job" | "setup";
 export type NeedSeverity = "danger" | "warning" | "neutral";
 
-/** A fix that can be started from the list itself, through the ordinary approval dialog. */
+/**
+ * A fix that can be started from the list itself, through the ordinary approval dialog. A Repair
+ * finding's fixes carry the finding's own `fix`, so Home and Ops run them exactly as Repair does
+ * (M35): recorded against the finding, and the finding checked again when the job ends. `dismiss`
+ * sets a failed job aside; it runs nothing.
+ */
 export interface NeedAction {
+  kind?: "operation" | "schedule" | "dismiss";
+  fix?: RepairFix;
+  /** Stage this timed-out job again with more time, rather than `operationId` afresh (M30.3). */
+  moreTimeFor?: string;
   operationId: string;
   /** The button's word: "Install", "Start". */
   label: string;
@@ -46,6 +56,10 @@ export interface Need {
   appId?: string;
   /** Null when there is nothing to run from here, or the role may not run it. */
   action: NeedAction | null;
+  /** Every button, `action` first; more than one when a finding has several fixes, or a failure can be dismissed. */
+  actions?: NeedAction[];
+  /** The Repair finding this is, so its fix runs as Repair runs it. */
+  finding?: Finding;
   /** The tier of something already staged (a job waiting for approval), shown beside it. */
   risk?: RiskTier;
   /** The job it is about: its title opens that job in Activity, where it can be approved, cancelled or dismissed (M36). */
@@ -89,6 +103,8 @@ function containerWords(status: string): string {
   return "Its container is stopped";
 }
 const tierOf = (value: string): RiskTier | undefined => (value === "low" || value === "medium" || value === "high" ? value : undefined);
+/** At most `limit` characters, cut at a word with an ellipsis. */
+export const brief = (text: string, limit = 110): string => (text.length <= limit ? text : `${text.slice(0, limit).replace(/\s+\S*$/, "").replace(/[\s,:;.]+$/, "")}…`);
 
 export function buildNeeds(facts: FactValues, { now, role }: { now: number; role: string | null | undefined }): Need[] {
   const needs: Need[] = [];
@@ -145,14 +161,23 @@ export function buildNeeds(facts: FactValues, { now, role }: { now: number; role
         action: act("app.update", "Update", `Update ${app.name}`, { id: app.id }, "Pulls the image and recreates the container. The previous image is restored if the new one fails to become healthy.") });
     }
   }
-  // Listed as installed, with no container at all: most often removed outside BoxPilot. One item for
-  // all of them rather than a problem each; the App catalog reinstalls or uninstalls each one.
+  // Listed as installed, with no container at all: on the owner's server, every app they had stopped,
+  // deleted by the nightly clean-up's `docker system prune`. One item for all of them rather than a
+  // problem each, said by what happened; Repair puts each back in one click (M35), and without its
+  // scan the App catalog's Start builds the container again.
+  const repairFindings = facts.repairs?.findings ?? [];
+  const missingFindings = repairFindings.filter((finding) => finding.id.startsWith("app-missing:"));
+  const listedOnRepair = missingFindings.length > 0;
   if (missing.length > 0) {
     const one = missing.length === 1;
     const named = missing.length <= 2 ? missing.map((app) => app.name).join(" and ") : `${missing.slice(0, 2).map((app) => app.name).join(", ")} and ${missing.length - 2} more`;
-    needs.push({ id: "apps-missing", kind: "alert", severity: "warning", view: "catalog", ...(one ? { appId: missing[0].id } : {}),
-      title: `${named} ${one ? "has" : "have"} no container`,
-      detail: `BoxPilot lists ${one ? "it" : "them"} as installed, but Docker has no container for ${one ? "it" : "them"}. Reinstall or uninstall ${one ? "it" : "each"} from the App catalog.`, action: null });
+    // The clean-up that removed them, in the findings' own words ("the nightly clean-up").
+    const cleanup = missingFindings.map((finding) => /removed by (.+?); your data is intact$/.exec(finding.title)?.[1]?.replace(/^most likely /, "")).find(Boolean) ?? null;
+    needs.push({ id: "apps-missing", kind: "alert", severity: "warning", view: listedOnRepair ? "repairs" : "catalog", ...(one && !listedOnRepair ? { appId: missing[0].id } : {}),
+      title: cleanup ? `${named} ${one ? "was" : "were"} removed by ${cleanup}` : `${named} ${one ? "has" : "have"} lost ${one ? "its container" : "their containers"}`,
+      detail: listedOnRepair
+        ? `Your data is intact. Repair puts ${one ? "it" : "each"} back in one click; ${one ? "an app" : "apps"} you had stopped come${one ? "s" : ""} back stopped.`
+        : `${one ? "Its" : "Their"} data is still here. Start ${one ? "it" : "each"} from the App catalog to build ${one ? "its container" : "their containers"} again, or uninstall ${one ? "it" : "the ones"} you no longer want.`, action: null });
   }
 
   if ((facts.services?.failed ?? 0) > 0) {
@@ -160,14 +185,21 @@ export function buildNeeds(facts: FactValues, { now, role }: { now: number; role
     needs.push({ id: "services", kind: "alert", severity: "danger", title: `${countOf(failed, "system service")} failed`, detail: "Services lists them with their journal", view: "services", action: null });
   }
 
-  // ── Repair's findings, each with its fix when it has one. ──
-  for (const finding of facts.repairs?.findings ?? []) {
-    const fix = finding.fix;
+  // ── Repair's findings, each with its fixes, run as Repair runs them (M35). Apps with no
+  //    container are said once above; each one's Reinstall and Uninstall are on Repair. ──
+  for (const finding of repairFindings) {
+    if (finding.id.startsWith("app-missing:")) continue;
+    const failedBefore = finding.lastAttempt?.state === "failed";
+    const actions = fixesOf(finding)
+      .filter((fix) => mayStart(role, fix.operationId))
+      .map((fix, index): NeedAction => ({ kind: fix.kind === "schedule" ? "schedule" : "operation", fix, operationId: fix.operationId, label: index === 0 && failedBefore ? "Try again" : fix.label, title: fix.label, parameters: fix.parameters ?? {}, preview: fix.preview, risk: fix.risk ?? riskOf(fix.operationId) }));
     needs.push({
-      id: `repair:${finding.id}`, kind: "repair",
+      id: `repair:${finding.id}`, kind: "repair", finding,
       severity: finding.severity === "critical" ? "danger" : finding.severity === "warning" ? "warning" : "neutral",
-      title: finding.title, detail: finding.evidence?.[0] ?? null, view: "repairs",
-      action: fix ? act(fix.operationId, fix.label, fix.label, fix.parameters ?? {}, fix.preview) : null,
+      title: finding.title,
+      // A row holds a line or two; the whole error is on Repair's card, with the job's log.
+      detail: failedBefore ? brief(`Last try failed: ${finding.lastAttempt?.error ?? "no error was recorded"}`) : finding.evidence?.[0] ?? null,
+      view: "repairs", action: actions[0] ?? null, ...(actions.length > 1 ? { actions } : {}),
     });
   }
 
@@ -228,7 +260,8 @@ export function buildNeeds(facts: FactValues, { now, role }: { now: number; role
     needs.push({ id: "schedules-behind", kind: "backup", severity: "warning", title: "Scheduled backups have stopped running",
       detail: sentenceList(behind.map((schedule) => schedule.title ?? schedule.operationId)), view: "backups", action: null });
   }
-  if (facts.protection) {
+  // Repair says the same with Back up now and Back up nightly (M35); when its scan answered, that is the one shown.
+  if (facts.protection && !repairFindings.some((finding) => finding.id === "backups-due")) {
     const warning = protectionWarning(judgeProtection(facts.protection, schedules.map((schedule) => ({ ...schedule, parameters: schedule.parameters ?? undefined })), { now }));
     if (warning) needs.push({ id: "unprotected", kind: "backup", severity: "warning", title: warning, detail: "Back each one up from its card, or schedule it", view: "backups", action: null });
   }
@@ -252,14 +285,28 @@ export function buildNeeds(facts: FactValues, { now, role }: { now: number; role
   }
 
   // ── The latest job that failed on its own (a backup's failure is said above), unless it has been
-  // dealt with since: dismissed, run again, or tried again (M36). A week on, Activity keeps it. ──
-  const failures = jobs.filter((job) => job.state === "failed" && job.type !== "op:app.backup" && !failureSettled(job, jobs)
+  //    dealt with since: dismissed (M36's mark on the job, which Dismiss here sets too), run again, or
+  //    tried again (M36), or shown by Repair on the finding it was fixing, or that finding gone since
+  //    (M35). A week on, Activity keeps it. It can be tried again, or dismissed. ──
+  const repairSettled = new Set([...(facts.repairs?.jobs?.attached ?? []), ...(facts.repairs?.jobs?.resolved ?? [])]);
+  const failures = jobs.filter((job) => job.state === "failed" && job.type !== "op:app.backup" && !failureSettled(job, jobs) && !repairSettled.has(job.id)
     && !(now - Date.parse(job.createdAt ?? "") > failureShownForMs));
   const failedJob = failures[0];
   if (failedJob) {
     const more = failures.length - 1;
-    needs.push({ id: `job:${failedJob.id}`, kind: "job", severity: "warning", title: `${jobTimeout(failedJob) ? "Ran out of time" : "Failed"}: ${failedJob.title}`,
-      detail: [failedJob.error, more > 0 ? `${countOf(more, "more failed job")} in Activity` : null].filter(Boolean).join(" · ") || null, view: "repairs", action: null, jobId: failedJob.id });
+    const operationId = failedJob.type.replace(/^op:/, "");
+    const parameters = failedJob.parameters ?? {};
+    // A run that ran out of time is offered the more time it can have, as Activity offers it.
+    const moreTime = jobTimeout(failedJob)?.moreTimeMs ? failedJob.id : null;
+    const retry = failedJob.type.startsWith("op:") && !JSON.stringify(parameters).includes("[secret]")
+      ? act(operationId, moreTime ? "Try again with more time" : "Try again", failedJob.title, parameters, `Runs ${failedJob.title} again with the same settings${moreTime ? " and a larger time budget" : ""}. The last run failed: ${failedJob.error ?? "no error was recorded"}`)
+      : null;
+    const again = retry && moreTime ? { ...retry, moreTimeFor: moreTime } : retry;
+    const dismiss: NeedAction | null = role === "owner" || role === "operator" ? { kind: "dismiss", operationId: "", label: "Dismiss", title: `Dismiss: ${failedJob.title}`, parameters: {}, preview: "", risk: "low" } : null;
+    const actions = [again, dismiss].filter((entry): entry is NeedAction => Boolean(entry));
+    needs.push({ id: `job:${failedJob.id}`, kind: "job", severity: "warning", title: `${jobTimeout(failedJob) ? "Ran out of time" : "Failed"}: ${failedJob.title}`, jobId: failedJob.id,
+      detail: [failedJob.error, more > 0 ? `${countOf(more, "more failed job")} in Activity` : null].filter(Boolean).join(" · ") || null,
+      view: "repairs", action: again, ...(actions.length ? { actions } : {}) });
   }
 
   // ── Setting up: a rebuild found, a fresh box, the essentials not yet done. ──
@@ -279,6 +326,9 @@ export function buildNeeds(facts: FactValues, { now, role }: { now: number; role
 
   return sortNeeds(needs);
 }
+
+/** The buttons a need shows, `action` first. */
+export const actionsOf = (need: Need): NeedAction[] => need.actions ?? (need.action ? [need.action] : []);
 
 /** Ops' action inbox: what can be run from here, by tier; and the rest, which is only looked at. */
 export function groupByTier(needs: Need[]): { high: Need[]; medium: Need[]; low: Need[]; look: Need[] } {

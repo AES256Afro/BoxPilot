@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { TopBarSlotProvider } from "../shell/TopBarSlot";
 import { FactsProvider } from "./facts";
@@ -121,5 +121,51 @@ describe("Home", () => {
     expect(within(needs).queryByRole("button", { name: /^Install:/ })).toBeNull();
     fireEvent.click(await screen.findByRole("button", { name: "Jellyfin, Healthy, update ready" }));
     expect(within(screen.getByRole("dialog", { name: "Jellyfin" })).queryByRole("button", { name: "Update" })).toBeNull();
+  });
+
+  it("offers each of a Repair finding's fixes with its tier, runs one as Repair does, and says it is fixed (M35)", async () => {
+    const backupNow = { operationId: "app.backup", parameters: { id: "vaultwarden" }, label: "Back up now", preview: "Stops Vaultwarden briefly and archives it.", risk: "medium" };
+    const nightly = { kind: "schedule", operationId: "app.backup", label: "Back up nightly", preview: "Nightly.", risk: "medium", schedules: [{ parameters: { id: "vaultwarden" }, frequency: "daily", hour: 2, minute: 0 }] };
+    const due = { id: "backups-due", severity: "warning", title: "Vaultwarden has never been backed up", detail: "", evidence: ["Vaultwarden: never backed up, no schedule"], fix: backupNow, fixes: [backupNow, nightly], manual: null, fingerprint: "0123456789abcdef" };
+    let scans = 0;
+    const base = stubFetch({ "/api/v1/remediations": { findings: [due], dismissed: [], counts: { critical: 0, warning: 1, info: 0 }, jobs: { attached: [], resolved: [], dismissed: [] }, unavailableChecks: [] } });
+    const attempts: unknown[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url === "/api/v1/remediations") { scans += 1; if (scans > 1) return new Response(JSON.stringify({ findings: [], dismissed: [], counts: { critical: 0, warning: 0, info: 0 }, jobs: { attached: [], resolved: [], dismissed: [] }, unavailableChecks: [] })); }
+      if (url === "/api/v1/remediations/attempts") { attempts.push(JSON.parse(String(init?.body))); return new Response(JSON.stringify({ recorded: true }), { status: 201 }); }
+      if (url.endsWith("/approve")) return new Response(JSON.stringify({ job: { id: "staged", state: "applying" }, elevatedUntil: null }), { status: 202 });
+      if (url === "/api/v1/jobs/staged") return new Response(JSON.stringify({ job: { id: "staged", type: "op:app.backup", title: "Back up application data", state: "completed", risk: "medium", error: null, result: { backedUp: true, artifact: "20260929T120000Z.tar.gz" }, steps: [], approvals: [] } }));
+      return base(input, init);
+    }));
+    renderHome();
+    const needs = await screen.findByRole("region", { name: /What needs you/ });
+    const now = await within(needs).findByRole("button", { name: "Back up now: Vaultwarden has never been backed up" });
+    expect(now.getAttribute("data-risk")).toBe("medium");
+    expect(within(needs).getByRole("button", { name: "Back up nightly: Vaultwarden has never been backed up" }).getAttribute("data-risk")).toBe("medium");
+    // Said once: Home's own backup line gives way to Repair's, which has the buttons.
+    const titles = within(needs).getAllByRole("button").filter((button) => button.className.includes("need__title")).map((button) => button.textContent);
+    expect(titles.filter((title) => title?.includes("backed up"))).toEqual(["Needs a look: Vaultwarden has never been backed up"]);
+    fireEvent.click(now);
+    fireEvent.click(await screen.findByRole("button", { name: "Run" }));
+    expect(await screen.findByText(/Vaultwarden has never been backed up\. Backed up to 20260929T120000Z\.tar\.gz\./)).toBeTruthy();
+    expect(attempts).toEqual([{ findingId: "backups-due", jobId: "staged" }]);
+  });
+
+  it("dismisses a failed job with M36's mark on the job itself, the one Activity reads (M35)", async () => {
+    const failed = { id: "f1", type: "op:app.update", title: "Update Immich", state: "failed", risk: "medium", error: "pull failed", parameters: { id: "immich" }, steps: [], approvals: [], createdAt: new Date(Date.now() - 3_600_000).toISOString() };
+    const base = stubFetch({ "/api/v1/jobs?limit=50": { jobs: [failed] } });
+    const posted: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (init?.method === "POST" && url.endsWith("/dismiss")) { posted.push(url); return new Response(JSON.stringify({ job: { ...failed, steps: [{ name: "dismissed", state: "completed", detail: "Dismissed by alex." }] } })); }
+      return base(input, init);
+    }));
+    renderHome();
+    const needs = await screen.findByRole("region", { name: /What needs you/ });
+    fireEvent.click(await within(needs).findByRole("button", { name: "Dismiss: Failed: Update Immich" }));
+    await waitFor(() => expect(posted).toEqual(["/api/v1/jobs/f1/dismiss"]));
+    // Not Repair's ledger: one mark for a failed job, wherever it is let go.
+    expect(vi.mocked(fetch).mock.calls.some(([input]) => String(input).includes("/remediations/dismissals"))).toBe(false);
   });
 });

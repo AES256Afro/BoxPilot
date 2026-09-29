@@ -421,71 +421,192 @@ export async function storageLvmSnapshotRollback({ path: snapshot } = {}, { run 
 }
 
 /**
- * Re-attach a managed mount to whatever device now carries its UUID, keeping the fstab entry.
- *
- * A USB drive that drops off the bus for a moment comes back under a different kernel name, and the
- * old mount stays in the table pointing at a device that no longer exists. Nothing reports an error:
- * `findmnt` still lists it, `df` still prints the size it cached, and only an actual read returns
- * EIO. Anything serving that folder — a network share, an app's bind mount — quietly serves nothing.
- * Unmounting (lazily, because a dead device will not release cleanly) and mounting again makes fstab
- * resolve the UUID afresh and land on the device that is really there.
+ * The managed drive entry named `name`: its fstab line and where it mounts. The marker owns
+ * whatever line follows it, and not every managed entry is a mount under /mnt: the swap file's
+ * marker is `# boxpilot:swap` over an entry whose target is `none`. Taking the mountpoint from the
+ * entry itself, rather than assuming /mnt/<name>, is what keeps an op from unmounting a path the
+ * entry has nothing to do with.
  */
-export async function storageRemount({ name } = {}, { run = fixedRun, log = null, files = { readFile, readable: (target) => readdir(target).then(() => true, () => false) } } = {}) {
+export async function managedDrive(name, files) {
   assertPlainMountName(name);
   const content = await files.readFile(fstabPath, "utf8");
   const entry = parseManagedFstab(content).find((row) => row.name === name);   // parseManagedFstab returns { name, line, markerIndex }
   if (!entry) throw new Error(`${name} is not a BoxPilot-managed mount; remount it yourself for entries you created`);
-  // The marker owns whatever line follows it, and not every managed entry is a mount under /mnt:
-  // the swap file's marker is `# boxpilot:swap` over an entry whose target is `none`. Taking the
-  // mountpoint from the entry itself, rather than assuming /mnt/<name>, is what keeps this op from
-  // unmounting a path the entry has nothing to do with.
-  const mountpoint = entry.line.trim().split(/\s+/)[1] ?? "";
+  const [source = "", mountpoint = "", fstype = "", options = ""] = entry.line.trim().split(/\s+/);
   if (mountpoint !== mountpointFor(name)) throw new Error(`The ${name} entry is not a drive mounted at ${mountpointFor(name)}; nothing was changed`);
+  return { name, source, mountpoint, fstype, options, readWrite: !options.split(",").includes("ro") };
+}
 
-  const sourceOf = async () => {
-    const result = await run(binaries.findmnt, ["-n", "-o", "SOURCE", mountpoint], { timeout: 15_000 });
-    return result.ok ? result.stdout.trim() || null : null;
+/**
+ * What is mounted at `mountpoint` in the host's namespace (PID 1's), the top mount when several are
+ * stacked there, or null. The runner's own namespace is a copy that can differ from the host's.
+ */
+export async function hostMountAt(run, mountpoint) {
+  const result = await run(binaries.findmnt, ["--task", "1", "-n", "-o", "SOURCE,FSTYPE,MAJ:MIN,OPTIONS", "--mountpoint", mountpoint], { timeout: 15_000 });
+  if (!result.ok) return null;
+  const line = result.stdout.split("\n").map((row) => row.trim()).filter(Boolean).at(-1);
+  if (!line) return null;
+  const [source, fstype = null, majMin = null, options = ""] = line.split(/\s+/);
+  return { source, fstype, majMin, options, readOnly: options.split(",").includes("ro") };
+}
+
+/**
+ * Whether the device an fstab entry names is on this server now: `UUID=`, `LABEL=`, `PARTUUID=` or
+ * a /dev path. Asked before anything is stopped, so a drive that is not plugged in costs nothing.
+ * A spelling it does not know is not refused: the mount itself will say.
+ */
+async function deviceFor(run, source) {
+  const [tag, value] = String(source ?? "").split(/=(.*)/s);
+  const ask = tag === "UUID" ? ["-U", value] : tag === "LABEL" ? ["-L", value] : tag === "PARTUUID" ? ["-t", `PARTUUID=${value}`, "-o", "device"] : null;
+  if (ask && value) {
+    const found = await run(binaries.blkid, ask, { timeout: 15_000 });
+    return { known: true, device: found.ok ? found.stdout.trim().split("\n")[0] || null : null };
+  }
+  if (devicePattern.test(source)) {
+    const listed = await run(binaries.lsblk, ["-dno", "PATH", source], { timeout: 15_000 });
+    return { known: true, device: listed.ok && listed.stdout.trim() ? source : null };
+  }
+  return { known: false, device: null };
+}
+
+const listOf = (names) => (names.length <= 1 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`);
+
+/**
+ * Mount a managed drive again from its fstab entry, the way an operator does it when the drive is
+ * busy, and prove it came back.
+ *
+ * Reconnecting on the owner's server was refused four times with "target is busy": the apps with
+ * the folder bound held one copy of the filesystem, and a PC with the file share mapped held it
+ * through smbd, and the old remount told the owner to stop things by hand. This goes through the
+ * same pipeline as the drive check (withDriveUnmounted), in this order:
+ *
+ * 1. The drive's device is looked for first. One that is not plugged in is said at once, and nothing
+ *    is stopped or unmounted for it.
+ * 2. Every running container with a bind at or under the folder is stopped. It must be, not merely
+ *    restarted afterwards: a filesystem stays alive while any container still holds it, and mounting
+ *    the same device again then reuses it as it is - still read-only after errors, or refused with
+ *    "would change RO state".
+ * 3. The host's mount is unmounted in PID 1's namespace, closing the file shares on it and retrying
+ *    when their clients are what holds it (unmountFromHost). A mount whose drive is gone (it does
+ *    not read) and that still will not let go is detached lazily; a healthy one is never, because
+ *    whoever holds it would keep writing into a filesystem no path reaches.
+ * 4. It is mounted again from fstab, which finds the drive by its UUID wherever the kernel has put
+ *    it, and must then read, and be read-write when fstab asks for read-write.
+ * 5. The containers are started again, with the folder as it is mounted now.
+ *
+ * `rewrite` runs with the drive unmounted and nothing using it, just before the mount: the place to
+ * change its fstab entry (storage.writable). It returns `{ summary, undo }`: the summary is kept on
+ * the result, and `undo` puts the entry back when mount refuses the changed one.
+ *
+ * When something other than an app still holds it, or it does not mount again, the apps are left as
+ * the drive allows: started again on the old mount when it was never unmounted, and left stopped
+ * when it is not mounted at all, so nothing they write lands in the empty folder underneath.
+ */
+export async function remountDrive(drive, { run = fixedRun, log = null, files = defaultRemountFiles, sleep = pause, processes = undefined, rewrite = null } = {}) {
+  const { mountpoint } = drive;
+  const before = await hostMountAt(run, mountpoint);
+  const present = await deviceFor(run, drive.source);
+  if (present.known && !present.device) {
+    throw new Error(`The drive for ${mountpoint} (${drive.source}) is not connected to this server right now, so nothing was stopped or unmounted. Check that it is plugged in and powered on, then try again.`);
+  }
+  // A dead filesystem returns an I/O error on the very listing that was empty in File Explorer; a
+  // live one does not. The device-name test cannot tell: a drive that dropped and came back usually
+  // reclaims the same name, so the node exists again while the old mount is still broken.
+  const dead = before ? !(await files.readable(mountpoint)) : false;
+  if (before) log?.(`${mountpoint} is mounted from ${before.source}${before.readOnly ? ", read-only" : ""}${dead ? ", and does not read: its drive is gone" : ""}`, dead || before.readOnly ? "stderr" : "stdout");
+  else log?.(`${mountpoint} is not mounted`, "stdout");
+
+  const bound = await containersBoundTo(run, mountpoint);
+  const stopped = [];
+  for (const container of bound) {
+    log?.(`$ docker stop ${container}`, "stdout");
+    const result = await run(binaries.docker, ["stop", container], { timeout: 120_000 });
+    if (result.ok) stopped.push(container); else log?.(`could not stop ${container}: ${tail(result.stderr)}`, "stderr");
+  }
+  const started = []; const restartFailed = [];
+  const startApps = async () => {
+    for (const container of stopped) {
+      log?.(`$ docker start ${container}`, "stdout");
+      const result = await run(binaries.docker, ["start", container], { timeout: 120_000 });
+      if (result.ok) started.push(container); else { restartFailed.push(container); log?.(`could not start ${container}: ${tail(result.stderr)}`, "stderr"); }
+    }
   };
-  const before = await sourceOf();
+  // Apps left stopped because there is no drive under the folder to give them.
+  const leftStopped = () => (stopped.length ? ` ${listOf(stopped)} ${stopped.length === 1 ? "was" : "were"} stopped and left stopped, so nothing writes into the empty folder under ${mountpoint}; ${stopped.length === 1 ? "it starts" : "they start"} again when this reconnect succeeds.` : "");
+
+  let sharing = { clients: [], shares: [] };
+  let detachedLazily = false;
   if (before) {
-    log?.(`$ umount ${mountpoint}`, "stdout");
-    const plain = await run(binaries.umount, mountArgs(mountpoint), { timeout: 60_000 });
-    if (!plain.ok) {
-      // A refused umount is usually EBUSY — something is still using a healthy folder — and lazily
-      // detaching that splits the writers: whoever holds the old filesystem keeps writing into one
-      // no path reaches any more, and those writes are lost silently. So only detach lazily when the
-      // mount is actually dead. The device-name test cannot tell: a drive that dropped and came back
-      // reclaims the same name (/dev/sdb2 → /dev/sdb2), so the node exists again while the old mount
-      // is still broken. What is unambiguous is whether the mount still reads: a dead filesystem
-      // returns an I/O error on the very listing that was empty in File Explorer, a live one does not.
-      const mountReadable = await files.readable(mountpoint);
-      if (mountReadable) throw new Error(`${mountpoint} is in use, so it was left alone: ${tail(plain.stderr)}. Stop whatever is using it — an app with that folder mounted, or the file server — and try again.`);
-      log?.(`${mountpoint} is not readable, so its drive is gone; detaching lazily`, "stderr");
+    const unmounted = await unmountFromHost(mountpoint, { run, log, files, sleep });
+    sharing = { clients: unmounted.clients ?? [], shares: unmounted.shares ?? [] };
+    if (!unmounted.ok && dead) {
+      log?.(`${mountpoint} still will not let go and its drive is gone; detaching it lazily`, "stderr");
       const lazy = await run(binaries.umount, mountArgs("-l", mountpoint), { timeout: 60_000 });
-      if (!lazy.ok) throw new Error(`Could not detach ${mountpoint}: ${tail(lazy.stderr)}`);
+      if (!lazy.ok) { await startApps(); throw new Error(`Could not detach the dead mount at ${mountpoint}: ${tail(lazy.stderr)}.${started.length ? ` ${listOf(started)} ${started.length === 1 ? "was" : "were"} started again as they were.` : ""}`); }
+      detachedLazily = true;
+    } else if (!unmounted.ok) {
+      const holders = before.majMin ? await processesUsing(before.majMin, processes) : [];
+      await startApps();
+      const who = holders.length ? ` by ${holders.map((holder) => `${holder.command} (${holder.pid})`).join(", ")}` : "";
+      const smb = holders.some((holder) => holder.command === "smbd") || sharing.shares.length
+        ? ` A computer connected to ${sharing.shares.length ? `the ${listOf(sharing.shares)} share${sharing.shares.length === 1 ? "" : "s"}` : "a file share on it"} kept reconnecting faster than it could be unmounted; disconnect it (or close File Explorer there) and try again.`
+        : " Close whatever is using it - a shell sitting in the folder, a copy in progress - and try again.";
+      throw new Error(`${mountpoint} is still in use${who}, so it was left mounted as it was: ${tail(unmounted.result?.stderr) || "target is busy"}.${smb}${started.length ? ` ${listOf(started)} ${started.length === 1 ? "was" : "were"} started again on it.` : ""}`);
     }
   }
+
+  let rewritten = null;
+  let undo = null;
+  try {
+    if (rewrite) ({ summary: rewritten = null, undo = null } = (await rewrite()) ?? {});
+  } catch (error) {
+    // Nothing was changed on the drive; put it back the way it was mounted, and the apps with it.
+    const back = await run(binaries.mount, mountArgs(mountpoint), { timeout: 120_000 });
+    if (back.ok && (await hostMountAt(run, mountpoint))) await startApps();
+    throw new Error(`${error.message}${back.ok ? `. ${mountpoint} was mounted again as it was${started.length ? `, and ${listOf(started)} started again` : ""}.` : `. ${mountpoint} could not be mounted again: ${tail(back.stderr)}.${leftStopped()}`}`);
+  }
+
   log?.(`$ mount ${mountpoint}`, "stdout");
   const mounted = await run(binaries.mount, mountArgs(mountpoint), { timeout: 120_000 });
-  if (!mounted.ok) throw new Error(`Could not mount ${mountpoint} again: ${tail(mounted.stderr)}. The drive may be unplugged; check it is connected and try again.`);
-  const after = await sourceOf();
-  if (!after) throw new Error(`${mountpoint} did not come back after remounting. The drive may be unplugged.`);
+  if (!mounted.ok && undo) {
+    // The changed entry is what mount refused: the old one goes back, and the drive with it.
+    await undo();
+    const back = await run(binaries.mount, mountArgs(mountpoint), { timeout: 120_000 });
+    if (back.ok && (await hostMountAt(run, mountpoint))) await startApps();
+    throw new Error(`mount refused the changed entry (${tail(mounted.stderr)}), so the old entry was put back${back.ok ? ` and ${mountpoint} mounted as it was${started.length ? `, with ${listOf(started)} started again` : ""}.` : `, and ${mountpoint} could not be mounted with it either: ${tail(back.stderr)}.${leftStopped()}`}`);
+  }
+  if (!mounted.ok) throw new Error(`Could not mount ${mountpoint} again: ${tail(mounted.stderr)}. The drive may be unplugged or failing; check its cable, then try again.${leftStopped()}`);
+  const after = await hostMountAt(run, mountpoint);
+  if (!after) throw new Error(`${mountpoint} did not come back after remounting. The drive may be unplugged.${leftStopped()}`);
   // findmnt saying it is mounted is the same evidence that lied during the incident. A real read
   // is the test: a filesystem that answers a listing is one that works.
-  if (!(await files.readable(mountpoint))) throw new Error(`${mountpoint} mounted from ${after} but does not read. The drive may be failing; check its cable and its SMART health before trying again.`);
-  log?.(`${mountpoint} is mounted from ${after}${before && before !== after ? ` (it was ${before}, which no longer exists)` : ""} and reads`, "stdout");
-  // Docker resolves a bind when a container starts, so anything bound to this folder is still
-  // looking at the filesystem that was mounted then - the dead one. Remounting without restarting
-  // them is the fix that appears not to have worked: Plex kept showing an empty library after the
-  // owner had reconnected the drive. They were listed as separate findings; now they are part of
-  // the fix, and each one is restarted with the folder as it is mounted now.
-  const restarted = []; const failed = [];
-  for (const container of await containersBoundTo(run, mountpoint)) {
-    log?.(`$ docker restart ${container}`, "stdout");
-    const result = await run(binaries.docker, ["restart", container], { timeout: 120_000 });
-    if (result.ok) restarted.push(container); else { failed.push(container); log?.(`could not restart ${container}: ${tail(result.stderr)}`, "stderr"); }
+  if (!(await files.readable(mountpoint))) throw new Error(`${mountpoint} mounted from ${after.source} but does not read. The drive may be failing; check its cable and its SMART health before trying again.${leftStopped()}`);
+  log?.(`${mountpoint} is mounted from ${after.source}${before && before.source !== after.source ? ` (it was ${before.source}, which no longer exists)` : ""} and reads`, "stdout");
+  // Docker resolves a bind when a container starts, so the apps see the folder as it is mounted now.
+  await startApps();
+  // Mounted afresh and still read-only is the filesystem's own answer: the kernel found errors in it
+  // at mount. Saying the reconnect worked would send the owner back to the same button.
+  if (drive.readWrite && after.readOnly) {
+    throw new Error(`${mountpoint} was mounted again but is still read-only: the kernel found errors on the drive while mounting it. Check the drive (Repair offers the check) before anything writes to it again.${started.length ? ` ${listOf(started)} ${started.length === 1 ? "was" : "were"} started again and can read it.` : ""}`);
   }
-  return { remounted: true, name, mountpoint, source: after, previousSource: before, deviceChanged: Boolean(before && before !== after), restarted, restartFailed: failed };
+  if (sharing.clients.length || sharing.shares.length) log?.(`File sharing: ${sharing.clients.length ? `${listOf(sharing.clients)} reconnect${sharing.clients.length === 1 ? "s" : ""} by ${sharing.clients.length === 1 ? "itself" : "themselves"}` : "clients reconnect by themselves"}`, "stdout");
+  return {
+    remounted: true, name: drive.name, mountpoint, source: after.source, previousSource: before?.source ?? null,
+    deviceChanged: Boolean(before && before.source !== after.source), readOnlyBefore: Boolean(before?.readOnly), detachedLazily,
+    stopped, restarted: started, restartFailed, sharingClosedFor: sharing.clients, shares: sharing.shares, rewritten,
+  };
+}
+
+const defaultRemountFiles = { readFile, readable: (target) => readdir(target).then(() => true, () => false) };
+
+/**
+ * Reconnect a managed drive (Repair's "Reconnect the drive"): the drive that dropped off USB and
+ * came back under another name, the one the kernel turned read-only after errors, and the one that
+ * is simply busy - apps and file-sharing clients included. See remountDrive.
+ */
+export async function storageRemount({ name } = {}, { run = fixedRun, log = null, files = defaultRemountFiles, sleep = pause, processes = undefined } = {}) {
+  const drive = await managedDrive(name, files);
+  return remountDrive(drive, { run, log, files, sleep, processes });
 }
 
 const defaultCheckFiles ={ readFile, readable: (target) => readdir(target).then(() => true, () => false), exists: (file) => access(file).then(() => true, () => false) };

@@ -21,7 +21,8 @@ import { annotateDevices, parseLsblkTree, sharesFrom, volumeGroupsFrom } from ".
 import { cloudProviders } from "../server/backup-cloud.mjs";
 import { buildChecklist } from "../server/setup-checklist.mjs";
 import { assessDriveChecks } from "../server/drive-checks.mjs";
-import { drivesNeedingCheck, drivesNotOrderedAroundDocker } from "../server/remediations.mjs";
+import { backupsDue, detectRemediations, fingerprintOf } from "../server/remediations.mjs";
+import { applyLedger } from "../server/repair-ledger.mjs";
 import { setupProfiles } from "../server/setup-profiles.mjs";
 import { productVersion } from "../server/version.mjs";
 import { securityHeaders } from "../server/security-headers.mjs";
@@ -668,46 +669,74 @@ api.get("/diagnostics/runtime", (_request, response) => {
   json(response, { web: snapshot(120 * 1024 ** 2, 32 * 1024 ** 2, 2 * 1024 ** 2), helper: snapshot(156 * 1024 ** 2, 48 * 1024 ** 2, 4 * 1024 ** 3), helperAvailable: true, transport: { active: 0, completed: 42, failed: 0 } });
 });
 
-// The drive findings of M26, from the real detectors: /mnt/media mounted after an unclean shutdown
-// and not checked since, and its fstab entry from before the Docker ordering.
-const demoDrive = { target: "/mnt/media", source: "/dev/sda1", fstype: "ext4", managedName: "media", options: "defaults,nofail" };
-const demoDriveFindings = () => [
-  ...drivesNeedingCheck({ mounts: [demoDrive], unclean: { available: true, events: [{ device: "/dev/sda1", driver: "EXT4-fs", at: ago(9), message: "EXT4-fs (sda1): recovery complete" }] }, driveChecks: { media: { checkedAt: ago(24 * 20), clean: true } } }),
-  ...drivesNotOrderedAroundDocker({ mounts: [demoDrive], containers: [{ name: "bp-jellyfin", binds: ["/mnt/media"] }] }),
+// Repair's scan (M35), from the real detectors and the real ledger, so the demo shows exactly what a
+// server in each world would: the default world's apps that have never been backed up, and in the
+// trouble world what happened on the owner's server, placed on this fictional one. /mnt/media went
+// read-only with Jellyfin and qBittorrent bound to it and a PC holding the Media share, and the
+// reconnect was refused as busy; ntfy runs here while nothing is sent to it; two apps lost their
+// containers to a Docker cleanup; a share root owns; an exFAT drive mounted without an owner.
+const protectionFixture = () => inspections["app.backup.protection"];
+const demoContainers = [
+  { name: "bp-jellyfin", appId: "jellyfin", appName: "Jellyfin", binds: ["/mnt/media"] },
+  { name: "bp-qbittorrent", appId: "qbittorrent", appName: "qBittorrent", binds: ["/mnt/media/torrents", "/srv/media"] },
+  { name: "bp-immich", appId: "immich", appName: "Immich", binds: ["/mnt/photos"], startedAt: ago(30) },
 ];
-
-api.get("/remediations", (request, response) => {
-  const world = scenarioOf(request.get("referer"));
-  if (world !== "trouble") return json(response, { findings: [], counts: { critical: 0, warning: 0, info: 0 }, checkedAt: now().toISOString() });
-  const drives = demoDriveFindings();
-  return json(response, {
-    checkedAt: now().toISOString(),
-    counts: { critical: 1, warning: 2 + drives.length, info: 2 },
-    findings: [
-      { id: "stale-mount:media", severity: "critical", title: "/mnt/media is mounted from a drive that is gone",
-        detail: "The mount still points at /dev/sda2, which no longer exists - the drive was disconnected and came back under a different name. Anything reading this folder gets an error or sees it empty, including network shares and any app that uses it.",
-        evidence: ["mounted from /dev/sda2", "/dev/sda2 is not a device on this server", "16 TiB filesystem"],
-        fix: { operationId: "storage.remount", parameters: { name: "media" }, label: "Reconnect the drive", preview: "Detaches the dead mount at /mnt/media and mounts it again from fstab, which finds the drive by its UUID wherever the kernel has put it. Nothing on the drive is touched." }, manual: null },
-      ...drives,
-      { id: "stale-bind:bp-jellyfin", severity: "warning", title: "bp-jellyfin is still using the old copy of that folder",
-        detail: "Docker attaches a folder when the container starts, so this one is still looking at the filesystem that was mounted then, not the one that is there now. It needs restarting before it sees the files again.",
-        evidence: ["bp-jellyfin uses /mnt/media"],
-        fix: { operationId: "app.action", parameters: { id: "jellyfin", action: "restart" }, label: "Restart bp-jellyfin", preview: "Restarts bp-jellyfin so it picks up the folder as it is mounted now. Its data and settings are untouched." }, manual: null },
-      { id: "app-folder:qbittorrent", severity: "warning", title: "qBittorrent cannot write to its data folder",
-        detail: "/srv/media is owned by user root, while the app runs as user 1000. Downloads, uploads, and anything else this app saves there will fail without saying why.",
-        evidence: ["Media folder: /srv/media", "owned by user root, while the app runs as user 1000"],
-        fix: { operationId: "app.reconfigure", parameters: { id: "qbittorrent", values: {} }, label: "Fix folder access", preview: "Redeploys qBittorrent with its current settings; the deploy hands its data folders to the user the app runs as. Nothing else changes." }, manual: null },
-      { id: "split-data-folders", severity: "info", title: "Your apps are saving to different drives",
-        detail: "These apps were each given a folder to work in, but on different drives, so none of them can see what the others write. That is fine if it was deliberate; it is the usual reason a download appears nowhere and a library stays empty.",
-        evidence: ["qBittorrent uses /srv/media on /", "Jellyfin uses /mnt/media on /mnt/media"],
-        fix: null, manual: "If they are meant to share files, point them at folders on the same drive from each app's Settings, and move any existing files across first." },
-      { id: "windows-discovery", severity: "info", title: "Windows will not list this server under Network",
-        detail: "Windows finds file servers with WS-Discovery, which Samba does not answer. The shares work if you type the address; they just never appear on their own.",
-        evidence: ["sharing on the LAN", "wsdd is not running"],
-        fix: { operationId: "samba.discovery.set", parameters: { enabled: true }, label: "Show it in Windows", preview: "Installs wsdd, runs it, and allows the two discovery ports (3702/udp, 5357/tcp) so File Explorer lists this server. Shares and permissions are unchanged." }, manual: null },
-    ],
-  });
+const missing = (id) => ({ record: `/var/lib/boxpilot-managed/catalog/${id}/boxpilot.json`, project: `/var/lib/boxpilot-managed/catalog/${id}/compose.yaml`, projectPresent: true, container: `bp-${id}` });
+const troubleFacts = () => ({
+  now: Date.now(),
+  mounts: [
+    { target: "/", source: "/dev/mapper/ubuntu--vg-ubuntu--lv", fstype: "ext4", managedName: null },
+    { target: "/mnt/media", source: "/dev/sda1", fstype: "ext4", readOnly: true, managedName: "media", options: "defaults,nofail", sizeBytes: 4000 * GiB },
+    { target: "/mnt/backup-drive", source: "/dev/sdb1", fstype: "exfat", readOnly: false, managedName: "backup-drive", options: "defaults,nofail,x-systemd.before=docker.service,x-systemd.device-timeout=30s" },
+  ],
+  devices: [{ path: "/dev/sda", transport: "usb" }, { path: "/dev/sda1", transport: "usb" }, { path: "/dev/sdb", transport: "usb" }, { path: "/dev/sdb1", transport: "usb" }, { path: "/dev/nvme0n1", transport: "nvme" }],
+  unclean: { available: true, events: [{ device: "/dev/sda1", driver: "EXT4-fs", at: ago(9), message: "EXT4-fs (sda1): error count since last fsck: 4" }] },
+  tools: { fsckExfat: true },
+  driveChecks: { media: { checkedAt: ago(24 * 20), clean: true } },
+  containers: demoContainers,
+  remountedTargets: ["/mnt/photos"],
+  sambaShares: [{ name: "Media", path: "/mnt/media" }, { name: "Documents", path: "/srv/documents" }],
+  shares: [{ name: "Documents", path: "/srv/documents", readOnly: false, forceUser: null, ownerUid: 0 }],
+  samba: { configured: true, scope: "lan", shareCount: 2, discoveryRunning: false },
+  apps: [
+    { id: "qbittorrent", name: "qBittorrent", dataFolders: ["/srv/media"], folderProblems: [{ path: "/srv/media", volume: "Media folder", reason: "owned by user root, while the app runs as user 1000", ownerUid: 0, appUid: 1000 }] },
+    { id: "jellyfin", name: "Jellyfin", dataFolders: ["/mnt/media"] },
+    // Stopped on purpose last night and deleted by the 03:00 clean-up: it comes back stopped.
+    { id: "homepage", name: "Homepage", installedAt: ago(24 * 40), stoppedAt: ago(13), missingContainer: missing("homepage") },
+    { id: "scrutiny", name: "Scrutiny", installedAt: ago(24 * 52), missingContainer: missing("scrutiny") },
+  ],
+  pruneRuns: [{ at: ago(24 * 7 + 9), scheduled: true, frequency: "daily" }, { at: ago(9), scheduled: true, frequency: "daily" }],
+  protection: protectionFixture(),
+  schedules: [{ operationId: "app.backup", parameters: { id: "immich" }, enabled: true }],
+  notifications: { configured: false },
+  ntfy: { installed: true, running: true },
 });
+// The reconnect the owner tried, as it failed then: the old remount stopped at "target is busy".
+const refusedRemount = { id: "t4", type: "op:storage.remount", title: "Reconnect a drive", state: "failed", risk: "medium", result: null, createdAt: ago(1.2), updatedAt: ago(1.19), approvals: [],
+  parameters: { name: "media" }, error: "/mnt/media is in use, so it was left alone: umount: /mnt/media: target is busy. Stop whatever is using it — an app with that folder mounted, or the file server — and try again.",
+  steps: [{ name: "verify", state: "failed", detail: "Reconnect a drive failed; review the recorded error and job log", createdAt: ago(1.19) }] };
+function demoScan(world) {
+  if (world === "fresh") return { findings: [], dismissed: [], counts: { critical: 0, warning: 0, info: 0 }, jobs: { attached: [], resolved: [], dismissed: [] }, checkedAt: now().toISOString(), sourceStatus: "ready", unavailableChecks: [] };
+  const facts = world === "trouble" ? troubleFacts() : { now: Date.now(), protection: protectionFixture(), schedules: [{ operationId: "app.backup", parameters: { id: "immich" }, enabled: true }] };
+  const { findings } = world === "trouble" ? detectRemediations(facts) : { findings: backupsDue(facts) };
+  const split = findings.find((entry) => entry.id === "split-data-folders");
+  const ledger = applyLedger(findings, world === "trouble" ? {
+    // Set aside two days ago with a reason, as the owner would a split that is deliberate.
+    dismissals: split ? { "split-data-folders": { kind: "finding", fingerprint: fingerprintOf(split), reason: "Downloads land on the system disk on purpose; Jellyfin only reads the drive", at: ago(48), by: "owner-demo" } } : {},
+    attempts: { t4: { findingId: "read-only-remount:media", at: ago(1.2) } },
+    jobs: [refusedRemount],
+  } : {});
+  const count = (severity) => ledger.findings.filter((entry) => entry.severity === severity).length;
+  return { findings: ledger.findings, dismissed: ledger.dismissed, jobs: ledger.jobs, counts: { critical: count("critical"), warning: count("warning"), info: count("info") }, checkedAt: now().toISOString(), sourceStatus: "ready", unavailableChecks: [] };
+}
+
+api.get("/remediations", (request, response) => json(response, demoScan(scenarioOf(request.get("referer")))));
+// Setting a finding aside and recording which job fixes it (M35): accepted, and, like every
+// mutation here, nothing is kept.
+api.post("/remediations/dismissals", (request, response) => response.status(201).json({ dismissed: request.body?.id ?? `job:${request.body?.jobId}` }));
+api.delete("/remediations/dismissals/:id", (request, response) => response.json({ restored: request.params.id }));
+api.post("/remediations/attempts", (request, response) => response.status(201).json({ recorded: request.body?.jobId ?? null }));
+api.post("/schedules", (request, response) => response.status(201).json({ schedule: { id: "demo-schedule", ...request.body, enabled: true, createdBy: "owner-demo", createdAt: now().toISOString() } }));
 api.get("/catalog", async (request, response) => {
   const { manifests, problems } = await loadCatalog();
   const present = installedFor(scenarioOf(request.get("referer")));
@@ -833,6 +862,8 @@ const troubleJobs = [
   // Staged by the operator account and waiting for the owner, which Repair's approval desk holds.
   { id: "t3", type: "op:storage.remount", title: "Reconnect a drive", state: "awaiting_approval", risk: "medium", error: null, result: null, createdAt: ago(0.3), approvals: [],
     parameters: { name: "media" }, steps: [{ name: "preflight", state: "completed", detail: "Reconnect a drive: parameters validated against the operation registry", createdAt: ago(0.3) }] },
+  // The reconnect refused as busy (M35): Repair shows it on its finding, not as a failure of its own.
+  refusedRemount,
 ];
 const troubleRest = {
   "/jobs": (body) => ({ jobs: [...troubleJobs, ...body.jobs.map((job, index) => (index === 0
@@ -870,7 +901,7 @@ const troubleRest = {
   "/settings/watch": (body) => {
     const failed = { title: "Automation stopped: Update night", since: ago(30), announced: false };
     const conditions = body.conditions.map((condition) => (condition.key === "flow.failed" ? { ...condition, active: true, details: [failed] } : condition));
-    return { ...body, activeCount: 1, unannouncedCount: 1, conditions };
+    return { ...body, targetConfigured: false, activeCount: 1, unannouncedCount: 1, conditions };
   },
   // In the unwell world the doctor finds what the owner would: the LAN side dropped by a firewall.
   "/operations/app.reachability.inspect/run": (body) => ({ ...body, result: { ...body.result, addresses: (body.result.addresses ?? []).map((address) => (address.kind === "lan"
@@ -882,8 +913,13 @@ const troubleRest = {
   "/catalog": (body) => ({ ...body, applications: body.applications.map((entry) => (entry.manifest.id === "immich" && entry.live?.installed && (entry.live.sidecars ?? []).length
     ? { ...entry, live: { ...entry.live, sidecars: entry.live.sidecars.map((sidecar, index) => (index === 0 ? { ...sidecar, running: true, status: "restarting", restarts: 4 } : sidecar)) } }
     : entry.manifest.id === "qbittorrent" && entry.live?.installed
-      ? { ...entry, live: { ...entry.live, folderProblems: [{ path: "/srv/media", volume: "Media folder", reason: "owned by user root, while the app runs as user 1000" }] } }
-      : entry)) }),
+      ? { ...entry, live: { ...entry.live, folderProblems: [{ path: "/srv/media", volume: "Media folder", reason: "owned by user root, while the app runs as user 1000", ownerUid: 0, appUid: 1000 }] } }
+      // Listed as installed, with no container: a Docker cleanup took them while they were stopped (M35).
+      : ["homepage", "scrutiny"].includes(entry.manifest.id) && entry.live?.installed
+        ? { ...entry, live: { ...entry.live, container: { exists: false, running: false, status: "absent", health: "none", restarts: 0, image: null }, missingContainer: missing(entry.manifest.id) } }
+        : entry)) }),
+  // Nothing is set to receive alerts, while ntfy runs right here (M35).
+  "/settings/notifications": (body) => ({ ...body, configured: false, kind: null, url: null, topic: null, hasToken: false }),
   "/jobs/j3": (body) => ({ ...body, job: { ...body.job, state: "failed", error: "apt-get upgrade failed: E: Could not get lock /var/lib/dpkg/lock-frontend" } }),
   "/jobs/j3/output": (body) => ({ ...body, output: "Reading package lists...\nE: Could not get lock /var/lib/dpkg/lock-frontend. It is held by process 41283 (unattended-upgr)\nE: Unable to acquire the dpkg frontend lock\n" }),
   "/storage/samba": (body) => ({ ...body, running: false }),

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { discoveryState, parseSmbConf, renderSmbConf, sambaApply, sambaDiagnose, sambaDiscoverySet, sambaRecycleEmpty, sambaUserRemove, sambaUserSet, validateSambaConfig } from "./samba.mjs";
+import { discoveryState, parseSmbConf, renderSmbConf, sambaApply, sambaDiagnose, sambaDiscoverySet, sambaRecycleEmpty, sambaShareWritable, sambaUserRemove, sambaUserSet, validateSambaConfig } from "./samba.mjs";
 
 function fakeRun({ testparmFails = false, lanDevice = "eno1", users = {} } = {}) {
   return vi.fn(async (binary, args) => {
@@ -277,5 +277,48 @@ describe("samba tasks", () => {
     const files = { access: async (target) => { if (target.includes("wsdd-server") || (target.includes("wsdd") && !installed)) throw new Error("ENOENT"); }, readFile: async () => "# Managed by BoxPilot\n[global]\n   interfaces = lo tailscale0 eno1\n" };
     await sambaDiscoverySet({ enabled: true }, { run, files });
     expect(run).toHaveBeenCalledWith("/usr/bin/apt-get", expect.anything(), expect.objectContaining({ env: { DEBIAN_FRONTEND: "noninteractive", NEEDRESTART_SUSPEND: "1" } }));
+  });
+});
+
+describe("letting people write to a share nobody can write to (M35)", () => {
+  // Samba writes as the folder's owner; a root-owned folder leaves it nobody to write as, so every
+  // client is read-only however the share is set. Repair used to say "hand the folder to a user".
+  const conf = renderSmbConf({ shares: [{ name: "Documents", path: "/srv/documents" }, { name: "Media", path: "/mnt/media", readOnly: true, guest: true }] });
+  function rig({ fstype = "ext4", users = { 1000: "alex:x:1000:1000::/home/alex:/bin/bash" } } = {}) {
+    const files = fakeFiles({ existing: conf });
+    const owner = { uid: 0 };
+    files.stat = vi.fn(async () => ({ isDirectory: () => true, uid: owner.uid }));
+    const base = fakeRun({ users });
+    const run = vi.fn(async (binary, args, options) => (binary.endsWith("findmnt") ? { ok: true, stdout: `${fstype} ${fstype === "exfat" ? "/mnt/the-dump" : "/"}\n`, stderr: "" } : base(binary, args, options)));
+    const chown = vi.fn(async (_path, uid) => { owner.uid = uid; });
+    return { files, run, chown, owner };
+  }
+
+  it("hands that one folder to the user apps run as, and applies the shares so it writes as them", async () => {
+    const { files, run, chown } = rig();
+    const result = await sambaShareWritable({ share: "Documents" }, { run, files, chown });
+    expect(result).toEqual({ writable: true, share: "Documents", path: "/srv/documents", owner: "alex", forceUser: "alex" });
+    expect(chown).toHaveBeenCalledWith("/srv/documents", 1000, 1000);
+    expect(chown).toHaveBeenCalledTimes(1);   // the folder itself, never what is inside it
+    expect(parseSmbConf(files.state.conf).shares.find((share) => share.name === "Documents").forceUser).toBe("alex");
+    // The read-only share is applied again as it was.
+    expect(parseSmbConf(files.state.conf).shares.find((share) => share.name === "Media")).toMatchObject({ readOnly: true, guest: true });
+  });
+
+  it("refuses a folder on an exFAT drive, which keeps no owners, and names the fix that works, before changing anything", async () => {
+    const { files, run, chown } = rig({ fstype: "exfat" });
+    await expect(sambaShareWritable({ share: "Documents" }, { run, files, chown })).rejects.toThrow('keeps no owners, so the folder cannot be handed to anyone; the drive\'s mount decides. Use "Let apps write to the drive"');
+    expect(chown).not.toHaveBeenCalled();
+    expect(files.writeFile).not.toHaveBeenCalled();
+  });
+
+  it("refuses a read-only share, one that is not there, and a server with no user to hand it to", async () => {
+    const { files, run, chown } = rig();
+    await expect(sambaShareWritable({ share: "Media" }, { run, files, chown })).rejects.toThrow("read-only on purpose");
+    await expect(sambaShareWritable({ share: "Nope" }, { run, files, chown })).rejects.toThrow("There is no share named Nope");
+    await expect(sambaShareWritable({ share: "../x" }, { run, files, chown })).rejects.toThrow("Share name is invalid");
+    const nobody = rig({ users: {} });
+    await expect(sambaShareWritable({ share: "Documents" }, { run: nobody.run, files: nobody.files, chown: nobody.chown })).rejects.toThrow("There is no user 1000");
+    expect(chown).not.toHaveBeenCalled();
   });
 });

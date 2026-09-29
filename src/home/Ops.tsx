@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { openActivity, openNotifications } from "../activityEvents";
-import { useOperation } from "../ApproveDialog";
+import { useNeedActions } from "./useNeedActions";
 import { countOf, sentenceList, type ViewName } from "../data";
 import { readJson } from "../http";
 import { inspectOperation, type Job } from "../operations";
@@ -109,14 +109,16 @@ function Panel({ title, count, meta, className, children }: { title: string; cou
 }
 
 export default function Ops({ csrfToken, role, onNavigate, now = Date.now, pollMs = 5000 }: OpsProps) {
-  const { facts, refresh } = useFacts();
+  const { facts, refresh, accept } = useFacts();
   const clock = now();
   const values = useMemo(() => valuesOf(facts), [facts]);
   const needs = buildNeeds(values, { now: clock, role });
   const tiers = groupByTier(needs);
   const performance = usePerformance(pollMs, now);
   const history = useJobHistory();
-  const { start, dialog } = useOperation(csrfToken, () => refresh());
+  // Every button in the alerts and the inbox, Repair's fixes included, run as Repair runs them (M35).
+  const { act, runs, dialog } = useNeedActions({ csrfToken, refresh, accept });
+  const runOf = (need: Need) => (need.finding ? runs[need.finding.id] : undefined);
 
   const inventory = values.inventory;
   const hostname = inventory?.hostname ?? "This server";
@@ -127,9 +129,6 @@ export default function Ops({ csrfToken, role, onNavigate, now = Date.now, pollM
   // A staged or failed job opens in Activity, where it can be approved, cancelled or dismissed (M36).
   // What BoxPilot could not tell anyone is read in the notification centre, which says what it was.
   const open = (need: Need) => (need.jobId ? openActivity(need.jobId) : need.id === "unannounced" ? openNotifications() : onNavigate(need.view, need.appId && need.view === "catalog" ? { app: need.appId } : undefined));
-  const act = (need: Need) => {
-    if (need.action) start({ operationId: need.action.operationId, title: need.action.title, parameters: need.action.parameters, preview: need.action.preview ? <span>{need.action.preview}</span> : undefined, existingJobId: need.action.existingJobId });
-  };
 
   // ── The metric strip: the live read when it answers, the inventory's otherwise. ──
   const perf = performance.value;
@@ -254,7 +253,7 @@ export default function Ops({ csrfToken, role, onNavigate, now = Date.now, pollM
         <Panel className="ops-alerts" title="Alerts" count={{ status: worstLook, label: String(tiers.look.length) }} meta={tiers.look.length ? "each opens its page" : undefined}>
           {tiers.look.length === 0
             ? <p className="ops-quiet">{checking ? "Reading…" : unread.length ? `Not read: ${sentenceList(unread)}.` : "No alerts."}</p>
-            : <ul className="need-list">{tiers.look.map((need) => <NeedRow key={need.id} need={need} onOpen={open} onAct={act} />)}</ul>}
+            : <ul className="need-list">{tiers.look.map((need) => <NeedRow key={need.id} need={need} onOpen={open} onAct={act} run={runOf(need)} />)}</ul>}
         </Panel>
 
         <Panel className="ops-containers" title="Containers & VMs"
@@ -270,7 +269,7 @@ export default function Ops({ csrfToken, role, onNavigate, now = Date.now, pollM
           {tierGroups.filter(([, list]) => list.length > 0).map(([tier, list]) => (
             <section key={tier} className="ops-tier" aria-label={`${tier} risk`}>
               <h3 className="ui-visually-hidden">{tierHeading[tier]}</h3>
-              <ul className="need-list">{list.map((need) => <NeedRow key={need.id} need={need} onOpen={open} onAct={act} tier="lead" />)}</ul>
+              <ul className="need-list">{list.map((need) => <NeedRow key={need.id} need={need} onOpen={open} onAct={act} tier="lead" run={runOf(need)} />)}</ul>
             </section>
           ))}
         </Panel>

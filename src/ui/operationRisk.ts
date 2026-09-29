@@ -9,13 +9,18 @@ import type { RiskTier } from "./types";
 export const operationRisk = {
   "app.action": "low",
   "app.backup": "medium",
+  "app.backup.many": "medium",
+  "app.install": "medium",
   "app.reconfigure": "medium",
+  "app.reinstall": "medium",
+  "app.uninstall": "medium",
   "app.update": "medium",
   "app.vpn.killswitch.drill": "medium",
   "apt.autoremove": "medium",
   "apt.install": "medium",
   "apt.refresh": "low",
   "apt.remove": "medium",
+  "apt.repair": "medium",
   "apt.unattended.set": "medium",
   "apt.upgrade": "medium",
   "backup.cloud.sync": "medium",
@@ -24,8 +29,14 @@ export const operationRisk = {
   "controller.backup.create": "low",
   "housekeeping.database-copies.remove": "medium",
   "housekeeping.reclaim": "medium",
+  "notifications.ntfy.connect": "high",
+  "prerequisite.apt-metadata.refresh": "low",
+  "prerequisite.docker.install": "medium",
   "prerequisite.drive-tools.install": "medium",
+  "prerequisite.restic.install": "medium",
+  "prerequisite.virtualization.install": "medium",
   "samba.discovery.set": "medium",
+  "samba.share.writable": "medium",
   "service.action": "medium",
   "share.reconnect": "medium",
   "storage.backup.relocate": "medium",
@@ -34,6 +45,7 @@ export const operationRisk = {
   "storage.docker-order.apply": "medium",
   "storage.lvm.snapshot.create": "medium",
   "storage.remount": "medium",
+  "storage.writable": "medium",
   "system.manager.reexec": "medium",
   "system.reboot": "high",
   "system.update": "high",
@@ -45,7 +57,7 @@ export type KnownOperation = keyof typeof operationRisk;
  * Operations whose registry entry says `minimumRole: "owner"`: an operator may not stage them
  * whatever their tier. The same test holds this list to the registry.
  */
-export const ownerOnlyOperations: ReadonlySet<string> = new Set<KnownOperation>(["backup.cloud.sync", "housekeeping.database-copies.remove"]);
+export const ownerOnlyOperations: ReadonlySet<string> = new Set<KnownOperation>(["backup.cloud.sync", "housekeeping.database-copies.remove", "notifications.ntfy.connect"]);
 
 /** The tier for an operation. An id missing from the table is high, as it is on the server. */
 export function riskOf(operationId: string): RiskTier {

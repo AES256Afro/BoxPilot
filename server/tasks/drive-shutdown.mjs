@@ -91,7 +91,7 @@ export function parseVerifySummary(text) {
   return match ? { parseErrors: Number(match[1]), errors: Number(match[2]), warnings: Number(match[3]) } : null;
 }
 
-async function verifyFstab(run, file) {
+export async function verifyFstab(run, file) {
   const result = await run(binaries.findmnt, ["--verify", "--tab-file", file], { timeout: 30_000 });
   return { ok: result.ok, summary: parseVerifySummary(`${result.stdout}\n${result.stderr}`), text: tail(`${result.stdout}\n${result.stderr}`) };
 }
