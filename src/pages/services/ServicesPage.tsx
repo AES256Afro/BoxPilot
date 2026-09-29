@@ -139,7 +139,7 @@ export default function ServicesPage({ csrfToken, role = "owner" }: ServicesPage
       <PageHeader
         title="Services"
         status={verdict}
-        meta={data ? <><b>{data.counts.total}</b> units · <b>{data.counts.active}</b> active · <b>{failed}</b> failed · <b>{timers}</b> timers · <b>{protectedUnits}</b> protected</> : undefined}
+        meta={data ? <><b>{data.counts.total}</b> {data.counts.total === 1 ? "unit" : "units"} · <b>{data.counts.active}</b> active · <b>{failed}</b> failed · <b>{timers}</b> {timers === 1 ? "timer" : "timers"} · <b>{protectedUnits}</b> protected</> : undefined}
         actions={<Button variant="ghost" onClick={() => void refresh()} busy={loading && Boolean(data)}>Read again</Button>}
         about={<>
           <p>The system services and timers systemd knows about: start, stop, restart, enable or disable them, and read each one's journal.</p>

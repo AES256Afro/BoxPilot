@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { countOf } from "../../data";
 import { readJson } from "../../http";
 import { inspectOperation } from "../../operations";
 import { Button, CodeBlock, Notice, PageHeader, Panel, Segmented, Select, SearchField, Switch, TextInput, Toolbar } from "../../ui";
@@ -147,7 +148,7 @@ export default function LogsPage({ csrfToken = "", role = "owner" }: LogsPagePro
   const verdict = !canRead ? { status: "neutral" as const, label: "Operators only" }
     : error ? { status: "danger" as const, label: "Not read" }
       : loading && entries.length === 0 ? { status: "unknown" as const, label: "Reading…" }
-        : follow ? { status: "good" as const, label: "Following" } : { status: "neutral" as const, label: `${entries.length} lines` };
+        : follow ? { status: "good" as const, label: "Following" } : { status: "neutral" as const, label: countOf(entries.length, "line") };
 
   return (
     <div className="logs-page">
@@ -167,7 +168,7 @@ export default function LogsPage({ csrfToken = "", role = "owner" }: LogsPagePro
 
       {canRead && (
         <>
-          <Panel padded className="logs-source" title="Source" meta={sources ? `${sources.units.length} units · ${sources.dockerAvailable ? `${sources.containers.length} containers` : "Docker not answering"}` : undefined}>
+          <Panel padded className="logs-source" title="Source" meta={sources ? `${countOf(sources.units.length, "unit")} · ${sources.dockerAvailable ? countOf(sources.containers.length, "container") : "Docker not answering"}` : undefined}>
             <div className="logs-source__rows">
               <Segmented label="Journal group" value={kind === "group" ? target : null} onChange={(id) => select("group", id)} options={groups.map((group) => ({ value: group.id, label: group.label }))} />
               <form className="logs-source__unit" onSubmit={(event) => { event.preventDefault(); const chosen = unitOptions.find((unit) => unit.unit === pick) ?? unitOptions[0]; if (chosen) select("unit", chosen.unit); }}>
@@ -201,7 +202,7 @@ export default function LogsPage({ csrfToken = "", role = "owner" }: LogsPagePro
             >
               <SearchField className="logs-toolbar__filter" label="Filter" placeholder="Filter text…" value={filter} onValueChange={setFilter} />
             </Toolbar>
-            <CodeBlock label="Log output" meta={`${entries.length} lines`} follow={follow} wrap empty={loading ? "Reading…" : "No log lines for this source in the chosen range."} className="logs-output__text">
+            <CodeBlock label="Log output" meta={countOf(entries.length, "line")} follow={follow} wrap empty={loading ? "Reading…" : "No log lines for this source in the chosen range."} className="logs-output__text">
               {entries.join("\n")}
             </CodeBlock>
           </Panel>
