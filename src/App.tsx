@@ -31,12 +31,12 @@ const SetupPage = lazy(() => import("./pages/setup/SetupPage"));
 const NetworkPage = lazy(() => import("./pages/network/NetworkPage"));
 const RepairCenter = lazy(() => import("./RepairCenter"));
 const LogsPage = lazy(() => import("./pages/logs/LogsPage"));
-const UpdatesCenter = lazy(() => import("./UpdatesCenter"));
-const AppCatalog = lazy(() => import("./AppCatalog"));
-const AutomationsCenter = lazy(() => import("./AutomationsCenter"));
+const UpdatesPage = lazy(() => import("./pages/updates/UpdatesPage"));
+const CatalogPage = lazy(() => import("./pages/catalog/CatalogPage"));
+const AutomationsPage = lazy(() => import("./pages/automations/AutomationsPage"));
 const ServicesPage = lazy(() => import("./pages/services/ServicesPage"));
 const SystemPage = lazy(() => import("./pages/system/SystemPage"));
-const PerformanceCenter = lazy(() => import("./PerformanceCenter"));
+const PerformancePage = lazy(() => import("./pages/performance/PerformancePage"));
 const UsersPage = lazy(() => import("./pages/users/UsersPage"));
 const FirewallPage = lazy(() => import("./pages/firewall/FirewallPage"));
 const StoragePage = lazy(() => import("./pages/storage/StoragePage"));
@@ -53,7 +53,7 @@ const Settings = lazy(() => import("./pages/settings/SettingsPage"));
  * its name in the bar and what it is for behind the info toggle, until wave 2 rebuilds it (M33.8).
  * A rebuilt page adds itself here. Repair (M35) draws its own crumb and verdict in the page.
  */
-const ownHeader = new Set<ViewName>(["home", "ops", "services", "logs", "repairs", "network", "firewall", "users", "github", "settings", "virtualization", "system", "setup", "storage", "backups"]);
+const ownHeader = new Set<ViewName>(["home", "ops", "services", "logs", "repairs", "network", "firewall", "users", "github", "settings", "virtualization", "system", "setup", "storage", "backups", "updates", "catalog", "automations", "performance"]);
 
 /**
  * Deep link: /?view=firewall opens that page, and a reload keeps the page you were on (Setup
@@ -147,12 +147,12 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
     if (view === "home") return <Home csrfToken={csrfToken} role={role} onNavigate={setView} />;
     if (view === "ops") return <Ops csrfToken={csrfToken} role={role} onNavigate={setView} />;
     if (view === "setup") return <SetupPage csrfToken={csrfToken} role={role} onDone={() => setView("home")} />;
-    if (view === "updates") return <UpdatesCenter csrfToken={csrfToken} />;
-    if (view === "catalog") return <AppCatalog key={focusApp ?? ""} csrfToken={csrfToken} focusApp={focusApp ?? undefined} />;
+    if (view === "updates") return <UpdatesPage csrfToken={csrfToken} role={role} />;
+    if (view === "catalog") return <CatalogPage key={focusApp ?? ""} csrfToken={csrfToken} focusApp={focusApp ?? undefined} role={role} />;
     if (view === "services") return <ServicesPage csrfToken={csrfToken} role={role} />;
     if (view === "system") return <SystemPage csrfToken={csrfToken} role={role} />;
-    if (view === "automations") return <AutomationsCenter csrfToken={csrfToken} />;
-    if (view === "performance") return <PerformanceCenter csrfToken={csrfToken} />;
+    if (view === "automations") return <AutomationsPage csrfToken={csrfToken} role={role} />;
+    if (view === "performance") return <PerformancePage csrfToken={csrfToken} role={role} />;
     if (view === "users") return <UsersPage csrfToken={csrfToken} role={role} />;
     if (view === "firewall") return <FirewallPage csrfToken={csrfToken} role={role} />;
     if (view === "storage") return <StoragePage csrfToken={csrfToken} role={role} onNavigate={setView} />;
