@@ -47,6 +47,11 @@ export function SearchIcon(props: Omit<SVGProps<SVGSVGElement>, "children">) {
   return <Svg {...props}><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.3-4.3" /></Svg>;
 }
 
+/** What needs you, on Home's panel as in the study (M33.7). */
+export function BellIcon(props: Omit<SVGProps<SVGSVGElement>, "children">) {
+  return <Svg {...props}><path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z" /><path d="M10 20.5a2.2 2.2 0 0 0 4 0" /></Svg>;
+}
+
 export function PlusIcon(props: Omit<SVGProps<SVGSVGElement>, "children">) {
   return <Svg {...props}><path d="M12 5v14M5 12h14" /></Svg>;
 }
