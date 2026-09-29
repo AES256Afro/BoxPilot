@@ -1,7 +1,8 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { defaultModelId, downloadPreview, findNewerQwen, ggufPattern, modelById, modelLibrary, parseQwenRepo, quantOf, repoPattern } from "./models.mjs";
+import { runnerCaps } from "./caps.mjs";
 import { readModelParameters } from "./host.mjs";
+import { defaultModelId, downloadPreview, findNewerQwen, ggufPattern, modelById, modelLibrary, parseQwenRepo, quantOf, repoPattern, testedUnslothVersion } from "./models.mjs";
 
 describe("the model library", () => {
   it("holds only Unsloth's small Qwen GGUFs with a vision projector, the 4B first", () => {
@@ -13,6 +14,14 @@ describe("the model library", () => {
       expect(quantOf(model.file), model.id).toBe(model.quant);
     }
     expect(modelById("qwen3.5-9b").memoryBytes).toBeGreaterThan(8 * 1024 ** 3);
+  });
+
+  it("says which fit the runner's memory cap, files and all: the 4B and the 2B, never the 9B", () => {
+    expect(modelLibrary.map((model) => model.id)).toEqual(["qwen3.5-4b", "qwen3.5-2b", "qwen3.5-9b"]);
+    expect(modelLibrary.filter((model) => model.memoryBytes <= runnerCaps.memoryMaxBytes).map((model) => model.id)).toEqual(["qwen3.5-4b", "qwen3.5-2b"]);
+    expect(modelLibrary.filter((model) => model.recommended).map((model) => model.id)).toEqual(["qwen3.5-4b"]);
+    expect(modelById("qwen3.5-2b").tokensPerSecond).toBeGreaterThan(modelById("qwen3.5-4b").tokensPerSecond);
+    expect(testedUnslothVersion).toMatch(/^\d{4}\.\d{1,2}\.\d+$/);
   });
 
   it("previews a download's size and time", () => {

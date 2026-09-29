@@ -6,35 +6,38 @@
  * systemd enforces. The runner and everything it starts - the model server included - live in the
  * one cgroup these apply to.
  *
- * Sized for the server this was written for (8 cores / 16 threads, about 29 GB, no usable GPU):
- * two threads' worth of CPU is an eighth of the machine, and only when nothing else wants it.
+ * From the Unsloth spike (docs/spikes/2026-09-unsloth-headless.md): one processor and one thread is
+ * the best a small Qwen gets under a cap of one processor or less (two threads spend the quota
+ * faster and then sit throttled), the 4B needs about 2.6 GB of memory plus its 3.6 GB of files as
+ * page cache, and a reload that forgets its context asks for 8 GB more - which the memory cap stops.
+ * On the server this was written for (8 cores / 16 threads, about 29 GB) that is a sixteenth of the
+ * processor, and only when nothing else wants it.
  */
 export const runnerCaps = Object.freeze({
-  // Two threads' worth of processor time at most, whatever the model asks for.
-  cpuQuotaPercent: 200,
+  // One processor's worth of time at most, whatever the model asks for.
+  cpuQuotaPercent: 100,
   // CPUWeight=idle: the runner only gets processor time nothing else wants.
   cpuWeight: "idle",
   nice: 19,
   ioSchedulingClass: "idle",
-  // A 4B model in 4 bits with its vision projector and an 8k context fits in about 5 GB.
+  // The runner (about 70 MB), Unsloth's backend (0.4 GB), the 4B model (2.6 GB) and its files as
+  // page cache (3.6 GB). No MemoryHigh: throttling the page cache below the cap would make every
+  // token read the disk.
   memoryMaxBytes: 8 * 1024 ** 3,
-  memoryHighBytes: 7 * 1024 ** 3,
   memorySwapMaxBytes: 0,
   tasksMax: 256,
-  // The model server's threads: no more than the quota can feed.
-  modelThreads: 2,
+  // The model server's threads: one, as the spike measured best under a one-processor cap.
+  modelThreads: 1,
 });
 
 /** The unit's own words for the caps, as systemd reads them. */
 export function unitDirectives(caps = runnerCaps) {
-  const gib = (bytes) => `${Math.round(bytes / 1024 ** 3)}G`;
   return {
     CPUQuota: `${caps.cpuQuotaPercent}%`,
     CPUWeight: caps.cpuWeight,
     Nice: String(caps.nice),
     IOSchedulingClass: caps.ioSchedulingClass,
-    MemoryMax: gib(caps.memoryMaxBytes),
-    MemoryHigh: gib(caps.memoryHighBytes),
+    MemoryMax: `${Math.round(caps.memoryMaxBytes / 1024 ** 3)}G`,
     MemorySwapMax: String(caps.memorySwapMaxBytes),
     TasksMax: String(caps.tasksMax),
   };

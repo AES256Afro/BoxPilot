@@ -28,7 +28,7 @@ import { createRedactor, loadRedactionPolicy } from "../redaction.mjs";
 import { budgetState, createRateLimit, defaultQuietHours, inQuietHours, nextScheduledRun, normalizeQuietHours, startOfLocalDay, tomorrowMorning } from "./budget.mjs";
 import { runnerCaps, runnerUnit } from "./caps.mjs";
 import { sanitizeUntrusted, wrapNote, wrapToolOutput } from "./guard.mjs";
-import { defaultModelId, downloadPreview, findNewerQwen, modelById, modelLibrary, unslothModelSpec } from "./models.mjs";
+import { defaultModelId, downloadPreview, findNewerQwen, modelById, modelLibrary, testedUnslothVersion, unslothModelSpec } from "./models.mjs";
 import { checkCitations, systemMessage, taskMessage } from "./prompt.mjs";
 import { SpecError, agentEvents, budgetCeilings, diffSpecs, normalizeSpec, specText } from "./spec.mjs";
 import { digestToken, finishedStates } from "./store.mjs";
@@ -41,6 +41,7 @@ export const agentsRuntimeKey = "agentsRuntime";
 export const agentsKnowledgeKey = "agentsKnowledge";
 export const runnerTokenKey = "agentsRunnerToken";
 export const runtimeCheckKey = "agentsRuntimeCheck";
+export const runtimeInstallKey = "agentsRuntimeInstall";
 
 export const serviceLimits = Object.freeze({
   leaseMs: 60_000,
@@ -74,7 +75,12 @@ export const serviceLimits = Object.freeze({
   evalEveryMs: 3600_000,
 });
 
-export const runtimeDrivers = Object.freeze(["unsloth", "external", "fake"]);
+/**
+ * What serves the model: Unsloth (the owner's choice, the default); llama.cpp's own llama-server from
+ * the same install with no Studio layer (ADR-005 leaves that choice to the owner); a model server the
+ * owner already runs on this machine; or the fake model, for tests and the demo only.
+ */
+export const runtimeDrivers = Object.freeze(["unsloth", "llama-server", "external", "fake"]);
 
 export class AgentError extends Error {
   constructor(status, message, code) {
@@ -95,14 +101,14 @@ export const defaultModuleSettings = Object.freeze({ enabled: false, paused: fal
 
 export function defaultRuntimeSettings() {
   const model = modelById(defaultModelId);
-  return { driver: "unsloth", repo: model.repo, file: model.file, projector: model.projector, quant: model.quant, endpoint: null, contextTokens: model.contextTokens, idleStopMinutes: 10, maxTokens: 1_024, temperature: 0.2 };
+  return { driver: "unsloth", repo: model.repo, file: model.file, projector: model.projector, quant: model.quant, endpoint: null, contextTokens: model.contextTokens, idleStopMinutes: 60, maxTokens: 1_024, temperature: 0.2 };
 }
 
 /** The owner's runtime choices as stored; the model itself changes only through agents.model.switch. */
 export function normalizeRuntimeSettings(input, current = defaultRuntimeSettings()) {
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new AgentError(400, "Send the runtime's settings", "invalid_setting");
   const driver = input.driver ?? current.driver;
-  if (!runtimeDrivers.includes(driver) || (driver === "fake" && process.env.BOXPILOT_AGENTS_ALLOW_FAKE !== "1")) throw new AgentError(400, "The runtime is Unsloth, or a model server already running on this machine", "invalid_setting");
+  if (!runtimeDrivers.includes(driver) || (driver === "fake" && process.env.BOXPILOT_AGENTS_ALLOW_FAKE !== "1")) throw new AgentError(400, "The runtime is Unsloth, llama.cpp's llama-server, or a model server already running on this machine", "invalid_setting");
   let endpoint = null;
   if (driver === "external") {
     try { endpoint = normalizeEndpoint(input.endpoint ?? current.endpoint ?? ""); } catch (error) { throw new AgentError(400, error.message, "invalid_setting"); }
@@ -119,7 +125,9 @@ export function normalizeRuntimeSettings(input, current = defaultRuntimeSettings
     driver,
     endpoint,
     contextTokens: integer(input.contextTokens, current.contextTokens, 2_048, 32_768, "The context"),
-    idleStopMinutes: integer(input.idleStopMinutes, current.idleStopMinutes, 1, 120, "Minutes before an idle model stops"),
+    // Unsloth unloads the model itself after 15 quiet minutes (UNSLOTH_MODEL_IDLE_TTL); this stops the
+    // whole server, its Python backend too, so idle is then no process at all.
+    idleStopMinutes: integer(input.idleStopMinutes, current.idleStopMinutes, 5, 720, "Minutes before an idle model server stops"),
     maxTokens: integer(input.maxTokens, current.maxTokens, 128, 4_096, "The longest answer in tokens"),
   };
 }
@@ -156,6 +164,7 @@ export function createAgentService({
   let previousAlerts = null;
   let droppedRuns = 0;
   let stopModelRequested = false;
+  let issuing = null;   // the runner's key being issued, so two callers never make two keys
   // Step kinds whose output the model is given, numbered T1, T2 ... in the order they happened.
   const outputKinds = ["tool", "proposal", "note", "notify"];
   const outputsSoFar = (runId) => store.listSteps(runId).filter((step) => outputKinds.includes(step.kind) && step.state === "done").length;
@@ -377,13 +386,17 @@ export function createAgentService({
       tools: offered.map((tool) => ({ id: tool.id, ...toModelTool(tool) })),
       runtime: {
         driver: runtime.driver,
+        // Unsloth loads "repo:quant"; every request names the repo, since once Unsloth has unloaded
+        // the model its /v1/models lists every GGUF in the cache, not only this one (the spike).
         model: runtime.driver === "unsloth" ? unslothModelSpec({ repo: runtime.repo, quant: runtime.quant }) : null,
+        requestModel: ["unsloth", "llama-server"].includes(runtime.driver) ? runtime.repo : null,
         repo: runtime.repo, file: runtime.file, projector: runtime.projector,
         endpoint: runtime.driver === "external" ? runtime.endpoint : null,
         contextTokens: runtime.contextTokens, threads: runnerCaps.modelThreads, idleStopMs: runtime.idleStopMinutes * 60_000,
         maxTokens: runtime.maxTokens, temperature: runtime.temperature,
         // Qwen's thinking is left off: on a CPU it doubles the time to an answer (the spike measures it).
-        extra: runtime.driver === "unsloth" || runtime.driver === "fake" ? { enable_thinking: false } : {},
+        extra: runtime.driver === "unsloth" || runtime.driver === "fake" ? { enable_thinking: false }
+          : runtime.driver === "llama-server" ? { chat_template_kwargs: { enable_thinking: false } } : {},
       },
       limits: {
         steps: spec.budget.stepsPerRun,
@@ -1136,6 +1149,7 @@ export function createAgentService({
     getEvaluation, setEvaluation, runEvaluation,
     runtimeState: (caller) => runtimeState(caller), checkForNewerModel: () => checkForNewerModel(),
     useModel: (result, options) => useModel(result, options),
+    noteRuntimeInstalled: (result, options) => noteRuntimeInstalled(result, options),
     currentModel: () => { const runtime = runtimeSettings(); return `${runtime.repo}/${runtime.file}`; },
     // the runner
     runnerHello, runnerNext, runnerHeartbeat, runnerSteps, runnerTool, runnerFinish,
@@ -1168,13 +1182,30 @@ export function createAgentService({
     const check = state.getSetting?.(runtimeCheckKey, null);
     return {
       settings: person.role === "owner" ? runtime : { driver: runtime.driver, repo: runtime.repo, file: runtime.file },
-      library: modelLibrary.map((model) => ({ ...model, preview: downloadPreview(model), downloaded: Boolean(inspected?.models?.some((entry) => entry.repo === model.repo && entry.file === model.file && entry.complete)), current: model.repo === runtime.repo && model.file === runtime.file })),
+      library: modelLibrary.map((model) => ({ ...model, preview: downloadPreview(model), fitsCap: model.memoryBytes <= runnerCaps.memoryMaxBytes, downloaded: Boolean(inspected?.models?.some((entry) => entry.repo === model.repo && entry.file === model.file && entry.complete)), current: model.repo === runtime.repo && model.file === runtime.file })),
       installed: inspected ? { runtime: inspected.runtime ?? null, service: inspected.service ?? null, models: inspected.models ?? [], diskFreeBytes: inspected.diskFreeBytes ?? null } : null,
       newer: check?.newer ?? null,
       checkedAt: check?.checkedAt ?? null,
+      unsloth: { ...(state.getSetting?.(runtimeInstallKey, null) ?? { version: null, installerSha256: null, installedAt: null }), testedVersion: testedUnslothVersion },
       runner: runnerStatus(),
       caps: { ...runnerCaps, unit: runnerUnit },
     };
+  }
+
+  /**
+   * agents.runtime.install finished: which Unsloth it installed, kept so the Agents section can say
+   * when that is not the release the spike measured (the installer always takes the newest).
+   */
+  function noteRuntimeInstalled(result, { actorId = null } = {}) {
+    if (!result?.installed) return null;
+    const installed = {
+      version: typeof result.version === "string" ? result.version.replace(/[^A-Za-z0-9.+ -]/g, "").trim().slice(0, 60) || null : null,
+      installerSha256: /^[a-f0-9]{64}$/.test(result.installerSha256 ?? "") ? result.installerSha256 : null,
+      installedAt: now().toISOString(),
+    };
+    state.setSetting(runtimeInstallKey, installed, { updatedBy: actorId });
+    audit("agents.runtime.installed", { actorId, details: { version: installed.version, tested: installed.version?.includes(testedUnslothVersion) ?? false } });
+    return installed;
   }
 
   /** agents.model.switch finished: the helper found the model downloaded whole, so the next run uses it. */
@@ -1214,8 +1245,19 @@ export function createAgentService({
     return tokenPath ?? path.join(path.dirname(state.databasePath ?? path.join(os.tmpdir(), "boxpilot", "x")), "agents", "runner.token");
   }
 
-  /** The runner's key: a random value in a root-readable file (systemd's LoadCredential hands it over); only its digest is kept. */
-  async function ensureRunnerToken({ rotate = false } = {}) {
+  /**
+   * The runner's key: a random value in a root-readable file (systemd's LoadCredential hands it over);
+   * only its digest is kept. One issue at a time: turning Agents on starts one in the background, and
+   * a second caller racing it would otherwise leave the file holding one key and the digest another.
+   */
+  function ensureRunnerToken({ rotate = false } = {}) {
+    const next = (issuing ?? Promise.resolve()).then(() => issueRunnerToken({ rotate }));
+    const settled = next.catch(() => null).then(() => { if (issuing === settled) issuing = null; });
+    issuing = settled;
+    return next;
+  }
+
+  async function issueRunnerToken({ rotate }) {
     const saved = state.getSetting?.(runnerTokenKey, null);
     if (saved?.hash && !rotate) return { issued: false, path: tokenFile() };
     const token = randomBytes(32).toString("base64url");

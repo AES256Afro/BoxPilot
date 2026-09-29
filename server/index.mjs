@@ -217,6 +217,7 @@ const jobs = createJobService(state, helper, {
     "notifications.ntfy.connect": (job, result) => { notifications.adoptLocalNtfy(result, { updatedBy: job.createdBy }); },
     // M37: the helper checked the model is downloaded whole; the runner uses it from its next run.
     "agents.model.switch": (job, result) => agents.useModel(result, { actorId: job.createdBy }),
+    "agents.runtime.install": (job, result) => agents.noteRuntimeInstalled(result, { actorId: job.createdBy }),
   },
   // Prepare hooks pin server-derived expectations into the staged parameters.
   operationPrepareHooks: {
