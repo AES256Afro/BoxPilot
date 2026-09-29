@@ -9,7 +9,7 @@ import { runtimeDiagnostics } from "../runtime-diagnostics.mjs";
 import { registry, riskTiers } from "../ops/index.mjs";
 import { approvalModes, elevationTtlMs } from "../ops/risk.mjs";
 import { findPortConflicts, listListeners } from "../ports.mjs";
-import { resolveValues } from "../catalog/schema.mjs";
+import { keepsBackupData, resolveValues } from "../catalog/schema.mjs";
 import { hashPassword, renderAutoinstall, validateAutoinstallInput } from "../autoinstall.mjs";
 import { readTlsStatus } from "../tls-status.mjs";
 import { collectStorage } from "../storage-inventory.mjs";
@@ -105,8 +105,10 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
       id: manifest.id, name: manifest.name, category: manifest.category, icon: manifest.icon ?? null, website: manifest.website ?? null,
       description: manifest.description, image: { version: manifest.image?.version ?? null },
       ports: (manifest.ports ?? []).map((port) => ({ id: port.id, label: port.label, host: port.host, protocol: port.protocol, exposure: port.exposure })),
-      // backup: whether the app keeps data worth backing up here, so a quick "Back up X" (M36) is only offered where it means something.
-      volumes: (manifest.volumes ?? []).map((volume) => ({ id: volume.id, label: volume.label ?? null, hostPath: volume.hostPath ?? null, configurable: Boolean(volume.configurable), readOnly: Boolean(volume.readOnly), backup: Boolean(volume.backup && (volume.path || volume.hostPath)) })),
+      volumes: (manifest.volumes ?? []).map((volume) => ({ id: volume.id, label: volume.label ?? null, hostPath: volume.hostPath ?? null, configurable: Boolean(volume.configurable), readOnly: Boolean(volume.readOnly) })),
+      // Whether an app backup archives anything of it, sidecars included, so the command bar offers
+      // a quick "Back up X" (M36) only where it means something.
+      keepsBackup: keepsBackupData(manifest),
     } : manifest);
     // The verdicts say who ran the drill; only the owner is told when that was another account.
     const applications = manifests.map((manifest) => {
