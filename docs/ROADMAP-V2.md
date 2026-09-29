@@ -1467,7 +1467,12 @@ phone width. Repair itself (its findings and fixes) is M35's, and stays out of t
   smoke test: into a full disk (refused, nothing moved), normally (the copy exists, 0600, intact,
   taken before the stop) and with a failing health check (rolled back, the copy named). The copy
   starts with the first update *from* the release that has this, since an update runs the installed
-  version's script. The System page's update and reclaim buttons now show their tier.
+  version's script. The System page's update and reclaim buttons now show their tier. **One upgrade
+  at a time**: two started two seconds apart on the owner's server (two previous trees, two copies,
+  the service started twice). The script holds `/run/boxpilot-upgrade.lock` (flock) for its whole
+  run and writes who holds it; a second run refuses at once, names the first and changes nothing, and
+  the System page's update checks the same lock and fails its job with the same words. The smoke test
+  starts two at once.
 - ✅ **M36.2 Approvals nobody will give** (unreleased). Two updates staged for 1.116 waited three
   weeks for approval on a server running 1.138. An operation can say when a staged job is
   superseded (`supersededWhen`; `system.update`: a version at or below the running one); such a job
