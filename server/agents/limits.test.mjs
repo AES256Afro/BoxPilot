@@ -106,8 +106,10 @@ describe("budgets a day", () => {
     h.fake.state.script = (body) => { h.advance(400); return toolHungry(body); };
     ask(agent, "owner", "What is this server called?");
     const run = await h.runNext();
-    expect(run).toMatchObject({ state: "degraded", flags: { degraded: "budget" } });
-    expect(run.steps.filter((step) => step.kind === "model")).toHaveLength(2);
+    expect(run).toMatchObject({ state: "degraded", flags: { degraded: "budget", limitReached: true } });
+    // The understanding and one call to act fit; the next would not.
+    expect(run.steps.filter((step) => step.kind === "intent")).toHaveLength(1);
+    expect(run.steps.filter((step) => step.kind === "model")).toHaveLength(1);
     expect(run.answer).toMatch(/model time for today is used up/);
   });
 });

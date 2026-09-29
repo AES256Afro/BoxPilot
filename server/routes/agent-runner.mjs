@@ -7,7 +7,9 @@
  * - next       wait (a long poll, at most half a minute) for the next run; one at a time server-wide
  * - heartbeat  keep a run's lease; the answer says when to stop (cancelled, paused, killed, late)
  * - steps      the model's words and timing, and the model starting or stopping
- * - tools      one read-only tool by name, run here as the run's person
+ * - steps      also the intent and the plan the model returned before acting
+ * - tools      one read-only tool by name, run here as the run's person (a memory search with its embedding)
+ * - vectors    an index run's embeddings, for memory search by meaning
  * - finish     the answer, the outcome and the usage
  * - usage      how hard it is working while idle
  *
@@ -47,7 +49,10 @@ export function createAgentRunnerRouter({ agents, limit = null }) {
 
   router.post("/agent-runner/runs/:runId/heartbeat", auth, handle((request) => agents.runnerHeartbeat(request.params.runId, lease(request), { usage: request.body?.usage ?? null, runnerId: request.agentRunner.runnerId })));
   router.post("/agent-runner/runs/:runId/steps", auth, handle((request) => agents.runnerSteps(request.params.runId, lease(request), request.body?.steps)));
-  router.post("/agent-runner/runs/:runId/tools", auth, handle((request) => agents.runnerTool(request.params.runId, lease(request), request.body?.name, request.body?.input ?? "{}")));
+  // A memory search's query comes with its embedding, made where the model is.
+  router.post("/agent-runner/runs/:runId/tools", auth, handle((request) => agents.runnerTool(request.params.runId, lease(request), request.body?.name, request.body?.input ?? "{}", { vector: request.body?.vector ?? null })));
+  // An index run's embeddings, for memory search by meaning.
+  router.post("/agent-runner/runs/:runId/vectors", auth, handle((request) => agents.runnerVectors(request.params.runId, lease(request), request.body?.entries)));
   router.post("/agent-runner/runs/:runId/finish", auth, handle((request) => agents.runnerFinish(request.params.runId, lease(request), request.body ?? {})));
   router.post("/agent-runner/usage", auth, handle((request) => agents.runnerUsage(request.agentRunner.runnerId, { usage: request.body?.usage ?? null, hostBusy: request.body?.hostBusy === true })));
 

@@ -16,7 +16,7 @@ describe("the tools catalog", () => {
   });
 
   it("writes nothing on the server: the only tools that write keep notes, save a card or queue a notice", () => {
-    expect(toolCatalog.filter((tool) => tool.writes).map((tool) => [tool.id, tool.writes])).toEqual([["notes.write", "notes"], ["plan.propose", "proposal"], ["notify.owner", "notification"]]);
+    expect(toolCatalog.filter((tool) => tool.writes).map((tool) => [tool.id, tool.writes])).toEqual([["notes.write", "notes"], ["plan.propose", "proposal"], ["notify.owner", "notification"], ["agents.handoff", "subtask"]]);
   });
 
   it("gives an operator read (ADR-003) the operator role, as the registry does", () => {

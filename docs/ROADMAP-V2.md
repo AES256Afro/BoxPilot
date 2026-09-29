@@ -1667,7 +1667,7 @@ the content). The engine is `feat/m37-agents-engine`; the section is `feat/m37-a
   that learns the server, answers questions and writes a digest at 05:30 in quiet hours), **Pi-hole
   Watcher**, **Backup Auditor**, **IT Support helper** (viewer-level tools only, no notes, no plans,
   anyone signed in may ask it) and a blank one, each with golden questions for its evaluation.
-- ✅ **M37.2 The tools catalog** (unreleased). `tool-catalog.mjs` and `tools.mjs`, fifteen tools, each
+- ✅ **M37.2 The tools catalog** (unreleased). `tool-catalog.mjs` and `tools.mjs`, fifteen tools (M37.7 brought them to twenty-five), each
   with a cost and the least role a run must read as: server facts, apps and containers, service
   status, bounded logs (at most 200 lines, a week back; an operator read, ADR-003), storage and SMART,
   search over the docs, the registry, the catalog and the owner's documents, the agent's own notes
@@ -1745,6 +1745,71 @@ the content). The engine is `feat/m37-agents-engine`; the section is `feat/m37-a
   fake model burning three threads the service's cgroup stays at or under `CPUQuota=100%` and was
   throttled to stay there, the model server is its niced, idle-I/O child, and afterwards the service
   idles under 2%.
+- ✅ **M37.7 The owner's components** (2026-09-29, unreleased): what the owner said an agent builder
+  and an orchestrator must have, each mapped to BoxPilot and built into the engine; the Builder shows
+  them in the stacked UI pull request.
+  - **The brain.** ✅ Intent, then plan, then act (`intent.mjs`, `runner.mjs`): a request, a schedule,
+    an event or a webhook is first turned into a structured intent (goal, subject, constraints, the
+    tools needed, a confidence) and a plan of at most six steps, returned as JSON against a strict
+    schema (`response_format`, which Unsloth honours), checked (only offered tools, bounded text) and
+    kept in the trace as intent and plan steps; the plan is then the model's steps. ✅ Ambiguity is
+    a clarifying question, which becomes a question card; the run stops there instead of guessing.
+    ✅ Thinking stays off on the CPU (the spike's 4B spent 1,500 tokens thinking and never answered)
+    and an agent may turn it on for hard tasks, within its budget (`model.thinking`).
+  - **Memory.** ✅ Short-term: a conversation per agent and person, the last turns word for word and
+    older ones folded into a running summary, sized to leave room in `-c 8192` (`memory.mjs`). ✅
+    Long-term: facts the agent learned (shared with other agents when the writer allows, each only as
+    far as the reading run may read), episodes (what past runs found), and knowledge the owner pinned
+    (facts and documents), with provenance and freshness. ✅ Embeddings as BLOBs of 32-bit floats in
+    SQLite, brute-force cosine, fused with BM25 by reciprocal rank (hybrid retrieval); a query's
+    embedding is made by the runner where the model is. ✅ Embeddings come from Unsloth's own
+    `/v1/embeddings` (bge-small-en-v1.5, downloaded with the chat model because the runner is
+    offline); an index run embeds what is new in quiet hours, within the day's budget. ✅ The owner
+    sees each tier, edits a fact (its words, freshness, pinned, shared) and makes an agent forget a
+    fact, an episode or a conversation; forgetting deletes the row and its embedding, overwritten
+    on disk (`secure_delete`). ◐ Qwen3-Embedding-0.6B as a second capped llama-server: the spike's
+    stronger option, not wired; bge-small first.
+  - **Tools.** ✅ A registry with categories, typed schemas, permissions and costs (`tool-catalog.mjs`,
+    25 tools): BoxPilot's reads; its records through its API (`records.query`: jobs, schedules,
+    automations, backups, as the run's person; never SQL); app adapters (Pi-hole first); exact work
+    - `calc` (its own parser, never eval), `time.calc`, `units.convert`, `json.extract`, `regex.match`
+    (in a worker stopped after half a second) - so the model never does sums in its head; documents
+    (`docs.search`, `document.read`); memory; actions that only propose; orchestration. ✅ Web search,
+    off by default: only through the owner's own SearXNG on this network (the catalog has it), never
+    a cloud API, and its results are boxed as data like any tool's. ✅ Outside data: PDF upload (a
+    dependency-free reader: Flate streams, object streams, ToUnicode maps), Markdown and text; a
+    folder on this server looked at in quiet hours; read-only Notion and Slack with a token saved as a
+    named credential, read inside a root task (`agents.connector.sync`, low risk, owner) so the web
+    process never holds it. Each is off until the owner turns it on; `connectors.mjs` is the
+    interface to add more. ✅ Real-world actions only as cards through the approval path. ✅ Webhooks:
+    an agent can be started by one (`/api/v1/hooks/agents/:id/:token`, the flows' door: the token is
+    the auth, only its digest is kept, nothing from the call reaches the run), and can propose an
+    outgoing one as the registered `http.request` step, so n8n and the like interoperate.
+  - **The builder's steps** (API ✅, screens in the stacked UI pull request): one job and its success
+    criteria, with warnings when the scope reads like "do everything" (`scopeWarnings`); a
+    structured system prompt - rules, operational steps, an output format (text, or JSON with named
+    fields the answer is checked against), what to escalate - prefilled by the templates and versioned
+    with line diffs; knowledge sources and tools with their permissions and costs; then test and
+    guardrails.
+  - **Testing and oversight.** ✅ The console's trace holds the intent, the plan, every tool call and
+    output, memory reads (the recall step) and writes, tokens and time. ✅ Evaluation: golden
+    questions scored by deterministic checks, plus the people's thumbs, kept as accuracy over time
+    per agent version and model. ✅ "Was this right?" on every run, by whoever may see it. ✅
+    Escalation rules per agent: low confidence, a limit reached, an action needed (a card), something
+    risky (a card and a notification). Never an action. ✅ Guardrails: limits, redaction, rate
+    limits, the kill switch, injection defence for tool and connector output, and an allowlist of the
+    apps an agent may look at and the operations it may propose.
+  - **The orchestrator.** ✅ A supervisor (the Server Keeper by default) hands subtasks to specialists
+    with `agents.handoff`; the specialist runs as the same person, one level down, and the supervisor
+    gets a follow-up run with the answers as tool output it cites (`orchestrator.mjs`). ✅ Bounded
+    depth (at most 3), three hand-offs a run, no loops (never to an agent already in the chain), no
+    hand-off to itself. ✅ Memory shared between agents under their permissions. ✅ One global queue:
+    concurrency 1 on the one capped model, a person's live question first, orchestrated follow-ups
+    with it, background work last in quiet hours, and one budget across all agents on top of each
+    agent's own. ✅ Orchestrated runs are one trace tree. ◐ Events still go to the agents subscribed
+    to them; the Server Keeper subscribes to health alerts and hands off from there.
+  - **Portable definitions.** ✅ An agent exports as JSON (spec and golden questions; never runs,
+    memory or webhooks) and imports as a new agent through the same gate as the Builder.
 - **The caps** (`server/agents/caps.mjs`, held to the unit by `caps.test.mjs`): `CPUQuota=100%` (one
   processor, the spike's number: a sixteenth of a sixteen-thread server; the model runs one thread,
   which beats two under this cap), `CPUWeight=idle`, `Nice=19`, `IOSchedulingClass=idle`,
@@ -1756,9 +1821,10 @@ the content). The engine is `feat/m37-agents-engine`; the section is `feat/m37-a
 
 Left, and why:
 
-- **Embeddings for the learning library**: keyword search (BM25) now. The spike's answer is Unsloth's
-  own `/v1/embeddings` (bge-small-en-v1.5 beside the chat model, 101 MB, 26 ms a text, 0.01% idle),
-  seeded into the cache at install so the offline runner never fetches it; wiring it in is next.
+- **Embeddings on the server**: wired to Unsloth's own `/v1/embeddings` (bge-small-en-v1.5, 101 MB,
+  26 ms a text), with the embedder downloaded beside the chat model. Whether Unsloth offline finds it
+  in the cache under that name is the first thing to check on the home server; if not, memory search
+  stays by words until it does.
 - **Pinning Unsloth**: its installer always takes the newest release. BoxPilot keeps the installer's
   checksum and the release, and says when it is not 2026.9.12; a pinned install (or a BoxPilot-built
   image) and a rerun of the spike's workflow before moving is the owner's call (ADR-005).

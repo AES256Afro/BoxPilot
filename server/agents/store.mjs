@@ -21,7 +21,8 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
   const database = new DatabaseSync(databasePath);
   const compiled = new Map();
   const prepare = (sql) => { let statement = compiled.get(sql); if (!statement) { statement = database.prepare(sql); compiled.set(sql, statement); } return statement; };
-  database.exec("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;");
+  // secure_delete: what the owner tells an agent to forget is overwritten, not just unlinked.
+  database.exec("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000; PRAGMA secure_delete = ON;");
   database.exec(`
     CREATE TABLE IF NOT EXISTS agents (
       id TEXT PRIMARY KEY,
@@ -144,7 +145,66 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
       created_at TEXT NOT NULL,
       finished_at TEXT
     );
+    CREATE TABLE IF NOT EXISTS agent_threads (
+      id TEXT PRIMARY KEY,
+      agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+      person_id TEXT NOT NULL,
+      summary TEXT NOT NULL DEFAULT '',
+      turns_json TEXT NOT NULL DEFAULT '[]',
+      updated_at TEXT NOT NULL,
+      UNIQUE (agent_id, person_id)
+    );
+    CREATE TABLE IF NOT EXISTS agent_episodes (
+      id TEXT PRIMARY KEY,
+      agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+      run_id TEXT,
+      text TEXT NOT NULL,
+      read_role TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_episodes_agent ON agent_episodes(agent_id, created_at DESC);
+    CREATE TABLE IF NOT EXISTS agent_vectors (
+      kind TEXT NOT NULL,
+      item_id TEXT NOT NULL,
+      model TEXT NOT NULL,
+      dims INTEGER NOT NULL,
+      vector BLOB NOT NULL,
+      text_hash TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (kind, item_id)
+    );
+    CREATE TABLE IF NOT EXISTS agent_feedback (
+      run_id TEXT PRIMARY KEY,
+      agent_id TEXT NOT NULL,
+      version INTEGER NOT NULL,
+      model TEXT,
+      verdict TEXT NOT NULL,
+      note TEXT,
+      given_by TEXT,
+      given_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_feedback_agent ON agent_feedback(agent_id, given_at DESC);
   `);
+  // Columns added after the first M37 tables: added in place where an older database lacks them.
+  const ensureColumn = (table, column, definition) => {
+    const columns = database.prepare(`PRAGMA table_info(${table})`).all().map((row) => row.name);
+    if (!columns.includes(column)) database.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  };
+  ensureColumn("agents", "webhook_hash", "TEXT");
+  ensureColumn("agent_runs", "parent_run_id", "TEXT");
+  ensureColumn("agent_runs", "root_run_id", "TEXT");
+  ensureColumn("agent_runs", "depth", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn("agent_runs", "thread_id", "TEXT");
+  ensureColumn("agent_notes", "pinned", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn("agent_notes", "shared", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn("agent_notes", "read_role", "TEXT NOT NULL DEFAULT 'owner'");
+  ensureColumn("agent_proposals", "kind", "TEXT NOT NULL DEFAULT 'plan'");
+  ensureColumn("agent_proposals", "question", "TEXT");
+  ensureColumn("agent_documents", "source", "TEXT NOT NULL DEFAULT 'upload'");
+  ensureColumn("agent_documents", "external_id", "TEXT");
+  ensureColumn("agent_documents", "pinned", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn("agent_eval_runs", "model", "TEXT");
+  database.exec("CREATE INDEX IF NOT EXISTS idx_agent_runs_parent ON agent_runs(parent_run_id)");
 
   const iso = () => now().toISOString();
   function transaction(fn) {
@@ -166,6 +226,7 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
     paused: Boolean(row.paused), pausedUntil: row.paused_until ?? null,
     createdBy: row.created_by, createdAt: row.created_at, updatedAt: row.updated_at, deletedAt: row.deleted_at ?? null,
     nextRunAt: row.next_run_at ?? null, lastRunAt: row.last_run_at ?? null, events: parse(row.events_json, {}),
+    webhookHash: row.webhook_hash ?? null,
   };
 
   function createAgent({ spec, template = null, createdBy = null, nextRunAt = null }) {
@@ -229,7 +290,12 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
   }
 
   function deleteAgent(agentId) {
-    return Number(prepare("UPDATE agents SET deleted_at = ?, next_run_at = NULL WHERE id = ? AND deleted_at IS NULL").run(iso(), agentId).changes) > 0;
+    return Number(prepare("UPDATE agents SET deleted_at = ?, next_run_at = NULL, webhook_hash = NULL WHERE id = ? AND deleted_at IS NULL").run(iso(), agentId).changes) > 0;
+  }
+
+  /** The webhook's digest (never the token), or null to take the webhook away. */
+  function setWebhook(agentId, hash) {
+    return Number(prepare("UPDATE agents SET webhook_hash = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL").run(hash, iso(), agentId).changes) > 0;
   }
 
   // ---- runs ----
@@ -240,15 +306,22 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
     queuedAt: row.queued_at, startedAt: row.started_at ?? null, finishedAt: row.finished_at ?? null, leaseExpiresAt: row.lease_expires_at ?? null,
     runnerId: row.runner_id ?? null, answer: row.answer ?? null, outputKind: row.output_kind ?? null,
     usage: parse(row.usage_json, {}), flags: parse(row.flags_json, {}), eval: parse(row.eval_json, null),
+    parentRunId: row.parent_run_id ?? null, rootRunId: row.root_run_id ?? null, depth: row.depth ?? 0, threadId: row.thread_id ?? null,
   };
 
-  function enqueueRun({ agentId, version, kind, trigger = {}, question = null, requestedBy = null, readRole, readAs = null, state = "queued", reason = null, evalInfo = null }) {
+  function enqueueRun({ agentId, version, kind, trigger = {}, question = null, requestedBy = null, readRole, readAs = null, state = "queued", reason = null, evalInfo = null, parentRunId = null, rootRunId = null, depth = 0, threadId = null }) {
     const id = randomUUID();
     const at = iso();
-    prepare(`INSERT INTO agent_runs (id, agent_id, version, kind, trigger_json, question, requested_by, read_role, read_as, state, reason, queued_at, finished_at, eval_json)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, agentId, version, kind, json(trigger), question, requestedBy, readRole, readAs, state, reason, at, finishedStates.has(state) ? at : null, evalInfo ? json(evalInfo) : null);
+    prepare(`INSERT INTO agent_runs (id, agent_id, version, kind, trigger_json, question, requested_by, read_role, read_as, state, reason, queued_at, finished_at, eval_json, parent_run_id, root_run_id, depth, thread_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, agentId, version, kind, json(trigger), question, requestedBy, readRole, readAs, state, reason, at, finishedStates.has(state) ? at : null, evalInfo ? json(evalInfo) : null, parentRunId, rootRunId ?? (parentRunId ? null : id), depth, threadId);
+    if (!rootRunId && parentRunId) prepare("UPDATE agent_runs SET root_run_id = COALESCE((SELECT root_run_id FROM agent_runs WHERE id = ?), ?) WHERE id = ?").run(parentRunId, parentRunId, id);
     return getRun(id);
   }
+
+  /** The runs a run handed work to, in the order they were made. */
+  const listChildren = (runId) => prepare("SELECT * FROM agent_runs WHERE parent_run_id = ? ORDER BY queued_at, rowid LIMIT 20").all(runId).map(runOf);
+  /** Every run under one root: an orchestrated request's whole tree, flat. */
+  const listTree = (rootRunId) => prepare("SELECT * FROM agent_runs WHERE root_run_id = ? ORDER BY queued_at, rowid LIMIT 50").all(rootRunId).map(runOf);
 
   function getRun(id) {
     return runOf(prepare("SELECT * FROM agent_runs WHERE id = ?").get(String(id ?? "")));
@@ -324,7 +397,9 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
 
   /** Runs started today (since `since`) and the model time they used: what a budget counts. */
   function usageSince(agentId, since) {
-    const rows = prepare("SELECT usage_json FROM agent_runs WHERE agent_id = ? AND started_at >= ?").all(agentId, since);
+    const rows = agentId === null
+      ? prepare("SELECT usage_json FROM agent_runs WHERE started_at >= ?").all(since)
+      : prepare("SELECT usage_json FROM agent_runs WHERE agent_id = ? AND started_at >= ?").all(agentId, since);
     let modelMs = 0; let tokens = 0;
     for (const row of rows) {
       const usage = parse(row.usage_json, {});
@@ -356,23 +431,108 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
 
   // ---- notes ----
 
-  const noteOf = (row) => ({ id: row.id, agentId: row.agent_id, title: row.title, body: row.body, source: parse(row.source_json, {}), createdAt: row.created_at, updatedAt: row.updated_at, freshUntil: row.fresh_until ?? null });
+  const noteOf = (row) => ({
+    id: row.id, agentId: row.agent_id, title: row.title, body: row.body, source: parse(row.source_json, {}), createdAt: row.created_at, updatedAt: row.updated_at, freshUntil: row.fresh_until ?? null,
+    pinned: Boolean(row.pinned), shared: Boolean(row.shared), readRole: row.read_role ?? "owner",
+  });
 
-  /** Keep a note: one with the same title is replaced, and the oldest go past `maxNotes`. */
-  function writeNote(agentId, { title, body, source = {}, freshUntil = null, maxNotes = 50 }) {
+  /**
+   * Keep a note: one with the same title is replaced, and the oldest unpinned ones go past
+   * `maxNotes`. `readRole` is what the run that learned it could read: another agent sees a shared
+   * note only if its own run may read as much.
+   */
+  function writeNote(agentId, { title, body, source = {}, freshUntil = null, maxNotes = 50, readRole = "owner", shared = false }) {
     return transaction(() => {
       const at = iso();
       const existing = prepare("SELECT id FROM agent_notes WHERE agent_id = ? AND lower(title) = lower(?)").get(agentId, title);
       const id = existing?.id ?? randomUUID();
-      if (existing) prepare("UPDATE agent_notes SET body = ?, source_json = ?, updated_at = ?, fresh_until = ? WHERE id = ?").run(body, json(source), at, freshUntil, id);
-      else prepare("INSERT INTO agent_notes (id, agent_id, title, body, source_json, created_at, updated_at, fresh_until) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").run(id, agentId, title, body, json(source), at, at, freshUntil);
-      prepare("DELETE FROM agent_notes WHERE agent_id = ? AND id NOT IN (SELECT id FROM agent_notes WHERE agent_id = ? ORDER BY updated_at DESC, rowid DESC LIMIT ?)").run(agentId, agentId, maxNotes);
+      if (existing) prepare("UPDATE agent_notes SET body = ?, source_json = ?, updated_at = ?, fresh_until = ?, read_role = ?, shared = ? WHERE id = ?").run(body, json(source), at, freshUntil, readRole, shared ? 1 : 0, id);
+      else prepare("INSERT INTO agent_notes (id, agent_id, title, body, source_json, created_at, updated_at, fresh_until, read_role, shared) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(id, agentId, title, body, json(source), at, at, freshUntil, readRole, shared ? 1 : 0);
+      const dropped = prepare("SELECT id FROM agent_notes WHERE agent_id = ? AND pinned = 0 AND id NOT IN (SELECT id FROM agent_notes WHERE agent_id = ? ORDER BY pinned DESC, updated_at DESC, rowid DESC LIMIT ?)").all(agentId, agentId, maxNotes).map((entry) => entry.id);
+      for (const gone of dropped) { prepare("DELETE FROM agent_notes WHERE id = ?").run(gone); prepare("DELETE FROM agent_vectors WHERE kind = 'note' AND item_id = ?").run(gone); }
       return noteOf(prepare("SELECT * FROM agent_notes WHERE id = ?").get(id));
     });
   }
 
-  const listNotes = (agentId, { limit = 100 } = {}) => prepare("SELECT * FROM agent_notes WHERE agent_id = ? ORDER BY updated_at DESC, rowid DESC LIMIT ?").all(agentId, Math.min(Math.max(limit, 1), 200)).map(noteOf);
-  const deleteNote = (agentId, noteId) => Number(prepare("DELETE FROM agent_notes WHERE agent_id = ? AND id = ?").run(agentId, noteId).changes) > 0;
+  const listNotes = (agentId, { limit = 100 } = {}) => prepare("SELECT * FROM agent_notes WHERE agent_id = ? ORDER BY pinned DESC, updated_at DESC, rowid DESC LIMIT ?").all(agentId, Math.min(Math.max(limit, 1), 200)).map(noteOf);
+  const getNote = (agentId, noteId) => { const row = prepare("SELECT * FROM agent_notes WHERE agent_id = ? AND id = ?").get(agentId, noteId); return row ? noteOf(row) : null; };
+  /** Notes other agents shared, from agents that still exist. */
+  const listSharedNotes = ({ exceptAgentId = null, limit = 200 } = {}) => prepare("SELECT n.* FROM agent_notes n JOIN agents a ON a.id = n.agent_id WHERE n.shared = 1 AND a.deleted_at IS NULL AND n.agent_id IS NOT ? ORDER BY n.updated_at DESC LIMIT ?").all(exceptAgentId, limit).map(noteOf);
+  /** Forget: the note and its embedding go, overwritten on disk (secure_delete). */
+  const deleteNote = (agentId, noteId) => transaction(() => {
+    const changed = Number(prepare("DELETE FROM agent_notes WHERE agent_id = ? AND id = ?").run(agentId, noteId).changes) > 0;
+    if (changed) prepare("DELETE FROM agent_vectors WHERE kind = 'note' AND item_id = ?").run(noteId);
+    return changed;
+  });
+  /** The owner's edit of a note: its words, how long it stays fresh, pinned, shared. */
+  function updateNote(agentId, noteId, { title, body, freshUntil, pinned, shared }) {
+    return transaction(() => {
+      const current = prepare("SELECT * FROM agent_notes WHERE agent_id = ? AND id = ?").get(agentId, noteId);
+      if (!current) return null;
+      prepare("UPDATE agent_notes SET title = ?, body = ?, fresh_until = ?, pinned = ?, shared = ?, updated_at = ? WHERE id = ?")
+        .run(title ?? current.title, body ?? current.body, freshUntil === undefined ? current.fresh_until : freshUntil, pinned === undefined ? current.pinned : pinned ? 1 : 0, shared === undefined ? current.shared : shared ? 1 : 0, iso(), noteId);
+      if (body !== undefined || title !== undefined) prepare("DELETE FROM agent_vectors WHERE kind = 'note' AND item_id = ?").run(noteId);
+      return noteOf(prepare("SELECT * FROM agent_notes WHERE id = ?").get(noteId));
+    });
+  }
+
+  // ---- conversations ----
+
+  const threadOf = (row) => row && { id: row.id, agentId: row.agent_id, personId: row.person_id, summary: row.summary, turns: parse(row.turns_json, []), updatedAt: row.updated_at };
+  const getThread = (agentId, personId) => threadOf(prepare("SELECT * FROM agent_threads WHERE agent_id = ? AND person_id = ?").get(agentId, personId));
+  function saveThread(agentId, personId, { summary, turns }) {
+    const at = iso();
+    prepare(`INSERT INTO agent_threads (id, agent_id, person_id, summary, turns_json, updated_at) VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(agent_id, person_id) DO UPDATE SET summary = excluded.summary, turns_json = excluded.turns_json, updated_at = excluded.updated_at`).run(randomUUID(), agentId, personId, summary, json(turns), at);
+    return getThread(agentId, personId);
+  }
+  const deleteThread = (agentId, personId) => Number(prepare("DELETE FROM agent_threads WHERE agent_id = ? AND person_id = ?").run(agentId, personId).changes) > 0;
+
+  // ---- episodes: what past runs found ----
+
+  const episodeOf = (row) => ({ id: row.id, agentId: row.agent_id, runId: row.run_id ?? null, text: row.text, readRole: row.read_role, createdAt: row.created_at });
+  function addEpisode({ agentId, runId, text, readRole, keep = 200 }) {
+    return transaction(() => {
+      const id = randomUUID();
+      prepare("INSERT INTO agent_episodes (id, agent_id, run_id, text, read_role, created_at) VALUES (?, ?, ?, ?, ?, ?)").run(id, agentId, runId, text, readRole, iso());
+      const dropped = prepare("SELECT id FROM agent_episodes WHERE agent_id = ? AND id NOT IN (SELECT id FROM agent_episodes WHERE agent_id = ? ORDER BY created_at DESC, rowid DESC LIMIT ?)").all(agentId, agentId, keep).map((entry) => entry.id);
+      for (const gone of dropped) { prepare("DELETE FROM agent_episodes WHERE id = ?").run(gone); prepare("DELETE FROM agent_vectors WHERE kind = 'episode' AND item_id = ?").run(gone); }
+      return episodeOf(prepare("SELECT * FROM agent_episodes WHERE id = ?").get(id));
+    });
+  }
+  const listEpisodes = (agentId, { limit = 100 } = {}) => prepare("SELECT * FROM agent_episodes WHERE agent_id = ? ORDER BY created_at DESC, rowid DESC LIMIT ?").all(agentId, Math.min(Math.max(limit, 1), 200)).map(episodeOf);
+  const deleteEpisode = (agentId, episodeId) => transaction(() => {
+    const changed = Number(prepare("DELETE FROM agent_episodes WHERE agent_id = ? AND id = ?").run(agentId, episodeId).changes) > 0;
+    if (changed) prepare("DELETE FROM agent_vectors WHERE kind = 'episode' AND item_id = ?").run(episodeId);
+    return changed;
+  });
+
+  // ---- embeddings ----
+
+  function setVector(kind, itemId, { model, vector, textHash }) {
+    prepare(`INSERT INTO agent_vectors (kind, item_id, model, dims, vector, text_hash, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(kind, item_id) DO UPDATE SET model = excluded.model, dims = excluded.dims, vector = excluded.vector, text_hash = excluded.text_hash, updated_at = excluded.updated_at`)
+      .run(kind, itemId, model, vector.byteLength / 4, vector, textHash, iso());
+  }
+  /** Every stored vector of these kinds: `${kind}:${id}` to { model, vector, textHash }. */
+  function vectorsOf(kinds) {
+    const rows = prepare(`SELECT kind, item_id, model, vector, text_hash FROM agent_vectors WHERE kind IN (${kinds.map(() => "?").join(", ")})`).all(...kinds);
+    return new Map(rows.map((row) => [`${row.kind}:${row.item_id}`, { model: row.model, vector: row.vector, textHash: row.text_hash }]));
+  }
+  const deleteVector = (kind, itemId) => prepare("DELETE FROM agent_vectors WHERE kind = ? AND item_id = ?").run(kind, itemId);
+  const deleteVectorsLike = (kind, prefix) => prepare("DELETE FROM agent_vectors WHERE kind = ? AND item_id LIKE ?").run(kind, `${prefix}%`);
+  const countVectors = () => Number(prepare("SELECT COUNT(*) AS count FROM agent_vectors").get().count);
+
+  // ---- feedback ----
+
+  function setFeedback(runId, { agentId, version, model = null, verdict, note = null, givenBy }) {
+    prepare(`INSERT INTO agent_feedback (run_id, agent_id, version, model, verdict, note, given_by, given_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(run_id) DO UPDATE SET verdict = excluded.verdict, note = excluded.note, given_by = excluded.given_by, given_at = excluded.given_at`).run(runId, agentId, version, model, verdict, note, givenBy, iso());
+    return getFeedback(runId);
+  }
+  const feedbackOf = (row) => row && { runId: row.run_id, agentId: row.agent_id, version: row.version, model: row.model ?? null, verdict: row.verdict, note: row.note ?? null, givenBy: row.given_by ?? null, givenAt: row.given_at };
+  const getFeedback = (runId) => feedbackOf(prepare("SELECT * FROM agent_feedback WHERE run_id = ?").get(String(runId ?? "")));
+  const listFeedback = (agentId, { limit = 500 } = {}) => prepare("SELECT * FROM agent_feedback WHERE agent_id = ? ORDER BY given_at DESC LIMIT ?").all(agentId, limit).map(feedbackOf);
 
   // ---- proposals ----
 
@@ -380,12 +540,17 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
     id: row.id, agentId: row.agent_id ?? null, runId: row.run_id ?? null, source: row.source, title: row.title, reason: row.reason ?? "",
     steps: parse(row.steps_json, []), dropped: parse(row.dropped_json, []), flags: parse(row.flags_json, {}), state: row.state, forRole: row.for_role,
     requestedBy: row.requested_by ?? null, createdAt: row.created_at, expiresAt: row.expires_at, decidedBy: row.decided_by ?? null, decidedAt: row.decided_at ?? null, jobIds: parse(row.job_ids_json, []),
+    kind: row.kind ?? "plan", question: row.question ?? null,
   };
 
-  function createProposal({ agentId = null, runId = null, source = "agent", title, reason = "", steps, dropped = [], flags = {}, forRole, requestedBy = null, expiresAt }) {
+  /**
+   * A card. `kind`: plan (steps to stage), question (the agent asks before guessing), or
+   * escalation (it hands something to the owner: low confidence, a limit, a risk).
+   */
+  function createProposal({ agentId = null, runId = null, source = "agent", kind = "plan", title, reason = "", question = null, steps = [], dropped = [], flags = {}, forRole, requestedBy = null, expiresAt }) {
     const id = randomUUID();
-    prepare(`INSERT INTO agent_proposals (id, agent_id, run_id, source, title, reason, steps_json, dropped_json, flags_json, state, for_role, requested_by, created_at, expires_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?, ?)`).run(id, agentId, runId, source, title, reason, json(steps), json(dropped), json(flags), forRole, requestedBy, iso(), expiresAt);
+    prepare(`INSERT INTO agent_proposals (id, agent_id, run_id, source, kind, title, reason, question, steps_json, dropped_json, flags_json, state, for_role, requested_by, created_at, expires_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?, ?)`).run(id, agentId, runId, source, kind, title, reason, question, json(steps), json(dropped), json(flags), forRole, requestedBy, iso(), expiresAt);
     return getProposal(id);
   }
 
@@ -402,16 +567,38 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
 
   // ---- documents ----
 
-  const documentOf = (row) => ({ id: row.id, title: row.title, text: row.text, enabled: Boolean(row.enabled), createdBy: row.created_by, createdAt: row.created_at, characters: row.text.length });
+  const documentOf = (row) => ({
+    id: row.id, title: row.title, text: row.text, enabled: Boolean(row.enabled), createdBy: row.created_by, createdAt: row.created_at, characters: row.text.length,
+    source: row.source ?? "upload", externalId: row.external_id ?? null, pinned: Boolean(row.pinned),
+  });
 
-  function addDocument({ title, text, createdBy }) {
+  /** A document: pasted or uploaded by the owner, or brought in by a connector (source, externalId). */
+  function addDocument({ title, text, createdBy, source = "upload", externalId = null, pinned = false }) {
     const id = randomUUID();
-    prepare("INSERT INTO agent_documents (id, title, text, created_by, created_at) VALUES (?, ?, ?, ?, ?)").run(id, title, text, createdBy, iso());
+    prepare("INSERT INTO agent_documents (id, title, text, created_by, created_at, source, external_id, pinned) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").run(id, title, text, createdBy, iso(), source, externalId, pinned ? 1 : 0);
     return documentOf(prepare("SELECT * FROM agent_documents WHERE id = ?").get(id));
   }
-  const listDocuments = () => prepare("SELECT * FROM agent_documents ORDER BY created_at DESC LIMIT 200").all().map(documentOf);
+  /** A connector's document: replaced when it changed, added when new. Returns { document, changed }. */
+  function upsertDocument({ source, externalId, title, text, createdBy = null }) {
+    return transaction(() => {
+      const current = prepare("SELECT * FROM agent_documents WHERE source = ? AND external_id = ?").get(source, externalId);
+      if (!current) return { document: addDocument({ title, text, createdBy, source, externalId }), changed: true };
+      if (current.text === text && current.title === title) return { document: documentOf(current), changed: false };
+      prepare("UPDATE agent_documents SET title = ?, text = ?, created_at = ? WHERE id = ?").run(title, text, iso(), current.id);
+      prepare("DELETE FROM agent_vectors WHERE kind = 'doc' AND item_id LIKE ?").run(`${current.id}#%`);
+      return { document: documentOf(prepare("SELECT * FROM agent_documents WHERE id = ?").get(current.id)), changed: true };
+    });
+  }
+  const listDocuments = () => prepare("SELECT * FROM agent_documents ORDER BY created_at DESC LIMIT 500").all().map(documentOf);
+  const getDocument = (id) => { const row = prepare("SELECT * FROM agent_documents WHERE id = ?").get(String(id ?? "")); return row ? documentOf(row) : null; };
+  const findDocument = (title) => { const row = prepare("SELECT * FROM agent_documents WHERE enabled = 1 AND lower(title) = lower(?) ORDER BY created_at DESC").get(String(title ?? "")); return row ? documentOf(row) : null; };
   const setDocumentEnabled = (id, enabled) => Number(prepare("UPDATE agent_documents SET enabled = ? WHERE id = ?").run(enabled ? 1 : 0, id).changes) > 0;
-  const deleteDocument = (id) => Number(prepare("DELETE FROM agent_documents WHERE id = ?").run(id).changes) > 0;
+  const setDocumentPinned = (id, pinned) => Number(prepare("UPDATE agent_documents SET pinned = ? WHERE id = ?").run(pinned ? 1 : 0, id).changes) > 0;
+  const deleteDocument = (id) => transaction(() => {
+    const changed = Number(prepare("DELETE FROM agent_documents WHERE id = ?").run(id).changes) > 0;
+    if (changed) prepare("DELETE FROM agent_vectors WHERE kind = 'doc' AND item_id LIKE ?").run(`${id}#%`);
+    return changed;
+  });
 
   // ---- evaluation ----
 
@@ -421,10 +608,11 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
   }
   const getQuestions = (agentId) => { const row = prepare("SELECT questions_json FROM agent_evals WHERE agent_id = ?").get(agentId); return row ? parse(row.questions_json, []) : null; };
 
-  const evalRunOf = (row) => row && { id: row.id, agentId: row.agent_id, version: row.version, state: row.state, results: parse(row.results_json, []), score: row.score ?? null, createdBy: row.created_by, createdAt: row.created_at, finishedAt: row.finished_at ?? null };
-  function createEvalRun({ agentId, version, results, createdBy }) {
+  const evalRunOf = (row) => row && { id: row.id, agentId: row.agent_id, version: row.version, model: row.model ?? null, state: row.state, results: parse(row.results_json, []), score: row.score ?? null, createdBy: row.created_by, createdAt: row.created_at, finishedAt: row.finished_at ?? null };
+  /** An evaluation, tied to the agent's version and the model in use, so accuracy can be followed over both. */
+  function createEvalRun({ agentId, version, results, createdBy, model = null }) {
     const id = randomUUID();
-    prepare("INSERT INTO agent_eval_runs (id, agent_id, version, state, results_json, created_by, created_at) VALUES (?, ?, ?, 'running', ?, ?, ?)").run(id, agentId, version, json(results), createdBy, iso());
+    prepare("INSERT INTO agent_eval_runs (id, agent_id, version, model, state, results_json, created_by, created_at) VALUES (?, ?, ?, ?, 'running', ?, ?, ?)").run(id, agentId, version, model, json(results), createdBy, iso());
     return getEvalRun(id);
   }
   const getEvalRun = (id) => evalRunOf(prepare("SELECT * FROM agent_eval_runs WHERE id = ?").get(id));
@@ -465,12 +653,16 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
 
   return {
     databasePath, transaction,
-    createAgent, getAgent, listAgents, getVersion, listVersions, addVersion, setPaused, setNextRun, noteEvent, deleteAgent,
-    enqueueRun, getRun, listRuns, activeRuns, claimNext, holdsLease, extendLease, finishRun, mergeRunFlags, setEvalInfo, markAgentRan, usageSince,
+    createAgent, getAgent, listAgents, getVersion, listVersions, addVersion, setPaused, setNextRun, noteEvent, deleteAgent, setWebhook,
+    enqueueRun, getRun, listRuns, listChildren, listTree, activeRuns, claimNext, holdsLease, extendLease, finishRun, mergeRunFlags, setEvalInfo, markAgentRan, usageSince,
     addStep, listSteps, countSteps,
-    writeNote, listNotes, deleteNote,
+    writeNote, listNotes, getNote, listSharedNotes, deleteNote, updateNote,
+    getThread, saveThread, deleteThread,
+    addEpisode, listEpisodes, deleteEpisode,
+    setVector, vectorsOf, deleteVector, deleteVectorsLike, countVectors,
+    setFeedback, getFeedback, listFeedback,
     createProposal, getProposal, listProposals, decideProposal, findOpenProposal, listProposalsForRun,
-    addDocument, listDocuments, setDocumentEnabled, deleteDocument,
+    addDocument, upsertDocument, listDocuments, getDocument, findDocument, setDocumentEnabled, setDocumentPinned, deleteDocument,
     setQuestions, getQuestions, createEvalRun, getEvalRun, setEvalResults, listEvalRuns, gradeEval,
     prune, expireProposals,
     close: () => database.close(),

@@ -19,8 +19,10 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { runnerUnit } from "../agents/caps.mjs";
+import { boundSync, connectors } from "../agents/connectors.mjs";
+import { createCredentialStore } from "../credentials.mjs";
 import { agentsPaths, readModelParameters } from "../agents/host.mjs";
-import { testedUnslothVersion } from "../agents/models.mjs";
+import { embedderModel, testedUnslothVersion } from "../agents/models.mjs";
 
 const systemctl = "/usr/bin/systemctl";
 const runuser = "/usr/sbin/runuser";
@@ -123,7 +125,27 @@ async function inRunnersCache(action, parameters, { log, run, paths, timeout }) 
 
 export async function agentsModelDownload(parameters = {}, { log = () => {}, run, paths = agentsPaths } = {}) {
   const model = readModelParameters(parameters);
-  return inRunnersCache("download", { repo: model.repo, file: model.file, projector: model.projector }, { log, run, paths, timeout: 6 * 3600_000 });
+  const result = await inRunnersCache("download", { repo: model.repo, file: model.file, projector: model.projector }, { log, run, paths, timeout: 6 * 3600_000 });
+  // The embedder memory search uses comes with it (68 MB): the runner cannot fetch it offline.
+  const embedder = await inRunnersCache("download", { repo: embedderModel.repo, file: embedderModel.file, projector: null }, { log, run, paths, timeout: 30 * 60_000 }).catch((error) => ({ error: error.message }));
+  return { ...result, embedder: embedder?.error ? { error: embedder.error } : { repo: embedderModel.repo, file: embedderModel.file } };
+}
+
+/**
+ * A connector's documents (M37): Notion or Slack, read with the token saved under a credential's
+ * name. The token is read here, inside the root task, and goes into one request header and nowhere
+ * else (M13.7); what comes back is text, bounded, for the web process to keep.
+ */
+export async function agentsConnectorSync(parameters = {}, { log = () => {}, credentials = createCredentialStore(), fetcher = fetch } = {}) {
+  const connector = connectors[parameters.connector];
+  if (!connector) throw new Error("The connector is notion or slack");
+  const token = await credentials.read(parameters.credentialName);
+  if (token === null || token === undefined) throw new Error(`No credential is named ${parameters.credentialName}; save it under Settings first`);
+  log(`Reading ${connector.title} with the credential ${parameters.credentialName}`, "stdout");
+  const documents = await connector.fetch({ token, channels: parameters.channels ?? [] }, { fetcher });
+  const bounded = boundSync(documents);
+  log(`${bounded.documents.length} ${bounded.documents.length === 1 ? "document" : "documents"} read${bounded.truncated ? " (more were left for the next sync)" : ""}`, "stdout");
+  return { connector: connector.id, documents: bounded.documents, truncated: bounded.truncated };
 }
 
 export async function agentsModelRemove(parameters = {}, { log = () => {}, run, paths = agentsPaths } = {}) {

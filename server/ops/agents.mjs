@@ -62,6 +62,19 @@ export function agentsOperations() {
       run: (parameters, { runUnit, jobLog }) => runUnit.runTask("agents.model.remove", parameters, { timeoutMs: minutes(1), logPath: jobLog?.path ?? null }),
     }),
     defineOperation({
+      id: "agents.connector.sync", title: "Bring documents in from Notion or Slack", risk: "low", minimumRole: "owner", timeoutMs: minutes(10),
+      description: "Reads the pages a Notion integration can see, or the last week of the Slack channels named, with a read-only token saved as a named credential, and brings their text into the agents' learning library. Nothing is written to Notion or Slack, and who wrote a Slack message is left out.",
+      parameters: {
+        exact: true,
+        fields: {
+          connector: { type: "string", enum: ["notion", "slack"] },
+          credentialName: { type: "string", pattern: /^[a-z][a-z0-9-]{0,31}$/ },
+          channels: { type: "array", optional: true, validate: (value) => (value.length <= 10 && value.every((channel) => typeof channel === "string" && /^[CG][A-Z0-9]{6,20}$/.test(channel)) ? null : "up to ten Slack channel ids") },
+        },
+      },
+      run: (parameters, { runUnit, jobLog }) => runUnit.runTask("agents.connector.sync", parameters, { timeoutMs: minutes(9), logPath: jobLog?.path ?? null }),
+    }),
+    defineOperation({
       // operator (ADR-003): it reads Pi-hole's own databases through root Docker access.
       id: "app.pihole.inspect", title: "Read Pi-hole's numbers", risk: "low", readOnly: true, minimumRole: "operator", timeoutMs: 60_000,
       description: "Where Pi-hole runs (a BoxPilot app, another container, or the host), whether it is blocking, and network-wide counts for the last day: queries, blocked, each upstream, the blocklists' age and the most blocked domains. Never which device asked for what. Nothing is changed.",

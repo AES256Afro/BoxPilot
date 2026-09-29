@@ -1,10 +1,10 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { SpecError, diffSpecs, lineDiff, normalizeSpec, specText } from "./spec.mjs";
+import { SpecError, diffSpecs, lineDiff, normalizeSpec, scopeWarnings, specText } from "./spec.mjs";
 import { agentTemplates, templateById, templateQuestions } from "./templates.mjs";
 import { toolCatalog } from "./tool-catalog.mjs";
 
-const minimal = { name: "Watcher", triggers: { ask: true } };
+const minimal = { name: "Watcher", job: "Watch the disks.", successCriteria: ["Says which disk is fullest."], triggers: { ask: true } };
 
 describe("an agent's spec", () => {
   it("fills in what was left out, with every tool off unless it was turned on", () => {
@@ -28,7 +28,16 @@ describe("an agent's spec", () => {
       { ...minimal, budget: { stepsPerRun: 50 } },
       { ...minimal, budget: { runsPerDay: 0 } },
       { ...minimal, knowledge: { internet: true } },
-      { name: "Never runs", triggers: { ask: false } },
+      { ...minimal, name: "Never runs", triggers: { ask: false } },
+      { name: "No job", successCriteria: ["x"], triggers: { ask: true } },
+      { ...minimal, successCriteria: [] },
+      { ...minimal, prompt: { output: { format: "json" } } },
+      { ...minimal, prompt: { output: { format: "yaml" } } },
+      { ...minimal, prompt: { output: { format: "json", fields: [{ name: "Bad name" }] } } },
+      { ...minimal, prompt: { rules: Array.from({ length: 13 }, () => "a rule") } },
+      { ...minimal, allow: { operations: ["not an id"] } },
+      { ...minimal, orchestration: { maxDepth: 4 } },
+      { ...minimal, orchestration: { delegates: ["agent-one"] } },
       { ...minimal, instructions: "x".repeat(8_001) },
     ]) expect(() => normalizeSpec(input), JSON.stringify(input).slice(0, 80)).toThrow(SpecError);
   });
@@ -49,6 +58,41 @@ describe("an agent's spec", () => {
     expect(spec.instructions).toBe("First\nSecond");
   });
 
+  it("keeps one job, how the owner knows it did it, and a structured prompt with its output format", () => {
+    const spec = normalizeSpec({
+      ...minimal,
+      prompt: { rules: ["Never guess.", ""], steps: "Read the disks\nAnswer", output: { format: "json", fields: [{ name: "fullest", description: "The fullest disk" }, { name: "percent" }] }, escalate: ["A disk over 95%"] },
+    });
+    expect(spec).toMatchObject({ job: "Watch the disks.", successCriteria: ["Says which disk is fullest."] });
+    expect(spec.prompt).toEqual({ rules: ["Never guess."], steps: ["Read the disks", "Answer"], output: { format: "json", fields: [{ name: "fullest", description: "The fullest disk" }, { name: "percent", description: "" }], style: "" }, escalate: ["A disk over 95%"] });
+    // A text answer keeps no fields.
+    expect(normalizeSpec({ ...minimal, prompt: { output: { format: "text", fields: [{ name: "x" }] } } }).prompt.output.fields).toEqual([]);
+  });
+
+  it("escalates, thinks and hands off only as the owner says, and touches only what it is allowed", () => {
+    const spec = normalizeSpec(minimal);
+    expect(spec.escalation).toEqual({ lowConfidence: true, limits: true, actions: true, risk: true });
+    expect(spec.model).toEqual({ thinking: false });
+    expect(spec.allow).toEqual({ apps: "*", operations: "*" });
+    expect(spec.orchestration).toEqual({ supervisor: false, delegates: "*", maxDepth: 2 });
+    expect(spec.memory).toMatchObject({ share: false, threads: true, turns: 6 });
+    // Only a supervisor may hand work off.
+    expect(normalizeSpec({ ...minimal, tools: { "agents.handoff": "auto" } }).tools["agents.handoff"]).toBe("off");
+    expect(normalizeSpec({ ...minimal, tools: { "agents.handoff": "auto" }, orchestration: { supervisor: true } }).tools["agents.handoff"]).toBe("auto");
+    expect(normalizeSpec({ ...minimal, allow: { apps: ["pi-hole", "pi-hole"], operations: ["app.backup"] } }).allow).toEqual({ apps: ["pi-hole"], operations: ["app.backup"] });
+    // A webhook alone is a way to start.
+    expect(normalizeSpec({ ...minimal, triggers: { ask: false, webhook: true } }).triggers).toMatchObject({ ask: false, webhook: true });
+  });
+
+  it("warns when the scope reads like everything, never refuses it", () => {
+    expect(scopeWarnings(normalizeSpec(minimal))).toEqual([]);
+    const wide = normalizeSpec({ ...minimal, job: "Do everything and watch the disks and the apps and also the network", tools: Object.fromEntries(toolCatalog.slice(0, 12).map((tool) => [tool.id, "auto"])) });
+    const warnings = scopeWarnings(wide);
+    expect(warnings.join(" ")).toMatch(/do everything/);
+    expect(warnings.join(" ")).toMatch(/several things/);
+    expect(warnings.join(" ")).toMatch(/tools on/);
+  });
+
   it("compares by what it says, not by key order", () => {
     const a = normalizeSpec(minimal);
     const b = JSON.parse(JSON.stringify(a));
@@ -67,6 +111,9 @@ describe("versions", () => {
       { op: "keep", text: "Look at the disks." }, { op: "remove", text: "Write a note." }, { op: "add", text: "Write a short note." },
     ]);
     expect(diffSpecs(before, before)).toEqual([]);
+    // Lists of lines - rules, steps, criteria - read as lines too.
+    const ruled = normalizeSpec({ ...minimal, prompt: { rules: ["Never guess.", "Be brief."] } });
+    expect(diffSpecs(before, ruled).find((change) => change.field === "prompt.rules").lines).toEqual([{ op: "add", text: "Never guess." }, { op: "add", text: "Be brief." }]);
   });
 
   it("diffs lines as a longest common subsequence", () => {
