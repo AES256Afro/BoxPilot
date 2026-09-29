@@ -674,6 +674,31 @@ api.get("/drives/auto-reconnect", (_request, response) => json(response, { limit
   media: { flowId: "flow-3", flowName: "Reconnect /mnt/media when it drops", enabled: true, held: false, heldSince: null, heldBecause: null, attempts: 1, lastAttemptAt: ago(40), lastOutcome: "reconnected", lastCheckFoundErrors: false },
 } }));
 api.get("/system/update", (_request, response) => json(response, { current: { version: productVersion, tag: `v${productVersion}` }, latest: { tag: `v${productVersion}`, version: productVersion, publishedAt: ago(30), url: "https://github.com/AES256Afro/BoxPilot/releases" }, updateAvailable: false, checkedAt: now().toISOString(), error: null }));
+// Where this BoxPilot came from (the GitHub page, M33.10): the public metadata the server reads,
+// with a fictional commit and fictional digests.
+const demoCommit = (sha, hours) => ({ sha, url: `https://github.com/AES256Afro/BoxPilot/commit/${sha}`, committedAt: ago(hours), verification: { reportedBy: "github-api", verified: true, reason: "valid", verifiedAt: ago(hours) } });
+api.get("/integrations/github", (_request, response) => json(response, {
+  fetchedAt: ago(0.1), cacheTtlSeconds: 900, source: "GitHub public REST API without authentication",
+  repositories: [{
+    id: "boxpilot", owner: "AES256Afro", repository: "BoxPilot", purpose: "BoxPilot control-plane source", fullName: "AES256Afro/BoxPilot", url: "https://github.com/AES256Afro/BoxPilot",
+    status: "available", visibility: "public", archived: false, defaultBranch: "main", pushedAt: ago(3), head: demoCommit("5d0c1f2e3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d", 3),
+    latestRelease: {
+      tagName: `v${productVersion}`, name: `BoxPilot ${productVersion}`, url: `https://github.com/AES256Afro/BoxPilot/releases/tag/v${productVersion}`, publishedAt: ago(30), targetCommitish: "main",
+      draft: false, prerelease: false, immutable: false, commit: demoCommit("9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b", 31),
+      assets: [
+        { name: `boxpilot-${productVersion}.tar.gz`, sizeBytes: 8_412_331, contentType: "application/gzip", digest: `sha256:${"4f".repeat(32)}` },
+        { name: `boxpilot-${productVersion}.tar.gz.sha256`, sizeBytes: 96, contentType: "text/plain", digest: null },
+      ],
+      assetsWithGithubReportedDigest: 1,
+    },
+  }],
+  boundary: { repositoryAllowlist: ["AES256Afro/BoxPilot"], tokenConfigured: false, credentialsAccepted: false, repositoryWrites: false, cloneOrDownload: false, webhookConfigured: false, workflowDispatch: false, installationSupported: false, localDigestVerification: false },
+  limitations: [
+    "GitHub commit verification and asset digests are API-reported metadata; BoxPilot does not independently verify signatures or downloaded bytes.",
+    "A release asset is not installable until a future adapter downloads it to a confined staging path and verifies its exact digest locally.",
+    "No GitHub token, repository write, clone, download, webhook, workflow dispatch, or adapter installation exists in this release.",
+  ],
+}));
 api.get("/power/ups/detect", (_request, response) => json(response, { devices: [{ vendorId: "051d", productId: "0002", manufacturer: "American Power Conversion", product: "Back-UPS ES 700G", driver: "usbhid-ups", confidence: "vendor-id", sysfs: "1-3" }], nutInstalled: true }));
 api.get("/firewall/overview", (_request, response) => json(response, {
   report: firewallReport, reportError: null, web: { port: 8787, lanExposed: false }, protected: protectedRules({ webPort: 8787, webHost: "127.0.0.1" }), profiles, services, riskyPorts, current: firewallProfile,

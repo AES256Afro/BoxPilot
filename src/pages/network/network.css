@@ -1,0 +1,58 @@
+/* Network and DNS (M33.10): the page's own layout, on the kit's components. Tokens only, and every
+   selector starts with .network-, so no other page is touched (docs/UI-PAGES.md). */
+
+.network-page { display: grid; gap: 10px; min-width: 0; }
+
+/* Words and figures the tabs share. */
+.network-dim { color: var(--text-muted); font-size: 12.5px; }
+.network-strong { color: var(--text-strong); }
+.network-mono { font-family: var(--font-mono); font-size: 12px; }
+.network-note { margin: 0; color: var(--text-muted); font-size: 13px; line-height: 1.45; }
+.network-note code { color: var(--text); font-size: 12px; }
+.network-pad { padding: 10px 12px; }
+.network-stack { display: grid; gap: 10px; }
+.network-two { display: grid; gap: 1px; min-width: 0; white-space: normal; }
+.network-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin: 0; }
+.network-list { display: inline-flex; flex-wrap: wrap; gap: 2px 10px; }
+.network-list code { font-size: 12.5px; }
+.network-node { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; }
+.network-fingerprint { font-size: 11.5px; overflow-wrap: anywhere; word-break: break-all; }
+.network-url, .network-link { color: var(--accent); text-underline-offset: 2px; overflow-wrap: anywhere; }
+.network-url code { font-size: 12.5px; }
+.network-link { font-size: 13px; font-weight: 600; }
+.network-bullets { display: grid; gap: 3px; margin: 0; padding-left: 18px; font-family: var(--font-condensed); font-size: 13.5px; }
+.network-role { color: var(--text); font-family: var(--font-condensed); font-size: 13.5px; font-weight: 400; }
+
+/* A row's actions, right-aligned and a size smaller than the page's. */
+.network-actions-cell { width: 1%; }
+.network-actions { display: flex; flex-wrap: nowrap; align-items: center; justify-content: flex-end; gap: 4px; white-space: nowrap; }
+.network-actions .ui-button { min-height: 26px; padding-right: 8px; padding-left: 8px; font-size: 12.5px; }
+.network-actions .ui-button--risk-low, .network-actions .ui-button--risk-medium { padding-left: 14px; }
+.network-copy__failed { color: var(--text-muted); font-size: 12px; white-space: normal; }
+.network-inline-link { justify-self: start; }
+.network-linkbutton { text-decoration: none; }
+
+/* LAN access and HTTPS side by side, one under the other on a narrow screen. */
+.network-pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr)); gap: 10px; min-width: 0; }
+.network-pair:empty { display: none; }
+
+/* Tailscale's options under its facts. */
+.network-tailscale .ui-kv--columns { grid-template-columns: repeat(auto-fill, minmax(min(100%, 14rem), 1fr)); }
+.network-router .ui-kv--columns, .network-vpn .ui-kv--columns { grid-template-columns: repeat(auto-fill, minmax(min(100%, 8.5rem), 1fr)); }
+.network-tailscale__form { display: grid; gap: 10px; padding-top: 10px; border-top: 1px solid var(--border-subtle); }
+.network-tailscale__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+
+.network-plan__summary { margin: 0; color: var(--text-strong); font-size: 14.5px; font-weight: 600; line-height: 1.35; }
+
+/* Forms in sheets: two columns of fields where there is room. */
+.network-form { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 17rem), 1fr)); gap: 12px 16px; }
+.network-form--single { grid-template-columns: minmax(0, 1fr); }
+.network-checks { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 15rem), 1fr)); gap: 10px 18px; }
+.network-sheet-part { display: grid; gap: 8px; }
+.network-sheet-heading { margin: 0; color: var(--text-muted); font-family: var(--font-mono); font-size: 10.5px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; }
+.network-sheet-hint { flex: 1 1 12rem; }
+
+@media (max-width: 640px) {
+  .network-actions { flex-wrap: wrap; justify-content: flex-start; white-space: normal; }
+  .network-actions-cell { width: auto; }
+}
