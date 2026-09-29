@@ -222,6 +222,7 @@ export function createSlot() {
     /** What the slot holds after an answer: the prompt and what was written after it (or as far as it got). */
     hold(text) { slot.text = text; },
     held: () => slot.text,
+    clear() { slot.text = ""; slot.checkpoints = []; },
   };
 }
 
@@ -277,7 +278,7 @@ export async function startFakeModel({
       const id = String(body?.cancel_id ?? "");
       state.cancels.push(id);
       const call = running.get(id);
-      if (call) call.stopped = "cancelled";
+      call?.stop("cancelled");
       return json(response, 200, { cancelled: call ? 1 : 0 });
     }
     if (path !== "/v1/chat/completions") return json(response, 404, { error: { message: "not found" } });
@@ -306,15 +307,26 @@ export async function startFakeModel({
     const speed = state.speed;
     const promptMs = speed ? Math.round((readTokens / speed.promptPerSecond) * 1000) : 0;
     const generateMs = speed ? Math.round((completionTokens / speed.generatePerSecond) * 1000) : 0;
-    const call = { stopped: false, cancelId: typeof body?.cancel_id === "string" ? body.cancel_id : null };
     const entry = {
       promptTokens, cachedTokens, readTokens, completionTokens, promptMs, generateMs,
       thinking: !thinkingOff(body), toolChoice: body?.tool_choice ?? null, tools: Array.isArray(body?.tools) ? body.tools.length : 0,
-      cancelId: call.cancelId, stopped: null, readBeforeStop: null,
+      cancelId: typeof body?.cancel_id === "string" ? body.cancel_id : null, stopped: null, readBeforeStop: null,
     };
     state.log.push(entry);
+    const readingSince = Date.now();
+    let reading = true;
+    // Stopped by a closed connection or Unsloth's cancel: noted at once, with how much it had read.
+    const call = {
+      stopped: false, cancelId: entry.cancelId,
+      stop(reason) {
+        if (call.stopped) return;
+        call.stopped = reason;
+        entry.stopped = reason;
+        entry.readBeforeStop = reading ? Math.round(readTokens * Math.min(1, (Date.now() - readingSince) / Math.max(1, promptMs * state.timeScale))) : readTokens;
+      },
+    };
     if (call.cancelId) running.set(call.cancelId, call);
-    response.once("close", () => { if (!response.writableEnded && !call.stopped) call.stopped = "closed"; });
+    response.once("close", () => { if (!response.writableEnded) call.stop("closed"); });
     const timings = {
       prompt_n: readTokens, cache_n: cachedTokens, predicted_n: completionTokens,
       ...(speed ? { prompt_ms: promptMs, prompt_per_second: speed.promptPerSecond, predicted_ms: generateMs, predicted_per_second: speed.generatePerSecond } : {}),
@@ -325,17 +337,13 @@ export async function startFakeModel({
     // Reading the prompt: on the simulated clock all at once, or in real time until it is stopped.
     if (speed && state.clock) state.clock(promptMs + generateMs);
     const realTime = speed && !state.clock;
-    if (realTime) {
-      const started = Date.now();
-      if (!(await spend(promptMs * state.timeScale, call))) {
-        entry.stopped = call.stopped;
-        entry.readBeforeStop = Math.round(readTokens * Math.min(1, (Date.now() - started) / Math.max(1, promptMs * state.timeScale)));
-        slot.hold(prompt.slice(0, reusedChars + entry.readBeforeStop * charsPerToken));
-        done();
-        if (!response.destroyed) response.destroy();
-        return undefined;
-      }
+    if (realTime && !(await spend(promptMs * state.timeScale, call))) {
+      slot.hold(prompt.slice(0, reusedChars + (entry.readBeforeStop ?? 0) * charsPerToken));
+      done();
+      if (!response.destroyed) response.destroy();
+      return undefined;
     }
+    reading = false;
     slot.hold(`${prompt}${written}`);
 
     if (body?.stream === false) {
@@ -359,7 +367,7 @@ export async function startFakeModel({
     // Writing: the pieces spread over the answer's time, stopping when the call is.
     const perPiece = realTime && pieces.length ? (generateMs * state.timeScale) / pieces.length : 0;
     for (const piece of pieces) {
-      if (call.stopped || response.destroyed) { entry.stopped = call.stopped || "closed"; done(); return undefined; }
+      if (call.stopped || response.destroyed) { call.stop("closed"); done(); return undefined; }
       send(choice(piece));
       if (perPiece) await spend(perPiece, call);
       else if (state.delayMs && piece.content) await sleep(state.delayMs);
@@ -385,7 +393,7 @@ export async function startFakeModel({
     prompts: () => requests.filter((entry) => entry.path === "/v1/chat/completions").map((entry) => entry.body),
     /** Each chat call's tokens (read, cached, written), its time, and whether it was stopped. */
     calls: () => state.log,
-    reset: () => { requests.length = 0; state.log.length = 0; },
+    reset: () => { requests.length = 0; state.log.length = 0; state.cancels.length = 0; slot.clear(); },
     close: async () => {
       server.closeAllConnections?.();
       await new Promise((resolve) => server.close(resolve));

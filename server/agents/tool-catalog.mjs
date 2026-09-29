@@ -247,7 +247,7 @@ export const toolById = (name) => { const id = toolIdOf(name); return id ? toolC
 /** The most tools a call that acts carries: every schema is read on every call, on a CPU. */
 export const actToolLimit = 10;
 /** Tools a run acts with when it has no plan to go by: cheap reads first, then the rest. */
-const defaultActOrder = ["server.facts", "alerts.active", "storage.health", "services.status", "apps.list", "backups.status", "jobs.recent", "docs.search", "where.runs", "pihole.stats"];
+const defaultActOrder = ["server.facts", "alerts.active", "storage.health", "services.status", "apps.list", "where.runs", "backups.status", "jobs.recent", "docs.search", "pihole.stats"];
 const defaultActCount = 6;
 
 /**
