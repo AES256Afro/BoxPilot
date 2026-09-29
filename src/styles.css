@@ -1636,6 +1636,9 @@ main:focus {
   color: var(--text-strong);
   background: var(--surface-raised);
   font: inherit;
+  /* A button's words are words: the UI's face, even in a mono row (a console table's cell, a
+     line of facts), so every button reads the same wherever it sits. */
+  font-family: var(--font-sans);
   font-size: var(--font-size-sm);
   font-weight: 600;
   line-height: 1.2;
