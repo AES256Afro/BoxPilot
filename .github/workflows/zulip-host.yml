@@ -1,0 +1,63 @@
+name: Zulip on a real host
+
+# M38. Zulip as the owner's server runs it: catalog/zulip.yaml installed by BoxPilot's own deployer
+# and install operation on a GitHub runner's Docker, tailnet only and published with a stand-in for
+# Tailscale Serve, then "Create your organization" run for real and its link opened the way Serve
+# forwards a browser. The summary says what each container uses. Pulling Zulip's images and building
+# its database takes several minutes, so this runs only when Zulip's files change, or by hand.
+on:
+  pull_request:
+    paths:
+      - "catalog/zulip.yaml"
+      - "server/ops/zulip.mjs"
+      - "server/catalog/compose.mjs"
+      - "tests/zulip/**"
+      - ".github/workflows/zulip-host.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  zulip:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Zulip as BoxPilot does, and create the organization link
+        env:
+          BOXPILOT_TAILSCALE_BINARY: ${{ github.workspace }}/tests/zulip/fake-tailscale.mjs
+          BOXPILOT_FAKE_TAILSCALE_STATE: ${{ runner.temp }}/fake-tailscale.json
+        run: |
+          chmod +x tests/zulip/fake-tailscale.mjs
+          docker version --format 'Docker {{.Server.Version}}'
+          free -m
+          node tests/zulip/zulip-host.mjs "$RUNNER_TEMP/zulip-host"
+
+      - name: Zulip's logs, when something failed
+        if: failure()
+        run: |
+          cd "$RUNNER_TEMP/zulip-host/catalog/zulip" 2>/dev/null || exit 0
+          docker compose --project-name bp-zulip --file compose.yaml --env-file .env ps || true
+          docker compose --project-name bp-zulip --file compose.yaml --env-file .env logs --tail 200 || true
+
+      - name: Take it down
+        if: always()
+        run: |
+          cd "$RUNNER_TEMP/zulip-host/catalog/zulip" 2>/dev/null || exit 0
+          docker compose --project-name bp-zulip --file compose.yaml --env-file .env down --volumes --remove-orphans || true

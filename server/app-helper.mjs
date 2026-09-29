@@ -12,7 +12,7 @@ import { fixedRun } from "./exec.mjs";
 import { parseServeStatus } from "./tailscale-serve.mjs";
 import { createCatalogService } from "./catalog/index.mjs";
 import { parseExit, parseForwardedPort } from "./vpn-exit.mjs";
-import { bindingFor, deployedImages, deviceMatchesPattern, publishedPorts, renderCompose, projectNameFor, resolveDevices, wantsGpu } from "./catalog/compose.mjs";
+import { bindingFor, deployedImages, deviceMatchesPattern, publishedPorts, renderCompose, projectNameFor, resolveDevices, usesTailnetHost, wantsGpu } from "./catalog/compose.mjs";
 import { coversEveryAddress, findPortConflicts, holderWords, normalizeBind, portHolders, serveTargetPort, serveUrl } from "./ports.mjs";
 import { createNvidiaInspector } from "./nvidia.mjs";
 import { isDeniedHostPath } from "./catalog/schema.mjs";
@@ -613,7 +613,17 @@ export function createAppHelper({
     // A GPU-capable app gets the GPU only when Docker can actually provide one; otherwise it runs
     // on the CPU, the same as on a server without a GPU.
     const gpu = wantsGpu(manifest) ? await gpuReady().catch(() => false) : false;
-    const rendered = renderCompose(manifest, values, { existingEnv, lanAddress, devices, tailnetAddress: await tailnetAddressFor(manifest, values), sidecarEnvOverrides, gpu });
+    // An app told this server's tailnet name (Zulip's address) cannot go out with the words
+    // "${TAILNET_HOST}" in its place: it would advertise an address nobody can open.
+    let tailnetHost = null;
+    if (usesTailnetHost(manifest, values)) {
+      tailnetHost = await tailnetDnsName();
+      if (!tailnetHost) {
+        const named = manifest.env.find((entry) => /\$\{TAILNET_HOST\}/.test(String(values.env?.[entry.name] ?? "")));
+        throw new Error(`${manifest.name} is reached at this server's tailnet HTTPS address, and Tailscale did not say what that is (is it up and signed in?). Start Tailscale and try again${named ? `, or set ${named.label} to the address people use` : ""}. Nothing was changed.`);
+      }
+    }
+    const rendered = renderCompose(manifest, values, { existingEnv, lanAddress, devices, tailnetAddress: await tailnetAddressFor(manifest, values), tailnetHost, sidecarEnvOverrides, gpu });
     await writeFile(path.join(directory, ".env.tmp"), rendered.envFile, { mode: 0o600 });
     await rename(path.join(directory, ".env.tmp"), path.join(directory, ".env"));
     await writeFile(path.join(directory, "compose.yaml.tmp"), rendered.composeYaml, { mode: 0o600 });
@@ -776,7 +786,11 @@ export function createAppHelper({
     const manifest = await ensureManifest(id);
     const existing = await readState(id);
     if (existing?.installed) throw new Error(`${manifest.name} is already installed; use reconfigure or update`);
-    const { values, errors } = resolveValues(manifest, rawValues);
+    // An install that does not say who can reach the app takes the manifest's default: tailnet only
+    // for an app that must not face the home network (Zulip). Only here: a reconfigure keeps what
+    // was stored, so a manifest gaining a default never moves an app already installed.
+    const withExposure = rawValues?.exposure === undefined && manifest.defaultExposure === "tailnet" ? { ...rawValues, exposure: "tailnet" } : rawValues;
+    const { values, errors } = resolveValues(manifest, withExposure);
     if (errors.length) throw new Error(`Invalid settings: ${errors.join("; ")}`);
     const probe = await docker(["version", "--format", "{{.Server.Version}}"], { timeout: 10_000 });
     if (!probe.ok) throw new Error("Docker Engine is not available; install it from Repair Center first");
@@ -802,7 +816,7 @@ export function createAppHelper({
       await writeState(id, { id, installed: true, installedAt: clock().toISOString(), updatedAt: clock().toISOString(), manifestSha256: manifest.sha256 ?? null, image: { reference: manifest.image.reference, id: status.image }, values: storableValues(manifest, values, rendered.env), pinnedRollback: false });
       const setup = await applySetup(manifest, values, progress);
       await refreshHomepage(id, progress);
-      return { installed: true, id, name: manifest.name, image: status.image, hostPorts: rendered.hostPorts, health: status.health, secretsGenerated: manifest.env.filter((entry) => entry.generate).map((entry) => entry.name), setup };
+      return { installed: true, id, name: manifest.name, image: status.image, hostPorts: rendered.hostPorts, exposure: values.exposure ?? "lan", health: status.health, secretsGenerated: manifest.env.filter((entry) => entry.generate).map((entry) => entry.name), setup };
     } catch (error) {
       progress?.(`Install failed: ${error.message}. Rolling back...`, "stderr");
       await compose(id, ["down", "--remove-orphans"], { timeout: 120_000, progress }).catch(() => {});
@@ -1218,6 +1232,28 @@ export function createAppHelper({
     if (!result.ok) throw (project !== null ? await bindFailure(manifest, result.stderr, project, `${manifest.name} was not ${verb === "start" ? "started" : "restarted"}.`) : null) ?? new Error(`docker compose ${verb} failed: ${redact(result.stderr).split("\n").slice(-3).join(" ")}`);
     const status = await containerStatus(id);
     return { id, action: verb, running: status.running, status: status.status };
+  }
+
+  /**
+   * Run one fixed command inside an installed app's running container, as a named user, for an
+   * operation written for that app (Zulip's manage.py). Nothing here reaches a job log: the output
+   * can be a one-time link or an API key, so the caller decides what, if anything, is kept.
+   */
+  async function execIn({ id, service = null, user, argv, env = {}, timeoutMs = 120_000 }) {
+    const manifest = await ensureManifest(id);
+    const target = service ?? manifest.id;
+    if (target !== manifest.id && !(manifest.sidecars ?? []).some((sidecar) => sidecar.id === target)) throw new Error(`${manifest.name} has no service called ${target}`);
+    if (typeof user !== "string" || !/^[a-z_][a-z0-9_-]{0,31}$/.test(user)) throw new Error("The user to run as is invalid");
+    if (!Array.isArray(argv) || !argv.length || argv.length > 32 || argv.some((part) => typeof part !== "string" || part.length > 16_384 || part.includes("\0"))) throw new Error("The command is invalid");
+    const pairs = Object.entries(env ?? {});
+    if (pairs.length > 16 || pairs.some(([name, value]) => !/^[A-Z][A-Z0-9_]{0,63}$/.test(name) || typeof value !== "string" || value.length > 4096 || /[\0\r\n]/.test(value))) throw new Error("The command's environment is invalid");
+    const state = await readState(id);
+    if (!state?.installed) throw new Error(`${manifest.name} is not installed`);
+    const status = await containerStatus(target === manifest.id ? id : `${id}-${target}`);
+    if (!status.running) throw new Error(`${manifest.name} is not running; start it and try again`);
+    const flags = pairs.flatMap(([name, value]) => ["--env", `${name}=${value}`]);
+    const result = await compose(id, ["exec", "-T", "--user", user, ...flags, target, ...argv], { timeout: timeoutMs });
+    return { ok: result.ok, stdout: String(result.stdout ?? ""), stderr: String(result.stderr ?? ""), timedOut: Boolean(result.timedOut) };
   }
 
   async function logs({ id, lines = 200, container = null }) {
@@ -2200,5 +2236,5 @@ export function createAppHelper({
     return installed;
   }
 
-  return { syncHomepage, inspect, installedIds, dataUsage: shared(dataUsage), reachabilityFacts, vpnKillSwitchDrill, foreignProjects, foreignProjectAction, foreignProjectLogs, vpnStatus, listModels, pullModel, removeModel, countAppBackups, backupProtection, install, uninstall, reinstall, backupMany, update, reconfigure, action, logs, config, readComposeConfig, editCompose, secrets, setPassword, backup, listAppBackups, verifyAppBackup, restoreAppBackup, rollbackApp, listAppBackupFiles, restoreAppBackupPath, deleteAppBackup, checkUpdates, catalogRoot: root, internals: { imageDeclaredOwner, parseModelList, containerStatus, waitHealthy, writeProject, readState, parseEnvFile } };
+  return { syncHomepage, inspect, installedIds, dataUsage: shared(dataUsage), reachabilityFacts, vpnKillSwitchDrill, foreignProjects, foreignProjectAction, foreignProjectLogs, vpnStatus, listModels, pullModel, removeModel, countAppBackups, backupProtection, install, uninstall, reinstall, backupMany, update, reconfigure, action, execIn, logs, config, readComposeConfig, editCompose, secrets, setPassword, backup, listAppBackups, verifyAppBackup, restoreAppBackup, rollbackApp, listAppBackupFiles, restoreAppBackupPath, deleteAppBackup, checkUpdates, catalogRoot: root, internals: { imageDeclaredOwner, parseModelList, containerStatus, waitHealthy, writeProject, readState, parseEnvFile } };
 }
