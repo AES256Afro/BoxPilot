@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useOperation } from "../ApproveDialog";
 import { judgeProtection } from "../backupProtection";
 import { countOf, sentenceList, type ViewName } from "../data";
-import { AreaIcon, PlusIcon } from "../shell/areaIcons";
+import { AreaIcon, BellIcon, PlusIcon, SparkIcon } from "../shell/areaIcons";
 import { TopBarSlot } from "../shell/TopBarSlot";
 import { Button, MetricTile, Section, StatusChip, Tile, initials, type Status } from "../ui";
 import { appHue } from "../ui/appColor";
@@ -120,7 +120,7 @@ export default function Home({ csrfToken, role, onNavigate, now = Date.now }: Ho
 
       <div className="lx-side">
         <div className="lx-panel home-needs">
-          <Section title="What needs you" status={needsStatus}>
+          <Section title={<><BellIcon className="lx-title-icon" />What needs you</>} status={needsStatus}>
             {urgent.length === 0
               ? <p className="lx-quiet">{checking ? "Reading this server…" : unread.length ? "Nothing wrong in what could be read." : "Nothing needs you right now."}</p>
               : <ul className="need-list">{shownNeeds.map((need) => <NeedRow key={need.id} need={need} onOpen={open} onAct={act} icon={iconFor(need)} tier="inline" />)}</ul>}
@@ -131,7 +131,7 @@ export default function Home({ csrfToken, role, onNavigate, now = Date.now }: Ho
 
         <div className="lx-panel home-system">
           <Section
-            title="System"
+            title={<><AreaIcon view="performance" className="lx-title-icon" />System</>}
             status={facts.inventory.state === "failed" ? { status: "unknown", label: "Not read" } : undefined}
             summary={inventory ? shortCpu(inventory.cpuModel) || countOf(inventory.cpuCount, "core") : undefined}
           >
@@ -145,7 +145,7 @@ export default function Home({ csrfToken, role, onNavigate, now = Date.now }: Ho
         </div>
 
         <div className="lx-panel home-backups">
-          <Section title="Backups & disks" summary={drillWords}>
+          <Section title={<><AreaIcon view="backups" className="lx-title-icon" />Backups &amp; disks</>} summary={drillWords}>
             <div className="lx-metrics">
               <MetricTile label="Apps backed up" value={verdicts ? `${recent} of ${verdicts.length}` : "—"}
                 caption={!verdicts ? notRead(facts.protection.state) : never ? `${never} never backed up` : stale ? `${stale} not backed up lately` : verdicts.length ? "Each has a recent backup" : "No app holds data to back up"}
@@ -169,7 +169,7 @@ export default function Home({ csrfToken, role, onNavigate, now = Date.now }: Ho
       <div className="lx-main">
         <div className="lx-apps home-apps">
           <Section
-            title="Apps"
+            title={<><AreaIcon view="catalog" className="lx-title-icon" />Apps</>}
             status={facts.catalog.state === "failed" || (catalog && !catalog.liveKnown) ? { status: "unknown", label: "Not read" }
               : catalog ? (unwell ? { status: "warning", label: `${unwell} of ${countOf(apps.length, "app")} flagged` } : { status: apps.length ? "good" : "neutral", label: countOf(apps.length, "app") }) : undefined}
             actions={<Button variant="ghost" onClick={() => onNavigate("catalog")}>App catalog</Button>}
@@ -208,7 +208,7 @@ export default function Home({ csrfToken, role, onNavigate, now = Date.now }: Ho
 
         {waiting.length > 0 && (
           <div className="lx-panel lx-wait home-wait">
-            <Section title="Can wait" status={{ status: "neutral", label: String(waiting.length) }}>
+            <Section title={<><SparkIcon className="lx-title-icon" />Can wait</>} status={{ status: "neutral", label: String(waiting.length) }}>
               <ul className="need-list lx-wait__list">{shownWait.map((need) => <NeedRow key={need.id} need={need} onOpen={open} onAct={act} icon={iconFor(need)} tier="inline" />)}</ul>
               {waiting.length > shownWaiting && <Button variant="ghost" className="lx-more" aria-expanded={allWaiting} onClick={() => setAllWaiting((value) => !value)}>{allWaiting ? "Show fewer" : `Show all ${waiting.length}`}</Button>}
             </Section>

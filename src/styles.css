@@ -6234,6 +6234,8 @@ body {
 .lx .ui-section__head { flex-wrap: nowrap; align-items: center; gap: 8px; }
 .lx .ui-section__heading { display: flex; flex: 1 1 auto; align-items: center; gap: 8px; min-width: 0; }
 .lx .ui-section__title { flex: none; gap: 8px; color: var(--lx-ink-muted); font-size: 11.5px; font-weight: 700; letter-spacing: 0.07em; line-height: 1.3; text-transform: uppercase; }
+.lx .ui-section__title > span:last-child { display: inline-flex; align-items: center; gap: 7px; }
+.lx-title-icon { flex: none; width: 15px; height: 15px; }
 .lx .ui-section__summary { min-width: 0; margin-left: auto; overflow: hidden; color: var(--lx-ink-muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .lx .ui-chip { padding: 1px 8px; font-size: 11px; }
 .lx-quiet { margin: 0; color: var(--lx-ink-muted); font-size: 14px; line-height: 1.45; }
@@ -6565,7 +6567,8 @@ body {
 .ui-spark__area { fill: var(--cc-cyan-fill); stroke: none; }
 
 /* Panels: hairlines, a small mono heading with its count, the facts on the right. */
-.cc .ops-grid { gap: 8px; }
+/* Panels in a row share its height, as the study's grid does. */
+.cc .ops-grid { align-items: stretch; gap: 8px; }
 .cc-panel { display: flex; flex-direction: column; min-width: 0; overflow: hidden; border: 1px solid var(--cc-line); border-radius: 4px; background: var(--cc-panel); }
 .cc-panel__head { display: flex; flex: none; align-items: center; gap: 10px; min-height: 34px; padding: 0 12px; border-bottom: 1px solid var(--cc-line); }
 .cc-panel__head h2 { display: flex; flex: none; align-items: center; gap: 9px; margin: 0; color: var(--cc-muted); font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.09em; line-height: 1.2; text-transform: uppercase; }
@@ -6604,7 +6607,7 @@ body {
 .cc .ui-table th { height: 30px; padding: 0 9px; border-bottom-color: var(--cc-line); color: var(--cc-muted); background: var(--cc-panel); font-family: var(--font-mono); font-size: 10.5px; font-weight: 600; letter-spacing: 0.07em; }
 .cc .ui-table td { height: 28px; padding: 0 9px; border-bottom-color: var(--cc-hairline); color: var(--cc-text); font-family: var(--font-mono); font-size: 12.5px; }
 .cc .ui-table tbody tr:hover td { background: var(--cc-raised); }
-.cc .ui-table .ops-link { max-width: 10rem; color: var(--cc-text-strong); font-weight: 500; }
+.cc .ui-table .ops-link { max-width: 9rem; color: var(--cc-text-strong); font-weight: 500; }
 .cc .ui-table :is(th, td) { padding: 0 7px; }
 .cc .ui-table :is(th, td):first-child { padding-left: 11px; }
 .cc .ui-table .ui-chip { padding: 0; border: 0; background: none; font-family: var(--font-mono); font-size: 12px; font-weight: 500; }
@@ -6707,6 +6710,11 @@ body {
   .cc .ui-metric__value { font-size: 22px; }
   .cc .ui-metric__caption { padding-right: 0; font-size: 12px; }
   .cc .ui-metric__graphic { position: static; width: 100%; height: 24px; margin-top: 6px; }
+}
+
+/* A table stacked on a phone keeps the stacked rows' own spacing, not Ops' row height. */
+@media (max-width: 640px) {
+  .cc .ui-table.ui-table--stack td { height: auto; padding: 2px 12px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
