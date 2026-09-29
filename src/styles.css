@@ -4160,32 +4160,6 @@ a.ui-tile:hover {
 /* Settings' column is too narrow for icon and word side by side in three equal parts, so each option
    puts its icon above its word: one row, and every word inside its own box. */
 
-/* ── The Updates page, rebuilt on the components (M33.1) ── */
-.updates-center { display: grid; gap: var(--space-5); }
-.updates-figures { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-3); }
-.updates-restarts { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
-.updates-note { color: var(--text-muted); font-size: var(--font-size-sm); }
-.updates-tools { display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
-.updates-tool { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); min-height: var(--row-height); padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--surface); }
-.updates-tool[data-installed] { box-shadow: inset 3px 0 0 var(--status-good); }
-.updates-tool > div { display: grid; gap: 2px; min-width: 0; }
-.updates-tool > div > code { color: var(--text-strong); font-size: var(--font-size-sm); font-weight: 600; }
-.updates-tool > div > span { color: var(--text-muted); font-size: var(--font-size-xs); }
-.updates-install { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
-.updates-install input { flex: 1 1 16rem; min-width: 0; min-height: var(--control-height); padding: 0 var(--space-3); border: 1px solid var(--border-input); border-radius: var(--radius-control); color: var(--text); background: var(--surface-muted); font: inherit; font-size: var(--font-size-md); }
-.updates-install input::placeholder { color: var(--text-muted); }
-
-.updates-security-inline { display: none; }
-
-@media (max-width: 900px) {
-  .updates-figures { grid-template-columns: minmax(0, 1fr); }
-}
-
-@media (max-width: 640px) {
-  .updates-center .updates-installed, .updates-center .updates-source { display: none; }
-  .updates-center .updates-security-inline { display: flex; width: fit-content; margin-top: var(--space-1); }
-  .updates-center .updates-package { white-space: normal; }
-}
 
 /* A wide table on a phone: each row becomes a block and each cell says what it is (data-label),
    so the last columns - a schedule's last run, a drive's reconnect controls - are not off-screen. */
@@ -5528,7 +5502,7 @@ body {
 :root[data-shell="console"] :is(.panel, .modal) :is(h2, h3) { letter-spacing: 0; }
 
 /* Panels: hairlines, square corners, no shadow; the header a small mono title over its line */
-:root[data-shell="console"] :is(.panel, .metric, .change-card, .app-card, .flow-panel, .source-panel) { border-color: var(--cc-line); border-radius: 4px; background: var(--cc-panel); box-shadow: none; }
+:root[data-shell="console"] :is(.panel, .change-card, .flow-panel, .source-panel) { border-color: var(--cc-line); border-radius: 4px; background: var(--cc-panel); box-shadow: none; }
 :root[data-shell="console"] .panel-header { min-height: 34px; padding: 7px 12px; gap: 6px 12px; border-bottom-color: var(--cc-line); flex-wrap: wrap; }
 :root[data-shell="console"] .panel-header > strong,
 :root[data-shell="console"] .panel-header > div > strong { color: var(--cc-muted); font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.09em; line-height: 1.3; text-transform: uppercase; }
@@ -5543,13 +5517,11 @@ body {
 
 /* Stat cards: the metric strip's label, figure and caption */
 :root[data-shell="console"] .metric-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 9.5rem), 1fr)); gap: 8px; margin-bottom: 10px; }
-:root[data-shell="console"] :is(.metric-grid > .panel, .metric) { gap: 3px; padding: 11px 12px 10px; border-radius: 4px; }
-:root[data-shell="console"] :is(.metric-grid > .panel > .eyebrow, .metric > span) { margin: 0; color: var(--cc-muted); font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; }
-:root[data-shell="console"] :is(.metric-grid > .panel > strong, .metric > strong) { margin: 4px 0 0; color: var(--cc-text-strong); font-family: var(--font-mono); font-size: 22px; font-weight: 500; letter-spacing: -0.02em; line-height: 1.15; overflow-wrap: anywhere; }
+:root[data-shell="console"] .metric-grid > .panel { gap: 3px; padding: 11px 12px 10px; border-radius: 4px; }
+:root[data-shell="console"] .metric-grid > .panel > .eyebrow { margin: 0; color: var(--cc-muted); font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; }
+:root[data-shell="console"] .metric-grid > .panel > strong { margin: 4px 0 0; color: var(--cc-text-strong); font-family: var(--font-mono); font-size: 22px; font-weight: 500; letter-spacing: -0.02em; line-height: 1.15; overflow-wrap: anywhere; }
 :root[data-shell="console"] .metric-grid > .panel > span:not(.eyebrow):not(.status-pill) { color: var(--cc-muted); font-size: 13px; line-height: 1.35; }
 :root[data-shell="console"] .metric-grid > .panel > strong.danger-text { color: var(--cc-red-text); }
-:root[data-shell="console"] .meter { height: 4px; border-radius: 1px; background: var(--cc-track); }
-:root[data-shell="console"] .meter i { border-radius: 1px; background: var(--cc-cyan); }
 
 /* Buttons: square, the primary one amber, secondary raised, text buttons amber words */
 :root[data-shell="console"] .primary-button {
@@ -5581,7 +5553,6 @@ body {
   font-weight: 600;
 }
 :root[data-shell="console"] .secondary-button:hover:not(:disabled) { border-color: var(--cc-muted); color: var(--cc-text-strong); }
-:root[data-shell="console"] .secondary-button.is-active { border-color: var(--cc-amber-border); color: var(--cc-amber); box-shadow: inset 0 -2px 0 var(--cc-amber); }
 :root[data-shell="console"] .text-button { color: var(--cc-amber); font-size: 13.5px; font-weight: 600; }
 :root[data-shell="console"] .text-button:hover:not(:disabled) { text-decoration: underline; }
 :root[data-shell="console"] :is(.primary-button, .secondary-button, .text-button):disabled { cursor: not-allowed; opacity: 0.5; }
