@@ -31,6 +31,7 @@ import { webBindSet } from "./web-bind.mjs";
 import { webTlsProvision } from "./web-tls.mjs";
 import { probeAddresses } from "./reachability.mjs";
 import { httpRequest } from "./http-request.mjs";
+import { agentsDisable, agentsEnable, agentsInstall, agentsModelDownload, agentsModelRemove } from "./agents.mjs";
 
 export const tasks = Object.freeze({
   "apt.update": aptUpdate,
@@ -104,6 +105,12 @@ export const tasks = Object.freeze({
   "backup.remote.test": backupRemoteTest,
   "backup.remote.sync": backupRemoteSync,
   "network.wake": networkWake,
+  // The agents runtime (M37): Unsloth, the capped runner unit, and its models.
+  "agents.install": (parameters, context) => agentsInstall(parameters, context),
+  "agents.enable": (parameters, context) => agentsEnable(parameters, context),
+  "agents.disable": (parameters, context) => agentsDisable(parameters, context),
+  "agents.model.download": (parameters, context) => agentsModelDownload(parameters, context),
+  "agents.model.remove": (parameters, context) => agentsModelRemove(parameters, context),
 });
 
 export function taskIds() {

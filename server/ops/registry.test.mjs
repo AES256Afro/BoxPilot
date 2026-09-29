@@ -182,9 +182,9 @@ describe("more time for an operation that ran out of it (M30.3)", () => {
     expect(() => defineOperation({ id: "a.b", title: "x", risk: "low", readOnly: true, timeoutMs: 1000, maxTimeoutMs: 2000, run() {} })).toThrow("only a job");
   });
 
-  it("is offered by the pulls and nothing else, each at most four times its budget", () => {
+  it("is offered by the pulls and downloads and nothing else, each at most four times its budget", () => {
     const offered = registry.list().filter((operation) => operation.maxTimeoutMs).map((operation) => operation.id).sort();
-    expect(offered).toEqual(["app.install", "app.model.pull", "app.reinstall", "app.rollback", "app.update"]);
+    expect(offered).toEqual(["agents.model.download", "agents.runtime.install", "app.install", "app.model.pull", "app.reinstall", "app.rollback", "app.update"]);
     for (const id of offered) expect(registry.get(id).maxTimeoutMs).toBe(registry.get(id).timeoutMs * 4);
   });
 });
