@@ -428,8 +428,9 @@ prompt; the run ended degraded after 416 s, and its fallback searched BoxPilot's
 1. **Four processors, four threads, 15 minutes.** The owner raised the runner's quota to 400% and the
    model's threads to four (a quarter of the 16-thread server at most, only while a run goes;
    everything else in ADR-005's caps stays), and the default longest run to 15 minutes, with a day's
-   model time defaulting to two such runs. Agents saved with the old 10-minute default were moved to
-   it once, as a version BoxPilot made and said so.
+   model time defaulting to two such runs (an hour for the Server Keeper, whose half hour ran out
+   after three questions on a small machine). Agents saved with the old 10-minute default were moved
+   to it once, as a version BoxPilot made and said so.
 2. **Prompts that only grow.** llama-server reuses the longest common start of the last prompt it
    read, and Qwen's template puts the tools first. So the planner is a small conversation of its own
    whose system message is the same for every run of an agent; and the calls that act are one
