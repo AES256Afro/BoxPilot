@@ -51,7 +51,7 @@ export interface Job {
   parameters?: Record<string, unknown> | null;
   timeout?: JobTimeout | null;
   /** Where this run came from: a larger budget, or the run it repeats (M30.2/M30.3). */
-  recovery?: { budgetMs?: number; rerunOf?: string; retryOf?: string };
+  recovery?: { budgetMs?: number; rerunOf?: string; retryOf?: string; /** The operation's description, as staged. */ reason?: string };
   createdAt?: string;
   updatedAt?: string;
   steps: JobStep[];
@@ -65,6 +65,15 @@ export function listOperations(): Promise<{ operations: OperationDescription[] }
 /** Run a parameter-free read-only operation immediately. */
 export function inspectOperation<T>(id: string): Promise<{ operation: string; result: T }> {
   return fetch(`/api/v1/operations/${encodeURIComponent(id)}/inspect`).then((response) => readJson(response));
+}
+
+/** Run a read-only operation that takes parameters, immediately (POST /operations/:id/run). */
+export function runReadOperation<T>(id: string, parameters: Record<string, unknown>, csrfToken: string): Promise<{ operation: string; result: T }> {
+  return fetch(`/api/v1/operations/${encodeURIComponent(id)}/run`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
+    body: JSON.stringify({ parameters }),
+  }).then((response) => readJson(response));
 }
 
 /** Stage a mutating operation as a job; returns the job and what approving it will need. */

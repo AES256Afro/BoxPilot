@@ -139,7 +139,7 @@ describe("GET /tls/ca.crt", () => {
 describe("the catalog summary view", () => {
   const manifest = { id: "qbittorrent", name: "qBittorrent", category: "Downloads", icon: "qb", website: "https://x", description: "d", image: { reference: "x:1", version: "1" },
     ports: [{ id: "web", label: "Web", host: 8080, protocol: "tcp", exposure: "lan", container: 8080 }],
-    volumes: [{ id: "data", label: "Data", hostPath: "/mnt/dump", configurable: true, container: "/data" }, { id: "config", container: "/config", path: "config" }],
+    volumes: [{ id: "data", label: "Data", hostPath: "/mnt/dump", configurable: true, container: "/data" }, { id: "config", container: "/config", path: "config", backup: true }],
     env: [{ name: "BIG", default: "x".repeat(2000) }], notes: "long".repeat(500), setup: [{ step: 1 }], files: [{ path: "a" }], sha256: "f".repeat(64) };
 
   const serve = async ({ settings = {}, live = [] } = {}) => {
@@ -165,6 +165,8 @@ describe("the catalog summary view", () => {
       const slim = summary.applications[0].manifest;
       expect(slim).toMatchObject({ id: "qbittorrent", name: "qBittorrent", category: "Downloads", icon: "qb", image: { version: "1" } });
       expect(slim.volumes).toEqual([{ id: "data", label: "Data", hostPath: "/mnt/dump", configurable: true, readOnly: false }, { id: "config", label: null, hostPath: null, configurable: false, readOnly: false }]);
+      // M36: whether an app backup archives anything of it, which the command bar reads.
+      expect(slim.keepsBackup).toBe(true);
       expect(slim.ports[0]).toEqual({ id: "web", label: "Web", host: 8080, protocol: "tcp", exposure: "lan" });
       for (const dropped of ["env", "notes", "setup", "files", "sha256"]) expect(slim[dropped]).toBeUndefined();
       expect(JSON.stringify(summary).length).toBeLessThan(JSON.stringify(full).length / 4);

@@ -37,6 +37,24 @@ describe("when the nightly backups are scheduled for", () => {
 
 
 describe("Backup Center", () => {
+  // M36: an app that has never been backed up used to need a trip to its card in the catalog.
+  it("backs up an app from its row, through the approval dialog, with its tier on the button", async () => {
+    let staged: string | undefined;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url.endsWith("/operations/app.backup.protection/inspect")) return json({ operation: "app.backup.protection", result: { available: true, apps: [{ id: "vaultwarden", name: "Vaultwarden", protectable: true, backups: 0, newestAt: null }] } });
+      if (url.endsWith("/api/v1/schedules")) return json({ schedules: [] });
+      if (url.endsWith("/operations/app.backup/jobs")) { staged = init?.body as string; return json({ job: { id: "job-a", type: "op:app.backup", title: "Back up application data", state: "awaiting_approval", risk: "medium", error: null, result: null, steps: [], approvals: [] }, approval: { tier: "medium", passwordRequired: false, elevated: false, mode: "tiered", reason: "medium risk" } }, 201); }
+      return json({ error: `unexpected ${url}` }, 500);
+    }));
+    render(<BackupCenter csrfToken="csrf-token" onOpenRepair={vi.fn()} />);
+    const button = await screen.findByRole("button", { name: "Back up Vaultwarden now" });
+    expect(button.getAttribute("data-risk")).toBe("medium");
+    fireEvent.click(button);
+    expect(await screen.findByText("Medium risk")).toBeTruthy();
+    expect(JSON.parse(staged ?? "{}")).toEqual({ parameters: { id: "vaultwarden" } });
+  });
+
   it("lists verified database snapshots and stages a one-click backup", async () => {
     let staged: string | undefined;
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {

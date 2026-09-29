@@ -210,3 +210,40 @@ describe("a job that ran out of time (M30.3)", () => {
     expect(screen.queryByRole("button", { name: "Try again with more time" })).toBeNull();
   });
 });
+
+// M36: Home, Ops and Activity approve a job someone already staged.
+describe("approving a job that was already staged", () => {
+  function existingApi(state = "awaiting_approval") {
+    const calls: Array<{ url: string; method: string }> = [];
+    const json = (body: unknown, status = 200) => Promise.resolve(new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      const method = init?.method ?? "GET";
+      calls.push({ url, method });
+      if (url.endsWith("/jobs/job-1/approval")) return json({ jobId: "job-1", tier: "medium", passwordRequired: false, elevated: false, mode: "tiered", reason: "medium risk", confirmText: null });
+      if (url.endsWith("/jobs/job-1") && method === "GET") return json({ job: { ...stagedJob, risk: "medium", state } });
+      return json({ error: "unexpected" }, 500);
+    }));
+    return calls;
+  }
+
+  it("opens it at its own tier without staging another, and leaves it waiting when closed", async () => {
+    const calls = existingApi();
+    const onClose = vi.fn();
+    render(<ApproveDialog operationId="storage.format" title="Erase and format a disk" parameters={{}} existingJobId="job-1" csrfToken="csrf" onClose={onClose} />);
+    expect(await screen.findByText("Medium risk")).toBeTruthy();
+    // What it was staged with, since the approver may not be who staged it.
+    expect(screen.getByText("device").closest("li")?.textContent).toBe("device /dev/sdb");
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(onClose).toHaveBeenCalled();
+    expect(calls.some((call) => call.method === "POST")).toBe(false);
+    expect(calls.some((call) => call.method === "DELETE")).toBe(false);
+  });
+
+  it("says so when the job is no longer waiting", async () => {
+    existingApi("completed");
+    render(<ApproveDialog operationId="storage.format" title="Erase and format a disk" parameters={{}} existingJobId="job-1" csrfToken="csrf" onClose={vi.fn()} />);
+    expect(await screen.findByText((text) => text.startsWith("This job is no longer waiting for approval (completed)"))).toBeTruthy();
+  });
+});
+

@@ -67,9 +67,9 @@ describe("Ops", () => {
 
     const alerts = screen.getByRole("region", { name: /Alerts/ });
     expect(await within(alerts).findByRole("button", { name: "Problem: 1 system service failed" })).toBeTruthy();
-    // Already staged: nothing to run here, but its tier is still shown beside it.
-    const staged = within(alerts).getByRole("button", { name: "Needs a look: Waiting for approval: Reconnect a drive" });
-    expect(staged.closest("li")?.querySelector(".ui-risk")?.textContent).toBe("Medium risk");
+    // Already staged (M36): reviewed from the inbox, at the tier it was staged at.
+    const staged = within(medium).getByRole("button", { name: "Review: Waiting for approval: Reconnect a drive" });
+    expect(staged.getAttribute("data-risk")).toBe("medium");
   });
 
   it("starts a fix through the approval dialog, never around it", async () => {

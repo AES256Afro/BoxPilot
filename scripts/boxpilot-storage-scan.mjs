@@ -85,10 +85,25 @@ export async function collectFilesystemErrors(filesystems, { run = fixedRun, loa
   return { ...filesystems, mounts, errors: filesystemErrorSummary(mounts) };
 }
 
+/**
+ * Every read asks smartctl to leave a sleeping disk alone (M36): `-n standby` answers "Device is in
+ * STANDBY mode" instead of spinning it up, which a check every six hours otherwise did to every
+ * idle drive. NVMe ignores it; nothing else about the read changes.
+ */
+export const smartReadArgs = Object.freeze(["--json=c", "--all", "-n", "standby"]);
+
+/** smartctl skipped the disk because it was asleep (standby or sleep), which says nothing about its health. */
+export function diskAsleep(output) {
+  return smartctlMessages(output).some((line) => /Device is in [A-Z_ ]*(?:STANDBY|SLEEP)[A-Z_ ]* mode/i.test(line));
+}
+
 export function parseSmartctlEvidence(device, output) {
   let parsed;
   try { parsed = JSON.parse(output); } catch {
     return { device, health: "unavailable", passed: null, temperatureCelsius: null, powerOnHours: null, percentageUsed: null, criticalWarning: null, mediaErrors: null, unsafeShutdowns: null, reason: "smartctl-read-failed" };
+  }
+  if (diskAsleep(output)) {
+    return { device, health: "unavailable", passed: null, temperatureCelsius: null, powerOnHours: null, percentageUsed: null, criticalWarning: null, mediaErrors: null, unsafeShutdowns: null, reason: "asleep" };
   }
   const passed = typeof parsed.smart_status?.passed === "boolean" ? parsed.smart_status.passed : null;
   const temperatureCelsius = safeNumber(parsed.temperature?.current ?? parsed.nvme_smart_health_information_log?.temperature);
@@ -144,6 +159,8 @@ function deviceOpenFailed(output) {
  */
 export function needsSatRetry(transport, directOutput) {
   if (transport !== "usb" && !usbBridgeUnrecognized(directOutput)) return false;
+  // Asleep is an answer: the bridge passed the power check through, and asking again would wake it.
+  if (diskAsleep(directOutput)) return false;
   return parseSmartctlEvidence("", directOutput).health === "unavailable";
 }
 
@@ -158,7 +175,7 @@ export function smartEvidenceFor(device, { transport = null, direct = "", sat = 
   const first = { ...parseSmartctlEvidence(device, direct), transport: onUsb ? "usb" : transport, deviceType: "auto" };
   if (first.health !== "unavailable" || !onUsb || sat === null) return first;
   const second = parseSmartctlEvidence(device, sat);
-  if (second.health !== "unavailable") return { ...second, transport: "usb", deviceType: "sat" };
+  if (second.health !== "unavailable" || second.reason === "asleep") return { ...second, transport: "usb", deviceType: "sat" };
   return { ...first, deviceType: "sat", reason: deviceOpenFailed(direct) || deviceOpenFailed(sat) ? "smartctl-read-failed" : "usb-bridge-unsupported" };
 }
 
@@ -186,13 +203,37 @@ export function createStorageScanner({
     if (devices.length === 0) return { schemaVersion: 2, generatedAt: now().toISOString(), available: false, reason: "no-supported-disks", filesystems, disks: [], boundary: { mutationPerformed: false, serialsIncluded: false, rawOutputIncluded: false, browserTriggered: false, filesystemCheckTriggered: false } };
     const disks = [];
     for (const { device, transport } of devices) {
-      const direct = await run(smartctlBinary, ["--json=c", "--all", device], { timeout: 30000 });
-      const sat = needsSatRetry(transport, direct.stdout) ? await run(smartctlBinary, ["--json=c", "--all", "-d", "sat", device], { timeout: 30000 }) : null;
-      disks.push(smartEvidenceFor(device, { transport, direct: direct.stdout, sat: sat ? sat.stdout : null }));
+      const direct = await run(smartctlBinary, [...smartReadArgs, device], { timeout: 30000 });
+      const sat = needsSatRetry(transport, direct.stdout) ? await run(smartctlBinary, [...smartReadArgs, "-d", "sat", device], { timeout: 30000 }) : null;
+      const reading = smartEvidenceFor(device, { transport, direct: direct.stdout, sat: sat ? sat.stdout : null });
+      disks.push(reading.health === "unavailable" ? reading : { ...reading, readAt: now().toISOString() });
     }
-    return { schemaVersion: 2, generatedAt: now().toISOString(), available: disks.some((item) => item.health !== "unavailable"), reason: disks.some((item) => item.health !== "unavailable") ? "fixed-root-scan" : "storage-scan-failed", filesystems, disks, boundary: { mutationPerformed: false, serialsIncluded: false, rawOutputIncluded: false, browserTriggered: false, filesystemCheckTriggered: false } };
+    const read = disks.some((item) => item.health !== "unavailable");
+    // Every disk that was not read was asleep: not a failed scan, just a quiet server.
+    const allAsleep = !read && disks.every((item) => item.reason === "asleep");
+    return { schemaVersion: 2, generatedAt: now().toISOString(), available: read, reason: read ? "fixed-root-scan" : allAsleep ? "disks-asleep" : "storage-scan-failed", filesystems, disks, boundary: { mutationPerformed: false, serialsIncluded: false, rawOutputIncluded: false, browserTriggered: false, filesystemCheckTriggered: false } };
   }
   return { scan };
+}
+
+/**
+ * A disk that was asleep keeps what it last said (M36): its health and when it was read, from the
+ * evidence this scan replaces, so a drive that sleeps through every check is not reported as never
+ * read, and one that was failing is not reported as fixed. Its other figures are not carried: they
+ * were true then, not now.
+ */
+export function carryLastReadings(evidence, previous) {
+  const before = new Map((Array.isArray(previous?.disks) ? previous.disks : []).map((disk) => [disk?.device, disk]));
+  const disks = (evidence.disks ?? []).map((disk) => {
+    if (disk.reason !== "asleep") return disk;
+    const last = before.get(disk.device);
+    if (!last) return disk;
+    const health = last.reason === "asleep" ? last.lastHealth : last.health;
+    const readAt = last.reason === "asleep" ? last.lastReadAt : last.readAt ?? previous.generatedAt;
+    if (!["healthy", "warning", "critical"].includes(health) || typeof readAt !== "string") return disk;
+    return { ...disk, lastHealth: health, lastReadAt: readAt };
+  });
+  return { ...evidence, disks };
 }
 
 export async function writeStorageEvidence({ outputPath = process.env.BOXPILOT_STORAGE_HEALTH_PATH ?? defaultOutputPath, stateDirectory = process.env.BOXPILOT_STATE_DIRECTORY ?? "/var/lib/boxpilot", scanner = createStorageScanner() } = {}) {
@@ -200,7 +241,7 @@ export async function writeStorageEvidence({ outputPath = process.env.BOXPILOT_S
   const resolvedStateDirectory = path.resolve(stateDirectory);
   if (resolved !== path.join(resolvedStateDirectory, "storage-health.json")) throw new Error("Storage evidence path must remain the fixed file in the BoxPilot state directory");
   const partial = `${resolved}.partial`;
-  const evidence = await scanner.scan();
+  const evidence = carryLastReadings(await scanner.scan(), await readFile(resolved, "utf8").then(JSON.parse).catch(() => null));
   await mkdir(path.dirname(resolved), { recursive: true, mode: 0o700 });
   await writeFile(partial, `${JSON.stringify(evidence)}\n`, { encoding: "utf8", mode: 0o640 });
   await rename(partial, resolved);

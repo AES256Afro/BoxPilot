@@ -1446,6 +1446,101 @@ answer can be caught. On a CPU a small model works; the GPU (1.119.0) makes it q
 - **M34.6 Learning the platform.** Later, with LLMCoach: a model tuned on BoxPilot's documents and
   registry, evaluated against the stock model before it replaces it.
 
+## M36 — Value and quality of life
+
+Asked for 2026-09-29: "Look for value. Look for usability. QoL." Started from what the owner hit on
+the real server that week, then from reading every page in the demo, light and dark, at desktop and
+phone width. Repair itself (its findings and fixes) is M35's, and stays out of this milestone.
+
+- ✅ **M36.1 A database copy before every update** (unreleased). `scripts/boxpilot-upgrade.sh`, and
+  so the System page's update (`system.update` runs it), copies the database after the build and
+  before anything stops: a read-only open, `VACUUM INTO /var/lib/boxpilot/boxpilot-rollback-<old
+  version>-<UTC stamp>.sqlite3`, `PRAGMA integrity_check`, then the live file's owner and mode
+  (0600; made under `umask 077`). A copy that cannot be made stops the update with the reason and
+  nothing swapped; a rollback names the copy that matches the old code and how to put it in place.
+  The System page reads the update's own log while it runs, so a refusal shows at once, and names
+  the copy the last update took. Copies are never deleted by an update: *System → Database copies
+  from updates* lists them with a rule (keep the newest N, and any younger than D days) and exactly
+  which go; `housekeeping.database-copies.remove` (medium, owner only) deletes only the listed names
+  the rule still lets go when it runs, and copies from before 1.127.0 are marked as possibly holding
+  passwords. `tests/ubuntu/upgrade-db-copy.sh` upgrades a real install three times in the install
+  smoke test: into a full disk (refused, nothing moved), normally (the copy exists, 0600, intact,
+  taken before the stop) and with a failing health check (rolled back, the copy named). The copy
+  starts with the first update *from* the release that has this, since an update runs the installed
+  version's script. The System page's update and reclaim buttons now show their tier. **One upgrade
+  at a time**: two started two seconds apart on the owner's server (two previous trees, two copies,
+  the service started twice). The script holds `/run/boxpilot-upgrade.lock` (flock) for its whole
+  run and writes who holds it; a second run refuses at once, names the first and changes nothing, and
+  the System page's update checks the same lock and fails its job with the same words. The smoke test
+  starts two at once.
+- ✅ **M36.2 Approvals nobody will give** (unreleased). Two updates staged for 1.116 waited three
+  weeks for approval on a server running 1.138. An operation can say when a staged job is
+  superseded (`supersededWhen`; `system.update`: a version at or below the running one); such a job
+  is cancelled with that reason when someone tries to approve it, at startup (right after an update
+  lands) and hourly. A job nobody approves in seven days is cancelled too, and the owner is told once
+  (`approval.lapsed` notice). Activity approves a staged job through the ordinary dialog at its own
+  tier (the dialog can now open an existing job and leaves it waiting when closed), cancels it, or
+  dismisses a failure; Home and Ops open a waiting or failed job there. Home's and Ops' "Waiting for
+  approval" row has *Review*, which opens that job in the same dialog at the tier it was staged at
+  (Ops files it in its inbox by that tier); a viewer, or an operator facing an owner-only job, sees
+  no button.
+- ✅ **M36.3 Signed out after an update** (unreleased). Sessions live in the database and survive a
+  restart (now proved by a test across two store instances); what ended the owner's was the
+  twelve-hour sign-in, and the page went to sign-in without a word. The browser remembers only when
+  its session ends: the sign-in page says whether it ran out or was ended elsewhere, and names the
+  page signing in returns to (the address keeps it). A request that finds no session sends the page
+  to sign-in the same way instead of leaving it red. Signing out on purpose says nothing.
+- ✅ **M36.4 Failed jobs that were dealt with** (unreleased). Home's and Ops' failed-job item skips a
+  failure that was dismissed, run again after a restart, tried again with more time, or followed by
+  a completed, running or staged run of the same operation on the same subject; after a week
+  Activity keeps it and Home lets it go, and Home counts the other open failures. Dismissing
+  (`POST /jobs/:id/dismiss`, its creator or the owner) adds a step to the job, which stays failed in
+  Activity as "Failed, dismissed". Repair's own failed-job findings are M35's.
+- ✅ **M36.5 SMART checks leave sleeping drives asleep** (unreleased). Every read passes `-n standby`;
+  a sleeping disk is recorded as asleep, never asked again through its USB bridge, keeps the health
+  and time of its last reading, and holds a failing disk's alert rather than resolving it. The
+  Overview says "asleep, not read" with the last reading.
+- ✅ **M36.6 The command bar acts** (unreleased). "Back up Immich", "Restart Plex", "Stop", "Start",
+  "Resume", "Update", "Check for updates", "Install all updates", "Back up BoxPilot's database",
+  "Reboot the server": each an operation the role may start, with its tier in the list, through the
+  ordinary approval dialog. A quick backup is offered only for apps that keep data worth one (the
+  catalog summary now says so per volume).
+- ✅ **M36.7 A notification centre** (unreleased). A bell in the top bar counts what is new; its panel
+  lists what BoxPilot said in the last thirty days (at most a hundred): conditions raised and when
+  they cleared, news, failed jobs pushed, each with when, whether the target took it (sent, not sent
+  for want of a target, sending failed) and a way to its page or its job in Activity. The record is
+  `server/notification-history.mjs`, written by the ledger and the failed-job push; a retry is the
+  same entry. Read-only apart from "Mark all seen", each account's own. Another account's job,
+  schedule or sign-in is cut back to its kind. Home's "could not tell you" item opens it.
+- ✅ **M36.8 Back up an app from Backups** (unreleased). The list of apps and their last backup had
+  only "Schedule it"; each row now has *Back up now* (medium).
+- ✅ **M36.9 Apps whose data is in a sidecar count as having data** (unreleased). Whether an app
+  keeps anything an app backup archives looked only at the app's own volumes, so Immich (its
+  library a host folder kept out on purpose, its database in the postgres sidecar, which every
+  backup does archive) counted as "nothing to back up" and was never reported as unprotected.
+  `keepsBackupData` (`server/catalog/schema.mjs`) counts sidecar volumes too; the catalog summary
+  carries it as `keepsBackup`. After updating, Home may name such an app as never backed up.
+
+Proposed, value to the owner against effort:
+
+- **Say before the twelve hours are up** - medium, small: a notice ten minutes before a session ends,
+  so a half-typed form is not lost to the sign-in page.
+- **A weekly read of a drive that is always asleep** - medium, small: wake it once a week so its SMART
+  health is not unknown for months. Wakes the drive, so the owner's call.
+- **Suggest actions in an empty command bar** - medium, small: what is waiting for approval, the
+  failed job to retry, the update ready.
+- **Activity filters** (failed, waiting, running) and search - medium, small to medium.
+- **A Home item when old database copies pile up** - medium, small: points at the copies panel when
+  copies from before the secret scrub are still on disk.
+- **Restore a database copy as an operation** (high risk, stops BoxPilot) - medium, medium to large;
+  today it is the three manual steps the rollback prints.
+- **Hold the update button while jobs run** - low to medium, small: the approval already refuses;
+  the button could say so first.
+- **Fold "What you can do" into the page header** - low to medium, small: the strip on every Classic
+  page explains rather than does. A design call for the owner.
+- **Quiet hours or a daily digest for pushes** - medium, medium.
+- **Update every app with an update ready, in one approval** - medium, medium.
+
 ## App catalogue candidates
 
 Checked against the 164 manifests already in `catalog/`, so nothing here duplicates an existing
