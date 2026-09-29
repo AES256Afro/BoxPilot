@@ -65,7 +65,9 @@ export default function SetupPage({ csrfToken, role = "owner", onDone }: SetupPa
     try {
       const response = await fetch("/api/v1/setup");
       if (!response.ok) throw new Error("Setup state is unavailable");
-      setSetup((await response.json()) as SetupState);
+      const body = (await response.json()) as SetupState;
+      if (!Array.isArray(body?.profiles)) throw new Error("Setup state arrived in a shape this page cannot read");
+      setSetup(body);
       setError(null);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Setup state is unavailable");

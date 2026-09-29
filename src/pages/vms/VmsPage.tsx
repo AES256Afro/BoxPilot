@@ -64,11 +64,17 @@ export default function VmsPage({ csrfToken = "", role = "owner", onOpenRepair =
         fetchVmRecoveries().then((value) => ({ read: true, value }), () => ({ read: false, value: null })),
         fetchVmRetention().then((value) => ({ read: true, value }), () => ({ read: false, value: null })),
       ]);
-      setStatus(nextStatus);
-      setDomainList(nextDomains);
-      setResources(nextResources);
-      setGuidance(nextGuidance);
-      setFoundation(nextFoundation);
+      // A proxy or an older server can answer 200 with something else: say so rather than crash.
+      if (!nextStatus || !Array.isArray(nextStatus.checks)) throw new Error("The virtualization status arrived in a shape this page cannot read");
+      setStatus({
+        ...nextStatus,
+        setupPlan: { title: nextStatus.setupPlan?.title ?? "", destructive: Boolean(nextStatus.setupPlan?.destructive), requiresConsoleApproval: Boolean(nextStatus.setupPlan?.requiresConsoleApproval), commands: nextStatus.setupPlan?.commands ?? [], notes: nextStatus.setupPlan?.notes ?? [] },
+        tailscale: nextStatus.tailscale ?? { installed: false, connected: false, dnsName: null, serveUrls: [] },
+      });
+      setDomainList(nextDomains && Array.isArray(nextDomains.domains) ? nextDomains : { connected: false, domains: [], error: "The VM list arrived in a shape this page cannot read" });
+      setResources(nextResources && Array.isArray(nextResources.networks) && Array.isArray(nextResources.pools) ? nextResources : null);
+      setGuidance(nextGuidance?.cockpit ? nextGuidance : null);
+      setFoundation(nextFoundation?.network && nextFoundation.pool ? nextFoundation : null);
       setBackups({
         exports: exportsRead.value ?? [],
         destination: protectionRead.value?.destination ?? null,

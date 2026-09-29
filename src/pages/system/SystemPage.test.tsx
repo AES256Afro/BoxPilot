@@ -152,6 +152,15 @@ describe("System page", () => {
     expect(fetchMock.mock.calls.map(([url]) => String(url)).filter((url) => url.includes("housekeeping"))).toEqual([]);
   });
 
+  it("says a release check that answered in another shape was not checked, rather than failing the page", async () => {
+    serve({ "/api/v1/system/update": () => json({ status: "ok", mode: "host-aware" }) });
+    render(<SystemPage csrfToken="csrf-token" />);
+    await waitFor(() => expect(document.querySelector(".ui-page-header__verdict")?.textContent).toBe("Not checked"));
+    fireEvent.click(screen.getByRole("tab", { name: /Updates/ }));
+    expect(screen.getByText("The release check did not answer")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Update to/ })).toBeNull();
+  });
+
   it("says when the settings could not be read, and offers to try again", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => json({ error: "The helper is not answering" }, 503)));
     render(<SystemPage csrfToken="csrf-token" />);

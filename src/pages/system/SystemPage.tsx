@@ -54,7 +54,9 @@ export default function SystemPage({ csrfToken, role = "owner" }: SystemPageProp
         inspectOperation<SystemSettings>("system.settings.inspect"),
         inspectOperation<DockerDisk>("docker.disk.inspect").catch(() => null),
       ]);
-      setSettings(result);
+      // A proxy or an older server can answer 200 with something else; say so rather than crash.
+      if (!result?.hostname || !result.memory || !result.fstrim) throw new Error("System settings arrived in a shape this page cannot read");
+      setSettings({ ...result, timezones: Array.isArray(result.timezones) ? result.timezones : [], swap: Array.isArray(result.swap) ? result.swap : [] });
       setDockerDisk(docker?.result && Array.isArray(docker.result.rows) ? docker.result : null);
       setError(null);
     } catch (requestError) {
@@ -68,7 +70,9 @@ export default function SystemPage({ csrfToken, role = "owner" }: SystemPageProp
   const loadRelease = useCallback(async (again = false) => {
     setCheckingRelease(true);
     try {
-      setRelease(await readJson<ReleaseUpdate>(await fetch(`/api/v1/system/update${again ? "?refresh=1" : ""}`)));
+      const body = await readJson<ReleaseUpdate>(await fetch(`/api/v1/system/update${again ? "?refresh=1" : ""}`));
+      if (typeof body?.current?.version !== "string") throw new Error("The release check answered in a shape this page cannot read");
+      setRelease(body);
       setReleaseError(null);
     } catch (requestError) {
       setReleaseError(requestError instanceof Error ? requestError.message : "The release check is unavailable");
@@ -76,7 +80,7 @@ export default function SystemPage({ csrfToken, role = "owner" }: SystemPageProp
       setCheckingRelease(false);
     }
     // The update's own log is an operator's to read (ADR-003).
-    if (operator) inspectOperation<UpdateStatus>("system.update.status").then(({ result }) => setUpdateStatus(result)).catch(() => setUpdateStatus(null));
+    if (operator) inspectOperation<UpdateStatus>("system.update.status").then(({ result }) => setUpdateStatus(result && Array.isArray(result.log) ? result : null)).catch(() => setUpdateStatus(null));
   }, [operator]);
   useEffect(() => { void loadRelease(); }, [loadRelease]);
 
@@ -84,7 +88,10 @@ export default function SystemPage({ csrfToken, role = "owner" }: SystemPageProp
   const scan = useCallback(async () => {
     if (!operator) return;
     setScanning(true);
-    try { setHousekeeping((await inspectOperation<Housekeeping>("housekeeping.inspect")).result); }
+    try {
+      const { result } = await inspectOperation<Housekeeping>("housekeeping.inspect");
+      setHousekeeping(result && Array.isArray(result.categories) ? result : null);
+    }
     catch { setHousekeeping(null); }
     finally { setScanning(false); }
   }, [operator]);
@@ -117,7 +124,7 @@ export default function SystemPage({ csrfToken, role = "owner" }: SystemPageProp
     // build that failed) and health goes on answering the old version. Its own log says so at once.
     const watch = window.setInterval(() => {
       inspectOperation<UpdateStatus>("system.update.status").then(({ result }) => {
-        setUpdateStatus(result);
+        if (result && Array.isArray(result.log)) setUpdateStatus(result);
         if (result?.outcome === "failed") { setUpdateOutcome("failed"); window.clearInterval(timer); window.clearInterval(watch); }
       }).catch(() => {});
     }, 6000);

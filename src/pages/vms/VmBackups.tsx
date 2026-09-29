@@ -96,7 +96,7 @@ export function VmBackups({ data, role, start }: { data: VmBackupData; role: str
         )}
         {destination && !ready && (
           <>
-            <ul className="vms-list">{destination.blockers.map((blocker) => <li key={blocker}>{blocker}</li>)}</ul>
+            <ul className="vms-list">{(destination.blockers ?? []).map((blocker) => <li key={blocker}>{blocker}</li>)}</ul>
             <CodeBlock label="Run from the server's terminal">{destination.setupCommand}</CodeBlock>
             <p className="vms-note">Keep a recovery copy of the repository password outside this server.</p>
           </>

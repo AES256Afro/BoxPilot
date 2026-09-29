@@ -29,7 +29,7 @@ export function VmHost({ status, foundation, resources, guidance, role, start, o
 }) {
   const passed = status.checks.filter((check) => check.ok).length;
   const setup = foundationState(foundation);
-  const serveUrl = status.tailscale.serveUrls[0] ?? null;
+  const serveUrl = status.tailscale.serveUrls?.[0] ?? null;
 
   const initialize = () => start({
     operationId: "vm.foundation.initialize",
