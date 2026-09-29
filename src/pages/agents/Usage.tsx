@@ -3,7 +3,7 @@ import type { PendingOperation } from "../../shell/ApproveDialog";
 import { relativeTime } from "../../home/format";
 import { Button, Field, KeyValue, MetricStrip, MetricTile, Notice, Panel, Progress, Select, StatusChip, Switch, Table, Tag, TextInput, mayStart, riskOf, type Status, type TableColumn } from "../../ui";
 import { agentsApi, type LibraryModel, type ModuleState, type RuntimeDriver, type RuntimeState, type Usage as UsageState } from "./api";
-import { bytes, errorText, gibibytes } from "./format";
+import { bytes, errorText, gibibytes, processorWords } from "./format";
 import { PasswordSheet } from "./PasswordSheet";
 import { SetupAction, chainSteps, downloadStep, enableStep, installStep, modelParameters, setupSteps, unitUp, type SetupStep, type SetupStepId } from "./setup";
 
@@ -147,7 +147,7 @@ export function Usage({ module, csrfToken, role, now, onStart, onModuleChanged, 
       <Panel className="agents-now" title="Right now" count={{ status: verdict.status, label: verdict.label }}
         meta={usage.runner.online ? <>runner <b>{usage.runner.version ?? "?"}</b> · seen {relativeTime(usage.runner.lastSeenAt, now) ?? "just now"}</> : service && !silent ? "the runner is stopped" : "the runner is not answering"} padded>
         <MetricStrip label="The runner right now: processor, memory, model and throttling">
-          <MetricTile label="Processor" value={cpu === null ? "—" : `${cpu}%`} caption={`of a ${caps.cpuQuotaPercent}% cap (one processor)`} status={verdict.status} bar={cpu === null ? undefined : { value: cpu, max: caps.cpuQuotaPercent }} />
+          <MetricTile label="Processor" value={cpu === null ? "—" : `${cpu}%`} caption={`of a ${caps.cpuQuotaPercent}% cap (${processorWords(caps.cpuQuotaPercent)})`} status={verdict.status} bar={cpu === null ? undefined : { value: cpu, max: caps.cpuQuotaPercent }} />
           <MetricTile label="Memory" value={live ? bytes(live.memoryBytes) : "—"} caption={`of ${gibibytes(live?.memoryMaxBytes ?? caps.memoryMaxBytes)}${live?.memoryPeakBytes ? ` · peak ${bytes(live.memoryPeakBytes)}` : ""}`}
             status={live ? (live.memoryBytes > caps.memoryMaxBytes * 0.9 ? "warning" : "good") : "unknown"} bar={live ? { value: live.memoryBytes, max: live.memoryMaxBytes ?? caps.memoryMaxBytes } : undefined} />
           <MetricTile label="Model" value={modelLoaded ? "Loaded" : "Not loaded"}

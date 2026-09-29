@@ -6,7 +6,7 @@ import { agentsApi, type AgentSummary, type Catalog, type Glance, type Overview,
 import { Builder } from "./Builder";
 import { Console } from "./Console";
 import { Evaluation } from "./Evaluation";
-import { errorText, moduleVerdict, waitingWords } from "./format";
+import { capsWords, errorText, moduleVerdict, waitingWords } from "./format";
 import { Knowledge } from "./Knowledge";
 import { Memory } from "./Memory";
 import { PasswordSheet } from "./PasswordSheet";
@@ -152,7 +152,9 @@ export default function AgentsPage({ csrfToken, role = "owner", now = Date.now }
   const fix = steps?.length && steps.every((step) => mayStart(role, step.operation.operationId)) ? <SetupAction steps={steps} onStart={start} /> : null;
   const runnerWait: RunnerWait | null = down ? { words: waitingWords(false, detail), action: fix } : null;
   const cpu = runner.usage?.cpuPercent;
-  const cap = runner.usage?.cpuQuotaPercent ?? 100;
+  const cap = runner.usage?.cpuQuotaPercent ?? null;
+  // The runner's caps as the server reports them: the runtime's when it was read, else the runner's own.
+  const caps = runtime?.caps ?? (runner.usage?.cpuQuotaPercent ? { cpuQuotaPercent: runner.usage.cpuQuotaPercent, memoryMaxBytes: runner.usage.memoryMaxBytes } : null);
   const cards = (proposals ?? []).filter((proposal) => proposal.state === "open").length;
   const selected = agents.find((agent) => agent.id === agentId)?.id ?? null;
 
@@ -193,13 +195,13 @@ export default function AgentsPage({ csrfToken, role = "owner", now = Date.now }
         meta={<>
           <b>{agents.length}</b> {agents.length === 1 ? "agent" : "agents"} · <b>{queue.running}</b> running · <b>{queue.queued}</b> waiting
           {staff ? <> · <b>{cards}</b> {cards === 1 ? "card" : "cards"}</> : null}
-          {runner.online && cpu !== undefined ? <> · CPU <b>{cpu}%</b> of {cap}%</> : null}
+          {runner.online && cpu !== undefined ? <> · CPU <b>{cpu}%</b>{cap ? ` of ${cap}%` : null}</> : null}
           {module.inQuietHours ? " · quiet hours" : null}
         </>}
         actions={headerActions}
         about={<>
           <p>Agents are small assistants that run on this server's own model: they learn what is here, answer questions about it, watch Pi-hole or the backups, write a digest each morning and suggest fixes.</p>
-          <p>They only read. A fix they suggest is a card of registered operations, and each step is staged and approved by a person at its own tier, as on any other page. They run in their own capped service (one processor, idle priority, 8 GiB, this machine only), one run at a time, and everything pauses with one switch.</p>
+          <p>They only read. A fix they suggest is a card of registered operations, and each step is staged and approved by a person at its own tier, as on any other page. They run in their own capped service ({capsWords(caps)}, this machine only), one run at a time, and everything pauses with one switch.</p>
         </>}
       />
 
@@ -234,7 +236,7 @@ export default function AgentsPage({ csrfToken, role = "owner", now = Date.now }
 
       {turningOn && (
         <PasswordSheet title="Turn Agents on" confirmLabel="Turn on" onClose={() => setTurningOn(false)} onConfirm={turnOn}>
-          <p>Agents read this server's facts and send them to the model on this machine, nowhere else. The runner is capped at one processor and 8 GiB; each agent has a budget. You can pause everything at any time.</p>
+          <p>Agents read this server's facts and send them to the model on this machine, nowhere else. The runner has hard caps ({capsWords(caps)}); each agent has a budget. You can pause everything at any time.</p>
           {afterTurningOn === null
             ? <p>Then whatever is missing - Unsloth, the model, the runner - one approval at a time.</p>
             : afterTurningOn.length > 0 && <>

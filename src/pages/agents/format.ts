@@ -92,6 +92,27 @@ export function waitingWords(runnerOnline: boolean, runner: RunnerDetail = {}): 
   return runner.silent ? "Waiting for the runner, which is not answering" : "Waiting for the runner, which is stopped";
 }
 
+const countWords = ["no", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve"];
+/**
+ * A CPUQuota as the processors it adds up to: 100% is "one processor", 400% "four processors",
+ * 150% "1.5 processors". From the caps the server reports, never assumed.
+ */
+export function processorWords(quotaPercent: number): string {
+  const count = quotaPercent / 100;
+  if (count === 1) return "one processor";
+  if (Number.isInteger(count) && count > 1 && count < countWords.length) return `${countWords[count]} processors`;
+  return `${Math.round(count * 10) / 10} processors`;
+}
+
+/**
+ * The runner's caps in words, from what the server reports ("four processors at most, idle
+ * priority, 8 GiB"), or in general terms while they have not been read.
+ */
+export function capsWords(caps: { cpuQuotaPercent?: number | null; memoryMaxBytes?: number | null } | null | undefined): string {
+  if (!caps?.cpuQuotaPercent) return "capped processors and memory, idle priority";
+  return `${processorWords(caps.cpuQuotaPercent)} at most, idle priority${caps.memoryMaxBytes ? `, ${gibibytes(caps.memoryMaxBytes)}` : ""}`;
+}
+
 /** "8 GB", "650 MB": sizes as the owner reads them, in powers of 1000 like a disk's label. */
 export function bytes(value: number | null | undefined): string {
   if (value === null || value === undefined || !Number.isFinite(value)) return "—";

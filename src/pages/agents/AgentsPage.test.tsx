@@ -192,6 +192,8 @@ describe("the builder", () => {
 
     const name = await screen.findByLabelText("Name");
     expect((name as HTMLInputElement).value).toBe("Server Keeper");
+    // Each guardrail's range and default, as the server gives them.
+    expect(screen.getByText("30–1800 seconds, 600 by default")).toBeTruthy();
     // Each tool's permission, with the operator reads marked.
     expect(screen.getByRole("radiogroup", { name: "Logs: permission" })).toBeTruthy();
     expect(screen.getByRole("table", { name: "Tools and their permissions" }).textContent).toContain("operator");
@@ -547,6 +549,24 @@ describe("a runner that is not running", () => {
     fireEvent.click(within(tile).getByRole("button", { name: "Start the runner" }));
     expect(await screen.findByRole("dialog", { name: "Start the agents runner" })).toBeTruthy();
     await waitFor(() => expect(staged(calls)).toEqual(["agents.runtime.enable"]));
+  });
+
+  it("says the caps the server reports, four processors as four, never one assumed", async () => {
+    window.history.replaceState(null, "", "/?view=agents&tab=usage");
+    const wide = { ...caps, cpuQuotaPercent: 400, modelThreads: 4 };
+    serve(base({
+      "GET /api/v1/agents": stoppedOverview(),
+      "GET /api/v1/agents/usage": { ...usage, runner: offline, caps: wide },
+      "GET /api/v1/agents/runtime": { ...runtimeWith(), caps: wide },
+      ...jobs(["agents.runtime.enable"]),
+    }));
+    render(<AgentsPage csrfToken="csrf" now={() => now} />);
+    expect(await screen.findByText("of a 400% cap (four processors)")).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Hard caps" }).textContent).toContain("Model threads4");
+    fireEvent.click(within(screen.getByRole("region", { name: "Runtime" })).getByRole("button", { name: "Start the runner" }));
+    expect(await screen.findByText("boxpilot-agents.service: four processors at most, idle priority, 8 GiB, this machine only.")).toBeTruthy();
+    // What the page is for says the same caps.
+    expect(document.querySelector(".ui-page-header__about")?.textContent).toContain("(four processors at most, idle priority, 8 GiB, this machine only)");
   });
 
   it("goes on from downloading the model on Usage to starting the runner", async () => {

@@ -1,6 +1,7 @@
+import { cleanup, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { RuntimeState } from "./api";
-import { moduleVerdict, waitingWords } from "./format";
+import { capsWords, moduleVerdict, processorWords, waitingWords } from "./format";
 import { chainSteps, runnerDetail, setupSteps } from "./setup";
 
 const model = (extra: Record<string, unknown>) => ({
@@ -47,6 +48,22 @@ describe("what is missing before an agent can run", () => {
     expect(chain?.next?.parameters).toEqual({ repo: "unsloth/Qwen3.5-4B-GGUF", file: "Qwen3.5-4B-UD-Q4_K_XL.gguf", projector: "mmproj-F16.gguf" });
     expect(chainSteps(steps, 2)?.operationId).toBe("agents.runtime.enable");
     expect(chainSteps([])).toBeNull();
+  });
+});
+
+describe("the caps in words", () => {
+  it("counts the processors a CPUQuota adds up to, from what the server reports", () => {
+    expect([100, 400, 150, 800].map(processorWords)).toEqual(["one processor", "four processors", "1.5 processors", "eight processors"]);
+    expect(capsWords({ cpuQuotaPercent: 400, memoryMaxBytes: 8 * 1024 ** 3 })).toBe("four processors at most, idle priority, 8 GiB");
+    expect(capsWords(null)).toBe("capped processors and memory, idle priority");
+  });
+
+  it("starts the runner with the caps it reports, whatever they are", () => {
+    const runtime = { ...runtimeWith({ unsloth: true, downloaded: true }), caps: { ...caps, cpuQuotaPercent: 400, modelThreads: 4 } };
+    const [enable] = setupSteps(runtime, { enabled: true })!;
+    render(<>{enable.operation.preview}</>);
+    expect(screen.getByText("boxpilot-agents.service: four processors at most, idle priority, 8 GiB, this machine only.")).toBeTruthy();
+    cleanup();
   });
 });
 

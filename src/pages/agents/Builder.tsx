@@ -311,7 +311,7 @@ function SpecForm({ draft, setDraft, catalog, disabled, others }: FormProps) {
       <FormSection id="guardrails" title="Guardrails" step={5}>
         <div className="agents-form__grid">
           {(Object.keys(budgetWords) as Array<keyof AgentSpec["budget"]>).map((key) => (
-            <Field key={key} label={budgetWords[key].label} hint={`${limits[key].min}–${limits[key].max} ${budgetWords[key].unit}`}>
+            <Field key={key} label={budgetWords[key].label} hint={`${limits[key].min}–${limits[key].max} ${budgetWords[key].unit}${Number.isFinite(limits[key].default) ? `, ${limits[key].default} by default` : ""}`}>
               <TextInput mono type="number" min={limits[key].min} max={limits[key].max} value={String(draft.budget[key])}
                 onValueChange={(value) => setDraft((current) => ({ ...current, budget: { ...current.budget, [key]: numberOf(value, current.budget[key]) } }))} />
             </Field>
