@@ -5,8 +5,9 @@
 #
 #   sudo bash tests/ubuntu/upgrade-db-copy.sh <git-ref>
 #
-# DISPOSABLE MACHINES ONLY (CI runs it on GitHub's Ubuntu VMs): it upgrades /opt/boxpilot three
-# times, mounts a full filesystem, and makes one upgrade fail its health check on purpose.
+# DISPOSABLE MACHINES ONLY (CI runs it on GitHub's Ubuntu VMs): it upgrades /opt/boxpilot four
+# times, mounts a full filesystem, makes one upgrade fail its health check on purpose, and starts
+# two at once.
 #
 #   1. A copy that cannot be made refuses the upgrade. The copy goes to a full tmpfs: the script
 #      exits non-zero and says why, and nothing moved - the same tree, no new .prev tree, no
@@ -15,6 +16,8 @@
 #      .sqlite3 beside it, with the live file's owner and mode (0600), passing an integrity check
 #      and holding the owner account.
 #   3. An upgrade whose health check fails rolls back and names the copy that matches the old code.
+#   4. Two upgrades at once (as happened on the owner's server): the second refuses and names the
+#      first by its process, downloads and stops nothing, and the first finishes with one copy.
 set -uo pipefail
 
 [ "$(id -u)" -eq 0 ] || { echo "run as root, on a disposable machine" >&2; exit 2; }
@@ -92,6 +95,26 @@ check "the rollback named the copy that matches ${VERSION}" 'grep -q "the databa
 check "the rollback said how to put it back" 'grep -q "copy that file over ${DB}" <<<"$out"'
 check "the previous tree answers again" 'answers "$VERSION"'
 check "no copy was ever deleted" '[ -f "$copy" ] && [ -f "$copy3" ]'
+
+echo "4. Two upgrades at once: the second refuses, names the first, and changes nothing"
+copies_before="$(ls /var/lib/boxpilot/boxpilot-rollback-*.sqlite3 2>/dev/null | wc -l)"
+first_log="$(mktemp)"
+BOXPILOT_NODE_BIN="$NODE" sh "$SCRIPT" "$REF" > "$first_log" 2>&1 &
+first=$!
+# The first holds the lock from before it downloads anything.
+for _ in $(seq 1 60); do grep -q "downloading" "$first_log" && break; sleep 1; done
+out="$(BOXPILOT_NODE_BIN="$NODE" sh "$SCRIPT" "$REF" 2>&1)"; status=$?
+show "$out"
+check "the second upgrade was refused" '[ "$status" -ne 0 ]'
+check "it named the first by its process and ref" 'grep -q "ERROR: another BoxPilot update is already running (pid=${first} ref=${REF} started=" <<<"$out"'
+check "it said nothing was changed" 'grep -q "Nothing was changed" <<<"$out"'
+check "it downloaded nothing and stopped nothing" '! grep -Eq "downloading|stopping services" <<<"$out"'
+wait "$first"; first_status=$?
+show "$(cat "$first_log")"
+check "the first ran to the end on its own" '[ "$first_status" -eq 0 ] && grep -q " is live;" "$first_log"'
+check "one database copy came of the two, not two" '[ "$(ls /var/lib/boxpilot/boxpilot-rollback-*.sqlite3 | wc -l)" -eq $((copies_before + 1)) ]'
+check "the upgraded BoxPilot answers" 'answers "$VERSION"'
+check "the lock is free again" 'flock -n /run/boxpilot-upgrade.lock true'
 
 if [ "$failures" -gt 0 ]; then echo "${failures} check(s) failed"; exit 1; fi
 echo "all checks passed"
