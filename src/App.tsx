@@ -34,6 +34,7 @@ const UpdatesCenter = lazy(() => import("./UpdatesCenter"));
 const AppCatalog = lazy(() => import("./AppCatalog"));
 const AutomationsCenter = lazy(() => import("./AutomationsCenter"));
 const ServicesPage = lazy(() => import("./pages/services/ServicesPage"));
+const AgentsPage = lazy(() => import("./pages/agents/AgentsPage"));
 const SystemCenter = lazy(() => import("./SystemCenter"));
 const PerformanceCenter = lazy(() => import("./PerformanceCenter"));
 const UsersCenter = lazy(() => import("./UsersCenter"));
@@ -56,7 +57,7 @@ const Settings = lazy(() => import("./SettingsView"));
  * its name in the bar and what it is for behind the info toggle, until wave 2 rebuilds it (M33.8).
  * A rebuilt page adds itself here. Repair (M35) draws its own crumb and verdict in the page.
  */
-const ownHeader = new Set<ViewName>(["home", "ops", "services", "logs", "repairs"]);
+const ownHeader = new Set<ViewName>(["home", "ops", "services", "logs", "repairs", "agents"]);
 
 /**
  * Deep link: /?view=firewall opens that page, and a reload keeps the page you were on (Setup
@@ -173,6 +174,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
     if (view === "backups") return <BackupCenter csrfToken={csrfToken} onOpenRepair={() => setView("repairs")} />;
     if (view === "github") return <GitHubCenter />;
     if (view === "logs") return <LogsPage csrfToken={csrfToken} role={role} />;
+    if (view === "agents") return <AgentsPage csrfToken={csrfToken} role={role} />;
     return <Settings csrfToken={csrfToken} role={role} />;
   }, [csrfToken, focusApp, role, setView, view]);
 

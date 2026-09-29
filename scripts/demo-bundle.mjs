@@ -12,7 +12,7 @@
  */
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import path from "node:path";
-import { app, scenarioNames, inspections, switcher } from "./boxpilot-demo.mjs";
+import { agentsDemo, app, scenarioNames, inspections, switcher } from "./boxpilot-demo.mjs";
 
 const here = import.meta.dirname;
 const outDir = path.join(here, "..", "demo-site");
@@ -51,6 +51,8 @@ for (const scenario of scenarioNames) {
   process.stdout.write(`${scenario}: ${Object.keys(rest).length} routes, ${Object.keys(operations).length} operations\n`);
 }
 await new Promise((resolve) => server.close(resolve));
+// The Agents worlds run a model and a runner of their own; stopped, so this script can end.
+await agentsDemo.close();
 
 await mkdir(outDir, { recursive: true });
 await writeFile(path.join(outDir, "demo-data.json"), JSON.stringify(bundle));

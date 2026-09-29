@@ -7,6 +7,12 @@ import type { RiskTier } from "./types";
  * a page built on src/ui starts a new operation.
  */
 export const operationRisk = {
+  "agents.model.download": "medium",
+  "agents.model.remove": "medium",
+  "agents.model.switch": "medium",
+  "agents.runtime.disable": "low",
+  "agents.runtime.enable": "medium",
+  "agents.runtime.install": "medium",
   "app.action": "low",
   "app.backup": "medium",
   "app.backup.many": "medium",
@@ -57,7 +63,7 @@ export type KnownOperation = keyof typeof operationRisk;
  * Operations whose registry entry says `minimumRole: "owner"`: an operator may not stage them
  * whatever their tier. The same test holds this list to the registry.
  */
-export const ownerOnlyOperations: ReadonlySet<string> = new Set<KnownOperation>(["backup.cloud.sync", "housekeeping.database-copies.remove", "notifications.ntfy.connect"]);
+export const ownerOnlyOperations: ReadonlySet<string> = new Set<KnownOperation>(["agents.model.download", "agents.model.remove", "agents.model.switch", "agents.runtime.enable", "agents.runtime.install", "backup.cloud.sync", "housekeeping.database-copies.remove", "notifications.ntfy.connect"]);
 
 /** The tier for an operation. An id missing from the table is high, as it is on the server. */
 export function riskOf(operationId: string): RiskTier {
