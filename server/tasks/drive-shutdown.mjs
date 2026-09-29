@@ -369,9 +369,10 @@ export function parseSystemdUtcTimestamp(text) {
  * told apart from one printed at a mount that has since been undone (a check, a repair by hand, a
  * reconnect): this boot's log keeps every warning it ever printed.
  *
- * On a mounted exFAT drive a set mark is not conclusive: the first write after mounting sets it
- * and it stays set until the unmount (tests/ubuntu/drive-shutdown-order.sh, part 3). A clear one
- * is: nothing marked the drive, and nothing has written to it since it was mounted.
+ * On a mounted exFAT drive a set mark is not conclusive: a write sets it, and it stays set until
+ * the unmount (before Linux 6.16, until the next sync). A clear one is conclusive: a mark the drive
+ * carried when it was mounted stays set through writes and syncs, on every kernel, until a
+ * repairing check clears it (tests/ubuntu/drive-shutdown-order.sh, part 3).
  */
 export async function storageVolumeState(_parameters = {}, { run = fixedRun, files = { readFile }, readSector = readBootSector, now = () => new Date() } = {}) {
   const content = await files.readFile(fstabPath, "utf8").catch(() => "");

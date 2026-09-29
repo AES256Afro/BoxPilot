@@ -876,10 +876,11 @@ export async function readBootSector(device) {
 /**
  * The exFAT boot sector's VolumeFlags. VolumeDirty (bit 1) is what the kernel reads at mount to
  * print "Volume was not properly unmounted". It is set by the first write and cleared by a clean
- * unmount (not by sync) - unless it was already set when the volume was mounted: then Linux leaves
- * it set, as the exFAT specification asks, until a checker has repaired the volume. So a drive that
- * once dropped off mid-write reports an unclean unmount at every mount, however cleanly it has been
- * unmounted since. Measured on real exFAT in tests/ubuntu/drive-shutdown-order.sh.
+ * unmount (before Linux 6.16 by a sync as well) - unless it was already set when the volume was
+ * mounted: then Linux leaves it set, as the exFAT specification asks, until a checker has repaired
+ * the volume. So a drive that once dropped off mid-write reports an unclean unmount at every mount,
+ * however cleanly it has been unmounted since. Measured on real exFAT in
+ * tests/ubuntu/drive-shutdown-order.sh.
  */
 export function exfatVolumeFlags(bootSector) {
   if (!bootSector || bootSector.length < 512 || bootSector.toString("latin1", 3, 11) !== "EXFAT   ") return null;
