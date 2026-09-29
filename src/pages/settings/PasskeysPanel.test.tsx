@@ -1,8 +1,8 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
-import PasskeySettings from "./PasskeySettings";
-import { renamePasskey } from "./passkey";
-vi.mock("./passkey", () => ({ passkeysSupported: () => true, fetchPasskeyStatus: async () => ({ passkeys: [{ id: "key-one", label: "Phone", rpId: "example.test", createdAt: "2026-09-01T00:00:00Z" }], recoveryCodesRemaining: 0 }), renamePasskey: vi.fn(async () => ({})), registerPasskey: vi.fn(), deletePasskey: vi.fn(), generateRecoveryCodes: vi.fn() }));
+import PasskeySettings from "./PasskeysPanel";
+import { renamePasskey } from "../../passkey";
+vi.mock("../../passkey", () => ({ passkeysSupported: () => true, fetchPasskeyStatus: async () => ({ passkeys: [{ id: "key-one", label: "Phone", rpId: "example.test", createdAt: "2026-09-01T00:00:00Z" }], recoveryCodesRemaining: 0 }), renamePasskey: vi.fn(async () => ({})), registerPasskey: vi.fn(), deletePasskey: vi.fn(), generateRecoveryCodes: vi.fn() }));
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 it("renames in the page with a trimmed nonempty name", async () => {
   render(<PasskeySettings csrfToken="csrf" />); fireEvent.click(await screen.findByRole("button", { name: "Rename" }));

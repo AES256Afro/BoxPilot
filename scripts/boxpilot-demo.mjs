@@ -28,6 +28,7 @@ import { productVersion } from "../server/version.mjs";
 import { securityHeaders } from "../server/security-headers.mjs";
 import { databaseCopyReport, databaseCopyRule, describeDatabaseCopy, humanBytes } from "../server/housekeeping.mjs";
 import { keepsBackupData } from "../server/catalog/schema.mjs";
+import { registry as operationRegistry } from "../server/ops/index.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const dist = path.join(root, "dist");
@@ -493,7 +494,17 @@ const installedFor = (scenario) => (scenario === "fresh" ? {} : installed);
 
 api.get("/capabilities", (_request, response) => json(response, { version: productVersion, network: { bind: "127.0.0.1", port: 8787, lan: false, canSet: true }, tls: { provisioned: true, port: 8443, names: ["homebox.lan", "homebox", "boxpilot.lan"], ipAddresses: [host.lan], fingerprint: "A1:B2:C3:D4:E5:F6:07:18:29:3A:4B:5C:6D:7E:8F:90:AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89", notAfter: "Sep 29 12:00:00 2027 GMT", caFingerprint: "0F:1E:2D:3C:4B:5A:69:78:87:96:A5:B4:C3:D2:E1:F0:0F:1E:2D:3C:4B:5A:69:78:87:96:A5:B4:C3:D2:E1:F0", canProvision: true }, identity: { password: true, tailscale: true, github: true, passkeys: true, roles: ["owner", "operator", "viewer"] } }));
 api.get("/health", (_request, response) => json(response, { status: "ok", product: "BoxPilot", version: productVersion, mode: "demo", safeMode: true, hostMutationsEnabled: false, mutationPolicy: "demo", ownerBootstrapRequired: false, timestamp: now().toISOString() }));
-api.get("/auth/status", (_request, response) => json(response, { bootstrapRequired: false, authenticated: true, owner: { id: "owner-demo", username: host.owner, role: "owner" }, csrfToken: "demo", expiresAt: ago(-12), elevatedUntil: null }));
+/**
+ * The sign-in page (M33.13) is reviewed like any other page: a page opened with ?signin in its
+ * address is told nobody is signed in, and offered every way in the product has (a passkey, GitHub,
+ * Tailscale not yet linked). Signing in there goes nowhere; the demo has no accounts.
+ */
+const signinAsked = (request) => { try { return new URL(String(request.get("referer") ?? "")).searchParams.has("signin"); } catch { return false; } };
+api.get("/auth/status", (request, response) => json(response, signinAsked(request)
+  ? { bootstrapRequired: false, authenticated: false, owner: null, csrfToken: null, expiresAt: null, elevatedUntil: null }
+  : { bootstrapRequired: false, authenticated: true, owner: { id: "owner-demo", username: host.owner, role: "owner" }, csrfToken: "demo", expiresAt: ago(-12), elevatedUntil: null }));
+api.get("/auth/identity", (_request, response) => json(response, { tailscale: { available: true, login: `${host.owner}@example.com`, displayName: "Alex", node: "workbook", linked: false }, github: { configured: true }, passkey: { registered: true } }));
+api.get("/auth/identity/links", (_request, response) => json(response, { tailscaleLogins: [`${host.owner}@example.com`], githubLogins: [`${host.owner}-gh`], githubRelinkNeeded: [], githubConfigured: true, githubClientId: "Ov23liDEMOexample0000", currentTailscale: { login: `${host.owner}@example.com`, displayName: "Alex", node: "workbook", linked: true } }));
 api.post("/auth/logout", (_request, response) => json(response, { ok: true }));
 api.get("/auth/passkey", (_request, response) => json(response, { passkeys: [
   { id: "pk-demo-phone", rpId: host.tailnet, label: "iPhone (Face ID)", transports: ["internal", "hybrid"], createdAt: ago(24 * 34), lastUsedAt: ago(7) },
@@ -562,7 +573,7 @@ api.get("/notifications", (_request, response) => json(response, { seenAt: ago(3
 api.post("/notifications/seen", (_request, response) => json(response, { seenAt: now().toISOString() }));
 api.get("/settings/weekly-report", (_request, response) => json(response, { enabled: true, cadence: "Sundays at 09:00", nextDueAt: new Date(Date.now() + 4 * 24 * 3600_000).toISOString(), lastSentAt: ago(72), lastResult: "sent", targetConfigured: true }));
 api.get("/settings/weekly-report/preview", (_request, response) => json(response, { title: "Weekly report, nothing failed", message: "Sep 20 to Sep 27: 41 jobs ran, none failed.\nBackups: 7 app backups this week; database backed up today." }));
-api.get("/settings/approval-mode", (_request, response) => json(response, { mode: "tiered", modes: ["tiered", "always-ask"] }));
+api.get("/settings/approval-mode", (_request, response) => json(response, { approvalMode: "tiered", modes: ["tiered", "always-password"], elevationTtlMs: 10 * 60_000 }));
 api.get("/settings/vpn-profile", (_request, response) => json(response, {
   profile: { configured: true, provider: "mullvad", type: "wireguard", wireguardAddresses: "10.64.222.21/32", countries: "Sweden, Netherlands", portForwarding: "off", dot: "on", blockMalicious: "on", blockAds: "on", blockSurveillance: "off", dnsAddress: "", outboundSubnets: "192.168.0.0/16, 10.0.0.0/8", healthTargetAddress: "", hasWireguardKey: true, hasOpenvpnPassword: false, updatedAt: ago(48) },
   providers: ["mullvad", "protonvpn", "nordvpn", "surfshark", "private internet access", "airvpn", "windscribe", "ivpn", "custom"],
@@ -1183,7 +1194,23 @@ api.post("/operations/:id/run", (request, response) => {
   const result = request.params.id === "housekeeping.database-copies.inspect" && fixture?.copies?.length ? demoDatabaseCopies(request.body?.parameters ?? {}) : fixture ?? {};
   return json(response, { operation: request.params.id, result });
 });
-api.post("/operations/:id/jobs", (request, response) => response.status(201).json({ job: { id: "demo-job", type: `op:${request.params.id}`, title: request.params.id, state: "awaiting_approval", risk: "medium", error: null, result: null, steps: [], approvals: [], createdAt: now().toISOString() }, approval: { tier: "medium", passwordRequired: false, elevated: false, mode: "tiered", reason: "demo: jobs never run here" } }));
+/**
+ * Staging answers at the operation's own tier, from the product's registry, with its typed
+ * confirmation, so the approval dialog is reviewed as the owner meets it: one click for low, a
+ * preview for medium, the password (and the confirmation where asked) for high (M33.13). Nothing
+ * is ever approved here.
+ */
+api.post("/operations/:id/jobs", (request, response) => {
+  const operation = operationRegistry.get(request.params.id);
+  const parameters = request.body?.parameters ?? {};
+  const tier = operation?.risk ?? "high";
+  let confirmText = null;
+  try { confirmText = typeof operation?.confirm === "function" ? operation.confirm(parameters) || null : null; } catch { confirmText = null; }
+  return response.status(201).json({
+    job: { id: "demo-job", type: `op:${request.params.id}`, title: operation?.title ?? request.params.id, state: "awaiting_approval", risk: tier, error: null, result: null, parameters, steps: [], approvals: [], createdAt: now().toISOString(), recovery: { reason: operation?.description ?? "" } },
+    approval: { tier, passwordRequired: tier === "high", elevated: false, mode: "tiered", reason: "demo: jobs never run here", confirmText, expiresAt: null, expired: false },
+  });
+});
 // "Try again with more time" (M30.3) stages the timed-out job again, like the product, and never runs it.
 api.post("/jobs/:id/more-time", (request, response) => {
   const timedOut = troubleJobs.find((job) => job.id === request.params.id && job.timeout);

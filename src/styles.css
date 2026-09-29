@@ -1218,25 +1218,6 @@ main:focus {
 }
 
 /* Every area, named, from the dock's More. */
-.areas-sheet {
-  display: grid;
-  gap: var(--space-4);
-  width: min(560px, 100%);
-}
-
-.areas-sheet__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-}
-
-.areas-sheet__head h2 {
-  margin: 0;
-  color: var(--text-strong);
-  font-size: 20px;
-}
-
 .areas-sheet__grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
@@ -1256,11 +1237,6 @@ main:focus {
 }
 
 /* ── The command bar's dialog ── */
-.command-backdrop {
-  place-items: start center;
-  padding-top: min(12vh, 96px);
-}
-
 .command-dialog {
   display: flex;
   flex-direction: column;
@@ -2002,13 +1978,7 @@ tbody tr:last-child td {
   border-bottom: 0;
 }
 
-.good-text {
-  color: var(--accent-light);
-  font-weight: 700;
-}
-
-.migration-grid,
-.settings-grid {
+.migration-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 255px;
   gap: 14px;
@@ -2028,21 +1998,18 @@ tbody tr:last-child td {
 /* (an older flow-list/flow-row block lived here; nothing used it, and its 27px grid
    silently captured the Automations page's rows of the same name) */
 
-.source-panel dl,
-.settings-panel dl {
+.source-panel dl {
   display: grid;
   gap: 0;
   margin: 0;
 }
 
-.source-panel dl > div,
-.settings-panel dl > div {
+.source-panel dl > div {
   padding: 11px 0;
   border-bottom: 1px solid var(--border-subtle);
 }
 
-.source-panel dl > div:last-child,
-.settings-panel dl > div:last-child {
+.source-panel dl > div:last-child {
   border-bottom: 0;
 }
 
@@ -2101,28 +2068,6 @@ dd {
 .log-row code {
   color: var(--text-code);
   font: inherit;
-}
-
-.settings-panel dl {
-  padding: 0 16px 5px;
-}
-
-.settings-panel dl > div {
-  display: grid;
-  grid-template-columns: 130px minmax(0, 1fr);
-  align-items: center;
-  gap: 20px;
-}
-
-.settings-panel dd {
-  display: grid;
-  gap: 3px;
-}
-
-.settings-panel dd span {
-  color: var(--text-muted);
-  font-size: 11px;
-  font-weight: 400;
 }
 
 .safety-panel {
@@ -2262,8 +2207,6 @@ textarea {
 }
 
 /* What an already-staged job was staged with, in the approval dialog (M36). */
-.approve-staged ul { margin: 2px 0 0; padding-left: 16px; overflow-wrap: anywhere; }
-.approve-staged code { color: var(--text-strong); }
 
 .notice span {
   color: var(--text-success-dim);
@@ -2276,13 +2219,6 @@ textarea {
   color: var(--warn-text);
   background: var(--warn-bg);
 }
-
-.job-warning { font-size: 14px; line-height: 1.5; }
-.job-warning ul { margin: 4px 0 0; padding-left: 20px; }
-.job-timeout { display: grid; gap: 6px; font-size: 14px; line-height: 1.5; }
-.job-timeout p { margin: 0; }
-.job-timeout code { overflow-wrap: anywhere; }
-.job-timeout button { justify-self: start; }
 
 .warning-notice span {
   color: var(--warn-text-dim);
@@ -2369,109 +2305,6 @@ textarea {
   line-height: 1.4;
 }
 
-.auth-shell {
-  display: grid;
-  min-height: 100vh;
-  place-items: center;
-  padding: 28px;
-  background: radial-gradient(circle at 50% 0%, var(--accent-radial), transparent 32rem), linear-gradient(145deg, var(--canvas), var(--surface-inset));
-}
-
-.auth-card {
-  width: min(520px, 100%);
-  padding: clamp(24px, 5vw, 42px);
-  border: 1px solid var(--border-input);
-  border-radius: 20px;
-  background: var(--topbar-bg);
-  box-shadow: var(--shadow-lg);
-}
-
-.auth-brand {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 38px;
-}
-
-.auth-brand > span {
-  display: grid;
-  width: 42px;
-  height: 42px;
-  place-items: center;
-  border-radius: 12px;
-  color: var(--accent-text-on);
-  background: linear-gradient(145deg, var(--accent), var(--accent-dim));
-  font-weight: 900;
-}
-
-.auth-brand > div,
-.auth-card form,
-.auth-card form label {
-  display: grid;
-}
-
-.auth-brand small,
-.auth-card p,
-.bootstrap-command span {
-  color: var(--text-muted);
-}
-
-.auth-card h1 {
-  margin: 7px 0 9px;
-  font-size: clamp(25px, 5vw, 34px);
-  letter-spacing: -0.04em;
-}
-
-.auth-card p {
-  margin: 0 0 22px;
-  font-size: 12px;
-  line-height: 1.65;
-}
-
-/* Why the session ended (M36): said before the form, in the card's own voice, not as an error. */
-.auth-card p.auth-notice {
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--accent);
-  border-radius: var(--radius-control);
-  color: var(--text);
-  background: var(--surface-notice);
-  font-size: 13px;
-}
-
-.bootstrap-command {
-  display: grid;
-  gap: 8px;
-  padding: 14px;
-  margin-bottom: 20px;
-  border: 1px solid var(--warn-dim);
-  border-radius: 11px;
-  background: var(--warn-bg);
-  font-size: 10px;
-}
-
-.bootstrap-command code {
-  overflow-x: auto;
-  padding: 10px;
-  border-radius: 8px;
-  color: var(--warn-text);
-  background: var(--surface-warn-inset);
-  line-height: 1.55;
-  white-space: nowrap;
-}
-
-.auth-card form {
-  gap: 15px;
-}
-
-.auth-card form label {
-  gap: 7px;
-  color: var(--text-strong);
-  font-size: 10px;
-  font-weight: 700;
-}
-
-.auth-card input,
 .approval-box input {
   width: 100%;
   padding: 11px 12px;
@@ -2480,11 +2313,6 @@ textarea {
   color: var(--text);
   background: var(--surface-muted);
   font: inherit;
-}
-
-.auth-card form .primary-button {
-  justify-self: stretch;
-  margin-top: 3px;
 }
 
 .auth-error {
@@ -2506,9 +2334,6 @@ textarea {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
-.elevation-lock { white-space: nowrap; }
-.elevation-short { display: none; }
 
 .repair-page {
   display: grid;
@@ -3096,7 +2921,6 @@ textarea {
   }
 
   .migration-grid,
-  .settings-grid,
   .repair-layout {
     grid-template-columns: 1fr;
   }
@@ -3164,9 +2988,6 @@ textarea {
     max-width: 10ch;
   }
 
-  .elevation-long { display: none; }
-  .elevation-short { display: inline; }
-
   .content {
     padding: 20px 16px calc(var(--shell-bottom-inset, 0px) + 112px);
   }
@@ -3224,13 +3045,6 @@ textarea {
     grid-column: auto;
   }
 
-  .auth-shell {
-    padding: 14px;
-  }
-
-  .auth-card {
-    padding: 22px;
-  }
 
   .backup-plan-columns {
     grid-template-columns: 1fr;
@@ -3277,8 +3091,7 @@ textarea {
     min-height: 180px;
   }
 
-  .plan-grid,
-  .settings-panel dl > div {
+  .plan-grid {
     grid-template-columns: 1fr;
   }
 }
@@ -3359,7 +3172,6 @@ textarea {
 .keel-artifact-proof code { overflow-wrap: anywhere; color: var(--accent-light); font: 0.76rem ui-monospace, SFMono-Regular, Menlo, monospace; }
 .keel-discovery-proof { display: grid; gap: 7px; padding: 12px; background: var(--surface-inset); border: 1px solid var(--border); border-radius: 9px; }
 .keel-discovery-proof span { color: var(--text-muted); font-size: 0.8rem; }
-.keel-discovery-proof .good-text { color: var(--status-good); }
 .keel-discovery-proof .warning-text { color: var(--status-warning); }
 @media (max-width: 900px) {
   .fleet-revoke { align-items: stretch; flex-direction: column; }
@@ -3388,86 +3200,21 @@ textarea {
 .danger-text { color: var(--danger); }
 
 /* Live job output */
-.job-terminal { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--surface-terminal); }
-.job-terminal-bar { display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); border-bottom: 1px solid var(--border); }
-.job-terminal pre { margin: 0; padding: 10px 12px; max-height: 40vh; overflow: auto; font-size: 12px; line-height: 1.45; white-space: pre-wrap; word-break: break-all; color: var(--text-code); }
 
 /* Approval settings */
 .approval-settings { display: grid; gap: 12px; }
-.approval-option { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: start; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; cursor: pointer; }
-.approval-option input { margin-top: 4px; }
-.approval-option strong { display: block; }
-.approval-option span { color: var(--text-muted); font-size: 13px; }
-.settings-panel textarea { width: 100%; box-sizing: border-box; font-family: var(--font-mono); font-size: 13px; resize: vertical; padding: 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: inherit; }
-.settings-panel label.field { display: grid; gap: 4px; font-size: 13px; }
-.settings-panel label.field input { width: 100%; box-sizing: border-box; }
 
 .cloud-vm-check { display: flex !important; align-items: center; gap: 8px; }
 
-.identity-signin { display: grid; gap: 10px; margin: 12px 0; }
-.identity-divider { display: flex; align-items: center; gap: 10px; color: var(--text-muted); font-size: 12px; }
-.identity-divider::before, .identity-divider::after { content: ""; flex: 1; border-top: 1px solid var(--border); }
-.github-device { display: grid; gap: 6px; padding: 12px; border: 1px solid var(--border); border-radius: 10px; }
-.github-code { font-size: 22px; letter-spacing: 0.12em; font-weight: 700; }
-
 /* Passkeys and recovery codes (M19.1) */
-.auth-recovery-link { margin-top: 12px; align-self: flex-start; }
-.recovery-signin { margin-top: 12px; }
-.recovery-signin input { font-family: var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; }
-.recovery-codes-box { margin-top: 10px; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-raised); }
-.recovery-code-list { list-style: none; margin: 8px 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 16px; }
-.recovery-code-list code { font-size: 15px; letter-spacing: 0.06em; }
 .reach-list { display: grid; gap: 8px; }
-.watch-status { display: grid; gap: 8px; margin: 6px 0 12px; }
-.watch-summary { font-size: 13px; }
-.watch-grid { display: flex; flex-wrap: wrap; gap: 6px; }
-.watch-item { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border: 1px solid var(--border); border-radius: 999px; font-size: 12px; color: var(--text-muted); }
-.watch-item.watch-active { color: var(--text); border-color: var(--status-warning); }
 .watch-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 .watch-dot-clear { background: var(--status-good); }
-.watch-dot-active { background: var(--status-warning); }
-.session-here { color: var(--accent); font-weight: 600; }
-.session-elevated { color: var(--status-good); font-weight: 600; }
-.session-row span code { font-size: 12px; }
 
 /* Activity drawer (M1.5) */
-.activity-button { position: relative; display: inline-flex; align-items: center; gap: 6px; }
-.activity-button-live { color: var(--accent); }
-.activity-badge { display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--accent); color: var(--accent-text-on); font-size: 11px; font-weight: 700; }
-.activity-backdrop { position: fixed; z-index: 100; inset: 0; background: var(--backdrop-bg); backdrop-filter: blur(4px); }
-.activity-drawer { position: absolute; top: 0; right: 0; bottom: 0; width: min(480px, 100%); display: flex; flex-direction: column; border-left: 1px solid var(--border); background: var(--sidebar-bg); box-shadow: var(--shadow-lg); }
-.activity-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 18px 20px 12px; border-bottom: 1px solid var(--border-subtle); }
-.activity-header h2 { margin: 2px 0 0; font-size: 17px; }
-.activity-list { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 12px 20px; }
-.activity-empty { padding: 12px 8px; color: var(--text-muted); font-size: 13px; }
 
 /* The notification centre (M36): the bell beside Activity, and its panel in Activity's drawer. */
-.notice-bell { position: relative; display: inline-flex; align-items: center; gap: 4px; min-height: 32px; }
-.notice-bell__icon { width: 18px; height: 18px; }
-.notice-centre__head-actions { display: flex; align-items: center; gap: var(--space-2); }
-.notice-centre__target { margin: 4px 8px 10px; padding: 10px 12px; border: 1px solid var(--border); border-left: 3px solid var(--status-warning); border-radius: var(--radius-control); color: var(--text); background: var(--surface-notice); font-size: 13px; line-height: 1.5; }
-.notice-centre__list { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; }
-.notice-entry { display: grid; gap: 6px; padding: 12px 8px; border-bottom: 1px solid var(--border-subtle); }
-.notice-entry[data-new] { box-shadow: inset 3px 0 0 var(--accent); }
-.notice-entry__head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-2); }
-.notice-entry__head strong { color: var(--text-strong); font-size: 14px; overflow-wrap: anywhere; }
-.notice-entry__new { flex: none; color: var(--accent); font-size: var(--font-size-xs); font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
-.notice-entry__message { margin: 0; color: var(--text-muted); font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
-.notice-entry__meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; color: var(--text-muted); font-size: 12px; }
-.notice-entry__go { margin-left: auto; }
-.activity-item { border-bottom: 1px solid var(--border-subtle); }
-.activity-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; padding: 12px 8px; border: 0; background: none; text-align: left; cursor: pointer; }
-.activity-row:hover { background: var(--surface-muted); }
-.activity-title { font-size: 13px; font-weight: 600; }
-.activity-meta { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
-.activity-time { color: var(--text-muted); font-size: 12px; }
-.activity-detail { display: grid; gap: 10px; padding: 0 8px 14px; }
 /* M36: approve, cancel or dismiss a job from where it is listed. */
-.activity-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); padding: 0 8px 10px; }
-.activity-actions .muted { font-size: var(--font-size-xs); }
-.activity-actions .auth-error { flex-basis: 100%; margin: 0; }
-.job-rerun-note { margin: 0; font-size: 13px; line-height: 1.5; }
-.activity-steps { margin: 0; padding: 0 0 0 16px; color: var(--text-strong); font-size: 12px; display: grid; gap: 4px; }
 
 .setup-choice label { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; cursor: pointer; }
 .setup-choice input { margin-top: 3px; }
@@ -3487,20 +3234,7 @@ textarea {
 .schedules-panel .schedule-reason { margin-top: 4px; font-size: 11px; line-height: 1.45; max-width: 36ch; white-space: normal; overflow-wrap: anywhere; }
 
 /* Notification settings (M8.4) */
-.notification-settings { display: grid; gap: 10px; }
-.notification-settings .recovery-actions { flex-wrap: wrap; }
-.notification-settings select, .notification-settings input { padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-muted); color: var(--text); }
-.notification-settings input { min-width: 200px; }
 /* The weekly self-report (M30.4) */
-.weekly-report { display: grid; gap: 8px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
-.notification-panel { padding-bottom: 15px; }
-.notification-panel > p, .notification-panel > .watch-status, .notification-panel > .notification-settings, .notification-panel > .weekly-report { margin-inline: 15px; }
-.notification-panel > p, .notification-settings p, .weekly-report { font-size: 13px; line-height: 1.5; }
-.notification-panel > p { margin-block: 12px 0; }
-.weekly-report p { margin: 0; }
-.weekly-report .recovery-actions { flex-wrap: wrap; }
-.weekly-report-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; }
-.weekly-report-preview { display: grid; gap: 4px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-muted); font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
 
 /* Storage page (M2.8) */
 .storage-center { display: grid; gap: 16px; }
@@ -3552,7 +3286,6 @@ textarea {
 .backup-file-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; max-height: 40vh; overflow: auto; }
 .backup-file-list li { display: flex; align-items: center; gap: 10px; font-size: 12px; }
 .backup-file-list li code { flex: 1; word-break: break-all; }
-.people-help { padding: 0 15px 12px; font-size: 12px; }
 
 /* App catalog: what is already on this server comes first, and a search that reaches all of it. */
 .app-catalog-search { align-items: center; gap: 10px; margin-bottom: 10px; }
@@ -3639,8 +3372,6 @@ textarea {
 .reach-not-probed .reach-mark { color: var(--text-muted); }
 
 /* Saved credential names: one line each, the remove within reach. */
-.credential-list { list-style: none; margin: 0 0 0.8rem; padding: 0; display: grid; gap: 0.4rem; }
-.credential-list li { display: flex; align-items: center; gap: 0.7rem; }
 
 /* Stacks that live here but are not BoxPilot's: name, state, and where their compose file is. */
 .foreign-projects { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.45rem; }
@@ -3782,8 +3513,6 @@ td .auto-reconnect > span { flex-basis: 100%; }
 .storage-map-connect summary { cursor: pointer; color: var(--text-muted); font-size: 11px; }
 
 /* One-click notification target from an installed app (M8.6) */
-.notification-local-offer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; }
-.notification-local-offer > span { flex: 1 1 20ch; }
 
 /* Earlier versions an app can be put back on (M22.2) */
 .version-history { margin-top: 4px; }
@@ -3817,9 +3546,6 @@ td .auto-reconnect > span { flex-basis: 100%; }
 .controller-doctor article p { margin: 6px 0; }
 .controller-doctor pre { overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
 
-.passkey-rename { grid-column: 1 / -1; width: 100%; }
-.passkey-rename label { display: grid; gap: 6px; flex: 1 1 180px; }
-.passkey-rename input { min-width: 0; width: 100%; }
 .webhook-reveal code { overflow-wrap: anywhere; user-select: all; }
 .copy-feedback { grid-column: 1 / -1; color: var(--text-muted); font-size: 14px; line-height: 1.5; }
 
@@ -4587,11 +4313,8 @@ a.ui-tile:hover {
 }
 
 /* ── Settings: appearance ── */
-.theme-settings-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; padding: 16px; }
 /* Settings' column is too narrow for icon and word side by side in three equal parts, so each option
    puts its icon above its word: one row, and every word inside its own box. */
-.theme-settings .ui-theme-switch { display: flex; border-radius: var(--radius-control); }
-.theme-settings .ui-theme-switch__option { flex: 1 1 0; min-width: 0; flex-direction: column; gap: 2px; padding: 6px 4px; border-radius: var(--radius-control); }
 
 /* ── The Updates page, rebuilt on the components (M33.1) ── */
 .updates-center { display: grid; gap: var(--space-5); }
@@ -5656,7 +5379,6 @@ body {
    and the avatar says who is signed in (its name is the tooltip). */
 @media (max-width: 1599px) {
   :root[data-shell="console"] .connection-pill,
-  :root[data-shell="console"] .approvals-pill,
   :root[data-shell="console"] .signed-in-user__name { display: none; }
 }
 
@@ -5971,7 +5693,7 @@ body {
 :root[data-shell="console"] .panel-header > span:not([class]) { color: var(--cc-muted); font-size: 13px; line-height: 1.4; }
 :root[data-shell="console"] .panel > .panel-header ~ p.muted { font-size: 13.5px; }
 :root[data-shell="console"] .safety-panel { border-color: var(--cc-amber-border); background: var(--cc-amber-bg); }
-:root[data-shell="console"] :is(.settings-grid, .migration-grid) { gap: 10px; }
+:root[data-shell="console"] .migration-grid { gap: 10px; }
 :root[data-shell="console"] .workload { padding: 9px 12px; border-bottom-color: var(--cc-hairline); }
 :root[data-shell="console"] .workload strong { color: var(--cc-text-strong); font-family: var(--font-mono); font-size: 12.5px; font-weight: 500; }
 :root[data-shell="console"] .workload span { font-size: 12.5px; }
@@ -6030,7 +5752,6 @@ body {
 :root[data-shell="console"] .status-pill.status-danger { border-color: var(--cc-red-border); color: var(--cc-red-text); background: var(--cc-red-bg); }
 :root[data-shell="console"] .status-pill.status-neutral { border-color: var(--cc-line-strong); color: var(--cc-text); background: var(--cc-raised); }
 :root[data-shell="console"] .chip { padding: 1px 7px; border-color: var(--cc-line-strong); border-radius: 2px; color: var(--cc-text); background: var(--cc-raised); font-family: var(--font-mono); font-size: 11.5px; }
-:root[data-shell="console"] .good-text { color: var(--cc-green); }
 :root[data-shell="console"] .danger-text { color: var(--cc-red-text); }
 
 /* Notices: the state down the leading edge, the words in the page's text colour */

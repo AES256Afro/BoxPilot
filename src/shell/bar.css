@@ -1,0 +1,74 @@
+/*
+ * The shell's own controls in the top bar (M33.13): Activity, the notifications bell, the role, the
+ * elevated session's lock and Sign out. Words in mono, muted until pointed at, amber when there is
+ * something to see; the same markup reads as the Launcher's ink on Home, whose bar points the same
+ * tokens at the wallpaper's. Tokens only; every selector starts with .bar-.
+ */
+
+.bar-button {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 4px;
+  color: var(--text-muted);
+  background: transparent;
+  font: inherit;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.bar-button:hover { color: var(--text-strong); }
+.bar-button[aria-expanded="true"] { color: var(--text-strong); }
+.bar-button[data-live] { color: var(--accent); }
+.bar-button svg { width: 17px; height: 17px; flex: none; }
+
+/* A count on a control: how many jobs are running, how many notifications are new. */
+.bar-badge {
+  display: inline-grid;
+  min-width: 18px;
+  height: 18px;
+  place-items: center;
+  padding: 0 5px;
+  border-radius: 9px;
+  color: var(--accent-text-on);
+  background: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+/* Facts in the bar that are not buttons: the role, and that approvals are tiered. */
+.bar-label {
+  flex: none;
+  padding: 2px 7px;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+/* Elevated: high-risk approvals skip the password until then, and a press locks it again. */
+.bar-lock { color: var(--accent); }
+.bar-lock__short { display: none; }
+
+@media (max-width: 1599px) {
+  .bar-tiers { display: none; }
+}
+
+@media (max-width: 620px) {
+  .bar-role { display: none; }
+  .bar-lock__long { display: none; }
+  .bar-lock__short { display: inline; }
+  .bar-button { padding: 0 4px; }
+}
