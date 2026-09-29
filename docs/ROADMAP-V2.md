@@ -1561,7 +1561,10 @@ the milestones they overlap.
   unused Classic one), `MetricStrip` (the figure strips of Ops, Performance, System and Updates)
   and `Facts` (the mono facts line of Activity, the notifications, the approval dialog, Settings and
   `PageHeader`). Setup's profile squares stay Setup's: larger, shadowed, a profile's rather than an
-  app's.
+  app's. Agents (M37), merged meanwhile, uses them too: Usage's figures are a `MetricStrip`, the
+  templates' and the trace's facts lines `Facts`, and the webhook's one-time URL a `CopyButton`;
+  an overview of another shape is said on the page rather than failing it. A button inside a mono
+  row (a console table's cell, a line of facts) is drawn in the UI's face now, like every other.
 - The owner wants every concept from the study (2026-09-28): the assistant (B5) is M34; the phone
   layout (B6) is M25; recipes and a GPU page (B7) belong to M22.
 

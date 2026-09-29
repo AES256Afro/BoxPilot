@@ -92,7 +92,7 @@ The shell also owns what opens over any page (M33.13), so a page never draws the
 | `JobProgress` | One job inline, by id: its state in Activity's words, a moving bar, the newest line, the output behind a toggle. Reads the job log's own stream. It never approves or cancels: the approval dialog and Activity do. |
 | `Tag` | A small mono label: `reach` (LAN, tailnet, local, public, said in words), `tier` (LOW/MED/HIGH), or a tone. |
 | `Table` | Rows at the density's height, a status mark per row, an empty state, a phone layout that stacks, and `sortValue` on a column to make it sortable (with `aria-sort`). |
-| `Button`, `RiskTag`, `StatusChip`, `MetricTile`, `Section`, `Card`, `Tile`, `Dock`, `ThemeSwitch`, `Sparkline` | From M33.1-M33.7, unchanged. |
+| `Button`, `RiskTag`, `StatusChip`, `MetricTile`, `Section`, `Card`, `Tile`, `Dock`, `ThemeSwitch`, `Sparkline` | From M33.1-M33.7. A `Button` is always in the UI's face (`--font-sans`), even inside a mono table cell or facts line (M33.14). |
 
 All of them are in the gallery (`/?gallery` on the demo), in both themes, in the CI screenshots.
 
