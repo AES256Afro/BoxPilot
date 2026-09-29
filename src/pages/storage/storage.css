@@ -1,0 +1,154 @@
+/* Storage (M33.9): the page's own layout, on the kit's components. Tokens only, and every
+   selector starts with .storage-, so no other page is touched (docs/UI-PAGES.md). */
+
+.storage-page { display: grid; gap: 10px; min-width: 0; }
+/* A tab's status said in words is absolutely placed; held by its tab, it stays inside the tab list's
+   scroll instead of widening the whole page on a phone. */
+.storage-page .ui-tabs__tab { position: relative; }
+.storage-dim { color: var(--text-muted); font-family: var(--font-condensed); font-size: 12.5px; line-height: 1.4; }
+.storage-pad { margin: 0; padding: 12px; }
+.storage-inset { margin: 10px 12px 0; }
+.storage-wrap { white-space: normal; overflow-wrap: anywhere; }
+.storage-wrap code + code { margin-left: 8px; }
+.storage-push { margin-left: auto; }
+.storage-error, .storage-reconnect__error { margin: 0; color: var(--status-danger-text); font-size: 12.5px; font-weight: 600; }
+
+/* A row's name: the path or name in mono, what it is under it. */
+.storage-name { display: grid; gap: 1px; min-width: 0; padding-block: 5px; white-space: normal; }
+.storage-name__line { display: flex; flex-wrap: wrap; align-items: center; gap: 3px 8px; min-width: 0; }
+.storage-name__main { color: var(--text-strong); font-size: 13px; font-weight: 500; overflow-wrap: anywhere; }
+.storage-name__sub { color: var(--text-muted); font-family: var(--font-mono); font-size: 11.5px; overflow-wrap: anywhere; }
+
+/* A disk's partitions and volumes step in under it. */
+.storage-device { display: flex; flex-wrap: wrap; align-items: center; gap: 3px 8px; min-width: 0; padding: 5px 0 5px calc(var(--storage-depth, 0) * 16px); white-space: normal; }
+.storage-device .storage-name__sub { font-family: var(--font-condensed); font-size: 12.5px; }
+
+/* How full: a short bar, the figures, and the share in mono. */
+.storage-usage { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 3px 8px; min-width: 0; white-space: nowrap; }
+.storage-usage__bar { position: relative; flex: none; width: 56px; height: 5px; overflow: hidden; border-radius: 1px; background: var(--meter-track); }
+.storage-usage__bar > i { position: absolute; inset: 0 auto 0 0; background: var(--cc-cyan); }
+.storage-usage[data-status="warning"] .storage-usage__bar > i { background: var(--status-warning); }
+.storage-usage[data-status="danger"] .storage-usage__bar > i { background: var(--status-danger); }
+.storage-usage__text { color: var(--text-muted); font-family: var(--font-mono); font-size: 12px; }
+.storage-usage__text b { display: inline-flex; align-items: center; gap: 4px; color: var(--text); font-weight: 500; }
+.storage-usage[data-status="warning"] .storage-usage__text b { color: var(--status-warning-text); }
+.storage-usage[data-status="danger"] .storage-usage__text { color: var(--status-danger-text); }
+.storage-usage[data-status="danger"] .storage-usage__text b { color: var(--status-danger-text); }
+.storage-usage .ui-mark { width: 7px; height: 7px; }
+
+/* A row's actions, right-aligned, a size smaller than the page's. */
+.storage-actions-cell { width: 1%; }
+.storage-actions { display: flex; flex-wrap: nowrap; align-items: center; justify-content: flex-end; gap: 4px; white-space: nowrap; }
+.storage-actions .ui-button { min-height: 26px; padding-right: 8px; padding-left: 8px; font-size: 12.5px; }
+.storage-actions .ui-button--risk-medium, .storage-actions .ui-button--risk-high { padding-left: 14px; }
+
+/* Reconnecting a drive by itself: the switch, and what is waiting for a person. */
+.storage-reconnect { display: grid; gap: 3px; min-width: 12rem; padding-block: 5px; white-space: normal; }
+.storage-reconnect .ui-switch__label { font-size: 13px; }
+.storage-reconnect .ui-switch__description { font-family: var(--font-mono); font-size: 11.5px; }
+.storage-reconnect__waiting { display: flex; align-items: baseline; gap: 6px; margin: 0; color: var(--status-warning-text); font-family: var(--font-condensed); font-size: 12.5px; line-height: 1.35; }
+.storage-reconnect__waiting .ui-mark { width: 7px; height: 7px; }
+.storage-rule { display: block; max-width: 96ch; color: var(--text-muted); font-family: var(--font-condensed); font-size: 12.5px; line-height: 1.45; }
+
+/* A sheet keeps to its width: its body's one track would otherwise grow to a select's longest
+   option, past a phone's screen. */
+.storage-sheet .ui-sheet__body { grid-template-columns: minmax(0, 1fr); }
+.storage-sheet .ui-select { min-width: 0; grid-template-columns: minmax(0, 1fr); }
+.storage-sheet .ui-select__control { min-width: 0; }
+
+/* A sheet's small rows: finding a NAS, listing its shares. */
+.storage-find { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.storage-picks { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; border: 1px solid var(--border); border-radius: 4px; }
+.storage-picks > li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-height: 32px; padding: 3px 4px 3px 10px; border-top: 1px solid var(--border-subtle); }
+.storage-picks > li:first-child { border-top: 0; }
+.storage-picks > li > strong { color: var(--text-strong); font-size: 13.5px; }
+.storage-picks > li > code { color: var(--text-muted); font-size: 12px; }
+.storage-picks > li > .ui-button:last-child { margin-left: auto; }
+.storage-picks--inline { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px; border-style: dashed; }
+.storage-picks--inline > li { min-height: 0; padding: 0; border-top: 0; }
+.storage-picks--inline > li > .ui-button:last-child { margin-left: 0; }
+.storage-inline { min-height: 22px; margin-left: 2px; padding: 0 4px; font-size: 12.5px; vertical-align: baseline; }
+.storage-blocker { margin-right: auto; color: var(--text-muted); font-family: var(--font-condensed); font-size: 12.5px; line-height: 1.35; }
+
+/* A file server's settings, above its table. */
+.storage-settings { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 20px; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+.storage-settings__item { display: grid; gap: 5px; min-width: 0; }
+.storage-settings__label { color: var(--text-strong); font-size: 13px; font-weight: 600; }
+.storage-settings__value { color: var(--text-strong); font-family: var(--font-mono); font-size: 13px; }
+.storage-settings__narrow { width: 11rem; }
+.storage-access { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding-block: 4px; white-space: normal; }
+.storage-access .ui-check__label { font-size: 12.5px; }
+
+/* Draft or live, and the button that applies it, across the foot of a file server's panel. */
+.storage-apply { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px 12px; padding: 8px 12px; border-top: 1px solid var(--border); }
+.storage-apply__state { display: inline-flex; align-items: center; gap: 6px; margin-right: auto; color: var(--text-muted); font-family: var(--font-mono); font-size: 12px; }
+.storage-apply__state[data-status="warning"] { color: var(--status-warning-text); }
+.storage-apply__state .ui-mark { width: 7px; height: 7px; }
+.storage-add { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px 12px; padding: 10px 12px; border-top: 1px solid var(--border); }
+.storage-add__grow { flex: 1 1 16rem; max-width: 28rem; }
+.storage-add .ui-check { padding-bottom: 6px; }
+.storage-choose { display: grid; gap: 6px; margin: 0; padding: 8px 10px 10px; border: 1px solid var(--border); border-radius: 4px; }
+.storage-choose legend { padding: 0 4px; color: var(--text-strong); font-size: 13px; font-weight: 600; }
+
+/* A diagnosis, one marked line per check. */
+.storage-diagnosis { display: grid; gap: 6px; padding: 10px 12px; border-top: 1px solid var(--border); }
+.storage-diagnosis__head { margin: 0; color: var(--text-strong); font-size: 13.5px; font-weight: 600; }
+.storage-checks { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.storage-checks__item { display: grid; grid-template-columns: 5.5rem minmax(0, 1fr); gap: 2px 10px; align-items: baseline; }
+.storage-checks__word { display: inline-flex; align-items: center; gap: 6px; color: var(--mark); font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
+.storage-checks__item[data-status="neutral"] .storage-checks__word { color: var(--text-muted); }
+.storage-checks__word .ui-mark { width: 7px; height: 7px; }
+.storage-checks__body { display: grid; gap: 1px; color: var(--text); font-size: 13px; line-height: 1.4; }
+.storage-checks__body strong { color: var(--text-strong); font-weight: 600; }
+
+/* Rows inside a panel that are not a table: users, what to type on another computer. */
+.storage-rows { display: grid; margin: 0; padding: 0; list-style: none; }
+.storage-rows__item { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 12px; min-height: 34px; padding: 5px 12px; border-top: 1px solid var(--border-subtle); }
+.storage-rows__item:first-child { border-top: 0; }
+.storage-rows__item--stack { display: grid; justify-content: stretch; gap: 6px; padding-block: 8px; }
+
+/* What to type on each kind of machine, each line with its Copy. */
+.storage-copy { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.storage-copy > li { display: grid; grid-template-columns: 6.5rem minmax(0, 1fr) auto; gap: 2px 10px; align-items: center; min-height: 28px; }
+.storage-copy__os { color: var(--text-muted); font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
+.storage-copy__path { min-width: 0; padding: 2px 6px; border-radius: 2px; color: var(--text-code); background: var(--code-bg); font-size: 12.5px; overflow-wrap: anywhere; }
+.storage-copy__button { min-height: 24px; padding: 0 8px; font-size: 12.5px; }
+.storage-copy__hint, .storage-copy__failed { grid-column: 2 / -1; color: var(--text-muted); font-family: var(--font-condensed); font-size: 12px; line-height: 1.35; }
+.storage-copy__failed { color: var(--status-warning-text); }
+
+/* Where data lives: one card per place, side by side while there is room. */
+.storage-places { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 19rem), 1fr)); }
+/* Hairlines to the right of and under each card; the panel clips the ones at its edges. */
+.storage-place { display: grid; align-content: start; gap: 8px; min-width: 0; padding: 10px 12px; box-shadow: 1px 0 0 var(--border), 0 1px 0 var(--border); }
+.storage-place__head { display: grid; gap: 1px; min-width: 0; }
+.storage-place__fills { display: inline-flex; align-items: center; gap: 6px; color: var(--text-muted); font-family: var(--font-mono); font-size: 12px; }
+.storage-place__fills[data-status="warning"] { color: var(--status-warning-text); }
+.storage-place__fills .ui-mark { width: 7px; height: 7px; }
+.storage-place__facts { display: grid; gap: 6px; margin: 0; }
+.storage-place__facts > div { display: grid; grid-template-columns: 5.5rem minmax(0, 1fr); gap: 8px; align-items: baseline; }
+.storage-place__facts dt { color: var(--text-muted); font-family: var(--font-mono); font-size: 10.5px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
+.storage-place__facts dd { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; margin: 0; }
+.storage-place__facts .ui-tag { white-space: normal; overflow-wrap: anywhere; }
+.storage-disclose { display: grid; gap: 6px; }
+.storage-disclose > summary { width: fit-content; color: var(--accent); font-size: 13px; font-weight: 600; cursor: pointer; }
+
+/* What is filling a drive that is filling up. */
+.storage-blame { display: grid; gap: 2px; margin: 0; padding-left: 18px; color: var(--text); font-size: 13px; line-height: 1.45; }
+.storage-blame code { font-size: 12px; overflow-wrap: anywhere; }
+
+@media (max-width: 640px) {
+  /* A stacked row: its buttons name themselves, so no "Actions:" before them, and no empty line. */
+  .storage-page td.storage-actions-cell[data-label]::before { content: none; }
+  .storage-page td.storage-actions-cell:has(> .storage-actions:empty) { display: none; }
+  /* A panel's facts wrap under its title instead of being cut off. */
+  .storage-page .ui-panel__meta { flex-basis: 100%; margin-left: 0; text-align: left; white-space: normal; }
+  .storage-actions { flex-wrap: wrap; justify-content: flex-start; padding-top: 4px; white-space: normal; }
+  .storage-actions-cell { width: auto; }
+  .storage-device { padding-left: 0; }
+  .storage-copy > li { grid-template-columns: minmax(0, 1fr) auto; }
+  .storage-copy__os { grid-column: 1 / -1; }
+  .storage-copy__hint, .storage-copy__failed { grid-column: 1 / -1; }
+  .storage-checks__item { grid-template-columns: minmax(0, 1fr); }
+  .storage-settings__narrow { width: 100%; }
+  .storage-reconnect { min-width: 0; }
+}

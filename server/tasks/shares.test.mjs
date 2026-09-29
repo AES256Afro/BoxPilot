@@ -150,7 +150,7 @@ describe("share.mount, on the host through the share's own units", () => {
     expect(files.state.removedDirs).toContain("/mnt/nas-private");
     // Nothing is left on the host, and no failed unit is left listed.
     expect(host.state.mounts["/mnt/nas-private"]).toEqual([]);
-    expect(host.calls).toContain("journalctl --no-pager -o cat -u mnt-nas\\x2dprivate.mount --since=@1790596800");
+    expect(host.calls).toContain("journalctl --no-pager -o cat -u mnt-nas\\x2dprivate.mount --since=@1790596800.000");
     expect(host.calls).toContain("systemctl stop mnt-nas\\x2dprivate.mount mnt-nas\\x2dprivate.automount");
     // Cleared while its fstab line still loads it; the reload then lets it go.
     const order = ["systemctl stop mnt-nas\\x2dprivate.mount mnt-nas\\x2dprivate.automount", "systemctl reset-failed mnt-nas\\x2dprivate.mount"].map((call) => host.calls.indexOf(call));
@@ -160,6 +160,24 @@ describe("share.mount, on the host through the share's own units", () => {
   it("says the host did not answer when systemd gave up waiting for it", async () => {
     const host = fakeHost({ mountFails: "mnt-nas.mount: Mounting timed out. Terminating.\nmnt-nas.mount: Mount process exited, code=killed, status=15/TERM\nmnt-nas.mount: Failed with result 'timeout'." });
     await expect(shareMount({ kind: "nfs", host: "192.0.2.1", share: "/volume1/media", name: "nas" }, { run: host.run, files: fakeFiles(), exists: toolsPresent, now })).rejects.toThrow(/did not answer.*removed again/);
+  });
+
+  it("explains a failure by this attempt's words, never by a refusal the share's unit logged just before", async () => {
+    // Seen in CI (tests/ubuntu/share-mount-host.sh 4b): share.mount of a NAS that does not answer,
+    // started in the same second as a wrong password for the same share was refused. Read from the
+    // whole second, the journal held that refusal too, and the host was said to refuse the credentials.
+    const refused = "Mounting mnt-nas\\x2dmedia.mount - /mnt/nas-media...\nmount error(13): Permission denied\nRefer to the mount.cifs(8) manual page (e.g. man mount.cifs) and kernel log messages (dmesg)\nmnt-nas\\x2dmedia.mount: Mount process exited, code=exited, status=32/n/a\nmnt-nas\\x2dmedia.mount: Failed with result 'exit-code'.\nFailed to mount mnt-nas\\x2dmedia.mount - /mnt/nas-media.";
+    const unanswered = "Mounting mnt-nas\\x2dmedia.mount - /mnt/nas-media...\nmount error(115): Operation now in progress\nRefer to the mount.cifs(8) manual page (e.g. man mount.cifs) and kernel log messages (dmesg)\nmnt-nas\\x2dmedia.mount: Mount process exited, code=exited, status=32/n/a\nmnt-nas\\x2dmedia.mount: Failed with result 'exit-code'.\nFailed to mount mnt-nas\\x2dmedia.mount - /mnt/nas-media.";
+    const began = () => new Date("2026-09-29T10:36:09.880Z");
+    const host = fakeHost({ mountFails: `${refused}\n${unanswered}` });
+    await expect(shareMount({ kind: "smb", host: "192.0.2.1", share: "media", name: "nas-media", username: "nasuser", password: "right" }, { run: host.run, files: fakeFiles(), exists: toolsPresent, now: began }))
+      .rejects.toThrow(/^The host did not answer\..*were removed again\.$/);
+    // The journal is read from the moment the attempt began, not from the start of its second.
+    expect(host.calls).toContain("journalctl --no-pager -o cat -u mnt-nas\\x2dmedia.mount --since=@1790678169.880");
+    // The other way round, a refusal after a host that did not answer is still a refusal.
+    const again = fakeHost({ mountFails: `${unanswered}\n${refused}` });
+    await expect(shareMount({ kind: "smb", host: "127.0.0.1", share: "media", name: "nas-media", username: "nasuser", password: "wrong" }, { run: again.run, files: fakeFiles(), exists: toolsPresent, now: began }))
+      .rejects.toThrow(/^The NAS refused the credentials\./);
   });
 
   it("does not take systemd's word that it mounted: nothing on the host is a failure", async () => {
@@ -325,6 +343,9 @@ describe("share.reconnect, the share's own remount", () => {
     await expect(shareReconnect({ name: "nas-media" }, { run: host.run, files, now }))
       .rejects.toThrow(/^The host did not answer\..* \/mnt\/nas-media is not mounted now; its fstab entry is kept, so it mounts by itself once the NAS answers\.$/);
     expect(files.state.fstab).toBe(MANAGED_FSTAB);
+    // An earlier attempt's refusal in the journal read does not decide it either.
+    const stale = fakeHost({ mounts: { "/mnt/nas-media": ["autofs", "cifs"] }, mountFails: "Mounting mnt-nas\\x2dmedia.mount - /mnt/nas-media...\nmount error(13): Permission denied\nMounting mnt-nas\\x2dmedia.mount - /mnt/nas-media...\nmount error(112): Host is down\nmnt-nas\\x2dmedia.mount: Mount process exited, code=exited, status=32/n/a" });
+    await expect(shareReconnect({ name: "nas-media" }, { run: stale.run, files: fakeFiles(MANAGED_FSTAB), now })).rejects.toThrow(/^The host did not answer\./);
   });
 
   it("fails, after restarting the apps, when the share comes back read-only again", async () => {
