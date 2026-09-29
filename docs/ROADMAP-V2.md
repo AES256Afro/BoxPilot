@@ -2123,11 +2123,60 @@ nothing leaves the server unless the owner says so, and no account is made with 
     organization's link opens the organization form. A minute later it used about 2.6 GB of memory
     (Zulip 2.4 GB, RabbitMQ 150 MB, PostgreSQL 60 MB, Redis and memcached 17 MB) and 3.5 GB of disk
     for its images.
-- **M38.2 Agents talk to Zulip** (the stacked pull request): Connect makes a bot with `manage.py`
-  owned by the organization's owner, keeps its key in the credential store, and creates
-  #agent-findings, #agent-logs, #agent-knowledge and #agent-files; every agent posts its outcomes
-  there by default, the runtime and not the model posting, redacted and bounded; files dropped in
-  #agent-files come into Knowledge.
+- ✅ **M38.2 Agents talk to Zulip** (unreleased).
+  - **Connect** (`agents.zulip.connect`, medium, owner, the approval dialog from the Agents tab's
+    Team chat panel): one fixed script (`server/agents/zulip-connect.py`) through `manage.py shell`
+    as the zulip user makes a generic bot with Zulip's own `do_create_user`, owned by the
+    organization's owner, and four private channels only the owner and the bot are in -
+    #agent-findings, #agent-logs, #agent-knowledge, #agent-files - and is safe to run again (it
+    reuses the bot, reactivates it if needed, keeps channels that exist and says which are public).
+    Chosen over a key the owner pastes: the key never passes through a browser or the web process,
+    nothing is made by hand, and running it again repairs. The key goes straight into the
+    credential store (`zulip-agents-bot`); a root task checks it with Zulip and says hello in
+    #agent-findings. `agents.zulip.disconnect` (low) removes the key; nothing in Zulip is deleted.
+  - **Every agent has chat outputs**: findings, logs and knowledge, each on by default, to the
+    connection's channel under the agent's name, overridable per agent (channel, topic, on or off)
+    on the Build tab's guardrails; templates, new agents and agents saved before M38 all get them.
+    Once connected, the system prompt says where each goes, that BoxPilot posts and the agent
+    cannot, that approvals never happen in chat, and that #agent-files is data (`chatParagraph`).
+  - **The runtime posts, never the model** (`server/agents/chat.mjs`): after a run, its answer or
+    digest and its cards (at most two, each linking back to BoxPilot, where it is decided) go to
+    #agent-findings, its trace to #agent-logs (a summary; a long trace as an attached Markdown
+    file, 48,000 characters at most), and the notes it kept to #agent-knowledge. Every word is
+    redacted as the runner's are, stripped of template tokens, and has its @-mentions broken, so an
+    agent pages nobody; BoxPilot's own links are added after redaction. An outbox table
+    (`agent_chat_posts`) holds at most 200 waiting posts, sends batches of ten through the root task
+    (`agents.zulip.post`, low, run by BoxPilot itself like the TLS renewal, on a helper lane of its
+    own), sixty posts an hour for all agents, three tries each, and waits while Agents are off,
+    paused or killed.
+  - **#agent-files into Knowledge**: every three minutes while Agents run (or "Check #agent-files
+    now"), the read `agents.zulip.poll` (owner) reads the messages after the last one seen, twenty
+    at most, and downloads the files they link: PDFs, Markdown and text through the uploads' own
+    reader, images kept as they came (60 at most) - at most 5 MB each, ten files and 12 MB a poll. A
+    message of words alone becomes a note. Each is redacted, is data, and is answered in its topic
+    ("Added to Knowledge as ..." or why not). An image is described by the model in quiet hours (a
+    `describe` run like the memory index's: one image, 320 tokens, within the day's model time),
+    and the description becomes the document's text.
+  - **The Team chat panel** (Agents tab): installed, connected, the channels and what goes where,
+    the last post or error, what came in from #agent-files, counts and, for the owner, the last
+    posts; Connect, Connect again, Disconnect, Check now. Links from chat open the run
+    (`?view=agents&tab=test&agent=..&run=..`).
+  - Tests: the connect operation (key only in the store, safe to run again, what to do first), the
+    script parses (Python), channel names and posts validated, lanes; the root tasks against a
+    stand-in Zulip API (`test/fake-zulip.mjs`: loopback only, Serve's headers, attachments, the
+    poll's limits); the words (redaction, mentions, cards, traces as files); the service end to end
+    with the real runner (nothing before Connect, outputs per agent, the outbox's limits, pause,
+    failures, disconnect, ingest and acks, an image described in quiet hours); the panel and the
+    Builder. `zulip-host.yml` runs Connect twice, posts, and reads back a file the owner dropped, on
+    a real Zulip.
+- **M38.3 Two-way chat** (specified, not built): a DM or an @-mention of the bot asks an agent, and
+  the answer goes to the thread. The owner maps each Zulip user to a BoxPilot account in the Team
+  chat panel; a message from anyone unmapped is answered with "you are not set up to ask" and never
+  reaches a model. The question runs as that person, read-only, exactly as the Test tab's Ask does
+  (their role's tools, their rate limit, their conversation), against the agent named in the
+  message or the owner's default (the Server Keeper). The poll that reads #agent-files would also
+  read `is:dm` and `is:mentioned` after the last seen id; the reply is an ordinary queued post.
+  Cards it proposes still link back to BoxPilot; nothing is approved in chat.
 
 ## App catalogue candidates
 
