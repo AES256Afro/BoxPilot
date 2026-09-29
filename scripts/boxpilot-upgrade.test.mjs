@@ -98,7 +98,14 @@ describe("where the copy sits in the upgrade", () => {
   it("gives the copy the live database's owner and mode, and makes it private from the start", () => {
     expect(script).toContain('chown --reference="$DATABASE" "$DB_COPY"');
     expect(script).toContain('chmod --reference="$DATABASE" "$DB_COPY"');
-    expect(script).toMatch(/copied="\$\(umask 077 && "\$NODE_BIN" --no-warnings --input-type=module -e "\$DB_COPY_JS" "\$DATABASE" "\$DB_COPY" 2>&1\)"/);
+    expect(script).toMatch(/copied="\$\(cd \/ && umask 077 && \$AS_OWNER "\$NODE_BIN" --no-warnings --input-type=module -e "\$DB_COPY_JS" "\$DATABASE" "\$DB_COPY" 2>&1\)"/);
+  });
+
+  it("copies the database as its own user, so root never creates its -wal or -shm files", () => {
+    // Root opening the database while the service is stopped could leave those files owned by root,
+    // and the service could then not open its own database.
+    expect(script).toContain('DB_OWNER="$(stat -c %U "$DATABASE")"');
+    expect(script).toContain('AS_OWNER="runuser -u ${DB_OWNER} --"');
   });
 
   it("names the copy that matches the old code when it rolls back", () => {
