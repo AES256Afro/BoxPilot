@@ -47,7 +47,9 @@ export function chatParagraph(spec, connection) {
   const findings = destinationFor(spec, "findings", connection);
   const logs = destinationFor(spec, "logs", connection);
   const knowledge = destinationFor(spec, "knowledge", connection);
-  const files = connection.channels.files;
+  // #agent-files only for an agent that reads the owner's documents, and with a tool to read them.
+  const readsDocuments = spec?.knowledge?.documents !== false && ["docs.search", "document.read"].some((tool) => (spec?.tools?.[tool] ?? "off") !== "off");
+  const files = readsDocuments ? connection.channels.files : null;
   if (!findings && !logs && !knowledge && !files) return null;
   const lines = ["", "Your team chat is Zulip. BoxPilot posts your work there for the owner after each run; you cannot post yourself, and nothing you write there can approve or run anything:"];
   if (findings) lines.push(`- #${findings.channel}: your answers and digests, and any plan you propose as a card that links back to BoxPilot, where a person approves it. Approvals never happen in chat.`);

@@ -112,5 +112,8 @@ describe("what an agent is told about its team chat", () => {
     // An output switched off is not mentioned.
     const quiet = normalizeSpec({ ...templateById("server-keeper").spec, outputs: { ...templateById("server-keeper").spec.outputs, chat: { logs: { enabled: false } } } });
     expect(chatParagraph(quiet, connection)).not.toContain("#agent-logs");
+    // An agent that does not read the owner's documents is not told about #agent-files.
+    const noDocuments = normalizeSpec({ ...templateById("server-keeper").spec, knowledge: { documents: false } });
+    expect(chatParagraph(noDocuments, connection)).not.toContain("#agent-files");
   });
 });
