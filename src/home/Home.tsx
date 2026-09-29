@@ -9,6 +9,7 @@ import { appHue } from "../ui/appColor";
 import { AppSheet } from "./AppSheet";
 import { useFacts, valuesOf, type AppFact } from "./facts";
 import { greeting, loadStatus, mountName, mountStatus, relativeTime, shortCpu, size, uptime } from "./format";
+import { smartSummary, upsSummary } from "./hostFacts";
 import { NeedRow } from "./NeedRow";
 import { appHealth, buildNeeds, needsLabel, verdictFor, verdictSources, type Need } from "./needs";
 
@@ -98,6 +99,9 @@ export default function Home({ csrfToken, role, onNavigate, now = Date.now }: Ho
   const lastDrill = apps.flatMap((app) => (app.drill?.checkedAt ? [app.drill] : [])).sort((a, b) => (b.checkedAt ?? "").localeCompare(a.checkedAt ?? ""))[0] ?? null;
   const drillWords = lastDrill ? `${lastDrill.verified ? "drill passed" : "drill failed"} ${relativeTime(lastDrill.checkedAt, clock) ?? ""}`.trim() : undefined;
 
+  const diskWords = smartSummary(inventory?.smart ?? null);
+  const power = upsSummary(inventory?.ups ?? null);
+
   const shownNeeds = allUrgent ? urgent : urgent.slice(0, shownUrgent);
   const shownWait = allWaiting ? waiting : waiting.slice(0, shownWaiting);
 
@@ -140,6 +144,15 @@ export default function Home({ csrfToken, role, onNavigate, now = Date.now }: Ho
                 status={inventory ? loadStatus(inventory.loadPercent, 80, 95) : "unknown"} bar={inventory ? { value: inventory.loadPercent } : undefined} onSelect={() => onNavigate("performance")} />
               <MetricTile label="Memory" value={inventory ? size(inventory.memoryUsed) : "—"} caption={inventory ? `of ${size(inventory.memoryTotal)} · ${inventory.memoryPercent}%` : notRead(facts.inventory.state)}
                 status={inventory ? loadStatus(inventory.memoryPercent, 85, 95) : "unknown"} bar={inventory ? { value: inventory.memoryPercent } : undefined} onSelect={() => onNavigate("performance")} />
+              {/* From the Classic overview (M33.8): the drives' health and the UPS, when there is one. */}
+              {inventory?.smart?.available && (
+                <MetricTile label="Drive health" value={diskWords.label} caption={inventory.smart.readAt ? `read ${relativeTime(inventory.smart.readAt, clock)}` : "not read yet"}
+                  status={diskWords.status} onSelect={() => onNavigate("ops")} />
+              )}
+              {inventory?.ups?.configured && (
+                <MetricTile label="UPS" value={power.label} caption={inventory.ups.charge === null ? power.headline : `battery ${inventory.ups.charge}%${inventory.ups.runtimeSeconds ? ` · ${Math.round(inventory.ups.runtimeSeconds / 60)} min` : ""}`}
+                  status={power.status} bar={inventory.ups.charge === null ? undefined : { value: inventory.ups.charge }} onSelect={() => onNavigate("ops")} />
+              )}
             </div>
           </Section>
         </div>
