@@ -111,6 +111,19 @@ describe("where the copy sits in the upgrade", () => {
     expect(removals).toEqual(['      rm -f "$DB_COPY" "${DB_COPY}-journal" "${DB_COPY}-wal" "${DB_COPY}-shm"']);
   });
 
+  // Two upgrades two seconds apart on the owner's server (M36).
+  it("takes the upgrade lock before it downloads anything, and refuses a second run naming the first", () => {
+    const locked = at('if ! flock -n 9; then');
+    expect(at('exec 9>>"$UPGRADE_LOCK"')).toBeLessThan(locked);
+    expect(locked).toBeLessThan(at('log "downloading ${REPO}@${REF}"'));
+    expect(script).toContain('UPGRADE_LOCK="${BOXPILOT_UPGRADE_LOCK:-/run/boxpilot-upgrade.lock}"');
+    expect(script).toMatch(/fail "another BoxPilot update is already running \(\$\{holder:-it holds \$\{UPGRADE_LOCK\}\}\)\. Nothing was changed/);
+    // The holder is written only once the lock is held: opened for append, so a refused run never
+    // wipes what the holder wrote.
+    expect(at("printf 'pid=%s ref=%s started=%s by=%s\\n'")).toBeGreaterThan(locked);
+    expect(script).not.toMatch(/exec 9>"\$UPGRADE_LOCK"/);
+  });
+
   it("keeps saying the new version is live last, which the System page reads", () => {
     expect(script.trimEnd().split("\n").at(-1)).toMatch(/^log "BoxPilot \$\{NEW_VERSION\} \(\$\{REF\}\) is live;/);
   });
