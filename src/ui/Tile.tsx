@@ -12,6 +12,8 @@ export interface TileProps {
   detail?: ReactNode;
   /** The app's icon (an img or svg). Without one, the tile shows the name's initials. */
   icon?: ReactNode;
+  /** A colour square behind the icon, named from src/ui/appColor.ts: Home's app squares (M33.7). */
+  hue?: string;
   /** Opens the app; the tile is then a link. */
   href?: string;
   /** Opens something about the app (a sheet, its page); the tile is then a button. */
@@ -32,13 +34,13 @@ export function initials(name: string): string {
  * something is named "Immich, Needs a look" and described by its fact, so the name stays short
  * and never depends on how inline pieces are spaced.
  */
-export function Tile({ name, status, statusLabel, detail, icon, href, onSelect, className }: TileProps) {
+export function Tile({ name, status, statusLabel, detail, icon, hue, href, onSelect, className }: TileProps) {
   const detailId = useId();
   const interactive = Boolean(href || onSelect);
   const hasDetail = detail !== undefined && detail !== null && detail !== "";
   const body = (
     <>
-      <span className="ui-tile__icon" aria-hidden="true">
+      <span className="ui-tile__icon" data-hue={hue} aria-hidden="true">
         {icon ?? <span className="ui-tile__initials">{initials(name)}</span>}
         <span className="ui-mark ui-tile__mark" />
       </span>

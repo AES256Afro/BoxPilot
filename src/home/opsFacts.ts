@@ -27,6 +27,28 @@ export function performanceFrom(value: unknown): Performance {
   return { ...body, temps: Array.isArray(body.temps) ? body.temps : [], statsAvailable: Boolean(body.statsAvailable), uptimeSeconds: body.uptimeSeconds ?? 0 } as Performance;
 }
 
+/**
+ * One live read of the figures Ops draws as sparklines (M33.7): processor and memory in percent
+ * and the hottest sensor. BoxPilot keeps no history of these, so Ops keeps its own while it is
+ * open: every read is appended to a short rolling buffer, and the lines start when the page does.
+ * Null where that read had no such figure; nothing is filled in.
+ */
+export interface Sample { at: number; cpu: number | null; memory: number | null; hottest: number | null }
+
+/** Sixty reads: five minutes at Ops' five-second pace. */
+export const sampleLimit = 60;
+
+export function sampleFrom(performance: Performance, at: number): Sample {
+  const finite = (value: number | null | undefined) => (typeof value === "number" && Number.isFinite(value) ? value : null);
+  const temps = performance.temps.map((temp) => temp.celsius).filter((celsius) => Number.isFinite(celsius));
+  return { at, cpu: finite(performance.cpu.usagePercent), memory: finite(performance.memory.usedPercent), hottest: temps.length ? Math.max(...temps) : null };
+}
+
+/** The buffer with `sample` appended and the oldest dropped past `limit`. A new array: state stays immutable. */
+export function pushSample(buffer: readonly Sample[], sample: Sample, limit = sampleLimit): Sample[] {
+  return [...buffer, sample].slice(-Math.max(1, limit));
+}
+
 export interface WorkloadRow {
   kind: "app" | "vm";
   id: string;
