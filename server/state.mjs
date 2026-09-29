@@ -1534,15 +1534,17 @@ export function createStateStore({
   }
 
   function recoverInterruptedJobs() {
-    const interrupted = database.prepare("SELECT id, title FROM jobs WHERE state IN ('applying', 'verifying')").all();
+    const interrupted = database.prepare("SELECT id, title, state FROM jobs WHERE state IN ('applying', 'verifying')").all();
     if (!interrupted.length) return [];
     // One transaction: a crash during startup recovery would otherwise leave some jobs marked
     // failed with no step saying why.
     database.exec("BEGIN IMMEDIATE");
     try {
-      for (const { id } of interrupted) {
+      for (const { id, state } of interrupted) {
         database.prepare("UPDATE jobs SET state = 'failed', error = ?, updated_at = ? WHERE id = ?")
           .run("BoxPilot restarted while this job was running. The operation itself may still have finished on its own; check what it changed before retrying.", timestamp(), id);
+        // A failed job leaves no step running: the one it was in ends here, cut off.
+        addJobStep(id, state === "verifying" ? "verify" : "apply", "failed", "Cut off when BoxPilot restarted");
         // Whether it runs again is decided after this, from the registry (server/job-reruns.mjs).
         addJobStep(id, "recovery", "required", "The operation was interrupted by a BoxPilot restart");
       }
