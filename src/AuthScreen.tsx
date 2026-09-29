@@ -1,8 +1,18 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { AuthError, bootstrapOwner, fetchIdentityOptions, loginOwner, loginWithTailscale, pollGithubSignIn, startGithubSignIn, type AuthStatus, type GithubFlow, type IdentityOptions } from "./auth";
+import { AuthError, bootstrapOwner, fetchIdentityOptions, loginOwner, loginWithTailscale, pollGithubSignIn, startGithubSignIn, type AuthStatus, type GithubFlow, type IdentityOptions, type SignedOutReason } from "./auth";
 import { passkeysSupported, signInWithPasskey, signInWithRecoveryCode } from "./passkey";
 
-export default function AuthScreen({ bootstrapRequired, onAuthenticated }: { bootstrapRequired: boolean; onAuthenticated: (status: AuthStatus) => void }) {
+/** Why a session this browser had is gone, and the page signing in goes back to (M36). */
+export interface SignedOutNotice { reason: SignedOutReason; page: string | null }
+
+export function signedOutWords({ reason, page }: SignedOutNotice): string {
+  const back = page ? ` Sign in to go back to ${page}.` : " Sign in to carry on.";
+  return reason === "expired"
+    ? `Your session ended: a sign-in lasts twelve hours, and restarts and updates do not end it.${back}`
+    : `You were signed out from somewhere else: a password change, a role change or "sign out everywhere else" ends this browser's session.${back}`;
+}
+
+export default function AuthScreen({ bootstrapRequired, onAuthenticated, notice = null }: { bootstrapRequired: boolean; onAuthenticated: (status: AuthStatus) => void; notice?: SignedOutNotice | null }) {
   const [username, setUsername] = useState("operator");
   const [password, setPassword] = useState("");
   const [bootstrapToken, setBootstrapToken] = useState("");
@@ -107,7 +117,8 @@ export default function AuthScreen({ bootstrapRequired, onAuthenticated }: { boo
       <section className="auth-card">
         <div className="auth-brand"><span>B</span><div><strong>BoxPilot</strong><small>Ubuntu server setup and management</small></div></div>
         <span className="eyebrow">{bootstrapRequired ? "Server-local owner setup" : "Private administration"}</span>
-        <h1>{bootstrapRequired ? "Claim this BoxPilot server" : "Sign in to BoxPilot"}</h1>
+        <h1>{bootstrapRequired ? "Claim this BoxPilot server" : notice?.reason === "expired" ? "Your session ended" : "Sign in to BoxPilot"}</h1>
+        {notice && <p className="auth-notice" role="status">{signedOutWords(notice)}</p>}
         <p>{bootstrapRequired
           ? "Generate a short-lived token from an SSH session on the server, then create the first owner here."
           : "Use the local BoxPilot owner account. Tailscale access does not replace application authentication."}</p>
