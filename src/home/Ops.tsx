@@ -9,6 +9,7 @@ import { useFacts, valuesOf, type ServiceFact, type SmartDiskFact } from "./fact
 import { elapsed, loadStatus, mountName, mountStatus, relativeTime, shortAge, size, uptime } from "./format";
 import { checklistSummary, diskDetail, diskHealth, serviceState, smartSummary, smartUnreadReason, upsSummary } from "./hostFacts";
 import { NeedRow } from "./NeedRow";
+import { AgentsGlance } from "../pages/agents/AgentsGlance";
 import { buildNeeds, groupByTier, verdictFor, verdictSources, type Need } from "./needs";
 import { backupMatrix, jobState, jobTarget, performanceFrom, pushSample, sampleFrom, shortReach, workloads, type BackupRow, type Performance, type RunState, type Sample, type WorkloadRow } from "./opsFacts";
 
@@ -336,6 +337,7 @@ export default function Ops({ csrfToken, role, onNavigate, now = Date.now, pollM
                 </ul>
               )}
         </Panel>
+        <AgentsGlance variant="ops" role={role} onOpen={() => onNavigate("agents")} now={now} />
       </div>
     </div>
   );

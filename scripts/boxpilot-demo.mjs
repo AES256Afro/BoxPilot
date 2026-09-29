@@ -28,6 +28,7 @@ import { productVersion } from "../server/version.mjs";
 import { securityHeaders } from "../server/security-headers.mjs";
 import { databaseCopyReport, databaseCopyRule, describeDatabaseCopy, humanBytes } from "../server/housekeeping.mjs";
 import { keepsBackupData } from "../server/catalog/schema.mjs";
+import { createAgentsDemo } from "./demo-agents.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const dist = path.join(root, "dist");
@@ -1099,6 +1100,21 @@ api.post("/assistant/ask", (_request, response) => json(response, {
     why: "Vaultwarden has never been backed up.", request: { method: "POST", path: "/api/v1/operations/app.backup/jobs", body: { parameters: { id: "vaultwarden" } } } }], dropped: [] },
   model: "hermes3:8b", degraded: null, citations: { unknown: [], uncited: [] }, notes: [],
 }));
+
+/**
+ * Agents (M37): the real agent service and runner on a temporary database per world, with a
+ * stand-in model instead of Unsloth (scripts/demo-agents.mjs). The list routes are named here so the
+ * static bundle carries them; everything else under /agents reaches the same world.
+ */
+export const agentsDemo = createAgentsDemo({ inventory, apps: installed, services: Object.fromEntries(scenarioNames.map((name) => [name, fixturesFor(name)["service.list"]])), scenarioOf });
+api.get("/agents", agentsDemo.handle);
+api.get("/agents/catalog", agentsDemo.handle);
+api.get("/agents/usage", agentsDemo.handle);
+api.get("/agents/runtime", agentsDemo.handle);
+api.get("/agents/glance", agentsDemo.handle);
+api.get("/agents/proposals", agentsDemo.handle);
+api.get("/agents/knowledge", agentsDemo.handle);
+api.use(agentsDemo.handle);
 
 api.all("/{*rest}", (_request, response) => response.status(404).json({ error: "Not part of the demo", code: "demo_missing" }));
 app.use("/api/v1", api);
