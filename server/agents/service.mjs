@@ -35,7 +35,7 @@ import { defaultModelId, downloadPreview, findNewerQwen, modelById, modelLibrary
 import { chainOf, checkHandoff, findSpecialist, specialistsFor, treeOf } from "./orchestrator.mjs";
 import { exportDefinition, readDefinition } from "./portable.mjs";
 import { checkCitations, readStructuredAnswer, systemMessage, taskMessage } from "./prompt.mjs";
-import { SpecError, agentEvents, budgetCeilings, diffSpecs, normalizeSpec, outputFormats, scopeWarnings, specText } from "./spec.mjs";
+import { SpecError, agentEvents, budgetCeilings, diffSpecs, normalizeSpec, outputFormats, previousRunSecondsDefault, scopeWarnings, specText } from "./spec.mjs";
 import { digestToken, finishedStates } from "./store.mjs";
 import { agentTemplates, templateById, templateQuestions } from "./templates.mjs";
 import { describeTools, readToolInput, roleAtLeast, toModelTool, toolAllowed, toolById, toolCatalog, toolCategories } from "./tool-catalog.mjs";
@@ -47,6 +47,10 @@ export const agentsKnowledgeKey = "agentsKnowledge";
 export const runnerTokenKey = "agentsRunnerToken";
 export const runtimeCheckKey = "agentsRuntimeCheck";
 export const runtimeInstallKey = "agentsRuntimeInstall";
+/** One-time changes BoxPilot made to saved agents, and when (migrateDefaults). */
+export const agentsMigrationsKey = "agentsMigrations";
+/** The model's measured speed on this server, kept from the runner's runs (modelSpeed). */
+export const modelSpeedKey = "agentsModelSpeed";
 
 export const serviceLimits = Object.freeze({
   leaseMs: 60_000,
@@ -662,7 +666,7 @@ export function createAgentService({
     const at = now().getTime();
     for (const run of store.activeRuns().filter((entry) => entry.state === "running")) {
       const spec = store.getVersion(run.agentId, run.version)?.spec;
-      const deadline = Date.parse(run.startedAt) + (spec?.budget?.runSeconds ?? 600) * 1000 + limits.runGraceMs;
+      const deadline = Date.parse(run.startedAt) + (spec?.budget?.runSeconds ?? budgetCeilings.runSeconds.default) * 1000 + limits.runGraceMs;
       if (at > deadline) {
         if (store.finishRun(run.id, { state: "timeout", reason: "It ran past its time limit and was stopped." })) emit(run.id, "state", { state: "timeout" });
       } else if (run.leaseExpiresAt && Date.parse(run.leaseExpiresAt) < at) {
@@ -685,7 +689,7 @@ export function createAgentService({
     if (!run || !store.holdsLease(runId, lease)) return { continue: false, reason: "lease_lost", stopModel: false };
     if (run.state !== "running") return { continue: false, reason: run.state, stopModel: run.state === "killed" };
     const spec = store.getVersion(run.agentId, run.version)?.spec;
-    if (now().getTime() > Date.parse(run.startedAt) + (spec?.budget?.runSeconds ?? 600) * 1000 + limits.runGraceMs) {
+    if (now().getTime() > Date.parse(run.startedAt) + (spec?.budget?.runSeconds ?? budgetCeilings.runSeconds.default) * 1000 + limits.runGraceMs) {
       store.finishRun(run.id, { state: "timeout", reason: "It ran past its time limit and was stopped." });
       emit(run.id, "state", { state: "timeout" });
       return { continue: false, reason: "timeout", stopModel: false };
@@ -1877,7 +1881,7 @@ export function createAgentService({
     runnerAdvice: () => runnerAdvice(),
     verifyRunnerToken: (token) => verifyRunnerToken(token), ensureRunnerToken: () => ensureRunnerToken(),
     // background
-    start, tick, recoverAtStartup, onJob, onHealthRound, moduleSettings, runtimeSettings,
+    start, tick, recoverAtStartup, migrateDefaults, onJob, onHealthRound, moduleSettings, runtimeSettings,
     get limits() { return limits; },
   };
 
@@ -1999,6 +2003,28 @@ export function createAgentService({
 
   // ---- background ----
 
+  /**
+   * Once, at startup: an agent saved with the old default longest run (10 minutes) gets the new
+   * 15-minute default, as a version of its own that says BoxPilot made it. An agent the owner set to
+   * anything else keeps it, and so does one they set back to 10 minutes after this ran.
+   */
+  function migrateDefaults() {
+    const done = state.getSetting?.(agentsMigrationsKey, null) ?? {};
+    if (done.runSeconds) return 0;
+    let raised = 0;
+    for (const agent of store.listAgents()) {
+      if (agent.spec?.budget?.runSeconds !== previousRunSecondsDefault) continue;
+      let spec;
+      try { spec = normalizeSpec({ ...agent.spec, budget: { ...agent.spec.budget, runSeconds: budgetCeilings.runSeconds.default } }); } catch { continue; }
+      const version = store.addVersion(agent.id, { spec, note: "BoxPilot raised the time limit to the new 15-minute default", createdBy: null, nextRunAt: agent.nextRunAt ?? nextRunFor(spec) });
+      if (!version) continue;
+      audit("agents.updated", { subjectId: agent.id, details: { version, fields: ["budget.runSeconds"], by: "boxpilot" } });
+      raised += 1;
+    }
+    state.setSetting?.(agentsMigrationsKey, { ...done, runSeconds: { at: now().toISOString(), raised } }, { updatedBy: null });
+    return raised;
+  }
+
   /** At startup: a run that was going when BoxPilot stopped is marked, not retried. */
   function recoverAtStartup() {
     let count = 0;
@@ -2068,6 +2094,7 @@ export function createAgentService({
 
   function start({ subscribeJobs = null, afterRound = null } = {}) {
     recoverAtStartup();
+    try { migrateDefaults(); } catch { /* the agents stay as they were saved */ }
     const timer = setInterval(() => { void tick().catch(() => {}); }, limits.tickMs);
     timer.unref?.();
     const unsubscribeJobs = subscribeJobs ? subscribeJobs(onJob) : null;
