@@ -65,7 +65,8 @@ export async function resourceUse() {
   const images = await docker(["image", "ls", "--format", "json"]);
   const sizes = String(images.stdout).split("\n").filter(Boolean).map((line) => JSON.parse(line))
     .filter((row) => /zulip|memcached|rabbitmq|redis/.test(row.Repository));
-  const disk = await fixedRun("/usr/bin/du", ["-sh", path.join(catalogRoot, "zulip")], { timeout: 60_000 });
+  // As root: the database and the queue belong to their containers' users.
+  const disk = await fixedRun("/usr/bin/sudo", ["-n", "/usr/bin/du", "-sh", path.join(catalogRoot, "zulip")], { timeout: 60_000 });
   return { rows, sizes, disk: String(disk.stdout).split("\t")[0] || "unknown" };
 }
 

@@ -199,6 +199,6 @@ notes: >-
   organization's address keep this server's own name (the root domain), not a subdomain. Zulip is
   reached through Tailscale only, at its tailnet HTTPS address, which the phone and desktop apps
   accept; sign the apps in at that address. Without a mail server nothing is emailed: invite people
-  with a link from Zulip's own settings. Uses about 1.5 GB of memory with its database, cache,
-  queue and Redis, and about 4 GB of disk for its images, plus whatever people upload. App backups
+  with a link from Zulip's own settings. Uses about 2.6 GB of memory with its database, cache,
+  queue and Redis, and 3.5 GB of disk for its images, plus whatever people upload. App backups
   include the database and uploads.
