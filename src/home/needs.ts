@@ -30,6 +30,8 @@ export interface NeedAction {
   parameters: Record<string, unknown>;
   preview: string;
   risk: RiskTier;
+  /** A job already staged: the dialog approves that one, at the tier it was staged at (M36). */
+  existingJobId?: string;
 }
 
 export interface Need {
@@ -172,8 +174,13 @@ export function buildNeeds(facts: FactValues, { now, role }: { now: number; role
   // ── Jobs someone staged and nobody has approved yet. Repair holds the approval. ──
   const jobs = facts.jobs ?? [];
   for (const job of jobs.filter((entry) => entry.state === "awaiting_approval")) {
+    // Reviewed and approved from the list itself (M36), through the dialog, at the tier it was staged at.
+    const operationId = job.type.startsWith("op:") ? job.type.slice(3) : null;
+    const tier = tierOf(job.risk);
+    const review: NeedAction | null = operationId && tier && mayStart(role, operationId)
+      ? { operationId, label: "Review", title: job.title, parameters: {}, preview: job.recovery?.reason ?? "", risk: tier, existingJobId: job.id } : null;
     needs.push({ id: `approval:${job.id}`, kind: "approval", severity: "warning", title: `Waiting for approval: ${job.title}`,
-      detail: job.createdAt ? `Staged ${relativeTime(job.createdAt, now)}` : null, view: "repairs", action: null, risk: tierOf(job.risk), jobId: job.id });
+      detail: job.createdAt ? `Staged ${relativeTime(job.createdAt, now)}` : null, view: "repairs", action: review, risk: tier, jobId: job.id });
   }
 
   // ── Updates. ──

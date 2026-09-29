@@ -128,7 +128,7 @@ export default function Ops({ csrfToken, role, onNavigate, now = Date.now, pollM
   // What BoxPilot could not tell anyone is read in the notification centre, which says what it was.
   const open = (need: Need) => (need.jobId ? openActivity(need.jobId) : need.id === "unannounced" ? openNotifications() : onNavigate(need.view, need.appId && need.view === "catalog" ? { app: need.appId } : undefined));
   const act = (need: Need) => {
-    if (need.action) start({ operationId: need.action.operationId, title: need.action.title, parameters: need.action.parameters, preview: <span>{need.action.preview}</span> });
+    if (need.action) start({ operationId: need.action.operationId, title: need.action.title, parameters: need.action.parameters, preview: need.action.preview ? <span>{need.action.preview}</span> : undefined, existingJobId: need.action.existingJobId });
   };
 
   // ── The metric strip: the live read when it answers, the inventory's otherwise. ──
