@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { openActivity } from "../activityEvents";
+import { openActivity, openNotificationsEvent } from "../activityEvents";
 import { viewLabel, type ViewName } from "../data";
 import { relativeTime } from "../home/format";
 import { readJson } from "../http";
@@ -87,6 +87,11 @@ export function NotificationCentre({ csrfToken, onNavigate }: { csrfToken: strin
     return () => window.clearInterval(timer);
   }, [load]);
   useEffect(() => { if (open) void load(); }, [open, load]);
+  useEffect(() => {
+    const onOpen = () => setOpen(true);
+    window.addEventListener(openNotificationsEvent, onOpen);
+    return () => window.removeEventListener(openNotificationsEvent, onOpen);
+  }, []);
   useEffect(() => {
     if (!open) return undefined;
     const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") setOpen(false); };
