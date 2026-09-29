@@ -84,7 +84,7 @@ describe("Ops", () => {
     const table = await screen.findByRole("table", { name: "Containers and virtual machines" });
     await within(table).findByText("34.2%");
     const rows = within(table).getAllByRole("row").slice(1);
-    expect(rows.map((row) => within(row).getAllByRole("cell")[0].textContent)).toEqual(["🎬Jellyfin", "Vaultwarden", "dev-lab", "win11-test"]);
+    expect(rows.map((row) => within(row).getAllByRole("cell")[0].textContent)).toEqual(["Jellyfin", "Vaultwarden", "dev-lab", "win11-test"]);
     expect(rows[0].getAttribute("data-status")).toBe("good");
     expect(rows[1].getAttribute("data-status")).toBe("danger");
     expect(within(rows[1]).getByText("stopped")).toBeTruthy();

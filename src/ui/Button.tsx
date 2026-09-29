@@ -8,10 +8,10 @@ import { cx, type RiskTier } from "./types";
  * tier never rests on colour alone: low is plain, medium carries a bar on its leading edge, and
  * high a bar, a lock and `tag`.
  */
-export const riskCopy: Record<RiskTier, { label: string; tag: string | null; description: string }> = {
-  low: { label: "Low", tag: null, description: "Low risk." },
-  medium: { label: "Medium", tag: null, description: "Medium risk: shows a preview and asks you to confirm." },
-  high: { label: "High", tag: "Password", description: "High risk: asks for your password before it runs." },
+export const riskCopy: Record<RiskTier, { label: string; short: string; tag: string | null; description: string }> = {
+  low: { label: "Low", short: "Low", tag: null, description: "Low risk." },
+  medium: { label: "Medium", short: "Med", tag: null, description: "Medium risk: shows a preview and asks you to confirm." },
+  high: { label: "High", short: "High", tag: "Password", description: "High risk: asks for your password before it runs." },
 };
 
 export type ButtonVariant = "primary" | "secondary" | "ghost";
@@ -55,11 +55,11 @@ export function Button({ risk, variant = "secondary", busy = false, icon, childr
 }
 
 /** A risk tier on its own, for lists of pending changes (an inbox, a plan's steps). */
-export function RiskTag({ risk, className }: { risk: RiskTier; className?: string }) {
+export function RiskTag({ risk, short = false, className }: { risk: RiskTier; /** "Med" for a narrow column, as Ops' inbox has. */ short?: boolean; className?: string }) {
   return (
     <span className={cx("ui-risk", `ui-risk--${risk}`, className)} data-risk={risk}>
       {risk === "high" && <LockIcon className="ui-risk__lock" />}
-      {riskCopy[risk].label}
+      {short ? riskCopy[risk].short : riskCopy[risk].label}
       <span className="ui-visually-hidden"> risk</span>
     </span>
   );

@@ -217,3 +217,37 @@ action button carries its risk tier before it is clicked. Current pages stay rea
 Colors and type move into tokens with light and dark values; components gain a density. A page
 is not replaced until its new version shows the same facts. The command bar is where the local
 assistant (M34) is asked; the phone layout and recipes stay with M25 and M22.
+
+**Addendum (2026-09-29, unreleased, M33.7): the look.** v1.137.0 gave Home and Ops the study's
+layouts in the old skin, and the owner found that "the bones look the same". The two views now
+wear the study's own look, and every Classic page shares its type and surfaces:
+
+- **Type.** Figtree for the interface, IBM Plex Sans Condensed for Ops, JetBrains Mono for every
+  number, id and path in Ops (and for code everywhere). All three are OFL-1.1, self-hosted from the
+  `@fontsource` packages (Latin and Latin Extended, upright; Figtree and JetBrains Mono variable,
+  Plex at 400 and 600), bundled into `dist/assets` and served by BoxPilot itself under
+  `font-src 'self'`. No font is fetched from any other origin; the build writes the licences to
+  `dist/licenses/`.
+- **Home's wallpaper and glass.** Three radial glows (sea teal, a warm sun, deep navy) over a
+  two-stop base, drawn once as a fixed layer behind Home only; nothing blurs the page as a whole.
+  Panels are frosted glass (a white fill at 9% in dark, 50% in light, a hairline edge, a 20px
+  radius, `backdrop-filter: blur(20px) saturate(140%)` on the panels alone), drawn solid where
+  `backdrop-filter` is missing or `prefers-reduced-transparency` asks. Dark ink is white; light
+  is a daylight wallpaper (pale sky, peach, cream) with dark ink. Buttons are pills that keep the
+  tier's marks. Apps are colour squares, one of fifteen deep hues per app (`src/ui/appColor.ts`:
+  the known colour for well-known apps, otherwise stable from the id), with a health badge that
+  has its own shape. The study's glows were a shade too bright to hold secondary text on glass at
+  4.5:1 at their brightest point, so they are deeper; the checker judges every ink at each base
+  end bare and under each glow at full strength, on the wallpaper and on glass.
+- **Ops' Command Center.** A near-black page (`#0A0D10`), a `#0C1014` bar, `#1C232B` hairlines,
+  amber `#FFB547` for what to act on and cyan `#56C8E0` for what is measured, panels
+  with small mono capitals and a count, a 56px rail of the dock's areas, and sparklines. Light is
+  paper: an off-white page, white panels, dark ink, the amber and cyan darkened to `#9A5B00` and
+  `#0B7489` so they read at 4.5:1. The study's greys for secondary text sat under 4.5:1 and are
+  lifted to `#8A95A1`.
+- **Honest sparklines.** BoxPilot keeps no history of its live figures, so Ops keeps its own while
+  it is open: each five-second read joins a sixty-read rolling buffer, and the lines start when the
+  page does. The study's 1h/6h/24h/7d control is left out until there is history to choose from.
+- **Tokens, not literals.** Home and Ops point the Classic token names at their own on the shell
+  (`.app-shell[data-view]`), so every component inside them takes the look without per-component
+  colours, and a Classic page's layout is untouched (M33.5 moves them).

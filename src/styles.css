@@ -2249,6 +2249,8 @@ dd {
   grid-template-columns: minmax(220px, 0.8fr) minmax(0, 1.2fr);
   gap: 20px;
   align-items: center;
+  /* The panel clips to its rounded corners, so its words keep clear of them. */
+  padding: 14px 16px;
 }
 
 .inventory-network h3 {
@@ -5949,8 +5951,8 @@ a.ui-tile:hover {
 .ops-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: var(--space-3); }
 .ops-grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); align-items: start; gap: var(--space-3); }
 .ops-alerts { grid-column: span 3; }
-.ops-containers { grid-column: span 6; }
-.ops-inbox { grid-column: span 3; }
+.ops-containers { grid-column: span 5; }
+.ops-inbox { grid-column: span 4; }
 .ops-jobs { grid-column: span 7; }
 .ops-backups { grid-column: span 5; }
 .ops-tier { display: grid; }
@@ -5958,7 +5960,6 @@ a.ui-tile:hover {
 .ops-link { padding: 0; border: 0; color: var(--text-strong); background: none; font: inherit; font-weight: 600; text-align: left; cursor: pointer; }
 .ops-link:hover { color: var(--link); text-decoration: underline; }
 .ops-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
-.ops-icon { margin-right: var(--space-2); font-weight: 400; }
 /* A long app name ends in an ellipsis rather than pushing the numbers out of the panel. */
 .ui-table .ops-link { display: inline-block; max-width: 13rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; }
 .ops-mono { color: var(--text-muted); font-family: var(--font-mono); }
@@ -6030,6 +6031,11 @@ body {
   box-shadow: 0 0 0 3px var(--accent-glow);
 }
 .secondary-button { border-color: var(--border-bright); border-radius: var(--radius-md); font-size: 11px; }
+/* Words and forms set straight into a panel under its header used to touch its edge; with rounder
+   corners that clip, they keep the header's inset instead. */
+.panel > .panel-header ~ :is(p.muted, p.auth-error, div.auth-error, .approval-settings, .restore-review, .share-form, .foreign-projects, .stranded-serves, .flow-list, .flow-builder) { margin-inline: 15px; }
+.panel > .panel-header ~ p.muted { margin-block: 10px; font-size: 13px; line-height: 1.5; }
+.panel > .panel-header ~ :is(.approval-settings, .share-form, .restore-review, .foreign-projects, .stranded-serves, .flow-list):last-child { margin-bottom: 15px; }
 .brand > span { border-radius: 10px; background: var(--accent); box-shadow: none; }
 
 /* The signed-in person: an initial in a circle, then the name while there is room. */
@@ -6250,17 +6256,19 @@ body {
 .lx .ui-metric--link:hover { background: var(--lx-glass); box-shadow: none; }
 .lx .ui-metric__label { grid-column: 1; grid-row: 1; color: var(--lx-ink); font-size: 13.5px; font-weight: 500; letter-spacing: 0; text-transform: none; }
 .lx .ui-metric__value { grid-column: 2; grid-row: 1; color: var(--lx-ink); font-size: 13.5px; font-weight: 700; letter-spacing: 0; }
-.lx .ui-metric__bar { grid-column: 1 / -1; height: 6px; margin: 3px 0 1px; background: var(--lx-track); }
+.lx .ui-metric__bar { order: 1; grid-column: 1 / -1; height: 6px; margin: 3px 0 1px; background: var(--lx-track); }
 .lx .ui-metric__bar > i,
 .lx .ui-metric[data-status="good"] .ui-metric__bar > i,
 .lx .ui-metric[data-status="neutral"] .ui-metric__bar > i { background: var(--lx-bar); }
-.lx .ui-metric__caption { grid-column: 1 / -1; color: var(--lx-ink-muted); font-size: 12px; line-height: 1.35; }
+.lx .ui-metric__caption { order: 2; grid-column: 1 / -1; color: var(--lx-ink-muted); font-size: 12px; line-height: 1.35; }
 
 /* What needs you, and what can wait: an icon, the words, the tier, the fix as a pill. */
-.lx .need { flex-wrap: nowrap; align-items: center; gap: 12px; padding: 10px 0; border-top-color: var(--lx-hairline); }
+/* The words keep at least ten characters' room beside the icon; a long button wraps under them. */
+.lx .need { align-items: center; gap: 8px 12px; padding: 10px 0; border-top-color: var(--lx-hairline); }
 .lx .need:first-child { padding-top: 2px; }
-.lx .need__icon { align-self: center; }
-.lx .need__body { flex: 1 1 auto; }
+.lx .need__icon { align-self: flex-start; }
+.lx .need__body { flex: 1 1 10rem; }
+.lx .need__act { margin-left: auto; }
 .lx .need__title { color: var(--lx-ink); font-size: 13.5px; font-weight: 600; line-height: 1.3; }
 .lx .need__detail { color: var(--lx-ink-muted); font-size: 12px; line-height: 1.35; }
 .lx .ui-risk { padding: 1px 6px; border: 0; border-radius: 6px; font-size: 10px; font-weight: 800; letter-spacing: 0.05em; line-height: 1.6; }
@@ -6422,8 +6430,6 @@ body {
   .lx .ui-tile__icon { width: 58px; height: 58px; border-radius: 16px; font-size: 21px; }
   .lx .ui-tile__icon .lx-square__emoji { font-size: 27px; }
   .lx .ui-tile__name, .lx .ui-tile__detail { overflow-wrap: break-word; }
-  .lx .need { flex-wrap: wrap; }
-  .lx .need__act { margin-left: 46px; }
   .app-sheet__facts > div { grid-template-columns: minmax(0, 1fr); gap: 2px; }
 }
 
@@ -6571,16 +6577,19 @@ body {
 .cc .ops-quiet { padding: 12px; color: var(--cc-muted); font-size: 14px; }
 
 /* Alerts carry their colour down the leading edge, with the mark beside the words. */
-.cc .need { flex-wrap: nowrap; align-items: flex-start; gap: 9px; padding: 9px 12px; border-top: 1px solid var(--cc-hairline); box-shadow: inset 3px 0 0 var(--mark); }
+.cc .need { align-items: flex-start; gap: 6px 9px; padding: 9px 12px; border-top: 1px solid var(--cc-hairline); box-shadow: inset 3px 0 0 var(--mark); }
 .cc .need:first-child { padding-top: 9px; border-top: 0; }
 .cc .need[data-severity="neutral"] { box-shadow: inset 3px 0 0 var(--cc-line-strong); }
+/* The words keep room beside the tier; a long button wraps under them, to the right. */
+.cc .need__body { flex: 1 1 9rem; }
+.cc .need__act { margin-left: auto; }
 .cc .need__mark { width: 8px; height: 8px; margin-top: 6px; }
 .cc .need__title { color: var(--cc-text-strong); font-size: 14.5px; font-weight: 600; line-height: 1.3; }
 .cc .need__detail { color: var(--cc-muted); font-size: 13px; line-height: 1.35; }
 .cc .ui-risk { padding: 2px 6px; border-radius: 3px; font-family: var(--font-mono); font-size: 10.5px; font-weight: 700; letter-spacing: 0.05em; }
 /* The inbox: each row led by its tier, as the study drew it. */
-.cc .need--lead { align-items: center; box-shadow: none; }
-.cc .need--lead .need__tier-tag { flex: 0 0 4.4rem; }
+.cc .need.need--lead { align-items: center; box-shadow: none; }
+.cc .need--lead .need__tier-tag { flex: 0 0 3.2rem; }
 .cc .need--lead .need__tier-tag .ui-risk { justify-content: center; width: 100%; }
 .cc .ops-tier + .ops-tier { border-top: 1px solid var(--cc-hairline); }
 
@@ -6595,10 +6604,11 @@ body {
 .cc .ui-table th { height: 30px; padding: 0 9px; border-bottom-color: var(--cc-line); color: var(--cc-muted); background: var(--cc-panel); font-family: var(--font-mono); font-size: 10.5px; font-weight: 600; letter-spacing: 0.07em; }
 .cc .ui-table td { height: 28px; padding: 0 9px; border-bottom-color: var(--cc-hairline); color: var(--cc-text); font-family: var(--font-mono); font-size: 12.5px; }
 .cc .ui-table tbody tr:hover td { background: var(--cc-raised); }
-.cc .ui-table .ops-link { color: var(--cc-text-strong); font-weight: 500; }
+.cc .ui-table .ops-link { max-width: 10rem; color: var(--cc-text-strong); font-weight: 500; }
+.cc .ui-table :is(th, td) { padding: 0 7px; }
+.cc .ui-table :is(th, td):first-child { padding-left: 11px; }
 .cc .ui-table .ui-chip { padding: 0; border: 0; background: none; font-family: var(--font-mono); font-size: 12px; font-weight: 500; }
 .cc .ui-table__mark { width: 7px; height: 7px; }
-.cc .ops-icon { filter: saturate(0.8); }
 .cc .ops-bar { width: 34px; border-radius: 1px; }
 .cc .ops-bar > i { background: var(--cc-cyan); }
 .cc-tag { display: inline-block; padding: 1px 6px; border-radius: 2px; color: var(--cc-muted); background: var(--cc-raised); font-size: 11.5px; line-height: 1.5; }
@@ -6677,9 +6687,13 @@ body {
   .shell-rail__logo { display: none; }
 }
 
-/* The compact bar gives the host's facts the room: how this browser connected is on Home's bar. */
+.topbar .text-button { white-space: nowrap; }
+
+/* The compact bar gives the host's facts the room: how this browser connected is on Home's bar,
+   and the avatar says who is signed in (its name is the tooltip). */
 @media (max-width: 1599px) {
-  .app-shell[data-view="ops"] .connection-pill { display: none; }
+  .app-shell[data-view="ops"] .connection-pill,
+  .app-shell[data-view="ops"] .signed-in-user__name { display: none; }
 }
 
 @media (max-width: 1280px) {
@@ -6687,11 +6701,12 @@ body {
 }
 
 @media (max-width: 620px) {
-  .cc .ui-metric { min-height: 0; }
-  .cc .ui-metric__caption { padding-right: 0; }
-  .cc .ui-metric__graphic { position: static; width: 100%; height: 26px; margin-top: 6px; }
-  .cc .need { flex-wrap: wrap; }
-  .cc .need--lead .need__act { margin-left: calc(4.4rem + 9px); }
+  .app-shell[data-view="ops"] .command-trigger { flex: 0 0 36px; }
+  .cc .ops-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .cc .ui-metric { min-height: 0; padding: 10px; }
+  .cc .ui-metric__value { font-size: 22px; }
+  .cc .ui-metric__caption { padding-right: 0; font-size: 12px; }
+  .cc .ui-metric__graphic { position: static; width: 100%; height: 24px; margin-top: 6px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

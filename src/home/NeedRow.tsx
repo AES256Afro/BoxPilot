@@ -30,7 +30,7 @@ export interface NeedRowProps {
  */
 export function NeedRow({ need, onOpen, onAct, icon, tier }: NeedRowProps) {
   const detailId = useId();
-  const tag = tier && need.action ? <span className="need__tier-tag" aria-hidden="true"><RiskTag risk={need.action.risk} /></span> : null;
+  const tag = tier && need.action ? <span className="need__tier-tag" aria-hidden="true"><RiskTag risk={need.action.risk} short={tier === "lead"} /></span> : null;
   return (
     <li className={cx("need", icon !== undefined && "need--icon", tier === "lead" && "need--lead")} data-severity={need.severity}>
       {tier === "lead" && tag}
