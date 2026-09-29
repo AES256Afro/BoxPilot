@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { ApproveDialog } from "../ApproveDialog";
+import { ApproveDialog } from "../shell/ApproveDialog";
 import { readJson } from "../http";
 import { approveJob, cancelJob, stageOperation, waitForJob, type Job } from "../operations";
 import { riskOf } from "../ui/operationRisk";

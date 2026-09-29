@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { PendingOperation } from "../../ApproveDialog";
+import type { PendingOperation } from "../../shell/ApproveDialog";
 import { VmMedia } from "./VmMedia";
 
 const candidate = { name: "ubuntu.iso", sizeBytes: 4096, sha256: "a".repeat(64), uploadedAt: "2026-08-16T20:00:00.000Z", modifiedAt: "2026-08-16T20:00:00.000Z", revision: "b".repeat(64) };

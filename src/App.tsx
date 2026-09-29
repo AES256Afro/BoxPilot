@@ -14,6 +14,7 @@ import { connectionLabel } from "./appLinks";
 import { FactsProvider } from "./home/facts";
 import { CommandBar } from "./shell/CommandBar";
 import { NotificationCentre } from "./shell/NotificationCentre";
+import { PageLoading } from "./shell/PageLoading";
 import { ShellDock, ViewSwitch } from "./shell/ShellNav";
 import { ShellHost } from "./shell/ShellHost";
 import { TopBarSlotProvider } from "./shell/TopBarSlot";
@@ -49,10 +50,9 @@ const Gallery = lazy(() => import("./ui/Gallery"));
 const Settings = lazy(() => import("./pages/settings/SettingsPage"));
 
 /**
- * Pages that draw their own PageHeader (src/ui/PageHeader.tsx): Home its greeting, Ops and the
- * pages rebuilt on the kit their verdict and facts. Every other page gets one from the shell, with
- * its name in the bar and what it is for behind the info toggle, until wave 2 rebuilds it (M33.8).
- * A rebuilt page adds itself here. Repair (M35) draws its own crumb and verdict in the page.
+ * Pages that draw their own PageHeader (src/ui/PageHeader.tsx): Home its greeting, every other
+ * page its verdict and facts; since M33.14 that is all of them. A page not listed would get a
+ * plain one from the shell, its name in the bar and what it is for behind the info toggle.
  */
 const ownHeader = new Set<ViewName>(["home", "ops", "services", "logs", "repairs", "network", "firewall", "users", "github", "settings", "virtualization", "system", "setup", "storage", "backups", "updates", "catalog", "automations", "performance", "agents"]);
 
@@ -198,11 +198,11 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
 
         <main id="content" tabIndex={-1}>
           <div className={shell === "console" ? "content content--console" : "content content--wide"} data-density={shell === "console" ? "compact" : undefined}>
-            {showGallery ? <Suspense fallback={<p className="muted page-loading">Loading…</p>}><Gallery /></Suspense> : <>
+            {showGallery ? <Suspense fallback={<PageLoading name="the design system" />}><Gallery /></Suspense> : <>
               {!ownHeader.has(view) && <PageHeader title={copy.title} about={copy.description} />}
               {/* Keyed by the page, so the page left behind unmounts at once rather than waiting, hidden,
                   behind the next one's loading: its name in the bar would otherwise linger. */}
-              <PageErrorBoundary pageName={viewLabel(view)} resetKey={view}><Suspense key={view} fallback={<p className="muted page-loading">Loading…</p>}>{pageContent}</Suspense></PageErrorBoundary>
+              <PageErrorBoundary pageName={viewLabel(view)} resetKey={view}><Suspense key={view} fallback={<PageLoading name={viewLabel(view)} />}>{pageContent}</Suspense></PageErrorBoundary>
             </>}
           </div>
         </main>

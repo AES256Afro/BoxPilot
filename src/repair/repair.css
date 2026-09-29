@@ -7,14 +7,6 @@
 .rp p { margin: 0; }
 .rp code { font-family: var(--font-mono); font-size: 0.92em; }
 
-/* Where you are, and the verdict first. */
-.rp-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; min-width: 0; padding: 2px 2px 0; }
-.rp-head .cc-crumb h1 { color: var(--cc-text-strong); text-transform: none; }
-.rp-head .cc-kv { margin-left: 0; white-space: normal; }
-.rp .cc-status { padding: 10px 12px; border: 1px solid var(--cc-line); border-radius: 4px; background: var(--cc-panel); }
-.rp .cc-status .ui-button { margin-left: 0; }
-.rp-status__actions { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
-
 /* One-line notes: a check that could not finish, what a batch did, an error. */
 .rp-note { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 7px 12px; border: 1px solid var(--cc-line); border-left: 3px solid var(--cc-line-strong); border-radius: 4px; color: var(--cc-text); background: var(--cc-panel); font-size: 13.5px; line-height: 1.4; }
 .rp-note strong { color: var(--cc-text-strong); font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
@@ -93,8 +85,6 @@
 .rp-figures b { color: var(--cc-text-strong); font-size: 22px; font-weight: 500; letter-spacing: -0.02em; line-height: 1.1; text-transform: none; }
 .rp-figures [data-status="warning"] b { color: var(--cc-amber); }
 .rp-figures [data-status="danger"] b { color: var(--cc-red-text); }
-.rp-input { box-sizing: border-box; width: 100%; max-width: 22rem; min-height: 30px; padding: 0 8px; border: 1px solid var(--cc-line-strong); border-radius: 3px; color: var(--cc-text-strong); background: var(--cc-inset); font: inherit; font-size: 13.5px; }
-.rp-field { display: grid; gap: 4px; color: var(--cc-muted); font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; }
 
 /* Tables: figures stay on one line, words wrap. */
 .rp .ui-table td.rp-cell-wrap { height: auto; padding-block: 5px; white-space: normal; overflow-wrap: anywhere; font-family: var(--font-sans); font-size: 13px; line-height: 1.4; }
@@ -108,7 +98,6 @@
 
 .rp-grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(17rem, 1fr); gap: 8px; align-items: start; }
 .rp-grid--three { grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr)); }
-.rp-wrap { white-space: normal; overflow-wrap: anywhere; }
 
 @media (max-width: 900px) {
   .rp-grid { grid-template-columns: minmax(0, 1fr); }
@@ -117,7 +106,6 @@
 @media (max-width: 620px) {
   .rp-job__steps li { grid-template-columns: minmax(0, 1fr); gap: 0; }
   .rp-job > :not(summary) { margin-left: 12px; }
-  .rp-status__actions { margin-left: 0; }
   .rp-finding { padding: 10px; }
   .rp-row { grid-template-columns: minmax(0, 1fr); }
   .rp-row__act { justify-content: flex-start; }

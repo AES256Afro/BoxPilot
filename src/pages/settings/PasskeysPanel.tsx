@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { deletePasskey, fetchPasskeyStatus, generateRecoveryCodes, passkeysSupported, registerPasskey, renamePasskey, type PasskeyInfo } from "../../passkey";
-import { Button, CodeBlock, EmptyState, Field, Notice, Panel, SecretInput, TextInput } from "../../ui";
+import { Button, CodeBlock, EmptyState, Facts, Field, Notice, Panel, SecretInput, TextInput } from "../../ui";
 
 const day = (iso: string) => new Date(iso).toLocaleDateString();
 
@@ -92,7 +92,7 @@ export default function PasskeysPanel({ csrfToken }: { csrfToken: string }) {
             <li key={key.id} className="settings-row">
               <div className="settings-row__main">
                 <strong className="settings-row__title">{key.label}</strong>
-                <span className="settings-row__facts">for <code>{key.rpId}</code> · added {day(key.createdAt)}{key.lastUsedAt ? ` · last used ${day(key.lastUsedAt)}` : " · not used yet"}</span>
+                <Facts as="span">for <code>{key.rpId}</code> · added {day(key.createdAt)}{key.lastUsedAt ? ` · last used ${day(key.lastUsedAt)}` : " · not used yet"}</Facts>
               </div>
               <div className="settings-row__actions">
                 <Button variant="ghost" disabled={busy} onClick={(event) => { renameOpener.current = event.currentTarget; setRenaming({ id: key.id, label: key.label }); }}>Rename</Button>

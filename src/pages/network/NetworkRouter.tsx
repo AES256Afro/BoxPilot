@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import type { PendingOperation } from "../../ApproveDialog";
+import type { PendingOperation } from "../../shell/ApproveDialog";
 import { inspectOperation } from "../../operations";
 import { Button, EmptyState, Field, KeyValue, Notice, Panel, SecretInput, Sheet, StatusChip, Table, Tag, TextInput, mayStart, riskOf, type TableColumn } from "../../ui";
 

@@ -1,17 +1,11 @@
 /*
- * Repair's confirmations (src/repair/RepairDialogs.tsx) as console dialogs. They open from Repair,
- * Home and Ops, so every colour falls back to the base tokens where the console's are not set.
+ * Repair's confirmations (src/repair/RepairDialogs.tsx), on the kit's Sheet in the console's look:
+ * only the words inside them. Tokens only.
  */
-.modal.rp-dialog { display: grid; gap: 0; padding: 0; border: 1px solid var(--cc-line-strong, var(--border)); border-radius: 4px; color: var(--cc-text, var(--text)); background: var(--cc-panel, var(--surface)); font-size: 14px; }
-.rp-dialog__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--cc-line, var(--border)); }
-.rp-dialog__head h2 { margin: 2px 0 0; color: var(--cc-text-strong, var(--text-strong)); font-size: 16px; font-weight: 650; line-height: 1.3; }
-.rp-dialog__kicker { color: var(--cc-muted, var(--text-muted)); font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; }
-.rp-dialog__body { display: grid; gap: 10px; padding: 12px 14px; line-height: 1.45; }
-.rp-dialog__body p { margin: 0; }
-.rp-dialog__tier { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; color: var(--cc-muted, var(--text-muted)); font-size: 13px; }
-.rp-dialog__dim { color: var(--cc-muted, var(--text-muted)); }
-.rp-dialog__label { color: var(--cc-muted, var(--text-muted)); font-family: var(--font-mono); font-size: 11.5px; letter-spacing: 0.04em; }
-.rp-dialog__error { padding: 6px 10px; border-left: 3px solid var(--status-danger); color: var(--cc-text-strong, var(--text-strong)); background: var(--cc-inset, var(--surface-muted)); font-size: 13.5px; }
-.rp-dialog__foot { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; padding: 10px 14px; border-top: 1px solid var(--cc-line, var(--border)); }
-.rp-modal__list { display: grid; gap: 8px; margin: 0; padding-left: 20px; font-size: 13.5px; line-height: 1.45; }
-.rp-modal__reason { box-sizing: border-box; width: 100%; min-height: 4.5rem; padding: 6px 8px; border: 1px solid var(--cc-line-strong, var(--border)); border-radius: 3px; color: var(--cc-text-strong, var(--text-strong)); background: var(--cc-inset, var(--surface-muted)); font: inherit; resize: vertical; }
+.rp-dialog__text { margin: 0; color: var(--text); font-size: 14px; line-height: 1.45; overflow-wrap: anywhere; }
+.rp-dialog__text strong { color: var(--text-strong); }
+.rp-dialog__tier { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 0; color: var(--text-muted); font-size: 13px; line-height: 1.45; }
+.rp-dialog__dim { margin: 0; color: var(--text-muted); font-size: 13.5px; line-height: 1.45; }
+.rp-dialog__list { display: grid; gap: 8px; margin: 0; padding-left: 20px; color: var(--text); font-size: 13.5px; line-height: 1.45; overflow-wrap: anywhere; }
+.rp-dialog__list strong { color: var(--text-strong); }
+.rp-dialog__list code { font-family: var(--font-mono); font-size: 12.5px; }

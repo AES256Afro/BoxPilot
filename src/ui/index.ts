@@ -6,16 +6,21 @@
  *
  * M33.8 adds the console's page kit: PageHeader, Panel, the form controls (Field, TextInput,
  * Textarea, Select, Switch, Checkbox, Segmented, SecretInput), Tabs, KeyValue, Notice, EmptyState,
- * Toolbar, Sheet, CodeBlock, Progress, JobProgress and Tag. docs/UI-PAGES.md says how a page is
- * built from them.
+ * Toolbar, Sheet, CodeBlock, Progress, JobProgress and Tag. M33.14 promotes what several pages had
+ * each built for themselves: AppIcon, CopyButton, MetricStrip and Facts. docs/UI-PAGES.md says how
+ * a page is built from them.
  */
+export { AppIcon, type AppIconProps } from "./AppIcon";
 export { Button, RiskTag, riskCopy, type ButtonProps, type ButtonVariant } from "./Button";
 export { Card, type CardProps } from "./Card";
 export { CodeBlock, type CodeBlockProps } from "./CodeBlock";
+export { CopyButton, type CopyButtonProps } from "./CopyButton";
 export { Dock, type DockItem, type DockProps } from "./Dock";
+export { Facts, type FactsProps } from "./Facts";
 export { Field, useFieldControl, type FieldProps } from "./Field";
 export { JobProgress, type JobProgressProps } from "./JobProgress";
 export { KeyValue, type KeyValueItem, type KeyValueProps } from "./KeyValue";
+export { MetricStrip, type MetricStripProps } from "./MetricStrip";
 export { MetricTile, type MetricTileProps } from "./MetricTile";
 export { EmptyState, Notice, type EmptyStateProps, type NoticeProps, type NoticeTone } from "./Notice";
 export { PageHeader, type PageHeaderProps } from "./PageHeader";

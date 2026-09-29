@@ -1,11 +1,9 @@
-import { useEffect, useId, useRef } from "react";
-import { createPortal } from "react-dom";
-import type { PendingOperation } from "../ApproveDialog";
 import type { AppProtection } from "../backupProtection";
 import { countOf, type ViewName } from "../data";
-import { Button, StatusChip, appHue, initials, mayStart, riskOf } from "../ui";
-import { useDialogFocus } from "../useDialogFocus";
+import type { PendingOperation } from "../shell/ApproveDialog";
 import { ExternalIcon } from "../shell/areaIcons";
+import "../shell/look.css";
+import { AppIcon, Button, KeyValue, Sheet, StatusChip, mayStart, riskOf } from "../ui";
 import type { AppFact } from "./facts";
 import { relativeTime } from "./format";
 import { appHealth, reachOf } from "./needs";
@@ -14,6 +12,9 @@ import { appHealth, reachOf } from "./needs";
  * An app's sheet (M33.2): what the Launcher shows when a tile is pressed. Its state, who can reach
  * it, its update and its backups, with the app's own page one click away and the few things worth
  * doing from here, each with its tier. Everything else is on its card in the App catalog.
+ *
+ * M33.14 draws it on the kit's Sheet, in the console's look (look-console): Home's root keeps the
+ * Launcher's tokens, and this is the same drawer the approval dialog it hands over to sits beside.
  */
 
 export interface AppSheetProps {
@@ -27,15 +28,6 @@ export interface AppSheetProps {
 }
 
 export function AppSheet({ app, protection, now, role, onClose, onNavigate, onStart }: AppSheetProps) {
-  const ref = useRef<HTMLElement | null>(null);
-  const titleId = useId();
-  useDialogFocus(ref);
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
   const health = appHealth(app, protection, now);
   const state = app.vpnLeaked ? "Running, but it sent traffic outside its VPN"
     : app.paused ? "Paused: it keeps its memory and uses no processor"
@@ -57,35 +49,28 @@ export function AppSheet({ app, protection, now, role, onClose, onNavigate, onSt
     protection?.protectable && mayStart(role, "app.backup") ? <Button key="backup" risk={riskOf("app.backup")} onClick={() => act({ operationId: "app.backup", title: `Back up ${app.name}`, parameters: { id: app.id }, preview: <span>Stops {app.name} briefly, archives its data and configuration, restarts it, and keeps the newest 5 copies.</span> })}>Back up now</Button> : null,
   ].filter(Boolean);
 
-  return createPortal(
-    <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
-      <section ref={ref} tabIndex={-1} className="modal app-sheet" role="dialog" aria-modal="true" aria-labelledby={titleId} onMouseDown={(event) => event.stopPropagation()} data-density="comfortable">
-        <header className="app-sheet__head">
-          <span className="app-sheet__icon" data-emoji={app.icon ? true : undefined} data-hue={appHue(app.id)} aria-hidden="true">{app.icon ?? initials(app.name)}</span>
-          <div className="app-sheet__title">
-            <h2 id={titleId}>{app.name}</h2>
-            <StatusChip status={health.status}>{health.label}</StatusChip>
-          </div>
-          <button className="icon-button" type="button" aria-label="Close dialog" onClick={onClose}>X</button>
-        </header>
-        <dl className="app-sheet__facts">
-          <div><dt>State</dt><dd>{state}</dd></div>
-          <div><dt>Reach</dt><dd>{app.port === null ? "No web page" : `${reachOf(app)}, port ${app.port}`}</dd></div>
-          <div><dt>Update</dt><dd>{app.updateAvailable ? "A new version is ready" : "Up to date"}</dd></div>
-          <div><dt>Backups</dt><dd>{backups}</dd></div>
-          <div><dt>Restore drill</dt><dd>{drill}</dd></div>
-        </dl>
-        <footer className="app-sheet__actions">
-          {app.url && (app.running || app.paused) && (
-            <a className="ui-button ui-button--primary" href={app.url} target="_blank" rel="noreferrer">
-              <span className="ui-button__label">Open {app.name}</span><ExternalIcon aria-hidden="true" />
-            </a>
-          )}
-          {actions}
-          <Button variant="ghost" onClick={() => { onClose(); onNavigate("catalog", { app: app.id }); }}>Manage in the App catalog</Button>
-        </footer>
-      </section>
-    </div>,
-    document.body,
+  return (
+    <Sheet kicker="App" title={app.name} className="look-console app-sheet" onClose={onClose}
+      footer={<>
+        <Button variant="ghost" onClick={() => { onClose(); onNavigate("catalog", { app: app.id }); }}>Manage in the App catalog</Button>
+        {actions}
+        {app.url && (app.running || app.paused) && (
+          <a className="ui-button ui-button--primary app-sheet__open" href={app.url} target="_blank" rel="noreferrer">
+            <span className="ui-button__label">Open {app.name}</span><ExternalIcon aria-hidden="true" />
+          </a>
+        )}
+      </>}>
+      <div className="app-sheet__head">
+        <AppIcon id={app.id} name={app.name} icon={app.icon} size="lg" />
+        <StatusChip status={health.status}>{health.label}</StatusChip>
+      </div>
+      <KeyValue layout="rows" items={[
+        { id: "state", label: "State", value: state },
+        { id: "reach", label: "Reach", value: app.port === null ? "No web page" : `${reachOf(app)}, port ${app.port}` },
+        { id: "update", label: "Update", value: app.updateAvailable ? "A new version is ready" : "Up to date" },
+        { id: "backups", label: "Backups", value: backups },
+        { id: "drill", label: "Restore drill", value: drill },
+      ]} />
+    </Sheet>
   );
 }

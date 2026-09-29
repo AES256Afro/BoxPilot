@@ -1,7 +1,6 @@
 import { useState, type ReactNode } from "react";
-import { Button, KeyValue, Notice, Panel, Sheet, StatusChip, Tabs, mayStart, riskOf, type KeyValueItem, type TabItem } from "../../ui";
+import { AppIcon, Button, KeyValue, Notice, Panel, Sheet, StatusChip, Tabs, mayStart, riskOf, type KeyValueItem, type TabItem } from "../../ui";
 import { AccessTab } from "./AccessTab";
-import { AppSquare } from "./AppSquare";
 import { BackupsTab } from "./BackupsTab";
 import { ConfigTab } from "./ConfigTab";
 import { LogsTab } from "./LogsTab";
@@ -78,7 +77,7 @@ export function AppSheet({ entry, ctx, tab: firstTab = "overview", onTab, onClos
   return (
     <Sheet kicker={manifest.category} title={manifest.name} size="lg" onClose={onClose} className="catalog-sheet">
       <div className="catalog-sheet__head">
-        <AppSquare id={manifest.id} name={manifest.name} icon={manifest.icon} size="lg" />
+        <AppIcon id={manifest.id} name={manifest.name} icon={manifest.icon} size="lg" />
         <div className="catalog-sheet__lead">
           <StatusChip status={status.status}>{status.label}</StatusChip>
           <p className="catalog-sheet__meta"><code>{manifest.image.reference}</code>{manifest.image.digestPinned ? " · digest pinned" : ""}</p>

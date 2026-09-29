@@ -1,4 +1,4 @@
-import type { PendingOperation } from "../../ApproveDialog";
+import type { PendingOperation } from "../../shell/ApproveDialog";
 
 /** Types mirror server/catalog/schema.mjs (the normalized manifest) and server/app-helper.mjs (live state). */
 export interface ManifestPort { id: string; label: string; container: number; host: number; protocol: "tcp" | "udp"; exposure: "lan" | "loopback"; fixed: boolean; tailnet?: "serve" | "address" | "unchanged"; containerFollowsHost?: boolean }

@@ -3,8 +3,7 @@
 
 .updates-page { display: grid; gap: 10px; min-width: 0; }
 
-/* The strip of three figures under the header, each with its one action under it. */
-.updates-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr)); gap: 8px; }
+/* The strip of three figures under the header (the kit's MetricStrip), each with its one action under it. */
 .updates-strip .ui-metric__actions { display: flex; flex-wrap: wrap; gap: 6px; }
 
 /* Services still running old libraries: one row each, the unit and what refreshes it. */

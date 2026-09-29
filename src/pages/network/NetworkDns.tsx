@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { PendingOperation } from "../../ApproveDialog";
+import type { PendingOperation } from "../../shell/ApproveDialog";
 import { countOf } from "../../data";
 import { readJson } from "../../http";
 import { inspectOperation } from "../../operations";

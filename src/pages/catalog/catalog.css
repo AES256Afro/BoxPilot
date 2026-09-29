@@ -10,25 +10,6 @@
 .catalog-toolbar { padding: 8px 12px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); }
 .catalog-toolbar .ui-select { flex: 0 1 15rem; min-width: 10rem; }
 
-/* An app's colour square, as Home draws its apps: the manifest's emoji or the initials. */
-.catalog-square {
-  display: grid;
-  flex: none;
-  place-items: center;
-  color: var(--brand-glyph);
-  background: linear-gradient(140deg, var(--app-a, var(--brand-slate-a)), var(--app-b, var(--brand-slate-b)));
-  font-family: var(--font-condensed);
-  font-weight: 800;
-  letter-spacing: -0.02em;
-}
-.catalog-square[data-emoji] { font-weight: 400; }
-.catalog-square--sm { width: 22px; height: 22px; border-radius: 6px; font-size: 10px; }
-.catalog-square--sm[data-emoji] { font-size: 13px; }
-.catalog-square--md { width: 36px; height: 36px; border-radius: 10px; font-size: 14px; }
-.catalog-square--md[data-emoji] { font-size: 19px; }
-.catalog-square--lg { width: 52px; height: 52px; border-radius: 15px; font-size: 20px; }
-.catalog-square--lg[data-emoji] { font-size: 27px; }
-
 /* The apps on this server: Home's squares with their health mark, in a grid that fills the row. */
 .catalog-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 6px; padding: 12px; }
 .catalog-tile { --tile-icon: 48px; gap: 6px; padding: 10px 4px; border-radius: 6px; }

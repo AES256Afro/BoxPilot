@@ -5,8 +5,6 @@
  */
 
 .notifications-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 12px; }
-.notifications-facts { margin: 0; color: var(--text-muted); font-family: var(--font-mono); font-size: 12px; line-height: 1.5; }
-.notifications-facts b { color: var(--text-strong); font-weight: 600; }
 .notifications-quiet { margin: 0; color: var(--text-muted); font-size: 13px; }
 
 .notifications-list { display: grid; margin: 0 -14px; padding: 0; border-top: 1px solid var(--border); list-style: none; }

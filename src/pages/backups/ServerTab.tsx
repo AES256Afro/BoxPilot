@@ -1,4 +1,4 @@
-import { useOperation } from "../../ApproveDialog";
+import { useOperation } from "../../shell/ApproveDialog";
 import { formatBytes } from "../../formatBytes";
 import { Button, EmptyState, Notice, Panel, StatusChip, Table, mayStart, riskOf, type TableColumn } from "../../ui";
 import { when, withData, type BackupRecord, type MachineSnapshot, type MachineSnapshotState, type ProtectionState, type RetentionStatus } from "./types";

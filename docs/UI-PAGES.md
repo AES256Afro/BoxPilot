@@ -15,21 +15,22 @@ is the one page outside the console, on the Launcher's wallpaper.
 - **The rail and the dock.** Nothing to do. The rail marks your area as current; Home / Ops and
   Ctrl K work everywhere.
 - **The look.** The shell sets `data-shell="console"` on `<html>` and on `.app-shell`, and points
-  the Classic token names (`--surface`, `--text`, `--accent`, `--status-*`, `--risk-*`) at the
-  Command Center's (`--cc-*`). A component that uses tokens is right in light and dark with no
+  the base token names (`--surface`, `--text`, `--accent`, `--link`, `--status-*`, `--risk-*`) at
+  the Command Center's (`--cc-*`). A component that uses tokens is right in light and dark with no
   work. Dialogs and sheets opened over the page get the same look, because the tokens are on the
   root.
 - **Compact density.** The console's content has `data-density="compact"`.
 - **Your address.** `?view=<area>`. A page's own parameters (a tab, a filter) are dropped when the
   owner changes page; only `scenario` (the demo's world) survives.
 
-When you rebuild a page, add its view to `ownHeader` in `src/App.tsx`, so the shell stops drawing
-a header for it, and render your own `PageHeader`.
+Every page is on the kit (M33.14). A new page adds its view to `ownHeader` in `src/App.tsx`, so
+the shell draws no header for it, and renders its own `PageHeader`. While its code arrives the
+shell shows `src/shell/PageLoading.tsx` (the kit's `Progress`, named for the page).
 
 The shell also owns what opens over any page (M33.13), so a page never draws these itself:
 
-- **The approval dialog** (`src/shell/ApproveDialog.tsx`; `src/ApproveDialog.tsx` re-exports it
-  until wave 2's pages import it from the shell). Call `useOperation(csrfToken, onFinished)` and
+- **The approval dialog** (`src/shell/ApproveDialog.tsx`; import it from there, the old
+  `src/ApproveDialog.tsx` is gone). Call `useOperation(csrfToken, onFinished)` and
   render its `dialog` once; `start({ operationId, title, parameters, preview })` opens it. Give it
   a `preview` that says in words what will happen (the command, the path, what stops): it is the
   "What it will do" box, and without one the dialog falls back to the registry's description.
@@ -78,6 +79,10 @@ The shell also owns what opens over any page (M33.13), so a page never draws the
 | `Segmented` | One of a few, side by side, as a radio group (arrow keys, one tab stop). Filters and scopes; a choice that changes the server is a form. |
 | `Tabs` | The ARIA tabs pattern; `urlParam="tab"` keeps the open tab in the address (`?view=storage&tab=shares`). `useUrlParam` for any other page parameter. |
 | `KeyValue` | Facts as a description list: `rows` (a sheet), `columns` (a summary), `strip` (the study's row of key facts across the top of a page). |
+| `Facts` | One line of facts in mono, as `PageHeader`'s `meta` draws them: figures in `<b>`, names and ids in `<code>`. `as="span"` inside a row's words. |
+| `MetricStrip` | The row of `MetricTile`s across the top of a page, as many to a row as fit; `minTile` says how narrow a tile may get (`9.5rem` for short figures, `14rem` for tiles with a button). A region named by `label`. |
+| `AppIcon` | An app's colour square: its emoji, or its initials, in white on the app's own hue (`appHue`). `sm` 22 px in a table row, `md` 34 px in a list, `lg` 52 px at a sheet's head. Decorative: say the app's name beside it. |
+| `CopyButton` | Copy one value from a row (a client id, a path) with `label` and `name` for assistive technology; says Copied only once the current value is on the clipboard, and says so when the clipboard refuses. For a block of text, `CodeBlock` has its own Copy. |
 | `Notice` | Something the page must say: `info`, `success`, `warning`, `danger`, with an action and an optional dismiss. `live` announces it (use it for what a click caused). |
 | `EmptyState` | What an empty panel or table says, and the one action that fills it. |
 | `Toolbar`, `SearchField` | The row over a table: a search (Escape clears it), filters, actions; wraps on a phone. |
@@ -87,7 +92,7 @@ The shell also owns what opens over any page (M33.13), so a page never draws the
 | `JobProgress` | One job inline, by id: its state in Activity's words, a moving bar, the newest line, the output behind a toggle. Reads the job log's own stream. It never approves or cancels: the approval dialog and Activity do. |
 | `Tag` | A small mono label: `reach` (LAN, tailnet, local, public, said in words), `tier` (LOW/MED/HIGH), or a tone. |
 | `Table` | Rows at the density's height, a status mark per row, an empty state, a phone layout that stacks, and `sortValue` on a column to make it sortable (with `aria-sort`). |
-| `Button`, `RiskTag`, `StatusChip`, `MetricTile`, `Section`, `Card`, `Tile`, `Dock`, `ThemeSwitch`, `Sparkline` | From M33.1-M33.7, unchanged. |
+| `Button`, `RiskTag`, `StatusChip`, `MetricTile`, `Section`, `Card`, `Tile`, `Dock`, `ThemeSwitch`, `Sparkline` | From M33.1-M33.7. A `Button` is always in the UI's face (`--font-sans`), even inside a mono table cell or facts line (M33.14). |
 
 All of them are in the gallery (`/?gallery` on the demo), in both themes, in the CI screenshots.
 
@@ -102,11 +107,13 @@ All of them are in the gallery (`/?gallery` on the demo), in both themes, in the
   (`--text`, `--text-muted`, `--surface`, `--border`, `--status-*`, `--risk-*`, `--accent`) before
   the `--cc-*` ones.
 - `src/pages/pageCss.test.ts` enforces all three.
-- **`src/styles.css` holds tokens and shared components only.** If two pages need the same
-  thing, it is a kit component: add it to `src/ui/` with a test and a place in the gallery.
-- The stopgap block at the end of `src/styles.css` restyles the Classic pages' classes (`.panel`,
-  `.panel-header`, `.status-pill`, `.primary-button`, native inputs...) until each page is
-  rebuilt. Do not use those classes in a rebuilt page; delete a stopgap rule once nothing uses it.
+- **`src/styles.css` holds only what is used** (M33.14): the tokens, the base (reset, focus ring,
+  a bare link in `--link`), the shell's bar, dock and command bar, Home and Ops, and the kit. The
+  Classic pages' classes and the console's stopgap for them are gone; there is no `.panel`,
+  `.primary-button` or `.modal` to reach for. If two pages need the same thing, it is a kit
+  component: add it to `src/ui/` with a test and a place in the gallery.
+- **Fix a kit bug in the kit.** A page that works around one (a sheet that grows, a tab that
+  escapes its list) patches every page but its own; M33.14 moved three such patches into `src/ui`.
 
 ## Density and size
 

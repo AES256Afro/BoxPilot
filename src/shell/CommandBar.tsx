@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import type { PendingOperation } from "../ApproveDialog";
+import type { PendingOperation } from "./ApproveDialog";
 import type { ViewName } from "../data";
 import { appFactsFrom } from "../home/facts";
 import { readJson } from "../http";
