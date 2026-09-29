@@ -197,6 +197,8 @@ const changeRoutes = [
   "POST /api/v1/flows", "PUT /api/v1/flows/:id", "DELETE /api/v1/flows/:id", "POST /api/v1/flows/:id/webhook", "DELETE /api/v1/flows/:id/webhook", "POST /api/v1/flows/:id/run",
   "POST /api/v1/schedules", "PUT /api/v1/schedules/:id", "DELETE /api/v1/schedules/:id",
   "POST /api/v1/drives/:name/auto-reconnect", "DELETE /api/v1/drives/:name/auto-reconnect",
+  // Repair's memory (M35): a finding or failed job set aside, and which job was fixing which finding.
+  "POST /api/v1/remediations/dismissals", "DELETE /api/v1/remediations/dismissals/:id", "POST /api/v1/remediations/attempts",
   "POST /api/v1/oidc/clients", "DELETE /api/v1/oidc/clients/:id",
   "POST /api/v1/people", "PUT /api/v1/people/:id", "DELETE /api/v1/people/:id",
   "PUT /api/v1/settings/weekly-report", "POST /api/v1/settings/weekly-report/send", "PUT /api/v1/settings/notifications", "POST /api/v1/settings/notifications/test",
