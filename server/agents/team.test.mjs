@@ -53,6 +53,8 @@ describe("the orchestrator", () => {
     expect(tree.map((entry) => [entry.agentName, entry.kind, entry.depth])).toEqual([["Server Keeper", "ask", 0], ["Pi-hole Watcher", "handoff", 1], ["Server Keeper", "continue", 0]]);
     expect(await h.runNext()).toBeNull();
     expect(h.state.listAudit(100).map((event) => event.type)).toContain("agents.handoff");
+    // The conversation keeps the question once, with the final answer, not the interim one.
+    expect(h.store.getThread(keeper.id, h.caller("operator").id).turns.map((turn) => [turn.role, turn.text])).toEqual([["user", "Is Pi-hole doing its job?"], ["agent", "Pi-hole is blocking, the watcher says [T1]."]]);
   });
 
   it("never loops, never hands work to itself or past its depth, and hands off only as a supervisor", async () => {
@@ -93,6 +95,8 @@ describe("intent, plan, act: oversight", () => {
     const run = await h.runNext();
     expect(run).toMatchObject({ state: "completed", outputKind: "question", answer: "Which drive do you mean: the media drive or the backup drive?", flags: { clarify: true } });
     expect(run.steps.some((step) => step.kind === "model")).toBe(false);
+    // The intent shows the question; no plan is shown, since none was followed.
+    expect(run.steps.filter((step) => ["intent", "plan"].includes(step.kind)).map((step) => step.kind)).toEqual(["intent"]);
     const [card] = h.service.listProposals(h.caller("owner"));
     expect(card).toMatchObject({ kind: "question", runId: run.id, question: "Which drive do you mean: the media drive or the backup drive?", steps: [] });
   });
