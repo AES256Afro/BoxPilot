@@ -26,7 +26,12 @@ export function whatChanged(job: Pick<Job, "type" | "result" | "steps">): string
   if (operation === "storage.writable" && result.writable) return `${String(result.mountpoint)} now belongs to ${String(result.owner)}, so apps and file shares can write there.${afterApps}${afterSharing}`;
   if (operation === "share.reconnect" && result.reconnected) return `${String(result.mountpoint)} is mounted again, read-write.${afterApps}`;
   if (operation === "samba.share.writable" && result.writable) return `${String(result.path)} now belongs to ${String(result.owner)}, and the ${String(result.share)} share writes as ${String(result.forceUser)}.`;
-  if (operation === "app.reinstall" && result.reinstalled) return `${String(result.name ?? result.id)} has a container again and is running${result.projectRewritten ? ", from its saved settings" : ", from its saved compose project"}.`;
+  if (operation === "app.reinstall" && result.reinstalled) {
+    const from = result.projectRewritten ? "from its saved settings" : "from its saved compose project";
+    return result.started === false
+      ? `${String(result.name ?? result.id)} has its container back, ${from}, and is stopped as you left it. Start it whenever you want it.`
+      : `${String(result.name ?? result.id)} has a container again and is running, ${from}.`;
+  }
   if (operation === "app.uninstall" && result.uninstalled) return `${String(result.id)} is no longer listed as installed; its data folder is kept.`;
   if (operation === "app.backup.many" && Array.isArray(result.apps)) return `Backed up ${joined((result.apps as Array<{ id?: string }>).map((entry) => String(entry.id)))}.`;
   if (operation === "app.backup" && result.backedUp) return `Backed up to ${String(result.artifact ?? "a new archive")}.`;
@@ -36,7 +41,7 @@ export function whatChanged(job: Pick<Job, "type" | "result" | "steps">): string
   }
   if (operation === "storage.check" && result.checked) return result.clean ? `${String(result.mountpoint)} checked clean.${afterApps}` : `The check found problems on ${String(result.mountpoint)}: ${String(result.summary ?? "see the log")}`;
   if (operation === "storage.docker-order.apply") return result.changed ? "The drives are ordered around Docker now: it waits for them at boot and stops before they are unmounted." : "The drives were already ordered around Docker.";
-  if (operation === "app.action") return `${String(result.id ?? "The app")} is ${String(result.status ?? "running")} now.`;
+  if (operation === "app.action") return `${String(result.id ?? "The app")}${result.recreated ? "'s container was built again, and it" : ""} is ${String(result.status ?? "running")} now.`;
   const verified = [...(job.steps ?? [])].reverse().find((step) => step.name === "verify" && step.state === "completed");
   return verified?.detail ? `${verified.detail}.` : "The job finished.";
 }

@@ -156,19 +156,23 @@ export function buildNeeds(facts: FactValues, { now, role }: { now: number; role
         action: act("app.update", "Update", `Update ${app.name}`, { id: app.id }, "Pulls the image and recreates the container. The previous image is restored if the new one fails to become healthy.") });
     }
   }
-  // Listed as installed, with no container at all: most often removed outside BoxPilot, or by a Docker
-  // cleanup while stopped. One item for all of them rather than a problem each; Repair lists each one
-  // with Reinstall and Uninstall (M35), and without its scan the App catalog does.
+  // Listed as installed, with no container at all: on the owner's server, every app they had stopped,
+  // deleted by the nightly clean-up's `docker system prune`. One item for all of them rather than a
+  // problem each, said by what happened; Repair puts each back in one click (M35), and without its
+  // scan the App catalog's Start builds the container again.
   const repairFindings = facts.repairs?.findings ?? [];
-  const listedOnRepair = repairFindings.some((finding) => finding.id.startsWith("app-missing:"));
+  const missingFindings = repairFindings.filter((finding) => finding.id.startsWith("app-missing:"));
+  const listedOnRepair = missingFindings.length > 0;
   if (missing.length > 0) {
     const one = missing.length === 1;
     const named = missing.length <= 2 ? missing.map((app) => app.name).join(" and ") : `${missing.slice(0, 2).map((app) => app.name).join(", ")} and ${missing.length - 2} more`;
+    // The clean-up that removed them, in the findings' own words ("the nightly clean-up").
+    const cleanup = missingFindings.map((finding) => /removed by (.+?); your data is intact$/.exec(finding.title)?.[1]?.replace(/^most likely /, "")).find(Boolean) ?? null;
     needs.push({ id: "apps-missing", kind: "alert", severity: "warning", view: listedOnRepair ? "repairs" : "catalog", ...(one && !listedOnRepair ? { appId: missing[0].id } : {}),
-      title: `${named} ${one ? "has" : "have"} no container`,
+      title: cleanup ? `${named} ${one ? "was" : "were"} removed by ${cleanup}` : `${named} ${one ? "has" : "have"} lost ${one ? "its container" : "their containers"}`,
       detail: listedOnRepair
-        ? `BoxPilot lists ${one ? "it" : "them"} as installed, but Docker has no container for ${one ? "it" : "them"}. Repair offers Reinstall or Uninstall for ${one ? "it" : "each"}.`
-        : `BoxPilot lists ${one ? "it" : "them"} as installed, but Docker has no container for ${one ? "it" : "them"}. Reinstall or uninstall ${one ? "it" : "each"} from the App catalog.`, action: null });
+        ? `Your data is intact. Repair puts ${one ? "it" : "each"} back in one click; ${one ? "an app" : "apps"} you had stopped come${one ? "s" : ""} back stopped.`
+        : `${one ? "Its" : "Their"} data is still here. Start ${one ? "it" : "each"} from the App catalog to build ${one ? "its container" : "their containers"} again, or uninstall ${one ? "it" : "the ones"} you no longer want.`, action: null });
   }
 
   if ((facts.services?.failed ?? 0) > 0) {

@@ -649,42 +649,84 @@ export function backupDestinationToMove({ fstab = [] } = {}) {
  * there, and Docker had no container by the name BoxPilot gives it. Start had nothing to start and
  * install refused an app already installed, so Home could only point at the catalog.
  *
- * The usual way a container goes while the app's record stays is a prune: `docker system prune`
- * deletes every stopped container, and "Clean up Docker disk space" runs exactly that. When one ran
- * since the app was installed, the finding says so. Each app gets its own two answers: build the
- * container again from what was saved, or let BoxPilot forget it (its data is kept).
+ * The cause was the nightly "Clean up Docker disk space": it ran `docker system prune`, which deletes
+ * every stopped container, so every app the owner stopped was gone by morning (ten on 2026-09-29).
+ * So the finding says what happened, with the stop and the clean-up as its evidence, and that the
+ * data is intact: a prune never touches volumes or folders. Each app gets one click back: one the
+ * owner stopped on purpose (server/app-stops.mjs) is recreated and left stopped, as it was left;
+ * any other is started, which builds the container again. Or Uninstall, for one no longer wanted.
  */
 export function appsWithoutContainer({ apps = [], pruneRuns = [] } = {}) {
+  const runs = pruneRuns
+    .map((run) => (typeof run === "string" ? { at: run, scheduled: false, frequency: null } : run))
+    .filter((run) => run?.at && Number.isFinite(Date.parse(run.at)))
+    .sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
   return apps
     .filter((app) => app.missingContainer)
     .map((app) => {
       const missing = app.missingContainer;
       const installedAt = app.installedAt ? Date.parse(app.installedAt) : Number.NaN;
-      const prune = pruneRuns.filter((at) => !Number.isFinite(installedAt) || Date.parse(at) > installedAt).sort().at(-1) ?? null;
+      const stoppedAt = app.stoppedAt ? Date.parse(app.stoppedAt) : Number.NaN;
+      const stopped = Number.isFinite(stoppedAt);
+      // The clean-up that removed it: the first one after the owner stopped it. Without a stop on
+      // record, the latest one since the install (the app had stopped or crashed by then).
+      const prune = stopped
+        ? runs.find((run) => Date.parse(run.at) > stoppedAt) ?? null
+        : runs.filter((run) => !Number.isFinite(installedAt) || Date.parse(run.at) > installedAt).at(-1) ?? null;
+      const cleanup = prune?.scheduled ? (prune.frequency === "daily" ? "the nightly clean-up" : "the scheduled clean-up") : "Docker's clean-up";
+      const certain = Boolean(prune) && stopped;
+      const title = prune
+        ? `${app.name} was ${certain ? "" : "most likely "}removed by ${cleanup}; your data is intact`
+        : `The container for ${app.name} was removed outside BoxPilot; its data folder is still here`;
+      const kept = missing.projectPresent ? "its settings, its data and its compose project" : "its settings and its data";
+      const detail = prune
+        ? `${certain ? `You stopped ${app.name} ${when(app.stoppedAt)}, and ${cleanup} ran ${when(prune.at)}` : `${cleanup[0].toUpperCase()}${cleanup.slice(1)} ran ${when(prune.at)}, after ${app.name} had stopped`}. It runs "docker system prune", which deletes every stopped container, and so it deleted ${app.name}'s. It never touches volumes or folders: ${kept} are all still here, so ${app.name} can be put back exactly as it was.${stopped ? " It comes back stopped, as you left it." : ""}`
+        : `BoxPilot's record says ${app.name} is installed, and ${kept} are still here, but Docker has no container for it, so it is not running. A container goes like this when it is removed by hand or by another Docker tool while the app is stopped. It can be put back from what was saved.`;
+      const recreate = stopped
+        ? {
+          operationId: "app.reinstall",
+          parameters: { id: app.id, start: false },
+          label: "Recreate (stays stopped)",
+          preview: `Builds ${app.name}'s container again from its ${missing.projectPresent ? "saved compose project, as it was last deployed" : "saved settings, on the image it last ran, since its compose project is gone too"}, and leaves it stopped, as you left it: start it whenever you want it. Its data is used as it is; nothing is reset or deleted.`,
+        }
+        : missing.projectPresent
+          ? {
+            operationId: "app.action",
+            parameters: { id: app.id, action: "start" },
+            label: "Start",
+            preview: `Starts ${app.name}: with no container to start, it builds the container again from its saved compose project, as it was last deployed, and starts it. Its data is used as it is; nothing is reset or deleted.`,
+          }
+          : {
+            operationId: "app.reinstall",
+            parameters: { id: app.id },
+            label: "Start",
+            preview: `Writes ${app.name}'s compose project again from its saved settings, on the image it last ran (the file is gone too), builds its container, starts it and waits for it to be healthy. Its data is used as it is; nothing is reset or deleted. If it does not come up, what started is taken down again.`,
+          };
       return finding({
         id: `app-missing:${app.id}`,
         severity: "warning",
-        title: `${app.name} is listed as installed but has no container`,
-        detail: `BoxPilot's record says ${app.name} is installed${app.installedAt ? ` (since ${new Date(app.installedAt).toLocaleDateString()})` : ""}, and ${missing.projectPresent ? "its compose project and data are still there" : "its data folder is still there"}, but Docker has no container for it, so it is not running and Start has nothing to start. ${prune ? "Docker's cleanup removes every stopped container, and it ran after this app was installed: the usual way a stopped app loses its container." : "A container goes like this when it is removed outside BoxPilot, or by a Docker cleanup while the app was stopped."}`,
+        title,
+        detail,
         evidence: [
-          `${missing.record} says installed`,
-          missing.projectPresent ? `${missing.project} is there` : `${missing.project} is gone too`,
+          ...(stopped ? [`you stopped it ${when(app.stoppedAt)}`] : []),
+          ...(prune ? [`${cleanup} (docker system prune) ran ${when(prune.at)}${prune.scheduled ? ", on its schedule" : ""}`] : []),
           `Docker has no container named ${missing.container}`,
-          ...(prune ? [`"Clean up Docker disk space" (docker system prune) ran ${new Date(prune).toLocaleString()}; it removes stopped containers`] : []),
+          `${missing.record} still says installed`,
+          missing.projectPresent ? `${missing.project} is there` : `${missing.project} is gone too`,
         ],
-        fixes: [{
-          operationId: "app.reinstall",
-          parameters: { id: app.id },
-          label: "Reinstall",
-          preview: `Builds ${app.name}'s container again from its ${missing.projectPresent ? "saved compose project, as it was last deployed" : "saved settings, on the image it last ran, since its compose project is gone too"}, starts it and waits for it to be healthy. Its data folder is used as it is; nothing is reset or deleted. If it does not come up, what started is taken down again and nothing else changes.`,
-        }, {
+        fixes: [recreate, {
           operationId: "app.uninstall",
           parameters: { id: app.id },
           label: "Uninstall",
-          preview: `Removes ${app.name} from BoxPilot's installed apps: takes down whatever is left of its compose project and marks it uninstalled. Its data folder is kept, so installing it again from the catalog picks it back up. Nothing is deleted.`,
+          preview: `Removes ${app.name} from BoxPilot's installed apps, for an app you no longer want: takes down whatever is left of its compose project and marks it uninstalled. Its data folder is kept, so installing it again from the catalog picks it back up. Nothing is deleted.`,
         }],
       });
     });
+}
+
+/** A moment in the server's own locale, as the owner's clock would say it. */
+function when(iso) {
+  return new Date(iso).toLocaleString(undefined, { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 }
 
 /**

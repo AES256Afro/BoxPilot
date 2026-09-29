@@ -549,27 +549,41 @@ describe("apps listed as installed with no container (M35)", () => {
     { id: "jellyfin", name: "Jellyfin", installedAt: "2026-08-01T10:00:00.000Z", missingContainer: null },
   ];
 
-  it("lists each one with Reinstall and Uninstall, saying which record and which container", () => {
-    const found = appsWithoutContainer({ apps });
-    expect(found.map((entry) => entry.id)).toEqual(["app-missing:homepage", "app-missing:it-tools"]);
-    const [homepage, tools] = found;
-    expect(homepage).toMatchObject({ severity: "warning", title: "Homepage is listed as installed but has no container" });
-    expect(homepage.fixes.map((fix) => [fix.operationId, fix.label])).toEqual([["app.reinstall", "Reinstall"], ["app.uninstall", "Uninstall"]]);
-    expect(homepage.fixes.every((fix) => fix.parameters.id === "homepage")).toBe(true);
-    expect(homepage.evidence).toEqual(["/var/lib/boxpilot-managed/catalog/homepage/boxpilot.json says installed", "/var/lib/boxpilot-managed/catalog/homepage/compose.yaml is there", "Docker has no container named bp-homepage"]);
+  const when = (iso) => new Date(iso).toLocaleString(undefined, { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  const nightly = { at: "2026-09-29T03:00:40.000Z", scheduled: true, frequency: "daily" };
+
+  it("says the nightly clean-up removed an app the owner had stopped, and brings it back stopped in one click", () => {
+    // Plex was stopped at 22:10 and gone by morning: the 03:00 prune deletes every stopped container.
+    const plex = { id: "plex", name: "Plex", installedAt: "2026-08-01T10:00:00.000Z", stoppedAt: "2026-09-28T22:10:20.000Z", missingContainer: record("plex") };
+    const [found] = appsWithoutContainer({ apps: [plex], pruneRuns: [{ at: "2026-09-20T03:00:00.000Z", scheduled: true, frequency: "daily" }, nightly] });
+    expect(found).toMatchObject({ id: "app-missing:plex", severity: "warning", title: "Plex was removed by the nightly clean-up; your data is intact" });
+    expect(found.detail).toContain(`You stopped Plex ${when(plex.stoppedAt)}, and the nightly clean-up ran ${when(nightly.at)}`);
+    expect(found.detail).toContain("It never touches volumes or folders");
+    // The stop and the clean-up that followed it, not an earlier one.
+    expect(found.evidence.slice(0, 2)).toEqual([`you stopped it ${when(plex.stoppedAt)}`, `the nightly clean-up (docker system prune) ran ${when(nightly.at)}, on its schedule`]);
+    expect(found.fixes.map((fix) => [fix.operationId, fix.label, fix.parameters])).toEqual([
+      ["app.reinstall", "Recreate (stays stopped)", { id: "plex", start: false }],
+      ["app.uninstall", "Uninstall", { id: "plex" }],
+    ]);
     // Uninstall keeps the data: nothing on this finding deletes anything.
-    expect(homepage.fixes[1].preview).toContain("Its data folder is kept");
-    expect(homepage.fixes[1].preview).toContain("Nothing is deleted");
-    // Without its project, Reinstall builds from the saved settings instead, and says so.
-    expect(tools.fixes[0].preview).toContain("since its compose project is gone too");
+    expect(found.fixes[1].preview).toContain("Its data folder is kept");
+    expect(found.fixes[1].preview).toContain("Nothing is deleted");
   });
 
-  it("names Docker's cleanup when it ran after the app was installed, the usual way a stopped app loses its container", () => {
-    const [homepage, tools] = appsWithoutContainer({ apps, pruneRuns: ["2026-09-10T03:00:00.000Z"] });
-    expect(homepage.evidence.at(-1)).toContain('"Clean up Docker disk space" (docker system prune) ran');
-    expect(homepage.detail).toContain("Docker's cleanup removes every stopped container");
-    // IT-Tools was installed after that cleanup, so the cleanup is not its story.
+  it("offers Start for an app that was not stopped on purpose, which builds the container again", () => {
+    const found = appsWithoutContainer({ apps, pruneRuns: [{ at: "2026-09-10T03:00:00.000Z", scheduled: false, frequency: null }] });
+    expect(found.map((entry) => entry.id)).toEqual(["app-missing:homepage", "app-missing:it-tools"]);
+    const [homepage, tools] = found;
+    expect(homepage.title).toBe("Homepage was most likely removed by Docker's clean-up; your data is intact");
+    expect(homepage.fixes.map((fix) => [fix.operationId, fix.label, fix.parameters])).toEqual([["app.action", "Start", { id: "homepage", action: "start" }], ["app.uninstall", "Uninstall", { id: "homepage" }]]);
+    expect(homepage.evidence).toContain("Docker has no container named bp-homepage");
+    expect(homepage.evidence).toContain("/var/lib/boxpilot-managed/catalog/homepage/boxpilot.json still says installed");
+    // IT-Tools was installed after that clean-up, so the clean-up is not its story; and with its
+    // compose project gone too, Start writes it again from the saved settings.
+    expect(tools.title).toBe("The container for IT-Tools was removed outside BoxPilot; its data folder is still here");
     expect(tools.evidence.some((line) => line.includes("docker system prune"))).toBe(false);
+    expect(tools.fixes[0]).toMatchObject({ operationId: "app.reinstall", label: "Start", parameters: { id: "it-tools" } });
+    expect(tools.fixes[0].preview).toContain("the file is gone too");
   });
 });
 

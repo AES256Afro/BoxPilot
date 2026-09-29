@@ -18,6 +18,9 @@ export function foldAppStop(entries, job, { now = () => new Date() } = {}) {
   const operation = String(job.type ?? "").replace(/^op:/, "");
   const action = job.parameters?.action;
   if (operation === "app.action" && action === "stop") return { ...current, [id]: { at: now().toISOString(), by: job.createdBy ?? null } };
+  // Repair's "Recreate (stays stopped)" (M35) builds a pruned app's container and leaves it stopped:
+  // it is still stopped on purpose, since the owner's stop stands.
+  if (operation === "app.reinstall" && job.parameters?.start === false) return current;
   const clears = (operation === "app.action" && ["start", "restart", "unpause"].includes(action)) || appStopClearingOperations.includes(operation);
   if (!clears || !(id in current)) return current;
   const { [id]: _cleared, ...rest } = current;
