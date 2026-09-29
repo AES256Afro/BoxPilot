@@ -10,6 +10,10 @@ on:
         description: "Comma-separated jobs to run: perf, capability, recommended, official, nine-b (9B and 2B comparison)"
         default: "perf,capability,recommended,official,nine-b"
         type: string
+      recommended_steps:
+        description: "Steps of the recommended job: recommended, lifecycle"
+        default: "recommended,lifecycle"
+        type: string
 
 permissions:
   contents: read
@@ -126,9 +130,10 @@ jobs:
       - name: Build the slim image with Unsloth's installer
         run: bash tests/spikes/unsloth-headless.sh build
       - name: Recommended flags, five minutes idle, embeddings beside chat
+        if: contains(format(',{0},', inputs.recommended_steps), ',recommended,')
         run: bash tests/spikes/unsloth-headless.sh recommended
       - name: Idle unload with the context pinned, pause, cold start
-        if: always()
+        if: ${{ !cancelled() && contains(format(',{0},', inputs.recommended_steps), ',lifecycle,') }}
         run: bash tests/spikes/unsloth-headless.sh lifecycle
       - name: Summary
         if: always()

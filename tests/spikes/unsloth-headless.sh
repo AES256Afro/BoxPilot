@@ -389,30 +389,32 @@ step_lifecycle() {
   # Unsloth's reload after an idle unload forgets --context-length and relaunches at the GGUF's
   # 262,144 tokens (an 8 GB KV cache, OOM-killed under the cap), but it keeps the llama-server
   # arguments passed through, so the context is pinned there too (-c), with fewer checkpoints.
-  local name=uns-life tmp t0 since llama
+  local name=uns-life tmp t0 since llama served="${MODEL%%:*}"
   tmp="$(mktemp)"
   run_unsloth "$name" 1.0 1 -e UNSLOTH_MODEL_IDLE_TTL=60 -- -c "$CTX" --ctx-checkpoints 4 || return 1
   start_and_time "$name" lifecycle cpus=1.0 threads=1 idle_ttl=60 pinned_ctx=true || { docker rm -f "$name"; return 1; }
-  probe first-token --key "$KEY" >"$tmp"
+  # Always name the model: once it is unloaded, /v1/models lists every GGUF in the cache.
+  probe first-token --key "$KEY" --model "$served" >"$tmp"
   # Unsloth answers /v1/embeddings beside the chat model by starting a second llama-server.
   record lifecycle "$(probe embed --key "$KEY" --timeout 300 | tail -1)" phase=embeddings-beside-chat
-  llama="$(docker top "$name" -eo comm | grep -c llama-server)"
+  llama="$(docker top "$name" -eo pid,comm | grep -c llama-server)"
   read -r mcur _ manon mfile < <(cg_mem "$CG")
   record lifecycle "$(tail -1 "$tmp")" phase=first-request llama_server_procs="$llama" mem_mb="$mcur" anon_mb="$manon" file_mb="$mfile" \
     processes="$(processes "$name")"
 
   log "lifecycle: waiting past the idle TTL"
   sleep 100
-  llama="$(docker top "$name" -eo comm | grep -c llama-server)"
+  llama="$(docker top "$name" -eo pid,comm | grep -c llama-server)"
   read -r mcur _ manon mfile < <(cg_mem "$CG")
   record lifecycle "$(idle_window "$name" 30)" phase=after-idle-ttl llama_server_procs="$llama" mem_mb="$mcur" anon_mb="$manon" file_mb="$mfile" \
     unload_log="$(docker logs "$name" 2>&1 | grep -iE 'unload|idle' | tail -3 | redact | jq -R . | jq -sc .)"
 
   t0="$(date +%s.%N)"
-  probe first-token --key "$KEY" --retry 600 >"$tmp"
-  llama="$(docker top "$name" -eo comm | grep -c llama-server)"
+  probe first-token --key "$KEY" --model "$served" --retry 600 >"$tmp"
+  llama="$(docker top "$name" -eo pid,comm | grep -c llama-server)"
   read -r mcur _ manon mfile < <(cg_mem "$CG")
   record lifecycle "$(tail -1 "$tmp")" phase=request-after-unload to_first_token_s="$(sub "$(jq -r '.first_token_epoch // empty' "$tmp")" "$t0")" \
+    reload_ready_s="$(sub "$(ts_of "$name" 'Loaded GGUF model via llama-server' "$t0")" "$t0")" \
     llama_server_procs="$llama" mem_mb="$mcur" anon_mb="$manon" reload_args="$(reload_args "$name")"
 
   docker pause "$name" >/dev/null
@@ -420,7 +422,7 @@ step_lifecycle() {
   read -r mcur _ manon mfile < <(cg_mem "$CG")
   t0="$(date +%s.%N)"
   docker unpause "$name" >/dev/null
-  probe first-token --key "$KEY" >"$tmp"
+  probe first-token --key "$KEY" --model "$served" >"$tmp"
   record lifecycle "$(tail -1 "$tmp")" phase=unpause paused_mem_mb="$mcur" to_first_token_s="$(sub "$(jq -r '.first_token_epoch // empty' "$tmp")" "$t0")"
 
   for cache in warm cold; do
@@ -439,7 +441,7 @@ step_lifecycle() {
       break
     fi
     CG="$(cg_of "$name")"
-    probe first-token --key "$KEY" >"$tmp"
+    probe first-token --key "$KEY" --model "$served" >"$tmp"
     record lifecycle "$(tail -1 "$tmp")" phase="start-$cache-page-cache" \
       to_ready_s="$(sub "$(ts_of "$name" 'API Key' "$since")" "$t0")" \
       to_first_token_s="$(sub "$(jq -r '.first_token_epoch // empty' "$tmp")" "$t0")"
