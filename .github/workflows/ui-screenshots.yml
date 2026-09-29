@@ -89,7 +89,8 @@ jobs:
           # in the unwell one. Home and Ops themselves come with every page, from the navigation
           # in src/data.ts. Repair (M35) in the unwell world, its batch of safe fixes, a fix's
           # approval with its preview, setting a finding aside, and what was set aside.
-          STATES: ${{ inputs.states || 'storage-check=?view=storage>Check this drive;command-bar=?view=home>Search pages, apps and settings;app-sheet=?view=home>📷Immich;home-trouble=?view=home&scenario=trouble;home-fresh=?view=home&scenario=fresh;ops-trouble=?view=ops&scenario=trouble;areas-sheet=?view=home>More;repair-trouble=?view=repairs&scenario=trouble;repair-safe=?view=repairs&scenario=trouble>Fix the safe ones;repair-approve=?view=repairs&scenario=trouble>Try again: Reconnect the drive;repair-dismiss=?view=repairs&scenario=trouble>Dismiss: Nobody can write;repair-dismissed=?view=repairs&scenario=trouble>Show' }}
+          # Quoted: two click targets carry ": ", which a plain YAML value cannot.
+          STATES: "${{ inputs.states || 'storage-check=?view=storage>Check this drive;command-bar=?view=home>Search pages, apps and settings;app-sheet=?view=home>📷Immich;home-trouble=?view=home&scenario=trouble;home-fresh=?view=home&scenario=fresh;ops-trouble=?view=ops&scenario=trouble;areas-sheet=?view=home>More;repair-trouble=?view=repairs&scenario=trouble;repair-safe=?view=repairs&scenario=trouble>Fix the safe ones;repair-approve=?view=repairs&scenario=trouble>Try again: Reconnect the drive;repair-dismiss=?view=repairs&scenario=trouble>Dismiss: Nobody can write;repair-dismissed=?view=repairs&scenario=trouble>Show' }}"
           SCHEMES: dark,light
           FULL_PAGE: "1"
           SCALE: "1"
