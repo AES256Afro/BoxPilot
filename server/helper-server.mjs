@@ -48,7 +48,8 @@ const prerequisites = createPrerequisiteHelper();
 const runUnit = createRunUnitClient();
 const credentials = createCredentialStore();
 const vpnProfile = createVpnProfileStore();
-const apps = createAppHelper({ vpnProfile });
+// The port check before `compose up` needs the host's listeners, which this sandbox cannot see.
+const apps = createAppHelper({ vpnProfile, hostListeners: async () => (await runUnit.runTask("host.listeners", {}, { timeoutMs: 30_000 })).listeners });
 const vmCloud = createVmCloudHelper();
 const foundation = createLibvirtFoundationHelper();
 const controllerBackups = createControllerBackupHelper();

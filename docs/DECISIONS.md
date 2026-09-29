@@ -33,6 +33,22 @@ The owner's goal for the product is the opposite: open the app on a fresh Ubuntu
 6. **Copy describes what happens, not what is refused.** Operator-facing text names the action and its effect. Boundary disclaimers move to `docs/SAFETY.md` if they are needed at all.
 7. **No personal host data in the repository.** Hostnames, MACs, LAN layouts, and router models belong in placeholders or ignored `*.local.md` files.
 
+### Left to the owner
+
+- **Connectors' tokens** live in the root-owned credential store (M13.7) and are read only inside the
+  `agents.connector.sync` task; each sync is a low-risk job the owner approves or schedules.
+
+- **Studio or llama.cpp's server alone.** The `llama-server` Unsloth installs can serve the model by
+  itself: MIT, no Python, 0.00% idle, a second to start, but without Studio's tool-call healing,
+  per-model settings and idle unload, and measured for embeddings rather than chat. The runtime has a
+  `llama-server` driver so the choice is a setting, not a rewrite; Unsloth stays the default.
+- **Pinning.** Unsloth's installer always takes the newest release, and the spike found the docs
+  lagging the code. BoxPilot keeps the installer's SHA-256 and the release it installed and says
+  when that is not 2026.9.12; a pinned install, or the spike's slim image built from a known release,
+  with the spike's workflow rerun before moving, is the owner's call.
+- **Half a processor or one.** 50% halves the speed (2.1 tokens a second for the 4B); the spike
+  recommends one. The 9B would need about 12 GB and is slow at one processor.
+
 ### Consequences
 
 - Existing guarded workflows keep working during the transition; they are ported to the registry and re-tiered rather than rewritten from scratch.
@@ -279,3 +295,114 @@ So there are two shells now, not a Classic one beside them:
 - **Light amber and green, a shade darker.** Checking the main pairs under the console's tokens
   found a chip's amber or green on its own tint over the paper page at 4.37:1; they are now
   `#935700` and `#147447`.
+
+## ADR-005: agents run in a capped service of their own, read through the web service, and only propose
+
+**Date:** 2026-09-29 · **Status:** Accepted (M37, unreleased) · **Refines:** ADR-001's "no new named systemd unit" for one long-running service, and M34's local-model rule.
+
+### Context
+
+The owner asked for agents: named, instructed, scheduled or asked, that learn the server, watch
+Pi-hole or the backups, write a daily digest and suggest fixes, built in a section of their own. The
+owner set four conditions before anything else. Agents must never make the server run hot ("I don't
+want to wake up and find this module running at 60% CPU"): the limits must be ones the kernel
+enforces, not ones the code promises. Everything must pause, one agent or all of them. Agents may
+propose but never act. And the model must be local, served by Unsloth rather than Ollama: the newest
+small Qwen that reads text and images, on a CPU-only server (8 cores, 16 threads, about 29 GB).
+
+A model on a CPU is the heaviest thing BoxPilot would ever run. The web process cannot host it (it
+must stay responsive and unprivileged), and the root helper must never host anything that reads
+untrusted text and decides what to do next.
+
+### Decision
+
+1. **Two processes.** The web process keeps everything about agents - their versioned specs, the run
+   queue, budgets, triggers, traces, notes, cards, the learning library - in BoxPilot's own
+   database, and runs every tool. The runner (`deploy/boxpilot-agents.service`,
+   `server/agents/runner-main.mjs`) runs the model and the agent loop, and nothing else.
+2. **Hard caps on a unit of its own.** The runner and the model server it starts share one cgroup
+   with `CPUQuota=100%` (one processor, the spike's number), `CPUWeight=idle`, `Nice=19`, `IOSchedulingClass=idle`, `MemoryMax=8G`, no
+   swap, `TasksMax=256`, its own user, no capabilities and `IPAddressDeny=any` but loopback. This is
+   a long-running service with its own trust level, not a per-operation oneshot unit, which is what
+   ADR-001 retired; it is installed with the others and enabled only when the owner turns Agents on.
+   `caps.mjs` holds the values the Usage panel shows and a test holds them to the unit; a
+   real-systemd test proves the cgroup stays under the quota under a model that wants three times
+   it, and idles under 2%.
+3. **Unsloth as the runner's child, not a container.** The spike
+   (`docs/spikes/2026-09-unsloth-headless.md`) recommends a BoxPilot-built 2 GB image run with
+   `docker run --cpus 1.0`. BoxPilot takes its flags, caps and security findings and not its
+   packaging: a container would sit outside the runner's cgroup, so the caps would be two sets to keep
+   equal; starting and stopping it would need Docker, which is root, from an unprivileged runner; and
+   it would run when nothing needs it. As the runner's child, `unsloth run` is started when a run
+   needs a model and stopped when idle with no privilege at all, under the one cgroup the kernel
+   caps, and idle is then no process. It is installed by Unsloth's own installer (GGUF-only), as the
+   runner's user, into the runner's state; root never runs or writes anything there.
+   It runs as the spike found it must: `--api-only --disable-tools` (Studio's server-side Python,
+   shell and web search are otherwise on), bound to 127.0.0.1, one thread, `--context-length 8192`
+   and `-c 8192` (Unsloth's idle reload forgets the first and would relaunch at 262,144 tokens),
+   `--ctx-checkpoints 4`, `UNSLOTH_MODEL_IDLE_TTL=900`, offline, the public-port check off, and
+   Studio's admin password set to a secret the runner keeps rather than one Studio prints. Its key
+   is read once per start and sent on every request, and every request names the model. Installing
+   Unsloth, the downloads, starting the unit and switching models are registered operations,
+   approved at their tiers.
+   **Licence:** `unsloth run` starts Unsloth Studio's backend, which is AGPL-3.0 (llama.cpp, which
+   does the inference, is MIT). BoxPilot talks to it only over HTTP, as a separate, unmodified
+   process installed from Unsloth's own installer on the owner's server; BoxPilot ships none of its
+   code. That reading should be confirmed before M37 ships; it is not legal advice.
+4. **A scoped identity, not a session.** The runner reaches the web service on
+   `/api/v1/agent-runner/*` with one key, handed to it by systemd (`LoadCredential`) from a file
+   only the web service and root can read, accepted only from loopback and never through a proxy.
+   The key opens nothing else; every other route asks for a session. On its own routes the runner
+   can take work, report steps, ask for a read-only tool by name on a run whose lease it holds, and
+   finish. It never talks to the root helper.
+5. **Tools read as a person.** A run reads as the person who asked, or for a schedule or an event as
+   the person who made the agent; the tools apply the rules the pages apply (jobs, alerts, ADR-003's
+   operator reads). Tool output is data: redacted, neutralised, boxed as untrusted, and flagged when
+   it reads like an instruction.
+6. **Propose, never act.** The only way an agent affects the server is a card: registered operations
+   checked against the registry and the person (`assistant/plan.mjs`), each staged and approved by a
+   person through the ordinary job path at its own tier. Notes and notices are the only other writes.
+7. **One OpenAI-compatible client.** The agents and the assistant share
+   `assistant/model-client.mjs` under M34's local-only rules (loopback only for agents); Ollama's own
+   API stays as a legacy provider for assistant settings saved before this.
+8. **Bounded everywhere.** One run at a time for the server, one question at a time per person,
+   budgets a day, limits a run, a bounded queue that drops unattended work, rate limits, timeouts,
+   quiet hours for heavy work, a self-throttle when the server is busy; an interrupted run is marked,
+   never retried.
+9. **A small engine of its own, not a framework.** BoxPilot does not embed LangChain, CrewAI,
+   AutoGen or the like; the agent engine is a few thousand lines of its own (`server/agents/`), with
+   the pieces those frameworks offer built to BoxPilot's rules:
+   - *Footprint.* The web process runs on Node with four dependencies. A framework brings a Python
+     runtime or hundreds of packages, its own HTTP clients and its own threads, all outside the
+     runner's cgroup and so outside the caps the owner asked for first.
+   - *Caps.* Everything an agent does happens either inside `boxpilot-agents.service` (the model,
+     embeddings) or as a bounded read in the web process (tools, memory search). A framework decides
+     for itself when to call a model and how often, which is exactly what the caps and budgets exist
+     to decide.
+   - *Local only.* Frameworks default to cloud models, cloud vector stores and tracing services, and
+     some send telemetry unless told not to. Here the model is on loopback, the vector store is
+     SQLite, web search is the owner's SearXNG or nothing, and nothing leaves the machine unless the
+     owner approves an operation that says it will.
+   - *The approval model.* In a framework an agent's tool runs when the model calls it. Here a tool
+     only reads, and every change is a card of registered operations a person approves at each step's
+     tier. Retrofitting that onto a framework means taking out most of what it is for.
+   - *Reviewable and portable.* Every step is in the trace, every rule has a test, and an agent is a
+     JSON definition that can be read, kept, and brought to another BoxPilot (export and import go
+     through the same gate as the Builder).
+   What the owner asked a builder and an orchestrator to have is built in that shape: intent, plan,
+   act with a structured understanding; short- and long-term memory with hybrid search; a typed tool
+   registry with exact tools, opt-in web search and connectors; escalation instead of action; and a
+   supervisor that hands subtasks to specialists on the one queue (ROADMAP-V2, M37.7).
+
+### Consequences
+
+- Idle costs nothing measurable: a long poll every half minute and, after the owner's idle time,
+  no model server at all. While Studio is up but unused it costs about 0.5% of one processor.
+- A model that is missing, slow or broken degrades an answer to the tools' facts instead of failing.
+- The web process runs every tool, so a tool's cost lands there; tools are cheap reads, bounded in
+  number and size per run, and one run goes at a time.
+- The spike's measurements set the defaults (one processor, one thread, 8,192 tokens of context, the
+  4B model at about 4 tokens a second): slow for chat, fine for digests, triage and routing. They are
+  settings of the runtime, not of the architecture, and the home server's own numbers may move them.
+- Agent tables are a product area's records, like flows and schedules, not an operation's ledger;
+  every change to the host still goes through the registry.

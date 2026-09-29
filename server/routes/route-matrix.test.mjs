@@ -69,6 +69,10 @@ import { createAssistantService } from "../assistant/index.mjs";
 import { registry } from "../ops/index.mjs";
 import { createRedactor } from "../redaction.mjs";
 import { startFakeOllama } from "../../test/fake-ollama.mjs";
+import { createAgentsRouter } from "./agents.mjs";
+import { createAgentRunnerRouter } from "./agent-runner.mjs";
+import { createAgentStore } from "../agents/store.mjs";
+import { createAgentService } from "../agents/service.mjs";
 
 const password = "correct horse battery";
 const roles = ["viewer", "operator", "owner"];
@@ -80,6 +84,10 @@ let state;
 const accounts = {};
 const sessions = {};
 const fixtures = {};
+// Agents (M37): the service the routes answer from, and the runner's key.
+let agents;
+let runnerToken;
+let agentStore;
 const routers = {};
 // The assistant's model (M34): a stand-in on a loopback port, so each test can read what it was shown.
 let fakeModel;
@@ -171,7 +179,7 @@ const foreign = {
 
 /** No session needed: signing in, discovery, the OIDC protocol, health, the CA certificate, the flow webhook. */
 const publicRoutes = [
-  "GET /api/v1/health", "GET /ca.crt", "POST /api/v1/hooks/flows/:id/:token",
+  "GET /api/v1/health", "GET /ca.crt", "POST /api/v1/hooks/flows/:id/:token", "POST /api/v1/hooks/agents/:id/:token",
   "GET /api/v1/auth/status", "POST /api/v1/auth/bootstrap", "POST /api/v1/auth/login",
   "GET /api/v1/auth/identity", "POST /api/v1/auth/tailscale", "POST /api/v1/auth/github/start", "POST /api/v1/auth/github/poll",
   "POST /api/v1/auth/passkey/options", "POST /api/v1/auth/passkey/verify", "POST /api/v1/auth/passkey/recovery",
@@ -206,7 +214,37 @@ const changeRoutes = [
   "PUT /api/v1/settings/weekly-report", "POST /api/v1/settings/weekly-report/send", "PUT /api/v1/settings/notifications", "POST /api/v1/settings/notifications/test",
   "PUT /api/v1/settings/approval-mode", "PUT /api/v1/settings/backup-destination", "PUT /api/v1/settings/github-client-id", "PUT /api/v1/settings/assistant",
   "POST /api/v1/storage/shares/list", "POST /api/v1/virtualization/media/uploads", "POST /api/v1/virtualization/plans",
+  // Agents (M37): making, changing, running, pausing and stopping them, their cards, notes, library
+  // and evaluations, and the owner's switch. None stages or runs an operation.
+  "POST /api/v1/agents", "PUT /api/v1/agents/:id", "DELETE /api/v1/agents/:id", "POST /api/v1/agents/:id/rollback",
+  "POST /api/v1/agents/:id/pause", "POST /api/v1/agents/:id/resume", "POST /api/v1/agents/:id/runs",
+  "DELETE /api/v1/agents/:id/notes/:noteId", "PUT /api/v1/agents/:id/evaluation", "POST /api/v1/agents/:id/evaluation/run",
+  "POST /api/v1/agents/proposals/:proposalId/decide", "POST /api/v1/agents/runs/:runId/cancel",
+  "POST /api/v1/agents/module/pause", "POST /api/v1/agents/module/resume", "POST /api/v1/agents/module/kill",
+  "POST /api/v1/agents/knowledge/documents", "PUT /api/v1/agents/knowledge/documents/:documentId", "DELETE /api/v1/agents/knowledge/documents/:documentId", "POST /api/v1/agents/knowledge/relearn",
+  "PUT /api/v1/agents/knowledge/documents/:documentId/pin", "POST /api/v1/agents/knowledge/upload", "POST /api/v1/agents/knowledge/folder/sync", "POST /api/v1/agents/knowledge/reindex",
+  "POST /api/v1/agents/import", "POST /api/v1/agents/:id/webhook", "DELETE /api/v1/agents/:id/webhook",
+  "PUT /api/v1/agents/:id/memory/notes/:noteId", "DELETE /api/v1/agents/:id/memory/notes/:noteId", "DELETE /api/v1/agents/:id/memory/episodes/:episodeId",
+  "PUT /api/v1/settings/agents",
 ];
+
+/**
+ * The agents runner's own routes (M37): no session, one scoped key, loopback only. Refused to a
+ * person's session and to anyone without the key; the key opens nothing else (tested below).
+ */
+const runnerRoutes = [
+  "POST /api/v1/agent-runner/hello", "POST /api/v1/agent-runner/next", "POST /api/v1/agent-runner/usage",
+  "POST /api/v1/agent-runner/runs/:runId/heartbeat", "POST /api/v1/agent-runner/runs/:runId/steps",
+  "POST /api/v1/agent-runner/runs/:runId/tools", "POST /api/v1/agent-runner/runs/:runId/finish", "POST /api/v1/agent-runner/runs/:runId/vectors",
+];
+
+/** Asking an agent someone may borrow (M37): a POST that only reads, as the asker, like the assistant. */
+const agentAskRoutes = ["POST /api/v1/agents/:id/ask"];
+/**
+ * A person's own with an agent (M37): whether an answer was right, and forgetting the conversation
+ * with them. Open to viewers by the role policy; the service allows each only on the caller's own.
+ */
+const agentOwnRoutes = ["POST /api/v1/agents/runs/:runId/feedback", "DELETE /api/v1/agents/:id/memory/thread"];
 const ownerOnlyChange = /^\/api\/v1\/(settings|people|oidc\/clients)(\/|$)/;
 
 /**
@@ -420,6 +458,56 @@ const dataRoutes = {
       expect("settings" in body, role).toBe(role === "owner");
     },
   }],
+  // Agents (M37). The module's state, the usage and the catalog are everyone's; a viewer sees only
+  // the agents they may borrow. Runs, cards and notes follow the jobs rule: another account's work
+  // is the owner's to see. The runtime's host read is an operator read (ADR-003).
+  "GET /api/v1/agents": [{
+    ...open,
+    check: ({ role, body }) => {
+      expect(body.module.enabled, role).toBe(true);
+      expect(body.agents.map((agent) => agent.name).sort(), role).toEqual(role === "viewer" ? ["IT Support helper"] : ["IT Support helper", "Server Keeper"]);
+      expect(body.cardsWaiting, role).toBe(role === "owner" ? 1 : 0);
+    },
+  }],
+  "GET /api/v1/agents/catalog": [{ ...open, check: ({ role, body }) => expect(body.templates.length, role).toBe(5) }],
+  "GET /api/v1/agents/usage": [{ ...open, check: ({ role, body }) => expect(body.caps.cpuQuotaPercent, role).toBe(100) }],
+  "GET /api/v1/agents/runtime": [{
+    ...open,
+    check: ({ role, body, calls }) => {
+      expect(calls.includes("agents.runtime.inspect"), role).toBe(role !== "viewer");
+      expect("endpoint" in body.settings, role).toBe(role === "owner");
+    },
+  }],
+  "GET /api/v1/agents/glance": [operatorUp],
+  "GET /api/v1/agents/proposals": [{ ...open, check: ({ role, body }) => expect(body.proposals.length, role).toBe(role === "owner" ? 1 : 0) }],
+  "GET /api/v1/agents/knowledge": [operatorUp],
+  "GET /api/v1/agents/runs/:runId": [
+    { viewer: 404, operator: 404, owner: 200, params: () => ({ runId: fixtures.ownerRun }) },
+    { viewer: 404, operator: 200, owner: 200, params: () => ({ runId: fixtures.operatorRun }) },
+  ],
+  "GET /api/v1/agents/runs/:runId/stream": [
+    { viewer: 404, operator: 404, owner: 200, params: () => ({ runId: fixtures.ownerRun }) },
+    { viewer: 404, operator: 200, owner: 200, params: () => ({ runId: fixtures.operatorRun }) },
+  ],
+  "GET /api/v1/agents/:id": [
+    { viewer: 404, operator: 200, owner: 200, params: () => ({ id: fixtures.keeper.id }) },
+    { ...open, params: () => ({ id: fixtures.helper.id }) },
+  ],
+  "GET /api/v1/agents/:id/versions/:version": [{ viewer: 403, operator: 200, owner: 200, params: () => ({ id: fixtures.helper.id, version: "1" }) }],
+  "GET /api/v1/agents/:id/runs": [{
+    ...open,
+    params: () => ({ id: fixtures.helper.id }),
+    check: ({ role, body }) => expect(body.runs.map((run) => run.id), role).toEqual(role === "viewer" ? [] : [fixtures.operatorRun]),
+  }, {
+    viewer: 404, operator: 200, owner: 200,
+    params: () => ({ id: fixtures.keeper.id }),
+    check: ({ role, body }) => expect(body.runs.map((run) => run.id), role).toEqual(role === "owner" ? [fixtures.ownerRun] : []),
+  }],
+  "GET /api/v1/agents/:id/notes": [{ viewer: 404, operator: 403, owner: 200, params: () => ({ id: fixtures.keeper.id }), check: ({ role, body }) => expect(body.notes.length, role).toBe(1) }],
+  "GET /api/v1/agents/:id/evaluation": [{ viewer: 403, operator: 200, owner: 200, params: () => ({ id: fixtures.helper.id }) }],
+  // What an agent remembers is for the owner and the person who made it; a definition to export too.
+  "GET /api/v1/agents/:id/memory": [{ viewer: 404, operator: 403, owner: 200, params: () => ({ id: fixtures.keeper.id }), check: ({ body }) => expect(body.facts.map((note) => note.title)).toEqual(["Owner note"]) }],
+  "GET /api/v1/agents/:id/export": [{ viewer: 403, operator: 403, owner: 200, params: () => ({ id: fixtures.keeper.id }), check: ({ body }) => expect(body).toMatchObject({ format: "boxpilot-agent", version: 1 }) }],
 };
 
 // ---- the app, as index.mjs assembles it ----
@@ -495,10 +583,16 @@ beforeAll(async () => {
   state.setSetting("assistant", { endpoint: fakeModel.url, model: null, embedModel: null });
   const assistant = createAssistantService({ state, registry, catalog: catalogService, helper, inventory, redactor: createRedactor() });
   routers.createAssistantRouter = createAssistantRouter({ assistant, state, auth });
+  // Agents (M37), with the runner's key issued the way turning Agents on issues it.
+  agentStore = createAgentStore({ databasePath: state.databasePath });
+  agents = createAgentService({ state, store: agentStore, registry, helper, inventory, redactor: createRedactor(), tokenPath: path.join(directory, "agents", "runner.token"), hostLoad: () => 0 });
+  routers.createAgentsRouter = createAgentsRouter({ agents, state, auth });
+  routers.createAgentRunnerRouter = createAgentRunnerRouter({ agents });
 
   const app = express();
   app.use(securityHeaders({}));
   app.use(express.json({ limit: "256kb", strict: true }));
+  app.use("/api/v1", routers.createAgentRunnerRouter);
   app.use("/api/v1", routers.createIdentityRouter);
   app.use("/api/v1", routers.createPasskeyRouter);
   app.get("/api/v1/auth/status", auth.status);
@@ -508,7 +602,7 @@ beforeAll(async () => {
   app.use("/api/v1", (request, response, next) => (["GET", "HEAD", "OPTIONS"].includes(request.method) ? next() : auth.requireCsrf(request, response, next)));
   app.use("/api/v1", apiRolePolicy());
   app.use("/api/v1/people", auth.requireRole("owner"));
-  for (const name of ["createPeopleRouter", "createOperationsRouter", "createJobsRouter", "createVirtualizationRouter", "createSettingsRouter", "createFirewallRouter", "createStorageRouter", "createPowerRouter", "createChecklistRouter", "createHostRouter", "createOidcAdminRouter", "createRunbookRouter", "createAssistantRouter"]) {
+  for (const name of ["createPeopleRouter", "createOperationsRouter", "createJobsRouter", "createVirtualizationRouter", "createSettingsRouter", "createFirewallRouter", "createStorageRouter", "createPowerRouter", "createChecklistRouter", "createHostRouter", "createOidcAdminRouter", "createRunbookRouter", "createAssistantRouter", "createAgentsRouter"]) {
     app.use("/api/v1", routers[name]);
   }
   app.use((_request, response) => { response.status(404).json({ error: "Not found" }); });
@@ -581,6 +675,27 @@ beforeAll(async () => {
   await audit.record("vm.plan.created", { actorId: owner.id, domain: "owner-marker-vm" });
   await audit.record("vm.plan.created", { actorId: operator.id, domain: "operator-marker-vm" });
 
+  // Agents (M37): the owner's Server Keeper (not borrowable) with a run, a card and a note that
+  // carry the owner's marker, and the IT helper (anyone may ask it) with the operator's question.
+  const ownerCaller = { id: owner.id, role: "owner" };
+  const operatorCaller = { id: operator.id, role: "operator" };
+  agents.saveModule(ownerCaller, { enabled: true });
+  await agents.ensureRunnerToken();
+  runnerToken = (await readFile(path.join(directory, "agents", "runner.token"), "utf8")).trim();
+  fixtures.keeper = agents.createAgent(ownerCaller, { template: "server-keeper" });
+  fixtures.helper = agents.createAgent(ownerCaller, { template: "it-support" });
+  const runnerId = randomUUID();
+  agents.startRun(ownerCaller, fixtures.keeper.id, { kind: "ask", question: "owner-marker question" });
+  const ownerClaim = await agents.runnerNext(runnerId, { waitMs: 0 });
+  await agents.runnerTool(ownerClaim.run.id, ownerClaim.lease, "notes_write", JSON.stringify({ title: "Owner note", body: "owner-marker note" }));
+  await agents.runnerTool(ownerClaim.run.id, ownerClaim.lease, "plan_propose", JSON.stringify({ title: "Refresh owner-marker", reason: "owner-marker reason", steps: [{ operationId: "apt.refresh", parameters: {} }] }));
+  await agents.runnerFinish(ownerClaim.run.id, ownerClaim.lease, { outcome: "completed", answer: "owner-marker answer" });
+  fixtures.ownerRun = ownerClaim.run.id;
+  agents.startRun(operatorCaller, fixtures.helper.id, { kind: "ask", question: "operator-marker question" });
+  const operatorClaim = await agents.runnerNext(runnerId, { waitMs: 0 });
+  await agents.runnerFinish(operatorClaim.run.id, operatorClaim.lease, { outcome: "completed", answer: "operator-marker answer" });
+  fixtures.operatorRun = operatorClaim.run.id;
+
   for (const role of roles) sessions[role] = await signIn(role);
 });
 
@@ -588,6 +703,7 @@ afterAll(async () => {
   server?.closeAllConnections?.();
   await new Promise((resolve) => server.close(resolve));
   await fakeModel?.close();
+  agentStore?.close();
   state.close();
   await rm(directory, { recursive: true, force: true });
 });
@@ -607,7 +723,7 @@ describe("every route is accounted for", () => {
       .flatMap((layer) => [layer.route.path].flat().flatMap((routePath) => Object.keys(layer.route.methods)
         .map((method) => `${method === "_all" ? "ALL" : method.toUpperCase()} ${name === "createOidcRouter" ? "" : "/api/v1"}${routePath}`))));
     const routes = [...new Set([...inline, ...mounted])].sort();
-    const classified = [...publicRoutes, ...selfRoutes, ...directRoutes, ...changeRoutes, ...questionRoutes, ...Object.keys(dataRoutes)];
+    const classified = [...publicRoutes, ...selfRoutes, ...directRoutes, ...changeRoutes, ...questionRoutes, ...agentAskRoutes, ...agentOwnRoutes, ...runnerRoutes, ...Object.keys(dataRoutes)];
     expect(new Set(classified).size, "a route is in two tables").toBe(classified.length);
     const unclassified = routes.filter((route) => !classified.includes(route));
     expect(unclassified, "routes with no entry in route-matrix.test.mjs").toEqual([]);
@@ -732,5 +848,85 @@ describe("the assistant, for every role, as written, in upper case and with a tr
     expect(events.at(-1)[0]).toBe("done");
     expect(events.at(-1)[1]).toMatchObject({ plan: null, model: "hermes3:8b", degraded: null });
     expect(events.at(-1)[1].answer).not.toContain("```");
+  });
+});
+
+describe("the agents runner's own door (M37)", () => {
+  const runnerId = randomUUID();
+  const post = (url, { token = null, session = null, headers = {} } = {}) => fetch(`${base}${url}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(session ? { Cookie: session.cookie, "X-BoxPilot-CSRF": session.csrfToken } : {}), ...headers },
+    body: JSON.stringify({ runnerId, waitMs: 0 }),
+  });
+
+  it("refuses anyone without its key - a person's session included - and its key through a proxy", async () => {
+    for (const route of runnerRoutes) {
+      const [, template] = route.split(" ");
+      for (const variant of variantsOf(template, { runId: fixtures.ownerRun })) {
+        expect((await post(variant.url)).status, `no key ${variant.url}`).toBe(401);
+        expect((await post(variant.url, { session: sessions.owner })).status, `the owner's session ${variant.url}`).toBe(401);
+        expect((await post(variant.url, { token: "x".repeat(43) })).status, `a wrong key ${variant.url}`).toBe(401);
+        expect((await post(variant.url, { token: runnerToken, headers: { "X-Forwarded-For": "100.64.0.9" } })).status, `through a proxy ${variant.url}`).toBe(401);
+      }
+    }
+  });
+
+  it("opens with its key: it says hello, waits for work, reports usage, and cannot touch a run it does not hold", async () => {
+    expect((await post("/api/v1/agent-runner/hello", { token: runnerToken })).status).toBe(200);
+    const next = await post("/api/v1/agent-runner/next", { token: runnerToken });
+    expect(next.status).toBe(200);
+    expect(await next.json()).toMatchObject({ claim: null, enabled: true, paused: false });
+    expect((await post("/api/v1/agent-runner/usage", { token: runnerToken })).status).toBe(200);
+    for (const action of ["tools", "steps", "finish"]) expect((await post(`/api/v1/agent-runner/runs/${fixtures.ownerRun}/${action}`, { token: runnerToken })).status, action).toBe(409);
+  });
+
+  it("opens nothing else: every other route treats its key as no one", async () => {
+    const withKey = (method, url) => fetch(`${base}${url}`, { method, headers: { Authorization: `Bearer ${runnerToken}`, "Content-Type": "application/json" }, body: method === "GET" ? undefined : "{}" });
+    for (const route of [...Object.keys(dataRoutes), ...changeRoutes, ...directRoutes, ...questionRoutes, ...agentAskRoutes, ...agentOwnRoutes, ...selfRoutes]) {
+      const [method, template] = route.split(" ");
+      const response = await withKey(method, variantsOf(template, { id: fixtures.helper.id, runId: fixtures.ownerRun })[0].url);
+      expect(response.status, route).toBe(401);
+      await response.body?.cancel();
+    }
+  });
+});
+
+describe("asking an agent (M37), for every role, as written, in upper case and with a trailing slash", () => {
+  it("takes a question from anyone the agent may be borrowed by, and from nobody else", async () => {
+    for (const role of roles) {
+      const caller = { id: accounts[role].id, role };
+      for (const variant of variantsOf("/api/v1/agents/:id/ask", { id: fixtures.helper.id })) {
+        const result = await call("POST", variant.url, sessions[role], { body: { question: `${role} asks the helper` } });
+        expect(result.status, `${role} ${variant.url}`).toBe(202);
+        agents.cancelRun(caller, result.body.id);
+      }
+      for (const variant of variantsOf("/api/v1/agents/:id/ask", { id: fixtures.keeper.id })) {
+        const result = await call("POST", variant.url, sessions[role], { body: { question: `${role} asks the keeper` } });
+        expect(result.status, `${role} ${variant.url}`).toBe(role === "viewer" ? 404 : 202);
+        if (result.status === 202) agents.cancelRun(caller, result.body.id);
+      }
+    }
+  });
+
+  it("lets a person say whether their own answer was right and forget their own conversation, and nothing of anyone else's", async () => {
+    for (const variant of variantsOf("/api/v1/agents/runs/:runId/feedback", { runId: fixtures.operatorRun })) {
+      expect((await call("POST", variant.url, sessions.viewer, { body: { verdict: "up" } })).status, `viewer ${variant.url}`).toBe(404);
+      expect((await call("POST", variant.url, sessions.operator, { body: { verdict: "up" } })).status, `operator ${variant.url}`).toBe(200);
+      expect((await call("POST", variant.url, sessions.owner, { body: { verdict: "down" } })).status, `owner ${variant.url}`).toBe(200);
+    }
+    for (const variant of variantsOf("/api/v1/agents/runs/:runId/feedback", { runId: fixtures.ownerRun })) {
+      for (const role of ["viewer", "operator"]) expect((await call("POST", variant.url, sessions[role], { body: { verdict: "up" } })).status, `${role} ${variant.url}`).toBe(404);
+    }
+    // Forgetting is of the caller's own conversation only: the operator asked the helper, so has one
+    // to forget, once; the viewer and the owner never talked to it, so have nothing to forget.
+    const statuses = { viewer: [], operator: [], owner: [] };
+    for (const variant of variantsOf("/api/v1/agents/:id/memory/thread", { id: fixtures.helper.id })) {
+      for (const role of roles) statuses[role].push((await call("DELETE", variant.url, sessions[role])).status);
+    }
+    expect(statuses.operator[0]).toBe(200);
+    expect([...statuses.viewer, ...statuses.operator.slice(1), ...statuses.owner].every((status) => status === 404)).toBe(true);
+    for (const variant of variantsOf("/api/v1/agents/:id/memory/thread", { id: fixtures.keeper.id })) {
+      expect((await call("DELETE", variant.url, sessions.viewer)).status, `viewer ${variant.url}`).toBe(404);
+    }
   });
 });

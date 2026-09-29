@@ -121,9 +121,10 @@ describe("PUT /settings/assistant", () => {
     expect((await put("operator", { endpoint: fake.url, password: "right" })).status).toBe(403);
     expect((await put("owner", { endpoint: fake.url, password: "wrong" })).status).toBe(401);
     expect(await put("owner", { endpoint: "https://api.example.com", password: "right" })).toMatchObject({ status: 400, body: { code: "invalid_setting" } });
-    const saved = await put("owner", { endpoint: `${fake.url}/`, model: "hermes3:8b", password: "right" });
+    // The stand-in speaks Ollama's own API, the legacy provider (M37 made the OpenAI one the default).
+    const saved = await put("owner", { provider: "ollama", endpoint: `${fake.url}/`, model: "hermes3:8b", password: "right" });
     expect(saved.status).toBe(200);
-    expect(saved.body.settings).toEqual({ endpoint: fake.url, model: "hermes3:8b", embedModel: null });
+    expect(saved.body.settings).toEqual({ provider: "ollama", endpoint: fake.url, model: "hermes3:8b", embedModel: null });
     expect(saved.body.status).toMatchObject({ ready: true, source: "setting" });
     expect(JSON.stringify(state.listAudit(20))).not.toContain("right");
   });

@@ -42,13 +42,31 @@ export function whatChanged(job: Pick<Job, "type" | "result" | "steps">): string
   if (operation === "storage.check" && result.checked) return result.clean ? `${String(result.mountpoint)} checked clean.${afterApps}` : `The check found problems on ${String(result.mountpoint)}: ${String(result.summary ?? "see the log")}`;
   if (operation === "storage.docker-order.apply") return result.changed ? "The drives are ordered around Docker now: it waits for them at boot and stops before they are unmounted." : "The drives were already ordered around Docker.";
   if (operation === "app.action") return `${String(result.id ?? "The app")}${result.recreated ? "'s container was built again, and it" : ""} is ${String(result.status ?? "running")} now.`;
+  // The port-conflict fixes (Dockge, 2026-09-29): say which address the app keeps and which one ended.
+  const withdrawn = (typeof result.withdrawn === "string" ? [result.withdrawn] : list(result.withdrawn));
+  if (operation === "app.exposure.set" && result.mode === "tailnet") return `${String(result.id ?? "The app")} answers only through Tailscale now${typeof result.url === "string" ? `, at ${result.url}` : ""}, and no longer on your home network.`;
+  if (operation === "app.exposure.set" && result.mode === "lan") return `${String(result.id ?? "The app")} is on your home network now${withdrawn.length ? `; Tailscale Serve no longer publishes ${joined(withdrawn)}` : ""}.`;
+  if (operation === "app.serve.set" && result.enabled === false) {
+    const started = result.started ? ` It is ${String(result.status ?? "running")} now${result.recreated ? ", its container built again" : ""}.` : "";
+    return `Tailscale Serve no longer publishes ${withdrawn[0] ?? `port ${String(result.port)}`}, so port ${String(result.port)} is ${String(result.id ?? "the app")}'s alone.${started}`;
+  }
+  if (operation === "app.serve.withdraw" && result.withdrawn) return `Tailscale Serve no longer publishes port ${String(result.port)}.`;
+  if (operation === "app.reconfigure" && result.reconfigured) {
+    const ports = Array.isArray(result.hostPorts) ? (result.hostPorts as Array<{ host?: unknown; protocol?: unknown }>).map((entry) => `${String(entry.host)}${entry.protocol === "udp" ? "/udp" : ""}`) : [];
+    return `${String(result.id ?? "The app")} was recreated with its new settings${ports.length ? ` and publishes port ${joined(ports)}` : ""}.`;
+  }
   const verified = [...(job.steps ?? [])].reverse().find((step) => step.name === "verify" && step.state === "completed");
   return verified?.detail ? `${verified.detail}.` : "The job finished.";
 }
 
+/** A job that stopped because something holds one of the app's ports, as the helper says it. */
+export const portConflictPattern = /\bPort \d+(?:\/udp)? (?:is taken|is also claimed|is already in use)\b/;
+
 /** What to do next when a fix did not clear its finding: its own words when it has them. */
-export function nextStep(finding: Pick<Finding, "manual" | "fixes" | "fix"> | null, failed: boolean): string {
+export function nextStep(finding: Pick<Finding, "manual" | "fixes" | "fix"> | null, failed: boolean, error: string | null = null): string {
   if (finding?.manual) return finding.manual;
+  // The error already names what holds the port; the next step is to free it, not to read a log.
+  if (failed && error && portConflictPattern.test(error)) return "Free the port first: the sentence above names what holds it. The app's port finding on this page offers the choices in one click; run one, and it starts the app too.";
   return failed
     ? "Read the job's log below: it says where it stopped. Fix what it names, then try again."
     : "The fix ran, but the scan still finds this. Read the evidence and the job's log, then try again or dismiss it with a reason.";

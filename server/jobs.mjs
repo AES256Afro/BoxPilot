@@ -288,6 +288,12 @@ export function createJobService(store, helper, {
         // running out has no such sentence, so it gets one saying what is known.
         const message = timeout && (timeout.scope === "operation" || timeout.phase === "queued") ? timeoutMessage(job.title, timeout) : error.message;
         if (timeout) store.addJobStep(jobId, "timeout", "reached", timeoutStep(timeout).slice(0, 500));
+        // The step that failed is the one that was running. A failure while applying used to be
+        // written as "verify failed" beside an "apply running" nothing ever closed, so the job's
+        // steps said the operation was still going while the job said it had failed; verify never
+        // ran at all. Applying ends as failed, with the operation's own sentence; verifying (a
+        // record that could not be saved) ends verify.
+        if (current.state === "applying") store.addJobStep(jobId, "apply", "failed", (timeout ? `${job.title} ran out of time` : `${job.title} failed: ${message}`).slice(0, 500));
         else store.addJobStep(jobId, "verify", "failed", execution.failed);
         // Helper operations that roll back on failure say so in the error itself.
         if (/rollback|cleanup completed|was unchanged/i.test(error.message)) {
