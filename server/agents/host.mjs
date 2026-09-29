@@ -15,7 +15,7 @@
  */
 import { lstat, readdir, readlink, stat, statfs } from "node:fs/promises";
 import path from "node:path";
-import { ggufPattern, quantOf, repoPattern } from "./models.mjs";
+import { embedderModel, ggufPattern, quantOf, repoPattern } from "./models.mjs";
 import { runnerUnit } from "./caps.mjs";
 
 export const agentsPaths = Object.freeze({
@@ -29,7 +29,9 @@ export const cacheDirectory = (stateDir, repo) => path.join(stateDir, "hf", "hub
 
 /** A model's parameters as every agents operation takes them, checked; throws on anything else. */
 export function readModelParameters({ repo, file, projector = null }) {
-  if (!repoPattern.test(repo ?? "")) throw new Error("Only Unsloth's Qwen GGUF repositories are downloaded");
+  // Unsloth's Qwen GGUFs, and the one embedder memory search uses: nothing else is downloaded.
+  const embedder = repo === embedderModel.repo && file === embedderModel.file;
+  if (!repoPattern.test(repo ?? "") && !embedder) throw new Error("Only Unsloth's Qwen GGUF repositories are downloaded");
   if (!ggufPattern.test(file ?? "") || !quantOf(file)) throw new Error("The model file must be a quantised .gguf");
   if (projector !== null && projector !== undefined && !ggufPattern.test(projector)) throw new Error("The vision projector must be a .gguf");
   return { repo, file, projector: projector ?? null, quant: quantOf(file) };

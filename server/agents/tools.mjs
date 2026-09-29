@@ -10,7 +10,12 @@
 import { alertSources, appSummary, asRequest, backupSummary, maskedParameters, storageSummary } from "../assistant/facts.mjs";
 import { createBm25, tokenize } from "../assistant/knowledge.mjs";
 import { seesEveryAccount } from "../routes/access.mjs";
+import { searxSearch } from "./connectors.mjs";
+import { exactTools } from "./deterministic.mjs";
 import { describePihole } from "./pihole.mjs";
+
+/** Whether an agent's allowlist lets it look at this app (spec.allow.apps: "*" or ids). */
+export const appAllowed = (spec, appId) => !spec?.allow || spec.allow.apps === "*" || spec.allow.apps.includes(String(appId ?? "").replace(/^bp-/, ""));
 
 const clip = (text, max) => { const value = String(text ?? ""); return value.length > max ? `${value.slice(0, max - 1)}…` : value; };
 const gigabytes = (bytes) => (Number.isFinite(bytes) ? `${(bytes / 1e9).toFixed(bytes >= 100e9 ? 0 : 1)} GB` : "unknown");
@@ -28,7 +33,7 @@ export function sinceWithinWeek(since) {
   return minutes >= 1 && minutes <= 7 * 1440;
 }
 
-export function createToolRunner({ state, store, registry, helper = null, inventory = null, knowledge = null, secretEnvNamesFor = null, now = () => new Date(), helperTimeoutMs = 30_000 }) {
+export function createToolRunner({ state, store, registry, helper = null, inventory = null, knowledge = null, secretEnvNamesFor = null, now = () => new Date(), helperTimeoutMs = 30_000, webSearch = () => ({ enabled: false, endpoint: null }), fetcher = fetch }) {
   let appsRead = null;
   /** app.inspect, shared for fifteen seconds: a run asks several tools that all start from it. */
   function readApps() {
@@ -69,9 +74,9 @@ export function createToolRunner({ state, store, registry, helper = null, invent
       ].join("\n");
     },
 
-    async "apps.list"() {
+    async "apps.list"(_input, context) {
       const [apps, snapshot] = await Promise.all([readApps().catch(() => null), inventory?.inspect().catch(() => null)]);
-      const applications = Array.isArray(apps?.applications) ? apps.applications : null;
+      const applications = Array.isArray(apps?.applications) ? apps.applications.filter((app) => appAllowed(context?.spec, app?.id)) : null;
       const lines = [];
       if (applications) lines.push(appSummary(applications, { sourceChars: 3_000 }).text);
       else lines.push("Which BoxPilot apps are installed could not be read.");
@@ -96,6 +101,7 @@ export function createToolRunner({ state, store, registry, helper = null, invent
 
     async "logs.query"({ kind, target, lines = 60, since = null, filter = null }, context) {
       if (since && !sinceWithinWeek(since)) throw new ToolError("since reaches back at most 7d");
+      if (kind === "container" && !appAllowed(context.spec, target)) throw new ToolError(`This agent may not look at ${target}`);
       const result = await read("logs.read", { kind, target, lines, ...(since ? { since } : {}), ...(filter ? { filter } : {}) }, context);
       const entries = Array.isArray(result?.lines) ? result.lines.slice(-lines) : [];
       return entries.length ? `${entries.length} lines from ${kind} ${target}${since ? ` since ${since}` : ""}:\n${entries.join("\n")}` : `No lines from ${kind} ${target}${since ? ` since ${since}` : ""}.`;
@@ -155,10 +161,49 @@ export function createToolRunner({ state, store, registry, helper = null, invent
     },
 
     async "pihole.stats"(_input, context) {
+      if (!appAllowed(context.spec, "pi-hole")) throw new ToolError("This agent may not look at Pi-hole");
       return describePihole(await read("app.pihole.inspect", {}, context));
     },
 
-    async "where.runs"({ name }) {
+    async "records.query"({ collection, contains = null, limit = 10 }, context) {
+      const request = asRequest({ id: context.readAs, role: context.readRole });
+      const everyone = seesEveryAccount(request);
+      const wanted = contains ? contains.toLowerCase() : null;
+      const keep = (line) => !wanted || line.toLowerCase().includes(wanted);
+      let lines = [];
+      if (collection === "jobs") {
+        const jobs = state.listJobs?.(100, everyone ? {} : { createdBy: context.readAs }) ?? [];
+        lines = jobs.map((job) => `${job.createdAt ?? ""} ${job.type ?? ""} "${job.title ?? ""}" ${job.state}${job.error ? `: ${clip(job.error, 160)}` : ""}`);
+      } else if (collection === "schedules") {
+        const schedules = (state.listSchedules?.() ?? []).filter((schedule) => everyone || schedule.createdBy === context.readAs);
+        lines = schedules.map((schedule) => `${schedule.operationId} ${schedule.frequency}${schedule.hour !== null && schedule.hour !== undefined ? ` at ${String(schedule.hour).padStart(2, "0")}:${String(schedule.minute ?? 0).padStart(2, "0")}` : ""}, ${schedule.enabled ? "on" : "off"}, next ${schedule.nextDueAt ?? "not set"}`);
+      } else if (collection === "flows") {
+        // Automations are shared (every role reads them); their steps are named, never their parameters.
+        lines = (state.listFlows?.() ?? []).map((flow) => `"${flow.name}": ${(flow.steps ?? []).map((step) => step.operationId).join(" → ")}; ${flow.enabled === false ? "paused" : "on"}${flow.frequency ? `, ${flow.frequency}` : ""}${flow.lastRunAt ? `, last ran ${flow.lastRunAt}` : ""}`);
+      } else if (collection === "backups") {
+        lines = (state.listBackups?.(100) ?? []).filter((backup) => appAllowed(context.spec, backup.applicationId)).map((backup) => `${backup.createdAt} ${backup.applicationId} to ${backup.destination}, ${gigabytes(backup.sizeBytes)}${backup.restoreDrill?.verified === false ? ", restore check failed" : backup.restoreDrill ? ", restore checked" : ""}`);
+      }
+      const found = lines.filter(keep).slice(0, limit);
+      return found.length ? `${found.length} of ${lines.length} ${collection}${wanted ? ` mentioning "${contains}"` : ""}:\n${found.join("\n")}` : `No ${collection}${wanted ? ` mention "${contains}"` : " to see"}.`;
+    },
+
+    async "document.read"({ title, from = 0 }, context) {
+      if (context.spec?.knowledge?.documents === false) throw new ToolError("This agent does not read the owner's documents");
+      const document = store.findDocument(title);
+      if (!document) throw new ToolError(`There is no document called "${clip(title, 80)}"; docs.search lists them`);
+      const piece = document.text.slice(from, from + 6_000);
+      return `${document.title} (${document.characters} characters; from ${from}):\n${piece}${from + 6_000 < document.characters ? `\n… ${document.characters - from - 6_000} more characters: read again from ${from + 6_000}.` : ""}`;
+    },
+
+    async "web.search"({ query, limit = 5 }) {
+      const settings = webSearch();
+      if (!settings.enabled) throw new ToolError("Web search is off on this server");
+      return searxSearch({ endpoint: settings.endpoint, query, limit }, { fetcher });
+    },
+
+    ...Object.fromEntries(Object.entries(exactTools).map(([id, fn]) => [id, (input) => Promise.resolve().then(() => fn(input, { now })).catch((error) => { throw new ToolError(error.message); })])),
+
+    async "where.runs"({ name }, context) {
       const wanted = name.toLowerCase().replace(/[\s._-]+/g, "");
       const matches = (value) => String(value ?? "").toLowerCase().replace(/[\s._-]+/g, "").includes(wanted);
       const [apps, snapshot, units] = await Promise.all([
@@ -167,7 +212,7 @@ export function createToolRunner({ state, store, registry, helper = null, invent
         helper ? helper.request("service.list", {}, { timeoutMs: helperTimeoutMs }).catch(() => null) : null,
       ]);
       const found = [];
-      for (const app of (apps?.applications ?? []).filter((entry) => entry?.installed && (matches(entry.id) || matches(entry.name)))) {
+      for (const app of (apps?.applications ?? []).filter((entry) => entry?.installed && appAllowed(context?.spec, entry.id) && (matches(entry.id) || matches(entry.name)))) {
         found.push(`${app.id} is a BoxPilot app: container bp-${app.id}, ${app.container?.running ? "running" : app.container?.status ?? "not running"}.`);
       }
       for (const container of (snapshot?.docker?.containers ?? []).filter((entry) => !String(entry.name ?? "").startsWith("bp-") && (matches(entry.name) || matches(entry.image)))) {

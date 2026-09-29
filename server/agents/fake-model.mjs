@@ -63,7 +63,40 @@ const argumentsFor = (tool, question) => {
   return {};
 };
 
-const lastUserText = (messages) => [...messages].reverse().find((message) => message?.role === "user")?.content ?? "";
+// The request is in the first user message (the task); later ones are the runner's own words.
+const lastUserText = (messages) => messages.find((message) => message?.role === "user")?.content ?? "";
+
+/**
+ * The structured replies: the understanding (intent and plan) the runner asks for first, and an
+ * answer as the owner's JSON fields. `state.script(request)` may return { understanding } for the
+ * first, and { content } for either.
+ */
+export function structuredReply(body) {
+  const name = body?.response_format?.json_schema?.name;
+  if (name === "understanding") {
+    const messages = Array.isArray(body?.messages) ? body.messages : [];
+    const question = textOf(lastUserText(messages));
+    const offered = [...String(textOf(messages.at(-1)?.content)).matchAll(/^- ([a-z_]+):/gm)].map((match) => match[1].replace(/_/g, "."));
+    const tools = pickTools(question, offered.filter((toolName) => !["notes.write", "plan.propose", "notify.owner"].includes(toolName)));
+    const asked = /<question>\s*([\s\S]*?)\s*<\/question>/.exec(question)?.[1]?.trim();
+    const understanding = {
+      goal: asked ? `Answer: ${asked.slice(0, 160)}` : "Do my job once and report",
+      subject: /pi-?hole/i.test(question) ? "Pi-hole" : /backup/i.test(question) ? "backups" : "this server",
+      constraints: [],
+      tools: tools.map((tool) => tool.replace(/\./g, "_")),
+      confidence: asked && asked.length < 6 ? 0.3 : 0.9,
+      clarify: null,
+      plan: [...tools.map((tool) => ({ step: `Read ${tool}`, tool: tool.replace(/\./g, "_") })), { step: "Answer with citations", tool: null }],
+    };
+    return { content: JSON.stringify(understanding) };
+  }
+  if (name === "answer") {
+    const fields = Object.keys(body.response_format.json_schema.schema?.properties ?? {});
+    const said = policyReply({ ...body, tools: [] }).content ?? "";
+    return { content: JSON.stringify(Object.fromEntries(fields.map((field, index) => [field, index === 0 ? said.split("\n").filter(Boolean).slice(0, 3).join(" ") : `See ${fields[0]}.`]))) };
+  }
+  return null;
+}
 const textOf = (content) => (typeof content === "string" ? content : Array.isArray(content) ? content.map((part) => part?.text ?? "").join(" ") : "");
 
 /** The deterministic model: tool calls first, then an answer drawn from what the tools said. */
@@ -130,7 +163,13 @@ export async function startFakeModel({
     if (state.chat === "missing") return json(response, 404, { error: { message: `model ${body?.model} not found` } });
     if (state.busyThreads > 0 && state.busyMs > 0) await burn({ threads: state.busyThreads, ms: state.busyMs });
     if (state.chat === "hang") { response.writeHead(200, { "Content-Type": "text/event-stream" }); return undefined; }
-    const reply = (typeof state.script === "function" ? state.script(body) : null) ?? policyReply(body);
+    const scripted = typeof state.script === "function" ? state.script(body) : null;
+    const understanding = body?.response_format?.json_schema?.name === "understanding";
+    // A script that answers the tool loop is not asked to understand: the fake does that itself,
+    // unless the script returns { understanding } (or plain content) for it.
+    const reply = understanding
+      ? (scripted?.understanding ? { content: JSON.stringify(scripted.understanding) } : scripted?.raw ? { content: scripted.raw } : structuredReply(body))
+      : scripted ?? structuredReply(body) ?? policyReply(body);
     const prompt = (Array.isArray(body?.messages) ? body.messages : []).map((message) => textOf(message?.content)).join("\n");
     const usage = { prompt_tokens: tokens(prompt), completion_tokens: tokens(reply.content ?? JSON.stringify(reply.toolCalls ?? [])) };
     if (body?.stream === false) {

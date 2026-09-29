@@ -31,10 +31,13 @@ export function apiRolePolicy() {
     const readOnlyRun = /^\/operations\/[^/]+\/run$/.test(pathname);
     // Asking the assistant, or an agent someone may borrow (M37): both only read, as the asker.
     const asking = request.method === "POST" && (pathname === "/assistant/ask" || /^\/agents\/[^/]+\/ask$/.test(pathname));
+    // A person's own with an agent (M37): saying whether an answer was right, and making it forget
+    // the conversation with them. The service allows each only on the caller's own run or thread.
+    const ownWithAgent = (request.method === "POST" && /^\/agents\/runs\/[^/]+\/feedback$/.test(pathname)) || (request.method === "DELETE" && /^\/agents\/[^/]+\/memory\/thread$/.test(pathname));
     // Marking the notification centre seen (M36) is the caller's own, like signing out.
     const selfService = pathname === "/auth/logout" || pathname === "/auth/elevate" || pathname === "/auth/password" || pathname === "/notifications/seen";
     if (role === "disabled") return response.status(403).json({ error: "This account is disabled", code: "forbidden" });
-    if (role === "viewer" && !reading && !readOnlyRun && !asking && !selfService) return response.status(403).json({ error: "Viewers can look but not change anything", code: "forbidden" });
+    if (role === "viewer" && !reading && !readOnlyRun && !asking && !ownWithAgent && !selfService) return response.status(403).json({ error: "Viewers can look but not change anything", code: "forbidden" });
     if (role === "operator" && !reading && (pathname.startsWith("/settings") || pathname.startsWith("/people"))) return response.status(403).json({ error: "Only the owner can change settings or people", code: "forbidden" });
     return next();
   };
