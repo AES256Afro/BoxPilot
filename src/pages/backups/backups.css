@@ -1,0 +1,52 @@
+/* Backups (M33.9): the page's own layout, on the kit's components. Tokens only, and every
+   selector starts with .backups-, so no other page is touched (docs/UI-PAGES.md). */
+
+.backups-page { display: grid; gap: 10px; min-width: 0; }
+.backups-dim { color: var(--text-muted); font-family: var(--font-condensed); font-size: 12.5px; line-height: 1.4; }
+.backups-mono { color: var(--text); font-family: var(--font-mono); font-size: 12.5px; }
+.backups-name { color: var(--text-strong); font-family: var(--font-condensed); font-size: 14px; font-weight: 600; }
+.backups-wrap { white-space: normal; overflow-wrap: anywhere; }
+.backups-pad { margin: 0; padding: 12px; }
+.backups-inset { margin: 10px 12px; }
+.backups-note { max-width: 84ch; margin: 0; color: var(--text-muted); font-size: 13px; line-height: 1.45; }
+
+/* A row's actions, right-aligned, a size smaller than the page's. */
+.backups-actions-cell { width: 1%; }
+.backups-actions { display: flex; flex-wrap: nowrap; align-items: center; justify-content: flex-end; gap: 4px; white-space: nowrap; }
+.backups-actions .ui-button { min-height: 26px; padding-right: 8px; padding-left: 8px; font-size: 12.5px; }
+.backups-actions .ui-button--risk-medium, .backups-actions .ui-button--risk-high { padding-left: 14px; }
+.backups-pick { width: 2.25rem; }
+.backups-pick .ui-check { padding-block: 4px; }
+
+/* A panel's foot: the words in the page's type, a way on in amber. */
+.backups-foot { display: block; color: var(--text-muted); font-family: var(--font-condensed); font-size: 12.5px; line-height: 1.5; }
+.backups-foot--row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; font-family: var(--font-mono); font-size: 11.5px; }
+.backups-foot__text { font-family: var(--font-condensed); font-size: 12.5px; }
+.backups-links { display: flex; flex-wrap: wrap; gap: 4px; margin-left: auto; }
+.backups-inline { min-height: 24px; padding: 0 6px; font-size: 12.5px; }
+.backups-blocker { margin-right: auto; color: var(--text-muted); font-family: var(--font-condensed); font-size: 12.5px; line-height: 1.35; }
+
+/* What a restore staged for review, one restore after another. */
+.backups-review { display: grid; gap: 10px; padding: 10px 12px 12px; border-top: 1px solid var(--border-subtle); }
+.backups-review:first-child { border-top: 0; }
+.backups-review__head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.backups-review__head strong { color: var(--text-strong); font-size: 14px; font-weight: 600; }
+.backups-review__head .ui-button { margin-left: auto; }
+.backups-review__area { display: grid; gap: 4px; padding-left: 10px; border-left: 2px solid var(--border-strong); }
+.backups-review__label { margin: 0; color: var(--text-muted); font-family: var(--font-mono); font-size: 10.5px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
+.backups-review__guidance { max-width: 84ch; margin: 0 0 2px; color: var(--text); font-size: 13px; line-height: 1.45; }
+.backups-disclose { display: grid; gap: 6px; }
+/* A code block keeps to its panel however long its bar is (its own track would take the bar's full width). */
+.backups-page .ui-code { grid-template-columns: minmax(0, 1fr); }
+.backups-disclose > summary { width: fit-content; max-width: 100%; color: var(--text-strong); font-size: 13px; cursor: pointer; overflow-wrap: anywhere; }
+.backups-disclose > summary code { font-size: 12.5px; }
+
+@media (max-width: 640px) {
+  /* A stacked row: its buttons name themselves, so no "Actions:" before them, and no empty line. */
+  .backups-page td.backups-actions-cell[data-label]::before { content: none; }
+  .backups-page td.backups-actions-cell:has(> .backups-actions:empty) { display: none; }
+  .backups-page .ui-panel__meta { flex-basis: 100%; margin-left: 0; text-align: left; white-space: normal; }
+  .backups-actions { flex-wrap: wrap; justify-content: flex-start; padding-top: 4px; white-space: normal; }
+  .backups-actions-cell { width: auto; }
+  .backups-pick { width: auto; }
+}

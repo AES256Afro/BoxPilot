@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { withData } from "./BackupCenter";
+import { withData } from "./types";
 
 /**
  * A machine snapshot holds settings and secrets, not data. "12 apps" therefore reads as twelve apps
