@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { validateParameters } from "./registry.mjs";
-import { parseMeminfo, parseSwaps, systemOperations } from "./system.mjs";
+import { dockerSize, dockerSizeBytes, parseMeminfo, parseSwaps, systemOperations } from "./system.mjs";
 
 const operations = Object.fromEntries(systemOperations().map((operation) => [operation.id, operation]));
 
@@ -27,15 +27,43 @@ describe("system operations", () => {
     const dfLine = JSON.stringify({ Type: "Images", TotalCount: 12, Active: 8, Size: "6.2GB", Reclaimable: "1.9GB (30%)" });
     const run = vi.fn(async (_binary, args) => {
       if (args[0] === "system" && args[1] === "df") return { ok: true, stdout: `${dfLine}\n`, stderr: "" };
-      if (args[0] === "system" && args[1] === "prune") return { ok: true, stdout: "Deleted Containers:\nabc\n\nTotal reclaimed space: 1.9GB", stderr: "" };
+      // What each prune prints: images and the build cache give a total, networks only a list.
+      if (args[0] === "image" && args[1] === "prune") return { ok: true, stdout: "Deleted Images:\ndeleted: sha256:abc\n\nTotal reclaimed space: 1.2GB", stderr: "" };
+      if (args[0] === "builder" && args[1] === "prune") return { ok: true, stdout: "ID\tRECLAIMABLE\tSIZE\nxyz\ttrue\t700MB\nTotal:\t700MB", stderr: "" };
+      if (args[0] === "network" && args[1] === "prune") return { ok: true, stdout: "Deleted Networks:\nbp-old_default", stderr: "" };
       return { ok: false, stdout: "", stderr: "unknown" };
     });
     await expect(operations["docker.disk.inspect"].run({}, { run })).resolves.toMatchObject({ available: true, rows: [{ type: "Images", total: 12, active: 8, size: "6.2GB", reclaimable: "1.9GB (30%)" }], logging: { configured: false } });
     await expect(operations["docker.prune"].run({}, { run })).resolves.toEqual({ pruned: true, reclaimed: "1.9GB" });
-    expect(run).toHaveBeenCalledWith("/usr/bin/docker", ["system", "prune", "--force"], expect.anything());
+    expect(run).toHaveBeenCalledWith("/usr/bin/docker", ["image", "prune", "--force"], expect.anything());
+    expect(run).toHaveBeenCalledWith("/usr/bin/docker", ["builder", "prune", "--force"], expect.anything());
+    expect(run).toHaveBeenCalledWith("/usr/bin/docker", ["network", "prune", "--force"], expect.anything());
     expect(run).not.toHaveBeenCalledWith("/usr/bin/docker", expect.arrayContaining(["--volumes"]), expect.anything());
     const down = vi.fn(async () => ({ ok: false, stdout: "", stderr: "cannot connect" }));
     await expect(operations["docker.disk.inspect"].run({}, { run: down })).resolves.toMatchObject({ available: false, rows: [] });
+  });
+
+  it("never removes a container, stopped ones included", async () => {
+    // `docker system prune` removed every stopped container, so the nightly clean-up deleted the
+    // container of each app the owner had stopped on purpose, and "Stopped" became "no container".
+    const run = vi.fn(async () => ({ ok: true, stdout: "Total reclaimed space: 0B", stderr: "" }));
+    await operations["docker.prune"].run({}, { run });
+    for (const [, args] of run.mock.calls) {
+      expect(args).not.toContain("system");
+      expect(args[0]).not.toBe("container");
+      expect(args).not.toContain("--all");
+    }
+    expect(operations["docker.prune"].description).toMatch(/never removed/);
+  });
+
+  it("reads and writes sizes in Docker's decimal units", () => {
+    expect(dockerSizeBytes("1.9GB")).toBe(1_900_000_000);
+    expect(dockerSizeBytes("512kB")).toBe(512_000);
+    expect(dockerSizeBytes("0B")).toBe(0);
+    expect(dockerSizeBytes(undefined)).toBe(0);
+    expect(dockerSize(1_900_000_000)).toBe("1.9GB");
+    expect(dockerSize(0)).toBe("0B");
+    expect(dockerSize(1_250_000)).toBe("1.3MB");
   });
 
   it("rejects malformed parameters at the registry boundary", () => {

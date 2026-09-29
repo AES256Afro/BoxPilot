@@ -29,6 +29,20 @@ async function readText(path) {
   try { return (await readFile(path, "utf8")).trim(); } catch { return null; }
 }
 
+/** A size as Docker prints it ("1.9GB", "512kB", "0B"), in bytes. Docker's units are decimal. */
+export function dockerSizeBytes(text) {
+  const match = /^([\d.]+)\s*([kKMGT]?)B$/.exec(String(text ?? "").trim());
+  if (!match) return 0;
+  const scale = { "": 1, k: 1e3, K: 1e3, M: 1e6, G: 1e9, T: 1e12 }[match[2]];
+  return Math.round(Number.parseFloat(match[1]) * scale);
+}
+
+/** Bytes back in Docker's words, to one decimal: 1900000000 is "1.9GB". */
+export function dockerSize(bytes) {
+  const [unit, scale] = [["TB", 1e12], ["GB", 1e9], ["MB", 1e6], ["kB", 1e3]].find(([, size]) => bytes >= size) ?? ["B", 1];
+  return `${Number((bytes / scale).toFixed(1))}${unit}`;
+}
+
 export function systemOperations() {
   return [
     defineOperation({
@@ -139,14 +153,22 @@ export function systemOperations() {
     }),
     defineOperation({
       id: "docker.prune", title: "Clean up Docker disk space", risk: "medium", timeoutMs: 15 * 60_000,
-      description: "docker system prune: removes stopped containers, unused networks, dangling images, and the build cache. Volumes and images in use are kept.",
+      description: "Removes dangling images, the build cache, and networks no container uses. Containers are never removed, stopped ones included: an app you stopped keeps its container and starts again as it was. Volumes and images in use are kept.",
+      // This was `docker system prune`, which also removes every stopped container. Run nightly, it
+      // deleted the container of each app the owner had stopped on purpose, so "Stopped" became "no
+      // container" by morning: six apps on the owner's server, then four more the next night. Each
+      // part is now pruned on its own, and containers are not one of them.
       run: async (_parameters, { run, progress }) => {
         const docker = process.env.BOXPILOT_DOCKER_BINARY ?? "/usr/bin/docker";
-        progress?.("$ docker system prune --force", "stdout");
-        const result = await run(docker, ["system", "prune", "--force"], { timeout: 10 * 60_000, maxBuffer: 8 * 1024 * 1024, onLine: progress ?? undefined });
-        if (!result.ok) throw new Error(`docker system prune failed: ${result.stderr.split("\n").slice(-2).join(" ")}`);
-        const reclaimed = result.stdout.match(/Total reclaimed space:\s*(.+)$/m)?.[1] ?? null;
-        return { pruned: true, reclaimed };
+        const parts = [["image", "prune", "--force"], ["builder", "prune", "--force"], ["network", "prune", "--force"]];
+        let bytes = 0;
+        for (const args of parts) {
+          progress?.(`$ docker ${args.join(" ")}`, "stdout");
+          const result = await run(docker, args, { timeout: 10 * 60_000, maxBuffer: 8 * 1024 * 1024, onLine: progress ?? undefined });
+          if (!result.ok) throw new Error(`docker ${args.slice(0, 2).join(" ")} failed: ${result.stderr.split("\n").slice(-2).join(" ")}`);
+          bytes += dockerSizeBytes(result.stdout.match(/Total(?: reclaimed space)?:\s*(\S+)/m)?.[1]);
+        }
+        return { pruned: true, reclaimed: dockerSize(bytes) };
       },
     }),
   ];
