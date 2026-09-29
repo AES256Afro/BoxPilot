@@ -7,7 +7,8 @@ import ActivityDrawer from "./ActivityDrawer";
 import { useOperation } from "./ApproveDialog";
 import { useTheme } from "./useTheme";
 import { ThemeSwitch } from "./ui/ThemeSwitch";
-import { dropElevation, fetchAuthStatus, forgetSession, logoutOwner, rememberSession, sessionEndedEvent, signedOutReason, type AuthStatus, type SignedOutReason } from "./auth";
+import { dropElevation, fetchAuthStatus, forgetSession, logoutOwner, rememberSession, signedOutReason, type AuthStatus, type SignedOutReason } from "./auth";
+import { useSessionEnded } from "./sessionEnd";
 import { connectionLabel } from "./appLinks";
 import { FactsProvider } from "./home/facts";
 import { CommandBar } from "./shell/CommandBar";
@@ -105,19 +106,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
     return () => window.removeEventListener("boxpilot:auth-changed", listener);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  // A request found no session (M36): make sure, then go to the sign-in page and say why, rather
-  // than leave every page showing "Your session has expired" in red.
-  useEffect(() => {
-    let checking = false;
-    const listener = () => {
-      if (checking) return;
-      checking = true;
-      void fetchAuthStatus().then((status) => { if (!status.authenticated) onSignedOut(signedOutReason() ?? "ended"); }).catch(() => undefined).finally(() => { checking = false; });
-    };
-    window.addEventListener(sessionEndedEvent, listener);
-    return () => window.removeEventListener(sessionEndedEvent, listener);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  useSessionEnded(onSignedOut); // M36: a request that finds no session goes to sign-in, saying why
   const [apiMode, setApiMode] = useState("browser preview");
   const [bundleError, setBundleError] = useState<string | null>(null);
   const role = authStatus.owner?.role ?? "owner";
