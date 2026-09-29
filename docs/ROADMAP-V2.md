@@ -1398,6 +1398,38 @@ the milestones they overlap.
   GitHub, Apps, Automations, Metrics, VMs, System, Settings, Setup, sign-in, Activity and
   the approval dialog on the kit, and deleting stopgap rules as their classes go; Repair is
   M35's; Updates, built on the components in M33.1, still takes its header from the shell.
+- ✅ **M33.10 Network and security on the kit** (wave 2B, unreleased). Network, Firewall, Users & SSH
+  and GitHub are rebuilt in `src/pages/{network,firewall,users,github}/`, each with its own sheet
+  and tests, and the Classic components (`NetworkCenter`, `TailnetPanel`, `TailscalePanel`,
+  `DnsCheckPanel`, `LocalNamesPanel`, `RouterPanel`, `VpnProfilePanel`, `FirewallCenter`,
+  `Fail2banPanel`, `UsersCenter`, `GitHubCenter`) are deleted with the Classic and stopgap CSS only
+  they used. Every feature stays; the facts come first. **Network** leads with whether the server
+  has a way out (no default route is red, an unread source amber), a strip of gateway, address,
+  resolvers and Tailscale, then five tabs (`?tab=`): Overview (every address BoxPilot answers on
+  with Copy, LAN access and HTTPS on the LAN side by side, the LAN's devices with Wake), Tailnet
+  (exit node and subnet router as one `tailscale.set`, every tailnet device and how it is reached),
+  Names & DNS (the blocker check and who uses it, local names, port 53, the DNS assessment in a
+  sheet, device roles), Router (read only; connecting takes the password in a sheet) and VPN (the
+  owner's profile, edited in a sheet). How to trust the certificate on each device is a sheet
+  rather than a `<details>` above the facts. **Firewall** leads with on or off and the default
+  policy; its tabs are Overview (suggestions, each one click with its tier; the profile in force;
+  what always stays open), Rules (delete with its tier, protected rules marked "kept open", adding
+  one in a sheet that refuses a deny on a protected port) and Brute force (fail2ban's facts, banned
+  now and since start, thresholds and what is never banned, shown to every role per ADR-003's
+  addendum; the thresholds form only to a role that may apply it). Choosing a profile is a sheet
+  of radio cards, services and options, and the approval dialog still lists every ufw command. A
+  suggestion with no label of its own says what it does ("Remove 53/tcp"). **Users & SSH** leads
+  with whether SSH takes passwords, then sshd's settings, then the accounts; adding a user and
+  importing keys are sheets that check names as `useradd` and GitHub would. **GitHub** leads with
+  how many allowlisted repositories answered and a strip of what BoxPilot may do with GitHub (read
+  public metadata, nothing else), then each repository's head, release and assets. Each page takes
+  the signed-in role: a viewer sees the facts and no buttons, an operator no owner-only or
+  high-risk ones, and reads that need an operator (accounts, the router) or the owner (the VPN
+  profile) say so instead of failing. `operationRisk` gains the eighteen operations these pages
+  start, held to the registry by `server/ops/ui-risk.test.mjs`. The demo answers
+  `/integrations/github` with fictional metadata, so the page can be reviewed. Page-local pieces
+  worth promoting to the kit: a Copy button for one value, a link drawn as a Button, radio cards,
+  and a list of suggestion rows with a tag, words and one action.
 - ✅ **M33.11 Apps, Automations, Performance and Updates** (wave 2C, unreleased). Four pages
   rebuilt in the console on the kit, every feature kept, the Classic components deleted
   (`AppCatalog`, `AutomationsCenter`, `PerformanceCenter`, `UpdatesCenter`, the old
