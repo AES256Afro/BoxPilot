@@ -4,6 +4,11 @@ name: Unsloth spike
 # a hard cap, for M37's resident agent. Findings: docs/spikes/2026-09-unsloth-headless.md.
 # Script: tests/spikes/unsloth-headless.sh. Nothing here gates a merge or a release.
 on:
+  # Temporary: GitHub only dispatches a workflow it has seen run, and this file is not on main.
+  # A push of this file registers it; every job below is skipped for a push. Removed next commit.
+  push:
+    branches: [spike/unsloth-headless]
+    paths: [.github/workflows/unsloth-spike.yml]
   workflow_dispatch:
     inputs:
       jobs:
@@ -23,6 +28,7 @@ env:
 
 jobs:
   models:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
