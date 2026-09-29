@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { PendingOperation } from "../../shell/ApproveDialog";
 import { relativeTime } from "../../home/format";
-import { Button, Field, KeyValue, MetricTile, Notice, Panel, Progress, Select, StatusChip, Switch, Table, Tag, TextInput, mayStart, riskOf, type Status, type TableColumn } from "../../ui";
+import { Button, Field, KeyValue, MetricStrip, MetricTile, Notice, Panel, Progress, Select, StatusChip, Switch, Table, Tag, TextInput, mayStart, riskOf, type Status, type TableColumn } from "../../ui";
 import { agentsApi, type LibraryModel, type ModuleState, type RuntimeDriver, type RuntimeState, type Usage as UsageState } from "./api";
 import { bytes, errorText, gibibytes } from "./format";
 import { PasswordSheet } from "./PasswordSheet";
@@ -132,13 +132,13 @@ export function Usage({ module, csrfToken, role, now, onStart, onModuleChanged, 
 
       <Panel className="agents-now" title="Right now" count={{ status: verdict.status, label: verdict.label }}
         meta={usage.runner.online ? <>runner <b>{usage.runner.version ?? "?"}</b> · seen {relativeTime(usage.runner.lastSeenAt, now) ?? "just now"}</> : "the runner is not answering"} padded>
-        <div className="agents-metrics">
+        <MetricStrip label="The runner right now: processor, memory, model and throttling">
           <MetricTile label="Processor" value={cpu === null ? "—" : `${cpu}%`} caption={`of a ${caps.cpuQuotaPercent}% cap (one processor)`} status={verdict.status} bar={cpu === null ? undefined : { value: cpu, max: caps.cpuQuotaPercent }} />
           <MetricTile label="Memory" value={live ? bytes(live.memoryBytes) : "—"} caption={`of ${gibibytes(live?.memoryMaxBytes ?? caps.memoryMaxBytes)}${live?.memoryPeakBytes ? ` · peak ${bytes(live.memoryPeakBytes)}` : ""}`}
             status={live ? (live.memoryBytes > caps.memoryMaxBytes * 0.9 ? "warning" : "good") : "unknown"} bar={live ? { value: live.memoryBytes, max: live.memoryMaxBytes ?? caps.memoryMaxBytes } : undefined} />
           <MetricTile label="Model" value={live?.modelLoaded ? "Loaded" : "Not loaded"} caption={live?.modelLoaded ? live.model ?? "" : "starts when a run needs it, stops when idle"} status={live?.modelLoaded ? "good" : "neutral"} />
           <MetricTile label="Throttled" value={live ? `${Math.round(live.throttledMs / 1000)} s` : "—"} caption="time the kernel held it to its cap" status={live ? "neutral" : "unknown"} />
-        </div>
+        </MetricStrip>
         {live && !live.cgroup && <p className="agents-dim">Measured from the runner's own process: it is not running in its capped unit.</p>}
       </Panel>
 
