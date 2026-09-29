@@ -1640,6 +1640,110 @@ Proposed, value to the owner against effort:
 - **Quiet hours or a daily digest for pushes** - medium, medium.
 - **Update every app with an update ready, in one approval** - medium, medium.
 
+## M37 — Agents
+
+Asked for 2026-09-29: "create a section for building agents. I want it robust. I want you to put in
+suggestions and act on them. But I want an agent builder." Decided in ADR-005. The owner's standing
+requirements, before any feature: **agents never make the server run hot** (hard caps the kernel
+enforces, not promises), **everything can be paused** (one agent, or all of them with one switch,
+"until tomorrow" included), **agents propose and never act** (a plan of registered operations,
+checked against the registry and the person, approved step by step at each step's own tier through
+the ordinary job path), **local models only, on Unsloth** (not Ollama), and **privacy** (Pi-hole and
+network data as network-wide counts; secrets masked; the audit trail says who, what and when, never
+the content). The engine is `feat/m37-agents-engine`; the section is `feat/m37-agent-builder-ui`.
+
+- ✅ **M37.1 What an agent is** (unreleased). `server/agents/spec.mjs`: a name, a purpose, the owner's
+  instructions (a system prompt below BoxPilot's own rules), who may ask it (owner, operator, and
+  viewers for a helper someone can borrow), its knowledge sources, a permission per catalog tool
+  (auto, only when a person asked, off), its triggers (asked; a schedule - hourly, every six hours,
+  daily, weekly - that waits for quiet hours when heavy; events: a health alert raised, a job failed,
+  a drive dropped), its budget (runs a day, model seconds a day, steps, tokens and seconds a run, each
+  under a ceiling no spec can lift), its outputs (notes, a daily digest, notifications - important
+  only - and approval cards) and its memory (on or off, how long a note stays fresh, how many).
+  `normalizeSpec` refuses anything it does not know rather than guessing. Stored in BoxPilot's own
+  database (`server/agents/store.mjs`), so a controller backup carries it; every edit that changes
+  something is a new version with a field-by-field diff (the instructions line by line), and a roll
+  back is a new version too. Five templates (`templates.mjs`): **Server Keeper** (the resident agent
+  that learns the server, answers questions and writes a digest at 05:30 in quiet hours), **Pi-hole
+  Watcher**, **Backup Auditor**, **IT Support helper** (viewer-level tools only, no notes, no plans,
+  anyone signed in may ask it) and a blank one, each with golden questions for its evaluation.
+- ✅ **M37.2 The tools catalog** (unreleased). `tool-catalog.mjs` and `tools.mjs`, fifteen tools, each
+  with a cost and the least role a run must read as: server facts, apps and containers, service
+  status, bounded logs (at most 200 lines, a week back; an operator read, ADR-003), storage and SMART,
+  search over the docs, the registry, the catalog and the owner's documents, the agent's own notes
+  (read, write), BoxPilot's jobs and health alerts as the run's person may see them, backups, the
+  **Pi-hole adapter** (`pihole.mjs`, the registered read `app.pihole.inspect`, operator: blocking on
+  or off, queries and blocked in the last day, the blocklists' age and size, each upstream's share and
+  answer time, the most blocked domains as totals; no query reads the client column), **where does it
+  run** (a BoxPilot app, another container, or a systemd unit on the host), **propose a plan** and
+  **tell the owner**. Only notes, cards and notices are written; nothing on the server. **Tool output
+  is data**: redacted, stripped of chat-template tokens and our own tags, boxed as untrusted with a
+  line saying so, and text that reads like an instruction is flagged in the trace, in the box the
+  model sees and on any card proposed after it (`guard.mjs`).
+- ✅ **M37.3 The runner** (unreleased). `runner.mjs`, `runner-main.mjs`: a small loop - plan, call
+  tools, answer - under limits on steps, tool calls, tokens, model time and wall time; one run at a
+  time for the whole server, one question at a time per person. It runs in
+  `deploy/boxpilot-agents.service` and reaches the web service only on `/api/v1/agent-runner/*` with
+  a scoped key (`access.mjs`, `agentRunnerAuth`: loopback only, never through a proxy, handed over by
+  systemd's `LoadCredential`; the route matrix proves it opens nothing else), never the root helper.
+  Every tool runs in the web process as the run's person. Every run keeps its trace - each step, each
+  tool call with its input and its (redacted) output, the model's words, tokens and timing - which a
+  page follows live as server-sent events. Idle is a long poll: no busy loop, and the model server
+  is stopped once nothing has used it for ten minutes.
+- ◐ **M37.4 The runtime** (unreleased; the details wait on the spike). Unsloth runs as the runner's
+  own child, in its cgroup and under its caps: a systemd unit, not a catalog app (ADR-005 says why).
+  `server/agents/runtime.mjs` starts `unsloth run --model <repo:quant> --api-only --disable-tools -H
+  127.0.0.1 -p <port> --context-length 8192 --parallel 1 --threads 2` on demand, offline, reads its
+  per-start key from its output, checks it answers, and stops it when idle. Registered operations:
+  `agents.runtime.install` (medium, owner: Unsloth's own installer run as the unprivileged runner
+  user, then made read-only to it; its SHA-256 is kept), `agents.runtime.enable` (medium, owner),
+  `agents.runtime.disable` (low), `agents.model.download` (medium, owner: Unsloth's Qwen GGUFs only,
+  every byte checked against Hugging Face's SHA-256, space checked first; the preview gives size and
+  time), `agents.model.switch` (medium, owner), `agents.model.remove` (medium, owner; never the model in
+  use) and the read `agents.runtime.inspect`. The model library (`models.mjs`) holds Qwen 3.5 4B (the
+  default) and 9B at UD-Q4_K_XL with the F16 vision projector; a daily look at Hugging Face finds a
+  newer small Qwen with vision and offers the download and the switch as a card, never on its own.
+  All model clients are one pluggable OpenAI-compatible client (`assistant/model-client.mjs`) under
+  M34's local-only address rules; for agents, loopback only. The assistant uses it too; Ollama's own
+  API stays as a legacy provider. **Waits on the spike** (`spike/unsloth-headless`): load times and
+  tokens a second at two threads, whether `HF_HUB_OFFLINE` holds, the exact install layout, whether
+  `/v1/embeddings` answers beside a chat model, and how `enable_thinking` is passed.
+- ◐ **M37.5 The Agent Builder** (the stacked UI pull request): the Agents section in the Command
+  Center's look - the agents list with the module switch, create and edit from templates, a test
+  console with a live trace and the cards it proposed, the learning library, usage at a glance, and
+  evaluation - with small entries on Home and Ops, in the dock and in the command bar.
+- ✅ **M37.6 Safety and robustness** (unreleased). An audit entry for every run (`agents.run.finished`:
+  who, which agent and version, how it ended, tools, model time, tokens; never the question or the
+  answer) and for every change to an agent, a card, the module and the runtime. Redaction of
+  questions, tool output, notes, the model's words and tool arguments before anything is kept or
+  sent. Rate limits (questions an hour a person; the runner's calls). The kill switch (cancels what
+  waits, stops what runs, tells the runner to stop its model; only the owner starts agents again).
+  A model that is missing, failing or slow still gives an answer: the tools' facts, marked degraded.
+  Timeouts on every model call, every tool, every run. Crash recovery: a run whose runner stopped
+  answering, restarted or was cut off by a BoxPilot restart is marked interrupted and never retried.
+  Backpressure: at most twenty runs waiting and two per agent; unattended runs past that are dropped
+  and counted, a person is told to try later. Tests for each limit (`limits.test.mjs`), and a
+  real-systemd test (`tests/ubuntu/agents-caps.sh`, CI job `agents-caps` on 24.04 and 26.04): under a
+  fake model burning six threads the service's cgroup stays at or under `CPUQuota=200%` and was
+  throttled to stay there, the model server is its niced, idle-I/O child, and afterwards the service
+  idles under 2%.
+- **The caps** (`server/agents/caps.mjs`, held to the unit by `caps.test.mjs`): `CPUQuota=200%` (two
+  of the server's sixteen threads, an eighth of it), `CPUWeight=idle`, `Nice=19`,
+  `IOSchedulingClass=idle`, `MemoryMax=8G` (`MemoryHigh=7G`, no swap), `TasksMax=256`, loopback-only
+  networking (`IPAddressDeny=any`), its own user, no capabilities. The unit is installed with the
+  others by the upgrade script and stays disabled until the owner turns Agents on; an upgrade
+  restarts it only if it runs.
+
+Left, and why:
+
+- **Embeddings for the learning library**: keyword search (BM25) now; meaning search waits on the
+  spike's answer about embeddings on this CPU.
+- **Images**: the model reads them, but no tool hands one over yet (a chart of a disk, a screenshot).
+- **The 9B model** needs the memory cap raised past 8 GB: the owner's call (a drop-in), not a default.
+- **The command bar's assistant as the Server Keeper**: the bar still asks M34's assistant.
+- **Per-device Pi-hole numbers**: only if the owner opts in, as a separate owner-only read.
+- **Learning on its own schedule**: a learning pass runs when asked ("Re-learn"), in quiet hours.
+
 ## App catalogue candidates
 
 Checked against the 164 manifests already in `catalog/`, so nothing here duplicates an existing

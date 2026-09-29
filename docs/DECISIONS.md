@@ -279,3 +279,74 @@ So there are two shells now, not a Classic one beside them:
 - **Light amber and green, a shade darker.** Checking the main pairs under the console's tokens
   found a chip's amber or green on its own tint over the paper page at 4.37:1; they are now
   `#935700` and `#147447`.
+
+## ADR-005: agents run in a capped service of their own, read through the web service, and only propose
+
+**Date:** 2026-09-29 · **Status:** Accepted (M37, unreleased) · **Refines:** ADR-001's "no new named systemd unit" for one long-running service, and M34's local-model rule.
+
+### Context
+
+The owner asked for agents: named, instructed, scheduled or asked, that learn the server, watch
+Pi-hole or the backups, write a daily digest and suggest fixes, built in a section of their own. The
+owner set four conditions before anything else. Agents must never make the server run hot ("I don't
+want to wake up and find this module running at 60% CPU"): the limits must be ones the kernel
+enforces, not ones the code promises. Everything must pause, one agent or all of them. Agents may
+propose but never act. And the model must be local, served by Unsloth rather than Ollama: the newest
+small Qwen that reads text and images, on a CPU-only server (8 cores, 16 threads, about 29 GB).
+
+A model on a CPU is the heaviest thing BoxPilot would ever run. The web process cannot host it (it
+must stay responsive and unprivileged), and the root helper must never host anything that reads
+untrusted text and decides what to do next.
+
+### Decision
+
+1. **Two processes.** The web process keeps everything about agents - their versioned specs, the run
+   queue, budgets, triggers, traces, notes, cards, the learning library - in BoxPilot's own
+   database, and runs every tool. The runner (`deploy/boxpilot-agents.service`,
+   `server/agents/runner-main.mjs`) runs the model and the agent loop, and nothing else.
+2. **Hard caps on a unit of its own.** The runner and the model server it starts share one cgroup
+   with `CPUQuota=200%`, `CPUWeight=idle`, `Nice=19`, `IOSchedulingClass=idle`, `MemoryMax=8G`, no
+   swap, `TasksMax=256`, its own user, no capabilities and `IPAddressDeny=any` but loopback. This is
+   a long-running service with its own trust level, not a per-operation oneshot unit, which is what
+   ADR-001 retired; it is installed with the others and enabled only when the owner turns Agents on.
+   `caps.mjs` holds the values the Usage panel shows and a test holds them to the unit; a
+   real-systemd test proves the cgroup stays under the quota under a model that wants three times
+   it, and idles under 2%.
+3. **Unsloth as the runner's child, not a catalog app.** A catalog app is a long-running container:
+   it would sit outside the runner's cgroup and its caps, it would run when nothing needs it, and
+   Unsloth's official image starts JupyterLab and SSH by default. So `unsloth run --api-only` is
+   started by the runner when a run needs a model, bound to 127.0.0.1, offline against a Hugging
+   Face cache the download operation filled and checked, and stopped when idle. Installing Unsloth,
+   the downloads, starting the unit and switching models are registered operations, approved at
+   their tiers; Unsloth's installer runs as the unprivileged runner user, never as root.
+4. **A scoped identity, not a session.** The runner reaches the web service on
+   `/api/v1/agent-runner/*` with one key, handed to it by systemd (`LoadCredential`) from a file
+   only the web service and root can read, accepted only from loopback and never through a proxy.
+   The key opens nothing else; every other route asks for a session. On its own routes the runner
+   can take work, report steps, ask for a read-only tool by name on a run whose lease it holds, and
+   finish. It never talks to the root helper.
+5. **Tools read as a person.** A run reads as the person who asked, or for a schedule or an event as
+   the person who made the agent; the tools apply the rules the pages apply (jobs, alerts, ADR-003's
+   operator reads). Tool output is data: redacted, neutralised, boxed as untrusted, and flagged when
+   it reads like an instruction.
+6. **Propose, never act.** The only way an agent affects the server is a card: registered operations
+   checked against the registry and the person (`assistant/plan.mjs`), each staged and approved by a
+   person through the ordinary job path at its own tier. Notes and notices are the only other writes.
+7. **One OpenAI-compatible client.** The agents and the assistant share
+   `assistant/model-client.mjs` under M34's local-only rules (loopback only for agents); Ollama's own
+   API stays as a legacy provider for assistant settings saved before this.
+8. **Bounded everywhere.** One run at a time for the server, one question at a time per person,
+   budgets a day, limits a run, a bounded queue that drops unattended work, rate limits, timeouts,
+   quiet hours for heavy work, a self-throttle when the server is busy; an interrupted run is marked,
+   never retried.
+
+### Consequences
+
+- Idle costs nothing measurable: a long poll every half minute and no model in memory.
+- A model that is missing, slow or broken degrades an answer to the tools' facts instead of failing.
+- The web process runs every tool, so a tool's cost lands there; tools are cheap reads, bounded in
+  number and size per run, and one run goes at a time.
+- The spike's measurements may change defaults (threads, context, load timeout, whether embeddings
+  are served), not the shape: those are settings of the runtime, not of the architecture.
+- Agent tables are a product area's records, like flows and schedules, not an operation's ledger;
+  every change to the host still goes through the registry.
