@@ -122,6 +122,10 @@ say("### The agents in Zulip");
 say();
 const realm = await apps.execIn({ id: "zulip", user: "zulip", argv: [zulipManagePy, "create_realm", "CI house", "owner@example.com", "CI Owner"], timeoutMs: 120_000 });
 if (!realm.ok) fail(`create_realm failed: ${realm.stderr.split("\n").slice(-3).join(" ")}`);
+// Once there is an organization, Create your organization says where to sign in instead.
+const refusedLink = await operations["app.zulip.organization.link"].run({ id: "zulip" }, { apps, progress }).then(() => null, (error) => error.message);
+say(`Create your organization with one already there: ${refusedLink ?? "a link was made"}`);
+if (!/already has an organization, CI house: sign in at https:\/\//.test(refusedLink ?? "")) fail("Create your organization did not see the organization list_realms named");
 const credentials = createCredentialStore({ file: path.join(workdir, "credentials.json") });
 const taskTable = { "agents.zulip.check": zulipCheck, "agents.zulip.post": zulipPost, "agents.zulip.poll": zulipPoll };
 const runUnit = { runTask: (task, parameters) => taskTable[task](parameters, { credentials, log: progress }) };
