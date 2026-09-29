@@ -15,12 +15,13 @@
 
 /* The row's actions, right-aligned and a size smaller than the page's. */
 .services-actions-cell { width: 1%; }
-.services-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 4px; }
+/* One line of actions: the cell is as narrow as its buttons, never narrower. */
+.services-actions { display: flex; flex-wrap: nowrap; align-items: center; justify-content: flex-end; gap: 4px; white-space: nowrap; }
 .services-actions .ui-button { min-height: 26px; padding-right: 8px; padding-left: 8px; font-size: 12.5px; }
 .services-actions .ui-button--risk-medium { padding-left: 14px; }
 .services-guarded { color: var(--text-muted); font-family: var(--font-condensed); font-size: 12px; }
 
 @media (max-width: 640px) {
-  .services-actions { justify-content: flex-start; padding-top: 4px; }
+  .services-actions { flex-wrap: wrap; justify-content: flex-start; padding-top: 4px; white-space: normal; }
   .services-actions-cell { width: auto; }
 }
