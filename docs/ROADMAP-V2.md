@@ -1491,7 +1491,11 @@ the owner does. Approvals and tiers are unchanged: every fix is an ordinary job 
   stop on record; **Start** otherwise, since `app.action` start now builds a missing container
   again from the saved compose project (`app.reinstall` when that file is gone too, from the saved
   settings on the image it last ran); or **Uninstall** (data kept).
-- ✅ **M35.7 A page that fixes in place**: findings worst first on Ops' Command Center panels, each
+- ✅ **M35.7 A page that fixes in place**: the whole page is the Command Center console, built from
+  src/ui alone (a new `Panel`, the console panel Ops draws) with its styles beside it in
+  `src/repair/repair.css`; no old panel, page header or feature strip is left, and the checks
+  below the findings (prerequisites, approval desk, helper, resources, installation, packages,
+  protection gaps, rebuild checklist, runbook, Activity) are console panels too. Findings worst first, each
   fix with its tier on the button, approved in the ordinary dialog, its log streaming in the
   finding's card, and the scan read again when it ends: "Fixed" with what changed, or "Still there"
   with the job's own error and the next step. The last failed try shows on its finding, whose fix

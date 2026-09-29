@@ -8,6 +8,7 @@ export { Button, RiskTag, riskCopy, type ButtonProps, type ButtonVariant } from 
 export { Card, type CardProps } from "./Card";
 export { Dock, type DockItem, type DockProps } from "./Dock";
 export { MetricTile, type MetricTileProps } from "./MetricTile";
+export { Panel, type PanelProps } from "./Panel";
 export { Section, type SectionProps } from "./Section";
 export { Sparkline, sparkPoints, type SparklineProps } from "./Sparkline";
 export { StatusChip, type StatusChipProps } from "./StatusChip";
