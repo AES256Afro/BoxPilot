@@ -357,7 +357,8 @@ export default function SystemCenter({ csrfToken, role = "owner" }: { csrfToken:
         </section>
       )}
 
-      <DatabaseCopiesPanel csrfToken={csrfToken} role={role} />
+      {/* Listing them reads the state directory as root, which is an operator's (ADR-003). */}
+      {role !== "viewer" && <DatabaseCopiesPanel csrfToken={csrfToken} role={role} />}
 
       <UpsPanel start={start} />
       <section className="panel">
