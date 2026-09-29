@@ -1,18 +1,21 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { readJson } from "./http";
 import RuntimeHealth from "./RuntimeHealth";
 import PackageRecovery from "./PackageRecovery";
 import ControllerDoctor from "./ControllerDoctor";
 import ServerRunbook from "./ServerRunbook";
 import { useOperation } from "./ApproveDialog";
-import { AutoReconnectToggle, useAutoReconnect } from "./AutoReconnect";
+import { useAutoReconnect } from "./AutoReconnect";
 import { inspectOperation } from "./operations";
 import { countOf, type ViewName } from "./data";
-import { Button, Card, Section, StatusChip, Table, type Status, type TableColumn } from "./ui";
+import { useOptionalFacts, valuesOf } from "./home/facts";
+import { Button, Panel, RiskTag, StatusChip, Table, type RiskTier, type Status, type TableColumn } from "./ui";
 import { mayStart, riskOf } from "./ui/operationRisk";
+import { DriveAutoReconnect } from "./repair/DriveAutoReconnect";
 import { FindingCard, severityStatus } from "./repair/FindingCard";
 import { fixesOf, scanFrom, type Finding, type RepairScan, type Severity } from "./repair/types";
 import { tierOf, useRepairFixes, type BatchEntry } from "./repair/useRepairFixes";
+import "./repair/repair.css";
 
 /*
  * Repair (M35, "Repair that fixes"): what is wrong on this server, worst first, each with the fix
@@ -21,9 +24,11 @@ import { tierOf, useRepairFixes, type BatchEntry } from "./repair/useRepairFixes
  * "Still there", with the job's own error and the next step. The low-risk ones can be run in one go,
  * a finding can be set aside with a reason, and a set-aside one comes back when it changes.
  *
- * The page wears Ops' Command Center look (ADR-004, M33.7): hairline panels, small capitals, status
- * first. Below the findings are the checks that are not findings - the root helper, packages, the
- * prerequisites, the approval desk, protection gaps, the rebuild checklist and Activity.
+ * The page is Ops' Command Center console (ADR-004, M33.7), built from src/ui alone: the verdict
+ * first, then console panels with small-capital titles, mono figures and a tier on every button.
+ * Below the findings are the checks that are not findings - prerequisites, the approval desk, the
+ * helper, BoxPilot's own resources, installation and packages, protection gaps, the rebuild
+ * checklist, the runbook and Activity. Its styles are beside it, in src/repair/repair.css.
  */
 
 interface Prerequisite {
@@ -112,6 +117,8 @@ const groups: Array<{ severity: Severity; title: string; summary: string }> = [
 ];
 
 const prerequisiteStatus: Record<Prerequisite["status"], Status> = { ready: "good", repairable: "warning", missing: "warning", conflict: "danger" };
+const recoveryStatus: Record<RecoveryKit["checks"][number]["state"], Status> = { verified: "good", "action-required": "warning", "operator-check": "neutral", "not-applicable": "neutral", unavailable: "unknown" };
+const tierWord = (risk: string): RiskTier => (risk === "low" || risk === "medium" || risk === "high" ? risk : "high");
 
 export default function RepairCenter({ csrfToken, role = "owner", onNavigate = () => undefined }: { csrfToken: string; role?: string; onNavigate?: (view: ViewName) => void }) {
   const [checks, setChecks] = useState<Prerequisite[]>([]);
@@ -131,6 +138,9 @@ export default function RepairCenter({ csrfToken, role = "owner", onNavigate = (
   const [canaryResult, setCanaryResult] = useState<string | null>(null);
   const [scan, setScan] = useState<RepairScan | null>(null);
   const [showDismissed, setShowDismissed] = useState(false);
+  // The server's name for the crumb, from the facts the shell already reads; none in a bare test.
+  const shellFacts = useOptionalFacts();
+  const hostname = (shellFacts ? valuesOf(shellFacts.facts).inventory?.hostname : null) ?? "this server";
 
   /** The problem scan alone: what a fix reads again when it ends. */
   const loadScan = useCallback(async (): Promise<RepairScan | null> => {
@@ -368,205 +378,213 @@ export default function RepairCenter({ csrfToken, role = "owner", onNavigate = (
   const card = (finding: Finding, gone = false) => (
     <FindingCard key={finding.id} finding={finding} role={role} run={fixes.runs[finding.id]} gone={gone}
       onFix={(fix) => fixes.start(finding, fix)} onDismiss={() => fixes.dismiss({ kind: "finding", finding })}
-      extra={droppedDrive(finding) && !gone ? <AutoReconnectToggle drive={droppedDrive(finding)!} control={autoReconnect} /> : undefined} />
+      extra={droppedDrive(finding) && !gone ? <DriveAutoReconnect drive={droppedDrive(finding)!} control={autoReconnect} /> : undefined} />
   );
 
   const dismissedColumns: Array<TableColumn<Finding>> = [
-    { id: "finding", header: "Finding", cell: (finding) => <span className="rp-wrap">{finding.title}</span> },
-    { id: "reason", header: "Why", cell: (finding) => <span className="rp-wrap">{finding.dismissal?.reason ?? ""}</span> },
+    { id: "finding", header: "Finding", className: "rp-cell-wrap rp-cell-strong", cell: (finding) => finding.title },
+    { id: "reason", header: "Why", className: "rp-cell-wrap", cell: (finding) => finding.dismissal?.reason ?? "" },
     { id: "when", header: "Dismissed", numeric: true, hideOnPhone: true, cell: (finding) => (finding.dismissal?.at ? new Date(finding.dismissal.at).toLocaleDateString() : "—") },
     { id: "back", header: <span className="ui-visually-hidden">Bring back</span>, label: "", cell: (finding) => (role === "owner" || role === "operator" ? <Button variant="ghost" onClick={() => void fixes.restore(finding.id)} aria-label={`Bring back: ${finding.title}`}>Bring back</Button> : null) },
   ];
 
+  const prerequisiteColumns: Array<TableColumn<Prerequisite>> = [
+    { id: "state", header: "State", cell: (item) => <StatusChip status={prerequisiteStatus[item.status] ?? "neutral"}>{item.status}</StatusChip> },
+    { id: "check", header: "Check", className: "rp-cell-wrap rp-cell-strong", cell: (item) => <>{item.name}<span className="rp-row__kicker"> · {item.group}</span></> },
+    { id: "found", header: "Found", className: "rp-cell-wrap", cell: (item) => <>{item.summary}{item.repair && <span className="rp-cell-dim"> {item.repair.description}</span>}</> },
+    { id: "act", header: <span className="ui-visually-hidden">Repair</span>, label: "", cell: (item) => (item.repair?.kind === "approved" && repairDefinitions[item.id] && mayStart(role, repairDefinitions[item.id].install)
+      ? <Button risk={riskOf(repairDefinitions[item.id].install)} onClick={() => void reviewRepair(item.id)} disabled={pending}>Review exact repair</Button> : null) },
+  ];
+
+  const recoveryColumns: Array<TableColumn<RecoveryKit["checks"][number]>> = [
+    { id: "state", header: "State", cell: (item) => <StatusChip status={recoveryStatus[item.state] ?? "neutral"}>{item.state.replaceAll("-", " ")}</StatusChip> },
+    { id: "check", header: "Check", className: "rp-cell-wrap rp-cell-strong", cell: (item) => item.title },
+    { id: "evidence", header: "Evidence", className: "rp-cell-wrap", cell: (item) => item.evidence },
+    { id: "action", header: "To do", hideOnPhone: true, className: "rp-cell-wrap", cell: (item) => item.action },
+  ];
+
+  const time = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const gaps = actionCenter?.summary;
+
   return (
-    <div className="repair-page rp">
-      <div className="rp-status">
+    <div className="rp cc" data-density="compact">
+      <header className="rp-head">
+        <div className="cc-crumb">
+          <span className="cc-crumb__host">{hostname}</span>
+          <span className="cc-crumb__sep" aria-hidden="true">/</span>
+          <h1>Repair</h1>
+        </div>
+        <span className="cc-kv">
+          critical <b>{counts.critical}</b> · to fix <b>{counts.warning}</b> · suggestions <b>{counts.info}</b> · dismissed <b>{dismissed.length}</b>
+          {scan?.checkedAt ? <> · checked <b>{time(scan.checkedAt)}</b></> : null}
+        </span>
+      </header>
+
+      <div className="cc-status">
         <StatusChip status={verdict.status}>{verdict.label}</StatusChip>
-        <p>{verdict.sentence}</p>
+        <p className="ops-verdict">{verdict.sentence}</p>
         <div className="rp-status__actions">
-          {safe.length > 0 && <Button risk="low" onClick={() => fixes.startBatch(safe)} disabled={fixes.busy}>{fixes.busy ? "Fixing…" : `Fix the safe ones (${safe.length})`}</Button>}
+          {safe.length > 0 && <Button variant="primary" risk="low" onClick={() => fixes.startBatch(safe)} disabled={fixes.busy}>{fixes.busy ? "Fixing…" : `Fix the safe ones (${safe.length})`}</Button>}
           <Button variant="ghost" onClick={() => void refresh()} disabled={loading}>{loading ? "Checking..." : "Check again"}</Button>
         </div>
       </div>
 
-      {(scanError || prerequisiteError || jobError) && !loading && <p className="rp-status__incomplete" role="status"><StatusChip status="unknown">Checks incomplete</StatusChip><span>Some checks could not finish. Review what could be read and check again for the rest.</span></p>}
-      {scanError && <div className="notice warning-notice" role="status"><strong>Problem scan incomplete</strong><span>{scanError}</span></div>}
-      {fixes.notice && <div className="notice" role="status">{fixes.notice}</div>}
-      {error && <div className="auth-error" role="alert">{error}</div>}
+      {(scanError || prerequisiteError || jobError) && !loading && <p className="rp-note" data-tone="warning" role="status"><StatusChip status="unknown">Checks incomplete</StatusChip><span>Some checks could not finish. What could be read is below; check again for the rest.</span></p>}
+      {scanError && <p className="rp-note" data-tone="warning" role="status"><strong>Problem scan incomplete</strong><span>{scanError}</span></p>}
+      {fixes.notice && <p className="rp-note" role="status">{fixes.notice}</p>}
+      {error && <p className="rp-note" data-tone="danger" role="alert">{error}</p>}
       {operationDialog}
       {fixes.dialog}
 
-      {/* Problems first: this page used to open with a prerequisite inventory, which is the least
-          urgent thing on it. Every entry here was a real failure that took a shell to explain. */}
+      {/* Problems first, worst first: every entry here was a real failure that took a shell to explain. */}
       {(justFixed.length > 0 || inFlight.length > 0) && (
-        <section className="rp-panel" aria-label="Fixed just now">
-          <header className="rp-panel__head"><h2>Just now <span className="cc-count ui-marked" data-status="good"><span className="ui-mark" aria-hidden="true" />{justFixed.length + inFlight.length}</span></h2></header>
+        <Panel title="Just now" label="Fixed just now" count={{ status: "good", label: String(justFixed.length + inFlight.length) }}>
           <div className="rp-list">{inFlight.map((finding) => card(finding))}{justFixed.map((finding) => card(finding, true))}</div>
-        </section>
+        </Panel>
       )}
       {groups.map((group) => {
         const list = problems.filter((problem) => problem.severity === group.severity);
         if (!list.length) return null;
         return (
-          <section className={`rp-panel rp-panel--${group.severity}`} key={group.severity} aria-label={`${group.title}, ${list.length}`}>
-            <header className="rp-panel__head">
-              <h2>{group.title} <span className="cc-count ui-marked" data-status={severityStatus[group.severity]}><span className="ui-mark" aria-hidden="true" />{list.length}</span></h2>
-              <p className="rp-panel__meta">{group.summary}</p>
-            </header>
+          <Panel key={group.severity} title={group.title} label={`${group.title}, ${list.length}`} count={{ status: severityStatus[group.severity], label: String(list.length) }} meta={group.summary}>
             <div className="rp-list">{list.map((finding) => card(finding))}</div>
-          </section>
+          </Panel>
         );
       })}
       {scan && problems.length === 0 && justFixed.length === 0 && (
-        <Card className="rp-clear"><StatusChip status={scanError ? "unknown" : "good"}>{scanError ? "Not fully checked" : "Problem scan complete"}</StatusChip><span>{scanError ? "Nothing wrong in what could be read." : "No repair findings. The checks below cover the helper, packages and prerequisites."}</span></Card>
+        <p className="rp-note" data-tone={scanError ? "warning" : "good"}><StatusChip status={scanError ? "unknown" : "good"}>{scanError ? "Not fully checked" : "Problem scan complete"}</StatusChip><span>{scanError ? "Nothing wrong in what could be read." : "No repair findings."}</span></p>
       )}
       {dismissed.length > 0 && (
-        <section className="rp-panel rp-panel--dismissed" aria-label={`Dismissed, ${dismissed.length}`}>
-          <header className="rp-panel__head">
-            <h2>Dismissed <span className="cc-count ui-marked" data-status="neutral"><span className="ui-mark" aria-hidden="true" />{dismissed.length}</span></h2>
-            <p className="rp-panel__meta">Set aside with a reason; each comes back by itself if it changes.</p>
-            <Button variant="ghost" aria-expanded={showDismissed} onClick={() => setShowDismissed((value) => !value)}>{showDismissed ? "Hide" : "Show"}</Button>
-          </header>
+        <Panel title="Dismissed" label={`Dismissed, ${dismissed.length}`} count={{ status: "neutral", label: String(dismissed.length) }} meta="each comes back if it changes"
+          actions={<Button variant="ghost" aria-expanded={showDismissed} onClick={() => setShowDismissed((value) => !value)}>{showDismissed ? "Hide" : "Show"}</Button>}>
           {showDismissed && <Table caption="Dismissed findings" columns={dismissedColumns} rows={dismissed} rowKey={(finding) => finding.id} rowStatus={(finding) => severityStatus[finding.severity]} />}
-        </section>
+        </Panel>
       )}
 
-      <RuntimeHealth />
-      <ControllerDoctor onOpenBackups={() => onNavigate("backups")} />
-      <PackageRecovery csrfToken={csrfToken} />
-
       <div className="rp-grid">
-        <section className="rp-panel repair-prerequisites" aria-label="Prerequisites">
-          <header className="rp-panel__head">
-            <h2>Prerequisites {!loading && !prerequisiteError && checks.length > 0 && <span className="cc-count ui-marked" data-status={ready === checks.length ? "good" : "warning"}><span className="ui-mark" aria-hidden="true" />{ready}/{checks.length}</span>}</h2>
-            <p className="rp-panel__meta">{loading ? "Checking..." : prerequisiteError ? "Prerequisites unavailable" : checks.length ? `${ready} of ${checks.length} ready` : "No prerequisite checks returned"}</p>
-          </header>
-          {prerequisiteError && <div className="notice warning-notice" role="status">{prerequisiteError}</div>}
-          <div className="rp-checks">
-            {checks.map((item) => (
-              <article className="rp-check" key={item.id}>
-                <StatusChip status={prerequisiteStatus[item.status] ?? "neutral"}>{item.status}</StatusChip>
-                <div><small>{item.group}</small><strong>{item.name}</strong><p>{item.summary}</p>{item.repair && <em>{item.repair.description}</em>}</div>
-                {item.repair?.kind === "approved" && repairDefinitions[item.id] && mayStart(role, repairDefinitions[item.id].install) && <Button risk={riskOf(repairDefinitions[item.id].install)} onClick={() => void reviewRepair(item.id)} disabled={pending}>Review exact repair</Button>}
-              </article>
-            ))}
-          </div>
-        </section>
+        <Panel title="Prerequisites" label="Prerequisites"
+          count={!loading && !prerequisiteError && checks.length > 0 ? { status: ready === checks.length ? "good" : "warning", label: `${ready}/${checks.length}` } : undefined}
+          meta={loading ? "Checking..." : prerequisiteError ? "Prerequisites unavailable" : checks.length ? `${ready} of ${checks.length} ready` : "No prerequisite checks returned"}>
+          {prerequisiteError && <p className="rp-note" data-tone="warning" role="status">{prerequisiteError}</p>}
+          {checks.length > 0 && <Table caption="Prerequisites" columns={prerequisiteColumns} rows={checks} rowKey={(item) => item.id} />}
+        </Panel>
 
-        <aside className="rp-panel helper-canary" aria-label={awaitingApproval ? "Approval desk" : "Helper check"}>
-          <header className="rp-panel__head"><h2>{awaitingApproval ? "Approval desk" : "Helper check"}</h2></header>
-          <div className="rp-panel__body">
-            <h3>{awaitingApproval ? awaitingApproval.title : "Helper connection and logging"}</h3>
-            <p>{awaitingApproval ? "Check what this job will do, then approve it." : "Checks the privileged helper connection and writes a small test log. Run this if jobs fail to start or their output is missing."}</p>
-            {awaitingApproval && <p className="job-recovery"><strong>{awaitingApproval.risk} risk:</strong> {awaitingApproval.recovery?.reason ?? "Follow the recorded recovery instructions if verification fails."}</p>}
-            {awaitingApproval && (
-              <div className="approval-parameters" aria-label="What this job will run">
-                <span>Operation <code>{awaitingApproval.type.replace(/^op:/, "")}</code></span>
-                {Object.keys(awaitingApproval.parameters ?? {}).length > 0
-                  ? <dl>{Object.entries(awaitingApproval.parameters ?? {}).map(([name, value]) => <div key={name}><dt>{name}</dt><dd><code>{typeof value === "string" ? value : JSON.stringify(value)}</code></dd></div>)}</dl>
-                  : <span className="muted">No parameters.</span>}
-              </div>
-            )}
-            {!awaitingApproval ? (
+        <Panel title={awaitingApproval ? "Approval desk" : "Helper"} label={awaitingApproval ? "Approval desk" : "Helper check"}
+          count={awaitingApproval ? { status: "warning", label: "1 waiting" } : undefined}
+          meta={awaitingApproval ? undefined : "connection and logging"}>
+          <div className="rp-body">
+            {awaitingApproval ? (
               <>
-                <Button variant="primary" onClick={() => void runCanary()} disabled={pending}>{pending ? "Checking..." : "Check helper"}</Button>
-                {canaryResult && <p className="good-text">{canaryResult}</p>}
-              </>
-            ) : (
-              <div className="approval-box">
+                <p className="rp-row__title">{awaitingApproval.title}</p>
+                <p className="rp-row__text"><RiskTag risk={tierWord(awaitingApproval.risk)} /> {awaitingApproval.recovery?.reason ?? "Follow the recorded recovery instructions if verification fails."}</p>
+                <dl className="rp-kv" aria-label="What this job will run">
+                  <dt>operation</dt><dd>{awaitingApproval.type.replace(/^op:/, "")}</dd>
+                  {Object.keys(awaitingApproval.parameters ?? {}).length > 0
+                    ? Object.entries(awaitingApproval.parameters ?? {}).map(([name, value]) => <Fragment key={name}><dt>{name}</dt><dd>{typeof value === "string" ? value : JSON.stringify(value)}</dd></Fragment>)
+                    : <><dt>parameters</dt><dd>none</dd></>}
+                </dl>
                 {(() => {
                   const tier = approvalPolicy?.tier ?? "high";
                   const passwordRequired = approvalPolicy ? approvalPolicy.passwordRequired : true;
                   const copy = tierCopy[tier];
                   return (
                     <>
-                      <strong>{passwordRequired ? `${copy.label} · password required` : `${copy.label} · ${tier === "low" ? "one click" : "confirm to run"}`}</strong>
-                      <span>{passwordRequired ? tierCopy.high.description : copy.description}{approvalPolicy?.elevated && tier === "high" ? " Your session is elevated, so no password is needed right now." : ""}</span>
-                      {approvalPolicy?.confirmText && <label>Type <code>{approvalPolicy.confirmText}</code> to confirm<input aria-label="Typed confirmation" autoComplete="off" spellCheck="false" value={confirmTyped} onChange={(event) => setConfirmTyped(event.target.value)} /></label>}
-                      {passwordRequired && <input aria-label="Approval password" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} />}
-                      <Button variant="primary" risk={tier} onClick={() => void approve()} disabled={pending || (passwordRequired && password.length < 12) || Boolean(approvalPolicy?.confirmText && confirmTyped !== approvalPolicy.confirmText)}>{pending ? "Working..." : tier === "low" && !passwordRequired ? "Run" : "Approve and run"}</Button>
-                      <Button onClick={() => void withdraw()} disabled={pending}>Withdraw</Button>
+                      <p className="rp-row__text"><strong>{passwordRequired ? `${copy.label} · password required` : `${copy.label} · ${tier === "low" ? "one click" : "confirm to run"}`}</strong> {passwordRequired ? tierCopy.high.description : copy.description}{approvalPolicy?.elevated && tier === "high" ? " Your session is elevated, so no password is needed right now." : ""}</p>
+                      {approvalPolicy?.confirmText && <label className="rp-field">Type {approvalPolicy.confirmText} to confirm<input className="rp-input" aria-label="Typed confirmation" autoComplete="off" spellCheck="false" value={confirmTyped} onChange={(event) => setConfirmTyped(event.target.value)} /></label>}
+                      {passwordRequired && <input className="rp-input" aria-label="Approval password" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} />}
+                      <div className="rp-finding__actions">
+                        <Button variant="primary" risk={tier} onClick={() => void approve()} disabled={pending || (passwordRequired && password.length < 12) || Boolean(approvalPolicy?.confirmText && confirmTyped !== approvalPolicy.confirmText)}>{pending ? "Working..." : tier === "low" && !passwordRequired ? "Run" : "Approve and run"}</Button>
+                        <Button variant="ghost" onClick={() => void withdraw()} disabled={pending}>Withdraw</Button>
+                      </div>
                     </>
                   );
                 })()}
-              </div>
+              </>
+            ) : (
+              <>
+                <p className="rp-row__text">Run this if jobs fail to start or their output is missing: it asks the root helper to answer and writes a small test log.</p>
+                <div className="rp-finding__actions"><Button onClick={() => void runCanary()} busy={pending}>{pending ? "Checking..." : "Check helper"}</Button></div>
+                {canaryResult && <p className="rp-note" data-tone="good" role="status">{canaryResult}</p>}
+              </>
             )}
           </div>
-        </aside>
+        </Panel>
       </div>
 
-      {actionError && <div className="notice warning-notice" role="status"><strong>Protection checks incomplete</strong><span>{actionError}. Press Check again to retry.</span></div>}
-      {actionCenter && (
-        <Section className="rp-section action-center" title="Protection gaps"
-          status={{ status: actionCenter.summary.critical ? "danger" : actionCenter.summary.warning ? "warning" : actionCenter.summary.total ? "neutral" : "good", label: actionCenter.summary.total ? `${actionCenter.summary.total} to look at` : "None" }}
-          summary={`Backup and recovery coverage that needs attention. Checked ${new Date(actionCenter.generatedAt).toLocaleString()}${actionCenter.sourceStatus === "ready" ? "" : " · checks incomplete"}`}>
-          <div className="action-list">
-            {actionCenter.notices.map((item) => (
-              <Card className={`action-card action-${item.severity}`} key={item.id}>
-                <div className="action-card-heading"><div><span>{item.category}</span><strong>{item.title}</strong></div><StatusChip status={item.severity === "critical" ? "danger" : item.severity === "warning" ? "warning" : "neutral"}>{item.severity}</StatusChip></div>
-                <p>{item.summary}</p>
-                <details className="repair-details"><summary>Evidence and recommended steps</summary><div className="action-evidence">{item.evidence.map((evidence) => <span key={evidence}>{evidence}</span>)}</div><ol>{item.recommendation.steps.map((step) => <li key={step}>{step}</li>)}</ol></details>
-                <footer><Button onClick={() => onNavigate(item.recommendation.view)}>{item.recommendation.title}</Button></footer>
-              </Card>
-            ))}
-          </div>
-        </Section>
+      <div className="rp-grid rp-grid--three">
+        <RuntimeHealth />
+        <ControllerDoctor onOpenBackups={() => onNavigate("backups")} />
+        <PackageRecovery csrfToken={csrfToken} />
+      </div>
+
+      {actionError && <p className="rp-note" data-tone="warning" role="status"><strong>Protection checks incomplete</strong><span>{actionError}. Press Check again to retry.</span></p>}
+      {actionCenter && gaps && (
+        <Panel title="Protection gaps" label="Protection gaps"
+          count={{ status: gaps.critical ? "danger" : gaps.warning ? "warning" : gaps.total ? "neutral" : "good", label: gaps.total ? String(gaps.total) : "none" }}
+          meta={`checked ${time(actionCenter.generatedAt)}${actionCenter.sourceStatus === "ready" ? "" : " · incomplete"}`}>
+          {actionCenter.notices.length === 0 ? <p className="rp-quiet">Backups and recovery cover what they should.</p> : (
+            <div className="rp-rows">
+              {actionCenter.notices.map((item) => (
+                <article className="rp-row" key={item.id} data-status={item.severity === "critical" ? "danger" : item.severity === "warning" ? "warning" : "neutral"}>
+                  <div className="rp-row__body">
+                    <span className="rp-row__kicker">{item.category}</span>
+                    <strong className="rp-row__title">{item.title}</strong>
+                    <p className="rp-row__text">{item.summary}</p>
+                    <details className="rp-more"><summary>Evidence and steps</summary><ul>{item.evidence.map((evidence) => <li key={evidence}>{evidence}</li>)}</ul><ol className="rp-row__text">{item.recommendation.steps.map((step) => <li key={step}>{step}</li>)}</ol></details>
+                  </div>
+                  <div className="rp-row__act"><Button onClick={() => onNavigate(item.recommendation.view)}>{item.recommendation.title}</Button></div>
+                </article>
+              ))}
+            </div>
+          )}
+        </Panel>
       )}
 
-      {recoveryError && <div className="notice warning-notice" role="status"><strong>Could not build the rebuild checklist</strong><span>{recoveryError}. The rest of this page still works.</span></div>}
+      {recoveryError && <p className="rp-note" data-tone="warning" role="status"><strong>Could not build the rebuild checklist</strong><span>{recoveryError}. The rest of this page still works.</span></p>}
       {recoveryKit && (
-        <Section className="rp-section recovery-kit" title="Rebuild checklist"
-          status={{ status: recoveryKit.summary.actionRequired > 0 ? "warning" : recoveryKit.summary.operatorChecks > 0 ? "neutral" : "good", label: recoveryKit.summary.actionRequired > 0 ? `${recoveryKit.summary.actionRequired} to sort out` : recoveryKit.summary.operatorChecks > 0 ? `${recoveryKit.summary.operatorChecks} to check` : "ready" }}
-          summary={`Checked ${new Date(recoveryKit.generatedAt).toLocaleString()} · BoxPilot ${recoveryKit.product.version} · private recovery information; keep a protected copy on another device`}
+        <Panel title="Rebuild checklist" label="Rebuild checklist"
+          count={{ status: recoveryKit.summary.actionRequired > 0 ? "warning" : recoveryKit.summary.operatorChecks > 0 ? "neutral" : "good", label: recoveryKit.summary.actionRequired > 0 ? `${recoveryKit.summary.actionRequired} to sort out` : recoveryKit.summary.operatorChecks > 0 ? `${recoveryKit.summary.operatorChecks} to check` : "ready" }}
+          meta={`BoxPilot ${recoveryKit.product.version} · private: keep a copy on another device`}
           actions={<><Button onClick={() => downloadRecoveryKit("markdown")}>Download rebuild steps (.md)</Button><Button onClick={() => downloadRecoveryKit("json")}>Download recovery data (.json)</Button></>}>
-          <Card>
-            <div className="recovery-summary">
-              <span><strong>{recoveryKit.summary.verified}</strong>verified</span>
-              <span><strong>{recoveryKit.summary.actionRequired}</strong>action required</span>
-              <span><strong>{recoveryKit.summary.operatorChecks}</strong>operator checks</span>
-              <span><strong>{recoveryKit.summary.notApplicable}</strong>not applicable</span>
-            </div>
-            <details className="repair-details"><summary>View {recoveryKit.checks.length} recovery checks</summary>
-              <div className="recovery-check-grid">
-                {recoveryKit.checks.map((item) => (
-                  <article key={item.id} className={`recovery-check recovery-${item.state}`}>
-                    <div><strong>{item.title}</strong><span>{item.state.replaceAll("-", " ")}</span></div>
-                    <p>{item.evidence}</p>
-                    <small>{item.action}</small>
-                  </article>
-                ))}
-              </div>
-            </details>
-            <div className="recovery-evidence-strip">
-              <span>{recoveryKit.evidence.controllerBackups.length} database backups</span>
-              <span>{recoveryKit.evidence.controllerProtections?.length ?? 0} with an encrypted second copy</span>
-              <span>{recoveryKit.evidence.controllerRetentionRuns?.length ?? 0} controller retention runs</span>
-              <span>{recoveryKit.evidence.applications?.length ?? 0} installed apps</span>
-              <span>{recoveryKit.evidence.vmBackups?.length ?? 0} VM backups</span>
-            </div>
-          </Card>
-        </Section>
+          <div className="rp-figures">
+            <span data-status="good"><b>{recoveryKit.summary.verified}</b>verified</span>
+            <span data-status={recoveryKit.summary.actionRequired ? "warning" : undefined}><b>{recoveryKit.summary.actionRequired}</b>action required</span>
+            <span><b>{recoveryKit.summary.operatorChecks}</b>operator checks</span>
+            <span><b>{recoveryKit.summary.notApplicable}</b>not applicable</span>
+            <span><b>{recoveryKit.evidence.controllerBackups.length}</b>database backups</span>
+            <span><b>{recoveryKit.evidence.controllerProtections?.length ?? 0}</b>second copies</span>
+            <span><b>{recoveryKit.evidence.applications?.length ?? 0}</b>apps</span>
+            <span><b>{recoveryKit.evidence.vmBackups?.length ?? 0}</b>vm backups</span>
+          </div>
+          <details className="rp-more rp-body"><summary>{`All ${recoveryKit.checks.length} recovery checks`}</summary>
+            <Table caption="Recovery checks" columns={recoveryColumns} rows={recoveryKit.checks} rowKey={(item) => item.id} />
+          </details>
+        </Panel>
       )}
 
       {/* Beside the recovery kit: the kit says whether this server could be rebuilt, the runbook
           says what it is and how to put each thing back (M34.4). */}
       <ServerRunbook />
 
-      <Section className="rp-section job-history" title="Activity on this server" summary="Everything BoxPilot has run, with each step it took. Kept across restarts.">
-        {jobError && <div className="notice warning-notice" role="status">{jobError}</div>}
-        {jobs.length === 0 ? <div className="log-empty">{jobError ? "Activity is unavailable." : "Nothing has run yet."} Every change you approve appears here with its steps.</div> : (
-          <div className="rp-jobs">
+      <Panel title="Activity" label="Activity on this server" count={jobs.length ? { status: jobs.some((job) => job.state === "failed") ? "warning" : "neutral", label: String(jobs.length) } : undefined} meta="every job, with its steps">
+        {jobError && <p className="rp-note" data-tone="warning" role="status">{jobError}</p>}
+        {jobs.length === 0 ? <p className="rp-quiet">{jobError ? "Activity is unavailable." : "Nothing has run yet."} Every change you approve appears here with its steps.</p> : (
+          <div className="rp-rows">
             {jobs.map((job) => (
-              <details className="job-row" key={job.id} open={job === jobs[0]}>
-                <summary><div><strong>{job.title}</strong><span>{job.risk} risk · {job.steps.length} steps</span></div><StatusChip status={job.state === "completed" ? "good" : job.state === "failed" ? "danger" : "neutral"}>{job.state.replaceAll("_", " ")}</StatusChip></summary>
-                <div className="job-steps">{job.steps.map((step, index) => <div key={`${step.createdAt}-${index}`}><span>{step.state}</span><strong>{step.name}</strong><p>{step.detail}</p></div>)}</div>
-                {job.error && <p className="job-error">{job.error}</p>}
-                {job.recovery?.manual && <p className="job-recovery"><strong>Recovery:</strong> {job.recovery.manual}</p>}
+              <details className="rp-job" key={job.id} open={job === jobs[0]} data-status={job.state === "completed" ? "good" : job.state === "failed" ? "danger" : "neutral"}>
+                <summary>
+                  <strong>{job.title}</strong>
+                  <span className="rp-job__meta">{job.risk} · {job.steps.length} steps{job.createdAt ? ` · ${new Date(job.createdAt).toLocaleString()}` : ""}</span>
+                  <StatusChip status={job.state === "completed" ? "good" : job.state === "failed" ? "danger" : "neutral"}>{job.state.replaceAll("_", " ")}</StatusChip>
+                </summary>
+                {job.steps.length > 0 && <ol className="rp-job__steps">{job.steps.map((step, index) => <li key={`${step.createdAt}-${index}`}><span>{step.state}</span><strong>{step.name}</strong><p>{step.detail}</p></li>)}</ol>}
+                {job.error && <p className="rp-finding__note rp-finding__note--failed">{job.error}</p>}
+                {job.recovery?.manual && <p className="rp-finding__manual"><strong>Recovery:</strong> {job.recovery.manual}</p>}
               </details>
             ))}
           </div>
         )}
-      </Section>
+      </Panel>
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useOperation } from "./ApproveDialog";
 import { inspectOperation } from "./operations";
+import { Button, Panel, riskOf, type Status } from "./ui";
 
 interface Report {
   checkedAt: string;
@@ -11,7 +12,9 @@ interface Report {
   simulation: { ok: boolean; detail: string } | null;
 }
 const titles = { healthy: "Package state is healthy", "needs-repair": "Package configuration needs repair", busy: "Another package manager is running", unknown: "Package checks could not finish" };
+const tones: Record<Report["status"], Status> = { healthy: "good", "needs-repair": "warning", busy: "warning", unknown: "unknown" };
 
+/** Packages left half-installed by an interrupted update, checked and repaired from Repair's console. */
 export default function PackageRecovery({ csrfToken }: { csrfToken: string }) {
   const [report, setReport] = useState<Report | null>(null);
   const [busy, setBusy] = useState(false);
@@ -27,17 +30,30 @@ export default function PackageRecovery({ csrfToken }: { csrfToken: string }) {
     finally { setBusy(false); }
   }
   const { start, dialog } = useOperation(csrfToken, () => { void check(); });
-  return <section className="panel package-recovery">
-    <header className="panel-header"><div><strong>Interrupted package recovery</strong><span>Check this when updates or software installs stop partway through.</span></div><button className="secondary-button" type="button" disabled={busy} onClick={() => void check()}>{busy ? "Checking packages..." : "Check package recovery"}</button></header>
-    <p>The check reads package state and previews dependency repair. It runs only when requested.</p>
-    {error && <p className="error" role="alert">{error}</p>}
-    {report && <div aria-live="polite">
-      <p><strong>{titles[report.status]}</strong> <span>Checked {new Date(report.checkedAt).toLocaleString()}</span></p>
-      {report.status === "busy" && <p>Let the active update finish, then check again. {report.locks.holders.map((lock) => `${lock.file}${lock.pid ? ` (process ${lock.pid})` : ""}`).join(", ")}</p>}
-      {report.status === "unknown" && <p>{report.locks.available ? "Review the check details, then try again." : "Kernel lock ownership could not be read. Restore access to the host diagnostics, then check again."}</p>}
-      {(report.audit?.detail || report.simulation?.detail) && <details><summary>Package check details</summary>{report.audit?.detail && <pre>{report.audit.detail}</pre>}{report.simulation?.detail && <pre>{report.simulation.detail}</pre>}</details>}
-      {report.repairAvailable && <button className="primary-button" type="button" onClick={() => start({ operationId: "apt.repair", title: "Repair interrupted packages", parameters: {}, preview: <span>Finishes pending package configuration and installs missing dependencies. Package scripts may restart services. The repair stops if APT needs to remove packages, then checks the final package state. Existing package-manager locks remain in place.</span> })}>Review package repair</button>}
-    </div>}
-    {dialog}
-  </section>;
+  return (
+    <Panel title="Packages" label="Interrupted package recovery" meta={report ? `checked ${new Date(report.checkedAt).toLocaleTimeString()}` : "read on request"}
+      count={report ? { status: tones[report.status], label: report.status.replace("-", " ") } : undefined}
+      actions={<Button onClick={() => void check()} busy={busy}>{busy ? "Checking packages..." : "Check package recovery"}</Button>}>
+      {error && <p className="rp-note" data-tone="danger" role="alert">{error}</p>}
+      {!report && !error && <p className="rp-quiet">For an update or install that stopped partway: reads package state and previews the dependency repair.</p>}
+      {report && (
+        <div aria-live="polite" className="rp-rows">
+          <article className="rp-row" data-status={tones[report.status]}>
+            <div className="rp-row__body">
+              <strong className="rp-row__title">{titles[report.status]}</strong>
+              {report.status === "busy" && <p className="rp-row__text">Let the active update finish, then check again. {report.locks.holders.map((lock) => `${lock.file}${lock.pid ? ` (process ${lock.pid})` : ""}`).join(", ")}</p>}
+              {report.status === "unknown" && <p className="rp-row__text">{report.locks.available ? "Review the check details, then try again." : "Kernel lock ownership could not be read. Restore access to the host diagnostics, then check again."}</p>}
+              {(report.audit?.detail || report.simulation?.detail) && <details className="rp-more"><summary>Package check details</summary>{report.audit?.detail && <pre className="rp-pre">{report.audit.detail}</pre>}{report.simulation?.detail && <pre className="rp-pre">{report.simulation.detail}</pre>}</details>}
+            </div>
+            {report.repairAvailable && (
+              <div className="rp-row__act">
+                <Button variant="primary" risk={riskOf("apt.repair")} onClick={() => start({ operationId: "apt.repair", title: "Repair interrupted packages", parameters: {}, preview: <span>Finishes pending package configuration and installs missing dependencies. Package scripts may restart services. The repair stops if APT needs to remove packages, then checks the final package state. Existing package-manager locks remain in place.</span> })}>Review package repair</Button>
+              </div>
+            )}
+          </article>
+        </div>
+      )}
+      {dialog}
+    </Panel>
+  );
 }

@@ -49,7 +49,7 @@ function StatusPill({ children, tone = "good", className }: { children: ReactNod
 const Settings = lazy(() => import("./SettingsView"));
 
 /** Home and Ops draw their own headers; every other page gets the Classic one. */
-const ownHeader = new Set<ViewName>(["home", "ops"]);
+const ownHeader = new Set<ViewName>(["home", "ops", "repairs"]);
 
 /**
  * Deep link: /?view=firewall opens that page, and a reload keeps the page you were on (Setup

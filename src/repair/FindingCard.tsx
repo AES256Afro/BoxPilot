@@ -103,14 +103,14 @@ export function FindingCard({ finding, role, run, onFix, onDismiss, onRestore, e
       {!gone && finding.evidence.length > 0 && (
         <details className="rp-evidence"><summary>Evidence</summary><ul>{finding.evidence.map((line) => <li key={line}>{line}</li>)}</ul></details>
       )}
-      {!gone && (hasFixes || extra || (onDismiss && canAct && finding.severity !== "critical") || onRestore) && (
+      {!gone && (hasFixes || (onDismiss && canAct && finding.severity !== "critical") || onRestore) && (
         <div className="rp-finding__actions">
           {!finding.dismissal && <FixButtons finding={finding} role={role} onFix={onFix} disabled={Boolean(running)} retrying={failedBefore} />}
-          {extra}
           {onDismiss && canAct && finding.severity !== "critical" && !finding.dismissal && <Button variant="ghost" className="rp-dismiss" disabled={Boolean(running)} onClick={onDismiss} aria-label={`Dismiss: ${finding.title}`}>Dismiss</Button>}
           {onRestore && canAct && finding.dismissal && <Button variant="ghost" onClick={onRestore} aria-label={`Bring back: ${finding.title}`}>Bring back</Button>}
         </div>
       )}
+      {!gone && extra}
       {finding.manual && !gone && <p className="rp-finding__manual"><strong>{hasFixes ? "If that does not do it:" : "What to do:"}</strong> {finding.manual}</p>}
       {!hasFixes && !finding.manual && !gone && canAct && <p className="rp-finding__manual">Your role cannot start this fix; the owner can.</p>}
       {run && <FixProgress run={run} title={finding.title} />}

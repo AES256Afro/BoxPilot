@@ -1,9 +1,20 @@
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { reloadThemeChoice } from "../useTheme";
-import { Button, Dock, MetricTile, RiskTag, Section, StatusChip, ThemeSwitch, Tile, riskOf } from ".";
+import { Button, Dock, MetricTile, Panel, RiskTag, Section, StatusChip, ThemeSwitch, Tile, riskOf } from ".";
 
 afterEach(() => cleanup());
+
+describe("Panel", () => {
+  it("is a region named by its title, or by its label, with its count, one fact and its actions in the head", () => {
+    render(<><Panel title="Prerequisites" count={{ status: "warning", label: "5/7" }} meta="5 of 7 ready" actions={<Button>Check again</Button>}><p>rows</p></Panel><Panel title="Critical" label="Critical, 2"><p>two</p></Panel></>);
+    const named = screen.getByRole("region", { name: "Prerequisites" });
+    expect(within(named).getByText("5/7").closest("[data-status]")?.getAttribute("data-status")).toBe("warning");
+    expect(within(named).getByText("5 of 7 ready")).toBeTruthy();
+    expect(within(named).getByRole("button", { name: "Check again" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Critical, 2" }).textContent).toContain("two");
+  });
+});
 
 describe("Button", () => {
   it("keeps the action as its name and reads the tier as its description", () => {

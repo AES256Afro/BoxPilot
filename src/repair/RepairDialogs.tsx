@@ -4,6 +4,7 @@ import { Button, RiskTag } from "../ui";
 import { riskOf } from "../ui/operationRisk";
 import { useDialogFocus } from "../useDialogFocus";
 import type { Finding, RepairFix } from "./types";
+import "./dialogs.css";
 
 /*
  * The confirmations Repair adds around its fixes (M35). Each one says, before the click, what will
@@ -22,13 +23,13 @@ function Modal({ title, eyebrow, onClose, busy = false, children, footer }: { ti
   }, [busy, onClose]);
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={busy ? undefined : onClose}>
-      <section ref={ref} tabIndex={-1} className="modal rp-modal" role="dialog" aria-modal="true" aria-labelledby={headingId} onMouseDown={(event) => event.stopPropagation()}>
-        <header className="modal-header">
-          <div><span className="eyebrow">{eyebrow}</span><h2 id={headingId}>{title}</h2></div>
-          <button className="icon-button" type="button" onClick={onClose} aria-label="Close dialog" disabled={busy}>X</button>
+      <section ref={ref} tabIndex={-1} className="modal rp-dialog" role="dialog" aria-modal="true" aria-labelledby={headingId} onMouseDown={(event) => event.stopPropagation()}>
+        <header className="rp-dialog__head">
+          <div><span className="rp-dialog__kicker">{eyebrow}</span><h2 id={headingId}>{title}</h2></div>
+          <Button variant="ghost" onClick={onClose} aria-label="Close dialog" disabled={busy}>Close</Button>
         </header>
-        <div className="modal-copy">{children}</div>
-        <footer className="recovery-actions">{footer}</footer>
+        <div className="rp-dialog__body">{children}</div>
+        <footer className="rp-dialog__foot">{footer}</footer>
       </section>
     </div>
   );
@@ -43,8 +44,8 @@ export function ScheduleDialog({ fix, onClose, onConfirm }: { fix: RepairFix; on
   return (
     <Modal title={fix.label} eyebrow="Schedule" onClose={onClose}
       footer={<><Button onClick={onClose}>Cancel</Button><Button variant="primary" risk={risk} onClick={onConfirm}>{specs.length === 1 ? "Create the schedule" : `Create ${specs.length} schedules`}</Button></>}>
-      <p><RiskTag risk={risk} /> <span className="muted">Each run is this tier's job, approved as you, like any schedule.</span></p>
-      <div className="notice"><span>{fix.preview}</span></div>
+      <p className="rp-dialog__tier"><RiskTag risk={risk} /> <span>Each run is this tier's job, approved as you, like any schedule.</span></p>
+      <p>{fix.preview}</p>
       <ul className="rp-modal__list">
         {specs.map((spec) => <li key={JSON.stringify(spec.parameters)}><code>{String(spec.parameters.id ?? spec.parameters.subject ?? "")}</code> every night at {time(spec.hour, spec.minute)}</li>)}
       </ul>
@@ -60,10 +61,10 @@ export function BatchDialog({ entries, onClose, onConfirm }: { entries: Array<{ 
   return (
     <Modal title="Fix the safe ones" eyebrow="Approval · low risk" onClose={onClose}
       footer={<><Button onClick={onClose}>Cancel</Button><Button variant="primary" risk="low" onClick={onConfirm}>{entries.length === 1 ? "Run it" : `Run all ${entries.length}`}</Button></>}>
-      <p><RiskTag risk="low" /> <span className="muted">Each is a low-risk job: one click, audited on its own. They run one after another, and this page checks each finding again when they are done.</span></p>
+      <p className="rp-dialog__tier"><RiskTag risk="low" /> <span>Each is a low-risk job: one click, audited on its own. They run one after another, and this page checks each finding again when they are done.</span></p>
       <ol className="rp-modal__list">
         {entries.map(({ finding, fix }) => (
-          <li key={finding.id}><strong>{fix.label}</strong><span className="muted"> for “{finding.title}”</span><br /><span>{fix.preview}</span></li>
+          <li key={finding.id}><strong>{fix.label}</strong><span className="rp-dialog__dim"> for “{finding.title}”</span><br /><span>{fix.preview}</span></li>
         ))}
       </ol>
     </Modal>
@@ -97,12 +98,12 @@ export function DismissDialog({ target, csrfToken, onClose, onDone }: { target: 
     <Modal title={target.kind === "finding" ? "Dismiss this finding" : "Dismiss this failure"} eyebrow="Not now" onClose={onClose} busy={busy}
       footer={<><Button onClick={onClose} disabled={busy}>Cancel</Button><Button variant="primary" busy={busy} disabled={reason.trim().length === 0} onClick={() => void submit()}>Dismiss</Button></>}>
       <p><strong>{title}</strong></p>
-      <p className="muted">{target.kind === "finding"
+      <p className="rp-dialog__dim">{target.kind === "finding"
         ? "It moves to Dismissed at the bottom of Repair, with your reason, and leaves Home. If what it says changes, it comes back by itself."
         : "It stops being listed on Home and Ops. The job stays in Activity with its log."}</p>
-      <label htmlFor={reasonId}>Why? Whoever reads this later will see it.</label>
+      <label className="rp-dialog__label" htmlFor={reasonId}>Why? Whoever reads this later will see it.</label>
       <textarea id={reasonId} className="rp-modal__reason" value={reason} maxLength={200} rows={3} onChange={(event) => setReason(event.target.value)} placeholder="It is deliberate: the downloads drive is separate on purpose" />
-      {error && <div className="auth-error" role="alert">{error}</div>}
+      {error && <p className="rp-dialog__error" role="alert">{error}</p>}
     </Modal>
   );
 }

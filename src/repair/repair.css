@@ -1,0 +1,126 @@
+/*
+ * Repair (M35), in the Command Center's console (M33.7): the page's own styles, beside the page
+ * rather than in src/styles.css. Colours are the --cc-* tokens the shell sets for this view; the
+ * panels are src/ui's Panel, the buttons, chips and tables src/ui's under `.cc`.
+ */
+.rp { display: grid; gap: 8px; min-width: 0; font-size: 14px; }
+.rp p { margin: 0; }
+.rp code { font-family: var(--font-mono); font-size: 0.92em; }
+
+/* Where you are, and the verdict first. */
+.rp-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; min-width: 0; padding: 2px 2px 0; }
+.rp-head .cc-crumb h1 { color: var(--cc-text-strong); text-transform: none; }
+.rp-head .cc-kv { margin-left: 0; white-space: normal; }
+.rp .cc-status { padding: 10px 12px; border: 1px solid var(--cc-line); border-radius: 4px; background: var(--cc-panel); }
+.rp .cc-status .ui-button { margin-left: 0; }
+.rp-status__actions { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
+
+/* One-line notes: a check that could not finish, what a batch did, an error. */
+.rp-note { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 7px 12px; border: 1px solid var(--cc-line); border-left: 3px solid var(--cc-line-strong); border-radius: 4px; color: var(--cc-text); background: var(--cc-panel); font-size: 13.5px; line-height: 1.4; }
+.rp-note strong { color: var(--cc-text-strong); font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
+.rp-note[data-tone="warning"] { border-left-color: var(--status-warning); }
+.rp-note[data-tone="danger"] { border-left-color: var(--status-danger); }
+.rp-note[data-tone="good"] { border-left-color: var(--status-good); }
+
+/* Findings. */
+.rp-list { display: grid; }
+.rp-finding { display: grid; gap: 7px; min-width: 0; padding: 10px 12px; border-top: 1px solid var(--cc-hairline); box-shadow: inset 3px 0 0 var(--cc-line-strong); }
+.rp-finding:first-child { border-top: 0; }
+.rp-finding[data-severity="critical"] { box-shadow: inset 3px 0 0 var(--status-danger); }
+.rp-finding[data-severity="warning"] { box-shadow: inset 3px 0 0 var(--status-warning); }
+.rp-finding.rp-finding--gone { box-shadow: inset 3px 0 0 var(--status-good); }
+.rp-finding__head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; min-width: 0; }
+.rp-finding__head h3 { flex: 1 1 16rem; min-width: 0; margin: 0; color: var(--cc-text-strong); font-size: 15px; font-weight: 650; line-height: 1.3; overflow-wrap: anywhere; }
+.rp-finding__detail { max-width: 84ch; color: var(--cc-text); font-size: 13.5px; line-height: 1.5; }
+.rp-finding__note { max-width: 84ch; padding: 6px 10px; border-left: 2px solid var(--cc-line-strong); color: var(--cc-text); font-size: 13px; line-height: 1.45; background: var(--cc-inset); overflow-wrap: anywhere; }
+.rp-finding__note--failed { border-left-color: var(--status-danger); }
+.rp-finding__manual { max-width: 84ch; color: var(--cc-text); font-size: 13px; line-height: 1.45; }
+.rp-finding__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.rp-evidence summary, .rp-log summary, .rp-more summary { width: fit-content; color: var(--cc-muted); font-family: var(--font-mono); font-size: 11.5px; letter-spacing: 0.04em; cursor: pointer; }
+.rp-evidence ul, .rp-more ul { display: grid; gap: 2px; margin: 6px 0 0; padding-left: 18px; color: var(--cc-text); font-family: var(--font-mono); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
+
+/* A fix under way, and how it ended. */
+.rp-run { display: grid; gap: 8px; min-width: 0; padding: 9px 11px; border: 1px solid var(--cc-line); border-radius: 4px; background: var(--cc-inset); }
+.rp-run__head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; color: var(--cc-text-strong); font-size: 13.5px; line-height: 1.4; }
+.rp-run__head > span:last-child { flex: 1 1 16rem; min-width: 0; overflow-wrap: anywhere; }
+.rp-run.rp-run--still { border-color: var(--status-danger-border); }
+.rp-run.rp-run--fixed { border-color: var(--status-good-border); }
+.rp-run__next { color: var(--cc-text); font-size: 13px; line-height: 1.45; }
+.rp-run .activity-detail { padding: 0; }
+.rp-run .job-terminal pre { max-height: 18rem; }
+
+/* Reconnecting a dropped drive automatically, inside its finding. */
+.rp-auto { display: grid; gap: 4px; }
+.rp-auto__line { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; color: var(--cc-muted); font-family: var(--font-mono); font-size: 12px; }
+.rp-auto__rule { max-width: 84ch; color: var(--cc-muted); font-size: 12.5px; line-height: 1.4; }
+.rp-auto__waiting { color: var(--cc-amber); }
+
+/* Rows inside a panel: a mark, what it is, and its action. */
+.rp-rows { display: grid; }
+.rp-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; align-items: start; padding: 9px 12px; border-top: 1px solid var(--cc-hairline); box-shadow: inset 3px 0 0 var(--cc-line-strong); }
+.rp-row:first-child { border-top: 0; }
+.rp-row[data-status="danger"] { box-shadow: inset 3px 0 0 var(--status-danger); }
+.rp-row[data-status="warning"] { box-shadow: inset 3px 0 0 var(--status-warning); }
+.rp-row[data-status="good"] { box-shadow: inset 3px 0 0 var(--status-good); }
+.rp-row__body { display: grid; gap: 3px; min-width: 0; }
+.rp-row__title { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; color: var(--cc-text-strong); font-size: 14px; font-weight: 600; line-height: 1.3; overflow-wrap: anywhere; }
+.rp-row__kicker { color: var(--cc-muted); font-family: var(--font-mono); font-size: 10.5px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
+.rp-row__text { color: var(--cc-text); font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; }
+.rp-row__act { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+
+/* Activity: each job a row that opens onto its steps. */
+.rp-job { border-top: 1px solid var(--cc-hairline); box-shadow: inset 3px 0 0 var(--cc-line-strong); }
+.rp-job:first-child { border-top: 0; }
+.rp-job[data-status="danger"] { box-shadow: inset 3px 0 0 var(--status-danger); }
+.rp-job[data-status="good"] { box-shadow: inset 3px 0 0 var(--status-good); }
+.rp-job > summary { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-height: 30px; padding: 5px 12px; cursor: pointer; list-style-position: inside; }
+.rp-job > summary strong { color: var(--cc-text-strong); font-size: 13.5px; font-weight: 600; }
+.rp-job__meta { flex: 1 1 12rem; color: var(--cc-muted); font-family: var(--font-mono); font-size: 11.5px; }
+.rp-job > :not(summary) { margin: 0 12px 8px 26px; }
+.rp-job__steps { display: grid; gap: 3px; padding: 0; list-style: none; font-family: var(--font-mono); font-size: 12px; }
+.rp-job__steps li { display: grid; grid-template-columns: 6.5rem 9rem minmax(0, 1fr); gap: 8px; color: var(--cc-text); }
+.rp-job__steps span { color: var(--cc-muted); }
+.rp-job__steps strong { color: var(--cc-text-strong); font-weight: 500; overflow-wrap: anywhere; }
+.rp-job__steps p { overflow-wrap: anywhere; }
+
+/* The body of a panel that is not rows. */
+.rp-body { display: grid; gap: 8px; min-width: 0; padding: 10px 12px; }
+.rp-quiet { padding: 10px 12px; color: var(--cc-muted); font-size: 13.5px; }
+.rp-kv { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 3px 12px; margin: 0; font-family: var(--font-mono); font-size: 12px; }
+.rp-kv dt { color: var(--cc-muted); }
+.rp-kv dd { margin: 0; color: var(--cc-text-strong); overflow-wrap: anywhere; }
+.rp-figures { display: flex; flex-wrap: wrap; gap: 6px 18px; padding: 10px 12px; border-bottom: 1px solid var(--cc-hairline); }
+.rp-figures span { display: grid; gap: 1px; color: var(--cc-muted); font-family: var(--font-mono); font-size: 10.5px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
+.rp-figures b { color: var(--cc-text-strong); font-size: 22px; font-weight: 500; letter-spacing: -0.02em; line-height: 1.1; text-transform: none; }
+.rp-figures [data-status="warning"] b { color: var(--cc-amber); }
+.rp-figures [data-status="danger"] b { color: var(--cc-red-text); }
+.rp-pre { max-height: 22rem; margin: 0; padding: 8px 10px; overflow: auto; border: 1px solid var(--cc-line); border-radius: 3px; color: var(--cc-text); background: var(--cc-inset); font-family: var(--font-mono); font-size: 12px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
+.rp-input { box-sizing: border-box; width: 100%; max-width: 22rem; min-height: 30px; padding: 0 8px; border: 1px solid var(--cc-line-strong); border-radius: 3px; color: var(--cc-text-strong); background: var(--cc-inset); font: inherit; font-size: 13.5px; }
+.rp-field { display: grid; gap: 4px; color: var(--cc-muted); font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; }
+
+/* Tables: figures stay on one line, words wrap. */
+.rp .ui-table td.rp-cell-wrap { height: auto; padding-block: 5px; white-space: normal; overflow-wrap: anywhere; font-family: var(--font-sans); font-size: 13px; line-height: 1.4; }
+.rp .ui-table td.rp-cell-strong { color: var(--cc-text-strong); font-weight: 600; }
+.rp .rp-cell-dim { color: var(--cc-muted); }
+/* Stacked on a phone, a column with no name says nothing, and a cell with nothing in it is not drawn. */
+@media (max-width: 640px) {
+  .rp .ui-table--stack td[data-label=""]::before { content: none; }
+  .rp .ui-table--stack td:empty { display: none; }
+}
+
+.rp-grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(17rem, 1fr); gap: 8px; align-items: start; }
+.rp-grid--three { grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr)); }
+.rp-wrap { white-space: normal; overflow-wrap: anywhere; }
+
+@media (max-width: 900px) {
+  .rp-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 620px) {
+  .rp-job__steps li { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .rp-job > :not(summary) { margin-left: 12px; }
+  .rp-status__actions { margin-left: 0; }
+  .rp-finding { padding: 10px; }
+  .rp-row { grid-template-columns: minmax(0, 1fr); }
+  .rp-row__act { justify-content: flex-start; }
+}
