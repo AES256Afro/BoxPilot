@@ -1,12 +1,27 @@
 import { navItems, type ViewName } from "../data";
 import { viewCopy, viewFeatures } from "../pageCopy";
+import { mayStart, riskOf } from "../ui/operationRisk";
+import type { RiskTier } from "../ui/types";
 
 /*
  * What the command bar can jump to (M33.2): every page, every app in the catalog, and every
  * feature the pages list. Pure, so the ranking is tested without a browser.
  */
 
-export type CommandGroup = "Pages" | "Apps" | "Settings and features";
+export type CommandGroup = "Pages" | "Actions" | "Apps" | "Settings and features";
+
+/**
+ * Something the command bar can do rather than open (M36): a registered operation, started through
+ * the ordinary approval dialog, with its tier shown in the list before it is chosen.
+ */
+export interface CommandAction {
+  operationId: string;
+  /** The approval dialog's title. */
+  title: string;
+  parameters: Record<string, unknown>;
+  preview: string;
+  risk: RiskTier;
+}
 
 export interface Command {
   id: string;
@@ -22,11 +37,50 @@ export interface Command {
   href?: string;
   /** Extra words that should find it. */
   keywords?: string;
+  /** An operation to start, through the approval dialog at its tier (M36). */
+  action?: CommandAction;
 }
+
+/** What the command bar needs to know about an installed app to offer to act on it. */
+export interface AppActionFacts { id: string; name: string; running: boolean; paused: boolean; updateAvailable: boolean; backup: boolean }
 
 export interface CatalogEntry { id: string; name: string; category: string; installed: boolean; url: string | null }
 
-const groupRank: Record<CommandGroup, number> = { Pages: 0, Apps: 1, "Settings and features": 2 };
+const groupRank: Record<CommandGroup, number> = { Pages: 0, Actions: 1, Apps: 2, "Settings and features": 3 };
+
+const tierHint: Record<RiskTier, string> = { low: "Runs at once", medium: "Preview, then confirm", high: "Asks for your password" };
+
+/**
+ * What can be done from the command bar (M36): "Back up Immich", "Restart Plex", "Check for
+ * updates". Each is an operation this role may start, offered with the preview the approval dialog
+ * shows and the tier it will ask at. Nothing runs from here: choosing one opens the dialog.
+ */
+export function actionCommands(apps: AppActionFacts[], role: string | null | undefined): Command[] {
+  const commands: Command[] = [];
+  const offer = (id: string, label: string, operationId: string, title: string, parameters: Record<string, unknown>, preview: string, keywords = "") => {
+    if (!mayStart(role, operationId)) return;
+    const risk = riskOf(operationId);
+    commands.push({ id: `action:${id}`, group: "Actions", label, hint: tierHint[risk], keywords, action: { operationId, title, parameters, preview, risk } });
+  };
+  offer("updates.check", "Check for updates", "apt.refresh", "Check for updates", {}, "Refreshes the package lists (apt-get update), so Updates shows what can be installed. Nothing is installed.", "refresh package lists apt upgrades available");
+  offer("updates.install", "Install all updates", "apt.upgrade", "Install all updates", {}, "Refreshes the package lists, then upgrades every package with apt-get upgrade --with-new-pkgs.", "upgrade packages apt security");
+  offer("database.backup", "Back up BoxPilot's database", "controller.backup.create", "Back up the BoxPilot database", {}, "Snapshots the live database with VACUUM INTO (no downtime) and restore-drills the copy before recording it.", "controller sqlite snapshot boxpilot");
+  offer("reboot", "Reboot the server", "system.reboot", "Reboot the server", {}, "First stops the apps using BoxPilot's drives and unmounts the drives, then reboots 5 seconds later. Running VMs and containers stop and the apps start again by themselves.", "restart machine power");
+  for (const app of apps) {
+    const words = `${app.id} ${app.name}`;
+    if (app.backup) offer(`backup:${app.id}`, `Back up ${app.name}`, "app.backup", `Back up ${app.name}`, { id: app.id }, `Stops ${app.name} briefly, archives its data and configuration, restarts it, and keeps the newest 5 copies.`, `${words} backup save copy`);
+    if (app.running) {
+      offer(`restart:${app.id}`, `Restart ${app.name}`, "app.action", `Restart ${app.name}`, { id: app.id, action: "restart" }, `Restarts ${app.name}. Its data and settings are untouched.`, `${words} reboot reload`);
+      offer(`stop:${app.id}`, `Stop ${app.name}`, "app.action", `Stop ${app.name}`, { id: app.id, action: "stop" }, `Stops ${app.name}. It stays stopped, and says so, until you start it.`, `${words} halt`);
+    } else if (app.paused) {
+      offer(`resume:${app.id}`, `Resume ${app.name}`, "app.action", `Resume ${app.name}`, { id: app.id, action: "unpause" }, `Thaws ${app.name} exactly where it left off.`, `${words} unpause`);
+    } else {
+      offer(`start:${app.id}`, `Start ${app.name}`, "app.action", `Start ${app.name}`, { id: app.id, action: "start" }, `Starts ${app.name}.`, `${words} run`);
+    }
+    if (app.updateAvailable) offer(`update:${app.id}`, `Update ${app.name}`, "app.update", `Update ${app.name}`, { id: app.id }, "Pulls the image and recreates the container. The previous image is restored if the new one fails to become healthy.", `${words} upgrade image`);
+  }
+  return commands;
+}
 
 /** The pages, as the command bar lists them with nothing typed: Home and Ops first, then the dock's areas. */
 export function pageCommands(): Command[] {
@@ -38,7 +92,7 @@ export function pageCommands(): Command[] {
   return pages;
 }
 
-export function buildCommands(catalog: CatalogEntry[]): Command[] {
+export function buildCommands(catalog: CatalogEntry[], actions: Command[] = []): Command[] {
   const features: Command[] = navItems.flatMap((item) => viewFeatures[item.id].map((feature, index) => ({
     id: `feature:${item.id}:${index}`, group: "Settings and features" as const, label: feature, hint: item.label, view: item.id,
   })));
@@ -50,7 +104,7 @@ export function buildCommands(catalog: CatalogEntry[]): Command[] {
       { id: `app:${app.id}`, group: "Apps", label: `${app.name} in the App catalog`, hint: "Installed", view: "catalog", app: app.id, keywords: `${app.name} ${app.id} ${app.category} manage settings logs backups` },
     ];
   });
-  return [...pageCommands(), ...apps, ...features];
+  return [...pageCommands(), ...actions, ...apps, ...features];
 }
 
 /**
