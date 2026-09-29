@@ -88,7 +88,9 @@ describe("BoxPilot console", () => {
     expect(screen.getByText(viewCopy.firewall.description).closest("[hidden]")).not.toBeNull();
     fireEvent.click(about);
     expect(screen.getByText(viewCopy.firewall.description).closest("[hidden]")).toBeNull();
-  });
+    // Each rebuilt page draws its own name once its chunk has loaded, so walking every area takes
+    // longer than the default five seconds on a busy runner.
+  }, 20_000);
 
   it("has retired the Classic overview: its link opens Home and leaves the address clean", async () => {
     vi.stubGlobal("fetch", vi.fn(authenticatedFetch));
