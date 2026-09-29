@@ -45,7 +45,8 @@ answers "$VERSION" || { echo "BoxPilot ${VERSION} is not answering at ${HEALTH}"
 echo "BoxPilot ${VERSION} installed; upgrading to ${REF}"
 
 echo "1. The copy cannot be made: the upgrade is refused and nothing changes"
-mount -t tmpfs -o size=256k,mode=0700 tmpfs "$FULL"
+# Owned by the database's user, who makes the copy: what stops it must be the full disk, not a permission.
+mount -t tmpfs -o "size=256k,mode=0700,uid=$(stat -c %u "$DB"),gid=$(stat -c %g "$DB")" tmpfs "$FULL"
 dd if=/dev/zero of="${FULL}/filler" bs=4k count=1024 2>/dev/null || true
 prev_before="$(ls -d /opt/boxpilot.prev.* 2>/dev/null | wc -l)"
 inode_before="$(stat -c %i /opt/boxpilot)"
@@ -73,6 +74,7 @@ check "a new copy named for ${VERSION} is beside the database" '[ -n "$copy" ] &
 check "the log names it with its size and integrity" 'grep -q "database copy: ${copy} ([0-9]* bytes, integrity ok)" <<<"$out"'
 check "the copy was taken before the services stopped" '[ "$(grep -n "database copy:" <<<"$out" | cut -d: -f1)" -lt "$(grep -n "stopping services" <<<"$out" | cut -d: -f1)" ]'
 check "the copy has the database's owner" '[ "$(stat -c %U:%G "$copy")" = "$(stat -c %U:%G "$DB")" ]'
+check "the copy left no -wal or -shm file owned by root beside the database" '[ -z "$(find "$(dirname "$DB")" -maxdepth 1 -name "$(basename "$DB")-*" -user root 2>/dev/null)" ]'
 check "the copy is mode 0600, like the database" '[ "$(stat -c %a "$copy")" = 600 ] && [ "$(stat -c %a "$DB")" = 600 ]'
 check "the copy passes an integrity check and holds the owner account" '"$NODE" --no-warnings -e "
   const { DatabaseSync } = require(\"node:sqlite\");
