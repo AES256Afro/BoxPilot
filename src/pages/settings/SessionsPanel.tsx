@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { Button, Notice, Panel, StatusChip, Table, Tag, type TableColumn } from "../../ui";
 
 /**
  * Settings → Where you're signed in (M19.4): every live session for this account, with where and
@@ -20,7 +21,7 @@ const methodLabels: Record<string, string> = {
   password: "Password", passkey: "Passkey", tailscale: "Tailscale", github: "GitHub", "recovery-code": "Recovery code", identity: "Identity",
 };
 
-function deviceLabel(userAgent: string | null): string {
+export function deviceLabel(userAgent: string | null): string {
   if (!userAgent) return "Unknown device";
   const os = /Windows/.test(userAgent) ? "Windows"
     : /iPhone|iPad/.test(userAgent) ? "iOS"
@@ -46,7 +47,7 @@ function ago(iso: string | null): string {
   return `${Math.round(hours / 24)} d ago`;
 }
 
-export default function SessionsSettings({ csrfToken }: { csrfToken: string }) {
+export default function SessionsPanel({ csrfToken }: { csrfToken: string }) {
   const [sessions, setSessions] = useState<SessionInfo[] | null>(null);
   const [currentId, setCurrentId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -58,7 +59,7 @@ export default function SessionsSettings({ csrfToken }: { csrfToken: string }) {
       const response = await fetch("/api/v1/auth/sessions");
       if (!response.ok) throw new Error("Could not load sessions");
       const body = (await response.json()) as { currentId: string; sessions: SessionInfo[] };
-      setSessions(body.sessions); setCurrentId(body.currentId);
+      setSessions(Array.isArray(body.sessions) ? body.sessions : []); setCurrentId(body.currentId ?? null);
     } catch (requestError) { setError(requestError instanceof Error ? requestError.message : "Could not load sessions"); }
   }, []);
   useEffect(() => { void refresh(); }, [refresh]);
@@ -76,41 +77,49 @@ export default function SessionsSettings({ csrfToken }: { csrfToken: string }) {
   const revokeOthers = () => act("Signed out everywhere else.", () => fetch("/api/v1/auth/sessions/revoke-others", { method: "POST", headers: { "X-BoxPilot-CSRF": csrfToken } }));
 
   const others = (sessions ?? []).filter((entry) => entry.id !== currentId).length;
+  const columns: Array<TableColumn<SessionInfo>> = [
+    {
+      id: "device", header: "Device", sortValue: (entry) => deviceLabel(entry.userAgent), cell: (entry) => (
+        <span className="settings-session">
+          <span>{deviceLabel(entry.userAgent)}</span>
+          {entry.id === currentId && <Tag tone="accent">this device</Tag>}
+          {entry.elevated && <Tag tone="warning" title="High-risk approvals skip the password in this session for now">unlocked</Tag>}
+        </span>
+      ),
+    },
+    { id: "method", header: "How", sortValue: (entry) => entry.method ?? "", cell: (entry) => methodLabels[entry.method ?? ""] ?? "Signed in" },
+    { id: "address", header: "From", hideOnPhone: true, cell: (entry) => entry.address ?? "—" },
+    { id: "seen", header: "Active", sortValue: (entry) => -Date.parse(entry.lastSeenAt ?? "") || 0, cell: (entry) => ago(entry.lastSeenAt) },
+    { id: "since", header: "Since", hideOnPhone: true, sortValue: (entry) => entry.createdAt, cell: (entry) => new Date(entry.createdAt).toLocaleString() },
+    {
+      id: "action", header: <span className="ui-visually-hidden">Actions</span>, label: "Actions", className: "settings-cell-action", cell: (entry) => entry.id === currentId
+        ? <StatusChip status="good">current</StatusChip>
+        : <Button variant="ghost" disabled={busy} onClick={() => void revoke(entry.id, deviceLabel(entry.userAgent))} aria-label={`Sign out ${deviceLabel(entry.userAgent)}`}>Sign out</Button>,
+    },
+  ];
 
   return (
-    <section className="panel settings-panel">
-      <header className="panel-header"><div><strong>Where you're signed in</strong><span>Every session on your account, and a way to cut any of it off</span></div></header>
-      <div className="approval-settings">
-        {sessions === null ? <p className="muted">Loading…</p> : sessions.length === 0 ? <p className="muted">No active sessions.</p> : (
-          <div className="workload-list">
-            {sessions.map((entry) => {
-              const current = entry.id === currentId;
-              const device = deviceLabel(entry.userAgent);
-              return (
-                <div className="workload session-row" key={entry.id}>
-                  <div>
-                    <strong>{device}{current && <span className="session-here"> · this device</span>}{entry.elevated && <span className="session-elevated"> · unlocked</span>}</strong>
-                    <span>
-                      {methodLabels[entry.method ?? ""] ?? "Signed in"}{entry.address ? ` from ${entry.address}` : ""} · active {ago(entry.lastSeenAt)} · since {new Date(entry.createdAt).toLocaleString()}
-                    </span>
-                  </div>
-                  {current
-                    ? <span className="status-pill status-good">current</span>
-                    : <button className="text-button" type="button" disabled={busy} onClick={() => void revoke(entry.id, device)}>Sign out</button>}
-                </div>
-              );
-            })}
-          </div>
-        )}
-        {others > 0 && (
-          <div className="recovery-actions" style={{ marginTop: 8 }}>
-            <button className="secondary-button" type="button" disabled={busy} onClick={() => void revokeOthers()}>Sign out everywhere else ({others})</button>
-          </div>
-        )}
-        <p className="muted">BoxPilot alerts you through your notification target when your account signs in from an address it has not seen before.</p>
-        {message && <p className="good-text">{message}</p>}
-        {error && <div className="auth-error" role="alert">{error}</div>}
-      </div>
-    </section>
+    <Panel
+      title="Where you're signed in"
+      count={sessions ? sessions.length : undefined}
+      meta={sessions ? <><b>{others}</b> other{others === 1 ? "" : "s"}</> : undefined}
+      actions={others > 0 ? <Button disabled={busy} onClick={() => void revokeOthers()}>Sign out everywhere else ({others})</Button> : undefined}
+      footer="A sign-in from an address this account has not used before is sent to your notification target."
+      className="settings-panel settings-panel--wide"
+    >
+      <Table
+        caption="Sessions on your account"
+        columns={columns}
+        rows={sessions ?? []}
+        rowKey={(entry) => entry.id}
+        empty={sessions === null ? "Loading…" : "No active sessions."}
+      />
+      {(message || error) && (
+        <div className="settings-body">
+          {message && <Notice tone="success" live>{message}</Notice>}
+          {error && <Notice tone="danger" live>{error}</Notice>}
+        </div>
+      )}
+    </Panel>
   );
 }

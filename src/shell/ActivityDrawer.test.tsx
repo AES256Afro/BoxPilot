@@ -2,8 +2,8 @@ import { act } from "react";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import ActivityDrawer from "./ActivityDrawer";
-import { openActivity } from "./activityEvents";
-import type { Job } from "./operations";
+import { openActivity } from "../activityEvents";
+import type { Job } from "../operations";
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); FakeEventSource.instances.length = 0; });
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -47,7 +47,7 @@ describe("Activity drawer", () => {
     render(<ActivityDrawer />);
     const opener = screen.getByRole("button", { name: "Activity" }); opener.focus(); fireEvent.click(opener);
     expect(document.activeElement).toBe(screen.getByRole("dialog", { name: "Activity" }));
-    fireEvent.keyDown(document, { key: "Tab" }); expect(document.activeElement).toBe(screen.getByRole("button", { name: "Close activity" }));
+    fireEvent.keyDown(document, { key: "Tab" }); expect(document.activeElement).toBe(screen.getByRole("button", { name: "Close" }));
     fireEvent.keyDown(document, { key: "Escape" }); expect(screen.queryByRole("dialog")).toBeNull(); expect(document.activeElement).toBe(opener);
   });
 
@@ -95,7 +95,7 @@ describe("Activity drawer", () => {
     render(<ActivityDrawer />);
     act(() => FakeEventSource.instances.at(-1)?.emit("snapshot", { jobs: [job({ state: "completed", result: { warnings: ["Local retention needs attention."] } })] }));
     fireEvent.click(screen.getByRole("button", { name: /Activity/ }));
-    expect(screen.getByText("Completed with notice").className).toContain("status-warning");
+    expect(screen.getByText("Completed with notice").getAttribute("data-status")).toBe("warning");
     expect(screen.queryByText("Completed")).toBeNull();
   });
 
@@ -133,7 +133,7 @@ describe("a job a restart cut off, run again by BoxPilot (M30.2)", () => {
     render(<ActivityDrawer />);
     act(() => FakeEventSource.instances.at(-1)?.emit("snapshot", { jobs: [rerun, cutOff] }));
     fireEvent.click(screen.getByRole("button", { name: /Activity/ }));
-    expect(screen.getByText("Interrupted, ran again").className).toContain("status-neutral");
+    expect(screen.getByText("Interrupted, ran again").getAttribute("data-status")).toBe("neutral");
     expect(screen.queryByText("Failed")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: /Interrupted, ran again/ }));
@@ -169,8 +169,8 @@ describe("a job that ran out of time, in Activity (M30.3)", () => {
     render(<ActivityDrawer csrfToken="csrf" />);
     act(() => FakeEventSource.instances.at(-1)?.emit("snapshot", { jobs: [timedOutJob, failedJob] }));
     fireEvent.click(screen.getByRole("button", { name: /Activity/ }));
-    expect(screen.getByText("Timed out").className).toContain("status-warning");
-    expect(screen.getByText("Failed").className).toContain("status-danger");
+    expect(screen.getByText("Timed out").getAttribute("data-status")).toBe("warning");
+    expect(screen.getByText("Failed").getAttribute("data-status")).toBe("danger");
 
     fireEvent.click(screen.getByRole("button", { name: /Update application/ }));
     expect(screen.getByText("Downloading the new images had 30 minutes and did not finish. The job ran for 34 minutes.")).toBeTruthy();

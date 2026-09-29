@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import PeopleSettings from "./PeopleSettings";
+import PeopleSettings from "./PeoplePanel";
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
