@@ -41,10 +41,13 @@ jobs:
 
       - name: Install Zulip as BoxPilot does, and create the organization link
         env:
-          BOXPILOT_TAILSCALE_BINARY: ${{ github.workspace }}/tests/zulip/fake-tailscale.mjs
-          BOXPILOT_FAKE_TAILSCALE_STATE: ${{ runner.temp }}/fake-tailscale.json
+          BOXPILOT_TAILSCALE_BINARY: ${{ runner.temp }}/tailscale
         run: |
-          chmod +x tests/zulip/fake-tailscale.mjs
+          # BoxPilot runs tailscale with a fixed PATH and environment, so the stand-in is a script
+          # that names node and its state file itself.
+          printf '#!/bin/sh\nBOXPILOT_FAKE_TAILSCALE_STATE=%s exec %s %s "$@"\n' "$RUNNER_TEMP/fake-tailscale.json" "$(command -v node)" "$GITHUB_WORKSPACE/tests/zulip/fake-tailscale.mjs" > "$BOXPILOT_TAILSCALE_BINARY"
+          chmod +x "$BOXPILOT_TAILSCALE_BINARY"
+          "$BOXPILOT_TAILSCALE_BINARY" status --json
           docker version --format 'Docker {{.Server.Version}}'
           free -m
           node tests/zulip/zulip-host.mjs "$RUNNER_TEMP/zulip-host"
