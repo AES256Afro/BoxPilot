@@ -516,9 +516,11 @@ may open a port to the internet or send data out without the owner saying so.
 
 ### Consequences
 
-- Zulip costs about 1.5 GB of memory with its sidecars (threaded queue workers save about 1.5 GB
-  more over Zulip's default for a large server) and about 4 GB of disk for its images, before
-  uploads. Its first start builds the database and takes minutes.
+- Zulip costs about 2.6 GB of memory with its sidecars, measured on a GitHub runner by
+  `zulip-host.yml` a minute after it came up (Zulip 2.4 GB, RabbitMQ 150 MB, PostgreSQL 60 MB,
+  Redis and memcached 17 MB; threaded queue workers already save about 1.5 GB over Zulip's
+  default for a server this size), and 3.5 GB of disk for its images, before the database and
+  uploads. Its first start builds the database: about two and a half minutes there.
 - Anything BoxPilot does inside Zulip is a management command in its container, so a Zulip
   release that renames one breaks it loudly; the image is pinned and moves only with the catalog.
 - A second organization is Zulip's business, from its own settings; BoxPilot refuses to make a

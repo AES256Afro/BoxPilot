@@ -2117,6 +2117,12 @@ nothing leaves the server unless the owner says so, and no account is made with 
     that is off, with the steps to register with Zulip's push service; BoxPilot never registers.
   - The demo shows Zulip installed and served; the screenshots take its sheet, the approval for
     Create your organization, and its install form on a new server.
+  - **On a real host** (`zulip-host.yml`, run when Zulip's files change or by hand): BoxPilot's own
+    deployer and install operation bring it up healthy in about two and a half minutes on a GitHub
+    runner, its port on 127.0.0.1 only, answering through Serve's headers as Zulip 12.3; Create your
+    organization's link opens the organization form. A minute later it used about 2.6 GB of memory
+    (Zulip 2.4 GB, RabbitMQ 150 MB, PostgreSQL 60 MB, Redis and memcached 17 MB) and 3.5 GB of disk
+    for its images.
 - **M38.2 Agents talk to Zulip** (the stacked pull request): Connect makes a bot with `manage.py`
   owned by the organization's owner, keeps its key in the credential store, and creates
   #agent-findings, #agent-logs, #agent-knowledge and #agent-files; every agent posts its outcomes
