@@ -27,6 +27,7 @@ export const operationRisk = {
   "backup.remote.sync": "medium",
   "backup.sync": "medium",
   "controller.backup.create": "low",
+  "docker.logging.set": "medium",
   "housekeeping.database-copies.remove": "medium",
   "housekeeping.reclaim": "medium",
   "notifications.ntfy.connect": "high",
@@ -34,6 +35,7 @@ export const operationRisk = {
   "prerequisite.docker.install": "medium",
   "prerequisite.drive-tools.install": "medium",
   "prerequisite.restic.install": "medium",
+  "prerequisite.smartmontools.install": "medium",
   "prerequisite.virtualization.install": "medium",
   "samba.discovery.set": "medium",
   "samba.share.writable": "medium",
@@ -45,10 +47,32 @@ export const operationRisk = {
   "storage.docker-order.apply": "medium",
   "storage.lvm.snapshot.create": "medium",
   "storage.remount": "medium",
+  "storage.swapfile.set": "medium",
   "storage.writable": "medium",
+  "system.hostname.set": "medium",
+  "system.locale.set": "medium",
   "system.manager.reexec": "medium",
   "system.reboot": "high",
+  "system.swappiness.set": "medium",
+  "system.timezone.set": "medium",
   "system.update": "high",
+  "ups.setup": "medium",
+  "vm.action": "medium",
+  "vm.backup.restore-drill": "medium",
+  "vm.backup.retention.apply": "medium",
+  "vm.backup.snapshot.forget": "high",
+  "vm.cloud.create": "medium",
+  "vm.create": "high",
+  "vm.delete": "high",
+  "vm.export.create": "medium",
+  "vm.export.protect": "medium",
+  "vm.force-off": "medium",
+  "vm.foundation.initialize": "medium",
+  "vm.media.import": "medium",
+  "vm.recovery.create": "medium",
+  "vm.snapshot.create": "medium",
+  "vm.snapshot.delete": "medium",
+  "vm.snapshot.revert": "high",
 } as const satisfies Record<string, RiskTier>;
 
 export type KnownOperation = keyof typeof operationRisk;
@@ -57,7 +81,7 @@ export type KnownOperation = keyof typeof operationRisk;
  * Operations whose registry entry says `minimumRole: "owner"`: an operator may not stage them
  * whatever their tier. The same test holds this list to the registry.
  */
-export const ownerOnlyOperations: ReadonlySet<string> = new Set<KnownOperation>(["backup.cloud.sync", "housekeeping.database-copies.remove", "notifications.ntfy.connect"]);
+export const ownerOnlyOperations: ReadonlySet<string> = new Set<KnownOperation>(["backup.cloud.sync", "housekeeping.database-copies.remove", "notifications.ntfy.connect", "vm.backup.snapshot.forget"]);
 
 /** The tier for an operation. An id missing from the table is high, as it is on the server. */
 export function riskOf(operationId: string): RiskTier {
