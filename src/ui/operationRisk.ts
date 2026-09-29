@@ -9,7 +9,11 @@ import type { RiskTier } from "./types";
 export const operationRisk = {
   "app.action": "low",
   "app.backup": "medium",
+  "app.backup.many": "medium",
+  "app.install": "medium",
   "app.reconfigure": "medium",
+  "app.reinstall": "medium",
+  "app.uninstall": "medium",
   "app.update": "medium",
   "app.vpn.killswitch.drill": "medium",
   "apt.autoremove": "medium",
@@ -22,8 +26,10 @@ export const operationRisk = {
   "backup.remote.sync": "medium",
   "backup.sync": "medium",
   "controller.backup.create": "low",
+  "notifications.ntfy.connect": "high",
   "prerequisite.drive-tools.install": "medium",
   "samba.discovery.set": "medium",
+  "samba.share.writable": "medium",
   "service.action": "medium",
   "share.reconnect": "medium",
   "storage.backup.relocate": "medium",
@@ -32,6 +38,7 @@ export const operationRisk = {
   "storage.docker-order.apply": "medium",
   "storage.lvm.snapshot.create": "medium",
   "storage.remount": "medium",
+  "storage.writable": "medium",
   "system.manager.reexec": "medium",
   "system.reboot": "high",
 } as const satisfies Record<string, RiskTier>;
@@ -42,7 +49,7 @@ export type KnownOperation = keyof typeof operationRisk;
  * Operations whose registry entry says `minimumRole: "owner"`: an operator may not stage them
  * whatever their tier. The same test holds this list to the registry.
  */
-export const ownerOnlyOperations: ReadonlySet<string> = new Set<KnownOperation>(["backup.cloud.sync"]);
+export const ownerOnlyOperations: ReadonlySet<string> = new Set<KnownOperation>(["backup.cloud.sync", "notifications.ntfy.connect"]);
 
 /** The tier for an operation. An id missing from the table is high, as it is on the server. */
 export function riskOf(operationId: string): RiskTier {
