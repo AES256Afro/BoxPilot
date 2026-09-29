@@ -215,64 +215,127 @@ describe("root storage tasks", () => {
   });
 });
 
-describe("reconnecting a drive that came back under a new name", () => {
-  // The real event: a USB drive dropped off at 06:46, returned two seconds later as sdb, and
-  // /mnt/the-dump stayed mounted from the sda2 that no longer existed. Reads returned EIO and the
-  // Windows share showed an empty folder, while findmnt and df both still looked healthy.
+describe("reconnecting a drive through the busy pipeline (M35)", () => {
+  // The real events: a USB drive that dropped off at 06:46 and came back two seconds later as sdb,
+  // with /mnt/the-dump still mounted from the sda2 that no longer existed; and the reconnect the
+  // owner then tried four times, each refused with "target is busy" because Plex had the folder
+  // bound and a PC had the Media share mapped.
   const fstab = "# boxpilot:the-dump\nUUID=0023-7927 /mnt/the-dump exfat defaults,nofail,uid=1000,gid=1000 0 0\n";
+  const smbConf = "# Managed by BoxPilot\n[global]\n   workgroup = WORKGROUP\n[Media]\n   path = /mnt/the-dump/media\n[Documents]\n   path = /srv/documents\n";
 
-  it("detaches lazily when the dead device refuses a normal unmount, then mounts from fstab", async () => {
+  function rig({ source = "/dev/sda2", deadBefore = false, readsAfter = true, holders = "none", present = true, readOnlyAfter = false, mountFails = false, restartFails = null } = {}) {
     const calls = [];
-    let source = "/dev/sda2";
+    const state = { mounted: source, readOnly: false, closed: false, phase: "before" };
     const run = vi.fn(async (binary, args) => {
-      calls.push(`${binary.split("/").pop()} ${args.join(" ")}`);
-      if (binary.endsWith("findmnt")) return { ok: true, stdout: `${source}\n`, stderr: "" };
-      if (binary.endsWith("umount") && !args.includes("-l")) return { ok: false, stdout: "", stderr: "umount: /mnt/the-dump: target is busy" };
-      if (binary.endsWith("umount")) { source = ""; return { ok: true, stdout: "", stderr: "" }; }
-      if (binary.endsWith("mount")) { source = "/dev/sdb2"; mounted = true; return { ok: true, stdout: "", stderr: "" }; }
+      const name = binary.split("/").pop(); calls.push(`${name} ${args.join(" ")}`);
+      if (name === "findmnt") return state.mounted ? { ok: true, stdout: `${state.mounted} exfat 8:2 ${state.readOnly ? "ro" : "rw"},relatime,uid=1000\n`, stderr: "" } : { ok: false, stdout: "", stderr: "" };
+      if (name === "blkid") return present ? { ok: true, stdout: "/dev/sdb2\n", stderr: "" } : { ok: false, stdout: "", stderr: "" };
+      if (name === "docker" && args[0] === "ps") return { ok: true, stdout: "aaa\nbbb\nccc\n", stderr: "" };
+      if (name === "docker" && args[0] === "inspect") return { ok: true, stdout: "/bp-plex\t/mnt/the-dump\t/srv/plex\t\n/bp-qbittorrent\t/mnt/the-dump/torrents\t\n/bp-backup\t/mnt/the-dump-backup\t\n", stderr: "" };
+      if (name === "docker" && args[0] === "start") return restartFails === args[1] ? { ok: false, stdout: "", stderr: "Error response from daemon: cannot start" } : { ok: true, stdout: "", stderr: "" };
+      if (name === "smbstatus") return { ok: true, stdout: JSON.stringify({ tcons: { 1: { service: "Media", machine: "192.168.8.23" } } }), stderr: "" };
+      if (name === "smbcontrol") { if (holders === "samba") state.closed = true; return { ok: true, stdout: "", stderr: "" }; }
+      if (name === "umount") {
+        const lazy = args.includes("-l");
+        const held = holders === "apps-only" ? false : holders === "samba" ? !state.closed : holders === "forever";
+        if (!lazy && held) return { ok: false, stdout: "", stderr: "umount: /mnt/the-dump: target is busy." };
+        state.mounted = null; return { ok: true, stdout: "", stderr: "" };
+      }
+      if (name === "mount") {
+        if (mountFails) return { ok: false, stdout: "", stderr: "mount: /mnt/the-dump: can't read superblock on /dev/sdb2." };
+        state.mounted = "/dev/sdb2"; state.readOnly = readOnlyAfter; state.phase = "after"; return { ok: true, stdout: "", stderr: "" };
+      }
       return { ok: true, stdout: "", stderr: "" };
     });
-    let mounted = false;   // dead until mount runs; the real-read check after mount must then pass
-    const result = await storageRemount({ name: "the-dump" }, { run, files: { readFile: async () => fstab, readable: async () => mounted } });
-    expect(result).toMatchObject({ remounted: true, source: "/dev/sdb2", previousSource: "/dev/sda2", deviceChanged: true });
-    expect(calls).toContain("umount -N /proc/1/ns/mnt /mnt/the-dump");
-    expect(calls).toContain("umount -N /proc/1/ns/mnt -l /mnt/the-dump");     // the fallback the dead device forces
-    expect(calls).toContain("mount -N /proc/1/ns/mnt /mnt/the-dump");
+    const files = { readFile: async (file) => (file === "/etc/samba/smb.conf" ? smbConf : fstab), readable: async () => (state.phase === "before" ? !deadBefore : readsAfter) };
+    const processes = { proc: "/proc", fs: { readdir: async (dir) => (dir === "/proc" ? ["4242"] : []), stat: async (target) => ({ dev: target.endsWith("/cwd") ? 8 * 256 + 2 : 1 }) } };
+    return { run, calls, files, processes, sleep: async () => {} };
+  }
+  const reconnect = (fakes) => storageRemount({ name: "the-dump" }, { run: fakes.run, files: fakes.files, sleep: fakes.sleep, processes: fakes.processes, log: fakes.log });
+
+  it("stops the apps holding the drive, unmounts it on the host, mounts it again and starts them", async () => {
+    const fakes = rig({ holders: "apps-only" });
+    const result = await reconnect(fakes);
+    expect(result).toMatchObject({ remounted: true, source: "/dev/sdb2", previousSource: "/dev/sda2", deviceChanged: true, stopped: ["bp-plex", "bp-qbittorrent"], restarted: ["bp-plex", "bp-qbittorrent"], restartFailed: [] });
+    const { calls } = fakes;
+    expect(calls.indexOf("docker stop bp-plex")).toBeLessThan(calls.indexOf("umount -N /proc/1/ns/mnt /mnt/the-dump"));
+    expect(calls.indexOf("umount -N /proc/1/ns/mnt /mnt/the-dump")).toBeLessThan(calls.indexOf("mount -N /proc/1/ns/mnt /mnt/the-dump"));
+    expect(calls.indexOf("mount -N /proc/1/ns/mnt /mnt/the-dump")).toBeLessThan(calls.indexOf("docker start bp-plex"));
+    expect(calls).not.toContain("docker stop bp-backup");   // /mnt/the-dump-backup is a prefix, not a parent
+    // Everything about the mount is asked of PID 1's namespace, never the runner's own.
+    expect(calls.filter((call) => call.startsWith("findmnt")).every((call) => call.includes("--task 1"))).toBe(true);
+  });
+
+  it("gets file-sharing clients off the drive when they are what holds it, and says whom it disconnected", async () => {
+    const fakes = rig({ holders: "samba" });
+    fakes.log = vi.fn();
+    const result = await reconnect(fakes);
+    expect(result).toMatchObject({ remounted: true, sharingClosedFor: ["192.168.8.23"], shares: ["Media"] });
+    expect(fakes.calls).toContain("smbcontrol smbd close-share Media");
+    expect(fakes.calls).not.toContain("smbcontrol smbd close-share Documents");
+    expect(fakes.log).toHaveBeenCalledWith(expect.stringContaining("Closed file-sharing connections from 192.168.8.23 to Media"), "stdout");
+  });
+
+  it("detaches a dead mount lazily when nothing lets go of it, then mounts from fstab", async () => {
+    const fakes = rig({ deadBefore: true, holders: "forever" });
+    const result = await reconnect(fakes);
+    expect(result).toMatchObject({ remounted: true, detachedLazily: true, restarted: ["bp-plex", "bp-qbittorrent"] });
+    expect(fakes.calls).toContain("umount -N /proc/1/ns/mnt -l /mnt/the-dump");
   });
 
   it("reconnects a drive that came back under the SAME name but a dead mount", async () => {
-    // The regression the exists() check introduced: a USB drive that drops and returns is usually
-    // handed the same kernel name, so /dev/sdb2 exists again as a new device while the old mount is
-    // still broken. Testing the device name would refuse the exact case this op is for. The mount not
-    // reading is what proves the old device is gone.
-    const calls = [];
-    let source = "/dev/sdb2";   // same name before and after
-    const run = vi.fn(async (binary, args) => {
-      calls.push(`${binary.split("/").pop()} ${args.join(" ")}`);
-      if (binary.endsWith("findmnt")) return { ok: true, stdout: `${source}\n`, stderr: "" };
-      if (binary.endsWith("umount") && !args.includes("-l")) return { ok: false, stdout: "", stderr: "umount: /mnt/the-dump: target is busy" };
-      if (binary.endsWith("umount")) { source = ""; return { ok: true, stdout: "", stderr: "" }; }
-      if (binary.endsWith("mount")) { source = "/dev/sdb2"; mounted = true; return { ok: true, stdout: "", stderr: "" }; }
-      return { ok: true, stdout: "", stderr: "" };
-    });
-    // The device node /dev/sdb2 exists, but the mount does not read (dead filesystem) - until remounted.
-    let mounted = false;
-    const result = await storageRemount({ name: "the-dump" }, { run, files: { readFile: async () => fstab, readable: async () => mounted } });
-    expect(result.remounted).toBe(true);
-    expect(calls).toContain("umount -N /proc/1/ns/mnt -l /mnt/the-dump");   // it did NOT wrongly refuse
+    // A USB drive that drops and returns is usually handed the same kernel name, so the node exists
+    // again while the old mount is still broken. The mount not reading is what proves it dead.
+    const fakes = rig({ source: "/dev/sdb2", deadBefore: true, holders: "forever" });
+    expect((await reconnect(fakes)).remounted).toBe(true);
+    expect(fakes.calls).toContain("umount -N /proc/1/ns/mnt -l /mnt/the-dump");
   });
 
-  it("refuses to lazily detach a mount that is merely busy", async () => {
-    // EBUSY is the ordinary umount failure, not the dead device this op is for. Detaching anyway
-    // leaves whoever holds the folder writing into a filesystem no path reaches.
-    const run = vi.fn(async (binary) => {
-      if (binary.endsWith("findmnt")) return { ok: true, stdout: "/dev/sdb2\n", stderr: "" };
-      if (binary.endsWith("umount")) return { ok: false, stdout: "", stderr: "umount: /mnt/the-dump: target is busy" };
-      return { ok: true, stdout: "", stderr: "" };
-    });
-    const files = { readFile: async () => fstab, readable: async () => true };   // the mount still reads, so it is healthy and merely busy
-    await expect(storageRemount({ name: "the-dump" }, { run, files })).rejects.toThrow("in use");
-    expect(run.mock.calls.some(([binary, callArgs]) => binary.endsWith("umount") && callArgs.includes("-l"))).toBe(false);
+  it("leaves a healthy mount something else holds as it was, starts the apps again on it, and names the holder", async () => {
+    // Detaching a live mount lazily splits the writers: whoever holds it writes where no path reaches.
+    const fakes = rig({ holders: "forever" });
+    await expect(reconnect(fakes)).rejects.toThrow(/still in use by .* \(4242\), so it was left mounted as it was/);
+    expect(fakes.calls.some((call) => call.includes("-l"))).toBe(false);
+    expect(fakes.calls).toContain("docker start bp-plex");
+    expect(fakes.calls.some((call) => call.startsWith("mount "))).toBe(false);
+  });
+
+  it("refuses before stopping or unmounting anything when the drive is not connected", async () => {
+    const fakes = rig({ present: false });
+    await expect(reconnect(fakes)).rejects.toThrow("is not connected to this server right now, so nothing was stopped or unmounted");
+    expect(fakes.calls.some((call) => call.startsWith("docker stop") || call.startsWith("umount") || call.startsWith("mount "))).toBe(false);
+  });
+
+  it("says it is still read-only when the fresh mount is, with the apps started again to read it", async () => {
+    const fakes = rig({ holders: "apps-only", readOnlyAfter: true });
+    await expect(reconnect(fakes)).rejects.toThrow("still read-only: the kernel found errors on the drive while mounting it");
+    expect(fakes.calls).toContain("docker start bp-plex");
+  });
+
+  it("leaves the apps stopped when the drive does not mount again, so nothing lands in the empty folder", async () => {
+    const fakes = rig({ holders: "apps-only", mountFails: true });
+    await expect(reconnect(fakes)).rejects.toThrow(/Could not mount \/mnt\/the-dump again: .*bp-plex and bp-qbittorrent were stopped and left stopped/);
+    expect(fakes.calls.some((call) => call.startsWith("docker start"))).toBe(false);
+  });
+
+  it("does not call a mount that came back but does not read a success", async () => {
+    // findmnt listing it is the same evidence that lied during the incident.
+    const fakes = rig({ holders: "apps-only", readsAfter: false });
+    await expect(reconnect(fakes)).rejects.toThrow("does not read");
+    expect(fakes.calls.some((call) => call.startsWith("docker start"))).toBe(false);
+  });
+
+  it("mounts one that is not mounted at all, and restarts the apps bound to the empty folder under it", async () => {
+    const fakes = rig({ source: null, holders: "apps-only" });
+    const result = await reconnect(fakes);
+    expect(result).toMatchObject({ remounted: true, previousSource: null, restarted: ["bp-plex", "bp-qbittorrent"] });
+    expect(fakes.calls.some((call) => call.startsWith("umount"))).toBe(false);
+  });
+
+  it("reports an app that would not start again rather than failing the reconnect", async () => {
+    const fakes = rig({ holders: "apps-only", restartFails: "bp-qbittorrent" });
+    const result = await reconnect(fakes);
+    expect(result).toMatchObject({ remounted: true, restarted: ["bp-plex"], restartFailed: ["bp-qbittorrent"] });
   });
 
   it("refuses an entry whose fstab line is not a drive mounted at that path", async () => {
@@ -280,8 +343,7 @@ describe("reconnecting a drive that came back under a new name", () => {
     // the pattern and the membership check, but the entry has nothing to do with /mnt/swap.
     const withSwap = "# boxpilot:swap\n/swap.boxpilot none swap sw,nofail 0 0\n";
     const run = vi.fn(async () => ({ ok: true, stdout: "", stderr: "" }));
-    await expect(storageRemount({ name: "swap" }, { run, files: { readFile: async () => withSwap, readable: async () => true } }))
-      .rejects.toThrow("swap is the swap file, not a mount");
+    await expect(storageRemount({ name: "swap" }, { run, files: { readFile: async () => withSwap, readable: async () => true } })).rejects.toThrow("swap is the swap file, not a mount");
     expect(run.mock.calls.some(([binary]) => binary.endsWith("umount"))).toBe(false);
   });
 
@@ -290,15 +352,6 @@ describe("reconnecting a drive that came back under a new name", () => {
     await expect(storageRemount({ name: "not-ours" }, { run, files: { readFile: async () => fstab, readable: async () => false } })).rejects.toThrow("not a BoxPilot-managed mount");
     await expect(storageRemount({ name: "../etc" }, { run, files: { readFile: async () => fstab, readable: async () => false } })).rejects.toThrow("Name is invalid");
     expect(run.mock.calls.some(([binary]) => binary.endsWith("umount"))).toBe(false);
-  });
-
-  it("says the drive may be unplugged when the mount does not come back", async () => {
-    const run = vi.fn(async (binary) => {
-      if (binary.endsWith("findmnt")) return { ok: true, stdout: "", stderr: "" };
-      if (binary.endsWith("mount") && !binary.endsWith("umount")) return { ok: false, stdout: "", stderr: "mount: /mnt/the-dump: can't find UUID=0023-7927" };
-      return { ok: true, stdout: "", stderr: "" };
-    });
-    await expect(storageRemount({ name: "the-dump" }, { run, files: { readFile: async () => fstab, readable: async () => false } })).rejects.toThrow("may be unplugged");
   });
 });
 
@@ -331,48 +384,6 @@ describe("mount names that belong to other operations", () => {
 });
 
 
-describe("reconnecting a drive is one fix, containers included", () => {
-  const fstab = "# boxpilot:the-dump\nUUID=0023-7927 /mnt/the-dump exfat defaults,nofail,uid=1000,gid=1000 0 0\n";
-  function remountFakes({ restartFails = null } = {}) {
-    const calls = []; let source = "/dev/sda2"; let mounted = false;
-    const run = vi.fn(async (binary, args) => {
-      calls.push(`${binary.split("/").pop()} ${args.join(" ")}`);
-      if (binary.endsWith("findmnt")) return { ok: true, stdout: `${source}\n`, stderr: "" };
-      if (binary.endsWith("umount")) { source = ""; return { ok: true, stdout: "", stderr: "" }; }
-      if (binary.endsWith("mount")) { source = "/dev/sdb2"; mounted = true; return { ok: true, stdout: "", stderr: "" }; }
-      if (binary.endsWith("docker") && args[0] === "ps") return { ok: true, stdout: "aaa\nbbb\nccc\n", stderr: "" };
-      if (binary.endsWith("docker") && args[0] === "inspect") return { ok: true, stdout: "/bp-plex\t/mnt/the-dump\t/srv/plex\t\n/bp-qbittorrent\t/mnt/the-dump/torrents\t\n/bp-backup\t/mnt/the-dump-backup\t\n", stderr: "" };
-      if (binary.endsWith("docker") && args[0] === "restart") return restartFails === args[1] ? { ok: false, stdout: "", stderr: "Error response from daemon: cannot restart" } : { ok: true, stdout: "", stderr: "" };
-      return { ok: true, stdout: "", stderr: "" };
-    });
-    return { run, calls, files: { readFile: async () => fstab, readable: async () => mounted } };
-  }
-
-  it("restarts every container bound at or under the folder, and no other", async () => {
-    // Docker attaches a folder when a container starts. After the drive came back, Plex kept
-    // showing the empty library from the dead mount until it was restarted by hand.
-    const { run, calls, files } = remountFakes();
-    const result = await storageRemount({ name: "the-dump" }, { run, files });
-    expect(result.restarted).toEqual(["bp-plex", "bp-qbittorrent"]);
-    expect(calls).toContain("docker restart bp-plex");
-    expect(calls).not.toContain("docker restart bp-backup");   // /mnt/the-dump-backup is a prefix, not a parent
-  });
-
-  it("reports a container that would not restart rather than failing the reconnect", async () => {
-    const { run, files } = remountFakes({ restartFails: "bp-qbittorrent" });
-    const result = await storageRemount({ name: "the-dump" }, { run, files });
-    expect(result.remounted).toBe(true);
-    expect(result.restarted).toEqual(["bp-plex"]);
-    expect(result.restartFailed).toEqual(["bp-qbittorrent"]);
-  });
-
-  it("does not call a mount that came back but does not read a success", async () => {
-    // findmnt listing it is the same evidence that lied during the incident.
-    const { run, files } = remountFakes();
-    await expect(storageRemount({ name: "the-dump" }, { run, files: { ...files, readable: async () => false } })).rejects.toThrow("does not read");
-    expect(run.mock.calls.some(([binary, args]) => binary.endsWith("docker") && args[0] === "restart")).toBe(false);
-  });
-});
 
 describe("checking a drive without changing it", () => {
   const fstab = "# boxpilot:the-dump\nUUID=0023-7927 /mnt/the-dump exfat defaults,nofail,uid=1000,gid=1000 0 0\n";

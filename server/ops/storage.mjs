@@ -270,10 +270,18 @@ export function storageOperations() {
       run: (parameters, { runUnit, jobLog }) => runUnit.runTask("storage.clear-mark", { name: parameters.name }, { timeoutMs: minutes(33), logPath: jobLog?.path ?? null }),
     }),
     defineOperation({
-      id: "storage.remount", title: "Reconnect a drive", risk: "medium", timeoutMs: minutes(5),
-      description: "Detaches a managed mount and mounts it again from its fstab entry, which finds the drive by UUID wherever the kernel has put it. This is the fix when a drive was unplugged for a moment and came back under a different name, leaving the old mount pointing at nothing. The fstab entry and everything on the drive are unchanged. Containers using the folder are restarted afterwards, since Docker attaches a folder when a container starts and would otherwise keep the dead one.",
+      id: "storage.remount", title: "Reconnect a drive", risk: "medium", timeoutMs: minutes(10),
+      description: "Mounts a managed drive again from its fstab entry, which finds the drive by UUID wherever the kernel has put it: the fix for a drive that dropped off USB and came back under another name, one the kernel turned read-only after errors, and one that is simply busy. It first checks the drive is connected, then stops the containers using the folder, disconnects file-sharing clients from it (they reconnect by themselves), unmounts it on the host, mounts it again, proves it reads and is writable, and starts the containers again. A mount whose drive is gone is detached lazily; a healthy one that something else still holds is left as it was, with what holds it named. The fstab entry and everything on the drive are unchanged.",
       parameters: { fields: { name: { type: "string", maxLength: 32, pattern: mountNamePattern } } },
-      run: (parameters, { runUnit, jobLog }) => runUnit.runTask("storage.remount", { name: parameters.name }, { timeoutMs: minutes(4), logPath: jobLog?.path ?? null }),
+      run: (parameters, { runUnit, jobLog }) => runUnit.runTask("storage.remount", { name: parameters.name }, { timeoutMs: minutes(9), logPath: jobLog?.path ?? null }),
+    }),
+    defineOperation({
+      // Repair's fix for an exFAT/FAT/NTFS drive mounted without an owner (M35): "Remount it" used
+      // to mount the same line again and change nothing.
+      id: "storage.writable", title: "Let apps write to a drive", risk: "medium", timeoutMs: minutes(10),
+      description: "For an exFAT, FAT or NTFS drive, which keep no owners of their own: adds uid=1000,gid=1000 to its fstab entry so every file on it belongs to the user apps run as, then reconnects the drive the way Reconnect does (the apps using it are stopped and started again, file-sharing clients reconnect by themselves) and checks the folder's new owner. fstab is copied beside itself first and checked with findmnt --verify; the old entry is put back if the drive will not mount with the new one. Nothing on the drive is written.",
+      parameters: { fields: { name: { type: "string", maxLength: 32, pattern: mountNamePattern } } },
+      run: (parameters, { runUnit, jobLog }) => runUnit.runTask("storage.writable", { name: parameters.name }, { timeoutMs: minutes(9), logPath: jobLog?.path ?? null }),
     }),
     defineOperation({
       // The migration for drive entries written before the ordering existed (M26), offered on

@@ -480,6 +480,49 @@ in_runner "
 " | tee "${WORK}/check2.out"; rc=${PIPESTATUS[0]}
 check "storage.check gets the share's client off the drive and checks it (exit $rc)" test "$rc" -eq 0
 check "and says whom it disconnected" grep -qE 'Closed file-sharing connections from [^ ]*127\.0\.0\.1[^ ]* to Media so /mnt/the-dump could be unmounted' "${WORK}/check2.out"
+kill "$PC" 2>/dev/null; wait 2>/dev/null
+
+section "7f. Reconnect (storage.remount) a busy drive: an app with it bound and a PC holding the share (M35)"
+# The owner's four refusals: "Reconnect the drive" said "target is busy" because an app had the
+# folder bound and a PC had the share mapped, and told the owner to stop them by hand. It now goes
+# through the check's pipeline: stop the app, close the share, unmount on the host, mount, start.
+run_holder
+( exec 3< /mnt/pc/held.txt; exec sleep 600 ) &
+PC=$!
+sleep 2
+if umount "$MNT" 2>"${WORK}/umount3.err"; then fail "the drive was not busy, so this shows nothing"; mount "$MNT"; else pass "the drive is busy before the reconnect: $(cat "${WORK}/umount3.err")"; fi
+watch_host
+in_runner "
+  import { storageRemount } from '${REPO}/server/tasks/storage.mjs';
+  console.log(JSON.stringify(await storageRemount({ name: '${NAME}' }, { log: (line, stream) => console.log('   [' + stream + '] ' + line) })));
+" | tee "${WORK}/remount2.out"; rc=${PIPESTATUS[0]}
+host_saw_umount; seen=$?
+result="$(tail -1 "${WORK}/remount2.out")"
+check "storage.remount reconnects the busy drive (exit $rc)" test "$rc" -eq 0
+check "the host saw its own mount go ($(tr '\n' ' ' < "${WORK}/poll.out")) and it is back" bash -c "[ $seen -eq 0 ] && findmnt -n '$MNT' >/dev/null"
+check "it stopped the app holding the drive and started it again" bash -c "grep -q '\"stopped\":\[\"bp-holder\"\]' <<< '$result' && grep -q '\"restarted\":\[\"bp-holder\"\]' <<< '$result'"
+check "and the app is running again" wait_running bp-holder
+check "it says whom it disconnected from the share" grep -qE 'Closed file-sharing connections from [^ ]*127\.0\.0\.1[^ ]* to Media so /mnt/the-dump could be unmounted' "${WORK}/remount2.out"
+check "the drive is read-write" bash -c "findmnt -n -o OPTIONS '$MNT' | grep -q '^rw'"
+check "and the app writes to the drive as it is mounted now" bash -c "before=\$(wc -l < '${MNT}/held.log'); sleep 2; [ \$(wc -l < '${MNT}/held.log') -gt \$before ]"
+
+section "7g. Reconnect a drive the kernel turned read-only, with the app still holding it (M35)"
+# errors=remount-ro, as a drive that drops off USB for a moment leaves it. While any container still
+# holds the filesystem, mounting the same device again hands back that same read-only filesystem
+# (or is refused: "would change RO state"), which is why the app is stopped first, not just
+# restarted afterwards.
+mount -o remount,ro "$MNT"
+check "the drive is read-only before" bash -c "findmnt -n -o OPTIONS '$MNT' | grep -q '^ro'"
+in_runner "
+  import { storageRemount } from '${REPO}/server/tasks/storage.mjs';
+  console.log(JSON.stringify(await storageRemount({ name: '${NAME}' }, { log: (line, stream) => console.log('   [' + stream + '] ' + line) })));
+" | tee "${WORK}/remount3.out"; rc=${PIPESTATUS[0]}
+result="$(tail -1 "${WORK}/remount3.out")"
+check "storage.remount reconnects the read-only drive (exit $rc)" test "$rc" -eq 0
+check "and it says it was read-only before" grep -q '"readOnlyBefore":true' <<< "$result"
+check "it is read-write now, a fresh filesystem" bash -c "findmnt -n -o OPTIONS '$MNT' | grep -q '^rw'"
+check "and the app is running on it again" wait_running bp-holder
+docker rm -f bp-holder >/dev/null
 kill "$PC" 2>/dev/null; wait 2>/dev/null; umount -l /mnt/pc 2>/dev/null
 sc stop smbd; cp "${WORK}/smb.conf.orig" /etc/samba/smb.conf 2>/dev/null
 

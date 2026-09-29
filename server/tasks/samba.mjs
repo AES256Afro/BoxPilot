@@ -1,4 +1,4 @@
-import { access, copyFile, readFile, rename, stat, writeFile } from "node:fs/promises";
+import { access, copyFile, lchown, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { fixedRun } from "../exec.mjs";
 
 /**
@@ -28,6 +28,7 @@ const binaries = {
   smbpasswd: "/usr/bin/smbpasswd",
   systemctl: process.env.BOXPILOT_SYSTEMCTL_BINARY ?? "/usr/bin/systemctl",
   getent: "/usr/bin/getent",
+  findmnt: process.env.BOXPILOT_FINDMNT_BINARY ?? "/usr/bin/findmnt",
   groupadd: "/usr/sbin/groupadd",
   useradd: "/usr/sbin/useradd",
   usermod: "/usr/sbin/usermod",
@@ -231,6 +232,60 @@ export async function sambaApply({ workgroup = "WORKGROUP", scope = "tailscale",
   const bound = listening.ok ? listening.stdout.split("\n").filter((line) => /:445\s/.test(line)).map((line) => line.trim().split(/\s+/)[3]).filter(Boolean) : [];
   return { applied: true, scope, workgroup, shares: shares.map((share) => share.name), interfaces: ["lo", "tailscale0", ...(lanInterface ? [lanInterface] : [])], listening: bound, forceUsers };
 }
+
+/** Filesystems that keep no owners: their mount decides who owns every file (see storage.writable). */
+const ownerlessFilesystems = new Set(["exfat", "vfat", "ntfs", "ntfs3", "msdos"]);
+/** The user apps run as and new drives are handed to (server/tasks/storage.mjs appUserId). */
+const shareOwnerId = 1000;
+
+/**
+ * "Let people write to the share" (M35): Repair's fix for a read-write share served from a folder
+ * root owns. Samba writes as the folder's owner (sambaApply gives each share its folder's owner as
+ * the force user), so with root owning it there is nobody to write as, and every client is
+ * read-only however the share is configured. This hands that one folder - not what is inside it -
+ * to the user apps run as, and applies the shares again so the share writes as that user.
+ *
+ * A folder on an exFAT or NTFS drive cannot be handed over: those keep no owners, and the drive's
+ * mount decides. That is refused with the fix that does work, before anything is changed.
+ */
+export async function sambaShareWritable({ share } = {}, { run = fixedRun, log = null, files = { readFile, writeFile, rename, copyFile, stat, access }, chown = defaultChown } = {}) {
+  if (typeof share !== "string" || !shareNamePattern.test(share)) throw new Error("Share name is invalid");
+  const config = parseSmbConf(await files.readFile(smbConfPath, "utf8").catch(() => ""));
+  if (!config.managed) throw new Error("BoxPilot does not manage this server's file sharing, so nothing was changed");
+  const target = config.shares.find((entry) => entry.name === share);
+  if (!target) throw new Error(`There is no share named ${share}`);
+  if (target.readOnly) throw new Error(`${share} is shared read-only on purpose, so nothing was changed`);
+  const path = cleanPath(target.path);
+  if (!path) throw new Error(`${share}'s folder is in a system location BoxPilot does not hand over`);
+  const info = await files.stat(path);
+  if (!info.isDirectory()) throw new Error(`${path} is not a folder`);
+  const where = await run(binaries.findmnt, ["--task", "1", "-n", "-o", "FSTYPE,TARGET", "-T", path], { timeout: 15_000 });
+  const [fstype = "", mountpoint = ""] = where.ok ? where.stdout.trim().split(/\s+/) : [];
+  if (ownerlessFilesystems.has(fstype.toLowerCase())) {
+    throw new Error(`${path} is on ${mountpoint || "a drive"}, which is ${fstype} and keeps no owners, so the folder cannot be handed to anyone; the drive's mount decides. Use "Let apps write to the drive" for ${mountpoint || "it"} in Repair. Nothing was changed.`);
+  }
+  const account = await run(binaries.getent, ["passwd", String(shareOwnerId)], { timeout: 10_000 });
+  const user = account.ok && account.stdout ? account.stdout.split(":")[0] : null;
+  if (!user) throw new Error(`There is no user ${shareOwnerId} on this server to hand ${path} to, so nothing was changed`);
+  if (info.uid === 0) {
+    log?.(`$ chown ${user}:${user} ${path}`, "stdout");
+    await chown(path, shareOwnerId, shareOwnerId);
+    log?.(`${path} now belongs to ${user}; folders inside it keep their own owners`, "stdout");
+  } else {
+    log?.(`${path} already belongs to user ${info.uid}`, "stdout");
+  }
+  const applied = await sambaApply({
+    workgroup: config.workgroup, scope: config.scope,
+    shares: config.shares.map((entry) => ({ name: entry.name, path: entry.path, comment: entry.comment ?? null, readOnly: entry.readOnly, guest: entry.guest, users: entry.users ?? [], recycle: entry.recycle })),
+  }, { run, log, files });
+  const writesAs = applied.forceUsers?.[share] ?? null;
+  if (!writesAs) throw new Error(`${path} was handed to ${user}, but the share still has nobody to write as; open Storage, File sharing to check it`);
+  log?.(`${share} now writes as ${writesAs}`, "stdout");
+  return { writable: true, share, path, owner: user, forceUser: writesAs };
+}
+
+// lchown, not chown: a symlink where the folder should be is never followed as root.
+const defaultChown = (target, uid, gid) => lchown(target, uid, gid);
 
 /** Create or update a Samba user (a shell-less Linux account in sambashare). Password via stdin only. */
 export async function sambaUserSet({ username, password } = {}, { run = fixedRun, log = null } = {}) {
