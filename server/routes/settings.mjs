@@ -8,8 +8,9 @@ import { normalizeDestination } from "../backup-destination.mjs";
 import { healthConditions, isNotice, noticeKinds } from "../health-alerts.mjs";
 import { vpnProviders, vpnProtocols } from "../vpn-profile.mjs";
 import { watchEntryFor } from "./access.mjs";
+import { createNotificationHistory } from "../notification-history.mjs";
 
-export function createSettingsRouter({ state, notifications, weeklyReport = null, auth }) {
+export function createSettingsRouter({ state, notifications, notificationHistory = createNotificationHistory({ store: state }), weeklyReport = null, auth }) {
   const router = Router();
   // Belt and braces with the policy middleware: only the owner changes settings, whatever the path casing.
   router.use("/settings", (request, response, next) => (["GET", "HEAD", "OPTIONS"].includes(request.method) ? next() : auth.requireRole("owner")(request, response, next)));
@@ -60,6 +61,46 @@ export function createSettingsRouter({ state, notifications, weeklyReport = null
     // What BoxPilot knew and could not tell anyone (M27.2): the Overview's one-line count.
     response.json({ targetConfigured: notifications.describe().configured === true, activeCount: live.length, unannouncedCount: live.filter((detail) => !detail.announced).length + notices.length, conditions, notices });
   });
+
+  /**
+   * The notification centre (M36): what BoxPilot said lately - conditions raised (and whether they
+   * have cleared), news, failed jobs pushed - with when, and whether the target took it. Read-only
+   * apart from "mark seen", which is the caller's own. Every role reads it, with the words cut back
+   * as the watch list cuts them (M29.4): another account's job, schedule or sign-in is its kind only.
+   */
+  const labelFor = (family) => healthConditions[family] ?? noticeKinds[family] ?? (family === "job.failed" ? "A job failed" : family);
+  function historyEntryFor(request, entry, live) {
+    const family = String(entry.key).split(":")[0];
+    let visible;
+    if (entry.kind === "job") {
+      const job = state.getJob?.(String(entry.key).slice("job.failed:".length));
+      const theirs = request.boxpilotSession?.owner?.role === "owner" || (job && job.createdBy === request.boxpilotSession?.owner?.id);
+      visible = theirs ? { title: entry.title, key: entry.key } : { title: labelFor(family), key: family };
+    } else {
+      visible = watchEntryFor(request, entry.key, entry, labelFor(family), (id) => state.getSchedule?.(id)?.createdBy ?? null);
+    }
+    const masked = visible.key !== entry.key;
+    return {
+      id: entry.id, kind: entry.kind, key: visible.key, family, title: visible.title, message: masked ? null : entry.message ?? null,
+      at: entry.at, delivered: entry.delivered === true, reason: entry.reason ?? null, deliveredAt: entry.deliveredAt ?? null,
+      resolvedAt: entry.resolvedAt ?? null, live: entry.kind === "alert" && !entry.resolvedAt && Object.hasOwn(live, entry.key),
+    };
+  }
+
+  if (notificationHistory) {
+    router.get("/notifications", (request, response) => {
+      const self = request.boxpilotSession.owner.id;
+      const live = state.getSetting("healthAlertsState", {}) ?? {};
+      const entries = notificationHistory.list().map((entry) => historyEntryFor(request, entry, live));
+      const seenAt = notificationHistory.seenAt(self);
+      response.json({ entries, seenAt, unseen: entries.filter((entry) => !seenAt || entry.at > seenAt).length, targetConfigured: notifications.describe().configured === true });
+    });
+
+    // The only change here, and the caller's own: everything said until now stops counting as new.
+    router.post("/notifications/seen", auth.requireCsrf, (request, response) => {
+      response.json({ seenAt: notificationHistory.markSeen(request.boxpilotSession.owner.id) });
+    });
+  }
 
   // The weekly self-report (M30.4): whether it is on, when it goes, and how the last one went.
   if (weeklyReport) {

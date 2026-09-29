@@ -85,6 +85,15 @@ describe("how a USB disk answered SMART", () => {
     expect(usbSmartState("/dev/sdb", null)).toBe("unread");
   });
 
+  it("counts a disk left asleep as answering when it answered the time before (M36)", () => {
+    const smart = reading([
+      { device: "/dev/sdb", health: "unavailable", reason: "asleep", deviceType: "sat", lastHealth: "healthy", lastReadAt: "2026-09-28T06:00:00.000Z" },
+      { device: "/dev/sdc", health: "unavailable", reason: "asleep", deviceType: "auto", lastHealth: null },
+    ]);
+    expect(usbSmartState("/dev/sdb", smart)).toBe("answers-through-bridge");
+    expect(usbSmartState("/dev/sdc", smart)).toBe("unread");
+  });
+
   it("assesses tools and drives together", async () => {
     const smart = reading([{ device: "/dev/sdb", health: "healthy", reason: "ok", deviceType: "sat" }, { device: "/dev/sdc", health: "unavailable", reason: "usb-bridge-unsupported", deviceType: "sat" }]);
     expect(assessDriveChecks({ tools: { smartctl: true, fsckExfat: false }, storage: await storage(), smart })).toEqual({

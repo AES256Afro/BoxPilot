@@ -29,7 +29,8 @@ export function apiRolePolicy() {
     const pathname = request.path.toLowerCase().replace(/(.)\/+$/, "$1");
     const readOnlyRun = /^\/operations\/[^/]+\/run$/.test(pathname);
     const asking = request.method === "POST" && pathname === "/assistant/ask";
-    const selfService = pathname === "/auth/logout" || pathname === "/auth/elevate" || pathname === "/auth/password";
+    // Marking the notification centre seen (M36) is the caller's own, like signing out.
+    const selfService = pathname === "/auth/logout" || pathname === "/auth/elevate" || pathname === "/auth/password" || pathname === "/notifications/seen";
     if (role === "disabled") return response.status(403).json({ error: "This account is disabled", code: "forbidden" });
     if (role === "viewer" && !reading && !readOnlyRun && !asking && !selfService) return response.status(403).json({ error: "Viewers can look but not change anything", code: "forbidden" });
     if (role === "operator" && !reading && (pathname.startsWith("/settings") || pathname.startsWith("/people"))) return response.status(403).json({ error: "Only the owner can change settings or people", code: "forbidden" });
@@ -62,7 +63,7 @@ export function watchEntryFor(request, key, entry, label, scheduleOwner = () => 
   const theirs = family === "schedule.failed" || family === "schedule.overdue" ? Boolean(self && scheduleOwner(subject) === self)
     : family === "signin.new" ? Boolean(self && subject === self)
     // Named by operation and subject rather than by job, so whose it was cannot be told apart.
-    : family === "job.interrupted" || family === "record.failed" ? false
+    : family === "job.interrupted" || family === "record.failed" || family === "approval.lapsed" ? false
     : true;
   return theirs ? { title, key } : { title: label, key: family };
 }

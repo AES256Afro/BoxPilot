@@ -80,6 +80,23 @@ describe("BoxPilot state store", () => {
     store.close();
   });
 
+  // M36: after an update restarted BoxPilot the owner was back at the sign-in page. A restart is a
+  // new process over the same file; the session, its CSRF token and its elevation must all be there.
+  it("keeps a session across a restart of the service", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-state-restart-"));
+    directories.push(directory);
+    const current = new Date("2026-09-29T08:00:00Z");
+    const before = createStateStore({ stateDirectory: directory, now: () => current });
+    const owner = before.consumeBootstrapToken(before.createBootstrapToken().token, { username: "alex", passwordHash: "hash" });
+    const session = before.createSession(owner.id);
+    const elevatedUntil = before.elevateSession(before.getSession(session.token).tokenHash, new Date("2026-09-29T08:10:00Z"));
+    before.close();
+
+    const after = createStateStore({ stateDirectory: directory, now: () => new Date("2026-09-29T08:05:00Z") });
+    expect(after.getSession(session.token)).toMatchObject({ owner: { id: owner.id, username: "alex" }, csrfToken: session.csrfToken, expiresAt: session.expiresAt, elevatedUntil });
+    after.close();
+  });
+
   it("persists job plans, approvals, steps, and terminal results", async () => {
     const store = await testStore();
     const bootstrap = store.createBootstrapToken();

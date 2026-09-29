@@ -54,7 +54,7 @@ describe("what needs you", () => {
     const repair = needs.find((need) => need.id === "repair:stale-mount:media")!;
     expect(repair.action).toMatchObject({ operationId: "storage.remount", label: "Reconnect the drive", risk: "medium", parameters: { name: "media" } });
     expect(repair.view).toBe("repairs");
-    expect(needs.find((need) => need.id === "approval:s1")).toMatchObject({ risk: "medium", action: null, view: "repairs" });
+    expect(needs.find((need) => need.id === "approval:s1")).toMatchObject({ risk: "medium", view: "repairs", action: { operationId: "storage.remount", label: "Review", risk: "medium", existingJobId: "s1", parameters: {} } });
     expect(needs.find((need) => need.id === "alert:flow.failed:0")).toMatchObject({ view: "automations", detail: "Since 30 hours ago" });
     expect(needs.find((need) => need.id === "updates")).toMatchObject({ title: "4 updates available", detail: "1 security fix among them", action: { operationId: "apt.upgrade", risk: "medium" } });
   });
@@ -115,6 +115,42 @@ describe("what needs you", () => {
     expect(needs.find((need) => need.id === "database")?.action).toMatchObject({ operationId: "controller.backup.create", risk: "low" });
     expect(needs.find((need) => need.id === "off-box")?.action).toBeNull(); // nowhere to copy to yet
     expect(needs.find((need) => need.id === "job:f")?.title).toBe("Failed: Update Immich");
+  });
+
+  // M36: a failure fixed or tried again since used to stay on Home as something that needs you.
+  it("lets a failure go once it has been dealt with, and points at its job", () => {
+    const failed = job({ id: "f", type: "op:app.update", title: "Update Immich", state: "failed", error: "pull failed", parameters: { id: "immich" }, createdAt: hoursAgo(3) });
+    const shown = (jobs: Job[]) => buildNeeds(facts({ jobs }), { now, role: "owner" }).filter((need) => need.kind === "job");
+    expect(shown([failed])).toMatchObject([{ id: "job:f", jobId: "f", detail: "pull failed" }]);
+    // Tried again on the same app, and it worked, or is still going, or waits for approval.
+    for (const state of ["completed", "applying", "awaiting_approval"]) {
+      expect(shown([job({ id: "g", type: "op:app.update", state, parameters: { id: "immich" }, createdAt: hoursAgo(1) }), failed]), state).toEqual([]);
+    }
+    // The same operation on another app, or a cancelled retry, settles nothing.
+    expect(shown([job({ id: "g", type: "op:app.update", state: "completed", parameters: { id: "jellyfin" }, createdAt: hoursAgo(1) }), failed])).toHaveLength(1);
+    expect(shown([job({ id: "g", type: "op:app.update", state: "cancelled", parameters: { id: "immich" }, createdAt: hoursAgo(1) }), failed])).toHaveLength(1);
+    // Tried again with more time: the retry names it.
+    expect(shown([job({ id: "g", type: "op:app.update", state: "completed", parameters: { id: "immich" }, recovery: { retryOf: "f" }, createdAt: hoursAgo(1) }), failed])).toEqual([]);
+    // Dismissed by the owner, or a week old: Activity keeps it, Home lets it go.
+    expect(shown([{ ...failed, steps: [{ name: "dismissed", state: "completed", detail: "Dismissed by alex", createdAt: hoursAgo(2) }] }])).toEqual([]);
+    expect(shown([{ ...failed, createdAt: hoursAgo(24 * 8) }])).toEqual([]);
+  });
+
+  it("shows the newest failure still open, and counts the rest", () => {
+    const needs = buildNeeds(facts({ jobs: [
+      job({ id: "a", type: "op:apt.upgrade", state: "failed", title: "Install package updates", error: "dpkg lock", createdAt: hoursAgo(1) }),
+      job({ id: "b", type: "op:app.update", state: "failed", title: "Update Immich", error: "pull failed", parameters: { id: "immich" }, createdAt: hoursAgo(2) }),
+      job({ id: "c", type: "op:homepage.sync", state: "failed", title: "Sync Homepage", createdAt: hoursAgo(3), steps: [{ name: "dismissed", state: "completed", detail: "", createdAt: hoursAgo(2) }] }),
+    ] }), { now, role: "owner" });
+    expect(needs.filter((need) => need.kind === "job")).toMatchObject([{ id: "job:a", title: "Failed: Install package updates", detail: "dpkg lock · 1 more failed job in Activity" }]);
+  });
+
+  it("opens a job waiting for approval at that job", () => {
+    const needs = buildNeeds(facts({ jobs: [job({ id: "s", type: "op:storage.remount", title: "Reconnect a drive", state: "awaiting_approval" })] }), { now, role: "owner" });
+    expect(needs.find((need) => need.kind === "approval")).toMatchObject({ jobId: "s", risk: "medium", action: { label: "Review", existingJobId: "s", risk: "medium" } });
+    // A viewer only looks; an operator may not approve what only the owner can.
+    expect(buildNeeds(facts({ jobs: [job({ id: "s", type: "op:storage.remount", state: "awaiting_approval" })] }), { now, role: "viewer" })[0].action).toBeNull();
+    expect(buildNeeds(facts({ jobs: [job({ id: "r", type: "op:system.reboot", risk: "high", state: "awaiting_approval" })] }), { now, role: "operator" })[0].action).toBeNull();
   });
 
   it("offers to copy the backups off the box when a destination is set up but behind", () => {

@@ -6,8 +6,8 @@ import { appFactsFrom } from "../home/facts";
 import { readJson } from "../http";
 import { Button, RiskTag, type RiskTier } from "../ui";
 import { useDialogFocus } from "../useDialogFocus";
-import { AreaIcon, ExternalIcon, PlusIcon, SearchIcon, SparkIcon } from "./areaIcons";
-import { buildCommands, searchCommands, type CatalogEntry, type Command, type CommandGroup } from "./commandIndex";
+import { AreaIcon, ExternalIcon, PlusIcon, RunIcon, SearchIcon, SparkIcon } from "./areaIcons";
+import { actionCommands, buildCommands, searchCommands, type AppActionFacts, type CatalogEntry, type Command, type CommandGroup } from "./commandIndex";
 
 /*
  * The command bar (M33.2): Ctrl K or Cmd K anywhere, or the search box in the top bar. Typing
@@ -31,13 +31,15 @@ type Option = { kind: "command"; command: Command } | { kind: "ask"; question: s
 export interface CommandBarProps {
   csrfToken: string;
   onNavigate: (view: ViewName, options?: { app?: string }) => void;
-  /** Opens the approval dialog for a step the assistant suggested. */
+  /** Opens the approval dialog for a step the assistant suggested, or an action chosen here (M36). */
   onStart: (operation: PendingOperation) => void;
+  /** Who is asking: actions are offered only where this role could start them. None, no actions. */
+  role?: string | null;
 }
 
 const isMac = () => typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 
-export function CommandBar({ csrfToken, onNavigate, onStart }: CommandBarProps) {
+export function CommandBar({ csrfToken, onNavigate, onStart, role = null }: CommandBarProps) {
   const [open, setOpen] = useState(false);
   // Attached as the bar is drawn, so the shortcut works the moment the bar can be seen.
   useLayoutEffect(() => {
@@ -59,18 +61,19 @@ export function CommandBar({ csrfToken, onNavigate, onStart }: CommandBarProps) 
         <span className="command-trigger__label">Search pages, apps and settings</span>
         <kbd className="command-trigger__keys" aria-hidden="true">{mac ? "⌘K" : "Ctrl K"}</kbd>
       </button>
-      {open && <CommandDialog csrfToken={csrfToken} onClose={() => setOpen(false)} onNavigate={onNavigate} onStart={onStart} />}
+      {open && <CommandDialog csrfToken={csrfToken} role={role} onClose={() => setOpen(false)} onNavigate={onNavigate} onStart={onStart} />}
     </>
   );
 }
 
 const groupIcon = (command: Command): ReactNode => {
+  if (command.action) return <RunIcon />;
   if (command.href) return <ExternalIcon />;
   if (command.label.startsWith("Install ")) return <PlusIcon />;
   return command.view ? <AreaIcon view={command.view} /> : null;
 };
 
-function CommandDialog({ csrfToken, onClose, onNavigate, onStart }: CommandBarProps & { onClose: () => void }) {
+function CommandDialog({ csrfToken, onClose, onNavigate, onStart, role }: CommandBarProps & { onClose: () => void }) {
   const dialogRef = useRef<HTMLElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const listId = useId();
@@ -81,6 +84,7 @@ function CommandDialog({ csrfToken, onClose, onNavigate, onStart }: CommandBarPr
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
   const [catalog, setCatalog] = useState<CatalogEntry[]>([]);
+  const [appActions, setAppActions] = useState<AppActionFacts[]>([]);
   const [assistant, setAssistant] = useState<AssistantStatus | "failed" | null>(null);
   const [asked, setAsked] = useState<{ question: string; result: AskResult | null; error: string | null } | null>(null);
   const asking = useRef<AbortController | null>(null);
@@ -96,7 +100,11 @@ function CommandDialog({ csrfToken, onClose, onNavigate, onStart }: CommandBarPr
           id: entry.manifest.id, name: entry.manifest.name ?? entry.manifest.id, category: entry.manifest.category ?? "",
           installed: installed.has(entry.manifest.id), url: installed.get(entry.manifest.id)?.url ?? null,
         }] : []));
-        if (!cancelled) setCatalog(entries);
+        // What can be done to each installed app (M36): back it up where it keeps data, restart,
+        // stop, start or resume it, update it when one is ready.
+        const backedUp = new Set((body.applications ?? []).filter((entry) => (entry.manifest as { keepsBackup?: boolean } | undefined)?.keepsBackup === true).map((entry) => entry.manifest?.id));
+        const actions = [...installed.values()].map((app) => ({ id: app.id, name: app.name, running: app.running, paused: app.paused, updateAvailable: app.updateAvailable, backup: backedUp.has(app.id) }));
+        if (!cancelled) { setCatalog(entries); setAppActions(actions); }
       })
       .catch(() => undefined);
     fetch("/api/v1/assistant/status")
@@ -113,7 +121,7 @@ function CommandDialog({ csrfToken, onClose, onNavigate, onStart }: CommandBarPr
   }, [onClose]);
 
   const ready = assistant !== null && assistant !== "failed" && assistant.ready;
-  const commands = useMemo(() => buildCommands(catalog), [catalog]);
+  const commands = useMemo(() => buildCommands(catalog, actionCommands(appActions, role)), [catalog, appActions, role]);
   const typed = query.trim();
   const options: Option[] = useMemo(() => [
     ...searchCommands(commands, query).map((command) => ({ kind: "command" as const, command })),
@@ -144,6 +152,8 @@ function CommandDialog({ csrfToken, onClose, onNavigate, onStart }: CommandBarPr
     if (option.kind === "ask") { void ask(option.question); return; }
     const { command } = option;
     onClose();
+    // An action goes through the ordinary approval dialog, at its own tier; nothing runs from here.
+    if (command.action) { onStart({ operationId: command.action.operationId, title: command.action.title, parameters: command.action.parameters, preview: <span>{command.action.preview}</span> }); return; }
     if (command.href) window.open(command.href, "_blank", "noopener,noreferrer");
     else if (command.view) onNavigate(command.view, command.app ? { app: command.app } : undefined);
   };
@@ -258,7 +268,7 @@ function CommandDialog({ csrfToken, onClose, onNavigate, onStart }: CommandBarPr
                   >
                     <span className="command-option__icon" aria-hidden="true">{option.kind === "ask" ? <SparkIcon /> : groupIcon(option.command)}</span>
                     <span className="command-option__label">{option.kind === "ask" ? <>Ask: <q>{option.question}</q></> : option.command.label}</span>
-                    <span className="command-option__hint">{option.kind === "ask" ? model : option.command.hint}</span>
+                    <span className="command-option__hint">{option.kind === "ask" ? model : option.command.action ? <><RiskTag risk={option.command.action.risk} short /> {option.command.hint}</> : option.command.hint}</span>
                   </div>
                 ))}
               </div>

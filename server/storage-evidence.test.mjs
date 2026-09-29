@@ -57,4 +57,18 @@ describe("sanitized storage evidence", () => {
     // Evidence written before the scanner asked has neither field, and an unknown value is dropped.
     expect(evidence([{ device: "/dev/sdb", health: "healthy", reason: "ok", transport: "USB; rm -rf", deviceType: "megaraid" }]).disks[0]).toMatchObject({ transport: null, deviceType: null });
   });
+
+  it("does not hold the reading at 'warning' for a disk left asleep, and keeps what it last said (M36)", () => {
+    const now = () => new Date("2026-09-29T06:30:00.000Z");
+    const evidence = (disks, extra = {}) => normalizeSmartEvidence({ schemaVersion: 2, generatedAt: "2026-09-29T06:00:00.000Z", available: true, reason: "fixed-root-scan", disks, ...extra }, { now });
+    const awake = { device: "/dev/nvme0n1", health: "healthy", reason: "ok", readAt: "2026-09-29T06:00:00.000Z" };
+    const asleep = { device: "/dev/sdb", health: "unavailable", reason: "asleep", lastHealth: "healthy", lastReadAt: "2026-09-28T06:00:00Z" };
+    const result = evidence([awake, asleep]);
+    expect(result.status).toBe("healthy");
+    expect(result.disks[1]).toMatchObject({ reason: "asleep", lastHealth: "healthy", lastReadAt: "2026-09-28T06:00:00.000Z", readAt: null });
+    expect(result.disks[0].readAt).toBe("2026-09-29T06:00:00.000Z");
+    expect(evidence([{ ...asleep, lastHealth: "splendid", lastReadAt: "yesterday" }]).disks[0]).toMatchObject({ lastHealth: null, lastReadAt: null });
+    // Every disk asleep: not read, and said so, rather than "scan failed".
+    expect(evidence([asleep], { available: false, reason: "disks-asleep" })).toMatchObject({ available: false, status: "unavailable", reason: "disks-asleep" });
+  });
 });
