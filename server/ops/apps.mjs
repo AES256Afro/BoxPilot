@@ -267,6 +267,24 @@ export function appOperations() {
       run: (parameters, { apps, progress }) => apps.uninstall({ id: parameters.id, purge: false }, { progress }),
     }),
     defineOperation({
+      // Repair's "Reinstall" for an app listed as installed with no container (M35). A container
+      // pruned away can take its image with it, so this may pull, and may be given more time.
+      id: "app.reinstall", title: "Rebuild an application's container", risk: "medium", timeoutMs: minutes(25), maxTimeoutMs: minutes(100),
+      description: "For an app BoxPilot lists as installed that has no container: builds its container again from its saved compose project (or, if that file is gone too, from the catalog with its saved settings on the image it last ran), starts it and waits for it to be healthy. Its data folder is used as it is; nothing is reset or deleted. If it does not come up, what started is taken down again.",
+      parameters: { fields: { id: idField, devices: devicesField } },
+      run: (parameters, { apps, progress, timeScale }) => apps.reinstall({ id: parameters.id, devices: parameters.devices ?? null }, { progress, timeScale }),
+    }),
+    defineOperation({
+      // Repair's "Back up now" for several apps at once (M35): one job, one approval, one log.
+      id: "app.backup.many", title: "Back up several applications", risk: "medium", timeoutMs: minutes(360),
+      description: "Backs up each app in turn exactly as Back up application data does: stops it briefly, archives its compose project and the volumes BoxPilot manages, starts it again, and keeps the newest copies. Only one app is stopped at a time. One that fails does not stop the others; the job names it at the end.",
+      parameters: { fields: {
+        ids: { type: "array", validate: (value) => (value.length >= 1 && value.length <= 40 && value.every((entry) => typeof entry === "string" && idField.pattern.test(entry)) && new Set(value).size === value.length ? null : "must list 1 to 40 different app ids") },
+        keep: { type: "number", optional: true, validate: (value) => (Number.isInteger(value) && value >= 1 && value <= 30 ? null : "must be a whole number between 1 and 30") },
+      } },
+      run: (parameters, { apps, progress }) => apps.backupMany({ ids: parameters.ids, keep: parameters.keep ?? 5 }, { progress }),
+    }),
+    defineOperation({
       id: "app.purge", title: "Uninstall application and delete its data", risk: "high", confirm: (parameters) => parameters.id, timeoutMs: minutes(10),
       description: "Stops and removes the container and deletes everything under the application's data directory.",
       parameters: { fields: { id: idField } },

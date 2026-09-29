@@ -8,7 +8,7 @@
  * unpause, an update, a reinstall or reconfigure, a rollback, and removing the app. A pause leaves
  * it as it was. Only operations that finished are folded in (operationRecordHooks run on success).
  */
-export const appStopClearingOperations = Object.freeze(["app.install", "app.update", "app.reconfigure", "app.rollback", "app.uninstall", "app.purge"]);
+export const appStopClearingOperations = Object.freeze(["app.install", "app.reinstall", "app.update", "app.reconfigure", "app.rollback", "app.uninstall", "app.purge"]);
 
 /** The record after `job`: a new object, or the same one when the job changes nothing. */
 export function foldAppStop(entries, job, { now = () => new Date() } = {}) {
