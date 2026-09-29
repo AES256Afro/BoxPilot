@@ -1,13 +1,14 @@
-import PageErrorBoundary from "./PageErrorBoundary";
-import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useState, type ReactNode } from "react";
+import PageErrorBoundary from "./shell/PageErrorBoundary";
+import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { viewLabel, type ViewName } from "./data";
 import { viewCopy } from "./pageCopy";
-import AuthScreen from "./AuthScreen";
-import ActivityDrawer from "./ActivityDrawer";
-import { useOperation } from "./ApproveDialog";
+import SignInPage, { SignInLoading, SignInUnavailable } from "./pages/signin/SignInPage";
+import ActivityDrawer from "./shell/ActivityDrawer";
+import { useOperation } from "./shell/ApproveDialog";
+import { SessionControls } from "./shell/SessionControls";
 import { useTheme } from "./useTheme";
 import { ThemeSwitch } from "./ui/ThemeSwitch";
-import { dropElevation, fetchAuthStatus, forgetSession, logoutOwner, rememberSession, signedOutReason, type AuthStatus, type SignedOutReason } from "./auth";
+import { fetchAuthStatus, forgetSession, rememberSession, signedOutReason, type AuthStatus, type SignedOutReason } from "./auth";
 import { useSessionEnded } from "./sessionEnd";
 import { connectionLabel } from "./appLinks";
 import { FactsProvider } from "./home/facts";
@@ -23,32 +24,28 @@ import { PageHeader } from "./ui/PageHeader";
 // visitor might never reach. Now the shell is what first paint waits for; each page arrives on
 // navigation, once, and the immutable asset cache keeps it after that.
 const BackupCenter = lazy(() => import("./BackupCenter"));
-const GitHubCenter = lazy(() => import("./GitHubCenter"));
+const GitHubPage = lazy(() => import("./pages/github/GitHubPage"));
 const Home = lazy(() => import("./home/Home"));
 const Ops = lazy(() => import("./home/Ops"));
-const SetupWizard = lazy(() => import("./SetupWizard"));
-const NetworkCenter = lazy(() => import("./NetworkCenter"));
+const SetupPage = lazy(() => import("./pages/setup/SetupPage"));
+const NetworkPage = lazy(() => import("./pages/network/NetworkPage"));
 const RepairCenter = lazy(() => import("./RepairCenter"));
 const LogsPage = lazy(() => import("./pages/logs/LogsPage"));
 const UpdatesCenter = lazy(() => import("./UpdatesCenter"));
 const AppCatalog = lazy(() => import("./AppCatalog"));
 const AutomationsCenter = lazy(() => import("./AutomationsCenter"));
 const ServicesPage = lazy(() => import("./pages/services/ServicesPage"));
-const SystemCenter = lazy(() => import("./SystemCenter"));
+const SystemPage = lazy(() => import("./pages/system/SystemPage"));
 const PerformanceCenter = lazy(() => import("./PerformanceCenter"));
-const UsersCenter = lazy(() => import("./UsersCenter"));
-const FirewallCenter = lazy(() => import("./FirewallCenter"));
+const UsersPage = lazy(() => import("./pages/users/UsersPage"));
+const FirewallPage = lazy(() => import("./pages/firewall/FirewallPage"));
 const StorageCenter = lazy(() => import("./StorageCenter"));
-const VirtualMachines = lazy(() => import("./VirtualMachines"));
+const VmsPage = lazy(() => import("./pages/vms/VmsPage"));
 // The design system's gallery (M33.1), for the demo only: /?gallery opens it when the server says
 // it is the demo, so a real BoxPilot never shows it and never fetches its chunk.
 const Gallery = lazy(() => import("./ui/Gallery"));
 
-function StatusPill({ children, tone = "good", className }: { children: ReactNode; tone?: string; className?: string }) {
-  return <span className={`status-pill status-${tone}${className ? ` ${className}` : ""}`}>{children}</span>;
-}
-
-const Settings = lazy(() => import("./SettingsView"));
+const Settings = lazy(() => import("./pages/settings/SettingsPage"));
 
 /**
  * Pages that draw their own PageHeader (src/ui/PageHeader.tsx): Home its greeting, Ops and the
@@ -56,7 +53,7 @@ const Settings = lazy(() => import("./SettingsView"));
  * its name in the bar and what it is for behind the info toggle, until wave 2 rebuilds it (M33.8).
  * A rebuilt page adds itself here. Repair (M35) draws its own crumb and verdict in the page.
  */
-const ownHeader = new Set<ViewName>(["home", "ops", "services", "logs", "repairs"]);
+const ownHeader = new Set<ViewName>(["home", "ops", "services", "logs", "repairs", "network", "firewall", "users", "github", "settings", "virtualization", "system", "setup"]);
 
 /**
  * Deep link: /?view=firewall opens that page, and a reload keeps the page you were on (Setup
@@ -83,7 +80,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
   // The app the catalog opens at (?app=jellyfin), when a tile or the command bar sent us there.
   const [focusApp, setFocusApp] = useState<string | null>(() => new URLSearchParams(window.location.search).get("app"));
   const [galleryAsked, setGalleryAsked] = useState(() => new URLSearchParams(window.location.search).has("gallery"));
-  const setView = useCallback((asked: ViewName, options: { app?: string } = {}) => {
+  const setView = useCallback((asked: ViewName, options: { app?: string; tab?: string } = {}) => {
     // A link to a page that is gone (an older server's "Open Overview") lands on Home.
     const next: ViewName = Object.hasOwn(viewCopy, asked) ? asked : "home";
     setViewState(next);
@@ -93,17 +90,9 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
     for (const name of [...url.searchParams.keys()]) if (!keptParams.has(name)) url.searchParams.delete(name);
     if (next !== "home") url.searchParams.set("view", next);
     if (options.app) url.searchParams.set("app", options.app);
+    if (options.tab) url.searchParams.set("tab", options.tab); // a tabbed page opens at this tab
     window.history.replaceState(null, "", url);
   }, []);
-  const [clock, setClock] = useState(() => Date.now());
-  useEffect(() => {
-    if (!authStatus.elevatedUntil) return undefined;
-    const interval = window.setInterval(() => setClock(Date.now()), 15000);
-    return () => window.clearInterval(interval);
-  }, [authStatus.elevatedUntil]);
-  const elevatedTime = authStatus.elevatedUntil ? Date.parse(authStatus.elevatedUntil) : Number.NaN;
-  const elevated = Number.isFinite(elevatedTime) && elevatedTime > clock;
-  const elevatedLabel = elevated ? new Date(elevatedTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
   const refreshAuth = () => fetchAuthStatus().then((status) => onAuthChanged?.(status)).catch(() => undefined);
   // When the session reaches its expiry, go back to the sign-in screen instead of leaving every page red.
   useEffect(() => {
@@ -157,21 +146,21 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
   const pageContent = useMemo(() => {
     if (view === "home") return <Home csrfToken={csrfToken} role={role} onNavigate={setView} />;
     if (view === "ops") return <Ops csrfToken={csrfToken} role={role} onNavigate={setView} />;
-    if (view === "setup") return <SetupWizard csrfToken={csrfToken} onDone={() => setView("home")} />;
+    if (view === "setup") return <SetupPage csrfToken={csrfToken} role={role} onDone={() => setView("home")} />;
     if (view === "updates") return <UpdatesCenter csrfToken={csrfToken} />;
     if (view === "catalog") return <AppCatalog key={focusApp ?? ""} csrfToken={csrfToken} focusApp={focusApp ?? undefined} />;
     if (view === "services") return <ServicesPage csrfToken={csrfToken} role={role} />;
-    if (view === "system") return <SystemCenter csrfToken={csrfToken} role={role} />;
+    if (view === "system") return <SystemPage csrfToken={csrfToken} role={role} />;
     if (view === "automations") return <AutomationsCenter csrfToken={csrfToken} />;
     if (view === "performance") return <PerformanceCenter csrfToken={csrfToken} />;
-    if (view === "users") return <UsersCenter csrfToken={csrfToken} />;
-    if (view === "firewall") return <FirewallCenter csrfToken={csrfToken} />;
+    if (view === "users") return <UsersPage csrfToken={csrfToken} role={role} />;
+    if (view === "firewall") return <FirewallPage csrfToken={csrfToken} role={role} />;
     if (view === "storage") return <StorageCenter csrfToken={csrfToken} onNavigate={setView} />;
-    if (view === "network") return <NetworkCenter csrfToken={csrfToken} onOpenRepair={() => setView("repairs")} />;
+    if (view === "network") return <NetworkPage csrfToken={csrfToken} role={role} />;
     if (view === "repairs") return <RepairCenter csrfToken={csrfToken} role={role} onNavigate={setView} />;
-    if (view === "virtualization") return <VirtualMachines csrfToken={csrfToken} onOpenRepair={() => setView("repairs")} />;
+    if (view === "virtualization") return <VmsPage csrfToken={csrfToken} role={role} onOpenRepair={() => setView("repairs")} />;
     if (view === "backups") return <BackupCenter csrfToken={csrfToken} onOpenRepair={() => setView("repairs")} />;
-    if (view === "github") return <GitHubCenter />;
+    if (view === "github") return <GitHubPage />;
     if (view === "logs") return <LogsPage csrfToken={csrfToken} role={role} />;
     return <Settings csrfToken={csrfToken} role={role} />;
   }, [csrfToken, focusApp, role, setView, view]);
@@ -199,15 +188,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
             <ThemeSwitch compact />
             <NotificationCentre csrfToken={csrfToken} onNavigate={setView} />
             <ActivityDrawer csrfToken={csrfToken} role={role} />
-            {authStatus.owner?.role && authStatus.owner.role !== "owner" ? <span className="status-pill status-neutral" title="Your role on this server">{authStatus.owner.role}</span> : null}
-            {elevated
-              ? <button className="text-button elevation-lock" type="button" title="High-risk approvals skip the password until this time. Click to lock now." aria-label={`Elevated until ${elevatedLabel}. Lock now`} onClick={() => void dropElevation(csrfToken).then(refreshAuth).catch(() => refreshAuth())}><span className="elevation-long">Elevated until </span><span className="elevation-short">Until </span>{elevatedLabel} · Lock</button>
-              : <StatusPill tone="neutral" className="approvals-pill">Tiered approvals</StatusPill>}
-            <span className="signed-in-user" title={authStatus.owner?.username}>
-              {authStatus.owner?.username && <span className="signed-in-user__avatar" aria-hidden="true">{authStatus.owner.username.slice(0, 1).toUpperCase()}</span>}
-              <span className="signed-in-user__name">{authStatus.owner?.username}</span>
-            </span>
-            <button className="text-button" type="button" onClick={() => { forgetSession(); void logoutOwner(csrfToken).then(() => onSignedOut(null)).catch(() => onSignedOut(null)); }}>Sign out</button>
+            <SessionControls authStatus={authStatus} csrfToken={csrfToken} onRefresh={() => void refreshAuth()} onSignedOut={onSignedOut} />
           </div>
         </header>
 
@@ -257,10 +238,8 @@ function App() {
     if (next && next.startsWith("/oidc/")) window.location.href = next;
   }, [authStatus?.authenticated]);
 
-  if (authError) {
-    return <main className="auth-shell"><section className="auth-card"><span className="eyebrow">Connection failed</span><h1>BoxPilot is unavailable</h1><p role="alert">{authError}</p><button className="secondary-button" type="button" onClick={() => window.location.reload()}>Try again</button></section></main>;
-  }
-  if (!authStatus) return <main className="auth-shell"><section className="auth-card"><span className="eyebrow">Private administration</span><h1>Loading BoxPilot...</h1></section></main>;
+  if (authError) return <SignInUnavailable problem={authError} />;
+  if (!authStatus) return <SignInLoading />;
   if (!authStatus.authenticated) {
     // After signing in, continue an app's "Sign in with BoxPilot" flow if one sent us here. Only
     // same-site /oidc/ paths are followed, so this can never be an open redirect.
@@ -270,7 +249,7 @@ function App() {
       setAuthStatus(status);
     };
     const page = viewFromLocation();
-    return <AuthScreen bootstrapRequired={authStatus.bootstrapRequired} onAuthenticated={onAuthed} notice={signedOut && !authStatus.bootstrapRequired ? { reason: signedOut, page: page === "home" ? null : viewLabel(page) } : null} />;
+    return <SignInPage bootstrapRequired={authStatus.bootstrapRequired} onAuthenticated={onAuthed} notice={signedOut && !authStatus.bootstrapRequired ? { reason: signedOut, page: page === "home" ? null : viewLabel(page) } : null} />;
   }
   return <Console authStatus={authStatus} onAuthChanged={setAuthStatus} onSignedOut={(reason) => { setSignedOut(reason); forgetSession(); setAuthStatusState({ ...authStatus, authenticated: false, owner: null, csrfToken: null, expiresAt: null }); }} />;
 }

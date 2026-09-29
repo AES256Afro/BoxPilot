@@ -28,6 +28,7 @@ import { productVersion } from "../server/version.mjs";
 import { securityHeaders } from "../server/security-headers.mjs";
 import { databaseCopyReport, databaseCopyRule, describeDatabaseCopy, humanBytes } from "../server/housekeeping.mjs";
 import { keepsBackupData } from "../server/catalog/schema.mjs";
+import { registry as operationRegistry } from "../server/ops/index.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const dist = path.join(root, "dist");
@@ -242,7 +243,8 @@ export const inspections = {
   "backup.cloud.inspect": { rcloneInstalled: true, configured: true, provider: "b2", providers: Object.fromEntries(Object.entries(cloudProviders).map(([id, entry]) => [id, { label: entry.label, fields: entry.fields, secrets: entry.secrets, help: entry.help }])) },
   "fail2ban.inspect": fail2ban,
   "canary.verify": { ok: true },
-  "system.update.status": { running: false, log: [], startedAt: null, finishedAt: null, ok: null },
+  // server/ops/update.mjs: the update units, the upgrade log they wrote, and how the last one ended.
+  "system.update.status": { units: [], log: [], outcome: null },
   "users.inspect": {
     users: [
       { name: "root", uid: 0, sudo: true, shell: "/bin/bash", keyCount: 0 },
@@ -252,7 +254,13 @@ export const inspections = {
     sshd: { passwordAuthentication: false, keyboardInteractive: false, pubkeyAuthentication: true, permitRootLogin: "prohibit-password", port: 22 },
     sshActive: true,
   },
-  "docker.disk.inspect": { images: { count: 22, sizeBytes: 9.4 * GiB, reclaimableBytes: 1.1 * GiB }, containers: { count: 14, sizeBytes: 0.6 * GiB }, volumes: { count: 9, sizeBytes: 3.2 * GiB }, buildCache: { sizeBytes: 0 } },
+  // `docker system df`, as server/ops/system.mjs reads it: one row per kind, sizes in Docker's words.
+  "docker.disk.inspect": { available: true, rows: [
+    { type: "Images", total: 22, active: 14, size: "10.1GB", reclaimable: "1.18GB (11%)" },
+    { type: "Containers", total: 14, active: 13, size: "644MB", reclaimable: "12.3MB (1%)" },
+    { type: "Local Volumes", total: 9, active: 9, size: "3.44GB", reclaimable: "0B (0%)" },
+    { type: "Build Cache", total: 0, active: 0, size: "0B", reclaimable: "0B" },
+  ], logging: { configured: true, logDriver: "json-file", maxSize: "10m", liveRestore: true } },
   "housekeeping.database-copies.inspect": demoDatabaseCopies(),
   "housekeeping.inspect": (() => {
     const categories = [
@@ -401,8 +409,13 @@ export const inspections = {
     { name: "living-room-tv", address: "192.168.1.51", mac: "aa:bb:cc:dd:ee:04", online: false, reserved: false },
   ] },
   "logs.sources": { groups: [{ id: "boxpilot", label: "BoxPilot" }, { id: "system", label: "System journal" }, { id: "docker", label: "Docker" }], units: [{ unit: "boxpilot.service", description: "BoxPilot", active: "active" }, { unit: "docker.service", description: "Docker Engine", active: "active" }, { unit: "tailscaled.service", description: "Tailscale", active: "active" }], dockerAvailable: true, containers: Object.keys(installed).map((id) => ({ name: `bp-${id}`, state: "running", image: `${id}:latest` })) },
-  "vm.cloud.images": { images: [] },
-  "vm.stats.inspect": { available: true, domains: {} },
+  "vm.cloud.images": { images: [
+    { id: "ubuntu-24.04", label: "Ubuntu 24.04 LTS (Noble)", defaultUser: "ubuntu", cached: true, digest: "a".repeat(64) },
+    { id: "debian-12", label: "Debian 12 (Bookworm)", defaultUser: "debian", cached: false, digest: null },
+  ] },
+  // A running VM's counters, the shape vm.stats.inspect returns (M7.8); the page works its rates
+  // out from two reads, and the demo's reads move a little (vmStatsRead) so there is a rate to show.
+  "vm.stats.inspect": { sampledAt: now().toISOString(), domains: [{ name: "dev-lab", state: "running", cpuTimeNs: 8.2e12, vcpus: 4, memoryKiB: 5.1 * 1024 ** 2, memoryMaxKiB: 8 * 1024 ** 2, diskReadBytes: 4.1e10, diskWriteBytes: 2.2e10, netRxBytes: 9.3e9, netTxBytes: 1.2e9 }] },
 };
 
 // ---------- server ----------
@@ -446,7 +459,17 @@ const freshRest = {
   "/storage/shares/discover": (body) => ({ ...body, devices: [] }),
   "/power/ups/detect": (body) => ({ ...body, devices: [], nutInstalled: false }),
   "/virtualization/domains": (body) => ({ ...body, connected: false, error: "libvirt is not installed on this server yet", domains: [] }),
-  "/virtualization/status": (body) => ({ ...body, ready: false, checks: body.checks.map((check) => ({ ...check, ok: false, detail: "Not installed on this server yet" })) }),
+  "/virtualization/status": (body) => ({ ...body, ready: false, checks: body.checks.map((check) => ({ ...check, ok: false, detail: "Not installed on this server yet" })),
+    tailscale: { installed: false, connected: false, dnsName: null, serveUrls: [] },
+    setupPlan: { title: "Install KVM, QEMU and libvirt", destructive: false, requiresConsoleApproval: true, commands: ["sudo apt-get update", "sudo apt-get install --no-install-recommends qemu-kvm libvirt-daemon-system virtinst", "sudo usermod -aG libvirt,kvm \"$USER\""], notes: ["Or run the Hypervisor profile in Setup, which does the same as approved jobs."] } }),
+  "/virtualization/resources": (body) => ({ ...body, connected: false, networks: [], pools: [], errors: ["libvirt is not installed on this server yet"] }),
+  "/virtualization/foundation": (body) => ({ ...body, connectionReady: false, ready: false, planAvailable: false, conflicts: ["libvirt is not installed on this server yet"],
+    network: { ...body.network, exists: false, active: false, autostart: false }, pool: { ...body.pool, exists: false, active: false, autostart: false } }),
+  "/virtualization/exports": () => ({ exports: [] }),
+  "/virtualization/protection": (body) => ({ destination: { ...body.destination, ready: false, resticVersion: null, mount: null, destinationFreeBytes: null, blockers: ["No backup drive is mounted for encrypted VM copies"] }, backups: [] }),
+  "/virtualization/retention": (body) => ({ ...body, beforeCount: 0, candidates: [] }),
+  "/virtualization/media": (body) => ({ ...body, library: { ...body.library, images: [] } }),
+  "/virtualization/planning-options": (body) => ({ ...body, isoImages: [] }),
   "/firewall/overview": (body) => ({ ...body, report: { ...body.report, installed: true, enabled: false, rules: [] }, current: null, advice: [] }),
   // The disks are real on a new server; what BoxPilot has done to them is not. So the hardware
   // stays and the snapshots, mounted shares and cifs/nfs tooling — all of it BoxPilot's doing — go.
@@ -471,7 +494,17 @@ const installedFor = (scenario) => (scenario === "fresh" ? {} : installed);
 
 api.get("/capabilities", (_request, response) => json(response, { version: productVersion, network: { bind: "127.0.0.1", port: 8787, lan: false, canSet: true }, tls: { provisioned: true, port: 8443, names: ["homebox.lan", "homebox", "boxpilot.lan"], ipAddresses: [host.lan], fingerprint: "A1:B2:C3:D4:E5:F6:07:18:29:3A:4B:5C:6D:7E:8F:90:AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89", notAfter: "Sep 29 12:00:00 2027 GMT", caFingerprint: "0F:1E:2D:3C:4B:5A:69:78:87:96:A5:B4:C3:D2:E1:F0:0F:1E:2D:3C:4B:5A:69:78:87:96:A5:B4:C3:D2:E1:F0", canProvision: true }, identity: { password: true, tailscale: true, github: true, passkeys: true, roles: ["owner", "operator", "viewer"] } }));
 api.get("/health", (_request, response) => json(response, { status: "ok", product: "BoxPilot", version: productVersion, mode: "demo", safeMode: true, hostMutationsEnabled: false, mutationPolicy: "demo", ownerBootstrapRequired: false, timestamp: now().toISOString() }));
-api.get("/auth/status", (_request, response) => json(response, { bootstrapRequired: false, authenticated: true, owner: { id: "owner-demo", username: host.owner, role: "owner" }, csrfToken: "demo", expiresAt: ago(-12), elevatedUntil: null }));
+/**
+ * The sign-in page (M33.13) is reviewed like any other page: a page opened with ?signin in its
+ * address is told nobody is signed in, and offered every way in the product has (a passkey, GitHub,
+ * Tailscale not yet linked). Signing in there goes nowhere; the demo has no accounts.
+ */
+const signinAsked = (request) => { try { return new URL(String(request.get("referer") ?? "")).searchParams.has("signin"); } catch { return false; } };
+api.get("/auth/status", (request, response) => json(response, signinAsked(request)
+  ? { bootstrapRequired: false, authenticated: false, owner: null, csrfToken: null, expiresAt: null, elevatedUntil: null }
+  : { bootstrapRequired: false, authenticated: true, owner: { id: "owner-demo", username: host.owner, role: "owner" }, csrfToken: "demo", expiresAt: ago(-12), elevatedUntil: null }));
+api.get("/auth/identity", (_request, response) => json(response, { tailscale: { available: true, login: `${host.owner}@example.com`, displayName: "Alex", node: "workbook", linked: false }, github: { configured: true }, passkey: { registered: true } }));
+api.get("/auth/identity/links", (_request, response) => json(response, { tailscaleLogins: [`${host.owner}@example.com`], githubLogins: [`${host.owner}-gh`], githubRelinkNeeded: [], githubConfigured: true, githubClientId: "Ov23liDEMOexample0000", currentTailscale: { login: `${host.owner}@example.com`, displayName: "Alex", node: "workbook", linked: true } }));
 api.post("/auth/logout", (_request, response) => json(response, { ok: true }));
 api.get("/auth/passkey", (_request, response) => json(response, { passkeys: [
   { id: "pk-demo-phone", rpId: host.tailnet, label: "iPhone (Face ID)", transports: ["internal", "hybrid"], createdAt: ago(24 * 34), lastUsedAt: ago(7) },
@@ -540,7 +573,7 @@ api.get("/notifications", (_request, response) => json(response, { seenAt: ago(3
 api.post("/notifications/seen", (_request, response) => json(response, { seenAt: now().toISOString() }));
 api.get("/settings/weekly-report", (_request, response) => json(response, { enabled: true, cadence: "Sundays at 09:00", nextDueAt: new Date(Date.now() + 4 * 24 * 3600_000).toISOString(), lastSentAt: ago(72), lastResult: "sent", targetConfigured: true }));
 api.get("/settings/weekly-report/preview", (_request, response) => json(response, { title: "Weekly report, nothing failed", message: "Sep 20 to Sep 27: 41 jobs ran, none failed.\nBackups: 7 app backups this week; database backed up today." }));
-api.get("/settings/approval-mode", (_request, response) => json(response, { mode: "tiered", modes: ["tiered", "always-ask"] }));
+api.get("/settings/approval-mode", (_request, response) => json(response, { approvalMode: "tiered", modes: ["tiered", "always-password"], elevationTtlMs: 10 * 60_000 }));
 api.get("/settings/vpn-profile", (_request, response) => json(response, {
   profile: { configured: true, provider: "mullvad", type: "wireguard", wireguardAddresses: "10.64.222.21/32", countries: "Sweden, Netherlands", portForwarding: "off", dot: "on", blockMalicious: "on", blockAds: "on", blockSurveillance: "off", dnsAddress: "", outboundSubnets: "192.168.0.0/16, 10.0.0.0/8", healthTargetAddress: "", hasWireguardKey: true, hasOpenvpnPassword: false, updatedAt: ago(48) },
   providers: ["mullvad", "protonvpn", "nordvpn", "surfshark", "private internet access", "airvpn", "windscribe", "ivpn", "custom"],
@@ -551,12 +584,16 @@ api.get("/settings/vpn-profile", (_request, response) => json(response, {
 api.get("/setup", async (request, response) => {
   const present = installedFor(scenarioOf(request.get("referer")));
   const status = (id) => (present[id] ? "done" : "ready");
+  // The job a ready step would stage, as server/setup-profiles.mjs gives it, so its tier shows (M33.12).
+  const jobOf = (step) => (step.kind === "app" ? { operationId: "app.install", parameters: { id: step.appId, values: {} } }
+    : step.kind === "prerequisite" ? { operationId: `prerequisite.${step.name}.install`, parameters: {} }
+      : step.kind === "unattended" ? { operationId: "apt.unattended.set", parameters: { enabled: true } }
+        : step.kind === "foundation" ? { operationId: "vm.foundation.initialize", parameters: {} } : null);
   const profiles = setupProfiles.map((profile) => {
-    const steps = profile.steps.map((step) => ({
-      ...step,
-      status: step.kind === "app" ? status(step.appId) : step.id === "automatic-updates" && Object.keys(present).length ? "done" : "ready",
-      detail: step.kind === "app" && present[step.appId] ? "Already installed" : null,
-    }));
+    const steps = profile.steps.map((step) => {
+      const state = step.kind === "app" ? status(step.appId) : step.id === "automatic-updates" && Object.keys(present).length ? "done" : "ready";
+      return { ...step, status: state, detail: step.kind === "app" && present[step.appId] ? "Already installed" : null, job: state === "ready" ? jobOf(step) : null };
+    });
     return { id: profile.id, name: profile.name, icon: profile.icon, description: profile.description, steps, remaining: steps.filter((step) => step.status === "ready").length, blocked: 0 };
   });
   json(response, { firstRun: Object.keys(present).length === 0, installedApps: Object.keys(present).length, appsKnown: true, profiles });
@@ -581,7 +618,11 @@ const demoDomain = (name, state, vcpus, memoryGiB, extra = {}) => ({
 });
 api.get("/virtualization/domains", (_request, response) => json(response, {
   connected: true, error: null,
-  domains: [demoDomain("dev-lab", "running", 4, 8), demoDomain("win11-test", "shut off", 2, 4)],
+  // libvirt says "shut off"; libvirt.mjs reports it as "stopped", which is what the page acts on.
+  domains: [demoDomain("dev-lab", "running", 4, 8), demoDomain("win11-test", "stopped", 2, 4, {
+    snapshotCount: 1, snapshots: [{ name: "fresh-install", manageable: true, current: true, state: "stopped", location: "internal", parent: null, createdAt: ago(24 * 9) }],
+    guestAgent: null,
+  })],
 }));
 api.get("/virtualization/status", (_request, response) => json(response, {
   platform: "linux", architecture: "x86_64", connectionUri: "qemu:///system", ready: true,
@@ -611,6 +652,42 @@ api.get("/virtualization/foundation", (_request, response) => json(response, {
   pool: { name: "default", exists: true, active: true, autostart: true, persistent: true, compatible: true, targetPath: "/var/lib/libvirt/images" },
   conflicts: [], planAvailable: false, changes: [],
   boundary: { mutationPerformed: false, browserResourceAccepted: false },
+}));
+// A VM's way back (M33.12): dev-lab was exported, kept encrypted off the server and restore-tested;
+// win11-test's copy has not been test-restored yet. The media library has two installers.
+const demoIsos = [
+  { name: "ubuntu-24.04.1-live-server-amd64.iso", sizeBytes: 2.6 * GiB, modifiedAt: ago(24 * 40) },
+  { name: "debian-12.7.0-amd64-netinst.iso", sizeBytes: 631 * 1024 ** 2, modifiedAt: ago(24 * 12) },
+];
+api.get("/virtualization/exports", (_request, response) => json(response, { exports: [
+  { id: "3d1c9a0e-5b7f-4a61-9c2e-0f4b8d6a1e21", domainName: "dev-lab", domainUuid: "demo-dev-lab", destination: "local-managed", artifactPath: "/var/lib/boxpilot-managed/vm-exports/3d1c9a0e", manifestChecksumSha256: "c".repeat(64), sizeBytes: 11.4 * GiB, protected: true, encrypted: true, restoreDrill: { passed: true }, createdAt: ago(24 * 6) },
+  { id: "8a2e4f10-7c3b-4d59-b1e6-2f9d0c7a5b33", domainName: "win11-test", domainUuid: "demo-win11-test", destination: "local-managed", artifactPath: "/var/lib/boxpilot-managed/vm-exports/8a2e4f10", manifestChecksumSha256: "d".repeat(64), sizeBytes: 23.8 * GiB, protected: false, encrypted: false, restoreDrill: { passed: false, reason: "not run" }, createdAt: ago(20) },
+] }));
+api.get("/virtualization/protection", (_request, response) => json(response, {
+  destination: { adapter: "mounted-restic", ready: true, encrypted: true, independent: true, resticVersion: "0.17.3", mount: { target: "/mnt/backup-drive", sourceType: "ext4", independentFilesystem: true, writable: true },
+    repositoryId: "e".repeat(64), destinationRevision: "f".repeat(64), destinationFreeBytes: 1.6 * 1024 * GiB, blockers: [], setupCommand: "sudo /opt/boxpilot/scripts/boxpilot-restic-setup.sh", recoveryKeyRequired: true },
+  backups: [
+    { id: "b7f0c2d4-1e3a-4c5b-8d6e-9f0a1b2c3d4e", exportId: "3d1c9a0e-5b7f-4a61-9c2e-0f4b8d6a1e21", domainName: "dev-lab", domainUuid: "demo-dev-lab", destination: "mounted-restic", repositoryId: "e".repeat(64), snapshotId: "1a".repeat(32), sizeBytes: 9.8 * GiB, encrypted: true, independent: true, repositoryVerified: true, protected: true, retained: true, retention: null, restoreDrill: { passed: true }, createdAt: ago(24 * 6 - 1) },
+    { id: "c8a1d3e5-2f4b-4d6c-9e7f-0a1b2c3d4e5f", exportId: "8a2e4f10-7c3b-4d59-b1e6-2f9d0c7a5b33", domainName: "win11-test", domainUuid: "demo-win11-test", destination: "mounted-restic", repositoryId: "e".repeat(64), snapshotId: "2b".repeat(32), sizeBytes: 19.1 * GiB, encrypted: true, independent: true, repositoryVerified: true, protected: false, retained: true, retention: null, restoreDrill: { passed: false, reason: "not run" }, createdAt: ago(19) },
+  ],
+}));
+api.get("/virtualization/retention", (_request, response) => json(response, {
+  executable: true, policy: { minimumCopiesPerDomain: 3, minimumAgeDays: 30, requiresProtectedRestoreDrill: true, preserveRecoverySources: true },
+  repositoryId: "e".repeat(64), beforeCount: 2, unrecordedSnapshotIds: [], candidates: [], kept: [], blockers: [], changes: [], warnings: [], verification: [],
+  prunePerformed: false, spaceReclaimed: false, recovery: "Restore from another retained protected snapshot.", retentionRuns: [],
+}));
+api.get("/virtualization/recoveries", (_request, response) => json(response, { recoveries: [] }));
+api.get("/virtualization/media", (_request, response) => json(response, {
+  inbox: { path: "/var/lib/boxpilot-managed/vm-media-inbox", candidates: [] },
+  library: { path: "/var/lib/libvirt/boot", images: demoIsos },
+  limits: { maximumIsoBytes: 16 * GiB },
+  boundary: { browserPathAccepted: false, arbitraryDestinationAccepted: false, checksumVerifiedDuringImport: true, existingMediaOverwritten: false, mutationPerformed: false },
+}));
+api.get("/virtualization/planning-options", (_request, response) => json(response, {
+  mediaRoot: "/var/lib/libvirt/boot", mediaError: null, isoImages: demoIsos, hostCapacity: { cpuThreads: 16, memoryMiB: 32 * 1024 },
+  limits: { vcpus: { minimum: 1, maximum: 16 }, memoryMiB: { minimum: 1024, maximum: 28 * 1024 }, diskGiB: { minimum: 8, maximum: 700 } },
+  profiles: [{ id: "ubuntu-24.04", label: "Ubuntu 24.04 LTS", osVariant: "ubuntu24.04", minimumMemoryMiB: 2048, minimumDiskGiB: 20 }, { id: "debian-12", label: "Debian 12", osVariant: "debian12", minimumMemoryMiB: 1024, minimumDiskGiB: 10 }, { id: "windows-11", label: "Windows 11", osVariant: "win11", minimumMemoryMiB: 4096, minimumDiskGiB: 64 }],
+  networks: [{ name: "default", kind: "NAT", recommended: true }], firmware: ["uefi", "bios"],
 }));
 // Which automation this server in particular should have, with the evidence for it (M24.1).
 // Only what is not already on the list: suggestFlows filters out anything the owner has, so a
@@ -663,6 +740,31 @@ api.get("/drives/auto-reconnect", (_request, response) => json(response, { limit
   media: { flowId: "flow-3", flowName: "Reconnect /mnt/media when it drops", enabled: true, held: false, heldSince: null, heldBecause: null, attempts: 1, lastAttemptAt: ago(40), lastOutcome: "reconnected", lastCheckFoundErrors: false },
 } }));
 api.get("/system/update", (_request, response) => json(response, { current: { version: productVersion, tag: `v${productVersion}` }, latest: { tag: `v${productVersion}`, version: productVersion, publishedAt: ago(30), url: "https://github.com/AES256Afro/BoxPilot/releases" }, updateAvailable: false, checkedAt: now().toISOString(), error: null }));
+// Where this BoxPilot came from (the GitHub page, M33.10): the public metadata the server reads,
+// with a fictional commit and fictional digests.
+const demoCommit = (sha, hours) => ({ sha, url: `https://github.com/AES256Afro/BoxPilot/commit/${sha}`, committedAt: ago(hours), verification: { reportedBy: "github-api", verified: true, reason: "valid", verifiedAt: ago(hours) } });
+api.get("/integrations/github", (_request, response) => json(response, {
+  fetchedAt: ago(0.1), cacheTtlSeconds: 900, source: "GitHub public REST API without authentication",
+  repositories: [{
+    id: "boxpilot", owner: "AES256Afro", repository: "BoxPilot", purpose: "BoxPilot control-plane source", fullName: "AES256Afro/BoxPilot", url: "https://github.com/AES256Afro/BoxPilot",
+    status: "available", visibility: "public", archived: false, defaultBranch: "main", pushedAt: ago(3), head: demoCommit("5d0c1f2e3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d", 3),
+    latestRelease: {
+      tagName: `v${productVersion}`, name: `BoxPilot ${productVersion}`, url: `https://github.com/AES256Afro/BoxPilot/releases/tag/v${productVersion}`, publishedAt: ago(30), targetCommitish: "main",
+      draft: false, prerelease: false, immutable: false, commit: demoCommit("9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b", 31),
+      assets: [
+        { name: `boxpilot-${productVersion}.tar.gz`, sizeBytes: 8_412_331, contentType: "application/gzip", digest: `sha256:${"4f".repeat(32)}` },
+        { name: `boxpilot-${productVersion}.tar.gz.sha256`, sizeBytes: 96, contentType: "text/plain", digest: null },
+      ],
+      assetsWithGithubReportedDigest: 1,
+    },
+  }],
+  boundary: { repositoryAllowlist: ["AES256Afro/BoxPilot"], tokenConfigured: false, credentialsAccepted: false, repositoryWrites: false, cloneOrDownload: false, webhookConfigured: false, workflowDispatch: false, installationSupported: false, localDigestVerification: false },
+  limitations: [
+    "GitHub commit verification and asset digests are API-reported metadata; BoxPilot does not independently verify signatures or downloaded bytes.",
+    "A release asset is not installable until a future adapter downloads it to a confined staging path and verifies its exact digest locally.",
+    "No GitHub token, repository write, clone, download, webhook, workflow dispatch, or adapter installation exists in this release.",
+  ],
+}));
 api.get("/power/ups/detect", (_request, response) => json(response, { devices: [{ vendorId: "051d", productId: "0002", manufacturer: "American Power Conversion", product: "Back-UPS ES 700G", driver: "usbhid-ups", confidence: "vendor-id", sysfs: "1-3" }], nutInstalled: true }));
 api.get("/firewall/overview", (_request, response) => json(response, {
   report: firewallReport, reportError: null, web: { port: 8787, lanExposed: false }, protected: protectedRules({ webPort: 8787, webHost: "127.0.0.1" }), profiles, services, riskyPorts, current: firewallProfile,
@@ -824,6 +926,10 @@ const freshWords = {
   "router.leases": { host: null, leases: [] },
   // A new server can read its backup folder; it just has no apps in it yet.
   "app.backup.protection": { available: true, apps: [] },
+  // The machine itself is there on a new server (M33.12): its name, clock, memory and swap. Only
+  // what BoxPilot would have done to it is not, so there is nothing yet to clean up.
+  "system.settings.inspect": inspections["system.settings.inspect"],
+  "housekeeping.inspect": { generatedAt: now().toISOString(), categories: [], totalBytes: 0, totalHumanBytes: "0 B" },
 };
 
 /**
@@ -833,6 +939,12 @@ const freshWords = {
  * the state nobody could look at before, because the demo only ever had a healthy server in it.
  */
 const troubleWords = {
+  // The last BoxPilot update stopped before it changed anything: no room for the database copy (M36).
+  "system.update.status": { units: [], outcome: "failed", log: [
+    `${ago(26).slice(0, 19)}+0000 ${host.hostname} boxpilot-upgrade[4242]: [boxpilot-upgrade] downloading v${productVersion}`,
+    `${ago(26).slice(0, 19)}+0000 ${host.hostname} boxpilot-upgrade[4242]: [boxpilot-upgrade] copying the database ${productVersion} wrote to /var/lib/boxpilot/boxpilot-rollback-${productVersion}.sqlite3`,
+    `${ago(26).slice(0, 19)}+0000 ${host.hostname} boxpilot-upgrade[4242]: [boxpilot-upgrade] ERROR: could not copy the database to /var/lib/boxpilot: database or disk is full. Nothing was changed: BoxPilot ${productVersion} is still running from /opt/boxpilot.`,
+  ] },
   // Neither drive checker is installed, and Ubuntu's lists offer both: Repair's drive row offers the install.
   "prerequisite.drive-tools.inspect": { tools: { smartctl: false, fsckExfat: false },
     packages: { exfatprogs: { installedVersion: null, candidateVersion: "1.2.2-1build1" }, smartmontools: { installedVersion: null, candidateVersion: "7.4-2build1" } },
@@ -1046,10 +1158,33 @@ function breathing(result) {
     temps: result.temps.map((temp, index) => ({ ...temp, celsius: round(temp.celsius + wave(1.8, 2 + index)) })),
   };
 }
+/**
+ * A running VM's counters only ever grow; the page turns two reads into rates (M7.8). Each read
+ * moves them on by the time since the demo started, at a steady few percent of CPU and a trickle
+ * of disk and network, so the Virtual Machines page has a rate to show.
+ */
+const vmStatsSince = Date.now();
+function vmStatsRead(result) {
+  if (!Array.isArray(result?.domains)) return result;
+  const seconds = (Date.now() - vmStatsSince) / 1000;
+  return {
+    ...result,
+    sampledAt: new Date().toISOString(),
+    domains: result.domains.map((domain) => (domain.state !== "running" ? domain : {
+      ...domain,
+      cpuTimeNs: domain.cpuTimeNs + seconds * (domain.vcpus ?? 1) * 0.14e9,
+      diskReadBytes: domain.diskReadBytes + seconds * 900 * 1024,
+      diskWriteBytes: domain.diskWriteBytes + seconds * 400 * 1024,
+      netRxBytes: domain.netRxBytes + seconds * 180 * 1024,
+      netTxBytes: domain.netTxBytes + seconds * 40 * 1024,
+    })),
+  };
+}
 api.get("/operations/:id/inspect", (request, response) => {
   const result = fixturesFor(scenarioOf(request.get("referer")))[request.params.id];
   if (!result) return response.status(404).json({ error: "Not in the demo", code: "demo_missing" });
-  return json(response, { operation: request.params.id, result: request.params.id === "system.performance.inspect" ? breathing(result) : result });
+  const live = request.params.id === "system.performance.inspect" ? breathing(result) : request.params.id === "vm.stats.inspect" ? vmStatsRead(result) : result;
+  return json(response, { operation: request.params.id, result: live });
 });
 // Read-only operations answer from the same fixtures the inspect route uses, so anything the UI
 // reads through /run (which is how it passes parameters) behaves here too.
@@ -1059,7 +1194,23 @@ api.post("/operations/:id/run", (request, response) => {
   const result = request.params.id === "housekeeping.database-copies.inspect" && fixture?.copies?.length ? demoDatabaseCopies(request.body?.parameters ?? {}) : fixture ?? {};
   return json(response, { operation: request.params.id, result });
 });
-api.post("/operations/:id/jobs", (request, response) => response.status(201).json({ job: { id: "demo-job", type: `op:${request.params.id}`, title: request.params.id, state: "awaiting_approval", risk: "medium", error: null, result: null, steps: [], approvals: [], createdAt: now().toISOString() }, approval: { tier: "medium", passwordRequired: false, elevated: false, mode: "tiered", reason: "demo: jobs never run here" } }));
+/**
+ * Staging answers at the operation's own tier, from the product's registry, with its typed
+ * confirmation, so the approval dialog is reviewed as the owner meets it: one click for low, a
+ * preview for medium, the password (and the confirmation where asked) for high (M33.13). Nothing
+ * is ever approved here.
+ */
+api.post("/operations/:id/jobs", (request, response) => {
+  const operation = operationRegistry.get(request.params.id);
+  const parameters = request.body?.parameters ?? {};
+  const tier = operation?.risk ?? "high";
+  let confirmText = null;
+  try { confirmText = typeof operation?.confirm === "function" ? operation.confirm(parameters) || null : null; } catch { confirmText = null; }
+  return response.status(201).json({
+    job: { id: "demo-job", type: `op:${request.params.id}`, title: operation?.title ?? request.params.id, state: "awaiting_approval", risk: tier, error: null, result: null, parameters, steps: [], approvals: [], createdAt: now().toISOString(), recovery: { reason: operation?.description ?? "" } },
+    approval: { tier, passwordRequired: tier === "high", elevated: false, mode: "tiered", reason: "demo: jobs never run here", confirmText, expiresAt: null, expired: false },
+  });
+});
 // "Try again with more time" (M30.3) stages the timed-out job again, like the product, and never runs it.
 api.post("/jobs/:id/more-time", (request, response) => {
   const timedOut = troubleJobs.find((job) => job.id === request.params.id && job.timeout);

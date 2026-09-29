@@ -1,0 +1,25 @@
+/* Users & SSH (M33.10): the page's own layout, on the kit's components. Tokens only, and every
+   selector starts with .users-, so no other page is touched (docs/UI-PAGES.md). */
+
+.users-page { display: grid; gap: 10px; min-width: 0; }
+
+.users-name { color: var(--text-strong); font-size: 13px; }
+.users-shell { color: var(--text-muted); font-size: 12.5px; }
+.users-dim { color: var(--text-muted); font-size: 13px; }
+
+/* SSH's facts two to a row even on a phone. */
+.users-ssh .ui-kv--columns { grid-template-columns: repeat(auto-fill, minmax(min(100%, 8.5rem), 1fr)); }
+
+/* A row's actions: right-aligned on one line, a size smaller than the page's. */
+.users-actions-cell { width: 1%; }
+.users-actions { display: flex; flex-wrap: nowrap; align-items: center; justify-content: flex-end; gap: 4px; white-space: nowrap; }
+.users-actions .ui-button { min-height: 26px; padding-right: 8px; padding-left: 8px; font-size: 12.5px; }
+.users-actions .ui-button--risk-medium, .users-actions .ui-button--risk-high { padding-left: 14px; }
+
+/* The sheets' forms: one field under another. */
+.users-form { display: grid; gap: 14px; }
+
+@media (max-width: 640px) {
+  .users-actions { flex-wrap: wrap; justify-content: flex-start; padding-top: 4px; white-space: normal; }
+  .users-actions-cell { width: auto; }
+}
