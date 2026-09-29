@@ -90,8 +90,9 @@ jobs:
           sudo sh /opt/boxpilot/scripts/boxpilot-doctor.sh --json > /tmp/boxpilot-doctor-restarted.json
 
       # M36: the upgrade copies the database before the swap, refuses when it cannot, and a rollback
-      # names the copy that matches the old code. Three real upgrades of the install above.
-      - name: The upgrade copies the database first, and refuses when it cannot
+      # names the copy that matches the old code; a second upgrade started meanwhile refuses and names
+      # the first. Five real upgrades of the install above.
+      - name: The upgrade copies the database first, refuses when it cannot, and runs one at a time
         if: ${{ !cancelled() }}
         run: sudo bash tests/ubuntu/upgrade-db-copy.sh "${GITHUB_SHA}"
 
