@@ -680,7 +680,7 @@ export function appsWithoutContainer({ apps = [], pruneRuns = [] } = {}) {
         : `The container for ${app.name} was removed outside BoxPilot; its data folder is still here`;
       const kept = missing.projectPresent ? "its settings, its data and its compose project" : "its settings and its data";
       const detail = prune
-        ? `${certain ? `You stopped ${app.name} ${when(app.stoppedAt)}, and ${cleanup} ran ${when(prune.at)}` : `${cleanup[0].toUpperCase()}${cleanup.slice(1)} ran ${when(prune.at)}, after ${app.name} had stopped`}. It runs "docker system prune", which deletes every stopped container, and so it deleted ${app.name}'s. It never touches volumes or folders: ${kept} are all still here, so ${app.name} can be put back exactly as it was.${stopped ? " It comes back stopped, as you left it." : ""}`
+        ? `${certain ? `You stopped ${app.name} ${when(app.stoppedAt)}, and ${cleanup} ran ${when(prune.at)}` : `${cleanup[0].toUpperCase()}${cleanup.slice(1)} ran ${when(prune.at)}, after ${app.name} had stopped`}. It ran "docker system prune" then, which deletes every stopped container, and so it deleted ${app.name}'s; it no longer removes containers. It never touched volumes or folders: ${kept} are all still here, so ${app.name} can be put back exactly as it was.${stopped ? " It comes back stopped, as you left it." : ""}`
         : `BoxPilot's record says ${app.name} is installed, and ${kept} are still here, but Docker has no container for it, so it is not running. A container goes like this when it is removed by hand or by another Docker tool while the app is stopped. It can be put back from what was saved.`;
       const recreate = stopped
         ? {
