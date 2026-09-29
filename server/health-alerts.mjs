@@ -153,6 +153,12 @@ export function evaluateHealth(inventory) {
     alerts.push({ key: `storage.mount.readonly:${mount.target}`, priority: "high", title: `${mount.target} has gone read-only`, message: `The filesystem on ${mount.source} hit errors and is refusing every write since. Saving to it from another computer fails with an I/O error. Open Repair to reconnect it; if it keeps happening, the cable, port or enclosure is the thing to change.` });
   }
   for (const disk of inventory?.storage?.smart?.disks ?? []) {
+    // A disk the scan left asleep (M36) stands on what it said when it was last read: a failing
+    // disk that happens to be asleep is still failing, and must not read as resolved.
+    if (disk.reason === "asleep" && ["warning", "critical"].includes(disk.lastHealth)) {
+      alerts.push({ key: `storage.smart:${disk.device}`, priority: "high", title: `Disk ${disk.device} reports SMART problems`, message: `Health: ${disk.lastHealth} when it was last read${disk.lastReadAt ? `, ${new Date(disk.lastReadAt).toLocaleString()}` : ""}; it was asleep at the latest check. Back up what matters and plan a replacement.` });
+      continue;
+    }
     if (["healthy", "unavailable"].includes(disk.health)) continue;
     alerts.push({ key: `storage.smart:${disk.device}`, priority: "high", title: `Disk ${disk.device} reports SMART problems`, message: `Health: ${disk.health}${disk.mediaErrors ? `, ${disk.mediaErrors} media errors` : ""}${disk.temperatureCelsius !== null && disk.temperatureCelsius !== undefined ? `, ${disk.temperatureCelsius} °C` : ""}. Back up what matters and plan a replacement.` });
   }
