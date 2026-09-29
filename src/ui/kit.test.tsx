@@ -311,6 +311,10 @@ describe("CodeBlock and Progress", () => {
 
 describe("JobProgress", () => {
   it("follows a job to its end, shows its newest line and its output, and says when it finished", async () => {
+    // The job runs until the test finishes it, however many reads happen in between: the reads
+    // come every 10 ms, and a job that finished on the second read could be done before a slow
+    // runner looked at the running bar.
+    let state = "applying";
     let reads = 0;
     const onDone = vi.fn();
     vi.stubGlobal("EventSource", undefined);
@@ -318,16 +322,25 @@ describe("JobProgress", () => {
       const url = input.toString();
       if (url === "/api/v1/jobs/job-1") {
         reads += 1;
-        const state = reads < 2 ? "applying" : "completed";
         return json({ job: { id: "job-1", type: "op:service.action", title: "Control a system service", state, risk: "medium", error: null, result: null, steps: [], approvals: [], createdAt: "2026-09-29T10:00:00Z", updatedAt: "2026-09-29T10:00:41Z" } });
       }
-      if (url === "/api/v1/jobs/job-1/output") return json({ output: "stopping\nstarted docker\n", state: reads < 2 ? "applying" : "completed" });
+      if (url === "/api/v1/jobs/job-1/output") return json({ output: "stopping\nstarted docker\n", state });
       return json({ error: "unexpected" }, 404);
     }));
     render(<JobProgress jobId="job-1" title="Restart docker.service" onDone={onDone} pollMs={10} />);
     expect(await screen.findByText("Running")).toBeTruthy();
     expect(screen.getByRole("progressbar", { name: "Restart docker.service: Running" }).hasAttribute("aria-valuenow")).toBe(false);
+    // It keeps reading while the job runs, and a running read changes nothing. Reads go one at a
+    // time, so a second one starting means the first has been handled.
+    const seen = reads;
+    await vi.waitFor(() => expect(reads).toBeGreaterThan(seen + 1));
+    expect(screen.getByRole("progressbar", { name: "Restart docker.service: Running" }).hasAttribute("aria-valuenow")).toBe(false);
+    expect(onDone).not.toHaveBeenCalled();
+
+    state = "completed";
     await vi.waitFor(() => expect(screen.getByText("Completed")).toBeTruthy());
+    expect(screen.getByRole("progressbar", { name: "Restart docker.service: Completed" }).getAttribute("aria-valuenow")).toBe("100");
+    expect(screen.queryByRole("progressbar", { name: "Restart docker.service: Running" })).toBeNull();
     expect(onDone).toHaveBeenCalledTimes(1);
     expect(screen.getByText("41s")).toBeTruthy();
     await vi.waitFor(() => expect(screen.getByText("started docker")).toBeTruthy());
