@@ -313,6 +313,16 @@ describe("schedules, events and quiet hours", () => {
     expect(new Date(h.store.getAgent(keeper.id).nextRunAt)).toEqual(new Date(2026, 9, 1, 5, 30));
   });
 
+  it("tells Home and Ops how many runs wait for the runner", async () => {
+    h.enable();
+    const keeper = make("server-keeper");
+    expect(h.service.glance(h.caller("operator"))).toMatchObject({ enabled: true, queued: 0 });
+    ask(keeper, "owner", "Is anything failing?");
+    expect(h.service.glance(h.caller("owner"))).toMatchObject({ queued: 1 });
+    await h.runNext();
+    expect(h.service.glance(h.caller("owner"))).toMatchObject({ queued: 0 });
+  });
+
   it("holds a heavy scheduled run until quiet hours, while a question goes at once", async () => {
     h.enable();
     const keeper = make("server-keeper");
