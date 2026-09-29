@@ -97,6 +97,15 @@ describe("health alerts", () => {
     expect(evaluateHealth({})).toEqual([]);
   });
 
+  it("keeps a failing disk's alert while the scan leaves it asleep, and raises none for a healthy one (M36)", () => {
+    const asleep = (lastHealth) => ({ storage: { smart: { disks: [{ device: "/dev/sdb", health: "unavailable", reason: "asleep", lastHealth, lastReadAt: "2026-09-28T06:00:00.000Z" }] } } });
+    const [alert] = evaluateHealth(asleep("critical"));
+    expect(alert).toMatchObject({ key: "storage.smart:/dev/sdb", priority: "high" });
+    expect(alert.message).toMatch(/critical when it was last read.*asleep at the latest check/);
+    expect(evaluateHealth(asleep("healthy"))).toEqual([]);
+    expect(evaluateHealth(asleep(null))).toEqual([]);
+  });
+
   it("alerts on a crash-looping container instead of (not as well as) unhealthy", () => {
     const alerts = evaluateHealth({ docker: { containers: [
       { name: "bp-sonarr", state: "restarting", status: "Restarting (1) 3 seconds ago", health: "none" },
