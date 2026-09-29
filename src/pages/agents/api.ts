@@ -184,7 +184,7 @@ export interface Note { id: string; title: string; body: string; source: { runId
 export interface EvalResult { questionId: string; question: string; expected: { fact?: string; value?: unknown; includes?: string[] }; runId: string | null; passed: boolean | null; found: string | null }
 export interface EvalRun { id: string; version: number; model?: string | null; state: "running" | "done"; results: EvalResult[]; score: number | null; createdAt: string; finishedAt: string | null }
 export interface Evaluation { questions: Question[]; runs: EvalRun[]; canEdit: boolean; successCriteria?: string[]; accuracy?: Accuracy[] }
-export interface Glance { enabled: boolean; paused: boolean; runnerOnline: boolean; digest: { agentId: string; agentName: string; runId: string; at: string; excerpt: string; state: RunState } | null; cardsWaiting: number }
+export interface Glance { enabled: boolean; paused: boolean; runnerOnline: boolean; queued?: number; digest: { agentId: string; agentName: string; runId: string; at: string; excerpt: string; state: RunState } | null; cardsWaiting: number }
 
 const base = "/api/v1/agents";
 const get = <T>(path: string) => fetch(`${base}${path}`).then((response) => readJson<T>(response));

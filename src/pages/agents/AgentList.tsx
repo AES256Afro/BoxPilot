@@ -2,6 +2,7 @@ import { relativeTime } from "../../home/format";
 import type { PendingOperation } from "../../shell/ApproveDialog";
 import { Button, EmptyState, Notice, Panel, StatusChip, Table, type TableColumn } from "../../ui";
 import type { AgentSummary, Glance, Overview, Proposal } from "./api";
+import type { RunnerWait } from "./setup";
 import { agentState, runState, triggerWords } from "./format";
 import { ProposalCard } from "./ProposalCard";
 import { AnswerText } from "./Trace";
@@ -26,10 +27,15 @@ export interface AgentListProps {
   onStage: (operation: PendingOperation) => void;
   onProposalDecided: (proposal: Proposal) => void;
   onTurnOn: (() => void) | null;
+  /** Set while Agents are on and the runner is not answering: why runs wait, and the owner's step. */
+  runnerWait?: RunnerWait | null;
 }
 
-export function AgentList({ overview, proposals, glance, csrfToken, role, now, onOpen, onNew, onPause, onResume, onStage, onProposalDecided, onTurnOn }: AgentListProps) {
+export function AgentList({ overview, proposals, glance, csrfToken, role, now, onOpen, onNew, onPause, onResume, onStage, onProposalDecided, onTurnOn, runnerWait = null }: AgentListProps) {
   const { agents, module, can } = overview;
+  const waiting = overview.queue.queued;
+  /** An agent's status, said as the runner being down when that is why it waits. */
+  const stateOf = (agent: AgentSummary) => (agent.status === "queued" && runnerWait ? { status: "warning" as const, label: "waiting for the runner" } : agentState(agent.status));
   const staff = role === "owner" || role === "operator";
   const paused = agents.filter((agent) => agent.paused).length;
   const scheduled = agents.filter((agent) => agent.triggers.schedule).length;
@@ -44,7 +50,7 @@ export function AgentList({ overview, proposals, glance, csrfToken, role, now, o
         </span>
       ),
     },
-    { id: "status", header: "Status", sortValue: (agent) => agent.status, cell: (agent) => { const state = agentState(agent.status); return <StatusChip status={state.status}>{agent.paused && agent.pausedUntil ? `paused until ${new Date(agent.pausedUntil).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })}` : state.label}</StatusChip>; } },
+    { id: "status", header: "Status", sortValue: (agent) => agent.status, cell: (agent) => { const state = stateOf(agent); return <StatusChip status={state.status}>{agent.paused && agent.pausedUntil ? `paused until ${new Date(agent.pausedUntil).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })}` : state.label}</StatusChip>; } },
     { id: "starts", header: "Starts", hideOnPhone: true, cell: (agent) => <span className="agents-dim">{triggerWords(agent)}{agent.waitsForQuietHours ? " · quiet hours" : ""}</span> },
     {
       id: "last", header: "Last run", sortValue: (agent) => agent.lastRun?.finishedAt ?? "", cell: (agent) => (agent.lastRun
@@ -77,6 +83,12 @@ export function AgentList({ overview, proposals, glance, csrfToken, role, now, o
       {!module.enabled && (
         <Notice tone="info" title="Agents are off" action={onTurnOn ? <Button variant="primary" onClick={onTurnOn}>Turn Agents on</Button> : undefined}>
           Nothing runs and no model is loaded. Agents can be built and tested once they are on; each change stays a version you can roll back.
+        </Notice>
+      )}
+
+      {runnerWait && waiting > 0 && (
+        <Notice tone="warning" title={runnerWait.words} action={runnerWait.action ?? undefined}>
+          <b>{waiting}</b> {waiting === 1 ? "run waits" : "runs wait"}, and {waiting === 1 ? "it starts" : "they start"} as soon as the runner does.
         </Notice>
       )}
 

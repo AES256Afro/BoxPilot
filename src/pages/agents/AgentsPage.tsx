@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useState } from "react";
 import { useOperation } from "../../shell/ApproveDialog";
-import { Button, Notice, PageHeader, Tabs, useUrlParam, type TabItem } from "../../ui";
+import { Button, Notice, PageHeader, Tabs, mayStart, useUrlParam, type TabItem } from "../../ui";
 import { AgentList } from "./AgentList";
-import { agentsApi, type AgentSummary, type Catalog, type Glance, type Overview, type Proposal } from "./api";
+import { agentsApi, type AgentSummary, type Catalog, type Glance, type Overview, type Proposal, type RuntimeState } from "./api";
 import { Builder } from "./Builder";
 import { Console } from "./Console";
 import { Evaluation } from "./Evaluation";
-import { errorText, moduleVerdict } from "./format";
+import { errorText, moduleVerdict, waitingWords } from "./format";
 import { Knowledge } from "./Knowledge";
 import { Memory } from "./Memory";
 import { PasswordSheet } from "./PasswordSheet";
+import { SetupAction, chainSteps, runnerDetail, setupSteps, type RunnerWait } from "./setup";
 import { Usage } from "./Usage";
 import "./agents.css";
 
@@ -20,6 +21,10 @@ import "./agents.css";
  * Then the tabs: the agents and the cards they left; the builder; the test console with its live
  * trace; the learning library; usage and the runtime; and the evaluation. Agents propose and never
  * act: every step on a card is staged by a person through the ordinary approval dialog.
+ *
+ * On while the runner is not answering, the verdict says what is missing - Unsloth, the model, the
+ * runner started - and, for the owner, the header offers that step (setup.tsx); turning Agents on
+ * opens it, and each step's dialog offers the next once it completes.
  */
 
 type Tab = "agents" | "build" | "test" | "memory" | "knowledge" | "usage" | "evaluation";
@@ -76,14 +81,29 @@ export default function AgentsPage({ csrfToken, role = "owner", now = Date.now }
   }, [staff]);
   useEffect(() => { void refresh(); }, [refresh]);
   useEffect(() => { agentsApi.catalog().then(setCatalog, () => undefined); }, []);
-  // While something runs or waits, the list reads again every five seconds; otherwise every half minute.
-  const active = (overview?.queue.running ?? 0) + (overview?.queue.queued ?? 0) > 0;
+  // While something runs or waits, or the runner is on its way, the list reads again every five
+  // seconds; otherwise every half minute.
+  const active = (overview?.queue.running ?? 0) + (overview?.queue.queued ?? 0) > 0 || Boolean(overview?.module.enabled && !overview.runner.online);
   useEffect(() => {
     const timer = setInterval(() => void refresh(), active ? 5_000 : 30_000);
     return () => clearInterval(timer);
   }, [active, refresh]);
 
   const { start, dialog } = useOperation(csrfToken, () => { setJobsFinished((count) => count + 1); void refresh(); });
+
+  // What runs the model, read while the runner is not answering, so the page can say which step is
+  // missing: when the page opens, when Agents are turned on or off, and when a job ends. Not on the
+  // list's own poll: it asks the helper to look at the unit and the model cache.
+  const [runtime, setRuntime] = useState<RuntimeState | null>(null);
+  const readRuntime = useCallback(async () => {
+    try { const next = await agentsApi.runtime(); setRuntime(next); return next; } catch { setRuntime(null); return null; }
+  }, []);
+  const loaded = overview !== null;
+  const runnerOnline = overview?.runner.online ?? false;
+  const moduleOn = overview?.module.enabled ?? false;
+  useEffect(() => {
+    if (staff && loaded && !runnerOnline) void readRuntime();
+  }, [staff, loaded, runnerOnline, moduleOn, jobsFinished, readRuntime]);
 
   const moduleAction = async (work: () => Promise<unknown>, done: string) => {
     setBusy(true);
@@ -94,6 +114,24 @@ export default function AgentsPage({ csrfToken, role = "owner", now = Date.now }
   };
 
   const open = (id: string, next: "build" | "test", run?: string) => { setAgentId(id); setRunId(run ?? null); setTab(next); };
+
+  /**
+   * Turn Agents on, then walk the owner through what is still missing to run them: the first step's
+   * approval dialog opens, and each one's dialog offers the next when it completes, ending with the
+   * runner started. Each is staged and approved at its own tier; closing a dialog stops the walk,
+   * and the header offers the step that is still missing.
+   */
+  const turnOn = async (password: string) => {
+    await agentsApi.saveSettings(csrfToken, { password, enabled: true });
+    await refresh();
+    const fresh = await readRuntime();
+    const walk = chainSteps(setupSteps(fresh, { enabled: true }) ?? []);
+    // The sheet closes in the same render as the first dialog opens, so focus moves to the dialog.
+    setTurningOn(false);
+    if (walk) start(walk);
+    else setNotice(fresh ? "Agents are on." : "Agents are on. What runs them could not be read; the Usage tab shows whether anything is missing.");
+  };
+  const afterTurningOn = turningOn ? setupSteps(runtime, { enabled: true }) : null;
 
   if (!overview) {
     return (
@@ -106,7 +144,13 @@ export default function AgentsPage({ csrfToken, role = "owner", now = Date.now }
 
   const { module, runner, agents, queue, can } = overview;
   const owner = role === "owner";
-  const verdict = moduleVerdict(module, runner.online, queue.running);
+  // On, not paused, and the runner not answering: what is missing, and the step that fixes it.
+  const down = module.enabled && !module.paused && !runner.online;
+  const steps = down ? setupSteps(runtime, { enabled: true }) : null;
+  const detail = down ? runnerDetail(runtime, steps) : {};
+  const verdict = moduleVerdict(module, runner.online, queue.running, detail);
+  const fix = steps?.length && steps.every((step) => mayStart(role, step.operation.operationId)) ? <SetupAction steps={steps} onStart={start} /> : null;
+  const runnerWait: RunnerWait | null = down ? { words: waitingWords(false, detail), action: fix } : null;
   const cpu = runner.usage?.cpuPercent;
   const cap = runner.usage?.cpuQuotaPercent ?? 100;
   const cards = (proposals ?? []).filter((proposal) => proposal.state === "open").length;
@@ -117,7 +161,7 @@ export default function AgentsPage({ csrfToken, role = "owner", now = Date.now }
     ...(can.create ? [{ id: "build" as const, label: "Build" }] : []),
     { id: "test", label: staff ? "Test" : "Ask" },
     ...(staff ? [{ id: "memory" as const, label: "Memory" }, { id: "knowledge" as const, label: "Knowledge" }] : []),
-    { id: "usage", label: "Usage", ...(module.enabled && !runner.online ? { status: "warning" as const, statusLabel: "the runner is not answering" } : {}) },
+    { id: "usage", label: "Usage", ...(module.enabled && !runner.online ? { status: "warning" as const, statusLabel: detail.silent ? "the runner is not answering" : "the runner is stopped" } : {}) },
     ...(staff ? [{ id: "evaluation" as const, label: "Evaluation" }] : []),
   ];
   const shown = tabs.some((entry) => entry.id === tab) ? tab : "agents";
@@ -125,6 +169,7 @@ export default function AgentsPage({ csrfToken, role = "owner", now = Date.now }
   const headerActions = (
     <>
       {owner && !module.enabled && <Button variant="primary" onClick={() => setTurningOn(true)}>Turn Agents on</Button>}
+      {fix}
       {can.pause && module.enabled && !module.paused && <>
         <Button busy={busy} onClick={() => void moduleAction(() => agentsApi.pauseAll(csrfToken, null), "Every agent is paused. Nothing new starts until you resume them.")}>Pause all</Button>
         <Button variant="ghost" busy={busy} onClick={() => void moduleAction(() => agentsApi.pauseAll(csrfToken, "tomorrow"), "Every agent is paused until 07:00 tomorrow.")}>Until tomorrow</Button>
@@ -170,7 +215,7 @@ export default function AgentsPage({ csrfToken, role = "owner", now = Date.now }
               onTest={(id) => open(id, "test")} />;
           }
           if (current === "test") {
-            return <Console agents={agents} agentId={selected} runId={runId} csrfToken={csrfToken} role={role} now={now()} enabled={module.enabled && !module.paused}
+            return <Console agents={agents} agentId={selected} runId={runId} csrfToken={csrfToken} role={role} now={now()} enabled={module.enabled && !module.paused} runnerWait={runnerWait}
               onSelectAgent={(id) => { setAgentId(id); setRunId(null); }} onStage={start} onRunFinished={() => void refresh()} />;
           }
           if (current === "memory") return <Memory agents={agents} agentId={selected} csrfToken={csrfToken} role={role} now={now()} onSelectAgent={setAgentId} />;
@@ -179,7 +224,7 @@ export default function AgentsPage({ csrfToken, role = "owner", now = Date.now }
           if (current === "evaluation") {
             return <Evaluation agents={agents} agentId={selected} csrfToken={csrfToken} now={now()} enabled={module.enabled && !module.paused} onSelectAgent={setAgentId} onOpenRun={(id, run) => open(id, "test", run)} />;
           }
-          return <AgentList overview={overview} proposals={proposals} glance={glance} csrfToken={csrfToken} role={role} now={now()}
+          return <AgentList overview={overview} proposals={proposals} glance={glance} csrfToken={csrfToken} role={role} now={now()} runnerWait={runnerWait}
             onOpen={open} onNew={() => { setAgentId(null); setTab("build"); }}
             onPause={(agent, until) => void agentAction(() => agentsApi.pause(csrfToken, agent.id, until), until ? `${agent.name} is paused until 07:00 tomorrow.` : `${agent.name} is paused.`)}
             onResume={(agent) => void agentAction(() => agentsApi.resume(csrfToken, agent.id), `${agent.name} is running again.`)}
@@ -188,9 +233,14 @@ export default function AgentsPage({ csrfToken, role = "owner", now = Date.now }
       </Tabs>
 
       {turningOn && (
-        <PasswordSheet title="Turn Agents on" confirmLabel="Turn on" onClose={() => setTurningOn(false)}
-          onConfirm={async (password) => { await agentsApi.saveSettings(csrfToken, { password, enabled: true }); setNotice("Agents are on. Install Unsloth and start the runner on the Usage tab if they are not there yet."); await refresh(); }}>
+        <PasswordSheet title="Turn Agents on" confirmLabel="Turn on" onClose={() => setTurningOn(false)} onConfirm={turnOn}>
           <p>Agents read this server's facts and send them to the model on this machine, nowhere else. The runner is capped at one processor and 8 GiB; each agent has a budget. You can pause everything at any time.</p>
+          {afterTurningOn === null
+            ? <p>Then whatever is missing - Unsloth, the model, the runner - one approval at a time.</p>
+            : afterTurningOn.length > 0 && <>
+                <p>Then {afterTurningOn.length === 1 ? "one step" : `${afterTurningOn.length} steps`}, each approved at its own tier, the next offered as the one before it finishes:</p>
+                <ol className="agents-setup">{afterTurningOn.map((step) => <li key={step.id}>{step.operation.title}</li>)}</ol>
+              </>}
         </PasswordSheet>
       )}
     </div>
