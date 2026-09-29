@@ -41,13 +41,14 @@ const digest = (seed) => createHash("sha256").update(`demo:${seed}`).digest("hex
 
 // ---------- the fictional server ----------
 const host = { hostname: "homebox", lan: "192.168.50.20", gateway: "192.168.50.1", tailnet: "homebox.tail0a1b.ts.net", tailscaleIp: "100.101.102.103", owner: "alex" };
-const installed = { "open-webui": 8088, jellyfin: 8096, "pi-hole": 8084, immich: 2283, vaultwarden: 8222, "uptime-kuma": 3001, homepage: 3000, nextcloud: 8087, scrutiny: 8086, qbittorrent: 8095, ntfy: 8093 };
+const installed = { "open-webui": 8088, jellyfin: 8096, "pi-hole": 8084, immich: 2283, vaultwarden: 8222, "uptime-kuma": 3001, homepage: 3000, nextcloud: 8087, scrutiny: 8086, qbittorrent: 8095, ntfy: 8093, zulip: 8543 };
 // Apps set to "Tailnet only": their web port is on 127.0.0.1 and Tailscale Serve publishes it at the
 // same port. Only these are served (app.serve.inspect below): an app on the home network publishes
 // on every address, and Serve beside it at the same port is the trap Dockge fell into on 2026-09-29, which
 // the demo depicted for Immich and Vaultwarden until scripts/demo-fixtures.test.mjs looked.
-const tailnetOnly = new Set(["vaultwarden"]);
-const stats = { jellyfin: { cpuPercent: 3.2, memBytes: 412 * 1024 ** 2, containers: 1 }, "pi-hole": { cpuPercent: 0.4, memBytes: 96 * 1024 ** 2, containers: 2 }, immich: { cpuPercent: 6.1, memBytes: 1.4 * GiB, containers: 4 }, vaultwarden: { cpuPercent: 0.1, memBytes: 48 * 1024 ** 2, containers: 1 }, "uptime-kuma": { cpuPercent: 0.8, memBytes: 120 * 1024 ** 2, containers: 1 }, homepage: { cpuPercent: 0.2, memBytes: 70 * 1024 ** 2, containers: 1 }, nextcloud: { cpuPercent: 1.9, memBytes: 620 * 1024 ** 2, containers: 3 }, scrutiny: { cpuPercent: 0.3, memBytes: 110 * 1024 ** 2, containers: 1 } };
+// Zulip is tailnet only by default (M38): its address is the Serve one, which its phone apps need.
+const tailnetOnly = new Set(["vaultwarden", "zulip"]);
+const stats = { jellyfin: { cpuPercent: 3.2, memBytes: 412 * 1024 ** 2, containers: 1 }, "pi-hole": { cpuPercent: 0.4, memBytes: 96 * 1024 ** 2, containers: 2 }, immich: { cpuPercent: 6.1, memBytes: 1.4 * GiB, containers: 4 }, vaultwarden: { cpuPercent: 0.1, memBytes: 48 * 1024 ** 2, containers: 1 }, "uptime-kuma": { cpuPercent: 0.8, memBytes: 120 * 1024 ** 2, containers: 1 }, homepage: { cpuPercent: 0.2, memBytes: 70 * 1024 ** 2, containers: 1 }, nextcloud: { cpuPercent: 1.9, memBytes: 620 * 1024 ** 2, containers: 3 }, scrutiny: { cpuPercent: 0.3, memBytes: 110 * 1024 ** 2, containers: 1 }, zulip: { cpuPercent: 1.2, memBytes: 1.3 * GiB, containers: 5 } };
 
 const lsblk = JSON.stringify({ blockdevices: [
   { path: "/dev/nvme0n1", kname: "nvme0n1", pkname: null, type: "disk", size: 1024209543168, fstype: null, model: "Example NVMe SSD 1TB", tran: "nvme", mountpoints: [null], ro: false, rm: false },
@@ -243,7 +244,8 @@ export const inspections = {
     { unit: "systemd-journald.service", description: "Journal Service", load: "loaded", active: "active", sub: "running", enabled: "static", guarded: null, critical: true },
   ] },
   // Vaultwarden, which is tailnet only, and an old entry for MinIO, which is not installed any more.
-  "app.serve.inspect": { available: true, serves: [{ dnsName: host.tailnet, port: 8222, target: "http://127.0.0.1:8222" }, { dnsName: host.tailnet, port: 9001, target: "http://127.0.0.1:9001" }] },
+  // Zulip too (M38): tailnet only by default, at the address its phone apps need.
+  "app.serve.inspect": { available: true, serves: [{ dnsName: host.tailnet, port: 8222, target: "http://127.0.0.1:8222" }, { dnsName: host.tailnet, port: 8543, target: "http://127.0.0.1:8543" }, { dnsName: host.tailnet, port: 9001, target: "http://127.0.0.1:9001" }] },
   "app.stats.inspect": { available: true, stats },
   "host.snapshot.inspect": machineState,
   "backup.remote.inspect": { keyReady: true, publicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExampleExampleExampleExampleExampleExampleExam boxpilot-backup-mirror", fingerprint: "SHA256:ExampleFingerprintExampleFingerprintExample0", hostKeysPinned: 1, rsyncInstalled: true },
