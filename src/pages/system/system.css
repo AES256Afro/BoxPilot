@@ -1,0 +1,59 @@
+/* System (M33.12): the page's own layout, on the kit's components. Tokens only, and every
+   selector starts with .system-, so no other page is touched (docs/UI-PAGES.md). */
+
+.system-page { display: grid; gap: 10px; min-width: 0; }
+
+/* The overview's figures, as Ops' strip draws them; each opens its tab. */
+.system-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr)); gap: 8px; }
+.system-strip .ui-metric__value { font-size: 22px; overflow-wrap: anywhere; }
+
+/* Words under a panel's facts; a padded block inside a panel whose body runs to its edges. */
+.system-note { margin: 0; color: var(--text-muted); font-size: 13px; line-height: 1.45; }
+.system-pad { padding: 10px 12px; }
+.system-sub { color: var(--text-muted); font-family: var(--font-mono); font-size: 11.5px; overflow-wrap: anywhere; }
+.system-cell { display: inline-grid; justify-items: start; vertical-align: middle; gap: 2px; min-width: 0; padding-block: 4px; white-space: normal; }
+.system-link { margin-left: 6px; color: var(--accent); font-family: var(--font-condensed); font-size: 13px; text-underline-offset: 2px; }
+.system-asks { margin: 0; color: var(--risk-high-text); font-size: 12.5px; font-weight: 600; }
+.system-asks code { color: var(--text-strong); }
+.system-progress { flex-basis: 100%; margin-top: 6px; }
+
+/* A setting's form: the field, then its button on the same line, under it on a phone. */
+.system-form { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px 10px; }
+.system-form > .ui-field { flex: 1 1 16rem; max-width: 30rem; }
+.system-form > .ui-button { margin-top: 23px; }
+.system-form > .system-sub { flex: 1 1 14rem; margin: 0; padding-top: 6px; }
+.system-form > .system-sub + .ui-button { margin-top: 0; }
+.system-forms { display: grid; gap: 14px; border-top: 1px solid var(--border); }
+
+/* Housekeeping: each category a row with its box, its size and what it keeps. */
+.system-clean { display: grid; margin: 0; padding: 0; list-style: none; }
+.system-clean__row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 16rem); gap: 6px 16px; padding: 10px 12px; border-top: 1px solid var(--border-subtle); }
+.system-clean__row:first-child { border-top: 0; }
+.system-clean__row[data-empty="true"] { opacity: 0.72; }
+.system-clean__facts { display: grid; align-content: start; gap: 3px; min-width: 0; }
+.system-clean__size { color: var(--text-strong); font-family: var(--font-mono); font-size: 13px; font-weight: 500; }
+.system-clean__size[data-review="true"] { color: var(--status-warning-text); }
+.system-details summary { color: var(--accent); font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.system-details ul { display: grid; gap: 2px; margin: 4px 0 0; padding-left: 16px; }
+.system-details code { color: var(--text-muted); font-size: 11.5px; overflow-wrap: anywhere; }
+
+/* The database copies' rule: two numbers and what they do, in a row. */
+.system-rule { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px 14px; margin: 0; padding: 0 12px 10px; border: 0; }
+.system-rule legend { float: left; width: 100%; margin-bottom: 6px; padding: 0; color: var(--text-muted); font-family: var(--font-mono); font-size: 10.5px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; }
+.system-rule .ui-field { flex: 0 1 12rem; }
+.system-rule__answer { align-self: center; color: var(--text); font-size: 13px; }
+.system-hint { margin: 0; padding: 0 12px 10px; color: var(--status-warning-text); font-size: 13px; line-height: 1.4; }
+.system-preview p { margin: 0 0 6px; }
+.system-preview ul { margin: 0 0 6px; padding-left: 18px; }
+
+/* The UPS: what was found, then how to set it up. */
+.system-ups { display: grid; gap: 10px; }
+.system-ups .system-form { align-items: center; }
+.system-ups .system-form > .ui-button { margin-top: 0; }
+
+@media (max-width: 640px) {
+  .system-clean__row { grid-template-columns: minmax(0, 1fr); }
+  .system-form > .ui-field { max-width: none; }
+  .system-form > .ui-button { margin-top: 0; }
+  .system-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

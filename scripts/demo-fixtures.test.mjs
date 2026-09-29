@@ -72,7 +72,7 @@ describe("the demo can answer what the interface asks", () => {
       "service.journal": ["lines", "unit"],
       "app.secrets": ["secrets"],
       "system.performance.inspect": ["cpu", "memory", "disks", "apps"],
-      "docker.disk.inspect": ["images", "containers", "volumes"],
+      "docker.disk.inspect": ["available", "rows", "logging"],
       "app.serve.inspect": ["available", "serves"],
       "users.inspect": ["users", "sshd", "sshActive"],
       "dns.names.inspect": ["available", "platform", "records", "apps"],
