@@ -160,77 +160,80 @@ export default function NotificationsPanel({ csrfToken, onChange }: { csrfToken:
 
   return (
     <>
-      <Panel
-        title="Where alerts go"
-        count={current ? { status: configured ? "good" : "neutral", label: configured ? `${current.kind} configured` : "Off" } : undefined}
-        padded
-        className="settings-panel"
-        footer="A push for a failed job, a new BoxPilot release, a sign-in from a new address, a watched condition turning bad and clearing, and the weekly report."
-      >
-        {configured && !editing && current && (
-          <>
-            <KeyValue layout="rows" items={[
-              { id: "kind", label: "Service", value: current.kind ?? "", mono: true },
-              { id: "url", label: "Sends to", value: current.url ?? "", mono: true },
-              ...(current.kind === "ntfy" && current.topic ? [{ id: "topic", label: "Topic", value: current.topic, mono: true }] : []),
-              { id: "token", label: "Token", value: current.hasToken ? "kept on this server" : "none" },
-            ]} />
-            <div className="settings-actions">
-              <Button disabled={busy} onClick={() => void test()}>Send a test</Button>
-              <Button variant="ghost" onClick={() => { setEditing(true); setKind(current.kind ?? "ntfy"); setUrl(current.url ?? ""); setTopic(current.topic ?? "boxpilot"); }}>Change</Button>
-            </div>
-          </>
-        )}
-        {!current && !error && <p className="settings-quiet">Reading…</p>}
-        {offerLocal && localServer && (
-          <Notice tone="info" title={`${localServer.name} is running on this server`} action={<Button onClick={useLocalServer}>Use the {localServer.name} on this server</Button>}>
-            Point BoxPilot at it in one step.
-          </Notice>
-        )}
-        {localServer && url === localServer.sendUrl && (
-          <p className="settings-quiet">Alerts will be sent to the {localServer.name} on this server. To get them on your phone, open the {localServer.name} app and subscribe to {kind === "ntfy" ? <>topic <code>{topic || "boxpilot"}</code></> : "this server"}{localServer.reachAddress ? <> at <code>{localServer.reachAddress}</code></> : ""}. If the app is only reachable from this server, publish it on your tailnet first from its catalog card.</p>
-        )}
-        {form && current && (
-          <form className="settings-form" onSubmit={(event) => { event.preventDefault(); if (password.length >= 12 && url) void save({ kind, url, ...(kind === "ntfy" ? { topic } : {}), ...(token ? { token } : {}) }); }}>
-            <div className="settings-grid-form">
-              <Field label="Notification service">
-                <Select options={services} value={kind} onValueChange={(value) => setKind(value as typeof kind)} />
-              </Field>
-              <Field label="Server URL">
-                <TextInput mono placeholder={kind === "webhook" ? "https://example.net/hook" : "http://127.0.0.1:8093"} value={url} onValueChange={(value) => setUrl(value.trim())} autoComplete="off" spellCheck={false} />
-              </Field>
-              {kind === "ntfy" && (
-                <Field label="Topic">
-                  <TextInput mono placeholder="topic" value={topic} onValueChange={(value) => setTopic(value.trim())} autoComplete="off" spellCheck={false} />
-                </Field>
-              )}
-              <Field label="Token" optional hint={kind === "gotify" ? "The application token." : kind === "ntfy" ? "An access token, if the topic needs one." : "A bearer token, if the webhook needs one."}>
-                <SecretInput value={token} onValueChange={setToken} />
-              </Field>
-            </div>
-            <p className="settings-quiet">The address and any token are kept on this server so alerts can be sent while you are away, and they are included in BoxPilot's own database backups. Use a token scoped to sending notifications rather than one that can do more.</p>
-            <div className="settings-form settings-form--row">
-              <Field label="Owner password" hint="Changing where alerts go asks for it.">
-                <SecretInput autoComplete="current-password" value={password} onValueChange={setPassword} />
-              </Field>
+      <div className="settings-column">
+        <Panel
+          title="Where alerts go"
+          count={current ? { status: configured ? "good" : "neutral", label: configured ? `${current.kind} configured` : "Off" } : undefined}
+          padded
+          className="settings-panel"
+          footer="A push for a failed job, a new BoxPilot release, a sign-in from a new address, a watched condition turning bad and clearing, and the weekly report."
+        >
+          {configured && !editing && current && (
+            <>
+              <KeyValue layout="rows" items={[
+                { id: "kind", label: "Service", value: current.kind ?? "", mono: true },
+                { id: "url", label: "Sends to", value: current.url ?? "", mono: true },
+                ...(current.kind === "ntfy" && current.topic ? [{ id: "topic", label: "Topic", value: current.topic, mono: true }] : []),
+                { id: "token", label: "Token", value: current.hasToken ? "kept on this server" : "none" },
+              ]} />
               <div className="settings-actions">
-                <Button variant="primary" type="submit" disabled={busy || password.length < 12 || !url}>{busy ? "Saving..." : "Save"}</Button>
-                {configured && <Button disabled={busy || password.length < 12} onClick={() => void save(null)}>Turn off</Button>}
-                {editing && <Button variant="ghost" onClick={() => { setEditing(false); setPassword(""); }}>Cancel</Button>}
+                <Button disabled={busy} onClick={() => void test()}>Send a test</Button>
+                <Button variant="ghost" onClick={() => { setEditing(true); setKind(current.kind ?? "ntfy"); setUrl(current.url ?? ""); setTopic(current.topic ?? "boxpilot"); }}>Change</Button>
               </div>
-            </div>
-          </form>
-        )}
-        {message && <Notice tone="success" live>{message}</Notice>}
-        {error && <Notice tone="danger" live>{error}</Notice>}
-      </Panel>
+            </>
+          )}
+          {!current && !error && <p className="settings-quiet">Reading…</p>}
+          {offerLocal && localServer && (
+            <Notice tone="info" title={`${localServer.name} is running on this server`} action={<Button onClick={useLocalServer}>Use the {localServer.name} on this server</Button>}>
+              Point BoxPilot at it in one step.
+            </Notice>
+          )}
+          {localServer && url === localServer.sendUrl && (
+            <p className="settings-quiet">Alerts will be sent to the {localServer.name} on this server. To get them on your phone, open the {localServer.name} app and subscribe to {kind === "ntfy" ? <>topic <code>{topic || "boxpilot"}</code></> : "this server"}{localServer.reachAddress ? <> at <code>{localServer.reachAddress}</code></> : ""}. If the app is only reachable from this server, publish it on your tailnet first from its catalog card.</p>
+          )}
+          {form && current && (
+            <form className="settings-form" onSubmit={(event) => { event.preventDefault(); if (password.length >= 12 && url) void save({ kind, url, ...(kind === "ntfy" ? { topic } : {}), ...(token ? { token } : {}) }); }}>
+              <div className="settings-grid-form">
+                <Field label="Notification service">
+                  <Select options={services} value={kind} onValueChange={(value) => setKind(value as typeof kind)} />
+                </Field>
+                <Field label="Server URL">
+                  <TextInput mono placeholder={kind === "webhook" ? "https://example.net/hook" : "http://127.0.0.1:8093"} value={url} onValueChange={(value) => setUrl(value.trim())} autoComplete="off" spellCheck={false} />
+                </Field>
+                {kind === "ntfy" && (
+                  <Field label="Topic">
+                    <TextInput mono placeholder="topic" value={topic} onValueChange={(value) => setTopic(value.trim())} autoComplete="off" spellCheck={false} />
+                  </Field>
+                )}
+                <Field label="Token" optional hint={kind === "gotify" ? "The application token." : kind === "ntfy" ? "An access token, if the topic needs one." : "A bearer token, if the webhook needs one."}>
+                  <SecretInput value={token} onValueChange={setToken} />
+                </Field>
+              </div>
+              <p className="settings-quiet">The address and any token are kept on this server so alerts can be sent while you are away, and they are included in BoxPilot's own database backups. Use a token scoped to sending notifications rather than one that can do more.</p>
+              <div className="settings-form settings-form--row">
+                <Field label="Owner password" hint="Changing where alerts go asks for it.">
+                  <SecretInput autoComplete="current-password" value={password} onValueChange={setPassword} />
+                </Field>
+                <div className="settings-actions">
+                  <Button variant="primary" type="submit" disabled={busy || password.length < 12 || !url}>{busy ? "Saving..." : "Save"}</Button>
+                  {configured && <Button disabled={busy || password.length < 12} onClick={() => void save(null)}>Turn off</Button>}
+                  {editing && <Button variant="ghost" onClick={() => { setEditing(false); setPassword(""); }}>Cancel</Button>}
+                </div>
+              </div>
+            </form>
+          )}
+          {message && <Notice tone="success" live>{message}</Notice>}
+          {error && <Notice tone="danger" live>{error}</Notice>}
+        </Panel>
+        <WeeklyReport csrfToken={csrfToken} targetConfigured={configured} />
+      </div>
 
       {watch && (
         <Panel
           title="What BoxPilot watches"
           count={{ status: watch.activeCount ? "warning" : "good", label: watch.activeCount ? `${watch.activeCount} needs attention` : "All clear" }}
           meta={watch.targetConfigured ? "checked every 15 minutes" : "no target: these cannot reach you"}
-          className="settings-panel settings-panel--tall"
+          className="settings-panel"
           footer="A push when one turns bad, and again when it clears. A scheduled task or automation that keeps failing is one push until it works again; anything that could not be sent is listed on Home and Ops."
         >
           <ul className="settings-watch" aria-label="Conditions BoxPilot watches for">
@@ -244,7 +247,6 @@ export default function NotificationsPanel({ csrfToken, onChange }: { csrfToken:
         </Panel>
       )}
 
-      <WeeklyReport csrfToken={csrfToken} targetConfigured={configured} />
     </>
   );
 }

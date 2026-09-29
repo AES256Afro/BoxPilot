@@ -1398,6 +1398,35 @@ the milestones they overlap.
   GitHub, Apps, Automations, Metrics, VMs, System, Settings, Setup, sign-in, Activity and
   the approval dialog on the kit, and deleting stopgap rules as their classes go; Repair is
   M35's; Updates, built on the components in M33.1, still takes its header from the shell.
+- ✅ **M33.13 Settings, sign-in and the shell's dialogs** (wave 2E, unreleased). The pieces seen on
+  every page, rebuilt on the kit with every behaviour kept. **The approval dialog**
+  (`src/shell/ApproveDialog.tsx`; the old path re-exports it for pages still being rebuilt) leads
+  with the tier: a band in the tier's colour with its name in words (a lock for high) and what
+  approving asks, under the operation's name and id. Then "What it will do" (the page's preview,
+  or the registry's description when a page gives none; exactly what the job is given behind a
+  toggle, or in full when approving what someone else staged), then what approving needs (the
+  typed confirmation and the password as the kit's fields; the approval's expiry), then the run
+  followed with `JobProgress`, and its ending with the job log. Existing jobs (M36), `onStaged`,
+  `handoff` and `moreTimeFor` (M35, M30.3) are unchanged, as are the labels other pages' tests
+  press. It is drawn over the page in the console's look wherever it opens, Home included
+  (`src/shell/look.css`). **Activity** and **the notifications** are the kit's `Sheet` with the
+  facts on top (running, waiting, failed); a job's row carries its state in words, and M36's
+  review, cancel and dismiss stay on it. **The job log**, its timeout and follow-up notices and
+  the page error are the kit's notices, rows and `CodeBlock`. **The top bar's own controls**
+  (Activity, the bell, the role, the elevated lock, Sign out) are the shell's
+  (`src/shell/SessionControls.tsx`). **Settings** (`src/pages/settings/`) is tabbed, the tab in
+  the address: Account & sign-in (password, passkeys and recovery codes, sign-in methods, where
+  you are signed in), People, Notifications, Approvals, Single sign-on, Credentials, Appearance;
+  the owner's tabs stay the owner's and a viewer has no sign-in methods (ADR-003); the header says
+  whether alerts can reach the owner and how approvals are set; saving or removing a credential
+  carries its tier. **Sign-in** (`src/pages/signin/`) is the Launcher's wallpaper and a glass
+  card, the ways in best first (passkey, GitHub, Tailscale, then the password), with M36's reason
+  the session ended and the page it goes back to. The runbook and the installation doctor, shown
+  only in Repair, move into `src/repair/`. The areas sheet is the kit's `Sheet`, and the command
+  bar has its own overlay. The shell's stylesheets follow the page convention
+  (`src/shell/shellCss.test.ts`), and the Classic rules only these surfaces used are deleted. The
+  demo can show the sign-in page (`?signin`) and stages each operation at its registry tier, so
+  the dialog is reviewed at low, medium and high.
 - The owner wants every concept from the study (2026-09-28): the assistant (B5) is M34; the phone
   layout (B6) is M25; recipes and a GPU page (B7) belong to M22.
 
