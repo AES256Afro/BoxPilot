@@ -17,7 +17,8 @@
 #      share.reconnect, refused while a shell uses the share and done, app restarted, when an app does.
 #   3. share.unmount: refused while a shell or an app uses the share, done when nothing does, and
 #      done after getting Samba clients off it.
-#   4. A first mount that fails: a wrong password, and a NAS that does not answer.
+#   4. A first mount that fails: a wrong password, and a NAS that does not answer, tried in the
+#      same second as a wrong password for the same share was refused.
 #   5. The same over NFS.
 set -uo pipefail
 
@@ -379,9 +380,24 @@ check "nothing is left on the host, in fstab or in the secrets folder" eval 'hos
 check "no failed unit is left behind" eval '! unit_failed'
 check "the empty folder it made is gone" [ ! -e "$MNT" ]
 
-section "4b. share.mount of a NAS that does not answer"
+section "4b. share.mount of a NAS that does not answer, in the second a wrong password was refused"
+# share.mount used to read the unit's journal from the start of the second its attempt began in.
+# 4a's refusal is logged 0.5 to 1 s before this attempt begins, and whenever it fell in that same
+# second share.mount read its "Permission denied" too and said the NAS refused the credentials. So a
+# refusal of the same share is made to fall there every time: refused just after a second begins,
+# and share.mount started straight after it, about half a second later.
+set_line smb
+printf 'username=nasuser\npassword=not-the-password\n' > "$CRED"
+"$NODE" -e 'setTimeout(() => {}, 1000 - (Date.now() % 1000))'   # until the next second begins
+systemctl start "${BASE}.mount" 2>/dev/null; refused=$?
+refused_at="$(date +%s.%N)"
+# Out of fstab without a reload, so share.mount starts at once; its own reload lets the unit go.
+sed -i "/^# boxpilot:share-${NAME}\$/,+1d" /etc/fstab; rm -f "$CRED"; rmdir "$MNT"
 run_task share.mount "{\"kind\":\"smb\",\"host\":\"${UNREACHABLE}\",\"share\":\"media\",\"name\":\"${NAME}\",\"username\":\"nasuser\",\"password\":\"${PASSWORD}\"}"
 error="$(result_field 'value.error')"
+began="$(sed -n 's/.*--since=@\([0-9.]*\).*/\1/p' "$TASK_LOG" 2>/dev/null | tail -n 1)"
+note "a wrong password was refused at ${refused_at}; share.mount's attempt began at ${began:-?}, $(awk -v r="$refused_at" -v b="${began:-0}" 'BEGIN { print (int(r) == int(b) ? "in the same second" : "in a later second") }')"
+check "a wrong password for the same share was refused just before (exit ${refused})" [ "$refused" -ne 0 ]
 check "share.mount fails in bounded time (${TASK_SECONDS}s; the mount timeout is 30s)" eval '[ "$TASK_OK" = false ] && [ "$TASK_SECONDS" -le 90 ]'
 check "... saying the host did not answer" contains "$error" "The host did not answer"
 check "nothing is left on the host, in fstab or failed" eval 'host_clear "$MNT" && ! in_fstab && ! unit_failed'

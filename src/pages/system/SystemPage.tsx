@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useOperation } from "../../ApproveDialog";
 import { readJson } from "../../http";
 import { inspectOperation } from "../../operations";
-import SchedulesPanel from "../../SchedulesPanel";
+import SchedulesPanel from "../automations/SchedulesPanel";
 import { Button, KeyValue, MetricTile, Notice, PageHeader, Panel, Tabs, useUrlParam, type Status } from "../../ui";
 import { SystemHardware } from "./SystemHardware";
 import { SystemHousekeeping } from "./SystemHousekeeping";
@@ -225,7 +225,7 @@ export default function SystemPage({ csrfToken, role = "owner" }: SystemPageProp
         ) : current === "hardware" ? (
           <SystemHardware settings={settings} loading={loading} role={role} start={begin} ups={ups} upsError={upsError} onLookAgain={() => void lookForUps()} />
         ) : (
-          <SchedulesPanel csrfToken={csrfToken} serverTimezone={settings?.timezone ?? null} />
+          <SchedulesPanel csrfToken={csrfToken} role={role} serverTimezone={settings?.timezone ?? null} />
         )}
       </Tabs>
     </div>

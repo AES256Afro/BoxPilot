@@ -1,0 +1,66 @@
+/* Automations and schedules (M33.11): the page's own layout, on the kit's components. Tokens only,
+   and every selector starts with .automations-, so no other page is touched (docs/UI-PAGES.md).
+   The schedules panel is also drawn on System, so its rules stand on their own. */
+
+.automations-page { display: grid; gap: 10px; min-width: 0; }
+.automations-quiet { margin: 0; padding: 10px 12px; color: var(--text-muted); font-size: 13.5px; }
+.automations-notice { margin: 8px 12px; }
+.automations-webhook .ui-code { margin-top: 6px; }
+.automations-webhook p { margin: 0; }
+
+/* Each automation: a row with its state on the leading edge, its steps, its facts, its actions. */
+.automations-list { display: grid; margin: 0; padding: 0; list-style: none; }
+.automations-flow { display: grid; gap: 7px; min-width: 0; padding: 10px 12px; border-top: 1px solid var(--border); box-shadow: inset 3px 0 0 var(--border-strong); }
+.automations-flow:first-child { border-top: 0; }
+.automations-flow[data-status="danger"] { box-shadow: inset 3px 0 0 var(--status-danger); }
+.automations-flow[data-status="neutral"] { box-shadow: inset 3px 0 0 var(--accent); }
+.automations-flow__head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; min-width: 0; }
+.automations-flow__name { flex: 0 1 auto; min-width: 0; margin: 0; color: var(--text-strong); font-size: 15px; font-weight: 650; line-height: 1.3; overflow-wrap: anywhere; }
+.automations-flow__steps { margin: 0; color: var(--text); font-family: var(--font-mono); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.automations-flow__tier { color: var(--text-muted); font-family: var(--font-condensed); font-size: 13px; }
+.automations-flow__facts.ui-kv--columns { grid-template-columns: repeat(auto-fill, minmax(min(100%, 17rem), 1fr)); gap: 6px 22px; }
+.automations-flow__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+
+/* The shelf: a card each, the suggested ones first with the reason this server wants them. */
+.automations-shelf__grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 18rem), 1fr)); gap: 8px; margin: 0; padding: 12px; list-style: none; }
+.automations-card { display: grid; grid-template-rows: auto auto 1fr auto auto; gap: 6px; min-width: 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface-raised); }
+.automations-card[data-suggested] { border-color: var(--status-warning-border); }
+.automations-card__head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+.automations-card__name { flex: 1 1 auto; min-width: 0; margin: 0; color: var(--text-strong); font-size: 14.5px; font-weight: 650; line-height: 1.3; }
+.automations-card__because { display: flex; align-items: baseline; gap: 6px; margin: 0; color: var(--status-warning-text); font-size: 13px; line-height: 1.4; }
+.automations-card__because .ui-mark { flex: none; width: 7px; height: 7px; }
+.automations-card__description { margin: 0; color: var(--text); font-size: 13.5px; line-height: 1.45; }
+.automations-card__steps { margin: 0; color: var(--text-muted); font-family: var(--font-mono); font-size: 11.5px; line-height: 1.45; overflow-wrap: anywhere; }
+.automations-card__foot { display: flex; justify-content: flex-end; }
+
+/* Schedules: what runs, when, and how its last run ended, with the reason under a failure. */
+.automations-what { display: grid; gap: 1px; padding-block: 5px; white-space: normal; }
+.automations-what__title { color: var(--text-strong); font-family: var(--font-condensed); font-size: 13.5px; font-weight: 600; }
+.automations-what code { color: var(--text-muted); font-size: 12px; }
+.automations-next { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.automations-last { display: grid; gap: 2px; padding-block: 5px; white-space: normal; }
+.automations-reason { max-width: 36ch; color: var(--text-muted); font-family: var(--font-condensed); font-size: 12.5px; line-height: 1.35; }
+.automations-actions-cell { width: 1%; }
+.automations-actions { display: flex; justify-content: flex-end; gap: 4px; white-space: nowrap; }
+.automations-actions .ui-button { min-height: 26px; padding-right: 8px; padding-left: 8px; font-size: 12.5px; }
+
+/* The forms in the sheets: a new schedule, and building an automation step by step. */
+.automations-form { display: grid; gap: 12px; min-width: 0; }
+.automations-steps { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.automations-step { display: grid; gap: 8px; min-width: 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface-raised); }
+.automations-step__head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.automations-step__index { display: grid; width: 20px; height: 20px; place-items: center; border-radius: 3px; color: var(--text-muted); background: var(--surface); font-family: var(--font-mono); font-size: 11.5px; }
+.automations-step__title { flex: 1 1 10rem; min-width: 0; color: var(--text-strong); font-size: 14px; }
+.automations-step__moves { display: flex; gap: 4px; }
+.automations-step__fields, .automations-step__policy { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr)); gap: 8px 12px; }
+
+/* What a run did: each step's job, in order. */
+.automations-run { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
+.automations-run__step { display: grid; gap: 6px; min-width: 0; }
+.automations-run__label { margin: 0; color: var(--text-muted); font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
+
+@media (max-width: 640px) {
+  .automations-actions { flex-wrap: wrap; justify-content: flex-start; padding-top: 4px; }
+  .automations-actions-cell { width: auto; }
+  .automations-flow__facts.ui-kv--columns { gap: 4px 12px; }
+}
