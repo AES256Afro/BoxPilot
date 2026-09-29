@@ -97,7 +97,7 @@ export function Evaluation({ agents, agentId, csrfToken, now, enabled, onSelectA
   const resultColumns: Array<TableColumn<EvalResult>> = [
     { id: "question", header: "Question", cell: (result) => <span className="agents-name"><span>{result.question}</span><span className="agents-name__purpose">{result.expected.fact ? `${factLabel(result.expected.fact)}: ${result.expected.value ?? "not known on this server"}` : `contains ${(result.expected.includes ?? []).join(", ")}`}</span></span> },
     { id: "found", header: "Found", hideOnPhone: true, cell: (result) => <span className="agents-dim">{result.found ?? "—"}</span> },
-    { id: "passed", header: "Right?", cell: (result) => (result.passed === null ? <StatusChip status="neutral">waiting</StatusChip> : <StatusChip status={result.passed ? "good" : "danger"}>{result.passed ? "right" : "wrong"}</StatusChip>) },
+    { id: "passed", header: "Right?", label: "Verdict", cell: (result) => (result.passed === null ? <StatusChip status="neutral">waiting</StatusChip> : <StatusChip status={result.passed ? "good" : "danger"}>{result.passed ? "right" : "wrong"}</StatusChip>) },
     { id: "open", header: <span className="ui-visually-hidden">Open</span>, label: "Actions", className: "agents-actions-cell", cell: (result) => (result.runId ? <Button variant="ghost" onClick={() => onOpenRun(agent.id, result.runId!)} aria-label="Open this answer">Open</Button> : null) },
   ];
   const score = (entry: EvalRun) => (entry.score === null ? "—" : `${Math.round(entry.score * 100)}%`);
