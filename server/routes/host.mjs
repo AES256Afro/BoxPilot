@@ -248,7 +248,11 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
       const started = new Date(job.createdAt ?? "");
       return schedule.frequency !== "hourly" && !Number.isNaN(started.getTime()) && started.getHours() === schedule.hour && started.getMinutes() - schedule.minute >= 0 && started.getMinutes() - schedule.minute <= 5;
     }) ?? null;
-    facts.pruneRuns = visibleJobs.filter((job) => job.type === "op:docker.prune" && job.state === "completed" && (job.updatedAt ?? job.createdAt)).map((job) => {
+    // Only a clean-up that ran `docker system prune` removed containers. Since #312 it prunes images,
+    // the build cache and networks alone, and says so in the description each job keeps as its
+    // recovery reason; one of those is nobody's story.
+    const removedContainers = (job) => !/containers are never removed/i.test(String(job.recovery?.reason ?? ""));
+    facts.pruneRuns = visibleJobs.filter((job) => job.type === "op:docker.prune" && job.state === "completed" && (job.updatedAt ?? job.createdAt) && removedContainers(job)).map((job) => {
       const schedule = scheduleOf(job);
       return { at: job.updatedAt ?? job.createdAt, scheduled: Boolean(schedule), frequency: schedule?.frequency ?? null };
     });

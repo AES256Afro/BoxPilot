@@ -152,6 +152,21 @@ describe("Repair's memory: fixes tried and findings set aside (M35)", () => {
     } finally { await close(); }
   });
 
+  it("does not blame a clean-up that keeps containers (#312) for one that is gone", async () => {
+    const prune = { id: "job-21", type: "op:docker.prune", title: "Clean up Docker disk space", state: "completed", parameters: {}, createdBy: "owner-1", createdAt: "2026-09-30T03:00:01.000Z", updatedAt: "2026-09-30T03:00:40.000Z",
+      recovery: { reason: "Removes dangling images, the build cache, and networks no container uses. Containers are never removed, stopped ones included." } };
+    const state = fakeState([prune]);
+    state.updateSetting("appStops", {}, () => ({ value: { homepage: { at: "2026-09-29T22:10:20.000Z", by: "owner-1" } } }));
+    const { call, close } = await serve(state);
+    try {
+      const found = (await call("GET", "/remediations")).body.findings.find((finding) => finding.id === "app-missing:homepage");
+      expect(found.title).toBe("The container for Homepage was removed outside BoxPilot; its data folder is still here");
+      expect(found.evidence.some((line) => line.includes("docker system prune"))).toBe(false);
+      // Still stopped on purpose, so it still comes back stopped.
+      expect(found.fix).toMatchObject({ operationId: "app.reinstall", label: "Recreate (stays stopped)" });
+    } finally { await close(); }
+  });
+
   it("sets a finding aside with its reason until it changes, and brings it back on request", async () => {
     const state = fakeState();
     const { call, close } = await serve(state);

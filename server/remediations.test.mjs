@@ -558,7 +558,7 @@ describe("apps listed as installed with no container (M35)", () => {
     const [found] = appsWithoutContainer({ apps: [plex], pruneRuns: [{ at: "2026-09-20T03:00:00.000Z", scheduled: true, frequency: "daily" }, nightly] });
     expect(found).toMatchObject({ id: "app-missing:plex", severity: "warning", title: "Plex was removed by the nightly clean-up; your data is intact" });
     expect(found.detail).toContain(`You stopped Plex ${when(plex.stoppedAt)}, and the nightly clean-up ran ${when(nightly.at)}`);
-    expect(found.detail).toContain("It never touches volumes or folders");
+    expect(found.detail).toContain("it no longer removes containers. It never touched volumes or folders");
     // The stop and the clean-up that followed it, not an earlier one.
     expect(found.evidence.slice(0, 2)).toEqual([`you stopped it ${when(plex.stoppedAt)}`, `the nightly clean-up (docker system prune) ran ${when(nightly.at)}, on its schedule`]);
     expect(found.fixes.map((fix) => [fix.operationId, fix.label, fix.parameters])).toEqual([
