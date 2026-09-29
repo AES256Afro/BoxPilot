@@ -230,6 +230,8 @@ rollback() {
   systemctl daemon-reload 2>/dev/null || true
   systemctl restart boxpilot-helper.service 2>/dev/null || true
   systemctl restart boxpilot.service 2>/dev/null || true
+  # The agents runner (M37) only when the owner turned it on: try-restart leaves a stopped unit stopped.
+  systemctl try-restart boxpilot-agents.service 2>/dev/null || true
   # The code is back; the database is whatever the new version left. Usually that is fine - most
   # releases change nothing in it - but if the old version cannot read it, this is the way back.
   if [ -n "$DB_COPY" ]; then
@@ -315,6 +317,11 @@ if [ "$HEALTHY" -ne 1 ]; then
   if [ "$HAD_PREVIOUS" -eq 1 ]; then rollback; else fail "service unhealthy"; fi
 fi
 trap - EXIT
+
+# The agents runner (M37) runs the new code too, but only if the owner turned it on: its unit is
+# installed above with the rest and stays disabled until then, and try-restart leaves it so. Its
+# failing to start is not the upgrade's failure: it waits for BoxPilot and says why in its journal.
+systemctl try-restart boxpilot-agents.service 2>/dev/null || log "boxpilot-agents did not restart; journalctl -u boxpilot-agents says why"
 
 # The old unit files are only stale once the new version is answering.
 for name in $REPLACED_UNITS; do rm -f "/etc/systemd/system/${name}.pre-${STAMP}"; done

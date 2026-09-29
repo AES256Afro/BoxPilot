@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { appsWithoutContainer, backupDestinationToMove, backupsDue, containersOnStaleMounts, detectRemediations, fingerprintOf, mountFor, nothingCanReachYou, splitDataFolders, failedRehearsals, permissionlessMounts, staleMounts, unwritableAppFolders, unwritableShares, vpnLeaks, windowsCannotDiscover, readOnlyRemounts, exfatCheckerMissing, flakyDrives, drivesNeedingCheck, installDriveToolsFix, drivesNotOrderedAroundDocker } from "./remediations.mjs";
+import { appsWithoutContainer, backupDestinationToMove, backupsDue, containersOnStaleMounts, detectRemediations, fingerprintOf, mountFor, nothingCanReachYou, splitDataFolders, failedRehearsals, permissionlessMounts, portConflicts, staleMounts, unwritableAppFolders, unwritableShares, vpnLeaks, windowsCannotDiscover, readOnlyRemounts, exfatCheckerMissing, flakyDrives, drivesNeedingCheck, installDriveToolsFix, drivesNotOrderedAroundDocker } from "./remediations.mjs";
 
 /**
  * The situation each of these was written from, on a real server:
@@ -666,6 +666,98 @@ describe("an app that cannot write to its folder (M35)", () => {
     expect(found.fix).toBeNull();
     expect(found.manual).toContain("belongs to user 1001");
     expect(found.manual).toContain("in its Settings");
+  });
+});
+
+/**
+ * The Dockge port trap, on the owner's server (2026-09-29): Dockge on the home network (0.0.0.0:5001) and served
+ * on the tailnet at the same port, so tailscaled held 100.x.y.z:5001. The clean-up had removed
+ * Dockge's container, and Repair's Start failed with Docker's "address already in use".
+ */
+describe("ports something else holds (the Dockge port trap, 2026-09-29)", () => {
+  const record = (id) => ({ record: `/var/lib/boxpilot-managed/catalog/${id}/boxpilot.json`, project: `/var/lib/boxpilot-managed/catalog/${id}/compose.yaml`, projectPresent: true, container: `bp-${id}` });
+  const web = (host, bind) => ({ id: "web", host, protocol: "tcp", bind, fixed: false, web: true });
+  const serve = (port) => ({ dnsName: "homebox.tailXXXX.ts.net", port, target: `http://127.0.0.1:${port}` });
+  const dockge = { id: "dockge", name: "Dockge", installedAt: "2026-08-01T10:00:00.000Z", missingContainer: record("dockge"), container: { exists: false, running: false }, published: [web(5001, "0.0.0.0")] };
+  const facts = { apps: [dockge], serves: [serve(5001)], listeners: [{ protocol: "tcp", address: "100.64.0.10", port: 5001, scope: "address" }], lanAddress: "192.168.1.10" };
+
+  it("names Serve holding Dockge's own port, and offers the two ways in, each of which starts it", () => {
+    const [found] = portConflicts(facts);
+    expect(found).toMatchObject({ id: "port-conflict:dockge", severity: "warning", title: "Dockge cannot start: Tailscale Serve holds port 5001" });
+    expect(found.detail).toContain("Tailscale Serve also publishes it on your tailnet at https://homebox.tailXXXX.ts.net:5001");
+    expect(found.detail).toContain("Tailscale has it now, so Dockge cannot start.");
+    expect(found.evidence).toEqual([
+      "Dockge publishes 0.0.0.0:5001/tcp (every address)",
+      "tailscale serve: https://homebox.tailXXXX.ts.net:5001 forwards to http://127.0.0.1:5001, and tailscaled is listening on 100.64.0.10:5001",
+      "Dockge has no container",
+    ]);
+    expect(found.fixes.map((fix) => [fix.operationId, fix.label, fix.parameters])).toEqual([
+      ["app.exposure.set", "Serve Dockge only through Tailscale", { id: "dockge", mode: "tailnet" }],
+      ["app.serve.set", "Stop serving it on the tailnet", { id: "dockge", enabled: false, start: true }],
+    ]);
+    // Each says which address stays and which one stops.
+    expect(found.fixes[0].preview).toContain("Its address stays https://homebox.tailXXXX.ts.net:5001");
+    expect(found.fixes[0].preview).toContain("it stops answering on your home network at http://192.168.1.10:5001");
+    expect(found.fixes[1].preview).toContain("stays on your home network at http://192.168.1.10:5001, and devices on your tailnet still reach it at http://homebox:5001, over plain HTTP: https://homebox.tailXXXX.ts.net:5001 stops working");
+    expect(found.fixes[1].preview).toContain("Then it starts Dockge, building its container again.");
+  });
+
+  it("takes Start off the missing-container finding, which would fail, and points at the choices", () => {
+    const { findings } = detectRemediations(facts);
+    const missing = findings.find((entry) => entry.id === "app-missing:dockge");
+    expect(missing.fixes.map((fix) => fix.operationId)).toEqual(["app.uninstall"]);
+    expect(missing.manual).toBe('Dockge cannot start again until its port is free. "Dockge cannot start: Tailscale Serve holds port 5001" has the choices, and each one also builds its container again and starts it.');
+    expect(findings.some((entry) => entry.id === "port-conflict:dockge")).toBe(true);
+    // Created stopped, it binds no port: that one stays.
+    const stopped = detectRemediations({ ...facts, apps: [{ ...dockge, stoppedAt: "2026-09-28T22:10:20.000Z" }] }).findings;
+    expect(stopped.find((entry) => entry.id === "app-missing:dockge").fixes[0]).toMatchObject({ operationId: "app.reinstall", parameters: { id: "dockge", start: false } });
+    // And the stop-serving fix leaves an app stopped on purpose stopped.
+    expect(stopped.find((entry) => entry.id === "port-conflict:dockge").fixes[1].parameters).toEqual({ id: "dockge", enabled: false });
+  });
+
+  it("finds the trap set on a running app too: nothing holds the port against it yet", () => {
+    const running = { ...dockge, missingContainer: null, container: { exists: true, running: true, status: "running" } };
+    const [found] = portConflicts({ apps: [running], serves: [serve(5001)], listeners: [{ protocol: "tcp", address: "0.0.0.0", port: 5001, scope: "wildcard" }] });
+    expect(found.title).toBe("Dockge and Tailscale Serve both claim port 5001");
+    expect(found.detail).toContain("Dockge has it now; after a restart or a reboot it can be Tailscale");
+    expect(found.fixes[1].parameters).toEqual({ id: "dockge", enabled: false });
+  });
+
+  it("leaves alone every served app on loopback, which is how Serve is meant to front one", () => {
+    const vaultwarden = { id: "vaultwarden", name: "Vaultwarden", container: { exists: true, running: true }, published: [web(8222, "127.0.0.1")] };
+    expect(portConflicts({ apps: [vaultwarden], serves: [serve(8222)], listeners: [{ protocol: "tcp", address: "100.64.0.10", port: 8222, scope: "address" }, { protocol: "tcp", address: "127.0.0.1", port: 8222, scope: "loopback" }] })).toEqual([]);
+    // Nor is a stopped loopback app held by Serve on the tailnet address: two addresses.
+    expect(portConflicts({ apps: [{ ...vaultwarden, container: { exists: true, running: false } }], serves: [serve(8222)], listeners: [{ protocol: "tcp", address: "100.64.0.10", port: 8222, scope: "address" }] })).toEqual([]);
+  });
+
+  it("moves an app whose port another app's container holds to the nearest free one, and says its address changes", () => {
+    const uptime = { id: "uptime-kuma", name: "Uptime Kuma", container: { exists: true, running: false, status: "exited" }, published: [web(3001, "0.0.0.0")] };
+    const other = { id: "gatus", name: "Gatus", container: { exists: true, running: true }, published: [web(3001, "0.0.0.0"), web(3002, "0.0.0.0")] };
+    const [found] = portConflicts({
+      apps: [uptime, other],
+      listeners: [{ protocol: "tcp", address: "0.0.0.0", port: 3001, scope: "wildcard" }, { protocol: "tcp", address: "0.0.0.0", port: 3003, scope: "wildcard" }],
+      dockerContainers: [{ name: "bp-gatus", ports: "0.0.0.0:3001->8080/tcp", app: "gatus" }],
+      lanAddress: "192.168.1.10",
+    });
+    expect(found.title).toBe("Uptime Kuma cannot start: port 3001 is taken");
+    expect(found.detail).toContain("Port 3001 is taken on every address by container bp-gatus (Gatus).");
+    expect(found.fixes.map((fix) => [fix.operationId, fix.label, fix.parameters])).toEqual([["app.reconfigure", "Move it to port 3004", { id: "uptime-kuma", values: { ports: { web: 3004 } }, checkpoint: false }]]);
+    expect(found.fixes[0].preview).toContain("http://192.168.1.10:3001 becomes http://192.168.1.10:3004");
+    expect(found.manual).toBe("Or stop container bp-gatus if it should not be running, then start Uptime Kuma.");
+  });
+
+  it("offers only to stop serving an app on the host's own network, which binds every address itself", () => {
+    const assistant = { id: "home-assistant", name: "Home Assistant", container: { exists: true, running: true }, published: [{ id: "web", host: 8123, protocol: "tcp", bind: "*", fixed: true, web: true, hostNetwork: true }] };
+    const [found] = portConflicts({ apps: [assistant], serves: [serve(8123)], listeners: [] });
+    expect(found.detail).toContain("on this server's own network and listens on every address at port 8123 itself");
+    expect(found.fixes.map((fix) => [fix.operationId, fix.parameters])).toEqual([["app.serve.set", { id: "home-assistant", enabled: false }]]);
+  });
+
+  it("offers to withdraw an old Serve entry nothing answers behind, and never moves a fixed port", () => {
+    const pihole = { id: "pi-hole", name: "Pi-hole", container: { exists: true, running: false }, published: [{ id: "web", host: 8084, protocol: "tcp", bind: "0.0.0.0", fixed: true, web: true }] };
+    const [found] = portConflicts({ apps: [pihole], serves: [{ dnsName: "homebox.tailXXXX.ts.net", port: 8084, target: "http://127.0.0.1:9001" }], listeners: [{ protocol: "tcp", address: "100.64.0.10", port: 8084, scope: "address" }] });
+    expect(found.fixes.map((fix) => [fix.operationId, fix.parameters])).toEqual([["app.serve.withdraw", { port: 8084 }]]);
+    expect(found.manual).toContain("port 8084 is fixed");
   });
 });
 
