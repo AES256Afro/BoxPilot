@@ -23,19 +23,19 @@ const modelFields = {
 export function agentsOperations() {
   return [
     defineOperation({
-      // operator (ADR-003): it lists what the runner's root-owned state holds and runs its binary.
+      // operator (ADR-003): it lists what the runner's state holds, as root. It runs nothing from there.
       id: "agents.runtime.inspect", title: "Read the agents runtime", risk: "low", readOnly: true, minimumRole: "operator", timeoutMs: 45_000,
       description: "Whether Unsloth is installed, whether the capped runner unit is running, and which models are downloaded. Nothing is changed.",
       run: (_parameters, { run }) => inspectRuntime({ run }),
     }),
     defineOperation({
       id: "agents.runtime.install", title: "Install the agents runtime (Unsloth)", risk: "medium", minimumRole: "owner", timeoutMs: minutes(45), maxTimeoutMs: minutes(180),
-      description: "Installs Unsloth into /opt/boxpilot-agents with Unsloth's own installer, run as the unprivileged boxpilot-agents user rather than root, then makes it read-only to that user. Downloads about 1 GB. Nothing is started.",
+      description: "Installs Unsloth (GGUF only, no PyTorch) into /var/lib/boxpilot-agents/unsloth with Unsloth's own installer, run as the unprivileged boxpilot-agents user rather than root, and the OpenMP library its llama.cpp needs. Downloads about 2 GB. The installer takes Unsloth's newest release; BoxPilot says when that is not the one it was measured with. Nothing is started.",
       run: (_parameters, { runUnit, jobLog, timeScale = 1 }) => runUnit.runTask("agents.install", {}, { timeoutMs: Math.round(minutes(44) * timeScale), logPath: jobLog?.path ?? null }),
     }),
     defineOperation({
       id: "agents.runtime.enable", title: "Start the agents runner", risk: "medium", minimumRole: "owner", timeoutMs: minutes(3),
-      description: "Enables and starts boxpilot-agents.service: the capped runner (two processor threads at most, idle priority, 8 GB of memory, loopback only). It starts a model only when an agent runs, and stops it when idle.",
+      description: "Enables and starts boxpilot-agents.service: the capped runner (one processor at most, idle priority, 8 GB of memory, loopback only). It starts the model server only when an agent runs, and stops it after an hour with nothing to do.",
       run: (_parameters, { runUnit, jobLog }) => runUnit.runTask("agents.enable", {}, { timeoutMs: minutes(2), logPath: jobLog?.path ?? null }),
     }),
     defineOperation({
@@ -45,7 +45,7 @@ export function agentsOperations() {
     }),
     defineOperation({
       id: "agents.model.download", title: "Download a model for agents", risk: "medium", minimumRole: "owner", timeoutMs: minutes(60), maxTimeoutMs: minutes(240),
-      description: "Downloads one of Unsloth's Qwen GGUF models, and its vision projector, from huggingface.co into the runner's model cache. Every byte is checked against the SHA-256 Hugging Face publishes; space is checked first. The model in use is not changed.",
+      description: "Downloads one of Unsloth's Qwen GGUF models, and its vision projector, from huggingface.co into the runner's model cache, as the runner's own user. Every byte is checked against the SHA-256 Hugging Face publishes; space is checked first. The model in use is not changed.",
       parameters: { fields: modelFields },
       run: (parameters, { runUnit, jobLog, timeScale = 1 }) => runUnit.runTask("agents.model.download", parameters, { timeoutMs: Math.round(minutes(59) * timeScale), logPath: jobLog?.path ?? null }),
     }),

@@ -4,11 +4,17 @@
  * builds of the newest small Qwen that reads text and images.
  *
  * Sizes here are what the previews say before a download starts; the download itself takes the
- * exact sizes and checksums from Hugging Face and verifies every byte (server/tasks/agents.mjs).
- * The Unsloth spike (spike/unsloth-headless) measures load time and speed on CPU; until its results
- * land, the defaults below are its starting point: Qwen 3.5 4B at UD-Q4_K_XL with the F16 vision
- * projector, an 8k context and two threads.
+ * exact sizes and checksums from Hugging Face and verifies every byte (download.mjs). Speeds and
+ * memory are the Unsloth spike's (docs/spikes/2026-09-unsloth-headless.md, EPYC 7763 cores, one
+ * processor, one thread; the home server is likely faster): tool calling 5 of 5 and chart reading
+ * right for all three sizes.
+ *
+ * memoryBytes is what the runner's memory cap is charged for a model: its memory after a few
+ * requests plus its files, which are mapped and count as the cgroup's page cache once read.
  */
+
+/** The Unsloth release the spike measured. The runtime says when the installed one differs. */
+export const testedUnslothVersion = "2026.9.12";
 
 export const modelLibrary = Object.freeze([
   {
@@ -22,12 +28,32 @@ export const modelLibrary = Object.freeze([
     projector: "mmproj-F16.gguf",
     approxBytes: 2_900_000_000,
     approxProjectorBytes: 680_000_000,
-    memoryBytes: 5 * 1024 ** 3,
+    memoryBytes: 6_200_000_000, // 2.6 GB + 3.6 GB of files
     contextTokens: 8_192,
+    tokensPerSecond: 4.2,
     vision: true,
     tools: true,
     recommended: true,
-    note: "The default: fits the runner's 8 GB memory cap with room for an 8k context.",
+    note: "The default: the better answers of the two small ones. About 4 words a second on one processor, so a digest or a triage in the background, and a question in under a minute when the prompt is short.",
+  },
+  {
+    id: "qwen3.5-2b",
+    title: "Qwen 3.5 2B (Unsloth, 4-bit)",
+    family: "qwen3.5",
+    parameters: 2,
+    repo: "unsloth/Qwen3.5-2B-GGUF",
+    quant: "UD-Q4_K_XL",
+    file: "Qwen3.5-2B-UD-Q4_K_XL.gguf",
+    projector: "mmproj-F16.gguf",
+    approxBytes: 1_450_000_000,
+    approxProjectorBytes: 550_000_000,
+    memoryBytes: 3_700_000_000, // 1.7 GB + 2.0 GB of files
+    contextTokens: 8_192,
+    tokensPerSecond: 8.3,
+    vision: true,
+    tools: true,
+    recommended: false,
+    note: "Twice as fast as the 4B with the same tool calling and chart reading in the spike: the one to choose when waiting matters more than wording.",
   },
   {
     id: "qwen3.5-9b",
@@ -40,12 +66,13 @@ export const modelLibrary = Object.freeze([
     projector: "mmproj-F16.gguf",
     approxBytes: 5_900_000_000,
     approxProjectorBytes: 920_000_000,
-    memoryBytes: 9 * 1024 ** 3,
+    memoryBytes: 10_700_000_000, // 3.8 GB + 6.9 GB of files: more than the 8 GB cap
     contextTokens: 8_192,
+    tokensPerSecond: 2.3,
     vision: true,
     tools: true,
     recommended: false,
-    note: "Better answers, about twice as slow on a CPU, and it needs the memory cap raised above 8 GB.",
+    note: "Too slow under a one-processor cap (about 2 words a second, four minutes to read a long prompt), and with its 6.9 GB of files it needs more than the 8 GB memory cap: every word would read the disk. Not recommended.",
   },
 ]);
 

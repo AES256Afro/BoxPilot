@@ -462,7 +462,7 @@ const dataRoutes = {
     },
   }],
   "GET /api/v1/agents/catalog": [{ ...open, check: ({ role, body }) => expect(body.templates.length, role).toBe(5) }],
-  "GET /api/v1/agents/usage": [{ ...open, check: ({ role, body }) => expect(body.caps.cpuQuotaPercent, role).toBe(200) }],
+  "GET /api/v1/agents/usage": [{ ...open, check: ({ role, body }) => expect(body.caps.cpuQuotaPercent, role).toBe(100) }],
   "GET /api/v1/agents/runtime": [{
     ...open,
     check: ({ role, body, calls }) => {

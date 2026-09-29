@@ -1688,26 +1688,44 @@ the content). The engine is `feat/m37-agents-engine`; the section is `feat/m37-a
   systemd's `LoadCredential`; the route matrix proves it opens nothing else), never the root helper.
   Every tool runs in the web process as the run's person. Every run keeps its trace - each step, each
   tool call with its input and its (redacted) output, the model's words, tokens and timing - which a
-  page follows live as server-sent events. Idle is a long poll: no busy loop, and the model server
-  is stopped once nothing has used it for ten minutes.
-- ◐ **M37.4 The runtime** (unreleased; the details wait on the spike). Unsloth runs as the runner's
-  own child, in its cgroup and under its caps: a systemd unit, not a catalog app (ADR-005 says why).
-  `server/agents/runtime.mjs` starts `unsloth run --model <repo:quant> --api-only --disable-tools -H
-  127.0.0.1 -p <port> --context-length 8192 --parallel 1 --threads 2` on demand, offline, reads its
-  per-start key from its output, checks it answers, and stops it when idle. Registered operations:
-  `agents.runtime.install` (medium, owner: Unsloth's own installer run as the unprivileged runner
-  user, then made read-only to it; its SHA-256 is kept), `agents.runtime.enable` (medium, owner),
-  `agents.runtime.disable` (low), `agents.model.download` (medium, owner: Unsloth's Qwen GGUFs only,
-  every byte checked against Hugging Face's SHA-256, space checked first; the preview gives size and
-  time), `agents.model.switch` (medium, owner), `agents.model.remove` (medium, owner; never the model in
-  use) and the read `agents.runtime.inspect`. The model library (`models.mjs`) holds Qwen 3.5 4B (the
-  default) and 9B at UD-Q4_K_XL with the F16 vision projector; a daily look at Hugging Face finds a
-  newer small Qwen with vision and offers the download and the switch as a card, never on its own.
-  All model clients are one pluggable OpenAI-compatible client (`assistant/model-client.mjs`) under
-  M34's local-only address rules; for agents, loopback only. The assistant uses it too; Ollama's own
-  API stays as a legacy provider. **Waits on the spike** (`spike/unsloth-headless`): load times and
-  tokens a second at two threads, whether `HF_HUB_OFFLINE` holds, the exact install layout, whether
-  `/v1/embeddings` answers beside a chat model, and how `enable_thinking` is passed.
+  page follows live as server-sent events. Idle is a long poll: no busy loop. Unsloth frees the
+  model itself after 15 quiet minutes, and the runner stops the whole model server after the owner's
+  idle time (an hour unless changed, five minutes to twelve hours), so idle is then no process at all.
+- ✅ **M37.4 The runtime** (unreleased), built to the Unsloth spike
+  (`docs/spikes/2026-09-unsloth-headless.md`, PR #316). Unsloth runs as the runner's own child, in
+  its cgroup and under its caps: a systemd unit, not a container or a catalog app (ADR-005 says why).
+  `server/agents/runtime.mjs` starts the spike's command on demand - `unsloth run --model
+  <repo:quant> --api-only --disable-tools -H 127.0.0.1 -p <port> --context-length 8192 --parallel 1
+  --threads 1 -c 8192 --ctx-checkpoints 4` - offline (`HF_HUB_OFFLINE=1`), with
+  `UNSLOTH_MODEL_IDLE_TTL=900`, `UNSLOTH_STUDIO_DISABLE_PUBLIC_CHECK=1` and
+  `UNSLOTH_STUDIO_PASSWORD` set to a secret the runner keeps (0600) in place of the admin password
+  Studio would generate and print. `--disable-tools` is mandatory (Studio's server-side Python, shell
+  and web search are on by default for every bind); `-c 8192` is passed through to llama-server
+  because Unsloth's idle reload forgets `--context-length` and relaunches at 262,144 tokens, which the
+  memory cap kills. The key Studio mints is read from its "API Key:" line (or its auth folder), sent
+  on every request, never logged; lines carrying a key or a password never reach the log tail. Every
+  request names the model (the repo), and Qwen's thinking is off (`enable_thinking: false`). Stopping
+  the server stops its whole process group, Studio's llama-server with it. Unsloth is installed into
+  the runner's state (`/var/lib/boxpilot-agents/unsloth`) by its own installer, GGUF-only
+  (`UNSLOTH_NO_TORCH=1`, `UNSLOTH_SKIP_AUTOSTART=1`), as the runner's user, with `libgomp1` as a
+  package of its own; root runs nothing from there and writes nothing there. Models are downloaded as
+  the runner's user too (`scripts/boxpilot-agents-download.mjs`, started by the root task with
+  `runuser`), and the helper's reads only follow links that stay inside the cache's blobs.
+  Registered operations: `agents.runtime.install` (medium, owner; the installer's SHA-256 and the
+  release it installed are kept, and the Agents section says when that is not 2026.9.12, the one
+  measured), `agents.runtime.enable` (medium, owner), `agents.runtime.disable` (low),
+  `agents.model.download` (medium, owner: Unsloth's Qwen GGUFs only, every byte checked against
+  Hugging Face's SHA-256, space checked first; the preview gives size, time and memory),
+  `agents.model.switch` (medium, owner), `agents.model.remove` (medium, owner; never the model in use)
+  and the read `agents.runtime.inspect`. The model library (`models.mjs`) holds Qwen 3.5 4B (the
+  default: 4.2 tokens a second at one processor, 6.2 GB with its files), 2B (8.3 a second, 3.7 GB)
+  and 9B (2.3 a second, 10.7 GB: more than the cap, not recommended), all UD-Q4_K_XL with the F16
+  vision projector, each 5 of 5 on tool calls and right on the chart in the spike. A daily look at
+  Hugging Face finds a newer small Qwen with vision and offers the download and the switch as a card,
+  never on its own. A `llama-server` driver runs llama.cpp's own server from the same install with no
+  Studio layer, for the owner to choose (ADR-005). All model clients are one pluggable
+  OpenAI-compatible client (`assistant/model-client.mjs`) under M34's local-only address rules; for
+  agents, loopback only. The assistant uses it too; Ollama's own API stays as a legacy provider.
 - ◐ **M37.5 The Agent Builder** (the stacked UI pull request): the Agents section in the Command
   Center's look - the agents list with the module switch, create and edit from templates, a test
   console with a live trace and the cards it proposed, the learning library, usage at a glance, and
@@ -1724,22 +1742,35 @@ the content). The engine is `feat/m37-agents-engine`; the section is `feat/m37-a
   Backpressure: at most twenty runs waiting and two per agent; unattended runs past that are dropped
   and counted, a person is told to try later. Tests for each limit (`limits.test.mjs`), and a
   real-systemd test (`tests/ubuntu/agents-caps.sh`, CI job `agents-caps` on 24.04 and 26.04): under a
-  fake model burning six threads the service's cgroup stays at or under `CPUQuota=200%` and was
+  fake model burning three threads the service's cgroup stays at or under `CPUQuota=100%` and was
   throttled to stay there, the model server is its niced, idle-I/O child, and afterwards the service
   idles under 2%.
-- **The caps** (`server/agents/caps.mjs`, held to the unit by `caps.test.mjs`): `CPUQuota=200%` (two
-  of the server's sixteen threads, an eighth of it), `CPUWeight=idle`, `Nice=19`,
-  `IOSchedulingClass=idle`, `MemoryMax=8G` (`MemoryHigh=7G`, no swap), `TasksMax=256`, loopback-only
+- **The caps** (`server/agents/caps.mjs`, held to the unit by `caps.test.mjs`): `CPUQuota=100%` (one
+  processor, the spike's number: a sixteenth of a sixteen-thread server; the model runs one thread,
+  which beats two under this cap), `CPUWeight=idle`, `Nice=19`, `IOSchedulingClass=idle`,
+  `MemoryMax=8G` (the 4B's 2.6 GB plus its 3.6 GB of mapped files, with room; no swap),
+  `TasksMax=256`, loopback-only
   networking (`IPAddressDeny=any`), its own user, no capabilities. The unit is installed with the
   others by the upgrade script and stays disabled until the owner turns Agents on; an upgrade
   restarts it only if it runs.
 
 Left, and why:
 
-- **Embeddings for the learning library**: keyword search (BM25) now; meaning search waits on the
-  spike's answer about embeddings on this CPU.
+- **Embeddings for the learning library**: keyword search (BM25) now. The spike's answer is Unsloth's
+  own `/v1/embeddings` (bge-small-en-v1.5 beside the chat model, 101 MB, 26 ms a text, 0.01% idle),
+  seeded into the cache at install so the offline runner never fetches it; wiring it in is next.
+- **Pinning Unsloth**: its installer always takes the newest release. BoxPilot keeps the installer's
+  checksum and the release, and says when it is not 2026.9.12; a pinned install (or a BoxPilot-built
+  image) and a rerun of the spike's workflow before moving is the owner's call (ADR-005).
+- **The home server's own numbers**: the spike ran on EPYC 7763 cores; `tests/spikes/unsloth-headless.sh
+  perf` on the server settles the latency the Agents section promises.
 - **Images**: the model reads them, but no tool hands one over yet (a chart of a disk, a screenshot).
-- **The 9B model** needs the memory cap raised past 8 GB: the owner's call (a drop-in), not a default.
+- **The 9B model** needs the memory cap raised to about 12 GB and is too slow at one processor: the
+  owner's call (a drop-in), not a default.
+- **Studio or bare llama-server**: Studio brings tool-call healing and its own idle unload; it also
+  brings a 0.4 GB Python process (all of the idle processor), its management API and AGPL-3.0 code.
+  llama.cpp's server alone is MIT, idles at 0.00% and starts in about a second; it was measured for
+  embeddings, not chat. The driver is there; the choice is the owner's.
 - **The command bar's assistant as the Server Keeper**: the bar still asks M34's assistant.
 - **Per-device Pi-hole numbers**: only if the owner opts in, as a separate owner-only read.
 - **Learning on its own schedule**: a learning pass runs when asked ("Re-learn"), in quiet hours.

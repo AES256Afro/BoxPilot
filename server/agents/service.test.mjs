@@ -8,7 +8,8 @@ import { readFile, stat } from "node:fs/promises";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createAgentsHarness } from "../../test/agents-harness.mjs";
 import { onWindows } from "../../test/platform.mjs";
-import { agentsRuntimeKey, defaultRuntimeSettings, gradeFact } from "./service.mjs";
+import { testedUnslothVersion } from "./models.mjs";
+import { agentsRuntimeKey, defaultRuntimeSettings, gradeFact, normalizeRuntimeSettings } from "./service.mjs";
 
 let h;
 beforeEach(async () => { h = await createAgentsHarness(); });
@@ -96,12 +97,14 @@ describe("asking an agent", () => {
     expect(run.usage.promptTokens).toBeGreaterThan(0);
   });
 
-  it("hands the runner Unsloth's model, its threads and Qwen's thinking turned off", async () => {
+  it("hands the runner Unsloth's model, the name to ask for, one thread and Qwen's thinking turned off", async () => {
     h.enable();
     h.state.setSetting(agentsRuntimeKey, defaultRuntimeSettings());
     ask(make("it-support"), "owner", "Hi");
     const claim = await h.service.runnerNext(h.runnerId, { waitMs: 0 });
-    expect(claim.runtime).toMatchObject({ driver: "unsloth", model: "unsloth/Qwen3.5-4B-GGUF:UD-Q4_K_XL", threads: 2, contextTokens: 8192, endpoint: null, extra: { enable_thinking: false } });
+    // One thread under a one-processor cap (the spike: two spend the quota and sit throttled), and an
+    // hour before the idle model server stops.
+    expect(claim.runtime).toMatchObject({ driver: "unsloth", model: "unsloth/Qwen3.5-4B-GGUF:UD-Q4_K_XL", requestModel: "unsloth/Qwen3.5-4B-GGUF", threads: 1, contextTokens: 8192, endpoint: null, idleStopMs: 3_600_000, extra: { enable_thinking: false } });
     expect(claim.limits).toMatchObject({ steps: 4, tokens: 8000, runSeconds: 300, toolCallsPerStep: 3, maxToolCalls: 12 });
     expect(Date.parse(claim.run.deadlineAt) - Date.parse(claim.run.startedAt)).toBe(300_000);
   });
@@ -394,5 +397,38 @@ describe("a newer small Qwen", () => {
     expect(cards[0].steps.map((step) => [step.operationId, step.risk])).toEqual([["agents.model.download", "medium"], ["agents.model.switch", "medium"]]);
     await expect(h.service.runtimeState(h.caller("owner"))).resolves.toMatchObject({ settings: { repo: "unsloth/Qwen3.5-4B-GGUF" } });
     expect(h.service.listProposals(h.caller("operator")).filter((card) => card.source === "runtime")).toEqual([]);
+  });
+});
+
+describe("the runtime as the Agents section shows it", () => {
+  it("says which Unsloth was installed against the one BoxPilot was measured with, and which models fit the cap", async () => {
+    h.enable();
+    expect((await h.service.runtimeState(h.caller("owner"))).unsloth).toMatchObject({ version: null, testedVersion: testedUnslothVersion });
+    h.service.noteRuntimeInstalled({ installed: true, version: "unsloth 2026.10.3; rm -rf /", installerSha256: "f".repeat(64) }, { actorId: null });
+    const shown = await h.service.runtimeState(h.caller("owner"));
+    expect(shown.unsloth).toMatchObject({ version: "unsloth 2026.10.3 rm -rf", installerSha256: "f".repeat(64), testedVersion: testedUnslothVersion });
+    expect(shown.library.map((model) => [model.id, model.fitsCap])).toEqual([["qwen3.5-4b", true], ["qwen3.5-2b", true], ["qwen3.5-9b", false]]);
+    expect(shown.caps).toMatchObject({ cpuQuotaPercent: 100, modelThreads: 1 });
+  });
+
+  it("keeps an idle model server between five minutes and twelve hours, an hour unless the owner says", () => {
+    expect(defaultRuntimeSettings().idleStopMinutes).toBe(60);
+    expect(normalizeRuntimeSettings({ idleStopMinutes: 15 })).toMatchObject({ idleStopMinutes: 15 });
+    for (const idleStopMinutes of [0, 4, 721, 1.5]) expect(() => normalizeRuntimeSettings({ idleStopMinutes })).toThrow(/idle model server/);
+  });
+
+  it("takes llama.cpp's own server as a choice, and only a loopback address for someone else's", () => {
+    expect(normalizeRuntimeSettings({ driver: "llama-server" })).toMatchObject({ driver: "llama-server" });
+    expect(() => normalizeRuntimeSettings({ driver: "docker" })).toThrow();
+    expect(() => normalizeRuntimeSettings({ driver: "external", endpoint: "http://192.168.1.20:8080" })).toThrow(/on this machine/);
+  });
+});
+
+describe("the runner's key, issued twice at once", () => {
+  it.skipIf(onWindows)("is one key: the file and the digest agree", async () => {
+    const [first, second] = await Promise.all([h.service.ensureRunnerToken(), h.service.ensureRunnerToken()]);
+    expect([first.issued, second.issued].sort()).toEqual([false, true]);
+    const token = (await readFile(first.path, "utf8")).trim();
+    expect(h.service.verifyRunnerToken(token)).toBe(true);
   });
 });

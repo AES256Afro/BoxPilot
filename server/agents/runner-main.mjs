@@ -10,7 +10,7 @@
  *   CREDENTIALS_DIRECTORY    set by systemd; runner-token is read from it
  *   BOXPILOT_AGENTS_TOKEN_FILE  the key's file when not run by systemd (development)
  *   BOXPILOT_AGENTS_STATE    the runner's own state (the model cache), default /var/lib/boxpilot-agents
- *   BOXPILOT_AGENTS_RUNTIME  where Unsloth is installed, default /opt/boxpilot-agents/unsloth
+ *   BOXPILOT_AGENTS_RUNTIME  where Unsloth is installed, default /var/lib/boxpilot-agents/unsloth
  */
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";

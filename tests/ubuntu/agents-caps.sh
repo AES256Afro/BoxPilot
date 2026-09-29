@@ -1,13 +1,14 @@
 #!/bin/bash
 # The agents runner's hard caps on real systemd (M37): deploy/boxpilot-agents.service as shipped,
-# the real runner (server/agents/runner-main.mjs), and the fake model made to burn six threads - three
+# the real runner (server/agents/runner-main.mjs), and the fake model made to burn three threads - three
 # times what the unit allows. The owner's requirement is that agents never make the server run hot,
 # so this measures the unit's own cgroup, from the kernel's counters:
 #
-#   1. The unit carries the caps (CPUQuota=200%, CPUWeight=idle, Nice=19, IOSchedulingClass=idle,
+#   1. The unit carries the caps (CPUQuota=100%, CPUWeight=idle, Nice=19, IOSchedulingClass=idle,
 #      MemoryMax=8G, loopback only), its key comes from LoadCredential, and it runs as its own user.
 #   2. Under the busy model the whole service - runner and model server in one cgroup - stays at or
-#      under 200% of a processor, and the kernel throttled it to keep it there.
+#      under one processor (100%), and the kernel throttled it to keep it there. One processor and one
+#      thread are the Unsloth spike's numbers (docs/spikes/2026-09-unsloth-headless.md).
 #   3. The model server is the runner's child, niced and in the idle I/O class with it.
 #   4. When the run is over the runner stops the model server, and the service idles near 0%.
 #
@@ -78,7 +79,7 @@ cat >"/etc/systemd/system/${UNIT}.d/cap-test.conf" <<EOF
 [Service]
 Environment=BOXPILOT_AGENTS_API=http://127.0.0.1:${PORT}
 Environment=BOXPILOT_AGENTS_DRIVER_OVERRIDE=fake
-Environment=BOXPILOT_AGENTS_FAKE_BUSY_THREADS=6
+Environment=BOXPILOT_AGENTS_FAKE_BUSY_THREADS=3
 Environment=BOXPILOT_AGENTS_FAKE_BUSY_MS=30000
 EOF
 "$NODE" "${ROOT}/tests/ubuntu/agents-fake-api.mjs" "$PORT" "$TOKEN" >/tmp/agents-fake-api.log 2>&1 &
@@ -97,18 +98,18 @@ took_run() { [ "$(field claimed)" = "true" ]; }
 finished() { [ "$(field finished)" = "true" ]; }
 model_running() { [ "$(procs)" -ge 2 ]; }
 model_stopped() { [ "$(procs)" -eq 1 ]; }
-check "CPUQuota is 200% ($(show CPUQuotaPerSecUSec) a second)" [ "$(show CPUQuotaPerSecUSec)" = "2s" ]
+check "CPUQuota is 100% ($(show CPUQuotaPerSecUSec) a second)" [ "$(show CPUQuotaPerSecUSec)" = "1s" ]
 check "CPUWeight is idle ($(show CPUWeight))" weight_idle
 check "Nice is 19" [ "$(show Nice)" = "19" ]
 check "IOSchedulingClass is idle ($(show IOSchedulingClass))" io_idle
 check "MemoryMax is 8G ($(show MemoryMax))" [ "$(show MemoryMax)" = "$((8 * 1024 * 1024 * 1024))" ]
-check "the cgroup's cpu.max is 200000 per 100000" [ "$(cut -d' ' -f1-2 "${CGROUP}/cpu.max")" = "200000 100000" ]
+check "the cgroup's cpu.max is 100000 per 100000" [ "$(cut -d' ' -f1-2 "${CGROUP}/cpu.max")" = "100000 100000" ]
 check "only loopback is allowed ($(show IPAddressDeny))" [ -n "$(show IPAddressDeny)" ]
 check "it runs as boxpilot-agents" [ "$(show User)" = "boxpilot-agents" ]
 check "the runner said hello with its key" wait_for 30 said_hello
 check "no request came without the key" [ "$(field refused)" = "0" ]
 
-section "2. Under a model that wants six processors"
+section "2. Under a model that wants three processors"
 curl -fsS -X POST "http://127.0.0.1:${PORT}/control/start" >/dev/null
 check "the runner took the run" wait_for 30 took_run
 # Give the model server time to start and the burn to begin, then measure a window inside it.
@@ -117,9 +118,9 @@ sleep 6
 THROTTLED_BEFORE="$(throttled)"
 BUSY="$(cpu_percent 15)"
 THROTTLED_AFTER="$(throttled)"
-note "processor use under load: ${BUSY}% of one processor (the cap is 200%)"
-check "stays at or under the 200% cap (${BUSY}%)" awk -v v="$BUSY" 'BEGIN { exit !(v <= 210) }'
-check "was really busy, so the cap is what held it (${BUSY}% >= 100%)" awk -v v="$BUSY" 'BEGIN { exit !(v >= 100) }'
+note "processor use under load: ${BUSY}% of one processor (the cap is 100%)"
+check "stays at or under the 100% cap (${BUSY}%)" awk -v v="$BUSY" 'BEGIN { exit !(v <= 105) }'
+check "was really busy, so the cap is what held it (${BUSY}% >= 60%)" awk -v v="$BUSY" 'BEGIN { exit !(v >= 60) }'
 check "the kernel throttled it ($((THROTTLED_AFTER - THROTTLED_BEFORE)) times)" [ "$((THROTTLED_AFTER - THROTTLED_BEFORE))" -gt 0 ]
 
 section "3. The model server is the runner's child, under the same caps"
@@ -145,5 +146,5 @@ check "holds little memory idle ($((MEMORY / 1024 / 1024)) MiB < 200 MiB)" [ "$M
 
 section "Results"
 printf '%s' "$RESULTS"
-printf '{"busyCpuPercent":%s,"idleCpuPercent":%s,"capPercent":200,"idleMemoryBytes":%s}\n' "$BUSY" "$IDLE" "$MEMORY" | tee /tmp/agents-caps-results.json
+printf '{"busyCpuPercent":%s,"idleCpuPercent":%s,"capPercent":100,"idleMemoryBytes":%s}\n' "$BUSY" "$IDLE" "$MEMORY" | tee /tmp/agents-caps-results.json
 [ "$FAILURES" -eq 0 ] || { echo "${FAILURES} check(s) failed" >&2; exit 1; }

@@ -1,13 +1,17 @@
 /**
  * The agents runtime on the host (M37): where things live, and the reads the helper makes about
- * them. Unsloth is installed under /opt/boxpilot-agents/unsloth, owned by root and read-only to the
- * runner; models live in the runner's state directory in the Hugging Face cache layout that
- * `unsloth run` reads offline (hub/models--<org>--<name>/{blobs,snapshots/<commit>,refs/main}).
+ * them. Unsloth is installed with its own installer, as the runner's user, into the runner's state
+ * directory (/var/lib/boxpilot-agents/unsloth): its Studio keeps its key, its admin account and its
+ * caches beside its code, as it does in the spike's image. Models live beside it in the Hugging Face
+ * cache layout that `unsloth run` reads offline (hf/hub/models--<org>--<name>/...).
  *
- * Why a systemd unit and not a catalog app (ADR-005): the caps must cover the runner and the model
- * server as one cgroup; the model starts and stops with demand, which a long-running container does
- * not; Unsloth's official image starts JupyterLab and SSH by default; and loopback-only networking
- * is enforced by the unit itself (IPAddressDeny=any), with no Docker in between.
+ * Root never runs anything from there and never writes there: the helper only looks (a stat, a
+ * directory listing, a link that must stay inside the cache), and downloads run as the runner's
+ * user (download.mjs). The runner reports Unsloth's version itself.
+ *
+ * Why the runner's own child and not a container (ADR-005): the caps cover the runner and the model
+ * server as one cgroup, the runner starts and stops the model with no privilege at all, and idle is
+ * then no process at all; loopback-only networking is the unit's own (IPAddressDeny=any).
  */
 import { lstat, readdir, readlink, stat, statfs } from "node:fs/promises";
 import path from "node:path";
@@ -15,9 +19,8 @@ import { ggufPattern, quantOf, repoPattern } from "./models.mjs";
 import { runnerUnit } from "./caps.mjs";
 
 export const agentsPaths = Object.freeze({
-  home: process.env.BOXPILOT_AGENTS_HOME ?? "/opt/boxpilot-agents",
-  runtime: process.env.BOXPILOT_AGENTS_RUNTIME ?? "/opt/boxpilot-agents/unsloth",
   state: process.env.BOXPILOT_AGENTS_STATE ?? "/var/lib/boxpilot-agents",
+  runtime: process.env.BOXPILOT_AGENTS_RUNTIME ?? "/var/lib/boxpilot-agents/unsloth",
   token: process.env.BOXPILOT_AGENTS_TOKEN_PATH ?? "/var/lib/boxpilot/agents/runner.token",
   user: "boxpilot-agents",
 });
@@ -32,16 +35,22 @@ export function readModelParameters({ repo, file, projector = null }) {
   return { repo, file, projector: projector ?? null, quant: quantOf(file) };
 }
 
-/** Whether a file is in the cache for a repository's current snapshot: its link and the blob behind it. */
+/**
+ * Whether a file is in the cache for a repository's snapshot: its link, and the blob behind it,
+ * which must be inside that repository's blobs folder - a link pointing anywhere else is not a model.
+ */
 export async function cachedFile(stateDir, repo, file) {
   const base = cacheDirectory(stateDir, repo);
+  const blobs = path.join(base, "blobs");
   const snapshots = await readdir(path.join(base, "snapshots")).catch(() => []);
   for (const commit of snapshots) {
+    if (!/^[a-f0-9]{40}$/.test(commit)) continue;
     const link = path.join(base, "snapshots", commit, file);
     const info = await lstat(link).catch(() => null);
-    if (!info) continue;
-    const target = info.isSymbolicLink() ? path.resolve(path.dirname(link), await readlink(link)) : link;
-    const blob = await stat(target).catch(() => null);
+    if (!info?.isSymbolicLink()) continue;
+    const target = path.resolve(path.dirname(link), await readlink(link));
+    if (path.dirname(target) !== blobs || !/^[a-f0-9]{64}$/.test(path.basename(target))) continue;
+    const blob = await lstat(target).catch(() => null);
     if (blob?.isFile() && blob.size > 0) return { commit, bytes: blob.size, path: target };
   }
   return null;
@@ -56,11 +65,11 @@ export async function listCachedModels(stateDir) {
     const repo = directory.replace(/^models--/, "").replace("--", "/");
     if (!repoPattern.test(repo)) continue;
     const snapshots = await readdir(path.join(hub, directory, "snapshots")).catch(() => []);
-    for (const commit of snapshots.slice(0, 5)) {
-      for (const file of (await readdir(path.join(hub, directory, "snapshots", commit)).catch(() => [])).filter((name) => ggufPattern.test(name))) {
-        const found = await cachedFile(stateDir, repo, file);
-        if (found) models.push({ repo, file, commit, bytes: found.bytes, complete: true, projector: /mmproj/i.test(file) });
-      }
+    const files = new Set();
+    for (const commit of snapshots.slice(0, 5)) for (const file of await readdir(path.join(hub, directory, "snapshots", commit)).catch(() => [])) if (ggufPattern.test(file)) files.add(file);
+    for (const file of files) {
+      const found = await cachedFile(stateDir, repo, file);
+      if (found) models.push({ repo, file, bytes: found.bytes, complete: true, projector: /mmproj/i.test(file) });
     }
   }
   return models;
@@ -70,14 +79,13 @@ export async function listCachedModels(stateDir) {
 export async function inspectRuntime({ run, paths = agentsPaths, systemctl = "/usr/bin/systemctl" }) {
   const binary = path.join(paths.runtime, "bin", "unsloth");
   const installed = await stat(binary).then((info) => info.isFile(), () => false);
-  const version = installed ? await run(binary, ["--version"], { timeout: 20_000 }).then((result) => (result.ok ? result.stdout.split("\n").pop().trim().slice(0, 80) : null), () => null) : null;
   const show = await run(systemctl, ["show", runnerUnit, "--property=LoadState,ActiveState,SubState,UnitFileState,MainPID"], { timeout: 10_000 }).catch(() => ({ ok: false, stdout: "" }));
   const unit = Object.fromEntries(String(show.stdout ?? "").split("\n").map((line) => line.split("=", 2)).filter((pair) => pair.length === 2));
   const free = await statfs(path.dirname(paths.state)).then((info) => info.bavail * info.bsize, () => null);
   return {
-    runtime: { installed, version, path: binary },
+    runtime: { installed, path: binary },
     service: { unit: runnerUnit, loaded: unit.LoadState === "loaded", active: unit.ActiveState ?? "unknown", sub: unit.SubState ?? "unknown", enabled: unit.UnitFileState ?? "unknown" },
-    models: (await listCachedModels(paths.state)).map(({ repo, file, bytes, complete, projector }) => ({ repo, file, bytes, complete, projector })),
+    models: await listCachedModels(paths.state),
     diskFreeBytes: free,
   };
 }

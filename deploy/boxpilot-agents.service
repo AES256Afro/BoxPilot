@@ -1,5 +1,5 @@
 [Unit]
-Description=BoxPilot agents runner (capped: idle priority, two threads, 8 GB, loopback only)
+Description=BoxPilot agents runner (capped: idle priority, one processor, 8 GB, loopback only)
 Documentation=https://github.com/AES256Afro/BoxPilot/blob/main/docs/DECISIONS.md
 # It asks the web service for work; without it there is nothing to do, so it waits for it.
 Wants=boxpilot.service
@@ -15,7 +15,9 @@ WorkingDirectory=/opt/boxpilot
 EnvironmentFile=-/etc/boxpilot/boxpilot.env
 Environment=NODE_ENV=production
 Environment=BOXPILOT_AGENTS_STATE=/var/lib/boxpilot-agents
-Environment=BOXPILOT_AGENTS_RUNTIME=/opt/boxpilot-agents/unsloth
+# Unsloth lives in the runner's own state: its Studio writes its key, its admin account and its
+# caches beside its code, as it does inside the spike's image.
+Environment=BOXPILOT_AGENTS_RUNTIME=/var/lib/boxpilot-agents/unsloth
 # The runner's key, made by the web service when Agents were turned on. systemd reads it as root and
 # hands a copy to this service alone; the runner never reads /var/lib/boxpilot itself.
 LoadCredential=runner-token:/var/lib/boxpilot/agents/runner.token
@@ -31,18 +33,18 @@ UMask=0077
 
 # ---- Hard caps (server/agents/caps.mjs holds these values; caps.test.mjs keeps them equal) ----
 # Agents must never make the server run hot. These cover the runner and the model server together.
-CPUQuota=200%
+CPUQuota=100%
 CPUWeight=idle
 Nice=19
 IOSchedulingClass=idle
 MemoryMax=8G
-MemoryHigh=7G
 MemorySwapMax=0
 TasksMax=256
 LimitNOFILE=4096
 
 # ---- Network: this machine only ----
-# The web service and the model server it starts; nothing else, whatever the model asks for.
+# The web service and the model server it starts; nothing else, whatever the model asks for. Unsloth
+# fetches models and asks the internet whether its port is open; here it can do neither.
 IPAddressAllow=localhost
 IPAddressDeny=any
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
