@@ -413,6 +413,7 @@ const freshRest = {
   "/settings/backup-destination": () => ({ destination: null, lastSync: null }),
   "/settings/cloud-destination": () => ({ destination: null, lastSync: null }),
   "/settings/notifications": (body) => ({ ...body, configured: false, kind: null, topic: null, hasToken: false }),
+  "/notifications": () => ({ entries: [], seenAt: null, unseen: 0, targetConfigured: false }),
   "/controller-backup-protection": (body) => ({ destination: { ...body.destination, ready: false, encrypted: false, blockers: ["Encrypted copies are not set up yet"] }, protections: [] }),
   "/controller-backup-retention": (body) => ({ ...body, candidates: [] }),
   "/storage/samba": (body) => ({ ...body, installed: false, running: false, configured: false, config: { ...body.config, managed: false, shares: [] }, users: [] }),
@@ -502,6 +503,14 @@ api.get("/settings/watch", (_request, response) => json(response, { targetConfig
   ["docker.unhealthy", "A container is unhealthy"], ["docker.restarting", "A container keeps restarting (crash-looping)"], ["schedule.overdue", "A scheduled task (such as a backup) has stopped running"],
   ["schedule.failed", "A scheduled task failed or did not run"], ["flow.failed", "An automation stopped or did not run"], ["record.failed", "A job ran but its result was not saved"],
 ].map(([key, label]) => ({ key, label, active: false, details: [] })), notices: [], unannouncedCount: 0 }));
+// The notification centre (M36): what the server said lately and whether the phone got it.
+api.get("/notifications", (_request, response) => json(response, { seenAt: ago(30), unseen: 2, targetConfigured: true, entries: [
+  { id: "n1", kind: "notice", key: "release.available", family: "release.available", title: `BoxPilot v${productVersion} is out`, message: "Update from the System page: it copies the database first, and puts the old version back by itself if the new one does not start.", at: ago(20), delivered: true, reason: null, deliveredAt: ago(20), resolvedAt: null, live: false },
+  { id: "n2", kind: "alert", key: "storage.mount.full:/mnt/media", family: "storage.mount.full", title: "/mnt/media is 91% full", message: "The filesystem mounted at /mnt/media is nearly full.", at: ago(26), delivered: true, reason: null, deliveredAt: ago(26), resolvedAt: ago(22), live: false },
+  { id: "n3", kind: "job", key: "job.failed:d3", family: "job.failed", title: "Mirror local backups to the cloud destination failed", message: "rclone: the bucket answered 503; the next scheduled run tries again.", at: ago(50), delivered: true, reason: null, deliveredAt: ago(50), resolvedAt: null, live: false },
+  { id: "n4", kind: "notice", key: "drive.reconnected:media", family: "drive.reconnected", title: "The media drive was reconnected automatically", message: "It dropped off USB at 03:12 and was checked and mounted again at 03:14.", at: ago(96), delivered: true, reason: null, deliveredAt: ago(96), resolvedAt: null, live: false },
+] }));
+api.post("/notifications/seen", (_request, response) => json(response, { seenAt: now().toISOString() }));
 api.get("/settings/weekly-report", (_request, response) => json(response, { enabled: true, cadence: "Sundays at 09:00", nextDueAt: new Date(Date.now() + 4 * 24 * 3600_000).toISOString(), lastSentAt: ago(72), lastResult: "sent", targetConfigured: true }));
 api.get("/settings/weekly-report/preview", (_request, response) => json(response, { title: "Weekly report, nothing failed", message: "Sep 20 to Sep 27: 41 jobs ran, none failed.\nBackups: 7 app backups this week; database backed up today." }));
 api.get("/settings/approval-mode", (_request, response) => json(response, { mode: "tiered", modes: ["tiered", "always-ask"] }));
@@ -848,6 +857,12 @@ const troubleRest = {
     : flow)) }),
   // The same failed flow, and the notification target that did not take it: the Overview's
   // "could not tell you" line has something to count in the unwell world.
+  // The same failed flow in the notification centre: said, and not delivered, and still going.
+  "/notifications": (body) => ({ ...body, unseen: 3, entries: [
+    { id: "t1", kind: "alert", key: "flow.failed:f1", family: "flow.failed", title: "Automation stopped: Update night", message: "Step 3 (Install package updates) failed: apt-get upgrade failed: E: Could not get lock /var/lib/dpkg/lock-frontend", at: ago(30), delivered: false, reason: "failed", deliveredAt: null, resolvedAt: null, live: true },
+    { id: "t2", kind: "job", key: "job.failed:t2", family: "job.failed", title: "Back up application data failed", message: "tar failed: No space left on device", at: ago(15.9), delivered: false, reason: "failed", deliveredAt: null, resolvedAt: null, live: false },
+    ...body.entries,
+  ].sort((left, right) => right.at.localeCompare(left.at)) }),
   "/settings/watch": (body) => {
     const failed = { title: "Automation stopped: Update night", since: ago(30), announced: false };
     const conditions = body.conditions.map((condition) => (condition.key === "flow.failed" ? { ...condition, active: true, details: [failed] } : condition));

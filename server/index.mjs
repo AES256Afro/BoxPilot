@@ -60,6 +60,7 @@ import { createAppDataSampler } from "./app-data-growth.mjs";
 import { createSmartSampler } from "./smart-trends.mjs";
 import { registry } from "./ops/index.mjs";
 import { createNotificationService } from "./notifications.mjs";
+import { createNotificationHistory } from "./notification-history.mjs";
 import { createSchedulerService } from "./scheduler.mjs";
 import { scrubStoredSecrets } from "./secret-scrub.mjs";
 import { createFlowService } from "./flows.mjs";
@@ -151,8 +152,10 @@ const secretEnvNamesFor = secretEnvNamesLookup(catalogService);
 // scheduled run, an automation's step, or a result that could not be saved is announced through the
 // health alerts, once per condition, so the notifier leaves those jobs alone. scheduler and flows are
 // only read when a job event arrives, which is after notifications.start() below, once both exist.
-const notifications = createNotificationService({ store: state, claimed: (job) => scheduler.owns(job.id) || flows.owns(job.id) || recordFailed(job) });
-const healthAlerts = createHealthAlerts({ inventory, notifications, store: state, resolveScheduleTitle: (operationId) => registry.get(operationId)?.title ?? operationId });
+// What BoxPilot told the owner and whether it arrived: the notification centre's record (M36).
+const notificationHistory = createNotificationHistory({ store: state });
+const notifications = createNotificationService({ store: state, history: notificationHistory, claimed: (job) => scheduler.owns(job.id) || flows.owns(job.id) || recordFailed(job) });
+const healthAlerts = createHealthAlerts({ inventory, notifications, store: state, history: notificationHistory, resolveScheduleTitle: (operationId) => registry.get(operationId)?.title ?? operationId });
 const jobs = createJobService(state, helper, {
   alerts: healthAlerts,
   onOperationSettled: (job) => invalidateOperationEvidence(job, { registry, inventory, prerequisites, helper, storage: storageRead }),
@@ -391,7 +394,7 @@ app.use("/api/v1", createPeopleRouter({ state, auth }));
 app.use("/api/v1", createOperationsRouter({ state, helper, jobs, prerequisites, recoveryKit, actionCenter, auth }));
 app.use("/api/v1", createJobsRouter({ state, jobs, scheduler, flows, autoReconnect, helper, jobLogReader, auth }));
 app.use("/api/v1", createVirtualizationRouter({ libvirt, libvirtFoundation, vmPlanner, vmMedia, vmCreation, vmExports, vmProtection, vmRetention, vmRecoveries, audit }));
-app.use("/api/v1", createSettingsRouter({ state, notifications, weeklyReport, auth }));
+app.use("/api/v1", createSettingsRouter({ state, notifications, notificationHistory, weeklyReport, auth }));
 app.use("/api/v1", createFirewallRouter({ state, helper, catalogService, webPort: port, webHost: host }));
 app.use("/api/v1", createStorageRouter({ auth, helper, inventory, state }));
 app.use("/api/v1", createPowerRouter());
