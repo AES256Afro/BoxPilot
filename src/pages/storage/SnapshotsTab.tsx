@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useOperation } from "../../ApproveDialog";
+import { useOperation } from "../../shell/ApproveDialog";
 import { Button, EmptyState, Field, Notice, Panel, Select, Sheet, Table, Tag, TextInput, mayStart, riskOf, type TableColumn } from "../../ui";
 import { gib, when, type FsSnapshots, type SnapshotRow, type StorageReport } from "./types";
 

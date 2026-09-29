@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useOperation } from "../../ApproveDialog";
+import { useOperation } from "../../shell/ApproveDialog";
 import { inspectOperation, runReadOperation } from "../../operations";
 import { Button, Field, Notice, Panel, StatusChip, Table, TextInput, mayStart, riskOf, type Status } from "../../ui";
 

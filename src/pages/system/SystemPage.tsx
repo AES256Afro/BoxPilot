@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useOperation } from "../../ApproveDialog";
+import { useOperation } from "../../shell/ApproveDialog";
 import { readJson } from "../../http";
 import { inspectOperation } from "../../operations";
 import SchedulesPanel from "../automations/SchedulesPanel";

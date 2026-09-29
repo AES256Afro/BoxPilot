@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { useOperation } from "../../ApproveDialog";
+import { useOperation } from "../../shell/ApproveDialog";
 import { countOf } from "../../data";
 import { formatBytes } from "../../formatBytes";
 import { inspectOperation } from "../../operations";

@@ -1,5 +1,5 @@
 import { useId, useState } from "react";
-import { useOperation } from "../../ApproveDialog";
+import { useOperation } from "../../shell/ApproveDialog";
 import { readJson } from "../../http";
 import { BACKUP_MOUNT_NAME, BACKUP_MOUNTPOINT, mountpointFor } from "../../mountpoints";
 import { validShareName } from "../../shareName";

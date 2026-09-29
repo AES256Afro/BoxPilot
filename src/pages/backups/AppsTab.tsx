@@ -1,4 +1,4 @@
-import { useOperation } from "../../ApproveDialog";
+import { useOperation } from "../../shell/ApproveDialog";
 import type { ProtectionVerdict, ScheduleLike } from "../../backupProtection";
 import type { ViewName } from "../../data";
 import { Button, EmptyState, Notice, Panel, StatusChip, Table, mayStart, riskOf, type TableColumn } from "../../ui";

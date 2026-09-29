@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { PendingOperation } from "../../ApproveDialog";
+import type { PendingOperation } from "../../shell/ApproveDialog";
 import { countOf } from "../../data";
 import { Button, Checkbox, EmptyState, Field, KeyValue, Notice, Panel, TextInput, mayStart, riskOf, type Status } from "../../ui";
 import type { Fail2banState } from "./types";

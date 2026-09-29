@@ -1,5 +1,5 @@
 import { useEffect, useId, useState } from "react";
-import { useOperation } from "../../ApproveDialog";
+import { useOperation } from "../../shell/ApproveDialog";
 import type { ViewName } from "../../data";
 import { formatBytes } from "../../formatBytes";
 import { inspectOperation } from "../../operations";

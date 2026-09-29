@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useOperation } from "./ApproveDialog";
+import { useOperation } from "./shell/ApproveDialog";
 import { inspectOperation } from "./operations";
 import { Button, Panel, riskOf, type Status } from "./ui";
 

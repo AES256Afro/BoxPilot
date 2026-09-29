@@ -1,5 +1,5 @@
 import { useState, type CSSProperties } from "react";
-import { useOperation } from "../../ApproveDialog";
+import { useOperation } from "../../shell/ApproveDialog";
 import { autoReconnectRule, type AutoReconnectControl } from "../../AutoReconnect";
 import { mountpointFor } from "../../mountpoints";
 import type { MapApp, MapSambaShare } from "../../storageMap";

@@ -1,4 +1,4 @@
-import type { PendingOperation } from "../../ApproveDialog";
+import type { PendingOperation } from "../../shell/ApproveDialog";
 import { LockIcon } from "../../ui/icons";
 import type { Status } from "../../ui";
 import type { VirtualDomain } from "../../virtualization";

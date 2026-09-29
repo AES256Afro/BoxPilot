@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { PendingOperation } from "../../ApproveDialog";
+import type { PendingOperation } from "../../shell/ApproveDialog";
 import { relativeTime } from "../../home/format";
 import { Button, Checkbox, EmptyState, KeyValue, Notice, Panel, Table, Tag, mayStart, riskOf, type TableColumn } from "../../ui";
 import type { Tailnet, TailnetNode, TailscaleFacts } from "./types";

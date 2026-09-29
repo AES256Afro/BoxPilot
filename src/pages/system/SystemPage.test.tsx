@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { PendingOperation } from "../../ApproveDialog";
+import type { PendingOperation } from "../../shell/ApproveDialog";
 import { DatabaseCopies, type DatabaseCopiesReport } from "./DatabaseCopies";
 import { SystemHardware } from "./SystemHardware";
 import SystemPage from "./SystemPage";
