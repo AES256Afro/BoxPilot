@@ -211,6 +211,30 @@ describe("the builder", () => {
   });
 });
 
+describe("the builder's team chat (M38)", () => {
+  it("has every output on by default for an agent saved before it, and saves the channel, topic and switches the owner sets", async () => {
+    const calls = serve(base({
+      "POST /api/v1/agents": detail(1),
+      [`GET /api/v1/agents/${keeperId}`]: detail(2),
+      [`PUT /api/v1/agents/${keeperId}`]: (init: RequestInit | undefined) => json(detail(3, JSON.parse(String(init?.body)).spec.name)),
+    }));
+    render(<AgentsPage csrfToken="csrf" now={() => now} />);
+    fireEvent.click(await screen.findByRole("tab", { name: "Build" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Make a Server Keeper" }));
+    const channel = await screen.findByLabelText("Findings channel");
+    expect((channel as HTMLInputElement).placeholder).toBe("agent-findings");
+    expect(screen.getByRole("switch", { name: "Post logs" }).getAttribute("aria-checked")).toBe("true");
+    fireEvent.change(channel, { target: { value: "#house" } });
+    fireEvent.change(screen.getByLabelText("Findings topic"), { target: { value: "Keeper answers" } });
+    fireEvent.click(screen.getByRole("switch", { name: "Post logs" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save as version 3" }));
+    await waitFor(() => expect(calls.some((call) => call.method === "PUT")).toBe(true));
+    expect((calls.find((call) => call.method === "PUT")?.body as { spec: AgentSpec }).spec.outputs.chat).toEqual({
+      findings: { enabled: true, channel: "house", topic: "Keeper answers" }, logs: { enabled: false, channel: null, topic: null }, knowledge: { enabled: true, channel: null, topic: null },
+    });
+  });
+});
+
 describe("the builder's steps", () => {
   it("warns when a job reads like several, asks for its answer as JSON fields, and makes a webhook URL shown once", async () => {
     window.history.replaceState(null, "", `/?view=agents&tab=build&agent=${keeperId}`);

@@ -523,5 +523,8 @@ may open a port to the internet or send data out without the owner saying so.
   release that renames one breaks it loudly; the image is pinned and moves only with the catalog.
 - A second organization is Zulip's business, from its own settings; BoxPilot refuses to make a
   creation link once one exists.
+- Posting and reading each start a root task (`boxpilot-run@`), because only a root task may read
+  the key: a batch of posts after a run and on the minute's tick while any wait, one read of
+  #agent-files every three minutes, and none of either while Agents are off or paused.
 - Two-way chat - asking an agent from a DM or an @mention - needs each Zulip user mapped to a
-  BoxPilot account and runs as that person; it is specified in M38 and not built yet.
+  BoxPilot account and runs as that person; it is specified as M38.3 and not built yet.

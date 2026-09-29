@@ -176,6 +176,47 @@ export function createRunner({ api, runtime, client, usage = null, now = () => D
     return { outcome: "completed" };
   }
 
+  /**
+   * A describe run (M38): the model reads each image the web service handed over - one an image
+   * from #agent-files - and says what it shows. No tools, no conversation, thinking off.
+   */
+  async function executeDescribe(claim, controller, used, heartbeatStop) {
+    const { run, lease } = claim;
+    const descriptions = [];
+    let error = null;
+    try {
+      const model = await runtime.ensure(claim.runtime, { signal: controller.signal });
+      used.loadMs = model.loadMs ?? 0;
+      for (const item of claim.describe?.items ?? []) {
+        if (controller.signal.aborted) break;
+        const started = now();
+        try {
+          const result = await client.chat(model.endpoint, {
+            model: model.model, temperature: 0.2, maxTokens: 320, extra: thinkingOff(claim.runtime.extra ?? {}),
+            messages: [{ role: "user", content: [{ type: "text", text: String(claim.describe.prompt ?? "Describe this image.") }, { type: "image_url", image_url: { url: item.dataUrl } }] }],
+          }, { apiKey: model.apiKey, signal: controller.signal, timeoutMs: Math.max(30_000, Date.parse(run.deadlineAt) - now()) });
+          used.modelCalls += 1;
+          used.promptTokens += result.usage?.promptTokens ?? 0;
+          used.completionTokens += result.usage?.completionTokens ?? 0;
+          descriptions.push({ key: item.key, text: typeof result.content === "string" ? result.content.slice(0, 4_000) : null });
+        } catch (failed) {
+          if (controller.signal.aborted) throw failed;
+          descriptions.push({ key: item.key, text: null });
+          error = String(failed?.message ?? failed).slice(0, 200);
+        } finally {
+          used.modelMs += now() - started;
+          runtime.touch();
+        }
+      }
+    } catch (failed) {
+      error = String(failed?.message ?? failed).slice(0, 200);
+    }
+    heartbeatStop();
+    const described = descriptions.filter((entry) => entry.text).length;
+    await api.finish(run.id, lease, { outcome: described ? "completed" : "failed", descriptions, usage: used, ...(described ? {} : { error: error ?? "The model described nothing" }) });
+    return { outcome: described ? "completed" : "failed" };
+  }
+
   async function execute(claim, { signal } = {}) {
     const { run, lease, limits } = claim;
     const controller = new AbortController();
@@ -300,6 +341,7 @@ export function createRunner({ api, runtime, client, usage = null, now = () => D
 
     try {
       if (run.kind === "index") return await executeIndex(claim, controller, used, () => clearInterval(heartbeat));
+      if (run.kind === "describe") return await executeDescribe(claim, controller, used, () => clearInterval(heartbeat));
       let model = null;
       try {
         await system("model", "Starting the model");

@@ -46,6 +46,9 @@ export function createAgentsRouter({ agents, state, auth }) {
   router.get("/agents/glance", handle((request) => agents.glance(callerOf(request))));
   router.get("/agents/proposals", handle((request) => ({ proposals: agents.listProposals(callerOf(request)) })));
   router.get("/agents/knowledge", handle((request) => agents.knowledgeState(callerOf(request))));
+  // M38: the team chat's panel, and "Check #agent-files now".
+  router.get("/agents/zulip", handle((request) => agents.zulipState(callerOf(request))));
+  router.post("/agents/zulip/poll", auth.requireCsrf, handle((request) => agents.zulipPollNow(callerOf(request))));
   router.post("/agents/module/pause", auth.requireCsrf, handle((request) => agents.pauseModule(callerOf(request), { until: request.body?.until ?? null })));
   router.post("/agents/module/resume", auth.requireCsrf, handle((request) => agents.resumeModule(callerOf(request))));
   router.post("/agents/module/kill", auth.requireCsrf, handle((request) => agents.killSwitch(callerOf(request))));

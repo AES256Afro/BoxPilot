@@ -1281,6 +1281,7 @@ api.get("/agents/runtime", agentsDemo.handle);
 api.get("/agents/glance", agentsDemo.handle);
 api.get("/agents/proposals", agentsDemo.handle);
 api.get("/agents/knowledge", agentsDemo.handle);
+api.get("/agents/zulip", agentsDemo.handle);
 api.use(agentsDemo.handle);
 
 api.all("/{*rest}", (_request, response) => response.status(404).json({ error: "Not part of the demo", code: "demo_missing" }));

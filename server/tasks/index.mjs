@@ -33,6 +33,7 @@ import { probeAddresses } from "./reachability.mjs";
 import { httpRequest } from "./http-request.mjs";
 import { agentsConnectorSync, agentsDisable, agentsEnable, agentsInstall, agentsModelDownload, agentsModelRemove } from "./agents.mjs";
 import { hostListeners } from "./listeners.mjs";
+import { zulipCheck, zulipPoll, zulipPost } from "./zulip.mjs";
 
 export const tasks = Object.freeze({
   "apt.update": aptUpdate,
@@ -114,6 +115,9 @@ export const tasks = Object.freeze({
   "agents.model.download": (parameters, context) => agentsModelDownload(parameters, context),
   "agents.connector.sync": (parameters, context) => agentsConnectorSync(parameters, context),
   "agents.model.remove": (parameters, context) => agentsModelRemove(parameters, context),
+  "agents.zulip.check": (parameters, context) => zulipCheck(parameters, context),
+  "agents.zulip.post": (parameters, context) => zulipPost(parameters, context),
+  "agents.zulip.poll": (parameters, context) => zulipPoll(parameters, context),
 });
 
 export function taskIds() {
