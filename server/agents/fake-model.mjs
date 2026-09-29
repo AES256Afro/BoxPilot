@@ -80,7 +80,7 @@ export function structuredReply(body) {
     const tools = pickTools(question, offered.filter((toolName) => !["notes.write", "plan.propose", "notify.owner"].includes(toolName)));
     const asked = /<question>\s*([\s\S]*?)\s*<\/question>/.exec(question)?.[1]?.trim();
     const understanding = {
-      goal: asked ? `Answer: ${asked.slice(0, 160)}` : "Do my job once and report",
+      goal: asked ? `Answer “${asked.slice(0, 160)}”` : "Do my job once and report",
       subject: /pi-?hole/i.test(question) ? "Pi-hole" : /backup/i.test(question) ? "backups" : "this server",
       constraints: [],
       tools: tools.map((tool) => tool.replace(/\./g, "_")),

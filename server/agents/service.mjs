@@ -741,7 +741,8 @@ export function createAgentService({
       const intent = { goal: clean(understanding.goal), subject: clean(understanding.subject), constraints: understanding.constraints.map(clean), tools: understanding.tools, confidence: understanding.confidence, clarify: understanding.clarify ? clean(understanding.clarify) : null };
       const plan = understanding.plan.map((entry) => ({ step: clean(entry.step), tool: entry.tool }));
       const first = store.addStep(run.id, { kind: "intent", name: "understood", input: intent, output: understandingSummary(intent), flags: { confidence: intent.confidence, ...(read.dropped.length ? { dropped: read.dropped } : {}) }, ...timing });
-      const second = store.addStep(run.id, { kind: "plan", name: "plan", input: plan, output: plan.map((entry, index) => `${index + 1}. ${entry.step}${entry.tool ? ` (${entry.tool})` : ""}`).join("\n") || "No steps: answer from what it can read." });
+      // A question asked back ends the run before any plan is followed, so none is shown.
+      const second = intent.clarify ? null : store.addStep(run.id, { kind: "plan", name: "plan", input: plan, output: plan.map((entry, index) => `${index + 1}. ${entry.step}${entry.tool ? ` (${entry.tool})` : ""}`).join("\n") || "No steps: answer from what it can read." });
       store.mergeRunFlags(run.id, { confidence: intent.confidence });
       for (const entry of [first, second]) if (entry) added.push(entry);
     }
@@ -976,6 +977,9 @@ export function createAgentService({
    */
   function rememberRun(agent, spec, run) {
     try {
+      // A run that handed work to specialists answers in its follow-up run: that one is remembered,
+      // once, rather than the interim "I asked them" as well.
+      if (run.kind !== "continue" && store.listChildren(run.id).some((entry) => entry.kind === "handoff")) return;
       if (spec.memory?.enabled && outcomeIsAnswer(run.state) && !["eval", "handoff"].includes(run.kind)) {
         const text = episodeOf(run);
         if (text) store.addEpisode({ agentId: agent.id, runId: run.id, text, readRole: run.readRole });

@@ -7,7 +7,7 @@
 import { describe, expect, it } from "vitest";
 import { ExactError, calculate, convertUnits, extractJson, matchPattern, timeCalc } from "./deterministic.mjs";
 import { planMessage, readUnderstanding, understandingSchema } from "./intent.mjs";
-import { cosine, decodeVector, encodeVector, foldThread, hybridSearch, readVector, threadBudget } from "./memory.mjs";
+import { cosine, decodeVector, encodeVector, episodeOf, foldThread, hybridSearch, readVector, threadBudget } from "./memory.mjs";
 import { answerFormat, readStructuredAnswer, systemMessage } from "./prompt.mjs";
 import { normalizeSpec } from "./spec.mjs";
 
@@ -125,5 +125,10 @@ describe("memory", () => {
     expect(folded.turns.at(-1).text).toMatch(/^Answer 19\./);
     expect(folded.summary).toMatch(/answered: Answer \d+\./);
     expect(folded.summary).not.toMatch(/\[T1\]/);
+  });
+
+  it("keeps a run as an episode without its citation marks", () => {
+    expect(episodeOf({ question: "Is Pi-hole blocking?", answer: "It is blocking [T1]. Lists are fresh [T1, T2]." })).toBe('Asked "Is Pi-hole blocking?". It is blocking. Lists are fresh.');
+    expect(episodeOf({ question: null, trigger: { title: "Its schedule" }, answer: "" })).toBeNull();
   });
 });
