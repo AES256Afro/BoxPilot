@@ -11,10 +11,6 @@ on:
         default: "perf,capability,official,nine-b"
         type: string
 
-concurrency:
-  group: unsloth-spike
-  cancel-in-progress: false
-
 permissions:
   contents: read
 
