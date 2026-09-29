@@ -63,12 +63,16 @@ export default function RestoreTab({ csrfToken, role, restores, onChanged }: Res
     if (!canRead) return;
     setReading(true);
     try {
-      setSources((await inspectOperation<SnapshotSources>("host.snapshot.sources")).result);
+      const { result } = await inspectOperation<SnapshotSources>("host.snapshot.sources");
+      setSources({ sources: (Array.isArray(result?.sources) ? result.sources : []).map((entry) => ({ ...entry, snapshots: Array.isArray(entry.snapshots) ? entry.snapshots : [] })), mount: result?.mount ?? { mounted: false, blocker: null } });
       setError(null);
     } catch (requestError) { setError(requestError instanceof Error ? requestError.message : "The snapshots could not be listed"); }
     // Scanning mounted drives is slower and less important than listing our own, so it does not hold
     // up the list, and a drive that will not answer must not empty the page.
-    try { setDiscovered((await inspectOperation<DiscoveredSnapshots>("host.snapshot.discover")).result); } catch { setDiscovered({ locations: [] }); }
+    try {
+      const { result } = await inspectOperation<DiscoveredSnapshots>("host.snapshot.discover");
+      setDiscovered({ locations: (Array.isArray(result?.locations) ? result.locations : []).map((location) => ({ ...location, snapshots: Array.isArray(location.snapshots) ? location.snapshots : [] })), unanswered: Array.isArray(result?.unanswered) ? result.unanswered : [] });
+    } catch { setDiscovered({ locations: [] }); }
     setReading(false);
   }, [canRead]);
   useEffect(() => { void refresh(); }, [refresh]);

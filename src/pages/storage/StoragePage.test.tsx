@@ -95,6 +95,16 @@ describe("Storage page", () => {
     expect(screen.getByText("Not read").closest(".ui-chip")?.getAttribute("data-status")).toBe("unknown");
   });
 
+  it("takes an answer without drives or mounts for no reading at all, not an empty healthy server", async () => {
+    mockFetch({ overview: {}, samba: {}, nfs: {} });
+    render(<StoragePage csrfToken="csrf-token" />);
+    expect(await screen.findByText("The storage state could not be read")).toBeTruthy();
+    expect(screen.getByText("Not read")).toBeTruthy();
+    expect(screen.queryByText("Room to spare")).toBeNull();
+    openTab(/^File sharing/);
+    expect(await screen.findByText("The file server could not be read")).toBeTruthy();
+  });
+
   describe("Drives", () => {
     it("mounts a drive from a sheet and stages it with the fstab preview", async () => {
       const { staged } = mockFetch();

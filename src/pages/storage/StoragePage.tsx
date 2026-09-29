@@ -30,6 +30,20 @@ export interface StoragePageProps {
   onNavigate?: (view: ViewName) => void;
 }
 
+/** The overview with every list the tabs read, empty where the answer left one out. */
+function asReport(body: Partial<StorageReport> | null): StorageReport {
+  const list = <T,>(value: T[] | undefined): T[] => (Array.isArray(value) ? value : []);
+  return {
+    devices: list(body?.devices).map((device) => ({ ...device, mountpoints: list(device.mountpoints), mountedBelow: list(device.mountedBelow), holdsVolumeGroups: list(device.holdsVolumeGroups) })),
+    mounts: list(body?.mounts),
+    fstab: list(body?.fstab),
+    volumeGroups: list(body?.volumeGroups).map((group) => ({ ...group, physicalVolumes: list(group.physicalVolumes), logicalVolumes: list(group.logicalVolumes).map((volume) => ({ ...volume, mountpoints: list(volume.mountpoints) })) })),
+    snapshots: list(body?.snapshots),
+    shares: list(body?.shares),
+    tools: { cifs: false, nfs: false, smbclient: false, showmount: false, ...body?.tools },
+  };
+}
+
 type TabId = "drives" | "shares" | "sharing" | "snapshots" | "mounts";
 const tabIds: readonly TabId[] = ["drives", "shares", "sharing", "snapshots", "mounts"];
 
@@ -52,7 +66,10 @@ export default function StoragePage({ csrfToken, role = "owner", onNavigate }: S
   const readOverview = useCallback(async () => {
     setLoading(true);
     try {
-      setReport(await readJson<StorageReport>(await fetch("/api/v1/storage/overview")));
+      const body = await readJson<Partial<StorageReport>>(await fetch("/api/v1/storage/overview"));
+      // An answer without the drives and the mounts is not a reading: never an empty, healthy page.
+      if (!Array.isArray(body?.devices) || !Array.isArray(body?.mounts)) throw new Error("The storage state came back without its drives and mounts");
+      setReport(asReport(body));
       setError(null);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "The storage state could not be read");
@@ -62,9 +79,20 @@ export default function StoragePage({ csrfToken, role = "owner", onNavigate }: S
   }, []);
   // What the map and the forecasts add; each on its own, so one that fails costs only itself.
   const readExtras = useCallback(() => {
-    fetch("/api/v1/storage/forecast").then((response) => (response.ok ? response.json() : {})).then((body: { forecasts?: Forecast[]; usage?: Usage[]; lastMeasured?: LastMeasured | null }) => { setForecasts(body.forecasts ?? []); setUsage(body.usage ?? []); setLastMeasured(body.lastMeasured ?? null); }).catch(() => {});
-    fetch("/api/v1/catalog?view=summary").then((response) => (response.ok ? response.json() : null)).then((body: { applications?: Parameters<typeof appFolders>[0] } | null) => setMapApps(body?.applications ? appFolders(body.applications) : [])).catch(() => {});
-    fetch("/api/v1/operations/storage.fs-snapshots.inspect/inspect").then((response) => (response.ok ? response.json() : null)).then((body: { result?: FsSnapshots } | null) => setFsSnapshots(body?.result ?? null)).catch(() => {});
+    fetch("/api/v1/storage/forecast").then((response) => (response.ok ? response.json() : {})).then((body: { forecasts?: Forecast[]; usage?: Usage[]; lastMeasured?: LastMeasured | null } | null) => {
+      setForecasts(Array.isArray(body?.forecasts) ? body.forecasts : []);
+      setUsage(Array.isArray(body?.usage) ? body.usage : []);
+      setLastMeasured(body?.lastMeasured ?? null);
+    }).catch(() => {});
+    fetch("/api/v1/catalog?view=summary").then((response) => (response.ok ? response.json() : null)).then((body: { applications?: Parameters<typeof appFolders>[0] } | null) => setMapApps(Array.isArray(body?.applications) ? appFolders(body.applications) : [])).catch(() => {});
+    fetch("/api/v1/operations/storage.fs-snapshots.inspect/inspect").then((response) => (response.ok ? response.json() : null)).then((body: { result?: FsSnapshots } | null) => {
+      const result = body?.result;
+      setFsSnapshots(result?.supported ? {
+        supported: true,
+        btrfs: { filesystems: (Array.isArray(result.btrfs?.filesystems) ? result.btrfs.filesystems : []).map((entry) => ({ ...entry, snapshots: Array.isArray(entry.snapshots) ? entry.snapshots : [] })) },
+        zfs: { datasets: (Array.isArray(result.zfs?.datasets) ? result.zfs.datasets : []).map((entry) => ({ ...entry, snapshots: Array.isArray(entry.snapshots) ? entry.snapshots : [] })) },
+      } : null);
+    }).catch(() => {});
   }, []);
   useEffect(() => { void readOverview(); readExtras(); }, [readOverview, readExtras]);
 

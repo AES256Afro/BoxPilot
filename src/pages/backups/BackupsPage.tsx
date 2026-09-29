@@ -33,6 +33,14 @@ const tabIds: readonly TabId[] = ["apps", "server", "offbox", "restore"];
 
 const requestJson = async <T,>(url: string, options?: RequestInit): Promise<T> => readJson<T>(await fetch(url, options));
 const messageOf = (error: unknown, fallback: string) => (error instanceof Error ? error.message : fallback);
+const isObject = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
+
+/** The machine-snapshot state, or null unless it has the sync block the page reads. */
+function asMachine(value: unknown): MachineSnapshotState | null {
+  if (!isObject(value) || !isObject(value.sync) || !isObject(value.sync.mount)) return null;
+  const state = value as unknown as MachineSnapshotState;
+  return { ...state, snapshots: Array.isArray(state.snapshots) ? state.snapshots : [] };
+}
 
 export default function BackupsPage({ csrfToken, role = "owner", onNavigate }: BackupsPageProps) {
   const [tab, setTab] = useUrlParam<TabId>("tab", tabIds, "apps");
@@ -56,40 +64,51 @@ export default function BackupsPage({ csrfToken, role = "owner", onNavigate }: B
   const [restores, setRestores] = useState<RestoreReview[] | null>(null);
   const [scheduling, setScheduling] = useState<{ busy: boolean; message: string; failed: boolean } | null>(null);
 
+  // Every read is checked for its shape as well as its status: an answer in an unexpected shape is
+  // "not read", said as such, never a crash and never an all-clear.
   const refresh = useCallback(async () => {
     setLoading(true);
-    const [list, protectionState, retentionState, machineState, remoteState, remoteConfig, cloudState, cloudConfig, apps, scheduleList, reviews] = await Promise.all([
-      requestJson<{ backups: BackupRecord[] }>("/api/v1/backups").then((body) => ({ ok: true as const, body }), (requestError: unknown) => ({ ok: false as const, error: messageOf(requestError, "The backups could not be read") })),
-      requestJson<ProtectionState>("/api/v1/controller-backup-protection").catch(() => null),
-      requestJson<RetentionStatus>("/api/v1/controller-backup-retention").catch(() => null),
-      inspectOperation<MachineSnapshotState>("host.snapshot.inspect").then((body) => body.result).catch(() => null),
-      inspectOperation<RemoteMirrorState>("backup.remote.inspect").then((body) => body.result).catch(() => null),
-      requestJson<RemoteSettings>("/api/v1/settings/backup-destination").catch(() => null),
-      inspectOperation<CloudState>("backup.cloud.inspect").then((body) => ({ ok: true as const, body: body.result }), (requestError: unknown) => ({ ok: false as const, error: messageOf(requestError, "The cloud destination could not be read") })),
-      requestJson<CloudSettings>("/api/v1/settings/cloud-destination").catch(() => null),
-      inspectOperation<{ available: boolean; apps: AppProtection[] }>("app.backup.protection").then((body) => ({ ok: true as const, body: body.result }), (requestError: unknown) => ({ ok: false as const, error: messageOf(requestError, "App protection could not be read") })),
-      requestJson<{ schedules?: ScheduleLike[] }>("/api/v1/schedules").then((body) => body.schedules ?? []).catch(() => [] as ScheduleLike[]),
-      inspectOperation<{ restores: RestoreReview[] }>("host.snapshot.restores").then((body) => body.result.restores ?? []).catch(() => null),
-    ]);
-    if (list.ok) {
-      setBackups(list.body.backups.filter((backup) => backup.applicationId === "boxpilot-controller"));
-      setNewestLocalAt(list.body.backups.reduce<string | null>((newest, backup) => (newest === null || backup.createdAt > newest ? backup.createdAt : newest), null));
-      setError(null);
-    } else {
-      setError(list.error);
+    try {
+      const [list, protectionState, retentionState, machineState, remoteState, remoteConfig, cloudState, cloudConfig, apps, scheduleList, reviews] = await Promise.all([
+        requestJson<{ backups?: BackupRecord[] }>("/api/v1/backups").then(
+          (body) => (Array.isArray(body?.backups) ? { ok: true as const, backups: body.backups } : { ok: false as const, error: "The answer held no list of backups." }),
+          (requestError: unknown) => ({ ok: false as const, error: messageOf(requestError, "The backups could not be read") })),
+        requestJson<ProtectionState>("/api/v1/controller-backup-protection").then((body) => (isObject(body) ? body : null)).catch(() => null),
+        requestJson<RetentionStatus>("/api/v1/controller-backup-retention").then((body) => (isObject(body) ? body : null)).catch(() => null),
+        inspectOperation<MachineSnapshotState>("host.snapshot.inspect").then((body) => asMachine(body?.result)).catch(() => null),
+        inspectOperation<RemoteMirrorState>("backup.remote.inspect").then((body) => (isObject(body?.result) ? body.result : null)).catch(() => null),
+        requestJson<RemoteSettings>("/api/v1/settings/backup-destination").then((body) => (isObject(body) ? body : null)).catch(() => null),
+        inspectOperation<CloudState>("backup.cloud.inspect").then(
+          (body) => (isObject(body?.result) ? { ok: true as const, cloud: body.result } : { ok: false as const, error: "The answer held no cloud state." }),
+          (requestError: unknown) => ({ ok: false as const, error: messageOf(requestError, "The cloud destination could not be read") })),
+        requestJson<CloudSettings>("/api/v1/settings/cloud-destination").then((body) => (isObject(body) ? body : null)).catch(() => null),
+        inspectOperation<{ available: boolean; apps: AppProtection[] }>("app.backup.protection").then(
+          (body) => (isObject(body?.result) && Array.isArray(body.result.apps) ? { ok: true as const, available: Boolean(body.result.available), apps: body.result.apps } : { ok: false as const, error: "The answer held no list of apps." }),
+          (requestError: unknown) => ({ ok: false as const, error: messageOf(requestError, "App protection could not be read") })),
+        requestJson<{ schedules?: ScheduleLike[] }>("/api/v1/schedules").then((body) => (Array.isArray(body?.schedules) ? body.schedules : [])).catch(() => [] as ScheduleLike[]),
+        inspectOperation<{ restores?: RestoreReview[] }>("host.snapshot.restores").then((body) => (Array.isArray(body?.result?.restores) ? body.result.restores : null)).catch(() => null),
+      ]);
+      if (list.ok) {
+        setBackups(list.backups.filter((backup) => backup.applicationId === "boxpilot-controller"));
+        setNewestLocalAt(list.backups.reduce<string | null>((newest, backup) => (newest === null || backup.createdAt > newest ? backup.createdAt : newest), null));
+        setError(null);
+      } else {
+        setError(list.error);
+      }
+      setProtection(protectionState);
+      setRetention(retentionState);
+      setMachine(machineState);
+      setRemote(remoteState);
+      setRemoteSettings(remoteConfig);
+      if (cloudState.ok) { setCloud(cloudState.cloud); setCloudError(null); } else { setCloudError(cloudState.error); }
+      setCloudSettings(cloudConfig);
+      if (apps.ok) { setAppProtection({ available: apps.available, verdicts: judgeProtection(apps.apps, scheduleList) }); setAppProtectionError(null); } else { setAppProtection(null); setAppProtectionError(apps.error); }
+      setSchedules(scheduleList);
+      setRestores(reviews);
+    } finally {
+      setLoading(false);
+      setLoaded(true);
     }
-    setProtection(protectionState);
-    setRetention(retentionState);
-    setMachine(machineState);
-    setRemote(remoteState);
-    setRemoteSettings(remoteConfig);
-    if (cloudState.ok) { setCloud(cloudState.body); setCloudError(null); } else { setCloudError(cloudState.error); }
-    setCloudSettings(cloudConfig);
-    if (apps.ok) { setAppProtection({ available: apps.body.available, verdicts: judgeProtection(apps.body.apps ?? [], scheduleList) }); setAppProtectionError(null); } else { setAppProtection(null); setAppProtectionError(apps.error); }
-    setSchedules(scheduleList);
-    setRestores(reviews);
-    setLoading(false);
-    setLoaded(true);
   }, []);
   useEffect(() => { void refresh(); }, [refresh]);
 
@@ -138,7 +157,10 @@ export default function BackupsPage({ csrfToken, role = "owner", onNavigate }: B
   };
   const wanted = mirrorOperations(inputs);
   const offVerdict = offBoxVerdict(inputs, { newestLocalBackupAt: newestLocalAt });
-  const summary: OffBoxSummary | null = loaded ? {
+  // "Only on this server" is a claim about all three destinations: with one of them unread and none
+  // of the others set up, it is not known, and is said as not known.
+  const offBoxUnknown = loaded && wanted.length === 0 && (machine === null || cloudSettings === null || remoteSettings === null);
+  const summary: OffBoxSummary | null = loaded && !offBoxUnknown ? {
     verdict: offVerdict,
     warning: offBoxWarning(offVerdict),
     wanted,
@@ -162,7 +184,7 @@ export default function BackupsPage({ csrfToken, role = "owner", onNavigate }: B
   const tabs: Array<TabItem<TabId>> = [
     { id: "apps", label: "Apps", count: appProtection?.available ? verdicts.length : undefined, status: behind.length ? "danger" : never.length || stale.length ? "warning" : undefined, statusLabel: behind.length ? "a backup stopped running" : never.length || stale.length ? `${never.length + stale.length} need a backup` : undefined },
     { id: "server", label: "This server", count: backups ? backups.length + (machine?.snapshots.length ?? 0) : undefined },
-    { id: "offbox", label: "Off-box", status: summary?.warning ? "warning" : undefined, statusLabel: summary?.warning ?? undefined },
+    { id: "offbox", label: "Off-box", status: summary?.warning ? "warning" : offBoxUnknown ? "unknown" : undefined, statusLabel: summary?.warning ?? (offBoxUnknown ? "not read" : undefined) },
     { id: "restore", label: "Restore", count: restores?.length ? restores.length : undefined, status: restores?.length ? "neutral" : undefined, statusLabel: restores?.length ? `${restores.length} left to review` : undefined },
   ];
 
@@ -188,7 +210,7 @@ export default function BackupsPage({ csrfToken, role = "owner", onNavigate }: B
       <Tabs<TabId> label="Backups" tabs={tabs} value={tab} onChange={setTab}>
         {(current) => {
           if (current === "server") return <ServerTab csrfToken={csrfToken} role={role} loading={loading} backups={backups} protection={protection} retention={retention} machine={machine} onChanged={() => void refresh()} />;
-          if (current === "offbox") return <OffBoxTab csrfToken={csrfToken} role={role} tailnetHosts={tailnetHosts} machine={machine} remote={remote} remoteSettings={remoteSettings} cloud={cloud} cloudSettings={cloudSettings} cloudError={cloudError} summary={summary} scheduling={scheduling} onMirrorNightly={mirrorNightly} onChanged={() => void refresh()} onNavigate={onNavigate} />;
+          if (current === "offbox") return <OffBoxTab csrfToken={csrfToken} role={role} tailnetHosts={tailnetHosts} machine={machine} remote={remote} remoteSettings={remoteSettings} cloud={cloud} cloudSettings={cloudSettings} cloudError={cloudError} summary={summary} summaryUnknown={offBoxUnknown} scheduling={scheduling} onMirrorNightly={mirrorNightly} onChanged={() => void refresh()} onNavigate={onNavigate} />;
           if (current === "restore") return <RestoreTab csrfToken={csrfToken} role={role} restores={restores} onChanged={() => void refresh()} />;
           return <AppsTab csrfToken={csrfToken} role={role} protection={appProtection} protectionError={appProtectionError} behind={behind} scheduling={scheduling} onSchedule={protectNightly} onChanged={() => void refresh()} onNavigate={onNavigate} />;
         }}

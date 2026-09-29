@@ -109,6 +109,15 @@ describe("Backups page", () => {
     expect(screen.queryByText("Protected")).toBeNull();
   });
 
+  it("says what it could not read when answers come back in a shape it does not know, and never crashes", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => json({})));
+    render(<BackupsPage csrfToken="csrf-token" />);
+    expect(await screen.findByText("The backups could not be read")).toBeTruthy();
+    expect(screen.getByText("Not read")).toBeTruthy();
+    for (const tab of [/^This server/, /^Off-box/, /^Restore/]) openTab(tab);
+    expect(screen.getByText("Restore from a machine snapshot")).toBeTruthy();
+  });
+
   describe("Apps", () => {
     it("backs up an app from its row, through the approval dialog, with its tier on the button", async () => {
       const { bodies } = mockFetch({ apps: [{ id: "vaultwarden", name: "Vaultwarden", protectable: true, backups: 0, newestAt: null }], schedules: [] });

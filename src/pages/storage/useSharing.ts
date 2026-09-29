@@ -52,14 +52,20 @@ export function useSamba(csrfToken: string): SambaControl {
     void loadAutoClean();
     try {
       const response = await fetch("/api/v1/storage/samba");
-      const body = (await response.json()) as SambaState & { error?: string | null };
-      if (!response.ok) throw new Error(body.error ?? "The file server could not be read");
+      const raw = (await response.json()) as Partial<SambaState> & { error?: string | null };
+      if (!response.ok) throw new Error(raw?.error ?? "The file server could not be read");
+      if (typeof raw?.installed !== "boolean") throw new Error("The file server's state came back in a shape BoxPilot does not know");
+      const body: SambaState = {
+        ...(raw as SambaState),
+        config: { managed: false, workgroup: "WORKGROUP", scope: "tailscale", interfaces: [], ...raw.config, shares: (Array.isArray(raw.config?.shares) ? raw.config.shares : []).map((share) => ({ ...share, users: Array.isArray(share.users) ? share.users : [] })) },
+        users: Array.isArray(raw.users) ? raw.users : [],
+      };
       setState(body);
       setError(body.error ?? null);
       if (!dirtyRef.current) {
-        setDraftState((body.config?.shares ?? []).map((share) => ({ ...share, users: share.users ?? [] })));
-        setScopeState(body.config?.scope ?? "tailscale");
-        setWorkgroupState(body.config?.workgroup || "WORKGROUP");
+        setDraftState(body.config.shares);
+        setScopeState(body.config.scope === "lan" ? "lan" : "tailscale");
+        setWorkgroupState(body.config.workgroup || "WORKGROUP");
       }
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "The file server could not be read");
@@ -115,13 +121,15 @@ export function useNfs(): NfsControl {
   const refresh = useCallback(async () => {
     try {
       const response = await fetch("/api/v1/storage/nfs");
-      const body = (await response.json()) as NfsState & { error?: string | null };
-      if (!response.ok) throw new Error(body.error ?? "The NFS server could not be read");
+      const raw = (await response.json()) as Partial<NfsState> & { error?: string | null };
+      if (!response.ok) throw new Error(raw?.error ?? "The NFS server could not be read");
+      if (typeof raw?.installed !== "boolean") throw new Error("The NFS server's state came back in a shape BoxPilot does not know");
+      const body: NfsState = { ...(raw as NfsState), config: { managed: false, scope: "tailscale", ...raw.config, exports: Array.isArray(raw.config?.exports) ? raw.config.exports : [] } };
       setState(body);
       setError(body.error ?? null);
       if (!dirtyRef.current) {
-        setDraftState((body.config?.exports ?? []).map((entry) => ({ path: entry.path, readOnly: entry.readOnly })));
-        setScopeState(body.config?.scope ?? "tailscale");
+        setDraftState(body.config.exports.map((entry) => ({ path: entry.path, readOnly: entry.readOnly })));
+        setScopeState(body.config.scope === "lan" ? "lan" : "tailscale");
       }
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "The NFS server could not be read");

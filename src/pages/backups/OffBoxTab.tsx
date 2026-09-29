@@ -33,6 +33,8 @@ export interface OffBoxTabProps {
   cloudSettings: CloudSettings | null;
   cloudError: string | null;
   summary: OffBoxSummary | null;
+  /** Whether a copy is kept elsewhere could not be read. */
+  summaryUnknown?: boolean;
   scheduling: { busy: boolean; message: string; failed: boolean } | null;
   onMirrorNightly: (operations: string[]) => void;
   onChanged: () => void;
@@ -47,7 +49,7 @@ function destinationState(configured: boolean, lastSyncAt: string | null): { sta
   return lastSyncAt ? { status: "good", label: `Mirrored ${ago(lastSyncAt) ?? ""}`.trim() } : { status: "warning", label: "Never mirrored" };
 }
 
-export default function OffBoxTab({ csrfToken, role, tailnetHosts, machine, remote, remoteSettings, cloud, cloudSettings, cloudError, summary, scheduling, onMirrorNightly, onChanged, onNavigate }: OffBoxTabProps) {
+export default function OffBoxTab({ csrfToken, role, tailnetHosts, machine, remote, remoteSettings, cloud, cloudSettings, cloudError, summary, summaryUnknown = false, scheduling, onMirrorNightly, onChanged, onNavigate }: OffBoxTabProps) {
   const { start, dialog } = useOperation(csrfToken, () => onChanged());
   const may = (operationId: string) => mayStart(role, operationId);
   const hostsId = useId();
@@ -113,6 +115,7 @@ export default function OffBoxTab({ csrfToken, role, tailnetHosts, machine, remo
     <>
       {dialog}
       {scheduling && <Notice tone={scheduling.busy ? "info" : scheduling.failed ? "warning" : "success"} live title={scheduling.message} />}
+      {summaryUnknown && <Notice tone="warning" title="Whether a copy is kept elsewhere could not be read">A destination's state did not come back, and no other destination is set up.</Notice>}
       {summary && (summary.warning
         ? (
           <Notice tone={summary.wanted.length === 0 ? "danger" : "warning"} title={summary.warning} action={scheduleButton}>
