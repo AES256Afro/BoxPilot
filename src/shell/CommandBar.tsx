@@ -7,6 +7,7 @@ import { readJson } from "../http";
 import { Button, Notice, RiskTag, type RiskTier } from "../ui";
 import { useDialogFocus } from "../useDialogFocus";
 import { AreaIcon, ExternalIcon, PlusIcon, RunIcon, SearchIcon, SparkIcon } from "./areaIcons";
+import "./command.css";
 import { actionCommands, buildCommands, searchCommands, type AppActionFacts, type CatalogEntry, type Command, type CommandGroup } from "./commandIndex";
 
 /*
@@ -188,7 +189,7 @@ function CommandDialog({ csrfToken, onClose, onNavigate, onStart, role }: Comman
         : `The local assistant is not set up, so this only searches.${assistant.problem?.message ? ` ${assistant.problem.message}` : ""}`;
 
   return createPortal(
-    <div className="modal-backdrop command-backdrop" role="presentation" onMouseDown={onClose}>
+    <div className="command-overlay" role="presentation" onMouseDown={onClose}>
       <section ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label="Search BoxPilot" className="command-dialog" onMouseDown={(event) => event.stopPropagation()}>
         <div className="command-input">
           <SearchIcon className="command-input__icon" />

@@ -5,8 +5,8 @@
 .settings-page { display: grid; gap: 10px; min-width: 0; }
 .settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 10px; min-width: 0; }
 .settings-panel--wide { grid-column: 1 / -1; }
-/* A long list beside two shorter panels takes both their rows. */
-.settings-panel--tall { grid-row: span 2; }
+/* Two shorter panels stacked beside a long one. */
+.settings-column { display: grid; align-content: start; gap: 10px; min-width: 0; }
 
 /* Words, forms and actions inside a panel. */
 .settings-quiet { max-width: 72ch; margin: 0; color: var(--text-muted); font-size: 13.5px; line-height: 1.45; }
