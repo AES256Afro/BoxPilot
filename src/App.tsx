@@ -7,7 +7,7 @@ import ActivityDrawer from "./ActivityDrawer";
 import { useOperation } from "./ApproveDialog";
 import { useTheme } from "./useTheme";
 import { ThemeSwitch } from "./ui/ThemeSwitch";
-import { dropElevation, fetchAuthStatus, logoutOwner, type AuthStatus } from "./auth";
+import { dropElevation, fetchAuthStatus, forgetSession, logoutOwner, rememberSession, sessionEndedEvent, signedOutReason, type AuthStatus, type SignedOutReason } from "./auth";
 import { connectionLabel } from "./appLinks";
 import { FactsProvider } from "./home/facts";
 import { CommandBar } from "./shell/CommandBar";
@@ -60,7 +60,7 @@ function viewFromLocation(): ViewName {
   return candidate && Object.hasOwn(viewCopy, candidate) ? (candidate as ViewName) : "home";
 }
 
-function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthStatus; onSignedOut: () => void; onAuthChanged?: (status: AuthStatus) => void }) {
+function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthStatus; onSignedOut: (reason: SignedOutReason | null) => void; onAuthChanged?: (status: AuthStatus) => void }) {
   const [view, setViewState] = useState<ViewName>(viewFromLocation);
   // The app the catalog opens at (?app=jellyfin), when a tile or the command bar sent us there.
   const [focusApp, setFocusApp] = useState<string | null>(() => new URLSearchParams(window.location.search).get("app"));
@@ -93,7 +93,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
     if (!Number.isFinite(expiresAt)) return undefined;
     const delay = Math.min(2_147_000_000, Math.max(1000, expiresAt - Date.now() + 1000));
     let retry = 0;
-    const check = () => { void fetchAuthStatus().then((status) => { if (!status.authenticated) onSignedOut(); else onAuthChanged?.(status); }).catch(() => { retry = window.setTimeout(check, 15_000); }); };
+    const check = () => { void fetchAuthStatus().then((status) => { if (!status.authenticated) onSignedOut(signedOutReason() ?? "expired"); else onAuthChanged?.(status); }).catch(() => { retry = window.setTimeout(check, 15_000); }); };
     const timer = window.setTimeout(check, delay);
     return () => { window.clearTimeout(timer); if (retry) window.clearTimeout(retry); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -102,6 +102,19 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
     const listener = () => { void refreshAuth(); };
     window.addEventListener("boxpilot:auth-changed", listener);
     return () => window.removeEventListener("boxpilot:auth-changed", listener);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // A request found no session (M36): make sure, then go to the sign-in page and say why, rather
+  // than leave every page showing "Your session has expired" in red.
+  useEffect(() => {
+    let checking = false;
+    const listener = () => {
+      if (checking) return;
+      checking = true;
+      void fetchAuthStatus().then((status) => { if (!status.authenticated) onSignedOut(signedOutReason() ?? "ended"); }).catch(() => undefined).finally(() => { checking = false; });
+    };
+    window.addEventListener(sessionEndedEvent, listener);
+    return () => window.removeEventListener(sessionEndedEvent, listener);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const [apiMode, setApiMode] = useState("browser preview");
@@ -196,7 +209,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
           <div className="topbar-right">
             <span className="connection-pill" title="How this browser reached BoxPilot">{connectionLabel(window.location)}</span>
             <ThemeSwitch compact />
-            <ActivityDrawer csrfToken={csrfToken} />
+            <ActivityDrawer csrfToken={csrfToken} role={role} />
             {authStatus.owner?.role && authStatus.owner.role !== "owner" ? <span className="status-pill status-neutral" title="Your role on this server">{authStatus.owner.role}</span> : null}
             {elevated
               ? <button className="text-button elevation-lock" type="button" title="High-risk approvals skip the password until this time. Click to lock now." aria-label={`Elevated until ${elevatedLabel}. Lock now`} onClick={() => void dropElevation(csrfToken).then(refreshAuth).catch(() => refreshAuth())}><span className="elevation-long">Elevated until </span><span className="elevation-short">Until </span>{elevatedLabel} · Lock</button>
@@ -205,7 +218,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
               {authStatus.owner?.username && <span className="signed-in-user__avatar" aria-hidden="true">{authStatus.owner.username.slice(0, 1).toUpperCase()}</span>}
               <span className="signed-in-user__name">{authStatus.owner?.username}</span>
             </span>
-            <button className="text-button" type="button" onClick={() => void logoutOwner(csrfToken).then(onSignedOut).catch(onSignedOut)}>Sign out</button>
+            <button className="text-button" type="button" onClick={() => { forgetSession(); void logoutOwner(csrfToken).then(() => onSignedOut(null)).catch(() => onSignedOut(null)); }}>Sign out</button>
           </div>
         </header>
 
@@ -242,14 +255,20 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
 
 function App() {
   useTheme(); // keeps data-theme true to this browser's choice
-  const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null);
+  const [authStatus, setAuthStatusState] = useState<AuthStatus | null>(null);
   const [authError, setAuthError] = useState<string | null>(null);
+  // Why the sign-in page is showing, when a session this browser had has gone (M36).
+  const [signedOut, setSignedOut] = useState<SignedOutReason | null>(null);
+  const setAuthStatus = useCallback((status: AuthStatus) => {
+    if (status.authenticated) { rememberSession(status); setSignedOut(null); }
+    setAuthStatusState(status);
+  }, []);
 
   useEffect(() => {
     void fetchAuthStatus()
-      .then(setAuthStatus)
+      .then((status) => { if (!status.authenticated) setSignedOut(signedOutReason()); setAuthStatus(status); })
       .catch((error) => setAuthError(error instanceof Error ? error.message : "Unable to reach BoxPilot authentication"));
-  }, []);
+  }, [setAuthStatus]);
 
   // An app's "Sign in with BoxPilot" (M19.3) lands here with ?next=/oidc/authorize when the strict
   // session cookie was not sent on the cross-site hop. Once we know the owner is signed in, continue
@@ -272,9 +291,10 @@ function App() {
       if (next && next.startsWith("/oidc/")) { window.location.href = next; return; }
       setAuthStatus(status);
     };
-    return <AuthScreen bootstrapRequired={authStatus.bootstrapRequired} onAuthenticated={onAuthed} />;
+    const page = viewFromLocation();
+    return <AuthScreen bootstrapRequired={authStatus.bootstrapRequired} onAuthenticated={onAuthed} notice={signedOut && !authStatus.bootstrapRequired ? { reason: signedOut, page: page === "home" ? null : viewLabel(page) } : null} />;
   }
-  return <Console authStatus={authStatus} onAuthChanged={setAuthStatus} onSignedOut={() => setAuthStatus({ ...authStatus, authenticated: false, owner: null, csrfToken: null, expiresAt: null })} />;
+  return <Console authStatus={authStatus} onAuthChanged={setAuthStatus} onSignedOut={(reason) => { setSignedOut(reason); forgetSession(); setAuthStatusState({ ...authStatus, authenticated: false, owner: null, csrfToken: null, expiresAt: null }); }} />;
 }
 
 export default App;
