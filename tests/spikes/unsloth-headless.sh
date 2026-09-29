@@ -50,7 +50,7 @@ record() {
     if [ "${v:0:1}" = "[" ] || [ "${v:0:1}" = "{" ]; then
       json="$(jq -c --arg k "$k" --argjson v "$v" '. + {($k): $v}' <<<"$json" 2>/dev/null || jq -c --arg k "$k" --arg v "$v" '. + {($k): $v}' <<<"$json")"
     else
-      json="$(jq -c --arg k "$k" --arg v "$v" '. + {($k): ($v | (tonumber? // .))}' <<<"$json")"
+      json="$(jq -c --arg k "$k" --arg v "$v" '. + {($k): ($v | if . == "true" then true elif . == "false" then false else (tonumber? // .) end)}' <<<"$json")"
     fi
   done
   printf '%s\n' "$json" >>"$RESULTS"
@@ -66,7 +66,10 @@ probe() { "$NODE_BIN" "$PROBE" "$@"; }
 
 redact() { sed -E 's/sk-unsloth-[A-Za-z0-9_-]+/sk-unsloth-<redacted>/g; s/([Pp]assword[^:=]*[:=][[:space:]]*)[^[:space:]]+/\1<redacted>/g'; }
 
-save_logs() { docker logs -t "$1" 2>&1 | redact >"$OUT/logs/$1.log" || true; }
+save_logs() { # the container's output, plus llama-server's own log (load and per-request timings)
+  docker logs -t "$1" 2>&1 | redact >"$OUT/logs/$1.log" || true
+  docker cp "$1:/opt/unsloth-studio/logs/llama-server" "$OUT/logs/$1-llama-server" >/dev/null 2>&1 || true
+}
 
 # ---- cgroup readings -------------------------------------------------------------------------
 
@@ -225,7 +228,8 @@ start_and_time() {
 step_build() {
   # The smallest clean path: Ubuntu 24.04 plus Unsloth's own installer, GGUF-only (no PyTorch).
   # The installer apt-installs optional compilers when it runs as root; they are removed in the same
-  # layer because the prebuilt llama.cpp needs none of them.
+  # layer because the prebuilt llama.cpp needs none of them. It does need OpenMP (libgomp1), which
+  # the purge would otherwise take with gcc, so that is installed up front as a kept package.
   local ctx="$TMP_ROOT/unsloth-slim-ctx" t0 t1 size
   mkdir -p "$ctx"
   cat >"$ctx/Dockerfile" <<'DOCKERFILE'
@@ -235,7 +239,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PATH=/opt/unsloth-studio/bin:$PATH
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 RUN apt-get update \
- && apt-get install -y --no-install-recommends curl ca-certificates \
+ && apt-get install -y --no-install-recommends curl ca-certificates libgomp1 \
  && curl -fsSL https://unsloth.ai/install.sh | UNSLOTH_NO_TORCH=1 UNSLOTH_SKIP_AUTOSTART=1 sh \
  && (apt-get purge -y --auto-remove cmake build-essential libcurl4-openssl-dev git >/dev/null 2>&1 || true) \
  && rm -rf /var/lib/apt/lists/* /opt/unsloth-studio/cache/uv /root/.cache/uv /root/.cache/pip
