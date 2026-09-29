@@ -242,7 +242,8 @@ export const inspections = {
   "backup.cloud.inspect": { rcloneInstalled: true, configured: true, provider: "b2", providers: Object.fromEntries(Object.entries(cloudProviders).map(([id, entry]) => [id, { label: entry.label, fields: entry.fields, secrets: entry.secrets, help: entry.help }])) },
   "fail2ban.inspect": fail2ban,
   "canary.verify": { ok: true },
-  "system.update.status": { running: false, log: [], startedAt: null, finishedAt: null, ok: null },
+  // server/ops/update.mjs: the update units, the upgrade log they wrote, and how the last one ended.
+  "system.update.status": { units: [], log: [], outcome: null },
   "users.inspect": {
     users: [
       { name: "root", uid: 0, sudo: true, shell: "/bin/bash", keyCount: 0 },
@@ -252,7 +253,13 @@ export const inspections = {
     sshd: { passwordAuthentication: false, keyboardInteractive: false, pubkeyAuthentication: true, permitRootLogin: "prohibit-password", port: 22 },
     sshActive: true,
   },
-  "docker.disk.inspect": { images: { count: 22, sizeBytes: 9.4 * GiB, reclaimableBytes: 1.1 * GiB }, containers: { count: 14, sizeBytes: 0.6 * GiB }, volumes: { count: 9, sizeBytes: 3.2 * GiB }, buildCache: { sizeBytes: 0 } },
+  // `docker system df`, as server/ops/system.mjs reads it: one row per kind, sizes in Docker's words.
+  "docker.disk.inspect": { available: true, rows: [
+    { type: "Images", total: 22, active: 14, size: "10.1GB", reclaimable: "1.18GB (11%)" },
+    { type: "Containers", total: 14, active: 13, size: "644MB", reclaimable: "12.3MB (1%)" },
+    { type: "Local Volumes", total: 9, active: 9, size: "3.44GB", reclaimable: "0B (0%)" },
+    { type: "Build Cache", total: 0, active: 0, size: "0B", reclaimable: "0B" },
+  ], logging: { configured: true, logDriver: "json-file", maxSize: "10m", liveRestore: true } },
   "housekeeping.database-copies.inspect": demoDatabaseCopies(),
   "housekeeping.inspect": (() => {
     const categories = [
@@ -401,8 +408,13 @@ export const inspections = {
     { name: "living-room-tv", address: "192.168.1.51", mac: "aa:bb:cc:dd:ee:04", online: false, reserved: false },
   ] },
   "logs.sources": { groups: [{ id: "boxpilot", label: "BoxPilot" }, { id: "system", label: "System journal" }, { id: "docker", label: "Docker" }], units: [{ unit: "boxpilot.service", description: "BoxPilot", active: "active" }, { unit: "docker.service", description: "Docker Engine", active: "active" }, { unit: "tailscaled.service", description: "Tailscale", active: "active" }], dockerAvailable: true, containers: Object.keys(installed).map((id) => ({ name: `bp-${id}`, state: "running", image: `${id}:latest` })) },
-  "vm.cloud.images": { images: [] },
-  "vm.stats.inspect": { available: true, domains: {} },
+  "vm.cloud.images": { images: [
+    { id: "ubuntu-24.04", label: "Ubuntu 24.04 LTS (Noble)", defaultUser: "ubuntu", cached: true, digest: "a".repeat(64) },
+    { id: "debian-12", label: "Debian 12 (Bookworm)", defaultUser: "debian", cached: false, digest: null },
+  ] },
+  // A running VM's counters, the shape vm.stats.inspect returns (M7.8); the page works its rates
+  // out from two reads, and the demo's reads move a little (vmStatsRead) so there is a rate to show.
+  "vm.stats.inspect": { sampledAt: now().toISOString(), domains: [{ name: "dev-lab", state: "running", cpuTimeNs: 8.2e12, vcpus: 4, memoryKiB: 5.1 * 1024 ** 2, memoryMaxKiB: 8 * 1024 ** 2, diskReadBytes: 4.1e10, diskWriteBytes: 2.2e10, netRxBytes: 9.3e9, netTxBytes: 1.2e9 }] },
 };
 
 // ---------- server ----------
@@ -446,7 +458,17 @@ const freshRest = {
   "/storage/shares/discover": (body) => ({ ...body, devices: [] }),
   "/power/ups/detect": (body) => ({ ...body, devices: [], nutInstalled: false }),
   "/virtualization/domains": (body) => ({ ...body, connected: false, error: "libvirt is not installed on this server yet", domains: [] }),
-  "/virtualization/status": (body) => ({ ...body, ready: false, checks: body.checks.map((check) => ({ ...check, ok: false, detail: "Not installed on this server yet" })) }),
+  "/virtualization/status": (body) => ({ ...body, ready: false, checks: body.checks.map((check) => ({ ...check, ok: false, detail: "Not installed on this server yet" })),
+    tailscale: { installed: false, connected: false, dnsName: null, serveUrls: [] },
+    setupPlan: { title: "Install KVM, QEMU and libvirt", destructive: false, requiresConsoleApproval: true, commands: ["sudo apt-get update", "sudo apt-get install --no-install-recommends qemu-kvm libvirt-daemon-system virtinst", "sudo usermod -aG libvirt,kvm \"$USER\""], notes: ["Or run the Hypervisor profile in Setup, which does the same as approved jobs."] } }),
+  "/virtualization/resources": (body) => ({ ...body, connected: false, networks: [], pools: [], errors: ["libvirt is not installed on this server yet"] }),
+  "/virtualization/foundation": (body) => ({ ...body, connectionReady: false, ready: false, planAvailable: false, conflicts: ["libvirt is not installed on this server yet"],
+    network: { ...body.network, exists: false, active: false, autostart: false }, pool: { ...body.pool, exists: false, active: false, autostart: false } }),
+  "/virtualization/exports": () => ({ exports: [] }),
+  "/virtualization/protection": (body) => ({ destination: { ...body.destination, ready: false, resticVersion: null, mount: null, destinationFreeBytes: null, blockers: ["No backup drive is mounted for encrypted VM copies"] }, backups: [] }),
+  "/virtualization/retention": (body) => ({ ...body, beforeCount: 0, candidates: [] }),
+  "/virtualization/media": (body) => ({ ...body, library: { ...body.library, images: [] } }),
+  "/virtualization/planning-options": (body) => ({ ...body, isoImages: [] }),
   "/firewall/overview": (body) => ({ ...body, report: { ...body.report, installed: true, enabled: false, rules: [] }, current: null, advice: [] }),
   // The disks are real on a new server; what BoxPilot has done to them is not. So the hardware
   // stays and the snapshots, mounted shares and cifs/nfs tooling — all of it BoxPilot's doing — go.
@@ -551,12 +573,16 @@ api.get("/settings/vpn-profile", (_request, response) => json(response, {
 api.get("/setup", async (request, response) => {
   const present = installedFor(scenarioOf(request.get("referer")));
   const status = (id) => (present[id] ? "done" : "ready");
+  // The job a ready step would stage, as server/setup-profiles.mjs gives it, so its tier shows (M33.12).
+  const jobOf = (step) => (step.kind === "app" ? { operationId: "app.install", parameters: { id: step.appId, values: {} } }
+    : step.kind === "prerequisite" ? { operationId: `prerequisite.${step.name}.install`, parameters: {} }
+      : step.kind === "unattended" ? { operationId: "apt.unattended.set", parameters: { enabled: true } }
+        : step.kind === "foundation" ? { operationId: "vm.foundation.initialize", parameters: {} } : null);
   const profiles = setupProfiles.map((profile) => {
-    const steps = profile.steps.map((step) => ({
-      ...step,
-      status: step.kind === "app" ? status(step.appId) : step.id === "automatic-updates" && Object.keys(present).length ? "done" : "ready",
-      detail: step.kind === "app" && present[step.appId] ? "Already installed" : null,
-    }));
+    const steps = profile.steps.map((step) => {
+      const state = step.kind === "app" ? status(step.appId) : step.id === "automatic-updates" && Object.keys(present).length ? "done" : "ready";
+      return { ...step, status: state, detail: step.kind === "app" && present[step.appId] ? "Already installed" : null, job: state === "ready" ? jobOf(step) : null };
+    });
     return { id: profile.id, name: profile.name, icon: profile.icon, description: profile.description, steps, remaining: steps.filter((step) => step.status === "ready").length, blocked: 0 };
   });
   json(response, { firstRun: Object.keys(present).length === 0, installedApps: Object.keys(present).length, appsKnown: true, profiles });
@@ -581,7 +607,11 @@ const demoDomain = (name, state, vcpus, memoryGiB, extra = {}) => ({
 });
 api.get("/virtualization/domains", (_request, response) => json(response, {
   connected: true, error: null,
-  domains: [demoDomain("dev-lab", "running", 4, 8), demoDomain("win11-test", "shut off", 2, 4)],
+  // libvirt says "shut off"; libvirt.mjs reports it as "stopped", which is what the page acts on.
+  domains: [demoDomain("dev-lab", "running", 4, 8), demoDomain("win11-test", "stopped", 2, 4, {
+    snapshotCount: 1, snapshots: [{ name: "fresh-install", manageable: true, current: true, state: "stopped", location: "internal", parent: null, createdAt: ago(24 * 9) }],
+    guestAgent: null,
+  })],
 }));
 api.get("/virtualization/status", (_request, response) => json(response, {
   platform: "linux", architecture: "x86_64", connectionUri: "qemu:///system", ready: true,
@@ -611,6 +641,42 @@ api.get("/virtualization/foundation", (_request, response) => json(response, {
   pool: { name: "default", exists: true, active: true, autostart: true, persistent: true, compatible: true, targetPath: "/var/lib/libvirt/images" },
   conflicts: [], planAvailable: false, changes: [],
   boundary: { mutationPerformed: false, browserResourceAccepted: false },
+}));
+// A VM's way back (M33.12): dev-lab was exported, kept encrypted off the server and restore-tested;
+// win11-test's copy has not been test-restored yet. The media library has two installers.
+const demoIsos = [
+  { name: "ubuntu-24.04.1-live-server-amd64.iso", sizeBytes: 2.6 * GiB, modifiedAt: ago(24 * 40) },
+  { name: "debian-12.7.0-amd64-netinst.iso", sizeBytes: 631 * 1024 ** 2, modifiedAt: ago(24 * 12) },
+];
+api.get("/virtualization/exports", (_request, response) => json(response, { exports: [
+  { id: "3d1c9a0e-5b7f-4a61-9c2e-0f4b8d6a1e21", domainName: "dev-lab", domainUuid: "demo-dev-lab", destination: "local-managed", artifactPath: "/var/lib/boxpilot-managed/vm-exports/3d1c9a0e", manifestChecksumSha256: "c".repeat(64), sizeBytes: 11.4 * GiB, protected: true, encrypted: true, restoreDrill: { passed: true }, createdAt: ago(24 * 6) },
+  { id: "8a2e4f10-7c3b-4d59-b1e6-2f9d0c7a5b33", domainName: "win11-test", domainUuid: "demo-win11-test", destination: "local-managed", artifactPath: "/var/lib/boxpilot-managed/vm-exports/8a2e4f10", manifestChecksumSha256: "d".repeat(64), sizeBytes: 23.8 * GiB, protected: false, encrypted: false, restoreDrill: { passed: false, reason: "not run" }, createdAt: ago(20) },
+] }));
+api.get("/virtualization/protection", (_request, response) => json(response, {
+  destination: { adapter: "mounted-restic", ready: true, encrypted: true, independent: true, resticVersion: "0.17.3", mount: { target: "/mnt/backup-drive", sourceType: "ext4", independentFilesystem: true, writable: true },
+    repositoryId: "e".repeat(64), destinationRevision: "f".repeat(64), destinationFreeBytes: 1.6 * 1024 * GiB, blockers: [], setupCommand: "sudo /opt/boxpilot/scripts/boxpilot-restic-setup.sh", recoveryKeyRequired: true },
+  backups: [
+    { id: "b7f0c2d4-1e3a-4c5b-8d6e-9f0a1b2c3d4e", exportId: "3d1c9a0e-5b7f-4a61-9c2e-0f4b8d6a1e21", domainName: "dev-lab", domainUuid: "demo-dev-lab", destination: "mounted-restic", repositoryId: "e".repeat(64), snapshotId: "1a".repeat(32), sizeBytes: 9.8 * GiB, encrypted: true, independent: true, repositoryVerified: true, protected: true, retained: true, retention: null, restoreDrill: { passed: true }, createdAt: ago(24 * 6 - 1) },
+    { id: "c8a1d3e5-2f4b-4d6c-9e7f-0a1b2c3d4e5f", exportId: "8a2e4f10-7c3b-4d59-b1e6-2f9d0c7a5b33", domainName: "win11-test", domainUuid: "demo-win11-test", destination: "mounted-restic", repositoryId: "e".repeat(64), snapshotId: "2b".repeat(32), sizeBytes: 19.1 * GiB, encrypted: true, independent: true, repositoryVerified: true, protected: false, retained: true, retention: null, restoreDrill: { passed: false, reason: "not run" }, createdAt: ago(19) },
+  ],
+}));
+api.get("/virtualization/retention", (_request, response) => json(response, {
+  executable: true, policy: { minimumCopiesPerDomain: 3, minimumAgeDays: 30, requiresProtectedRestoreDrill: true, preserveRecoverySources: true },
+  repositoryId: "e".repeat(64), beforeCount: 2, unrecordedSnapshotIds: [], candidates: [], kept: [], blockers: [], changes: [], warnings: [], verification: [],
+  prunePerformed: false, spaceReclaimed: false, recovery: "Restore from another retained protected snapshot.", retentionRuns: [],
+}));
+api.get("/virtualization/recoveries", (_request, response) => json(response, { recoveries: [] }));
+api.get("/virtualization/media", (_request, response) => json(response, {
+  inbox: { path: "/var/lib/boxpilot-managed/vm-media-inbox", candidates: [] },
+  library: { path: "/var/lib/libvirt/boot", images: demoIsos },
+  limits: { maximumIsoBytes: 16 * GiB },
+  boundary: { browserPathAccepted: false, arbitraryDestinationAccepted: false, checksumVerifiedDuringImport: true, existingMediaOverwritten: false, mutationPerformed: false },
+}));
+api.get("/virtualization/planning-options", (_request, response) => json(response, {
+  mediaRoot: "/var/lib/libvirt/boot", mediaError: null, isoImages: demoIsos, hostCapacity: { cpuThreads: 16, memoryMiB: 32 * 1024 },
+  limits: { vcpus: { minimum: 1, maximum: 16 }, memoryMiB: { minimum: 1024, maximum: 28 * 1024 }, diskGiB: { minimum: 8, maximum: 700 } },
+  profiles: [{ id: "ubuntu-24.04", label: "Ubuntu 24.04 LTS", osVariant: "ubuntu24.04", minimumMemoryMiB: 2048, minimumDiskGiB: 20 }, { id: "debian-12", label: "Debian 12", osVariant: "debian12", minimumMemoryMiB: 1024, minimumDiskGiB: 10 }, { id: "windows-11", label: "Windows 11", osVariant: "win11", minimumMemoryMiB: 4096, minimumDiskGiB: 64 }],
+  networks: [{ name: "default", kind: "NAT", recommended: true }], firmware: ["uefi", "bios"],
 }));
 // Which automation this server in particular should have, with the evidence for it (M24.1).
 // Only what is not already on the list: suggestFlows filters out anything the owner has, so a
@@ -849,6 +915,10 @@ const freshWords = {
   "router.leases": { host: null, leases: [] },
   // A new server can read its backup folder; it just has no apps in it yet.
   "app.backup.protection": { available: true, apps: [] },
+  // The machine itself is there on a new server (M33.12): its name, clock, memory and swap. Only
+  // what BoxPilot would have done to it is not, so there is nothing yet to clean up.
+  "system.settings.inspect": inspections["system.settings.inspect"],
+  "housekeeping.inspect": { generatedAt: now().toISOString(), categories: [], totalBytes: 0, totalHumanBytes: "0 B" },
 };
 
 /**
@@ -858,6 +928,12 @@ const freshWords = {
  * the state nobody could look at before, because the demo only ever had a healthy server in it.
  */
 const troubleWords = {
+  // The last BoxPilot update stopped before it changed anything: no room for the database copy (M36).
+  "system.update.status": { units: [], outcome: "failed", log: [
+    `${ago(26).slice(0, 19)}+0000 ${host.hostname} boxpilot-upgrade[4242]: [boxpilot-upgrade] downloading v${productVersion}`,
+    `${ago(26).slice(0, 19)}+0000 ${host.hostname} boxpilot-upgrade[4242]: [boxpilot-upgrade] copying the database ${productVersion} wrote to /var/lib/boxpilot/boxpilot-rollback-${productVersion}.sqlite3`,
+    `${ago(26).slice(0, 19)}+0000 ${host.hostname} boxpilot-upgrade[4242]: [boxpilot-upgrade] ERROR: could not copy the database to /var/lib/boxpilot: database or disk is full. Nothing was changed: BoxPilot ${productVersion} is still running from /opt/boxpilot.`,
+  ] },
   // Neither drive checker is installed, and Ubuntu's lists offer both: Repair's drive row offers the install.
   "prerequisite.drive-tools.inspect": { tools: { smartctl: false, fsckExfat: false },
     packages: { exfatprogs: { installedVersion: null, candidateVersion: "1.2.2-1build1" }, smartmontools: { installedVersion: null, candidateVersion: "7.4-2build1" } },
@@ -1071,10 +1147,33 @@ function breathing(result) {
     temps: result.temps.map((temp, index) => ({ ...temp, celsius: round(temp.celsius + wave(1.8, 2 + index)) })),
   };
 }
+/**
+ * A running VM's counters only ever grow; the page turns two reads into rates (M7.8). Each read
+ * moves them on by the time since the demo started, at a steady few percent of CPU and a trickle
+ * of disk and network, so the Virtual Machines page has a rate to show.
+ */
+const vmStatsSince = Date.now();
+function vmStatsRead(result) {
+  if (!Array.isArray(result?.domains)) return result;
+  const seconds = (Date.now() - vmStatsSince) / 1000;
+  return {
+    ...result,
+    sampledAt: new Date().toISOString(),
+    domains: result.domains.map((domain) => (domain.state !== "running" ? domain : {
+      ...domain,
+      cpuTimeNs: domain.cpuTimeNs + seconds * (domain.vcpus ?? 1) * 0.14e9,
+      diskReadBytes: domain.diskReadBytes + seconds * 900 * 1024,
+      diskWriteBytes: domain.diskWriteBytes + seconds * 400 * 1024,
+      netRxBytes: domain.netRxBytes + seconds * 180 * 1024,
+      netTxBytes: domain.netTxBytes + seconds * 40 * 1024,
+    })),
+  };
+}
 api.get("/operations/:id/inspect", (request, response) => {
   const result = fixturesFor(scenarioOf(request.get("referer")))[request.params.id];
   if (!result) return response.status(404).json({ error: "Not in the demo", code: "demo_missing" });
-  return json(response, { operation: request.params.id, result: request.params.id === "system.performance.inspect" ? breathing(result) : result });
+  const live = request.params.id === "system.performance.inspect" ? breathing(result) : request.params.id === "vm.stats.inspect" ? vmStatsRead(result) : result;
+  return json(response, { operation: request.params.id, result: live });
 });
 // Read-only operations answer from the same fixtures the inspect route uses, so anything the UI
 // reads through /run (which is how it passes parameters) behaves here too.
