@@ -1,10 +1,9 @@
-import { useEffect, useId, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { useState } from "react";
 import { viewLabel, type ViewName } from "../data";
 import { useOptionalFacts } from "../home/facts";
-import { Dock, type DockItem } from "../ui";
-import { useDialogFocus } from "../useDialogFocus";
+import { Dock, Sheet, type DockItem } from "../ui";
 import { AreaIcon, MoreIcon } from "./areaIcons";
+import "./look.css";
 
 /*
  * The shell's two ways around (M33.2, ADR-004): the Home / Ops switch in the top bar, and the dock
@@ -74,23 +73,13 @@ export function ShellDock({ view, onSelect, variant = "dock" }: { view: ViewName
   );
 }
 
-/** Every area, named in full, for a screen too narrow for the whole dock. */
+/**
+ * Every area, named in full, for a screen too narrow for the whole dock: the kit's Sheet as a
+ * dialog (M33.13), in the console's look wherever it opens.
+ */
 function AreasSheet({ areas, onClose, onSelect }: { areas: DockItem[]; onClose: () => void; onSelect: (view: ViewName) => void }) {
-  const ref = useRef<HTMLElement | null>(null);
-  const titleId = useId();
-  useDialogFocus(ref);
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [onClose]);
-  return createPortal(
-    <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
-      <section ref={ref} tabIndex={-1} className="modal areas-sheet" role="dialog" aria-modal="true" aria-labelledby={titleId} onMouseDown={(event) => event.stopPropagation()}>
-        <header className="areas-sheet__head">
-          <h2 id={titleId}>All areas</h2>
-          <button className="icon-button" type="button" aria-label="Close dialog" onClick={onClose}>X</button>
-        </header>
+  return (
+    <Sheet title="All areas" side="center" className="look-console areas-sheet" onClose={onClose}>
         <ul className="areas-sheet__grid">
           {areas.map((area) => {
             const counted = area.badge !== undefined && area.badge !== "";
@@ -108,8 +97,6 @@ function AreasSheet({ areas, onClose, onSelect }: { areas: DockItem[]; onClose: 
             );
           })}
         </ul>
-      </section>
-    </div>,
-    document.body,
+    </Sheet>
   );
 }

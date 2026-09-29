@@ -15,7 +15,7 @@
  * Nothing here stages or runs an operation. A card's steps carry the request that stages each one
  * through the ordinary job path, where it is approved at its own tier.
  */
-import { Router } from "express";
+import express, { Router } from "express";
 import { createEventStream } from "../event-stream.mjs";
 
 const callerOf = (request) => ({ id: request.boxpilotSession?.owner?.id ?? null, role: request.boxpilotSession?.owner?.role ?? "owner" });
@@ -55,6 +55,16 @@ export function createAgentsRouter({ agents, state, auth }) {
   router.put("/agents/knowledge/documents/:documentId", auth.requireCsrf, handle((request) => agents.toggleDocument(callerOf(request), request.params.documentId, request.body?.enabled)));
   router.delete("/agents/knowledge/documents/:documentId", auth.requireCsrf, handle((request) => agents.removeDocument(callerOf(request), request.params.documentId)));
   router.post("/agents/knowledge/relearn", auth.requireCsrf, handle((request) => agents.relearn(callerOf(request), request.body?.agentId ?? null)));
+  router.put("/agents/knowledge/documents/:documentId/pin", auth.requireCsrf, handle((request) => agents.pinDocument(callerOf(request), request.params.documentId, request.body?.pinned)));
+  // A PDF, Markdown or text file, sent as the request's body (up to 10 MB); its name in ?name=.
+  router.post("/agents/knowledge/upload", auth.requireCsrf, express.raw({ type: () => true, limit: "11mb" }), handle((request) => agents.uploadDocument(callerOf(request), {
+    name: typeof request.query.name === "string" ? request.query.name.slice(0, 200) : "upload", title: typeof request.query.title === "string" ? request.query.title.slice(0, 120) : null,
+    buffer: Buffer.isBuffer(request.body) ? request.body : null,
+  })));
+  router.post("/agents/knowledge/folder/sync", auth.requireCsrf, handle((request) => agents.syncFolderNow(callerOf(request))));
+  router.post("/agents/knowledge/reindex", auth.requireCsrf, handle((request) => agents.reindexMemory(callerOf(request))));
+  // Import an agent from its JSON definition (export is per agent, below).
+  router.post("/agents/import", auth.requireCsrf, handle((request, response) => { response.status(201); return agents.importAgent(callerOf(request), request.body ?? {}); }));
 
   // ---- cards ----
   router.post("/agents/proposals/:proposalId/decide", auth.requireCsrf, handle((request) => agents.decideProposal(callerOf(request), request.params.proposalId, request.body ?? {})));
@@ -62,6 +72,8 @@ export function createAgentsRouter({ agents, state, auth }) {
   // ---- runs ----
   router.get("/agents/runs/:runId", handle((request) => agents.getRun(callerOf(request), request.params.runId)));
   router.post("/agents/runs/:runId/cancel", auth.requireCsrf, handle((request) => agents.cancelRun(callerOf(request), request.params.runId)));
+  // "Was this right?": anyone who may see the run says so, and it feeds the evaluation.
+  router.post("/agents/runs/:runId/feedback", auth.requireCsrf, handle((request) => agents.giveFeedback(callerOf(request), request.params.runId, request.body ?? {})));
   // A run's trace as it happens: each step, then its end. A page closed mid-run just unsubscribes.
   router.get("/agents/runs/:runId/stream", async (request, response) => {
     let first;
@@ -103,6 +115,21 @@ export function createAgentsRouter({ agents, state, auth }) {
   // A question, from anyone the agent takes them from.
   router.post("/agents/:id/ask", auth.requireCsrf, handle((request, response) => { response.status(202); return agents.startRun(callerOf(request), request.params.id, { kind: "ask", question: request.body?.question ?? null }); }));
   router.get("/agents/:id/notes", handle((request) => ({ notes: agents.listNotes(callerOf(request), request.params.id) })));
+  // What it remembers, by tier; the owner edits a fact or makes it forget one, an episode or the conversation.
+  router.get("/agents/:id/memory", handle((request) => agents.memoryOf(callerOf(request), request.params.id)));
+  router.put("/agents/:id/memory/notes/:noteId", auth.requireCsrf, handle((request) => agents.editMemory(callerOf(request), request.params.id, request.params.noteId, request.body ?? {})));
+  router.delete("/agents/:id/memory/notes/:noteId", auth.requireCsrf, handle((request) => agents.forgetMemory(callerOf(request), request.params.id, { kind: "note", id: request.params.noteId })));
+  router.delete("/agents/:id/memory/episodes/:episodeId", auth.requireCsrf, handle((request) => agents.forgetMemory(callerOf(request), request.params.id, { kind: "episode", id: request.params.episodeId })));
+  // The conversation with the person asking: anyone who may ask the agent can make it forget theirs.
+  router.delete("/agents/:id/memory/thread", auth.requireCsrf, handle((request) => agents.forgetMemory(callerOf(request), request.params.id, { kind: "thread" })));
+  router.get("/agents/:id/export", handle((request, response) => {
+    const definition = agents.exportAgent(callerOf(request), request.params.id);
+    response.setHeader("Content-Disposition", `attachment; filename="${definition.spec.name.replace(/[^A-Za-z0-9 _-]/g, "").trim().replace(/\s+/g, "-").toLowerCase() || "agent"}.boxpilot-agent.json"`);
+    return definition;
+  }));
+  // A webhook that starts the agent: minted (the token is shown once) or taken away.
+  router.post("/agents/:id/webhook", auth.requireCsrf, handle((request) => agents.mintAgentWebhook(callerOf(request), request.params.id)));
+  router.delete("/agents/:id/webhook", auth.requireCsrf, handle((request) => agents.clearAgentWebhook(callerOf(request), request.params.id)));
   router.delete("/agents/:id/notes/:noteId", auth.requireCsrf, handle((request) => agents.deleteNote(callerOf(request), request.params.id, request.params.noteId)));
   router.get("/agents/:id/evaluation", handle((request) => agents.getEvaluation(callerOf(request), request.params.id)));
   router.put("/agents/:id/evaluation", auth.requireCsrf, handle((request) => agents.setEvaluation(callerOf(request), request.params.id, request.body ?? {})));

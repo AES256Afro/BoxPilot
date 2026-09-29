@@ -1,0 +1,71 @@
+/*
+ * The console's look on whatever opens over a page (M33.13): the approval dialog, Activity and the
+ * notifications. The console sets these names on <html> for every page but Home; Home keeps the
+ * Launcher's, so a dialog opened from Home's list would otherwise be drawn in the Classic palette.
+ * With this class it is the same dialog everywhere, light and dark, from the --cc-* tokens. Keep it
+ * in step with :root[data-shell="console"] in src/styles.css.
+ */
+.look-console {
+  --font-sans: var(--font-condensed);
+  --surface: var(--cc-panel);
+  --surface-raised: var(--cc-raised);
+  --surface-muted: var(--cc-inset);
+  --surface-hover: var(--cc-raised);
+  --surface-header: var(--cc-panel);
+  --surface-inset: var(--cc-inset);
+  --code-bg: var(--cc-inset);
+  --border: var(--cc-line);
+  --border-subtle: var(--cc-hairline);
+  --border-strong: var(--cc-line-strong);
+  --text: var(--cc-text);
+  --text-strong: var(--cc-text-strong);
+  --text-muted: var(--cc-muted);
+  --text-code: var(--cc-text);
+  --accent: var(--cc-amber);
+  --accent-text-on: var(--cc-amber-ink);
+  --accent-faint: var(--cc-amber-bg);
+  --accent-bg: var(--cc-amber-bg);
+  --link: var(--cc-amber);
+  --meter-track: var(--cc-track);
+  --radius-control: 3px;
+  --status-good: var(--cc-green);
+  --status-good-text: var(--cc-green);
+  --status-good-bg: var(--cc-green-bg);
+  --status-good-border: var(--cc-green-border);
+  --status-warning: var(--cc-amber);
+  --status-warning-text: var(--cc-amber);
+  --status-warning-bg: var(--cc-amber-bg);
+  --status-warning-border: var(--cc-amber-border);
+  --status-danger: var(--cc-red);
+  --status-danger-text: var(--cc-red-text);
+  --status-danger-bg: var(--cc-red-bg);
+  --status-danger-border: var(--cc-red-border);
+  --status-neutral: var(--cc-muted);
+  --status-neutral-text: var(--cc-text);
+  --status-neutral-bg: var(--cc-raised);
+  --status-neutral-border: var(--cc-line-strong);
+  --status-unknown: var(--cc-muted);
+  --status-unknown-text: var(--cc-muted);
+  --status-unknown-bg: transparent;
+  --status-unknown-border: var(--cc-muted);
+  --risk-low: var(--cc-green);
+  --risk-low-text: var(--cc-green);
+  --risk-low-bg: var(--cc-green-bg);
+  --risk-low-border: var(--cc-green-border);
+  --risk-medium: var(--cc-amber);
+  --risk-medium-text: var(--cc-amber);
+  --risk-medium-bg: var(--cc-amber-bg);
+  --risk-medium-border: var(--cc-amber-border);
+  --risk-high: var(--cc-red);
+  --risk-high-text: var(--cc-red-text);
+  --risk-high-bg: var(--cc-red-bg);
+  --risk-high-border: var(--cc-red-border);
+  color: var(--cc-text);
+  font-family: var(--font-condensed);
+}
+
+/* The console's focus ring on every control; the dialog itself, focused so the keyboard starts in it, draws none. */
+.look-console :focus-visible:not([tabindex="-1"]) {
+  outline: 2px solid var(--cc-amber);
+  outline-offset: 1px;
+}

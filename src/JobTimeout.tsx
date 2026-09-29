@@ -1,5 +1,7 @@
 import type { Job, JobTimeout, RiskTier } from "./operations";
 import { Button } from "./ui/Button";
+import { Notice } from "./ui/Notice";
+import "./shell/jobs.css";
 
 /** "40 seconds", "25 minutes", "2 hours 30 minutes": how a budget is said. Same as the server's. */
 export function formatDuration(ms: number): string {
@@ -49,18 +51,18 @@ export function JobTimeoutNotice({ job, onMoreTime, busy = false }: { job: Job; 
     : timeout.scope === "operation"
       ? `It had ${formatDuration(timeout.budgetMs)} and used all of it. It may still be running on the server.`
       : `${timeout.step ?? "One step"} had ${formatDuration(timeout.budgetMs)} and did not finish. The job ran for ${formatDuration(timeout.elapsedMs)}.`;
+  const offered = Boolean(onMoreTime && moreTime !== null);
   return (
-    <div className="notice warning-notice job-timeout" role="status">
-      <strong>Ran out of time</strong>
+    <Notice
+      tone="warning"
+      title="Ran out of time"
+      className="jobs-timeout"
+      // The same operation again, so the same tier: shown on the button, not only in the dialog.
+      action={offered ? <Button risk={tiers.includes(job.risk) ? job.risk as RiskTier : "high"} busy={busy} onClick={onMoreTime}>Try again with more time</Button> : undefined}
+    >
       <p>{limit}</p>
-      {timeout.lastOutput && <p>Last output: <code>{timeout.lastOutput}</code></p>}
-      {onMoreTime && moreTime !== null && (
-        <>
-          <p>Trying again gives it {formatDuration(moreTime)}, and asks for approval like any other job.</p>
-          {/* The same operation again, so the same tier: shown on the button, not only in the dialog. */}
-          <Button className="job-timeout-retry" risk={tiers.includes(job.risk) ? job.risk as RiskTier : "high"} busy={busy} onClick={onMoreTime}>Try again with more time</Button>
-        </>
-      )}
-    </div>
+      {timeout.lastOutput && <p className="jobs-timeout__last">Last output: <code>{timeout.lastOutput}</code></p>}
+      {offered && <p>Trying again gives it {formatDuration(moreTime!)}, and asks for approval like any other job.</p>}
+    </Notice>
   );
 }

@@ -78,6 +78,13 @@ export const modelLibrary = Object.freeze([
 
 export const defaultModelId = modelLibrary.find((model) => model.recommended).id;
 
+/**
+ * The embedder memory search uses: Unsloth's own RAG embedder, which it starts beside the chat
+ * model when /v1/embeddings is asked (the spike: 101 MB, 26 ms a text, 0.01% of a core idle,
+ * 384 dimensions). The runner is offline, so it is downloaded with the chat model.
+ */
+export const embedderModel = Object.freeze({ repo: "unsloth/bge-small-en-v1.5-GGUF", file: "bge-small-en-v1.5-f16.gguf", approxBytes: 67_582_560, dimensions: 384 });
+
 /** Only Unsloth's own Qwen GGUF repositories: the owner chose them, and nothing else is downloaded. */
 export const repoPattern = /^unsloth\/Qwen\d+(?:\.\d+)?-\d+(?:\.\d+)?B(?:-Instruct)?-GGUF$/;
 export const ggufPattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,150}\.gguf$/;

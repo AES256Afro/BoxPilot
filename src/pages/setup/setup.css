@@ -1,0 +1,102 @@
+/* Setup (M33.12): the welcoming start of the product, in the console. The Launcher's greeting and
+   its colour squares, on the console's surfaces. Tokens only, and every selector starts with
+   .setup-, so no other page is touched (docs/UI-PAGES.md). */
+
+.setup-page { display: grid; gap: 10px; min-width: 0; }
+.setup-note { margin: 0; color: var(--text-muted); font-size: 13.5px; line-height: 1.45; }
+
+/* The greeting: large, as Home says hello, over a faint glow in the page's own accent. */
+.setup-welcome { display: grid; gap: 14px; min-width: 0; }
+.setup-hero {
+  display: grid;
+  gap: 8px;
+  padding: 26px 22px 24px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background:
+    radial-gradient(90% 140% at 0% 0%, var(--cc-amber-bg), transparent 62%),
+    radial-gradient(70% 120% at 100% 100%, var(--cc-cyan-fill), transparent 60%),
+    var(--surface);
+}
+.setup-hero__greeting { margin: 0; color: var(--text-strong); font-family: var(--font-sans); font-size: clamp(26px, 3vw, 36px); font-weight: 700; letter-spacing: -0.02em; line-height: 1.1; overflow-wrap: anywhere; }
+.setup-hero__line { max-width: 62ch; margin: 0; color: var(--text); font-size: 15px; line-height: 1.45; }
+
+/* The profiles: a colour square each, as Home draws its apps, with what the profile brings. */
+.setup-profiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 17rem), 1fr)); gap: 10px; margin: 0; padding: 0; list-style: none; }
+.setup-profile {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 14px;
+  width: 100%;
+  height: 100%;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  background: var(--surface);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 120ms ease, background-color 120ms ease, transform 120ms ease;
+}
+.setup-profile:hover { border-color: var(--border-strong); background: var(--surface-raised); }
+.setup-profile:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.setup-profile__square {
+  display: grid;
+  width: 58px;
+  height: 58px;
+  place-items: center;
+  border-radius: 16px;
+  color: var(--brand-glyph);
+  background: linear-gradient(140deg, var(--app-a, var(--brand-slate-a)), var(--app-b, var(--brand-slate-b)));
+  box-shadow: var(--lx-shadow);
+  font-size: 28px;
+  line-height: 1;
+}
+.setup-profile__square--small { width: 40px; height: 40px; border-radius: 11px; font-size: 20px; box-shadow: none; }
+.setup-profile__text { display: grid; gap: 4px; min-width: 0; }
+.setup-profile__name { color: var(--text-strong); font-size: 16px; font-weight: 700; line-height: 1.2; }
+.setup-profile__description { color: var(--text-muted); font-size: 13px; line-height: 1.4; }
+.setup-profile__state { display: inline-flex; align-items: center; gap: 6px; margin-top: 4px; color: var(--text); font-family: var(--font-mono); font-size: 11.5px; }
+.setup-profile__state .ui-mark { width: 7px; height: 7px; }
+.setup-profile__state[data-status="good"] { color: var(--status-good-text); }
+.setup-profile__state[data-status="warning"] { color: var(--status-warning-text); }
+@media (prefers-reduced-motion: no-preference) {
+  .setup-profile:hover { transform: translateY(-1px); }
+}
+
+/* A chosen profile: its square and words, the progress, then each step with its state and tier. */
+.setup-back { display: flex; }
+.setup-plan__head { display: flex; align-items: center; gap: 12px; padding: 12px; border-bottom: 1px solid var(--border); }
+.setup-plan__progress { padding: 10px 12px; border-bottom: 1px solid var(--border); }
+.setup-steps { display: grid; margin: 0; padding: 0; list-style: none; }
+.setup-step { display: grid; grid-template-columns: 5.5rem minmax(0, 1fr) auto; align-items: start; gap: 4px 12px; padding: 9px 12px; border-top: 1px solid var(--border-subtle); }
+.setup-step:first-child { border-top: 0; }
+.setup-step > .ui-chip { justify-self: start; }
+.setup-step__text { display: grid; gap: 2px; min-width: 0; }
+.setup-step__text strong { color: var(--text-strong); font-size: 14px; font-weight: 600; }
+.setup-step__detail { color: var(--text-muted); font-size: 13px; line-height: 1.4; overflow-wrap: anywhere; }
+.setup-step__error { color: var(--status-danger-text); font-size: 13px; line-height: 1.4; overflow-wrap: anywhere; }
+.setup-step__tags { display: flex; gap: 4px; }
+.setup-password { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px 10px; }
+.setup-password .ui-field { flex: 1 1 18rem; max-width: 28rem; }
+.setup-password > .ui-button { margin-top: 23px; }
+
+/* Prepare a new server: the form's three panels side by side while there is room. */
+.setup-new { display: grid; gap: 10px; min-width: 0; }
+.setup-new__form { display: grid; gap: 10px; min-width: 0; }
+.setup-new__panels { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 19rem), 1fr)); align-items: start; gap: 10px; }
+.setup-new__go { display: flex; justify-content: flex-end; }
+.setup-inline { display: flex; flex-wrap: wrap; gap: 8px; }
+.setup-inline .ui-input { flex: 1 1 10rem; width: auto; }
+
+@media (max-width: 640px) {
+  .setup-hero { padding: 20px 16px; }
+  .setup-step { grid-template-columns: minmax(0, 1fr) auto; }
+  .setup-step > .ui-chip { grid-row: 1; grid-column: 1; }
+  .setup-step__tags { grid-row: 1; grid-column: 2; }
+  .setup-step__text { grid-row: 2; grid-column: 1 / -1; }
+  .setup-password > .ui-button { margin-top: 0; }
+  .setup-new__go { justify-content: stretch; }
+}

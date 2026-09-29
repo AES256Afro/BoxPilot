@@ -3,14 +3,25 @@
  * new version, so an agent's history can be read, compared and rolled back.
  *
  *   name, purpose        what it is called and what it is for
- *   instructions         the owner's words to it, below BoxPilot's own rules (prompt.mjs)
+ *   job                  its one job, in a sentence, and how the owner will know it did it; the
+ *   successCriteria      Builder asks for both and warns when the scope reads like "everything"
+ *   prompt               the structured system prompt: rules, operational steps, the output format
+ *                        (text, or JSON with named fields) and what to escalate
+ *   instructions         anything else the owner wants to say, below BoxPilot's own rules (prompt.mjs)
  *   audience             who may ask it: owner, operator, viewer (the IT helper can be borrowed)
  *   knowledge            which sources its search reads: docs, registry, catalog, notes, documents
  *   tools                a permission per catalog tool: auto, ask (only when a person asked) or off
- *   triggers             on ask, on a schedule, on events (a health alert, a failed job, a dropped drive)
+ *   triggers             asked, a schedule, events (a health alert, a failed job, a dropped drive),
+ *                        a webhook
  *   budget               runs a day, model seconds a day, steps and tokens a run, seconds a run
  *   outputs              notes, a daily digest, notifications (important only), approval cards
- *   memory               whether it keeps notes, how long they stay fresh, how many
+ *   memory               notes kept, how long they stay fresh and how many, whether other agents
+ *                        may read them, and a conversation per person
+ *   escalation           when it hands the matter to the owner as a card: low confidence, a limit
+ *                        reached, an action needed, something that looks risky
+ *   allow                the apps its tools may look at and the operations it may propose
+ *   model                thinking on or off (off by default: on a CPU it costs minutes)
+ *   orchestration        a supervisor that hands subtasks to other agents, and how deep
  *
  * normalizeSpec() is the one gate: anything else is refused with a sentence, never repaired.
  */
@@ -25,6 +36,11 @@ export const agentEvents = Object.freeze({
 export const scheduleCadences = Object.freeze(["hourly", "every-6-hours", "daily", "weekly"]);
 export const knowledgeSources = Object.freeze(["docs", "registry", "catalog", "notes", "documents"]);
 export const audiences = Object.freeze(["owner", "operator", "viewer"]);
+export const outputFormats = Object.freeze(["text", "json"]);
+const appIdPattern = /^[a-z0-9][a-z0-9-]{0,63}$/;
+const operationIdPattern = /^[a-z][a-z0-9-]*(\.[a-z0-9-]+)+$/;
+const agentIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const fieldNamePattern = /^[a-z][A-Za-z0-9_]{0,31}$/;
 
 /** Ceilings no agent may raise itself past, whatever its spec says. */
 export const budgetCeilings = Object.freeze({
@@ -65,6 +81,30 @@ function integer(value, { min, max, default: fallback }, what) {
   return number;
 }
 
+/** A list of short lines: rules, steps, criteria. Empty lines are dropped; too many are refused. */
+function lines(value, { max, chars, what, required = false }) {
+  let list = value ?? [];
+  if (typeof list === "string") list = list.split("\n");
+  if (!Array.isArray(list)) throw new SpecError(`${what[0].toUpperCase()}${what.slice(1)} must be a list`);
+  const cleaned = list.map((entry) => plain(entry, chars, `each of its ${what}`)).filter(Boolean);
+  if (cleaned.length > max) throw new SpecError(`At most ${max} ${what}`);
+  if (required && !cleaned.length) throw new SpecError(`Give the agent at least one of its ${what}`);
+  return cleaned;
+}
+
+/** "*" (anything a run may otherwise touch) or a list of ids of one shape. */
+function allowList(value, pattern, what) {
+  if (value === undefined || value === null || value === "*") return "*";
+  if (!Array.isArray(value) || value.length > 50 || value.some((entry) => typeof entry !== "string" || !pattern.test(entry))) throw new SpecError(`${what} is "*" or a list of ids`);
+  return [...new Set(value)].sort();
+}
+
+const section = (value, what) => {
+  const raw = value ?? {};
+  if (typeof raw !== "object" || Array.isArray(raw)) throw new SpecError(what);
+  return raw;
+};
+
 function normalizeSchedule(raw) {
   if (raw === undefined || raw === null || raw === false) return null;
   if (typeof raw !== "object" || Array.isArray(raw)) throw new SpecError("The schedule must say how often and when");
@@ -76,6 +116,27 @@ function normalizeSchedule(raw) {
   return { every: raw.every, minute, hour, weekday, quietHours: bool(raw.quietHours, true) };
 }
 
+function normalizePrompt(input) {
+  const raw = section(input, "The prompt must be its parts: rules, steps, output and what to escalate");
+  const rawOutput = section(raw.output, "The output format must say text or JSON");
+  const format = rawOutput.format ?? "text";
+  if (!outputFormats.includes(format)) throw new SpecError("The output is text or JSON");
+  const rawFields = rawOutput.fields ?? [];
+  if (!Array.isArray(rawFields) || rawFields.length > 8) throw new SpecError("A JSON answer has at most 8 fields");
+  const fields = rawFields.map((field) => {
+    if (!field || typeof field !== "object" || !fieldNamePattern.test(field.name ?? "")) throw new SpecError("Each field needs a name of letters and digits, starting with a small letter");
+    return { name: field.name, description: plain(field.description, 200, "a field's description") };
+  });
+  if (new Set(fields.map((field) => field.name)).size !== fields.length) throw new SpecError("Each field needs its own name");
+  if (format === "json" && !fields.length) throw new SpecError("A JSON answer needs at least one field");
+  return {
+    rules: lines(raw.rules, { max: 12, chars: 300, what: "rules" }),
+    steps: lines(raw.steps, { max: 12, chars: 300, what: "steps" }),
+    output: { format, fields: format === "json" ? fields : [], style: plain(rawOutput.style, 300, "the output's style") },
+    escalate: lines(raw.escalate, { max: 8, chars: 300, what: "things to escalate" }),
+  };
+}
+
 /**
  * The spec as it is stored, from what the Builder sent. Tools missing from the input are off;
  * unknown tools, events, audiences and sources are refused, so a typo is never a silent default.
@@ -84,33 +145,32 @@ export function normalizeSpec(input) {
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new SpecError("Send the agent as an object");
   const name = plain(input.name, 60, "a name", { required: true });
   const purpose = plain(input.purpose, 300, "a purpose");
+  const job = plain(input.job, 200, "one job, in a sentence", { required: true });
+  const successCriteria = lines(input.successCriteria, { max: 6, chars: 200, what: "success criteria", required: true });
+  const prompt = normalizePrompt(input.prompt);
   const instructions = plain(input.instructions, 8_000, "instructions", { multiline: true });
 
   const audience = input.audience === undefined ? ["owner", "operator"] : input.audience;
   if (!Array.isArray(audience) || !audience.length || audience.some((role) => !audiences.includes(role))) throw new SpecError(`Who may ask it: some of ${audiences.join(", ")}`);
   if (!audience.includes("owner")) throw new SpecError("The owner can always ask an agent");
 
-  const rawKnowledge = input.knowledge ?? {};
-  if (typeof rawKnowledge !== "object" || Array.isArray(rawKnowledge)) throw new SpecError("Knowledge must name its sources");
+  const rawKnowledge = section(input.knowledge, "Knowledge must name its sources");
   for (const key of Object.keys(rawKnowledge)) if (!knowledgeSources.includes(key)) throw new SpecError(`There is no knowledge source called ${key}`);
   const knowledge = Object.fromEntries(knowledgeSources.map((source) => [source, bool(rawKnowledge[source], true)]));
 
-  const rawTools = input.tools ?? {};
-  if (typeof rawTools !== "object" || Array.isArray(rawTools)) throw new SpecError("Tools must be a permission for each tool");
+  const rawTools = section(input.tools, "Tools must be a permission for each tool");
   for (const [id, permission] of Object.entries(rawTools)) {
     if (!toolById(id)) throw new SpecError(`There is no tool called ${id}`);
     if (!toolPermissions.includes(permission)) throw new SpecError(`A tool's permission is one of ${toolPermissions.join(", ")}`);
   }
   const tools = Object.fromEntries(toolCatalog.map((tool) => [tool.id, rawTools[tool.id] ?? rawTools[tool.fn] ?? "off"]));
 
-  const rawTriggers = input.triggers ?? {};
-  if (typeof rawTriggers !== "object" || Array.isArray(rawTriggers)) throw new SpecError("Triggers must say when it runs");
+  const rawTriggers = section(input.triggers, "Triggers must say when it runs");
   const events = rawTriggers.events ?? [];
   if (!Array.isArray(events) || events.some((event) => !Object.hasOwn(agentEvents, event))) throw new SpecError(`Events are some of ${Object.keys(agentEvents).join(", ")}`);
-  const triggers = { ask: bool(rawTriggers.ask, true), schedule: normalizeSchedule(rawTriggers.schedule), events: [...new Set(events)] };
+  const triggers = { ask: bool(rawTriggers.ask, true), schedule: normalizeSchedule(rawTriggers.schedule), events: [...new Set(events)], webhook: bool(rawTriggers.webhook, false) };
 
-  const rawBudget = input.budget ?? {};
-  if (typeof rawBudget !== "object" || Array.isArray(rawBudget)) throw new SpecError("The budget must be a set of limits");
+  const rawBudget = section(input.budget, "The budget must be a set of limits");
   const budget = {
     runsPerDay: integer(rawBudget.runsPerDay, budgetCeilings.runsPerDay, "Runs a day"),
     modelSecondsPerDay: integer(rawBudget.modelSecondsPerDay, budgetCeilings.modelSecondsPerDay, "Model seconds a day"),
@@ -119,26 +179,68 @@ export function normalizeSpec(input) {
     runSeconds: integer(rawBudget.runSeconds, budgetCeilings.runSeconds, "Seconds a run"),
   };
 
-  const rawOutputs = input.outputs ?? {};
-  if (typeof rawOutputs !== "object" || Array.isArray(rawOutputs)) throw new SpecError("Outputs must say what it may produce");
+  const rawOutputs = section(input.outputs, "Outputs must say what it may produce");
   const notify = rawOutputs.notify ?? "important";
   if (!["important", "never"].includes(notify)) throw new SpecError("Notifications are important or never");
   const outputs = { notes: bool(rawOutputs.notes, true), digest: bool(rawOutputs.digest, false), notify, proposals: bool(rawOutputs.proposals, true) };
 
-  const rawMemory = input.memory ?? {};
-  if (typeof rawMemory !== "object" || Array.isArray(rawMemory)) throw new SpecError("Memory must be a set of choices");
+  const rawMemory = section(input.memory, "Memory must be a set of choices");
   const memory = {
     enabled: bool(rawMemory.enabled, true),
     freshDays: integer(rawMemory.freshDays, { min: 1, max: 90, default: 14 }, "Days a note stays fresh"),
     maxNotes: integer(rawMemory.maxNotes, { min: 1, max: 200, default: 50 }, "The most notes it keeps"),
+    // Other agents read its facts, each only as far as its own runs may read (the writer's role).
+    share: bool(rawMemory.share, false),
+    // A conversation per person: the last turns word for word, older ones as a running summary.
+    threads: bool(rawMemory.threads, true),
+    turns: integer(rawMemory.turns, { min: 1, max: 20, default: 6 }, "Turns kept word for word"),
+  };
+
+  const rawEscalation = section(input.escalation, "Escalation must be a set of choices");
+  const escalation = {
+    lowConfidence: bool(rawEscalation.lowConfidence, true),
+    limits: bool(rawEscalation.limits, true),
+    actions: bool(rawEscalation.actions, true),
+    risk: bool(rawEscalation.risk, true),
+  };
+
+  const rawAllow = section(input.allow, "What it may touch must be lists");
+  const allow = { apps: allowList(rawAllow.apps, appIdPattern, "The apps it may look at"), operations: allowList(rawAllow.operations, operationIdPattern, "The operations it may propose") };
+
+  const rawModel = section(input.model, "The model's settings must be choices");
+  const model = { thinking: bool(rawModel.thinking, false) };
+
+  const rawOrchestration = section(input.orchestration, "Orchestration must be a set of choices");
+  const orchestration = {
+    supervisor: bool(rawOrchestration.supervisor, false),
+    delegates: allowList(rawOrchestration.delegates, agentIdPattern, "The agents it may hand work to"),
+    maxDepth: integer(rawOrchestration.maxDepth, { min: 1, max: 3, default: 2 }, "How deep hand-offs may go"),
   };
 
   // Outputs and tools agree: an agent that may not write notes has notes.write off, and so on.
   if (!outputs.notes || !memory.enabled) tools["notes.write"] = "off";
+  if (!memory.enabled) tools["memory.search"] = "off";
   if (!outputs.proposals) tools["plan.propose"] = "off";
   if (outputs.notify === "never") tools["notify.owner"] = "off";
-  if (!triggers.ask && !triggers.schedule && !triggers.events.length) throw new SpecError("An agent needs at least one way to start: asked, a schedule, or an event");
-  return { name, purpose, instructions, audience: audiences.filter((role) => audience.includes(role)), knowledge, tools, triggers, budget, outputs, memory };
+  if (!orchestration.supervisor) tools["agents.handoff"] = "off";
+  if (!triggers.ask && !triggers.schedule && !triggers.events.length && !triggers.webhook) throw new SpecError("An agent needs at least one way to start: asked, a schedule, an event or a webhook");
+  return { name, purpose, job, successCriteria, prompt, instructions, audience: audiences.filter((role) => audience.includes(role)), knowledge, tools, triggers, budget, outputs, memory, escalation, allow, model, orchestration };
+}
+
+/**
+ * What the Builder warns about ("define the scope"): an agent with one specific job does it better
+ * on a small model than one asked to do everything. Warnings, never refusals.
+ */
+export function scopeWarnings(spec) {
+  const warnings = [];
+  const job = String(spec?.job ?? "");
+  if (/\b(everything|anything|whatever|all (?:tasks|things|of it)|any task)\b/i.test(job)) warnings.push("The job reads like \"do everything\". Give it one specific job, and make another agent for the next one.");
+  if ((job.match(/\b(and|also|plus)\b/gi) ?? []).length >= 3) warnings.push("The job lists several things. One agent for each keeps a small model on track.");
+  const on = Object.values(spec?.tools ?? {}).filter((permission) => permission !== "off").length;
+  if (on > 10 && !spec?.orchestration?.supervisor) warnings.push(`It has ${on} tools on. An agent with one job needs a few; each extra tool is one more for a small model to choose between.`);
+  if (!(spec?.successCriteria ?? []).length) warnings.push("Say how you will know it did its job: its success criteria are what its evaluation checks.");
+  if (spec?.prompt?.output?.format === "json" && spec?.outputs?.digest) warnings.push("A digest is read on Home and Ops; as JSON it will show as fields rather than sentences.");
+  return warnings;
 }
 
 /** A stable text of a spec, so two versions compare equal when they say the same thing. */
@@ -149,8 +251,9 @@ export function specText(spec) {
 
 /** Lines of two texts marked kept, removed and added: a longest-common-subsequence diff. */
 export function lineDiff(before, after, { maxLines = 400 } = {}) {
-  const a = String(before ?? "").split("\n").slice(0, maxLines);
-  const b = String(after ?? "").split("\n").slice(0, maxLines);
+  const split = (text) => (String(text ?? "") === "" ? [] : String(text).split("\n").slice(0, maxLines));
+  const a = split(before);
+  const b = split(after);
   const table = Array.from({ length: a.length + 1 }, () => new Uint16Array(b.length + 1));
   for (let i = a.length - 1; i >= 0; i -= 1) for (let j = b.length - 1; j >= 0; j -= 1) table[i][j] = a[i] === b[j] ? table[i + 1][j + 1] + 1 : Math.max(table[i + 1][j], table[i][j + 1]);
   const out = [];
@@ -165,9 +268,11 @@ export function lineDiff(before, after, { maxLines = 400 } = {}) {
   return out;
 }
 
+const textList = (value) => Array.isArray(value) && value.every((entry) => typeof entry === "string");
+
 /**
- * What changed between two versions: one entry per field that differs, the instructions as a line
- * diff, everything else as its value before and after.
+ * What changed between two versions: one entry per field that differs; the instructions and every
+ * list of lines (rules, steps, criteria) as a line diff, everything else as before and after.
  */
 export function diffSpecs(before, after) {
   const changes = [];
@@ -178,7 +283,12 @@ export function diffSpecs(before, after) {
     }
     if (JSON.stringify(a) === JSON.stringify(b)) return;
     const field = path.join(".");
-    changes.push(field === "instructions" ? { field, lines: lineDiff(a, b) } : { field, before: a ?? null, after: b ?? null });
+    if (field === "instructions" || textList(a) || textList(b)) {
+      const text = (value) => (textList(value) ? value.join("\n") : value ?? "");
+      changes.push({ field, lines: lineDiff(text(a), text(b)) });
+    } else {
+      changes.push({ field, before: a ?? null, after: b ?? null });
+    }
   };
   walk(before ?? {}, after ?? {}, []);
   return changes;

@@ -87,13 +87,19 @@ describe("asking an agent", () => {
     expect(toolSteps(run).map((step) => step.name)).toEqual(["pihole.stats", "where.runs"]);
     expect(run.steps.filter((step) => step.kind === "model")).toHaveLength(2);
     expect(h.helperCalls.map((call) => call.operation)).toContain("app.pihole.inspect");
-    // What the model saw: BoxPilot's rules, the tools it may call, and the tool output boxed.
-    const [first, second] = h.fake.prompts();
+    // Intent, then plan, then act: the understanding is asked for first, as JSON, and kept in the trace.
+    const [understanding, first, second] = h.fake.prompts();
+    expect(understanding.response_format).toMatchObject({ type: "json_schema", json_schema: { name: "understanding", strict: true } });
+    expect(understanding.tools ?? null).toBeNull();
+    const [intent, plan] = run.steps.filter((step) => ["intent", "plan"].includes(step.kind));
+    expect(intent).toMatchObject({ kind: "intent", state: "done", input: { tools: ["pihole_stats", "where_runs"], confidence: 0.9 } });
+    expect(plan.input.map((entry) => entry.tool)).toEqual(["pihole_stats", "where_runs", null]);
+    expect(first.messages.at(-1).content).toMatch(/^Your plan:/);
     expect(first.messages[0].content).toMatch(/^You are an agent on a home server managed by BoxPilot/);
     expect(first.tools.map((tool) => tool.function.name)).toContain("pihole_stats");
     expect(first.stream).toBe(true);
     expect(JSON.stringify(second.messages)).toContain('<tool_output id=\\"T1\\" tool=\\"pihole_stats\\" trust=\\"untrusted\\">');
-    expect(run.usage.modelCalls).toBe(2);
+    expect(run.usage.modelCalls).toBe(3);
     expect(run.usage.promptTokens).toBeGreaterThan(0);
   });
 
@@ -128,7 +134,7 @@ describe("asking an agent", () => {
     ask(helper, "viewer", "What do the logs say?");
     const claim = await h.service.runnerNext(h.runnerId, { waitMs: 0 });
     expect(claim.run.readRole).toBe("viewer");
-    expect(claim.tools.every((tool) => ["server.facts", "apps.list", "services.status", "storage.health", "docs.search", "alerts.active", "where.runs"].includes(tool.id))).toBe(true);
+    expect(claim.tools.every((tool) => ["server.facts", "apps.list", "services.status", "storage.health", "docs.search", "document.read", "alerts.active", "where.runs", "calc", "time.calc", "units.convert"].includes(tool.id))).toBe(true);
     await h.runner.execute(claim);
     const run = h.service.getRun(h.caller("viewer"), claim.run.id);
     expect(toolSteps(run)[0]).toMatchObject({ name: "logs.query", state: "refused" });
@@ -204,10 +210,14 @@ describe("prompt injection from what the tools read", () => {
     const [logs, proposal] = run.steps.filter((step) => ["tool", "proposal"].includes(step.kind));
     expect(logs.flags.injection).toBe(true);
     expect(run.flags.injection).toBe(true);
-    expect(JSON.stringify(h.fake.prompts()[1].messages)).toContain("WARNING: this output contains text that looks like instructions");
+    expect(JSON.stringify(h.fake.prompts()[2].messages)).toContain("WARNING: this output contains text that looks like instructions");
     expect(proposal).toMatchObject({ kind: "proposal", state: "done", flags: { afterSuspiciousOutput: true } });
-    const [card] = h.service.listProposals(h.caller("owner"));
+    const cards = h.service.listProposals(h.caller("owner"));
+    const card = cards.find((entry) => entry.kind === "plan");
     expect(card).toMatchObject({ source: "agent", runId: run.id, state: "open", forRole: "owner", flags: { afterSuspiciousOutput: true } });
+    // Something that looked like an instruction is escalated to the owner as a card, and told.
+    expect(cards.find((entry) => entry.kind === "escalation")).toMatchObject({ runId: run.id, steps: [], reason: expect.stringMatching(/looked like an instruction/) });
+    expect(h.told.map((entry) => entry.key)).toContain(`agent.important:${agent.id}:risk`);
     expect(card.steps.map((step) => [step.operationId, step.risk])).toEqual([["app.purge", "high"]]);
     expect(card.steps[0].request).toEqual({ method: "POST", path: "/api/v1/operations/app.purge/jobs", body: { parameters: { id: "jellyfin" } } });
     expect(card.dropped.map((entry) => entry.reason)).toEqual(["BoxPilot has no operation called no.such.operation"]);

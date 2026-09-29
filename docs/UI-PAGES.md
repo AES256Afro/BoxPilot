@@ -4,7 +4,9 @@ Every page but Home is drawn inside the console (M33.8, ADR-004 addendum): the C
 rail down the left (the dock along the bottom on a phone), a compact bar across the top, and the
 Command Center's look, near-black or paper, light and dark. A page builds on the kit in `src/ui/`
 and puts its own layout in its own stylesheet. `src/pages/services/` and `src/pages/logs/` are the
-reference pages; copy their shape.
+reference pages; copy their shape. `src/pages/settings/` shows a page of tabs (`Tabs` with
+`urlParam`, the owner's tabs left out for other roles) and forms on `Field`; `src/pages/signin/`
+is the one page outside the console, on the Launcher's wallpaper.
 
 ## The shell gives you
 
@@ -23,6 +25,24 @@ reference pages; copy their shape.
 
 When you rebuild a page, add its view to `ownHeader` in `src/App.tsx`, so the shell stops drawing
 a header for it, and render your own `PageHeader`.
+
+The shell also owns what opens over any page (M33.13), so a page never draws these itself:
+
+- **The approval dialog** (`src/shell/ApproveDialog.tsx`; `src/ApproveDialog.tsx` re-exports it
+  until wave 2's pages import it from the shell). Call `useOperation(csrfToken, onFinished)` and
+  render its `dialog` once; `start({ operationId, title, parameters, preview })` opens it. Give it
+  a `preview` that says in words what will happen (the command, the path, what stops): it is the
+  "What it will do" box, and without one the dialog falls back to the registry's description.
+  The tier, the password, the typed confirmation, the run (`JobProgress`) and the ending (the job
+  log) are the dialog's. `onStaged`, `handoff`, `moreTimeFor` and `existingJobId` are there for
+  Repair, Activity, Home and Ops.
+- **Activity and the notifications**, the job log (`src/JobLogView.tsx`) and the page error
+  (`src/shell/PageErrorBoundary.tsx`). Show one job inline with the kit's `JobProgress`, or its
+  whole log with `JobLogView`.
+- **The console's look everywhere.** What the shell draws over a page carries `look-console`
+  (`src/shell/look.css`), so it is the same on Home, whose root keeps the Launcher's tokens. The
+  shell's own sheets live in `src/shell/<name>.css`, every selector under `.<name>-`, held by
+  `src/shell/shellCss.test.ts` as the pages' are by `src/pages/pageCss.test.ts`.
 
 ## The rule: facts first
 
