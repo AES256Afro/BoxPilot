@@ -114,7 +114,7 @@ export default function DatabaseCopiesPanel({ csrfToken, role }: { csrfToken: st
   };
 
   return (
-    <div className="db-copies" data-density="comfortable">
+    <div className="db-copies panel" data-density="comfortable">
       {dialog}
       <Section
         title="Database copies from updates"
@@ -143,7 +143,7 @@ export default function DatabaseCopiesPanel({ csrfToken, role }: { csrfToken: st
               <span className="muted" role="status">{!ruleValid ? `The newest ${report.limits.keep[0]} to ${report.limits.keep[1]}, and ${report.limits.keepDays[0]} to ${report.limits.keepDays[1]} days.` : !current || reading ? "Working out which go…" : `${plural(going.length, "goes", "go")}, ${plural(kept, "stays", "stay")}.`}</span>
             </fieldset>
             {oldSecrets > 0 && (
-              <p className="muted">{plural(oldSecrets, "copy was", "copies were")} taken from a version before {report.secretScrubVersion}, which stopped keeping passwords in the database, so {oldSecrets === 1 ? "it" : "they"} may still hold some.</p>
+              <p className="db-copies-hint">{plural(oldSecrets, "copy was", "copies were")} taken from a version before {report.secretScrubVersion}, which stopped keeping passwords in the database, so {oldSecrets === 1 ? "it" : "they"} may still hold some.</p>
             )}
             <Table
               caption="Database copies, newest first"

@@ -175,7 +175,7 @@ const machineState = {
  * changing it in the demo changes the list as it would on a server.
  */
 function demoDatabaseCopies(parameters = {}) {
-  const stamp = (hours) => new Date(Date.now() - hours * 3600_000).toISOString().replace(/[-:]/g, "").replace(/.d+Z$/, "Z");
+  const stamp = (hours) => new Date(Date.now() - hours * 3600_000).toISOString().replace(/[-:]/g, "").replace(/\.\d+Z$/, "Z");
   const made = [["1.121.0", 24 * 44 + 0.6, 38], ["1.121.0", 24 * 44 + 0.4, 38], ["1.121.0", 24 * 44, 38], ["1.126.0", 24 * 21, 41], ["1.131.0", 24 * 1.6, 44], ["1.132.0", 24 * 1.4, 44], ["1.136.0", 30, 46], ["1.137.0", 20, 46]];
   const copies = made.map(([version, hours, mebibytes]) => describeDatabaseCopy(`boxpilot-rollback-${version}-${stamp(hours)}.sqlite3`, { bytes: mebibytes * 1024 ** 2, mtimeMs: Date.now() - hours * 3600_000 }));
   let rule;
