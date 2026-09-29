@@ -182,6 +182,26 @@ function Overview({ entry, ctx, onTab }: { entry: Entry; ctx: CatalogContext; on
         )}
       </div>
 
+      {/* What the app's manifest offers to do inside it (M38: Zulip's "Create your organization"),
+          each a registered operation approved at its own tier. It runs inside the container, so
+          only while the app is running. */}
+      {installed && (manifest.actions ?? []).some((action) => may(action.operation)) && (
+        <Panel level={3} title={`In ${name}`} className="catalog-app-actions">
+          <ul className="catalog-rows">
+            {(manifest.actions ?? []).filter((action) => may(action.operation)).map((action) => (
+              <li key={action.id} className="catalog-row">
+                <span className="catalog-row__main">
+                  <strong>{action.label}</strong>
+                  {action.description && <span className="catalog-row__dim">{action.description}</span>}
+                </span>
+                <Button risk={riskOf(action.operation)} disabled={!running} onClick={() => act({ operationId: action.operation, title: `${action.label} (${name})`, parameters: { id: manifest.id }, preview: <span>{action.description ?? action.label}</span> })}>{action.label}</Button>
+              </li>
+            ))}
+          </ul>
+          {!running && <p className="catalog-note">{name} is not running; start it first.</p>}
+        </Panel>
+      )}
+
       <KeyValue layout="rows" className="catalog-facts" items={facts} />
 
       {manifest.notes && installed && <p className="catalog-note">{manifest.notes}</p>}

@@ -2087,6 +2087,48 @@ Left, and why:
 - **Per-device Pi-hole numbers**: only if the owner opts in, as a separate owner-only read.
 - **Learning on its own schedule**: a learning pass runs when asked ("Re-learn"), in quiet hours.
 
+## M38 — Agents in Zulip
+
+Asked for 2026-09-29: "Install Zulip... Setup the rooms for the agents so all future agents know
+they can report their findings, detail logs, knowledge, a channel for dumping images, documents,
+files for training." Zulip over Mattermost and Matrix: fully open source, no cap on history, and
+channel plus topic fits agents (ADR-007). The owner's rules stand: agents propose and never act,
+nothing leaves the server unless the owner says so, and no account is made with a password.
+
+- ✅ **M38.1 Zulip in the catalog** (unreleased). `catalog/zulip.yaml`: Zulip Server 12.3 from
+  docker-zulip's image with its PostgreSQL 14, memcached, RabbitMQ 4.2 and Redis as sidecars, every
+  image pinned, every internal secret generated and passed by reference, the database and uploads
+  in app backups, a health check, Zulip's own nightly dump off, threaded queue workers.
+  - **Tailnet only by default.** Manifests can say `defaultExposure: tailnet`: installed without a
+    choice, the web port binds 127.0.0.1 (never every address, #323) and `app.install` publishes it
+    with Tailscale Serve; if Serve fails, the install stands and says so, and the Reach tab offers
+    "Publish on the tailnet". Zulip's port is 8543.
+  - **Its address is the Serve address.** Env values may name `${TAILNET_HOST}`, this server's
+    tailnet name, filled in at every deploy (Zulip's `EXTERNAL_HOST` is `${TAILNET_HOST}:${PORT_WEB}`),
+    so the phone apps get a valid certificate; an app that needs it is refused, unchanged, when
+    Tailscale gives no name. Zulip trusts Serve's forwarded headers from Docker's gateway only.
+  - **Create your organization.** Manifests can put `actions` on an app's sheet, each a registered
+    operation run with the app's id. Zulip's is `app.zulip.organization.link` (medium, owner): Zulip's
+    own `manage.py generate_realm_creation_link`, as the zulip user; refused once an organization
+    exists. The registry's new `oneTimeFields` keep the link out of the job's record and log: the
+    approval dialog asks `POST /jobs/:id/once` for it, once, and shows it with Copy and Open.
+  - **Email and push**: without SMTP nothing is emailed, which the install form and the notes say;
+    the SMTP server, user, password, port and sender are optional settings. Phone push is a setting
+    that is off, with the steps to register with Zulip's push service; BoxPilot never registers.
+  - The demo shows Zulip installed and served; the screenshots take its sheet, the approval for
+    Create your organization, and its install form on a new server.
+  - **On a real host** (`zulip-host.yml`, run when Zulip's files change or by hand): BoxPilot's own
+    deployer and install operation bring it up healthy in about two and a half minutes on a GitHub
+    runner, its port on 127.0.0.1 only, answering through Serve's headers as Zulip 12.3; Create your
+    organization's link opens the organization form. A minute later it used about 2.6 GB of memory
+    (Zulip 2.4 GB, RabbitMQ 150 MB, PostgreSQL 60 MB, Redis and memcached 17 MB) and 3.5 GB of disk
+    for its images.
+- **M38.2 Agents talk to Zulip** (the stacked pull request): Connect makes a bot with `manage.py`
+  owned by the organization's owner, keeps its key in the credential store, and creates
+  #agent-findings, #agent-logs, #agent-knowledge and #agent-files; every agent posts its outcomes
+  there by default, the runtime and not the model posting, redacted and bounded; files dropped in
+  #agent-files come into Knowledge.
+
 ## App catalogue candidates
 
 Checked against the 164 manifests already in `catalog/`, so nothing here duplicates an existing

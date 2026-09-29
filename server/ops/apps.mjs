@@ -307,9 +307,28 @@ export function appOperations() {
     defineOperation({
       // Pulls the app's images; a slow line or a large image can be given more time (M30.3): up to 4x.
       id: "app.install", title: "Install application", risk: "medium", timeoutMs: minutes(25), maxTimeoutMs: minutes(100),
-      description: "Writes the compose project, pulls the image, starts the container, and waits for it to be healthy; rolls back on failure.",
+      description: "Writes the compose project, pulls the image, starts the container, and waits for it to be healthy; rolls back on failure. An app installed for the tailnet only (Zulip, unless you choose otherwise) is then published over HTTPS on your tailnet with Tailscale Serve.",
       parameters: { fields: { id: idField, values: valuesField, devices: devicesField } },
-      run: (parameters, { apps, progress, timeScale }) => apps.install({ id: parameters.id, values: parameters.values ?? {}, devices: parameters.devices ?? null }, { progress, timeScale }),
+      run: async (parameters, { apps, run, progress, timeScale }) => {
+        const installed = await apps.install({ id: parameters.id, values: parameters.values ?? {}, devices: parameters.devices ?? null }, { progress, timeScale });
+        if (installed?.exposure !== "tailnet" || !run) return installed;
+        // Tailnet only: its web ports are on 127.0.0.1, and without Serve there is no way in at all.
+        // The app is installed either way, so a Serve that fails is a warning with the way to fix it.
+        const webPorts = (installed.hostPorts ?? []).filter((entry) => entry.protocol !== "udp" && entry.exposure === "loopback" && (entry.tailnet ?? "serve") === "serve").map((entry) => entry.host);
+        const failures = [];
+        for (const port of webPorts) {
+          const args = ["serve", "--bg", "--yes", `--https=${port}`, `http://127.0.0.1:${port}`];
+          progress?.(`$ tailscale ${args.join(" ")}`, "stdout");
+          const result = await Promise.resolve().then(() => run(tailscaleBinary(), args, { timeout: 60_000 })).catch((error) => ({ ok: false, stderr: error.message }));
+          if (!result.ok) failures.push(`${port}: ${String(result.stderr ?? "").split("\n").slice(-2).join(" ").trim() || "is Tailscale running?"}`);
+        }
+        const serves = webPorts.length ? await serveStatus(run) : [];
+        const urls = webPorts.map((port) => serves.find((serve) => serve.port === port)).filter(Boolean).map(urlOf);
+        return {
+          ...installed, served: urls.length > 0, urls,
+          ...(failures.length ? { warnings: [`${installed.name ?? parameters.id} is installed for your tailnet only, but publishing it with Tailscale Serve failed (${failures.join("; ")}). Until it is published nothing can open it: on its Reach tab, choose Publish on the tailnet.`] } : {}),
+        };
+      },
     }),
     defineOperation({
       id: "app.uninstall", title: "Uninstall application (keep data)", risk: "medium", timeoutMs: minutes(10),

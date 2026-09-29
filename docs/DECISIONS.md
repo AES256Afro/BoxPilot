@@ -457,3 +457,73 @@ prompt; the run ended degraded after 416 s, and its fallback searched BoxPilot's
   prompt cache (`--cache-ram 1024`, which also keeps it inside the memory cap).
 - `test/agents-bench.mjs` replays the owner's question at the measured speed in CI;
   `.github/workflows/agents-bench.yml` runs it on the real model.
+
+## ADR-007: Zulip is the agents' team chat, reached through Tailscale, set up by its own owner
+
+**Date:** 2026-09-29 · **Status:** Accepted (M38, unreleased) · **Builds on:** ADR-001 (the catalog), ADR-005 (agents propose, never act).
+
+### Context
+
+The owner asked for a chat where agents report: "Install Zulip... Setup the rooms for the agents so
+all future agents know they can report their findings, detail logs, knowledge, a channel for
+dumping images, documents, files for training." Three were weighed, all self-hosted and two
+already in the catalog: Mattermost, Matrix (Tuwunel with Element) and Zulip. The owner chose Zulip,
+for three reasons of their own: it is fully open source (Apache-2.0), it puts no cap on history, and
+its channel-and-topic model fits agents - one channel per kind of output, one topic per agent. A
+Matrix room has no topics, and end-to-end encryption makes a bot that reads files and posts traces
+harder to run. The server is private (Tailscale; the owner and an IT helper), so nothing about this
+may open a port to the internet or send data out without the owner saying so.
+
+### Decision
+
+1. **A catalog app, not a service of BoxPilot's.** `catalog/zulip.yaml` runs the image docker-zulip
+   ships (`ghcr.io/zulip/zulip-server`, Zulip Server 12.3) with its PostgreSQL, memcached, RabbitMQ
+   and Redis as sidecars, every image pinned (docker-zulip's PostgreSQL by digest, since it is only
+   published as "14"), every internal secret generated and passed by reference from the app's
+   `.env`. Its database and `/data` are in app backups; the cache, queue and Redis are not. Zulip's
+   own nightly dump is off, because it never deletes one and BoxPilot's backup already covers it.
+2. **Tailnet only by default, at the Serve address.** A manifest may now say `defaultExposure:
+   tailnet`: installed without a choice, its web port binds 127.0.0.1 (never every address, #323)
+   and the install publishes it with Tailscale Serve, which gives a valid `*.ts.net` certificate —
+   what Zulip's phone apps need. Zulip must know that address (`EXTERNAL_HOST`), so env values may
+   name `${TAILNET_HOST}`, this server's tailnet machine name, filled in at every deploy; an app
+   that needs it is not deployed without one. Serve's requests arrive through Docker's gateway,
+   which Zulip is told to trust for the forwarded HTTPS headers (`TRUST_GATEWAY_IP`).
+3. **BoxPilot creates no account with a password.** The first organization and its owner come
+   from Zulip's own single-use link (`manage.py generate_realm_creation_link`, run as the zulip user
+   inside the container), behind "Create your organization" on the app's sheet: a medium-risk,
+   owner-only operation. The link is a registry `oneTimeFields` result: the job never stores it,
+   the person who ran it is handed it once, and asking again gets nothing. It is refused once an
+   organization exists. Zulip lets that link skip email confirmation, so no mail server is needed
+   to start.
+4. **Email and push are the owner's to turn on.** Without SMTP Zulip sends nothing, and the sheet
+   says so; the SMTP settings are optional values. Mobile push goes through Zulip's own push
+   service (free up to 10 users), which means accepting its terms and sending data out: a setting
+   that is off, with the exact steps, and BoxPilot never registers.
+5. **Agents reach Zulip as a bot the owner's organization owns, made by Zulip itself.** Connecting
+   (owner-only, medium) runs one fixed script through `manage.py shell` as the zulip user: it makes
+   a generic bot with Zulip's own `do_create_user`, owned by the organization's owner (so Zulip's
+   audit log shows the owner made it), creates the four private channels and subscribes the owner
+   and the bot, and is safe to run again. Chosen over a key the owner pastes: the key never passes
+   through a browser or the web process, the owner makes nothing by hand, and running it again
+   repairs what is missing. The key goes straight into the root-owned credential store (M13.7) and
+   is read only inside the root tasks that post and read; it is never shown or logged.
+6. **The runtime posts, the model does not.** Findings, traces and notes are posted from a run's
+   outcome, redacted as the runner redacts, bounded in number and size, and every card links back
+   to BoxPilot, where approvals happen; nothing is approved in chat. Files in `#agent-files` come in
+   by polling Zulip's message history with the bot's key (no inbound exposure), under the
+   connectors' limits, as data, never instructions.
+
+### Consequences
+
+- Zulip costs about 2.6 GB of memory with its sidecars, measured on a GitHub runner by
+  `zulip-host.yml` a minute after it came up (Zulip 2.4 GB, RabbitMQ 150 MB, PostgreSQL 60 MB,
+  Redis and memcached 17 MB; threaded queue workers already save about 1.5 GB over Zulip's
+  default for a server this size), and 3.5 GB of disk for its images, before the database and
+  uploads. Its first start builds the database: about two and a half minutes there.
+- Anything BoxPilot does inside Zulip is a management command in its container, so a Zulip
+  release that renames one breaks it loudly; the image is pinned and moves only with the catalog.
+- A second organization is Zulip's business, from its own settings; BoxPilot refuses to make a
+  creation link once one exists.
+- Two-way chat - asking an agent from a DM or an @mention - needs each Zulip user mapped to a
+  BoxPilot account and runs as that person; it is specified in M38 and not built yet.

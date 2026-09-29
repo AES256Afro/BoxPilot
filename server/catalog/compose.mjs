@@ -94,6 +94,16 @@ export function bindingFor(port, appExposure, { lanAddress, tailnetAddress }) {
 }
 
 /**
+ * Whether these settings name the server's tailnet machine name (${TAILNET_HOST}) anywhere it is
+ * filled in: an env value (the manifest's default or the owner's own) or a shipped file. Such an
+ * app cannot be deployed without one, since it would be told an address nobody can open.
+ */
+export function usesTailnetHost(manifest, values) {
+  const mentions = (value) => /\$\{TAILNET_HOST\}/.test(String(value ?? ""));
+  return Object.values(values?.env ?? {}).some(mentions) || (manifest.files ?? []).some((file) => mentions(file.content));
+}
+
+/**
  * `no-new-privileges` for everything, except where it makes the app impossible to run.
  *
  * An image that binds a privileged port as a non-root user does it with a file capability, which is
@@ -114,7 +124,7 @@ export function securityOptFor(manifest, hostNetwork) {
   return needsPrivilegedBind ? [] : ["no-new-privileges:true"];
 }
 
-export function renderCompose(manifest, values, { existingEnv = {}, lanAddress = "0.0.0.0", tailnetAddress = null, devices = manifest.devices, sidecarEnvOverrides = {}, gpu = false } = {}) {
+export function renderCompose(manifest, values, { existingEnv = {}, lanAddress = "0.0.0.0", tailnetAddress = null, tailnetHost = null, devices = manifest.devices, sidecarEnvOverrides = {}, gpu = false } = {}) {
   const env = { ...values.env };
   for (const entry of manifest.env) {
     // A secret the request does not re-enter keeps its stored value. Secrets never live in the
@@ -151,8 +161,13 @@ export function renderCompose(manifest, values, { existingEnv = {}, lanAddress =
   // inbound firewall) can follow the owner's choice instead of hardcoding the default.
   // (A cross-project reference like Grafana->Prometheus uses host.docker.internal:host-gateway,
   // not this server's LAN address, which the helper cannot resolve behind its PrivateNetwork.)
-  const serverVariables = Object.fromEntries(hostPorts.map((port) => [`PORT_${port.id.toUpperCase().replace(/-/g, "_")}`, String(port.host)]));
-  const withPortVariables = (value) => String(value).replace(/\$\{(PORT_[A-Z0-9_]+)\}/g, (match, name) => serverVariables[name] ?? match);
+  // ${TAILNET_HOST} is this server's tailnet machine name, for an app that must know the HTTPS
+  // address Tailscale Serve publishes it at; the deployer refuses to deploy one without it.
+  const serverVariables = {
+    ...Object.fromEntries(hostPorts.map((port) => [`PORT_${port.id.toUpperCase().replace(/-/g, "_")}`, String(port.host)])),
+    ...(tailnetHost ? { TAILNET_HOST: tailnetHost } : {}),
+  };
+  const withPortVariables = (value) => String(value).replace(/\$\{(PORT_[A-Z0-9_]+|TAILNET_HOST)\}/g, (match, name) => serverVariables[name] ?? match);
   // With networkVia the app lives inside the sidecar's network namespace (a VPN container), so
   // the ports are published on the sidecar and the app has no network of its own.
   if (manifest.networkVia) service.network_mode = `service:${manifest.networkVia}`;

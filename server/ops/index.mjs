@@ -30,9 +30,10 @@ import { connectorOperations } from "./connectors.mjs";
 import { vpnOperations } from "./vpn.mjs";
 import { notificationOperations } from "./notifications.mjs";
 import { agentsOperations } from "./agents.mjs";
+import { zulipOperations } from "./zulip.mjs";
 
 /** The default registry used by the helper and the web service. Add new operation modules here. */
-export const operationModules = [prerequisiteOperations, aptOperations, systemOperations, appOperations, serviceOperations, userOperations, firewallOperations, storageOperations, controllerOperations, vmOperations, hostBackupOperations, logOperations, updateOperations, networkOperations, shareOperations, sambaOperations, nfsOperations, upsOperations, fail2banOperations, backupCloudOperations, tailscaleOperations, housekeepingOperations, spaceOperations, performanceOperations, localDnsOperations, routerOperations, connectorOperations, vpnOperations, notificationOperations, agentsOperations];
+export const operationModules = [prerequisiteOperations, aptOperations, systemOperations, appOperations, serviceOperations, userOperations, firewallOperations, storageOperations, controllerOperations, vmOperations, hostBackupOperations, logOperations, updateOperations, networkOperations, shareOperations, sambaOperations, nfsOperations, upsOperations, fail2banOperations, backupCloudOperations, tailscaleOperations, housekeepingOperations, spaceOperations, performanceOperations, localDnsOperations, routerOperations, connectorOperations, vpnOperations, notificationOperations, agentsOperations, zulipOperations];
 export const registry = createRegistry(operationModules);
 setRegistryLookup((id) => registry.get(id));
 export { createRegistry, defineOperation, validateParameters, riskTiers } from "./registry.mjs";

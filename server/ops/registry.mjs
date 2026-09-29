@@ -92,7 +92,7 @@ export function validateParameters(spec, parameters, title = "Operation") {
 }
 
 export function defineOperation(definition) {
-  const { id, title, risk, readOnly = false, elevatedOnly = false, timeoutMs = defaultTimeoutMs, maxTimeoutMs = null, rerunAfterInterrupt = false, parameters = { fields: {} }, run, description = "", minimumRole = null, confirm = null, restartsService = false, supersededWhen = null } = definition ?? {};
+  const { id, title, risk, readOnly = false, elevatedOnly = false, timeoutMs = defaultTimeoutMs, maxTimeoutMs = null, rerunAfterInterrupt = false, parameters = { fields: {} }, run, description = "", minimumRole = null, confirm = null, restartsService = false, supersededWhen = null, oneTimeFields = [] } = definition ?? {};
   if (typeof id !== "string" || !idPattern.test(id)) throw new Error(`Operation id "${id}" must be lower-case dotted segments`);
   if (typeof title !== "string" || !title.trim()) throw new Error(`Operation ${id} needs a title`);
   if (!riskTiers.includes(risk)) throw new Error(`Operation ${id} risk must be one of ${riskTiers.join(", ")}`);
@@ -122,6 +122,10 @@ export function defineOperation(definition) {
     if (confirm !== null || restartsService) throw new Error(`Operation ${id} asks for a typed confirmation or restarts BoxPilot, so it cannot run again on its own`);
     if (Object.values(parameters?.fields ?? {}).some((field) => field?.secret === true || field?.secretEnvOf !== undefined)) throw new Error(`Operation ${id} takes secrets, which do not survive a restart, so it cannot run again on its own`);
   }
+  // oneTimeFields: fields of the result that are shown to the person who ran the job once, and never
+  // stored with it (Zulip's single-use organization link). The job's record says which were given.
+  if (!Array.isArray(oneTimeFields) || oneTimeFields.length > 4 || oneTimeFields.some((field) => typeof field !== "string" || !/^[a-z][A-Za-z0-9]{0,31}$/.test(field))) throw new Error(`Operation ${id} oneTimeFields must be up to 4 result field names`);
+  if (oneTimeFields.length && readOnly) throw new Error(`Operation ${id} is read-only; its result is never stored, so nothing needs to be shown once`);
   // minimumRole: who may stage/approve regardless of tier (e.g. anything that sends data off the box is owner-only).
   // confirm(parameters): text the approver must type for destructive jobs; checked server-side at approval.
   // restartsService: the operation restarts (or reboots) the BoxPilot service, so approving it while
@@ -130,7 +134,7 @@ export function defineOperation(definition) {
   // no longer has anything to do (an update to a version already running), or null. The job service
   // cancels such a job with that reason rather than let it wait for an approval that would do harm
   // or nothing (M36).
-  return Object.freeze({ id, title, description, risk, readOnly: Boolean(readOnly), elevatedOnly: Boolean(elevatedOnly), timeoutMs, maxTimeoutMs, rerunAfterInterrupt: Boolean(rerunAfterInterrupt), parameters, run, minimumRole, confirm, restartsService: Boolean(restartsService), supersededWhen });
+  return Object.freeze({ id, title, description, risk, readOnly: Boolean(readOnly), elevatedOnly: Boolean(elevatedOnly), timeoutMs, maxTimeoutMs, rerunAfterInterrupt: Boolean(rerunAfterInterrupt), parameters, run, minimumRole, confirm, restartsService: Boolean(restartsService), supersededWhen, oneTimeFields: Object.freeze([...oneTimeFields]) });
 }
 
 export class OperationRegistry {

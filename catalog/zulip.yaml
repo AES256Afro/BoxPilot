@@ -1,0 +1,204 @@
+schemaVersion: 2
+id: zulip
+name: Zulip
+category: Communication
+icon: "🧵"
+description: "Team chat organized by channel and topic, so every conversation keeps its own thread. Full history with no cap, apps for phone and desktop, and a home for what BoxPilot's agents find."
+website: https://zulip.com
+risk: medium
+# Reached through Tailscale only unless the owner chooses otherwise: its web port stays on 127.0.0.1
+# and Tailscale Serve publishes it over HTTPS with a real *.ts.net certificate, which the mobile
+# apps require. Zulip's address (EXTERNAL_HOST) is that Serve address, filled in at every deploy.
+defaultExposure: tailnet
+image:
+  reference: ghcr.io/zulip/zulip-server:12.3-0
+  version: "12.3-0"
+ports:
+  - id: web
+    label: Web UI and apps
+    container: 80
+    host: 8543
+    exposure: lan
+volumes:
+  - id: data
+    label: Uploads, settings and keys
+    container: /data
+    path: data
+    description: Every file people upload, Zulip's settings and its generated keys. Included in app backups with the database.
+env:
+  - name: SETTING_EXTERNAL_HOST
+    label: Address people use
+    description: >-
+      The host and port people open Zulip at, without https://. The default is this server's
+      tailnet name and Zulip's port, the address Tailscale Serve publishes it at with a valid
+      certificate, so the phone and desktop apps connect. Change it only if you publish Zulip under
+      a name of your own; links, emails and the apps all use it.
+    default: "${TAILNET_HOST}:${PORT_WEB}"
+    required: true
+  - name: SETTING_ZULIP_ADMINISTRATOR
+    label: Your email
+    description: Zulip shows it as the contact for help and sends its emails from it. Nothing is sent to it unless you set up a mail server below.
+    required: true
+  - name: SETTING_REMOTE_POSTGRES_HOST
+    default: database
+    fixed: true
+  - name: SETTING_MEMCACHED_LOCATION
+    default: "memcached:11211"
+    fixed: true
+  - name: SETTING_RABBITMQ_HOST
+    default: rabbitmq
+    fixed: true
+  - name: SETTING_REDIS_HOST
+    default: redis
+    fixed: true
+  # Tailscale Serve reaches Zulip's HTTP port through Docker's gateway; Zulip trusts the forwarded
+  # HTTPS headers from there and nowhere else.
+  - name: TRUST_GATEWAY_IP
+    default: "True"
+    fixed: true
+  # Zulip's own nightly database dump writes into /data/backups and never deletes one. BoxPilot's
+  # app backup already stops Zulip and archives the database and /data together.
+  - name: AUTO_BACKUP_ENABLED
+    default: "False"
+    fixed: true
+  # Threaded queue workers: about 1.5 GB less memory than one process each, plenty for a household.
+  - name: CONFIG_application_server__queue_workers_multiprocess
+    default: "false"
+    fixed: true
+  - name: SECRETS_postgres_password
+    label: Database password
+    type: password
+    generate: true
+  - name: SECRETS_memcached_password
+    label: Cache password
+    type: password
+    generate: true
+  - name: SECRETS_rabbitmq_password
+    label: Queue password
+    type: password
+    generate: true
+  - name: SECRETS_redis_password
+    label: Redis password
+    type: password
+    generate: true
+  - name: SECRETS_secret_key
+    label: Zulip's secret key
+    type: password
+    generate: true
+  - name: SETTING_EMAIL_HOST
+    label: Mail server (optional)
+    description: >-
+      Without a mail server Zulip sends no email at all: no invitations, no password resets, no
+      notifications by email. You can still invite people with a link from Zulip's own settings and
+      reset a password from this server. To send email, give an SMTP server here, like
+      smtp.example.com, with its user and password below.
+  - name: SETTING_EMAIL_HOST_USER
+    label: Mail server user (optional)
+  - name: SECRETS_email_password
+    label: Mail server password (optional)
+    type: password
+  - name: SETTING_EMAIL_PORT
+    label: Mail server port
+    type: number
+    default: 587
+  - name: SETTING_EMAIL_USE_TLS
+    label: Mail server uses STARTTLS
+    type: boolean
+    default: true
+  - name: SETTING_EMAIL_USE_SSL
+    label: Mail server uses SSL (port 465)
+    type: boolean
+    default: false
+  - name: SETTING_NOREPLY_EMAIL_ADDRESS
+    label: Send email from (optional)
+    description: The address Zulip's emails come from. Many mail providers only accept one of your own addresses here.
+  - name: SETTING_ZULIP_SERVICE_PUSH_NOTIFICATIONS
+    label: Phone push notifications (off)
+    description: >-
+      Off unless you turn it on. Push notifications reach the Zulip phone apps through Zulip's own
+      push service, free for up to 10 users, which means accepting Zulip's terms and sending data
+      out of this server: the server's address, your email, user counts and, for each notification,
+      an encrypted message. BoxPilot never registers for you. To use it: turn this on and save, then
+      on the server run
+      sudo docker exec -it -u zulip bp-zulip /home/zulip/deployments/current/manage.py register_server
+      and read and accept the terms it shows. Turn it off again to stop.
+    type: boolean
+    default: false
+sidecars:
+  - id: database
+    # docker-zulip's own PostgreSQL 14 (with the dictionaries Zulip's search needs). Zulip publishes
+    # it only as "14", so it is pinned by digest.
+    image: zulip/zulip-postgresql:14@sha256:e71ba8616fa42cdc1b248f51263d9290c29681cb8c1992eb9b498af0bb656b29
+    env:
+      POSTGRES_DB: zulip
+      POSTGRES_USER: zulip
+      POSTGRES_PASSWORD: ${SECRETS_postgres_password}
+    volumes:
+      - id: pgdata
+        container: /var/lib/postgresql/data
+        path: postgres
+  - id: memcached
+    image: memcached:1.6.45-alpine
+    # As docker-zulip does it: SASL with Zulip's generated password, read from the environment.
+    command:
+      - sh
+      - -euc
+      - |
+        echo 'mech_list: plain' > "$$SASL_CONF_PATH"
+        echo "zulip@$$HOSTNAME:$$MEMCACHED_PASSWORD" > "$$MEMCACHED_SASL_PWDB"
+        echo "zulip@localhost:$$MEMCACHED_PASSWORD" >> "$$MEMCACHED_SASL_PWDB"
+        exec memcached -S
+    env:
+      SASL_CONF_PATH: /home/memcache/memcached.conf
+      MEMCACHED_SASL_PWDB: /home/memcache/memcached-sasl-db
+      MEMCACHED_PASSWORD: ${SECRETS_memcached_password}
+  - id: rabbitmq
+    image: rabbitmq:4.2.9
+    command:
+      - sh
+      - -euc
+      - |
+        echo 'default_user = $$(RABBITMQ_DEFAULT_USER)' >> /etc/rabbitmq/rabbitmq.conf
+        echo 'default_pass = $$(RABBITMQ_DEFAULT_PASS)' >> /etc/rabbitmq/rabbitmq.conf
+        exec docker-entrypoint.sh rabbitmq-server
+    env:
+      RABBITMQ_DEFAULT_USER: zulip
+      RABBITMQ_DEFAULT_PASS: ${SECRETS_rabbitmq_password}
+    volumes:
+      - id: rabbitmq-data
+        container: /var/lib/rabbitmq
+        path: rabbitmq
+        backup: false
+  - id: redis
+    image: redis:8.10.2-alpine
+    command:
+      - sh
+      - -euc
+      - exec /usr/local/bin/docker-entrypoint.sh --requirepass "$$REDIS_PASSWORD"
+    env:
+      REDIS_PASSWORD: ${SECRETS_redis_password}
+    volumes:
+      - id: redis-data
+        container: /data
+        path: redis
+        backup: false
+actions:
+  - id: create-organization
+    label: Create your organization
+    description: Zulip makes a single-use link; open it to create your organization and your own account, with a name and password you choose. Shown to you once; it works once and expires after 7 days.
+    operation: app.zulip.organization.link
+health:
+  # The image checks its own /health; the first start builds the database and takes a few minutes.
+  kind: healthcheck
+  stableSeconds: 20
+  timeoutSeconds: 900
+notes: >-
+  First start builds Zulip's database and takes about five minutes. BoxPilot creates no account:
+  when Zulip is up, choose Create your organization on this app's sheet and open the single-use
+  link it shows, then pick your organization's name, your own name and your password; for the
+  organization's address keep this server's own name (the root domain), not a subdomain. Zulip is
+  reached through Tailscale only, at its tailnet HTTPS address, which the phone and desktop apps
+  accept; sign the apps in at that address. Without a mail server nothing is emailed: invite people
+  with a link from Zulip's own settings. Uses about 2.6 GB of memory with its database, cache,
+  queue and Redis, and 3.5 GB of disk for its images, plus whatever people upload. App backups
+  include the database and uploads.

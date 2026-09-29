@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { approveJob, getJob, getJobApproval, retryWithMoreTime, stageOperation, waitForJob, type ApprovalPolicy, type Job, type RiskTier, cancelJob } from "../operations";
+import { approveJob, getJob, getJobApproval, oneTimeFields, retryWithMoreTime, stageOperation, waitForJob, type ApprovalPolicy, type Job, type RiskTier, cancelJob } from "../operations";
+import { OneTimeResult } from "./OneTimeResult";
 import { useDialogFocus } from "../useDialogFocus";
 import { jobWarnings } from "../JobWarnings";
 import { formatDuration, jobTimeout } from "../JobTimeout";
@@ -340,6 +341,7 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
                   {finished.steps.filter((step) => step.name === "verify").at(-1)?.detail ?? undefined}
                 </Notice>
               )}
+              {phase === "done" && finished && oneTimeFields(finished.result).length > 0 && <OneTimeResult jobId={finished.id} fields={oneTimeFields(finished.result)} csrfToken={csrfToken} />}
               {finished && ownError && <Notice tone="danger" live title={errorTitle}>{ownError}</Notice>}
               {finished && <JobLogView job={finished} title={title} onMoreTime={(timedOut) => setRetryFrom(timedOut.id)} />}
             </section>
