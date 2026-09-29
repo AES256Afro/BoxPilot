@@ -1,5 +1,5 @@
 import { useCallback, type ReactNode } from "react";
-import { useOperation } from "../ApproveDialog";
+import { useOperation } from "../shell/ApproveDialog";
 import { useRepairFixes, type FixRun } from "../repair/useRepairFixes";
 import type { Finding } from "../repair/types";
 import { loadRepairs, type Facts } from "./facts";

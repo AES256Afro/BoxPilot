@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { PendingOperation } from "../../ApproveDialog";
+import type { PendingOperation } from "../../shell/ApproveDialog";
 import { Button, EmptyState, KeyValue, Panel, Sheet, StatusChip, Table, mayStart, riskOf, type TableColumn } from "../../ui";
 import { CopyValue, LinkButton } from "./parts";
 import type { NetworkCapability, Reachability, ReachWay, TlsCapability, Topology } from "./types";

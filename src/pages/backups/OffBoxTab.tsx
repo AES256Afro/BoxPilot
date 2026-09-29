@@ -1,5 +1,5 @@
 import { useId, useState } from "react";
-import { useOperation } from "../../ApproveDialog";
+import { useOperation } from "../../shell/ApproveDialog";
 import { countOf, type ViewName } from "../../data";
 import { formatBytes } from "../../formatBytes";
 import type { OffBoxVerdict } from "../../offBox";

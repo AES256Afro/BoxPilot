@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useOperation, type PendingOperation } from "../../ApproveDialog";
+import { useOperation, type PendingOperation } from "../../shell/ApproveDialog";
 import { appUrl } from "../../appLinks";
 import { countOf } from "../../data";
 import { inspectOperation } from "../../operations";

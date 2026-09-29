@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { PendingOperation } from "./ApproveDialog";
+import type { PendingOperation } from "./shell/ApproveDialog";
 import { Button, riskOf } from "./ui";
 
 interface Overview { volumeGroups?: Array<{ name: string | null; freeBytes: number; logicalVolumes: Array<{ path: string; mountpoints: string[]; growable: boolean; snapshot?: boolean }> }> }

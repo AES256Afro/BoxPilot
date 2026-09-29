@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { openActivity, openNotifications } from "../activityEvents";
-import { useOperation } from "../ApproveDialog";
+import { useOperation } from "../shell/ApproveDialog";
 import { judgeProtection } from "../backupProtection";
 import { countOf, sentenceList, type ViewName } from "../data";
 import { AreaIcon, BellIcon, PlusIcon, SparkIcon } from "../shell/areaIcons";

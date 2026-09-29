@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { useOperation } from "../../ApproveDialog";
+import { useOperation } from "../../shell/ApproveDialog";
 import { readJson } from "../../http";
 import { Button, KeyValue, Notice, PageHeader, Tabs, useUrlParam, type Status } from "../../ui";
 import { NetworkDns } from "./NetworkDns";
