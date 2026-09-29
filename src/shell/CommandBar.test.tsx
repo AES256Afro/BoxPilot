@@ -10,7 +10,7 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 
 const catalog = { host: { lanAddress: "192.0.2.10" }, liveError: null, applications: [
-  { manifest: { id: "jellyfin", name: "Jellyfin", icon: "🎬", category: "Media", volumes: [{ id: "config", backup: true }] }, live: { installed: true, updateAvailable: true, container: { running: true, status: "running" }, urls: [{ host: 8096, exposure: "lan" }] } },
+  { manifest: { id: "jellyfin", name: "Jellyfin", icon: "🎬", category: "Media", keepsBackup: true }, live: { installed: true, updateAvailable: true, container: { running: true, status: "running" }, urls: [{ host: 8096, exposure: "lan" }] } },
   { manifest: { id: "mealie", name: "Mealie", category: "Food" }, live: null },
 ] };
 

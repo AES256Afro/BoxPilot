@@ -1509,6 +1509,12 @@ phone width. Repair itself (its findings and fixes) is M35's, and stays out of t
   schedule or sign-in is cut back to its kind. Home's "could not tell you" item opens it.
 - ✅ **M36.8 Back up an app from Backups** (unreleased). The list of apps and their last backup had
   only "Schedule it"; each row now has *Back up now* (medium).
+- ✅ **M36.9 Apps whose data is in a sidecar count as having data** (unreleased). Whether an app
+  keeps anything an app backup archives looked only at the app's own volumes, so Immich (its
+  library a host folder kept out on purpose, its database in the postgres sidecar, which every
+  backup does archive) counted as "nothing to back up" and was never reported as unprotected.
+  `keepsBackupData` (`server/catalog/schema.mjs`) counts sidecar volumes too; the catalog summary
+  carries it as `keepsBackup`. After updating, Home may name such an app as never backed up.
 
 Proposed, value to the owner against effort:
 

@@ -102,7 +102,7 @@ function CommandDialog({ csrfToken, onClose, onNavigate, onStart, role }: Comman
         }] : []));
         // What can be done to each installed app (M36): back it up where it keeps data, restart,
         // stop, start or resume it, update it when one is ready.
-        const backedUp = new Set((body.applications ?? []).filter((entry) => ((entry.manifest as { volumes?: Array<{ backup?: boolean }> } | undefined)?.volumes ?? []).some((volume) => volume?.backup)).map((entry) => entry.manifest?.id));
+        const backedUp = new Set((body.applications ?? []).filter((entry) => (entry.manifest as { keepsBackup?: boolean } | undefined)?.keepsBackup === true).map((entry) => entry.manifest?.id));
         const actions = [...installed.values()].map((app) => ({ id: app.id, name: app.name, running: app.running, paused: app.paused, updateAvailable: app.updateAvailable, backup: backedUp.has(app.id) }));
         if (!cancelled) { setCatalog(entries); setAppActions(actions); }
       })

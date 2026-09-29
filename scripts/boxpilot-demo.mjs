@@ -26,6 +26,7 @@ import { setupProfiles } from "../server/setup-profiles.mjs";
 import { productVersion } from "../server/version.mjs";
 import { securityHeaders } from "../server/security-headers.mjs";
 import { databaseCopyReport, databaseCopyRule, describeDatabaseCopy, humanBytes } from "../server/housekeeping.mjs";
+import { keepsBackupData } from "../server/catalog/schema.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const dist = path.join(root, "dist");
@@ -712,7 +713,8 @@ api.get("/catalog", async (request, response) => {
     applications: manifests.map((manifest) => {
       const port = present[manifest.id];
       const live = { id: manifest.id, installed: Boolean(port), dataPresent: Boolean(port), state: port ? { installedAt: ago(19 * 24), updatedAt: ago(50), manifestSha256: manifest.sha256, image: { reference: manifest.image.reference, id: "sha256:demo" }, values: { ports: {}, env: {}, volumes: {}, setup: [] }, pinnedRollback: false, uninstalledAt: null } : null, container: port ? { exists: true, running: true, status: manifest.id === "open-webui" ? "paused" : "running", health: manifest.health.kind === "healthcheck" ? "healthy" : "none", restarts: 0, image: "sha256:demo" } : { exists: false, running: false, status: "absent", health: "none", restarts: 0, image: null }, sidecars: port ? (manifest.sidecars ?? []).map((entry) => ({ id: entry.id, running: true, status: "running", restarts: 0 })) : [], urls: port ? manifest.ports.filter((entry) => entry.protocol === "tcp").map((entry) => ({ id: entry.id, label: entry.label, host: entry.host, exposure: entry.exposure })) : [], updateAvailable: manifest.id === "jellyfin", installedImage: port ? manifest.image.reference : null, updateHistory: port && manifest.id === "pi-hole" ? [{ at: ago(30), from: { "pi-hole": "pihole/pihole:2025.07.1" }, to: { "pi-hole": manifest.image.reference } }, { at: ago(30 * 24), from: { "pi-hole": "pihole/pihole:2025.05.0" }, to: { "pi-hole": "pihole/pihole:2025.07.1" } }] : [], backupVerification: port && manifest.id === "jellyfin" ? { verified: true, backup: "20260825T031400Z.tar.gz", reason: null, checkedAt: ago(11), history: [{ verified: true, backup: "20260825T031400Z.tar.gz", reason: null, checkedAt: ago(11) }, { verified: true, backup: "20260818T031400Z.tar.gz", reason: null, checkedAt: ago(11 + 168) }, { verified: false, backup: "20260811T031400Z.tar.gz", reason: "The archive could not be unpacked: unexpected end of file", checkedAt: ago(11 + 336) }] } : null };
-      return { manifest, live };
+      // As the product's summary says it (M36): whether an app backup archives anything of it.
+      return { manifest: { ...manifest, keepsBackup: keepsBackupData(manifest) }, live };
     }),
     problems, liveError: null, host: { lanAddress: host.lan, tailscaleDnsName: host.tailnet },
   });

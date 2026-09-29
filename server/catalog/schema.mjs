@@ -64,6 +64,17 @@ function checkKeys(errors, path, value, allowed, required = []) {
   for (const key of required) if (!(key in value)) fail(errors, `${path}.${key}`, "is required");
 }
 
+/**
+ * Whether an app keeps anything an app backup archives (M36): a volume of its own marked for backup,
+ * or a sidecar's. The sidecars were left out, so Immich - whose photo library is a host folder kept
+ * out of backups on purpose, and whose database lives in its postgres sidecar - counted as having
+ * nothing to back up, and was never reported as unprotected however long it went without a backup.
+ */
+export function keepsBackupData(manifest) {
+  if ((manifest?.volumes ?? []).some((volume) => volume.backup && (volume.path || volume.hostPath))) return true;
+  return (manifest?.sidecars ?? []).some((sidecar) => (sidecar.volumes ?? []).some((volume) => volume.backup && volume.path));
+}
+
 export function validateManifest(raw) {
   const errors = [];
   if (!isObject(raw)) return { manifest: null, errors: ["manifest: must be a mapping"] };
