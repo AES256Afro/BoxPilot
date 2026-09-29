@@ -206,7 +206,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
             <div className="topbar-slot" ref={setTopBarSlot} />
             <ViewSwitch view={showGallery ? null : view} onSelect={setView} />
           </div>
-          <CommandBar csrfToken={csrfToken} onNavigate={setView} onStart={startOperation} />
+          <CommandBar csrfToken={csrfToken} onNavigate={setView} onStart={startOperation} role={role} />
           <div className="topbar-right">
             <span className="connection-pill" title="How this browser reached BoxPilot">{connectionLabel(window.location)}</span>
             <ThemeSwitch compact />
