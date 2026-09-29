@@ -232,7 +232,7 @@ step_build() {
 FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive \
     UNSLOTH_STUDIO_HOME=/opt/unsloth-studio \
-    PATH=/root/.local/bin:$PATH
+    PATH=/opt/unsloth-studio/bin:$PATH
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 RUN apt-get update \
  && apt-get install -y --no-install-recommends curl ca-certificates \
