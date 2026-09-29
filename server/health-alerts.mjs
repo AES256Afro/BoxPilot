@@ -67,6 +67,9 @@ export const noticeKinds = Object.freeze({
   "drive.reconnected": "A drive was reconnected automatically",
   // M36: a staged job left a week without an approval, cancelled.
   "approval.lapsed": "A staged job was not approved in time",
+  // M37: an agent that may notify found something it judged important (at most one per agent every
+  // six hours, four a day in all).
+  "agent.important": "An agent found something important",
 });
 export const isNotice = (key) => Object.hasOwn(noticeKinds, String(key).split(":")[0]);
 export const noticeLimit = 20;
