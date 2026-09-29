@@ -135,6 +135,6 @@ export const memoryTiers = Object.freeze({
 /** An episode: what a run found, in a line or two, for later runs to recall. */
 export function episodeOf(run, { maxChars = 400 } = {}) {
   const asked = run.question ? `Asked "${clip(run.question, 120)}". ` : run.trigger?.title ? `${clip(run.trigger.title, 120)}. ` : "";
-  const found = run.answer ? clip(String(run.answer).replace(/\[T\d+(?:\s*[,;]\s*T\d+)*\]/g, ""), maxChars) : "";
+  const found = run.answer ? clip(String(run.answer).replace(/[ \t]*\[T\d+(?:\s*[,;]\s*T\d+)*\]/g, ""), maxChars) : "";
   return found ? `${asked}${found}` : null;
 }
