@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import type { PendingOperation } from "../../ApproveDialog";
+import type { PendingOperation } from "../../shell/ApproveDialog";
 import { relativeTime } from "../../home/format";
 import { Button, Field, KeyValue, MetricTile, Notice, Panel, Progress, Select, StatusChip, Switch, Table, Tag, TextInput, mayStart, riskOf, type Status, type TableColumn } from "../../ui";
 import { agentsApi, type LibraryModel, type ModuleState, type RuntimeDriver, type RuntimeState, type Usage as UsageState } from "./api";
@@ -40,7 +40,7 @@ export function Usage({ module, csrfToken, role, now, onStart, onModuleChanged, 
   const [usage, setUsage] = useState<UsageState | null>(null);
   const [runtime, setRuntime] = useState<RuntimeState | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [draft, setDraft] = useState<{ driver: RuntimeDriver; endpoint: string; idleStopMinutes: string; quietStart: string; quietEnd: string; notify: boolean } | null>(null);
+  const [draft, setDraft] = useState<{ driver: RuntimeDriver; endpoint: string; idleStopMinutes: string; quietStart: string; quietEnd: string; notify: boolean; runsPerDay: string; modelSecondsPerDay: string; embeddings: boolean } | null>(null);
   const [confirm, setConfirm] = useState<null | "settings" | "off">(null);
   const [saved, setSaved] = useState<string | null>(null);
   const owner = role === "owner";
@@ -63,7 +63,10 @@ export function Usage({ module, csrfToken, role, now, onStart, onModuleChanged, 
   }, []);
   useEffect(() => {
     if (!runtime || draft) return;
-    setDraft({ driver: runtime.settings.driver, endpoint: runtime.settings.endpoint ?? "", idleStopMinutes: String(runtime.settings.idleStopMinutes ?? 60), quietStart: module.quietHours.start, quietEnd: module.quietHours.end, notify: module.notify });
+    setDraft({
+      driver: runtime.settings.driver, endpoint: runtime.settings.endpoint ?? "", idleStopMinutes: String(runtime.settings.idleStopMinutes ?? 60), quietStart: module.quietHours.start, quietEnd: module.quietHours.end, notify: module.notify,
+      runsPerDay: String(module.budget?.runsPerDay ?? 300), modelSecondsPerDay: String(module.budget?.modelSecondsPerDay ?? 10_800), embeddings: module.embeddings !== false,
+    });
   }, [runtime, draft, module]);
 
   if (!usage || !runtime) {
@@ -117,7 +120,7 @@ export function Usage({ module, csrfToken, role, now, onStart, onModuleChanged, 
   const saveSettings = async (password: string) => {
     if (!draft) return;
     const runtimeChange = { driver: draft.driver, idleStopMinutes: Number.parseInt(draft.idleStopMinutes, 10), ...(draft.driver === "external" ? { endpoint: draft.endpoint.trim() } : {}) };
-    await agentsApi.saveSettings(csrfToken, { password, quietHours: { start: draft.quietStart, end: draft.quietEnd }, notify: draft.notify, runtime: runtimeChange });
+    await agentsApi.saveSettings(csrfToken, { password, quietHours: { start: draft.quietStart, end: draft.quietEnd }, notify: draft.notify, runtime: runtimeChange, embeddings: draft.embeddings, budget: { runsPerDay: Number.parseInt(draft.runsPerDay, 10), modelSecondsPerDay: Number.parseInt(draft.modelSecondsPerDay, 10) } });
     setSaved("Saved. The next run uses these settings.");
     onModuleChanged();
     await read();
@@ -154,6 +157,13 @@ export function Usage({ module, csrfToken, role, now, onStart, onModuleChanged, 
         </Panel>
 
         <Panel className="agents-today" title="Today" meta={<><b>{usage.today.runs}</b> runs · <b>{usage.today.modelSeconds}</b> s of model time · <b>{usage.queue.queued}</b> waiting{usage.queue.dropped ? <> · <b>{usage.queue.dropped}</b> dropped</> : null}</>} padded>
+          {usage.module.budget && (
+            <div className="agents-budget agents-budget--all">
+              <span className="agents-budget__name">All agents</span>
+              <Progress label="All agents: runs" value={usage.module.budget.runsUsed} max={usage.module.budget.runsPerDay} detail={`${usage.module.budget.runsUsed}/${usage.module.budget.runsPerDay} runs`} status={usage.module.budget.runsUsed >= usage.module.budget.runsPerDay ? "warning" : "good"} />
+              <Progress label="All agents: model time" value={Math.round(usage.module.budget.modelMsUsed / 1000)} max={usage.module.budget.modelSecondsPerDay} detail={`${Math.round(usage.module.budget.modelMsUsed / 1000)}/${usage.module.budget.modelSecondsPerDay} s`} status={usage.module.budget.modelMsLeft <= 0 ? "warning" : "good"} />
+            </div>
+          )}
           {perAgent.length === 0 ? <p className="agents-quiet">No agents yet.</p> : (
             <ul className="agents-budgets">
               {perAgent.map((entry) => (
@@ -219,7 +229,12 @@ export function Usage({ module, csrfToken, role, now, onStart, onModuleChanged, 
             <Field label="Quiet hours from"><TextInput mono type="time" value={draft.quietStart} onValueChange={(value) => setDraft({ ...draft, quietStart: value })} /></Field>
             <Field label="Until"><TextInput mono type="time" value={draft.quietEnd} onValueChange={(value) => setDraft({ ...draft, quietEnd: value })} /></Field>
           </div>
+          <div className="agents-form__grid">
+            <Field label="Runs a day, all agents together" hint="10 to 2,000"><TextInput mono type="number" min={10} max={2000} value={draft.runsPerDay} onValueChange={(value) => setDraft({ ...draft, runsPerDay: value })} /></Field>
+            <Field label="Model seconds a day, all together" hint="60 to 86,400"><TextInput mono type="number" min={60} max={86400} value={draft.modelSecondsPerDay} onValueChange={(value) => setDraft({ ...draft, modelSecondsPerDay: value })} /></Field>
+          </div>
           <Switch label="Agents may tell me what is important" description="Through BoxPilot's notifications, a few times a day at most." checked={draft.notify} onChange={(checked) => setDraft({ ...draft, notify: checked })} />
+          <Switch label="Search memory by meaning" description="Embeddings from the model server, made in quiet hours; off, memory is searched by words only." checked={draft.embeddings} onChange={(checked) => setDraft({ ...draft, embeddings: checked })} />
           {draft.driver === "llama-server" && <Notice tone="info">llama.cpp's own server from the Unsloth install: no Python layer and no Studio, idle at nothing, but without Unsloth's tool-call repair. It was measured for embeddings, not yet for chat.</Notice>}
         </Panel>
       )}

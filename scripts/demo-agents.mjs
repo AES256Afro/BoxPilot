@@ -8,8 +8,11 @@
  * so the fixture tests that import it never start anything:
  *
  * - default: Agents on, four agents from the templates, a digest written this morning in quiet
- *   hours, questions answered, notes kept, an evaluation scored, three cards waiting (two backups
- *   the agents proposed and a newer Qwen), and a live runner, so the test console really runs.
+ *   hours, questions answered (one thumbed up, one down), notes kept and shared, an evaluation
+ *   scored, a request the Server Keeper handed to two specialists and answered from what they
+ *   found, five cards waiting (two backups the agents proposed, a newer Qwen, a question the IT
+ *   helper asked back and a low-confidence answer for the owner to look at), and a live runner,
+ *   so the test console really runs.
  * - fresh: Agents never turned on, nothing installed.
  * - trouble: Agents on, but the runner is not answering and the model would not start, so the last
  *   question was answered from the tools alone; the Pi-hole Watcher is paused.
@@ -39,7 +42,11 @@ import { productVersion } from "../server/version.mjs";
 const hours = (count) => count * 3600_000;
 const withTools = (body) => body.messages.filter((message) => message.role === "tool").length;
 /** Whether a request to the model is from this agent: its system message names it. */
-const from = (body, name) => String(body?.messages?.[0]?.content ?? "").includes(name);
+const from = (body, name) => String(body?.messages?.[0]?.content ?? "").includes(`Your name is ${name}.`);
+/** Whether this request is the first one of a run, asking how the request was understood. */
+const understanding = (body) => body?.response_format?.json_schema?.name === "understanding";
+/** Whether this is a supervisor's follow-up run, with its specialists' answers. */
+const continuing = (body) => JSON.stringify(body?.messages ?? []).includes("have answered");
 const call = (name, args = {}) => ({ name: name.replace(/\./g, "_"), arguments: args });
 
 /** What the demo's helper answers: the fictional server's apps, services and Pi-hole, and the runtime. */
@@ -119,7 +126,11 @@ async function buildWorld(world, fixtures) {
   script(null);
 
   const stop = new AbortController();
-  if (world === "default") void runner.loop({ signal: stop.signal });
+  if (world === "default") {
+    // Seen now, not when the seeded runs were: the page's first read finds the runner answering.
+    service.runnerUsage(runnerId, { usage: { state: "idle", ...(await usage.read()) }, hostBusy: false });
+    void runner.loop({ signal: stop.signal });
+  }
   const router = createAgentsRouter({
     agents: service, state,
     auth: { requireCsrf: (_request, _response, next) => next(), requireRole: () => (_request, _response, next) => next(), checkPassword: async () => ({ ok: true }), rejectThrottled: (response) => response.status(429).end() },
@@ -172,13 +183,16 @@ async function seed({ service, state, caller, at, runNext, script, world }) {
   script((body) => (withTools(body) === 0
     ? { toolCalls: [call("server.facts"), call("apps.list")] }
     : { content: "It is homebox, Ubuntu 24.04.3 LTS on an AMD Ryzen 5 5600G with 32 GB of memory [T1]. Eleven apps run in Docker, among them Jellyfin, Immich, Nextcloud, Vaultwarden and Pi-hole, all healthy [T2]." }));
-  service.startRun(caller, keeper.id, { kind: "ask", question: "What is this server, and what runs on it?" });
+  const told = service.startRun(caller, keeper.id, { kind: "ask", question: "What is this server, and what runs on it?" });
   await runNext();
+  service.giveFeedback(caller, told.id, { verdict: "up" });
 
   at(new Date(Date.now() - hours(2)));
   script((body) => (withTools(body) === 0
     ? { toolCalls: [call("pihole.stats"), call("where.runs", { name: "pihole" })] }
-    : { content: "Pi-hole is blocking. In the last day it answered 48,210 queries and blocked 18.9% of them; its blocklists are a day old and both upstreams answer in about 20 ms [T1]. It runs as the BoxPilot app pi-hole, in the container bp-pi-hole [T2]." }));
+    : withTools(body) === 2
+      ? { toolCalls: [call("notes.write", { title: "Pi-hole's lists", body: "Gravity holds 182,340 domains and is refreshed daily; upstreams are Quad9 (9.9.9.9 and 149.112.112.112), about 20 ms each.", freshDays: 7 })] }
+      : { content: "Pi-hole is blocking. In the last day it answered 48,210 queries and blocked 18.9% of them; its blocklists are a day old and both upstreams answer in about 20 ms [T1]. It runs as the BoxPilot app pi-hole, in the container bp-pi-hole [T2]." }));
   service.startRun(caller, pihole.id, { kind: "ask", question: "Is Pi-hole blocking, and are its lists fresh?" });
   await runNext();
 
@@ -194,7 +208,27 @@ async function seed({ service, state, caller, at, runNext, script, world }) {
 
   at(new Date(Date.now() - hours(1)));
   script(null);
-  service.startRun(caller, helper.id, { kind: "ask", question: "How do I restore an app from a backup?" });
+  const restore = service.startRun(caller, helper.id, { kind: "ask", question: "How do I restore an app from a backup?" });
+  await runNext();
+  service.giveFeedback(caller, restore.id, { verdict: "down", note: "It listed the apps; it should say to open the app and press Restore." });
+
+  // A question too vague to answer: the IT helper asks back instead of guessing.
+  at(new Date(Date.now() - hours(0.95)));
+  script((body) => (understanding(body)
+    ? { understanding: { goal: "Check a backup", subject: "backups", constraints: [], tools: [], confidence: 0.4, clarify: "Which backup do you mean: an app's own backup (which app?) or the copies BoxPilot sends to the backup disk?", plan: [] } }
+    : null));
+  service.startRun(caller, helper.id, { kind: "ask", question: "Can you check the backup?" });
+  await runNext();
+
+  // An answer the agent was not sure it understood: it answers, and a card asks the owner to look.
+  at(new Date(Date.now() - hours(0.9)));
+  script((body) => {
+    if (understanding(body)) return { understanding: { goal: "Say whether Pi-hole makes the network slow", subject: "Pi-hole", constraints: [], tools: ["pihole_stats"], confidence: 0.35, clarify: null, plan: [{ step: "Read Pi-hole's reply times", tool: "pihole_stats" }, { step: "Answer", tool: null }] } };
+    return withTools(body) === 0
+      ? { toolCalls: [call("pihole.stats")] }
+      : { content: "Pi-hole is not what is slow: both upstreams answer in about 20 ms, and it blocked 18.9% of yesterday's queries without errors [T1]. If one device or site is slow, say which." };
+  });
+  service.startRun(caller, pihole.id, { kind: "ask", question: "Is it slow?" });
   await runNext();
 
   // What the Server Keeper keeps between runs.
@@ -214,6 +248,28 @@ async function seed({ service, state, caller, at, runNext, script, world }) {
   script(null);
   await service.runEvaluation(caller, keeper.id);
   for (let index = 0; index < 12 && (await runNext()); index += 1) { /* each question in turn */ }
+
+  // One request, handed by the Server Keeper (the supervisor) to two specialists, then answered
+  // from what they found: one trace tree on the one queue, as the person who asked.
+  at(new Date(Date.now() - hours(0.25)));
+  script((body) => {
+    if (understanding(body)) {
+      return from(body, "Server Keeper") && !continuing(body)
+        ? { understanding: { goal: "Say whether the backups are current and Pi-hole is healthy", subject: "backups and Pi-hole", constraints: [], tools: ["agents_handoff"], confidence: 0.9, clarify: null, plan: [{ step: "Ask the Backup Auditor about the backups", tool: "agents_handoff" }, { step: "Ask the Pi-hole Watcher about Pi-hole", tool: "agents_handoff" }, { step: "Put their answers together", tool: null }] } }
+        : null;
+    }
+    if (from(body, "Server Keeper")) {
+      if (continuing(body)) return { content: "Not all backups are current: Vaultwarden, Nextcloud and Homepage have never been backed up, and cards already propose the first two [T1]. Pi-hole is healthy: blocking, its lists a day old, both upstreams answering in about 20 ms [T2]." };
+      return withTools(body) === 0
+        ? { toolCalls: [call("agents.handoff", { agent: "Backup Auditor", task: "Say which apps with data have no recent backup." }), call("agents.handoff", { agent: "Pi-hole Watcher", task: "Say whether Pi-hole is blocking and its lists are fresh." })] }
+        : { content: "I asked the Backup Auditor and the Pi-hole Watcher [T1] [T2]; their answers come back to me, and I put them together." };
+    }
+    if (from(body, "Backup Auditor")) return withTools(body) === 0 ? { toolCalls: [call("backups.status")] } : { content: "Vaultwarden, Nextcloud and Homepage hold data and have never been backed up; database backups and their restore drills are current [T1]." };
+    if (from(body, "Pi-hole Watcher")) return withTools(body) === 0 ? { toolCalls: [call("pihole.stats")] } : { content: "Blocking: 18.9% of 48,210 queries in the last day; lists a day old; upstreams about 20 ms [T1]." };
+    return null;
+  });
+  service.startRun(caller, keeper.id, { kind: "ask", question: "Are the backups current, and is Pi-hole healthy?" });
+  for (let index = 0; index < 5 && (await runNext()); index += 1) { /* the supervisor, both specialists, then its follow-up */ }
 
   // The daily look for a newer small Qwen.
   at(new Date());

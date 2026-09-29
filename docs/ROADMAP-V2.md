@@ -1807,10 +1807,24 @@ the content). The engine is `feat/m37-agents-engine`; the section is `feat/m37-a
   Studio layer, for the owner to choose (ADR-005). All model clients are one pluggable
   OpenAI-compatible client (`assistant/model-client.mjs`) under M34's local-only address rules; for
   agents, loopback only. The assistant uses it too; Ollama's own API stays as a legacy provider.
-- ◐ **M37.5 The Agent Builder** (the stacked UI pull request): the Agents section in the Command
-  Center's look - the agents list with the module switch, create and edit from templates, a test
-  console with a live trace and the cards it proposed, the learning library, usage at a glance, and
-  evaluation - with small entries on Home and Ops, in the dock and in the command bar.
+- ✅ **M37.5 The Agent Builder** (unreleased, the stacked UI pull request): the Agents section in the
+  Command Center's look (`src/pages/agents/`), in seven tabs. **Agents**: the module switch, pause
+  all, until tomorrow and the kill switch, each agent's last run and budget, and the cards waiting in
+  their three kinds - a plan to stage step by step at its own tier, a question the agent asked back,
+  and a matter it hands the owner. **Build**: templates and import from a file, then the seven steps
+  (its job and success criteria with scope warnings; what it is told; data and tools, each tool's
+  permission and the allowlist; when it runs, with its webhook; guardrails and escalation; memory;
+  its team), versions with line diffs and rollback, and export. **Test**: ask or run once, the live
+  trace with the intent and plan open, a hand-off's runs as one tree, "Was this right?", and the
+  cards the run proposed. **Memory**: how it recalls, the facts it learned (edit, pin, forget),
+  facts other agents share, what past runs found, and the conversation, each forgettable.
+  **Knowledge**: the sources, the owner's documents (upload, paste, pin), outside data (a folder,
+  web search, Notion, Slack; each saved with the owner's password, a sync staged at its tier) and the
+  learning passes. **Usage**: the runner against its caps, the day's budget for all agents and each,
+  the runtime and model library, and the settings. **Evaluation**: the success criteria, golden
+  questions, the latest result and accuracy over time by version and model. Small entries on Home
+  and Ops, in the dock and in the command bar. The demo's default world shows each of these: a
+  hand-off tree, a question and an escalation card, thumbs up and down, and a shared note.
 - ✅ **M37.6 Safety and robustness** (unreleased). An audit entry for every run (`agents.run.finished`:
   who, which agent and version, how it ended, tools, model time, tokens; never the question or the
   answer) and for every change to an agent, a card, the module and the runtime. Redaction of
@@ -1827,8 +1841,8 @@ the content). The engine is `feat/m37-agents-engine`; the section is `feat/m37-a
   throttled to stay there, the model server is its niced, idle-I/O child, and afterwards the service
   idles under 2%.
 - ✅ **M37.7 The owner's components** (2026-09-29, unreleased): what the owner said an agent builder
-  and an orchestrator must have, each mapped to BoxPilot and built into the engine; the Builder shows
-  them in the stacked UI pull request.
+  and an orchestrator must have, each mapped to BoxPilot and built into the engine, and shown in the
+  Agents section (M37.5).
   - **The brain.** ✅ Intent, then plan, then act (`intent.mjs`, `runner.mjs`): a request, a schedule,
     an event or a webhook is first turned into a structured intent (goal, subject, constraints, the
     tools needed, a confidence) and a plan of at most six steps, returned as JSON against a strict
@@ -1866,7 +1880,7 @@ the content). The engine is `feat/m37-agents-engine`; the section is `feat/m37-a
     an agent can be started by one (`/api/v1/hooks/agents/:id/:token`, the flows' door: the token is
     the auth, only its digest is kept, nothing from the call reaches the run), and can propose an
     outgoing one as the registered `http.request` step, so n8n and the like interoperate.
-  - **The builder's steps** (API ✅, screens in the stacked UI pull request): one job and its success
+  - **The builder's steps** (✅ the API, ✅ the Build tab's seven steps): one job and its success
     criteria, with warnings when the scope reads like "do everything" (`scopeWarnings`); a
     structured system prompt - rules, operational steps, an output format (text, or JSON with named
     fields the answer is checked against), what to escalate - prefilled by the templates and versioned

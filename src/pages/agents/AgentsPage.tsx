@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { useOperation } from "../../ApproveDialog";
+import { useOperation } from "../../shell/ApproveDialog";
 import { Button, Notice, PageHeader, Tabs, useUrlParam, type TabItem } from "../../ui";
 import { AgentList } from "./AgentList";
 import { agentsApi, type AgentSummary, type Catalog, type Glance, type Overview, type Proposal } from "./api";
@@ -8,6 +8,7 @@ import { Console } from "./Console";
 import { Evaluation } from "./Evaluation";
 import { errorText, moduleVerdict } from "./format";
 import { Knowledge } from "./Knowledge";
+import { Memory } from "./Memory";
 import { PasswordSheet } from "./PasswordSheet";
 import { Usage } from "./Usage";
 import "./agents.css";
@@ -21,8 +22,8 @@ import "./agents.css";
  * act: every step on a card is staged by a person through the ordinary approval dialog.
  */
 
-type Tab = "agents" | "build" | "test" | "knowledge" | "usage" | "evaluation";
-const allTabs: readonly Tab[] = ["agents", "build", "test", "knowledge", "usage", "evaluation"];
+type Tab = "agents" | "build" | "test" | "memory" | "knowledge" | "usage" | "evaluation";
+const allTabs: readonly Tab[] = ["agents", "build", "test", "memory", "knowledge", "usage", "evaluation"];
 
 export interface AgentsPageProps {
   csrfToken: string;
@@ -115,7 +116,7 @@ export default function AgentsPage({ csrfToken, role = "owner", now = Date.now }
     { id: "agents", label: "Agents", count: agents.length, ...(cards ? { status: "warning" as const, statusLabel: `${cards} cards waiting` } : {}) },
     ...(can.create ? [{ id: "build" as const, label: "Build" }] : []),
     { id: "test", label: staff ? "Test" : "Ask" },
-    ...(staff ? [{ id: "knowledge" as const, label: "Knowledge" }] : []),
+    ...(staff ? [{ id: "memory" as const, label: "Memory" }, { id: "knowledge" as const, label: "Knowledge" }] : []),
     { id: "usage", label: "Usage", ...(module.enabled && !runner.online ? { status: "warning" as const, statusLabel: "the runner is not answering" } : {}) },
     ...(staff ? [{ id: "evaluation" as const, label: "Evaluation" }] : []),
   ];
@@ -163,7 +164,7 @@ export default function AgentsPage({ csrfToken, role = "owner", now = Date.now }
       <Tabs<Tab> label="Agents" tabs={tabs} value={shown} onChange={(next) => { setTab(next); if (next !== "test") setRunId(null); }}>
         {(current) => {
           if (current === "build") {
-            return <Builder agentId={selected} catalog={catalog} canCreate={can.create} csrfToken={csrfToken} now={now()}
+            return <Builder agentId={selected} agents={agents} catalog={catalog} canCreate={can.create} csrfToken={csrfToken} now={now()}
               onCreated={(id) => { setAgentId(id); setNotice("Made. Change anything below; each save is a version you can roll back."); void refresh(); }}
               onChanged={() => void refresh()} onDeleted={() => { setAgentId(null); setTab("agents"); setNotice("Deleted."); void refresh(); }}
               onTest={(id) => open(id, "test")} />;
@@ -172,7 +173,8 @@ export default function AgentsPage({ csrfToken, role = "owner", now = Date.now }
             return <Console agents={agents} agentId={selected} runId={runId} csrfToken={csrfToken} role={role} now={now()} enabled={module.enabled && !module.paused}
               onSelectAgent={(id) => { setAgentId(id); setRunId(null); }} onStage={start} onRunFinished={() => void refresh()} />;
           }
-          if (current === "knowledge") return <Knowledge agents={agents} agentId={selected} csrfToken={csrfToken} now={now()} onSelectAgent={setAgentId} />;
+          if (current === "memory") return <Memory agents={agents} agentId={selected} csrfToken={csrfToken} role={role} now={now()} onSelectAgent={setAgentId} />;
+          if (current === "knowledge") return <Knowledge csrfToken={csrfToken} role={role} now={now()} onStart={start} />;
           if (current === "usage") return <Usage module={module} csrfToken={csrfToken} role={role} now={now()} onStart={start} onModuleChanged={() => void refresh()} refreshKey={jobsFinished} />;
           if (current === "evaluation") {
             return <Evaluation agents={agents} agentId={selected} csrfToken={csrfToken} now={now()} enabled={module.enabled && !module.paused} onSelectAgent={setAgentId} onOpenRun={(id, run) => open(id, "test", run)} />;

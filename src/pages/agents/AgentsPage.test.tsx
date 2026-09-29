@@ -12,13 +12,19 @@ const ago = (minutes: number) => new Date(now - minutes * 60_000).toISOString();
 const keeperId = "11111111-1111-4111-8111-111111111111";
 const helperId = "22222222-2222-4222-8222-222222222222";
 const spec: AgentSpec = {
-  name: "Server Keeper", purpose: "Knows this server.", instructions: "Look before you answer.\nCite the tools.",
+  name: "Server Keeper", purpose: "Knows this server.", job: "Keep a picture of this server.", successCriteria: ["Names the server"],
+  prompt: { rules: ["Look before you answer."], steps: ["Read the facts"], output: { format: "text", fields: [], style: "" }, escalate: [] },
+  instructions: "Look before you answer.\nCite the tools.",
   audience: ["owner", "operator"], knowledge: { docs: true, registry: true, catalog: true, notes: true, documents: true },
   tools: { "server.facts": "auto", "logs.query": "ask", "plan.propose": "auto" },
-  triggers: { ask: true, schedule: { every: "daily", hour: 5, minute: 30, weekday: null, quietHours: true }, events: ["health.alert"] },
+  triggers: { ask: true, schedule: { every: "daily", hour: 5, minute: 30, weekday: null, quietHours: true }, events: ["health.alert"], webhook: false },
   budget: { runsPerDay: 24, modelSecondsPerDay: 1800, stepsPerRun: 6, tokensPerRun: 12000, runSeconds: 600 },
   outputs: { notes: true, digest: true, notify: "important", proposals: true },
-  memory: { enabled: true, freshDays: 14, maxNotes: 80 },
+  memory: { enabled: true, freshDays: 14, maxNotes: 80, share: true, threads: true, turns: 6 },
+  escalation: { lowConfidence: true, limits: true, actions: true, risk: true },
+  allow: { apps: "*", operations: "*" },
+  model: { thinking: false },
+  orchestration: { supervisor: true, delegates: "*", maxDepth: 2 },
 };
 const summary = (id: string, name: string, extra: Record<string, unknown> = {}) => ({
   id, name, template: "server-keeper", version: 2, purpose: `${name} knows things.`, paused: false, pausedUntil: null, status: "idle", canEdit: true, canAsk: true,
@@ -28,30 +34,33 @@ const summary = (id: string, name: string, extra: Record<string, unknown> = {}) 
 const module = { enabled: true, paused: false, pausedUntil: null, killedAt: null, quietHours: { start: "02:00", end: "06:00" }, inQuietHours: false, notify: true };
 const runner = { online: true, lastSeenAt: ago(0), version: "1.135.0", startedAt: ago(120), hostBusy: false, usage: { state: "idle", cpuPercent: 0.4, memoryBytes: 180e6, memoryPeakBytes: 3e9, cpuQuotaPercent: 100, memoryMaxBytes: 8 * 1024 ** 3, throttledMs: 0, modelLoaded: false, model: null, cgroup: true, readAt: ago(0) } };
 const overview = (extra: Partial<Overview> = {}): Overview => ({
-  module, runner, agents: [summary(keeperId, "Server Keeper"), summary(helperId, "IT Support helper", { template: "it-support", lastRun: null, triggers: { ask: true, schedule: null, events: [] } })] as Overview["agents"],
+  module, runner, agents: [summary(keeperId, "Server Keeper"), summary(helperId, "IT Support helper", { template: "it-support", lastRun: null, triggers: { ask: true, schedule: null, events: [], webhook: false } })] as Overview["agents"],
   queue: { queued: 0, running: 0, dropped: 0 }, cardsWaiting: 1, can: { create: true, configure: true, pause: true }, ...extra,
 });
 const proposal: Proposal = {
-  id: "33333333-3333-4333-8333-333333333333", agentId: keeperId, agentName: "Server Keeper", runId: "run-1", source: "agent", title: "Back up Vaultwarden", reason: "It has never been backed up.",
+  id: "33333333-3333-4333-8333-333333333333", kind: "plan", question: null, agentId: keeperId, agentName: "Server Keeper", runId: "run-1", source: "agent", title: "Back up Vaultwarden", reason: "It has never been backed up.",
   steps: [{ operationId: "app.backup", title: "Back up application data", risk: "medium", readOnly: false, approval: "Preview, then confirm", typedConfirmation: false, parameters: { id: "vaultwarden" }, why: "No backup exists." }],
   dropped: [], flags: {}, state: "open", forRole: "owner", createdAt: ago(10), expiresAt: ago(-60 * 24), jobIds: [],
 };
 const catalog: Catalog = {
   templates: [
     { id: "server-keeper", title: "Server Keeper", summary: "The resident agent.", spec, questions: [] },
-    { id: "blank", title: "Blank", summary: "Start from nothing.", spec: { ...spec, name: "New agent", triggers: { ask: true, schedule: null, events: [] } }, questions: [] },
+    { id: "blank", title: "Blank", summary: "Start from nothing.", spec: { ...spec, name: "New agent", triggers: { ask: true, schedule: null, events: [], webhook: false } }, questions: [] },
   ],
   tools: [
-    { id: "server.facts", fn: "server_facts", title: "Server facts", description: "Name, system, load.", role: "viewer", cost: "cheap", writes: null, params: [] },
-    { id: "logs.query", fn: "logs_query", title: "Logs", description: "Bounded logs.", role: "operator", cost: "moderate", writes: null, params: [] },
-    { id: "plan.propose", fn: "plan_propose", title: "Propose a plan", description: "A card.", role: "viewer", cost: "cheap", writes: "cards", params: [] },
+    { id: "server.facts", fn: "server_facts", title: "Server facts", description: "Name, system, load.", category: "boxpilot", categoryTitle: "BoxPilot's reads", role: "viewer", cost: "cheap", writes: null, defaultOff: false, params: [] },
+    { id: "logs.query", fn: "logs_query", title: "Logs", description: "Bounded logs.", category: "boxpilot", categoryTitle: "BoxPilot's reads", role: "operator", cost: "moderate", writes: null, defaultOff: false, params: [] },
+    { id: "plan.propose", fn: "plan_propose", title: "Propose a plan", description: "A card.", category: "action", categoryTitle: "Actions (proposed only)", role: "viewer", cost: "cheap", writes: "cards", defaultOff: false, params: [] },
+    { id: "web.search", fn: "web_search", title: "Web search (SearXNG)", description: "Opt-in.", category: "web", categoryTitle: "Web (opt-in)", role: "operator", cost: "moderate", writes: null, defaultOff: true, params: [] },
   ],
   events: [{ id: "health.alert", title: "A health alert is raised" }],
-  limits: { budget: { runsPerDay: { min: 1, max: 200, default: 12 }, modelSecondsPerDay: { min: 10, max: 7200, default: 900 }, stepsPerRun: { min: 1, max: 12, default: 6 }, tokensPerRun: { min: 500, max: 32000, default: 12000 }, runSeconds: { min: 30, max: 1800, default: 600 } } },
+  limits: { budget: { runsPerDay: { min: 1, max: 200, default: 12 }, modelSecondsPerDay: { min: 10, max: 7200, default: 900 }, stepsPerRun: { min: 1, max: 12, default: 6 }, tokensPerRun: { min: 500, max: 32000, default: 12000 }, runSeconds: { min: 30, max: 1800, default: 600 } }, module: { runsPerDay: { min: 10, max: 2000 }, modelSecondsPerDay: { min: 60, max: 86400 } } },
+  categories: { boxpilot: "BoxPilot's reads", action: "Actions (proposed only)", web: "Web (opt-in)" }, outputFormats: ["text", "json"], memoryTiers: { fact: "Facts it learned" },
 };
 const detail = (version = 2, name = "Server Keeper"): AgentDetail => ({
   ...(summary(keeperId, name, { version }) as unknown as AgentDetail), spec: { ...spec, name }, prompt: "BoxPilot's rules.\nLook before you answer.",
   versions: [{ version: 1, note: null, createdBy: null, createdAt: ago(600) }, { version: 2, note: "Tighter budget", createdBy: null, createdAt: ago(60) }], createdBy: null,
+  warnings: [], webhook: { enabled: false, minted: false }, specialists: [],
 });
 const finishedRun: Run = {
   id: "44444444-4444-4444-8444-444444444444", agentId: keeperId, agentName: "Server Keeper", version: 2, kind: "manual", trigger: {}, question: "What is this server called?", state: "completed", reason: null, readRole: "owner",
@@ -192,6 +201,33 @@ describe("the builder", () => {
   });
 });
 
+describe("the builder's steps", () => {
+  it("warns when a job reads like several, asks for its answer as JSON fields, and makes a webhook URL shown once", async () => {
+    window.history.replaceState(null, "", `/?view=agents&tab=build&agent=${keeperId}`);
+    const wide = { ...detail(2), warnings: ["It reads like several jobs: an agent that does one job well is more use than one that tries everything."], webhook: { enabled: true, minted: false }, spec: { ...spec, triggers: { ...spec.triggers, webhook: true } } };
+    const calls = serve(base({
+      [`GET /api/v1/agents/${keeperId}`]: wide,
+      [`PUT /api/v1/agents/${keeperId}`]: (init: RequestInit | undefined) => json({ ...wide, version: 3, spec: JSON.parse(String(init?.body)).spec }),
+      [`POST /api/v1/agents/${keeperId}/webhook`]: { token: "t".repeat(43), path: `/api/v1/hooks/agents/${keeperId}/${"t".repeat(43)}` },
+    }));
+    render(<AgentsPage csrfToken="csrf" now={() => now} />);
+    expect((await screen.findByText("About its scope")).closest(".ui-notice")?.textContent).toContain("several jobs");
+    // The steps, in order.
+    expect(Array.from(document.querySelectorAll(".agents-form__step")).map((step) => step.textContent)).toEqual(["1", "2", "3", "4", "5", "6", "7"]);
+    expect((screen.getByLabelText("Its one job") as HTMLTextAreaElement | HTMLInputElement).value).toBe("Keep a picture of this server.");
+
+    fireEvent.click(within(screen.getByRole("radiogroup", { name: "Its answer" })).getByRole("radio", { name: "JSON fields" }));
+    fireEvent.change(screen.getByLabelText("Field 1"), { target: { value: "hostname" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save as version 3" }));
+    await waitFor(() => expect((calls.find((call) => call.method === "PUT")?.body as { spec: AgentSpec } | undefined)?.spec.prompt.output).toEqual({ format: "json", fields: [{ name: "hostname", description: "" }], style: "" }));
+
+    const webhook = screen.getByRole("region", { name: "Webhook" });
+    fireEvent.click(within(webhook).getByRole("button", { name: "Make its URL" }));
+    expect(await within(webhook).findByText("Copy it now")).toBeTruthy();
+    expect(webhook.textContent).toContain(`/api/v1/hooks/agents/${keeperId}/`);
+  });
+});
+
 describe("the test console", () => {
   it("runs an agent once, follows its trace to the answer, and stages a card's step through the approval dialog", async () => {
     window.history.replaceState(null, "", `/?view=agents&tab=test&agent=${keeperId}`);
@@ -219,6 +255,57 @@ describe("the test console", () => {
     expect(await screen.findByText("Medium risk")).toBeTruthy();
     await waitFor(() => expect(calls.find((call) => call.path.endsWith("/decide"))?.body).toEqual({ decision: "staged", jobIds: ["55555555-5555-4555-8555-555555555555"] }));
     expect(calls.find((call) => call.path === "/api/v1/operations/app.backup/jobs")?.body).toEqual({ parameters: { id: "vaultwarden" } });
+  }, 15_000);
+});
+
+describe("the brain in the console", () => {
+  it("shows how a request was understood and planned, the runs of one request, a question card, and takes feedback", async () => {
+    window.history.replaceState(null, "", `/?view=agents&tab=test&agent=${keeperId}`);
+    const childId = "99999999-9999-4999-8999-999999999999";
+    const question: Proposal = { ...proposal, id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", kind: "question", question: "Which disk do you mean: the system disk or the backup disk?", title: "Server Keeper asks", reason: "It was not sure what was meant.", steps: [] };
+    const run: Run = {
+      ...finishedRun, question: "How full is it?", answer: "The backup disk is 81% full [T1].", proposals: [question], feedback: null,
+      tree: [
+        { id: finishedRun.id, parentRunId: null, depth: 0, agentId: keeperId, agentName: "Server Keeper", kind: "manual", state: "completed", question: "How full is it?", finishedAt: ago(0) },
+        { id: childId, parentRunId: finishedRun.id, depth: 1, agentId: helperId, agentName: "Backup Auditor", kind: "handoff", state: "completed", question: "Which disk is fullest?", finishedAt: ago(0) },
+      ],
+      steps: [
+        { seq: 1, kind: "intent", name: "understanding", state: "done", input: { goal: "Say how full a disk is", subject: "disk", constraints: [], tools: ["server_facts"], confidence: 0.42, clarify: null }, output: null, flags: {}, startedAt: ago(1), durationMs: 900, tokensIn: 400, tokensOut: 40 },
+        { seq: 2, kind: "plan", name: "plan", state: "done", input: [{ step: "Read the disks", tool: "server_facts" }, { step: "Answer with the fullest", tool: null }], output: null, flags: {}, startedAt: ago(1), durationMs: null, tokensIn: null, tokensOut: null },
+        { seq: 3, kind: "recall", name: "memory", state: "done", input: null, output: "The backup disk is /mnt/backup.", flags: { read: 1 }, startedAt: ago(1), durationMs: 3, tokensIn: null, tokensOut: null },
+        ...(finishedRun.steps ?? []).slice(1).map((step) => ({ ...step, seq: step.seq + 2 })),
+      ],
+    };
+    const calls = serve(base({
+      [`GET /api/v1/agents/${keeperId}/runs`]: { runs: [run] },
+      [`GET /api/v1/agents/runs/${finishedRun.id}`]: run,
+      [`POST /api/v1/agents/runs/${finishedRun.id}/feedback`]: { verdict: "down", note: "It was the system disk.", mine: true },
+    }));
+    vi.stubGlobal("EventSource", undefined);
+    render(<AgentsPage csrfToken="csrf" now={() => now} />);
+    const trace = await screen.findByRole("list", { name: "What the agent did" }, { timeout: 8000 });
+    // The intent and the plan are open as they arrive; low confidence is marked.
+    expect(within(trace).getByText("Understood: Say how full a disk is")).toBeTruthy();
+    expect(within(trace).getByText("42%")).toBeTruthy();
+    expect(within(trace).getByText("Planned 2 steps")).toBeTruthy();
+    expect(within(trace).getByText("Read the disks")).toBeTruthy();
+    expect(within(trace).getByText("Recalled 1 memory")).toBeTruthy();
+    // One request, two runs: the supervisor's and the specialist's.
+    const tree = screen.getByRole("navigation", { name: "This request's runs" });
+    expect(within(tree).getByRole("button", { name: "Server Keeper" }).getAttribute("aria-current")).toBe("true");
+    expect(within(tree).getByRole("button", { name: "Backup Auditor" })).toBeTruthy();
+    // A question card asks; it has no steps to stage.
+    const card = screen.getByRole("article", { name: "Card: Server Keeper asks" });
+    expect(card.getAttribute("data-kind")).toBe("question");
+    expect(card.textContent).toContain("Which disk do you mean");
+    expect(within(card).queryByRole("button", { name: /^Stage/ })).toBeNull();
+    // Feedback on every run.
+    const feedback = screen.getByRole("group", { name: "Was this right?" });
+    fireEvent.click(within(feedback).getByRole("button", { name: "Wrong" }));
+    fireEvent.change(within(feedback).getByLabelText("What was wrong"), { target: { value: "It was the system disk." } });
+    fireEvent.click(within(feedback).getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(calls.find((call) => call.path.endsWith("/feedback"))?.body).toEqual({ verdict: "down", note: "It was the system disk." }));
+    expect(await within(feedback).findByText("you said wrong")).toBeTruthy();
   }, 15_000);
 });
 
@@ -266,36 +353,85 @@ describe("a viewer", () => {
 });
 
 describe("the learning library", () => {
-  it("changes what agents read only with the owner's password, and deletes a wrong note", async () => {
-    window.history.replaceState(null, "", `/?view=agents&tab=knowledge&agent=${keeperId}`);
+  it("changes what agents read and brings in outside data only with the owner's password, and stages a connector's sync at its tier", async () => {
+    window.history.replaceState(null, "", "/?view=agents&tab=knowledge");
     const calls = serve(base({
       "GET /api/v1/agents/knowledge": {
         sources: [
           { id: "docs", title: "BoxPilot's documents", enabled: true, items: 38, size: 412, unit: "sections", indexedAt: ago(30) },
           { id: "documents", title: "Your documents", enabled: true, items: 1, size: 900, unit: "characters", indexedAt: ago(300) },
         ],
-        documents: [{ id: "77777777-7777-4777-8777-777777777777", title: "How the network is laid out", enabled: true, createdAt: ago(300), characters: 900 }],
-        search: { kind: "keyword (BM25)", embeddings: "Next: Unsloth's own embeddings." },
+        documents: [{ id: "77777777-7777-4777-8777-777777777777", title: "How the network is laid out", enabled: true, createdAt: ago(300), characters: 900, source: "pdf", externalId: null, pinned: false }],
+        search: { kind: "words (BM25) and meaning (embeddings), fused", embeddings: "12 pieces indexed", pending: 0, vectors: 12, enabled: true },
         learning: { quietHours: { start: "02:00", end: "06:00" }, agents: [{ agentId: keeperId, name: "Server Keeper", state: "completed", at: ago(600) }] },
         canChange: true,
+        connectors: { notion: { enabled: true, credential: "notion-token" }, slack: { enabled: false, credential: null, channels: [] } },
+        folder: { enabled: false, path: null }, webSearch: { enabled: false, endpoint: null },
       },
-      [`GET /api/v1/agents/${keeperId}/notes`]: { notes: [{ id: "88888888-8888-4888-8888-888888888888", title: "The server", body: "It is homebox.", source: { by: "agent", tools: ["server.facts"] }, createdAt: ago(600), updatedAt: ago(600), freshUntil: ago(-6000), stale: false }] },
-      [`DELETE /api/v1/agents/${keeperId}/notes/88888888-8888-4888-8888-888888888888`]: { deleted: true },
+      "PUT /api/v1/agents/knowledge/documents/77777777-7777-4777-8777-777777777777/pin": { pinned: true },
       "PUT /api/v1/settings/agents": { module },
     }));
     render(<AgentsPage csrfToken="csrf" now={() => now} />);
-    const notes = await screen.findByRole("table", { name: "Notes of Server Keeper" });
-    expect(await within(notes).findByText("It is homebox.")).toBeTruthy();
-    fireEvent.click(within(notes).getByRole("button", { name: "Delete the note The server" }));
-    await waitFor(() => expect(calls.some((call) => call.method === "DELETE" && call.path.endsWith("/notes/88888888-8888-4888-8888-888888888888"))).toBe(true));
+    const documents = await screen.findByRole("table", { name: "Documents you gave the agents" });
+    expect(within(documents).getByText("PDF")).toBeTruthy();
+    fireEvent.click(within(documents).getByRole("button", { name: "Pin How the network is laid out" }));
+    await waitFor(() => expect(calls.find((call) => call.path.endsWith("/pin"))?.body).toEqual({ pinned: true }));
 
     const sources = screen.getByRole("table", { name: "What agents may read" });
     const mine = within(sources).getAllByRole("row").find((row) => row.textContent?.includes("Your documents"));
     fireEvent.click(within(mine!).getByRole("switch"));
-    const sheet = await screen.findByRole("dialog", { name: "Change what agents read" });
+    let sheet = await screen.findByRole("dialog", { name: "Change what agents read" });
     fireEvent.change(within(sheet).getByLabelText("Your password"), { target: { value: "right" } });
     fireEvent.click(within(sheet).getByRole("button", { name: "Change it" }));
-    await waitFor(() => expect(calls.find((call) => call.method === "PUT")?.body).toEqual({ password: "right", knowledge: { documents: false } }));
+    await waitFor(() => expect(calls.find((call) => call.method === "PUT" && call.path === "/api/v1/settings/agents")?.body).toEqual({ password: "right", knowledge: { documents: false } }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+
+    // Outside data: off until the owner turns it on, saved with the password.
+    const outside = screen.getByRole("region", { name: "Outside data" });
+    fireEvent.click(within(outside).getByRole("switch", { name: /Web search/ }));
+    fireEvent.change(within(outside).getByLabelText("SearXNG's address"), { target: { value: "http://192.168.1.20:8089" } });
+    fireEvent.click(within(outside).getByRole("button", { name: "Save" }));
+    sheet = await screen.findByRole("dialog", { name: "Save outside data" });
+    fireEvent.change(within(sheet).getByLabelText("Your password"), { target: { value: "right" } });
+    fireEvent.click(within(sheet).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(calls.filter((call) => call.path === "/api/v1/settings/agents").at(-1)?.body).toMatchObject({ password: "right", webSearch: { enabled: true, endpoint: "http://192.168.1.20:8089" }, connectors: { notion: { enabled: true, credential: "notion-token" } } }));
+    // A connector's sync is a registered operation, shown with its tier.
+    expect(within(outside).getByRole("button", { name: "Sync Notion" }).getAttribute("data-risk")).toBe("low");
+  });
+});
+
+describe("memory", () => {
+  it("shows what an agent remembers by tier, and lets the owner pin, edit and make it forget", async () => {
+    window.history.replaceState(null, "", `/?view=agents&tab=memory&agent=${keeperId}`);
+    const fact = { id: "88888888-8888-4888-8888-888888888888", title: "The server", body: "It is homebox.", source: { by: "agent", tools: ["server.facts"] }, createdAt: ago(600), updatedAt: ago(600), freshUntil: ago(-6000), stale: false, pinned: false, shared: true, readRole: "owner", indexed: true };
+    const calls = serve(base({
+      [`GET /api/v1/agents/${keeperId}/memory`]: {
+        facts: [fact],
+        shared: [{ id: "s1", title: "Where Pi-hole runs", body: "As the app pi-hole.", from: "Pi-hole Watcher", updatedAt: ago(100), stale: false }],
+        episodes: [{ id: "e1", runId: "run-1", text: "Asked \"What is this server?\". It is homebox.", createdAt: ago(60), indexed: false }],
+        thread: { summary: "Asked about the disks.", turns: [{ role: "user", text: "And the apps?" }, { role: "agent", text: "Eleven apps run." }], updatedAt: ago(5) },
+        settings: { enabled: true, share: true, threads: true, turns: 6, freshDays: 14, maxNotes: 80 },
+        search: { byMeaning: true, model: "unsloth/Qwen3.5-4B-GGUF", pending: 1, vectors: 12 },
+      },
+      [`PUT /api/v1/agents/${keeperId}/memory/notes/${fact.id}`]: { ...fact, pinned: true },
+      [`DELETE /api/v1/agents/${keeperId}/memory/notes/${fact.id}`]: { forgotten: true },
+      [`DELETE /api/v1/agents/${keeperId}/memory/episodes/e1`]: { forgotten: true },
+      [`DELETE /api/v1/agents/${keeperId}/memory/thread`]: { forgotten: true },
+      "POST /api/v1/agents/knowledge/reindex": { queued: true, pending: 1 },
+    }));
+    render(<AgentsPage csrfToken="csrf" now={() => now} />);
+    const facts = await screen.findByRole("table", { name: "Facts Server Keeper learned" });
+    expect(within(facts).getByText("It is homebox.")).toBeTruthy();
+    expect(screen.getByRole("table", { name: "Facts other agents share" }).textContent).toContain("Pi-hole Watcher");
+    expect(screen.getByRole("region", { name: "Your conversation with it" }).textContent).toContain("Asked about the disks.");
+    fireEvent.click(within(facts).getByRole("button", { name: "Pin The server" }));
+    await waitFor(() => expect(calls.find((call) => call.method === "PUT")?.body).toEqual({ pinned: true }));
+    fireEvent.click(within(facts).getByRole("button", { name: "Forget the fact The server" }));
+    fireEvent.click(screen.getByRole("button", { name: "Forget this run" }));
+    fireEvent.click(within(screen.getByRole("region", { name: "Your conversation with it" })).getByRole("button", { name: "Forget it" }));
+    fireEvent.click(screen.getByRole("button", { name: "Index now" }));
+    await waitFor(() => expect(calls.filter((call) => call.method === "DELETE").map((call) => call.path.split("/memory/")[1])).toEqual([`notes/${fact.id}`, "episodes/e1", "thread"]));
+    await waitFor(() => expect(calls.some((call) => call.path.endsWith("/reindex"))).toBe(true));
   });
 });
 

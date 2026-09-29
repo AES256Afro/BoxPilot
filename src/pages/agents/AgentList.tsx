@@ -1,5 +1,5 @@
 import { relativeTime } from "../../home/format";
-import type { PendingOperation } from "../../ApproveDialog";
+import type { PendingOperation } from "../../shell/ApproveDialog";
 import { Button, EmptyState, Notice, Panel, StatusChip, Table, type TableColumn } from "../../ui";
 import type { AgentSummary, Glance, Overview, Proposal } from "./api";
 import { agentState, runState, triggerWords } from "./format";
@@ -113,7 +113,7 @@ export function AgentList({ overview, proposals, glance, csrfToken, role, now, o
             ? <p className="agents-quiet">Reading…</p>
             : open.length === 0
               ? <p className="agents-quiet">No cards. When an agent finds something a registered operation fixes, it leaves a card here; nothing runs until you stage and approve it.</p>
-              : <div className="agents-cards__list">{open.map((proposal) => <ProposalCard key={proposal.id} proposal={proposal} csrfToken={csrfToken} role={role} onStage={onStage} onDecided={onProposalDecided} />)}</div>}
+              : <div className="agents-cards__list">{open.map((proposal) => <ProposalCard key={proposal.id} proposal={proposal} csrfToken={csrfToken} role={role} onStage={onStage} onDecided={onProposalDecided} onOpenRun={(agentId, runId) => onOpen(agentId, "test", runId)} />)}</div>}
         </Panel>
       )}
     </div>
