@@ -31,6 +31,7 @@ export const operationRisk = {
   "app.reconfigure": "medium",
   "app.reinstall": "medium",
   "app.rollback": "medium",
+  "app.serve.set": "medium",
   "app.serve.withdraw": "medium",
   "app.uninstall": "medium",
   "app.update": "medium",

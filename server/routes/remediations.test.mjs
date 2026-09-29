@@ -46,6 +46,48 @@ it("names unavailable mount and catalog sources even when other checks succeed",
   } finally { server.closeAllConnections?.(); await new Promise((resolve) => server.close(resolve)); }
 });
 
+// The Dockge port trap (2026-09-29): the scan compares each app's published ports with the host's listeners and with Serve.
+it("finds a served app's port held on the tailnet address, asking Docker who holds it only when something does", async () => {
+  const asked = [];
+  const dockge = { id: "dockge", installed: true, container: { exists: false, running: false, status: "absent" }, state: { installedAt: "2026-08-01T10:00:00.000Z", values: {} }, published: [{ id: "web", host: 5001, protocol: "tcp", bind: "0.0.0.0", fixed: false, web: true }] };
+  const helper = { request: async (operation) => {
+    asked.push(operation);
+    if (operation === "app.inspect") return { applications: [dockge] };
+    if (operation === "app.serve.inspect") return { available: true, serves: [{ dnsName: "homebox.tailXXXX.ts.net", port: 5001, target: "http://127.0.0.1:5001" }] };
+    if (operation === "container.docker.inventory") return { available: true, containers: [] };
+    return {};
+  } };
+  async function scan(listeners) {
+    asked.length = 0;
+    const app = express();
+    app.use(asOwner);
+    app.use(createHostRouter({
+      state: { getSetting: (_key, fallback) => fallback }, helper, catalogService: { all: async () => ({ manifests: [{ id: "dockge", name: "Dockge", volumes: [] }] }) },
+      auth: { requireCsrf: (_req, _res, next) => next(), requireRole: () => (_req, _res, next) => next() }, notifications: { describe: () => ({ configured: true }) },
+      collect: async () => ({ devices: [], mounts: [], fstab: [], availability: { devices: true, mounts: true, fstab: true } }),
+      inventory: { inspect: async () => ({ network: { addresses: [{ interface: "docker0", address: "172.17.0.1" }, { interface: "eno1", address: "192.168.1.10" }] } }) },
+      readListeners: async () => listeners,
+    }));
+    const server = app.listen(0, "127.0.0.1");
+    await new Promise((resolve) => server.once("listening", resolve));
+    try {
+      return await (await fetch(`http://127.0.0.1:${server.address().port}/remediations`)).json();
+    } finally { server.closeAllConnections?.(); await new Promise((resolve) => server.close(resolve)); }
+  }
+  const held = await scan([{ protocol: "tcp", address: "100.64.0.10", port: 5001, scope: "address" }]);
+  const found = held.findings.find((finding) => finding.id === "port-conflict:dockge");
+  expect(found).toMatchObject({ title: "Dockge cannot start: Tailscale Serve holds port 5001" });
+  expect(found.fixes.map((fix) => [fix.operationId, fix.risk])).toEqual([["app.exposure.set", "medium"], ["app.serve.set", "medium"]]);
+  expect(found.fixes[0].preview).toContain("http://192.168.1.10:5001");
+  expect(asked).toContain("container.docker.inventory");
+  expect(held.findings.find((finding) => finding.id === "app-missing:dockge").fixes.map((fix) => fix.operationId)).toEqual(["app.uninstall"]);
+  // Served while nothing holds the port yet: still the trap, and nothing to ask Docker about.
+  const free = await scan([]);
+  expect(free.findings.some((finding) => finding.id === "port-conflict:dockge")).toBe(true);
+  expect(asked).not.toContain("container.docker.inventory");
+  expect(free.unavailableChecks).not.toContain("Ports in use");
+});
+
 it("asks the helper what the drive-tools fix installs only when a finding offers that fix", async () => {
   const asked = [];
   const helper = { request: async (operation) => {
