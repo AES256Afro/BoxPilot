@@ -1,0 +1,34 @@
+/* GitHub (M33.10): the page's own layout, on the kit's components. Tokens only, and every selector
+   starts with .github-, so no other page is touched (docs/UI-PAGES.md). */
+
+.github-page { display: grid; gap: 10px; min-width: 0; }
+
+/* A repository's name keeps its case: "AES256Afro/BoxPilot" is a name, not a heading word. */
+.github-repo .ui-panel__title { letter-spacing: 0.02em; text-transform: none; }
+.github-repo__body { padding: 6px 12px 8px; }
+.github-repo__heading {
+  margin: 0;
+  padding: 7px 12px 5px;
+  border-top: 1px solid var(--border);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+.github-repo .ui-empty { padding: 14px 12px 16px; }
+
+/* A commit: its short id as a link, GitHub's word on it, and when. */
+.github-commit { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-width: 0; }
+.github-commit a, .github-release-name a, .github-link { color: var(--accent); text-underline-offset: 2px; }
+.github-commit code, .github-release-name code { font-size: 12.5px; }
+.github-release-name { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-width: 0; }
+.github-link { font-size: 13px; font-weight: 600; }
+.github-dim { color: var(--text-muted); font-family: var(--font-mono); font-size: 12px; }
+
+/* An asset's digest is long: it breaks anywhere rather than widening the table. */
+.github-asset, .github-digest { font-size: 12px; overflow-wrap: anywhere; word-break: break-all; }
+.github-digest { color: var(--text-muted); }
+
+.github-limits__list { display: grid; gap: 5px; margin: 0; padding-left: 18px; color: var(--text); font-size: 13.5px; line-height: 1.45; }
