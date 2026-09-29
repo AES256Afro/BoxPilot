@@ -1398,6 +1398,34 @@ the milestones they overlap.
   GitHub, Apps, Automations, Metrics, VMs, System, Settings, Setup, sign-in, Activity and
   the approval dialog on the kit, and deleting stopgap rules as their classes go; Repair is
   M35's; Updates, built on the components in M33.1, still takes its header from the shell.
+- ✅ **M33.9 Storage and Backups on the kit** (wave 2A, unreleased). Both pages rebuilt in
+  `src/pages/storage/` and `src/pages/backups/` with every feature the Classic pages had, organised
+  by what the owner does. **Storage:** the verdict (a mount 90% full, a filesystem filling within
+  two weeks, a share that dropped, or room to spare; "Not read" when the drives could not be read),
+  then disks, mounts, shares and free LVM space in mono, then tabs kept in the address: *Drives*
+  (BoxPilot's drives with Check, Unmount and a switch to reconnect by itself, the rule stated once;
+  every disk and partition with Mount…, Format and Share…; unused LVM space to claim), *Shares*
+  (NAS folders mounted here, missing client tools to install), *File sharing* (Samba and NFS, the
+  draft kept across tabs until applied, users, the diagnosis, the address to type on each machine),
+  *Snapshots* (LVM with roll back, btrfs and ZFS) and *Mounts* (what is filling up and why, where
+  data lives, every mounted filesystem). Mounting a drive or a share, adding a share or a user and
+  taking a snapshot are sheets. **Backups:** the verdict (a backup that stopped, an app never
+  backed up, nothing off the box, or protected; never green about app data it could not read),
+  then tabs: *Apps* (each app's last backup and whether it keeps happening, back up or schedule
+  from its row), *This server* (the database's drilled backups with Protect and retention, machine
+  snapshots with how many apps would come back with their data), *Off-box* (whether a copy is kept
+  elsewhere, then the backup drive, SSH and cloud destinations, each set in a sheet) and *Restore*
+  (every snapshot this server can restore from, restored from a sheet, and what a restore staged
+  for review). Every action carries its tier and is left out for a role that cannot start it;
+  `operationRisk` gains the 24 operations the two pages start. The Classic `StorageCenter`,
+  `SambaPanel`, `NfsPanel`, `BackupCenter`, `CloudBackupPanel`, `RestorePanel`,
+  `RestoreReviewPanel`, `ConnectPaths` and the Storage-only half of `AutoReconnect` are deleted,
+  with the Classic CSS only they used. **The flaky share-mount-host check:** share.mount read its
+  unit's journal from the start of the second its attempt began, so a NAS that did not answer,
+  tried in the same second a wrong password for the same share was refused, read that refusal too
+  and was said to refuse the credentials. The journal is now read from the millisecond the attempt
+  began, only the last attempt's lines explain it, and the Ubuntu test puts a refusal in that
+  second on every run.
 - ✅ **M33.10 Network and security on the kit** (wave 2B, unreleased). Network, Firewall, Users & SSH
   and GitHub are rebuilt in `src/pages/{network,firewall,users,github}/`, each with its own sheet
   and tests, and the Classic components (`NetworkCenter`, `TailnetPanel`, `TailscalePanel`,
@@ -1457,13 +1485,11 @@ the milestones they overlap.
   **Updates** (`src/pages/updates/`): its own header, the strip, the services still running old
   libraries, and tabs for the packages, the common tools and installing anything by name. Every
   button carries its tier (fourteen more operations in `src/ui/operationRisk.ts`, held to the
-  registry) and a role that cannot run it does not see it; a viewer reads everything. Left:
-  System's Schedules tab (M33.12) still imports the panel through `src/SchedulesPanel.tsx`, a
-  re-export, and does not pass the role, so a viewer there sees Pause and Delete that the server
-  refuses; it can import it from `src/pages/automations/` with `role` and the re-export go. The
-  Classic rules outside the stopgap that only the old pages used are listed in the
-  pull request for a sweep; `AppSquare` and the sheet's "act, then close" pattern are candidates
-  for the kit.
+  registry) and a role that cannot run it does not see it; a viewer reads everything.
+  System's Schedules tab (M33.12) draws the same panel from `src/pages/automations/` with the
+  signed-in role, so a viewer there sees no Pause or Delete either. Left: the Classic rules
+  outside the stopgap that only the old pages used are listed in the pull request for a sweep;
+  `AppSquare` and the sheet's "act, then close" pattern are candidates for the kit.
 - ✅ **M33.12 Virtual Machines, System and Setup** (wave 2D, unreleased). Rebuilt under
   `src/pages/{vms,system,setup}/` on the kit, facts first, every feature kept; the Classic
   components, their tests and the CSS only they used are gone. **Virtual Machines:** the verdict
@@ -1484,6 +1510,35 @@ the milestones they overlap.
   the server's shapes. Page-local pieces worth promoting to the kit: a file picker, a
   "what this asks for" line beside a high-risk button, and a sheet body whose rows keep their
   height (`grid-auto-rows: max-content`) so a panel in a sheet scrolls instead of being clipped.
+- ✅ **M33.13 Settings, sign-in and the shell's dialogs** (wave 2E, unreleased). The pieces seen on
+  every page, rebuilt on the kit with every behaviour kept. **The approval dialog**
+  (`src/shell/ApproveDialog.tsx`; the old path re-exports it for pages still being rebuilt) leads
+  with the tier: a band in the tier's colour with its name in words (a lock for high) and what
+  approving asks, under the operation's name and id. Then "What it will do" (the page's preview,
+  or the registry's description when a page gives none; exactly what the job is given behind a
+  toggle, or in full when approving what someone else staged), then what approving needs (the
+  typed confirmation and the password as the kit's fields; the approval's expiry), then the run
+  followed with `JobProgress`, and its ending with the job log. Existing jobs (M36), `onStaged`,
+  `handoff` and `moreTimeFor` (M35, M30.3) are unchanged, as are the labels other pages' tests
+  press. It is drawn over the page in the console's look wherever it opens, Home included
+  (`src/shell/look.css`). **Activity** and **the notifications** are the kit's `Sheet` with the
+  facts on top (running, waiting, failed); a job's row carries its state in words, and M36's
+  review, cancel and dismiss stay on it. **The job log**, its timeout and follow-up notices and
+  the page error are the kit's notices, rows and `CodeBlock`. **The top bar's own controls**
+  (Activity, the bell, the role, the elevated lock, Sign out) are the shell's
+  (`src/shell/SessionControls.tsx`). **Settings** (`src/pages/settings/`) is tabbed, the tab in
+  the address: Account & sign-in (password, passkeys and recovery codes, sign-in methods, where
+  you are signed in), People, Notifications, Approvals, Single sign-on, Credentials, Appearance;
+  the owner's tabs stay the owner's and a viewer has no sign-in methods (ADR-003); the header says
+  whether alerts can reach the owner and how approvals are set; saving or removing a credential
+  carries its tier. **Sign-in** (`src/pages/signin/`) is the Launcher's wallpaper and a glass
+  card, the ways in best first (passkey, GitHub, Tailscale, then the password), with M36's reason
+  the session ended and the page it goes back to. The runbook and the installation doctor, shown
+  only in Repair, move into `src/repair/`. The areas sheet is the kit's `Sheet`, and the command
+  bar has its own overlay. The shell's stylesheets follow the page convention
+  (`src/shell/shellCss.test.ts`), and the Classic rules only these surfaces used are deleted. The
+  demo can show the sign-in page (`?signin`) and stages each operation at its registry tier, so
+  the dialog is reviewed at low, medium and high.
 - The owner wants every concept from the study (2026-09-28): the assistant (B5) is M34; the phone
   layout (B6) is M25; recipes and a GPU page (B7) belong to M22.
 

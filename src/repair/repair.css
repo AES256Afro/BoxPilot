@@ -46,8 +46,7 @@
 .rp-run.rp-run--still { border-color: var(--status-danger-border); }
 .rp-run.rp-run--fixed { border-color: var(--status-good-border); }
 .rp-run__next { color: var(--cc-text); font-size: 13px; line-height: 1.45; }
-.rp-run .activity-detail { padding: 0; }
-.rp-run .job-terminal pre { max-height: 18rem; }
+.rp-run .jobs-output .ui-code__text { max-height: 18rem; }
 
 /* Reconnecting a dropped drive automatically, inside its finding. */
 .rp-auto { display: grid; gap: 4px; }
@@ -94,7 +93,6 @@
 .rp-figures b { color: var(--cc-text-strong); font-size: 22px; font-weight: 500; letter-spacing: -0.02em; line-height: 1.1; text-transform: none; }
 .rp-figures [data-status="warning"] b { color: var(--cc-amber); }
 .rp-figures [data-status="danger"] b { color: var(--cc-red-text); }
-.rp-pre { max-height: 22rem; margin: 0; padding: 8px 10px; overflow: auto; border: 1px solid var(--cc-line); border-radius: 3px; color: var(--cc-text); background: var(--cc-inset); font-family: var(--font-mono); font-size: 12px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
 .rp-input { box-sizing: border-box; width: 100%; max-width: 22rem; min-height: 30px; padding: 0 8px; border: 1px solid var(--cc-line-strong); border-radius: 3px; color: var(--cc-text-strong); background: var(--cc-inset); font: inherit; font-size: 13.5px; }
 .rp-field { display: grid; gap: 4px; color: var(--cc-muted); font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; }
 

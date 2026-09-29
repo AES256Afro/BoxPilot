@@ -2,7 +2,8 @@ import { useState } from "react";
 import { dismissedFailure, ranAgain } from "./jobStatus";
 import { readJson } from "./http";
 import { cancelJob, type Job } from "./operations";
-import { Button, type RiskTier } from "./ui";
+import { Button, Notice, type RiskTier } from "./ui";
+import "./shell/jobs.css";
 
 const tierOf = (risk: string): RiskTier => (risk === "low" || risk === "medium" ? risk : "high");
 
@@ -19,21 +20,22 @@ export function JobActions({ job, role, csrfToken, onReview }: { job: Job; role:
     setBusy(true); setProblem(null);
     try { await work(); } catch (error) { setProblem(error instanceof Error ? error.message : "That did not work"); } finally { setBusy(false); }
   };
+  const failure = problem && <Notice tone="danger" live className="jobs-actions__problem">{problem}</Notice>;
   if (job.state === "awaiting_approval") {
     return (
-      <div className="activity-actions">
+      <div className="jobs-actions">
         <Button risk={tierOf(job.risk)} variant="primary" disabled={busy} onClick={() => onReview(job)}>Review and approve</Button>
         <Button variant="ghost" busy={busy} onClick={() => void run(() => cancelJob(job.id, csrfToken))}>Cancel it</Button>
-        {problem && <p className="auth-error" role="alert">{problem}</p>}
+        {failure}
       </div>
     );
   }
   if (job.state === "failed" && !dismissedFailure(job) && !ranAgain(job)) {
     return (
-      <div className="activity-actions">
+      <div className="jobs-actions">
         <Button variant="ghost" busy={busy} onClick={() => void run(() => fetch(`/api/v1/jobs/${encodeURIComponent(job.id)}/dismiss`, { method: "POST", headers: { "X-BoxPilot-CSRF": csrfToken } }).then((response) => readJson(response)))}>Dismiss</Button>
-        <span className="muted">It stays here; Home and Ops stop asking about it.</span>
-        {problem && <p className="auth-error" role="alert">{problem}</p>}
+        <span className="jobs-actions__note">It stays here; Home and Ops stop asking about it.</span>
+        {failure}
       </div>
     );
   }
