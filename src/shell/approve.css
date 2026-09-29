@@ -37,8 +37,7 @@
 .approve-dialog[data-phase="done"] .approve-kicker { color: var(--status-good-text); }
 .approve-dialog[data-phase="error"] .approve-kicker { color: var(--status-danger-text); }
 .approve-title { margin: 0; color: var(--text-strong); font-size: 20px; font-weight: 650; line-height: 1.2; overflow-wrap: anywhere; }
-.approve-facts { margin: 2px 0 0; color: var(--text-muted); font-family: var(--font-mono); font-size: 12px; overflow-wrap: anywhere; }
-.approve-facts code { color: var(--text); font-size: inherit; }
+.approve-facts { margin-top: 2px; }
 .approve-close { display: grid; flex: none; width: 30px; height: 30px; place-items: center; padding: 0; border: 1px solid var(--border-strong); border-radius: 3px; color: var(--text-muted); background: var(--surface-raised); cursor: pointer; }
 .approve-close:hover:not(:disabled) { color: var(--text-strong); }
 .approve-close:disabled { cursor: not-allowed; opacity: 0.45; }

@@ -3,7 +3,7 @@ import { openActivity, openNotificationsEvent } from "../activityEvents";
 import { viewLabel, type ViewName } from "../data";
 import { relativeTime } from "../home/format";
 import { readJson } from "../http";
-import { Button, EmptyState, Notice, Sheet, StatusChip, Tag, type Status } from "../ui";
+import { Button, EmptyState, Facts, Notice, Sheet, StatusChip, Tag, type Status } from "../ui";
 import { BellIcon } from "./areaIcons";
 import "./look.css";
 import "./bar.css";
@@ -125,7 +125,7 @@ export function NotificationCentre({ csrfToken, onNavigate }: { csrfToken: strin
         <Sheet title="Notifications" kicker={unseen ? `${unseen} new` : "The last thirty days"} side="right" className="look-console notifications-sheet" onClose={() => setOpen(false)}>
           {(list || unseen > 0) && (
             <div className="notifications-head">
-              {list && <p className="notifications-facts"><b>{list.entries.length}</b> {list.entries.length === 1 ? "entry" : "entries"} · <b>{unseen}</b> new · target <b>{list.targetConfigured ? "set" : "not set"}</b></p>}
+              {list && <Facts><b>{list.entries.length}</b> {list.entries.length === 1 ? "entry" : "entries"} · <b>{unseen}</b> new · target <b>{list.targetConfigured ? "set" : "not set"}</b></Facts>}
               {unseen > 0 && <Button variant="ghost" onClick={() => void markSeen()}>Mark all seen</Button>}
             </div>
           )}

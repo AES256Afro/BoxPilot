@@ -3,7 +3,7 @@ import { useOperation } from "../../ApproveDialog";
 import { readJson } from "../../http";
 import { inspectOperation } from "../../operations";
 import SchedulesPanel from "../automations/SchedulesPanel";
-import { Button, KeyValue, MetricTile, Notice, PageHeader, Panel, Tabs, useUrlParam, type Status } from "../../ui";
+import { Button, KeyValue, MetricStrip, MetricTile, Notice, PageHeader, Panel, Tabs, useUrlParam, type Status } from "../../ui";
 import { SystemHardware } from "./SystemHardware";
 import { SystemHousekeeping } from "./SystemHousekeeping";
 import { SystemTime } from "./SystemTime";
@@ -199,14 +199,14 @@ export default function SystemPage({ csrfToken, role = "owner" }: SystemPageProp
       >
         {(current) => current === "overview" ? (
           <>
-            <section className="system-strip" aria-label="The server at a glance">
+            <MetricStrip label="The server at a glance" className="system-strip">
               <MetricTile label="BoxPilot" value={release?.current.version ?? __BOXPILOT_VERSION__} caption={lastFailed ? "the last update failed" : releaseChip.label} status={lastFailed ? "danger" : releaseChip.status === "good" ? "good" : releaseChip.status === "warning" ? "warning" : "unknown"} onSelect={() => setTab("updates")} />
               <MetricTile label="Memory" value={gib(memory?.memAvailableKiB)} caption={`available of ${gib(memory?.memTotalKiB)}`} status={usedPercent === null ? "unknown" : usedPercent >= 95 ? "danger" : usedPercent >= 85 ? "warning" : "good"} bar={usedPercent === null ? undefined : { value: usedPercent, label: "Memory in use" }} onSelect={() => setTab("hardware")} />
               <MetricTile label="Swap" value={gib(memory?.swapTotalKiB)} caption={memory?.swapTotalKiB ? `${gib(swapUsed)} in use · swappiness ${settings?.swappiness ?? "—"}` : settings ? "no swap configured" : "Reading…"} status={settings ? (memory?.swapTotalKiB ? "neutral" : "warning") : "unknown"} onSelect={() => setTab("hardware")} />
               <MetricTile label="Reclaimable" value={housekeeping ? housekeeping.totalHumanBytes : "—"} caption={!operator ? "an operator's to scan" : housekeeping ? "in items nothing needs" : scanning ? "Scanning…" : "Not scanned"} status={housekeeping ? "neutral" : "unknown"} onSelect={() => setTab("housekeeping")} />
               <MetricTile label="Name" value={settings?.hostname.live ?? "—"} caption={settings ? (settings.hostname.static !== settings.hostname.live ? `static: ${settings.hostname.static}` : "static and live match") : "Reading…"} status={settings ? "neutral" : "unknown"} onSelect={() => setTab("time")} />
               <MetricTile label="Time zone" value={settings?.timezone ?? "—"} caption={settings?.locale ? `language ${settings.locale}` : `${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} in your browser`} status={settings ? "neutral" : "unknown"} onSelect={() => setTab("time")} />
-            </section>
+            </MetricStrip>
             <Panel padded title="Also on this server">
               <KeyValue layout="columns" items={[
                 { id: "trim", label: "SSD trim", status: settings ? (trimOn ? "good" : "neutral") : "unknown", value: settings ? (trimOn ? "weekly" : "off") : "—", hint: trimOn && settings?.fstrim.nextRun ? `next ${settings.fstrim.nextRun}` : undefined },

@@ -5,10 +5,10 @@ import { judgeProtection } from "../backupProtection";
 import { countOf, sentenceList, type ViewName } from "../data";
 import { AreaIcon, BellIcon, PlusIcon, SparkIcon } from "../shell/areaIcons";
 import { TopBarSlot } from "../shell/TopBarSlot";
-import { Button, MetricTile, Section, StatusChip, Tile, initials, type Status } from "../ui";
+import { AppIcon, Button, MetricTile, Section, StatusChip, Tile, type Status } from "../ui";
 import { appHue } from "../ui/appColor";
 import { AppSheet } from "./AppSheet";
-import { useFacts, valuesOf, type AppFact } from "./facts";
+import { useFacts, valuesOf } from "./facts";
 import { greeting, loadStatus, mountName, mountStatus, relativeTime, shortCpu, size, uptime } from "./format";
 import { smartSummary, upsSummary } from "./hostFacts";
 import { NeedRow } from "./NeedRow";
@@ -37,11 +37,6 @@ export interface HomeProps {
 /** How many of each list show before "Show all". */
 const shownUrgent = 5;
 const shownWaiting = 4;
-
-/** An app's colour square with its glyph: its emoji, or its initials. */
-function AppSquare({ app }: { app: Pick<AppFact, "id" | "name" | "icon"> }) {
-  return <span className="lx-square" data-hue={appHue(app.id)}>{app.icon ? <span className="lx-square__emoji">{app.icon}</span> : initials(app.name)}</span>;
-}
 
 export default function Home({ csrfToken, role, onNavigate, now = Date.now }: HomeProps) {
   const { facts, refresh, accept } = useFacts();
@@ -79,7 +74,7 @@ export default function Home({ csrfToken, role, onNavigate, now = Date.now }: Ho
   // A need about an app shows the app's square; any other, the icon of the page it opens.
   const iconFor = (need: Need) => {
     const app = need.appId ? appsById.get(need.appId) : undefined;
-    return app ? <AppSquare app={app} /> : <span className="lx-well"><AreaIcon view={need.view} /></span>;
+    return app ? <AppIcon id={app.id} name={app.name} icon={app.icon} /> : <span className="lx-well"><AreaIcon view={need.view} /></span>;
   };
 
   // What needs a look down the side; what can wait in the strip under the apps. The verdict counts

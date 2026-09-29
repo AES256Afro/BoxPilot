@@ -3,8 +3,7 @@
 
 .system-page { display: grid; gap: 10px; min-width: 0; }
 
-/* The overview's figures, as Ops' strip draws them; each opens its tab. */
-.system-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr)); gap: 8px; }
+/* The overview's figures (the kit's MetricStrip); each opens its tab. */
 .system-strip .ui-metric__value { font-size: 22px; overflow-wrap: anywhere; }
 
 /* Words under a panel's facts; a padded block inside a panel whose body runs to its edges. */

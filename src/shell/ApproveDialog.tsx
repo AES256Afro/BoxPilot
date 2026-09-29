@@ -5,7 +5,7 @@ import { useDialogFocus } from "../useDialogFocus";
 import { jobWarnings } from "../JobWarnings";
 import { formatDuration, jobTimeout } from "../JobTimeout";
 import { JobLogView } from "../JobLogView";
-import { Button, Field, JobProgress, Notice, Progress, SecretInput, TextInput } from "../ui";
+import { Button, Facts, Field, JobProgress, Notice, Progress, SecretInput, TextInput } from "../ui";
 import { CloseIcon, LockIcon } from "../ui/icons";
 import "./look.css";
 import "./approve.css";
@@ -255,7 +255,7 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
           <div className="approve-heading">
             <span className="approve-kicker">{kicker}</span>
             <h2 id={titleId} className="approve-title">{title}</h2>
-            <p className="approve-facts"><code>{operation}</code>{job && <> · job <code>{job.id.slice(0, 8)}</code></>}</p>
+            <Facts className="approve-facts"><code>{operation}</code>{job && <> · job <code>{job.id.slice(0, 8)}</code></>}</Facts>
           </div>
           <button ref={closeRef} className="approve-close" type="button" onClick={dismiss} aria-label="Close dialog" disabled={busy}><CloseIcon /></button>
         </header>

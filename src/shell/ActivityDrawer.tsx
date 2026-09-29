@@ -5,7 +5,7 @@ import { activeJobStates, jobStatus } from "../jobStatus";
 import { openActivityEvent } from "../activityEvents";
 import { JobActions } from "../JobActions";
 import { followJobs, type Job, type JobFeedStatus } from "../operations";
-import { Button, EmptyState, Notice, Sheet, StatusChip, type Status } from "../ui";
+import { Button, EmptyState, Facts, Notice, Sheet, StatusChip, type Status } from "../ui";
 import "./look.css";
 import "./bar.css";
 import "./jobs.css";
@@ -90,9 +90,9 @@ export function ActivityDrawer({ csrfToken = "", role = "owner" }: { csrfToken?:
           onClose={() => setOpen(false)}
         >
           {listed && jobs.length > 0 && (
-            <p className="jobs-facts">
+            <Facts>
               <b>{runningCount}</b> running · <b>{waitingCount}</b> waiting for approval · <b>{failedCount}</b> failed · last <b>{jobs.length}</b>
-            </p>
+            </Facts>
           )}
           {feedStatus === "loading" && <p className="jobs-quiet">Reading job history...</p>}
           {feedStatus === "unavailable" && (
