@@ -46,8 +46,9 @@ The owner's goal for the product is the opposite: open the app on a fresh Ubuntu
   lagging the code. BoxPilot keeps the installer's SHA-256 and the release it installed and says
   when that is not 2026.9.12; a pinned install, or the spike's slim image built from a known release,
   with the spike's workflow rerun before moving, is the owner's call.
-- **Half a processor or one.** 50% halves the speed (2.1 tokens a second for the 4B); the spike
-  recommends one. The 9B would need about 12 GB and is slow at one processor.
+- **How many processors.** Four since the first real run (the owner's choice, ADR-006): one read a
+  prompt at about 20 tokens a second on the home server. Fewer slow it in proportion (the spike: half
+  a processor halves the speed). The 9B would need about 12 GB.
 
 ### Consequences
 
@@ -321,13 +322,14 @@ untrusted text and decides what to do next.
    database, and runs every tool. The runner (`deploy/boxpilot-agents.service`,
    `server/agents/runner-main.mjs`) runs the model and the agent loop, and nothing else.
 2. **Hard caps on a unit of its own.** The runner and the model server it starts share one cgroup
-   with `CPUQuota=100%` (one processor, the spike's number), `CPUWeight=idle`, `Nice=19`, `IOSchedulingClass=idle`, `MemoryMax=8G`, no
+   with `CPUQuota=400%` (four processors, the owner's choice after the first real run - ADR-006; it
+   was one, the spike's number), `CPUWeight=idle`, `Nice=19`, `IOSchedulingClass=idle`, `MemoryMax=8G`, no
    swap, `TasksMax=256`, its own user, no capabilities and `IPAddressDeny=any` but loopback. This is
    a long-running service with its own trust level, not a per-operation oneshot unit, which is what
    ADR-001 retired; it is installed with the others and enabled only when the owner turns Agents on.
    `caps.mjs` holds the values the Usage panel shows and a test holds them to the unit; a
-   real-systemd test proves the cgroup stays under the quota under a model that wants three times
-   it, and idles under 2%.
+   real-systemd test proves the kernel enforces the quota (on a runner with fewer processors than
+   the shipped quota, a lowered one) under a model that wants more, and that it idles under 2%.
 3. **Unsloth as the runner's child, not a container.** The spike
    (`docs/spikes/2026-09-unsloth-headless.md`) recommends a BoxPilot-built 2 GB image run with
    `docker run --cpus 1.0`. BoxPilot takes its flags, caps and security findings and not its
@@ -338,7 +340,8 @@ untrusted text and decides what to do next.
    caps, and idle is then no process. It is installed by Unsloth's own installer (GGUF-only), as the
    runner's user, into the runner's state; root never runs or writes anything there.
    It runs as the spike found it must: `--api-only --disable-tools` (Studio's server-side Python,
-   shell and web search are otherwise on), bound to 127.0.0.1, one thread, `--context-length 8192`
+   shell and web search are otherwise on), bound to 127.0.0.1, one thread for each processor in the
+   quota (four), `--context-length 8192`
    and `-c 8192` (Unsloth's idle reload forgets the first and would relaunch at 262,144 tokens),
    `--ctx-checkpoints 4`, `UNSLOTH_MODEL_IDLE_TTL=900`, offline, the public-port check off, and
    Studio's admin password set to a secret the runner keeps rather than one Studio prints. Its key
@@ -401,8 +404,55 @@ untrusted text and decides what to do next.
 - A model that is missing, slow or broken degrades an answer to the tools' facts instead of failing.
 - The web process runs every tool, so a tool's cost lands there; tools are cheap reads, bounded in
   number and size per run, and one run goes at a time.
-- The spike's measurements set the defaults (one processor, one thread, 8,192 tokens of context, the
-  4B model at about 4 tokens a second): slow for chat, fine for digests, triage and routing. They are
-  settings of the runtime, not of the architecture, and the home server's own numbers may move them.
+- The spike's measurements set the first defaults (one processor, one thread, 8,192 tokens of
+  context, the 4B model at about 4 tokens a second): slow for chat, fine for digests, triage and
+  routing. They are settings of the runtime, not of the architecture, and the home server's own
+  numbers moved them: four processors and four threads since the first real run (ADR-006).
 - Agent tables are a product area's records, like flows and schedules, not an operation's ledger;
   every change to the host still goes through the registry.
+
+## ADR-006: agents' prompts are built for the model server's cache, and a call's time is measured
+
+**Date:** 2026-09-29 · **Status:** Accepted (M37, unreleased) · **Refines:** ADR-005's caps and its runner.
+
+### Context
+
+The first run on the owner's server (Ryzen 7 7800X3D, one thread under `CPUQuota=100%`) asked the
+Server Keeper for the most important issue to focus on. Qwen 3.5 4B read its prompt at about 20
+tokens a second and wrote at about 4. The plan took 110 s; the next call, carrying all 22 tools'
+schemas behind a changed start, was cut off by the fixed 300 s per-call limit before it had read its
+prompt; the run ended degraded after 416 s, and its fallback searched BoxPilot's own roadmap.
+
+### Decision
+
+1. **Four processors, four threads, 15 minutes.** The owner raised the runner's quota to 400% and the
+   model's threads to four (a quarter of the 16-thread server at most, only while a run goes;
+   everything else in ADR-005's caps stays), and the default longest run to 15 minutes, with a day's
+   model time defaulting to two such runs. Agents saved with the old 10-minute default were moved to
+   it once, as a version BoxPilot made and said so.
+2. **Prompts that only grow.** llama-server reuses the longest common start of the last prompt it
+   read, and Qwen's template puts the tools first. So the planner is a small conversation of its own
+   whose system message is the same for every run of an agent; and the calls that act are one
+   conversation that only grows at its end, carrying the same tools in the same order every time (a
+   forced last answer and a JSON rewrite too: `tool_choice: "none"` keeps the tools in the prompt),
+   with nothing inserted before the end. A call after the first to act reads only what it added.
+3. **Only the tools the plan names**, plus the always-on ones (memory, propose, tell, hand off), at
+   most ten, instead of every tool the agent may use.
+4. **A call's time comes from measured speed.** llama-server's timings (Unsloth passes them on), or
+   the runner's own clock, give this server's reading and writing speed; a call is started only when
+   it can read its prompt and write an answer in what the run and the day's model time have left,
+   and the trace says so when it cannot. There is no fixed per-call limit: a call may use what the
+   run has left. The speed is kept and shown on the Usage tab.
+5. **A call given up on is stopped**: the connection is closed (llama-server checks between batches,
+   now of 512 tokens), and Unsloth is asked to cancel it by the `cancel_id` it carried.
+
+### Consequences
+
+- Unsloth drops `cache_prompt` and `id_slot`; llama-server caches prompts by default and there is one
+  slot, so reuse depends on the bytes staying the same, which the tests hold (`runner.test.mjs`, with
+  a stand-in model that renders Qwen's template and keeps one slot's cache, checkpoints and all).
+- The planner's prompt and the first call to act do not share a start (the tools differ): that is
+  paid once a run. A later run of the same agent with the same tools reuses both, from llama-server's
+  prompt cache (`--cache-ram 1024`, which also keeps it inside the memory cap).
+- `test/agents-bench.mjs` replays the owner's question at the measured speed in CI;
+  `.github/workflows/agents-bench.yml` runs it on the real model.

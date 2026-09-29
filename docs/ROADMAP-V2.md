@@ -1881,7 +1881,8 @@ the content). The engine is `feat/m37-agents-engine`; the section is `feat/m37-a
   its cgroup and under its caps: a systemd unit, not a container or a catalog app (ADR-005 says why).
   `server/agents/runtime.mjs` starts the spike's command on demand - `unsloth run --model
   <repo:quant> --api-only --disable-tools -H 127.0.0.1 -p <port> --context-length 8192 --parallel 1
-  --threads 1 -c 8192 --ctx-checkpoints 4` - offline (`HF_HUB_OFFLINE=1`), with
+  --threads 4 -c 8192 --ctx-checkpoints 4 --batch-size 512 --cache-ram 1024` (four threads since M37.8; the
+  spike's was one) - offline (`HF_HUB_OFFLINE=1`), with
   `UNSLOTH_MODEL_IDLE_TTL=900`, `UNSLOTH_STUDIO_DISABLE_PUBLIC_CHECK=1` and
   `UNSLOTH_STUDIO_PASSWORD` set to a secret the runner keeps (0600) in place of the admin password
   Studio would generate and print. `--disable-tools` is mandatory (Studio's server-side Python, shell
@@ -1903,8 +1904,8 @@ the content). The engine is `feat/m37-agents-engine`; the section is `feat/m37-a
   Hugging Face's SHA-256, space checked first; the preview gives size, time and memory),
   `agents.model.switch` (medium, owner), `agents.model.remove` (medium, owner; never the model in use)
   and the read `agents.runtime.inspect`. The model library (`models.mjs`) holds Qwen 3.5 4B (the
-  default: 4.2 tokens a second at one processor, 6.2 GB with its files), 2B (8.3 a second, 3.7 GB)
-  and 9B (2.3 a second, 10.7 GB: more than the cap, not recommended), all UD-Q4_K_XL with the F16
+  default: 4.2 tokens a second at one processor, about 8 at four threads since M37.8, 6.2 GB with its files), 2B (8.3 a second at one processor, 3.7 GB)
+  and 9B (2.3 a second at one processor, 10.7 GB: more than the cap, not recommended), all UD-Q4_K_XL with the F16
   vision projector, each 5 of 5 on tool calls and right on the chart in the spike. A daily look at
   Hugging Face finds a newer small Qwen with vision and offers the download and the switch as a card,
   never on its own. A `llama-server` driver runs llama.cpp's own server from the same install with no
@@ -1941,8 +1942,9 @@ the content). The engine is `feat/m37-agents-engine`; the section is `feat/m37-a
   Backpressure: at most twenty runs waiting and two per agent; unattended runs past that are dropped
   and counted, a person is told to try later. Tests for each limit (`limits.test.mjs`), and a
   real-systemd test (`tests/ubuntu/agents-caps.sh`, CI job `agents-caps` on 24.04 and 26.04): under a
-  fake model burning three threads the service's cgroup stays at or under `CPUQuota=100%` and was
-  throttled to stay there, the model server is its niced, idle-I/O child, and afterwards the service
+  fake model burning three threads the service's cgroup stays at or under its quota and was throttled
+  to stay there (the shipped `CPUQuota=400%` is checked in the unit; GitHub's four-processor runners
+  cannot reach it, so the test lowers the running unit's quota to 200% first), the model server is its niced, idle-I/O child, and afterwards the service
   idles under 2%.
 - ✅ **M37.7 The owner's components** (2026-09-29, unreleased): what the owner said an agent builder
   and an orchestrator must have, each mapped to BoxPilot and built into the engine, and shown in the
@@ -2009,9 +2011,47 @@ the content). The engine is `feat/m37-agents-engine`; the section is `feat/m37-a
     to them; the Server Keeper subscribes to health alerts and hands off from there.
   - **Portable definitions.** ✅ An agent exports as JSON (spec and golden questions; never runs,
     memory or webhooks) and imports as a new agent through the same gate as the Builder.
-- **The caps** (`server/agents/caps.mjs`, held to the unit by `caps.test.mjs`): `CPUQuota=100%` (one
-  processor, the spike's number: a sixteenth of a sixteen-thread server; the model runs one thread,
-  which beats two under this cap), `CPUWeight=idle`, `Nice=19`, `IOSchedulingClass=idle`,
+- ✅ **M37.8 The first real run** (2026-09-29, unreleased; ADR-006). The owner asked Steve (a Server
+  Keeper) for the most important issue to focus on, on a Ryzen 7 7800X3D at one thread under
+  `CPUQuota=100%`. Qwen 3.5 4B read about 20 tokens a second and wrote about 4: the plan took 110 s
+  (1,138 tokens in, 204 out), came back as "1. }, (alerts_active) 2. 2 (storage_health)...", the next
+  call - all 22 tools' schemas behind a changed start - hit the fixed 300 s limit before it had read
+  its prompt, and the run ended degraded after 416 s with docs.search's roadmap as its answer. Fixed:
+  - **Four processors, four threads, 15 minutes** (the owner's decisions): `CPUQuota=400%`, `--threads
+    4`, the default longest run 900 s and a day's model time 1,800 s; agents saved at 600 s moved to
+    900 s once, as a version noted "BoxPilot raised the time limit to the new 15-minute default".
+  - **Prompts built for llama-server's cache.** The planner is a small conversation whose system
+    message is the same for every run of an agent; the calls that act are one conversation that only
+    grows, with the same tools in the catalog's order every time (`tool_choice: "none"` for a forced
+    answer keeps them in the prompt; the "answer now" note ends the last tool round). They carry the
+    tools the plan named plus the always-on ones (memory, propose, tell, hand off), at most ten.
+  - **Time from measured speed.** llama-server's timings (Unsloth relays them) or the runner's clock
+    give the speed; a call starts only if it can read its prompt and answer in what is left, else the
+    trace says why; no fixed per-call limit. The speed is kept (`usage.modelSpeed`) and starts the
+    next run. A call given up on is closed and cancelled (`cancel_id`), and llama-server gets
+    `--batch-size 512` so it stops within 512 tokens, and `--cache-ram 1024`.
+  - **The plan**: a bounded schema whose tools are an enum of the offered ones, its shape shown to the
+    planner; tools read as registry ids however spelled; a step that is only punctuation or a number
+    is named after its tool. A degraded run reads the tools its plan named; docs.search leaves
+    BoxPilot's roadmap and decision records out unless asked about building BoxPilot.
+  - **Measured.** On the stand-in (`test/agents-bench.mjs`, CI's `bench.test.mjs`: Qwen's template
+    rendered, one slot's cache with a hybrid model's checkpoints, 20 tokens a second read and 4
+    written), the same question went from 14,390 tokens read over four calls (the first to act 4,039
+    tokens and 22 tools, 214 s) to 3,294 (2,067 and 8 tools, 115 s; 4,601 more from the cache), and
+    from 378 s to 250 s. On the real model (`agents-bench.yml`: Unsloth and Qwen 3.5 4B started by
+    BoxPilot's runtime, under `CPUQuota=400%` at four threads on a four-processor GitHub runner, which
+    read about 15 tokens a second and wrote 8 to 9), the owner's question finished in 242 s: the plan
+    50 s, the first call to act 135 s (2,029 tokens), then 31 s and 19 s reading only 285 and 69 new
+    tokens (2,082 and 2,471 from the cache). Asked again, the plan's 534-token system message came
+    from llama-server's prompt cache. The home server's four real cores should be several times
+    faster; its own speed is measured on every run.
+  - **Starting again.** Unsloth takes `UNSLOTH_STUDIO_PASSWORD` only as the first admin password and
+    refuses to start when given it again, so every start after the first failed, silently (the line
+    says "password" and was kept out of the log). It is now passed until Studio has one
+    (`studio-password.set`), and a start refused that way is tried once more without it.
+- **The caps** (`server/agents/caps.mjs`, held to the unit by `caps.test.mjs`): `CPUQuota=400%` (four
+  processors since M37.8, the owner's choice: a quarter of a sixteen-thread server at most, only while a
+  run goes; the model runs a thread for each, as the spike found best; it was one processor), `CPUWeight=idle`, `Nice=19`, `IOSchedulingClass=idle`,
   `MemoryMax=8G` (the 4B's 2.6 GB plus its 3.6 GB of mapped files, with room; no swap),
   `TasksMax=256`, loopback-only
   networking (`IPAddressDeny=any`), its own user, no capabilities. The unit is installed with the
@@ -2027,10 +2067,11 @@ Left, and why:
 - **Pinning Unsloth**: its installer always takes the newest release. BoxPilot keeps the installer's
   checksum and the release, and says when it is not 2026.9.12; a pinned install (or a BoxPilot-built
   image) and a rerun of the spike's workflow before moving is the owner's call (ADR-005).
-- **The home server's own numbers**: the spike ran on EPYC 7763 cores; `tests/spikes/unsloth-headless.sh
-  perf` on the server settles the latency the Agents section promises.
+- **The home server's own numbers**: the spike and `agents-bench.yml` ran on EPYC cores; since M37.8 the
+  runner measures the model's speed on the server itself on every run, and the Usage tab can show it
+  (`usage.modelSpeed`).
 - **Images**: the model reads them, but no tool hands one over yet (a chart of a disk, a screenshot).
-- **The 9B model** needs the memory cap raised to about 12 GB and is too slow at one processor: the
+- **The 9B model** needs the memory cap raised to about 12 GB and is slow even at four threads: the
   owner's call (a drop-in), not a default.
 - **Studio or bare llama-server**: Studio brings tool-call healing and its own idle unload; it also
   brings a 0.4 GB Python process (all of the idle processor), its management API and AGPL-3.0 code.
