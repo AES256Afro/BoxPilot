@@ -1,4 +1,4 @@
-import type { PendingOperation } from "../../ApproveDialog";
+import type { PendingOperation } from "../../shell/ApproveDialog";
 
 /** What system.settings.inspect reads: the name, the clock, the language, memory and swap, trim. */
 export interface SystemSettings {

@@ -4,7 +4,7 @@ import { useNeedActions } from "./useNeedActions";
 import { countOf, sentenceList, type ViewName } from "../data";
 import { readJson } from "../http";
 import { inspectOperation, type Job } from "../operations";
-import { Button, KeyValue, MetricTile, PageHeader, Panel, Sparkline, StatusChip, Table, type RiskTier, type Status, type TableColumn } from "../ui";
+import { Button, KeyValue, MetricStrip, MetricTile, PageHeader, Panel, Sparkline, StatusChip, Table, type RiskTier, type Status, type TableColumn } from "../ui";
 import { useFacts, valuesOf, type ServiceFact, type SmartDiskFact } from "./facts";
 import { elapsed, loadStatus, mountName, mountStatus, relativeTime, shortAge, size, uptime } from "./format";
 import { checklistSummary, diskDetail, diskHealth, serviceState, smartSummary, smartUnreadReason, upsSummary } from "./hostFacts";
@@ -224,7 +224,7 @@ export default function Ops({ csrfToken, role, onNavigate, now = Date.now, pollM
           : <>boxpilot <b>{__BOXPILOT_VERSION__}</b></>}
       />
 
-      <section className="ops-strip" aria-label="Load, memory, disks and network">
+      <MetricStrip label="Load, memory, disks and network" className="ops-strip">
         <MetricTile label="CPU" value={cpu === null ? (inventory ? figure(`${inventory.loadPercent}%`) : "—") : figure(`${cpu.toFixed(1)}%`)}
           caption={perf ? `load ${perf.cpu.load1.toFixed(2)} · ${perf.cpu.cores} threads` : inventory ? `load ${inventory.load1.toFixed(2)} on ${inventory.cpuCount} cores` : performance.failed ? "Could not be read" : "Reading…"}
           status={cpu === null && !inventory ? "unknown" : loadStatus(cpu ?? inventory?.loadPercent, 80, 95)} bar={cpu === null && inventory ? { value: inventory.loadPercent } : undefined}
@@ -246,7 +246,7 @@ export default function Ops({ csrfToken, role, onNavigate, now = Date.now, pollM
           caption={hottest === null ? (inventory ? inventory.operatingSystem : "Reading…") : perf!.temps.find((temp) => temp.celsius === hottest)?.label.split(":")[0] ?? ""}
           status={hottest === null ? (inventory ? "neutral" : "unknown") : loadStatus(hottest, 80, 90)}
           graphic={hottest === null ? undefined : <Sparkline values={samples.map((sample) => sample.hottest)} floor={4} />} onSelect={() => onNavigate("performance")} />
-      </section>
+      </MetricStrip>
 
       <div className="ops-grid">
         <Panel className="ops-alerts" title="Alerts" count={{ status: worstLook, label: String(tiers.look.length) }} meta={tiers.look.length ? "each opens its page" : undefined}>

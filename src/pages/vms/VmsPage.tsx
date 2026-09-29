@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { useOperation } from "../../ApproveDialog";
+import { useOperation } from "../../shell/ApproveDialog";
 import { countOf } from "../../data";
 import { Button, EmptyState, Notice, PageHeader, Panel, StatusChip, Table, Tabs, Tag, mayStart, riskOf, useUrlParam, type TableColumn } from "../../ui";
 import {

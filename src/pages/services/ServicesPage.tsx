@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useOperation } from "../../ApproveDialog";
+import { useOperation } from "../../shell/ApproveDialog";
 import { readJson } from "../../http";
 import { inspectOperation } from "../../operations";
 import { Button, CodeBlock, EmptyState, Notice, PageHeader, Panel, Segmented, Sheet, StatusChip, Table, Tag, Toolbar, mayStart, riskOf, type Status, type TableColumn } from "../../ui";

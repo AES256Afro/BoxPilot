@@ -113,6 +113,14 @@ const base = (extra: Record<string, Handler | unknown> = {}) => ({
 });
 
 describe("Agents page", () => {
+  it("says the overview could not be read when the server answers in another shape, instead of failing the page", async () => {
+    serve(base({ "GET /api/v1/agents": { status: "ok" } }));
+    render(<AgentsPage csrfToken="csrf" now={() => now} />);
+    expect(await screen.findByText("Agents could not be read")).toBeTruthy();
+    expect(screen.getByText(/not the expected shape/)).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 1, name: "Agents" })).toBeTruthy();
+  });
+
   it("says first whether agents are running cool, then lists them with their last run and budget, and the cards waiting with each step's tier", async () => {
     serve(base());
     render(<AgentsPage csrfToken="csrf" now={() => now} />);

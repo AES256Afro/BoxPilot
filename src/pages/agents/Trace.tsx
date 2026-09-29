@@ -1,5 +1,5 @@
 import { Fragment, useState } from "react";
-import { Button, KeyValue, Notice, StatusChip, Tag } from "../../ui";
+import { Button, Facts, KeyValue, Notice, StatusChip, Tag } from "../../ui";
 import type { Run, RunStep } from "./api";
 import { kindWords, runState, seconds } from "./format";
 
@@ -85,10 +85,10 @@ export function TraceView({ steps }: { steps: RunStep[] }) {
                 <span className="agents-step__title">{stepTitle(step)}</span>
                 {step.state !== "done" && <StatusChip status={status}>{step.state}</StatusChip>}
                 {Boolean(step.flags?.injection) && <StatusChip status="warning">looked like an instruction</StatusChip>}
-                <span className="agents-step__facts">
+                <Facts as="span" className="agents-step__facts">
                   {step.durationMs !== null && step.durationMs > 0 ? seconds(step.durationMs) : ""}
                   {step.tokensIn || step.tokensOut ? ` · ${step.tokensIn ?? 0} in / ${step.tokensOut ?? 0} out` : ""}
-                </span>
+                </Facts>
                 {expandable && <Button variant="ghost" className="agents-step__toggle" aria-expanded={isOpen(step)} onClick={() => toggle(step.seq)}>{isOpen(step) ? "Hide" : "Show"}</Button>}
               </span>
               {isOpen(step) && <StepDetail step={step} />}

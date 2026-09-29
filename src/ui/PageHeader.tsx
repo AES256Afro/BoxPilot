@@ -1,6 +1,7 @@
 import { useId, useState, type ReactNode } from "react";
 import { TopBarSlot, useShellHost } from "../shell/TopBarSlot";
 import { InfoIcon } from "./icons";
+import { Facts } from "./Facts";
 import { StatusChip } from "./StatusChip";
 import { cx, type Status } from "./types";
 
@@ -73,7 +74,7 @@ export function PageHeader({ title, status, summary, meta, actions, about, barFa
           <div className="ui-page-header__facts">
             {status && <StatusChip status={status.status} className="ui-page-header__verdict">{status.label}</StatusChip>}
             {summary && <p className="ui-page-header__summary">{summary}</p>}
-            {meta && <p className="ui-page-header__meta">{meta}</p>}
+            {meta && <Facts className="ui-page-header__meta">{meta}</Facts>}
           </div>
           <div className="ui-page-header__actions">
             {toggle}

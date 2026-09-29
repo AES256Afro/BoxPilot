@@ -1,12 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useOperation, type PendingOperation } from "../../ApproveDialog";
+import { useOperation, type PendingOperation } from "../../shell/ApproveDialog";
 import { appUrl } from "../../appLinks";
 import { countOf } from "../../data";
 import { inspectOperation } from "../../operations";
 import { strandedServes } from "../../strandedServes";
-import { Button, CodeBlock, EmptyState, Notice, PageHeader, Panel, SearchField, Select, Sheet, StatusChip, Table, Tabs, Tag, Tile, Toolbar, appHue, mayStart, riskOf, useUrlParam, type Status, type TableColumn } from "../../ui";
+import { AppIcon, Button, CodeBlock, EmptyState, Notice, PageHeader, Panel, SearchField, Select, Sheet, StatusChip, Table, Tabs, Tag, Tile, Toolbar, appHue, mayStart, riskOf, useUrlParam, type Status, type TableColumn } from "../../ui";
 import { AppSheet, type SheetTab } from "./AppSheet";
-import { AppSquare } from "./AppSquare";
 import { ConfigSheet } from "./ConfigSheet";
 import { appStatus, isRunning, runRead, tileDetail } from "./appState";
 import type { AppStats, CatalogContext, CatalogResponse, Entry, KillswitchSchedule, Serve, Tunnel, Values } from "./types";
@@ -362,7 +361,7 @@ export default function CatalogPage({ csrfToken, focusApp, role = "owner" }: Cat
                         return (
                           <li key={manifest.id} className="catalog-card">
                             <button type="button" className="catalog-card__open" onClick={() => openSheet(manifest.id)} aria-label={`${manifest.name}: ${manifest.category}, ${live?.dataPresent ? "not installed, data kept" : "not installed"}`}>
-                              <AppSquare id={manifest.id} name={manifest.name} icon={manifest.icon} />
+                              <AppIcon id={manifest.id} name={manifest.name} icon={manifest.icon} />
                               <span className="catalog-card__title">
                                 <span className="catalog-card__name">{manifest.name}</span>
                                 <span className="catalog-card__meta">{manifest.category} · {manifest.image.version ?? manifest.image.reference}</span>

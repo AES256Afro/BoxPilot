@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { useOperation } from "../../ApproveDialog";
+import { useOperation } from "../../shell/ApproveDialog";
 import { countOf } from "../../data";
 import { relativeTime } from "../../home/format";
 import { inspectOperation } from "../../operations";
@@ -159,9 +159,9 @@ export default function FirewallPage({ csrfToken, role = "owner", now = Date.now
         title: `Apply the ${profile.name} profile`,
         parameters: { profile: profile.id, services, replace: choice.replace, sshRateLimit: choice.sshRateLimit },
         preview: (
-          <div className="plan-preview">
+          <div className="firewall-plan">
             <p>Runs these ufw commands in order. The firewall ends up <strong>on</strong>; SSH, Tailscale, and BoxPilot stay reachable throughout. If any required step fails, nothing is turned on.</p>
-            <ol>{plan.steps.map((step, index) => <li key={index}><code>ufw {step.args.join(" ")}</code><span className="muted">, {step.label}</span></li>)}</ol>
+            <ol className="firewall-plan__steps">{plan.steps.map((step, index) => <li key={index}><code>ufw {step.args.join(" ")}</code><span className="firewall-plan__label">, {step.label}</span></li>)}</ol>
           </div>
         ),
       });

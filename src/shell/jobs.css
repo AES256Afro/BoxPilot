@@ -7,8 +7,6 @@
  */
 
 .jobs-quiet { margin: 0; color: var(--text-muted); font-size: 13px; line-height: 1.45; }
-.jobs-facts { margin: 0; color: var(--text-muted); font-family: var(--font-mono); font-size: 12px; line-height: 1.5; }
-.jobs-facts b { color: var(--text-strong); font-weight: 600; }
 
 /* Activity's drawer: the rows run to its edges, as a panel's do. */
 .jobs-sheet .ui-sheet__body { gap: 10px; }

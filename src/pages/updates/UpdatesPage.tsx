@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useOperation } from "../../ApproveDialog";
+import { useOperation } from "../../shell/ApproveDialog";
 import SnapshotFirstButton from "../../SnapshotFirstButton";
 import { countOf } from "../../data";
 import { inspectOperation } from "../../operations";
-import { Button, Checkbox, EmptyState, Field, MetricTile, Notice, PageHeader, Panel, Table, Tabs, Tag, TextInput, Toolbar, mayStart, riskOf, type Status, type TableColumn } from "../../ui";
+import { Button, Checkbox, EmptyState, Field, MetricStrip, MetricTile, Notice, PageHeader, Panel, Table, Tabs, Tag, TextInput, Toolbar, mayStart, riskOf, type Status, type TableColumn } from "../../ui";
 import "./updates.css";
 
 /*
@@ -166,7 +166,7 @@ export default function UpdatesPage({ csrfToken, role = "owner" }: UpdatesPagePr
         </>}
       />
 
-      <section className="updates-strip" aria-label="Updates, reboot and automatic updates">
+      <MetricStrip label="Updates, reboot and automatic updates" minTile="14rem" className="updates-strip">
         <MetricTile
           label="Available updates"
           value={loading && !report ? "…" : report?.count ?? "—"}
@@ -193,7 +193,7 @@ export default function UpdatesPage({ csrfToken, role = "owner" }: UpdatesPagePr
             </Button>
           )}
         </MetricTile>
-      </section>
+      </MetricStrip>
 
       {error && <Notice tone="danger" live title="Available updates could not be read" action={<Button onClick={() => void refresh()}>Try again</Button>}>{error}</Notice>}
 

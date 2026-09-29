@@ -194,8 +194,14 @@ const send = <T>(method: string, path: string, csrfToken: string, body?: unknown
   body: body === undefined ? undefined : JSON.stringify(body),
 }).then((response) => readJson<T>(response));
 
+/** The overview the whole page is drawn from: an answer of another shape (an older server, a proxy's page) is an error to say, not a page to crash. */
+function checkedOverview(body: Overview): Overview {
+  if (!body || !Array.isArray(body.agents) || !body.queue || !body.module || !body.runner) throw new Error("The server's answer about Agents was not the expected shape. Check that both services run the same BoxPilot release.");
+  return body;
+}
+
 export const agentsApi = {
-  overview: () => get<Overview>(""),
+  overview: () => get<Overview>("").then(checkedOverview),
   catalog: () => get<Catalog>("/catalog"),
   usage: () => get<Usage>("/usage"),
   runtime: () => get<RuntimeState>("/runtime"),
