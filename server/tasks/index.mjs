@@ -32,6 +32,7 @@ import { webTlsProvision } from "./web-tls.mjs";
 import { probeAddresses } from "./reachability.mjs";
 import { httpRequest } from "./http-request.mjs";
 import { agentsConnectorSync, agentsDisable, agentsEnable, agentsInstall, agentsModelDownload, agentsModelRemove } from "./agents.mjs";
+import { hostListeners } from "./listeners.mjs";
 
 export const tasks = Object.freeze({
   "apt.update": aptUpdate,
@@ -77,6 +78,7 @@ export const tasks = Object.freeze({
   "router.inspect": routerInspect,
   "dns.blocker.verify": (parameters) => dnsBlockerVerify(parameters),
   "app.reachability.probe": (parameters) => probeAddresses(parameters),
+  "host.listeners": (parameters, context) => hostListeners(parameters, context),
   "http.request": (parameters) => httpRequest(parameters),
   "web.bind.set": (parameters) => webBindSet(parameters),
   "web.tls.provision": (parameters) => webTlsProvision(parameters),

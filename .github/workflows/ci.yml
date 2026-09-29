@@ -67,6 +67,29 @@ jobs:
       - name: Drives unmount after Docker stops and mount before it starts
         run: sudo env "PATH=${PATH}" BOXPILOT_DISPOSABLE_TEST=1 bash tests/ubuntu/drive-shutdown-order.sh
 
+  # The port check an app runs before `compose up`: Dockge's Start failed on 2026-09-29 because
+  # Tailscale Serve held its port on the tailnet address. The listeners come from the root task in
+  # boxpilot-run@, the publish from real Docker, and a Python server on a dummy interface's
+  # tailnet-range address stands in for tailscaled.
+  port-preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: A port held on one address is caught before a publish on every address
+        run: sudo bash tests/ubuntu/port-preflight.sh "$(command -v node)"
+
   # share.mount and share.unmount run in boxpilot-run@, whose PrivateTmp= gives each task a mount
   # namespace of its own. Real systemd, a real Samba server and NFS server on the runner, and the
   # host's own mount table read before and after. Both LTS releases, as for the helper's automount.

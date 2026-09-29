@@ -1,5 +1,25 @@
 import { describe, expect, it } from "vitest";
-import { whatChanged } from "./outcome";
+import { nextStep, whatChanged } from "./outcome";
+
+// The Dockge port trap (2026-09-29): Dockge's port was held by Tailscale Serve; each fix says which address it kept.
+describe("what a port-conflict fix changed", () => {
+  it("says which address the app keeps and which one ended", () => {
+    expect(whatChanged({ type: "op:app.exposure.set", steps: [], result: { id: "dockge", mode: "tailnet", url: "https://homebox.tailXXXX.ts.net:5001" } }))
+      .toBe("dockge answers only through Tailscale now, at https://homebox.tailXXXX.ts.net:5001, and no longer on your home network.");
+    expect(whatChanged({ type: "op:app.serve.set", steps: [], result: { id: "dockge", enabled: false, port: 5001, withdrawn: "https://homebox.tailXXXX.ts.net:5001", started: true, status: "running", recreated: true } }))
+      .toBe("Tailscale Serve no longer publishes https://homebox.tailXXXX.ts.net:5001, so port 5001 is dockge's alone. It is running now, its container built again.");
+    expect(whatChanged({ type: "op:app.reconfigure", steps: [], result: { reconfigured: true, id: "uptime-kuma", hostPorts: [{ host: 3004, protocol: "tcp" }] } }))
+      .toBe("uptime-kuma was recreated with its new settings and publishes port 3004.");
+  });
+
+  it("points at freeing the port, not at the log, when the job stopped on a port conflict", () => {
+    const error = "Dockge was not started. Port 5001 is taken on the tailnet address (100.64.0.10) by Tailscale Serve, which publishes Dockge itself at https://homebox.tailXXXX.ts.net:5001.";
+    expect(nextStep({ manual: null, fixes: [], fix: null }, true, error)).toContain("Free the port first: the sentence above names what holds it.");
+    expect(nextStep({ manual: null, fixes: [], fix: null }, true, "docker compose up failed")).toBe("Read the job's log below: it says where it stopped. Fix what it names, then try again.");
+    // A finding's own words still come first.
+    expect(nextStep({ manual: "Use the choices on the port finding.", fixes: [], fix: null }, true, error)).toBe("Use the choices on the port finding.");
+  });
+});
 
 describe("what a fix changed (M35)", () => {
   it("names the apps started again and the file sharing disconnected after a reconnect", () => {

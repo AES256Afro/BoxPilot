@@ -339,6 +339,27 @@ describe("BoxPilot state store", () => {
     store.close();
   });
 
+  it("leaves no step of an interrupted job running", async () => {
+    const store = await testStore();
+    const owner = store.consumeBootstrapToken(store.createBootstrapToken().token, { username: "operator", passwordHash: "hash" });
+    const applying = store.createJob({ type: "op:app.action", title: "Start app", createdBy: owner.id });
+    store.transitionJob(applying.id, "awaiting_approval", "applying");
+    store.addJobStep(applying.id, "apply", "running", "Running Start app");
+    const verifying = store.createJob({ type: "op:app.backup", title: "Back up app", createdBy: owner.id });
+    store.transitionJob(verifying.id, "awaiting_approval", "applying");
+    store.addJobStep(verifying.id, "apply", "running", "Running Back up app");
+    store.transitionJob(verifying.id, "applying", "verifying");
+    store.addJobStep(verifying.id, "apply", "completed", "Back up app finished");
+
+    store.recoverInterruptedJobs();
+    const latest = (id) => new Map(store.getJob(id).steps.map((step) => [step.name, step]));
+    expect(latest(applying.id).get("apply")).toMatchObject({ state: "failed", detail: "Cut off when BoxPilot restarted" });
+    expect(latest(verifying.id).get("apply")).toMatchObject({ state: "completed" });
+    expect(latest(verifying.id).get("verify")).toMatchObject({ state: "failed", detail: "Cut off when BoxPilot restarted" });
+    for (const id of [applying.id, verifying.id]) expect([...latest(id).values()].filter((step) => step.state === "running")).toEqual([]);
+    store.close();
+  });
+
   it("notifies job subscribers with coalesced snapshots and stops after unsubscribe", async () => {
     const store = await testStore();
     const bootstrap = store.createBootstrapToken();

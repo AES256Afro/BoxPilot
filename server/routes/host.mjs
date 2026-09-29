@@ -59,7 +59,7 @@ export function buildReachability({ webHost, webPort, lanIp, dnsName, tls, serve
   return { ways, onLan, tlsProvisioned: Boolean(tls?.provisioned), servePublished: Boolean(servePublished) };
 }
 
-export function createHostRouter({ state, helper, catalogService, inventory, network, notifications = null, controllerProtection, controllerRetention, githubProvenance, releaseUpdates, setup, supportBundle, audit, auth, identity = null, webHost = "127.0.0.1", webPort = 8787, tlsDir = process.env.BOXPILOT_TLS_DIR ?? "/etc/boxpilot/tls", collect = collectStorage, fileExists = (file) => access(file).then(() => true, () => false) }) {
+export function createHostRouter({ state, helper, catalogService, inventory, network, notifications = null, controllerProtection, controllerRetention, githubProvenance, releaseUpdates, setup, supportBundle, audit, auth, identity = null, webHost = "127.0.0.1", webPort = 8787, tlsDir = process.env.BOXPILOT_TLS_DIR ?? "/etc/boxpilot/tls", collect = collectStorage, fileExists = (file) => access(file).then(() => true, () => false), readListeners = listListeners }) {
   const router = Router();
   router.get("/diagnostics/runtime", async (_request, response) => {
     const [web, worker] = await Promise.allSettled([
@@ -261,6 +261,25 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
     });
     const stops = state.getSetting("appStops", {}) ?? {};
     for (const app of facts.apps) app.stoppedAt = stops[app.id]?.at ?? null;
+    // The ports each app publishes, against the host's listeners and what Tailscale Serve publishes:
+    // Dockge could not start on 2026-09-29 because Serve held its port on the tailnet address. Asked
+    // only when an installed app publishes something; the container inventory, which names who holds
+    // a port, only when a stopped app's port is actually held.
+    for (const app of facts.apps) app.published = live?.applications?.find((entry) => entry.id === app.id)?.published ?? [];
+    if (facts.apps.some((app) => app.published.length)) {
+      const [listeners, serveState, snapshot] = await Promise.all([
+        Promise.resolve().then(() => readListeners()).catch(() => null),
+        helper.request("app.serve.inspect", {}, { timeoutMs: 30_000 }).catch(() => null),
+        inventory?.inspect ? inventory.inspect().catch(() => null) : null,
+      ]);
+      facts.listeners = Array.isArray(listeners) ? listeners : null;
+      facts.serves = serveState?.available ? serveState.serves ?? [] : [];
+      // The home-network address, to say which address a fix keeps or ends: not Docker's bridges, not
+      // Tailscale's, not a VM bridge.
+      facts.lanAddress = snapshot?.network?.addresses?.find((entry) => /^\d+\.\d+\.\d+\.\d+$/.test(entry.address) && !/^(docker|br-|veth|tailscale|virbr|lxc|cni|flannel|wg|zt)/.test(entry.interface ?? ""))?.address ?? null;
+      const heldWhileStopped = facts.apps.some((app) => !app.container?.running && app.published.some((port) => (facts.listeners ?? []).some((listener) => listener.port === port.host && listener.protocol === port.protocol)));
+      facts.dockerContainers = heldWhileStopped ? (await helper.request("container.docker.inventory", {}, { timeoutMs: 30_000 }).catch(() => null))?.containers ?? null : null;
+    }
     // Which folders each installed app has bound, so a remount can say what needs restarting, and
     // which of those the owner chose, so a split across drives can be spotted. A volume with a
     // `path` is inside the app's own managed directory and is nobody else's business.
@@ -288,6 +307,7 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
     if (storage?.availability?.mounts === false) unavailableChecks.push("Current mounts");
     if (storage?.availability?.fstab === false) unavailableChecks.push("Saved mount configuration");
     if (!catalogManifests) unavailableChecks.push("Application definitions");
+    if (facts.apps.some((app) => app.published?.length) && !Array.isArray(facts.listeners)) unavailableChecks.push("Ports in use");
     const detected = detectRemediations(facts);
     // Each fix carries its tier from the registry, the same the approval dialog will ask for.
     const tiered = detected.findings.map((entry) => {
