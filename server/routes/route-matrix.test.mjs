@@ -179,7 +179,7 @@ const foreign = {
 
 /** No session needed: signing in, discovery, the OIDC protocol, health, the CA certificate, the flow webhook. */
 const publicRoutes = [
-  "GET /api/v1/health", "GET /ca.crt", "POST /api/v1/hooks/flows/:id/:token",
+  "GET /api/v1/health", "GET /ca.crt", "POST /api/v1/hooks/flows/:id/:token", "POST /api/v1/hooks/agents/:id/:token",
   "GET /api/v1/auth/status", "POST /api/v1/auth/bootstrap", "POST /api/v1/auth/login",
   "GET /api/v1/auth/identity", "POST /api/v1/auth/tailscale", "POST /api/v1/auth/github/start", "POST /api/v1/auth/github/poll",
   "POST /api/v1/auth/passkey/options", "POST /api/v1/auth/passkey/verify", "POST /api/v1/auth/passkey/recovery",
@@ -222,6 +222,9 @@ const changeRoutes = [
   "POST /api/v1/agents/proposals/:proposalId/decide", "POST /api/v1/agents/runs/:runId/cancel",
   "POST /api/v1/agents/module/pause", "POST /api/v1/agents/module/resume", "POST /api/v1/agents/module/kill",
   "POST /api/v1/agents/knowledge/documents", "PUT /api/v1/agents/knowledge/documents/:documentId", "DELETE /api/v1/agents/knowledge/documents/:documentId", "POST /api/v1/agents/knowledge/relearn",
+  "PUT /api/v1/agents/knowledge/documents/:documentId/pin", "POST /api/v1/agents/knowledge/upload", "POST /api/v1/agents/knowledge/folder/sync", "POST /api/v1/agents/knowledge/reindex",
+  "POST /api/v1/agents/import", "POST /api/v1/agents/:id/webhook", "DELETE /api/v1/agents/:id/webhook",
+  "PUT /api/v1/agents/:id/memory/notes/:noteId", "DELETE /api/v1/agents/:id/memory/notes/:noteId", "DELETE /api/v1/agents/:id/memory/episodes/:episodeId",
   "PUT /api/v1/settings/agents",
 ];
 
@@ -232,11 +235,16 @@ const changeRoutes = [
 const runnerRoutes = [
   "POST /api/v1/agent-runner/hello", "POST /api/v1/agent-runner/next", "POST /api/v1/agent-runner/usage",
   "POST /api/v1/agent-runner/runs/:runId/heartbeat", "POST /api/v1/agent-runner/runs/:runId/steps",
-  "POST /api/v1/agent-runner/runs/:runId/tools", "POST /api/v1/agent-runner/runs/:runId/finish",
+  "POST /api/v1/agent-runner/runs/:runId/tools", "POST /api/v1/agent-runner/runs/:runId/finish", "POST /api/v1/agent-runner/runs/:runId/vectors",
 ];
 
 /** Asking an agent someone may borrow (M37): a POST that only reads, as the asker, like the assistant. */
 const agentAskRoutes = ["POST /api/v1/agents/:id/ask"];
+/**
+ * A person's own with an agent (M37): whether an answer was right, and forgetting the conversation
+ * with them. Open to viewers by the role policy; the service allows each only on the caller's own.
+ */
+const agentOwnRoutes = ["POST /api/v1/agents/runs/:runId/feedback", "DELETE /api/v1/agents/:id/memory/thread"];
 const ownerOnlyChange = /^\/api\/v1\/(settings|people|oidc\/clients)(\/|$)/;
 
 /**
@@ -497,6 +505,9 @@ const dataRoutes = {
   }],
   "GET /api/v1/agents/:id/notes": [{ viewer: 404, operator: 403, owner: 200, params: () => ({ id: fixtures.keeper.id }), check: ({ role, body }) => expect(body.notes.length, role).toBe(1) }],
   "GET /api/v1/agents/:id/evaluation": [{ viewer: 403, operator: 200, owner: 200, params: () => ({ id: fixtures.helper.id }) }],
+  // What an agent remembers is for the owner and the person who made it; a definition to export too.
+  "GET /api/v1/agents/:id/memory": [{ viewer: 404, operator: 403, owner: 200, params: () => ({ id: fixtures.keeper.id }), check: ({ body }) => expect(body.facts.map((note) => note.title)).toEqual(["Owner note"]) }],
+  "GET /api/v1/agents/:id/export": [{ viewer: 403, operator: 403, owner: 200, params: () => ({ id: fixtures.keeper.id }), check: ({ body }) => expect(body).toMatchObject({ format: "boxpilot-agent", version: 1 }) }],
 };
 
 // ---- the app, as index.mjs assembles it ----
@@ -712,7 +723,7 @@ describe("every route is accounted for", () => {
       .flatMap((layer) => [layer.route.path].flat().flatMap((routePath) => Object.keys(layer.route.methods)
         .map((method) => `${method === "_all" ? "ALL" : method.toUpperCase()} ${name === "createOidcRouter" ? "" : "/api/v1"}${routePath}`))));
     const routes = [...new Set([...inline, ...mounted])].sort();
-    const classified = [...publicRoutes, ...selfRoutes, ...directRoutes, ...changeRoutes, ...questionRoutes, ...agentAskRoutes, ...runnerRoutes, ...Object.keys(dataRoutes)];
+    const classified = [...publicRoutes, ...selfRoutes, ...directRoutes, ...changeRoutes, ...questionRoutes, ...agentAskRoutes, ...agentOwnRoutes, ...runnerRoutes, ...Object.keys(dataRoutes)];
     expect(new Set(classified).size, "a route is in two tables").toBe(classified.length);
     const unclassified = routes.filter((route) => !classified.includes(route));
     expect(unclassified, "routes with no entry in route-matrix.test.mjs").toEqual([]);
@@ -871,7 +882,7 @@ describe("the agents runner's own door (M37)", () => {
 
   it("opens nothing else: every other route treats its key as no one", async () => {
     const withKey = (method, url) => fetch(`${base}${url}`, { method, headers: { Authorization: `Bearer ${runnerToken}`, "Content-Type": "application/json" }, body: method === "GET" ? undefined : "{}" });
-    for (const route of [...Object.keys(dataRoutes), ...changeRoutes, ...directRoutes, ...questionRoutes, ...agentAskRoutes, ...selfRoutes]) {
+    for (const route of [...Object.keys(dataRoutes), ...changeRoutes, ...directRoutes, ...questionRoutes, ...agentAskRoutes, ...agentOwnRoutes, ...selfRoutes]) {
       const [method, template] = route.split(" ");
       const response = await withKey(method, variantsOf(template, { id: fixtures.helper.id, runId: fixtures.ownerRun })[0].url);
       expect(response.status, route).toBe(401);
@@ -894,6 +905,28 @@ describe("asking an agent (M37), for every role, as written, in upper case and w
         expect(result.status, `${role} ${variant.url}`).toBe(role === "viewer" ? 404 : 202);
         if (result.status === 202) agents.cancelRun(caller, result.body.id);
       }
+    }
+  });
+
+  it("lets a person say whether their own answer was right and forget their own conversation, and nothing of anyone else's", async () => {
+    for (const variant of variantsOf("/api/v1/agents/runs/:runId/feedback", { runId: fixtures.operatorRun })) {
+      expect((await call("POST", variant.url, sessions.viewer, { body: { verdict: "up" } })).status, `viewer ${variant.url}`).toBe(404);
+      expect((await call("POST", variant.url, sessions.operator, { body: { verdict: "up" } })).status, `operator ${variant.url}`).toBe(200);
+      expect((await call("POST", variant.url, sessions.owner, { body: { verdict: "down" } })).status, `owner ${variant.url}`).toBe(200);
+    }
+    for (const variant of variantsOf("/api/v1/agents/runs/:runId/feedback", { runId: fixtures.ownerRun })) {
+      for (const role of ["viewer", "operator"]) expect((await call("POST", variant.url, sessions[role], { body: { verdict: "up" } })).status, `${role} ${variant.url}`).toBe(404);
+    }
+    // Forgetting is of the caller's own conversation only: the operator asked the helper, so has one
+    // to forget, once; the viewer and the owner never talked to it, so have nothing to forget.
+    const statuses = { viewer: [], operator: [], owner: [] };
+    for (const variant of variantsOf("/api/v1/agents/:id/memory/thread", { id: fixtures.helper.id })) {
+      for (const role of roles) statuses[role].push((await call("DELETE", variant.url, sessions[role])).status);
+    }
+    expect(statuses.operator[0]).toBe(200);
+    expect([...statuses.viewer, ...statuses.operator.slice(1), ...statuses.owner].every((status) => status === 404)).toBe(true);
+    for (const variant of variantsOf("/api/v1/agents/:id/memory/thread", { id: fixtures.keeper.id })) {
+      expect((await call("DELETE", variant.url, sessions.viewer)).status, `viewer ${variant.url}`).toBe(404);
     }
   });
 });

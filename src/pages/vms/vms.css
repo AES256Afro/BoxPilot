@@ -1,0 +1,92 @@
+/* Virtual machines (M33.12): the page's own layout, on the kit's components. Tokens only, and every
+   selector starts with .vms-, so no other page is touched (docs/UI-PAGES.md). */
+
+.vms-page { display: grid; gap: 10px; min-width: 0; }
+
+/* A row's name: the VM as a link to its sheet, its tags, and its size under it. */
+.vms-cell { display: inline-grid; gap: 1px; vertical-align: middle; min-width: 0; padding-block: 4px; white-space: normal; }
+.vms-name { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; }
+.vms-name code { color: var(--text-strong); overflow-wrap: anywhere; }
+.vms-open { padding: 0; border: 0; color: var(--text-strong); background: none; font-family: var(--font-mono); font-size: 13px; font-weight: 600; text-align: left; overflow-wrap: anywhere; cursor: pointer; }
+.vms-open:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+.vms-open:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.vms-sub { color: var(--text-muted); font-family: var(--font-mono); font-size: 11.5px; overflow-wrap: anywhere; }
+.vms-dim { color: var(--text-muted); }
+.vms-detail { color: var(--text-muted); white-space: normal; }
+.vms-path { overflow-wrap: anywhere; white-space: normal; }
+.vms-tags { display: flex; flex-wrap: wrap; gap: 4px; white-space: normal; }
+
+/* A row's actions, right-aligned and a size smaller than the page's, on one line. */
+.vms-actions-cell { width: 1%; }
+.vms-actions { display: flex; flex-wrap: nowrap; align-items: center; justify-content: flex-end; gap: 4px; white-space: nowrap; }
+.vms-actions .ui-button { min-height: 26px; padding-right: 8px; padding-left: 8px; font-size: 12.5px; }
+.vms-actions .ui-button--risk-medium,
+.vms-actions .ui-button--risk-high { padding-left: 14px; }
+
+/* Words under a panel's facts, and plain lists of blockers, changes and notes. */
+.vms-note { margin: 0; color: var(--text-muted); font-size: 13px; line-height: 1.45; }
+.vms-list { display: grid; gap: 3px; margin: 0; padding-left: 18px; color: var(--text); font-size: 13px; line-height: 1.45; }
+.vms-errors { color: var(--status-danger-text); }
+.vms-link { color: var(--accent); font-family: var(--font-mono); font-size: 13px; overflow-wrap: anywhere; text-underline-offset: 2px; }
+
+/* What a high-risk action asks for, beside its button: the lock, the password, the name to type. */
+.vms-asks { display: flex; align-items: baseline; gap: 6px; margin: 0; color: var(--risk-high-text); font-size: 12.5px; font-weight: 600; line-height: 1.4; }
+.vms-asks__lock { flex: none; width: 12px; height: 12px; transform: translateY(1px); }
+.vms-asks code { color: var(--text-strong); font-size: 12.5px; }
+
+/* A sheet's body is a grid; its rows keep their content's height and the body scrolls, rather than
+   squeezing a panel (which clips its overflow) to fit the screen. */
+.vms-sheet .ui-sheet__body { grid-auto-rows: max-content; }
+
+/* The VM's sheet: its live use, the power row, the inline snapshot form, and copy or remove. */
+.vms-live { padding: 10px 12px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface-muted); }
+.vms-row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.vms-inline-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px 10px; padding: 10px 12px; border-top: 1px solid var(--border); }
+.vms-inline-form .ui-field { flex: 1 1 16rem; }
+.vms-inline-form > .ui-button { margin-bottom: 22px; }
+.vms-choice { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; padding: 10px 0; border-top: 1px solid var(--border-subtle); }
+.vms-choice:first-child { padding-top: 0; border-top: 0; }
+.vms-choice:last-child { padding-bottom: 0; }
+.vms-choice__text { display: grid; flex: 1 1 18rem; gap: 3px; min-width: 0; }
+.vms-choice__text strong { color: var(--text-strong); font-size: 14px; }
+.vms-choice__text span { color: var(--text-muted); font-size: 13px; line-height: 1.4; }
+
+/* Forms in sheets: fieldsets as quiet groups, sizes three across, a grid for the planner. */
+.vms-form { display: grid; gap: 12px; min-width: 0; }
+.vms-form--grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr)); align-items: start; }
+.vms-form__wide { grid-column: 1 / -1; }
+.vms-fieldset { display: grid; gap: 12px; min-width: 0; margin: 0; padding: 12px; border: 1px solid var(--border); border-radius: 4px; }
+.vms-fieldset legend { padding: 0 4px; color: var(--text-muted); font-family: var(--font-mono); font-size: 10.5px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; }
+.vms-sizes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.vms-inline { display: flex; flex-wrap: wrap; gap: 8px; }
+.vms-inline .ui-input { flex: 1 1 12rem; width: auto; }
+
+/* The reviewed plan under the planner's form. */
+.vms-plan { display: grid; gap: 10px; min-width: 0; padding-top: 12px; border-top: 1px solid var(--border); }
+.vms-gates { display: grid; gap: 6px; }
+.vms-gates h3 { margin: 0; color: var(--text-muted); font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; }
+
+/* Media: the file picker drawn as a button, what was chosen, and the upload. */
+.vms-upload { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 10px; }
+.vms-file { position: relative; display: inline-flex; align-items: center; min-height: 30px; padding: 0 12px; border: 1px solid var(--border-strong); border-radius: 3px; color: var(--text-strong); background: var(--surface-raised); font-size: 13.5px; font-weight: 600; cursor: pointer; }
+.vms-file:hover { border-color: var(--text-muted); }
+.vms-file:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
+.vms-file__input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+.vms-file__chosen { min-width: 0; color: var(--text-muted); font-family: var(--font-mono); font-size: 12.5px; overflow-wrap: anywhere; }
+
+/* Host: two tables side by side on a wide screen, and a blocked setup with its way to Repair. */
+.vms-pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr)); gap: 0 1px; background: var(--border); }
+.vms-pair > .ui-table-wrap { background: var(--surface); }
+.vms-blocked { display: grid; justify-items: start; gap: 6px; margin-top: 10px; padding: 10px 12px; border: 1px solid var(--status-danger-border); border-radius: 4px; background: var(--status-danger-bg); }
+.vms-blocked strong { color: var(--status-danger-text); }
+
+/* Snapshots with no local record: each id with its Forget. */
+.vms-forget { display: grid; gap: 6px; margin: 10px 0 0; padding: 0; list-style: none; }
+.vms-forget li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; }
+
+@media (max-width: 640px) {
+  .vms-actions { flex-wrap: wrap; justify-content: flex-start; padding-top: 4px; white-space: normal; }
+  .vms-actions-cell { width: auto; }
+  .vms-sizes { grid-template-columns: minmax(0, 1fr); }
+  .vms-inline-form > .ui-button { margin-bottom: 0; }
+}

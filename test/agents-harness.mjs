@@ -39,7 +39,7 @@ export function defaultHelperAnswers() {
   };
 }
 
-export async function createAgentsHarness({ limits = {}, runnerOptions = {}, start = new Date(2026, 8, 29, 10, 0, 0) } = {}) {
+export async function createAgentsHarness({ limits = {}, runnerOptions = {}, serviceOptions = {}, start = new Date(2026, 8, 29, 10, 0, 0) } = {}) {
   const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-agents-"));
   const clock = { at: start.getTime() };
   const now = () => new Date(clock.at);
@@ -90,6 +90,7 @@ export async function createAgentsHarness({ limits = {}, runnerOptions = {}, sta
     fetchJson: async (url) => { fetched.push(url); return url.includes("?author=") ? newerListing.value : { siblings: [{ rfilename: "Qwen3.6-4B-UD-Q4_K_XL.gguf" }, { rfilename: "mmproj-F16.gguf" }] }; },
     hostLoad: () => 0,
     limits,
+    ...serviceOptions,
   });
 
   const fake = await startFakeModel({});

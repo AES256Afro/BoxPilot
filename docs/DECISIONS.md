@@ -35,6 +35,9 @@ The owner's goal for the product is the opposite: open the app on a fresh Ubuntu
 
 ### Left to the owner
 
+- **Connectors' tokens** live in the root-owned credential store (M13.7) and are read only inside the
+  `agents.connector.sync` task; each sync is a low-risk job the owner approves or schedules.
+
 - **Studio or llama.cpp's server alone.** The `llama-server` Unsloth installs can serve the model by
   itself: MIT, no Python, 0.00% idle, a second to start, but without Studio's tool-call healing,
   per-model settings and idle unload, and measured for embeddings rather than chat. The runtime has a
@@ -366,6 +369,30 @@ untrusted text and decides what to do next.
    budgets a day, limits a run, a bounded queue that drops unattended work, rate limits, timeouts,
    quiet hours for heavy work, a self-throttle when the server is busy; an interrupted run is marked,
    never retried.
+9. **A small engine of its own, not a framework.** BoxPilot does not embed LangChain, CrewAI,
+   AutoGen or the like; the agent engine is a few thousand lines of its own (`server/agents/`), with
+   the pieces those frameworks offer built to BoxPilot's rules:
+   - *Footprint.* The web process runs on Node with four dependencies. A framework brings a Python
+     runtime or hundreds of packages, its own HTTP clients and its own threads, all outside the
+     runner's cgroup and so outside the caps the owner asked for first.
+   - *Caps.* Everything an agent does happens either inside `boxpilot-agents.service` (the model,
+     embeddings) or as a bounded read in the web process (tools, memory search). A framework decides
+     for itself when to call a model and how often, which is exactly what the caps and budgets exist
+     to decide.
+   - *Local only.* Frameworks default to cloud models, cloud vector stores and tracing services, and
+     some send telemetry unless told not to. Here the model is on loopback, the vector store is
+     SQLite, web search is the owner's SearXNG or nothing, and nothing leaves the machine unless the
+     owner approves an operation that says it will.
+   - *The approval model.* In a framework an agent's tool runs when the model calls it. Here a tool
+     only reads, and every change is a card of registered operations a person approves at each step's
+     tier. Retrofitting that onto a framework means taking out most of what it is for.
+   - *Reviewable and portable.* Every step is in the trace, every rule has a test, and an agent is a
+     JSON definition that can be read, kept, and brought to another BoxPilot (export and import go
+     through the same gate as the Builder).
+   What the owner asked a builder and an orchestrator to have is built in that shape: intent, plan,
+   act with a structured understanding; short- and long-term memory with hybrid search; a typed tool
+   registry with exact tools, opt-in web search and connectors; escalation instead of action; and a
+   supervisor that hands subtasks to specialists on the one queue (ROADMAP-V2, M37.7).
 
 ### Consequences
 

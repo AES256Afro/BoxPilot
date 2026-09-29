@@ -218,6 +218,8 @@ const jobs = createJobService(state, helper, {
     // M37: the helper checked the model is downloaded whole; the runner uses it from its next run.
     "agents.model.switch": (job, result) => agents.useModel(result, { actorId: job.createdBy }),
     "agents.runtime.install": (job, result) => agents.noteRuntimeInstalled(result, { actorId: job.createdBy }),
+    // M37: a connector's documents, read in the root task with its credential, into the library.
+    "agents.connector.sync": (job, result) => agents.ingestConnector(result, { actorId: job.createdBy }),
   },
   // Prepare hooks pin server-derived expectations into the staged parameters.
   operationPrepareHooks: {
@@ -330,7 +332,7 @@ const assistant = createAssistantService({ state, registry, catalog: catalogServ
 // owner turns Agents on; with none made, a minute's timer that finds nothing to do.
 const agentStore = createAgentStore({ databasePath: state.databasePath });
 const agents = createAgentService({
-  state, store: agentStore, registry, helper, inventory, knowledge: assistant.index, secretEnvNamesFor, healthAlerts,
+  state, store: agentStore, registry, helper, inventory, knowledge: assistant.index, secretEnvNamesFor, healthAlerts, productVersion,
   // The daily look for a newer small Qwen reads Hugging Face's public model list; it never switches anything.
   fetchJson: (url) => fetch(url, { headers: { Accept: "application/json", "User-Agent": `BoxPilot/${productVersion}` }, signal: AbortSignal.timeout(15_000), redirect: "error" }).then((response) => (response.ok ? response.json() : null)),
 });
@@ -386,6 +388,15 @@ app.post("/api/v1/hooks/flows/:id/:token", (request, response) => {
   const outcome = flows.fireWebhook(request.params.id, request.params.token, { source: request.ip });
   if (outcome === "accepted") return response.status(202).json({ accepted: true });
   if (outcome === "rate-limited") return response.status(429).json({ error: "This flow's webhook is being fired too often; wait a minute" });
+  return response.status(404).json({ error: "Not found" });
+});
+// Start an agent by webhook (M37), the same door as a flow's: the token is the auth, only its digest
+// is kept, a wrong one looks like a missing agent, and nothing from the request reaches the run -
+// the caller chooses only when the agent does its job, never what it does.
+app.post("/api/v1/hooks/agents/:id/:token", (request, response) => {
+  const outcome = agents.fireAgentWebhook(request.params.id, request.params.token, { source: request.get("user-agent") ?? null });
+  if (outcome === "accepted") return response.status(202).json({ accepted: true });
+  if (outcome === "rate-limited") return response.status(429).json({ error: "This agent's webhook is being fired too often; wait a minute" });
   return response.status(404).json({ error: "Not found" });
 });
 // The agents runner's own door (M37), also before the session wall: one scoped key, loopback only,

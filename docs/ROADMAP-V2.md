@@ -1398,6 +1398,87 @@ the milestones they overlap.
   GitHub, Apps, Automations, Metrics, VMs, System, Settings, Setup, sign-in, Activity and
   the approval dialog on the kit, and deleting stopgap rules as their classes go; Repair is
   M35's; Updates, built on the components in M33.1, still takes its header from the shell.
+- ✅ **M33.10 Network and security on the kit** (wave 2B, unreleased). Network, Firewall, Users & SSH
+  and GitHub are rebuilt in `src/pages/{network,firewall,users,github}/`, each with its own sheet
+  and tests, and the Classic components (`NetworkCenter`, `TailnetPanel`, `TailscalePanel`,
+  `DnsCheckPanel`, `LocalNamesPanel`, `RouterPanel`, `VpnProfilePanel`, `FirewallCenter`,
+  `Fail2banPanel`, `UsersCenter`, `GitHubCenter`) are deleted with the Classic and stopgap CSS only
+  they used. Every feature stays; the facts come first. **Network** leads with whether the server
+  has a way out (no default route is red, an unread source amber), a strip of gateway, address,
+  resolvers and Tailscale, then five tabs (`?tab=`): Overview (every address BoxPilot answers on
+  with Copy, LAN access and HTTPS on the LAN side by side, the LAN's devices with Wake), Tailnet
+  (exit node and subnet router as one `tailscale.set`, every tailnet device and how it is reached),
+  Names & DNS (the blocker check and who uses it, local names, port 53, the DNS assessment in a
+  sheet, device roles), Router (read only; connecting takes the password in a sheet) and VPN (the
+  owner's profile, edited in a sheet). How to trust the certificate on each device is a sheet
+  rather than a `<details>` above the facts. **Firewall** leads with on or off and the default
+  policy; its tabs are Overview (suggestions, each one click with its tier; the profile in force;
+  what always stays open), Rules (delete with its tier, protected rules marked "kept open", adding
+  one in a sheet that refuses a deny on a protected port) and Brute force (fail2ban's facts, banned
+  now and since start, thresholds and what is never banned, shown to every role per ADR-003's
+  addendum; the thresholds form only to a role that may apply it). Choosing a profile is a sheet
+  of radio cards, services and options, and the approval dialog still lists every ufw command. A
+  suggestion with no label of its own says what it does ("Remove 53/tcp"). **Users & SSH** leads
+  with whether SSH takes passwords, then sshd's settings, then the accounts; adding a user and
+  importing keys are sheets that check names as `useradd` and GitHub would. **GitHub** leads with
+  how many allowlisted repositories answered and a strip of what BoxPilot may do with GitHub (read
+  public metadata, nothing else), then each repository's head, release and assets. Each page takes
+  the signed-in role: a viewer sees the facts and no buttons, an operator no owner-only or
+  high-risk ones, and reads that need an operator (accounts, the router) or the owner (the VPN
+  profile) say so instead of failing. `operationRisk` gains the eighteen operations these pages
+  start, held to the registry by `server/ops/ui-risk.test.mjs`. The demo answers
+  `/integrations/github` with fictional metadata, so the page can be reviewed. Page-local pieces
+  worth promoting to the kit: a Copy button for one value, a link drawn as a Button, radio cards,
+  and a list of suggestion rows with a tag, words and one action.
+- ✅ **M33.12 Virtual Machines, System and Setup** (wave 2D, unreleased). Rebuilt under
+  `src/pages/{vms,system,setup}/` on the kit, facts first, every feature kept; the Classic
+  components, their tests and the CSS only they used are gone. **Virtual Machines:** the verdict
+  (host ready, needs setup, libvirt not connected) and the counts in the header; tabs for the
+  machines, their backups, the installation media and the host. Each VM opens a sheet with its
+  facts, live use, snapshots, disks, interfaces and every action; making a VM from a cloud image or
+  planning one from an ISO are sheets. High-risk actions (create from a plan, delete, revert a
+  snapshot, forget an unrecorded snapshot) say beside the button that they ask for the password and
+  the name typed out, and creating from a plan now does ask for the name, as the page always said.
+  **System:** BoxPilot's update as the verdict; Overview (figures that open their tab), Updates,
+  Housekeeping (reclaimable space, Docker's disk, the database copies), Time & name, Hardware
+  (memory and swap, swappiness, the swap file, SSD trim as a tiered switch, the UPS) and
+  Schedules. **Setup:** the welcoming start of the product, in the console: the server greeted by
+  name and the profiles on the Launcher's colour squares, each saying what is in place; a profile
+  lists its steps with state and tier and runs the rest as before; preparing a new server is the
+  second tab. The VM and system operations are in `operationRisk`, and roles see only what they
+  may start. The demo's VM backups, media, planning, stats, Docker disk and update fixtures now have
+  the server's shapes. Page-local pieces worth promoting to the kit: a file picker, a
+  "what this asks for" line beside a high-risk button, and a sheet body whose rows keep their
+  height (`grid-auto-rows: max-content`) so a panel in a sheet scrolls instead of being clipped.
+- ✅ **M33.13 Settings, sign-in and the shell's dialogs** (wave 2E, unreleased). The pieces seen on
+  every page, rebuilt on the kit with every behaviour kept. **The approval dialog**
+  (`src/shell/ApproveDialog.tsx`; the old path re-exports it for pages still being rebuilt) leads
+  with the tier: a band in the tier's colour with its name in words (a lock for high) and what
+  approving asks, under the operation's name and id. Then "What it will do" (the page's preview,
+  or the registry's description when a page gives none; exactly what the job is given behind a
+  toggle, or in full when approving what someone else staged), then what approving needs (the
+  typed confirmation and the password as the kit's fields; the approval's expiry), then the run
+  followed with `JobProgress`, and its ending with the job log. Existing jobs (M36), `onStaged`,
+  `handoff` and `moreTimeFor` (M35, M30.3) are unchanged, as are the labels other pages' tests
+  press. It is drawn over the page in the console's look wherever it opens, Home included
+  (`src/shell/look.css`). **Activity** and **the notifications** are the kit's `Sheet` with the
+  facts on top (running, waiting, failed); a job's row carries its state in words, and M36's
+  review, cancel and dismiss stay on it. **The job log**, its timeout and follow-up notices and
+  the page error are the kit's notices, rows and `CodeBlock`. **The top bar's own controls**
+  (Activity, the bell, the role, the elevated lock, Sign out) are the shell's
+  (`src/shell/SessionControls.tsx`). **Settings** (`src/pages/settings/`) is tabbed, the tab in
+  the address: Account & sign-in (password, passkeys and recovery codes, sign-in methods, where
+  you are signed in), People, Notifications, Approvals, Single sign-on, Credentials, Appearance;
+  the owner's tabs stay the owner's and a viewer has no sign-in methods (ADR-003); the header says
+  whether alerts can reach the owner and how approvals are set; saving or removing a credential
+  carries its tier. **Sign-in** (`src/pages/signin/`) is the Launcher's wallpaper and a glass
+  card, the ways in best first (passkey, GitHub, Tailscale, then the password), with M36's reason
+  the session ended and the page it goes back to. The runbook and the installation doctor, shown
+  only in Repair, move into `src/repair/`. The areas sheet is the kit's `Sheet`, and the command
+  bar has its own overlay. The shell's stylesheets follow the page convention
+  (`src/shell/shellCss.test.ts`), and the Classic rules only these surfaces used are deleted. The
+  demo can show the sign-in page (`?signin`) and stages each operation at its registry tier, so
+  the dialog is reviewed at low, medium and high.
 - The owner wants every concept from the study (2026-09-28): the assistant (B5) is M34; the phone
   layout (B6) is M25; recipes and a GPU page (B7) belong to M22.
 
@@ -1667,7 +1748,7 @@ the content). The engine is `feat/m37-agents-engine`; the section is `feat/m37-a
   that learns the server, answers questions and writes a digest at 05:30 in quiet hours), **Pi-hole
   Watcher**, **Backup Auditor**, **IT Support helper** (viewer-level tools only, no notes, no plans,
   anyone signed in may ask it) and a blank one, each with golden questions for its evaluation.
-- ✅ **M37.2 The tools catalog** (unreleased). `tool-catalog.mjs` and `tools.mjs`, fifteen tools, each
+- ✅ **M37.2 The tools catalog** (unreleased). `tool-catalog.mjs` and `tools.mjs`, fifteen tools (M37.7 brought them to twenty-five), each
   with a cost and the least role a run must read as: server facts, apps and containers, service
   status, bounded logs (at most 200 lines, a week back; an operator read, ADR-003), storage and SMART,
   search over the docs, the registry, the catalog and the owner's documents, the agent's own notes
@@ -1745,6 +1826,71 @@ the content). The engine is `feat/m37-agents-engine`; the section is `feat/m37-a
   fake model burning three threads the service's cgroup stays at or under `CPUQuota=100%` and was
   throttled to stay there, the model server is its niced, idle-I/O child, and afterwards the service
   idles under 2%.
+- ✅ **M37.7 The owner's components** (2026-09-29, unreleased): what the owner said an agent builder
+  and an orchestrator must have, each mapped to BoxPilot and built into the engine; the Builder shows
+  them in the stacked UI pull request.
+  - **The brain.** ✅ Intent, then plan, then act (`intent.mjs`, `runner.mjs`): a request, a schedule,
+    an event or a webhook is first turned into a structured intent (goal, subject, constraints, the
+    tools needed, a confidence) and a plan of at most six steps, returned as JSON against a strict
+    schema (`response_format`, which Unsloth honours), checked (only offered tools, bounded text) and
+    kept in the trace as intent and plan steps; the plan is then the model's steps. ✅ Ambiguity is
+    a clarifying question, which becomes a question card; the run stops there instead of guessing.
+    ✅ Thinking stays off on the CPU (the spike's 4B spent 1,500 tokens thinking and never answered)
+    and an agent may turn it on for hard tasks, within its budget (`model.thinking`).
+  - **Memory.** ✅ Short-term: a conversation per agent and person, the last turns word for word and
+    older ones folded into a running summary, sized to leave room in `-c 8192` (`memory.mjs`). ✅
+    Long-term: facts the agent learned (shared with other agents when the writer allows, each only as
+    far as the reading run may read), episodes (what past runs found), and knowledge the owner pinned
+    (facts and documents), with provenance and freshness. ✅ Embeddings as BLOBs of 32-bit floats in
+    SQLite, brute-force cosine, fused with BM25 by reciprocal rank (hybrid retrieval); a query's
+    embedding is made by the runner where the model is. ✅ Embeddings come from Unsloth's own
+    `/v1/embeddings` (bge-small-en-v1.5, downloaded with the chat model because the runner is
+    offline); an index run embeds what is new in quiet hours, within the day's budget. ✅ The owner
+    sees each tier, edits a fact (its words, freshness, pinned, shared) and makes an agent forget a
+    fact, an episode or a conversation; forgetting deletes the row and its embedding, overwritten
+    on disk (`secure_delete`). ◐ Qwen3-Embedding-0.6B as a second capped llama-server: the spike's
+    stronger option, not wired; bge-small first.
+  - **Tools.** ✅ A registry with categories, typed schemas, permissions and costs (`tool-catalog.mjs`,
+    25 tools): BoxPilot's reads; its records through its API (`records.query`: jobs, schedules,
+    automations, backups, as the run's person; never SQL); app adapters (Pi-hole first); exact work
+    - `calc` (its own parser, never eval), `time.calc`, `units.convert`, `json.extract`, `regex.match`
+    (in a worker stopped after half a second) - so the model never does sums in its head; documents
+    (`docs.search`, `document.read`); memory; actions that only propose; orchestration. ✅ Web search,
+    off by default: only through the owner's own SearXNG on this network (the catalog has it), never
+    a cloud API, and its results are boxed as data like any tool's. ✅ Outside data: PDF upload (a
+    dependency-free reader: Flate streams, object streams, ToUnicode maps), Markdown and text; a
+    folder on this server looked at in quiet hours; read-only Notion and Slack with a token saved as a
+    named credential, read inside a root task (`agents.connector.sync`, low risk, owner) so the web
+    process never holds it. Each is off until the owner turns it on; `connectors.mjs` is the
+    interface to add more. ✅ Real-world actions only as cards through the approval path. ✅ Webhooks:
+    an agent can be started by one (`/api/v1/hooks/agents/:id/:token`, the flows' door: the token is
+    the auth, only its digest is kept, nothing from the call reaches the run), and can propose an
+    outgoing one as the registered `http.request` step, so n8n and the like interoperate.
+  - **The builder's steps** (API ✅, screens in the stacked UI pull request): one job and its success
+    criteria, with warnings when the scope reads like "do everything" (`scopeWarnings`); a
+    structured system prompt - rules, operational steps, an output format (text, or JSON with named
+    fields the answer is checked against), what to escalate - prefilled by the templates and versioned
+    with line diffs; knowledge sources and tools with their permissions and costs; then test and
+    guardrails.
+  - **Testing and oversight.** ✅ The console's trace holds the intent, the plan, every tool call and
+    output, memory reads (the recall step) and writes, tokens and time. ✅ Evaluation: golden
+    questions scored by deterministic checks, plus the people's thumbs, kept as accuracy over time
+    per agent version and model. ✅ "Was this right?" on every run, by whoever may see it. ✅
+    Escalation rules per agent: low confidence, a limit reached, an action needed (a card), something
+    risky (a card and a notification). Never an action. ✅ Guardrails: limits, redaction, rate
+    limits, the kill switch, injection defence for tool and connector output, and an allowlist of the
+    apps an agent may look at and the operations it may propose.
+  - **The orchestrator.** ✅ A supervisor (the Server Keeper by default) hands subtasks to specialists
+    with `agents.handoff`; the specialist runs as the same person, one level down, and the supervisor
+    gets a follow-up run with the answers as tool output it cites (`orchestrator.mjs`). ✅ Bounded
+    depth (at most 3), three hand-offs a run, no loops (never to an agent already in the chain), no
+    hand-off to itself. ✅ Memory shared between agents under their permissions. ✅ One global queue:
+    concurrency 1 on the one capped model, a person's live question first, orchestrated follow-ups
+    with it, background work last in quiet hours, and one budget across all agents on top of each
+    agent's own. ✅ Orchestrated runs are one trace tree. ◐ Events still go to the agents subscribed
+    to them; the Server Keeper subscribes to health alerts and hands off from there.
+  - **Portable definitions.** ✅ An agent exports as JSON (spec and golden questions; never runs,
+    memory or webhooks) and imports as a new agent through the same gate as the Builder.
 - **The caps** (`server/agents/caps.mjs`, held to the unit by `caps.test.mjs`): `CPUQuota=100%` (one
   processor, the spike's number: a sixteenth of a sixteen-thread server; the model runs one thread,
   which beats two under this cap), `CPUWeight=idle`, `Nice=19`, `IOSchedulingClass=idle`,
@@ -1756,9 +1902,10 @@ the content). The engine is `feat/m37-agents-engine`; the section is `feat/m37-a
 
 Left, and why:
 
-- **Embeddings for the learning library**: keyword search (BM25) now. The spike's answer is Unsloth's
-  own `/v1/embeddings` (bge-small-en-v1.5 beside the chat model, 101 MB, 26 ms a text, 0.01% idle),
-  seeded into the cache at install so the offline runner never fetches it; wiring it in is next.
+- **Embeddings on the server**: wired to Unsloth's own `/v1/embeddings` (bge-small-en-v1.5, 101 MB,
+  26 ms a text), with the embedder downloaded beside the chat model. Whether Unsloth offline finds it
+  in the cache under that name is the first thing to check on the home server; if not, memory search
+  stays by words until it does.
 - **Pinning Unsloth**: its installer always takes the newest release. BoxPilot keeps the installer's
   checksum and the release, and says when it is not 2026.9.12; a pinned install (or a BoxPilot-built
   image) and a rerun of the spike's workflow before moving is the owner's call (ADR-005).
