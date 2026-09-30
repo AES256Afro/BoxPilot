@@ -2370,7 +2370,12 @@ twice. The hard caps and "agents propose, never act" stay as they are.
   "Processors in the background", 2 to 8 and never more than the machine's processors less two,
   checked in the web service and again in the helper. Idle priority, idle I/O, the memory cap and
   "no process when idle" are untouched. `agents-caps` raises and lowers the quota with the helper's
-  own code on real systemd, with the fake model busy, and watches the timer take it back.
+  own code on real systemd, with the fake model busy, and watches the timer take it back. **Measured**
+  on the real model (`agents-bench.yml`, a four-processor runner on two cores): four threads under a
+  200% quota ran at half the speed of two (7.5 against 14.4 tokens a second read, the owner's
+  question 436 s against 257 s), which is why threads follow the processors; four under 400% gained
+  little over two on that runner's two cores. The gain at eight on the owner's eight cores shows in
+  their Usage tab, which keeps speeds per thread count.
 - ✅ **M40.5 Talk to agents in Zulip** (M38.3; unreleased, `feat/m40-zulip`, stacked on M40.4). A
   direct message to the bot, or an @-mention of it in any channel it is in, is a question; the answer
   comes back in the same thread (the DM, or the channel and topic), with "open the run in BoxPilot"
