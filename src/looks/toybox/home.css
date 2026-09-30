@@ -106,8 +106,9 @@
 .toybox-bar__value { font-weight: 600; text-align: right; }
 
 /* Your apps: pastel bubbles with an ink edge, the name, how each is doing, a "!" sticker. */
-/* It runs down to the foot of the screen, as the drawing has it; the tray floats over its empty end. */
-.toybox-apps { min-height: calc(100vh - 68px - var(--shell-bottom-inset, 0px)); }
+/* It runs down towards the foot of the screen, as the drawing has it, and ends with its shadow 12 px
+   above the tray of areas, so the tray never sits on it. */
+.toybox-apps { min-height: calc(100vh - 150px - var(--shell-bottom-inset, 0px)); }
 @media (min-width: 761px) {
   /* The robot pokes its antenna up into the top bar, as it stands over the page in the drawing. */
   .toybox-hero { position: relative; z-index: 41; }
