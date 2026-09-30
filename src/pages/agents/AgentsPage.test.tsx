@@ -260,6 +260,24 @@ describe("the builder's steps", () => {
     expect(await within(webhook).findByText("Copy it now")).toBeTruthy();
     expect(webhook.textContent).toContain(`/api/v1/hooks/agents/${keeperId}/`);
   });
+
+  it("keeps what is being edited when its webhook URL is made", async () => {
+    // Making the URL reads the agent again, and that used to put the saved spec back over the form.
+    window.history.replaceState(null, "", `/?view=agents&tab=build&agent=${keeperId}`);
+    const hooked = { ...detail(2), webhook: { enabled: true, minted: false }, spec: { ...spec, triggers: { ...spec.triggers, webhook: true } } };
+    let reads = 0;
+    serve(base({
+      [`GET /api/v1/agents/${keeperId}`]: () => { reads += 1; return json(reads > 1 ? { ...hooked, webhook: { enabled: true, minted: true } } : hooked); },
+      [`POST /api/v1/agents/${keeperId}/webhook`]: { token: "t".repeat(43), path: `/api/v1/hooks/agents/${keeperId}/${"t".repeat(43)}` },
+    }));
+    render(<AgentsPage csrfToken="csrf" now={() => now} />);
+    const job = await screen.findByLabelText("Its one job") as HTMLTextAreaElement | HTMLInputElement;
+    fireEvent.change(job, { target: { value: "Watch the backups and say when one is late." } });
+    fireEvent.click(within(screen.getByRole("region", { name: "Webhook" })).getByRole("button", { name: "Make its URL" }));
+    await waitFor(() => expect(reads).toBe(2));
+    await waitFor(() => expect(within(screen.getByRole("region", { name: "Webhook" })).getByRole("button", { name: "Make a new URL" })).toBeTruthy());
+    expect((screen.getByLabelText("Its one job") as HTMLTextAreaElement | HTMLInputElement).value).toBe("Watch the backups and say when one is late.");
+  });
 });
 
 describe("the test console", () => {
