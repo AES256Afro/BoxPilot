@@ -28,6 +28,7 @@
  *   LOOK         the look every page is drawn in (src/looks/looks.ts), as if chosen in Settings →
  *                Appearance: blend, launcher, console, aqua, … Files get the look as a prefix.
  *   LOOK_SCOPE   with LOOK: "not-home" keeps today's Launcher on Home, as the setting does.
+ *   SETTLE_MS    how long each page settles before its picture, default 2500.
  *   STATES       extra captures of states a page only reaches by clicking, separated by ";":
  *                name=query>click>click, for example
  *                "home-trouble=?scenario=trouble;activity=?scenario=trouble>Activity".
@@ -62,7 +63,8 @@ const lookIds = ["blend", "launcher", "console", "aqua", "blueprint", "phosphor"
 if (look && !lookIds.includes(look)) throw new Error(`LOOK takes one of ${lookIds.join(", ")}, not ${look}`);
 const lookScope = (process.env.LOOK_SCOPE ?? "").trim();
 if (lookScope && lookScope !== "not-home") throw new Error(`LOOK_SCOPE takes not-home, not ${lookScope}`);
-const settleMs = 2500;
+// SETTLE_MS waits longer before each picture, for a machine too busy to answer in the usual time.
+const settleMs = Number.parseInt(process.env.SETTLE_MS ?? "2500", 10) || 2500;
 // Ops draws a sparkline from its own reads, one every five seconds from when it opens (M33.7);
 // three reads are the first picture with a line worth looking at.
 const settleFor = (query) => (/[?&]view=ops(&|$)/.test(query) ? 11_500 : settleMs);
