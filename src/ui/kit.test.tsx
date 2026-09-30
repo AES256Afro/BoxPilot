@@ -271,6 +271,21 @@ describe("Sheet", () => {
     expect(document.activeElement).toBe(opener);
   });
 
+  it("gives focus to the page's content when what opened it has gone, rather than to nothing", () => {
+    function Harness() {
+      const [open, setOpen] = useState(false);
+      // The opener unmounts as the sheet opens, as Storage's "Share…" does when it changes tab.
+      return <main id="content" tabIndex={-1}>{open ? <Sheet title="Add a share" onClose={() => setOpen(false)}><p>form</p></Sheet> : <button type="button" onClick={() => setOpen(true)}>Share…</button>}</main>;
+    }
+    render(<Harness />);
+    const opener = screen.getByRole("button", { name: "Share…" });
+    opener.focus();
+    fireEvent.click(opener);
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement?.id).toBe("content");
+  });
+
   it("closes from its button and from the backdrop, not from a press inside", () => {
     const onClose = vi.fn();
     render(<Sheet title="Share a folder" side="center" onClose={onClose}><p>form</p></Sheet>);

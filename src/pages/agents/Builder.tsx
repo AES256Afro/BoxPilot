@@ -505,17 +505,22 @@ export function Builder({ agentId, agents, catalog, canCreate, csrfToken, now, o
   const [showPrompt, setShowPrompt] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
-  const load = useCallback(async (id: string) => {
+  // The agent on show: an answer for the one chosen before is dropped rather than drawn under this one.
+  const shown = useRef(agentId);
+  // `keepDraft`: read the agent again without throwing away what is being edited. Making or removing
+  // its webhook URL reads it again, and used to reset every unsaved change in the form.
+  const load = useCallback(async (id: string, { keepDraft = false }: { keepDraft?: boolean } = {}) => {
     try {
       const detail = await agentsApi.agent(id);
+      if (shown.current !== id) return;
       setAgent(detail);
-      setDraftState(clone(detail.spec));
+      setDraftState((current) => (keepDraft && current ? current : clone(detail.spec)));
       setError(null);
     } catch (requestError) {
-      setError(errorText(requestError, "The agent could not be read"));
+      if (shown.current === id) setError(errorText(requestError, "The agent could not be read"));
     }
   }, []);
-  useEffect(() => { setAgent(null); setDraftState(null); setSaved(null); if (agentId) void load(agentId); }, [agentId, load]);
+  useEffect(() => { shown.current = agentId; setAgent(null); setDraftState(null); setSaved(null); if (agentId) void load(agentId); }, [agentId, load]);
 
   const setDraft = useCallback((update: (draft: AgentSpec) => AgentSpec) => { setDraftState((current) => (current ? update(current) : current)); setSaved(null); }, []);
   const dirty = useMemo(() => Boolean(agent && draft && JSON.stringify(agent.spec) !== JSON.stringify(draft)), [agent, draft]);
@@ -583,7 +588,7 @@ export function Builder({ agentId, agents, catalog, canCreate, csrfToken, now, o
 
       <div className="agents-builder__side">
         <Versions agent={agent} csrfToken={csrfToken} now={now} onRolledBack={(next) => { setAgent(next); setDraftState(clone(next.spec)); setSaved({ tone: "success", text: `Rolled back: version ${next.version} is the old one again.` }); onChanged(); }} />
-        <Webhook agent={agent} csrfToken={csrfToken} onChanged={() => void load(agent.id)} />
+        <Webhook agent={agent} csrfToken={csrfToken} onChanged={() => void load(agent.id, { keepDraft: true })} />
         <Panel className="agents-prompt" title="What the model is told" meta="BoxPilot's rules, then yours" actions={<Button variant="ghost" aria-expanded={showPrompt} onClick={() => setShowPrompt((value) => !value)}>{showPrompt ? "Hide" : "Show"}</Button>}>
           {showPrompt && <CodeBlock label="The system prompt" maxHeight="420px">{agent.prompt}</CodeBlock>}
         </Panel>

@@ -82,6 +82,26 @@ describe("the last try at a fix (M35)", () => {
     expect(applyLedger([], { jobs: [] }).jobs.dismissed).toEqual([]);
   });
 
+  it("lets a failed reconnect go once its drive or share is mounted and well, wherever it was started", () => {
+    // The owner's backup share was mounted and readable while Home still said "Failed: Reconnect a
+    // drive": that try was started from Home's Try again, not from a finding, so nothing let it go.
+    const busy = job("j1");
+    const share = job("j2", { parameters: { name: "share-boxpilot-backup" } });
+    const byShare = job("j3", { type: "op:share.reconnect", parameters: { name: "nas-public" } });
+    const mounts = [
+      { target: "/mnt/the-dump", source: "/dev/sdb2", managedName: "the-dump", readOnly: false, options: "defaults,nofail" },
+      { target: "/mnt/boxpilot/backup", source: "//nas/backup", managedName: "share-boxpilot-backup", readOnly: false, options: "credentials=x,nofail" },
+    ];
+    expect(applyLedger([], { jobs: [busy, share, byShare], mounts }).jobs.resolved.sort()).toEqual(["j1", "j2"]);
+    // Still read-only, still found by the scan, not mounted at all, or the mounts not read: kept.
+    expect(applyLedger([], { jobs: [busy], mounts: [{ ...mounts[0], readOnly: true }] }).jobs.resolved).toEqual([]);
+    expect(applyLedger([readOnly], { jobs: [busy, job("j0", { updatedAt: "2026-09-29T09:00:00.000Z" })], mounts }).jobs.resolved).toEqual([]);
+    expect(applyLedger([], { jobs: [byShare], mounts }).jobs.resolved).toEqual([]);
+    expect(applyLedger([], { jobs: [busy] }).jobs.resolved).toEqual([]);
+    // A drive fstab itself mounts read-only is as it should be.
+    expect(applyLedger([], { jobs: [busy], mounts: [{ ...mounts[0], readOnly: true, options: "ro,nofail" }] }).jobs.resolved).toEqual(["j1"]);
+  });
+
   it("remembers a bounded number of attempts", () => {
     let attempts = {};
     for (let index = 0; index < attemptLimit + 5; index += 1) attempts = withAttempt(attempts, `j${index}`, "f", { now: () => new Date(Date.UTC(2026, 0, 1, 0, index)) });

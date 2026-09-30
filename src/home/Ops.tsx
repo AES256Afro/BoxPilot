@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { openActivity, openNotifications } from "../activityEvents";
+import { useCheckAgain } from "./useCheckAgain";
 import { useNeedActions } from "./useNeedActions";
 import { countOf, sentenceList, type ViewName } from "../data";
 import { useJobHistory, useMergedJobs } from "./jobHistory";
@@ -32,7 +33,7 @@ import { backupMatrix, jobState, jobTarget, performanceFrom, pushSample, sampleF
 export interface OpsProps {
   csrfToken: string;
   role: string;
-  onNavigate: (view: ViewName, options?: { app?: string }) => void;
+  onNavigate: (view: ViewName, options?: { app?: string; tab?: string }) => void;
   now?: () => number;
   /** How often the metric strip is read again while Ops is open. */
   pollMs?: number;
@@ -91,8 +92,9 @@ export default function Ops({ csrfToken, role, onNavigate, now = Date.now, pollM
   // More of the history than the live feed keeps, for the backup matrix (shared with Today, M25.3).
   const { jobs: history } = useJobHistory();
   // Every button in the alerts and the inbox, Repair's fixes included, run as Repair runs them (M35).
-  const { act, runs, dialog } = useNeedActions({ csrfToken, refresh, accept });
+  const { act, runs, dialog } = useNeedActions({ csrfToken, refresh, accept, navigate: onNavigate });
   const runOf = (need: Need) => (need.finding ? runs[need.finding.id] : undefined);
+  const again = useCheckAgain(refresh);
 
   const inventory = values.inventory;
   const hostname = inventory?.hostname ?? "This server";
@@ -140,7 +142,7 @@ export default function Ops({ csrfToken, role, onNavigate, now = Date.now, pollM
 
   const jobColumns: Array<TableColumn<Job>> = [
     { id: "job", header: "Job", hideOnPhone: true, cell: (job) => <span className="ops-mono">#{job.id.slice(0, 6)}</span> },
-    { id: "operation", header: "Operation", cell: (job) => <button type="button" className="ops-link ops-link--mono" onClick={() => onNavigate("repairs")} title={job.title}>{job.type.replace(/^op:/, "")}</button> },
+    { id: "operation", header: "Operation", cell: (job) => <button type="button" className="ops-link ops-link--mono" onClick={() => openActivity(job.id)} title={job.title} aria-label={`${job.type.replace(/^op:/, "")}: open its log`}>{job.type.replace(/^op:/, "")}</button> },
     { id: "target", header: "Target", className: "ops-mono-cell", cell: (job) => jobTarget(job) },
     { id: "state", header: "State", cell: (job) => { const state = jobState(job); return <StatusChip status={state.status}>{state.label}</StatusChip>; } },
     { id: "started", header: "Started", numeric: true, cell: (job) => shortAge(job.createdAt, clock) ?? "—" },
@@ -203,7 +205,7 @@ export default function Ops({ csrfToken, role, onNavigate, now = Date.now, pollM
         host={inventory?.hostname ?? null}
         status={{ status: verdict.status, label: verdict.label }}
         summary={verdict.sentence}
-        actions={<Button variant="ghost" onClick={() => refresh()}>Read again</Button>}
+        actions={<>{again.said}<Button variant="ghost" busy={again.checking} onClick={again.run}>{again.checking ? "Reading…" : "Read again"}</Button></>}
         barFacts={inventory
           ? <>{inventory.operatingSystem} · up <b>{uptime(inventory.uptimeSeconds)}</b> · kernel <b>{inventory.kernel}</b> · boxpilot <b>{__BOXPILOT_VERSION__}</b></>
           : <>boxpilot <b>{__BOXPILOT_VERSION__}</b></>}
@@ -315,7 +317,7 @@ export default function Ops({ csrfToken, role, onNavigate, now = Date.now, pollM
                           <span className="ops-checklist__detail">{item.known === false ? "Could not be checked just now." : item.detail}</span>
                         </span>
                         <span className="ops-checklist__state">{state === "done" ? "done" : state === "unchecked" ? "not checked" : "to do"}</span>
-                        {!item.done && item.known !== false && <Button variant="ghost" aria-label={`Open: ${item.title}`} onClick={() => onNavigate(item.view)}>Open</Button>}
+                        {!item.done && item.known !== false && <Button variant="ghost" aria-label={`Open: ${item.title}`} onClick={() => (item.id === "tailscale" ? onNavigate(item.view, { tab: "tailnet" }) : onNavigate(item.view))}>Open</Button>}
                       </li>
                     );
                   })}
