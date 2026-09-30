@@ -45,7 +45,7 @@ type PerformanceAnswer = unknown;
  * Live CPU and memory, read again every few seconds while the page is open and visible, with the
  * reads so far kept for the sparklines (a rolling buffer that lives as long as the page does).
  */
-function usePerformance(pollMs: number, now: () => number): { value: Performance | null; failed: boolean; samples: Sample[] } {
+export function usePerformance(pollMs: number, now: () => number): { value: Performance | null; failed: boolean; samples: Sample[] } {
   const [state, setState] = useState<{ value: Performance | null; failed: boolean; samples: Sample[] }>({ value: null, failed: false, samples: [] });
   // The clock is read when a sample lands, not a reason to start polling over.
   const clock = useRef(now);

@@ -1,0 +1,124 @@
+/*
+ * Home as a green phosphor terminal (M41): the study's screen, one line a row, at the study's sizes
+ * (a line is 1.2 of its em, one seventy-fourth of the screen's width). Every selector starts with
+ * .phosphor-.
+ */
+
+.phosphor-home {
+  --g: #62ff96;
+  --dim: #45b870;
+  --ink: #021006;
+  display: grid;
+  align-content: start;
+  gap: 0.5em;
+  padding-top: 0.2em;
+  color: var(--g);
+  font-family: "VT323", ui-monospace, monospace;
+  font-size: clamp(17px, 1.62vw, 26px);
+  font-size-adjust: none;
+  line-height: 1.12;
+  text-shadow: 0 0 0.35em rgba(98, 255, 150, 0.4);
+}
+.phosphor-home :where(button) {
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: none;
+  font: inherit;
+  font-size-adjust: none;
+  letter-spacing: inherit;
+  text-align: left;
+  text-shadow: inherit;
+  cursor: pointer;
+}
+.phosphor-home :where(button):hover { color: var(--ink); background: var(--g); text-shadow: none; }
+.phosphor-home :where(button):focus-visible { outline: 2px solid var(--g); outline-offset: 2px; }
+.phosphor-home :where(h2, p, ul) { margin: 0; padding: 0; list-style: none; }
+
+.phosphor-inv { color: var(--ink); background: var(--g); text-shadow: none; }
+.phosphor-dim { color: var(--dim); }
+.phosphor-line { display: flex; gap: 1ch; min-width: 0; white-space: pre; }
+.phosphor-right { margin-left: auto; }
+
+/* The host line, in the top bar where the page's name goes. */
+.phosphor-host {
+  --g: #62ff96;
+  --ink: #021006;
+  display: flex;
+  gap: 1ch;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: #62ff96;
+  font: 400 clamp(17px, 1.62vw, 26px) / 1.12 "VT323", ui-monospace, monospace;
+  font-size-adjust: none;
+  text-shadow: 0 0 0.35em rgba(98, 255, 150, 0.4);
+  white-space: pre;
+}
+.phosphor-host .phosphor-inv { padding: 0 0.1ch; }
+.phosphor-host__facts { overflow: hidden; text-overflow: ellipsis; }
+
+.phosphor-status { margin-top: 0.1em; }
+.phosphor-status__verdict { overflow: hidden; text-overflow: ellipsis; }
+.phosphor-status .phosphor-inv { padding: 0 0.1ch; }
+
+.phosphor-bars { display: grid; justify-items: start; }
+.phosphor-bar { display: flex; gap: 2ch; }
+.phosphor-bar > span:first-child { white-space: pre; }
+
+/* NEEDS YOU -------------------------------- */
+.phosphor-rule { display: flex; gap: 1ch; font-size: 1em; font-weight: 400; line-height: 1.12; }
+.phosphor-rule::after { flex: 1; margin-bottom: 0.38em; border-bottom: 0.1em dashed currentColor; content: ""; opacity: 0.7; }
+
+.phosphor-needs { display: grid; gap: 0.5em; }
+.phosphor-need { display: grid; grid-template-columns: 6ch minmax(0, 1fr) auto; column-gap: 1.5ch; align-items: baseline; line-height: 1.15; }
+.phosphor-need__tag { width: fit-content; white-space: pre; }
+.phosphor-need__words { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.phosphor-need__acts { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0.2em 2ch; }
+.phosphor-need__run { grid-column: 2 / -1; color: var(--dim); }
+.phosphor-home .phosphor-key.ui-button {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  color: var(--g);
+  background: none;
+  font: inherit;
+  line-height: 1.15;
+  text-transform: none;
+  text-shadow: inherit;
+}
+.phosphor-home .phosphor-key.ui-button::before { display: none; }
+.phosphor-home .phosphor-key.ui-button:hover:not(:disabled) { color: var(--ink); background: var(--g); text-shadow: none; }
+.phosphor-key u { text-decoration: none; border-bottom: 0.1em solid currentColor; }
+
+.phosphor-more { width: fit-content; color: var(--dim); }
+.phosphor-link { color: var(--g); text-decoration: underline; text-underline-offset: 0.15em; }
+
+/* APPS 11 --------------------------------- */
+.phosphor-apps { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 3ch; margin-top: 0.1em; }
+.phosphor-app { display: block; width: fit-content; max-width: 100%; overflow: hidden; white-space: pre; }
+.phosphor-app.phosphor-inv:hover { background: var(--dim); }
+
+.phosphor-prompt { margin-top: 0.8em; width: fit-content; }
+.phosphor-cursor { display: inline-block; width: 0.55em; height: 0.95em; margin-left: -0.3ch; vertical-align: -0.1em; background: var(--g); box-shadow: 0 0 0.4em rgba(98, 255, 150, 0.4); }
+.phosphor-prompt:hover .phosphor-cursor { background: var(--ink); }
+@keyframes phosphor-blink { 50% { opacity: 0; } }
+@media (prefers-reduced-motion: no-preference) {
+  .phosphor-cursor { animation: phosphor-blink 1.1s steps(1) infinite; }
+}
+
+/* A phone: shorter bars, one column of apps, each fix under its words. */
+@media (max-width: 760px) {
+  .phosphor-home { font-size: 19px; gap: 0.6em; }
+  .phosphor-host { font-size: 19px; }
+  .phosphor-status { flex-wrap: wrap; white-space: normal; }
+  .phosphor-status__verdict { flex-basis: 100%; white-space: normal; }
+  .phosphor-right { margin-left: 0; }
+  .phosphor-bar { flex-wrap: wrap; gap: 0 2ch; }
+  .phosphor-need { grid-template-columns: 6ch minmax(0, 1fr); }
+  .phosphor-need__words { white-space: normal; }
+  .phosphor-need__acts { grid-column: 2; justify-content: flex-start; margin-top: 0.2em; }
+  .phosphor-home .phosphor-key.ui-button { min-height: 36px; }
+  .phosphor-apps { grid-template-columns: minmax(0, 1fr); }
+  .phosphor-app { min-height: 30px; }
+}
