@@ -68,10 +68,9 @@
     --lx-focus: #111111;
   }
 
-  /* What needs a look is red; what is fine is black; the rest grey. Set again on Home's shell and on
-     what opens over a page (.look-console), which point these names elsewhere. */
+  /* What needs a look is red; what is fine is black; the rest grey. Set again on what opens over
+     a page (.look-console), which points these names at the console's own. */
   :root[data-look="swiss"],
-  :root[data-look="swiss"] .app-shell[data-view="home"],
   :root[data-look="swiss"] .look-console {
     --status-good: #111111;
     --status-good-text: #111111;
@@ -109,23 +108,6 @@
     --danger: #e3061b;
     --danger-text: #d10016;
     --success: #111111;
-  }
-
-  /* Home in this look is drawn inside the console shell, but the Launcher's rules still point the
-     page's tokens at its glass on .app-shell[data-view="home"]; they are pointed back here. */
-  :root[data-look="swiss"] .app-shell[data-view="home"] {
-    --text: inherit;
-    --text-strong: inherit;
-    --text-muted: inherit;
-    --text-secondary: inherit;
-    --accent: inherit;
-    --accent-faint: inherit;
-    --link: inherit;
-    --border: inherit;
-    --border-subtle: inherit;
-    --border-strong: inherit;
-    --meter-track: inherit;
-    color: inherit;
   }
 
   /* ── Every page: white paper, ink, no rounded corners anywhere ── */
