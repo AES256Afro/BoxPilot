@@ -58,6 +58,7 @@
 .blend-cell__spark { position: absolute; top: 14.6px; right: 13.6px; width: 66px; height: 23px; color: var(--look-accent); }
 .blend-cell__spark .ui-spark__line { stroke: var(--look-accent); stroke-width: 1.6; }
 .blend-cell__spark .ui-spark__area { fill: transparent; }
+.blend-cell__spark .blend-cell__dot { display: block; width: 100%; height: 100%; fill: var(--look-accent); }
 .blend-cell__bar { display: block; height: 5.8px; margin-top: 2.9px; overflow: hidden; border-radius: 999px; background: var(--lx-track); }
 .blend-cell__bar > i { display: block; height: 100%; border-radius: inherit; background: var(--look-accent); }
 .blend-cell[data-status="danger"] .blend-cell__bar > i { background: var(--lx-danger); }
@@ -71,25 +72,9 @@
   gap: 16.5px;
   min-height: 300px;
 }
-.blend-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 11.7px;
-  min-width: 0;
-  min-height: 0;
-  padding: 17.5px 19.5px;
-  border: 1px solid var(--lx-glass-border);
-  border-radius: 21px;
-  background: var(--lx-glass);
-  box-shadow: var(--blend-shadow);
-  -webkit-backdrop-filter: var(--blend-glass-filter);
-  backdrop-filter: var(--blend-glass-filter);
-}
-.blend-panel__head { display: flex; flex: none; align-items: center; gap: 10px; min-width: 0; }
-.blend-panel__title { display: flex; align-items: center; gap: 6.2px; margin: 0; color: var(--lx-ink-muted); font: 700 12.45px/1.2 var(--font-sans); letter-spacing: 0.1em; text-transform: uppercase; white-space: nowrap; }
-.blend-panel__title svg { width: 16.8px; height: 16.8px; flex: none; }
-.blend-panel__meta { min-width: 0; margin-left: auto; overflow: hidden; color: var(--lx-ink); font: 700 12.45px/1.2 var(--font-sans); text-overflow: ellipsis; white-space: nowrap; }
-.blend-home .blend-panel__chip { margin-left: auto; padding: 3px 6px; font-size: 9.5px; }
+/* The panels' glass is in panel.css, shared with Storage's lead. */
+.blend-home .blend-panel__head .ui-chip.blend-panel__chip { gap: 4px; margin-left: auto; padding: 3.6px 5.1px; border-radius: 3.8px; font-size: 8.5px; line-height: 1.1; }
+.blend-home .blend-panel__head .ui-chip.blend-panel__chip .ui-mark { width: 6px; height: 6px; }
 .blend-quiet { margin: 0; color: var(--lx-ink-muted); font-size: 13.5px; line-height: 1.45; }
 .blend-quiet .ui-chip { vertical-align: 1px; }
 
@@ -102,13 +87,10 @@
   gap: 12px 5.8px;
   min-height: 0;
   margin: -6px -6px 0;
-  padding: 6px 6px 18px;
+  padding: 6px 6px 2px;
   overflow-y: auto;
   scrollbar-color: var(--blend-line-strong) transparent;
   scrollbar-width: thin;
-  /* More below the edge fades out rather than being cut. */
-  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 20px), transparent);
-  mask-image: linear-gradient(to bottom, #000 calc(100% - 20px), transparent);
 }
 .blend-app {
   display: grid;
@@ -146,6 +128,8 @@
 .blend-app[data-status="danger"] .blend-app__line { color: var(--lx-danger-text); }
 .blend-app--add .blend-app__square { box-sizing: border-box; border: 1px dashed var(--lx-ink-muted); border-radius: 13.5px; color: var(--lx-ink); }
 .blend-app--add .blend-app__square svg { width: 40%; height: 40%; }
+/* The apps the panel has no room for: their count on a dashed square, opening them all. */
+.blend-app--more .blend-app__square { box-sizing: border-box; border: 1px dashed var(--lx-ink-muted); border-radius: 13.5px; color: var(--lx-ink); background: var(--lx-glass); font: 600 17px/1 var(--font-mono); }
 
 /* What needs you: the tier leads each row, then the words and the pills, as the drawing's inbox. */
 .blend-needs__list {
@@ -155,13 +139,24 @@
   gap: 8px;
   min-height: 0;
   margin: 0 -6px;
-  padding: 2px 6px 18px;
+  padding: 2px 6px 4px;
   overflow-y: auto;
   scrollbar-color: var(--blend-line-strong) transparent;
   scrollbar-width: thin;
-  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 20px), transparent);
-  mask-image: linear-gradient(to bottom, #000 calc(100% - 20px), transparent);
 }
+/* The rest of the list, one press away: a row of its own under the last one shown. */
+.blend-needs__more {
+  justify-self: stretch;
+  padding: 9px 0 0 87.6px;
+  border: 0;
+  border-top: 1px solid var(--lx-hairline);
+  color: var(--lx-ink);
+  background: none;
+  font: 600 12.45px/1.3 var(--font-sans);
+  text-align: left;
+  cursor: pointer;
+}
+.blend-needs__more:hover { text-decoration: underline; }
 .blend-home .blend-needs .need {
   display: grid;
   grid-template-columns: 75.9px minmax(0, 1fr);
@@ -175,7 +170,12 @@
 .blend-home .blend-needs :is(.need__body, .need__head) { display: contents; }
 .blend-home .blend-needs .need__mark { grid-row: 1; grid-column: 1; justify-self: start; width: 9px; height: 9px; margin-top: 5px; }
 .blend-home .blend-needs .need:has(.need__tier-tag, .need__tier) .need__mark { display: none; }
-.blend-home .blend-needs :is(.need__tier-tag, .need__tier) { grid-row: 1 / span 3; grid-column: 1; justify-self: start; margin-top: 1.5px; }
+.blend-home .blend-needs :is(.need__tier-tag, .need__tier, .need__icon) { grid-row: 1 / span 3; grid-column: 1; justify-self: start; margin-top: 1.5px; }
+/* A note has nothing to run: a tag of the tiers' shape says so, in its severity's colours. */
+.blend-home .blend-needs .need__icon > .need__mark { display: none; }
+.blend-note { display: inline-block; padding: 3.6px 5.2px; border-radius: 3.5px; color: var(--lx-ink-muted); background: var(--lx-glass-raised); font: 700 11.3px/1 var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase; }
+.blend-note[data-severity="warning"] { color: var(--lx-warning-text); background: var(--lx-warning-bg); }
+.blend-note[data-severity="danger"] { color: var(--lx-danger-text); background: var(--lx-danger-bg); }
 .blend-home .blend-needs .need__tier-tag .ui-risk { padding: 3.6px 5.2px; }
 .blend-home .blend-needs .need__title { grid-column: 2; color: var(--lx-ink); font-size: 14.8px; font-weight: 600; line-height: 1.25; }
 .blend-home .blend-needs .need__detail { grid-column: 2; color: var(--lx-ink-muted); font-size: 12px; line-height: 1.4; }
@@ -207,16 +207,20 @@
   .blend-home > .blend-cols { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .blend-apps__grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
+/* Everything shown: the page grows past the window rather than scrolling inside its panels. */
+.blend-home.blend-home--open { max-height: none; }
+.blend-home--open :is(.blend-apps__grid, .blend-needs__list) { overflow: visible; }
 @media (max-width: 900px), (max-height: 700px) {
   .blend-home { max-height: none; }
   .blend-home > .blend-cols { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; min-height: 0; }
-  .blend-apps__grid, .blend-needs__list { overflow: visible; padding-bottom: 4px; -webkit-mask-image: none; mask-image: none; }
+  .blend-apps__grid, .blend-needs__list { overflow: visible; }
 }
 @media (max-width: 760px) {
   .blend-home { gap: 12px; }
   .blend-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .blend-apps__grid { grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); }
   .blend-home .blend-needs .need { grid-template-columns: 64px minmax(0, 1fr); }
+  .blend-needs__more { padding-left: 75.7px; }
   .blend-night__jobs { grid-template-columns: auto minmax(0, 1fr) auto; }
   .blend-job__op, .blend-job__took { display: none; }
   .blend-job__what { white-space: normal; }
