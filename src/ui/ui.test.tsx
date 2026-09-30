@@ -29,6 +29,15 @@ describe("Button", () => {
     expect(screen.getByRole("button", { name: "Cancel" }).hasAttribute("aria-describedby")).toBe(false);
   });
 
+  it("reads out why it is disabled when its title says, not only to a mouse", () => {
+    render(<><Button risk="medium" disabled title="Install rclone first">Set destination</Button><Button title="Opens the log">Log</Button></>);
+    const blocked = screen.getByRole("button", { name: "Set destination" });
+    const described = (blocked.getAttribute("aria-describedby") ?? "").split(" ").map((id) => document.getElementById(id)?.textContent);
+    expect(described).toEqual(["Medium risk: shows a preview and asks you to confirm.", "Install rclone first"]);
+    // An enabled button's title is only a tooltip, as ever.
+    expect(screen.getByRole("button", { name: "Log" }).hasAttribute("aria-describedby")).toBe(false);
+  });
+
   it("draws a lock and says Password on a high-risk button, and nothing extra on a low one", () => {
     render(<><Button risk="high">Reboot now</Button><Button risk="low">Refresh lists</Button></>);
     const high = screen.getByRole("button", { name: "Reboot now" });

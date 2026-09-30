@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { appStatus, offlineFor } from "./appState";
+import { appStatus, installTier, offlineFor } from "./appState";
 import type { LiveState } from "./types";
 
 /**
@@ -43,6 +43,11 @@ describe("an app's state, as the tile, the sheet and the verdict all say it", ()
     expect(appStatus(live({ container: { exists: true, running: true, status: "paused", health: "none", restarts: 0, image: null } }))).toEqual({ status: "warning", label: "Paused" });
   });
 
+  it("says an installed app with no container has none, as Home does, and a stopped one is stopped", () => {
+    expect(appStatus(live({ container: { exists: false, running: false, status: "absent", health: "none", restarts: 0, image: null } }))).toEqual({ status: "warning", label: "No container" });
+    expect(appStatus(live({ container: { exists: true, running: false, status: "exited", health: "none", restarts: 0, image: null } }))).toEqual({ status: "warning", label: "Stopped" });
+  });
+
   it("puts a leak outside the VPN and a folder it cannot write to above looking alive", () => {
     expect(appStatus(live({ killSwitchDrill: { held: false, leaked: true, downForMs: 3000, at: "x" } })).status).toBe("danger");
     expect(appStatus(live({ folderProblems: [{ path: "/mnt/x", volume: "data", reason: "read-only" }] })).label).toBe("Cannot write to its folder");
@@ -52,5 +57,14 @@ describe("an app's state, as the tile, the sheet and the verdict all say it", ()
     expect(appStatus(live({ sidecars: [{ id: "vpn", running: false, status: "exited", restarts: 0 }] })).label).toBe("Running · vpn is down");
     expect(appStatus(live({ container: { exists: true, running: false, status: "exited", health: "none", restarts: 0, image: null } }))).toEqual({ status: "warning", label: "Stopped" });
     expect(appStatus(live({ installed: false, dataPresent: true }))).toEqual({ status: "neutral", label: "Not installed · data kept" });
+  });
+});
+
+describe("the tier installing an app asks for", () => {
+  it("is the manifest's own when it is higher than app.install's, as the server stages it, and never lower", () => {
+    // Pi-hole, AdGuard Home, Technitium and wg-easy say high (server/catalog installRiskLookup).
+    expect(installTier({ risk: "high" })).toBe("high");
+    expect(installTier({ risk: "medium" })).toBe("medium");
+    expect(installTier({ risk: "low" })).toBe("medium");
   });
 });
