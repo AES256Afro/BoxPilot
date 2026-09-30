@@ -604,6 +604,16 @@ describe("App catalog: an installed app's sheet", () => {
     expect(await within(sheet).findByText("tunnel up")).toBeTruthy();
     expect(bodies).toEqual([{ id: "jellyfin", lines: 200 }, { id: "jellyfin", lines: 200, container: "vpn" }]);
   });
+
+  it("says an app with no container has no logs, rather than failing a read that Read again would fail the same way", async () => {
+    const fetchMock = serve(catalogOf([{ manifest, live: running("jellyfin", 8096, { container: { exists: false, running: false, status: "absent", health: "none", restarts: 0, image: null } }) }]));
+    render(<CatalogPage csrfToken="csrf-token" />);
+    const sheet = await openApp("Jellyfin");
+    fireEvent.click(within(sheet).getByRole("tab", { name: "Logs" }));
+    expect(await within(sheet).findByText("Jellyfin has no container right now")).toBeTruthy();
+    expect(within(sheet).queryByRole("button", { name: "Read again" })).toBeNull();
+    expect(fetchMock.mock.calls.some(([input]) => String(input).endsWith("/operations/app.logs/run"))).toBe(false);
+  });
 });
 
 describe("App catalog: reach", () => {

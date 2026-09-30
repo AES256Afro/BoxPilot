@@ -1,4 +1,5 @@
-import { access, mkdir, stat, writeFile } from "node:fs/promises";
+import { access, mkdir, stat } from "node:fs/promises";
+import { writeFileDurably as writeFile } from "../durable-file.mjs";
 import path from "node:path";
 import { fixedRun } from "../exec.mjs";
 import { cloudTarget, normalizeCloudDestination, parseRcloneStats, renderRcloneConfig } from "../backup-cloud.mjs";

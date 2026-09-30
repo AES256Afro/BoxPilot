@@ -119,6 +119,8 @@ describe("the guardrails, decided without a clock of their own", () => {
   it("waits, without telling anyone, while the drive is checked or worked on", () => {
     expect(reconnectRefusal({ name: "media", now, activeJobs: [{ type: "op:storage.check", parameters: { name: "media" } }] })).toMatchObject({ reason: "/mnt/media is being checked", tell: false });
     expect(reconnectRefusal({ name: "media", now, activeJobs: [{ type: "op:storage.remount", parameters: { name: "media" } }] })).toMatchObject({ tell: false });
+    // Letting apps write to it unmounts and mounts it too, with its fstab entry rewritten in between.
+    expect(reconnectRefusal({ name: "media", now, activeJobs: [{ type: "op:storage.writable", parameters: { name: "media" } }] })).toMatchObject({ reason: "/mnt/media is already being worked on", tell: false });
     // Another drive's check is none of this drive's business.
     expect(reconnectRefusal({ name: "media", now, activeJobs: [{ type: "op:storage.check", parameters: { name: "backup" } }] })).toBeNull();
   });

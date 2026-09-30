@@ -316,6 +316,24 @@ if [ "$HEALTHY" -ne 1 ]; then
   journalctl -u boxpilot.service -u boxpilot-helper.service -n 20 --no-pager 2>/dev/null || true
   if [ "$HAD_PREVIOUS" -eq 1 ]; then rollback; else fail "service unhealthy"; fi
 fi
+
+# The helper as well. Its unit is Type=simple, so its restart above exits 0 once it has forked,
+# whether or not it gets as far as listening, and the health check is the web service's alone: a
+# helper that fails at start (an import error, a sandbox path its unit names that is not there) left
+# every host operation failing and nothing rolled back. Up means active, with its socket, for three
+# checks in a row; it has a minute and a half to get there.
+HELPER_SOCKET="${BOXPILOT_HELPER_SOCKET:-/run/boxpilot/helper.sock}"
+steady=0; attempt=0
+while [ "$steady" -lt 3 ] && [ "$attempt" -lt 90 ]; do
+  attempt=$((attempt + 1))
+  if systemctl is-active --quiet boxpilot-helper.service && [ -S "$HELPER_SOCKET" ]; then steady=$((steady + 1)); else steady=0; fi
+  sleep 1
+done
+if [ "$steady" -lt 3 ]; then
+  log "boxpilot-helper did not stay up with its socket at ${HELPER_SOCKET}"
+  journalctl -u boxpilot-helper.service -n 20 --no-pager 2>/dev/null || true
+  if [ "$HAD_PREVIOUS" -eq 1 ]; then rollback; else fail "helper unhealthy"; fi
+fi
 trap - EXIT
 
 # The agents runner (M37) runs the new code too, but only if the owner turned it on: its unit is

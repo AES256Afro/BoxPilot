@@ -2,6 +2,7 @@ import { useCallback, type ReactNode } from "react";
 import { useOperation } from "../shell/ApproveDialog";
 import { useRepairFixes, type FixRun } from "../repair/useRepairFixes";
 import type { Finding } from "../repair/types";
+import type { ViewName } from "../data";
 import { loadRepairs, type Facts } from "./facts";
 import type { Need, NeedAction } from "./needs";
 
@@ -9,9 +10,10 @@ import type { Need, NeedAction } from "./needs";
  * What a button in "What needs you" does, for Home and Ops alike (M35). A Repair finding's fix runs
  * the way Repair runs it - recorded against the finding, followed, and the finding checked again
  * when it ends - so the three places that offer the same fix offer the same thing. A failed job can
- * be tried again or set aside. Anything else goes straight to the approval dialog, as before.
+ * be tried again or set aside, or, when its error names a fix somewhere else, that page opened.
+ * Anything else goes straight to the approval dialog, as before.
  */
-export function useNeedActions({ csrfToken, refresh, accept }: { csrfToken: string; refresh: (keys?: Array<keyof Facts>) => void; accept: <K extends keyof Facts>(key: K, value: NonNullable<Facts[K]["value"]>) => void }): {
+export function useNeedActions({ csrfToken, refresh, accept, navigate }: { csrfToken: string; refresh: (keys?: Array<keyof Facts>) => unknown; accept: <K extends keyof Facts>(key: K, value: NonNullable<Facts[K]["value"]>) => void; navigate?: (view: ViewName, options?: { tab?: string }) => void }): {
   act: (need: Need, action?: NeedAction | null) => void;
   runs: Record<string, FixRun>;
   remembered: Record<string, Finding>;
@@ -36,11 +38,12 @@ export function useNeedActions({ csrfToken, refresh, accept }: { csrfToken: stri
   const act = useCallback((need: Need, action: NeedAction | null = need.action) => {
     if (!action) return;
     if (action.kind === "dismiss") { if (need.jobId) repair.dismiss({ kind: "job", jobId: need.jobId, title: need.title }); return; }
+    if (action.kind === "open") { if (action.open) navigate?.(action.open.view, action.open.tab ? { tab: action.open.tab } : undefined); return; }
     if (need.finding && action.fix) { repair.start(need.finding, action.fix); return; }
     // A job already staged is reviewed and approved as it is (M36's Review); nothing new is staged.
     start({ operationId: action.operationId, title: action.title, parameters: action.parameters, preview: action.preview ? <span>{action.preview}</span> : undefined,
       ...(action.moreTimeFor ? { moreTimeFor: action.moreTimeFor } : {}), ...(action.existingJobId ? { existingJobId: action.existingJobId } : {}) });
-  }, [repair, start]);
+  }, [navigate, repair, start]);
   return { act, runs: repair.runs, remembered: repair.remembered, dialog: <>{operationDialog}{repair.dialog}</> };
 }
 

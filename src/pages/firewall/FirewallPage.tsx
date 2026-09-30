@@ -105,8 +105,11 @@ export default function FirewallPage({ csrfToken, role = "owner", now = Date.now
     });
   }, [overview, choiceTouched]);
 
-  const { start, dialog } = useOperation(csrfToken, () => {
-    setRulePort(""); setRuleComment(""); setChoiceTouched(false);
+  // Only the change that took clears its own form: a suggestion's rule, the firewall switch or a
+  // brute-force change ending used to wipe a half-typed rule and the profile being chosen.
+  const { start, dialog } = useOperation(csrfToken, (job) => {
+    if (job.state === "completed" && job.type === "op:firewall.rule.add" && String(job.parameters?.port ?? "") === rulePort.trim()) { setRulePort(""); setRuleComment(""); }
+    if (job.state === "completed" && job.type === "op:firewall.profile.apply") setChoiceTouched(false);
     void refresh();
   });
 

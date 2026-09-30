@@ -77,8 +77,10 @@ export function JobLogView({ job: given, jobId, title, onMoreTime }: { job?: Job
       const controller = new AbortController();
       const deadline = setTimeout(() => controller.abort(), 15_000);
       fetch(`/api/v1/jobs/${encodeURIComponent(id)}/output`, { signal: controller.signal })
-        .then((response) => readJson<{ output: string }>(response))
-        .then((body) => { if (typeof body.output !== "string") throw new Error("incomplete output"); if (!cancelled) setOutput(jobOutputText("", body.output)); })
+        // Gone from the history since the job was read: say so, as for the job itself, rather than
+        // offering a "Try reading again" that can only find it gone again.
+        .then((response) => { if (response.status === 404) { if (!cancelled) setGoneId(id); return null; } return readJson<{ output: string }>(response); })
+        .then((body) => { if (body === null) return; if (typeof body.output !== "string") throw new Error("incomplete output"); if (!cancelled) setOutput(jobOutputText("", body.output)); })
         .catch(() => { if (!cancelled) setOutputError("Saved output could not be read. Try again; this does not mean the job recorded no output."); })
         .finally(() => { clearTimeout(deadline); if (!cancelled) setReadingOutput(false); });
       return () => { cancelled = true; clearTimeout(deadline); controller.abort(); };
@@ -92,7 +94,7 @@ export function JobLogView({ job: given, jobId, title, onMoreTime }: { job?: Job
   }, [id, job !== null, finished, retry]);
 
   const retryButton = <Button onClick={() => setRetry((value) => value + 1)}>Try reading again</Button>;
-  if (id && goneId === id) return <p className="jobs-quiet">{title ?? "This job"} is no longer in the history, which keeps the last 500 jobs for 90 days.</p>;
+  if (id && goneId === id) return <p className="jobs-quiet">{title ?? job?.title ?? "This job"} is no longer in the history, which keeps the last 500 jobs for 90 days.</p>;
   if (!job) return jobError ? <Notice tone="danger" live action={retryButton}>{jobError}</Notice> : <p className="jobs-quiet">Reading…</p>;
 
   const name = title ?? job.title;

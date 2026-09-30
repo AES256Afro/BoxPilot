@@ -1,4 +1,5 @@
-import { readdir, readFile, readlink, rename, unlink, writeFile } from "node:fs/promises";
+import { readdir, readFile, readlink, rename, unlink } from "node:fs/promises";
+import { writeFileDurably as writeFile } from "../durable-file.mjs";
 import { mountpointFor } from "../backup-mount.mjs";
 import { fixedRun } from "../exec.mjs";
 import { deviceFor, exfatVolumeFlags, parseManagedFstab, processesUsing, readBootSector, unmountFromHost, withDockerOrder } from "./storage.mjs";

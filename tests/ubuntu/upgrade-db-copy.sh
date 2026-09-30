@@ -118,5 +118,16 @@ check "one database copy came of the two, not two" '[ "$(ls /var/lib/boxpilot/bo
 check "the upgraded BoxPilot answers" 'answers "$VERSION"'
 check "the lock is free again" 'flock -n /run/boxpilot-upgrade.lock true'
 
+echo "5. A helper that does not come up rolls the upgrade back, though the web service answers"
+# Looking for its socket where it never is stands in for a helper that fails at start: its restart
+# exits 0 either way, and the web service's health check cannot see it.
+out="$(BOXPILOT_NODE_BIN="$NODE" BOXPILOT_HELPER_SOCKET=/run/boxpilot/not-the-helper.sock sh "$SCRIPT" "$REF" 2>&1)"; status=$?
+show "$out"
+check "the upgrade failed" '[ "$status" -ne 0 ]'
+check "it said the helper did not stay up" 'grep -q "boxpilot-helper did not stay up with its socket at /run/boxpilot/not-the-helper.sock" <<<"$out"'
+check "it rolled back" 'grep -q "rolling back to previous tree" <<<"$out"'
+check "the previous tree answers again" 'answers "$VERSION"'
+check "the helper is up again, with its socket" 'systemctl is-active --quiet boxpilot-helper.service && [ -S /run/boxpilot/helper.sock ]'
+
 if [ "$failures" -gt 0 ]; then echo "${failures} check(s) failed"; exit 1; fi
 echo "all checks passed"
