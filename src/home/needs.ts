@@ -117,6 +117,14 @@ export function buildNeeds(facts: FactValues, { now, role }: { now: number; role
   const apps = facts.catalog?.apps ?? [];
   const appName = (id: string) => apps.find((app) => app.id === id)?.name ?? facts.protection?.find((app) => app.id === id)?.name ?? id;
 
+  // ── The server went down without shutting down (2026-09-29): said once, until someone has seen it.
+  //    First among the warnings: it is what explains the rest of what came back broken. ──
+  for (const outage of (facts.outages ?? []).filter((entry) => !entry.acknowledged)) {
+    const title = outageTitle(outage, facts.inventory?.hostname || "This server", { now });
+    const seen: NeedAction | null = role === "owner" || role === "operator" ? { kind: "acknowledge", operationId: "", label: "Got it", title: `Got it: ${title}`, parameters: { id: outage.id }, preview: "", risk: "low" } : null;
+    needs.push({ id: `outage:${outage.id}`, kind: "alert", severity: "warning", title, detail: outageDetail(outage), view: "system", action: null, ...(seen ? { actions: [seen] } : {}) });
+  }
+
   // ── Health: what the watcher sees, and whatever BoxPilot could not tell anybody (M27.2). ──
   const watch = facts.watch;
   if (watch) {
@@ -133,13 +141,6 @@ export function buildNeeds(facts: FactValues, { now, role }: { now: number; role
         detail: alert.since ? `Since ${relativeTime(alert.since, now)}` : null, view: watchView(alert.family), action: null,
       });
     });
-  }
-
-  // ── The server went down without shutting down (2026-09-29): said once, until someone has seen it. ──
-  for (const outage of (facts.outages ?? []).filter((entry) => !entry.acknowledged)) {
-    const title = outageTitle(outage, facts.inventory?.hostname || "This server", { now });
-    const seen: NeedAction | null = role === "owner" || role === "operator" ? { kind: "acknowledge", operationId: "", label: "Got it", title: `Got it: ${title}`, parameters: { id: outage.id }, preview: "", risk: "low" } : null;
-    needs.push({ id: `outage:${outage.id}`, kind: "alert", severity: "warning", title, detail: outageDetail(outage), view: "system", action: null, ...(seen ? { actions: [seen] } : {}) });
   }
 
   // ── Apps: stopped, leaking, unwell. A pause is a choice, so it is said, not alarmed about. ──

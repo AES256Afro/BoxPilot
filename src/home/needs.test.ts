@@ -303,6 +303,9 @@ describe("a power cut, said once (2026-09-29)", () => {
     expect(groupByTier(needs).look).toEqual(needs);
     const [viewed] = buildNeeds(facts({ outages: [cut], inventory: host }), { now, role: "viewer" });
     expect(viewed.actions).toBeUndefined();
+    // First among the warnings: it explains what else came back broken.
+    const unheard = { ...watched, targetConfigured: false, alerts: [{ ...watched.alerts[0], announced: false }, { family: "flow.failed", title: "Automation stopped: Update night", since: null, announced: false }] };
+    expect(ids(buildNeeds(facts({ outages: [cut], inventory: host, watch: unheard }), { now, role: "owner" }))).toEqual([`outage:${cut.id}`, "unannounced", "alert:flow.failed:1"]);
   });
 
   it("is gone once someone said Got it, and the ledger's words stand in when the record cannot be read", () => {
