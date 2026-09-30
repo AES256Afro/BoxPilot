@@ -7,7 +7,7 @@
  * the job record, not into a log line. The response comes back bounded: the status, a capped body
  * excerpt, and the parsed JSON when it parses, which is what later flow steps read.
  */
-import { createCredentialStore } from "../credentials.mjs";
+import { createCredentialStore, headerUnsafe } from "../credentials.mjs";
 
 const bodyLimit = 8192;
 const methods = new Set(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"]);
@@ -32,7 +32,10 @@ export async function httpRequest(parameters = {}, { credentials = createCredent
   if (credentialName) {
     const value = await credentials.read(credentialName);
     if (value === null) throw new Error(`No credential is named ${credentialName}; save it under Settings first`);
-    headers[credentialHeader] = `${credentialPrefix}${value}`;
+    const headerValue = `${credentialPrefix}${value}`;
+    // fetch refuses such a header with an error that quotes it; say so here, without the value.
+    if (headerUnsafe.test(headerValue)) throw new Error(`The credential ${credentialName} holds a line break, which no request header can carry; save it again as one line`);
+    headers[credentialHeader] = headerValue;
     carriesCredential = true;
   }
 

@@ -252,6 +252,8 @@ async function main() {
     const devtools = new Devtools(socket);
     await devtools.send("Page.enable");
     await devtools.send("Emulation.setDeviceMetricsOverride", viewport);
+    // A phone is a touch screen (M25): the page's (pointer: coarse) rules - 44 px targets - apply.
+    if (viewport.mobile) await devtools.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 5 });
     // Pages in the chosen world, then the states, each reached from its page by its clicks.
     const inWorld = (query) => (scenario && scenario !== "default" ? `${query}${query.includes("?") ? "&" : "?"}scenario=${scenario}` : query);
     const suffix = scenario && scenario !== "default" ? `-${scenario}` : "";

@@ -6,6 +6,7 @@ import { readJson } from "../http";
 import { offBoxVerdict, type OffBoxInputs, type OffBoxVerdict } from "../offBox";
 import { followJobs, inspectOperation, type Job } from "../operations";
 import { scanFrom, type RepairScan } from "../repair/types";
+import { onRefresh } from "../shell/refresh";
 
 /*
  * What Home and Ops know about this server (M33.2, M33.3). One provider gathers it, from the
@@ -539,7 +540,9 @@ export function FactsProvider({ children }: { children: ReactNode }) {
       onJob: (job) => setFacts((current) => (mounted.current ? { ...current, jobs: { state: "ready", value: upsertJob(current.jobs.value ?? [], job), error: null } } : current)),
       onStatus: (status) => { if (status === "unavailable") setFacts((current) => (current.jobs.value ? current : { ...current, jobs: { state: "failed", value: null, error: "Job history could not be read" } })); },
     });
-    return () => { window.clearInterval(quick); window.clearInterval(slow); stopJobs(); };
+    // The bar's Refresh (M25) reads every source again in place rather than loading the page again.
+    const stopRefresh = onRefresh(() => refresh());
+    return () => { window.clearInterval(quick); window.clearInterval(slow); stopJobs(); stopRefresh(); };
   }, [active, refresh, set]);
 
   // Only a server nobody has set up goes looking for a rebuild: an established one restoring a

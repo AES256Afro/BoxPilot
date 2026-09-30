@@ -11,8 +11,13 @@
  * name resolves to an address, and every app here shares one. The port is still needed unless a
  * reverse proxy is doing the routing, and the interface says so rather than implying otherwise.
  */
+import { randomUUID } from "node:crypto";
+import { constants as fsConstants } from "node:fs";
 import path from "node:path";
-import { mkdir, readFile, writeFile, rename, unlink } from "node:fs/promises";
+import { mkdir, open, realpath, rename, unlink, writeFile } from "node:fs/promises";
+
+/** More than any server's names; a file past it is not one BoxPilot wrote. */
+const hostsFileLimit = 256 * 1024;
 
 /** The file BoxPilot owns inside the DNS app's hosts directory. */
 export const managedHostsFile = "boxpilot.list";
@@ -83,6 +88,43 @@ export function createLocalDnsService({
 
   const fileFor = (spec) => path.join(path.resolve(catalogRoot), spec.id, spec.volume, spec.hostsDirectory, managedHostsFile);
 
+  /**
+   * The hosts folder, when it is where it should be, or null when it does not exist. It lives in the
+   * DNS app's own volume, which its container writes as root: a link left there (the folder, or the
+   * volume itself) would lead the root helper to read or write somewhere else, so one that resolves
+   * anywhere but its own place is refused. `create` makes it when it is missing.
+   */
+  async function hostsFolder(spec, { create = false } = {}) {
+    const root = await realpath(path.resolve(catalogRoot));
+    const volume = path.join(root, spec.id, spec.volume);
+    const folder = path.join(volume, spec.hostsDirectory);
+    const refuse = () => { throw new Error(`${spec.label}'s hosts folder is a link to somewhere else, so BoxPilot left it alone`); };
+    const realVolume = await realpath(volume).catch(() => null);
+    if (realVolume !== null && realVolume !== volume) refuse();
+    if (create) await mkdir(folder, { recursive: true, mode: 0o755 });
+    const realFolder = await realpath(folder).catch(() => null);
+    if (realFolder === null) return null;
+    if (realFolder !== folder) refuse();
+    return folder;
+  }
+
+  /** BoxPilot's records as the file holds them: a regular file, never through a link, bounded. */
+  async function readRecords(spec) {
+    const folder = await hostsFolder(spec).catch(() => null);
+    if (!folder) return [];
+    let handle = null;
+    try {
+      handle = await open(path.join(folder, managedHostsFile), fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW | fsConstants.O_NONBLOCK);
+      const info = await handle.stat();
+      if (!info.isFile() || info.size > hostsFileLimit) return [];
+      return parseHostsFile(await handle.readFile({ encoding: "utf8" }));
+    } catch {
+      return [];
+    } finally {
+      await handle?.close().catch(() => {});
+    }
+  }
+
   /** Apps worth having a name: installed, and reachable in a browser. */
   async function nameable() {
     if (!apps) return [];
@@ -95,7 +137,7 @@ export function createLocalDnsService({
   async function inspect() {
     const spec = await platform();
     if (!spec) return { available: false, reason: "No DNS server BoxPilot can write to is installed. Install Pi-hole from the App catalog.", platform: null, records: [], apps: await nameable() };
-    const records = await readFile(fileFor(spec), "utf8").then(parseHostsFile).catch(() => []);
+    const records = await readRecords(spec);
     return { available: true, reason: null, platform: { id: spec.id, label: spec.label, running: spec.running }, file: fileFor(spec), records, apps: await nameable() };
   }
 
@@ -113,13 +155,16 @@ export function createLocalDnsService({
     const chosen = await nameable();
     const wanted = (Array.isArray(ids) ? chosen.filter((app) => ids.includes(app.id)) : chosen)
       .map((app) => ({ ...app, name: nameFor(app.id, domain), address }));
-    const file = fileFor(spec);
-    await mkdir(path.dirname(file), { recursive: true, mode: 0o755 });
+    const folder = await hostsFolder(spec, { create: true });
+    const file = path.join(folder, managedHostsFile);
     // Written to a neighbouring file and moved into place: dnsmasq watches this directory, and a
-    // partially written file is a name that does not resolve.
+    // partially written file is a name that does not resolve. The neighbour's name is new every
+    // time and created only if nothing is there, so nothing the app left in its folder is written
+    // through; the rename replaces whatever sits at the file's own name, a link included.
     const contents = renderHostsFile(wanted, { generatedAt: now().toISOString() });
-    await writeFile(`${file}.tmp`, contents, { mode: 0o644 });
-    await rename(`${file}.tmp`, file);
+    const temporary = path.join(folder, `.${managedHostsFile}.${randomUUID()}.tmp`);
+    await writeFile(temporary, contents, { mode: 0o644, flag: "wx" });
+    await rename(temporary, file).catch(async (error) => { await unlink(temporary).catch(() => {}); throw error; });
     progress?.(`Wrote ${wanted.length} name${wanted.length === 1 ? "" : "s"} to ${file}`, "stdout");
 
     // dnsmasq notices the directory changing on its own; the reload is a belt-and-braces nudge and
@@ -172,7 +217,8 @@ export function createLocalDnsService({
   async function clear({ progress = null } = {}) {
     const spec = await platform();
     if (!spec) throw new Error("No DNS server BoxPilot can write to is installed");
-    await unlink(fileFor(spec)).catch(() => {});
+    const folder = await hostsFolder(spec);
+    if (folder) await unlink(path.join(folder, managedHostsFile)).catch(() => {});
     progress?.(`Removed ${fileFor(spec)}`, "stdout");
     if (runDocker && spec.running) await runDocker(dockerBinary, ["exec", `bp-${spec.id}`, ...spec.reload], { timeout: 60_000 }).catch(() => {});
     return { cleared: true };
