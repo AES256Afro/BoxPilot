@@ -73,6 +73,10 @@ import { createAgentsRouter } from "./agents.mjs";
 import { createAgentRunnerRouter } from "./agent-runner.mjs";
 import { createAgentStore } from "../agents/store.mjs";
 import { createAgentService } from "../agents/service.mjs";
+import { generateKeyPairSync } from "node:crypto";
+import { createPushApprovals } from "../push-approvals.mjs";
+import { vapidKeysFrom } from "../web-push.mjs";
+import { createPushRouter } from "./push.mjs";
 
 const password = "correct horse battery";
 const roles = ["viewer", "operator", "owner"];
@@ -91,6 +95,8 @@ let agentStore;
 const routers = {};
 // The assistant's model (M34): a stand-in on a loopback port, so each test can read what it was shown.
 let fakeModel;
+// Push approvals (M25.2).
+let pushApprovals;
 
 // ---- the helper: canned answers per operation, and a record of what each request asked for ----
 
@@ -232,6 +238,8 @@ const changeRoutes = [
   "POST /api/v1/agents/import", "POST /api/v1/agents/:id/webhook", "DELETE /api/v1/agents/:id/webhook",
   "PUT /api/v1/agents/:id/memory/notes/:noteId", "DELETE /api/v1/agents/:id/memory/notes/:noteId", "DELETE /api/v1/agents/:id/memory/episodes/:episodeId",
   "PUT /api/v1/settings/agents",
+  // Push approvals (M25.2): a device's subscription, its removal, a test push, and the owner's choices.
+  "POST /api/v1/push/subscriptions", "DELETE /api/v1/push/subscriptions/:id", "POST /api/v1/push/test", "PUT /api/v1/settings/push",
 ];
 
 /**
@@ -351,6 +359,18 @@ const dataRoutes = {
     },
   }],
   "GET /api/v1/settings/weekly-report": [open],
+  // Push approvals (M25.2): the key to subscribe with and your own devices, for whoever can approve;
+  // where the pushes link to, for the owner alone.
+  "GET /api/v1/push": [{
+    ...open,
+    check: ({ role, body }) => {
+      expect(body.canSubscribe, role).toBe(role !== "viewer");
+      expect(body.publicKey === null, role).toBe(role === "viewer");
+      expect(body.devices.map((device) => device.label), role).toEqual(role === "owner" ? ["owner-marker phone"] : []);
+      expect(body.settings.openAt, role).toBe(role === "owner" ? "https://homebox.example.ts.net" : null);
+      expect(JSON.stringify(body), role).not.toContain("push.apple.com");
+    },
+  }],
   "GET /api/v1/settings/weekly-report/preview": [ownerOnly],
   "GET /api/v1/settings/approval-mode": [open],
   "GET /api/v1/settings/vpn-profile": [ownerOnly],
@@ -598,6 +618,10 @@ beforeAll(async () => {
   agents = createAgentService({ state, store: agentStore, registry, helper, inventory, redactor: createRedactor(), tokenPath: path.join(directory, "agents", "runner.token"), hostLoad: () => 0 });
   routers.createAgentsRouter = createAgentsRouter({ agents, state, auth });
   routers.createAgentRunnerRouter = createAgentRunnerRouter({ agents });
+  // Push approvals (M25.2), with a VAPID key made here rather than read from the state directory.
+  const vapid = vapidKeysFrom(generateKeyPairSync("ec", { namedCurve: "P-256" }).privateKey);
+  pushApprovals = createPushApprovals({ store: state, loadVapid: () => vapid });
+  routers.createPushRouter = createPushRouter({ push: pushApprovals, auth });
 
   const app = express();
   app.use(securityHeaders({}));
@@ -612,7 +636,7 @@ beforeAll(async () => {
   app.use("/api/v1", (request, response, next) => (["GET", "HEAD", "OPTIONS"].includes(request.method) ? next() : auth.requireCsrf(request, response, next)));
   app.use("/api/v1", apiRolePolicy());
   app.use("/api/v1/people", auth.requireRole("owner"));
-  for (const name of ["createPeopleRouter", "createOperationsRouter", "createJobsRouter", "createVirtualizationRouter", "createSettingsRouter", "createFirewallRouter", "createStorageRouter", "createPowerRouter", "createChecklistRouter", "createHostRouter", "createOidcAdminRouter", "createRunbookRouter", "createAssistantRouter", "createAgentsRouter"]) {
+  for (const name of ["createPeopleRouter", "createOperationsRouter", "createJobsRouter", "createVirtualizationRouter", "createSettingsRouter", "createFirewallRouter", "createStorageRouter", "createPowerRouter", "createChecklistRouter", "createHostRouter", "createOidcAdminRouter", "createRunbookRouter", "createAssistantRouter", "createAgentsRouter", "createPushRouter"]) {
     app.use("/api/v1", routers[name]);
   }
   app.use((_request, response) => { response.status(404).json({ error: "Not found" }); });
@@ -705,6 +729,10 @@ beforeAll(async () => {
   const operatorClaim = await agents.runnerNext(runnerId, { waitMs: 0 });
   await agents.runnerFinish(operatorClaim.run.id, operatorClaim.lease, { outcome: "completed", answer: "operator-marker answer" });
   fixtures.operatorRun = operatorClaim.run.id;
+
+  // The owner's phone, with pushes on (M25.2); nobody else's devices, and no endpoint, may be shown.
+  const p256dh = Buffer.concat([Buffer.from([4]), Buffer.alloc(64, 7)]).toString("base64url");
+  pushApprovals.subscribe({ id: owner.id, role: "owner" }, { subscription: { endpoint: "https://web.push.apple.com/owner-marker-endpoint", keys: { p256dh, auth: Buffer.alloc(16, 1).toString("base64url") } }, origin: "https://homebox.example.ts.net", label: "owner-marker phone" });
 
   for (const role of roles) sessions[role] = await signIn(role);
 });
