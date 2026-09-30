@@ -1,15 +1,25 @@
 import { useCallback, useRef, useState } from "react";
+import type { AutoReconnectControl } from "../../AutoReconnect";
+import { mountpointFor } from "../../mountpoints";
 import type { StorageLeadProps } from "../StorageLead";
-import { gib as fullGib, percentUsed, type DeviceRow, type StorageReport } from "../../pages/storage/types";
-import { AreaIcon } from "../../shell/areaIcons";
+import { gib as fullGib, managedMounts, percentUsed, type DeviceRow, type StorageReport, type VolumeGroup } from "../../pages/storage/types";
+import { useOperation } from "../../shell/ApproveDialog";
+import { AreaIcon, BellIcon } from "../../shell/areaIcons";
+import { Button, RiskTag, Switch, mayStart, riskOf } from "../../ui";
+import "./panel.css";
 import "./storage.css";
 
 /*
- * The top of Storage in Home + Ops (M41): the drawing's disk map (05-looks.html, blendStorage).
- * Each disk is one row: its name in mono and what it is in words, then a bar drawn to scale for
- * that disk with its partitions, its LVM volumes and snapshots, the space nothing uses yet and
- * what is not mounted, each named inside its segment where the words fit. The tabs below have the
- * details and every action; this is the picture.
+ * The top of Storage in Home + Ops (M41), as the drawing has it (05-looks.html, blendStorage): the
+ * disk map, then a row of the disks' partitions and volumes beside what needs you here and which
+ * drives reconnect by themselves when they drop.
+ *
+ * The map draws each disk as one row: its name in mono and what it is in words, then a bar to scale
+ * for that disk with its partitions, its LVM volumes and snapshots, the space nothing uses yet and
+ * what is not mounted, each named inside its segment where the words fit. The fix it offers is
+ * Drives' own ("Use the rest of the disk", the same operation at its tier through the approval
+ * dialog), and the switches are the same control Drives' rows have; mounting, formatting and
+ * sharing stay on the Drives tab below.
  */
 
 type Kind = "used" | "room" | "snap" | "boot" | "free" | "off";
@@ -151,10 +161,171 @@ function Bar({ row, width }: { row: DiskRow; width: number }) {
   );
 }
 
-export default function StorageLead({ report, loading }: StorageLeadProps) {
+export interface PartitionRow { key: string; name: string; path: string; tag: "system" | "removable" | null; size: string; filesystem: string; mountedAt: string }
+
+/** The partitions, volumes and snapshots, and any disk that holds a filesystem itself; not the disks. */
+export function partitionRows(report: StorageReport): PartitionRow[] {
+  // Each device with the disk it is on, which says whether it is the system's or removable.
+  let disk: DeviceRow | null = null;
+  const onDisk = report.devices.map((device) => {
+    if (device.type === "disk") disk = device;
+    return { device, disk: disk ?? device };
+  });
+  // A snapshot BoxPilot took is named by what it was for ("snap-before-upgrade"); its full name is its title.
+  const snapshots = new Map((report.snapshots ?? []).filter((snapshot) => snapshot.suffix).map((snapshot) => [snapshot.path, `snap-${snapshot.suffix}`]));
+  return onDisk
+    .filter(({ device }) => device.fstype !== "LVM2_member" && (device.type !== "disk" || Boolean(device.fstype)))
+    .map(({ device, disk: parent }) => ({
+      key: device.path ?? `${device.depth}:${device.uuid ?? device.sizeBytes}`,
+      name: snapshots.get(device.path ?? "") ?? device.logicalVolume ?? base(device.path),
+      path: device.path ?? "",
+      tag: snapshots.has(device.path ?? "") || device.protectedReason === "LVM snapshot" ? null
+        : device.protectedReason === "system disk" || parent.protectedReason === "system disk" ? "system" : device.removable || parent.removable ? "removable" : null,
+      size: gib(device.sizeBytes),
+      filesystem: device.fstype ?? "—",
+      mountedAt: device.mountpoints[0] ?? "—",
+    }));
+}
+
+// As Drives offers it: storage.lvm.extend keeps 32 GiB unallocated for snapshots and does nothing
+// below 256 MiB of real growth, so the offer only appears when there is something to claim.
+const snapshotReserveBytes = 32 * GiB;
+
+/** Volumes that can grow into their group's free space, with the words for where that space is. */
+export function growableVolumes(report: StorageReport): Array<{ group: VolumeGroup; volume: VolumeGroup["logicalVolumes"][number]; where: string }> {
+  // The system disk and everything on it, as the device list nests them.
+  const system = new Set<string | null>();
+  let inSystem = false;
+  for (const device of report.devices) {
+    if (device.type === "disk") inSystem = device.protectedReason === "system disk";
+    if (inSystem) system.add(device.path);
+  }
+  return report.volumeGroups
+    .filter((group) => group.freeBytes - snapshotReserveBytes >= 256 * 1024 ** 2)
+    .flatMap((group) => group.logicalVolumes.filter((volume) => volume.growable).map((volume) => ({
+      group,
+      volume,
+      where: group.physicalVolumes.every((path) => system.has(path)) ? "the system disk" : group.name ?? "the volume group",
+    })));
+}
+
+function Partitions({ report }: { report: StorageReport }) {
+  const rows = partitionRows(report);
+  const removable = report.devices.filter((device) => device.type === "disk" && device.removable).length;
+  return (
+    <section className="blend-panel" aria-labelledby="blend-parts-title">
+      <header className="blend-panel__head">
+        <h2 id="blend-parts-title" className="blend-panel__title"><AreaIcon view="logs" />Disks and partitions</h2>
+        <span className="blend-panel__meta">{removable} removable</span>
+      </header>
+      <div className="blend-table__wrap">
+        <table className="blend-table">
+          <caption className="ui-visually-hidden">Partitions, volumes and snapshots</caption>
+          <thead><tr><th scope="col">Device</th><th scope="col" className="blend-table__num">Size</th><th scope="col">Filesystem</th><th scope="col">Mounted at</th></tr></thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.key}>
+                <td><span className="blend-table__name" title={row.path}>{row.name}</span>{row.tag && <span className="blend-table__tag">{row.tag}</span>}</td>
+                <td className="blend-table__num">{row.size}</td>
+                <td>{row.filesystem}</td>
+                <td>{row.mountedAt}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function Needs({ report, role, csrfToken, onChanged }: { report: StorageReport; role: string; csrfToken: string; onChanged: () => void }) {
+  const { start, dialog } = useOperation(csrfToken, () => onChanged());
+  const growable = growableVolumes(report);
+  const may = mayStart(role, "storage.lvm.extend");
+  const risk = riskOf("storage.lvm.extend");
+  return (
+    <section className="blend-panel" aria-labelledby="blend-storage-needs-title">
+      {dialog}
+      <header className="blend-panel__head">
+        <h2 id="blend-storage-needs-title" className="blend-panel__title"><BellIcon />Needs you</h2>
+      </header>
+      {growable.length === 0
+        ? <p className="blend-panel__quiet">Nothing on the disks needs you.</p>
+        : (
+          <ul className="blend-sneeds">
+            {growable.map(({ group, volume, where }) => {
+              const title = `${gib(group.freeBytes)} of ${where} is not in use`;
+              return (
+              <li key={volume.path} className="blend-sneed">
+                <RiskTag risk={risk} className="blend-sneed__tier" />
+                <b className="blend-sneed__title">{title}</b>
+                <span className="blend-sneed__detail">Claiming it happens while running. No reboot, nothing erased.</span>
+                {may && (
+                  <span className="blend-sneed__acts">
+                    <Button risk={risk} aria-label={`Use the rest of the disk: ${title}`} onClick={() => start({
+                      operationId: "storage.lvm.extend",
+                      title: `Grow ${volume.mountpoints[0]} by ${gib(group.freeBytes - snapshotReserveBytes)}`,
+                      parameters: { path: volume.path },
+                      preview: <span>Grows the logical volume into the free space of {group.name ?? "its group"} and resizes the {volume.fstype} filesystem while mounted (<code>lvextend -r</code>), keeping <strong>32 GiB</strong> unallocated for snapshots. Existing data is untouched.</span>,
+                    })}>Use the rest of the disk</Button>
+                  </span>
+                )}
+              </li>
+              );
+            })}
+          </ul>
+        )}
+    </section>
+  );
+}
+
+function Reconnect({ report, role, control }: { report: StorageReport; role: string; control: AutoReconnectControl }) {
+  const managed = managedMounts(report);
+  const drives = report.mounts.flatMap((mount) => { const name = managed.get(mount.target); return name && mount.target === mountpointFor(name) ? [{ name, mount }] : []; });
+  const { status, pending, error } = control;
+  const period = status?.limits.windowHours === 24 ? "in the last day" : `in the last ${status?.limits.windowHours ?? 24} hours`;
+  return (
+    <section className="blend-panel" aria-labelledby="blend-drops-title">
+      <header className="blend-panel__head">
+        <h2 id="blend-drops-title" className="blend-panel__title"><AreaIcon view="network" />If a drive drops</h2>
+      </header>
+      {!status
+        ? <p className="blend-panel__quiet">{drives.length ? "Whether a drive reconnects by itself could not be read." : "No drive mounted by BoxPilot yet."}</p>
+        : drives.length === 0 ? <p className="blend-panel__quiet">No drive mounted by BoxPilot yet.</p>
+          : (
+            <ul className="blend-drops">
+              {drives.map(({ name, mount }) => {
+                const armed = status.drives[name] ?? null;
+                const waiting = armed && !armed.enabled ? "Paused on Automations."
+                  : armed?.held ? `Waiting for you: ${armed.heldBecause ?? "the last automatic reconnect did not work"}.`
+                    : armed?.lastCheckFoundErrors ? "Waiting for you: its last check found errors." : null;
+                return (
+                  <li key={name} className="blend-drop">
+                    <Switch
+                      className="blend-drop__switch"
+                      checked={Boolean(armed)}
+                      busy={pending === name}
+                      disabled={!mayStart(role, "storage.remount")}
+                      onChange={(on) => void (on ? control.arm(name) : control.disarm(name))}
+                      label={<>{mount.target}<span className="ui-visually-hidden">: reconnect if it drops</span></>}
+                      description={armed ? `Reconnects by itself · ${armed.attempts} of ${status.limits.maxAttempts} tries used ${period}` : "Stays down until it is reconnected"}
+                    />
+                    {waiting && <p className="blend-drop__waiting">{waiting}</p>}
+                    {error?.drive === name && <p className="blend-drop__error" role="alert">{error.message}</p>}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+    </section>
+  );
+}
+
+export default function StorageLead({ report, loading, csrfToken, role, autoReconnect, onChanged }: StorageLeadProps) {
   const [measure, width] = useWidth();
   const rows = report ? diskRows(report) : [];
   return (
+    <>
     <section className="blend-map" aria-labelledby="blend-map-title">
       <header className="blend-map__head">
         <h2 id="blend-map-title" className="blend-map__title"><AreaIcon view="storage" />Disk map</h2>
@@ -180,5 +351,15 @@ export default function StorageLead({ report, loading }: StorageLeadProps) {
         <li><i data-kind="boot" aria-hidden="true" />Boot</li>
       </ul>
     </section>
+    {report && (
+      <div className="blend-scols">
+        <Partitions report={report} />
+        <div className="blend-sstack">
+          <Needs report={report} role={role} csrfToken={csrfToken} onChanged={onChanged} />
+          <Reconnect report={report} role={role} control={autoReconnect} />
+        </div>
+      </div>
+    )}
+    </>
   );
 }
