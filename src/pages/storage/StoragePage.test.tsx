@@ -353,6 +353,19 @@ describe("Storage page", () => {
       expect(screen.queryByRole("dialog", { name: "Add a share" })).toBeNull();
     });
 
+    it("names the folder waiting beside Install Samba when Share is pressed before Samba is installed", async () => {
+      mockFetch({
+        overview: { ...report, devices: [...report.devices, { ...base, path: "/dev/sdd1", type: "part", sizeBytes: GiB, fstype: "ext4", uuid: "dump-uuid", label: "the-dump", model: null, transport: null, mountpoints: ["/mnt/the-dump"], readOnly: false, removable: true, depth: 0 }] },
+        samba: { ...samba, installed: false, running: null, configured: false, config: { ...samba.config, managed: false, shares: [] }, users: [] },
+      });
+      render(<StoragePage csrfToken="csrf-token" />);
+      fireEvent.click(await screen.findByRole("button", { name: "Share /mnt/the-dump on the network" }));
+      expect(await screen.findByText("Samba is not installed")).toBeTruthy();
+      // No sheet whose share would go into a list this tab does not draw yet.
+      expect(screen.queryByRole("dialog", { name: "Add a share" })).toBeNull();
+      expect(screen.getByText(/Install it first to share/).textContent).toContain("/mnt/the-dump");
+    });
+
     it("says the firewall has to allow SMB on the LAN, and goes there", async () => {
       const onNavigate = vi.fn();
       mockFetch();
