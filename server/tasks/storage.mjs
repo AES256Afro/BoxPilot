@@ -685,7 +685,11 @@ async function withDriveUnmounted(name, { verb, purpose, prepare, work }, { run,
   const prepared = await prepare(drive);
 
   const bound = await containersBoundTo(run, mountpoint);
-  for (const container of bound) { log?.(`$ docker stop ${container}`, "stdout"); await run(binaries.docker, ["stop", container], { timeout: 120_000 }); }
+  for (const container of bound) {
+    log?.(`$ docker stop ${container}`, "stdout");
+    const stopped = await run(binaries.docker, ["stop", container], { timeout: 120_000 });
+    if (!stopped.ok) log?.(`could not stop ${container}: ${tail(stopped.stderr) || `exit ${stopped.code ?? "?"}`}`, "stderr");
+  }
   const started = []; const restartFailed = [];
   const restart = async () => {
     for (const container of bound) {
@@ -697,8 +701,14 @@ async function withDriveUnmounted(name, { verb, purpose, prepare, work }, { run,
   // An app that did not stop - one stuck on I/O from the drive that dropped is the usual one - keeps
   // the filesystem mounted in its own namespace after the host's umount succeeds. A check then reads
   // a live filesystem, and clearing the mark writes to one. Asked of Docker, not of the stop's exit.
+  // Docker's own list can say "running" for a moment after a stop returns, so it is asked again for
+  // up to ten seconds before a container counts as not stopped.
   if (bound.length) {
-    const stillRunning = await containersBoundTo(run, mountpoint);
+    let stillRunning = await containersBoundTo(run, mountpoint);
+    for (let tries = 0; stillRunning.length && tries < 20; tries += 1) {
+      await sleep(500);
+      stillRunning = await containersBoundTo(run, mountpoint);
+    }
     if (stillRunning.length) {
       await restart();
       throw new Error(`${listOf(stillRunning)} did not stop, so ${mountpoint} was not unmounted and nothing was done to it. An app stuck on the drive may need its container stopped by hand, or a reboot.`);
