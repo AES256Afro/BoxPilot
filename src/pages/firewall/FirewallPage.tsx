@@ -355,7 +355,7 @@ export default function FirewallPage({ csrfToken, role = "owner", now = Date.now
 
       {error && <Notice tone="danger" live title="The firewall could not be read" action={<Button onClick={() => void refresh()}>Try again</Button>}>{error}</Notice>}
       {overview?.reportError && !error && <Notice tone="warning" title="ufw could not be read">{overview.reportError}</Notice>}
-      {planError && <Notice tone="danger" live title="The plan could not be built" onDismiss={() => setPlanError(null)}>{planError}</Notice>}
+      {planError && sheet !== "profile" && <Notice tone="danger" live title="The plan could not be built" onDismiss={() => setPlanError(null)}>{planError}</Notice>}
 
       {notInstalled ? (
         <Panel title="ufw" count={{ status: "warning", label: "not installed" }}>
@@ -390,7 +390,8 @@ export default function FirewallPage({ csrfToken, role = "owner", now = Date.now
           onChange={(next) => { setChoiceTouched(true); setChoice(next); }}
           onReview={() => void reviewProfile()}
           planning={planning}
-          onClose={() => setSheet(null)}
+          error={planError}
+          onClose={() => { setSheet(null); setPlanError(null); }}
         />
       )}
 
