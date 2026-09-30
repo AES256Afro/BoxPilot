@@ -1,14 +1,13 @@
 /* Home in the Command Center (M41): docs/design-directions/05-looks.html, M.opsHome. The console's
    own tokens (--cc-*), so light and dark come with them; every selector starts with .console-. */
 
-/* Set in from the rail as drawn: the drawing's rail is wider, so the page starts where its does. */
-.console-home { display: grid; gap: 12px; min-width: 0; padding: 0 9px 0 23px; }
+.console-home { display: grid; gap: 12px; min-width: 0; padding-inline: 9px; }
 
 /* The name in the compact bar: "homebox / home", then the host's facts in mono. */
 .console-crumb .cc-crumb__host { flex: none; font-size: 18px; font-weight: 600; }
 .console-crumb .cc-crumb__sep { font-size: 18px; }
 .console-crumb__page { flex: none; color: var(--cc-muted); font-size: 18px; font-weight: 400; line-height: 1.2; }
-.console-crumb .cc-kv { margin-left: 14px; font-size: 13.5px; }
+.console-crumb .cc-kv { margin-left: 14px; font-size: 14px; }
 
 /* The verdict: the chip, the greeting and one sentence, Read again at the far right. */
 .console-verdict { display: flex; align-items: center; gap: 12px; min-height: 38px; margin: -6px 0 -6px; }
@@ -29,6 +28,9 @@
 .console-strip .ui-metric__caption { padding-right: 78px; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .console-strip .ui-metric:has(.ui-metric__bar) .ui-metric__caption { padding-right: 0; }
 .console-strip .ui-metric__graphic { right: 14px; bottom: 14px; width: 70px; height: 25px; }
+/* The drawing's sparklines are a line only. */
+.console-strip .ui-spark__area { fill: none; }
+.console-strip .ui-spark__line { stroke-width: 1.6; }
 .console-strip .ui-metric__bar { height: 5px; margin-top: 6px; }
 
 /* Two columns: the apps and last night's jobs; the inbox and the backups. */
@@ -104,7 +106,24 @@
 .console-home .console-inbox .need--lead > .need__tier-tag { grid-column: 1; grid-row: 1 / span 2; width: 100%; }
 .console-home .console-inbox .need--lead .need__tier-tag .ui-risk { justify-content: center; padding: 5px 0; border-radius: 2px; font-size: 11.5px; line-height: 1.2; }
 .console-home .console-inbox .need--lead .need__tier-tag .ui-risk--low { background: transparent; }
-.console-home .console-inbox .need--lead > .need__mark { grid-column: 1; grid-row: 1; justify-self: center; margin-top: 6px; }
+/* A note, which has no fix and so no tier, is led by a box of the same shape reading NOTE. */
+.console-home .console-inbox .need--lead > .need__mark:first-child {
+  display: flex;
+  grid-column: 1;
+  grid-row: 1 / span 2;
+  justify-content: center;
+  align-self: start;
+  width: 100%;
+  height: auto;
+  margin: 0;
+  padding: 5px 0;
+  border: 1px solid var(--cc-line-strong);
+  border-radius: 2px;
+  background: transparent;
+  clip-path: none;
+  transform: none;
+}
+.console-home .console-inbox .need--lead > .need__mark:first-child::before { color: var(--cc-muted); content: "NOTE"; font: 700 11.5px/1.2 var(--font-mono); letter-spacing: 0.05em; }
 /* Beside a tier the mark is left out, as drawn, except for a problem, which keeps its red diamond. */
 .console-home .console-inbox .need--lead > .need__tier-tag ~ .need__mark { display: none; }
 .console-home .console-inbox .need--lead[data-severity="danger"] { position: relative; }

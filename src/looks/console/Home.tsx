@@ -111,7 +111,9 @@ export default function ConsoleHome({ csrfToken, role, onNavigate, now = Date.no
   const drillWords = lastDrill ? `${lastDrill.verified ? "drill passed" : "drill failed"} ${relativeTime(lastDrill.checkedAt, clock) ?? ""}`.trim() : undefined;
   const appsBar = glance.apps.bar ? Math.round((glance.apps.bar.value / (glance.apps.bar.max || 1)) * 100) : null;
 
-  // The inbox: every need, worst first; each fix led by its tier.
+  // The inbox: every need, those with a fix first, each led by its tier; then the notes, which have
+  // none. Worst first within each, as buildNeeds sorts them.
+  const inbox = [...needs.filter((need) => runs(need)), ...needs.filter((need) => !runs(need))];
   const runnable = needs.filter((need) => runs(need)).length;
 
   return (
@@ -223,7 +225,7 @@ export default function ConsoleHome({ csrfToken, role, onNavigate, now = Date.no
             meta={<><b>L</b> one click · <b>M</b> preview · <b>H</b> password</>}>
             {needs.length === 0
               ? <p className="ops-quiet">{checking ? "Reading this server…" : unread.length ? `Nothing wrong in what could be read. Not read: ${sentenceList(unread)}.` : "Nothing needs you right now."}</p>
-              : <ul className="need-list">{needs.map((need) => <NeedRow key={need.id} need={need} onOpen={open} onAct={act} tier="lead" run={runOf(need)} />)}</ul>}
+              : <ul className="need-list">{inbox.map((need) => <NeedRow key={need.id} need={need} onOpen={open} onAct={act} tier="lead" run={runOf(need)} />)}</ul>}
           </Panel>
 
           <Panel className="console-backups" title="Backups" meta={drillWords}>

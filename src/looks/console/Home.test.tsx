@@ -28,6 +28,21 @@ describe("Home in the Command Center", () => {
     expect(install.closest("li")?.querySelector(".need__tier-tag")?.textContent).toBe("Med risk");
   });
 
+  it("leads the inbox with what can be run, and a note after them", async () => {
+    vi.stubGlobal("fetch", stubFetch({ "/api/v1/settings/watch": { targetConfigured: true, conditions: [
+      { key: "dns.single", active: true, details: [{ title: "If homebox goes down, every device on your network loses the internet", since: null, announced: true }] },
+    ], notices: [] } }));
+    renderHome();
+    const inbox = await screen.findByRole("region", { name: "Action inbox" });
+    await within(inbox).findByRole("button", { name: /If homebox goes down/ });
+    const rows = [...inbox.querySelectorAll(".need")];
+    const titles = rows.map((row) => row.querySelector(".need__title")?.textContent);
+    // Worst first among those with a fix, then the note, which has none: a warning, but nothing to run.
+    expect(titles).toEqual(["Problem: Vaultwarden is not running", "Needs a look: 4 updates available", "Suggestion: An update for Jellyfin", "Needs a look: If homebox goes down, every device on your network loses the internet"]);
+    expect(rows[3].querySelector(".need__tier-tag")).toBeNull();
+    expect(rows[3].firstElementChild?.classList.contains("need__mark")).toBe(true);
+  });
+
   it("runs a fix through the approval dialog at its tier", async () => {
     vi.stubGlobal("fetch", stubFetch());
     renderHome();
