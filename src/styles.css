@@ -3606,6 +3606,11 @@ body {
 .need__acts .need__act { margin-left: 0; }
 .need__run { color: var(--text-muted); font-size: var(--font-size-sm); line-height: 1.4; overflow-wrap: anywhere; }
 .lx-fixed { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 8px 0 0; color: var(--text); font-size: 13.5px; line-height: 1.4; }
+/* Home's power news under the System figures (M39.1): when, and what happened, a line each. */
+.lx-news { display: grid; gap: 6px; margin: 4px 0 0; padding: 8px 0 0; border-top: 1px solid var(--lx-hairline); list-style: none; }
+.lx-news__item { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; min-width: 0; color: var(--lx-ink); font-size: 13px; line-height: 1.4; overflow-wrap: anywhere; }
+.lx-news__item > .ui-chip { flex: none; }
+.lx-news__detail { color: var(--lx-ink-muted); }
 
 @media (max-width: 620px) {
   .need__acts { flex: 1 1 100%; justify-content: flex-start; margin-left: 0; }

@@ -2178,6 +2178,87 @@ nothing leaves the server unless the owner says so, and no account is made with 
   read `is:dm` and `is:mentioned` after the last seen id; the reply is an ordinary queued post.
   Cards it proposes still link back to BoxPilot; nothing is approved in chat.
 
+## M39 — Keep the house running when bigbox doesn't
+
+On 2026-09-29 the owner's server lost power at 18:41 UTC. The journal simply stops; the next boot's
+reset reason was an ACPI power-state transition. The firmware leaves the board off after AC loss,
+so it stayed off for 3 h 37 min until someone pressed the button, and there was no UPS. Pi-hole on
+it is the LAN's DNS, so the whole house lost its network, which is how anyone noticed. Approved by
+the owner: "Keep the house running when bigbox doesn't". Two halves: the hardware (a UPS, a
+watchdog, powering back on) and the network (DNS that survives the server, being told when it is
+down), then a report of what an outage did.
+
+- ✅ **M39.1 The UPS, finished** (unreleased, `feat/m39-power`). BoxPilot read a UPS and had a
+  one-shot setup that had never met a real NUT. Measured on NUT 2.8.1 (Ubuntu 24.04) and 2.8.4
+  (26.04) by `tests/ubuntu/ups-power-events.sh`, a CI job on both, with NUT's `dummy-ups` in place
+  of a UPS on USB, BoxPilot's own setup and shutdown code, a Docker app, and only the power-off
+  stubbed:
+  - *Setup that works on NUT 2.8.* Drivers there are systemd units (`nut-driver@<name>`, made by
+    `nut-driver-enumerator` from ups.conf). The old setup ran `upsdrvctl start` beside them; each
+    kills the other's copy, and upsmon, seeing an on-battery UPS stop answering, shuts the server
+    down. And on 2.8.4 the package starts upsd at install with no UPS defined, until systemd's
+    start limit refuses every later start. `ups.setup` (medium) now stops the monitor first,
+    holds `nut-driver-enumerator.path` while it writes and writes ups.conf last (so the
+    enumerator runs once, on the finished configuration), restarts the driver through the
+    enumerator (2.7's single unit, or upsdrvctl only where neither exists), clears the start
+    limit, waits past 2.8.4's `WAIT` for a real status, and proves the monitor logged in
+    (`upsc -c`). NUT's files are 0640 root:nut, as the package ships them. The guided setup on
+    System › Power is three steps: the USB cable (found from sysfs; `nut-scanner` needs libusb,
+    which the package does not pull in), NUT (`apt.install`), monitoring.
+  - *A clean shutdown the way BoxPilot's reboot does it.* upsmon's `SHUTDOWNCMD` is
+    `/etc/nut/boxpilot-shutdown`, which runs `scripts/boxpilot-ups-shutdown.mjs`: M26's
+    `prepareDrivesForReboot` with every app (a database on the system disk is as much at risk as
+    one on a drive), bounded at 60 s, then powers off whatever happened. Docker is stopped as a
+    shutdown stops it, so every app comes back by its restart policy (checked). upsmon leaves
+    `/etc/killpower`, so the UPS switches its outlets off after the power-off and on again when the
+    mains returns. With shutdown off, the script only notes it and no killpower flag is set.
+  - *The owner's thresholds.* Optional low-battery percent (10–90) and minutes left (2–30) become
+    `ignorelb` with `override.battery.charge.low`/`override.battery.runtime.low`: the driver
+    raises low battery itself (checked: a charge of 40 under a threshold of 50, with no LB from
+    the UPS). System shows when the shutdown starts, whichever decides it.
+  - *The power-event log.* `NOTIFYCMD /etc/nut/boxpilot-notify` (run by upsmon as `nut`) writes
+    on battery, back on mains, low battery, the shutdown, lost contact and a battery to replace to
+    `/var/lib/boxpilot-power/events.log`, with charge and runtime; the shutdown adds how many apps
+    stopped and drives unmounted, then the power-off. `server/power-events.mjs` reads it (known
+    names and numeric fields only) and adds "started again" when this boot came after a
+    power-off. System › Power lists it; Home tells the last week's outages as short news under
+    the system figures ("The power came back after 4 min").
+- **M39.2 DNS that survives the server** (`feat/m39-network`): a fallback so the house keeps
+  resolving when Pi-hole's host is down.
+- **M39.3 Told when the server is down** (`feat/m39-network`): an alert from off the box.
+- ✅ **M39.4 A frozen server restarts itself** (unreleased, `feat/m39-power`). Ubuntu's kernel
+  packages blacklist every watchdog driver (`sp5100_tco`, `iTCO_wdt`, `softdog`), so a board with
+  a watchdog usually shows no `/dev/watchdog`. `power.hardware.inspect` (operator, root: it reads
+  the kernel's module list) says what is there: on, off, loadable (the chipset's driver is on disk
+  but not loaded), off in the firmware, a virtual machine (its host decides), or only softdog
+  (which cannot restart a frozen kernel). `power.watchdog.enable` (medium, off by default; its
+  preview says a hang now reboots the server) loads the driver by name if needed, writes
+  `/etc/systemd/system.conf.d/90-boxpilot-watchdog.conf` (`RuntimeWatchdogSec=60s`, 2 or 5 min if
+  chosen, and `RebootWatchdogSec=10min`), reloads systemd and checks `systemctl show` and `wdctl`;
+  anything that does not check out is undone. A watchdog that can never be stopped (nowayout) is
+  refused. `power.watchdog.disable` (low) removes BoxPilot's files and proves it stopped.
+  Measured by `tests/ubuntu/watchdog-softdog.sh` on both releases, softdog standing in for the
+  board: a daemon-reload is enough for systemd to take the drop-in; systemd-modules-load honours
+  the blacklist ("Module 'softdog' is deny-listed"), so a modules-load.d line alone loads nothing,
+  and the drop-in BoxPilot gives `systemd-modules-load.service` (`ExecStartPost=-modprobe <driver>`)
+  does. No hang is simulated.
+- **M39.5 The after-outage report**: what an outage did, from the power-loss notice, the event
+  log and what came back (the power-loss notice itself is on `feat/repair-dns-power`).
+- ✅ **M39.6 Power back on after an outage** (unreleased, `feat/m39-power`). BoxPilot cannot change
+  the firmware, so `powerOnGuidance()` in `server/power-on-guidance.mjs` (the hook the power-loss
+  notice calls) says where "Restore on AC power loss → Power On" is on ASUS, MSI, Gigabyte
+  ("AC BACK → Always On"), ASRock, Dell, HP, Lenovo and Intel NUC boards, this board's maker first
+  (from DMI), and why "Last State" is not enough after a clean shutdown. It is on System › Power
+  (`?tab=power`, `#power-on`). Wake-on-LAN, where a wired port supports magic-packet wake:
+  `power.wake-on-lan.set` (medium) writes `/etc/systemd/network/50-boxpilot-wake-on-lan-<port>.link`
+  with the naming rules of the file that applied before and `WakeOnLan=magic`, asks udev
+  (`udevadm test-builtin net_setup_link`) that it is the file that applies, and turns wake-on on
+  with ethtool; a netplan-generated file that outranks it (as on the CI runners) is refused and
+  undone, with what to add to netplan instead. Measured on real udev by
+  `tests/ubuntu/wake-on-lan-link.sh` with a stand-in ethtool, since no runner port can wake.
+  Physical steps stay the owner's: the firmware setting, and Wake-on-LAN ("Power On By PCI-E")
+  on with ErP off.
+
 ## App catalogue candidates
 
 Checked against the 164 manifests already in `catalog/`, so nothing here duplicates an existing

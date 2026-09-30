@@ -11,6 +11,7 @@ import { AppSheet } from "./AppSheet";
 import { useFacts, valuesOf } from "./facts";
 import { greeting, loadStatus, mountName, mountStatus, relativeTime, shortCpu, size, uptime } from "./format";
 import { smartSummary, upsSummary } from "./hostFacts";
+import { powerNews } from "../powerEvents";
 import { NeedRow } from "./NeedRow";
 import { AgentsGlance } from "../pages/agents/AgentsGlance";
 import { useNeedActions } from "./useNeedActions";
@@ -33,6 +34,15 @@ export interface HomeProps {
   role: string;
   onNavigate: (view: ViewName, options?: { app?: string }) => void;
   now?: () => number;
+}
+
+/** When a piece of power news happened: the time today, the weekday this week. */
+function newsTime(at: string, now: number): string {
+  const date = new Date(at);
+  const today = new Date(now);
+  return date.toDateString() === today.toDateString()
+    ? date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    : date.toLocaleDateString([], { weekday: "short", hour: "2-digit", minute: "2-digit" });
 }
 
 /** How many of each list show before "Show all". */
@@ -103,6 +113,8 @@ export default function Home({ csrfToken, role, onNavigate, now = Date.now }: Ho
 
   const diskWords = smartSummary(inventory?.smart ?? null);
   const power = upsSummary(inventory?.ups ?? null);
+  // The last week's outages and what the server did about them, as news (M39.1).
+  const news = powerNews(inventory?.powerEvents ?? [], clock);
 
   const shownNeeds = allUrgent ? urgent : urgent.slice(0, shownUrgent);
   const shownWait = allWaiting ? waiting : waiting.slice(0, shownWaiting);
@@ -161,6 +173,16 @@ export default function Home({ csrfToken, role, onNavigate, now = Date.now }: Ho
                   status={power.status} bar={inventory.ups.charge === null ? undefined : { value: inventory.ups.charge }} onSelect={() => onNavigate("ops")} />
               )}
             </div>
+            {news.length > 0 && (
+              <ul className="lx-news" aria-label="Power news">
+                {news.map((item) => (
+                  <li key={`${item.at}-${item.event}`} className="lx-news__item">
+                    <StatusChip status={item.status}>{newsTime(item.at, clock)}</StatusChip>
+                    <span>{item.title}{item.detail ? <span className="lx-news__detail">{`, ${item.detail}`}</span> : null}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
           </Section>
         </div>
 
