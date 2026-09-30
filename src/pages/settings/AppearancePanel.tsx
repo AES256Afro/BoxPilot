@@ -41,11 +41,21 @@ function useTrialFrom(): [LookId | null, (look: LookId | null) => void] {
   return [useSyncExternalStore(subscribeTrial, () => onTrialFrom, () => null), setTrialFrom];
 }
 
-const wallpaperPictures: Record<(typeof WALLPAPERS)[number]["id"], string> = {
-  sea: "radial-gradient(80% 100% at 10% 0%, rgba(30,110,108,.8), transparent 65%), radial-gradient(70% 90% at 100% 0%, rgba(210,108,44,.55), transparent 62%), linear-gradient(160deg, #193240, #161e2c)",
-  dusk: "linear-gradient(160deg, #1f2940, #33243f)",
-  meadow: "linear-gradient(160deg, #dfe9d8, #f3e3c8)",
-  plain: "#8a939c",
+// Each wallpaper as it looks in the scheme on screen: the --wall-* values in looks.css and styles.css.
+const wall = (sea: string, sun: string, start: string, end: string) => `radial-gradient(80% 100% at 10% 0%, ${sea}, transparent 65%), radial-gradient(70% 90% at 100% 0%, ${sun}, transparent 62%), linear-gradient(160deg, ${start}, ${end})`;
+const wallpaperPictures: Record<"light" | "dark", Record<(typeof WALLPAPERS)[number]["id"], string>> = {
+  light: {
+    sea: wall("rgba(150,200,222,.8)", "rgba(250,190,150,.75)", "#e4eef5", "#f6ece2"),
+    dusk: wall("rgba(196,176,232,.75)", "rgba(246,176,150,.7)", "#e9e2f1", "#f5e4df"),
+    meadow: wall("rgba(168,210,170,.75)", "rgba(246,214,150,.7)", "#e1ecdb", "#f4e8cf"),
+    plain: "linear-gradient(160deg, #e8ecef, #e2e7eb)",
+  },
+  dark: {
+    sea: wall("rgba(30,110,108,.8)", "rgba(210,108,44,.55)", "#193240", "#161e2c"),
+    dusk: wall("rgba(92,70,150,.65)", "rgba(190,90,70,.42)", "#1f2940", "#33243f"),
+    meadow: wall("rgba(40,110,70,.62)", "rgba(170,130,40,.4)", "#182a22", "#262618"),
+    plain: "linear-gradient(160deg, #1b232b, #161d24)",
+  },
 };
 
 export default function AppearancePanel() {
@@ -131,7 +141,7 @@ export default function AppearancePanel() {
           <small>{current.personal ? "Behind the glass." : `Used by Home + Ops and the Launcher.`}</small>
           <div className="settings-swatches" role="radiogroup" aria-label="Wallpaper" onKeyDown={(event) => handleRadioKeys(event, (next) => choice.update({ wallpaper: next as typeof choice.wallpaper }))}>
             {WALLPAPERS.map((wallpaper) => (
-              <button key={wallpaper.id} type="button" role="radio" aria-checked={choice.wallpaper === wallpaper.id} aria-label={wallpaper.label} tabIndex={choice.wallpaper === wallpaper.id ? 0 : -1} data-value={wallpaper.id} className="settings-wallpaper" style={{ background: wallpaperPictures[wallpaper.id] }} onClick={() => choice.update({ wallpaper: wallpaper.id })} />
+              <button key={wallpaper.id} type="button" role="radio" aria-checked={choice.wallpaper === wallpaper.id} aria-label={wallpaper.label} tabIndex={choice.wallpaper === wallpaper.id ? 0 : -1} data-value={wallpaper.id} className="settings-wallpaper" style={{ background: wallpaperPictures[dark ? "dark" : "light"][wallpaper.id] }} onClick={() => choice.update({ wallpaper: wallpaper.id })} />
             ))}
           </div>
         </div>
