@@ -231,6 +231,8 @@
 :root[data-look="blend"] .sidebar-host__facts { gap: 5px; color: var(--lx-ink-muted); font-size: 12.45px; }
 :root[data-look="blend"] .sidebar-host__facts::before { width: 7.5px; height: 7.5px; background: var(--lx-good); }
 :root[data-look="blend"] .sidebar-host__facts[data-status="warning"]::before { background: var(--lx-warning); }
+:root[data-look="blend"] .sidebar-host__facts[data-status="danger"]::before { background: var(--lx-danger); }
+:root[data-look="blend"] .sidebar-host__facts:is([data-status="unknown"], [data-status="neutral"])::before { box-sizing: border-box; border: 1.5px dashed var(--lx-ink-muted); background: transparent; }
 :root[data-look="blend"] .sidebar-group { gap: 1px; }
 :root[data-look="blend"] .sidebar-group__title { margin: 0; padding: 10px 10px 3.7px; color: var(--lx-ink-muted); font: 600 10.5px/1.2 var(--blend-label); letter-spacing: 0.13em; }
 :root[data-look="blend"] .sidebar-group__list,
@@ -308,9 +310,9 @@
 :root[data-look="blend"] .app-shell :is(.view-switch__option[aria-current="page"], .ui-theme-switch__option[aria-checked="true"]) { border-color: transparent; color: var(--lx-pill-ink); background: var(--lx-pill); box-shadow: none; }
 /* The search, at the top right as drawn: "Search…" and Ctrl K in a glass pill. */
 :root[data-look="blend"] .command-trigger {
-  order: 3;
-  flex: 0 1 306px;
-  max-width: 306px;
+  order: 2;
+  flex: 0 1 340px;
+  max-width: 340px;
   min-height: 34px;
   margin: 17.5px 0 -7px;
   padding: 0 13px;
@@ -327,8 +329,34 @@
 :root[data-look="blend"] .command-trigger:hover { color: var(--lx-ink); border-color: var(--lx-glass-border); }
 :root[data-look="blend"] .command-trigger__icon { width: 15px; height: 15px; }
 :root[data-look="blend"] .command-trigger__keys { padding: 0.6px 4.6px; border: 1px solid currentColor; border-radius: 3.5px; color: inherit; background: transparent; font: 600 11.5px/1.2 var(--font-mono); opacity: 0.75; }
-/* The bell, Activity, the theme and who is signed in, small, before the search. */
-:root[data-look="blend"] .topbar-right { order: 2; gap: 6px; margin: 19.5px 0 -5px; }
+/* After the search, only the bell and the account menu: the menu holds Activity, light or dark,
+   Settings and Sign out, whose own controls stay mounted (hidden) so they still open from
+   anywhere. The elevated session's lock stays in sight while it lasts. */
+:root[data-look="blend"] .topbar-right { order: 3; flex: none; gap: 4px; margin: 19.5px 0 -5px; }
+:root[data-look="blend"] .topbar :is(.ui-theme-switch, .bar-activity, .bar-sign-out, .signed-in-user, .bar-tiers, .bar-role) { display: none; }
+:root[data-look="blend"] .account-menu { display: flex; }
+:root[data-look="blend"] .account-menu__button { width: 34px; height: 34px; border-radius: 50%; }
+:root[data-look="blend"] .account-menu__avatar { width: 28px; height: 28px; color: var(--lx-avatar-ink); background: var(--lx-avatar); font: 700 12.5px/1 var(--font-sans); }
+:root[data-look="blend"] .account-menu__button[aria-expanded="true"] .account-menu__avatar { box-shadow: 0 0 0 2px var(--lx-badge-ring), 0 0 0 4px var(--lx-pill); }
+:root[data-look="blend"] .account-menu__list {
+  min-width: 216px;
+  padding: 7px;
+  border: 1px solid var(--lx-glass-border);
+  border-radius: 16px;
+  color: var(--lx-ink);
+  background: var(--blend-sheet);
+  box-shadow: var(--blend-shadow);
+  -webkit-backdrop-filter: blur(24px) saturate(1.3);
+  backdrop-filter: blur(24px) saturate(1.3);
+  font-family: var(--font-sans);
+}
+:root[data-look="blend"] .account-menu__who { border-bottom-color: var(--lx-hairline); color: var(--lx-ink-muted); }
+:root[data-look="blend"] .account-menu__group { border-color: var(--lx-hairline); }
+:root[data-look="blend"] .account-menu__item { border-radius: 9px; color: var(--lx-ink); font-size: 14px; }
+:root[data-look="blend"] .account-menu__item:is(:hover, :focus-visible) { color: var(--lx-ink); background: var(--lx-glass-raised); }
+:root[data-look="blend"] .account-menu__item--choice { border-radius: 999px; font-size: 13px; }
+:root[data-look="blend"] .account-menu__item--choice[aria-checked="true"] { color: var(--lx-pill-ink); background: var(--lx-pill); }
+:root[data-look="blend"] .account-menu__item--out { color: var(--lx-danger-text); }
 :root[data-look="blend"] .bar-button { min-height: 30px; padding: 0 9px; border-radius: 999px; color: var(--lx-ink-muted); font: 600 13px/1 var(--font-sans); }
 :root[data-look="blend"] .bar-button:hover,
 :root[data-look="blend"] .bar-button[aria-expanded="true"] { color: var(--lx-ink); background: var(--lx-glass); }
@@ -632,10 +660,24 @@
 :root[data-look="blend"] .command-close { border-color: var(--lx-glass-border); border-radius: 999px; background: var(--lx-glass-raised); }
 :root[data-look="blend"] .notifications-entry[data-new] { box-shadow: inset 3px 0 0 var(--lx-warning); }
 
-/* Ops' grid is denser than any other page: its panels keep a narrower edge, so its tables fit. */
+/* Storage: the lead under the map offers the Drives tab's "Use the rest of the disk" as the drawing
+   does, so the tab's own card for it is not drawn a second time. */
+:root[data-look="blend"] .storage-page:has(.blend-sneed) .ui-tabs__panel:has(> .ui-panel .storage-device) > .ui-notice--info { display: none; }
+
+/* Ops' grid is denser than any other page: its panels keep a narrower edge, so its tables fit.
+   Beside the sidebar the page is as wide as the console's at 1280 px, so it takes that layout
+   (styles.css: two columns of short panels, the tables across the page) until there is room. */
 :root[data-look="blend"] .cc .ops-grid .ui-panel__head { padding: 14px 14px 7px; }
 :root[data-look="blend"] .cc .ops-grid .ui-panel__body { padding: 0 11px 10px; }
 :root[data-look="blend"] .cc .ops-grid .ui-panel--padded > .ui-panel__body { padding: 4px 14px 14px; }
+@media (min-width: 761px) and (max-width: 1640px) {
+  :root[data-look="blend"] .ops-grid { grid-auto-flow: row dense; }
+  :root[data-look="blend"] .ops-grid > :is(.ops-alerts, .ops-inbox, .ops-disks, .ops-services) { grid-column: span 6; }
+  :root[data-look="blend"] .ops-grid > :is(.ops-containers, .ops-jobs, .ops-backups, .ops-setup, .ops-power) { grid-column: span 12; }
+}
+/* A figure's line sits beside the figure, so its label keeps the cell's width ("Hottest sensor"). */
+:root[data-look="blend"] .ui-metric-strip .ui-metric__graphic { top: 36px; }
+:root[data-look="blend"] .ui-metric-strip .ui-metric:has(.ui-metric__graphic) .ui-metric__label { padding-right: 0; }
 
 /* ── Settings → Appearance: the whole page on one big pane of glass, as the drawing (settings)
    draws it: the pane runs from the top of the window to the bottom beside the sidebar, and the
