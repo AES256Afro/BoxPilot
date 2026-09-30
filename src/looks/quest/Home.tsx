@@ -103,6 +103,7 @@ export default function QuestHome({ csrfToken, role, onNavigate, now = Date.now 
   const { act, runs: fixRuns, dialog: needDialog } = useNeedActions({ csrfToken, refresh, accept, navigate: onNavigate });
   const performance = useLivePerformance(30_000);
   const [sheetFor, setSheetFor] = useState<string | null>(null);
+  const ids = useId();
 
   const inventory = values.inventory;
   const hostname = inventory?.hostname ?? "This server";
@@ -133,8 +134,8 @@ export default function QuestHome({ csrfToken, role, onNavigate, now = Date.now 
       {dialog}
       {needDialog}
 
-      <section className="quest-win quest-party" aria-labelledby="quest-party-title">
-        <h2 className="quest-head" id="quest-party-title">
+      <section className="quest-win quest-party" aria-labelledby={`${ids}-party`}>
+        <h2 className="quest-head" id={`${ids}-party`}>
           PARTY{" "}<span>{catalog ? `${apps.length} ${apps.length === 1 ? "member" : "members"} · ${awake} awake` : facts.catalog.state === "failed" ? "not read" : "gathering…"}</span>
         </h2>
         {facts.catalog.state === "failed" && <p className="quest-quiet">The party could not be read. <button type="button" className="quest-link" onClick={() => void refresh(["catalog"])}>Try again</button></p>}
@@ -164,8 +165,8 @@ export default function QuestHome({ csrfToken, role, onNavigate, now = Date.now 
       </section>
 
       <div className="quest-right">
-        <section className="quest-win quest-quests" aria-labelledby="quest-quests-title">
-          <h2 className="quest-head" id="quest-quests-title">QUESTS{" "}<span>{main.length} main · {side.length} side</span></h2>
+        <section className="quest-win quest-quests" aria-labelledby={`${ids}-quests`}>
+          <h2 className="quest-head" id={`${ids}-quests`}>QUESTS{" "}<span>{main.length} main · {side.length} side</span></h2>
           {main.length === 0 && <p className="quest-quiet">{checking ? "Reading the quest board…" : unread.length ? "No quests in what could be read." : "No quests today. The party rests."}</p>}
           <ul className="quest-list">
             {main.map((need) => {
@@ -203,8 +204,8 @@ export default function QuestHome({ csrfToken, role, onNavigate, now = Date.now 
           </ul>
         </section>
 
-        <section className="quest-win quest-stats" aria-labelledby="quest-stats-title">
-          <h2 className="quest-head" id="quest-stats-title">{hostname.toUpperCase()}{" "}<span>{[level !== null ? `LV ${level}` : null, inventory?.operatingSystem.split(" ")[0]].filter(Boolean).join(" · ")}</span></h2>
+        <section className="quest-win quest-stats" aria-labelledby={`${ids}-stats`}>
+          <h2 className="quest-head" id={`${ids}-stats`}>{hostname.toUpperCase()}{" "}<span>{[level !== null ? `LV ${level}` : null, inventory?.operatingSystem.split(" ")[0]].filter(Boolean).join(" · ")}</span></h2>
           <p className="quest-verdict" data-status={verdict.status}>{verdict.sentence}</p>
           <div className="quest-bars">
             <button type="button" className="quest-bar" data-stat="mana" aria-label={`Mana, the memory: ${memory ? `${amountOf(memory.usedBytes, memory.totalBytes)}, ${memory.usedPercent}%` : "not read"}`} onClick={() => onNavigate("performance")}>

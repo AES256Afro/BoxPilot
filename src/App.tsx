@@ -225,6 +225,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
       <div className="app-shell" data-view={showGallery ? "gallery" : view} data-shell={shell} data-nav={nav}>
         <a className="skip-link" href="#content">Skip to the page</a>
         <header className="topbar">
+          <LookBar look={drawnLook} role={role} onNavigate={setView} />
           <div className="topbar-left">
             <div className="brand" title={`BoxPilot ${__BOXPILOT_VERSION__}`}><span aria-hidden="true">B</span><div>BoxPilot<small>v{__BOXPILOT_VERSION__}</small></div></div>
             <div className="topbar-slot" ref={setTopBarSlot} />
@@ -239,7 +240,6 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
             <ActivityDrawer csrfToken={csrfToken} role={role} />
             <SessionControls authStatus={authStatus} csrfToken={csrfToken} onRefresh={() => void refreshAuth()} onSignedOut={onSignedOut} />
           </div>
-          <LookBar look={drawnLook} role={role} onNavigate={setView} />
         </header>
 
         {nav === "sidebar"

@@ -172,7 +172,6 @@ function MemoAction({ need, action, column, disabled, onAct }: { need: Need; act
   );
 }
 
-
 /*
  * A round gauge, as drawn in the study: a 240° dial, the value's arc green, amber past `warn` and
  * red past `danger`, the amber and red limits outside the dial, a white needle, and the figure in
