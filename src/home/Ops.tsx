@@ -32,7 +32,7 @@ import { backupMatrix, jobState, jobTarget, performanceFrom, pushSample, sampleF
 export interface OpsProps {
   csrfToken: string;
   role: string;
-  onNavigate: (view: ViewName, options?: { app?: string }) => void;
+  onNavigate: (view: ViewName, options?: { app?: string; tab?: string }) => void;
   now?: () => number;
   /** How often the metric strip is read again while Ops is open. */
   pollMs?: number;
@@ -330,7 +330,7 @@ export default function Ops({ csrfToken, role, onNavigate, now = Date.now, pollM
                           <span className="ops-checklist__detail">{item.known === false ? "Could not be checked just now." : item.detail}</span>
                         </span>
                         <span className="ops-checklist__state">{state === "done" ? "done" : state === "unchecked" ? "not checked" : "to do"}</span>
-                        {!item.done && item.known !== false && <Button variant="ghost" aria-label={`Open: ${item.title}`} onClick={() => onNavigate(item.view)}>Open</Button>}
+                        {!item.done && item.known !== false && <Button variant="ghost" aria-label={`Open: ${item.title}`} onClick={() => (item.id === "tailscale" ? onNavigate(item.view, { tab: "tailnet" }) : onNavigate(item.view))}>Open</Button>}
                       </li>
                     );
                   })}
