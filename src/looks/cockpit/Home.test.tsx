@@ -2,16 +2,15 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/rea
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FactsProvider } from "../../home/facts";
 import { stubFetch } from "../../home/testData";
-import { TopBarSlotProvider } from "../../shell/TopBarSlot";
+import Annunciators from "./Annunciators";
 import CockpitHome from "./Home";
 import { nextBackupRun } from "./nextRun";
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
-function renderHome(slot?: HTMLElement) {
+function renderHome() {
   const onNavigate = vi.fn();
-  const home = <CockpitHome csrfToken="csrf" role="owner" onNavigate={onNavigate} />;
-  render(<FactsProvider>{slot ? <TopBarSlotProvider value={slot}>{home}</TopBarSlotProvider> : home}</FactsProvider>);
+  render(<FactsProvider><CockpitHome csrfToken="csrf" role="owner" onNavigate={onNavigate} /></FactsProvider>);
   return onNavigate;
 }
 
@@ -31,7 +30,7 @@ describe("Home in the Glass Cockpit look", () => {
     expect(within(memo).getByRole("button", { name: "Update: An update for Jellyfin" }).textContent).toMatch(/MED$/);
 
     // A caution line opens its page; its fix goes through the approval dialog, never around it.
-    fireEvent.click(within(memo).getByRole("button", { name: "Problem: Vaultwarden is not running" }));
+    fireEvent.click(within(memo).getByRole("button", { name: /^Problem: Vaultwarden is not running/ }));
     expect(onNavigate).toHaveBeenCalledWith("catalog", { app: "vaultwarden" });
     const start = within(memo).getByRole("button", { name: "Start: Vaultwarden is not running" });
     expect(start.textContent).toMatch(/LOW$/);
@@ -55,19 +54,21 @@ describe("Home in the Glass Cockpit look", () => {
 
   it("lights the master lamp and the annunciators from the facts, in the shell's bar", async () => {
     vi.stubGlobal("fetch", stubFetch());
-    const slot = document.createElement("div");
-    document.body.append(slot);
-    const onNavigate = renderHome(slot);
-    const bar = within(slot);
-    const master = await bar.findByRole("button", { name: /^Master warning: 1 problem/ });
+    const onNavigate = vi.fn();
+    const { container } = render(<FactsProvider><Annunciators role="owner" onNavigate={onNavigate} /></FactsProvider>);
+    const lamps = screen.getByRole("group", { name: "Annunciators" });
+    const master = await within(lamps).findByRole("button", { name: /^Master warning: 1 problem/ });
     expect(master.getAttribute("data-state")).toBe("danger");
-    expect(bar.getByRole("button", { name: "Updates: needs a look" }).getAttribute("data-state")).toBe("warning");
-    expect((await bar.findByRole("button", { name: "Backups: normal" })).getAttribute("data-state")).toBe("good");
-    fireEvent.click(bar.getByRole("button", { name: "Updates: needs a look" }));
+    expect(master.textContent).toBe("MASTERWARNING");
+    expect(within(lamps).getByRole("button", { name: "Updates: needs a look" }).getAttribute("data-state")).toBe("warning");
+    expect((await within(lamps).findByRole("button", { name: "Backups: normal" })).getAttribute("data-state")).toBe("good");
+    expect(within(lamps).getByRole("button", { name: "Temperature: not known" }).getAttribute("data-state")).toBe("off");
+    fireEvent.click(within(lamps).getByRole("button", { name: "Updates: needs a look" }));
     expect(onNavigate).toHaveBeenLastCalledWith("updates");
-    expect(slot.querySelector(".cockpit-clock")?.textContent).toMatch(/^\d{2}:\d{2}:\d{2}$/);
-    cleanup();
-    slot.remove();
+    // Away from Home, the master lamp goes to the memo there.
+    fireEvent.click(master);
+    expect(onNavigate).toHaveBeenLastCalledWith("home");
+    expect(container.querySelector(".cockpit-clock")?.textContent).toMatch(/^\d{2}:\d{2}:\d{2}$/);
   });
 
   it("says when the next backup runs, from the schedules' own words", () => {

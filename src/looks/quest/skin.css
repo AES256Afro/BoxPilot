@@ -168,10 +168,12 @@
 /* ── The top strip: a pixel window along the top, the controls as small pixel buttons. ── */
 :root[data-look="quest"] .topbar {
   min-height: var(--qs-top);
-  padding: 0 16px;
-  border-bottom: var(--qs-frame) solid var(--qs-bd);
-  background: var(--qs-pn);
-  box-shadow: 0 var(--qs-frame) 0 var(--qs-deep);
+  padding: 0 calc(var(--qs-em) * 1.1);
+  border-bottom: 0;
+  background-color: var(--qs-bg);
+  background-image: var(--qs-stars);
+  background-attachment: fixed;
+  box-shadow: none;
   backdrop-filter: none;
 }
 :root[data-look="quest"] .cc-crumb__host { color: var(--qs-gold); font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
@@ -340,16 +342,17 @@
   --link: #ffd166;
   --radius-control: 0;
 }
-:root[data-look="quest"] :is(.ui-sheet, .command-dialog) {
+:root[data-look="quest"] :is(.ui-sheet, .command-dialog, .approve-dialog) {
   border: 4px solid var(--qs-bd);
   border-radius: 0;
   background: var(--qs-pn);
   box-shadow: 0 0 0 4px var(--qs-deep), 8px 8px 0 4px var(--qs-deep);
 }
 :root[data-look="quest"] .ui-sheet__head { border-bottom: 2px dashed rgba(243, 230, 196, 0.3); }
-:root[data-look="quest"] .ui-sheet__title { color: var(--qs-gold); font-family: var(--font-sans); font-weight: 600; }
+:root[data-look="quest"] :is(.ui-sheet__title, .approve-title) { color: var(--qs-gold); font-family: var(--font-sans); font-weight: 600; }
 :root[data-look="quest"] .ui-sheet__kicker { color: var(--qs-dim); font-family: var(--font-sans); }
-:root[data-look="quest"] .ui-sheet__close { border: 0; border-radius: 0; color: var(--qs-tx); background: var(--qs-pn); box-shadow: inset 0 0 0 2px var(--qs-bd), 2px 2px 0 var(--qs-deep); }
+:root[data-look="quest"] .approve-kicker { font-family: var(--font-sans); }
+:root[data-look="quest"] :is(.ui-sheet__close, .approve-close) { border: 0; border-radius: 0; color: var(--qs-tx); background: var(--qs-pn); box-shadow: inset 0 0 0 2px var(--qs-bd), 2px 2px 0 var(--qs-deep); }
 :root[data-look="quest"] .ui-sheet__foot { border-top: 2px dashed rgba(243, 230, 196, 0.3); }
 :root[data-look="quest"] .areas-sheet .ui-dock__icon { border-radius: 0; }
 

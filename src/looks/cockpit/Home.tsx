@@ -1,50 +1,29 @@
-import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { useId, useMemo, type ReactNode } from "react";
 import { openActivity, openNotifications } from "../../activityEvents";
-import type { ViewName } from "../../data";
 import { backupGlance } from "../../home/backupGlance";
 import { useFacts, valuesOf } from "../../home/facts";
-import { greeting, loadStatus, mountStatus } from "../../home/format";
+import { greeting } from "../../home/format";
 import type { HomeProps } from "../../home/Home";
-import { smartSummary, upsSummary } from "../../home/hostFacts";
-import { actionsOf, backupOperation, buildNeeds, runs, verdictFor, verdictSources, type Need, type NeedAction } from "../../home/needs";
+import { actionsOf, buildNeeds, verdictFor, verdictSources, type Need, type NeedAction } from "../../home/needs";
 import { runWords, useNeedActions } from "../../home/useNeedActions";
-import { TopBarSlot } from "../../shell/TopBarSlot";
 import { riskCopy, type RiskTier, type Status } from "../../ui";
 import { driveWord, fullestDrive, hottestSensor, useLivePerformance } from "./livePerformance";
 import { nextBackupRun } from "./nextRun";
+import { sectionOf, sectionTitles, worstOf, type SectionId } from "./sections";
 import "./home.css";
 
 /*
  * Home in the Glass Cockpit look (M41, docs/design-directions/05-looks.html, M.cockpit): an
- * aircraft's display. The annunciator row in the shell's bar (a master caution lamp lit when
- * anything needs you, a lamp for backups, updates, the network, heat, the disks and the UPS, and
- * the clock), four round gauges drawn from the live figures, and beside them the memo in the ECAM's
- * words and colours: white titles, amber for what needs you, cyan for what can be done about it
- * (each a button through the approval dialog, its tier said at the end of the line), magenta for
- * the next backup, green for what can wait and what is fine.
+ * aircraft's display. Four round gauges drawn from the live figures, and beside them the memo in
+ * the ECAM's words and colours: white titles, amber for what needs you, cyan for what can be done
+ * about it (each a button through the approval dialog, its tier said at the end of the line),
+ * magenta for the next backup, green for what can wait and what is fine. The annunciator row above
+ * it is in the shell's bar, on every page (Annunciators.tsx).
  */
 
 const pad = (value: number) => String(value).padStart(2, "0");
 const tierWord: Record<RiskTier, string> = { low: "LOW", medium: "MED", high: "HIGH" };
 const severityWords = { danger: "Problem", warning: "Needs a look", neutral: "Can wait" } as const;
-
-type LampState = "danger" | "warning" | "good" | "off";
-const lampOf = (status: Status): LampState => (status === "danger" ? "danger" : status === "warning" ? "warning" : status === "good" ? "good" : "off");
-const lampWords: Record<LampState, string> = { danger: "problem", warning: "needs a look", good: "normal", off: "not known" };
-const worstOf = (list: Need[]): Status => (list.some((need) => need.severity === "danger") ? "danger" : list.some((need) => need.severity === "warning") ? "warning" : "good");
-
-/** Where a need is said in the memo: the section its fix or its page belongs to. */
-type SectionId = "backup" | "updates" | "apps" | "net" | "storage" | "system";
-const sectionTitles: Record<SectionId, string> = { backup: "Backup", updates: "Updates", apps: "Apps", net: "Network", storage: "Storage", system: "System" };
-function sectionOf(need: Need): SectionId {
-  const operation = runs(need)?.operationId ?? "";
-  if (need.kind === "backup" || backupOperation.test(operation) || need.view === "backups" || need.finding?.id.startsWith("backup")) return "backup";
-  if (need.kind === "updates" || need.view === "updates") return "updates";
-  if (need.view === "network" || need.view === "firewall") return "net";
-  if (need.view === "storage") return "storage";
-  if (need.view === "catalog" || need.appId) return "apps";
-  return "system";
-}
 
 /** "- INSTALL ......... MED": the action, dots to the memo's column, then its tier. */
 function leader(left: string, right: string, column: number): string {
@@ -62,7 +41,6 @@ export default function CockpitHome({ csrfToken, role, onNavigate, now = Date.no
   const needs = buildNeeds(values, { now: clock, role });
   const { act, runs: fixRuns, dialog } = useNeedActions({ csrfToken, refresh, accept, navigate: onNavigate });
   const performance = useLivePerformance(5000);
-  const memo = useRef<HTMLElement>(null);
 
   const inventory = values.inventory;
   const hostname = inventory?.hostname ?? "This server";
@@ -99,50 +77,9 @@ export default function CockpitHome({ csrfToken, role, onNavigate, now = Date.no
   const reach = inventory ? [tailscale?.installed ? (tailscale.connected ? "Tailnet up" : "Tailnet down") : null, lan ? "LAN up" : "No LAN address"].filter(Boolean).join(" · ") : null;
   const reachStatus: Status = !inventory ? "unknown" : (tailscale?.installed && !tailscale.connected) || !lan ? "warning" : "good";
 
-  // ── The annunciators. ──
-  const sectionStatus = (id: SectionId, readKey: keyof typeof facts): Status => {
-    const list = sections.get(id) ?? [];
-    return list.length ? worstOf(list) : facts[readKey].value ? "good" : "unknown";
-  };
-  const mounts = inventory?.mounts ?? [];
-  const mountWorst: Status = mounts.some((mount) => mountStatus(mount) === "danger") ? "danger" : mounts.some((mount) => mountStatus(mount) === "warning") ? "warning" : "good";
-  const smart = smartSummary(inventory?.smart ?? null);
-  const storageNeeds = sections.get("storage") ?? [];
-  const diskStatus: Status = !inventory ? "unknown"
-    : [mountWorst, smart.status, storageNeeds.length ? worstOf(storageNeeds) : "good"].includes("danger") ? "danger"
-      : [mountWorst, smart.status, storageNeeds.length ? worstOf(storageNeeds) : "good"].includes("warning") ? "warning" : "good";
-  const netNeeds = sections.get("net") ?? [];
-  const netStatus: Status = netNeeds.length ? worstOf(netNeeds) : reachStatus;
-  const ups = upsSummary(inventory?.ups ?? null);
-  const lamps: Array<{ code: string; name: string; state: LampState; view: ViewName }> = [
-    { code: "BKUP", name: "Backups", state: lampOf(sectionStatus("backup", "protection")), view: "backups" },
-    { code: "UPD", name: "Updates", state: lampOf(sectionStatus("updates", "updates")), view: "updates" },
-    { code: "NET", name: "Network", state: lampOf(netStatus), view: "network" },
-    { code: "TEMP", name: "Temperature", state: lampOf(heat ? loadStatus(heat.celsius, 80, 90) : "unknown"), view: "performance" },
-    { code: "DISK", name: "Disks", state: lampOf(diskStatus), view: "storage" },
-    { code: "UPS", name: "UPS", state: lampOf(inventory ? ups.status : "unknown"), view: "system" },
-  ];
-  const master: LampState = verdict.status === "danger" ? "danger" : urgent.length ? "warning" : "off";
-
   return (
     <div className="cockpit-home">
       {dialog}
-      <TopBarSlot>
-        <div className="cockpit-ann" role="group" aria-label="Annunciators">
-          <button type="button" className="cockpit-lamp cockpit-lamp--master" data-state={master}
-            aria-label={master === "off" ? "Master caution: nothing needs you" : `Master ${master === "danger" ? "warning" : "caution"}: ${verdict.label}. Go to the memo`}
-            onClick={() => memo.current?.querySelector<HTMLElement>(".cockpit-line--act, .cockpit-line--caution")?.focus()}>
-            <span>MASTER</span><span>{master === "danger" ? "WARNING" : "CAUTION"}</span>
-          </button>
-          {lamps.map((lamp) => (
-            <button key={lamp.code} type="button" className="cockpit-lamp" data-state={lamp.state} aria-label={`${lamp.name}: ${lampWords[lamp.state]}`} title={`${lamp.name}: ${lampWords[lamp.state]}`} onClick={() => onNavigate(lamp.view)}>
-              {lamp.code}
-            </button>
-          ))}
-          <Clock now={now} />
-        </div>
-      </TopBarSlot>
-
       <h1 className="ui-visually-hidden">{greeting(clock)}</h1>
 
       <div className="cockpit-gauges" role="group" aria-label="Instruments">
@@ -152,7 +89,7 @@ export default function CockpitHome({ csrfToken, role, onNavigate, now = Date.no
         <Gauge label="TEMP °C" name={heat ? `Hottest sensor, ${heat.label}` : "Hottest sensor"} value={heat?.celsius ?? null} unit="°C" warn={80} danger={90} onSelect={() => onNavigate("performance")} />
       </div>
 
-      <section className="cockpit-memo" aria-label="Memo" ref={memo}>
+      <section className="cockpit-memo" aria-label="Memo">
         <h2 className="cockpit-t">{hostname}</h2>
         {inventory && <p className="cockpit-line cockpit-line--dim">{inventory.operatingSystem.replace(/\s+LTS$/, "")} · up {upFor(inventory.uptimeSeconds)}</p>}
         <p className="cockpit-line cockpit-verdict" data-status={verdict.status}>{verdict.sentence}</p>
@@ -202,13 +139,17 @@ function upFor(seconds: number): string {
 function MemoNeed({ need, column, onOpen, onAct, run }: { need: Need; column: number; onOpen: (need: Need) => void; onAct: (need: Need, action?: NeedAction | null) => void; run?: ReturnType<typeof useNeedActions>["runs"][string] }) {
   const detailId = useId();
   const busy = run && ["queued", "running", "checking"].includes(run.phase);
+  // As terse as the ECAM: a few words more ride on the line ("4 UPDATES AVAILABLE · 1 SECURITY FIX
+  // AMONG THEM"); a longer detail is the line's description and its tooltip.
+  const short = need.detail && need.detail.length <= 32 ? need.detail : null;
+  const long = need.detail && !short ? need.detail : null;
   return (
     <>
       <li>
-        <button type="button" className="cockpit-line cockpit-line--caution" data-severity={need.severity} onClick={() => onOpen(need)} aria-describedby={need.detail ? detailId : undefined}>
-          <span className="ui-visually-hidden">{`${severityWords[need.severity]}:`}</span>{` ${need.title}`}
+        <button type="button" className="cockpit-line cockpit-line--caution" data-severity={need.severity} title={long ?? undefined} onClick={() => onOpen(need)} aria-describedby={long ? detailId : undefined}>
+          <span className="ui-visually-hidden">{`${severityWords[need.severity]}:`}</span>{` ${need.title}`}{short && <span className="cockpit-line__more">{` · ${short}`}</span>}
         </button>
-        {need.detail && <span className="cockpit-line cockpit-line--dim cockpit-line--detail" id={detailId}>{need.detail}</span>}
+        {long && <span className="ui-visually-hidden" id={detailId}>{long}</span>}
       </li>
       {need.risk && !need.action && <li className="cockpit-line cockpit-line--dim">{`Staged at ${tierWord[need.risk]}`}</li>}
       {actionsOf(need).map((action) => <MemoAction key={`${action.kind ?? "operation"}:${action.operationId}:${action.label}`} need={need} action={action} column={column} disabled={Boolean(busy) && action.kind !== "dismiss" && action.kind !== "open"} onAct={onAct} />)}
@@ -231,18 +172,6 @@ function MemoAction({ need, action, column, disabled, onAct }: { need: Need; act
   );
 }
 
-/** The clock in its black box, a second at a time. */
-function Clock({ now }: { now: () => number }) {
-  const [at, setAt] = useState(() => now());
-  const read = useRef(now);
-  read.current = now;
-  useEffect(() => {
-    const timer = window.setInterval(() => setAt(read.current()), 1000);
-    return () => window.clearInterval(timer);
-  }, []);
-  const time = new Date(at);
-  return <time className="cockpit-clock" dateTime={time.toISOString()}>{`${pad(time.getHours())}:${pad(time.getMinutes())}:${pad(time.getSeconds())}`}</time>;
-}
 
 /*
  * A round gauge, as drawn in the study: a 240° dial, the value's arc green, amber past `warn` and
