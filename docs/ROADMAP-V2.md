@@ -2291,7 +2291,21 @@ twice. The hard caps and "agents propose, never act" stay as they are.
   connected to BoxPilot", each asked of a fresh Server Keeper on a server laid out like the owner's):
   2 of 6 before M40, 6 of 6 after; CI holds it (`evaluation.test.mjs`). The real model's before and
   after is `agents-bench.yml` with `mode: eval` and `baseline: main`.
-- **M40.4 Faster while someone waits** (in the pull request stacked on this one).
+- ✅ **M40.4 Faster while someone waits** (unreleased, `feat/m40-burst`; ADR-009). The owner's
+  decision: **eight processors while a person waits** (their question, the Test tab, a Zulip
+  message, and the hand-offs and follow-ups made for one), **four for everything else**. The shipped
+  unit keeps `CPUQuota=400%`; when a person's run is handed out the root helper raises the running
+  unit's quota (`agents.runtime.cpu`, low, owner, BoxPilot's own: `systemctl set-property --runtime`,
+  its own helper lane) and arms a transient timer that puts the background quota back after the
+  run's longest time plus two minutes; the web service lowers it as soon as nobody waits (after the
+  run, on the tick, after the kill switch, at start). A raise whose timer cannot be set is taken
+  back and refused. The model runs a thread per processor, never more than the physical cores, so a
+  class change restarts it (a few seconds) instead of oversubscribing the quota; speeds are kept per
+  thread count. **Usage** shows the quota set now, and the owner's "Processors while you wait" and
+  "Processors in the background", 2 to 8 and never more than the machine's processors less two,
+  checked in the web service and again in the helper. Idle priority, idle I/O, the memory cap and
+  "no process when idle" are untouched. `agents-caps` raises and lowers the quota with the helper's
+  own code on real systemd, with the fake model busy, and watches the timer take it back.
 - **M40.5 Talk to agents in Zulip** (M38.3; in the pull request stacked on the M40.4 one).
 - **M40.6 Pictures** (with M40.5).
 
