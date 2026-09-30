@@ -70,9 +70,16 @@ export function Console({ agents, agentId, runId, csrfToken, role, now, enabled,
   const finishedCallback = useRef(onRunFinished);
   useEffect(() => { finishedCallback.current = onRunFinished; }, [onRunFinished]);
 
+  // Which agent's runs the list is for: an answer for the agent chosen before is dropped, or it would
+  // list that agent's runs under this one's name, and open its latest run here.
+  const historyFor = useRef<string | null>(null);
   const readHistory = useCallback(async (id: string) => {
+    historyFor.current = id;
     if (!staff) { setHistory([]); return; }
-    try { setHistory((await agentsApi.runs(id)).runs); } catch { setHistory(null); }
+    try {
+      const { runs } = await agentsApi.runs(id);
+      if (historyFor.current === id) setHistory(runs);
+    } catch { if (historyFor.current === id) setHistory(null); }
   }, [staff]);
 
   const follow = useCallback((id: string) => {
@@ -93,11 +100,16 @@ export function Console({ agents, agentId, runId, csrfToken, role, now, enabled,
   const currentId = agent?.id ?? null;
   useEffect(() => { if (currentId) { setHistory(null); void readHistory(currentId); } }, [currentId, readHistory]);
   useEffect(() => { if (runId) follow(runId); }, [runId, follow]);
-  // With nothing chosen, the agent's latest run opens, so the console never starts blank.
-  const latest = history?.[0]?.id ?? null;
+  // With nothing chosen, the agent's latest run opens, so the console never starts blank: once for
+  // each agent chosen. It used to follow the latest again whenever the run on show was another
+  // agent's, so opening a delegate's run from "One request, N runs" snapped straight back.
+  const latest = history?.[0] && history[0].agentId === currentId ? history[0].id : null;
   const showing = run?.agentId ?? null;
+  const openedLatestFor = useRef<string | null>(null);
   useEffect(() => {
-    if (!runId && latest && showing !== currentId) follow(latest);
+    if (runId || !latest || !currentId || openedLatestFor.current === currentId) return;
+    openedLatestFor.current = currentId;
+    if (showing !== currentId) follow(latest);
   }, [runId, latest, showing, currentId, follow]);
 
   const start = async (kind: "ask" | "test") => {
