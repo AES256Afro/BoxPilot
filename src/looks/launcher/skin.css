@@ -257,7 +257,8 @@
 :root[data-look="launcher"][data-shell="console"] .ui-page-header__summary { color: var(--lx-ink); font-size: 18px; line-height: 1.35; }
 :root[data-look="launcher"][data-shell="console"] .ui-page-header__meta { color: var(--lx-ink); font-family: var(--font-sans); font-size: 17px; line-height: 1.4; }
 :root[data-look="launcher"][data-shell="console"] .ui-page-header__meta b { color: var(--lx-ink); font-weight: 700; }
-:root[data-look="launcher"][data-shell="console"] .ui-page-header__verdict.ui-chip { padding: 4px 9px; font-size: 13px; }
+:root[data-look="launcher"][data-shell="console"] .ui-page-header__verdict.ui-chip { gap: 5px; padding: 5px 7.3px; border-radius: 5.5px; font-size: 12.2px; line-height: 1; }
+:root[data-look="launcher"][data-shell="console"] .ui-page-header__verdict.ui-chip .ui-mark { width: 7px; height: 7px; }
 :root[data-look="launcher"][data-shell="console"] .ui-page-header__about { border-left-color: var(--lx-glass-border); border-radius: 0 14px 14px 0; color: var(--lx-ink); background: var(--lx-glass); font-size: 14.5px; }
 :root[data-look="launcher"][data-shell="console"] .ui-info-toggle { width: 32px; height: 32px; border: 1px solid var(--lx-glass-border); border-radius: 50%; color: var(--lx-ink); background: var(--lx-glass-raised); }
 :root[data-look="launcher"][data-shell="console"] .ui-info-toggle:is(:hover, [aria-expanded="true"]) { color: var(--lx-pill-ink); background: var(--lx-pill); }
@@ -365,6 +366,17 @@
 :root[data-look="launcher"][data-shell="console"] .ui-button--ghost:hover:not(:disabled) { border-color: var(--lx-glass-border); background: var(--lx-glass-raised); text-decoration: underline; }
 :root[data-look="launcher"][data-shell="console"] .ui-page-header .ui-button { min-height: 32px; padding-inline: 14px; font-size: 14.5px; }
 :root[data-look="launcher"][data-shell="console"] .storage-actions .ui-button { min-height: 28px; padding-inline: 12px; font-size: 13px; }
+
+/* Storage's glance (lead.css), at the drawing's sizes: the heading's chip small, a drive row's pill
+   and switch a size down from the page's. */
+:root[data-look="launcher"][data-shell="console"] .launcher-pane__count .ui-chip { gap: 3px; padding: 3.6px 5.1px; border-radius: 3.8px; font-size: 8.5px; letter-spacing: 0; line-height: 1; }
+:root[data-look="launcher"][data-shell="console"] .launcher-pane__count .ui-chip .ui-mark { width: 5px; height: 5px; }
+:root[data-look="launcher"][data-shell="console"] .launcher-drive__row .ui-button { min-height: 23px; padding: 0 10.4px; font-size: 10.9px; line-height: 1; }
+:root[data-look="launcher"][data-shell="console"] .launcher-drive__row :is(.ui-button--risk-medium, .ui-button--risk-high) { padding-left: 16px; }
+:root[data-look="launcher"][data-shell="console"] .launcher-drive__row :is(.ui-button--risk-medium, .ui-button--risk-high)::before { left: 7px; width: 3px; }
+:root[data-look="launcher"][data-shell="console"] .launcher-drive__row .ui-switch__track { width: 34px; height: 19px; }
+:root[data-look="launcher"][data-shell="console"] .launcher-drive__row .ui-switch__thumb { top: 2px; left: 2px; width: 15px; height: 15px; }
+:root[data-look="launcher"][data-shell="console"] .launcher-drive__row .ui-switch__control[aria-checked="true"] .ui-switch__thumb { transform: translateX(15px); }
 :root[data-look="launcher"][data-shell="console"] .storage-actions :is(.ui-button--risk-medium, .ui-button--risk-high) { padding-left: 19px; }
 :root[data-look="launcher"][data-shell="console"] .storage-actions :is(.ui-button--risk-medium, .ui-button--risk-high)::before { left: 8px; }
 
