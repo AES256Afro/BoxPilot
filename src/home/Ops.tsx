@@ -142,7 +142,7 @@ export default function Ops({ csrfToken, role, onNavigate, now = Date.now, pollM
 
   const jobColumns: Array<TableColumn<Job>> = [
     { id: "job", header: "Job", hideOnPhone: true, cell: (job) => <span className="ops-mono">#{job.id.slice(0, 6)}</span> },
-    { id: "operation", header: "Operation", cell: (job) => <button type="button" className="ops-link ops-link--mono" onClick={() => onNavigate("repairs")} title={job.title}>{job.type.replace(/^op:/, "")}</button> },
+    { id: "operation", header: "Operation", cell: (job) => <button type="button" className="ops-link ops-link--mono" onClick={() => openActivity(job.id)} title={job.title} aria-label={`${job.type.replace(/^op:/, "")}: open its log`}>{job.type.replace(/^op:/, "")}</button> },
     { id: "target", header: "Target", className: "ops-mono-cell", cell: (job) => jobTarget(job) },
     { id: "state", header: "State", cell: (job) => { const state = jobState(job); return <StatusChip status={state.status}>{state.label}</StatusChip>; } },
     { id: "started", header: "Started", numeric: true, cell: (job) => shortAge(job.createdAt, clock) ?? "—" },
@@ -317,7 +317,7 @@ export default function Ops({ csrfToken, role, onNavigate, now = Date.now, pollM
                           <span className="ops-checklist__detail">{item.known === false ? "Could not be checked just now." : item.detail}</span>
                         </span>
                         <span className="ops-checklist__state">{state === "done" ? "done" : state === "unchecked" ? "not checked" : "to do"}</span>
-                        {!item.done && item.known !== false && <Button variant="ghost" aria-label={`Open: ${item.title}`} onClick={() => onNavigate(item.view)}>Open</Button>}
+                        {!item.done && item.known !== false && <Button variant="ghost" aria-label={`Open: ${item.title}`} onClick={() => (item.id === "tailscale" ? onNavigate(item.view, { tab: "tailnet" }) : onNavigate(item.view))}>Open</Button>}
                       </li>
                     );
                   })}

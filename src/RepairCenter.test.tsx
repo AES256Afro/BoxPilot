@@ -179,6 +179,25 @@ describe("Repair Center", () => {
     expect(button.disabled).toBe(false);
   });
 
+  it("says a refused approval in the approval desk, beside the button, not at the top of the page", async () => {
+    const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+    const job = { id: "job-high", title: "Reboot the server", type: "op:system.reboot", state: "awaiting_approval", risk: "high", error: null, steps: [], recovery: { reason: "Reconnect when it is back." } };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url.includes("prerequisites")) return json({ checks: [] });
+      if (url.includes("action-center") || url.includes("recovery-kit")) return json({ error: "unavailable" }, 503);
+      if (url.endsWith("/approval")) return json({ jobId: "job-high", tier: "high", passwordRequired: true, elevated: false, mode: "tiered", reason: "high risk" });
+      if (url.endsWith("/approve")) return json({ error: "That password is not right." }, 401);
+      return json({ jobs: [job] });
+    }));
+    render(<RepairCenter csrfToken="csrf-token" />);
+    fireEvent.change(await screen.findByLabelText("Approval password"), { target: { value: "not the right one" } });
+    fireEvent.click(screen.getByRole("button", { name: "Approve and run" }));
+    const said = await screen.findByText("That password is not right.");
+    expect(said.getAttribute("role")).toBe("alert");
+    expect(screen.getByRole("region", { name: "Approval desk" }).contains(said)).toBe(true);
+  });
+
   it("shows what a waiting job will run, and lets it be withdrawn instead", async () => {
     const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
     const job = { id: "job-fmt", title: "Erase and format a disk", type: "op:storage.format", state: "awaiting_approval", risk: "high", error: null, steps: [], parameters: { device: "/dev/sdb", filesystem: "ext4" } };
