@@ -7,6 +7,7 @@
 import { readFile, stat } from "node:fs/promises";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createAgentsHarness } from "../../test/agents-harness.mjs";
+import { ownerLikeStorage } from "../../test/fixtures/agents-storage.mjs";
 import { onWindows } from "../../test/platform.mjs";
 import { testedUnslothVersion } from "./models.mjs";
 import { agentsRuntimeKey, defaultRuntimeSettings, gradeFact, normalizeRuntimeSettings } from "./service.mjs";
@@ -84,7 +85,8 @@ describe("asking an agent", () => {
     const run = await h.runNext();
     expect(run.state).toBe("completed");
     expect(run.answer).toMatch(/\[T1\]/);
-    expect(toolSteps(run).map((step) => step.name)).toEqual(["pihole.stats", "where.runs"]);
+    // where.runs first: the question's words point at it, and the planner was told so (M40).
+    expect(toolSteps(run).map((step) => step.name)).toEqual(["where.runs", "pihole.stats"]);
     expect(run.steps.filter((step) => step.kind === "model")).toHaveLength(2);
     expect(h.helperCalls.map((call) => call.operation)).toContain("app.pihole.inspect");
     // Intent, then plan, then act: the understanding is asked for first, as JSON, and kept in the trace.
@@ -96,16 +98,17 @@ describe("asking an agent", () => {
     expect(understanding.messages[0].content).toMatch(/Its job: Keep an up-to-date picture of this server/);
     const [intent, plan] = run.steps.filter((step) => ["intent", "plan"].includes(step.kind));
     // The trace names tools by the registry's ids, as the pages do.
-    expect(intent).toMatchObject({ kind: "intent", state: "done", input: { tools: ["pihole.stats", "where.runs"], confidence: 0.9 } });
-    expect(plan.input.map((entry) => entry.tool)).toEqual(["pihole.stats", "where.runs", null]);
-    expect(plan.output).toMatch(/^1\. Read pihole\.stats \(pihole\.stats\)\n2\. Read where\.runs \(where\.runs\)\n3\. Answer with citations$/);
-    expect(first.messages.at(-1).content).toMatch(/<\/question>\n\nYour plan:\n1\. Read pihole\.stats \(pihole_stats\)/);
+    expect(intent).toMatchObject({ kind: "intent", state: "done", input: { tools: ["where.runs", "pihole.stats"], confidence: 0.9 } });
+    expect(plan.input.map((entry) => entry.tool)).toEqual(["where.runs", "pihole.stats", null]);
+    expect(plan.output).toMatch(/^1\. Read where\.runs \(where\.runs\)\n2\. Read pihole\.stats \(pihole\.stats\)\n3\. Answer with citations$/);
+    expect(understanding.messages[1].content).toMatch(/Tools made for requests worded like this: where_runs \(Where does it run\?\)\./);
+    expect(first.messages.at(-1).content).toMatch(/<\/question>\n\nYour plan:\n1\. Read where\.runs \(where_runs\)/);
     expect(first.messages[0].content).toMatch(/^You are an agent on a home server managed by BoxPilot/);
     // Only the tools the plan named, and the always-on ones this run was offered, in the catalog's order.
     expect(first.tools.map((tool) => tool.function.name)).toEqual(["memory_search", "plan_propose", "notify_owner", "where_runs", "pihole_stats"]);
     expect(first.stream).toBe(true);
     expect(first).toMatchObject({ cache_prompt: true, tool_choice: "auto" });
-    expect(JSON.stringify(second.messages)).toContain('<tool_output id=\\"T1\\" tool=\\"pihole_stats\\" trust=\\"untrusted\\">');
+    expect(JSON.stringify(second.messages)).toContain('<tool_output id=\\"T1\\" tool=\\"where_runs\\" trust=\\"untrusted\\">');
     // The second call to act is the first one grown: the same tools and messages, then the tool round.
     expect(second.tools).toEqual(first.tools);
     expect(second.messages.slice(0, first.messages.length)).toEqual(first.messages);
@@ -371,23 +374,45 @@ describe("schedules, events and quiet hours", () => {
 });
 
 describe("evaluation", () => {
-  it("asks the golden questions, reading the expected facts from this server, and scores the answers", async () => {
+  it("asks the built-in and the golden questions, reading the expected facts from this server, and scores the answers", async () => {
     h.enable();
+    h.snapshot.storage = ownerLikeStorage();
     const helper = make("it-support");
     const evaluation = h.service.getEvaluation(h.caller("owner"), helper.id);
+    // The built-in questions its own tools answer (M40), then its template's.
+    expect(evaluation.builtIn.map((question) => question.id)).toEqual(["builtin-drives", "builtin-root", "builtin-pihole", "builtin-stopped", "builtin-os"]);
     expect(evaluation.questions.map((question) => question.id)).toEqual(["hostname", "restore-howto"]);
+    const route = [
+      [/restore/, "docs_search", { query: "restore backup" }, "Open the app's card and pick a backup [T1]."],
+      [/drives/, "storage_health", {}, "Two drives: /dev/nvme0n1, an NVMe SSD and the system disk, and /dev/sda, a USB drive [T1]."],
+      [/root filesystem/, "storage_health", {}, "The root filesystem is 31% full [T1]."],
+      [/Pi-hole/, "where_runs", { name: "pihole" }, "Pi-hole runs as a BoxPilot app, in the container bp-pi-hole [T1]."],
+      [/stopped/, "apps_list", {}, "None: every app is running [T1]."],
+      [/operating system/, "server_facts", {}, "Ubuntu 24.04.3 LTS [T1]."],
+      [/called/, "server_facts", {}, "It is called testbox [T1]."],
+    ];
     h.fake.state.script = (body) => {
       const question = body.messages[1].content;
-      if (!body.messages.some((message) => message.role === "tool")) return { toolCalls: [{ name: question.includes("restore") ? "docs_search" : "server_facts", arguments: question.includes("restore") ? { query: "restore backup" } : {} }] };
-      return { content: question.includes("restore") ? "Open the app's card and pick a backup [T1]." : "It is called testbox [T1]." };
+      const [, tool, input, answer] = route.find(([pattern]) => pattern.test(question));
+      return body.messages.some((message) => message.role === "tool") ? { content: answer } : { toolCalls: [{ name: tool, arguments: input }] };
     };
     const started = await h.service.runEvaluation(h.caller("owner"), helper.id);
-    expect(started.results.map((result) => [result.questionId, result.expected])).toEqual([["hostname", { fact: "hostname", value: "testbox" }], ["restore-howto", { includes: ["backup"] }]]);
-    await h.runNext();
-    await h.runNext();
-    const [done] = h.service.getEvaluation(h.caller("owner"), helper.id).runs;
-    expect(done).toMatchObject({ state: "done", score: 1 });
-    expect(done.results.map((result) => [result.questionId, result.passed])).toEqual([["hostname", true], ["restore-howto", true]]);
+    expect(started.results.map((result) => [result.questionId, result.expected])).toEqual([
+      ["builtin-drives", { fact: "drives", value: [{ device: "/dev/nvme0n1", transport: "nvme", system: true, sizeBytes: 1_024.2e9, mounts: ["/", "/boot", "/boot/efi"] }, { device: "/dev/sda", transport: "usb", system: false, sizeBytes: 16_000.9e9, mounts: ["/mnt/archive"] }] }],
+      ["builtin-root", { fact: "rootDiskPercent", value: 31 }],
+      ["builtin-pihole", { fact: "piholePlacement", value: "boxpilot-app" }],
+      ["builtin-stopped", { fact: "stoppedApps", value: [] }],
+      ["builtin-os", { fact: "operatingSystem", value: "Ubuntu 24.04.3 LTS" }],
+      ["hostname", { fact: "hostname", value: "testbox" }],
+      ["restore-howto", { includes: ["backup"] }],
+    ]);
+    for (let asked = 0; asked < 7; asked += 1) await h.runNext();
+    const after = h.service.getEvaluation(h.caller("owner"), helper.id);
+    expect(after.runs[0]).toMatchObject({ state: "done", score: 1 });
+    expect(after.runs[0].results.every((result) => result.passed)).toBe(true);
+    // Accuracy over time: one evaluation so far, and nothing to call a drop.
+    expect(after.history).toEqual([expect.objectContaining({ score: 1, right: 7, questions: 7, nightly: false })]);
+    expect(after.drop).toBeNull();
     // Once an hour at most: each question is a run of the model.
     await expect(h.service.runEvaluation(h.caller("owner"), helper.id)).rejects.toMatchObject({ status: 429, code: "evaluation_recent" });
   });
