@@ -59,6 +59,10 @@
 
 /* The compact bar stays at the top as on every console page; Home's is a little taller, as drawn. */
 :root[data-look="console"] .app-shell[data-view="home"][data-shell="console"] .topbar { position: sticky; min-height: 60px; }
+/* Beside the rail the bar starts where the page under it does, as drawn. */
+@media (min-width: 761px) {
+  :root[data-look="console"] .app-shell[data-view="home"][data-shell="console"] .topbar { padding-inline: 37px 23px; }
+}
 /* Its controls keep their size: the host's facts give way first, then the search, never the name. */
 @media (min-width: 621px) {
   :root[data-look="console"] .app-shell[data-view="home"][data-shell="console"] .topbar-right { flex-shrink: 0; }

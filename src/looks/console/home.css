@@ -1,7 +1,8 @@
 /* Home in the Command Center (M41): docs/design-directions/05-looks.html, M.opsHome. The console's
    own tokens (--cc-*), so light and dark come with them; every selector starts with .console-. */
 
-.console-home { display: grid; gap: 12px; min-width: 0; padding-inline: 9px; }
+/* Set in from the rail as drawn: the drawing's rail is wider, so the page starts where its does. */
+.console-home { display: grid; gap: 12px; min-width: 0; padding: 0 9px 0 23px; }
 
 /* The name in the compact bar: "homebox / home", then the host's facts in mono. */
 .console-crumb .cc-crumb__host { flex: none; font-size: 18px; font-weight: 600; }
