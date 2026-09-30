@@ -98,7 +98,8 @@ export function sortNeeds(needs: Need[]): Need[] {
   return [...needs].sort((a, b) => severityRank[a.severity] - severityRank[b.severity] || kindRank[a.kind] - kindRank[b.kind]);
 }
 
-const backupOperation = /^(app\.backup|backup\.|controller\.backup|host\.snapshot|vm\.backup|vm\.export)/;
+/** Operations that make or copy a backup, by id: the needs list's backup rules, and Today's "what ran" (M25.3). */
+export const backupOperation = /^(app\.backup|backup\.|controller\.backup|host\.snapshot|vm\.backup|vm\.export)/;
 
 /** Docker's state for a container that is not serving, as a sentence. */
 function containerWords(status: string): string {

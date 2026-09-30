@@ -218,4 +218,46 @@ describe("BoxPilot console", () => {
     expect(theme.closest(".topbar")).not.toBeNull();
     expect(within(theme).getAllByRole("radio").map((radio) => radio.textContent)).toEqual(["System", "Light", "Dark"]);
   });
+
+  describe("opened from the home screen (M25)", () => {
+    const phone = (matches: boolean) => vi.stubGlobal("matchMedia", (query: string) => ({ matches: matches && query.includes("max-width"), media: query, addEventListener: () => undefined, removeEventListener: () => undefined, addListener: () => undefined, removeListener: () => undefined, onchange: null, dispatchEvent: () => false }));
+
+    it("starts a phone on Today, and leaves the address as a link to it", async () => {
+      phone(true);
+      vi.stubGlobal("fetch", vi.fn(authenticatedFetch));
+      window.history.replaceState(null, "", "/?launch=pwa");
+      render(<App />);
+      expect(await screen.findByRole("heading", { level: 1, name: "Today" })).toBeTruthy();
+      expect(window.location.search).toBe("?view=today");
+      expect(within(dock()).getByRole("button", { name: /^Today/ }).getAttribute("aria-current")).toBe("page");
+    });
+
+    it("starts anything wider on Home", async () => {
+      phone(false);
+      vi.stubGlobal("fetch", vi.fn(authenticatedFetch));
+      window.history.replaceState(null, "", "/?launch=pwa");
+      render(<App />);
+      expect(await screen.findByRole("heading", { level: 1, name: greeting })).toBeTruthy();
+      expect(window.location.search).toBe("");
+    });
+
+    it("opens offline as the account this device remembers, saying so, when BoxPilot cannot be reached", async () => {
+      window.localStorage.setItem("boxpilot:signed-in-until", new Date(Date.now() + 3_600_000).toISOString());
+      window.localStorage.setItem("boxpilot:signed-in-as", JSON.stringify({ id: "owner-one", username: "alex", role: "owner" }));
+      vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("Failed to fetch"); }));
+      window.history.replaceState(null, "", "/?view=today");
+      render(<App />);
+      expect(await screen.findByRole("heading", { level: 1, name: "Today" })).toBeTruthy();
+      expect(screen.queryByText(/Unable to reach|could not be reached/i, { selector: "h1" })).toBeNull();
+      window.localStorage.clear();
+    });
+
+    it("shows the sign-in problem, as before, when no session was remembered", async () => {
+      window.localStorage.clear();
+      vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("Failed to fetch"); }));
+      render(<App />);
+      await vi.waitFor(() => expect(screen.queryByRole("heading", { level: 1, name: "Today" })).toBeNull());
+      expect(await screen.findByText(/Failed to fetch/)).toBeTruthy();
+    });
+  });
 });

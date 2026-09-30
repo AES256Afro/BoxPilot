@@ -926,12 +926,44 @@ not just execute.
 BoxPilot is a desktop web app that happens to work on a phone. This arc makes the phone a
 first-class place to approve, glance, and act.
 
-- **M25.1** **A proper PWA.** Installable, offline-aware for reads, laid out for a thumb — the
-  dashboard and approvals designed for the small screen, not shrunk to it.
+- ✅ **M25.1** (unreleased) **A proper PWA.** Installable, offline-aware for reads, laid out for a thumb — the
+  dashboard and approvals designed for the small screen, not shrunk to it. A manifest (`start_url`
+  `/?launch=pwa`, standalone, the console's colours) and icons drawn by `scripts/make-app-icons.mjs`
+  (the rail's BP mark; a maskable one and Apple's 180 px), with `apple-touch-icon`, the
+  `apple-mobile-web-app-*` tags and `viewport-fit=cover`, so the page keeps clear of the notch and
+  the home indicator (`env(safe-area-inset-*)` on the bar, the rail, the dock and every sheet). A
+  service worker (`/sw.js`, scope `/`, only over HTTPS and never in the demo) keeps the app itself -
+  the shell, the entry bundle, the fonts, the icons, and each hashed chunk once used - and never an
+  API answer: it does not even look at `/api/`, `/oidc/`, `/.well-known/` or `/ca.crt`, refuses to
+  keep JSON, an event stream, `no-store` or `private`, and the build refuses a precache list naming
+  any of them. Its rules are in `src/pwa/swRules.js`, and the tests run the worker exactly as built
+  against a stand-in network. The one exception is the "last known state": Today's summary, saved by
+  the page for the account that saw it, kept a day, and cleared on sign-out or whenever BoxPilot says
+  the session is gone (`src/pwa/lastKnown.ts`). The installed app opened with no network opens as the
+  account this device remembers (its id, name and role; never a token) to read it, marked Not live
+  with no buttons. A banner under the bar says when the phone is offline or BoxPilot is not answering
+  (checked against `/api/v1/health`: a phone off the tailnet is online, but cannot reach it), when it
+  last answered, and that approvals and actions wait. The CSP already allowed all of it; `worker-src`
+  and `manifest-src 'self'` now say so, and `/sw.js` and the manifest are sent `no-cache`.
+  **Phone polish across the shell:** on a touch screen the bar's controls, the dock, sheet and dialog
+  close buttons, the kit's buttons and fields are at least 44 px (fields at 16 px, so iOS does not
+  zoom), a bottom sheet shows a grip, the approval dialog's buttons clear the home indicator, the
+  theme switch leaves the phone's bar (Settings keeps it), and the bar has a Refresh - the
+  pull-to-refresh the installed app otherwise lacks: Home, Ops and Today read their facts again in
+  place, any other page loads again. The phone screenshots emulate touch, so they show all of this.
 - **M25.2** **Push approvals.** "Update available for Jellyfin — approve?" as a push you tap, tied to
   the passkey (M19.1), so approving a medium action from bed is a touch, not a login.
-- **M25.3** **A today view.** What ran overnight, what needs attention, what is off-box and current —
-  the morning glance, on the lock screen.
+- ✅ **M25.3** (unreleased) **A today view.** What ran overnight, what needs attention, what is off-box and current —
+  the morning glance, on the lock screen. `?view=today`, first in the dock and on the rail, and the
+  installed app's start page on a phone (anything wider starts on Home). Top to bottom: the jobs
+  waiting for approval, each with Review opening the ordinary dialog at its own tier; what else needs
+  a look, worst first (what can wait stays on Home); the agents' morning digest and cards; what ran
+  since 18:00 yesterday (since 06:00 after the evening turns), as backups, updates and other jobs,
+  failures first, each opening in Activity; and the backups at a glance - off this server, apps
+  backed up, BoxPilot's database - drawn by the same `backupGlance` as Home's panel. It reads nothing
+  new: the facts Home and Ops read, `buildNeeds`, and the job history Ops' matrix reads
+  (`src/home/jobHistory.ts`, now shared). The dock's Today carries the count of approvals waiting,
+  from Activity's live feed, so an approval is one tap from any page.
 
 
 ---

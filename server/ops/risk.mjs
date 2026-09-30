@@ -78,12 +78,20 @@ export function normalizeApprovalMode(value) {
   return approvalModes.includes(value) ? value : defaultApprovalMode;
 }
 
+/** The riskier of two tiers; anything that is not a tier counts for nothing. */
+export function higherTier(left, right) {
+  const rank = (tier) => riskTiers.indexOf(tier);
+  return rank(right) > rank(left) ? right : left;
+}
+
 /**
- * Decide what an approval needs.
+ * Decide what an approval needs. `atLeast` is the tier the job was staged at when that is higher
+ * than its operation's own: installing an app whose manifest calls it high risk (jobs.mjs,
+ * operationRiskHooks). It can raise the tier, never lower it.
  * @returns {{ tier: string, passwordRequired: boolean, elevated: boolean, reason: string }}
  */
-export function approvalRequirement({ jobType, mode = defaultApprovalMode, elevatedUntil = null, now = () => new Date() } = {}) {
-  const tier = riskTierForJob(jobType);
+export function approvalRequirement({ jobType, atLeast = null, mode = defaultApprovalMode, elevatedUntil = null, now = () => new Date() } = {}) {
+  const tier = higherTier(riskTierForJob(jobType), atLeast);
   const elevatedTime = typeof elevatedUntil === "string" ? Date.parse(elevatedUntil) : Number.NaN;
   const elevated = Number.isFinite(elevatedTime) && elevatedTime > now().getTime();
   if (normalizeApprovalMode(mode) === "always-password") return { tier, passwordRequired: true, elevated, reason: "always-password mode" };
