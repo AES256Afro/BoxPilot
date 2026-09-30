@@ -81,6 +81,12 @@ function helperFor(world, { apps, services }) {
       last: 41, more: false,
       messages: [{ id: 41, topic: "network", sender: "Alex", content: "The router notes [router.md](/user_uploads/2/aa/bb/router.md)", files: [{ name: "router.md", kind: "text", path: "/user_uploads/2/aa/bb/router.md", bytes: Buffer.from("# The router\nThe router is upstairs in the office, on the shelf above the printer. Its admin page is at 192.168.50.1.").toString("base64") }] }],
     }),
+    // Two-way chat (M40.5): the bot's event queue, opened once; Sam, whom the owner has not let in
+    // yet, asked the bot in a direct message, is told so, and waits on the owner's list.
+    "agents.zulip.events": (parameters) => (parameters.queueId ? { queueId: parameters.queueId, lastEventId: parameters.lastEventId ?? 0, reopened: false, messages: [], more: false } : {
+      queueId: "demo:1", lastEventId: 3, reopened: true, more: false,
+      messages: [{ id: 57, kind: "direct", senderId: 12, senderEmail: "sam@example.com", senderName: "Sam", to: [12], channel: null, topic: null, content: "Is the Wi-Fi down again?", at: new Date(Date.now() - hours(1)).toISOString() }],
+    }),
   };
   return { request: async (operation, parameters) => { const answer = answers[operation]; if (!answer) throw new Error(`${operation} is not in the demo`); return answer(parameters ?? {}); } };
 }
@@ -195,6 +201,8 @@ async function seed({ service, state, store, caller, at, runNext, script, world,
     botEmail: "boxpilot-agents-bot@homebox.tail0a1b.ts.net", botCreated: true, credential: "zulip-agents-bot",
     channels: { findings: "agent-findings", logs: "agent-logs", knowledge: "agent-knowledge", files: "agent-files" }, made: ["agent-findings", "agent-logs", "agent-knowledge", "agent-files"], public: [],
   }, { actorId: caller.id, boxpilotUrl: "https://homebox.tail0a1b.ts.net" });
+  // The owner asks from Zulip as themselves (M40.5).
+  await service.setZulipPeople(caller, { people: [{ zulipEmail: "alex@example.com", zulipName: "Alex", boxpilotId: caller.id }] });
 
   // Five nights of evaluations (M40): the Server Keeper got which apps are stopped wrong on one.
   const inventory = fixtures.inventory();
