@@ -428,3 +428,16 @@ describe("NVIDIA GPU", () => {
     expect(manifests.find((m) => m.id === "open-webui").sidecars.find((s) => s.id === "ollama").gpu).toBe("optional");
   });
 });
+
+describe("the tier of installing an app", () => {
+  it("is the manifest's own, from the catalog as shipped", async () => {
+    const { createCatalogService, installRiskLookup } = await import("./index.mjs");
+    const lookup = installRiskLookup(createCatalogService());
+    expect(await lookup({ id: "pi-hole" })).toBe("high");
+    expect(await lookup({ id: "wg-easy" })).toBe("high");
+    expect(await lookup({ id: "jellyfin" })).toBe("medium");
+    expect(await lookup({ id: "actual" })).toBe("low");
+    expect(await lookup({ id: "no-such-app" })).toBeNull();
+    expect(await lookup({})).toBeNull();
+  });
+});
