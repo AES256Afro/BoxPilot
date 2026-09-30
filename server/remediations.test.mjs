@@ -137,6 +137,16 @@ describe("things that are working but cannot be found or trusted", () => {
     expect(vpnLeaks({ apps: [{ id: "q", killSwitchDrill: { leaked: false } }] })).toEqual([]);
     expect(failedRehearsals({ apps: [{ id: "j", backupVerification: { verified: true } }] })).toEqual([]);
   });
+
+  it("asks for the new backup to be rehearsed once its fix has taken one, rather than for another backup", () => {
+    const app = { id: "jellyfin", name: "Jellyfin", backupVerification: { verified: false, backup: "x.tar.gz", reason: "The archive could not be unpacked.", checkedAt: "2026-08-29T03:30:00Z" } };
+    const protection = (newestAt) => ({ available: true, apps: [{ id: "jellyfin", name: "Jellyfin", protectable: true, backups: 3, newestAt }] });
+    const [after] = failedRehearsals({ apps: [app], protection: protection("2026-08-29T09:00:00Z") });
+    expect(after).toMatchObject({ id: "backup-rehearsal:jellyfin", severity: "warning", title: "Jellyfin's new backup has not been rehearsed yet", fix: { operationId: "app.backup.verify", parameters: { id: "jellyfin" }, label: "Rehearse the new backup" } });
+    // The newest backup is the one that failed, or older: still critical, still "take a fresh one".
+    expect(failedRehearsals({ apps: [app], protection: protection("2026-08-29T03:00:00Z") })[0]).toMatchObject({ severity: "critical", fix: { operationId: "app.backup" } });
+    expect(failedRehearsals({ apps: [app], protection: { available: false } })[0].severity).toBe("critical");
+  });
 });
 
 describe("the whole sweep", () => {
