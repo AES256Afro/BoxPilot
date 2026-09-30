@@ -12,6 +12,7 @@ import { fetchAuthStatus, forgetAccount, forgetSession, rememberSession, remembe
 import { useSessionEnded } from "./sessionEnd";
 import { connected, useConnection } from "./pwa/connection";
 import { OfflineBanner } from "./shell/OfflineBanner";
+import { DeepLinkApproval, approvalFromUrl, openMessageType, takeApprovalFromLocation } from "./shell/DeepLinkApproval";
 import { RefreshButton } from "./shell/RefreshButton";
 import { connectionLabel } from "./appLinks";
 import { FactsProvider } from "./home/facts";
@@ -91,6 +92,8 @@ function viewFromLocation(): ViewName {
 const keptParams = new Set(["scenario"]);
 
 function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthStatus; onSignedOut: (reason: SignedOutReason | null) => void; onAuthChanged?: (status: AuthStatus) => void }) {
+  // An approval a push opened (M25.2): read before the view, which it leaves on Today.
+  const [approving, setApproving] = useState<string | null>(takeApprovalFromLocation);
   const [view, setViewState] = useState<ViewName>(viewFromLocation);
   // The app the catalog opens at (?app=jellyfin), when a tile or the command bar sent us there.
   const [focusApp, setFocusApp] = useState<string | null>(() => new URLSearchParams(window.location.search).get("app"));
@@ -108,6 +111,18 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
     if (options.tab) url.searchParams.set("tab", options.tab); // a tabbed page opens at this tab
     window.history.replaceState(null, "", url);
   }, []);
+  // A push tapped while the app is open: the service worker says which approval, and it opens here.
+  useEffect(() => {
+    const container = typeof navigator !== "undefined" && "serviceWorker" in navigator ? navigator.serviceWorker : null;
+    if (!container) return undefined;
+    const onMessage = (event: MessageEvent) => {
+      if (event.data?.type !== openMessageType) return;
+      setView("today");
+      setApproving(approvalFromUrl(String(event.data.url ?? "")));
+    };
+    container.addEventListener("message", onMessage);
+    return () => container.removeEventListener("message", onMessage);
+  }, [setView]);
   const refreshAuth = () => fetchAuthStatus().then((status) => onAuthChanged?.(status)).catch(() => undefined);
   // When the session reaches its expiry, go back to the sign-in screen instead of leaving every page red.
   useEffect(() => {
@@ -205,7 +220,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
             <RefreshButton />
             <span className="connection-pill" title="How this browser reached BoxPilot">{connectionLabel(window.location)}</span>
             <ThemeSwitch compact />
-            <NotificationCentre csrfToken={csrfToken} onNavigate={setView} />
+            <NotificationCentre csrfToken={csrfToken} role={role} onNavigate={setView} />
             <ActivityDrawer csrfToken={csrfToken} role={role} />
             <SessionControls authStatus={authStatus} csrfToken={csrfToken} onRefresh={() => void refreshAuth()} onSignedOut={onSignedOut} />
           </div>
@@ -225,6 +240,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
           </div>
         </main>
         {operationDialog}
+        {approving && <DeepLinkApproval key={approving} jobId={approving} csrfToken={csrfToken} onClose={() => setApproving(null)} />}
       </div>
       </ShellHost>
       </TopBarSlotProvider>

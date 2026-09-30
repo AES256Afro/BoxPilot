@@ -9,6 +9,8 @@ import type { Need } from "../../home/needs";
 import { useNeedActions } from "../../home/useNeedActions";
 import { connected, useConnection } from "../../pwa/connection";
 import { readLastKnown, saveLastKnown } from "../../pwa/lastKnown";
+import { pushSupport, thisDeviceId } from "../../pwa/push";
+import { runningInstalled } from "../../pwa/register";
 import { onRefresh } from "../../shell/refresh";
 import { Button, Facts, MetricStrip, MetricTile, Notice, PageHeader, Panel, StatusChip } from "../../ui";
 import { AgentsGlance } from "../agents/AgentsGlance";
@@ -77,6 +79,13 @@ export default function TodayPage({ csrfToken, role, accountId, onNavigate, now 
         actions={<Button variant="ghost" onClick={read}>Refresh</Button>}
         about="The morning glance: what waits for your approval, what ran overnight, and whether the backups are off this server and current. Kept on this device for a day so it can be read without a connection."
       />
+
+      {/* The installed app on a phone that could have approval pushes and has not (M25.2). */}
+      {!stale && (role === "owner" || role === "operator") && runningInstalled() && pushSupport() === "supported" && !thisDeviceId() && (
+        <Notice tone="info" title="Get approvals on this phone" action={<Button onClick={() => openNotifications()}>Set up</Button>}>
+          A push when a job waits for you; tapping it opens the approval here, at its own tier.
+        </Notice>
+      )}
 
       {stale && (
         <Notice tone="warning" title="Not live">

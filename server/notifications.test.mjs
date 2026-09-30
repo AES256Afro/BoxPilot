@@ -40,6 +40,21 @@ describe("failed-job notifications", () => {
     expect(hook.options.headers.Authorization).toBe("Bearer t");
   });
 
+  it("opens an approval when the push is tapped (M25.2), for an https address only", () => {
+    const click = "https://homebox.example.ts.net/?approve=0f8b3c1e-1111-4222-8333-444455556666";
+    const ntfy = buildRequest({ kind: "ntfy", url: "http://127.0.0.1:8093", topic: "boxpilot" }, { title: "T", message: "M", click });
+    expect(ntfy.options.headers.Click).toBe(click);
+    const gotify = buildRequest({ kind: "gotify", url: "http://127.0.0.1:8091", token: "app-token" }, { title: "T", message: "M", click });
+    expect(JSON.parse(gotify.options.body).extras).toEqual({ "client::notification": { click: { url: click } } });
+    const hook = buildRequest({ kind: "webhook", url: "http://127.0.0.1:9000/hook" }, { title: "T", message: "M", click });
+    expect(JSON.parse(hook.options.body).url).toBe(click);
+    // Anything but a plain https address is left off rather than sent.
+    for (const bad of ["http://homebox.local/?approve=x", "javascript:alert(1)", "https://user:pw@homebox.example/", "not a url"]) {
+      expect(buildRequest({ kind: "ntfy", url: "http://127.0.0.1:8093", topic: "boxpilot" }, { title: "T", message: "M", click: bad }).options.headers.Click, bad).toBeUndefined();
+    }
+    expect(buildRequest({ kind: "ntfy", url: "http://127.0.0.1:8093", topic: "boxpilot" }, { title: "T", message: "M" }).options.headers.Click).toBeUndefined();
+  });
+
   it("stores the target, never exposes the token, and sends a test", async () => {
     const { store, owner, service, requests } = await setup();
     expect(service.describe()).toMatchObject({ configured: false });
