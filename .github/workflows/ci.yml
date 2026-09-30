@@ -183,3 +183,68 @@ jobs:
 
       - name: The agents runner stays under its caps, and idles near 0%
         run: sudo bash tests/ubuntu/agents-caps.sh "$(command -v node)"
+
+  # M39.2: whether the house keeps its DNS with the server off, against real dnsmasq (the resolver
+  # GL.iNet and OpenWrt routers run): each server asked directly, the canary through a "router"
+  # found in a "Pi-hole"'s query log, and the rehearsal with that Pi-hole really stopped, for a
+  # router with a fallback and one without. Also the lease reader on the runner's own DHCP lease.
+  # Both LTS releases: networkctl's JSON and dnsmasq differ between them.
+  dns-fallback:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-26.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: The DNS check and the rehearsal tell a router with a fallback from one without
+        run: sudo bash tests/ubuntu/dns-fallback.sh "$(command -v node)"
+
+  # M39.2 for a server with a hand-set address, which has no DHCP lease to read: the real Pi-hole image
+  # the catalog pins, asked directly by eight "devices" from their own addresses, and its own
+  # database read read-only through `pihole-FTL sqlite3`, the way the helper reads it. The DNS check
+  # must then say the house goes down with the server, from counts alone.
+  pihole-askers:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Pi-hole's own log tells a static server that devices ask it directly
+        run: sudo bash tests/ubuntu/pihole-askers.sh "$(command -v node)"
+
+  # M39.3: the heartbeat on real systemd, deploy/boxpilot-heartbeat.service and .timer as shipped: off
+  # until turned on, one bare GET per tick from a unit with no capabilities, a switch that is down
+  # costs one quick try and no failed unit, and the address never leaves the credential store.
+  heartbeat:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-26.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: The heartbeat pings from its timer, and only when turned on
+        run: sudo bash tests/ubuntu/heartbeat.sh "$(command -v node)"

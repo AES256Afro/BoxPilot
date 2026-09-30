@@ -1,3 +1,4 @@
+import type { ViewName } from "../data";
 import type { RiskTier } from "../ui/types";
 
 /*
@@ -49,6 +50,8 @@ export interface Finding {
   /** Every fix, best first; `fix` is the first. Older servers send only `fix`. */
   fixes?: RepairFix[];
   manual: string | null;
+  /** The page that holds what the owner does about it, when that is not Repair (the router's DNS steps are on Network). */
+  view?: ViewName;
   /** What the finding says, hashed; a dismissal holds only while it matches. */
   fingerprint?: string;
   lastAttempt?: LastAttempt | null;

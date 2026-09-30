@@ -50,6 +50,8 @@ import { invalidateOperationEvidence } from "./diagnostic-invalidation.mjs";
 import { createLibvirtFoundationService } from "./libvirt-foundation.mjs";
 import { createMaintenanceService } from "./maintenance.mjs";
 import { createNetworkService } from "./network.mjs";
+import { createDnsResilienceService, dnsAppIds, rehearsalSetting } from "./dns-resilience.mjs";
+import { createOutageDnsWatch } from "./outage-dns.mjs";
 import { createPrerequisiteService } from "./prerequisites.mjs";
 import { createRecoveryKitService } from "./recovery-kit.mjs";
 import { createRunbookService } from "./runbook-service.mjs";
@@ -112,6 +114,8 @@ const prerequisites = createPrerequisiteService({
   helper,
 });
 const network = createNetworkService({ store: state });
+// Whether the house keeps its DNS while this server is off (M39.2): read here, kept ten minutes.
+const dnsResilience = createDnsResilienceService({ network, helper, store: state });
 const githubProvenance = createGithubProvenanceService();
 const releaseUpdates = createReleaseUpdateService();
 const controllerProtection = createControllerProtectionService({ store: state, helper });
@@ -223,6 +227,12 @@ const jobs = createJobService(state, helper, {
     // M38: where Zulip is and what Connect made; the bot's key stayed in the helper's credential store.
     "agents.zulip.connect": (job, result) => { agents.zulipConnected(result, { actorId: job.createdBy, boxpilotUrl: job.parameters?.boxpilotUrl ?? null }); },
     "agents.zulip.disconnect": (job) => { agents.zulipDisconnected({ actorId: job.createdBy }); },
+    // M39.2: whether the router kept answering with the DNS app here stopped. The DNS check reads it
+    // (a job is pruned within weeks; the verdict holds for ninety days).
+    "dns.fallback.rehearse": (job, result) => {
+      state.setSetting(rehearsalSetting, { router: result.router, app: result.app ?? null, appName: result.appName ?? null, passed: typeof result.passed === "boolean" ? result.passed : null, answered: result.answered, total: result.total, slowestMs: result.slowestMs ?? null, stoppedForMs: result.stoppedForMs ?? null, at: result.at ?? new Date().toISOString(), by: job.createdBy }, { updatedBy: job.createdBy });
+      dnsResilience.forget();
+    },
   },
   // Prepare hooks pin server-derived expectations into the staged parameters.
   operationPrepareHooks: {
@@ -325,6 +335,16 @@ createDiskSampler({ inventory, store: state }).start();
 createAppDataSampler({ helper, store: state }).start();
 // Sample SMART numbers daily so a drive going bad is caught before it fails (M23.3).
 createSmartSampler({ inventory, store: state }).start();
+// After a boot that followed a power cut (M39.2): does the DNS app answer on the LAN, and does this
+// server look names up? Both go on the outage's record, a few minutes in.
+createOutageDnsWatch({
+  store: state, helper, network,
+  dnsApp: async () => {
+    const [live, catalog] = await Promise.all([helper.request("app.inspect", {}, { timeoutMs: 60_000 }), catalogService.all().catch(() => ({ manifests: [] }))]);
+    const app = (live?.applications ?? []).find((entry) => entry.installed && dnsAppIds.includes(entry.id));
+    return app ? { id: app.id, name: catalog.manifests.find((manifest) => manifest.id === app.id)?.name ?? app.id } : null;
+  },
+}).start();
 // The local assistant (M34): its model is only ever a local one, found when someone asks. Its index
 // of BoxPilot's documents, registry and catalog is built the first time anyone asks or reads its
 // status, not here: most servers never run a model, and building it at every start cost ~50 ms of
@@ -443,7 +463,7 @@ app.use("/api/v1", createFirewallRouter({ state, helper, catalogService, webPort
 app.use("/api/v1", createStorageRouter({ auth, helper, inventory, state }));
 app.use("/api/v1", createPowerRouter());
 app.use("/api/v1", createChecklistRouter({ state, helper, notifications, inventory, network, storage: storageRead }));
-app.use("/api/v1", createHostRouter({ state, helper, catalogService, inventory, network, notifications, controllerProtection, controllerRetention, githubProvenance, releaseUpdates, setup, supportBundle, audit, auth, identity, webHost: host, webPort: port }));
+app.use("/api/v1", createHostRouter({ state, helper, catalogService, inventory, network, dnsResilience, notifications, controllerProtection, controllerRetention, githubProvenance, releaseUpdates, setup, supportBundle, audit, auth, identity, webHost: host, webPort: port }));
 app.use("/api/v1", createOidcAdminRouter({ oidc, auth }));
 // The runbook for this server (M34.4), from the same services the pages read.
 const runbook = createRunbookService({ store: state, helper, catalogService, inventory, network, notifications, autoReconnect, identity, secretEnvNamesFor, collect: storageRead, webHost: host, webPort: port, tlsDir });

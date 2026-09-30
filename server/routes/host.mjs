@@ -14,6 +14,7 @@ import { hashPassword, renderAutoinstall, validateAutoinstallInput } from "../au
 import { readTlsStatus } from "../tls-status.mjs";
 import { collectStorage } from "../storage-inventory.mjs";
 import { detectRemediations } from "../remediations.mjs";
+import { latestOutageCheck } from "../outage-dns.mjs";
 import { applyLedger, attemptsKey, dismissalFrom, dismissalsKey, findingIdPattern, jobIdPattern, withAttempt, withDismissal } from "../repair-ledger.mjs";
 import { callerId, readsThroughHelper, seesEveryAccount, withOwnActors } from "./access.mjs";
 import { access, readFile } from "node:fs/promises";
@@ -59,7 +60,7 @@ export function buildReachability({ webHost, webPort, lanIp, dnsName, tls, serve
   return { ways, onLan, tlsProvisioned: Boolean(tls?.provisioned), servePublished: Boolean(servePublished) };
 }
 
-export function createHostRouter({ state, helper, catalogService, inventory, network, notifications = null, controllerProtection, controllerRetention, githubProvenance, releaseUpdates, setup, supportBundle, audit, auth, identity = null, webHost = "127.0.0.1", webPort = 8787, tlsDir = process.env.BOXPILOT_TLS_DIR ?? "/etc/boxpilot/tls", collect = collectStorage, fileExists = (file) => access(file).then(() => true, () => false), readListeners = listListeners }) {
+export function createHostRouter({ state, helper, catalogService, inventory, network, dnsResilience = null, notifications = null, controllerProtection, controllerRetention, githubProvenance, releaseUpdates, setup, supportBundle, audit, auth, identity = null, webHost = "127.0.0.1", webPort = 8787, tlsDir = process.env.BOXPILOT_TLS_DIR ?? "/etc/boxpilot/tls", collect = collectStorage, fileExists = (file) => access(file).then(() => true, () => false), readListeners = listListeners }) {
   const router = Router();
   router.get("/diagnostics/runtime", async (_request, response) => {
     const [web, worker] = await Promise.allSettled([
@@ -301,6 +302,14 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
     // Every finding here, and every health condition the watcher tracks, ends at a notification
     // target. Whether there is one is therefore part of whether any of this reaches anybody.
     try { facts.notifications = { configured: notifications?.describe?.().configured === true }; } catch { facts.notifications = null; }
+    // Whether the house leans on this server for its DNS (M39.2): the kept answer, or a fresh one
+    // bounded so a resolver that does not answer cannot hold Home up. Not having it is not a finding.
+    if (dnsResilience) {
+      facts.dnsResilience = await Promise.race([
+        dnsResilience.check().catch(() => null),
+        new Promise((resolve) => { const timer = setTimeout(() => resolve(null), 8_000); timer.unref?.(); }),
+      ]);
+    }
     const unavailableChecks = [["Drives and mounts", storage, true], ["Applications", live, true], ["File sharing", samba, operatorReads], ["USB history", usb, operatorReads], ["Unclean unmounts", unclean, operatorReads], ["Drive filesystems", volumes, operatorReads], ["App backups", protection, true]]
       .filter(([, value]) => !value || value.available === false)
       .map(([name, , allowed]) => (allowed ? name : `${name} (needs an operator)`));
@@ -445,6 +454,19 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
   // Network page shows the tailnet the way it shows the LAN. Read-only; nothing here mutates.
   router.get("/network/tailnet", async (_request, response) => {
     response.json(await network.tailnet());
+  });
+
+  // Whether the house keeps its DNS while this server is off (M39.2): what the router hands out, each
+  // server asked directly, the last rehearsal, and the last check after a power cut. Open to every
+  // role like the topology it is read from; `?fresh=1` reads it again rather than the kept answer.
+  router.get("/network/dns-resilience", async (request, response) => {
+    if (!dnsResilience) return response.status(404).json({ error: "Not found", code: "not_found" });
+    try {
+      const verdict = await dnsResilience.check({ fresh: request.query?.fresh === "1" });
+      return response.json({ ...verdict, afterOutage: latestOutageCheck(state) });
+    } catch (error) {
+      return response.status(500).json({ error: `The DNS check could not run: ${error.message}`, code: "dns_resilience_failed" });
+    }
   });
 
   // Every way to reach the BoxPilot control plane, so "which URL do I use" has one honest answer

@@ -51,6 +51,8 @@ const fixtures = {
   "backup.cloud.setup": (s) => ({ provider: "drive", path: "boxpilot", key: s("key"), secretAccessKey: s("secretAccessKey"), password: s("password"), token: s("token") }),
   "router.connect": (s) => ({ kind: "glinet", host: "router.example", password: s("password") }),
   "credentials.set": (s) => ({ name: "sentinel", value: s("value") }),
+  // M39.3: the secret is an address, so the sentinel rides inside one.
+  "heartbeat.set": (s) => ({ enabled: true, url: `https://hc-ping.example/${s("url")}`, intervalMinutes: 5 }),
   "vpn.profile.set": (s) => ({ provider: vpnFields.provider.enum[0], type: vpnFields.type.enum[0], wireguardPrivateKey: s("wireguardPrivateKey"), openvpnPassword: s("openvpnPassword") }),
 };
 
@@ -64,9 +66,9 @@ function declaredPositions(operation) {
   return positions;
 }
 
-/** Where a fixture actually put a sentinel. */
+/** Where a fixture actually put a sentinel: anywhere in a string, since a secret may be an address. */
 function sentinelPositions(value, at = []) {
-  if (typeof value === "string") return value.startsWith(marker) ? [at] : [];
+  if (typeof value === "string") return value.includes(marker) ? [at] : [];
   if (Array.isArray(value)) return value.flatMap((item, index) => sentinelPositions(item, [...at, index]));
   if (value && typeof value === "object") return Object.entries(value).flatMap(([key, item]) => sentinelPositions(item, [...at, key]));
   return [];
