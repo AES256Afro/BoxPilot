@@ -58,6 +58,8 @@ export const runtimeInstallKey = "agentsRuntimeInstall";
 export const agentsMigrationsKey = "agentsMigrations";
 /** The model's measured speed on this server, kept from the runner's runs (modelSpeed). */
 export const modelSpeedKey = "agentsModelSpeed";
+/** Whether the model server can see images, as it last said (M40.6). */
+export const visionKey = "agentsVision";
 
 export const serviceLimits = Object.freeze({
   leaseMs: 60_000,
@@ -574,6 +576,13 @@ export function createAgentService({
     return entry && entry.promptPerSecond > 0 && entry.generatePerSecond > 0 ? { ...entry, model: saved.model, threads: nearest } : null;
   }
 
+  /** Whether this runtime's model can see images, as it last said (M40.6); null when it has not, or it was another model. */
+  function visionNow() {
+    const saved = state.getSetting?.(visionKey, null);
+    const runtime = runtimeSettings();
+    return saved && saved.model === runtime.repo && saved.driver === runtime.driver ? saved : null;
+  }
+
   /** A finished run's measurement, kept for the Usage tab and the next run's first call. */
   function noteModelSpeed(measured) {
     if (!measured || typeof measured !== "object") return null;
@@ -779,9 +788,13 @@ export function createAgentService({
    */
   function queueDescribing() {
     const settings = moduleSettings();
-    if (!settings.enabled || modulePaused(settings) || settings.killedAt || runtimeSettings().driver === "llama-server") return null;
+    // llama-server sees only when it is handed the model's projector (--mmproj); Unsloth finds it itself.
+    if (!settings.enabled || modulePaused(settings) || settings.killedAt || (runtimeSettings().driver === "llama-server" && !runtimeSettings().projector)) return null;
     if (store.activeRuns().some((run) => run.kind === "describe")) return null;
     if (!store.listUndescribed({ limit: 1 }).length || moduleBudget().modelMsLeft < 60_000) return null;
+    // A model server that said it cannot see is asked again a day later, or after the model or the runtime changed (M40.6).
+    const sight = visionNow();
+    if (sight?.vision === false && now().getTime() - Date.parse(sight.at) < 86_400_000) return null;
     const owner = state.listOwners?.().find((entry) => entry.role === "owner") ?? null;
     const run = store.enqueueRun({ agentId: imageDescribeAgentId, version: 0, kind: "describe", trigger: { title: "Describe an image from #agent-files", quietHours: true }, readRole: "owner", readAs: owner?.id ?? null });
     wake();
@@ -805,12 +818,16 @@ export function createAgentService({
   /** A describe run's end: each image's text is the model's description, redacted and boxed as data. */
   function finishDescribe(run, result) {
     const usage = { modelMs: Math.round(finite(result.usage?.modelMs, 3_600_000)), loadMs: Math.round(finite(result.usage?.loadMs, 3_600_000)), wallMs: Math.max(0, now().getTime() - Date.parse(run.startedAt)) };
+    // Whether the model server can see (M40.6), as it said: kept for Knowledge and Usage, and so a
+    // model that cannot is not started again every minute of quiet hours to fail at it.
+    if (typeof result.vision?.vision === "boolean") state.setSetting?.(visionKey, { vision: result.vision.vision, reason: typeof result.vision.reason === "string" ? clip(result.vision.reason.replace(/[\u0000-\u001f\u007f]/g, " "), 200) : null, model: runtimeSettings().repo, driver: runtimeSettings().driver, at: now().toISOString() }, { updatedBy: null });
     let described = 0;
     for (const entry of Array.isArray(result.descriptions) ? result.descriptions.slice(0, 4) : []) {
       const document = store.getDocument(entry?.key);
       if (!document?.mediaType) continue;
       const words = typeof entry.text === "string" ? sanitizeUntrusted(entry.text, { maxChars: 1_500, redact }).text.trim() : "";
-      if (!words) { store.describeDocument(document.id, { text: null }); continue; }
+      // A model that cannot see spends none of the image's three tries: it waits for one that can.
+      if (!words) { if (result.vision?.vision !== false) store.describeDocument(document.id, { text: null }); continue; }
       const context = document.text.split(" Not described yet")[0];
       store.describeDocument(document.id, { text: `${context}\n\nWhat it shows, as the model described it: ${words}` });
       described += 1;
@@ -1993,6 +2010,8 @@ export function createAgentService({
       connectors: presentModule().connectors, folder: presentModule().folder, webSearch: presentModule().webSearch,
       learning: { quietHours: moduleSettings().quietHours, agents: lastLearn },
       canChange: person.role === "owner",
+      // M40.6: whether the model can see the images waiting to be described, as it last said.
+      vision: visionNow(),
     };
   }
 

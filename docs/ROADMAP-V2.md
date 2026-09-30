@@ -2365,7 +2365,24 @@ twice. The hard caps and "agents propose, never act" stay as they are.
   agent answered in the channel's thread; a card sent back as a link; nothing asked while paused),
   the panel; and **on a real Zulip** (`zulip-host.yml`, docker-zulip as BoxPilot installs it) a
   person DMs the bot and the answer comes back in the DM.
-- **M40.6 Pictures** (with M40.5).
+- ✅ **M40.6 Pictures** (with M40.5). **What should happen**: `unsloth run` looks for the model's
+  `mmproj-F16.gguf` in the Hugging Face cache (BoxPilot downloads it with the model, checksummed) and
+  loads it for a vision model; llama-server is handed it (`--mmproj`). What was not checked was
+  whether it did: a model server started without its projector refused each image, each
+  refusal spent one of the image's three tries, and after three minutes of quiet hours the image was
+  never described. Now the runner asks the server it started whether it can see - Unsloth's
+  `GET /api/inference/status` (`is_vision`, and `mmproj_fallback_reason` when it fell back), llama-server's
+  `GET /props` (`modalities.vision`) - once a start, and sends no image to one that cannot; an image
+  refused with "image input is not supported" counts the same. A server that cannot see costs the
+  image no try, and describing waits a day (or until the model or runtime changes) instead of
+  starting the model every minute to fail. The Knowledge tab says "Images: described by the model in
+  quiet hours: it can see them", or which images wait and why. llama-server, skipped since M38, now
+  describes when the model has a projector. Tests: the runtime asks with the start's key and reads
+  Unsloth's fallback (a stand-in `unsloth run`), the fake model answers both endpoints and refuses an
+  image with `--vision off` as llama-server does, the service waits a day and then describes
+  (`chat.test.mjs`), the tab's notice. `agents-bench.yml` with `mode: image` has the real Qwen 3.5
+  4B under Unsloth describe a picture made on the spot (a red disc above a blue bar) and prints what
+  Unsloth said about its projector.
 
 ## App catalogue candidates
 

@@ -203,6 +203,8 @@ export interface Knowledge {
   learning: { quietHours: { start: string; end: string }; agents: Array<{ agentId: string; name: string; state: RunState | null; at: string | null }> };
   canChange: boolean;
   connectors?: Connectors; folder?: { enabled: boolean; path: string | null }; webSearch?: { enabled: boolean; endpoint: string | null };
+  /** M40.6: whether the model can see images, as the model server last said. */
+  vision?: { vision: boolean; reason: string | null; at: string } | null;
 }
 export interface MemoryNote { id: string; title: string; body: string; source: Note["source"]; createdAt: string; updatedAt: string; freshUntil: string | null; stale: boolean; pinned: boolean; shared: boolean; readRole: string; indexed: boolean }
 export interface Memory {
