@@ -1,0 +1,386 @@
+/*
+ * The E-Ink look (M41): black on e-paper grey (#e6e6e1), Literata, and not one colour on any page
+ * (docs/design-directions/05-looks.html, .ei*). Every status and tier token is ink or grey, so state
+ * is carried by shapes and words: a filled square for what needs you, an open square for what can
+ * wait, an open circle for what is fine. Bars are dithered like an e-paper panel draws grey. What
+ * carries its own colour (emoji, app squares, pictures, the Appearance swatches) is drawn through a
+ * greyscale filter; the page itself is not, so the paper keeps its warm grey. Light only. Every
+ * selector starts with :root[data-look="eink"].
+ */
+
+/* Literata's italic, for the tier ("Medium.") and the states, which the paper sets in italics. */
+@font-face {
+  font-family: "Literata";
+  font-style: italic;
+  font-weight: 200 900;
+  font-display: swap;
+  src: url("@fontsource-variable/literata/files/literata-latin-wght-italic.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/* Every rule of the skin sits in @media (min-width: 0), which a browser matches at every width.
+   jsdom, which the tests draw pages in, evaluates only a bare `all` or `screen` and so skips the
+   block, rather than matching several hundred selectors per element that apply only once this
+   look is chosen (a test that renders the whole shell slowed past its timeouts without it). */
+@media (min-width: 0) {
+  :root[data-look="eink"] {
+    color-scheme: light;
+    --eink-chrome: 78px;
+    --eink-dither: repeating-conic-gradient(#151515 0 25%, transparent 0 50%) 0 0 / 5px 5px;
+
+    --font-condensed: "Literata", Georgia, "Times New Roman", serif;
+    --font-sans: "Literata", Georgia, "Times New Roman", serif;
+    --font-mono: "Literata", Georgia, "Times New Roman", serif;
+    --font-display: "Literata", Georgia, "Times New Roman", serif;
+
+    --cc-canvas: #e6e6e1;
+    --cc-topbar: #e6e6e1;
+    --cc-rail: #e6e6e1;
+    --cc-panel: #e6e6e1;
+    --cc-raised: #dcdcd6;
+    --cc-inset: #ededea;
+    --cc-line: #9a9a94;
+    --cc-hairline: #b0b0aa;
+    --cc-line-strong: #151515;
+    --cc-text: #151515;
+    --cc-text-strong: #151515;
+    --cc-muted: #555552;
+    --cc-icon: #555552;
+    --cc-amber: #151515;
+    --cc-amber-ink: #e6e6e1;
+    --cc-amber-bg: rgba(21, 21, 21, 0.07);
+    --cc-amber-border: #151515;
+    --cc-cyan: #151515;
+    --cc-cyan-fill: rgba(21, 21, 21, 0.08);
+    --cc-green: #151515;
+    --cc-green-bg: transparent;
+    --cc-green-border: #555552;
+    --cc-red: #151515;
+    --cc-red-text: #151515;
+    --cc-red-bg: transparent;
+    --cc-red-border: #151515;
+    --cc-track: #d2d2cc;
+
+    --radius-sm: 3px;
+    --radius-md: 3px;
+    --radius-lg: 4px;
+    --radius-card: 4px;
+    --radius-control: 3px;
+    --elevation-1: none;
+    --elevation-2: none;
+    --elevation-3: none;
+    --shadow-lg: none;
+    --shadow-xl: none;
+    --modal-bg: rgba(230, 230, 225, 0.82);
+    --backdrop-bg: rgba(230, 230, 225, 0.7);
+    --text-on-emphasis: #e6e6e1;
+    --lx-avatar: #151515;
+    --lx-avatar-ink: #e6e6e1;
+    --lx-focus: #151515;
+  }
+
+  /* Every state and tier in ink or grey. Set again on what opens over a page
+     (.look-console), which points these names at the console's own. */
+  :root[data-look="eink"],
+  :root[data-look="eink"] .look-console {
+    --status-good: #555552;
+    --status-good-text: #151515;
+    --status-good-bg: transparent;
+    --status-good-border: #555552;
+    --status-warning: #151515;
+    --status-warning-text: #151515;
+    --status-warning-bg: transparent;
+    --status-warning-border: #151515;
+    --status-danger: #151515;
+    --status-danger-text: #151515;
+    --status-danger-bg: transparent;
+    --status-danger-border: #151515;
+    --status-neutral: #555552;
+    --status-neutral-text: #555552;
+    --status-neutral-bg: transparent;
+    --status-neutral-border: #555552;
+    --status-unknown: #555552;
+    --status-unknown-text: #555552;
+    --status-unknown-border: #555552;
+    --risk-low: #555552;
+    --risk-low-text: #151515;
+    --risk-low-bg: transparent;
+    --risk-low-border: #555552;
+    --risk-medium: #151515;
+    --risk-medium-text: #151515;
+    --risk-medium-bg: transparent;
+    --risk-medium-border: #151515;
+    --risk-high: #151515;
+    --risk-high-text: #151515;
+    --risk-high-bg: transparent;
+    --risk-high-border: #151515;
+    --warn: #151515;
+    --warn-text: #151515;
+    --danger: #151515;
+    --danger-text: #151515;
+    --success: #151515;
+  }
+
+  /* ── Every page: grey paper and ink ── */
+  :root[data-look="eink"] body { background: #e6e6e1; }
+  :root[data-look="eink"] .app-shell { color: #151515; background: #e6e6e1; }
+  :root[data-look="eink"] ::selection { color: #e6e6e1; background: #151515; }
+  :root[data-look="eink"] :is(button, a, input, select, textarea, summary, [tabindex]):focus-visible { outline: 2px solid #151515; outline-offset: 2px; }
+  :root[data-look="eink"] :is(code, kbd, samp, pre, .ui-code__text, .ui-input--mono, .ops-mono, .ops-link--mono) { font-family: "JetBrains Mono", ui-monospace, monospace; }
+  :root[data-look="eink"] :is(.ui-table td, .ui-metric__value, .ui-kv__value, .ui-facts, .ui-tabs__count) { font-variant-numeric: tabular-nums; }
+
+  /* Shapes, not colours: ■ needs you, □ can wait, ○ fine, a dashed □ not read. */
+  :root[data-look="eink"] :is(.ui-chip--good, .ui-tile[data-status="good"], .ui-marked[data-status="good"], .ui-metric[data-status="good"], .ui-table tbody tr[data-status="good"], .ops-run[data-run="ok"]) {
+    --mark-radius: 50%; --mark-clip: none; --mark-transform: none; --mark-fill: transparent; --mark-border: 1.5px solid #151515;
+  }
+  :root[data-look="eink"] :is(.ui-chip--warning, .ui-chip--danger, .ui-tile:is([data-status="warning"], [data-status="danger"]), .ui-marked:is([data-status="warning"], [data-status="danger"]), .ui-metric:is([data-status="warning"], [data-status="danger"]), .ui-table tbody tr:is([data-status="warning"], [data-status="danger"]), .need:is([data-severity="warning"], [data-severity="danger"]), .ops-run[data-run="failed"]) {
+    --mark: #151515; --mark-radius: 0; --mark-clip: none; --mark-transform: none; --mark-fill: #151515; --mark-border: 0;
+  }
+  :root[data-look="eink"] :is(.ui-chip--neutral, .ui-tile[data-status="neutral"], .ui-marked[data-status="neutral"], .ui-metric[data-status="neutral"], .ui-table tbody tr[data-status="neutral"], .need[data-severity="neutral"]) {
+    --mark-radius: 0; --mark-clip: none; --mark-transform: none; --mark-fill: transparent; --mark-border: 1.5px solid #151515;
+  }
+  :root[data-look="eink"] :is(.ui-chip--unknown, .ui-tile[data-status="unknown"], .ui-marked[data-status="unknown"], .ui-metric[data-status="unknown"], .ui-table tbody tr[data-status="unknown"]) {
+    --mark-radius: 0; --mark-clip: none; --mark-transform: none; --mark-fill: transparent; --mark-border: 1.5px dashed #555552;
+  }
+
+  /* ── The bar: "homebox · Home", the controls, and when the page was read, over a thin rule ── */
+  :root[data-look="eink"] .topbar {
+    position: sticky;
+    top: 0;
+    align-items: last baseline;
+    gap: 0 26px;
+    height: 50px;
+    min-height: 50px;
+    padding: 0 47px 8px;
+    border-bottom: 0;
+    color: #151515;
+    background: #e6e6e1;
+    backdrop-filter: none;
+    font-family: "Literata", Georgia, serif;
+    font-size: 15px;
+  }
+  :root[data-look="eink"] .topbar::after { position: absolute; right: 47px; bottom: 0; left: 47px; height: 2px; background: #151515; content: ""; }
+  :root[data-look="eink"] :is(.topbar-left, .topbar-slot) { display: contents; }
+  :root[data-look="eink"] .topbar-slot:empty { display: none; }
+  :root[data-look="eink"] .brand { display: none; }
+  :root[data-look="eink"] .cc-crumb { gap: 5px; font-size: 15px; }
+  :root[data-look="eink"] .cc-crumb__host { color: #151515; font-size: 15px; font-weight: 700; }
+  :root[data-look="eink"] .cc-crumb__sep { color: #151515; font-size: 0; }
+  :root[data-look="eink"] .cc-crumb__sep::before { font-size: 15px; content: "·"; }
+  :root[data-look="eink"] .cc-crumb h1 { color: #151515; font-size: 15px; font-weight: 400; text-transform: none; }
+  :root[data-look="eink"] .cc-kv { color: #555552; font-family: "Literata", serif; font-size: 13.5px; font-style: italic; }
+  :root[data-look="eink"] .cc-kv b { color: #151515; font-weight: 600; }
+
+  :root[data-look="eink"] .command-trigger { flex: 0 1 14rem; min-height: 0; margin-left: auto; padding: 0 0 2px; border: 0; border-bottom: 1px dotted #151515; color: #151515; background: none; font-size: 14.5px; }
+  :root[data-look="eink"] .command-trigger__label { color: #555552; font-style: italic; }
+  :root[data-look="eink"] .command-trigger__keys { padding: 0 4px; border: 1px solid #151515; color: #151515; background: none; font: 600 11px/1.3 "Literata", serif; }
+  :root[data-look="eink"] .topbar-right { gap: 18px; margin-left: 0; }
+  :root[data-look="eink"] .ui-theme-switch { display: none; }
+  :root[data-look="eink"] .connection-pill { padding: 0; border: 0; color: #555552; background: none; font: italic 400 13px "Literata", serif; }
+  :root[data-look="eink"] .connection-pill::before { display: none; }
+  :root[data-look="eink"] .bar-button { min-height: 0; padding: 0; color: #151515; font-family: "Literata", serif; font-size: 15px; font-weight: 400; }
+  :root[data-look="eink"] .bar-button:hover { text-decoration: underline; }
+  :root[data-look="eink"] .bar-button[data-live] { color: #151515; font-weight: 600; }
+  :root[data-look="eink"] .bar-badge { min-width: 0; height: auto; padding: 0 4px; border: 1px solid #151515; border-radius: 2px; color: #e6e6e1; background: #151515; font: 600 11px/1.35 "Literata", serif; }
+  :root[data-look="eink"] .bar-label { padding: 0; border: 0; color: #555552; font: italic 400 13px "Literata", serif; }
+  :root[data-look="eink"] .bar-lock { color: #151515; font-weight: 600; }
+  :root[data-look="eink"] .signed-in-user { color: #151515; font-family: "Literata", serif; font-size: 14px; }
+  :root[data-look="eink"] .signed-in-user__avatar { display: none; }
+
+  /* ── The areas: a line of words under the rule, Home and Ops first ── */
+  @media (min-width: 761px) {
+    :root[data-look="eink"] .view-switch { position: absolute; z-index: 2; top: 50px; left: 47px; display: flex; gap: 16px; height: 28px; align-items: center; padding: 0; border: 0; background: none; }
+    :root[data-look="eink"] .view-switch__option { min-height: 0; padding: 0; border: 0; color: #555552; background: none; font: 400 14px/1 "Literata", serif; box-shadow: none; }
+    :root[data-look="eink"] .view-switch__option svg { display: none; }
+    :root[data-look="eink"] .view-switch__option:hover { color: #151515; text-decoration: underline; }
+    :root[data-look="eink"] .view-switch__option[aria-current="page"] { background: none; color: #151515; font-weight: 600; text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 6px; }
+
+    :root[data-look="eink"] .shell-dock.shell-dock--top { position: sticky; z-index: 9; top: 50px; right: auto; bottom: auto; left: auto; display: block; height: 28px; padding: 0 47px 0 calc(47px + 96px); background: #e6e6e1; pointer-events: auto; }
+    :root[data-look="eink"] .ui-dock.shell-dock--top ul { display: flex; flex-wrap: nowrap; align-items: center; gap: 0 15px; height: 28px; padding: 0; overflow: hidden; border: 0; background: none; box-shadow: none; backdrop-filter: none; }
+    :root[data-look="eink"] .shell-dock--top .ui-dock__separator { width: auto; height: auto; margin: 0; align-self: center; background: none; color: #555552; font-size: 14px; }
+    :root[data-look="eink"] .shell-dock--top .ui-dock__separator::before { content: "·"; }
+    :root[data-look="eink"] .shell-dock--top .ui-dock__item { display: flex; align-items: baseline; gap: 4px; width: auto; padding: 4px 0; }
+    :root[data-look="eink"] .shell-dock--top .ui-dock__icon { display: contents; }
+    :root[data-look="eink"] .shell-dock--top .ui-dock__icon svg { display: none; }
+    :root[data-look="eink"] .shell-dock--top .ui-dock__label { order: -1; max-width: none; overflow: visible; color: #555552; font: 400 14px/1 "Literata", serif; }
+    :root[data-look="eink"] .shell-dock--top .ui-dock__badge { position: static; display: inline-block; min-width: 0; height: auto; padding: 1px 3px; border-radius: 2px; color: #e6e6e1; background: #151515; box-shadow: none; font: 600 10px/1.2 "Literata", serif; }
+    :root[data-look="eink"] .shell-dock--top .ui-dock__item:hover .ui-dock__label { color: #151515; text-decoration: underline; }
+    :root[data-look="eink"] .shell-dock--top .ui-dock__item[aria-current="page"] .ui-dock__label { color: #151515; font-weight: 600; text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 6px; }
+  }
+
+  /* ── The page ── */
+  :root[data-look="eink"] .content { max-width: none; padding: 22px 47px calc(var(--shell-bottom-inset, 0px) + 40px); }
+  :root[data-look="eink"] .app-shell[data-view="home"] .content { padding-top: 0; }
+  :root[data-look="eink"] .content--console { gap: 18px; }
+
+  :root[data-look="eink"] .ui-page-header { gap: 8px 18px; }
+  :root[data-look="eink"] .ui-page-header__summary { color: #151515; font-size: 18px; line-height: 1.4; }
+  :root[data-look="eink"] .ui-facts { color: #555552; font-family: "Literata", serif; font-size: 14px; }
+  :root[data-look="eink"] .ui-facts b { color: #151515; font-weight: 600; }
+  :root[data-look="eink"] .ui-info-toggle { border: 1.5px solid #151515; color: #151515; }
+
+  /* Panels: a letter-spaced heading on a rule, then the page under it, as the paper sets a section. */
+  :root[data-look="eink"] .ui-panel { overflow: visible; border: 0; border-radius: 0; background: none; }
+  :root[data-look="eink"] .ui-panel__head { min-height: 0; padding: 0 0 6px; border-bottom: 1.5px solid #151515; }
+  :root[data-look="eink"] .ui-panel__title { color: #151515; font: 600 13.5px "Literata", serif; letter-spacing: 0.16em; text-transform: uppercase; }
+  :root[data-look="eink"] .ui-panel__count { color: #151515; letter-spacing: 0.04em; }
+  :root[data-look="eink"] .ui-panel__meta { color: #555552; font-family: "Literata", serif; font-size: 13.5px; font-style: italic; }
+  :root[data-look="eink"] .ui-panel__meta b { color: #151515; font-style: normal; font-weight: 600; }
+  :root[data-look="eink"] .ui-panel--padded > .ui-panel__body { padding: 10px 0; }
+  :root[data-look="eink"] .ui-panel__foot { padding: 8px 0; border-top: 1px dotted #9a9a94; color: #555552; font-family: "Literata", serif; font-size: 13px; font-style: italic; }
+  :root[data-look="eink"] :is(.cc .ops-quiet, .ops-quiet) { padding: 10px 0; color: #555552; font-style: italic; }
+  :root[data-look="eink"] .ui-card { border: 1.5px solid #151515; background: none; box-shadow: none; }
+
+  /* Figures: a serif number in tabular figures, a dithered bar. */
+  :root[data-look="eink"] .ui-metric,
+  :root[data-look="eink"] .ui-metric[data-status] { min-height: 0; padding: 8px 0 6px; border: 0; border-top: 1.5px solid #151515; border-radius: 0; background: none; box-shadow: none; }
+  :root[data-look="eink"] .ui-metric--link:hover { background: none; }
+  :root[data-look="eink"] .ui-metric--link:hover .ui-metric__label { text-decoration: underline; }
+  :root[data-look="eink"] .ui-metric__label { color: #151515; font: 600 12px "Literata", serif; letter-spacing: 0.14em; }
+  :root[data-look="eink"] .ui-metric__value { color: #151515; font: 600 28px/1.1 "Literata", serif; letter-spacing: -0.01em; }
+  :root[data-look="eink"] .ui-metric__value small { color: #555552; font-size: 15px; font-weight: 400; }
+  :root[data-look="eink"] .ui-metric[data-status] .ui-metric__value { color: #151515; }
+  :root[data-look="eink"] .ui-metric__caption { color: #555552; font-size: 13.5px; font-style: italic; }
+  :root[data-look="eink"] :is(.ui-metric__bar, .ui-progress__track, .ops-bar, .cc .ops-bar) { height: 12px; border: 1.5px solid #151515; border-radius: 0; background: none; }
+  :root[data-look="eink"] :is(.ui-metric__bar, .ui-metric[data-status] .ui-metric__bar, .ui-progress__track, .ops-bar, .cc .ops-bar) > i,
+  :root[data-look="eink"] .ui-progress__fill,
+  :root[data-look="eink"] .ui-progress[data-status] .ui-progress__fill { border-radius: 0; background: var(--eink-dither); }
+  :root[data-look="eink"] .ui-spark__line { stroke: #151515; }
+  :root[data-look="eink"] .ui-spark__area { fill: none; }
+  :root[data-look="eink"] .ui-kv--strip { border: 0; border-top: 1.5px solid #151515; border-bottom: 1.5px solid #151515; border-radius: 0; background: none; }
+  :root[data-look="eink"] .ui-kv--strip .ui-kv__item { border-right: 1px dotted #9a9a94; box-shadow: none; }
+  :root[data-look="eink"] .ui-kv--strip .ui-kv__value { font: 600 17px "Literata", serif; }
+  :root[data-look="eink"] :is(.ui-kv__label, .ui-kv--columns .ui-kv__label, .ui-kv--strip .ui-kv__label) { color: #555552; font-family: "Literata", serif; font-size: 11.5px; font-weight: 600; letter-spacing: 0.12em; }
+  :root[data-look="eink"] .ui-kv--rows .ui-kv__item { border-top: 1px dotted #9a9a94; }
+  :root[data-look="eink"] .ui-kv__item[data-status] .ui-kv__value { color: #151515; }
+
+  /* Tables: letter-spaced headings on a rule, dotted leaders between rows. */
+  :root[data-look="eink"] .ui-table { font-size: 14.5px; }
+  :root[data-look="eink"] .ui-table th { height: 32px; border-bottom: 1.5px solid #151515; color: #151515; background: none; font: 600 11.5px "Literata", serif; letter-spacing: 0.12em; }
+  :root[data-look="eink"] .ui-table td { height: 34px; border-bottom: 1px dotted #9a9a94; color: #151515; font-family: "Literata", serif; font-size: 14.5px; }
+  :root[data-look="eink"] .ui-table :is(th, td):first-child { padding-left: 0; }
+  :root[data-look="eink"] .ui-table :is(th, td):last-child { padding-right: 0; }
+  :root[data-look="eink"] .ui-table tbody tr:hover td { background: #dcdcd6; }
+  :root[data-look="eink"] .ui-table .ops-link { color: #151515; font-weight: 600; }
+  :root[data-look="eink"] .ui-table .ui-chip { font-family: "Literata", serif; font-size: 14px; }
+  :root[data-look="eink"] .ui-table th[aria-sort="ascending"],
+  :root[data-look="eink"] .ui-table th[aria-sort="descending"] { color: #151515; text-decoration: underline; }
+  :root[data-look="eink"] :is(.cc-tag, .ui-tag, .ui-tag--tier) { padding: 0 5px; border: 1px solid #151515; color: #151515; background: none; font-family: "Literata", serif; font-size: 12px; font-style: italic; font-weight: 400; letter-spacing: 0; text-transform: none; }
+
+  /* Words for state: italic when fine or waiting, upright and bold when it needs you. */
+  :root[data-look="eink"] .ui-chip { padding: 0; border: 0; background: none; color: #555552; font-family: "Literata", serif; font-size: 14px; font-style: italic; font-weight: 400; }
+  :root[data-look="eink"] :is(.ui-chip--warning, .ui-chip--danger) { color: #151515; font-style: normal; font-weight: 600; }
+  :root[data-look="eink"] .ui-chip--good { color: #151515; }
+  :root[data-look="eink"] .ui-risk { padding: 0; border: 0; color: #151515; background: none; font: italic 400 13.5px "Literata", serif; letter-spacing: 0; text-transform: none; }
+
+  /* Buttons: an ink rectangle for the main one, an outline for the rest, an underlined word for a ghost. */
+  :root[data-look="eink"] .ui-button { min-height: 32px; padding: 0 13px; border: 2px solid #151515; color: #151515; background: transparent; font-family: "Literata", serif; font-size: 14.5px; font-weight: 600; }
+  :root[data-look="eink"] .ui-button:hover:not(:disabled) { border-color: #151515; background: #dcdcd6; }
+  :root[data-look="eink"] .ui-button--primary { color: #e6e6e1; background: #151515; }
+  :root[data-look="eink"] .ui-button--primary:hover:not(:disabled) { color: #e6e6e1; background: #333331; }
+  :root[data-look="eink"] .ui-button--ghost { border-color: transparent; color: #151515; background: none; text-decoration: underline; text-underline-offset: 4px; }
+  :root[data-look="eink"] .ui-button--ghost:hover:not(:disabled) { border-color: transparent; background: none; text-decoration-thickness: 2px; }
+  :root[data-look="eink"] :is(.ui-button--risk-medium, .ui-button--risk-high)::before { background: #151515; }
+  :root[data-look="eink"] .ui-button--primary:is(.ui-button--risk-medium, .ui-button--risk-high)::before { background: #e6e6e1; }
+  :root[data-look="eink"] :is(.ui-button__tier, .ui-button .ui-button__tier) { border: 1px solid currentColor; color: inherit; background: none; font-style: italic; font-weight: 400; }
+  :root[data-look="eink"] .ui-button__lock { color: inherit; }
+
+  /* Tabs: words; the open one bold and underlined. */
+  :root[data-look="eink"] .ui-tabs__list { gap: 22px; border-bottom: 1px dotted #9a9a94; }
+  :root[data-look="eink"] .ui-tabs__tab { min-height: 36px; padding: 0; border-bottom-width: 2px; color: #555552; font-family: "Literata", serif; font-size: 16px; font-weight: 400; }
+  :root[data-look="eink"] .ui-tabs__tab:hover { color: #151515; }
+  :root[data-look="eink"] .ui-tabs__tab[aria-selected="true"] { border-bottom-color: #151515; color: #151515; font-weight: 600; }
+  :root[data-look="eink"] :is(.ui-tabs__count, .ui-tabs__tab[aria-selected="true"] .ui-tabs__count) { color: #555552; font-family: "Literata", serif; font-size: 13px; font-style: italic; }
+
+  /* Forms: a lighter paper field with an ink edge. */
+  :root[data-look="eink"] :is(.ui-input, .ui-textarea, .ui-select__control) { border: 1.5px solid #151515; color: #151515; background: #efefeb; font-family: "Literata", serif; }
+  :root[data-look="eink"] :is(.ui-input, .ui-textarea)::placeholder { color: #555552; font-style: italic; }
+  :root[data-look="eink"] .ui-secret__toggle { border: 1.5px solid #151515; color: #151515; background: #dcdcd6; }
+  :root[data-look="eink"] .ui-switch__track { border: 1.5px solid #151515; background: #efefeb; }
+  :root[data-look="eink"] .ui-switch__thumb { background: #151515; }
+  :root[data-look="eink"] .ui-switch__control[aria-checked="true"] .ui-switch__track { border-color: #151515; background: var(--eink-dither), #e6e6e1; }
+  :root[data-look="eink"] .ui-switch__control[aria-checked="true"] .ui-switch__thumb { background: #151515; box-shadow: 0 0 0 2px #e6e6e1; }
+  :root[data-look="eink"] .ui-switch__state { color: #151515; font-family: "Literata", serif; font-style: italic; letter-spacing: 0; text-transform: none; }
+  :root[data-look="eink"] .ui-check__mark { border: 1.5px solid #151515; background: #efefeb; }
+  :root[data-look="eink"] .ui-segmented { gap: 0; padding: 0; border: 1.5px solid #151515; background: none; }
+  :root[data-look="eink"] .ui-segmented__option { color: #151515; font-family: "Literata", serif; font-weight: 400; }
+  :root[data-look="eink"] .ui-segmented__option + .ui-segmented__option { border-left: 1.5px solid #151515; }
+  :root[data-look="eink"] .ui-segmented__option[aria-checked="true"] { color: #e6e6e1; background: #151515; box-shadow: none; font-weight: 600; }
+
+  /* Notices and needs: a rule, the shape, the words. */
+  :root[data-look="eink"] .ui-notice { padding: 10px 0; border: 0; border-top: 1.5px solid #151515; border-bottom: 1px dotted #9a9a94; border-radius: 0; background: none; box-shadow: none; }
+  :root[data-look="eink"] :is(.ui-notice__title, .ui-notice--success .ui-notice__title, .ui-notice--warning .ui-notice__title, .ui-notice--danger .ui-notice__title) { color: #151515; font-weight: 600; }
+  :root[data-look="eink"] :is(.need, .need[data-severity], .need.need--lead) { padding: 10px 0; border-top: 1px dotted #9a9a94; box-shadow: none; }
+  :root[data-look="eink"] .need:first-child { border-top: 0; }
+  :root[data-look="eink"] .need__title { color: #151515; font-weight: 600; }
+  :root[data-look="eink"] .need__title:hover { color: #151515; }
+  :root[data-look="eink"] .need__detail { color: #555552; }
+  :root[data-look="eink"] .ui-empty__icon { border: 1.5px dashed #151515; color: #151515; }
+  :root[data-look="eink"] .ui-code { border: 1.5px solid #151515; background: #efefeb; }
+  :root[data-look="eink"] .ui-code__bar { border-bottom: 1px dotted #9a9a94; background: #e6e6e1; }
+  :root[data-look="eink"] .ui-job { border: 0; border-top: 1.5px solid #151515; border-radius: 0; background: none; }
+
+  /* What carries its own colour is drawn in greys: emoji, app squares, pictures and swatches. */
+  :root[data-look="eink"] :is(.ui-app-icon, .ui-tile__icon, .catalog-tile__emoji, .lx-square__emoji, .setup-profile__square, .settings-look__picture, .settings-swatch, .settings-wallpaper, .ui-gallery__swatch, img, video, canvas, iframe) { filter: grayscale(1); }
+
+  /* App squares: ink squares. */
+  :root[data-look="eink"] :is(.ui-app-icon, .ui-tile__icon) { border: 1.5px solid #151515; background: #d2d2cc; box-shadow: none; color: #151515; }
+  :root[data-look="eink"] .ui-tile:hover { border-color: #9a9a94; background: #dcdcd6; }
+  :root[data-look="eink"] .ui-tile__mark { box-shadow: 0 0 0 2px #e6e6e1; }
+  /* An open mark on an app's square is filled with the paper, so the square's edge does not cross it. */
+  :root[data-look="eink"] .ui-tile:is([data-status="good"], [data-status="neutral"], [data-status="unknown"]) .ui-tile__mark { background: #e6e6e1; }
+  :root[data-look="eink"] :is(.ui-tile[data-status="warning"], .ui-tile[data-status="danger"]) .ui-tile__detail { color: #151515; font-weight: 600; }
+
+  /* Sheets and dialogs: a sheet of the same paper with an ink edge. */
+  :root[data-look="eink"] :is(.ui-sheet, .approve-dialog, .command-dialog) { border: 2px solid #151515; background: #e6e6e1; box-shadow: none; }
+  :root[data-look="eink"] .ui-sheet--right { border-width: 0 0 0 2px; }
+  :root[data-look="eink"] :is(.ui-sheet__head, .approve-head) { border-bottom: 1.5px solid #151515; }
+  :root[data-look="eink"] :is(.ui-sheet__title, .approve-title) { color: #151515; font-family: "Literata", serif; font-weight: 600; }
+  :root[data-look="eink"] :is(.ui-sheet__kicker, .approve-kicker, .approve-section__title) { color: #555552; font-family: "Literata", serif; letter-spacing: 0.14em; }
+  :root[data-look="eink"] :is(.ui-sheet__close, .approve-close) { border: 1.5px solid #151515; color: #151515; background: none; }
+  :root[data-look="eink"] :is(.approve-tier, .approve-tier[data-tier]) { border-color: #151515; background: none; box-shadow: inset 4px 0 0 #151515; }
+  :root[data-look="eink"] :is(.approve-tier__name, .approve-tier[data-tier] .approve-tier__name) { color: #151515; font-family: "Literata", serif; font-style: italic; letter-spacing: 0.04em; text-transform: none; }
+  :root[data-look="eink"] :is(.approve-preview, .approve-staged, .approve-once) { border: 1px dotted #151515; background: #efefeb; }
+  :root[data-look="eink"] .command-input:focus-within { box-shadow: inset 0 -2px 0 #151515; }
+  :root[data-look="eink"] .command-option[aria-selected="true"] { color: #e6e6e1; background: #151515; box-shadow: none; }
+  :root[data-look="eink"] .command-option[aria-selected="true"] :is(.command-option__icon, .command-option__hint, .ui-risk) { color: #e6e6e1; }
+  :root[data-look="eink"] .command-close { border: 1.5px solid #151515; color: #151515; background: none; }
+
+  :root[data-look="eink"] .settings-appearance { padding: 14px 0 0; border: 0; border-top: 2px solid #151515; border-radius: 0; background: none; box-shadow: none; }
+  :root[data-look="eink"] .settings-appearance__title { font-weight: 600; }
+  :root[data-look="eink"] .settings-appearance__now { border: 1.5px solid #151515; background: none; }
+  /* In grey, a swatch the colour of the paper would vanish: each one is edged in ink. */
+  :root[data-look="eink"] :is(.settings-swatch, .settings-wallpaper) { box-shadow: inset 0 0 0 1.5px #151515; }
+  :root[data-look="eink"] :is(.settings-swatch, .settings-wallpaper)[aria-checked="true"] { box-shadow: inset 0 0 0 1.5px #151515, 0 0 0 2px #e6e6e1, 0 0 0 4px #151515; }
+
+  /* ── A narrower window: the search keeps its magnifier and gives its words to the line ── */
+  @media (max-width: 1100px) {
+    :root[data-look="eink"] .command-trigger { flex: 0 0 auto; }
+    :root[data-look="eink"] .command-trigger__label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  }
+
+  /* ── A phone: the areas along the bottom on a strip of paper ── */
+  @media (max-width: 760px) {
+    :root[data-look="eink"] .topbar { position: static; flex-wrap: wrap; align-items: center; height: auto; min-height: 0; gap: 8px 14px; padding: 12px 16px; }
+    :root[data-look="eink"] .topbar::after { right: 16px; left: 16px; height: 2px; }
+    :root[data-look="eink"] .view-switch { gap: 12px; padding: 0; border: 0; background: none; }
+    :root[data-look="eink"] .view-switch__option { min-height: 0; padding: 0; border: 0; color: #555552; background: none; font: 400 14px "Literata", serif; box-shadow: none; }
+    :root[data-look="eink"] .view-switch__option svg { display: none; }
+    :root[data-look="eink"] .view-switch__option[aria-current="page"] { background: none; color: #151515; font-weight: 600; text-decoration: underline; text-underline-offset: 5px; }
+    :root[data-look="eink"] .command-trigger { flex: 0 0 auto; width: auto; min-width: 0; border-bottom: 0; }
+    :root[data-look="eink"] .topbar-right { gap: 12px; }
+    :root[data-look="eink"] .content,
+    :root[data-look="eink"] .app-shell[data-view="home"] .content { padding: 14px 16px calc(var(--shell-bottom-inset, 0px) + 96px); }
+    :root[data-look="eink"] .shell-dock { right: 0; bottom: var(--shell-bottom-inset, 0px); left: 0; }
+    :root[data-look="eink"] .ui-dock.shell-dock ul { width: 100%; justify-content: space-around; padding: 6px 4px 8px; border: 0; border-top: 2px solid #151515; border-radius: 0; background: #e6e6e1; box-shadow: none; backdrop-filter: none; }
+    :root[data-look="eink"] .shell-dock .ui-dock__item { width: 60px; }
+    :root[data-look="eink"] .shell-dock .ui-dock__icon { width: 34px; height: 30px; border: 0; color: #151515; background: none; }
+    :root[data-look="eink"] .shell-dock .ui-dock__icon svg { width: 19px; height: 19px; }
+    :root[data-look="eink"] .shell-dock .ui-dock__label { color: #151515; font: 400 11.5px/1.2 "Literata", serif; }
+    :root[data-look="eink"] .shell-dock .ui-dock__item:hover .ui-dock__icon { border-color: transparent; color: #151515; background: none; }
+    :root[data-look="eink"] .shell-dock .ui-dock__item[aria-current="page"] .ui-dock__icon { border: 1.5px solid #151515; color: #e6e6e1; background: #151515; }
+    :root[data-look="eink"] .shell-dock .ui-dock__item[aria-current="page"] .ui-dock__label { font-weight: 600; text-decoration: underline; }
+    :root[data-look="eink"] .shell-dock .ui-dock__badge { top: -4px; right: -8px; min-width: 16px; height: 16px; color: #e6e6e1; background: #151515; box-shadow: 0 0 0 2px #e6e6e1; }
+    :root[data-look="eink"] .shell-dock .ui-dock__separator { width: 1px; margin: 6px 0; background: #9a9a94; }
+  }
+}

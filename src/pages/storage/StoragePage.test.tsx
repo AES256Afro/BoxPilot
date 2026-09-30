@@ -208,7 +208,8 @@ describe("Storage page", () => {
       expect(request).toEqual({ method: "POST", csrf: "csrf-token" });
       expect(screen.getByText("Reconnects automatically.")).toBeTruthy();
       expect(screen.getAllByText(/at most 3 times a day and 30 minutes apart/)).toHaveLength(1);
-      expect(screen.getAllByRole("switch")).toHaveLength(1);
+      // One switch on the drive's row (a look may draw the same control above the tabs, M41).
+      expect(within(screen.getByRole("tabpanel")).getAllByRole("switch")).toHaveLength(1);
     });
 
     it("says where to reconnect a held drive by hand, since its row has no Reconnect button", async () => {

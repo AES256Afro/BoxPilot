@@ -5,10 +5,19 @@ import { navItems, viewLabel } from "./data";
 import { viewCopy } from "./pageCopy";
 import { dockAreas } from "./shell/ShellNav";
 import { connectionLabel } from "./appLinks";
+import { reloadLookChoice } from "./looks/useLook";
+
+/** Chooses a look as Settings → Appearance keeps it, before App reads it. */
+function chooseLook(entries: Record<string, string>) {
+  for (const [key, value] of Object.entries(entries)) window.localStorage.setItem(key, value);
+  reloadLookChoice();
+}
 
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  for (const key of ["boxpilot-look", "boxpilot-look-scope"]) window.localStorage.removeItem(key);
+  reloadLookChoice();
   // A test that fails half way must not leave the next one on its page.
   window.history.replaceState(null, "", "/");
 });
@@ -40,6 +49,8 @@ describe("BoxPilot console", () => {
   const dock = () => screen.getByRole("navigation", { name: "Admin areas" });
 
   it("lands on Home, and opens every other area inside the console", async () => {
+    // Today's arrangement as a look (M41): the Command Center everywhere but Home, which keeps the Launcher.
+    chooseLook({ "boxpilot-look": "console", "boxpilot-look-scope": "not-home" });
     vi.stubGlobal("fetch", vi.fn(authenticatedFetch));
     const { container } = render(<App />);
     expect(await screen.findByRole("heading", { level: 1, name: greeting })).toBeTruthy();
@@ -62,9 +73,45 @@ describe("BoxPilot console", () => {
     fireEvent.click(within(screen.getByRole("navigation", { name: "Views" })).getByRole("button", { name: "Home" }));
     expect(await screen.findByRole("heading", { level: 1, name: greeting })).toBeTruthy();
     expect(document.documentElement.dataset.shell).toBe("launcher");
+    expect(document.documentElement.dataset.look).toBe("launcher");
+  });
+
+  it("draws every page in the chosen look, Home included, and goes around the look's way (M41)", async () => {
+    vi.stubGlobal("fetch", vi.fn(authenticatedFetch));
+    const { container } = render(<App />);
+    // The default look is Home + Ops: Home is inside the console too, and the areas are in the sidebar.
+    expect(await screen.findByRole("heading", { level: 1, name: greeting })).toBeTruthy();
+    expect(document.documentElement.dataset.look).toBe("blend");
+    expect(container.querySelector(".app-shell")?.getAttribute("data-shell")).toBe("console");
+    expect(container.querySelector(".app-shell")?.getAttribute("data-nav")).toBe("sidebar");
+    const sidebar = screen.getByRole("navigation", { name: "Areas" });
+    fireEvent.click(within(sidebar).getByRole("button", { name: "Storage" }));
+    await screen.findByRole("heading", { level: 1, name: "Storage" });
+    expect(within(sidebar).getByRole("button", { name: "Storage" }).getAttribute("aria-current")).toBe("page");
+    // Settings → Appearance: while Settings is open the sidebar lists its sections, as the drawing
+    // does, and "All areas" brings the areas back without leaving the page.
+    fireEvent.click(within(sidebar).getByRole("button", { name: "Settings" }));
+    const sections = await screen.findByRole("navigation", { name: "Settings sections" });
+    fireEvent.click(within(sections).getByRole("button", { name: "Appearance" }));
+    // Settings is its own chunk, fetched the first time it opens.
+    expect(await screen.findByRole("heading", { level: 1, name: "Appearance" }, { timeout: 5000 })).toBeTruthy();
+    expect(window.location.search).toContain("tab=appearance");
+    expect(screen.queryByRole("tab", { name: "Appearance" })).toBeNull();
+    fireEvent.click(within(screen.getByRole("radiogroup", { name: "Look" })).getByRole("radio", { name: /^Phosphor/ }));
+    expect(document.documentElement.dataset.look).toBe("phosphor");
+    expect(window.localStorage.getItem("boxpilot-look")).toBe("phosphor");
+    expect(container.querySelector(".app-shell")?.getAttribute("data-nav")).toBe("rail");
+    fireEvent.click(screen.getByRole("button", { name: "Go back" }));
+    expect(document.documentElement.dataset.look).toBe("blend");
+    expect(window.localStorage.getItem("boxpilot-look")).toBeNull();
+    fireEvent.click(within(screen.getByRole("navigation", { name: "Settings sections" })).getByRole("button", { name: "All areas" }));
+    expect(within(screen.getByRole("navigation", { name: "Areas" })).getByRole("button", { name: "Settings" }).getAttribute("aria-current")).toBe("page");
   });
 
   it("never draws the old frame: no page header, no feature strip, the description behind the info toggle", async () => {
+    // Every page in the Command Center, where each page's own name is its title in the bar; Home
+    // keeps the Launcher it greets from.
+    chooseLook({ "boxpilot-look": "console", "boxpilot-look-scope": "not-home" });
     vi.stubGlobal("fetch", vi.fn(authenticatedFetch));
     const { container } = render(<App />);
     await screen.findByRole("heading", { level: 1, name: greeting });

@@ -1,0 +1,401 @@
+/*
+ * The quest look's skin (M41): every selector starts with :root[data-look="quest"].
+ *
+ * An RPG's party screen (docs/design-directions/05-looks.html, .qs): deep indigo with a few stars,
+ * every surface a pixel window (a thick cream frame, a dark ring and a stepped drop shadow, square
+ * corners), Pixelify Sans everywhere, gold headings, gold buttons that press down. The areas are
+ * a pixel menu down the left with the RPG's pointing cursor at the one open. Dark only: it draws
+ * the same whatever the device prefers.
+ *
+ * Its measures are the drawing's em, the screen's width / 74 (19.46 px at 1440 px), as --qs-em.
+ */
+
+:root[data-look="quest"] {
+  color-scheme: dark;
+
+  --qs-em: clamp(12px, calc(100vw / 74), 22px);
+  --qs-top: 40px;
+  --qs-rail: 44px;
+  /* A key in the menu, and where it stands in it. */
+  --qs-key: 32px;
+  --qs-key-x: 7px;
+  --qs-bg: #1d1838;
+  --qs-pn: #2c2554;
+  --qs-bd: #f3e6c4;
+  --qs-tx: #f7f1e3;
+  --qs-dim: #bdb2e6;
+  --qs-gold: #ffd166;
+  --qs-deep: #0e0b20;
+  --qs-frame: 3px;
+  --qs-stars:
+    radial-gradient(2px 2px at 12% 20%, #ffffff 99%, transparent),
+    radial-gradient(2px 2px at 48% 8%, #ffffff 99%, transparent),
+    radial-gradient(3px 3px at 83% 14%, #ffffff 99%, transparent),
+    radial-gradient(2px 2px at 66% 92%, #ffffff 99%, transparent),
+    radial-gradient(2px 2px at 30% 64%, rgba(255, 255, 255, 0.7) 99%, transparent),
+    radial-gradient(2px 2px at 76% 84%, rgba(255, 255, 255, 0.7) 99%, transparent);
+
+  --font-condensed: "Pixelify Sans", ui-monospace, monospace;
+  --font-sans: "Pixelify Sans", ui-monospace, monospace;
+  --font-mono: "Pixelify Sans", ui-monospace, monospace;
+  --font-display: "Pixelify Sans", ui-monospace, monospace;
+
+  /* The party screen's values for every console component. */
+  --cc-canvas: #1d1838;
+  --cc-topbar: #2c2554;
+  --cc-rail: #2c2554;
+  --cc-panel: #2c2554;
+  --cc-raised: #3a3170;
+  --cc-inset: #0e0b20;
+  --cc-line: rgba(243, 230, 196, 0.3);
+  --cc-hairline: rgba(243, 230, 196, 0.16);
+  --cc-line-strong: rgba(243, 230, 196, 0.55);
+  --cc-text: #f7f1e3;
+  --cc-text-strong: #fffaf0;
+  --cc-muted: #bdb2e6;
+  --cc-icon: #bdb2e6;
+  --cc-amber: #ffcc4d;
+  --cc-amber-ink: #0e0b20;
+  --cc-amber-bg: rgba(255, 204, 77, 0.12);
+  --cc-amber-border: rgba(255, 204, 77, 0.55);
+  --cc-cyan: #62a8ff;
+  --cc-cyan-fill: rgba(98, 168, 255, 0.16);
+  --cc-green: #5ee27d;
+  --cc-green-bg: rgba(94, 226, 125, 0.12);
+  --cc-green-border: rgba(94, 226, 125, 0.5);
+  --cc-red: #ff7a8f;
+  --cc-red-text: #ff9aab;
+  --cc-red-bg: rgba(255, 122, 143, 0.14);
+  --cc-red-border: rgba(255, 122, 143, 0.55);
+  --cc-track: #0e0b20;
+
+  /* What to press is gold, as the drawing's Accept is. */
+  --accent: #ffd166;
+  --accent-dim: #ffd166;
+  --accent-mid: #62a8ff;
+  --accent-light: #ffd166;
+  --accent-text-on: #0e0b20;
+  --accent-faint: rgba(255, 209, 102, 0.12);
+  --accent-bg: rgba(255, 209, 102, 0.12);
+  --accent-border: rgba(255, 209, 102, 0.55);
+  --accent-glow: rgba(255, 209, 102, 0.12);
+  --accent-glow-soft: rgba(255, 209, 102, 0.12);
+  --accent-glow-strong: rgba(255, 209, 102, 0.55);
+  --accent-focus: #ffd166;
+  --link: #ffd166;
+  --border-active: #ffd166;
+  --border-selected: rgba(255, 209, 102, 0.55);
+  --focus-ring-soft: rgba(255, 209, 102, 0.12);
+  --shadow-focus: inset 0 0 0 2px #ffd166;
+  --shadow-active-inset: inset 3px 0 0 #ffd166;
+  --gradient-brand: linear-gradient(#ffd166, #ffd166);
+  --gradient-button: linear-gradient(#ffd166, #ffd166);
+  --modal-bg: rgba(14, 11, 32, 0.72);
+  --radius-sm: 0;
+  --radius-md: 0;
+  --radius-lg: 0;
+  --radius-pill: 0;
+  --radius-control: 0;
+  --radius-card: 0;
+}
+
+/* Dark only: the switch has nothing to choose here. */
+:root[data-look="quest"] .ui-theme-switch { display: none; }
+
+/* ── The night sky behind every window. ── */
+:root[data-look="quest"] body { background: var(--qs-bg); }
+:root[data-look="quest"] .app-shell[data-shell="console"] {
+  color: var(--qs-tx);
+  background: var(--qs-bg);
+  font-family: var(--font-sans);
+}
+/* The stars are Home's, behind its windows as drawn; on a page they would sit on its facts and tabs. */
+:root[data-look="quest"] .app-shell[data-view="home"] {
+  background-image: var(--qs-stars);
+  background-attachment: fixed;
+}
+:root[data-look="quest"] .app-shell[data-shell="console"]::before { background: var(--qs-pn); }
+:root[data-look="quest"] ::selection { color: var(--qs-deep); background: var(--qs-gold); }
+:root[data-look="quest"] :is(button, a, input, select, textarea, summary, [tabindex]):focus-visible { outline: 2px solid var(--qs-gold); outline-offset: 2px; }
+:root[data-look="quest"] .look-console :focus-visible:not([tabindex="-1"]) { outline-color: var(--qs-gold); }
+:root[data-look="quest"] #content > .content { max-width: none; padding: calc(var(--qs-em) * 0.6) calc(var(--qs-em) * 1.1) calc(var(--qs-em) * 1.2) calc(var(--qs-em) * 0.8); }
+/* Home's windows fill the screen as drawn: 1.2em from the top and the bottom, 1.4em from the right. */
+:root[data-look="quest"] .app-shell[data-view="home"] #content > .content { padding: calc(var(--qs-em) * 1.2) calc(var(--qs-em) * 1.4) calc(var(--qs-em) * 1.2) calc(var(--qs-em) * 0.7); }
+
+/* ── The top strip: a pixel window along the top, the controls as small pixel buttons. ── */
+:root[data-look="quest"] .topbar {
+  min-height: var(--qs-top);
+  padding: 0 calc(var(--qs-em) * 1.1);
+  border-bottom: 0;
+  background: var(--qs-bg);
+  box-shadow: none;
+  backdrop-filter: none;
+}
+:root[data-look="quest"] .cc-crumb__host { color: var(--qs-gold); font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
+:root[data-look="quest"] .cc-crumb__sep { color: var(--qs-dim); }
+:root[data-look="quest"] .cc-crumb h1 { color: var(--qs-tx); font-weight: 600; letter-spacing: 0.04em; text-transform: none; }
+:root[data-look="quest"] .cc-kv { color: var(--qs-dim); }
+:root[data-look="quest"] .cc-kv b { color: var(--qs-tx); }
+:root[data-look="quest"] .view-switch { gap: 4px; padding: 0; border: 0; border-radius: 0; background: none; }
+:root[data-look="quest"] :is(.view-switch__option, .bar-button, .command-trigger) {
+  min-height: 28px;
+  border: 0;
+  border-radius: 0;
+  color: var(--qs-tx);
+  background: var(--qs-pn);
+  box-shadow: inset 0 0 0 2px var(--qs-bd), 2px 2px 0 var(--qs-deep);
+  font-family: var(--font-sans);
+  font-weight: 600;
+}
+:root[data-look="quest"] .view-switch__option { padding: 0 10px; }
+:root[data-look="quest"] .bar-button { padding: 0 9px; font-size: 13px; }
+:root[data-look="quest"] :is(.view-switch__option, .bar-button, .command-trigger):hover { color: var(--qs-gold); }
+:root[data-look="quest"] :is(.view-switch__option, .bar-button, .command-trigger):active { box-shadow: inset 0 0 0 2px var(--qs-bd); transform: translate(2px, 2px); }
+:root[data-look="quest"] .view-switch__option[aria-current="page"] { color: var(--qs-deep); background: var(--qs-gold); box-shadow: 2px 2px 0 var(--qs-deep); }
+:root[data-look="quest"] .bar-button[data-live] { color: var(--qs-gold); }
+:root[data-look="quest"] .bar-badge { border-radius: 0; color: var(--qs-deep); background: var(--qs-gold); font-family: var(--font-sans); }
+:root[data-look="quest"] .command-trigger { color: var(--qs-dim); background: var(--qs-deep); }
+:root[data-look="quest"] .command-trigger__keys { border: 0; border-radius: 0; color: var(--qs-dim); background: var(--qs-pn); font-family: var(--font-sans); }
+:root[data-look="quest"] :is(.connection-pill, .bar-label) { border-color: var(--qs-dim); border-radius: 0; color: var(--qs-dim); font-family: var(--font-sans); }
+:root[data-look="quest"] .connection-pill::before { border-radius: 0; background: #5ee27d; }
+:root[data-look="quest"] .signed-in-user { color: var(--qs-dim); font-family: var(--font-sans); }
+:root[data-look="quest"] .signed-in-user__avatar { border-radius: 0; color: var(--qs-deep); background: var(--qs-gold); box-shadow: 2px 2px 0 var(--qs-deep); }
+
+/* ── The rail as a pixel menu: a window down the left, the RPG's cursor at the area that is open. ── */
+@media (min-width: 761px) {
+  :root[data-look="quest"] .app-shell[data-shell="console"] { padding-left: calc(var(--qs-rail) + env(safe-area-inset-left, 0px)); }
+  :root[data-look="quest"] .shell-dock.shell-dock--rail {
+    width: calc(var(--qs-rail) + env(safe-area-inset-left, 0px));
+    border-right: var(--qs-frame) solid var(--qs-bd);
+    background: var(--qs-pn);
+    box-shadow: var(--qs-frame) 0 0 var(--qs-deep);
+  }
+  :root[data-look="quest"] .shell-dock--rail .ui-dock__separator { height: 2px; background: rgba(243, 230, 196, 0.35); }
+  :root[data-look="quest"] .shell-dock--rail .ui-dock__item { width: var(--qs-key); margin-left: 5px; }
+  :root[data-look="quest"] .shell-dock--rail .ui-dock__icon { width: var(--qs-key); height: 30px; border-radius: 0; color: var(--qs-dim); }
+  :root[data-look="quest"] .shell-dock--rail .ui-dock__item:hover .ui-dock__icon { color: var(--qs-gold); background: rgba(255, 209, 102, 0.1); }
+  :root[data-look="quest"] .shell-dock--rail .ui-dock__item[aria-current="page"] .ui-dock__icon { color: var(--qs-gold); background: rgba(255, 209, 102, 0.12); box-shadow: none; }
+  :root[data-look="quest"] .shell-dock--rail .ui-dock__item[aria-current="page"]::before {
+    position: absolute;
+    top: 50%;
+    left: -7px;
+    color: var(--qs-gold);
+    content: "▶";
+    font-size: 10px;
+    line-height: 1;
+    transform: translateY(-50%);
+  }
+  :root[data-look="quest"] .shell-dock--rail .ui-dock__label {
+    border: var(--qs-frame) solid var(--qs-bd);
+    border-radius: 0;
+    color: var(--qs-tx);
+    background: var(--qs-pn);
+    box-shadow: 0 0 0 2px var(--qs-deep), 4px 4px 0 2px var(--qs-deep);
+    font-family: var(--font-sans);
+    font-weight: 600;
+  }
+  :root[data-look="quest"] .shell-dock--rail .ui-dock__badge { border-radius: 0; background: var(--qs-gold); box-shadow: 0 0 0 2px var(--qs-pn); }
+  :root[data-look="quest"] .shell-rail__logo { border-radius: 0; color: var(--qs-deep); background: var(--qs-gold); box-shadow: 3px 3px 0 var(--qs-deep); font-family: var(--font-sans); font-weight: 700; }
+
+  /*
+   * The bar's controls stand in the menu, as an RPG keeps every command in one window: Home at its
+   * head, in the mark's place (Ops is the menu's first key); the search, the bell and the account
+   * (Activity, light or dark, Settings, Sign out) at its foot. The bar keeps the page's name, and on
+   * Home, whose drawing has no bar, it takes no room at all.
+   */
+  :root[data-look="quest"] .shell-dock.shell-dock--rail { padding-bottom: calc(22px + 3 * var(--qs-key) + 8px); }
+  :root[data-look="quest"] .shell-rail__logo { visibility: hidden; }
+  :root[data-look="quest"] .topbar { z-index: 31; }
+  :root[data-look="quest"] .app-shell[data-view="home"] { --qs-top: 0px; }
+  :root[data-look="quest"] .app-shell[data-view="home"] .topbar { align-items: flex-start; height: 0; min-height: 0; padding-block: 0; }
+  :root[data-look="quest"] :is(.bar-activity, .bar-sign-out, .signed-in-user, .bar-tiers, .bar-role, .connection-pill) { display: none; }
+  :root[data-look="quest"] .view-switch {
+    position: fixed;
+    z-index: 31;
+    top: calc(10px + env(safe-area-inset-top, 0px));
+    left: calc(var(--qs-key-x) + env(safe-area-inset-left, 0px));
+    display: block;
+  }
+  :root[data-look="quest"] .view-switch__option + .view-switch__option { display: none; }
+  :root[data-look="quest"] :is(.view-switch__option, .command-trigger, .bar-bell) {
+    position: relative;
+    justify-content: center;
+    width: var(--qs-key);
+    min-width: 0;
+    max-width: none;
+    height: var(--qs-key);
+    min-height: 0;
+    padding: 0;
+  }
+  :root[data-look="quest"] .view-switch__option > span,
+  :root[data-look="quest"] .command-trigger__label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  :root[data-look="quest"] .command-trigger__keys { display: none; }
+  :root[data-look="quest"] .view-switch__option[aria-current="page"]::before { position: absolute; top: 50%; left: -5px; color: var(--qs-gold); content: "▶"; font-size: 10px; line-height: 1; transform: translateY(-50%); }
+  :root[data-look="quest"] :is(.command-trigger, .bar-bell, .account-menu) { position: fixed; z-index: 31; left: calc(var(--qs-key-x) + env(safe-area-inset-left, 0px)); flex: none; }
+  :root[data-look="quest"] .command-trigger { bottom: calc(10px + 2 * (var(--qs-key) + 4px)); color: var(--qs-tx); background: var(--qs-pn); }
+  :root[data-look="quest"] .bar-bell { bottom: calc(10px + var(--qs-key) + 4px); }
+  :root[data-look="quest"] .bar-bell .bar-badge { position: absolute; top: -6px; right: -2px; min-width: 16px; height: 16px; padding: 0 3px; font-size: 10px; }
+  :root[data-look="quest"] .account-menu { bottom: 10px; display: block; }
+  :root[data-look="quest"] .account-menu__button { width: var(--qs-key); height: var(--qs-key); border-radius: 0; }
+  :root[data-look="quest"] .account-menu__avatar { width: 100%; height: 100%; border-radius: 0; color: var(--qs-deep); background: var(--qs-gold); box-shadow: 2px 2px 0 var(--qs-deep); font-family: var(--font-sans); font-size: 14px; }
+  :root[data-look="quest"] .account-menu__button[aria-expanded="true"] .account-menu__avatar { box-shadow: 0 0 0 2px var(--qs-pn), 0 0 0 4px var(--qs-bd); }
+  :root[data-look="quest"] .account-menu__list {
+    top: auto;
+    right: auto;
+    bottom: 0;
+    left: calc(100% + 14px);
+    border: var(--qs-frame) solid var(--qs-bd);
+    border-radius: 0;
+    color: var(--qs-tx);
+    background: var(--qs-pn);
+    box-shadow: 0 0 0 var(--qs-frame) var(--qs-deep), 5px 5px 0 var(--qs-frame) var(--qs-deep);
+    font-family: var(--font-sans);
+  }
+  :root[data-look="quest"] .account-menu__who { border-bottom: 2px dashed rgba(243, 230, 196, 0.3); color: var(--qs-dim); }
+  /* Dark only: the menu's light and dark have nothing to choose here either. */
+  :root[data-look="quest"] .account-menu__group { display: none; }
+  :root[data-look="quest"] .account-menu__item { border-radius: 0; color: var(--qs-tx); font-weight: 600; }
+  :root[data-look="quest"] .account-menu__item:is(:hover, :focus-visible) { color: var(--qs-gold); background: rgba(255, 209, 102, 0.1); }
+  :root[data-look="quest"] .account-menu__item--choice[aria-checked="true"] { color: var(--qs-deep); background: var(--qs-gold); }
+  :root[data-look="quest"] .account-menu__item--out { color: #ff9aab; }
+}
+
+/* A shorter screen: the menu's keys shorter, so every area still fits above the controls. */
+@media (min-width: 761px) and (max-height: 860px) {
+  :root[data-look="quest"] .shell-dock--rail .ui-dock__icon { height: 26px; }
+}
+@media (min-width: 761px) and (max-height: 760px) {
+  :root[data-look="quest"] .shell-dock--rail .ui-dock__icon { height: 22px; }
+  :root[data-look="quest"] .shell-dock--rail .ui-dock__separator { margin: 1px 0; }
+}
+@media (min-width: 761px) and (max-height: 680px) {
+  :root[data-look="quest"] .shell-dock--rail .ui-dock__icon { height: 19px; }
+  :root[data-look="quest"] .shell-dock--rail .ui-dock__icon svg { width: 14px; height: 14px; }
+}
+
+/* ── Pixel windows for the page kit: panels, figures, sheets and dialogs. ── */
+:root[data-look="quest"] :is(.ui-panel, .ui-kv--strip, .ui-notice, .ui-card, .ui-job) {
+  border: var(--qs-frame) solid var(--qs-bd);
+  border-radius: 0;
+  background: var(--qs-pn);
+  box-shadow: 0 0 0 var(--qs-frame) var(--qs-deep), 5px 5px 0 var(--qs-frame) var(--qs-deep);
+}
+:root[data-look="quest"] .ui-panel__head { border-bottom: 2px dashed rgba(243, 230, 196, 0.3); }
+:root[data-look="quest"] .ui-panel__title { color: var(--qs-gold); font-family: var(--font-sans); font-size: 13px; font-weight: 600; letter-spacing: 0.08em; }
+:root[data-look="quest"] .ui-panel__count { color: var(--qs-dim); }
+:root[data-look="quest"] :is(.ui-panel__meta, .ui-panel__foot) { color: var(--qs-dim); font-family: var(--font-sans); }
+:root[data-look="quest"] .ui-panel__foot { border-top: 2px dashed rgba(243, 230, 196, 0.3); }
+:root[data-look="quest"] .ui-section__title { color: var(--qs-gold); font-family: var(--font-sans); font-weight: 600; letter-spacing: 0.06em; }
+:root[data-look="quest"] .ui-notice { box-shadow: inset 4px 0 0 var(--mark), 0 0 0 var(--qs-frame) var(--qs-deep), 5px 5px 0 var(--qs-frame) var(--qs-deep); }
+
+:root[data-look="quest"] .ui-metric {
+  border: var(--qs-frame) solid var(--qs-bd);
+  border-radius: 0;
+  background: var(--qs-pn);
+  box-shadow: 0 0 0 var(--qs-frame) var(--qs-deep), 5px 5px 0 var(--qs-frame) var(--qs-deep);
+}
+:root[data-look="quest"] .ui-metric--link:hover { background: #342c62; }
+:root[data-look="quest"] .ui-metric__label { color: var(--qs-gold); font-family: var(--font-sans); font-weight: 600; letter-spacing: 0.08em; }
+:root[data-look="quest"] .ui-metric__value { color: var(--qs-tx); font-family: var(--font-sans); font-weight: 600; letter-spacing: 0; }
+:root[data-look="quest"] .ui-metric__bar { height: 10px; border: 2px solid var(--qs-bd); border-radius: 0; background: var(--qs-deep); }
+:root[data-look="quest"] .ui-metric__bar > i,
+:root[data-look="quest"] .ui-metric[data-status="good"] .ui-metric__bar > i { border-radius: 0; background: #5ee27d; }
+:root[data-look="quest"] .ui-metric[data-status="warning"] .ui-metric__bar > i { background: #ffcc4d; }
+:root[data-look="quest"] .ui-metric[data-status="danger"] .ui-metric__bar > i { background: #ff7a8f; }
+:root[data-look="quest"] .ui-spark__line { stroke: #62a8ff; }
+:root[data-look="quest"] .ui-progress__track { height: 10px; border: 2px solid var(--qs-bd); border-radius: 0; background: var(--qs-deep); }
+:root[data-look="quest"] .ui-progress__fill { border-radius: 0; background: #62a8ff; }
+
+/* Buttons that press down: gold for the one to press, framed for the rest. */
+:root[data-look="quest"] .ui-button {
+  border: 0;
+  border-radius: 0;
+  color: var(--qs-tx);
+  background: var(--qs-pn);
+  box-shadow: inset 0 0 0 2px var(--qs-bd), 3px 3px 0 var(--qs-deep);
+  font-family: var(--font-sans);
+  font-weight: 600;
+}
+:root[data-look="quest"] .ui-button:hover:not(:disabled) { color: var(--qs-gold); background: var(--qs-pn); }
+:root[data-look="quest"] .ui-button:active:not(:disabled) { box-shadow: inset 0 0 0 2px var(--qs-bd); transform: translate(3px, 3px); }
+:root[data-look="quest"] .ui-button--primary { color: var(--qs-deep); background: var(--qs-gold); box-shadow: 3px 3px 0 var(--qs-deep); }
+:root[data-look="quest"] .ui-button--primary:hover:not(:disabled) { color: var(--qs-deep); background: #ffe29a; }
+:root[data-look="quest"] .ui-button--primary:active:not(:disabled) { box-shadow: none; }
+:root[data-look="quest"] .ui-button--ghost { color: var(--qs-gold); background: transparent; box-shadow: none; }
+:root[data-look="quest"] .ui-button--ghost:hover:not(:disabled) { background: rgba(255, 209, 102, 0.1); }
+:root[data-look="quest"] .ui-button--ghost:active:not(:disabled) { transform: none; }
+:root[data-look="quest"] .ui-button--risk-medium::before,
+:root[data-look="quest"] .ui-button--risk-high::before { border-radius: 0; }
+:root[data-look="quest"] .ui-button--primary .ui-button__tier { border-color: var(--qs-deep); color: var(--qs-deep); background: transparent; }
+:root[data-look="quest"] :is(.ui-risk, .ui-chip, .ui-tag, .ui-button__tier, .cc-tag) { border-radius: 0; font-family: var(--font-sans); }
+:root[data-look="quest"] .ui-dock__badge { border-radius: 0; }
+
+/* Tables: gold headings, cream words, dashed rules. */
+:root[data-look="quest"] .ui-table th { border-bottom: 2px solid rgba(243, 230, 196, 0.35); color: var(--qs-gold); background: var(--qs-pn); font-family: var(--font-sans); font-weight: 600; letter-spacing: 0.06em; }
+:root[data-look="quest"] .ui-table td { border-bottom-color: rgba(243, 230, 196, 0.14); color: var(--qs-tx); font-family: var(--font-sans); }
+:root[data-look="quest"] .ui-table tbody tr:hover td { background: #342c62; }
+:root[data-look="quest"] .ui-table .ops-link { color: var(--qs-tx); }
+
+/* Tabs as a menu: the open one gold, with the pointing cursor. */
+:root[data-look="quest"] .ui-tabs__list { border-bottom: 2px solid rgba(243, 230, 196, 0.35); }
+:root[data-look="quest"] .ui-tabs__tab { color: var(--qs-dim); font-family: var(--font-sans); font-weight: 600; }
+:root[data-look="quest"] .ui-tabs__tab:hover { color: var(--qs-tx); }
+:root[data-look="quest"] .ui-tabs__tab[aria-selected="true"] { border-bottom-color: var(--qs-gold); color: var(--qs-gold); }
+:root[data-look="quest"] .ui-tabs__tab[aria-selected="true"]::before { content: "▶"; font-size: 0.7em; }
+:root[data-look="quest"] .ui-segmented { border: 2px solid var(--qs-bd); border-radius: 0; background: var(--qs-deep); }
+:root[data-look="quest"] .ui-segmented__option { border-radius: 0; color: var(--qs-dim); font-family: var(--font-sans); }
+:root[data-look="quest"] .ui-segmented__option[aria-checked="true"] { color: var(--qs-deep); background: var(--qs-gold); box-shadow: none; }
+:root[data-look="quest"] .ui-switch__track { border: 2px solid var(--qs-bd); border-radius: 0; background: var(--qs-deep); }
+:root[data-look="quest"] .ui-switch__thumb { border-radius: 0; background: var(--qs-dim); }
+:root[data-look="quest"] .ui-switch__control[aria-checked="true"] .ui-switch__track { border-color: var(--qs-bd); background: #5ee27d; }
+:root[data-look="quest"] .ui-switch__control[aria-checked="true"] .ui-switch__thumb { background: var(--qs-deep); }
+:root[data-look="quest"] .ui-switch__state { font-family: var(--font-sans); }
+:root[data-look="quest"] .ui-check__mark { border: 2px solid var(--qs-bd); border-radius: 0; background: var(--qs-deep); }
+:root[data-look="quest"] :is(.ui-input, .ui-textarea, .ui-select__control) { border: 2px solid var(--qs-bd); border-radius: 0; color: var(--qs-tx); background: var(--qs-deep); font-family: var(--font-sans); }
+:root[data-look="quest"] :is(.ui-input, .ui-textarea, .ui-select__control):focus-visible { border-color: var(--qs-gold); outline-color: var(--qs-gold); }
+:root[data-look="quest"] .ui-kv__label { color: var(--qs-dim); font-family: var(--font-sans); }
+:root[data-look="quest"] .ui-code { border: 2px solid var(--qs-bd); border-radius: 0; background: var(--qs-deep); }
+:root[data-look="quest"] .ui-app-icon { border: 2px solid var(--qs-bd); border-radius: 0; font-family: var(--font-sans); }
+:root[data-look="quest"] .ui-tile__icon { border-radius: 0; box-shadow: 0 0 0 2px var(--qs-bd), 3px 3px 0 2px var(--qs-deep); }
+
+/* What needs you, on any page: quests' colours. */
+:root[data-look="quest"] .need__title { color: var(--qs-tx); font-family: var(--font-sans); font-weight: 600; }
+:root[data-look="quest"] .need__detail { color: var(--qs-dim); }
+
+/* Sheets and dialogs (the approval dialog, Activity, the notifications, the command bar): pixel windows. */
+:root[data-look="quest"] .look-console {
+  --accent: #ffd166;
+  --accent-text-on: #0e0b20;
+  --accent-faint: rgba(255, 209, 102, 0.12);
+  --accent-bg: rgba(255, 209, 102, 0.12);
+  --link: #ffd166;
+  --radius-control: 0;
+}
+:root[data-look="quest"] :is(.ui-sheet, .command-dialog, .approve-dialog) {
+  border: 4px solid var(--qs-bd);
+  border-radius: 0;
+  background: var(--qs-pn);
+  box-shadow: 0 0 0 4px var(--qs-deep), 8px 8px 0 4px var(--qs-deep);
+}
+:root[data-look="quest"] .ui-sheet__head { border-bottom: 2px dashed rgba(243, 230, 196, 0.3); }
+:root[data-look="quest"] :is(.ui-sheet__title, .approve-title) { color: var(--qs-gold); font-family: var(--font-sans); font-weight: 600; }
+:root[data-look="quest"] .ui-sheet__kicker { color: var(--qs-dim); font-family: var(--font-sans); }
+:root[data-look="quest"] .approve-kicker { font-family: var(--font-sans); }
+:root[data-look="quest"] :is(.ui-sheet__close, .approve-close) { border: 0; border-radius: 0; color: var(--qs-tx); background: var(--qs-pn); box-shadow: inset 0 0 0 2px var(--qs-bd), 2px 2px 0 var(--qs-deep); }
+:root[data-look="quest"] .ui-sheet__foot { border-top: 2px dashed rgba(243, 230, 196, 0.3); }
+:root[data-look="quest"] .areas-sheet .ui-dock__icon { border-radius: 0; }
+
+/* ── A phone: the menu along the bottom, a pixel window of its own. ── */
+@media (max-width: 760px) {
+  :root[data-look="quest"] #content > .content { padding: 14px 12px; }
+  :root[data-look="quest"] .topbar { padding: 8px 12px; }
+  :root[data-look="quest"] .ui-dock.shell-dock ul {
+    border: var(--qs-frame) solid var(--qs-bd);
+    border-radius: 0;
+    background: var(--qs-pn);
+    box-shadow: 0 0 0 var(--qs-frame) var(--qs-deep), 4px 4px 0 var(--qs-frame) var(--qs-deep);
+  }
+  :root[data-look="quest"] .shell-dock .ui-dock__icon { border-radius: 0; color: var(--qs-dim); background: var(--qs-deep); }
+  :root[data-look="quest"] .shell-dock .ui-dock__item[aria-current="page"] .ui-dock__icon { border-color: var(--qs-gold); color: var(--qs-deep); background: var(--qs-gold); }
+  :root[data-look="quest"] .shell-dock .ui-dock__label { color: var(--qs-tx); font-family: var(--font-sans); }
+}

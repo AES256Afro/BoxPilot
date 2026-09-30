@@ -48,15 +48,27 @@ export const dockAreas: Array<{ id: ViewName; short?: string; priority: 1 | 2 | 
  * areas stood down the left edge under the BoxPilot mark, led by Ops, the console's overview; on a
  * narrow screen the rail folds back into the dock.
  */
-export function ShellDock({ view, onSelect, variant = "dock" }: { view: ViewName | null; onSelect: (view: ViewName) => void; variant?: "dock" | "rail" }) {
+/** The counts on the areas, from what Home or Ops last read and Activity's live approvals. */
+export function useAreaBadges() {
   const facts = useOptionalFacts()?.facts;
-  const [allOpen, setAllOpen] = useState(false);
   const updates = facts?.updates.value?.count ?? 0;
   const findings = (facts?.repairs.value?.findings ?? []).filter((finding) => finding.severity !== "info").length;
   // Activity's live count, not the facts': it is there on every page, so the badge always is (M25).
   const approvals = useApprovalsWaiting();
+  return (id: ViewName) => (id === "today" && approvals > 0 ? approvals : id === "updates" && updates > 0 ? updates : id === "repairs" && findings > 0 ? findings : undefined);
+}
+
+/**
+ * How a look lays the dock out (src/looks/looks.ts): the Launcher's dock, the console's rail, a
+ * row of soft keys along the bottom (the cockpit) or a line across the top. The sidebar is its own
+ * component, ShellSidebar.
+ */
+export type DockVariant = "dock" | "rail" | "keys" | "top";
+
+export function ShellDock({ view, onSelect, variant = "dock" }: { view: ViewName | null; onSelect: (view: ViewName) => void; variant?: DockVariant }) {
+  const [allOpen, setAllOpen] = useState(false);
+  const badgeOf = useAreaBadges();
   const rail = variant === "rail";
-  const badgeOf = (id: ViewName) => (id === "today" && approvals > 0 ? approvals : id === "updates" && updates > 0 ? updates : id === "repairs" && findings > 0 ? findings : undefined);
   const areas: DockItem[] = dockAreas.map(({ id, short, priority, separatorBefore }, index) => ({
     // On the rail a rule sets the areas apart from Ops, which leads them.
     id, short, priority, separatorBefore: separatorBefore || (rail && index === 0), label: viewLabel(id), icon: <AreaIcon view={id} />, current: view === id,
@@ -68,7 +80,7 @@ export function ShellDock({ view, onSelect, variant = "dock" }: { view: ViewName
   return (
     <>
       <Dock
-        className={rail ? "shell-dock shell-dock--rail" : "shell-dock"}
+        className={variant === "dock" ? "shell-dock" : `shell-dock shell-dock--${variant}`}
         label="Admin areas"
         lead={rail ? <span className="shell-rail__logo" aria-hidden="true">BP</span> : undefined}
         onSelect={(id) => (id === "more" ? setAllOpen(true) : onSelect(id as ViewName))}
