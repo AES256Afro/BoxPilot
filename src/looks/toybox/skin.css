@@ -2,10 +2,10 @@
  * The Toybox look's skin (M41), as docs/design-directions/05-looks.html draws it (M.toybox and the
  * .ty* rules). Light only, whatever the device prefers: a light sky with two soft round blobs,
  * chunky white cards with an ink edge and a flat ink shadow, Fredoka everywhere, yellow pill
- * buttons that press down and white ones beside them, pastel accents. The areas are a chunky card
- * down the left (the sidebar), the current one a pastel pill; above it a card holds the robot mark,
- * the server and the page's name, search, the bell, Activity and Sign out (the top bar).
- * Every selector starts with :root[data-look="toybox"].
+ * buttons that press down and white ones beside them, pastel accents. The top bar is a slim white
+ * strip (the robot mark, the server and the page's name, Home and Ops, search, the bell, Activity,
+ * Sign out); the areas are a chunky tray floating at the bottom, the current one a yellow pill, so
+ * Home's two columns sit where the drawing has them. Every selector starts with :root[data-look="toybox"].
  */
 
 :root[data-look="toybox"] {
@@ -30,12 +30,9 @@
   --ty-shadow: 0 6.8px 0 var(--ty-ink);
   --ty-shadow-sm: 0 3px 0 var(--ty-ink);
 
-  /* Where the left column sits on a wide screen: the card with the controls over the areas. */
-  --ty-x: 24px;
-  --ty-top: 27px;
-  --ty-side-w: 220px;
-  --ty-head-h: 188px;
-  --sidebar-width: calc(var(--ty-x) + var(--ty-side-w) + 23.4px);
+  /* The strip across the top, and where the page starts under it: the drawing's 35 px margins. */
+  --ty-bar-h: 38px;
+  --ty-x: 35px;
 
   /* The console's family, pointed at the toybox: white cards on sky, ink lines, a violet for links. */
   --cc-canvas: #dcefff;
@@ -144,177 +141,172 @@
 /* Light only: the switch has nothing to offer here. */
 :root[data-look="toybox"] .ui-theme-switch { display: none; }
 
-/* ── The top bar: a chunky card with the robot, the server and the page, search and the controls ── */
+/* ── The top bar: a slim white strip over an ink rule ── */
 :root[data-look="toybox"] .topbar {
   z-index: 40;
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 10px;
-  min-height: 0;
-  padding: 12px;
-  border: 3.9px solid var(--ty-ink);
-  border-radius: 25px;
+  gap: 12px;
+  min-height: var(--ty-bar-h);
+  padding: 0 var(--ty-x);
+  border-bottom: 3.5px solid var(--ty-ink);
   color: var(--ty-ink);
   background: #ffffff;
-  box-shadow: var(--ty-shadow);
+  box-shadow: none;
   backdrop-filter: none;
   font-family: var(--font-toy);
 }
-:root[data-look="toybox"] .topbar-left { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; align-items: center; gap: 4px 10px; min-width: 0; }
-:root[data-look="toybox"] .topbar-slot,
-:root[data-look="toybox"] .cc-crumb { display: contents; }
+:root[data-look="toybox"] .topbar-left { flex: 1 1 auto; gap: 12px; min-width: 0; }
 /* The mark: the robot's face, small. */
-:root[data-look="toybox"] .brand { display: block; grid-column: 1; grid-row: 1; }
+:root[data-look="toybox"] .brand { display: flex; }
 :root[data-look="toybox"] .brand > span {
-  width: 34px;
-  height: 30px;
+  width: 31px;
+  height: 27px;
   box-sizing: border-box;
   border: 2.5px solid var(--ty-ink);
-  border-radius: 9px;
+  border-radius: 8px;
   color: transparent;
   background:
-    radial-gradient(circle at 34% 40%, var(--ty-ink) 0 2.6px, transparent 3px),
-    radial-gradient(circle at 66% 40%, var(--ty-ink) 0 2.6px, transparent 3px),
+    radial-gradient(circle at 34% 40%, var(--ty-ink) 0 2.4px, transparent 2.8px),
+    radial-gradient(circle at 66% 40%, var(--ty-ink) 0 2.4px, transparent 2.8px),
     radial-gradient(ellipse 22% 14% at 50% 64%, transparent 0 60%, var(--ty-ink) 62% 100%, transparent 100%) 0 0 / 100% 100% no-repeat,
     var(--ty-blue);
   box-shadow: 0 2px 0 var(--ty-ink);
   font-size: 0;
 }
 :root[data-look="toybox"] .brand div { display: none; }
-:root[data-look="toybox"] .cc-crumb__host { grid-column: 2 / -1; grid-row: 1; min-width: 0; overflow: hidden; color: var(--ty-soft); font-size: 13px; font-weight: 600; letter-spacing: 0.06em; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
-:root[data-look="toybox"] .cc-crumb__sep,
-:root[data-look="toybox"] .cc-kv,
-:root[data-look="toybox"] .view-switch { display: none; }
+:root[data-look="toybox"] .topbar-slot { display: flex; min-width: 0; }
+:root[data-look="toybox"] .cc-crumb { align-items: baseline; gap: 8px; min-width: 0; }
+:root[data-look="toybox"] .cc-crumb__host { flex: none; color: var(--ty-soft); font-size: 12.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
+:root[data-look="toybox"] .cc-crumb__sep { color: var(--ty-soft); font-size: 15px; }
+:root[data-look="toybox"] .cc-kv { display: none; }
 :root[data-look="toybox"] .cc-crumb > :is(h1, .toybox-crumb__page) {
-  grid-column: 1 / 3;
-  grid-row: 2;
   min-width: 0;
   margin: 0;
+  overflow: hidden;
   color: var(--ty-ink);
-  font: 600 21px/1.15 var(--font-toy);
-  overflow-wrap: anywhere;
+  font: 600 19px/1.2 var(--font-toy);
+  text-overflow: ellipsis;
   text-transform: none;
+  white-space: nowrap;
 }
-:root[data-look="toybox"] .cc-crumb > .ui-info-toggle { grid-column: 3; grid-row: 2; margin: 0; }
-:root[data-look="toybox"] .command-trigger {
-  flex: none;
-  width: 100%;
-  max-width: none;
-  min-height: 36px;
+:root[data-look="toybox"] .cc-crumb .ui-info-toggle { align-self: center; width: 28px; height: 28px; margin-left: 2px; }
+/* Home and Ops: two pills, the one in use yellow and pressed in. */
+:root[data-look="toybox"] .view-switch { gap: 6px; padding: 0 0 2px; border: 0; border-radius: 0; background: none; }
+:root[data-look="toybox"] .view-switch__option {
+  min-height: 27px;
   padding: 0 12px;
-  border: 2.5px solid var(--ty-ink);
-  border-radius: 999px;
-  color: var(--ty-soft);
-  background: #ffffff;
-  box-shadow: var(--ty-shadow-sm);
-  font: 500 13.5px/1.2 var(--font-toy);
-}
-:root[data-look="toybox"] .command-trigger:hover { border-color: var(--ty-ink); color: var(--ty-ink); background: #fff8e0; }
-:root[data-look="toybox"] .command-trigger__keys { display: none; }
-:root[data-look="toybox"] .topbar-right { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 5px; margin-left: 0; }
-:root[data-look="toybox"] .bar-button {
-  min-height: 32px;
-  padding: 0 9px;
   border: 2.2px solid var(--ty-ink);
   border-radius: 999px;
   color: var(--ty-ink);
   background: #ffffff;
-  box-shadow: var(--ty-shadow-sm);
+  box-shadow: 0 2.5px 0 var(--ty-ink);
+  font: 600 13.5px/1 var(--font-toy);
+}
+:root[data-look="toybox"] .view-switch__option:hover { color: var(--ty-ink); background: #fff8e0; }
+:root[data-look="toybox"] .view-switch__option[aria-current="page"] { border-color: var(--ty-ink); color: var(--ty-ink); background: var(--ty-yellow); box-shadow: 0 0.5px 0 var(--ty-ink); transform: translateY(2px); }
+:root[data-look="toybox"] .command-trigger {
+  flex: 0 1 260px;
+  max-width: 260px;
+  min-height: 28px;
+  margin-left: auto;
+  padding: 0 12px;
+  border: 2.2px solid var(--ty-ink);
+  border-radius: 999px;
+  color: var(--ty-soft);
+  background: #ffffff;
+  box-shadow: 0 2.5px 0 var(--ty-ink);
+  font: 500 13px/1.2 var(--font-toy);
+}
+:root[data-look="toybox"] .command-trigger:hover { border-color: var(--ty-ink); color: var(--ty-ink); background: #fff8e0; }
+:root[data-look="toybox"] .command-trigger__keys { display: none; }
+:root[data-look="toybox"] .topbar-right { flex: none; gap: 7px; margin-left: 0; }
+:root[data-look="toybox"] .bar-button {
+  min-height: 28px;
+  padding: 0 11px;
+  border: 2.2px solid var(--ty-ink);
+  border-radius: 999px;
+  color: var(--ty-ink);
+  background: #ffffff;
+  box-shadow: 0 2.5px 0 var(--ty-ink);
   font: 600 13px/1 var(--font-toy);
   transition: transform 80ms ease, box-shadow 80ms ease;
 }
 /* The bell is a round button, its count a sticker on its shoulder. */
-:root[data-look="toybox"] .topbar .bar-button[aria-haspopup="dialog"]:has(> svg) { width: 32px; padding: 0; justify-content: center; }
-:root[data-look="toybox"] .topbar .bar-button:has(> svg) .bar-badge { position: absolute; top: -8px; right: -9px; }
+:root[data-look="toybox"] .topbar .bar-button[aria-haspopup="dialog"]:has(> svg) { width: 28px; padding: 0; justify-content: center; }
+:root[data-look="toybox"] .topbar .bar-button:has(> svg) .bar-badge { position: absolute; top: -8px; right: -10px; }
 :root[data-look="toybox"] .bar-button:hover,
 :root[data-look="toybox"] .bar-button[aria-expanded="true"] { color: var(--ty-ink); background: #fff8e0; }
 :root[data-look="toybox"] .bar-button[data-live] { color: var(--ty-ink); background: var(--ty-cream); }
-:root[data-look="toybox"] .bar-button:active { box-shadow: 0 0 0 var(--ty-ink); transform: translateY(3px); }
-:root[data-look="toybox"] .bar-button svg { width: 17px; height: 17px; }
-:root[data-look="toybox"] .bar-badge { min-width: 19px; height: 19px; padding: 0 5px; border: 2px solid var(--ty-ink); color: var(--ty-ink); background: var(--ty-pink); font: 700 11px/1 var(--font-toy); }
+:root[data-look="toybox"] .bar-button:active { box-shadow: 0 0 0 var(--ty-ink); transform: translateY(2.5px); }
+:root[data-look="toybox"] .bar-button svg { width: 16px; height: 16px; }
+:root[data-look="toybox"] .bar-badge { min-width: 19px; height: 19px; padding: 0 5px; border: 2px solid var(--ty-ink); color: var(--ty-ink); background: #ffb938; font: 700 11px/1 var(--font-toy); }
 :root[data-look="toybox"] :is(.connection-pill, .signed-in-user, .bar-tiers) { display: none; }
 :root[data-look="toybox"] .bar-label { border: 2px solid var(--ty-ink); border-radius: 999px; color: var(--ty-ink); background: var(--ty-cream); font-family: var(--font-toy); font-size: 12px; font-weight: 600; }
 :root[data-look="toybox"] .bar-lock__long { display: none; }
 :root[data-look="toybox"] .bar-lock__short { display: inline; }
-
+:root[data-look="toybox"] .content { max-width: none; padding: 20px var(--ty-x) calc(var(--shell-bottom-inset, 0px) + 116px); }
+/* Home, as the drawing has it: the page starts right under the bar, whose words begin over the
+   speech bubble, and the big robot stands at the left with its antenna up in the bar in place of
+   the small mark. The bar scrolls away with Home rather than riding over the robot. */
 @media (min-width: 761px) {
-  :root[data-look="toybox"] .topbar { position: fixed; top: var(--ty-top); left: var(--ty-x); width: var(--ty-side-w); height: var(--ty-head-h); }
-  :root[data-look="toybox"] .content { max-width: none; padding: var(--ty-top) 35px 40px 0; }
+  :root[data-look="toybox"] .app-shell[data-view="home"] .topbar { position: relative; padding-left: 176px; }
+  :root[data-look="toybox"] .app-shell[data-view="home"] .brand { display: none; }
+  :root[data-look="toybox"] .app-shell[data-view="home"] .content { padding-top: 3px; }
 }
 
-/* ── The areas: a chunky card, each area a round pastel icon and its name, the current one a pill ── */
-:root[data-look="toybox"] .sidebar-nav {
-  gap: 0;
-  padding: 8px 9px;
-  border: 3.9px solid var(--ty-ink);
-  border-radius: 25px;
-  color: var(--ty-ink);
+/* ── The areas: a chunky tray floating at the bottom, pastel circles named under them, the one in front of you a yellow pill ── */
+:root[data-look="toybox"] .shell-dock { bottom: calc(var(--shell-bottom-inset, 0px) + 12px + env(safe-area-inset-bottom, 0px)); }
+:root[data-look="toybox"] .ui-dock.shell-dock ul {
+  gap: 4px;
+  padding: 5px 10px 4px;
+  border: 3.5px solid var(--ty-ink);
+  border-radius: 26px;
   background: #ffffff;
-  box-shadow: var(--ty-shadow);
-  font-family: var(--font-toy);
-  scrollbar-color: var(--ty-lilac) transparent;
+  box-shadow: 0 6px 0 var(--ty-ink);
+  backdrop-filter: none;
 }
-@media (min-width: 761px) {
-  :root[data-look="toybox"] .sidebar-nav {
-    top: calc(var(--ty-top) + var(--ty-head-h) + 17.5px);
-    bottom: calc(var(--ty-top) + 6.8px);
-    left: var(--ty-x);
-    width: var(--ty-side-w);
-  }
-}
-:root[data-look="toybox"] .sidebar-host { display: none; }
-:root[data-look="toybox"] .sidebar-group { gap: 0; }
-:root[data-look="toybox"] .sidebar-group__title { margin: 5px 10px 1px; color: var(--ty-soft); font: 600 12px/1.2 var(--font-toy); letter-spacing: 0.06em; }
-:root[data-look="toybox"] .sidebar-group:first-of-type .sidebar-group__title,
-:root[data-look="toybox"] .sidebar-host + .sidebar-group .sidebar-group__title { margin-top: 2px; }
-:root[data-look="toybox"] .sidebar-group__list,
-:root[data-look="toybox"] .sidebar-foot { gap: 0; }
-:root[data-look="toybox"] .sidebar-foot { margin-top: 6px; padding-top: 6px; border-top: 2.3px dashed rgba(43, 35, 64, 0.22); }
-:root[data-look="toybox"] .sidebar-item {
-  gap: 9px;
-  min-height: 25px;
-  padding: 0 8px 0 3px;
-  border: 2.2px solid transparent;
-  border-radius: 999px;
-  color: var(--ty-ink);
-  font: 600 14.5px/1.2 var(--font-toy);
-}
-:root[data-look="toybox"] .sidebar-item__icon {
-  --ty-pastel: #ffe7a6;
-  width: 21px;
-  height: 21px;
+:root[data-look="toybox"] .shell-dock .ui-dock__item { width: 64px; gap: 3px; padding: 3px 0 2px; border: 2.2px solid transparent; border-radius: 18px; }
+:root[data-look="toybox"] .shell-dock .ui-dock__icon {
+  --ty-pastel: #bfe3ff;
+  width: 36px;
+  height: 36px;
   box-sizing: border-box;
-  padding: 2.5px;
-  border: 2px solid var(--ty-ink);
+  border: 2.5px solid var(--ty-ink);
   border-radius: 50%;
   color: var(--ty-ink);
   background: var(--ty-pastel);
-  opacity: 1;
+  box-shadow: 0 2.5px 0 var(--ty-ink);
 }
-:root[data-look="toybox"] .sidebar-group:nth-of-type(3) .sidebar-item__icon { --ty-pastel: #bfe3ff; }
-:root[data-look="toybox"] .sidebar-group:nth-of-type(4) .sidebar-item__icon { --ty-pastel: #b8f0d2; }
-:root[data-look="toybox"] .sidebar-group:nth-of-type(5) .sidebar-item__icon { --ty-pastel: #d8c8ff; }
-:root[data-look="toybox"] .sidebar-foot .sidebar-item__icon { --ty-pastel: #ffc9dc; }
-:root[data-look="toybox"] .sidebar-item:hover { color: var(--ty-ink); background: #f3f0ff; }
-:root[data-look="toybox"] .sidebar-item[aria-current="page"] { border-color: var(--ty-ink); color: var(--ty-ink); background: #ffe7a6; box-shadow: var(--ty-shadow-sm); font-weight: 600; }
-:root[data-look="toybox"] .sidebar-item[aria-current="page"] .sidebar-item__icon { background: #ffffff; }
-:root[data-look="toybox"] .sidebar-item__badge { padding: 0 6px; border: 2px solid var(--ty-ink); color: var(--ty-ink); background: var(--ty-pink); font: 700 11px/1.35 var(--font-toy); }
-
-/* ── The dock, on a phone: a chunky card of pastel bubbles ── */
-:root[data-look="toybox"] .ui-dock.shell-dock ul { gap: 4px; padding: 7px 8px 5px; border: 3.5px solid var(--ty-ink); border-radius: 24px; background: #ffffff; box-shadow: 0 5px 0 var(--ty-ink); backdrop-filter: none; }
-:root[data-look="toybox"] .shell-dock .ui-dock__item { gap: 3px; }
-:root[data-look="toybox"] .shell-dock .ui-dock__icon { width: 42px; height: 42px; box-sizing: border-box; border: 2.5px solid var(--ty-ink); border-radius: 50%; color: var(--ty-ink); background: #bfe3ff; box-shadow: 0 2.5px 0 var(--ty-ink); }
-:root[data-look="toybox"] .shell-dock li[data-area="today"] .ui-dock__icon { background: #ffe7a6; }
-:root[data-look="toybox"] .shell-dock li[data-area="updates"] .ui-dock__icon { background: #b8f0d2; }
-:root[data-look="toybox"] .shell-dock li[data-area="backups"] .ui-dock__icon { background: #d8c8ff; }
-:root[data-look="toybox"] .shell-dock li[data-area="repairs"] .ui-dock__icon { background: #ffc9dc; }
-:root[data-look="toybox"] .shell-dock li[data-area="more"] .ui-dock__icon { background: #ffffff; }
-:root[data-look="toybox"] .shell-dock .ui-dock__item:hover .ui-dock__icon { border-color: var(--ty-ink); background: #fff8e0; }
-:root[data-look="toybox"] .shell-dock .ui-dock__item[aria-current="page"] .ui-dock__icon { border-color: var(--ty-ink); color: var(--ty-ink); background: var(--ty-yellow); box-shadow: 0 0 0 var(--ty-ink); transform: translateY(2px); }
+:root[data-look="toybox"] .shell-dock .ui-dock__icon svg { width: 18px; height: 18px; }
+:root[data-look="toybox"] .shell-dock li[data-area="today"] .ui-dock__icon { --ty-pastel: #ffe7a6; }
+:root[data-look="toybox"] .shell-dock li[data-area="updates"] .ui-dock__icon { --ty-pastel: #b8f0d2; }
+:root[data-look="toybox"] .shell-dock li[data-area="storage"] .ui-dock__icon { --ty-pastel: #ffc9dc; }
+:root[data-look="toybox"] .shell-dock li[data-area="firewall"] .ui-dock__icon { --ty-pastel: #ffc2c2; }
+:root[data-look="toybox"] .shell-dock li[data-area="network"] .ui-dock__icon { --ty-pastel: #bfe3ff; }
+:root[data-look="toybox"] .shell-dock li[data-area="backups"] .ui-dock__icon { --ty-pastel: #d8c8ff; }
+:root[data-look="toybox"] .shell-dock li[data-area="virtualization"] .ui-dock__icon { --ty-pastel: #cbd8ff; }
+:root[data-look="toybox"] .shell-dock li[data-area="repairs"] .ui-dock__icon { --ty-pastel: #ffd6bf; }
+:root[data-look="toybox"] .shell-dock li[data-area="logs"] .ui-dock__icon { --ty-pastel: #e3e3ea; }
+:root[data-look="toybox"] .shell-dock li[data-area="catalog"] .ui-dock__icon { --ty-pastel: #c9f5c0; }
+:root[data-look="toybox"] .shell-dock li[data-area="settings"] .ui-dock__icon { --ty-pastel: #f0c9ff; }
+:root[data-look="toybox"] .shell-dock li[data-area="more"] .ui-dock__icon { --ty-pastel: #ffffff; }
+:root[data-look="toybox"] .shell-dock .ui-dock__item:hover { background: #fff8e0; }
+:root[data-look="toybox"] .shell-dock .ui-dock__item:hover .ui-dock__icon { border-color: var(--ty-ink); background: var(--ty-pastel); }
+:root[data-look="toybox"] .shell-dock .ui-dock__item[aria-current="page"] { border-color: var(--ty-ink); background: var(--ty-yellow); box-shadow: 0 3px 0 var(--ty-ink); }
+:root[data-look="toybox"] .shell-dock .ui-dock__item[aria-current="page"] .ui-dock__icon { border-color: var(--ty-ink); color: var(--ty-ink); background: #ffffff; }
 :root[data-look="toybox"] .shell-dock .ui-dock__label { color: var(--ty-ink); font: 600 11.5px/1.2 var(--font-toy); }
+:root[data-look="toybox"] .shell-dock .ui-dock__item:is(:hover, [aria-current="page"]) .ui-dock__label { color: var(--ty-ink); }
+:root[data-look="toybox"] .shell-dock .ui-dock__item:focus-visible { outline: 3px solid var(--ty-focus); outline-offset: 2px; }
+:root[data-look="toybox"] .shell-dock .ui-dock__separator { width: 0; margin: 8px 3px; border-left: 2.3px dashed rgba(43, 35, 64, 0.25); background: none; }
 :root[data-look="toybox"] .ui-dock__badge,
-:root[data-look="toybox"] [data-density="compact"] .ui-dock__badge { border: 2px solid var(--ty-ink); color: var(--ty-ink); background: var(--ty-pink); box-shadow: none; font: 700 10px/1 var(--font-toy); }
+:root[data-look="toybox"] [data-density="compact"] .ui-dock__badge { top: -7px; right: -9px; min-width: 19px; height: 19px; border: 2px solid var(--ty-ink); color: var(--ty-ink); background: #ffb938; box-shadow: none; font: 700 10.5px/1 var(--font-toy); }
+@media (min-width: 761px) {
+  /* The everyday areas in the tray, and More for the rest. */
+  :root[data-look="toybox"] .shell-dock [data-priority="3"] { display: none; }
+  :root[data-look="toybox"] .shell-dock [data-priority="overflow"] { display: block; }
+}
+:root[data-look="toybox"] .areas-sheet .ui-dock__icon { box-sizing: border-box; border: 2.5px solid var(--ty-ink); border-radius: 50%; color: var(--ty-ink); background: #bfe3ff; box-shadow: 0 2.5px 0 var(--ty-ink); }
+:root[data-look="toybox"] .areas-sheet .ui-dock__item[aria-current="page"] .ui-dock__icon { background: var(--ty-yellow); }
+:root[data-look="toybox"] .areas-sheet .ui-dock__label { color: var(--ty-ink); font: 600 12.5px/1.2 var(--font-toy); }
 
 /* ── The page ── */
 :root[data-look="toybox"] .content--console { gap: 18px; }
@@ -508,26 +500,31 @@
 :root[data-look="toybox"] :is(.ui-sheet__close, .approve-close):hover:not(:disabled) { background: var(--ty-pink); }
 :root[data-look="toybox"] .ui-sheet__foot { border-top: 2.5px dashed rgba(43, 35, 64, 0.25); }
 
-/* ── A phone: the controls card across the top, the page under it, the dock along the bottom ── */
+/* ── A phone: the strip wraps under the page's name, the tray holds the four everyday areas and More ── */
 @media (max-width: 760px) {
   :root[data-look="toybox"] body { background: radial-gradient(circle at 96% 3%, #fff4c7 0 90px, transparent 92px) fixed, #dcefff; }
-  :root[data-look="toybox"] .topbar { position: sticky; top: 0; flex-direction: row; flex-wrap: wrap; gap: 8px; margin: 0 0 4px; padding: 8px 12px; border-width: 0 0 3.5px; border-radius: 0 0 22px 22px; box-shadow: 0 4px 0 var(--ty-ink); }
-  :root[data-look="toybox"] .topbar-left { flex: 1 1 60%; grid-template-columns: 32px minmax(0, 1fr); gap: 0 10px; }
-  :root[data-look="toybox"] .cc-crumb__host { font-size: 11.5px; }
-  :root[data-look="toybox"] .cc-crumb > :is(h1, .toybox-crumb__page) { grid-column: 2; font-size: 19px; }
-  :root[data-look="toybox"] .brand { grid-row: 1 / 3; }
-  :root[data-look="toybox"] .command-trigger { flex: 0 0 44px; width: 44px; min-width: 44px; min-height: 44px; padding: 0; justify-content: center; }
+  :root[data-look="toybox"] .topbar { flex-wrap: wrap; gap: 8px 8px; padding: 7px 14px 9px; }
+  :root[data-look="toybox"] .topbar-left { gap: 10px; }
+  :root[data-look="toybox"] :is(.cc-crumb__host, .cc-crumb__sep) { display: none; }
+  :root[data-look="toybox"] .view-switch { margin-left: auto; }
+  :root[data-look="toybox"] .view-switch__option { padding: 0 10px; }
+  :root[data-look="toybox"] .command-trigger { flex: 0 0 38px; width: 38px; min-width: 38px; margin-left: 0; padding: 0; justify-content: center; }
   :root[data-look="toybox"] .command-trigger__label { display: none; }
-  :root[data-look="toybox"] .topbar-right { flex: 1 1 100%; justify-content: flex-start; }
+  :root[data-look="toybox"] .topbar-right { flex: 1 1 auto; justify-content: flex-end; }
   :root[data-look="toybox"] .content { padding: 14px 14px calc(var(--shell-bottom-inset, 0px) + 116px); }
+  :root[data-look="toybox"] .ui-dock.shell-dock ul { gap: 2px; padding: 5px 7px 4px; }
+  :root[data-look="toybox"] .shell-dock .ui-dock__item { width: 60px; }
 }
 
 /* A finger, not a pointer: the pills grow to 44 px to tap, as every look's do. */
 @media (pointer: coarse) {
-  :root[data-look="toybox"] { --ty-head-h: 240px; }
-  :root[data-look="toybox"] :is(.ui-button, .ui-tabs__tab, .ui-segmented__option, .ui-select__control, .ui-input, .ui-textarea, .ui-switch__control, .ui-secret__toggle, .bar-button, .command-trigger) { min-height: 44px; }
+  :root[data-look="toybox"] :is(.ui-button, .ui-tabs__tab, .ui-segmented__option, .ui-select__control, .ui-input, .ui-textarea, .ui-switch__control, .ui-secret__toggle, .bar-button, .command-trigger, .view-switch__option) { min-height: 44px; }
   :root[data-look="toybox"] .bar-button { min-width: 44px; }
+  :root[data-look="toybox"] .topbar .bar-button[aria-haspopup="dialog"]:has(> svg) { width: 44px; }
   :root[data-look="toybox"] :is(.ui-info-toggle, .ui-sheet__close, .approve-close) { width: 44px; height: 44px; }
+}
+@media (pointer: coarse) and (max-width: 760px) {
+  :root[data-look="toybox"] .command-trigger { flex-basis: 44px; width: 44px; min-width: 44px; }
 }
 
 /* Settings → Appearance: the looks' pictures as chunky tiles. */

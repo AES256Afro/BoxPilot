@@ -45,7 +45,7 @@ export const LOOKS: readonly Look[] = [
   { id: "phosphor", name: "Phosphor", caption: "Dark only", modes: "dark", nav: "rail", personal: false, about: "A green CRT terminal with a key for every action." },
   { id: "rack", name: "Rack Panel", caption: "One look", modes: "dark", nav: "rail", personal: false, about: "Brushed-metal rack units, LEDs and segment displays." },
   { id: "swiss", name: "Swiss Poster", caption: "Light only", modes: "light", nav: "top", personal: false, about: "White, black and one red; type and rules, no boxes." },
-  { id: "toybox", name: "Toybox", caption: "Light only", modes: "light", nav: "sidebar", personal: false, about: "Chunky pastel cards and buttons that press down." },
+  { id: "toybox", name: "Toybox", caption: "Light only", modes: "light", nav: "dock", personal: false, about: "Chunky pastel cards and buttons that press down." },
   { id: "cockpit", name: "Glass Cockpit", caption: "Dark only", modes: "dark", nav: "keys", personal: false, about: "Round gauges, a master caution lamp and soft keys." },
   { id: "eink", name: "E-Ink", caption: "No color", modes: "light", nav: "top", personal: false, about: "Black on e-paper grey: serif text, dithered bars, shapes and words for status." },
   { id: "quest", name: "Quest", caption: "Dark only", modes: "dark", nav: "rail", personal: false, about: "An RPG party screen: apps are party members, problems are quests." },
