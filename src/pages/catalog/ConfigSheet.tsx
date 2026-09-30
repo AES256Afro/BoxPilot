@@ -1,7 +1,7 @@
 import { useEffect, useId, useState, type ReactNode } from "react";
 import { describePortConflict, type PortConflict } from "../../portConflict";
 import { Button, Checkbox, Field, Notice, SecretInput, Select, Sheet, Tag, TextInput, riskOf } from "../../ui";
-import { compactValues, initialValues } from "./appState";
+import { compactValues, initialValues, installTier } from "./appState";
 import type { LiveState, Manifest, Values } from "./types";
 
 /*
@@ -119,7 +119,7 @@ export function ConfigSheet({ manifest, live, mode, csrfToken, onSubmit, onCance
       className="catalog-config"
       footer={<>
         <Button onClick={onCancel}>Cancel</Button>
-        <Button variant="primary" type="submit" form={formId} risk={riskOf(operationId)} disabled={checking}>{checking ? "Checking…" : mode === "install" ? "Continue to install" : "Apply settings"}</Button>
+        <Button variant="primary" type="submit" form={formId} risk={mode === "install" ? installTier(manifest) : riskOf(operationId)} disabled={checking}>{checking ? "Checking…" : mode === "install" ? "Continue to install" : "Apply settings"}</Button>
       </>}
     >
       <form id={formId} className="catalog-form" onSubmit={(event) => { event.preventDefault(); void submit(); }}>

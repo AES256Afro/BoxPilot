@@ -328,7 +328,10 @@ export default function FirewallPage({ csrfToken, role = "owner", now = Date.now
         rowStatus={({ rule }) => (rule.action === "deny" || rule.action === "reject" ? "danger" : undefined)}
         empty={!report
           ? (loading ? "Reading the firewall…" : "The rules could not be read.")
-          : <EmptyState title="No rules yet">{report.enabled ? "Only the default policy applies." : "The firewall is off."}</EmptyState>}
+          : report.enabled
+            ? <EmptyState title="No rules yet">Only the default policy applies.</EmptyState>
+            // Off, with nothing on the list: the one step that fills it is a profile, which turns it on too.
+            : <EmptyState title="No rules yet" action={canProfile && overview ? <Button onClick={openProfiles}>Choose a profile…</Button> : undefined}>The firewall is off. A profile turns it on with the rules this server needs, keeping SSH, Tailscale and BoxPilot reachable.</EmptyState>}
       />
     </Panel>
   );
@@ -358,7 +361,7 @@ export default function FirewallPage({ csrfToken, role = "owner", now = Date.now
 
       {error && <Notice tone="danger" live title="The firewall could not be read" action={<Button onClick={() => void refresh()}>Try again</Button>}>{error}</Notice>}
       {overview?.reportError && !error && <Notice tone="warning" title="ufw could not be read">{overview.reportError}</Notice>}
-      {planError && <Notice tone="danger" live title="The plan could not be built" onDismiss={() => setPlanError(null)}>{planError}</Notice>}
+      {planError && sheet !== "profile" && <Notice tone="danger" live title="The plan could not be built" onDismiss={() => setPlanError(null)}>{planError}</Notice>}
 
       {notInstalled ? (
         <Panel title="ufw" count={{ status: "warning", label: "not installed" }}>
@@ -393,7 +396,8 @@ export default function FirewallPage({ csrfToken, role = "owner", now = Date.now
           onChange={(next) => { setChoiceTouched(true); setChoice(next); }}
           onReview={() => void reviewProfile()}
           planning={planning}
-          onClose={() => setSheet(null)}
+          error={planError}
+          onClose={() => { setSheet(null); setPlanError(null); }}
         />
       )}
 

@@ -104,6 +104,19 @@ describe("Setup", () => {
     expect(screen.getByRole("button", { name: "Skip and continue" })).toBeTruthy();
   });
 
+  it("tags an app step, and the batch, with the tier its manifest raises it to", async () => {
+    const dns = { ...setupState, profiles: [{ ...setupState.profiles[0], steps: [
+      { id: "app-adguard-home", kind: "app", title: "Install AdGuard Home", status: "ready", detail: "with default settings", risk: "high", job: { operationId: "app.install", parameters: { id: "adguard-home", values: {} } } },
+      setupState.profiles[0].steps[1],
+    ] }, setupState.profiles[1]] };
+    vi.stubGlobal("fetch", vi.fn(async () => json(dns)));
+    render(<SetupPage csrfToken="csrf" onDone={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: /Home server/ }));
+    expect((screen.getByText("Install AdGuard Home").closest("li") as HTMLElement).querySelector(".ui-tag--tier")?.textContent).toBe("High risk");
+    expect((screen.getByText("Install Jellyfin").closest("li") as HTMLElement).querySelector(".ui-tag--tier")?.textContent).toBe("Med risk");
+    expect(screen.getByRole("button", { name: /Install everything/ }).getAttribute("data-risk")).toBe("high");
+  });
+
   it("reads the server again before a retry, so a step that finished meanwhile is not run twice", async () => {
     let reads = 0;
     let installs = 0;

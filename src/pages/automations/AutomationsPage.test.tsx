@@ -181,6 +181,8 @@ describe("Automations page", () => {
     const url = await screen.findByLabelText("Webhook URL");
     expect(url.textContent).toBe(`${window.location.origin}/api/v1/hooks/flow-1/secret-token`);
     expect(screen.getByRole("button", { name: "Copy" })).toBeTruthy();
+    // Shown in the automation's own card, beside the button that made it, not at the top of the page.
+    expect(url.closest(".automations-flow")?.querySelector(".automations-flow__name")?.textContent).toBe("Nightly");
     // Another action does not wipe it.
     fireEvent.click(screen.getByRole("button", { name: "Run it every Sunday at 03:00" }));
     await vi.waitFor(() => expect(calls).toContain("PUT /api/v1/flows/flow-1"));

@@ -331,7 +331,7 @@ const pushApprovals = createPushApprovals({
   contact: process.env.BOXPILOT_PUSH_CONTACT ?? null,
 });
 pushApprovals.start();
-const setup = createSetupService({ helper, scheduler });
+const setup = createSetupService({ helper, scheduler, installRisk: installRiskLookup(catalogService) });
 createUpdateNotifier({ releaseUpdates, notifications, alerts: healthAlerts, store: state }).start();
 // The weekly self-report (M30.4). "Not covered yet" asks what the Overview's checklist asks, plus
 // which apps with data worth keeping have no backup schedule; either may fail, and is then left out.

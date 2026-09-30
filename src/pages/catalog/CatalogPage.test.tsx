@@ -227,6 +227,53 @@ describe("App catalog: installing", () => {
     expect(JSON.parse(stagedBody ?? "{}")).toEqual({ parameters: { id: "jellyfin", values: { ports: { web: 8097 }, env: {}, volumes: { media: "/mnt/media" } } } });
   });
 
+  it("marks Install with the tier the server will approve it at: the manifest's, when higher", async () => {
+    // Installing a DNS server the house leans on is high since the security audit; the button said medium.
+    serve(catalogOf([{ manifest: { ...dnsManifest, risk: "high" }, live: absent("pi-hole") }, { manifest, live: absent("jellyfin") }]), (url) => (url.endsWith("/precheck") ? json({ ok: true, errors: [], conflicts: [] }) : undefined));
+    render(<CatalogPage csrfToken="csrf-token" />);
+    fireEvent.click(await screen.findByRole("tab", { name: /Catalog/ }));
+    expect((await screen.findByRole("button", { name: "Install Pi-hole" })).getAttribute("data-risk")).toBe("high");
+    expect(screen.getByRole("button", { name: "Install Jellyfin" }).getAttribute("data-risk")).toBe("medium");
+    fireEvent.click(screen.getByRole("button", { name: "Install Pi-hole" }));
+    const sheet = await screen.findByRole("dialog", { name: "Pi-hole" });
+    expect(within(sheet).getByRole("button", { name: /Continue to install/ }).getAttribute("data-risk")).toBe("high");
+    fireEvent.click(within(sheet).getByRole("button", { name: "Cancel" }));
+    // The app's own sheet says the same.
+    fireEvent.click(await screen.findByRole("button", { name: /^Pi-hole: / }));
+    const app = await screen.findByRole("dialog", { name: "Pi-hole" });
+    expect(within(app).getByRole("button", { name: "Install" }).getAttribute("data-risk")).toBe("high");
+  });
+
+  it("opens the app on the Installed tab once its install has finished, rather than leaving it to vanish from the list", async () => {
+    let installed = false;
+    serve(catalogOf([{ manifest, live: absent("jellyfin") }]), (url) => {
+      if (url.endsWith("/catalog/jellyfin/precheck")) return json({ ok: true, errors: [], conflicts: [] });
+      if (url.endsWith("/operations/app.install/jobs")) return stagedJob("app.install");
+      if (url.endsWith("/jobs/job-app.install/approve")) return json({ job: { id: "job-app.install", state: "applying" }, elevatedUntil: null }, 202);
+      if (url.endsWith("/jobs/job-app.install")) { installed = true; return json({ job: { id: "job-app.install", type: "op:app.install", title: "Install Jellyfin", state: "completed", risk: "medium", error: null, result: {}, steps: [], approvals: [] } }); }
+      if (url === "/api/v1/catalog" && installed) return json(catalogOf([{ manifest, live: running("jellyfin") }]));
+      return undefined;
+    });
+    render(<CatalogPage csrfToken="csrf-token" />);
+    const sheet = await openInstall("Jellyfin");
+    fireEvent.click(within(sheet).getByRole("button", { name: "Continue to install" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm and run" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Close" }, { timeout: 4000 }));
+    expect(await screen.findByRole("dialog", { name: "Jellyfin" })).toBeTruthy();
+    expect(new URLSearchParams(window.location.search).get("tab")).not.toBe("browse");
+    expect(screen.getByRole("tab", { name: /Installed|On this server/ }).getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("goes back to the app's sheet when an action started there is approved or cancelled", async () => {
+    serve(catalogOf([{ manifest, live: running("jellyfin") }]), (url) => (url.includes("/jobs") ? stagedJob("app.action") : undefined));
+    render(<CatalogPage csrfToken="csrf-token" />);
+    const sheet = await openApp("Jellyfin");
+    fireEvent.click(within(sheet).getByRole("button", { name: /^Restart/ }));
+    expect(screen.queryByRole("dialog", { name: "Jellyfin" })).toBeNull();
+    fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
+    expect(await screen.findByRole("dialog", { name: "Jellyfin" })).toBeTruthy();
+  });
+
   it("says what the precheck found, and stages nothing", async () => {
     const staged = vi.fn();
     serve(catalogOf([{ manifest, live: absent("jellyfin") }]), (url) => {
@@ -795,6 +842,21 @@ describe("App catalog: configuration", () => {
     fireEvent.click(within(sheet).getByRole("button", { name: "Edit raw" }));
     expect((within(sheet).getByLabelText("Compose file") as HTMLTextAreaElement).value).toBe(compose);
     expect(within(sheet).getByRole("button", { name: "Apply" }).getAttribute("data-risk")).toBe("high");
+  });
+
+  it("offers to read the configuration again when the first read fails", async () => {
+    let reads = 0;
+    withConfig((url) => {
+      if (url.includes("app.config.inspect")) { reads += 1; return reads === 1 ? json({ error: "The helper did not answer" }, 503) : json({ result: { id: "dockge", name: "Dockge", directory: "/opt/boxpilot/apps/dockge", env: [] } }); }
+      return undefined;
+    });
+    render(<CatalogPage csrfToken="csrf-token" />);
+    const sheet = await openApp("Dockge");
+    fireEvent.click(within(sheet).getByRole("tab", { name: "Config" }));
+    expect(await within(sheet).findByText("The helper did not answer")).toBeTruthy();
+    fireEvent.click(within(sheet).getByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(within(sheet).queryByText("The helper did not answer")).toBeNull());
+    expect(reads).toBe(2);
   });
 
   it("keeps a raw Compose read that starts before the opened tab's effects have run", async () => {
