@@ -70,6 +70,10 @@ describe("manifest schema", () => {
     expect(resolveValues(manifest, { env: { NEEDED: "y", TZ: "not a tz!" } }).errors).toContainEqual(expect.stringContaining("Region/City"));
     expect(resolveValues(manifest, { env: { NEEDED: "y" }, volumes: { media: "/etc/ssl" } }).errors).toContainEqual(expect.stringContaining("protected"));
     expect(resolveValues(manifest, { env: { NEEDED: "y" }, volumes: { media: "/srv/../etc" } }).errors).toContainEqual(expect.stringContaining("clean"));
+    // A folder above a protected one hands the app everything under it: /var holds BoxPilot's own
+    // database and every app's secrets, /opt the code root runs.
+    for (const above of ["/var", "/var/lib", "/opt"]) expect(resolveValues(manifest, { env: { NEEDED: "y" }, volumes: { media: above } }).errors).toContainEqual(expect.stringContaining("protected"));
+    expect(resolveValues(manifest, { env: { NEEDED: "y" }, volumes: { media: "/opt/stacks" } }).errors).toEqual([]);
     expect(resolveValues(manifest, { env: { NEEDED: "y", EXTRA: "1" } }).errors).toContainEqual(expect.stringContaining("EXTRA"));
     // Compose's short volume syntax splits on ":", so "/mnt/media:old" became "/mnt/media:old:/media"
     // - a mount of /mnt/media at "old" with "/media" as its options - and the deploy failed.
@@ -426,5 +430,18 @@ describe("NVIDIA GPU", () => {
     const { manifests } = await loadCatalog();
     expect(manifests.find((m) => m.id === "ollama").gpu).toBe("optional");
     expect(manifests.find((m) => m.id === "open-webui").sidecars.find((s) => s.id === "ollama").gpu).toBe("optional");
+  });
+});
+
+describe("the tier of installing an app", () => {
+  it("is the manifest's own, from the catalog as shipped", async () => {
+    const { createCatalogService, installRiskLookup } = await import("./index.mjs");
+    const lookup = installRiskLookup(createCatalogService());
+    expect(await lookup({ id: "pi-hole" })).toBe("high");
+    expect(await lookup({ id: "wg-easy" })).toBe("high");
+    expect(await lookup({ id: "jellyfin" })).toBe("medium");
+    expect(await lookup({ id: "actual" })).toBe("low");
+    expect(await lookup({ id: "no-such-app" })).toBeNull();
+    expect(await lookup({})).toBeNull();
   });
 });
