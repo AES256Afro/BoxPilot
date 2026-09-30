@@ -1,4 +1,5 @@
-import { access, mkdir, open, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { access, mkdir, open, readFile, readdir, stat } from "node:fs/promises";
+import { writeFileDurably as writeFile } from "../durable-file.mjs";
 import path from "node:path";
 import { fixedRun } from "../exec.mjs";
 import { parseSmbConf, smbConfPath } from "./samba.mjs";

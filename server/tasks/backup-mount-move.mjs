@@ -1,4 +1,5 @@
-import { mkdir, readFile, readdir, rmdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rmdir } from "node:fs/promises";
+import { writeFileDurably as writeFile } from "../durable-file.mjs";
 import { fixedRun } from "../exec.mjs";
 import { backupMountParent, backupMountpoint, legacyBackupMountpoint } from "../backup-mount.mjs";
 import { parseManagedFstab } from "./storage.mjs";

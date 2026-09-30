@@ -15,7 +15,8 @@
  * scheduled a few seconds out so this task can report success before the web process it belongs to
  * goes down and comes back on the new bind.
  */
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
+import { writeFileDurably as writeFile } from "../durable-file.mjs";
 import { fixedRun } from "../exec.mjs";
 
 const envPath = process.env.BOXPILOT_ENV_FILE ?? "/etc/boxpilot/boxpilot.env";

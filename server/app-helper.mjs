@@ -8,6 +8,7 @@ import { constants as fsConstants, createReadStream } from "node:fs";
 import { lchown, lstat, mkdir, open, readFile, readdir, rename, rm, stat, writeFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import YAML from "yaml";
+import { writeFileDurably } from "./durable-file.mjs";
 import { fixedRun } from "./exec.mjs";
 import { parseServeStatus } from "./tailscale-serve.mjs";
 import { createCatalogService } from "./catalog/index.mjs";
@@ -143,7 +144,7 @@ export function createAppHelper({
   }
   async function writeState(id, state) {
     const target = path.join(dirFor(id), "boxpilot.json");
-    await writeFile(`${target}.tmp`, JSON.stringify(state, null, 2), { mode: 0o600 });
+    await writeFileDurably(`${target}.tmp`, JSON.stringify(state, null, 2), { mode: 0o600 });
     await rename(`${target}.tmp`, target);
   }
   async function readEnv(id) {
@@ -159,7 +160,7 @@ export function createAppHelper({
   async function restoreProjectFiles(id, saved) {
     for (const [name, content] of [["compose.yaml", saved.compose], [".env", saved.env]]) {
       if (content === null) continue;
-      await writeFile(path.join(dirFor(id), `${name}.tmp`), content, { mode: 0o600 });
+      await writeFileDurably(path.join(dirFor(id), `${name}.tmp`), content, { mode: 0o600 });
       await rename(path.join(dirFor(id), `${name}.tmp`), path.join(dirFor(id), name));
     }
   }
@@ -624,9 +625,9 @@ export function createAppHelper({
       }
     }
     const rendered = renderCompose(manifest, values, { existingEnv, lanAddress, devices, tailnetAddress: await tailnetAddressFor(manifest, values), tailnetHost, sidecarEnvOverrides, gpu });
-    await writeFile(path.join(directory, ".env.tmp"), rendered.envFile, { mode: 0o600 });
+    await writeFileDurably(path.join(directory, ".env.tmp"), rendered.envFile, { mode: 0o600 });
     await rename(path.join(directory, ".env.tmp"), path.join(directory, ".env"));
-    await writeFile(path.join(directory, "compose.yaml.tmp"), rendered.composeYaml, { mode: 0o600 });
+    await writeFileDurably(path.join(directory, "compose.yaml.tmp"), rendered.composeYaml, { mode: 0o600 });
     await rename(path.join(directory, "compose.yaml.tmp"), path.join(directory, "compose.yaml"));
     // Config files shipped with the app (a prometheus.yml, a datasource yaml). Their paths were
     // validated safe and relative by the schema; each is written under the project directory and
@@ -1147,8 +1148,8 @@ export function createAppHelper({
     } catch (error) {
       let rolledBack = false;
       if (previousCompose !== null) {
-        await writeFile(path.join(dirFor(id), "compose.yaml"), previousCompose, { mode: 0o600 });
-        await writeFile(path.join(dirFor(id), ".env"), previousEnv, { mode: 0o600 });
+        await writeFileDurably(path.join(dirFor(id), "compose.yaml"), previousCompose, { mode: 0o600 });
+        await writeFileDurably(path.join(dirFor(id), ".env"), previousEnv, { mode: 0o600 });
         progress?.(`Reconfiguration failed: ${error.message}. Restoring previous configuration...`, "stderr");
         rolledBack = (await compose(id, ["up", "--detach", "--remove-orphans"], { timeout: 10 * 60_000, progress })).ok;
       }
@@ -1173,10 +1174,10 @@ export function createAppHelper({
     const previous = await readFile(target, "utf8").catch(() => null);
     if (previous === null) throw new Error("There is no compose.yaml to edit");
     const saved = takeCheckpoint ? await checkpoint({ id, reason: "compose edit" }, { progress }) : null;
-    await writeFile(target, composeText, { mode: 0o600 });
+    await writeFileDurably(target, composeText, { mode: 0o600 });
     const check = await compose(id, ["config", "--quiet"], { timeout: 60_000, progress });
     if (!check.ok) {
-      await writeFile(target, previous, { mode: 0o600 });
+      await writeFileDurably(target, previous, { mode: 0o600 });
       throw new Error(`docker compose rejected the file; the previous one was restored: ${redact(check.stderr).split("\n").slice(-3).join(" ")}`);
     }
     const up = await compose(id, ["up", "--detach", "--remove-orphans"], { timeout: 15 * 60_000, progress });
@@ -1187,7 +1188,7 @@ export function createAppHelper({
       return { edited: true, id, rawEdited: true, checkpoint: saved };
     } catch (error) {
       progress?.(`Edit failed: ${error.message}. Restoring the previous compose file...`, "stderr");
-      await writeFile(target, previous, { mode: 0o600 });
+      await writeFileDurably(target, previous, { mode: 0o600 });
       const rolledBack = (await compose(id, ["up", "--detach", "--remove-orphans"], { timeout: 10 * 60_000, progress })).ok;
       throw new Error(`${manifest.name} rejected the edited compose file${rolledBack ? "; the previous one was restored" : " and automatic rollback also failed"}. ${error.message}`);
     }
