@@ -22,13 +22,13 @@ describe("Home in the Toybox look", () => {
 
     const needs = screen.getByRole("region", { name: "Needs you" });
     expect(within(needs).getByRole("button", { name: "Problem: Vaultwarden is not running" })).toBeTruthy();
-    expect(within(needs).getByRole("button", { name: "Needs a look: 4 updates available" })).toBeTruthy();
+    expect(within(needs).getByRole("button", { name: "Needs a look: 4 updates are ready, 1 is a security fix" })).toBeTruthy();
     expect(within(needs).getByText("Low risk")).toBeTruthy();
     expect(within(needs).getByText("Medium risk")).toBeTruthy();
     const waiting = screen.getByRole("region", { name: "Can wait" });
     expect(within(waiting).getByRole("button", { name: "Suggestion: Jellyfin has a new version" })).toBeTruthy();
 
-    fireEvent.click(within(needs).getByRole("button", { name: "Needs a look: 4 updates available" }));
+    fireEvent.click(within(needs).getByRole("button", { name: "Needs a look: 4 updates are ready, 1 is a security fix" }));
     expect(onNavigate).toHaveBeenCalledWith("updates", undefined);
     const start = within(needs).getByRole("button", { name: "Start: Vaultwarden is not running" });
     expect(start.getAttribute("data-risk")).toBe("low");
@@ -36,6 +36,18 @@ describe("Home in the Toybox look", () => {
     fireEvent.click(start);
     expect(await screen.findByRole("dialog", { name: "Start Vaultwarden" })).toBeTruthy();
     expect(vi.mocked(fetch)).toHaveBeenCalledWith("/api/v1/operations/app.action/jobs", expect.objectContaining({ method: "POST" }));
+  });
+
+  it("shows what can be fixed from here in its two rows before a note with nothing to press", async () => {
+    const note = { key: "dns.single", active: true, details: [{ title: "If homebox goes down, every device on your network loses the internet" }] };
+    vi.stubGlobal("fetch", stubFetch({ "/api/v1/settings/watch": { targetConfigured: true, conditions: [note], notices: [] } }));
+    renderHome();
+    await screen.findByRole("button", { name: /^Needs a look: 4 updates/ });
+    const needs = screen.getByRole("region", { name: "Needs you" });
+    const titles = within(needs).getAllByRole("button").filter((button) => button.className.includes("toybox-need__title")).map((button) => button.textContent?.trim());
+    expect(titles).toEqual(["Problem: Vaultwarden is not running", "Needs a look: 4 updates are ready, 1 is a security fix"]);
+    fireEvent.click(within(needs).getByRole("button", { name: "Show 1 more" }));
+    expect(within(needs).getByRole("button", { name: "Needs a look: If homebox goes down, every device on your network loses the internet" })).toBeTruthy();
   });
 
   it("shows the apps as bubbles with how each is doing, and the bars each open their page", async () => {

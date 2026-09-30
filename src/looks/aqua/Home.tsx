@@ -60,6 +60,15 @@ function driveName(target: string): string {
   return `${last.charAt(0).toUpperCase()}${last.slice(1)} drive`;
 }
 
+const severityRank = { danger: 0, warning: 1, neutral: 2 } as const;
+/**
+ * The two rows the drawing shows are the ones with a button: among needs of the same severity,
+ * those that can be fixed from here come first, so a note with nothing to press does not fold
+ * "4 updates are available [Install…]" away. A problem still leads whatever it offers.
+ */
+const actionableFirst = (list: Need[]): Need[] => [...list].sort((a, b) => severityRank[a.severity] - severityRank[b.severity]
+  || Number(actionsOf(b).length > 0) - Number(actionsOf(a).length > 0));
+
 const sentence = (text: string) => (/[.!?…]$/.test(text) ? text : `${text}.`);
 
 function NeedItem({ need, run, onOpen, onAct }: { need: Need; run?: FixRun; onOpen: (need: Need) => void; onAct: (need: Need, action?: NeedAction | null) => void }) {
@@ -117,8 +126,8 @@ export default function AquaHome({ csrfToken, role, onNavigate, now = Date.now }
   const listed = new Set(needs.flatMap((need) => (need.finding ? [need.finding.id] : [])));
   const justFixed = Object.values(remembered).filter((finding) => !listed.has(finding.id) && fixRuns[finding.id] && ["fixed", "scheduled"].includes(fixRuns[finding.id].phase));
 
-  const urgent = needs.filter((need) => need.severity !== "neutral");
-  const waiting = needs.filter((need) => need.severity === "neutral");
+  const urgent = actionableFirst(needs.filter((need) => need.severity !== "neutral"));
+  const waiting = actionableFirst(needs.filter((need) => need.severity === "neutral"));
   // The drawing's two, then the rest folded under a disclosure triangle, what can wait with them.
   const shownNeeds = urgent.slice(0, shownUrgent);
   const restUrgent = Math.max(0, urgent.length - shownUrgent);
