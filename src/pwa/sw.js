@@ -4,7 +4,7 @@
  * its entry bundle and stylesheet, the fonts and the icons). Served from the site root, so its scope
  * is the whole app; the page registers it only over HTTPS and never in the demo (src/pwa/register.ts).
  */
-/* global VERSION, PRECACHE, routeFor, cacheable, isShell */
+/* global VERSION, PRECACHE, routeFor, cacheable, isShell, notificationFrom, safeOpenUrl */
 
 const shellKey = "/";
 const cacheName = `boxpilot-${VERSION}`;
@@ -36,6 +36,35 @@ self.addEventListener("fetch", (event) => {
   // The API and everything else not the app's own files: not answered, not read, not kept.
   if (route === "network") return;
   event.respondWith(answer(event.request, route));
+});
+
+/*
+ * Push approvals (M25.2). A push shows a notification and nothing else: it is never an approval,
+ * and the worker never reads a job, calls the API or keeps anything for it. Tapping it opens the app
+ * at the approval (or Today); the page reads the job as whoever is signed in and asks for the tier's
+ * confirmation or password there.
+ */
+self.addEventListener("push", (event) => {
+  let payload = null;
+  try { payload = event.data ? event.data.json() : null; } catch { payload = null; }
+  const note = notificationFrom(payload, self.location.origin);
+  event.waitUntil(self.registration.showNotification(note.title, note.options));
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const url = safeOpenUrl(event.notification.data?.url, self.location.origin);
+  event.waitUntil((async () => {
+    const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+    const open = windows.find((client) => new URL(client.url).origin === self.location.origin);
+    if (open) {
+      // The page opens the approval in place (src/App.tsx), keeping whatever it was showing.
+      open.postMessage({ type: "boxpilot:open", url });
+      await open.focus();
+      return;
+    }
+    await self.clients.openWindow(url);
+  })());
 });
 
 async function answer(request, route) {

@@ -97,7 +97,21 @@ function runWorker(network: (url: string) => Response | Error, precache = ["/", 
     if (answer instanceof Error) throw answer;
     return answer;
   };
-  const self = { location: { origin }, addEventListener: (type: string, listener: (event: unknown) => void) => { listeners[type] = listener; }, skipWaiting: async () => undefined, clients: { claim: async () => undefined } };
+  const shown: Array<{ title: string; options: { body: string; tag: string; data: { url: string } } }> = [];
+  const windows: Array<{ url: string; messages: unknown[]; focused: boolean; postMessage: (message: unknown) => void; focus: () => Promise<void> }> = [];
+  const opened: string[] = [];
+  const self = {
+    location: { origin },
+    addEventListener: (type: string, listener: (event: unknown) => void) => { listeners[type] = listener; },
+    skipWaiting: async () => undefined,
+    registration: { showNotification: async (title: string, options: { body: string; tag: string; data: { url: string } }) => { shown.push({ title, options }); } },
+    clients: { claim: async () => undefined, matchAll: async () => windows, openWindow: async (url: string) => { opened.push(url); } },
+  };
+  const openWindow = (url: string) => {
+    const client = { url, messages: [] as unknown[], focused: false, postMessage(message: unknown) { client.messages.push(message); }, async focus() { client.focused = true; } };
+    windows.push(client);
+    return client;
+  };
   new Function("self", "caches", "fetch", source)(self, caches, fetchStandIn);
 
   async function lifecycle(type: "install" | "activate") {
@@ -112,7 +126,21 @@ function runWorker(network: (url: string) => Response | Error, precache = ["/", 
     return answered ? await answered : null;
   }
   const kept = () => [...stores.values()].flatMap((store) => [...store.keys()].map((url) => new URL(url).pathname + new URL(url).search));
-  return { source, lifecycle, request, kept, stores, asked };
+  /** A push arriving, with this body (or none). */
+  async function push(body: unknown) {
+    let waited: Promise<unknown> = Promise.resolve();
+    const data = body === undefined ? null : { json: () => (typeof body === "string" ? JSON.parse(body) : body) };
+    listeners.push({ data, waitUntil: (promise: Promise<unknown>) => { waited = promise; } });
+    await waited;
+  }
+  /** The last notification shown, tapped. */
+  async function tap() {
+    let waited: Promise<unknown> = Promise.resolve();
+    const note = shown.at(-1)!;
+    listeners.notificationclick({ notification: { data: note.options.data, close: () => undefined }, waitUntil: (promise: Promise<unknown>) => { waited = promise; } });
+    await waited;
+  }
+  return { source, lifecycle, request, kept, stores, asked, push, tap, shown, opened, openWindow };
 }
 
 describe("the worker as built", () => {
@@ -177,6 +205,39 @@ describe("the worker as built", () => {
     const worker = runWorker(() => new Response(JSON.stringify({ error: "BoxPilot is restarting" }), { status: 200, headers: { "Content-Type": "application/json" } }));
     await worker.request("/", { mode: "navigate" });
     expect(worker.kept()).toEqual([]);
+  });
+
+  it("shows a push as a notification that opens the approval it names (M25.2)", async () => {
+    const worker = runWorker(() => html());
+    const id = "0f8b3c1e-1111-4222-8333-444455556666";
+    await worker.push({ web_push: 8030, notification: { title: "Update an app (Jellyfin): approve?", body: "Medium risk. Tap to review it in BoxPilot; nothing runs until you approve it there.", navigate: `${origin}/?approve=${id}`, tag: "approval-0f8b3c1e", silent: false } });
+    expect(worker.shown).toEqual([{ title: "Update an app (Jellyfin): approve?", options: expect.objectContaining({ body: "Medium risk. Tap to review it in BoxPilot; nothing runs until you approve it there.", tag: "approval-0f8b3c1e", data: { url: `${origin}/?approve=${id}` } }) }]);
+    // Not open: tapping opens the app at the approval.
+    await worker.tap();
+    expect(worker.opened).toEqual([`${origin}/?approve=${id}`]);
+    // Open already: the page is told which approval, and brought forward; nothing reloads.
+    const page = worker.openWindow(`${origin}/?view=ops`);
+    await worker.tap();
+    expect(page.messages).toEqual([{ type: "boxpilot:open", url: `${origin}/?approve=${id}` }]);
+    expect(page.focused).toBe(true);
+    // The worker reads no job and calls no API for a push.
+    expect(worker.asked).toEqual([]);
+  });
+
+  it("opens only this app, at an approval or at Today, whatever a push names", async () => {
+    const worker = runWorker(() => html());
+    for (const navigate of ["https://evil.example/?approve=0f8b3c1e-1111-4222-8333-444455556666", `${origin}/api/v1/jobs/x/approve`, `${origin}/?approve=../../x`, `${origin}/?approve=0f8b3c1e-1111-4222-8333-444455556666&password=x`, "javascript:alert(1)", 42]) {
+      await worker.push({ notification: { title: "x", navigate } });
+      expect(worker.shown.at(-1)!.options.data.url, String(navigate)).toBe(`${origin}/?view=today`);
+    }
+  });
+
+  it("still shows something for a push it cannot read, so the permission is never lost", async () => {
+    const worker = runWorker(() => html());
+    await worker.push(undefined);
+    await worker.push("{not json");
+    expect(worker.shown.map((note) => note.title)).toEqual(["BoxPilot", "BoxPilot"]);
+    expect(worker.shown[0].options.body).toBe("Something needs a look in BoxPilot.");
   });
 
   it("drops an older build's cache when it takes over, and leaves caches that are not its own", async () => {

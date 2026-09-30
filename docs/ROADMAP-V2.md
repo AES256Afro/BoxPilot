@@ -951,8 +951,35 @@ first-class place to approve, glance, and act.
   theme switch leaves the phone's bar (Settings keeps it), and the bar has a Refresh - the
   pull-to-refresh the installed app otherwise lacks: Home, Ops and Today read their facts again in
   place, any other page loads again. The phone screenshots emulate touch, so they show all of this.
-- **M25.2** **Push approvals.** "Update available for Jellyfin — approve?" as a push you tap, tied to
-  the passkey (M19.1), so approving a medium action from bed is a touch, not a login.
+- ✅ **M25.2** (unreleased) **Push approvals.** "Update available for Jellyfin — approve?" as a push you tap, tied to
+  the passkey (M19.1), so approving a medium action from bed is a touch, not a login. **Channel
+  (September 2026):** Web Push, with ntfy as the fallback. iOS and iPadOS have delivered Web Push to
+  Home Screen web apps since 16.4, and since 18.4 in the declarative form, which Safari shows with no
+  service worker woken at all; Chrome, Firefox and Edge take the same standard. It needs no app, no
+  account and no ntfy, only HTTPS with a real certificate (the tailnet's `*.ts.net`) and the server
+  reaching `*.push.apple.com` (or Google's or Mozilla's service) outbound. So: `server/web-push.mjs`
+  does VAPID (RFC 8292) and aes128gcm (RFC 8291) with node:crypto alone - checked against the RFC's
+  own worked example - and the push service carries only ciphertext; the VAPID key is a 0600 file
+  beside the OIDC key, never in the database. `server/push-approvals.mjs` pushes a job that has
+  waited two minutes for a person (so approving in the dialog that staged it never pushes) to the
+  devices of whoever may approve it - the owner always; an operator for the medium and low jobs they
+  staged - and to the notification target (ntfy, with a `Click` to the approval) when no device of
+  the owner's took it, or always, or never. **A push approves nothing:** it carries the operation's
+  title (with the app's name from the catalog), one sentence per tier, and `/?approve=<job id>`;
+  tapping it opens BoxPilot, which reads the job again as the signed-in account and opens the
+  ordinary dialog at its tier - the confirmation, or the password and typed text, exactly as
+  before. The service worker opens only this app at an approval or at Today, whatever a push names.
+  Quiet: once per job; several at once as "3 approvals waiting"; identical jobs as one; nothing in
+  the owner's quiet hours (what still waits is said once after); two minutes between pushes and ten
+  an hour at most; nothing staged over a day ago. The owner chooses the tiers (medium and high by
+  default), the quiet hours and ntfy's part in the notification centre, where each account also
+  turns pushes on per device, sees its devices and sends a test; signing out on a device turns its
+  pushes off. Each push is in the notification centre's record. The tests decrypt what each push
+  carried and find no parameter, password, path or error in it, or in ntfy's request. The catalog's
+  ntfy gains `NTFY_UPSTREAM_BASE_URL` for the iPhone app's instant delivery. **Not done:** approving
+  with a passkey instead of the password (the tier's step-up is unchanged; M19.1's passkey signs in,
+  it does not yet elevate), and action buttons on the push itself, which would approve from outside
+  the app.
 - ✅ **M25.3** (unreleased) **A today view.** What ran overnight, what needs attention, what is off-box and current —
   the morning glance, on the lock screen. `?view=today`, first in the dock and on the rail, and the
   installed app's start page on a phone (anything wider starts on Home). Top to bottom: the jobs
