@@ -126,6 +126,9 @@ export default function RepairCenter({ csrfToken, role = "owner", onNavigate = (
   const [actionCenter, setActionCenter] = useState<ActionCenter | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Which panel a failed click came from, so its error is said there: a wrong approval password or a
+  // helper that did not answer used to be said at the top of a long page, out of sight of the button.
+  const [errorAt, setErrorAt] = useState<"page" | "prerequisites" | "desk">("page");
   const [prerequisiteError, setPrerequisiteError] = useState<string | null>(null);
   const [jobError, setJobError] = useState<string | null>(null);
   const [recoveryError, setRecoveryError] = useState<string | null>(null);
@@ -185,6 +188,7 @@ export default function RepairCenter({ csrfToken, role = "owner", onNavigate = (
         setRecoveryError(recoveryResult.status === "rejected" && recoveryResult.reason instanceof Error ? recoveryResult.reason.message : "The rebuild checklist returned incomplete data");
       }
     } catch (requestError) {
+      setErrorAt("page");
       setError(requestError instanceof Error ? requestError.message : "Unable to inspect prerequisites");
     } finally {
       setLoading(false);
@@ -275,6 +279,7 @@ export default function RepairCenter({ csrfToken, role = "owner", onNavigate = (
       const { result } = await inspectOperation<Record<string, unknown>>(definition.inspect);
       startOperation({ operationId: definition.install, ...definition.describe(result) });
     } catch (requestError) {
+      setErrorAt("prerequisites");
       setError(requestError instanceof Error ? requestError.message : "Unable to inspect the prerequisite");
     } finally {
       setPending(false);
@@ -289,6 +294,7 @@ export default function RepairCenter({ csrfToken, role = "owner", onNavigate = (
       const { result } = await inspectOperation<{ helperVersion: string }>("canary.verify");
       setCanaryResult(`Answered: the root side is running, version ${result.helperVersion}. Nothing on the server was changed.`);
     } catch (requestError) {
+      setErrorAt("desk");
       setError(requestError instanceof Error ? requestError.message : "The helper did not answer");
     } finally {
       setPending(false);
@@ -311,6 +317,7 @@ export default function RepairCenter({ csrfToken, role = "owner", onNavigate = (
       setConfirmTyped("");
       await refresh();
     } catch (requestError) {
+      setErrorAt("desk");
       setError(requestError instanceof Error ? requestError.message : "Job approval failed");
     } finally {
       setPending(false);
@@ -329,6 +336,7 @@ export default function RepairCenter({ csrfToken, role = "owner", onNavigate = (
       setConfirmTyped("");
       await refresh();
     } catch (requestError) {
+      setErrorAt("desk");
       setError(requestError instanceof Error ? requestError.message : "Could not withdraw the job");
     } finally {
       setPending(false);
@@ -419,7 +427,7 @@ export default function RepairCenter({ csrfToken, role = "owner", onNavigate = (
       {(scanError || prerequisiteError || jobError) && !loading && <p className="rp-note" data-tone="warning" role="status"><StatusChip status="unknown">Checks incomplete</StatusChip><span>Some checks could not finish. What could be read is below; check again for the rest.</span></p>}
       {scanError && <p className="rp-note" data-tone="warning" role="status"><strong>Problem scan incomplete</strong><span>{scanError}</span></p>}
       {fixes.notice && <p className="rp-note" role="status">{fixes.notice}</p>}
-      {error && <p className="rp-note" data-tone="danger" role="alert">{error}</p>}
+      {error && errorAt === "page" && <p className="rp-note" data-tone="danger" role="alert">{error}</p>}
       {operationDialog}
       {fixes.dialog}
 
@@ -453,6 +461,7 @@ export default function RepairCenter({ csrfToken, role = "owner", onNavigate = (
           count={!loading && !prerequisiteError && checks.length > 0 ? { status: ready === checks.length ? "good" : "warning", label: `${ready}/${checks.length}` } : undefined}
           meta={loading ? "Checking..." : prerequisiteError ? "Prerequisites unavailable" : checks.length ? `${ready} of ${checks.length} ready` : "No prerequisite checks returned"}>
           {prerequisiteError && <p className="rp-note" data-tone="warning" role="status">{prerequisiteError}</p>}
+          {error && errorAt === "prerequisites" && <p className="rp-note" data-tone="danger" role="alert">{error}</p>}
           {checks.length > 0 && <Table caption="Prerequisites" columns={prerequisiteColumns} rows={checks} rowKey={(item) => item.id} />}
         </Panel>
 
@@ -460,6 +469,7 @@ export default function RepairCenter({ csrfToken, role = "owner", onNavigate = (
           count={awaitingApproval ? { status: "warning", label: "1 waiting" } : undefined}
           meta={awaitingApproval ? undefined : "connection and logging"}>
           <div className="rp-body">
+            {error && errorAt === "desk" && <p className="rp-note" data-tone="danger" role="alert">{error}</p>}
             {awaitingApproval ? (
               <>
                 <p className="rp-row__title">{awaitingApproval.title}</p>
