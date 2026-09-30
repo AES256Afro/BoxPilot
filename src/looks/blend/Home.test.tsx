@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FactsProvider } from "../../home/facts";
 import { busier, stubFetch } from "../../home/testData";
@@ -33,6 +33,44 @@ describe("Home in Home + Ops", () => {
     fireEvent.click(start);
     expect(await screen.findByRole("dialog", { name: "Start Vaultwarden" })).toBeTruthy();
     expect(vi.mocked(fetch)).toHaveBeenCalledWith("/api/v1/operations/app.action/jobs", expect.objectContaining({ method: "POST" }));
+  });
+
+  it("reads the live figures once on arrival and then every fifteen seconds, never in a burst", async () => {
+    // The read runs docker stats in the root helper, and Home is where everyone lands.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const fetchStub = stubFetch(busier);
+      vi.stubGlobal("fetch", fetchStub);
+      renderHome(Date.now());
+      const reads = () => fetchStub.mock.calls.filter(([url]) => String(url).includes("system.performance.inspect")).length;
+      await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+      expect(reads()).toBe(1);
+      await act(async () => { await vi.advanceTimersByTimeAsync(10_500); });
+      expect(reads()).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("puts what can be fixed first, tags a note as one, and folds the rest behind +N more", async () => {
+    vi.stubGlobal("fetch", stubFetch({
+      "/api/v1/settings/watch": { targetConfigured: true, notices: [], conditions: [{ key: "dns", active: true, details: [{ title: "If homebox goes down, the network loses its DNS", announced: true }] }, { key: "disk", active: true, details: [{ title: "The media drive is filling up", announced: true }] }] },
+    }));
+    renderHome(Date.now());
+    const needs = screen.getByRole("region", { name: "Needs you" });
+    await within(needs).findByText(/The media drive is filling up/);
+    const titles = () => within(needs).getAllByRole("button").filter((button) => button.className.includes("need__title")).map((button) => button.textContent?.replace(/^\w[\w ]*: /, ""));
+    // Within one severity the fix with a button leads; a note keeps its place after it.
+    expect(titles()).toEqual(["Vaultwarden is not running", "4 updates available", "If homebox goes down, the network loses its DNS", "The media drive is filling up"]);
+    const note = within(needs).getByText("If homebox goes down, the network loses its DNS").closest("li");
+    expect(note?.querySelector(".blend-note")?.textContent).toBe("Note");
+    expect(note?.querySelector(".need__tier-tag")).toBeNull();
+
+    const more = within(needs).getByRole("button", { name: "+1 more can wait" });
+    expect(more.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(more);
+    expect(titles()).toContain("An update for Jellyfin");
+    expect(within(needs).getByRole("button", { name: "Show fewer" }).getAttribute("aria-expanded")).toBe("true");
   });
 
   it("draws the figures, the apps with their numbers or their problem, and what ran overnight", async () => {
