@@ -41,8 +41,9 @@ describe("the tools each call carries", () => {
     const everything = toolCatalog.filter((tool) => !["web.search"].includes(tool.id)).map((tool) => ({ step: `Use ${tool.title}`, tool: tool.fn }));
     bench = await createBench({ promptPerSecond: 1_000, generatePerSecond: 100, script: { ...ownerScript, understanding: { ...ownerScript.understanding, plan: everything.slice(0, 5) } } });
     const planned = await bench.ask(ownerQuestion);
-    // The plan's schema holds five steps: server.facts, apps.list, services.status, logs.query, storage.health.
-    expect(names(planned.requests[1])).toEqual(["memory_search", "plan_propose", "notify_owner", "agents_handoff", "server_facts", "apps_list", "services_status", "logs_query", "storage_health"]);
+    // The plan's schema holds five steps: server.facts, apps.list, services.status, logs.query, storage.health;
+    // the question's own words ("issue") point at alerts.active too, which is carried beside them (M40).
+    expect(names(planned.requests[1])).toEqual(["memory_search", "plan_propose", "notify_owner", "agents_handoff", "server_facts", "apps_list", "services_status", "logs_query", "storage_health", "alerts_active"]);
     await bench.close();
     // An old reply with a long "tools" list is capped too.
     bench = await createBench({ promptPerSecond: 1_000, generatePerSecond: 100, script: { ...ownerScript, understanding: { ...ownerScript.understanding, tools: everything.map((entry) => entry.tool), plan: [] } } });
@@ -100,10 +101,10 @@ describe("each call's time", () => {
 
   it("is not started when it cannot fit in what the run has left, and the run answers from the tools the plan named", async () => {
     bench = await createBench({ promptPerSecond: 20, generatePerSecond: 4 });
-    withSpec(bench.keeper, (spec) => ({ ...spec, budget: { ...spec.budget, runSeconds: 120 } }));
+    withSpec(bench.keeper, (spec) => ({ ...spec, budget: { ...spec.budget, runSeconds: 150 } }));
     const result = await bench.ask(ownerQuestion);
     expect(result.run).toMatchObject({ state: "degraded", flags: { degraded: "timeout" } });
-    // The plan fit (65 s at 20 and 4 tokens a second); acting on it would not have, and the trace said so first.
+    // The plan fit (75 s at 20 and 4 tokens a second); acting on it would not have, and the trace said so first.
     expect(result.requests).toHaveLength(1);
     expect(result.run.steps.find((step) => step.kind === "system" && step.state === "failed").flags.detail).toMatch(/^Not starting the next step: it needs about \d+ s \(\d+ tokens to read at 20 a second, then a short answer\) and the run has \d+ s left\.$/);
     // Alerts, storage, services and apps, as the plan said; not memory, and not BoxPilot's own documents.
