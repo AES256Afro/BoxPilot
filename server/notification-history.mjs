@@ -18,8 +18,8 @@ export const historyMaxAgeMs = 30 * 24 * 60 * 60_000;
 const settingKey = "notificationHistory";
 const seenKey = "notificationsSeen";
 
-/** Kinds: a condition turning bad, one-off news, and a failed job's push. */
-export const historyKinds = Object.freeze(["alert", "notice", "job"]);
+/** Kinds: a condition turning bad, one-off news, a failed job's push, and a job waiting for approval (M25.2). */
+export const historyKinds = Object.freeze(["alert", "notice", "job", "approval"]);
 
 const text = (value, maximum) => (typeof value === "string" ? value.slice(0, maximum) : null);
 
