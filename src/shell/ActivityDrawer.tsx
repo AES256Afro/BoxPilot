@@ -63,16 +63,30 @@ export function ActivityDrawer({ csrfToken = "", role = "owner" }: { csrfToken?:
   const waitingCount = jobs.filter((job) => job.state === "awaiting_approval").length;
   const failedCount = jobs.filter((job) => job.state === "failed").length;
   const expanded = expandedId ? jobs.find((job) => job.id === expandedId) ?? null : null;
-  // Home, Ops and the notification centre open Activity at one job (M36).
+  // Home, Ops and the notification centre open Activity at one job (M36). The row is brought into
+  // view and focused: expanded below the fold, the job asked for looked like it had not opened.
+  const [reveal, setReveal] = useState<string | null>(null);
   useEffect(() => {
     const onOpen = (event: Event) => {
       const jobId = (event as CustomEvent<{ jobId: string | null }>).detail?.jobId ?? null;
       setOpen(true);
-      if (jobId) setExpandedId(jobId);
+      if (jobId) { setExpandedId(jobId); setReveal(jobId); }
     };
     window.addEventListener(openActivityEvent, onOpen);
     return () => window.removeEventListener(openActivityEvent, onOpen);
   }, []);
+  useEffect(() => {
+    if (!open || !reveal) return undefined;
+    // After the sheet has taken focus for itself, which it does as it opens.
+    const frame = window.requestAnimationFrame(() => {
+      const row = document.querySelector<HTMLElement>(`.jobs-row[data-job="${CSS.escape(reveal)}"]`);
+      if (!row) return;
+      row.scrollIntoView?.({ block: "start" });
+      row.focus({ preventScroll: true });
+      setReveal(null);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [open, reveal, jobs]);
   const toggle = useCallback((jobId: string) => setExpandedId((current) => (current === jobId ? null : jobId)), []);
   // The drawer closes first: two modals would each hold keyboard focus against the other.
   const tryWithMoreTime = useCallback((job: Job) => { setOpen(false); setMoreTime(job); }, []);
@@ -117,7 +131,7 @@ export function ActivityDrawer({ csrfToken = "", role = "owner" }: { csrfToken?:
                 const isOpen = expanded?.id === job.id;
                 return (
                   <li key={job.id} className={isOpen ? "jobs-item jobs-item--open" : "jobs-item"} data-status={status}>
-                    <button type="button" className="jobs-row" aria-expanded={isOpen} onClick={() => toggle(job.id)}>
+                    <button type="button" className="jobs-row" data-job={job.id} aria-expanded={isOpen} onClick={() => toggle(job.id)}>
                       <span className="jobs-row__title">{job.title}</span>
                       <span className="jobs-row__meta">
                         <StatusChip status={status}>{words.label}</StatusChip>

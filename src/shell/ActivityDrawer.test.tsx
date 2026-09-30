@@ -240,6 +240,14 @@ describe("acting on a job from Activity", () => {
     expect(within(drawer).queryByText("Live output")).toBeNull();
   });
 
+  it("brings the job it was opened at into view and focuses its row, wherever it is in the list", async () => {
+    openWith([failed, staged]);
+    act(() => openActivity(staged.id));
+    const row = screen.getByRole("dialog", { name: "Activity" }).querySelector(`.jobs-row[data-job="${staged.id}"]`);
+    await waitFor(() => expect(document.activeElement).toBe(row));
+    expect(row?.getAttribute("aria-expanded")).toBe("true");
+  });
+
   it("cancels a staged job, and dismisses a failure, through the job routes", async () => {
     const calls = openWith([staged, failed]);
     act(() => openActivity(staged.id));

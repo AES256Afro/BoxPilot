@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Button, CodeBlock, Notice, Segmented } from "../../ui";
+import { Button, CodeBlock, EmptyState, Notice, Segmented } from "../../ui";
 import { runRead } from "./appState";
 import type { CatalogContext, Entry } from "./types";
 
@@ -25,7 +25,10 @@ export function LogsTab({ entry, ctx }: { entry: Entry; ctx: CatalogContext }) {
       setReading(false);
     }
   }, [ctx.csrfToken, manifest.id]);
-  useEffect(() => { void read(container); }, [read, container]);
+  // An app whose container is gone (the nightly clean-up removes stopped ones) has no logs to read:
+  // asking only failed with Docker's "No such container", and Read again failed the same way.
+  const noContainer = container === manifest.id && entry.live?.container?.exists === false;
+  useEffect(() => { if (!noContainer) void read(container); }, [read, container, noContainer]);
 
   const label = container === manifest.id ? `Logs for ${manifest.name}` : `Logs for ${manifest.name}'s ${container}`;
   return (
@@ -34,12 +37,16 @@ export function LogsTab({ entry, ctx }: { entry: Entry; ctx: CatalogContext }) {
         {helpers.length > 0 && (
           <Segmented label="Container" value={container} onChange={setContainer} options={[{ value: manifest.id, label: manifest.id }, ...helpers.map((helper) => ({ value: helper.id, label: helper.id }))]} />
         )}
-        <Button onClick={() => void read(container)} busy={reading}>Read again</Button>
+        {!noContainer && <Button onClick={() => void read(container)} busy={reading}>Read again</Button>}
       </div>
-      {error && <Notice tone="danger" live title="The logs could not be read">{error}</Notice>}
-      <CodeBlock label={label} meta={lines ? `last ${lines.length} lines` : undefined} follow empty={lines === null ? "Reading…" : "(no output)"} maxHeight="calc(100vh - 360px)">
-        {(lines ?? []).join("\n")}
-      </CodeBlock>
+      {error && !noContainer && <Notice tone="danger" live title="The logs could not be read">{error}</Notice>}
+      {noContainer
+        ? <EmptyState title={`${manifest.name} has no container right now`}>So there are no logs to read. Starting it from Overview builds the container again, and Repair puts back one the clean-up removed in one click; its logs are here once it runs.</EmptyState>
+        : (
+          <CodeBlock label={label} meta={lines ? `last ${lines.length} lines` : undefined} follow empty={lines === null ? "Reading…" : "(no output)"} maxHeight="calc(100vh - 360px)">
+            {(lines ?? []).join("\n")}
+          </CodeBlock>
+        )}
     </div>
   );
 }

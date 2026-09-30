@@ -2,12 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useOperation, type PendingOperation } from "../../shell/ApproveDialog";
 import { appUrl } from "../../appLinks";
 import { countOf } from "../../data";
-import { inspectOperation } from "../../operations";
+import { inspectOperation, type Job } from "../../operations";
 import { strandedServes } from "../../strandedServes";
 import { AppIcon, Button, CodeBlock, EmptyState, Notice, PageHeader, Panel, SearchField, Select, Sheet, StatusChip, Table, Tabs, Tag, Tile, Toolbar, appHue, mayStart, riskOf, useUrlParam, type Status, type TableColumn } from "../../ui";
 import { AppSheet, type SheetTab } from "./AppSheet";
 import { ConfigSheet } from "./ConfigSheet";
-import { appStatus, isRunning, runRead, tileDetail } from "./appState";
+import { appStatus, installTier, isRunning, runRead, tileDetail } from "./appState";
 import type { AppStats, CatalogContext, CatalogResponse, Entry, KillswitchSchedule, Serve, Tunnel, Values } from "./types";
 import "./catalog.css";
 
@@ -130,10 +130,34 @@ export default function CatalogPage({ csrfToken, focusApp, role = "owner" }: Cat
       .catch(() => setForeign(null));
   }, []);
 
-  const { start, dialog } = useOperation(csrfToken, () => { void refresh(); });
+  // Where an action started from, and how its job ended, so the owner lands back where the result
+  // shows once the approval dialog closes. Every action in an app's sheet used to close the sheet for
+  // good (back to the grid, off the Backups tab they were on), and an install left the owner on the
+  // Catalog tab, which lists only what is not installed: the app they had just installed vanished.
+  const returnTo = useRef<{ id: string; tab?: SheetTab } | null>(null);
+  const ended = useRef<Job | null>(null);
+  const { start, dialog } = useOperation(csrfToken, (job) => { ended.current = job; void refresh(); });
   const openSheet = useCallback((id: string, sheetTab?: SheetTab) => { setSheet({ id, tab: sheetTab }); rememberApp(id); }, []);
   const closeSheet = useCallback(() => { setSheet(null); rememberApp(null); }, []);
-  const act = useCallback((operation: PendingOperation) => { closeSheet(); setConfig(null); start(operation); }, [closeSheet, start]);
+  const act = useCallback((operation: PendingOperation) => {
+    returnTo.current = sheet ?? (config ? config.back ?? { id: config.entry.manifest.id } : null);
+    ended.current = null;
+    closeSheet(); setConfig(null); start(operation);
+  }, [closeSheet, config, sheet, start]);
+  const approving = Boolean(dialog);
+  const wasApproving = useRef(false);
+  useEffect(() => {
+    if (approving) { wasApproving.current = true; return; }
+    if (!wasApproving.current) return;
+    wasApproving.current = false;
+    const back = returnTo.current;
+    const job = ended.current;
+    returnTo.current = null; ended.current = null;
+    if (!back) return;
+    // Installed: it is on the Installed tab now; its sheet opens at Overview, with its address.
+    if (job?.type === "op:app.install" && job.state === "completed") { setTab("installed"); openSheet(back.id); return; }
+    openSheet(back.id, back.tab);
+  }, [approving, openSheet, setTab]);
 
   // Opened at one app: its sheet, once the catalog has answered.
   useEffect(() => {
@@ -370,7 +394,7 @@ export default function CatalogPage({ csrfToken, focusApp, role = "owner" }: Cat
                             <p className="catalog-card__description">{manifest.description}</p>
                             <div className="catalog-card__foot">
                               {live?.dataPresent ? <Tag tone="warning" title="Its data is still on this server from before">data kept</Tag> : !live ? <Tag>state unknown</Tag> : <span />}
-                              {mayStart(role, "app.install") && <Button aria-label={`Install ${manifest.name}`} onClick={() => ctx?.configure(entry, "install")}>Install</Button>}
+                              {mayStart(role, "app.install") && <Button aria-label={`Install ${manifest.name}`} risk={installTier(manifest)} onClick={() => ctx?.configure(entry, "install")}>Install</Button>}
                             </div>
                           </li>
                         );

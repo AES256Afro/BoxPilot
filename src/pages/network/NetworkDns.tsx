@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { PendingOperation } from "../../shell/ApproveDialog";
 import { countOf } from "../../data";
 import { readJson } from "../../http";
@@ -166,24 +166,21 @@ export function NetworkDns({ csrfToken, topology, role, start, refreshKey, resil
   const [submitting, setSubmitting] = useState(false);
   const [selectedTopology, setSelectedTopology] = useState("edge-router-with-access-points");
   const [dnsRole, setDnsRole] = useState("current-external");
-  const [gatewayAddress, setGatewayAddress] = useState("");
-  const [serverAddress, setServerAddress] = useState("");
-  const [dnsServiceAddress, setDnsServiceAddress] = useState("");
-  const [fallbackDnsAddress, setFallbackDnsAddress] = useState("");
   const [routerBackupRecorded, setRouterBackupRecorded] = useState(false);
   const [emergencyResolverTested, setEmergencyResolverTested] = useState(false);
   const [secondDeviceReady, setSecondDeviceReady] = useState(false);
-  const [tailscaleDnsOverride, setTailscaleDnsOverride] = useState(false);
-  /** True once the owner has set the Tailscale answer themselves, so a new read stops overwriting it. */
-  const declarationTouched = useRef(false);
-  useEffect(() => {
-    if (!topology) return;
-    setGatewayAddress((value) => value || topology.defaultRoutes[0]?.gateway || "");
-    setServerAddress((value) => value || topology.eligibleLanAddresses[0]?.address || "");
-    setDnsServiceAddress((value) => value || topology.defaultResolvers[0] || "");
-    setFallbackDnsAddress((value) => value || topology.defaultResolvers[1] || "");
-    setTailscaleDnsOverride((current) => (declarationTouched.current ? current : Boolean(topology.tailscale.defaultDnsObserved)));
-  }, [topology]);
+  // What the owner typed, over what this server reads. Every read of the network used to refill any
+  // field left empty, so a deliberately cleared address came back after each Read again or job.
+  const [draft, setDraft] = useState<{ gatewayAddress?: string; serverAddress?: string; dnsServiceAddress?: string; fallbackDnsAddress?: string; tailscaleDnsOverride?: boolean }>({});
+  const gatewayAddress = draft.gatewayAddress ?? topology?.defaultRoutes[0]?.gateway ?? "";
+  const serverAddress = draft.serverAddress ?? topology?.eligibleLanAddresses[0]?.address ?? "";
+  const dnsServiceAddress = draft.dnsServiceAddress ?? topology?.defaultResolvers[0] ?? "";
+  const fallbackDnsAddress = draft.fallbackDnsAddress ?? topology?.defaultResolvers[1] ?? "";
+  const tailscaleDnsOverride = draft.tailscaleDnsOverride ?? Boolean(topology?.tailscale.defaultDnsObserved);
+  const setGatewayAddress = (value: string) => setDraft((current) => ({ ...current, gatewayAddress: value }));
+  const setServerAddress = (value: string) => setDraft((current) => ({ ...current, serverAddress: value }));
+  const setDnsServiceAddress = (value: string) => setDraft((current) => ({ ...current, dnsServiceAddress: value }));
+  const setFallbackDnsAddress = (value: string) => setDraft((current) => ({ ...current, fallbackDnsAddress: value }));
 
   const addressProblem = (value: string) => (value && !ipv4.test(value.trim()) ? "An IPv4 address, such as 192.168.1.1." : undefined);
   const planReady = [gatewayAddress, serverAddress, dnsServiceAddress, fallbackDnsAddress].every((value) => !addressProblem(value));
@@ -379,7 +376,7 @@ export function NetworkDns({ csrfToken, topology, role, start, refreshKey, resil
             <Checkbox label="Router configuration backup or checkpoint recorded" checked={routerBackupRecorded} onChange={setRouterBackupRecorded} />
             <Checkbox label="Emergency resolver tested independently" checked={emergencyResolverTested} onChange={setEmergencyResolverTested} />
             <Checkbox label="Second LAN device ready for DNS testing" checked={secondDeviceReady} onChange={setSecondDeviceReady} />
-            <Checkbox label="Tailscale DNS override is enabled" checked={tailscaleDnsOverride} onChange={(checked) => { declarationTouched.current = true; setTailscaleDnsOverride(checked); }} />
+            <Checkbox label="Tailscale DNS override is enabled" checked={tailscaleDnsOverride} onChange={(checked) => setDraft((current) => ({ ...current, tailscaleDnsOverride: checked }))} />
           </div>
         </Sheet>
       )}

@@ -306,6 +306,8 @@ export function followRun(runId: string, onEvent: (event: RunEvent) => void): ()
   let source: EventSource | null = null;
   let timer: ReturnType<typeof setTimeout> | null = null;
   let streamed = false;
+  // The stream said the run is over. The server then closes it, which reaches here as an error.
+  let ended = false;
   const finished = new Set<RunState>(["completed", "degraded", "failed", "cancelled", "killed", "interrupted", "refused", "timeout"]);
   const poll = async () => {
     if (stopped || streamed) return;
@@ -323,12 +325,23 @@ export function followRun(runId: string, onEvent: (event: RunEvent) => void): ()
       if (stopped) return;
       streamed = true;
       if (timer) clearTimeout(timer);
-      try { onEvent({ event: name, data: JSON.parse((event as MessageEvent).data) } as RunEvent); } catch { /* ignore a malformed frame */ }
+      let data: { state?: RunState } | null = null;
+      try { data = JSON.parse((event as MessageEvent).data); } catch { return; /* ignore a malformed frame */ }
+      if ((name === "snapshot" || name === "state") && data?.state && finished.has(data.state)) ended = true;
+      try { onEvent({ event: name, data } as RunEvent); } catch { /* the page's own trouble; the stream goes on */ }
     };
     source.addEventListener("snapshot", handle("snapshot"));
     source.addEventListener("step", handle("step"));
     source.addEventListener("state", handle("state"));
-    source.onerror = () => { source?.close(); if (!stopped) { streamed = false; void poll(); } };
+    // Falling back to reading the run: once, and not for a run the stream already saw end. The
+    // fallback's own first read was still pending when the stream failed early, so both started a
+    // chain of reads; and the close that follows a run's end read it again and reported it finished twice.
+    source.onerror = () => {
+      source?.close();
+      if (timer) clearTimeout(timer);
+      timer = null;
+      if (!stopped && !ended) { streamed = false; void poll(); }
+    };
     timer = setTimeout(() => void poll(), 2_500);
   } else {
     void poll();
