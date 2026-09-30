@@ -48,4 +48,23 @@ describe("units with a high-risk equivalent", () => {
     // Restarting them is still fine — that is not a way around the firewall's own approval.
     await expect(run("ufw.service", "restart")).resolves.toBeTruthy();
   });
+
+  it("leaves a drive or share under /mnt to Storage, whose operations prove the mount and stop its apps", async () => {
+    const { registry } = await import("./index.mjs");
+    const action = registry.get("service.action");
+    const calls = [];
+    const run = async (unit, act) => action.run({ unit, action: act }, { run: async (binary, args) => { calls.push(args.join(" ")); return { ok: true, stdout: "ActiveState=active\n", stderr: "" }; }, progress: () => {} });
+    for (const act of ["start", "stop", "restart"]) await expect(run("mnt-media.mount", act)).rejects.toThrow("Reconnect or unmount it from Storage or Repair");
+    await expect(run("mnt-boxpilot-backup.mount", "stop")).rejects.toThrow("drive or share under /mnt");
+    expect(calls).toEqual([]);
+    await expect(run("var-lib-docker.mount", "restart")).resolves.toMatchObject({ activeState: "active" });
+  });
+
+  it("fails a start that systemd reports failed, which systemctl start of a simple service does not", async () => {
+    const { registry } = await import("./index.mjs");
+    const action = registry.get("service.action");
+    const run = async (binary, args) => (args[0] === "show" ? { ok: true, stdout: "ActiveState=failed\nSubState=failed\nResult=exit-code\n", stderr: "" } : { ok: true, stdout: "", stderr: "" });
+    await expect(action.run({ unit: "gitea.service", action: "start" }, { run, progress: () => {} })).rejects.toThrow("gitea.service did not stay up after the start: systemd reports it failed (exit-code)");
+    await expect(action.run({ unit: "gitea.service", action: "stop" }, { run, progress: () => {} })).resolves.toMatchObject({ activeState: "failed" });
+  });
 });
