@@ -24,6 +24,32 @@ describe("people settings", () => {
     fireEvent.click(screen.getByRole("button", { name: "Add person" }));
     expect(await screen.findByText("sam")).toBeTruthy();
     expect(JSON.parse(posted ?? "{}")).toEqual({ username: "sam", newPassword: "sams long password", role: "operator", password: "correct horse battery" });
+    // Said beside the form that added them, since the table above may be out of view.
+    const form = screen.getByRole("form", { name: "Add a person" });
+    await waitFor(() => expect(form.textContent).toContain("sam can sign in now, as an operator, with the password you set."));
+  });
+
+  it("says a refused addition beside the Add form, and puts focus back when a confirmation is cancelled", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url.endsWith("/api/v1/people") && init?.method === "POST") return json({ error: "That user name is taken." }, 409);
+      if (url.endsWith("/api/v1/people")) return json({ people: [{ id: "o1", username: "admin", role: "owner", createdAt: "2026-08-01T00:00:00Z" }, { id: "p2", username: "sam", role: "viewer", createdAt: "2026-08-01T00:00:00Z" }] });
+      return json({ error: `unexpected ${url}` }, 500);
+    }));
+    render(<PeopleSettings csrfToken="csrf" />);
+    await screen.findByText("sam");
+    fireEvent.change(screen.getByLabelText("New user name"), { target: { value: "sam" } });
+    fireEvent.change(screen.getByLabelText("New account password"), { target: { value: "sams long password" } });
+    fireEvent.change(screen.getByLabelText("Your owner password"), { target: { value: "correct horse battery" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add person" }));
+    const form = screen.getByRole("form", { name: "Add a person" });
+    await waitFor(() => expect(form.textContent).toContain("That user name is taken."));
+    // Disable, then Cancel: focus goes back to the Disable button that asked.
+    const disable = screen.getAllByRole("button", { name: "Disable" })[1];
+    disable.focus();
+    fireEvent.click(disable);
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(document.activeElement).toBe(disable));
   });
 
   it("asks for the owner password in a masked field, never a native prompt", async () => {

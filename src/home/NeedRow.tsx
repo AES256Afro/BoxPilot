@@ -2,7 +2,7 @@ import { useId, type ReactNode } from "react";
 import type { FixRun } from "../repair/useRepairFixes";
 import { Button, RiskTag } from "../ui";
 import { cx } from "../ui/types";
-import { actionsOf, type Need, type NeedAction, type NeedSeverity } from "./needs";
+import { actionsOf, runs, type Need, type NeedAction, type NeedSeverity } from "./needs";
 import { runWords } from "./useNeedActions";
 
 const severityWords: Record<NeedSeverity, string> = { danger: "Problem", warning: "Needs a look", neutral: "Suggestion" };
@@ -35,7 +35,8 @@ export interface NeedRowProps {
  */
 export function NeedRow({ need, onOpen, onAct, icon, tier, run }: NeedRowProps) {
   const detailId = useId();
-  const tag = tier && need.action ? <span className="need__tier-tag" aria-hidden="true"><RiskTag risk={need.action.risk} short={tier === "lead"} /></span> : null;
+  const runnable = runs(need);
+  const tag = tier && runnable ? <span className="need__tier-tag" aria-hidden="true"><RiskTag risk={runnable.risk} short={tier === "lead"} /></span> : null;
   const actions = actionsOf(need);
   const busy = run && ["queued", "running", "checking"].includes(run.phase);
   return (
@@ -60,6 +61,9 @@ export function NeedRow({ need, onOpen, onAct, icon, tier, run }: NeedRowProps) 
         <span className="need__acts">
           {actions.map((action) => (action.kind === "dismiss"
             ? <Button key="dismiss" variant="ghost" className="need__act need__dismiss" aria-label={`Dismiss: ${need.title}`} onClick={() => onAct(need, action)}>Dismiss</Button>
+            // Opens the page where the fix is: it runs nothing, so it carries no tier.
+            : action.kind === "open"
+              ? <Button key={`open:${action.label}`} className="need__act" aria-label={`${action.label}: ${need.title}`} onClick={() => onAct(need, action)}>{action.label}</Button>
             : <Button key={`${action.operationId}:${action.label}`} className="need__act" risk={action.risk} disabled={Boolean(busy)} aria-label={`${action.label}: ${need.title}`} onClick={() => onAct(need, action)}>{action.label}</Button>))}
         </span>
       )}

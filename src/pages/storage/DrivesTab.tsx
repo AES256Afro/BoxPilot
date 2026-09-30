@@ -1,7 +1,7 @@
 import { useState, type CSSProperties } from "react";
 import { useOperation } from "../../shell/ApproveDialog";
 import { autoReconnectRule, type AutoReconnectControl } from "../../AutoReconnect";
-import { mountpointFor } from "../../mountpoints";
+import { BACKUP_MOUNT_NAME, BACKUP_MOUNTPOINT, mountpointFor } from "../../mountpoints";
 import type { MapApp, MapSambaShare } from "../../storageMap";
 import { Button, Checkbox, EmptyState, Field, KeyValue, Notice, Panel, Sheet, Table, Tag, TextInput, mayStart, riskOf, type TableColumn } from "../../ui";
 import { ReconnectSwitch, UsageMeter } from "./parts";
@@ -231,7 +231,11 @@ export default function DrivesTab({ csrfToken, role, report, loading, autoReconn
           ]} />
           <Field
             label="Mount name"
-            hint={<>Mounts at <code>{nameValid(form.name) ? mountpointFor(form.name) : "/mnt/<name>"}</code> and again at every boot; a missing drive never blocks it.</>}
+            // The same shortcut Shares has: Backups' Off-box tab sends the owner here to mount "a NAS or
+            // a second drive" for its backups, and only the share's sheet offered the one exact name.
+            hint={form.name === BACKUP_MOUNT_NAME
+              ? <>Mounts at <code>{BACKUP_MOUNTPOINT}</code>: BoxPilot copies its backups there. A missing drive never blocks boot.</>
+              : <>Mounts at <code>{nameValid(form.name) ? mountpointFor(form.name) : "/mnt/<name>"}</code> and again at every boot; a missing drive never blocks it. <Button variant="ghost" className="storage-inline" onClick={() => setForm({ ...form, name: BACKUP_MOUNT_NAME })}>Use this for BoxPilot's backups</Button></>}
             error={form.name && !nameValid(form.name) ? (form.name === "boxpilot" ? "boxpilot is the backup destination's folder." : "Lower case letters, digits and dashes, starting with a letter or digit.") : undefined}
           >
             <TextInput mono placeholder="data" autoComplete="off" value={form.name} onValueChange={(value) => setForm({ ...form, name: value.toLowerCase() })} />
