@@ -325,6 +325,7 @@ const pushApprovals = createPushApprovals({
   loadVapid: () => loadVapidKey(process.env.BOXPILOT_PUSH_DIR ?? path.join(process.env.BOXPILOT_STATE_DIRECTORY ?? path.dirname(state.databasePath), "push")),
   subjectOf: (job) => (String(job?.type).startsWith("op:app.") && typeof job?.parameters?.id === "string" ? catalogNames.get(job.parameters.id) ?? null : null),
   mayApprove: (store, job) => defaultMayApprove(store, job, { minimumRole: jobs.approvalPolicy(job).minimumRole }),
+  contact: process.env.BOXPILOT_PUSH_CONTACT ?? null,
 });
 pushApprovals.start();
 const setup = createSetupService({ helper, scheduler });
