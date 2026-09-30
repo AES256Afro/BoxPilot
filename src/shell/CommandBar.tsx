@@ -171,7 +171,7 @@ function CommandDialog({ csrfToken, onClose, onNavigate, onStart, role }: Comman
   const backToSearch = () => { asking.current?.abort(); setAsked(null); inputRef.current?.focus(); };
   const runStep = (step: PlanStep) => {
     onClose();
-    onStart({ operationId: step.operationId, title: step.title, parameters: step.parameters ?? {}, preview: step.why ? <span>{step.why}</span> : undefined });
+    onStart({ operationId: step.operationId, title: step.title, parameters: step.parameters ?? {}, preview: step.why ? <span>{step.why}</span> : undefined, proposedBy: "The assistant" });
   };
 
   // Options grouped under their headings; the index runs on across groups for the active option.

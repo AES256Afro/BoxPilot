@@ -1,4 +1,5 @@
 import { readJson } from "./http";
+import { clearLastKnown } from "./pwa/lastKnown";
 
 export interface Owner {
   id: string;
@@ -14,6 +15,11 @@ export interface AuthStatus {
   expiresAt: string | null;
   /** ISO time until which high-risk approvals need no password (set by a recent password entry). */
   elevatedUntil?: string | null;
+  /**
+   * Set only by the page, never by the server: BoxPilot could not be reached, and this is the session
+   * this device remembered (M25.1). Nothing can be changed until BoxPilot answers again.
+   */
+  offline?: boolean;
 }
 
 /** An auth failure with the server's machine-readable code (e.g. device_password_required). */
@@ -42,15 +48,54 @@ async function authRequest(path: string, body?: Record<string, string>): Promise
  * the session's end time is remembered here, per browser, and signing out forgets it.
  */
 const sessionMark = "boxpilot:signed-in-until";
+/**
+ * Who that session was (M25.1): the account id, name and role, so the installed app opened with no
+ * network can show that account's last known state instead of a sign-in page it cannot submit. No
+ * token and no password; it goes when the session does.
+ */
+const accountMark = "boxpilot:signed-in-as";
 
 export type SignedOutReason = "expired" | "ended";
 
 export function rememberSession(status: AuthStatus | null): void {
-  try { if (status?.authenticated && status.expiresAt) window.localStorage.setItem(sessionMark, status.expiresAt); } catch { /* private window: nothing to say later */ }
+  try {
+    if (!status?.authenticated || !status.expiresAt) return;
+    window.localStorage.setItem(sessionMark, status.expiresAt);
+    if (status.owner) window.localStorage.setItem(accountMark, JSON.stringify({ id: status.owner.id, username: status.owner.username, role: status.owner.role ?? "owner" }));
+  } catch { /* private window: nothing to say later */ }
 }
 
 export function forgetSession(): void {
-  try { window.localStorage.removeItem(sessionMark); } catch { /* nothing kept */ }
+  try { window.localStorage.removeItem(sessionMark); window.localStorage.removeItem(accountMark); } catch { /* nothing kept */ }
+  // What the phone kept to show offline goes with the session (M25.1).
+  clearLastKnown();
+}
+
+/**
+ * BoxPilot says this device is not signed in: forget who it was and what was kept to show offline,
+ * but keep the session's end time, which says why the sign-in page is showing (signedOutReason).
+ */
+export function forgetAccount(): void {
+  try { window.localStorage.removeItem(accountMark); } catch { /* nothing kept */ }
+  clearLastKnown();
+}
+
+/**
+ * The account whose session this device holds, while that session has time left, for opening the
+ * app offline (M25.1); null otherwise. The server decides everything once it answers again.
+ */
+export function rememberedAccount(now = Date.now()): { owner: Owner; expiresAt: string } | null {
+  try {
+    const until = window.localStorage.getItem(sessionMark);
+    const raw = window.localStorage.getItem(accountMark);
+    if (!until || !raw || !(Date.parse(until) > now)) return null;
+    const owner = JSON.parse(raw) as Partial<Owner>;
+    if (typeof owner?.id !== "string" || typeof owner.username !== "string") return null;
+    const role = owner.role === "operator" || owner.role === "viewer" ? owner.role : "owner";
+    return { owner: { id: owner.id, username: owner.username, role }, expiresAt: until };
+  } catch {
+    return null;
+  }
 }
 
 /** Whether a session this browser had ran out (its twelve hours were up) or was ended elsewhere; null if it had none. */

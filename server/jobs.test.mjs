@@ -869,3 +869,27 @@ describe("a result shown once (M38: Zulip's organization link)", () => {
     } finally { store.close(); }
   });
 });
+
+describe("a tier that depends on what an operation acts on", () => {
+  // An app's manifest says how risky it is to deploy: the DNS servers the house depends on and the
+  // VPN are high, as ADR-001 counts DNS cutovers and network-critical deploys. Staging and approval
+  // ask for that tier, never less than the operation's own.
+  it("stages and approves installing an app its manifest calls high risk as high", async () => {
+    const helper = { request: vi.fn(async () => ({ installed: true })) };
+    const { store, owner } = await setup(helper);
+    try {
+      const operator = store.createOwnerAccount({ username: "sam", passwordHash: "x", role: "operator", createdBy: owner.id });
+      const jobs = createJobService(store, helper, { operationRiskHooks: { "app.install": async ({ id }) => (id === "pi-hole" ? "high" : "low") } });
+      await expect(jobs.createOperationJob("app.install", { id: "pi-hole" }, operator.id, { role: "operator" })).rejects.toThrow(/Only the owner/);
+      const job = await jobs.createOperationJob("app.install", { id: "pi-hole" }, owner.id, { role: "owner" });
+      expect(job.risk).toBe("high");
+      expect(jobs.describeApproval(job.id, null)).toMatchObject({ tier: "high", passwordRequired: true });
+      await expect(jobs.approveAndRun(job.id, owner.id, {})).rejects.toThrow(/password/);
+      expect(helper.request).not.toHaveBeenCalled();
+      // A lower answer never lowers the operation's own tier.
+      const other = await jobs.createOperationJob("app.install", { id: "jellyfin" }, operator.id, { role: "operator" });
+      expect(other.risk).toBe("medium");
+      expect(jobs.describeApproval(other.id, null)).toMatchObject({ tier: "medium", passwordRequired: false });
+    } finally { store.close(); }
+  });
+});

@@ -1,6 +1,6 @@
 import { verifyPassword } from "./security.mjs";
 import { defaultThrottle as throttle } from "./login-throttle.mjs";
-import { approvalRequirement, defaultApprovalMode, elevationTtlMs, normalizeApprovalMode } from "./ops/risk.mjs";
+import { approvalRequirement, defaultApprovalMode, elevationTtlMs, higherTier, normalizeApprovalMode } from "./ops/risk.mjs";
 import { registry } from "./ops/index.mjs";
 import { budgetFor, nextBudgetMs, placeholderPaths, restoreSecrets, secretPaths, secretPlaceholder, splitSecrets } from "./ops/registry.mjs";
 import { asSentence } from "./health-alerts.mjs";
@@ -58,6 +58,10 @@ export function createJobService(store, helper, {
   jobLog = null,
   operationRecordHooks = {},
   operationPrepareHooks = {},
+  // An operation whose tier depends on what it acts on names a hook that answers that tier from its
+  // validated parameters: installing an app its manifest calls high risk is high. The job is staged
+  // and approved at the higher of the two, never lower than the operation's own.
+  operationRiskHooks = {},
   onOperationSettled = () => {},
   // The health-alert ledger (raise/clear). A result that could not be saved is announced through it.
   alerts = null,
@@ -130,7 +134,7 @@ export function createJobService(store, helper, {
     try { confirmText = registered?.confirm ? registered.confirm(job.parameters ?? {}) ?? null : null; } catch { confirmText = null; }
     const expiresAt = job.recovery?.approvalExpiresAt ?? null;
     const expired = Boolean(expiresAt && Date.parse(expiresAt) <= now());
-    return { expiresAt, expired, minimumRole: registered?.minimumRole ?? null, confirmText: typeof confirmText === "string" && confirmText ? confirmText : null, mode, ...approvalRequirement({ jobType: job.type, mode, elevatedUntil: session?.elevatedUntil ?? null, now: () => new Date(now()) }) };
+    return { expiresAt, expired, minimumRole: registered?.minimumRole ?? null, confirmText: typeof confirmText === "string" && confirmText ? confirmText : null, mode, ...approvalRequirement({ jobType: job.type, atLeast: job.risk ?? null, mode, elevatedUntil: session?.elevatedUntil ?? null, now: () => new Date(now()) }) };
   }
 
   /**
@@ -365,6 +369,8 @@ export function createJobService(store, helper, {
     if (operationPrepareHooks[operationId]) parameters = await operationPrepareHooks[operationId](parameters ?? {});
     const parameterError = registry.validate(operationId, parameters ?? {});
     if (parameterError) throw new Error(parameterError);
+    const tier = operationRiskHooks[operationId] ? higherTier(operation.risk, await operationRiskHooks[operationId](parameters ?? {})) : operation.risk;
+    if (tier === "high" && role !== "owner") throw new Error(`Only the owner can stage this: ${operation.title} is high risk here`);
     // Every secret, top-level or an app's own inside values.env, is staged in memory and the record
     // keeps a placeholder, so the controller database - and every backup of it - never holds one.
     const { stored: persisted, secrets } = splitSecrets(parameters ?? {}, await secretPaths(operation, parameters ?? {}, { secretEnvNamesFor }));
@@ -373,7 +379,7 @@ export function createJobService(store, helper, {
     const job = store.createJob({
       type: `op:${operationId}`,
       title: operation.title,
-      risk: operation.risk,
+      risk: tier,
       parameters: persisted,
       recovery: {
         ...(approvalExpiresAt ? { approvalExpiresAt } : {}),
@@ -386,7 +392,7 @@ export function createJobService(store, helper, {
       createdBy: ownerId,
       initialSteps: [
         { name: "preflight", state: "completed", detail: `${operation.title}: parameters validated against the operation registry` },
-        { name: "checkpoint", state: "completed", detail: `${operation.risk} risk · ${operation.readOnly ? "read-only" : "changes host state"} · runs through the root task runner` },
+        { name: "checkpoint", state: "completed", detail: `${tier} risk ·${operation.readOnly ? "read-only" : "changes host state"} · runs through the root task runner` },
         ...(typeof rerunOf === "string" && rerunOf ? [{ name: "rerun", state: "completed", detail: `Ran again after BoxPilot restarted. The first run, job ${rerunOf}, was cut off.` }] : []),
         ...(typeof retryOf === "string" && retryOf ? [{ name: "retry", state: "completed", detail: `Trying again with more time. The last run, job ${retryOf}, ran out of time.` }] : []),
         ...(budget !== operation.timeoutMs ? [{ name: "budget", state: "completed", detail: `Allowed ${formatDuration(budget)} instead of the usual ${formatDuration(operation.timeoutMs)}` }] : []),
