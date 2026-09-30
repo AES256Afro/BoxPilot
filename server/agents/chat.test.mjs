@@ -254,4 +254,60 @@ describe("#agent-files", () => {
     await h.service.tick();
     expect(h.store.activeRuns().some((entry) => entry.kind === "describe")).toBe(false);
   });
+
+  /** Quiet hours' runs, until none is waiting; the describe run among them. */
+  async function runQuietHours() {
+    let described = null;
+    for (let run = await h.runNext(); run; run = await h.runNext()) if (run.kind === "describe") described = run;
+    return described;
+  }
+  const rackImage = () => h.store.listDocuments().find((document) => document.title === "Image: rack");
+
+  it("waits for a model that can see, and says so, rather than spending the image's tries (M40.6)", async () => {
+    connect();
+    pollAnswers.push({ last: 302, more: false, messages: [{ id: 302, topic: "rack", sender: "Alex", content: "", files: [file("rack.png", "image", [0x89, 0x50, 0x4e, 0x47, 1, 2, 3])] }] });
+    await h.service.zulipPollNow(h.caller("owner"));
+    // Served without its projector, as llama-server without --mmproj: the image is refused.
+    h.fake.state.vision = false;
+    h.setTime(new Date(2026, 8, 30, 2, 30, 0));
+    await h.service.tick();
+    const refused = await runQuietHours();
+    expect(refused.state).toBe("failed");
+    expect(refused.reason).toMatch(/image input is not supported/);
+    expect(rackImage().describedAt).toBeNull();
+    expect(rackImage().describeAttempts).toBe(0);
+    const blind = (await h.service.knowledgeState(h.caller("owner"))).vision;
+    expect(blind).toMatchObject({ vision: false });
+    expect(blind.reason).toMatch(/refused the image: .*image input is not supported/);
+    // Not started again every few minutes of the night to fail the same way.
+    for (const minutes of [5, 20, 60]) {
+      h.setTime(new Date(2026, 8, 30, 2, 30 + minutes, 0));
+      await h.service.tick();
+      expect(h.store.activeRuns().some((run) => run.kind === "describe")).toBe(false);
+    }
+    // A day later it asks again, and a model that can see describes the image.
+    h.fake.state.vision = true;
+    h.setTime(new Date(2026, 9, 1, 2, 40, 0));
+    await h.service.tick();
+    expect((await runQuietHours()).state).toBe("completed");
+    expect(rackImage().describedAt).not.toBeNull();
+    expect(rackImage().text).toContain("What it shows, as the model described it: A picture (image/png, 7 bytes). It shows a server rack");
+    expect((await h.service.knowledgeState(h.caller("owner"))).vision).toMatchObject({ vision: true, reason: "it described an image" });
+  });
+
+  it("sends no image to a model server that says it cannot see (M40.6)", async () => {
+    connect();
+    pollAnswers.push({ last: 303, more: false, messages: [{ id: 303, topic: "rack", sender: "Alex", content: "", files: [file("rack.png", "image", [0x89, 0x50, 0x4e, 0x47])] }] });
+    await h.service.zulipPollNow(h.caller("owner"));
+    // What Unsloth's status says when the projector failed to load (the runtime asks it once a start).
+    h.runtime.vision = async () => ({ vision: false, reason: "it started without its vision projector (mmproj load failed)" });
+    h.setTime(new Date(2026, 8, 30, 2, 30, 0));
+    await h.service.tick();
+    const run = await runQuietHours();
+    expect(run.state).toBe("failed");
+    expect(run.reason).toBe("The model server cannot see images: it started without its vision projector (mmproj load failed)");
+    expect(h.fake.prompts().some((body) => JSON.stringify(body).includes("image_url"))).toBe(false);
+    expect(rackImage().describeAttempts).toBe(0);
+    expect((await h.service.knowledgeState(h.caller("operator"))).vision).toMatchObject({ vision: false, reason: "it started without its vision projector (mmproj load failed)" });
+  });
 });

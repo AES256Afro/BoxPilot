@@ -190,9 +190,18 @@ export function createRunner({ api, runtime, client, usage = null, now = () => D
     const { run, lease } = claim;
     const descriptions = [];
     let error = null;
+    let sight = null;
     try {
       const model = await runtime.ensure(claim.runtime, { signal: controller.signal });
       used.loadMs = model.loadMs ?? 0;
+      // M40.6: a model server started without its vision projector cannot see; the images wait for
+      // one that can, instead of each spending a try (and model time) on an error.
+      sight = await runtime.vision?.().catch(() => null) ?? null;
+      if (sight?.vision === false) {
+        heartbeatStop();
+        await api.finish(run.id, lease, { outcome: "failed", descriptions: [], usage: used, vision: sight, error: `The model server cannot see images: ${sight.reason}` });
+        return { outcome: "failed" };
+      }
       for (const item of claim.describe?.items ?? []) {
         if (controller.signal.aborted) break;
         const started = now();
@@ -219,7 +228,13 @@ export function createRunner({ api, runtime, client, usage = null, now = () => D
     }
     heartbeatStop();
     const described = descriptions.filter((entry) => entry.text).length;
-    await api.finish(run.id, lease, { outcome: described ? "completed" : "failed", descriptions, usage: used, ...(described ? {} : { error: error ?? "The model described nothing" }) });
+    // What the model server said about seeing, or - when it did not say - what describing showed:
+    // llama-server without --mmproj refuses an image with "image input is not supported".
+    const refused = !described && /image input is not supported|mmproj|vision projector|does not support (?:image|vision)/i.test(error ?? "");
+    const vision = sight?.vision !== null && sight?.vision !== undefined ? sight
+      : described ? { vision: true, reason: "it described an image" }
+        : refused ? { vision: false, reason: `the model server refused the image: ${error}` } : sight;
+    await api.finish(run.id, lease, { outcome: described ? "completed" : "failed", descriptions, usage: used, ...(vision ? { vision } : {}), ...(described ? {} : { error: error ?? "The model described nothing" }) });
     return { outcome: described ? "completed" : "failed" };
   }
 

@@ -136,7 +136,7 @@ export function serverCommand(runtime, { port, runtimeDir, stateDir, node = proc
   const threads = String(Math.max(1, Math.trunc(runtime.threads ?? 1)));
   const context = String(runtime.contextTokens ?? 8192);
   if (runtime.driver === "fake") {
-    return { command: node, args: [fakeModelPath, "--port", String(port), "--busy-threads", String(fake.busyThreads ?? 0), "--busy-ms", String(fake.busyMs ?? 0)], env: {} };
+    return { command: node, args: [fakeModelPath, "--port", String(port), "--busy-threads", String(fake.busyThreads ?? 0), "--busy-ms", String(fake.busyMs ?? 0), ...(fake.vision === false ? ["--vision", "off"] : [])], env: {} };
   }
   const quiet = { HF_HUB_DISABLE_TELEMETRY: "1", DO_NOT_TRACK: "1", HOME: stateDir };
   if (runtime.driver === "unsloth") {
@@ -187,6 +187,8 @@ export function createRuntime({
   fake = { busyThreads: Number(process.env.BOXPILOT_AGENTS_FAKE_BUSY_THREADS ?? 0), busyMs: Number(process.env.BOXPILOT_AGENTS_FAKE_BUSY_MS ?? 0) },
   log = () => {},
   pollMs = 1_000,
+  // Loopback only: the model server this runner started, asked whether it can see (M40.6).
+  fetchImpl = globalThis.fetch,
 } = {}) {
   let child = null;   // { process, spec, endpoint, apiKey, model, startedAt, lastUsed, idleStopMs }
   let phase = "idle";
@@ -321,6 +323,36 @@ export function createRuntime({
 
   function touch() { if (child) child.lastUsed = now(); }
 
+  /**
+   * Whether the running model server can see (M40.6): Unsloth says so on GET /api/inference/status
+   * (`is_vision`, and `mmproj_fallback_reason` when it started without its projector after a
+   * failure), llama.cpp's server on GET /props (`modalities.vision`, true only with --mmproj).
+   * { vision: true | false | null, reason }; asked once a start, and null when it did not say.
+   */
+  async function vision() {
+    const entry = child;
+    if (!entry || entry.exited || phase !== "running") return null;
+    if (entry.vision) return entry.vision;
+    const path = entry.driver === "llama-server" ? "/props" : entry.driver === "unsloth" || entry.driver === "fake" ? "/api/inference/status" : null;
+    if (!path) return { vision: null, reason: "this model server is not asked" };
+    let result;
+    try {
+      const response = await fetchImpl(`${entry.endpoint}${path}`, { headers: { Accept: "application/json", ...(entry.apiKey ? { Authorization: `Bearer ${entry.apiKey}` } : {}) }, signal: AbortSignal.timeout(5_000), redirect: "error" });
+      const body = response.ok ? await response.json().catch(() => null) : null;
+      const said = entry.driver === "llama-server" ? body?.modalities?.vision : body?.is_vision;
+      if (typeof said === "boolean") {
+        const fallback = typeof body?.mmproj_fallback_reason === "string" ? body.mmproj_fallback_reason.slice(0, 80) : null;
+        result = { vision: said, reason: said ? (fallback ? `projector ${fallback.replace(/_/g, " ")}` : null) : fallback ? `it started without its vision projector (${fallback.replace(/_/g, " ")})` : entry.driver === "llama-server" ? "llama-server was started without its vision projector" : "the model was loaded without its vision projector" };
+        entry.vision = result;
+      } else {
+        result = { vision: null, reason: `the model server did not say (HTTP ${response.status})` };
+      }
+    } catch (error) {
+      result = { vision: null, reason: `it could not be asked: ${String(error?.message ?? error).slice(0, 120)}` };
+    }
+    return result;
+  }
+
   /** A signal to the server and everything it started; the process alone where there are no groups. */
   function signalServer(entry, signalName) {
     const pid = entry?.process?.pid;
@@ -355,8 +387,8 @@ export function createRuntime({
   }
 
   function status() {
-    return { state: phase, modelLoaded: Boolean(child && phase === "running"), model: child?.model ?? null, pid: child?.process?.pid ?? null };
+    return { state: phase, modelLoaded: Boolean(child && phase === "running"), model: child?.model ?? null, pid: child?.process?.pid ?? null, vision: child?.vision ?? null };
   }
 
-  return { ensure, touch, stop, maybeStopIdle, status, killNow: () => { if (child) signalServer(child, "SIGKILL"); } };
+  return { ensure, touch, stop, maybeStopIdle, status, vision, killNow: () => { if (child) signalServer(child, "SIGKILL"); } };
 }
