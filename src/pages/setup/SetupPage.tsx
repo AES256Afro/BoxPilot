@@ -60,15 +60,6 @@ export default function SetupPage({ csrfToken, role = "owner", onDone }: SetupPa
   const passwordRef = useRef("");
   const skipped = useRef<Set<string>>(new Set());
   const canRun = mayStart(role, "app.install");
-  // Whether the page is still open. The run is this page's loop, not the server's: leaving the page
-  // used to leave it going unseen, staging and approving each later step with the password it held,
-  // and coming back offered to start the same steps again beside it. The job already running goes
-  // on, on the server; nothing after it is started.
-  const open = useRef(true);
-  useEffect(() => {
-    open.current = true;
-    return () => { open.current = false; passwordRef.current = ""; };
-  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -83,8 +74,17 @@ export default function SetupPage({ csrfToken, role = "owner", onDone }: SetupPa
     }
   }, []);
   useEffect(() => { void load(); }, [load]);
+  // Whether the page is still open. The run is this page's loop, not the server's: leaving the page
+  // used to leave it going unseen, staging and approving each later step with the password it held,
+  // and coming back offered to start the same steps again beside it. The job already running goes
+  // on, on the server; nothing after it is started.
+  const open = useRef(true);
+  useEffect(() => {
+    open.current = true;
+    return () => { open.current = false; passwordRef.current = ""; };
+  }, []);
 
-  const headers = { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken };
+  const headers ={ "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken };
   const profile = setup?.profiles.find((entry) => entry.id === selected) ?? null;
   const mark = (id: string, state: StepProgress[string]) => setProgress((current) => ({ ...current, [id]: state }));
 
