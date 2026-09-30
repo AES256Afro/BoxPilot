@@ -49,6 +49,9 @@ describe("units that change the state of the whole machine", () => {
     ["systemd-poweroff.service", "start"], ["systemd-reboot.service", "start"], ["systemd-halt.service", "restart"],
     ["systemd-kexec.service", "start"], ["systemd-soft-reboot.service", "start"], ["systemd-suspend.service", "start"],
     ["systemd-hibernate.service", "start"],
+    // A root shell on the console with no password, now or at every boot, and loading a kernel module.
+    ["debug-shell.service", "start"], ["debug-shell.service", "enable"], ["emergency.service", "start"], ["rescue.service", "start"],
+    ["modprobe@dummy.service", "start"],
   ];
 
   it.each(cases)("refuses %s %s before staging, and never runs systemctl", async (unit, action) => {
