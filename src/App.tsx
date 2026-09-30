@@ -8,8 +8,11 @@ import { useOperation } from "./shell/ApproveDialog";
 import { SessionControls } from "./shell/SessionControls";
 import { useTheme } from "./useTheme";
 import { ThemeSwitch } from "./ui/ThemeSwitch";
-import { fetchAuthStatus, forgetSession, rememberSession, signedOutReason, type AuthStatus, type SignedOutReason } from "./auth";
+import { fetchAuthStatus, forgetAccount, forgetSession, rememberSession, rememberedAccount, signedOutReason, type AuthStatus, type SignedOutReason } from "./auth";
 import { useSessionEnded } from "./sessionEnd";
+import { connected, useConnection } from "./pwa/connection";
+import { OfflineBanner } from "./shell/OfflineBanner";
+import { RefreshButton } from "./shell/RefreshButton";
 import { connectionLabel } from "./appLinks";
 import { FactsProvider } from "./home/facts";
 import { CommandBar } from "./shell/CommandBar";
@@ -28,6 +31,7 @@ const BackupsPage = lazy(() => import("./pages/backups/BackupsPage"));
 const GitHubPage = lazy(() => import("./pages/github/GitHubPage"));
 const Home = lazy(() => import("./home/Home"));
 const Ops = lazy(() => import("./home/Ops"));
+const TodayPage = lazy(() => import("./pages/today/TodayPage"));
 const SetupPage = lazy(() => import("./pages/setup/SetupPage"));
 const NetworkPage = lazy(() => import("./pages/network/NetworkPage"));
 const RepairCenter = lazy(() => import("./RepairCenter"));
@@ -54,7 +58,7 @@ const Settings = lazy(() => import("./pages/settings/SettingsPage"));
  * page its verdict and facts; since M33.14 that is all of them. A page not listed would get a
  * plain one from the shell, its name in the bar and what it is for behind the info toggle.
  */
-const ownHeader = new Set<ViewName>(["home", "ops", "services", "logs", "repairs", "network", "firewall", "users", "github", "settings", "virtualization", "system", "setup", "storage", "backups", "updates", "catalog", "automations", "performance", "agents"]);
+const ownHeader = new Set<ViewName>(["home", "ops", "today", "services", "logs", "repairs", "network", "firewall", "users", "github", "settings", "virtualization", "system", "setup", "storage", "backups", "updates", "catalog", "automations", "performance", "agents"]);
 
 /**
  * Deep link: /?view=firewall opens that page, and a reload keeps the page you were on (Setup
@@ -63,6 +67,16 @@ const ownHeader = new Set<ViewName>(["home", "ops", "services", "logs", "repairs
  */
 function viewFromLocation(): ViewName {
   const params = new URLSearchParams(window.location.search);
+  // Opened from the home screen (the manifest's start_url, M25.1): a phone starts on Today (M25.3),
+  // anything wider on Home. Said in the address, so signing in first still lands there.
+  if (params.get("launch") === "pwa") {
+    const url = new URL(window.location.href);
+    url.searchParams.delete("launch");
+    const phone = typeof window.matchMedia === "function" && window.matchMedia("(max-width: 760px)").matches;
+    if (phone && !params.get("view")) url.searchParams.set("view", "today");
+    window.history.replaceState(null, "", url);
+    return viewFromLocation();
+  }
   const candidate = params.get("view");
   if (candidate && Object.hasOwn(viewCopy, candidate)) return candidate as ViewName;
   if (candidate) {
@@ -116,6 +130,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
   const [apiMode, setApiMode] = useState("browser preview");
   const role = authStatus.owner?.role ?? "owner";
   const csrfToken = authStatus.csrfToken ?? "";
+  const accountId = authStatus.owner?.id ?? null;
 
   const copy = viewCopy[view];
   const showGallery = galleryAsked && apiMode === "demo";
@@ -147,6 +162,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
   const pageContent = useMemo(() => {
     if (view === "home") return <Home csrfToken={csrfToken} role={role} onNavigate={setView} />;
     if (view === "ops") return <Ops csrfToken={csrfToken} role={role} onNavigate={setView} />;
+    if (view === "today") return <TodayPage csrfToken={csrfToken} role={role} accountId={accountId} onNavigate={setView} />;
     if (view === "setup") return <SetupPage csrfToken={csrfToken} role={role} onDone={() => setView("home")} />;
     if (view === "updates") return <UpdatesPage csrfToken={csrfToken} role={role} />;
     if (view === "catalog") return <CatalogPage key={focusApp ?? ""} csrfToken={csrfToken} focusApp={focusApp ?? undefined} role={role} />;
@@ -165,7 +181,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
     if (view === "logs") return <LogsPage csrfToken={csrfToken} role={role} />;
     if (view === "agents") return <AgentsPage csrfToken={csrfToken} role={role} />;
     return <Settings csrfToken={csrfToken} role={role} />;
-  }, [csrfToken, focusApp, role, setView, view]);
+  }, [accountId, csrfToken, focusApp, role, setView, view]);
 
   // Where Home and every console page draw the start of the top bar (src/shell/TopBarSlot.tsx).
   const [topBarSlot, setTopBarSlot] = useState<HTMLDivElement | null>(null);
@@ -186,6 +202,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
           </div>
           <CommandBar csrfToken={csrfToken} onNavigate={setView} onStart={startOperation} role={role} />
           <div className="topbar-right">
+            <RefreshButton />
             <span className="connection-pill" title="How this browser reached BoxPilot">{connectionLabel(window.location)}</span>
             <ThemeSwitch compact />
             <NotificationCentre csrfToken={csrfToken} onNavigate={setView} />
@@ -198,6 +215,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
 
         <main id="content" tabIndex={-1}>
           <div className={shell === "console" ? "content content--console" : "content content--wide"} data-density={shell === "console" ? "compact" : undefined}>
+            <OfflineBanner />
             {showGallery ? <Suspense fallback={<PageLoading name="the design system" />}><Gallery /></Suspense> : <>
               {!ownHeader.has(view) && <PageHeader title={copy.title} about={copy.description} />}
               {/* Keyed by the page, so the page left behind unmounts at once rather than waiting, hidden,
@@ -227,9 +245,25 @@ function App() {
 
   useEffect(() => {
     void fetchAuthStatus()
-      .then((status) => { if (!status.authenticated) setSignedOut(signedOutReason()); setAuthStatus(status); })
-      .catch((error) => setAuthError(error instanceof Error ? error.message : "Unable to reach BoxPilot authentication"));
+      .then((status) => { if (!status.authenticated) { setSignedOut(signedOutReason()); forgetAccount(); } setAuthStatus(status); })
+      .catch((error) => {
+        // BoxPilot cannot be reached (M25.1): a device with a session that has time left opens as
+        // that account, offline, to read what it kept; nothing can be changed until BoxPilot answers.
+        const remembered = rememberedAccount();
+        if (remembered) { setAuthStatusState({ bootstrapRequired: false, authenticated: true, owner: remembered.owner, csrfToken: "", expiresAt: remembered.expiresAt, offline: true }); return; }
+        setAuthError(error instanceof Error ? error.message : "Unable to reach BoxPilot authentication");
+      });
   }, [setAuthStatus]);
+
+  // Offline, ask again as soon as BoxPilot answers; it decides whether the session still stands.
+  const connection = useConnection();
+  const reachable = connected(connection);
+  useEffect(() => {
+    if (!authStatus?.offline || !reachable) return;
+    void fetchAuthStatus()
+      .then((status) => { if (!status.authenticated) { setSignedOut(signedOutReason()); forgetAccount(); } setAuthStatus(status); })
+      .catch(() => undefined);
+  }, [authStatus?.offline, reachable, setAuthStatus]);
 
   // An app's "Sign in with BoxPilot" (M19.3) lands here with ?next=/oidc/authorize when the strict
   // session cookie was not sent on the cross-site hop. Once we know the owner is signed in, continue
