@@ -32,7 +32,7 @@ const agentWords: Record<AgentStatus, { status: Status; label: string }> = {
 };
 export const agentState = (status: AgentStatus) => agentWords[status] ?? { status: "unknown" as Status, label: status };
 
-export const kindWords: Record<RunKind, string> = { ask: "asked", manual: "test", schedule: "schedule", event: "event", learn: "learning", eval: "evaluation", webhook: "webhook", handoff: "hand-off", continue: "follow-up", index: "indexing" };
+export const kindWords: Record<RunKind, string> = { ask: "asked", manual: "test", schedule: "schedule", event: "event", learn: "learning", eval: "evaluation", webhook: "webhook", handoff: "hand-off", continue: "follow-up", index: "indexing", describe: "describing an image" };
 
 const cadenceWords: Record<Schedule["every"], string> = { hourly: "hourly", "every-6-hours": "every 6 hours", daily: "daily", weekly: "weekly" };
 const weekdays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];

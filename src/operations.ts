@@ -93,6 +93,24 @@ export function approveJob(jobId: string, csrfToken: string, password?: string, 
   }).then((response) => readJson(response));
 }
 
+/**
+ * What a finished job showed once (its operation's oneTimeFields, M38: Zulip's organization link):
+ * the server hands it to the person who ran the job the first time they ask, and never again.
+ */
+export function takeOneTimeResult(jobId: string, csrfToken: string): Promise<{ jobId: string; value: Record<string, unknown> }> {
+  return fetch(`/api/v1/jobs/${encodeURIComponent(jobId)}/once`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
+    body: "{}",
+  }).then((response) => readJson(response));
+}
+
+/** The result fields a finished job showed once, from its stored result. */
+export function oneTimeFields(result: unknown): string[] {
+  if (!result || typeof result !== "object" || !("oneTime" in result) || !Array.isArray(result.oneTime)) return [];
+  return result.oneTime.filter((field): field is string => typeof field === "string").slice(0, 4);
+}
+
 /** What approving a staged job needs right now (elevation can lapse after staging). */
 export function getJobApproval(jobId: string): Promise<ApprovalPolicy> {
   return fetch(`/api/v1/jobs/${encodeURIComponent(jobId)}/approval`).then((response) => readJson(response));

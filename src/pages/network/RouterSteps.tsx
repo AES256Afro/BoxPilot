@@ -3,7 +3,7 @@ import { CodeBlock, Segmented } from "../../ui";
 
 /*
  * What the owner does on their router so the house keeps its DNS while this server is off (M39.2,
- * ADR-007): the router becomes the only DNS server devices are given, asks the DNS server here first,
+ * ADR-008): the router becomes the only DNS server devices are given, asks the DNS server here first,
  * and falls back to a public resolver only when that does not answer. Written for GL.iNet's firmware
  * 4.x, for OpenWrt's LuCI, and for any other router. BoxPilot never signs in to the router for this;
  * each path ends at "Check again" here, which reads the result, and the rehearsal, which proves it.

@@ -6,7 +6,7 @@ import { RouterSteps } from "./RouterSteps";
 import type { Resilience, ResilienceServer } from "./types";
 
 /*
- * The Names & DNS tab's first panel (M39.2, ADR-007): whether the house keeps its DNS while this
+ * The Names & DNS tab's first panel (M39.2, ADR-008): whether the house keeps its DNS while this
  * server is off. What the router hands out, each server asked directly, the verdict in one line, the
  * steps for the router in a sheet, and the rehearsal that proves a router's fallback. After a power
  * cut, what the DNS app and this server's own lookups said once it was back.

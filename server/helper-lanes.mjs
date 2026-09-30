@@ -22,6 +22,9 @@ const homepageOperations = new Set(["homepage.sync", "app.install", "app.uninsta
 /** Everything shared with no subject of its own: apt, systemd, storage, firewall, users. */
 export const hostLane = "host";
 
+/** The agents' Zulip connection (M38): its posts, its key. */
+export const chatLane = "chat:zulip";
+
 /** Operations that read or write the shared backup tree; they hold the host lane as well as their own. */
 const backupTreeOperations = new Set(["app.backup", "app.backup.many", "app.backup.restore", "app.backup.verify", "backup.sync", "backup.remote.sync", "backup.cloud.sync"]);
 
@@ -30,6 +33,10 @@ export function laneFor(operation, parameters = {}) {
   const id = String(operation ?? "");
   if (exclusiveOperations.has(id)) return [exclusiveLane];
   if (id === "job.output.release") return ["job-output"];
+  // M38: the agents' posts to Zulip wait only for each other, never behind an upgrade or an app
+  // backup; connecting runs manage.py in Zulip's container, so it holds Zulip's app lane too.
+  if (id === "agents.zulip.post" || id === "agents.zulip.disconnect") return [chatLane];
+  if (id === "agents.zulip.connect") return [chatLane, "app:zulip"];
   const subject = (value) => (typeof value === "string" && value.length && value.length <= 64 ? value : null);
   const lanes = [];
   if (id.startsWith("app.")) {

@@ -1,5 +1,5 @@
 /**
- * Whether the house keeps its DNS while this server is off (M39.2, ADR-007).
+ * Whether the house keeps its DNS while this server is off (M39.2, ADR-008).
  *
  * On 2026-09-29 the owner's server lost power for three and a half hours. Pi-hole ran on it and was
  * the only DNS server the network knew, so every device in the house lost name lookups at once, and

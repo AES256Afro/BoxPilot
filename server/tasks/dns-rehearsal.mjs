@@ -1,5 +1,5 @@
 /**
- * Rehearse this server going down, for DNS only (M39.2, ADR-007).
+ * Rehearse this server going down, for DNS only (M39.2, ADR-008).
  *
  * When devices ask the router and the router passes their lookups to the DNS app here, whether the
  * house keeps working while this server is off depends on one setting on the router that BoxPilot

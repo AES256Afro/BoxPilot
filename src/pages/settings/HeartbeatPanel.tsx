@@ -5,7 +5,7 @@ import { inspectOperation } from "../../operations";
 import { Button, Checkbox, Field, KeyValue, Notice, Panel, SecretInput, Select, riskOf, type Status } from "../../ui";
 
 /*
- * Settings, Notifications, Heartbeat (M39.3, ADR-007). Nothing on a server that is off can say so,
+ * Settings, Notifications, Heartbeat (M39.3, ADR-008). Nothing on a server that is off can say so,
  * and on 2026-09-29 the owner's notifier was on the server that went down. So this server can send a
  * bare request every few minutes to a dead man's switch the owner chose, which alerts their phone
  * when the requests stop. Off until turned on; owner-only; the address is a credential, never shown

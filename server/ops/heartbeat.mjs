@@ -1,5 +1,5 @@
 /**
- * The heartbeat (M39.3, ADR-007): a bare request every few minutes to a dead man's switch the owner
+ * The heartbeat (M39.3, ADR-008): a bare request every few minutes to a dead man's switch the owner
  * chose, so something outside this server notices when it goes quiet. Off until the owner turns it
  * on; owner-only, because it sends something to a third party the owner picked. See server/heartbeat.mjs.
  */

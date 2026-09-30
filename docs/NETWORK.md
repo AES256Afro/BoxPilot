@@ -74,7 +74,7 @@ if it is, it is a single point of failure for every device in the house. The nex
 
 If Pi-hole on this server is the only DNS server your devices know, then while this server is off
 (a power cut, a reboot, a crash) no device in the house can look a name up, and the whole internet
-looks down. The shape that avoids it (ADR-007): **the router is the one DNS server devices are
+looks down. The shape that avoids it (ADR-008): **the router is the one DNS server devices are
 given, it asks this server first, and it asks a public resolver only when this server does not
 answer.** Blocking and app names keep working while the server is up; names keep resolving while
 it is down.

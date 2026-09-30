@@ -14,7 +14,8 @@
  *   triggers             asked, a schedule, events (a health alert, a failed job, a dropped drive),
  *                        a webhook
  *   budget               runs a day, model seconds a day, steps and tokens a run, seconds a run
- *   outputs              notes, a daily digest, notifications (important only), approval cards
+ *   outputs              notes, a daily digest, notifications (important only), approval cards, and
+ *                        its team chat (M38): findings, logs and knowledge, each to a Zulip channel
  *   memory               notes kept, how long they stay fresh and how many, whether other agents
  *                        may read them, and a conversation per person
  *   escalation           when it hands the matter to the owner as a card: low confidence, a limit
@@ -26,6 +27,7 @@
  * normalizeSpec() is the one gate: anything else is refused with a sentence, never repaired.
  */
 import { toolById, toolCatalog, toolPermissions } from "./tool-catalog.mjs";
+import { normalizeChatOutputs } from "./zulip.mjs";
 
 export const agentEvents = Object.freeze({
   "health.alert": "A health alert is raised",
@@ -189,7 +191,11 @@ export function normalizeSpec(input) {
   const rawOutputs = section(input.outputs, "Outputs must say what it may produce");
   const notify = rawOutputs.notify ?? "important";
   if (!["important", "never"].includes(notify)) throw new SpecError("Notifications are important or never");
-  const outputs = { notes: bool(rawOutputs.notes, true), digest: bool(rawOutputs.digest, false), notify, proposals: bool(rawOutputs.proposals, true) };
+  // Its team chat (M38): findings, logs and knowledge each on by default, to the connection's channel
+  // and a topic named after the agent unless the owner names others. Nothing is posted until Zulip is
+  // connected, and then by BoxPilot from the run's outcome, never by the model.
+  const chat = normalizeChatOutputs(rawOutputs.chat, (message) => { throw new SpecError(message); });
+  const outputs = { notes: bool(rawOutputs.notes, true), digest: bool(rawOutputs.digest, false), notify, proposals: bool(rawOutputs.proposals, true), chat };
 
   const rawMemory = section(input.memory, "Memory must be a set of choices");
   const memory = {

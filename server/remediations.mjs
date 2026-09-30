@@ -622,7 +622,7 @@ export function nothingCanReachYou({ notifications = null, apps = [], ntfy = nul
 }
 
 /**
- * The house's DNS leaning on this server alone (M39.2, ADR-007). On 2026-09-29 the server lost power
+ * The house's DNS leaning on this server alone (M39.2, ADR-008). On 2026-09-29 the server lost power
  * and every device lost its lookups with it, because the router handed out nothing but this server.
  * Said only on evidence (server/dns-resilience.mjs): a DHCP lease naming nothing else, a router whose
  * rehearsal failed, or second servers that do not answer. A router passing lookups here whose fallback

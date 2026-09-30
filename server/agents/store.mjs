@@ -184,6 +184,24 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
       given_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_agent_feedback_agent ON agent_feedback(agent_id, given_at DESC);
+    -- M38: what the agents post to Zulip, queued by the service and sent by a root task.
+    CREATE TABLE IF NOT EXISTS agent_chat_posts (
+      id TEXT PRIMARY KEY,
+      kind TEXT NOT NULL,
+      agent_id TEXT,
+      run_id TEXT,
+      channel TEXT NOT NULL,
+      topic TEXT NOT NULL,
+      content TEXT NOT NULL,
+      attachment_json TEXT,
+      state TEXT NOT NULL,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      error TEXT,
+      message_id INTEGER,
+      created_at TEXT NOT NULL,
+      sent_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_chat_posts_state ON agent_chat_posts(state, created_at);
   `);
   // Columns added after the first M37 tables: added in place where an older database lacks them.
   const ensureColumn = (table, column, definition) => {
@@ -203,6 +221,11 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
   ensureColumn("agent_documents", "source", "TEXT NOT NULL DEFAULT 'upload'");
   ensureColumn("agent_documents", "external_id", "TEXT");
   ensureColumn("agent_documents", "pinned", "INTEGER NOT NULL DEFAULT 0");
+  // M38: an image dropped in #agent-files is kept as it came, for the model to describe in quiet hours.
+  ensureColumn("agent_documents", "media_type", "TEXT");
+  ensureColumn("agent_documents", "media", "BLOB");
+  ensureColumn("agent_documents", "described_at", "TEXT");
+  ensureColumn("agent_documents", "describe_attempts", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn("agent_eval_runs", "model", "TEXT");
   database.exec("CREATE INDEX IF NOT EXISTS idx_agent_runs_parent ON agent_runs(parent_run_id)");
 
@@ -567,31 +590,83 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
 
   // ---- documents ----
 
+  // Never the image itself (media): a list of documents is read on every search and every page.
+  const documentColumns = "id, title, text, enabled, created_by, created_at, source, external_id, pinned, media_type, described_at, describe_attempts, length(media) AS media_bytes";
   const documentOf = (row) => ({
     id: row.id, title: row.title, text: row.text, enabled: Boolean(row.enabled), createdBy: row.created_by, createdAt: row.created_at, characters: row.text.length,
     source: row.source ?? "upload", externalId: row.external_id ?? null, pinned: Boolean(row.pinned),
+    ...(row.media_type ? { mediaType: row.media_type, mediaBytes: Number(row.media_bytes ?? 0), describedAt: row.described_at ?? null, describeAttempts: Number(row.describe_attempts ?? 0) } : {}),
   });
 
   /** A document: pasted or uploaded by the owner, or brought in by a connector (source, externalId). */
-  function addDocument({ title, text, createdBy, source = "upload", externalId = null, pinned = false }) {
+  function addDocument({ title, text, createdBy, source = "upload", externalId = null, pinned = false, mediaType = null, media = null }) {
     const id = randomUUID();
-    prepare("INSERT INTO agent_documents (id, title, text, created_by, created_at, source, external_id, pinned) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").run(id, title, text, createdBy, iso(), source, externalId, pinned ? 1 : 0);
-    return documentOf(prepare("SELECT * FROM agent_documents WHERE id = ?").get(id));
+    prepare("INSERT INTO agent_documents (id, title, text, created_by, created_at, source, external_id, pinned, media_type, media) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(id, title, text, createdBy, iso(), source, externalId, pinned ? 1 : 0, mediaType, media);
+    return documentOf(prepare(`SELECT ${documentColumns} FROM agent_documents WHERE id = ?`).get(id));
   }
   /** A connector's document: replaced when it changed, added when new. Returns { document, changed }. */
-  function upsertDocument({ source, externalId, title, text, createdBy = null }) {
+  function upsertDocument({ source, externalId, title, text, createdBy = null, mediaType = null, media = null }) {
     return transaction(() => {
-      const current = prepare("SELECT * FROM agent_documents WHERE source = ? AND external_id = ?").get(source, externalId);
-      if (!current) return { document: addDocument({ title, text, createdBy, source, externalId }), changed: true };
-      if (current.text === text && current.title === title) return { document: documentOf(current), changed: false };
+      const current = prepare(`SELECT ${documentColumns} FROM agent_documents WHERE source = ? AND external_id = ?`).get(source, externalId);
+      if (!current) return { document: addDocument({ title, text, createdBy, source, externalId, mediaType, media }), changed: true };
+      if (current.text === text && current.title === title && !media) return { document: documentOf(current), changed: false };
       prepare("UPDATE agent_documents SET title = ?, text = ?, created_at = ? WHERE id = ?").run(title, text, iso(), current.id);
+      if (media) prepare("UPDATE agent_documents SET media_type = ?, media = ?, described_at = NULL, describe_attempts = 0 WHERE id = ?").run(mediaType, media, current.id);
       prepare("DELETE FROM agent_vectors WHERE kind = 'doc' AND item_id LIKE ?").run(`${current.id}#%`);
-      return { document: documentOf(prepare("SELECT * FROM agent_documents WHERE id = ?").get(current.id)), changed: true };
+      return { document: documentOf(prepare(`SELECT ${documentColumns} FROM agent_documents WHERE id = ?`).get(current.id)), changed: true };
     });
   }
-  const listDocuments = () => prepare("SELECT * FROM agent_documents ORDER BY created_at DESC LIMIT 500").all().map(documentOf);
-  const getDocument = (id) => { const row = prepare("SELECT * FROM agent_documents WHERE id = ?").get(String(id ?? "")); return row ? documentOf(row) : null; };
-  const findDocument = (title) => { const row = prepare("SELECT * FROM agent_documents WHERE enabled = 1 AND lower(title) = lower(?) ORDER BY created_at DESC").get(String(title ?? "")); return row ? documentOf(row) : null; };
+  const listDocuments = () => prepare(`SELECT ${documentColumns} FROM agent_documents ORDER BY created_at DESC LIMIT 500`).all().map(documentOf);
+  const getDocument = (id) => { const row = prepare(`SELECT ${documentColumns} FROM agent_documents WHERE id = ?`).get(String(id ?? "")); return row ? documentOf(row) : null; };
+  const findDocument = (title) => { const row = prepare(`SELECT ${documentColumns} FROM agent_documents WHERE enabled = 1 AND lower(title) = lower(?) ORDER BY created_at DESC`).get(String(title ?? "")); return row ? documentOf(row) : null; };
+  /** An image document's bytes, for the quiet-hours run that describes it. */
+  const getDocumentMedia = (id) => { const row = prepare("SELECT media_type, media FROM agent_documents WHERE id = ?").get(String(id ?? "")); return row?.media ? { mediaType: row.media_type, media: Buffer.from(row.media) } : null; };
+  /** Images still waiting to be described: enabled, never described, tried fewer than `attempts` times. */
+  const listUndescribed = ({ limit = 2, attempts = 3 } = {}) => prepare(`SELECT ${documentColumns} FROM agent_documents WHERE media IS NOT NULL AND described_at IS NULL AND enabled = 1 AND describe_attempts < ? ORDER BY created_at LIMIT ?`).all(attempts, limit).map(documentOf);
+  /** The model's description replaces the placeholder text; a failed try is counted. */
+  function describeDocument(id, { text = null } = {}) {
+    return transaction(() => {
+      if (text === null) return Number(prepare("UPDATE agent_documents SET describe_attempts = describe_attempts + 1 WHERE id = ?").run(id).changes) > 0;
+      const changed = Number(prepare("UPDATE agent_documents SET text = ?, described_at = ?, describe_attempts = describe_attempts + 1 WHERE id = ?").run(text, iso(), id).changes) > 0;
+      if (changed) prepare("DELETE FROM agent_vectors WHERE kind = 'doc' AND item_id LIKE ?").run(`${id}#%`);
+      return changed;
+    });
+  }
+  const countImageDocuments = () => Number(prepare("SELECT COUNT(*) AS count FROM agent_documents WHERE media IS NOT NULL").get().count);
+
+  // ---- what the agents post to Zulip (M38) ----
+
+  const chatPostOf = (row) => row ? ({
+    id: row.id, kind: row.kind, agentId: row.agent_id ?? null, runId: row.run_id ?? null, channel: row.channel, topic: row.topic, content: row.content,
+    attachment: parse(row.attachment_json, null), state: row.state, attempts: Number(row.attempts ?? 0), error: row.error ?? null, messageId: row.message_id ?? null,
+    createdAt: row.created_at, sentAt: row.sent_at ?? null,
+  }) : null;
+  /**
+   * A post waiting to go. The outbox is bounded: past `max` waiting, the oldest waiting post is
+   * dropped (and says so) rather than the queue growing. Returns the post and how many were dropped.
+   */
+  function queueChatPost({ kind, agentId = null, runId = null, channel, topic, content, attachment = null }, { max = 200 } = {}) {
+    return transaction(() => {
+      const id = randomUUID();
+      prepare("INSERT INTO agent_chat_posts (id, kind, agent_id, run_id, channel, topic, content, attachment_json, state, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?)").run(id, kind, agentId, runId, channel, topic, content, attachment ? json(attachment) : null, iso());
+      const dropped = Number(prepare("UPDATE agent_chat_posts SET state = 'dropped', error = 'The outbox was full; this post was dropped.' WHERE state = 'queued' AND id IN (SELECT id FROM agent_chat_posts WHERE state = 'queued' ORDER BY created_at DESC, rowid DESC LIMIT -1 OFFSET ?)").run(max).changes);
+      return { post: chatPostOf(prepare("SELECT * FROM agent_chat_posts WHERE id = ?").get(id)), dropped };
+    });
+  }
+  const listChatPosts = ({ state = null, limit = 50 } = {}) => (state
+    ? prepare("SELECT * FROM agent_chat_posts WHERE state = ? ORDER BY created_at, rowid LIMIT ?").all(state, limit)
+    : prepare("SELECT * FROM agent_chat_posts ORDER BY created_at DESC, rowid DESC LIMIT ?").all(limit)).map(chatPostOf);
+  const getChatPost = (id) => chatPostOf(prepare("SELECT * FROM agent_chat_posts WHERE id = ?").get(String(id ?? "")));
+  function markChatPost(id, { state, error = null, messageId = null }) {
+    const sent = state === "sent" ? iso() : null;
+    return Number(prepare("UPDATE agent_chat_posts SET state = ?, error = ?, message_id = ?, sent_at = COALESCE(?, sent_at), attempts = attempts + 1 WHERE id = ?").run(state, error, messageId, sent, id).changes) > 0;
+  }
+  const chatPostsSince = (since) => Number(prepare("SELECT COUNT(*) AS count FROM agent_chat_posts WHERE state = 'sent' AND sent_at >= ?").get(since).count);
+  const countChatPosts = () => Object.fromEntries(prepare("SELECT state, COUNT(*) AS count FROM agent_chat_posts GROUP BY state").all().map((row) => [row.state, Number(row.count)]));
+  /** Everything not waiting, past the newest `keep`: the panel shows the last posts, nothing more. */
+  const pruneChatPosts = ({ keep = 200 } = {}) => Number(prepare("DELETE FROM agent_chat_posts WHERE state != 'queued' AND id NOT IN (SELECT id FROM agent_chat_posts WHERE state != 'queued' ORDER BY created_at DESC, rowid DESC LIMIT ?)").run(keep).changes);
+  /** Disconnecting drops what was waiting: it would go nowhere. */
+  const dropQueuedChatPosts = (reason) => Number(prepare("UPDATE agent_chat_posts SET state = 'dropped', error = ? WHERE state = 'queued'").run(reason).changes);
   const setDocumentEnabled = (id, enabled) => Number(prepare("UPDATE agent_documents SET enabled = ? WHERE id = ?").run(enabled ? 1 : 0, id).changes) > 0;
   const setDocumentPinned = (id, pinned) => Number(prepare("UPDATE agent_documents SET pinned = ? WHERE id = ?").run(pinned ? 1 : 0, id).changes) > 0;
   const deleteDocument = (id) => transaction(() => {
@@ -663,6 +738,8 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
     setFeedback, getFeedback, listFeedback,
     createProposal, getProposal, listProposals, decideProposal, findOpenProposal, listProposalsForRun,
     addDocument, upsertDocument, listDocuments, getDocument, findDocument, setDocumentEnabled, setDocumentPinned, deleteDocument,
+    getDocumentMedia, listUndescribed, describeDocument, countImageDocuments,
+    queueChatPost, listChatPosts, getChatPost, markChatPost, chatPostsSince, countChatPosts, pruneChatPosts, dropQueuedChatPosts,
     setQuestions, getQuestions, createEvalRun, getEvalRun, setEvalResults, listEvalRuns, gradeEval,
     prune, expireProposals,
     close: () => database.close(),
