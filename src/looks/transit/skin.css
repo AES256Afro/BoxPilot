@@ -320,6 +320,7 @@
 :root[data-look="transit"] .ui-code { border-radius: 6px; }
 :root[data-look="transit"] .ui-code__bar { color: #ffffff; background: #13233f; }
 :root[data-look="transit"] .ui-code__label { color: #ffffff; }
+:root[data-look="transit"] .ui-code__meta { color: rgba(255, 255, 255, 0.8); }
 :root[data-look="transit"] .ui-code__copy { border-color: #ffffff; color: #13233f; background: #ffffff; }
 :root[data-look="transit"] .ui-progress__fill { background: #1f4fd1; }
 :root[data-look="transit"] .ui-job { border-radius: 6px; }

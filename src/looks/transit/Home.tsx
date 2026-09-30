@@ -154,35 +154,37 @@ export default function TransitHome(props: HomeProps) {
           <p className="transit-map__title" id={titleId}>{hostname}</p>
           <p className="transit-map__lead">{verdict.sentence} Each line is a way in or a way out; stations are your apps.</p>
         </div>
-        <svg className="transit-map__svg" viewBox="12 8 508 372" role="group" aria-label="Your apps on the lines">
-          {map.paths.map((path) => (
-            <path key={path.line} d={path.d} fill="none" stroke={path.line === "tailnet" && tailnetDown ? LINE_COLOURS.unprotected : LINE_COLOURS[path.line]} strokeWidth={8}
-              strokeLinejoin="round" strokeDasharray={path.dashed || (path.line === "tailnet" && tailnetDown) ? "12 8" : undefined} />
-          ))}
-          <path d="M30 181 V199 M500 181 V199" stroke={INK} strokeWidth={4} />
-          {map.termini.map((end) => (
-            <g key={`${end.line}:${end.x}`} className="transit-end">
-              <line x1={end.x} y1={end.y - 9} x2={end.x} y2={end.y + 9} stroke={INK} strokeWidth={4} />
-              <text x={end.label.x} y={end.label.y} textAnchor={end.label.anchor}>{end.name}</text>
+        <div className="transit-map__scroll">
+          <svg className="transit-map__svg" viewBox="12 8 508 372" role="group" aria-label="Your apps on the lines">
+            {map.paths.map((path) => (
+              <path key={path.line} d={path.d} fill="none" stroke={path.line === "tailnet" && tailnetDown ? LINE_COLOURS.unprotected : LINE_COLOURS[path.line]} strokeWidth={8}
+                strokeLinejoin="round" strokeDasharray={path.dashed || (path.line === "tailnet" && tailnetDown) ? "12 8" : undefined} />
+            ))}
+            <path d="M30 181 V199 M500 181 V199" stroke={INK} strokeWidth={4} />
+            {map.termini.map((end) => (
+              <g key={`${end.line}:${end.x}`} className="transit-end">
+                <line x1={end.x} y1={end.y - 9} x2={end.x} y2={end.y + 9} stroke={INK} strokeWidth={4} />
+                <text x={end.label.x} y={end.label.y} textAnchor={end.label.anchor}>{end.name}</text>
+              </g>
+            ))}
+            <line x1={30} y1={293} x2={30} y2={311} stroke={LINE_COLOURS.unprotected} strokeWidth={4} />
+            <rect x={hub.x} y={hub.y} width={hub.width} height={hub.height} rx={14} fill="#ffffff" stroke={INK} strokeWidth={3} />
+            <text className="transit-hub" x={hub.x + 18} y={hub.y + hub.height / 2} transform={`rotate(-90 ${hub.x + 18} ${hub.y + hub.height / 2})`} textAnchor="middle" fontSize={hubSize}>{hubName}</text>
+            {map.stops.map((placed) => (
+              <g key={`${placed.line}:${placed.id}`} className="transit-stop" data-line={placed.line} role="button" tabIndex={0} aria-label={stopWords(placed)} onClick={() => go(placed)} onKeyDown={keyGo(placed)}>
+                <circle className="transit-stop__ring" cx={placed.x} cy={placed.y} r={10} />
+                <circle cx={placed.x} cy={placed.y} r={5.5} fill="#ffffff" stroke={placed.line === "unprotected" ? LINE_COLOURS.unprotected : INK} strokeWidth={2.4} />
+                <text x={placed.label.x} y={placed.label.y} textAnchor={placed.label.anchor}>{placed.name}</text>
+              </g>
+            ))}
+            <g className="transit-legend" aria-hidden="true">
+              <line x1={30} y1={364} x2={54} y2={364} stroke={LINE_COLOURS.network} strokeWidth={6} /><text x={60} y={368}>Your network</text>
+              <line x1={150} y1={364} x2={174} y2={364} stroke={LINE_COLOURS.tailnet} strokeWidth={6} /><text x={180} y={368}>Tailnet</text>
+              <line x1={250} y1={364} x2={274} y2={364} stroke={LINE_COLOURS.backups} strokeWidth={6} /><text x={280} y={368}>Backups</text>
+              <line x1={360} y1={364} x2={384} y2={364} stroke={LINE_COLOURS.unprotected} strokeWidth={6} strokeDasharray="6 4" /><text x={390} y={368}>Not backed up</text>
             </g>
-          ))}
-          <line x1={30} y1={293} x2={30} y2={311} stroke={LINE_COLOURS.unprotected} strokeWidth={4} />
-          <rect x={hub.x} y={hub.y} width={hub.width} height={hub.height} rx={14} fill="#ffffff" stroke={INK} strokeWidth={3} />
-          <text className="transit-hub" x={hub.x + 18} y={hub.y + hub.height / 2} transform={`rotate(-90 ${hub.x + 18} ${hub.y + hub.height / 2})`} textAnchor="middle" fontSize={hubSize}>{hubName}</text>
-          {map.stops.map((placed) => (
-            <g key={`${placed.line}:${placed.id}`} className="transit-stop" data-line={placed.line} role="button" tabIndex={0} aria-label={stopWords(placed)} onClick={() => go(placed)} onKeyDown={keyGo(placed)}>
-              <circle className="transit-stop__ring" cx={placed.x} cy={placed.y} r={10} />
-              <circle cx={placed.x} cy={placed.y} r={5.5} fill="#ffffff" stroke={placed.line === "unprotected" ? LINE_COLOURS.unprotected : INK} strokeWidth={2.4} />
-              <text x={placed.label.x} y={placed.label.y} textAnchor={placed.label.anchor}>{placed.name}</text>
-            </g>
-          ))}
-          <g className="transit-legend" aria-hidden="true">
-            <line x1={30} y1={364} x2={54} y2={364} stroke={LINE_COLOURS.network} strokeWidth={6} /><text x={60} y={368}>Your network</text>
-            <line x1={150} y1={364} x2={174} y2={364} stroke={LINE_COLOURS.tailnet} strokeWidth={6} /><text x={180} y={368}>Tailnet</text>
-            <line x1={250} y1={364} x2={274} y2={364} stroke={LINE_COLOURS.backups} strokeWidth={6} /><text x={280} y={368}>Backups</text>
-            <line x1={360} y1={364} x2={384} y2={364} stroke={LINE_COLOURS.unprotected} strokeWidth={6} strokeDasharray="6 4" /><text x={390} y={368}>Not backed up</text>
-          </g>
-        </svg>
+          </svg>
+        </div>
       </section>
 
       <section className="transit-board" aria-labelledby={`${titleId}-board`}>
