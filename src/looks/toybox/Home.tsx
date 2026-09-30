@@ -33,6 +33,15 @@ const pastel: Record<AppHue, string> = {
   amber: "#ffe7a6", orange: "#ffd6bf", red: "#ffc2c2", pink: "#ffc9dc", plum: "#f0c9ff", slate: "#ffc9dc", graphite: "#e3e3ea",
 };
 
+const severityRank = { danger: 0, warning: 1, neutral: 2 } as const;
+/**
+ * The two rows each card shows are the ones with a button: among needs of the same severity,
+ * those that can be fixed from here come first, so a note with nothing to press does not push
+ * "4 updates are ready [Install]" behind "Show more". A problem still leads whatever it offers.
+ */
+const actionableFirst = (list: Need[]): Need[] => [...list].sort((a, b) => severityRank[a.severity] - severityRank[b.severity]
+  || Number(actionsOf(b).length > 0) - Number(actionsOf(a).length > 0));
+
 /** The round dot a row leads with: a glyph on a colour, both decoration beside the words. */
 function dotOf(need: Need): { glyph: string; color: string } {
   if (need.id.startsWith("app-paused:") || need.id.startsWith("app-stopped:")) return { glyph: "z", color: "#e3e3ea" };
@@ -50,6 +59,13 @@ function friendly(need: Need): string {
   const app = need.id.startsWith("app-") ? need.title.replace(/ is (paused|stopped)$/, "").replace(/^An update for /, "") : "";
   if (need.id.startsWith("app-paused:")) return `${app} is napping, on purpose`;
   if (need.id.startsWith("app-update:")) return `${app} has a new version`;
+  // "4 updates available", "1 security fix among them": "4 updates are ready, 1 is a security fix".
+  const updates = need.id === "updates" ? /^(\d+) updates? available$/.exec(need.title) : null;
+  if (updates) {
+    const count = Number(updates[1]);
+    const security = /^(\d+) security fix/.exec(need.detail ?? "")?.[1];
+    return `${count} ${count === 1 ? "update is" : "updates are"} ready${security ? `, ${security} ${security === "1" ? "is a security fix" : "are security fixes"}` : ""}`;
+  }
   // "Vaultwarden, Immich and 2 more have not been backed up recently": each needs a backup.
   if (/ (has|have) not been backed up recently$/.test(need.title)) return need.title.replace(/ (has|have) not been backed up recently$/, (_, verb: string) => (verb === "has" ? " needs a backup" : " need a backup"));
   return need.title;
@@ -142,8 +158,8 @@ export default function ToyboxHome({ csrfToken, role, onNavigate, now = Date.now
   const listed = new Set(needs.flatMap((need) => (need.finding ? [need.finding.id] : [])));
   const justFixed = Object.values(remembered).filter((finding) => !listed.has(finding.id) && fixRuns[finding.id] && ["fixed", "scheduled"].includes(fixRuns[finding.id].phase));
 
-  const urgent = needs.filter((need) => need.severity !== "neutral");
-  const waiting = needs.filter((need) => need.severity === "neutral");
+  const urgent = actionableFirst(needs.filter((need) => need.severity !== "neutral"));
+  const waiting = actionableFirst(needs.filter((need) => need.severity === "neutral"));
   const problems = urgent.filter((need) => need.severity === "danger").length;
   const hello = `${greeting(clock).replace(/^Good /, "").replace(/^./, (letter) => letter.toUpperCase())}!`;
   const says = problems > 0 ? `${hello} I need help: ${countOf(problems, "problem")}.`
