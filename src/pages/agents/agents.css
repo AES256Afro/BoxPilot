@@ -45,6 +45,8 @@
 .agents-card__step-title { color: var(--text-strong); font-size: 13.5px; font-weight: 600; }
 .agents-card__op { color: var(--text-muted); font-family: var(--font-mono); font-size: 11.5px; }
 .agents-card__why { color: var(--text-muted); font-size: 12.5px; line-height: 1.35; }
+.agents-card__params { display: grid; gap: 1px; margin-top: 2px; font-family: var(--font-mono); font-size: 11.5px; color: var(--text-strong); overflow-wrap: anywhere; }
+.agents-card__param code { color: var(--text-muted); font-size: inherit; }
 .agents-card__dropped { margin: 0; color: var(--text-muted); font-size: 12.5px; }
 .agents-card__foot { display: flex; justify-content: flex-end; }
 
