@@ -1,1 +1,554 @@
-/* The launcher look's skin (M41): every selector starts with :root[data-look="launcher"]. */
+/*
+ * The Launcher everywhere (M41, "Home everywhere"): every page on Home's wallpaper, in its frosted
+ * glass, its ink and its pills, with the floating dock at the bottom and the bar floating over the
+ * wallpaper as Home's does. Drawn to docs/design-directions/05-looks.html, M.homeStorage.
+ *
+ * Home itself is today's Launcher (src/home/Home.tsx), its own shell (data-shell="launcher"), so
+ * every rule here is keyed to the console pages, [data-shell="console"]: Home is never touched, and
+ * with "Not Home" nothing here applies to it either. The --lx-* and --wall-* tokens already follow
+ * light and dark (src/styles.css) and the wallpaper and accent chosen in Appearance (looks.css);
+ * the console's --cc-* family is pointed at them, so every console rule takes the Launcher's values.
+ * Every selector starts with :root[data-look="launcher"].
+ */
+
+/* ── Tokens ─────────────────────────────────────────────────────────────── */
+:root[data-look="launcher"][data-shell="console"] {
+  /* The skin's own few: a line strong enough for a control's edge, an opaque sheet, code's ground. */
+  --lxs-line-strong: rgba(19, 33, 44, 0.2);
+  --lxs-sheet: rgba(247, 249, 251, 0.95);
+  --lxs-code: rgba(19, 33, 44, 0.06);
+  --lxs-row-hover: rgba(255, 255, 255, 0.45);
+
+  --font-sans: "Figtree", ui-sans-serif, system-ui, -apple-system, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+  --font-condensed: "Figtree", ui-sans-serif, system-ui, -apple-system, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+  --font-display: "Figtree", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+
+  --cc-canvas: transparent;
+  --cc-topbar: transparent;
+  --cc-rail: var(--lx-glass);
+  --cc-panel: var(--lx-glass);
+  --cc-raised: var(--lx-glass-raised);
+  --cc-inset: var(--lx-glass-raised);
+  --cc-line: var(--lx-hairline);
+  --cc-hairline: var(--lx-hairline);
+  --cc-line-strong: var(--lxs-line-strong);
+  --cc-text: var(--lx-ink);
+  --cc-text-strong: var(--lx-ink);
+  --cc-muted: var(--lx-ink-muted);
+  --cc-icon: var(--lx-ink-muted);
+  --cc-amber: var(--lx-warning);
+  --cc-amber-ink: var(--lx-warning-ink);
+  --cc-amber-bg: var(--lx-warning-bg);
+  --cc-amber-border: transparent;
+  --cc-cyan: var(--look-accent);
+  --cc-cyan-fill: color-mix(in srgb, var(--look-accent) 14%, transparent);
+  --cc-green: var(--lx-good);
+  --cc-green-bg: var(--lx-good-bg);
+  --cc-green-border: transparent;
+  --cc-red: var(--lx-danger);
+  --cc-red-text: var(--lx-danger-text);
+  --cc-red-bg: var(--lx-danger-bg);
+  --cc-red-border: transparent;
+  --cc-track: var(--lx-track);
+
+  /* What the components read, as Home points them (.app-shell[data-view="home"] in styles.css). */
+  --canvas: transparent;
+  --surface: var(--lx-glass);
+  --surface-raised: var(--lx-glass-raised);
+  --surface-muted: var(--lx-glass-raised);
+  --surface-hover: var(--lx-glass-raised);
+  --surface-header: transparent;
+  --surface-inset: var(--lx-glass-raised);
+  --surface-overlay: var(--lxs-sheet);
+  --code-bg: var(--lxs-code);
+  --text: var(--lx-ink);
+  --text-strong: var(--lx-ink);
+  --text-muted: var(--lx-ink-muted);
+  --text-dim: var(--lx-ink-muted);
+  --text-secondary: var(--lx-ink);
+  --text-code: var(--lx-ink);
+  --accent: var(--lx-ink);
+  --accent-text-on: var(--lx-pill-ink);
+  --accent-faint: var(--lx-glass);
+  --accent-bg: var(--lx-glass-raised);
+  --accent-border: var(--lx-glass-border);
+  --accent-mid: var(--look-accent);
+  --link: var(--lx-ink);
+  --border: var(--lx-hairline);
+  --border-subtle: var(--lx-hairline);
+  --border-strong: var(--lxs-line-strong);
+  --border-input: var(--lxs-line-strong);
+  --meter-track: var(--lx-track);
+  --gradient-meter: linear-gradient(var(--look-accent), var(--look-accent));
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 20px;
+  --radius-control: 999px;
+  --radius-card: 18px;
+  --status-good: var(--lx-good);
+  --status-good-text: var(--lx-good-text);
+  --status-good-bg: var(--lx-good-bg);
+  --status-good-border: transparent;
+  --status-warning: var(--lx-warning);
+  --status-warning-text: var(--lx-warning-text);
+  --status-warning-bg: var(--lx-warning-bg);
+  --status-warning-border: transparent;
+  --status-danger: var(--lx-danger);
+  --status-danger-text: var(--lx-danger-text);
+  --status-danger-bg: var(--lx-danger-bg);
+  --status-danger-border: transparent;
+  --status-neutral: var(--lx-ink-muted);
+  --status-neutral-text: var(--lx-ink);
+  --status-neutral-bg: var(--lx-glass-raised);
+  --status-neutral-border: transparent;
+  --status-unknown: var(--lx-ink-muted);
+  --status-unknown-text: var(--lx-ink);
+  --status-unknown-bg: transparent;
+  --status-unknown-border: var(--lx-ink-muted);
+  --risk-low: var(--lx-good);
+  --risk-low-text: var(--lx-good-text);
+  --risk-low-bg: var(--lx-good-bg);
+  --risk-low-border: transparent;
+  /* A fix's button is a pill, so its medium and high marks are drawn for the pill, as on Home. */
+  --risk-medium: var(--lx-pill-medium);
+  --risk-medium-text: var(--lx-warning-text);
+  --risk-medium-bg: var(--lx-warning-bg);
+  --risk-medium-border: transparent;
+  --risk-high: var(--lx-pill-high);
+  --risk-high-text: var(--lx-danger-text);
+  --risk-high-bg: var(--lx-danger-bg);
+  --risk-high-border: transparent;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-look="launcher"][data-shell="console"]:not([data-theme="light"]) {
+    --lxs-line-strong: rgba(255, 255, 255, 0.24);
+    --lxs-sheet: rgba(29, 46, 60, 0.95);
+    --lxs-code: rgba(0, 0, 0, 0.26);
+    --lxs-row-hover: rgba(255, 255, 255, 0.07);
+    color-scheme: dark;
+  }
+}
+:root[data-look="launcher"][data-shell="console"][data-theme="dark"] {
+  --lxs-line-strong: rgba(255, 255, 255, 0.24);
+  --lxs-sheet: rgba(29, 46, 60, 0.95);
+  --lxs-code: rgba(0, 0, 0, 0.26);
+  --lxs-row-hover: rgba(255, 255, 255, 0.07);
+  color-scheme: dark;
+}
+
+/* ── The wallpaper: Home's three glows over its two-colour base, fixed behind every page ── */
+:root[data-look="launcher"][data-shell="console"] body { background: linear-gradient(160deg, var(--wall-base-start), var(--wall-base-end)) fixed; }
+:root[data-look="launcher"][data-shell="console"] .app-shell {
+  position: relative;
+  isolation: isolate;
+  color: var(--lx-ink);
+  background: transparent;
+  font-family: var(--font-sans);
+}
+:root[data-look="launcher"][data-shell="console"] .app-shell::before {
+  position: fixed;
+  z-index: -1;
+  inset: 0;
+  height: auto;
+  background:
+    radial-gradient(62% 82% at 10% 6%, var(--wall-glow-sea), transparent 64%),
+    radial-gradient(50% 68% at 94% 8%, var(--wall-glow-sun), transparent 62%),
+    radial-gradient(70% 70% at 62% 108%, var(--wall-glow-deep), transparent 65%),
+    linear-gradient(160deg, var(--wall-base-start), var(--wall-base-end));
+  content: "";
+  pointer-events: none;
+}
+:root[data-look="launcher"][data-shell="console"] :is(button, a, input, select, textarea, summary, [tabindex]):focus-visible { outline: 2px solid var(--lx-focus); outline-offset: 2px; }
+:root[data-look="launcher"][data-shell="console"] ::selection { color: var(--lx-pill-ink); background: var(--lx-pill); }
+
+/* ── The bar, floating over the wallpaper as Home's: the server, Home / Ops, the search, the rest ── */
+:root[data-look="launcher"][data-shell="console"] .topbar {
+  position: relative;
+  min-height: 70px;
+  gap: 18px;
+  padding: 10px 32px;
+  border-bottom: 0;
+  background: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+:root[data-look="launcher"][data-shell="console"] .topbar-left { flex: 0 1 auto; gap: 18px; }
+/* The controls at the end keep their size; the server's facts give way first, then the search. */
+@media (min-width: 621px) {
+  :root[data-look="launcher"][data-shell="console"] .topbar-right { flex-shrink: 0; gap: 10px; }
+}
+:root[data-look="launcher"][data-shell="console"] .cc-crumb { align-items: baseline; gap: 8px; color: var(--lx-ink); }
+:root[data-look="launcher"][data-shell="console"] .cc-crumb .ui-crumb__mark { align-self: center; width: 11px; height: 11px; margin-right: 1px; }
+:root[data-look="launcher"][data-shell="console"] .cc-crumb[data-status="good"] .ui-crumb__mark { box-shadow: 0 0 0 3px color-mix(in srgb, var(--lx-good) 24%, transparent); }
+:root[data-look="launcher"][data-shell="console"] .cc-crumb__host { flex: none; color: var(--lx-ink); font-size: 18.5px; font-weight: 700; letter-spacing: -0.01em; }
+:root[data-look="launcher"][data-shell="console"] .cc-kv { flex: 0 1 auto; margin-left: 2px; color: var(--lx-ink-muted); font-family: var(--font-sans); font-size: 15.7px; font-weight: 500; }
+:root[data-look="launcher"][data-shell="console"] .cc-kv b { color: inherit; font-weight: inherit; }
+
+/* Home / Ops, the theme: glass segments, the one in use an ink pill. */
+:root[data-look="launcher"][data-shell="console"] :is(.view-switch, .ui-theme-switch) {
+  padding: 4px;
+  border: 1px solid var(--lx-glass-border);
+  border-radius: 999px;
+  background: var(--lx-glass);
+  -webkit-backdrop-filter: blur(var(--look-blur)) saturate(140%);
+  backdrop-filter: blur(var(--look-blur)) saturate(140%);
+}
+:root[data-look="launcher"][data-shell="console"] .view-switch__option { gap: 7px; min-height: 32px; padding: 0 16px; border: 0; border-radius: 999px; color: var(--lx-ink); font-family: var(--font-sans); font-size: 15.5px; font-weight: 600; }
+:root[data-look="launcher"][data-shell="console"] .view-switch__option svg { width: 17px; height: 17px; }
+:root[data-look="launcher"][data-shell="console"] .ui-theme-switch__option { border: 0; border-radius: 999px; color: var(--lx-ink-muted); }
+:root[data-look="launcher"][data-shell="console"] :is(.view-switch__option, .ui-theme-switch__option):hover { color: var(--lx-ink); }
+:root[data-look="launcher"][data-shell="console"] :is(.view-switch__option[aria-current="page"], .ui-theme-switch__option[aria-checked="true"]) {
+  color: var(--lx-pill-ink);
+  background: var(--lx-pill);
+  box-shadow: none;
+}
+
+/* The search: a glass pill. */
+:root[data-look="launcher"][data-shell="console"] .command-trigger {
+  flex: 0 1 374px;
+  max-width: 374px;
+  min-height: 38px;
+  padding: 0 10px 0 16px;
+  border: 1px solid var(--lx-glass-border);
+  border-radius: 999px;
+  color: var(--lx-ink-muted);
+  background: var(--lx-glass-raised);
+  font-family: var(--font-sans);
+  font-size: 15.5px;
+  -webkit-backdrop-filter: blur(var(--look-blur)) saturate(140%);
+  backdrop-filter: blur(var(--look-blur)) saturate(140%);
+}
+:root[data-look="launcher"][data-shell="console"] .command-trigger:hover { border-color: var(--lx-glass-border); color: var(--lx-ink); }
+:root[data-look="launcher"][data-shell="console"] .command-trigger__keys { padding: 1px 6px; border: 1px solid currentColor; border-radius: 6px; color: var(--lx-ink-muted); background: transparent; font-size: 12px; }
+:root[data-look="launcher"][data-shell="console"] .connection-pill { border-color: transparent; border-radius: 999px; color: var(--lx-ink); background: var(--lx-glass-raised); font-family: var(--font-sans); }
+:root[data-look="launcher"][data-shell="console"] .connection-pill::before { background: var(--lx-good); }
+
+/* The bell, Activity, the person and Sign out, as Home's bar has them. */
+:root[data-look="launcher"][data-shell="console"] .bar-badge { color: var(--lx-pill-ink); background: var(--lx-pill); }
+:root[data-look="launcher"][data-shell="console"] .bar-label { border-color: var(--lx-glass-border); border-radius: 999px; background: var(--lx-glass); }
+:root[data-look="launcher"][data-shell="console"] .signed-in-user { flex: none; color: var(--lx-ink); font-family: var(--font-sans); font-size: 12px; }
+
+/* ── The page: the name large, the verdict and a sentence under it, the page's actions at the right ── */
+:root[data-look="launcher"][data-shell="console"] .content { width: 100%; max-width: none; padding: 7px 32px calc(var(--shell-bottom-inset, 0px) + 130px); }
+:root[data-look="launcher"][data-shell="console"] .content--console { gap: 19px; }
+:root[data-look="launcher"][data-shell="console"] .ui-page-header--titled {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 7px 20px;
+}
+:root[data-look="launcher"][data-shell="console"] .ui-page-header__title {
+  grid-column: 1;
+  margin: 0;
+  color: var(--lx-ink);
+  font-family: var(--font-display);
+  font-size: 56px;
+  font-weight: 800;
+  letter-spacing: -0.025em;
+  line-height: 1.02;
+  overflow-wrap: anywhere;
+}
+:root[data-look="launcher"][data-shell="console"] .ui-page-header--titled .ui-page-header__facts { grid-column: 1; gap: 6px 12px; }
+:root[data-look="launcher"][data-shell="console"] .ui-page-header--titled .ui-page-header__actions { grid-column: 2; grid-row: 1 / span 2; align-self: center; margin: 0; }
+:root[data-look="launcher"][data-shell="console"] .ui-page-header--titled .ui-page-header__about { grid-column: 1 / -1; }
+:root[data-look="launcher"][data-shell="console"] .ui-page-header__summary { color: var(--lx-ink); font-size: 18px; line-height: 1.35; }
+:root[data-look="launcher"][data-shell="console"] .ui-page-header__meta { color: var(--lx-ink); font-family: var(--font-sans); font-size: 17px; line-height: 1.4; }
+:root[data-look="launcher"][data-shell="console"] .ui-page-header__meta b { color: var(--lx-ink); font-weight: 700; }
+:root[data-look="launcher"][data-shell="console"] .ui-page-header__verdict.ui-chip { padding: 4px 9px; font-size: 13px; }
+:root[data-look="launcher"][data-shell="console"] .ui-page-header__about { border-left-color: var(--lx-glass-border); border-radius: 0 14px 14px 0; color: var(--lx-ink); background: var(--lx-glass); font-size: 14.5px; }
+:root[data-look="launcher"][data-shell="console"] .ui-info-toggle { width: 32px; height: 32px; border: 1px solid var(--lx-glass-border); border-radius: 50%; color: var(--lx-ink); background: var(--lx-glass-raised); }
+:root[data-look="launcher"][data-shell="console"] .ui-info-toggle:is(:hover, [aria-expanded="true"]) { color: var(--lx-pill-ink); background: var(--lx-pill); }
+
+/* ── Glass: panels, figures, notices and cards ── */
+:root[data-look="launcher"][data-shell="console"] :is(.ui-panel, .ui-card, .ui-kv--strip, .ui-job) {
+  border: 1px solid var(--lx-glass-border);
+  border-radius: 20px;
+  background: var(--lx-glass);
+  box-shadow: var(--lx-shadow);
+  -webkit-backdrop-filter: blur(var(--look-blur)) saturate(140%);
+  backdrop-filter: blur(var(--look-blur)) saturate(140%);
+}
+:root[data-look="launcher"][data-shell="console"] .ui-panel .ui-panel { box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
+:root[data-look="launcher"][data-shell="console"] .ui-panel__head { gap: 4px 12px; min-height: 48px; padding: 14px 19px 6px; border-bottom: 1px solid var(--lx-hairline); }
+:root[data-look="launcher"][data-shell="console"] .ui-panel__title { gap: 9px; color: var(--lx-ink-muted); font-family: var(--font-sans); font-size: 12.5px; font-weight: 700; letter-spacing: 0.1em; }
+:root[data-look="launcher"][data-shell="console"] .ui-panel__count { color: var(--lx-ink); }
+:root[data-look="launcher"][data-shell="console"] .ui-panel__meta { color: var(--lx-ink-muted); font-family: var(--font-sans); font-size: 13px; }
+:root[data-look="launcher"][data-shell="console"] .ui-panel__meta b { color: var(--lx-ink); font-weight: 700; }
+:root[data-look="launcher"][data-shell="console"] .ui-panel--padded > .ui-panel__body { gap: 12px; padding: 14px 19px 18px; }
+:root[data-look="launcher"][data-shell="console"] .ui-panel__foot { padding: 10px 19px 12px; border-top-color: var(--lx-hairline); color: var(--lx-ink-muted); font-family: var(--font-sans); font-size: 13px; }
+:root[data-look="launcher"][data-shell="console"] .ops-quiet { padding: 14px 19px; color: var(--lx-ink-muted); font-size: 14.5px; }
+
+/* A figure: its name in small capitals, the number in mono, a thick bar in the accent. */
+:root[data-look="launcher"][data-shell="console"] .ui-metric {
+  gap: 4px;
+  padding: 14px 17px 14px;
+  border: 1px solid var(--lx-glass-border);
+  border-radius: 18px;
+  background: var(--lx-glass);
+  box-shadow: var(--lx-shadow);
+  -webkit-backdrop-filter: blur(var(--look-blur)) saturate(140%);
+  backdrop-filter: blur(var(--look-blur)) saturate(140%);
+}
+:root[data-look="launcher"][data-shell="console"] .ui-metric--link:hover { background: var(--lx-glass-raised); box-shadow: var(--lx-shadow); }
+:root[data-look="launcher"][data-shell="console"] .ui-metric__label { color: var(--lx-ink-muted); font-family: var(--font-sans); font-size: 12px; font-weight: 700; letter-spacing: 0.08em; }
+:root[data-look="launcher"][data-shell="console"] .ui-metric__value { color: var(--lx-ink); font-family: var(--font-mono); font-weight: 700; letter-spacing: -0.02em; }
+:root[data-look="launcher"][data-shell="console"] .ui-metric[data-status="warning"] .ui-metric__value { color: var(--lx-warning-text); }
+:root[data-look="launcher"][data-shell="console"] .ui-metric[data-status="danger"] .ui-metric__value { color: var(--lx-danger-text); }
+:root[data-look="launcher"][data-shell="console"] .ui-metric__value small { color: var(--lx-ink-muted); }
+:root[data-look="launcher"][data-shell="console"] .ui-metric__caption { color: var(--lx-ink-muted); font-size: 13px; }
+:root[data-look="launcher"][data-shell="console"] .ui-metric__bar { height: 7px; border-radius: 999px; background: var(--lx-track); }
+:root[data-look="launcher"][data-shell="console"] .ui-metric__bar > i,
+:root[data-look="launcher"][data-shell="console"] .ui-metric[data-status="good"] .ui-metric__bar > i { border-radius: 999px; background: var(--look-accent); }
+:root[data-look="launcher"][data-shell="console"] .ui-metric[data-status="warning"] .ui-metric__bar > i { background: var(--lx-warning); }
+:root[data-look="launcher"][data-shell="console"] .ui-metric[data-status="danger"] .ui-metric__bar > i { background: var(--lx-danger); }
+:root[data-look="launcher"][data-shell="console"] .ui-spark__line { stroke: var(--look-accent); stroke-width: 2; }
+:root[data-look="launcher"][data-shell="console"] .ui-spark__area { fill: color-mix(in srgb, var(--look-accent) 14%, transparent); }
+:root[data-look="launcher"][data-shell="console"] .ui-kv--strip .ui-kv__item { border-right-color: var(--lx-hairline); box-shadow: none; }
+:root[data-look="launcher"][data-shell="console"] :is(.ui-kv--columns, .ui-kv--strip) .ui-kv__label { font-family: var(--font-sans); font-weight: 700; }
+
+/* A notice: a glass card, its status in its mark and its words rather than a coloured edge. */
+:root[data-look="launcher"][data-shell="console"] .ui-notice {
+  padding: 13px 17px;
+  border: 1px solid var(--lx-glass-border);
+  border-radius: 18px;
+  background: var(--lx-glass);
+  box-shadow: var(--lx-shadow);
+  -webkit-backdrop-filter: blur(var(--look-blur)) saturate(140%);
+  backdrop-filter: blur(var(--look-blur)) saturate(140%);
+}
+:root[data-look="launcher"][data-shell="console"] .ui-notice:is(.ui-notice--success, .ui-notice--warning, .ui-notice--danger) { border-color: var(--lx-glass-border); background: var(--lx-glass); }
+:root[data-look="launcher"][data-shell="console"] .ui-notice__mark { width: 10px; height: 10px; margin-top: 5px; }
+:root[data-look="launcher"][data-shell="console"] .ui-notice__title { font-size: 15px; }
+:root[data-look="launcher"][data-shell="console"] .ui-notice__text { color: var(--lx-ink-muted); font-size: 14px; }
+
+/* The pages' own boxes (a toolbar, a card, a step, a preview) take the glass's rounder corners. */
+:root[data-look="launcher"][data-shell="console"] :is(.catalog-card, .vms-live, .vms-blocked, .settings-device, .settings-report, .settings-choice, .automations-card, .automations-step, .rp-note, .rp-run, .push-panel, .jobs-steps, .approve-preview, .approve-staged, .approve-once) { border-radius: 14px; }
+:root[data-look="launcher"][data-shell="console"] .catalog-toolbar {
+  padding: 8px 10px;
+  border: 1px solid var(--lx-glass-border);
+  border-radius: 20px;
+  background: var(--lx-glass);
+  -webkit-backdrop-filter: blur(var(--look-blur)) saturate(140%);
+  backdrop-filter: blur(var(--look-blur)) saturate(140%);
+}
+:root[data-look="launcher"][data-shell="console"] .catalog-tile { border-radius: 16px; }
+
+/* ── Controls: pills, glass tabs and segments, glass fields, round switches ── */
+:root[data-look="launcher"][data-shell="console"] .ui-button,
+:root[data-look="launcher"][data-shell="console"] a.ui-button {
+  min-height: 32px;
+  padding: 0 15px;
+  border: 0;
+  border-radius: 999px;
+  color: var(--lx-pill-ink);
+  background: var(--lx-pill);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 600;
+}
+:root[data-look="launcher"][data-shell="console"] .ui-button:hover:not(:disabled) { border-color: transparent; background: var(--lx-pill-hover); }
+:root[data-look="launcher"][data-shell="console"] :is(.ui-button--risk-medium, .ui-button--risk-high) { padding-left: 22px; }
+:root[data-look="launcher"][data-shell="console"] :is(.ui-button--risk-medium, .ui-button--risk-high)::before { left: 10px; width: 3.5px; }
+:root[data-look="launcher"][data-shell="console"] .ui-button--primary.ui-button--risk-medium::before { background: var(--risk-medium); }
+:root[data-look="launcher"][data-shell="console"] .ui-button--primary.ui-button--risk-high::before { background: var(--risk-high); }
+:root[data-look="launcher"][data-shell="console"] :is(.ui-button__lock, .ui-button .ui-button__tier, .ui-button--primary .ui-button__tier) { border-color: var(--lx-pill-high); color: var(--lx-pill-high); background: transparent; }
+:root[data-look="launcher"][data-shell="console"] .ui-button--ghost {
+  border: 1px solid var(--lx-glass-border);
+  color: var(--lx-ink);
+  background: var(--lx-glass-raised);
+  -webkit-backdrop-filter: blur(var(--look-blur));
+  backdrop-filter: blur(var(--look-blur));
+}
+:root[data-look="launcher"][data-shell="console"] .ui-button--ghost:hover:not(:disabled) { border-color: var(--lx-glass-border); background: var(--lx-glass-raised); text-decoration: underline; }
+:root[data-look="launcher"][data-shell="console"] .ui-page-header .ui-button { min-height: 32px; padding-inline: 14px; font-size: 14.5px; }
+:root[data-look="launcher"][data-shell="console"] .storage-actions .ui-button { min-height: 28px; padding-inline: 12px; font-size: 13px; }
+:root[data-look="launcher"][data-shell="console"] .storage-actions :is(.ui-button--risk-medium, .ui-button--risk-high) { padding-left: 19px; }
+:root[data-look="launcher"][data-shell="console"] .storage-actions :is(.ui-button--risk-medium, .ui-button--risk-high)::before { left: 8px; }
+
+/* Chips and tier tags: Home's soft fills, no edge. */
+:root[data-look="launcher"][data-shell="console"] .ui-chip { padding: 2px 8px; border: 0; border-radius: 8px; font-family: var(--font-sans); font-size: 12.5px; font-weight: 700; }
+:root[data-look="launcher"][data-shell="console"] .ui-risk { padding: 2px 6px; border: 0; border-radius: 5px; font-family: var(--font-mono); font-size: 11px; font-weight: 700; letter-spacing: 0.06em; }
+:root[data-look="launcher"][data-shell="console"] .ui-tag { border-radius: 6px; color: var(--lx-ink-muted); background: var(--lx-glass-raised); }
+:root[data-look="launcher"][data-shell="console"] .ui-tag--tier { border: 0; }
+:root[data-look="launcher"][data-shell="console"] .cc-tag { border-radius: 6px; }
+
+/* Tabs: a glass bar of pills, the open one ink. */
+:root[data-look="launcher"][data-shell="console"] .ui-tabs__list {
+  width: fit-content;
+  max-width: 100%;
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid var(--lx-glass-border);
+  border-radius: 999px;
+  background: var(--lx-glass);
+  -webkit-backdrop-filter: blur(var(--look-blur)) saturate(140%);
+  backdrop-filter: blur(var(--look-blur)) saturate(140%);
+  scrollbar-width: none;
+}
+:root[data-look="launcher"][data-shell="console"] .ui-tabs__tab { min-height: 34px; margin: 0; padding: 0 16px; border: 0; border-radius: 999px; color: var(--lx-ink-muted); font-family: var(--font-sans); font-size: 14.5px; font-weight: 600; }
+:root[data-look="launcher"][data-shell="console"] .ui-tabs__tab:hover { color: var(--lx-ink); background: var(--lx-glass-raised); }
+:root[data-look="launcher"][data-shell="console"] .ui-tabs__tab[aria-selected="true"] { color: var(--lx-pill-ink); background: var(--lx-pill); }
+:root[data-look="launcher"][data-shell="console"] .ui-tabs__count { color: inherit; font-size: 12px; opacity: 0.75; }
+:root[data-look="launcher"][data-shell="console"] .ui-tabs__tab[aria-selected="true"] .ui-tabs__count { color: inherit; }
+:root[data-look="launcher"][data-shell="console"] .ui-tabs__panel { gap: 16px; }
+
+/* Segmented: the same glass pills. */
+:root[data-look="launcher"][data-shell="console"] .ui-segmented { padding: 3px; border: 1px solid var(--lx-glass-border); border-radius: 999px; background: var(--lx-glass); }
+:root[data-look="launcher"][data-shell="console"] .ui-segmented__option { min-height: 30px; padding: 0 13px; border-radius: 999px; color: var(--lx-ink-muted); font-family: var(--font-sans); font-size: 13.5px; }
+:root[data-look="launcher"][data-shell="console"] .ui-segmented__option[aria-checked="true"] { color: var(--lx-pill-ink); background: var(--lx-pill); box-shadow: none; }
+
+/* Fields: glass, rounded; the search a pill. */
+:root[data-look="launcher"][data-shell="console"] :is(.ui-input, .ui-textarea, .ui-select__control) {
+  min-height: 36px;
+  padding: 0 13px;
+  border: 1px solid var(--lxs-line-strong);
+  border-radius: 12px;
+  color: var(--lx-ink);
+  background: var(--lx-glass-raised);
+  font-family: var(--font-sans);
+  font-size: 14.5px;
+}
+:root[data-look="launcher"][data-shell="console"] .ui-textarea { padding: 9px 13px; }
+:root[data-look="launcher"][data-shell="console"] .ui-input--mono { font-family: var(--font-mono); font-size: 13.5px; }
+:root[data-look="launcher"][data-shell="console"] .ui-select__control { padding-right: 32px; }
+:root[data-look="launcher"][data-shell="console"] :is(.ui-input, .ui-textarea, .ui-select__control):focus-visible { border-color: var(--lx-focus); outline: 2px solid var(--lx-focus); outline-offset: 0; }
+:root[data-look="launcher"][data-shell="console"] .ui-search .ui-search__input { padding-right: 34px; padding-left: 38px; border-radius: 999px; }
+:root[data-look="launcher"][data-shell="console"] .ui-search__icon { left: 14px; color: var(--lx-ink-muted); }
+:root[data-look="launcher"][data-shell="console"] .ui-search__clear { right: 6px; border-radius: 50%; }
+:root[data-look="launcher"][data-shell="console"] .ui-secret .ui-input { border-radius: 12px 0 0 12px; }
+:root[data-look="launcher"][data-shell="console"] .ui-secret__toggle { border-color: var(--lxs-line-strong); border-radius: 0 12px 12px 0; color: var(--lx-ink); background: var(--lx-glass-raised); }
+:root[data-look="launcher"][data-shell="console"] .ui-field__label { font-family: var(--font-sans); font-size: 14px; }
+
+/* Switches: round, green when on, as the drawing's; the word stays beside it. */
+:root[data-look="launcher"][data-shell="console"] .ui-switch__track { width: 44px; height: 25px; border: 0; background: var(--lx-track); }
+:root[data-look="launcher"][data-shell="console"] .ui-switch__thumb { top: 3px; left: 3px; width: 19px; height: 19px; background: #ffffff; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3); }
+:root[data-look="launcher"][data-shell="console"] .ui-switch__control[aria-checked="true"] .ui-switch__track { background: var(--lx-good); }
+:root[data-look="launcher"][data-shell="console"] .ui-switch__control[aria-checked="true"] .ui-switch__thumb { background: #ffffff; transform: translateX(19px); }
+:root[data-look="launcher"][data-shell="console"] .ui-switch__state { color: var(--lx-ink-muted); font-family: var(--font-sans); font-size: 12px; }
+:root[data-look="launcher"][data-shell="console"] .ui-switch__label { font-size: 14.5px; }
+:root[data-look="launcher"][data-shell="console"] .ui-check__mark { border-radius: 5px; background: var(--lx-glass-raised); }
+
+/* ── Tables inside the glass: words in Figtree, figures and paths in mono ── */
+:root[data-look="launcher"][data-shell="console"] .ui-table { font-size: 14px; }
+:root[data-look="launcher"][data-shell="console"] .ui-table th { height: 36px; padding: 0 10px; border-bottom-color: var(--lx-hairline); color: var(--lx-ink-muted); background: transparent; font-family: var(--font-sans); font-size: 11.5px; font-weight: 700; letter-spacing: 0.08em; }
+:root[data-look="launcher"][data-shell="console"] .ui-table td { height: 42px; padding: 0 10px; border-bottom-color: var(--lx-hairline); color: var(--lx-ink); font-family: var(--font-sans); font-size: 14px; }
+:root[data-look="launcher"][data-shell="console"] .ui-table td.ui-table__num { font-family: var(--font-mono); font-size: 13px; }
+:root[data-look="launcher"][data-shell="console"] .ui-table :is(th, td):first-child { padding-left: 19px; }
+:root[data-look="launcher"][data-shell="console"] .ui-table :is(th, td):last-child { padding-right: 19px; }
+:root[data-look="launcher"][data-shell="console"] .ui-table tbody tr:hover td { background: var(--lxs-row-hover); }
+:root[data-look="launcher"][data-shell="console"] .ui-table .ops-link { color: var(--lx-ink); font-weight: 600; }
+:root[data-look="launcher"][data-shell="console"] .ui-table .ui-chip { padding: 0; border: 0; background: none; font-family: var(--font-sans); font-size: 13.5px; font-weight: 600; }
+:root[data-look="launcher"][data-shell="console"] .ui-table .ui-table__empty { font-family: var(--font-sans); }
+:root[data-look="launcher"][data-shell="console"] .ui-table__caption { color: var(--lx-ink-muted); font-family: var(--font-sans); }
+:root[data-look="launcher"][data-shell="console"] .ui-table__sort:hover { color: var(--lx-ink); }
+:root[data-look="launcher"][data-shell="console"] .ui-table th:is([aria-sort="ascending"], [aria-sort="descending"]) { color: var(--lx-ink); }
+
+/* ── What needs you, on a page: Home's rows, the mark and the words, the fix a pill ── */
+:root[data-look="launcher"][data-shell="console"] .need { gap: 8px 12px; padding: 12px 19px; border-top-color: var(--lx-hairline); box-shadow: none; }
+:root[data-look="launcher"][data-shell="console"] .need:first-child { padding-top: 12px; }
+:root[data-look="launcher"][data-shell="console"] .need[data-severity="neutral"] { box-shadow: none; }
+:root[data-look="launcher"][data-shell="console"] .need__title { color: var(--lx-ink); font-size: 15px; font-weight: 600; }
+:root[data-look="launcher"][data-shell="console"] .need__detail { color: var(--lx-ink-muted); font-size: 13px; }
+
+/* ── The dock: Home's floating glass bar at the bottom, each area on a glass well, the page in use ink ── */
+:root[data-look="launcher"][data-shell="console"] .shell-dock { bottom: calc(var(--shell-bottom-inset, 0px) + 17px + env(safe-area-inset-bottom, 0px)); }
+:root[data-look="launcher"][data-shell="console"] .ui-dock.shell-dock ul {
+  gap: 2px;
+  padding: 8px 11px;
+  border: 1px solid var(--lx-glass-border);
+  border-radius: 22px;
+  background: var(--lx-glass);
+  box-shadow: var(--lx-shadow);
+  -webkit-backdrop-filter: blur(var(--look-blur)) saturate(140%);
+  backdrop-filter: blur(var(--look-blur)) saturate(140%);
+}
+:root[data-look="launcher"][data-shell="console"] .shell-dock .ui-dock__item { width: 60px; gap: 4px; padding: 4px 0; border-radius: 14px; }
+:root[data-look="launcher"][data-shell="console"] .shell-dock .ui-dock__icon { width: 43px; height: 43px; border: 0; border-radius: 13px; color: var(--lx-ink); background: var(--lx-glass-raised); }
+:root[data-look="launcher"][data-shell="console"] .shell-dock .ui-dock__icon svg { width: 22px; height: 22px; }
+:root[data-look="launcher"][data-shell="console"] .shell-dock .ui-dock__label { color: var(--lx-ink); font-family: var(--font-sans); font-size: 10.5px; font-weight: 600; }
+:root[data-look="launcher"][data-shell="console"] .shell-dock .ui-dock__item:hover .ui-dock__icon,
+:root[data-look="launcher"][data-shell="console"] .shell-dock .ui-dock__item[aria-current="page"] .ui-dock__icon { border-color: transparent; color: var(--lx-pill-ink); background: var(--lx-pill); }
+:root[data-look="launcher"][data-shell="console"] .shell-dock .ui-dock__separator { align-self: stretch; width: 1px; margin: 6px 5px; background: var(--lx-hairline); }
+:root[data-look="launcher"][data-shell="console"] .ui-dock__badge { top: -6px; right: -7px; color: var(--lx-pill-ink); background: var(--lx-pill); box-shadow: 0 0 0 2px var(--lx-badge-ring); font-family: var(--font-sans); }
+
+/* ── What opens over a page: the approval dialog, Activity, the notifications, the command bar ── */
+:root[data-look="launcher"][data-shell="console"] :is(.look-console, .ui-sheet, .approve-dialog, .command-dialog) {
+  --cc-panel: var(--lxs-sheet);
+  --cc-raised: var(--lx-glass-raised);
+  --cc-inset: var(--lx-glass-raised);
+  --surface: var(--lxs-sheet);
+  --surface-header: transparent;
+}
+:root[data-look="launcher"][data-shell="console"] :is(.ui-sheet, .approve-dialog, .command-dialog) {
+  border: 1px solid var(--lx-glass-border);
+  color: var(--lx-ink);
+  background: var(--lxs-sheet);
+  box-shadow: 0 24px 60px rgba(20, 30, 45, 0.3);
+  -webkit-backdrop-filter: blur(24px) saturate(140%);
+  backdrop-filter: blur(24px) saturate(140%);
+}
+:root[data-look="launcher"][data-shell="console"] :is(.ui-sheet--center, .approve-dialog, .command-dialog) { border-radius: 22px; }
+:root[data-look="launcher"][data-shell="console"] .ui-sheet--right { border-radius: 22px 0 0 22px; }
+:root[data-look="launcher"][data-shell="console"] :is(.ui-sheet__head, .ui-sheet__foot) { border-color: var(--lx-hairline); }
+:root[data-look="launcher"][data-shell="console"] .ui-sheet__title { font-family: var(--font-sans); font-size: 20px; font-weight: 800; letter-spacing: -0.01em; }
+:root[data-look="launcher"][data-shell="console"] .ui-sheet__kicker { font-family: var(--font-sans); font-weight: 700; }
+:root[data-look="launcher"][data-shell="console"] .ui-sheet__close { border-color: var(--lx-glass-border); border-radius: 50%; color: var(--lx-ink); background: var(--lx-glass-raised); }
+:root[data-look="launcher"][data-shell="console"] .approve-title { font-family: var(--font-sans); font-weight: 800; }
+:root[data-look="launcher"][data-shell="console"] .command-input input { font-family: var(--font-sans); }
+:root[data-look="launcher"][data-shell="console"] .ui-code { border-color: var(--lx-hairline); border-radius: 14px; }
+:root[data-look="launcher"][data-shell="console"] .ui-code__bar { background: transparent; }
+:root[data-look="launcher"][data-shell="console"] .ui-empty__icon { border-radius: 12px; }
+
+/* The areas sheet from the dock's More: the dock's wells, in a grid. */
+:root[data-look="launcher"][data-shell="console"] .areas-sheet .ui-dock__icon { width: 48px; height: 48px; border: 0; border-radius: 14px; color: var(--lx-ink); background: var(--lx-glass-raised); }
+:root[data-look="launcher"][data-shell="console"] .areas-sheet .ui-dock__item[aria-current="page"] .ui-dock__icon { color: var(--lx-pill-ink); background: var(--lx-pill); }
+:root[data-look="launcher"][data-shell="console"] .areas-sheet .ui-dock__label { color: var(--lx-ink); font-family: var(--font-sans); font-size: 12.5px; }
+
+/* Glass needs a backdrop filter to be glass; without one, and for less transparency, it is solid. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root[data-look="launcher"][data-shell="console"] { --lx-glass: var(--lx-glass-solid); --lx-glass-raised: var(--lx-glass-solid); }
+}
+@media (prefers-reduced-transparency: reduce) {
+  :root[data-look="launcher"][data-shell="console"] { --lx-glass: var(--lx-glass-solid); --lx-glass-raised: var(--lx-glass-solid); --look-blur: 0px; }
+}
+
+/* ── Narrower screens ── */
+@media (max-width: 1100px) {
+  :root[data-look="launcher"][data-shell="console"] .cc-kv { display: none; }
+  :root[data-look="launcher"][data-shell="console"] .ui-page-header__title { font-size: 46px; }
+}
+
+/* A phone: the bar wraps under the server's name, the page name smaller, the dock holds the everyday areas. */
+@media (max-width: 760px) {
+  :root[data-look="launcher"][data-shell="console"] .topbar { min-height: 0; gap: 10px; padding: 10px 16px; }
+  :root[data-look="launcher"][data-shell="console"] .content { padding: 4px 16px calc(var(--shell-bottom-inset, 0px) + 116px); }
+  :root[data-look="launcher"][data-shell="console"] .content--console { gap: 14px; }
+  :root[data-look="launcher"][data-shell="console"] .ui-page-header--titled { grid-template-columns: minmax(0, 1fr); }
+  :root[data-look="launcher"][data-shell="console"] .ui-page-header--titled .ui-page-header__actions { grid-column: 1; grid-row: auto; justify-content: flex-start; }
+  :root[data-look="launcher"][data-shell="console"] .ui-page-header__title { font-size: 38px; }
+  :root[data-look="launcher"][data-shell="console"] .ui-page-header__meta { font-size: 15px; }
+  :root[data-look="launcher"][data-shell="console"] .ui-dock.shell-dock ul { padding: 6px 8px; border-color: var(--lx-glass-border); border-radius: 20px; background: var(--lx-glass); box-shadow: var(--lx-shadow); }
+  :root[data-look="launcher"][data-shell="console"] .shell-dock .ui-dock__item { width: 58px; }
+  :root[data-look="launcher"][data-shell="console"] .shell-dock .ui-dock__item[aria-current="page"] .ui-dock__icon { color: var(--lx-pill-ink); background: var(--lx-pill); }
+  :root[data-look="launcher"][data-shell="console"] .ui-dock__badge { color: var(--lx-pill-ink); background: var(--lx-pill); box-shadow: 0 0 0 2px var(--lx-badge-ring); }
+  :root[data-look="launcher"][data-shell="console"] .ui-tabs__list { width: auto; }
+}
+
+/* A table stacked on a phone keeps the stacked rows' own spacing. */
+@media (max-width: 640px) {
+  :root[data-look="launcher"][data-shell="console"] .ui-table.ui-table--stack td { height: auto; padding: 3px 16px; }
+  :root[data-look="launcher"][data-shell="console"] .ui-table.ui-table--stack tr { padding: 8px 0; }
+}
+
+@media (max-width: 620px) {
+  :root[data-look="launcher"][data-shell="console"] .command-trigger { flex: 0 0 38px; width: 38px; min-width: 38px; padding: 0; }
+  :root[data-look="launcher"][data-shell="console"] .topbar-left { flex: 1 1 100%; }
+  :root[data-look="launcher"][data-shell="console"] .cc-crumb__host { font-size: 17px; }
+}
+
+@media (pointer: coarse) {
+  :root[data-look="launcher"][data-shell="console"] :is(.ui-button, .view-switch__option, .ui-tabs__tab, .ui-segmented__option) { min-height: 44px; }
+  :root[data-look="launcher"][data-shell="console"] .command-trigger { min-height: 44px; }
+}
