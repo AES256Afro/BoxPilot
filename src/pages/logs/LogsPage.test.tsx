@@ -48,6 +48,14 @@ describe("Logs page", () => {
     fireEvent.click(open);
     expect(await screen.findByText("line from docker.service")).toBeTruthy();
     expect(reads.at(-1)).toMatchObject({ kind: "unit", target: "docker.service" });
+    // Part of a name opens the unit it matches, and the button says which, as Enter would;
+    // a name nothing matches says so rather than leaving the button greyed out.
+    const find = screen.getByRole("combobox", { name: "Find a unit" });
+    fireEvent.change(find, { target: { value: "dock" } });
+    expect(screen.getByRole("button", { name: "Open docker.service" })).toBeTruthy();
+    fireEvent.change(find, { target: { value: "nginx" } });
+    expect((screen.getByRole("button", { name: "Open unit" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText("No unit has “nginx” in its name.")).toBeTruthy();
   });
 
   it("follows a container from its newest line's UTC time, keeping the zone", async () => {
