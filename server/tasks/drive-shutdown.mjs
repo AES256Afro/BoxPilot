@@ -240,15 +240,22 @@ export const rebootPreparationBudgetMs = 150_000;
  *
  * Every wait is bounded and the whole is bounded by `budgetMs`: this is the belt, the reboot that
  * follows is the braces, and nothing here may keep the server from rebooting.
+ *
+ * The UPS's shutdown on a low battery (M39.1) runs the same steps with `allContainers` and
+ * `occasion: "shutdown"`: every app is stopped the way a shutdown stops it, not only those on a
+ * drive, because the power is about to go and a database on the system disk is as much at risk
+ * as one on a drive; and the log says "the shutdown" rather than "the reboot".
  */
 export async function prepareDrivesForReboot(_parameters = {}, {
   run = fixedRun, log = null, files = { readFile }, host = hostView,
   sleep = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); }),
   clock = () => Date.now(), budgetMs = rebootPreparationBudgetMs,
+  allContainers = false, occasion = "reboot",
 } = {}) {
   const deadline = clock() + budgetMs;
   const left = (cap) => Math.max(1_000, Math.min(cap, deadline - clock()));
   const outOfTime = () => clock() >= deadline;
+  const the = occasion === "shutdown" ? "the shutdown" : "the reboot";
   const content = await files.readFile(fstabPath, "utf8").catch(() => "");
   const drives = [];
   for (const entry of managedDriveEntries(content).filter((candidate) => candidate.drive)) {
@@ -259,8 +266,8 @@ export async function prepareDrivesForReboot(_parameters = {}, {
   const mounted = drives.filter((drive) => drive.mounted);
   const summary = { drives, containers: { stopped: [], signalled: [], killed: [], stillRunning: [] }, dockerStopped: false };
   if (mounted.length === 0) {
-    log?.(drives.length ? "No BoxPilot drive is mounted; nothing to unmount before the reboot" : "BoxPilot manages no drives here; nothing to unmount before the reboot", "stdout");
-    return summary;
+    log?.(drives.length ? `No BoxPilot drive is mounted; nothing to unmount before ${the}` : `BoxPilot manages no drives here; nothing to unmount before ${the}`, "stdout");
+    if (!allContainers) return summary;
   }
 
   // 1. The containers using the drives, and Docker.
@@ -272,9 +279,9 @@ export async function prepareDrivesForReboot(_parameters = {}, {
     if (inspected.ok) containers = parseContainers(inspected.stdout);
     else log?.(`Could not read the running containers, so none was stopped: ${tail(inspected.stderr)}`, "stderr");
   }
-  const bound = containers.filter((container) => container.sources.some((source) => mounted.some((drive) => under(source, drive.mountpoint))));
+  const bound = allContainers ? containers : containers.filter((container) => container.sources.some((source) => mounted.some((drive) => under(source, drive.mountpoint))));
   if (bound.length) {
-    log?.(`Stopping Docker so ${bound.map((container) => container.name).join(", ")} stop the way they do at shutdown; their restart policies start them again after the reboot`, "stdout");
+    log?.(`Stopping Docker so ${bound.map((container) => container.name).join(", ")} stop the way they do at shutdown; their restart policies start them again ${occasion === "shutdown" ? "when the server starts" : "after the reboot"}`, "stdout");
     const stopped = await run(binaries.systemctl, ["stop", "docker.socket", "docker.service"], { timeout: left(90_000) });
     summary.dockerStopped = stopped.ok;
     if (!stopped.ok) log?.(`Docker did not stop: ${tail(stopped.stderr)}`, "stderr");
@@ -308,7 +315,7 @@ export async function prepareDrivesForReboot(_parameters = {}, {
   }
 
   // 2. Everything written so far, on the drives.
-  if (!outOfTime()) {
+  if (!outOfTime() && (mounted.length || allContainers)) {
     log?.("$ sync", "stdout");
     const synced = await run(binaries.sync, [], { timeout: left(60_000) });
     if (!synced.ok) log?.(`sync did not finish: ${tail(synced.stderr)}`, "stderr");
@@ -317,13 +324,13 @@ export async function prepareDrivesForReboot(_parameters = {}, {
   // 3. Each drive, unmounted in the host's namespace (file-sharing clients let go of it first
   // when they are what holds it), and whether it really let go.
   for (const drive of mounted) {
-    if (outOfTime()) { drive.state = "out-of-time"; log?.(`Out of time before ${drive.mountpoint}; the reboot unmounts it`, "stderr"); continue; }
+    if (outOfTime()) { drive.state = "out-of-time"; log?.(`Out of time before ${drive.mountpoint}; ${the} unmounts it`, "stderr"); continue; }
     const unmounted = await unmountFromHost(drive.mountpoint, { run, log, files, sleep, tries: outOfTime() ? 1 : 30 });
     const still = await run(binaries.findmnt, ["--task", "1", "-n", "--mountpoint", drive.mountpoint], { timeout: 15_000 });
     if (still.ok && still.stdout.trim()) {
       drive.state = "busy";
       drive.holders = drive.majMin ? await host.processesUsing(drive.majMin) : [];
-      log?.(`${drive.mountpoint} did not unmount (${tail(unmounted.result?.stderr).replace(/\.+$/, "") || "still mounted"}); it is in use${drive.holders.length ? ` by ${drive.holders.map((holder) => `${holder.command} (${holder.pid})`).join(", ")}` : ""}. The reboot stops those and unmounts it`, "stderr");
+      log?.(`${drive.mountpoint} did not unmount (${tail(unmounted.result?.stderr).replace(/\.+$/, "") || "still mounted"}); it is in use${drive.holders.length ? ` by ${drive.holders.map((holder) => `${holder.command} (${holder.pid})`).join(", ")}` : ""}. ${occasion === "shutdown" ? "The shutdown" : "The reboot"} stops those and unmounts it`, "stderr");
       continue;
     }
     // Gone from the host is not gone: a container, or a service with a private copy of the
@@ -332,7 +339,7 @@ export async function prepareDrivesForReboot(_parameters = {}, {
     drive.holders = drive.majMin ? await host.namespaceHolders(drive.majMin) : [];
     if (drive.holders.length) {
       drive.state = "busy";
-      log?.(`${drive.mountpoint} is unmounted here but still open in ${drive.holders.map((holder) => `${holder.command} (${holder.pid})`).join(", ")}; the reboot stops those`, "stderr");
+      log?.(`${drive.mountpoint} is unmounted here but still open in ${drive.holders.map((holder) => `${holder.command} (${holder.pid})`).join(", ")}; ${the} stops those`, "stderr");
       continue;
     }
     drive.state = "unmounted";
