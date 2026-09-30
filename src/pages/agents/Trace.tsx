@@ -1,6 +1,6 @@
 import { Fragment, useState } from "react";
 import { Button, Facts, KeyValue, Notice, StatusChip, Tag } from "../../ui";
-import type { Run, RunStep } from "./api";
+import type { Run, RunCheck, RunStep } from "./api";
 import { kindWords, runState, seconds } from "./format";
 
 /*
@@ -117,6 +117,26 @@ export function AnswerText({ text }: { text: string }) {
   return <div className="agents-answer">{cited(text)}</div>;
 }
 
+/**
+ * The check before answering (M40): what the answer states, held to the tool output it cites. Said
+ * in a line under the answer: all matched, the model corrected what did not, or the answer says
+ * what it is not sure of.
+ */
+function CheckLine({ check }: { check: RunCheck }) {
+  const statements = (count: number) => `${count} ${count === 1 ? "statement" : "statements"}`;
+  const [status, words] = check.unsure
+    ? ["warning", `${statements(check.mismatches)} did not match what its tools said${check.corrected ? " even after a correction" : ""}; the answer says so under it.`] as const
+    : check.corrected
+      ? ["good", `${statements(check.found)} did not match what its tools said at first; the model corrected ${check.found === 1 ? "it" : "them"}.`] as const
+      : ["good", `every fact in ${statements(check.checked)} matches the tool output it cites.`] as const;
+  return (
+    <p className="agents-run__check">
+      <StatusChip status={status}>{check.unsure ? "not sure" : "checked"}</StatusChip>
+      <span>Checked against its tools: {words}</span>
+    </p>
+  );
+}
+
 /** A run's outcome, its facts, its answer and its trace. */
 export function RunView({ run }: { run: Run }) {
   const state = runState(run.state);
@@ -138,6 +158,7 @@ export function RunView({ run }: { run: Run }) {
       {run.flags?.injection && <Notice tone="warning" title="Something it read looked like an instruction">The agent was told to treat it as data. The step is marked in the trace.</Notice>}
       {run.reason && run.state !== "completed" && <p className="agents-run__reason">{run.reason}</p>}
       {run.answer && <AnswerText text={run.answer} />}
+      {run.flags?.check && <CheckLine check={run.flags.check} />}
       {(run.flags?.citations?.unknown?.length ?? 0) > 0 && <p className="agents-run__reason">It cited {run.flags.citations?.unknown.join(", ")}, which it was never shown.</p>}
       <KeyValue layout="strip" className="agents-run__facts" items={[
         { id: "kind", label: "Started by", value: kindWords[run.kind] },

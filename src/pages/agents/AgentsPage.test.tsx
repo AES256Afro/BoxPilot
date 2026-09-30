@@ -754,7 +754,42 @@ describe("the evaluation", () => {
     expect(rows[0].getAttribute("data-status")).toBeNull();
     expect(rows[1].getAttribute("data-status")).toBe("danger");
     expect(screen.getByRole("region", { name: "Latest result" }).textContent).toContain("1 of 2 right");
-    fireEvent.click(screen.getByRole("button", { name: "Run the evaluation" }));
+    fireEvent.click(screen.getByRole("button", { name: "Run the evaluation now" }));
     await waitFor(() => expect(calls.some((call) => call.method === "POST" && call.path.endsWith("/evaluation/run"))).toBe(true));
+  });
+
+  it("lists the built-in questions, follows accuracy over time and flags a drop (M40)", async () => {
+    window.history.replaceState(null, "", `/?view=agents&tab=evaluation&agent=${keeperId}`);
+    const point = (id: string, hoursAgo: number, score: number, version: number) => ({ id, at: ago(hoursAgo * 60), score, version, model: "unsloth/Qwen3.5-4B-GGUF", nightly: true, right: Math.round(score * 5), questions: 5 });
+    serve(base({
+      [`GET /api/v1/agents/${keeperId}/evaluation`]: {
+        builtIn: [
+          { id: "builtin-drives", question: "Which drives are connected to this server?", expect: { fact: "drives" }, tool: "storage.health", builtIn: true },
+          { id: "builtin-pihole", question: "Where does Pi-hole run on this server?", expect: { fact: "piholePlacement" }, tool: "where.runs", builtIn: true },
+        ],
+        questions: [],
+        runs: [{ id: "e3", version: 3, state: "done", score: 0.6, createdAt: ago(60), finishedAt: ago(55), createdBy: null, results: [
+          { questionId: "builtin-drives", question: "Which drives are connected to this server?", expected: { fact: "drives", value: [{ device: "/dev/nvme0n1", transport: "nvme", system: true }, { device: "/dev/sda", transport: "usb", system: false }] }, runId: finishedRun.id, passed: false, found: "Wrong: calls /dev/sda the system disk" },
+        ] }],
+        canEdit: true,
+        history: [point("e1", 50, 1, 2), point("e2", 26, 1, 2), point("e3", 1, 0.6, 3)],
+        drop: { from: 1, to: 0.6, previous: 1, at: ago(55), evalId: "e3", version: 3, previousVersion: 2, model: "unsloth/Qwen3.5-4B-GGUF", previousModel: "unsloth/Qwen3.5-4B-GGUF" },
+        people: [{ day: "2026-09-29", up: 2, down: 1 }],
+        nightly: { quietHours: { start: "02:00", end: "06:00" }, next: "tonight" },
+      },
+    }));
+    render(<AgentsPage csrfToken="csrf" now={() => now} />);
+    const drop = await screen.findByText("Accuracy dropped to 60%");
+    expect(drop.closest("[role]")?.textContent ?? drop.parentElement?.textContent).toMatch(/against 100% before\. Its instructions changed in between \(v2 to v3\)/);
+    const builtIn = screen.getByRole("region", { name: "Built-in questions" });
+    expect(builtIn.textContent).toContain("Which drives are connected to this server?");
+    expect(builtIn.textContent).toContain("asked every night, 02:00 to 06:00");
+    expect(within(screen.getByRole("table", { name: "The latest evaluation's answers" })).getAllByRole("row")[1].textContent).toContain("Which drives are connected: /dev/nvme0n1 (system), /dev/sda");
+    const accuracy = screen.getByRole("region", { name: "Accuracy over time" });
+    expect(accuracy.textContent).toContain("From 100% to 60% over 3 evaluations.");
+    expect(accuracy.textContent).toContain("people said 2 right and 1 wrong this month");
+    const rows = within(within(accuracy).getByRole("table", { name: "Each evaluation's score" })).getAllByRole("row").slice(1);
+    expect(rows[0].getAttribute("data-status")).toBe("warning");
+    expect(rows[0].textContent).toContain("60% · 3/5");
   });
 });

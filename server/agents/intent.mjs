@@ -71,16 +71,21 @@ export function plannerSystem(agent = {}, tools = []) {
     "plan: at most five steps in order, each a few words naming the one tool it uses from the list below, or null for writing the answer. Name only the tools the request needs.",
     "",
     "Tools:",
-    ...(tools.length ? tools.map((tool) => `- ${tool.fn}: ${tool.title}`) : ["- none"]),
+    ...(tools.length ? tools.map((tool) => `- ${tool.fn}: ${tool.title}${tool.use ? `. For: ${tool.use}` : ""}`) : ["- none"]),
   );
   return lines.join("\n");
 }
 
-/** The request as the planner reads it: the run's task message, then what to do with it. */
-export function plannerMessages(agent, tools, task) {
+/**
+ * The request as the planner reads it: the run's task message, then what to do with it. `hints`
+ * are the tools the request's own words point at (toolsForQuestion), as { fn, title }: said after
+ * the request, so the system message above stays the same bytes for every run.
+ */
+export function plannerMessages(agent, tools, task, { hints = [] } = {}) {
+  const hint = hints.length ? `\n\nTools made for requests worded like this: ${hints.map((tool) => `${tool.fn} (${tool.title})`).join(", ")}.` : "";
   return [
     { role: "system", content: plannerSystem(agent, tools) },
-    { role: "user", content: `${String(task ?? "").trim()}\n\nWork out what is asked and plan it. Answer only with the JSON.` },
+    { role: "user", content: `${String(task ?? "").trim()}${hint}\n\nWork out what is asked and plan it. Answer only with the JSON.` },
   ];
 }
 
@@ -136,11 +141,20 @@ export function readUnderstanding(raw, { offered = [] } = {}) {
   return { understanding, dropped: [...new Set(dropped)] };
 }
 
-/** The plan as the model is then told it: its own steps, numbered, each tool as the model calls it. */
-export function planMessage(understanding) {
+/**
+ * The plan as the model is then told it: its own steps, numbered, each tool as the model calls it.
+ * `hinted` are tools the request's words point at that the plan left out (toolsForQuestion): named
+ * after it, so the model has them in mind when it acts.
+ */
+export function planMessage(understanding, { hinted = [] } = {}) {
   const fn = (id) => toolById(id)?.fn ?? id;
   const steps = understanding.plan.map((entry, index) => `${index + 1}. ${entry.step}${entry.tool ? ` (${fn(entry.tool)})` : ""}`);
-  return ["Your plan:", ...(steps.length ? steps : ["1. Answer from what you can read."]), "", "Carry it out with the tools, then answer. Change the plan if a tool's output says you should."].join("\n");
+  const missing = hinted.filter((id) => !understanding.plan.some((entry) => entry.tool === id));
+  return [
+    "Your plan:", ...(steps.length ? steps : ["1. Answer from what you can read."]),
+    ...(missing.length ? ["", `The request's words fit ${missing.map((id) => `${fn(id)} (${toolById(id)?.title ?? id})`).join(" and ")} too: use ${missing.length === 1 ? "it" : "them"} if the plan's tools do not answer it directly.`] : []),
+    "", "Carry it out with the tools, then answer. Change the plan if a tool's output says you should.",
+  ].join("\n");
 }
 
 /** A line for the trace and the audit: what was understood, without the person's words. */

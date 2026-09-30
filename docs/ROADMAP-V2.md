@@ -2278,6 +2278,88 @@ same server. Decided in ADR-008. The network half is `feat/m39-network`.
 - **Later**: sync a second Pi-hole over Pi-hole v6's teleporter API once there is a second always-on
   box; read the router's DNS settings through the existing GL.iNet connection.
 
+## M40 — Agents you can rely on
+
+Asked for 2026-09-29, after the owner's Server Keeper ("Steve", Unsloth with Qwen 3.5 4B at four
+threads under `CPUQuota=400%` on a Ryzen 7 7800X3D: 52 tokens a second read, 10 written) answered
+"List the drives connected to BoxPilot" in 99 s with "**/dev/sda** (primary drive): 528 GB total, 31%
+used". The 528 GB root was on NVMe through LVM; /dev/sda was a 15 TB exFAT drive on USB.
+storage.health had said "Root disk: 31% used, 366 GB free of 528 GB. /boot … " and named no device,
+so the model filled one in. Asked where Pi-hole runs, it planned `apps.list` over `where.runs`,
+twice. The hard caps and "agents propose, never act" stay as they are.
+
+- ✅ **M40.1 Tools that leave nothing to guess** (unreleased, `feat/m40-agents`). Every read tool's
+  words are in `server/agents/tool-text.mjs`, one line a thing, its facts on its own line.
+  **storage.health** says first which drives are connected - "2 drives connected: /dev/nvme0n1 (NVMe
+  SSD, 1.02 TB, the system disk) and /dev/sda (USB drive (spinning disk), 16.0 TB)" - then the root
+  filesystem on its drive ("/ (the root filesystem): on /dev/nvme0n1 (NVMe SSD, the system disk)
+  through LVM volume … on /dev/nvme0n1p3, ext4, 528 GB in total, 162 GB used (31%), 366 GB free"),
+  then each drive (device, attachment, size, model, "The system disk" or "Not the system disk", what
+  it holds, SMART) and each other real filesystem (mountpoint, drive and partition under it, type,
+  size, used, free). It joins what BoxPilot already reads: lsblk's devices and parents, the root
+  scan's mounts, statfs of /, and SMART. lsblk in the web service's sandbox (`PrivateDevices=yes`)
+  lists no device-mapper volume, so a mapper root is placed on its LVM2_member (or crypto_LUKS)
+  partition; what cannot be worked out is said ("Which drive holds / could not be worked out"),
+  never guessed. **apps.list** leads with "BoxPilot apps installed: 12. Running: 10. Stopped or not
+  running: 2 (…). Unhealthy: …"; **server.facts** names the OS and its version ("Ubuntu 24.04.3 LTS
+  (Ubuntu, version 24.04.3)"); **where.runs** says where in its first line, and that a BoxPilot app is
+  not on the host. Descriptions say what each tool is for, and the planner lists that beside each
+  tool ("- where_runs: Where does it run?. For: where does X run; is X a container, a BoxPilot app or
+  on the host; is X installed"). **The request's own words point at tools** (`toolsForQuestion`,
+  patterns in the catalog): "where does X run" is where.runs, "which drives" is storage.health. The
+  planner is told after the request (so its system message stays the same bytes for the cache), the
+  calls that act carry those tools beside the plan's, and the plan names them when it left them out.
+  The demo world's lsblk now lists partitions as the sandbox does.
+- ✅ **M40.2 The agent checks itself before answering** (unreleased, `feat/m40-agents`). After the
+  model drafts its answer, `server/agents/verify.mjs` holds every claim to the tool output it cites,
+  with no model: the devices and paths it names must be in that output, and its sizes and
+  percentages must be ones the output gives *for those things* - on the lines whose subject they are,
+  on the stretch of a line after they are named, and for a drive on the lines of what it holds -
+  within the claim's own rounding (GB read as GiB too). What a claim calls a thing is checked the
+  same way: the system disk, USB/NVMe/SATA, ext4/exFAT and the rest, running or stopped. An uncited
+  claim is held to every output. A mismatch is corrected by the model once, in a small conversation
+  of its own (a fixed system message, the failing claims, only the output's lines about them), when
+  that fits in what the run and the day have left (`optional` calls never degrade a run); the
+  correction is checked the same way and kept only if better; whatever still does not match is said
+  plainly under the answer ("Checked against the tools, some of this does not match what they said,
+  so I am not sure of it: …"). A JSON answer is only checked. The trace has a "check" step, the run a
+  `check` flag (claims, mismatches, corrected, unsure) the service works out again from what it kept,
+  and the Test tab a line under the answer. **Measured**: the text check takes 1 to 3 ms; the
+  owner's wrong answer about the drives was corrected in one call of 504 tokens read and 51 written,
+  14.8 s at the owner's 52 and 10 tokens a second (`check.test.mjs`), in an 80 s run.
+- ✅ **M40.3 An accuracy score that means something** (unreleased, `feat/m40-agents`). **Built-in
+  questions** (`templates.mjs`, `builtInEvaluation`), each asked only of an agent whose own tools
+  answer it: which drives are connected (graded by `grade.mjs`: every drive named, none called the
+  system disk that is not, none given the wrong attachment), how full the root filesystem is, where
+  Pi-hole runs (from where.runs' own reading), which apps are stopped, the OS and its version. The
+  owner's own questions and expected answers (a fact, or words a right answer holds) join them, and
+  one of the owner's about the same fact takes a built-in's place. **Nightly in quiet hours**: one
+  agent at a time, at most once in 20 hours, as the person who made it, as background work nobody
+  waits on (after learning and indexing in the queue, waiting for quiet hours, stepping aside when
+  the server is busy), only when its budget and every agent's have room for its questions at two
+  minutes each and still keep half of the day's model time for people; otherwise skipped, and the
+  audit says so once a night. An evaluation now plans as a person's question does, since the plan is
+  where a tool is chosen. **The Evaluation tab** shows the built-in questions, the owner's, the
+  latest result (nightly or asked), accuracy over time (a bar an evaluation, and the table), the
+  people's verdicts by day, and **flags a drop** - the latest score more than 20 points under the
+  average of the five before, or 25 under the one before - with whether the instructions or the
+  model changed in between; the agent list shows "accuracy down to 60%". Sixty evaluations are kept
+  per agent. **Thumbs feed it**: a "Wrong" with the words a right answer holds, from whoever may
+  change the agent, makes the question one of its golden questions. **Measured on the stand-in**
+  (`test/agents-eval.mjs`: the five built-in questions and the owner's own "List the drives
+  connected to BoxPilot", each asked of a fresh Server Keeper on a server laid out like the owner's):
+  2 of 6 before M40, 6 of 6 after; CI holds it (`evaluation.test.mjs`). **Measured on the real
+  model** (`agents-bench.yml`, `mode: eval`, `baseline: main`: Qwen 3.5 4B UD-Q4_K_XL under Unsloth
+  2026.9.12, four threads under `CPUQuota=400%` on a GitHub runner's Xeon Platinum 8370C, the same
+  questions and graders for both): **2 of 6 before M40 (33%), 6 of 6 after (100%)**. Before, it
+  answered the drives question as the owner's server did ("/dev/sda: 528 GB total, 31% used", no
+  NVMe), and for Pi-hole and the stopped apps it never called where.runs or apps.list and said it
+  could not know. After, each question used the tool made for it, and the check found no mismatch;
+  each answer took 100 to 230 s there (run 36656892146).
+- **M40.4 Faster while someone waits** (in the pull request stacked on this one).
+- **M40.5 Talk to agents in Zulip** (M38.3; in the pull request stacked on the M40.4 one).
+- **M40.6 Pictures** (with M40.5).
+
 ## App catalogue candidates
 
 Checked against the 164 manifests already in `catalog/`, so nothing here duplicates an existing
