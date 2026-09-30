@@ -106,9 +106,13 @@ export function createJobService(store, helper, {
     oneTimeResults.set(job.id, { value: kept, createdBy: job.createdBy, expiresAt: now() + oneTimeTtlMs });
     return { ...stored, oneTime: Object.keys(kept) };
   }
+  /** Forget what nobody came back for. Swept every minute with the staged secrets, not only when someone asks. */
+  function pruneOneTime() {
+    for (const [key, entry] of oneTimeResults) if (entry.expiresAt <= now()) oneTimeResults.delete(key);
+  }
   /** What a job showed once, to the person who ran it, the first time they ask; null after that. */
   function takeOneTime(jobId, callerId) {
-    for (const [key, entry] of oneTimeResults) if (entry.expiresAt <= now()) oneTimeResults.delete(key);
+    pruneOneTime();
     const entry = oneTimeResults.get(jobId);
     if (!entry || !callerId || entry.createdBy !== callerId) return null;
     oneTimeResults.delete(jobId);
@@ -505,6 +509,9 @@ export function createJobService(store, helper, {
 
   /** Drop finished or expired secrets. Called once a minute, and expiry is also enforced at approval. */
   function pruneStagedSecrets() {
+    // A single-use organization link nobody picked up is a secret too: it used to stay in memory
+    // until someone next took one.
+    pruneOneTime();
     let dropped = 0;
     for (const [jobId, record] of stagedSecrets) {
       const job = store.getJob(jobId);
@@ -515,5 +522,5 @@ export function createJobService(store, helper, {
     return dropped;
   }
 
-  return { pruneStagedSecrets, holdsStagedSecrets, createOperationJob, retryWithMoreTime, approveAndRun, approveAndStart, describeApproval, approvalPolicy, cancelJob, prepareParameters, sweepStaleApprovals, dismissFailure, supersededReason, takeOneTime };
+  return { pruneStagedSecrets, holdsStagedSecrets, createOperationJob, retryWithMoreTime, approveAndRun, approveAndStart, describeApproval, approvalPolicy, cancelJob, prepareParameters, sweepStaleApprovals, dismissFailure, supersededReason, takeOneTime, oneTimeHeld: () => oneTimeResults.size };
 }
