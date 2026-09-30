@@ -50,6 +50,8 @@ function friendly(need: Need): string {
   const app = need.id.startsWith("app-") ? need.title.replace(/ is (paused|stopped)$/, "").replace(/^An update for /, "") : "";
   if (need.id.startsWith("app-paused:")) return `${app} is napping, on purpose`;
   if (need.id.startsWith("app-update:")) return `${app} has a new version`;
+  // "Vaultwarden, Immich and 2 more have not been backed up recently": each needs a backup.
+  if (/ (has|have) not been backed up recently$/.test(need.title)) return need.title.replace(/ (has|have) not been backed up recently$/, (_, verb: string) => (verb === "has" ? " needs a backup" : " need a backup"));
   return need.title;
 }
 
@@ -107,13 +109,15 @@ function Card({ title, needs, lead, runOf, onOpen, onAct }: { title: string; nee
   const shown = all ? needs : needs.slice(0, shownRows);
   return (
     <section className="toybox-card toybox-needs" aria-labelledby={id}>
-      <h2 className="toybox-card__title" id={id}>{title}</h2>
+      <div className="toybox-card__head">
+        <h2 className="toybox-card__title" id={id}>{title}</h2>
+        {needs.length > shownRows && (
+          <button type="button" className="toybox-more" aria-expanded={all} onClick={() => setAll((value) => !value)}>
+            {all ? "Show fewer" : `Show ${needs.length - shownRows} more`}
+          </button>
+        )}
+      </div>
       <ul className="toybox-needs__list">{shown.map((need) => <Row key={need.id} need={need} run={runOf(need)} lead={lead} onOpen={onOpen} onAct={onAct} />)}</ul>
-      {needs.length > shownRows && (
-        <button type="button" className="toybox-more" aria-expanded={all} onClick={() => setAll((value) => !value)}>
-          {all ? "Show fewer" : `Show ${needs.length - shownRows} more`}
-        </button>
-      )}
     </section>
   );
 }
@@ -166,6 +170,7 @@ export default function ToyboxHome({ csrfToken, role, onNavigate, now = Date.now
       <TopBarSlot>
         <div className="cc-crumb toybox-crumb">
           <span className="cc-crumb__host">{hostname}</span>
+          <span className="cc-crumb__sep" aria-hidden="true">/</span>
           <span className="toybox-crumb__page">Home</span>
         </div>
       </TopBarSlot>
