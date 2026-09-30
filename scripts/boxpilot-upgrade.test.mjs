@@ -131,6 +131,20 @@ describe("where the copy sits in the upgrade", () => {
     expect(script).not.toMatch(/exec 9>"\$UPGRADE_LOCK"/);
   });
 
+  it("rolls back when the new helper does not stay up, not only when the web service fails its check", () => {
+    // boxpilot-helper is Type=simple: `systemctl restart` exits 0 once it forks, and /api/v1/health
+    // is answered by the web service alone, so a helper failing at start passed as a good upgrade.
+    const web = at('if [ "$HEALTHY" -ne 1 ]; then');
+    const helper = at('HELPER_SOCKET="${BOXPILOT_HELPER_SOCKET:-/run/boxpilot/helper.sock}"');
+    // The last disarm, where the upgrade is judged good (rollback() disarms it too, first).
+    const disarmed = script.lastIndexOf("\ntrap - EXIT\n");
+    expect(web).toBeLessThan(helper);
+    expect(helper).toBeLessThan(disarmed);
+    const check = script.slice(helper, disarmed);
+    expect(check).toContain('systemctl is-active --quiet boxpilot-helper.service && [ -S "$HELPER_SOCKET" ]');
+    expect(check).toMatch(/if \[ "\$HAD_PREVIOUS" -eq 1 \]; then rollback; else fail "helper unhealthy"; fi/);
+  });
+
   it("keeps saying the new version is live last, which the System page reads", () => {
     expect(script.trimEnd().split("\n").at(-1)).toMatch(/^log "BoxPilot \$\{NEW_VERSION\} \(\$\{REF\}\) is live;/);
   });

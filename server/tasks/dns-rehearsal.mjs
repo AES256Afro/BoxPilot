@@ -132,6 +132,11 @@ export async function dnsFallbackRehearse(parameters = {}, { run = fixedRun, log
       at: new Date(now()).toISOString(),
     };
   } finally {
-    await run(systemctlBinary(), ["stop", `${unit}.timer`], { timeout: 20_000 }).catch(() => null);
+    // Disarmed only once the app is running again, by Docker's own account. A start that failed, or
+    // a stop that timed out after stopping it anyway, is exactly what the timer is for: disarming it
+    // on every path left the house without its DNS app, after an error saying the timer would retry.
+    const inspected = await run(dockerBinary(), ["inspect", "--format", "{{.State.Running}}", container], { timeout: 20_000 }).catch(() => null);
+    if (inspected?.ok && inspected.stdout.trim() === "true") await run(systemctlBinary(), ["stop", `${unit}.timer`], { timeout: 20_000 }).catch(() => null);
+    else log(`${label} is not running; the safety timer ${unit}.timer stays armed and starts it within three minutes.`, "stderr");
   }
 }
