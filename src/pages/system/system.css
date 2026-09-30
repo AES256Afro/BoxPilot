@@ -45,10 +45,29 @@
 .system-preview p { margin: 0 0 6px; }
 .system-preview ul { margin: 0 0 6px; padding-left: 18px; }
 
-/* The UPS: what was found, then how to set it up. */
-.system-ups { display: grid; gap: 10px; }
+/* Power (M39): the UPS's three steps and its settings, the event log, the watchdog, and what
+   brings the server back after a power cut. */
+.system-ups { display: grid; gap: 10px; min-width: 0; }
 .system-ups .system-form { align-items: center; }
 .system-ups .system-form > .ui-button { margin-top: 0; }
+.system-ups__form.system-form { align-items: flex-start; }
+.system-ups__form > .ui-field { flex: 1 1 11rem; max-width: 16rem; }
+.system-ups__form > .ui-checkbox, .system-ups__form > .ui-switch { flex-basis: 100%; }
+.system-ups__form > .ui-button { margin-top: 23px; }
+.system-sentence { margin: 0; font-family: var(--font-sans); font-size: 13.5px; line-height: 1.45; color: var(--text); }
+.system-event { display: inline-flex; align-items: baseline; gap: 8px; min-width: 0; white-space: normal; }
+.system-event > span:last-child { display: grid; gap: 2px; min-width: 0; }
+.system-event__detail { color: var(--text-muted); font-size: 12.5px; }
+.system-lead { margin: 0; color: var(--text); font-size: 13.5px; line-height: 1.5; }
+.system-board { display: grid; gap: 4px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-muted); }
+.system-board .system-sub { margin: 0; }
+.system-step { margin: 0; color: var(--text); font-size: 13.5px; line-height: 1.6; overflow-wrap: anywhere; }
+.system-step .ui-tag { margin-right: 4px; }
+.system-guide { display: grid; gap: 4px; margin: 0; padding-left: 18px; color: var(--text); font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; }
+.system-page kbd { padding: 0 5px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface-raised); color: var(--text-strong); font-size: 12px; }
+.system-subhead { margin: 6px 0 0; color: var(--text-muted); font-family: var(--font-mono); font-size: 10.5px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; }
+.system-wake { display: grid; gap: 8px; padding-top: 10px; border-top: 1px solid var(--border-subtle); }
+.system-mac { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; overflow-wrap: anywhere; }
 
 @media (max-width: 640px) {
   .system-clean__row { grid-template-columns: minmax(0, 1fr); }
