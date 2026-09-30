@@ -56,6 +56,20 @@ describe("the Network page's Router tab", () => {
     expect((within(await screen.findByRole("dialog", { name: "Connect the router" })).getByLabelText("Router password") as HTMLInputElement).value).toBe("");
   });
 
+  it("lets the gateway it suggests be cleared, to type another address", async () => {
+    // The gateway was written back whenever the field was empty, so it could not be cleared.
+    openRouter({ configured: false, reachable: false, host: null, username: null, model: null, firmware: null, reason: "No router is connected yet." });
+    fireEvent.click(await screen.findByRole("button", { name: "Connect the router…" }));
+    const sheet = await screen.findByRole("dialog", { name: "Connect the router" });
+    const address = within(sheet).getByLabelText("Router address") as HTMLInputElement;
+    expect(address.value).toBe("192.168.1.1");
+    fireEvent.change(address, { target: { value: "" } });
+    expect(address.value).toBe("");
+    expect(within(sheet).getByText("Enter the router's address.")).toBeTruthy();
+    fireEvent.change(address, { target: { value: "192.168.8.1" } });
+    expect(address.value).toBe("192.168.8.1");
+  });
+
   it("says when a router connected before is not answering, and offers to connect again", async () => {
     openRouter({ configured: true, reachable: false, host: "192.168.1.1", username: "root", model: null, firmware: null, reason: "The router did not accept that password." });
     expect(await screen.findByText("The router is not answering")).toBeTruthy();
