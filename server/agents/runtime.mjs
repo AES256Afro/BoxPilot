@@ -340,7 +340,13 @@ export function createRuntime({
       const response = await fetchImpl(`${entry.endpoint}${path}`, { headers: { Accept: "application/json", ...(entry.apiKey ? { Authorization: `Bearer ${entry.apiKey}` } : {}) }, signal: AbortSignal.timeout(5_000), redirect: "error" });
       const body = response.ok ? await response.json().catch(() => null) : null;
       const said = entry.driver === "llama-server" ? body?.modalities?.vision : body?.is_vision;
-      if (typeof said === "boolean") {
+      // Studio answers its status before the model it is loading is listed, and then says
+      // is_vision false for the model nobody loaded yet (seen on the real one: active_model null,
+      // loaded []). Only a status that names a loaded model is an answer.
+      const answers = entry.driver === "llama-server" || body?.is_gguf === true || (typeof body?.active_model === "string" && body.active_model !== "") || (Array.isArray(body?.loaded) && body.loaded.length > 0);
+      if (typeof said === "boolean" && !answers) {
+        result = { vision: null, reason: "the model server's status named no loaded model yet" };
+      } else if (typeof said === "boolean") {
         const fallback = typeof body?.mmproj_fallback_reason === "string" ? body.mmproj_fallback_reason.slice(0, 80) : null;
         // What the server itself last printed about its projector, if anything: the owner's lead.
         const printed = said ? null : [...entry.tail].reverse().find((line) => /mmproj|projector/i.test(line)) ?? null;

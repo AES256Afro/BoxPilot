@@ -289,7 +289,7 @@ export async function startFakeModel({
   const requests = [];
   // speed: { promptPerSecond, generatePerSecond } makes it take as long as a CPU would; clock(ms)
   // spends that time on a simulated clock instead of the real one; log keeps each call's timing.
-  const state = { chat: "policy", script: null, chunkSize: 24, delayMs: 0, busyThreads, busyMs, status: 500, speed: null, timeScale: 1, clock: null, log: [], cancels: [], vision: true, mmprojFallback: null, ...options };
+  const state = { chat: "policy", script: null, chunkSize: 24, delayMs: 0, busyThreads, busyMs, status: 500, speed: null, timeScale: 1, clock: null, log: [], cancels: [], vision: true, mmprojFallback: null, statusLoaded: true, ...options };
   const slot = createSlot();
   const running = new Map();   // cancel_id -> the call it names, while it runs
   const json = (response, status, value) => {
@@ -325,7 +325,12 @@ export async function startFakeModel({
       return json(response, 200, { cancelled: call ? 1 : 0 });
     }
     // What the model server says about seeing (M40.6): Unsloth Studio's status, and llama-server's props.
-    if (path === "/api/inference/status") return json(response, 200, { status: "loaded", model, is_vision: state.vision !== false, mmproj_fallback_reason: state.mmprojFallback });
+    // Shaped as Studio's: a model still loading is not listed, and is_vision is then false for nothing.
+    if (path === "/api/inference/status") {
+      return json(response, 200, state.statusLoaded === false
+        ? { is_vision: false, mmproj_fallback_reason: null, active_model: null, model_identifier: null, is_gguf: false, loaded: [] }
+        : { is_vision: state.vision !== false, mmproj_fallback_reason: state.mmprojFallback, active_model: model, model_identifier: model, is_gguf: true, loaded: [model] });
+    }
     if (path === "/props") return json(response, 200, { model_alias: model, modalities: { vision: state.vision !== false, audio: false } });
     if (path !== "/v1/chat/completions") return json(response, 404, { error: { message: "not found" } });
     if (state.chat === "error") return json(response, state.status, { error: { message: "the model crashed" } });
