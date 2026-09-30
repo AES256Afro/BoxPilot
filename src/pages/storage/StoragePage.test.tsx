@@ -127,6 +127,16 @@ describe("Storage page", () => {
       await waitFor(() => expect(JSON.parse(staged["storage.mount"] ?? "{}")).toEqual({ parameters: { uuid: "data-uuid", name: "media" } }));
     });
 
+    it("offers the backup destination's name for a drive, as the share sheet does", async () => {
+      mockFetch();
+      render(<StoragePage csrfToken="csrf-token" />);
+      fireEvent.click(await screen.findByRole("button", { name: "Mount /dev/sdb1" }));
+      const sheet = screen.getByRole("dialog", { name: "/dev/sdb1" });
+      fireEvent.click(within(sheet).getByRole("button", { name: "Use this for BoxPilot's backups" }));
+      expect((within(sheet).getByLabelText("Mount name") as HTMLInputElement).value).toBe("boxpilot-backup");
+      expect(within(sheet).getByText(/BoxPilot copies its backups there/).textContent).toContain("/mnt/boxpilot/backup");
+    });
+
     it("never offers Mount or Format on the system disk, its LVM physical volume, or the root volume", async () => {
       mockFetch();
       render(<StoragePage csrfToken="csrf-token" />);
