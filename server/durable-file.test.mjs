@@ -111,10 +111,6 @@ describe("writing a boot-critical file", () => {
     const exceptions = new Map([
       ["agents.mjs", "writes one script into a folder it has just made with mkdtemp"],
       ["ups.mjs", "NUT's files; left to the power work in flight (M39) rather than changed under it"],
-      // smb.conf and exports already go through a temporary file and a rename; the security audit in
-      // flight changes both files' imports, so these follow once it has landed.
-      ["nfs.mjs", "exports is written to a temporary file and renamed; converted after the security audit lands"],
-      ["samba.mjs", "smb.conf is written to a temporary file and renamed; converted after the security audit lands"],
     ]);
     const folder = fileURLToPath(new URL("./tasks/", import.meta.url));
     const offenders = [];
