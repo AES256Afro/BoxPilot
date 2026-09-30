@@ -12,6 +12,7 @@ on:
       - "server/ops/zulip.mjs"
       - "server/catalog/compose.mjs"
       - "server/agents/zulip.mjs"
+      - "server/agents/chat.mjs"
       - "server/agents/zulip-connect.py"
       - "server/tasks/zulip.mjs"
       - "tests/zulip/**"

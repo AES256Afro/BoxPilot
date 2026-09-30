@@ -227,6 +227,8 @@ const changeRoutes = [
   "PUT /api/v1/agents/knowledge/documents/:documentId/pin", "POST /api/v1/agents/knowledge/upload", "POST /api/v1/agents/knowledge/folder/sync", "POST /api/v1/agents/knowledge/reindex",
   // M38: read #agent-files now (the owner's; refused while Zulip is not connected).
   "POST /api/v1/agents/zulip/poll",
+  // M40.5: who in Zulip may ask, as which account (the owner's, with the password).
+  "PUT /api/v1/agents/zulip/people",
   "POST /api/v1/agents/import", "POST /api/v1/agents/:id/webhook", "DELETE /api/v1/agents/:id/webhook",
   "PUT /api/v1/agents/:id/memory/notes/:noteId", "DELETE /api/v1/agents/:id/memory/notes/:noteId", "DELETE /api/v1/agents/:id/memory/episodes/:episodeId",
   "PUT /api/v1/settings/agents",

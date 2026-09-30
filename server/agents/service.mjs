@@ -27,7 +27,7 @@ import { normalizeEndpoint, isLocalAddress, isLoopbackAddress } from "../assista
 import { createRedactor, loadRedactionPolicy } from "../redaction.mjs";
 import { budgetState, createRateLimit, defaultQuietHours, inQuietHours, nextScheduledRun, normalizeQuietHours, startOfLocalDay, tomorrowMorning } from "./budget.mjs";
 import { coreLimits, defaultCores, effectiveCores, physicalCores, runnerCaps, runnerUnit, threadsFor } from "./caps.mjs";
-import { createAgentChat } from "./chat.mjs";
+import { createAgentChat, zulipSettingKey } from "./chat.mjs";
 import { ConnectorError, boundSync, cleanDocumentText, connectors, readFolderSetting, scanFolder, textOfUpload } from "./connectors.mjs";
 import { sanitizeUntrusted, wrapNote, wrapToolOutput } from "./guard.mjs";
 import { readUnderstanding, understandingSummary } from "./intent.mjs";
@@ -44,6 +44,7 @@ import { describeTools, readToolInput, roleAtLeast, toModelTool, toolAllowed, to
 import { ToolError, createToolRunner } from "./tools.mjs";
 import { gradeFact } from "./grade.mjs";
 import { verifyAnswer } from "./verify.mjs";
+import { questionFrom } from "./zulip.mjs";
 
 export { gradeDrives, gradeFact } from "./grade.mjs";
 
@@ -218,7 +219,12 @@ export function createAgentService({
   void redactorFor().then((ready) => { syncRedactor = ready; });
   const redact = (text) => finalRedaction(text, syncRedactor);
   // The team chat (M38): posts from run outcomes, and #agent-files, only while Agents are on.
-  const chat = createAgentChat({ state, store, helper, now, redact, audit: (type, entry) => audit(type, entry), active: () => { const settings = moduleSettings(); return Boolean(settings.enabled) && !modulePaused(settings) && !settings.killedAt; }, ...(chatOptions ?? {}) });
+  const chat = createAgentChat({
+    state, store, helper, now, redact, audit: (type, entry) => audit(type, entry), active: () => { const settings = moduleSettings(); return Boolean(settings.enabled) && !modulePaused(settings) && !settings.killedAt; },
+    // M40.5: a question asked of the bot in Zulip, by someone the owner mapped to an account.
+    ask: (input) => askFromChat(input),
+    ...(chatOptions ?? {}),
+  });
   // Kept across the service's life: when housekeeping last ran, and the alerts the last round saw.
   let lastPrune = 0;
   let lastModelCheck = 0;
@@ -433,8 +439,11 @@ export function createAgentService({
     return { run };
   }
 
-  /** A person's run: an ask, or a run from the test console. Refused with a reason rather than dropped. */
-  function startRun(caller, agentId, body = {}) {
+  /**
+   * A person's run: an ask, or a run from the test console. Refused with a reason rather than dropped.
+   * `trigger` is BoxPilot's own note of where it was asked (M40.5: a Zulip thread), never the caller's.
+   */
+  function startRun(caller, agentId, body = {}, { trigger = {} } = {}) {
     const person = personOf(caller);
     const agent = agentFor(person, agentId);
     const kind = body.kind === "manual" ? "manual" : "ask";
@@ -455,7 +464,7 @@ export function createAgentService({
     if (budget.refusal) refuse(429, `${agent.name} cannot run again today: ${budget.refusal.toLowerCase()}.`, "agent_budget");
     if (queued >= limits.queueMax) refuse(503, "Agents have too much waiting right now. Try again in a few minutes.", "agents_backlog");
     if (!askLimit.take(person.id)) refuse(429, `You have asked ${limits.asksPerHour} times in the last hour. Wait a little.`, "agent_rate_limited");
-    const run = store.enqueueRun({ agentId: agent.id, version: agent.version, kind, question, trigger: {}, requestedBy: person.id, readRole: person.role, readAs: person.id });
+    const run = store.enqueueRun({ agentId: agent.id, version: agent.version, kind, question, trigger, requestedBy: person.id, readRole: person.role, readAs: person.id });
     wake();
     return presentRun(person, run, { steps: [] });
   }
@@ -1999,17 +2008,61 @@ export function createAgentService({
       const entry = inspected?.applications?.find((application) => application.id === "zulip") ?? null;
       app = inspected ? { installed: Boolean(entry?.installed), running: Boolean(entry?.container?.running), port: entry?.urls?.[0]?.host ?? null } : null;
     }
-    return chat.present(person, { app });
+    const accounts = person.role === "owner" ? (state.listOwners?.() ?? []).map(({ id, username, role }) => ({ id, username, role })) : [];
+    return chat.present(person, { app, accounts });
   }
 
-  /** "Check #agent-files now": the owner does not wait for the next few minutes. */
+  /** "Check now": #agent-files and what was asked of the bot (M40.5), without waiting for the tick. */
   async function zulipPollNow(caller) {
     const person = personOf(caller);
     if (person.role !== "owner") refuse(403, "Only the owner reads #agent-files now", "forbidden");
     if (!chat.connection()) refuse(409, "Zulip is not connected", "not_connected");
+    const asked = await chat.pollAsks({ force: true }).catch((error) => ({ error: error.message }));
     const read = await chat.poll({ force: true });
     await chat.drain().catch(() => null);
-    return read;
+    return { ...read, asked };
+  }
+
+  /**
+   * Who in Zulip may ask the agents, as which BoxPilot account, and the agent asked by default
+   * (M40.5): the owner's list, with their password like the other agents' settings.
+   */
+  async function setZulipPeople(caller, input = {}) {
+    const person = personOf(caller);
+    if (person.role !== "owner") refuse(403, "Only the owner says who may ask in Zulip", "forbidden");
+    try {
+      chat.setPeople(input, { actorId: person.id, accounts: state.listOwners?.() ?? [], agents: store.listAgents() });
+    } catch (error) {
+      if (error instanceof ConnectorError) refuse(400, error.message, "invalid_setting");
+      throw error;
+    }
+    return zulipState(person);
+  }
+
+  /**
+   * A question from Zulip (M40.5), from someone the owner mapped to a BoxPilot account: asked as that
+   * account, exactly as the Test tab's Ask asks it - their role's tools, their rate limit, their
+   * conversation - of the agent the message names, or the default one. The answer goes back to the
+   * thread it was asked in; nothing is approved in chat. A refusal is said in the thread.
+   */
+  function askFromChat({ message, person, where }) {
+    const account = state.findOwnerById?.(person.boxpilotId);
+    if (!account) return { refused: "Your BoxPilot account is gone; the owner can set you up again." };
+    const caller = { id: account.id, role: ["owner", "operator", "viewer"].includes(account.role) ? account.role : "viewer" };
+    const askable = store.listAgents().filter((agent) => canAsk(caller, agent) && !agentPaused(agent));
+    const { text, agentName } = questionFrom(message.content, { agents: askable.map((agent) => agent.name) });
+    if (!text) return { refused: "Ask a question after the mention, like: Steve, which drives are connected?" };
+    const chosen = state.getSetting?.(zulipSettingKey, null)?.defaultAgentId ?? null;
+    const agent = agentName ? askable.find((entry) => entry.name === agentName)
+      : askable.find((entry) => entry.id === chosen) ?? askable.find((entry) => entry.template === "server-keeper") ?? askable[0];
+    if (!agent) return { refused: "None of BoxPilot's agents takes questions from you." };
+    try {
+      const run = startRun(caller, agent.id, { kind: "ask", question: text }, { trigger: { title: "Asked in Zulip", chat: { ...where, messageId: message.id, kind: message.kind } } });
+      return { run, agentName: agent.name };
+    } catch (error) {
+      if (error instanceof AgentError) return { refused: error.message };
+      throw error;
+    }
   }
 
   function addDocument(caller, { title, text } = {}) {
@@ -2317,7 +2370,7 @@ export function createAgentService({
     ingestConnector: (result, options) => ingestConnector(result, options),
     getEvaluation, setEvaluation, runEvaluation,
     // the team chat (M38)
-    zulipState, zulipPollNow,
+    zulipState, zulipPollNow, setZulipPeople,
     zulipConnected: (result, options) => chat.connected(result, options),
     zulipDisconnected: (options) => chat.disconnected(options),
     chat,
