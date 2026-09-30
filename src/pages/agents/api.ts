@@ -14,9 +14,15 @@ export type Cadence = "hourly" | "every-6-hours" | "daily" | "weekly";
 
 export interface ModuleBudget { runsUsed: number; runsPerDay: number; modelMsUsed: number; modelSecondsPerDay: number; modelMsLeft: number; refusal: string | null }
 export interface Connectors { notion: { enabled: boolean; credential: string | null }; slack: { enabled: boolean; credential: string | null; channels: string[] } }
+/** M40: processors while someone waits and in the background, this machine's ceiling, and what is set now. */
+export interface Cores {
+  waiting: number; background: number; ceiling: number; processors: number; physical: number | null; limits: { min: number; max: number; keepFree: number };
+  now: { processors: number | null; burst: boolean; at: string | null; resetAt: string | null; error: { at: string; message: string } | null };
+}
 export interface ModuleState {
   enabled: boolean; paused: boolean; pausedUntil: string | null; killedAt: string | null; quietHours: { start: string; end: string }; inQuietHours: boolean; notify: boolean;
   budget?: ModuleBudget; embeddings?: boolean; webSearch?: { enabled: boolean; endpoint: string | null }; folder?: { enabled: boolean; path: string | null }; connectors?: Connectors;
+  cores?: Cores;
 }
 export interface RunnerUsage { state: string; cpuPercent: number; memoryBytes: number; memoryPeakBytes: number | null; cpuQuotaPercent: number | null; memoryMaxBytes: number | null; throttledMs: number; modelLoaded: boolean; model: string | null; cgroup: boolean; readAt: string }
 export interface RunnerStatus { online: boolean; lastSeenAt: string | null; version: string | null; startedAt: string | null; hostBusy: boolean; usage: RunnerUsage | null }
@@ -143,7 +149,8 @@ export interface Run {
   steps?: RunStep[];
 }
 
-export interface Caps { cpuQuotaPercent: number; cpuWeight: string; nice: number; ioSchedulingClass: string; memoryMaxBytes: number; memorySwapMaxBytes: number; tasksMax: number; modelThreads: number; unit: string }
+/** The runner's caps; `cpuQuotaPercent` is the background quota, `waitingQuotaPercent` the raised one (M40). */
+export interface Caps { cpuQuotaPercent: number; waitingQuotaPercent?: number; cpuWeight: string; nice: number; ioSchedulingClass: string; memoryMaxBytes: number; memorySwapMaxBytes: number; tasksMax: number; modelThreads: number; unit: string }
 export interface Usage {
   runner: RunnerStatus;
   caps: Caps;
@@ -282,6 +289,7 @@ export const agentsApi = {
   saveSettings: (csrf: string, body: {
     password: string; enabled?: boolean; quietHours?: { start: string; end: string }; notify?: boolean; knowledge?: Partial<Record<KnowledgeSource["id"], boolean>>; runtime?: Partial<RuntimeSettings>;
     budget?: { runsPerDay?: number; modelSecondsPerDay?: number }; embeddings?: boolean; webSearch?: { enabled: boolean; endpoint: string | null }; folder?: { enabled: boolean; path: string | null };
+    cores?: { waiting?: number; background?: number };
     connectors?: { notion?: { enabled: boolean; credential: string | null }; slack?: { enabled: boolean; credential: string | null; channels?: string[] } };
   }) =>
     send<{ module: ModuleState }>("PUT", "/api/v1/settings/agents", csrf, body),

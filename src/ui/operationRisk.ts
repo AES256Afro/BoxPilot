@@ -11,6 +11,7 @@ export const operationRisk = {
   "agents.model.download": "medium",
   "agents.model.remove": "medium",
   "agents.model.switch": "medium",
+  "agents.runtime.cpu": "low",
   "agents.runtime.disable": "low",
   "agents.runtime.enable": "medium",
   "agents.runtime.install": "medium",
@@ -153,7 +154,7 @@ export type KnownOperation = keyof typeof operationRisk;
  * Operations whose registry entry says `minimumRole: "owner"`: an operator may not stage them
  * whatever their tier. The same test holds this list to the registry.
  */
-export const ownerOnlyOperations: ReadonlySet<string> = new Set<KnownOperation>(["agents.connector.sync", "agents.model.download", "agents.model.remove", "agents.model.switch", "agents.runtime.enable", "agents.runtime.install", "agents.zulip.connect", "agents.zulip.disconnect", "app.zulip.organization.link", "backup.cloud.setup", "backup.cloud.sync", "backup.cloud.test", "credentials.remove", "credentials.set", "heartbeat.set", "heartbeat.test", "housekeeping.database-copies.remove", "notifications.ntfy.connect", "router.connect", "system.web.lan.set", "system.web.tls.provision", "vm.backup.snapshot.forget", "vpn.profile.clear", "vpn.profile.set"]);
+export const ownerOnlyOperations: ReadonlySet<string> = new Set<KnownOperation>(["agents.connector.sync", "agents.model.download", "agents.model.remove", "agents.model.switch", "agents.runtime.cpu", "agents.runtime.enable", "agents.runtime.install", "agents.zulip.connect", "agents.zulip.disconnect", "app.zulip.organization.link", "backup.cloud.setup", "backup.cloud.sync", "backup.cloud.test", "credentials.remove", "credentials.set", "heartbeat.set", "heartbeat.test", "housekeeping.database-copies.remove", "notifications.ntfy.connect", "router.connect", "system.web.lan.set", "system.web.tls.provision", "vm.backup.snapshot.forget", "vpn.profile.clear", "vpn.profile.set"]);
 
 /** The tier for an operation. An id missing from the table is high, as it is on the server. */
 export function riskOf(operationId: string): RiskTier {

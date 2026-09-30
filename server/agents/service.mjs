@@ -26,7 +26,7 @@ import { finalRedaction } from "../assistant/prompt.mjs";
 import { normalizeEndpoint, isLocalAddress, isLoopbackAddress } from "../assistant/local-endpoint.mjs";
 import { createRedactor, loadRedactionPolicy } from "../redaction.mjs";
 import { budgetState, createRateLimit, defaultQuietHours, inQuietHours, nextScheduledRun, normalizeQuietHours, startOfLocalDay, tomorrowMorning } from "./budget.mjs";
-import { runnerCaps, runnerUnit } from "./caps.mjs";
+import { coreLimits, defaultCores, effectiveCores, physicalCores, runnerCaps, runnerUnit, threadsFor } from "./caps.mjs";
 import { createAgentChat } from "./chat.mjs";
 import { ConnectorError, boundSync, cleanDocumentText, connectors, readFolderSetting, scanFolder, textOfUpload } from "./connectors.mjs";
 import { sanitizeUntrusted, wrapNote, wrapToolOutput } from "./guard.mjs";
@@ -141,6 +141,8 @@ export const defaultModuleSettings = Object.freeze({
   budget: Object.freeze({ runsPerDay: 300, modelSecondsPerDay: 10_800 }),
   // Meaning search for memory: embeddings from the model server's /v1/embeddings, indexed in quiet hours.
   embeddings: true,
+  // Processors while a person waits, and for everything else (M40, ADR-009): the owner's decision.
+  cores: Object.freeze({ ...defaultCores }),
   // Opt-in, and off: web search through the owner's own SearXNG, a folder to learn from, and
   // read-only Notion and Slack through named credentials.
   webSearch: Object.freeze({ enabled: false, endpoint: null }),
@@ -201,6 +203,10 @@ export function createAgentService({
   fetcher = null,
   productVersion = null,
   chatOptions = null,
+  // This machine's processors and physical cores (M40): the ceiling for agents' processors, and the
+  // most threads the model runs. `physicalCoreCount` undefined reads sysfs; null means unknown.
+  processors = os.cpus().length,
+  physicalCoreCount = undefined,
 } = {}) {
   const limits = { ...serviceLimits, ...overrides };
   const tools = createToolRunner({ state, store, registry, helper, inventory, knowledge, secretEnvNamesFor, now, webSearch: () => moduleSettings().webSearch, ...(fetcher ? { fetcher } : {}) });
@@ -270,6 +276,59 @@ export function createAgentService({
     if (edit && !canEdit(caller, agent)) refuse(403, caller.role === "operator" ? "Operators change the agents they made; the owner changes any" : "Only the owner and operators change agents", "forbidden");
     if (!edit && caller.role === "viewer" && !canAsk(caller, agent)) refuse(404, "There is no agent with that id", "agent_not_found");
     return agent;
+  }
+
+  // ---- processors while someone waits (M40, ADR-009) ----
+
+  let physical = physicalCoreCount ?? null;
+  if (physicalCoreCount === undefined) void physicalCores().then((count) => { physical = count; });
+  // What BoxPilot last set on the runner's unit: processors, whether that is the raised number,
+  // when, when its timer takes it back, and the last failure. Unknown (null) until first set.
+  const cpu = { applied: null, burst: false, at: null, resetAt: null, error: null };
+  const cpuNow = () => ({ processors: cpu.applied, burst: cpu.burst, at: cpu.at, resetAt: cpu.resetAt, error: cpu.error });
+  const coresNow = () => effectiveCores(moduleSettings().cores, { processors });
+  /** A run's processors: the owner's "while you wait" number when a person waits on it, the background one otherwise. */
+  const coresFor = (run) => (personWaiting(run) ? coresNow().waiting : coresNow().background);
+  /** The caps the pages show: the unit's, with the owner's two processor numbers as the quotas (M40). */
+  const capsNow = () => {
+    const cores = coresNow();
+    return { ...runnerCaps, cpuQuotaPercent: cores.background * 100, waitingQuotaPercent: cores.waiting * 100, modelThreads: threadsFor(cores.background, physical), unit: runnerUnit };
+  };
+  let cpuChanging = Promise.resolve(false);
+
+  /**
+   * Set the runner's processors through the root helper (agents.runtime.cpu), one change at a
+   * time. A raise is re-armed for every run it serves, so its timer covers that run; lowering to
+   * what is already set asks nothing. False when it could not be set: the run then goes with the
+   * background number's threads, which the quota already allows.
+   */
+  function applyCpu(target, { resetAfterSeconds = 1_200, force = false } = {}) {
+    const change = cpuChanging.then(async () => {
+      const { background } = coresNow();
+      const burst = target > background;
+      if (!force && !burst && cpu.applied === target) return true;
+      if (!helper) { cpu.error = { at: now().toISOString(), message: "The helper is not available" }; return false; }
+      try {
+        const result = await helper.request("agents.runtime.cpu", { processors: target, background, resetAfterSeconds: Math.min(7_200, Math.max(60, Math.round(resetAfterSeconds))) }, { timeoutMs: 20_000 });
+        Object.assign(cpu, { applied: target, burst, at: now().toISOString(), resetAt: result?.resetAt ?? null, error: null });
+        audit("agents.runtime.cpu", { details: { processors: target, background, burst } });
+        return true;
+      } catch (error) {
+        cpu.error = { at: now().toISOString(), message: clip(String(error?.message ?? error), 200) };
+        // A failed lowering leaves it unknown, so the next one is tried again.
+        if (!burst) cpu.applied = null;
+        return false;
+      }
+    });
+    cpuChanging = change.catch(() => false);
+    return change;
+  }
+
+  /** The background number once nobody waits on the runner: after a person's run, a pause, the kill switch, at start. */
+  async function settleCpu({ force = false } = {}) {
+    if (!force && !cpu.burst) return false;
+    if (store.activeRuns().some((run) => personWaiting(run))) return false;
+    return applyCpu(coresNow().background, { force });
   }
 
   // ---- the runner's presence and usage ----
@@ -452,11 +511,16 @@ export function createAgentService({
     });
   }
 
-  /** What the runtime is, for the runner: the model, the name to ask for, thinking, embeddings. */
-  function runtimeClaim(spec) {
+  /**
+   * What the runtime is, for the runner: the model, the name to ask for, thinking, embeddings, and
+   * (M40) the threads for the processors this run was given, with those processors.
+   */
+  function runtimeClaim(spec, cpuInfo = null) {
     const runtime = runtimeSettings();
     const thinking = spec?.model?.thinking === true;
+    const threads = cpuInfo?.threads ?? threadsFor(coresNow().background, physical);
     return {
+      cpu: cpuInfo ? { processors: cpuInfo.processors, threads, waiting: cpuInfo.waiting } : null,
       driver: runtime.driver,
       // Unsloth loads "repo:quant"; every request names the repo, since once Unsloth has unloaded
       // the model its /v1/models lists every GGUF in the cache, not only this one (the spike).
@@ -464,7 +528,9 @@ export function createAgentService({
       requestModel: ["unsloth", "llama-server"].includes(runtime.driver) ? runtime.repo : null,
       repo: runtime.repo, file: runtime.file, projector: runtime.projector,
       endpoint: runtime.driver === "external" ? runtime.endpoint : null,
-      contextTokens: runtime.contextTokens, threads: runnerCaps.modelThreads, idleStopMs: runtime.idleStopMinutes * 60_000,
+      // One thread a processor (never more than the physical cores): a change of threads restarts
+      // the model server, since llama-server's --threads is fixed when it starts (ADR-009).
+      contextTokens: runtime.contextTokens, threads, idleStopMs: runtime.idleStopMinutes * 60_000,
       maxTokens: runtime.maxTokens, temperature: runtime.temperature,
       // Qwen's thinking is off unless the agent asks for it: on a CPU the spike's 4B spent 1,500
       // tokens thinking without answering. An agent may turn it on for hard tasks, within budget.
@@ -473,22 +539,30 @@ export function createAgentService({
       // Meaning search: Unsloth answers /v1/embeddings beside the chat model (its RAG embedder).
       // llama.cpp's server alone does not, so memory search falls back to words there.
       embeddings: moduleSettings().embeddings !== false && runtime.driver !== "llama-server",
-      // How fast this model reads and writes on this server, as the runner last measured it: what
-      // it works out a call's time from before its first call has been measured.
-      speed: modelSpeed({ current: true }),
+      // How fast this model reads and writes on this server at these threads, as the runner last
+      // measured it: what it works out a call's time from before its first call has been measured.
+      speed: modelSpeed({ current: true, threads }),
     };
   }
 
   /**
    * The model's speed on this server, from the runner's runs: tokens a second reading a prompt and
-   * writing an answer, with the model and threads it was measured at. `current` gives it only when
-   * those are still the runtime's.
+   * writing an answer, with the model and threads it was measured at - the latest, and (M40) the
+   * latest at each thread count. `current` gives it only for the runtime's model at `threads`.
    */
-  function modelSpeed({ current = false } = {}) {
+  function modelSpeed({ current = false, threads = null } = {}) {
     const saved = state.getSetting?.(modelSpeedKey, null);
     if (!saved || !(saved.promptPerSecond > 0) || !(saved.generatePerSecond > 0)) return null;
-    if (current && (saved.model !== runtimeSettings().repo || saved.threads !== runnerCaps.modelThreads)) return null;
-    return saved;
+    if (!current) return saved;
+    if (saved.model !== runtimeSettings().repo) return null;
+    const wanted = threads ?? runnerCaps.modelThreads;
+    const measured = saved.byThreads ?? (saved.threads ? { [String(saved.threads)]: saved } : {});
+    // At these threads; else at the most threads below them (slower, so a call is never planned too
+    // short); else at the fewest measured. The run's own first call measures it at these threads.
+    const counts = Object.keys(measured).map(Number).filter((count) => Number.isInteger(count) && count > 0).sort((a, b) => a - b);
+    const nearest = counts.includes(wanted) ? wanted : counts.filter((count) => count < wanted).at(-1) ?? counts[0];
+    const entry = nearest ? measured[String(nearest)] : null;
+    return entry && entry.promptPerSecond > 0 && entry.generatePerSecond > 0 ? { ...entry, model: saved.model, threads: nearest } : null;
   }
 
   /** A finished run's measurement, kept for the Usage tab and the next run's first call. */
@@ -498,13 +572,12 @@ export function createAgentService({
     const generatePerSecond = finite(measured.generatePerSecond, 10_000);
     if (!(promptPerSecond > 0) || !(generatePerSecond > 0)) return null;
     const previous = modelSpeed();
-    const kept = {
-      promptPerSecond: Math.round(promptPerSecond * 100) / 100,
-      generatePerSecond: Math.round(generatePerSecond * 100) / 100,
-      source: measured.source === "server" ? "server" : "runner",
-      model: runtimeSettings().repo, threads: Number.isInteger(measured.threads) && measured.threads > 0 && measured.threads <= 64 ? measured.threads : runnerCaps.modelThreads,
-      runs: (previous?.runs ?? 0) + 1, measuredAt: now().toISOString(),
-    };
+    const model = runtimeSettings().repo;
+    const threads = Number.isInteger(measured.threads) && measured.threads > 0 && measured.threads <= 64 ? measured.threads : runnerCaps.modelThreads;
+    const entry = { promptPerSecond: Math.round(promptPerSecond * 100) / 100, generatePerSecond: Math.round(generatePerSecond * 100) / 100, source: measured.source === "server" ? "server" : "runner", measuredAt: now().toISOString() };
+    // Each thread count keeps its own, so the next run at eight threads plans with eight threads' speed.
+    const earlier = previous?.model === model ? previous.byThreads ?? (previous.threads ? { [String(previous.threads)]: { promptPerSecond: previous.promptPerSecond, generatePerSecond: previous.generatePerSecond, source: previous.source, measuredAt: previous.measuredAt } } : {}) : {};
+    const kept = { ...entry, model, threads, runs: (previous?.runs ?? 0) + 1, byThreads: { ...earlier, [String(threads)]: entry } };
     state.setSetting?.(modelSpeedKey, kept, { updatedBy: null });
     return kept;
   }
@@ -559,20 +632,20 @@ export function createAgentService({
   }
 
   /** The claim for an index run: the texts whose embeddings are missing or out of date. */
-  function indexPayload(run, lease) {
+  function indexPayload(run, lease, { cpu: cpuInfo = null } = {}) {
     const items = pendingEmbeddings().slice(0, limits.indexBatch);
     return {
       run: { id: run.id, kind: "index", question: null, trigger: run.trigger, readRole: run.readRole, startedAt: run.startedAt, deadlineAt: new Date(Date.parse(run.startedAt) + 600_000).toISOString() },
       lease, agent: { id: memoryIndexAgentId, name: "Memory index", version: 0, outputs: {} },
       index: { model: embedModelName(), items: items.map((item) => ({ key: item.key, text: item.text.slice(0, 2_000) })) },
-      messages: [], tools: [], runtime: runtimeClaim(null),
+      messages: [], tools: [], runtime: runtimeClaim(null, cpuInfo),
       limits: { steps: 0, tokens: 0, runSeconds: 600, remainingModelMs: moduleBudget().modelMsLeft, toolCallsPerStep: 0, maxToolCalls: 0, heartbeatMs: limits.heartbeatMs },
     };
   }
 
-  function claimPayload(run, lease) {
-    if (run.kind === "index") return indexPayload(run, lease);
-    if (run.kind === "describe") return describePayload(run, lease);
+  function claimPayload(run, lease, { cpu: cpuInfo = null } = {}) {
+    if (run.kind === "index") return indexPayload(run, lease, { cpu: cpuInfo });
+    if (run.kind === "describe") return describePayload(run, lease, { cpu: cpuInfo });
     const agent = store.getAgent(run.agentId, { includeDeleted: true });
     const version = store.getVersion(run.agentId, run.version) ?? { spec: agent.spec };
     const spec = version.spec;
@@ -620,7 +693,7 @@ export function createAgentService({
       // Intent, then plan, then act: the runner asks for the structured understanding first.
       understand: understand ? { tools: offered.map((tool) => ({ fn: tool.fn, title: tool.title, ...(tool.use ? { use: tool.use } : {}) })) } : null,
       output: spec.prompt?.output ?? { format: "text", fields: [] },
-      runtime: runtimeClaim(spec),
+      runtime: runtimeClaim(spec, cpuInfo),
       limits: {
         steps: spec.budget.stepsPerRun,
         tokens: spec.budget.tokensPerRun,
@@ -697,7 +770,7 @@ export function createAgentService({
     return run;
   }
 
-  function describePayload(run, lease) {
+  function describePayload(run, lease, { cpu: cpuInfo = null } = {}) {
     const items = store.listUndescribed({ limit: 1 }).map((document) => {
       const media = store.getDocumentMedia(document.id);
       return media ? { key: document.id, title: document.title, dataUrl: `data:${media.mediaType ?? "image/png"};base64,${media.media.toString("base64")}` } : null;
@@ -706,7 +779,7 @@ export function createAgentService({
       run: { id: run.id, kind: "describe", question: null, trigger: run.trigger, readRole: run.readRole, startedAt: run.startedAt, deadlineAt: new Date(Date.parse(run.startedAt) + 600_000).toISOString() },
       lease, agent: { id: imageDescribeAgentId, name: "Image describer", version: 0, outputs: {} },
       describe: { items, prompt: describePrompt },
-      messages: [], tools: [], runtime: runtimeClaim(null),
+      messages: [], tools: [], runtime: runtimeClaim(null, cpuInfo),
       limits: { steps: 0, tokens: 2_000, runSeconds: 600, remainingModelMs: moduleBudget().modelMsLeft, toolCallsPerStep: 0, maxToolCalls: 0, heartbeatMs: limits.heartbeatMs },
     };
   }
@@ -734,6 +807,26 @@ export function createAgentService({
   }
 
   /**
+   * A claimed run's processors (M40): the number it should have, set on the runner's unit, and the
+   * model's threads for what was set. A raise that could not be set leaves the run the background
+   * number's threads, and the trace says so.
+   */
+  async function cpuForRun(run) {
+    const wanted = coresFor(run);
+    const { background } = coresNow();
+    const spec = ["index", "describe"].includes(run.kind) ? null : store.getVersion(run.agentId, run.version)?.spec;
+    const runSeconds = spec?.budget?.runSeconds ?? 600;
+    const applied = await applyCpu(wanted, { resetAfterSeconds: runSeconds + limits.runGraceMs / 1000 + 60 });
+    const processorsForRun = applied ? wanted : background;
+    const threads = threadsFor(processorsForRun, physical);
+    const waiting = wanted > background;
+    const words = applied
+      ? `The runner took this run, with ${processorsForRun} processors and ${threads} model threads${waiting ? " while you wait" : ""}.`
+      : waiting ? `The runner took this run. It could not be given ${wanted} processors (${cpu.error?.message ?? "the helper did not answer"}), so it runs with ${background}.` : "The runner took this run.";
+    return { processors: processorsForRun, wanted, threads, waiting: waiting && applied, applied, words };
+  }
+
+  /**
    * The runner's long poll: the next run, or null after `waitMs` with nothing to do. Nothing is
    * handed out while Agents are off or paused, or while another run holds a live lease.
    */
@@ -746,9 +839,11 @@ export function createAgentService({
       if (settings.enabled && !modulePaused(settings)) {
         const claimed = store.claimNext({ runnerId, leaseMs: limits.leaseMs, choose: (queued) => chooseRun(queued, { hostBusy }) });
         if (claimed) {
-          store.addStep(claimed.run.id, { kind: "system", name: "claimed", output: "The runner took this run." });
+          // Its processors first (M40): raised while a person waits, the background number otherwise.
+          const cpuInfo = await cpuForRun(claimed.run);
+          store.addStep(claimed.run.id, { kind: "system", name: "claimed", output: "The runner took this run.", flags: { detail: cpuInfo.words } });
           emit(claimed.run.id, "state", { state: "running" });
-          return claimPayload(claimed.run, claimed.lease);
+          return claimPayload(claimed.run, claimed.lease, { cpu: cpuInfo });
         }
       }
       const left = deadline - now().getTime();
@@ -1085,6 +1180,8 @@ export function createAgentService({
     // Its answer, cards, trace and notes, to the team chat when Zulip is connected (M38).
     chat.afterRun(agent, spec, store.getRun(finished.id) ?? finished);
     continueTree(finished);
+    // Nobody waits any more (no follow-up, no other question): back to the background number (M40).
+    void settleCpu().catch(() => null);
     wake();
     return { state: finished.state };
   }
@@ -1230,6 +1327,22 @@ export function createAgentService({
       const current_ = current.budget ?? defaultModuleSettings.budget;
       next.budget = { runsPerDay: whole(raw.runsPerDay, current_.runsPerDay, moduleBudgetCeilings.runsPerDay, "Runs a day for all agents"), modelSecondsPerDay: whole(raw.modelSecondsPerDay, current_.modelSecondsPerDay, moduleBudgetCeilings.modelSecondsPerDay, "Model seconds a day for all agents") };
     }
+    if (input.cores !== undefined) {
+      // Processors while a person waits and in the background (M40): 2 to 8, never more than this
+      // machine's processors less two, and the background never more than while someone waits.
+      const ceiling = effectiveCores({}, { processors }).ceiling;
+      const raw = input.cores ?? {};
+      const saved = current.cores ?? defaultModuleSettings.cores;
+      const count = (value, fallback, what) => {
+        if (value === undefined) return fallback;
+        if (!Number.isInteger(value) || value < coreLimits.min || value > ceiling) refuse(400, `${what} must be ${coreLimits.min} to ${ceiling} on this server (it has ${processors} processors, and two stay free)`, "invalid_setting");
+        return value;
+      };
+      const waiting = count(raw.waiting, Math.min(saved.waiting, ceiling), "Processors while you wait");
+      const background = count(raw.background, Math.min(saved.background, ceiling), "Processors in the background");
+      if (background > waiting) refuse(400, "The background gets no more processors than a question someone waits on", "invalid_setting");
+      next.cores = { waiting, background };
+    }
     if (input.webSearch !== undefined) {
       const enabled = input.webSearch?.enabled === true;
       let endpoint = input.webSearch?.endpoint ?? current.webSearch?.endpoint ?? null;
@@ -1270,8 +1383,10 @@ export function createAgentService({
       state.setSetting(agentsRuntimeKey, runtime, { updatedBy: person.id });
     }
     if (input.knowledge !== undefined) setKnowledgeSources(person, input.knowledge);
-    audit("settings.agents.changed", { actorId: person.id, subjectId: person.id, details: { enabled: next.enabled, quietHours: next.quietHours, notify: next.notify, driver: runtime.driver, endpoint: runtime.endpoint, budget: next.budget, embeddings: next.embeddings, webSearch: next.webSearch?.enabled ?? false, folder: next.folder?.enabled ?? false, notion: next.connectors?.notion?.enabled ?? false, slack: next.connectors?.slack?.enabled ?? false } });
+    audit("settings.agents.changed", { actorId: person.id, subjectId: person.id, details: { enabled: next.enabled, quietHours: next.quietHours, notify: next.notify, driver: runtime.driver, endpoint: runtime.endpoint, budget: next.budget, embeddings: next.embeddings, webSearch: next.webSearch?.enabled ?? false, folder: next.folder?.enabled ?? false, notion: next.connectors?.notion?.enabled ?? false, slack: next.connectors?.slack?.enabled ?? false, cores: next.cores ?? defaultModuleSettings.cores } });
     if (next.enabled && !current.enabled) void ensureRunnerToken().catch(() => null);
+    // A new background number applies at once when nothing waits on the runner (M40).
+    if (input.cores !== undefined || (input.enabled !== undefined && !next.enabled)) void settleCpu({ force: true }).catch(() => null);
     wake();
     return { module: presentModule(), runtime };
   }
@@ -1310,6 +1425,7 @@ export function createAgentService({
     }
     stopModelRequested = true;
     audit("agents.module.killed", { actorId: person.id, details: { cancelled, stopped } });
+    void settleCpu({ force: true }).catch(() => null);
     wake();
     return { module: presentModule(), cancelled, stopped };
   }
@@ -1402,6 +1518,8 @@ export function createAgentService({
       enabled: settings.enabled, paused: modulePaused(settings), pausedUntil: modulePaused(settings) ? settings.pausedUntil : null,
       killedAt: settings.killedAt, quietHours: settings.quietHours, inQuietHours: inQuietHours(now(), settings.quietHours), notify: settings.notify !== false,
       budget: moduleBudget(), embeddings: settings.embeddings !== false,
+      // M40: processors while someone waits and in the background, this machine's ceiling, and what is set now.
+      cores: { ...effectiveCores(settings.cores, { processors }), processors, physical: physical ?? null, limits: coreLimits, now: cpuNow() },
       webSearch: { enabled: settings.webSearch?.enabled === true, endpoint: settings.webSearch?.endpoint ?? null },
       folder: { enabled: settings.folder?.enabled === true, path: settings.folder?.path ?? null },
       connectors: {
@@ -1808,7 +1926,7 @@ export function createAgentService({
     const { queued, running } = queueCounts();
     return {
       runner: runnerStatus(),
-      caps: { ...runnerCaps, unit: runnerUnit },
+      caps: capsNow(),
       // The model's measured speed on this server: { promptPerSecond, generatePerSecond, model, threads, measuredAt }, or null.
       modelSpeed: modelSpeed(),
       today: { runs: perAgent.reduce((sum, entry) => sum + entry.runs, 0), modelSeconds: perAgent.reduce((sum, entry) => sum + entry.modelSeconds, 0), tokens: perAgent.reduce((sum, entry) => sum + entry.tokens, 0), perAgent },
@@ -2235,7 +2353,7 @@ export function createAgentService({
       checkedAt: check?.checkedAt ?? null,
       unsloth: { ...(state.getSetting?.(runtimeInstallKey, null) ?? { version: null, installerSha256: null, installedAt: null }), testedVersion: testedUnslothVersion },
       runner: runnerStatus(),
-      caps: { ...runnerCaps, unit: runnerUnit },
+      caps: capsNow(),
     };
   }
 
@@ -2387,6 +2505,8 @@ export function createAgentService({
     }
     // The team chat: what waits is sent, and #agent-files is read every few minutes (M38).
     await chat.tick().catch(() => null);
+    // A raise nobody needs any more (a run that timed out, was cancelled or was killed) goes (M40).
+    await settleCpu().catch(() => null);
     wake();
   }
 
@@ -2428,6 +2548,8 @@ export function createAgentService({
     const unsubscribeJobs = subscribeJobs ? subscribeJobs(onJob) : null;
     const unsubscribeRounds = afterRound ? afterRound(onHealthRound) : null;
     if (moduleSettings().enabled) void ensureRunnerToken().catch(() => null);
+    // A raise from before a restart of BoxPilot is taken back now, not only by its timer (M40).
+    if (moduleSettings().enabled) void settleCpu({ force: true }).catch(() => null);
     return () => { clearInterval(timer); unsubscribeJobs?.(); unsubscribeRounds?.(); wake(); };
   }
 }
