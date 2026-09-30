@@ -46,6 +46,9 @@ function reportedConditions() {
     // M30.1: one condition for the server, not one per job. The helper writes every job's log, so
     // when BoxPilot cannot open one it is usually every one (the umask of M27.4).
     "joblog.unreadable": "BoxPilot could not read a job's output",
+    // The boot before this one ended without a shutdown (server/power-loss.mjs): raised once at the
+    // start after it, cleared when someone says "Got it" on Home.
+    "power.lost": "The server lost power or stopped without shutting down",
   };
 }
 const reportedFamilies = new Set(Object.keys(reportedConditions()));

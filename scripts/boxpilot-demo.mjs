@@ -569,6 +569,7 @@ api.get("/settings/watch", (_request, response) => json(response, { targetConfig
   ["power.ups", "UPS on battery or low"], ["system.services", "System services have failed"], ["system.reboot", "A reboot is required"],
   ["docker.unhealthy", "A container is unhealthy"], ["docker.restarting", "A container keeps restarting (crash-looping)"], ["schedule.overdue", "A scheduled task (such as a backup) has stopped running"],
   ["schedule.failed", "A scheduled task failed or did not run"], ["flow.failed", "An automation stopped or did not run"], ["record.failed", "A job ran but its result was not saved"],
+  ["power.lost", "The server lost power or stopped without shutting down"],
 ].map(([key, label]) => ({ key, label, active: false, details: [] })), notices: [], unannouncedCount: 0 }));
 // The notification centre (M36): what the server said lately and whether the phone got it.
 api.get("/notifications", (_request, response) => json(response, { seenAt: ago(30), unseen: 2, targetConfigured: true, entries: [
@@ -772,6 +773,11 @@ api.get("/integrations/github", (_request, response) => json(response, {
     "No GitHub token, repository write, clone, download, webhook, workflow dispatch, or adapter installation exists in this release.",
   ],
 }));
+// Times the server went down without shutting down (2026-09-29). None in the lived-in world; the
+// trouble world has the owner's power cut, placed on this fictional server. "Got it" is accepted
+// and, like every mutation here, nothing is kept.
+api.get("/power/outages", (_request, response) => json(response, { outages: [], unacknowledged: 0 }));
+api.post("/power/outages/:id/acknowledge", (request, response) => response.json({ outage: { id: request.params.id, acknowledged: { at: now().toISOString(), by: "owner-demo" } } }));
 api.get("/power/ups/detect", (_request, response) => json(response, { devices: [{ vendorId: "051d", productId: "0002", manufacturer: "American Power Conversion", product: "Back-UPS ES 700G", driver: "usbhid-ups", confidence: "vendor-id", sysfs: "1-3" }], nutInstalled: true }));
 api.get("/firewall/overview", (_request, response) => json(response, {
   report: firewallReport, reportError: null, web: { port: 8787, lanExposed: false }, protected: protectedRules({ webPort: 8787, webHost: "127.0.0.1" }), profiles, services, riskyPorts, current: firewallProfile,
@@ -814,16 +820,37 @@ const demoContainers = [
   { name: "bp-immich", appId: "immich", appName: "Immich", binds: ["/mnt/photos"], startedAt: ago(30) },
 ];
 const missing = (id) => ({ record: `/var/lib/boxpilot-managed/catalog/${id}/boxpilot.json`, project: `/var/lib/boxpilot-managed/catalog/${id}/compose.yaml`, projectPresent: true, container: `bp-${id}` });
+// The owner's power cut (2026-09-29), on this server: the power went five and a half hours ago and it
+// stayed off until someone pressed the button, 3 h 36 min later. Pi-hole went down with it. It came
+// back with Tailscale's resolver in /etc/resolv.conf and /boot/efi still marked.
+const powerCut = { id: "7a0b2f1c3d4e5f60718293a4b5c6d7e8", stoppedAt: ago(5.5), backAt: ago(1.9), offForMs: (3 * 60 + 36) * 60_000, cause: "power",
+  resetReason: { code: "0x00200800", text: "ACPI power state transition occurred" }, evidence: [], dnsApps: ["Pi-hole"], ups: false, detectedAt: ago(1.88), acknowledged: null };
+const troubleLookups = () => ({
+  available: true, checkedAt: now().toISOString(), nssWorks: false,
+  names: [{ name: "github.com", ok: false, addresses: [], error: "no answer" }, { name: "registry-1.docker.io", ok: false, addresses: [], error: "no answer" }],
+  resolvConf: { kind: "file", target: null, stub: false, nameservers: ["100.100.100.100"], generatedBy: "tailscale", tailscaleBackup: "../run/systemd/resolve/stub-resolv.conf" },
+  resolved: { active: true, stubPresent: true, stubAnswers: { ok: true, addresses: ["140.82.121.4"], error: null }, resolves: true },
+  tailscale: { running: true, acceptDns: true, dnsWarnings: ["Tailscale failed to fetch the DNS configuration of your device: exit status 1"] },
+  internet: { reachable: true, probes: [{ host: "1.1.1.1", port: 443, ok: true }, { host: "9.9.9.9", port: 443, ok: true }] },
+  dnsServer: { name: "Pi-hole", address: host.lan, running: true, answers: true },
+});
 const troubleFacts = () => ({
   now: Date.now(),
+  hostname: host.hostname,
+  nameLookups: troubleLookups(),
   mounts: [
     { target: "/", source: "/dev/mapper/ubuntu--vg-ubuntu--lv", fstype: "ext4", managedName: null },
+    { target: "/boot/efi", source: "/dev/nvme0n1p1", fstype: "vfat", managedName: null },
     { target: "/mnt/media", source: "/dev/sda1", fstype: "ext4", readOnly: true, managedName: "media", options: "defaults,nofail", sizeBytes: 4000 * GiB },
     { target: "/mnt/backup-drive", source: "/dev/sdb1", fstype: "exfat", readOnly: false, managedName: "backup-drive", options: "defaults,nofail,x-systemd.before=docker.service,x-systemd.device-timeout=30s" },
   ],
   devices: [{ path: "/dev/sda", transport: "usb" }, { path: "/dev/sda1", transport: "usb" }, { path: "/dev/sdb", transport: "usb" }, { path: "/dev/sdb1", transport: "usb" }, { path: "/dev/nvme0n1", transport: "nvme" }],
-  unclean: { available: true, events: [{ device: "/dev/sda1", driver: "EXT4-fs", at: ago(9), message: "EXT4-fs (sda1): error count since last fsck: 4" }] },
-  tools: { fsckExfat: true },
+  unclean: { available: true, events: [
+    { device: "/dev/sda1", driver: "EXT4-fs", at: ago(9), message: "EXT4-fs (sda1): error count since last fsck: 4" },
+    { device: "/dev/nvme0n1p1", driver: "FAT-fs", at: ago(1.9), message: "FAT-fs (nvme0n1p1): Volume was not properly unmounted. Some data may be corrupt. Please run fsck." },
+  ] },
+  tools: { fsckExfat: true, fsckFat: true },
+  fstab: [{ device: "UUID=AB12-CD34", mountpoint: "/boot/efi", managedName: null, pass: 1 }],
   driveChecks: { media: { checkedAt: ago(24 * 20), clean: true } },
   containers: demoContainers,
   remountedTargets: ["/mnt/photos"],
@@ -1043,16 +1070,20 @@ const troubleRest = {
   // The same failed flow, and the notification target that did not take it: the Overview's
   // "could not tell you" line has something to count in the unwell world.
   // The same failed flow in the notification centre: said, and not delivered, and still going.
-  "/notifications": (body) => ({ ...body, unseen: 3, entries: [
+  "/notifications": (body) => ({ ...body, unseen: 4, entries: [
+    { id: "t0", kind: "alert", key: `power.lost:${powerCut.id.slice(0, 12)}`, family: "power.lost", title: `${host.hostname} lost power (or froze) at ${new Date(powerCut.stoppedAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })} and was off for 3 h 36 min.`, message: `Pi-hole was down with it, so devices using it had no DNS. In ${host.hostname}'s BIOS, set "Restore on AC power loss" to Power On, so it starts again by itself when the power comes back.`, at: powerCut.detectedAt, delivered: false, reason: "failed", deliveredAt: null, resolvedAt: null, live: true },
     { id: "t1", kind: "alert", key: "flow.failed:f1", family: "flow.failed", title: "Automation stopped: Update night", message: "Step 3 (Install package updates) failed: apt-get upgrade failed: E: Could not get lock /var/lib/dpkg/lock-frontend", at: ago(30), delivered: false, reason: "failed", deliveredAt: null, resolvedAt: null, live: true },
     { id: "t2", kind: "job", key: "job.failed:t2", family: "job.failed", title: "Back up application data failed", message: "tar failed: No space left on device", at: ago(15.9), delivered: false, reason: "failed", deliveredAt: null, resolvedAt: null, live: false },
     ...body.entries,
   ].sort((left, right) => right.at.localeCompare(left.at)) }),
   "/settings/watch": (body) => {
     const failed = { title: "Automation stopped: Update night", since: ago(30), announced: false };
-    const conditions = body.conditions.map((condition) => (condition.key === "flow.failed" ? { ...condition, active: true, details: [failed] } : condition));
-    return { ...body, targetConfigured: false, activeCount: 1, unannouncedCount: 1, conditions };
+    // The power cut, as the health ledger keeps it until someone says "Got it" on Home.
+    const cut = { title: `${host.hostname} lost power (or froze) at ${new Date(powerCut.stoppedAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })} and was off for 3 h 36 min.`, since: powerCut.detectedAt, announced: false };
+    const conditions = body.conditions.map((condition) => (condition.key === "flow.failed" ? { ...condition, active: true, details: [failed] } : condition.key === "power.lost" ? { ...condition, active: true, details: [cut] } : condition));
+    return { ...body, targetConfigured: false, activeCount: 2, unannouncedCount: 2, conditions };
   },
+  "/power/outages": (body) => ({ ...body, outages: [powerCut], unacknowledged: 1 }),
   // In the unwell world the doctor finds what the owner would: the LAN side dropped by a firewall.
   "/operations/app.reachability.inspect/run": (body) => ({ ...body, result: { ...body.result, addresses: (body.result.addresses ?? []).map((address) => (address.kind === "lan"
     ? { ...address, outcome: "timeout", status: undefined, ms: 4000, verdict: "The connection was silently dropped, which is what a firewall in the path looks like. The probe ran from the server itself, so the block is on this machine or inside the app's own network." }

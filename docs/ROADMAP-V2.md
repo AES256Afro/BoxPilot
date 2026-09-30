@@ -1729,6 +1729,34 @@ the owner does. Approvals and tiers are unchanged: every fix is an ordinary job 
   **Move it to port N**. A failed job no longer leaves `apply` running. The demo showed Immich and
   Vaultwarden in the same trap; `server/serve-audit.test.mjs` holds the catalog to it and
   `tests/ubuntu/port-preflight.sh` proves the check on a real host.
+- ✅ **M35.13 What a power cut leaves behind** (unreleased). On 2026-09-29 the owner's server lost
+  power at 18:41 and stayed off until someone pressed the button at 22:18 (no UPS; the BIOS leaves
+  it off), taking Pi-hole, the house's DNS, with it. It came back unable to look names up
+  (Tailscale mistook resolved's resolvconf shim for openresolv and left /etc/resolv.conf pointing at
+  100.100.100.100) and with /boot/efi marked "not properly unmounted". Three things now say so:
+  - **"This server cannot look up website names"** (critical): the web service reads it
+    unprivileged (getent through NSS, the resolv.conf link, `systemctl is-active`, a query to
+    resolved's stub, Tailscale's health, a TCP probe, and the house's DNS app), because the helper
+    has no network. When resolved runs and answers but resolv.conf is not its stub link, the fix is
+    **Point name lookups back to systemd-resolved** (`dns.lookups.restore`, medium, root task): keep
+    the file as `/etc/resolv.conf.boxpilot-<stamp>`, link the stub in one rename, check with
+    getent, put the old file back if names still fail. Tailscale is not restarted. A stub turned off,
+    a dead upstream, no internet or no resolved each get their own words and no fix.
+  - **"The server lost power"** on Home: at each start the helper's `system.boots.inspect` reads
+    how the previous boot ended (`journalctl --list-boots`, the old boot's tail for a shutdown, this
+    boot's first minutes for journald's "uncleanly shut down" and ext4/FAT's words, the AMD reset
+    reason). Both halves are needed, so a reboot is never an outage. Said once, in the owner's time,
+    with what went down with it and what would help (BIOS "Restore on AC power loss", a UPS, a
+    second DNS on the router), raised in the health ledger (`power.lost`) and cleared by "Got it".
+  - **"The boot partition was not cleanly unmounted"** (warning), from the kernel's line about the
+    FAT partition at /boot/efi: **Check and clear the boot partition's mark**
+    (`storage.boot-mark.clear`, medium): refused while packages or the bootloader are being
+    updated or anything has a file open there; unmounts it, `fsck.fat -n`, and only if the mark is
+    all it finds (the backup boot sector differing at 65:01/00 is the mark too) `fsck.fat -a`,
+    checks again, mounts it back. dosfstools is installed first when missing.
+  `tests/ubuntu/name-lookups.sh` and `tests/ubuntu/boot-partition-mark.sh` prove the two fixes on
+  the runner (CI, both LTS releases); `tests/ubuntu/power-loss-vm.sh` reboots a KVM guest and cuts
+  its power (install smoke test).
 
 ## M36 — Value and quality of life
 

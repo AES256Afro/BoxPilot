@@ -44,5 +44,14 @@ export function localDnsOperations() {
       parameters: { fields: { address: { type: "string", maxLength: 45, pattern: /^\d{1,3}(\.\d{1,3}){3}$/ } } },
       run: (parameters, { runUnit, jobLog }) => runUnit.runTask("dns.blocker.verify", parameters, { timeoutMs: 45_000, logPath: jobLog?.path ?? null }),
     }),
+    defineOperation({
+      // Repair's fix for a server that cannot look names up because /etc/resolv.conf stopped being
+      // systemd-resolved's stub link (2026-09-29: Tailscale left it pointing at 100.100.100.100).
+      // A root task: /etc is read-only to the helper, and the check needs the network it lacks.
+      id: "dns.lookups.restore", title: "Point name lookups back to systemd-resolved", risk: "medium", timeoutMs: 2 * 60_000,
+      description: "Keeps the current /etc/resolv.conf as /etc/resolv.conf.boxpilot-<time>, makes /etc/resolv.conf the link to systemd-resolved's ../run/systemd/resolve/stub-resolv.conf again, and checks with getent that names resolve. If they still do not, the old file is put back. Refused, with nothing changed, unless systemd-resolved is running and answers. Tailscale is not restarted; its DNS warning clears at its next start.",
+      parameters: { fields: {} },
+      run: (_parameters, { runUnit, jobLog }) => runUnit.runTask("dns.lookups-restore", {}, { timeoutMs: 90_000, logPath: jobLog?.path ?? null }),
+    }),
   ];
 }

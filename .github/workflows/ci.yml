@@ -112,6 +112,34 @@ jobs:
       - name: Shares mount and unmount on the host, not in the task's namespace
         run: sudo bash tests/ubuntu/share-mount-host.sh "$(command -v node)"
 
+  # What a power cut left on the owner's server (2026-09-29), fixed on the runner itself:
+  # /etc/resolv.conf as Tailscale wrote it, so nothing could look names up while systemd-resolved
+  # was fine, and /boot/efi still marked "not properly unmounted". Its own systemd-resolved and
+  # NSS, a real FAT32 partition on a loop device and the runner's own /boot/efi, real dosfstools,
+  # and boxpilot-run@ as shipped. Both LTS releases; the owner's server runs 26.04.
+  repair-after-power-cut:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-26.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Name lookups pointed back at systemd-resolved, and put back when that does not help
+        run: sudo bash tests/ubuntu/name-lookups.sh "$(command -v node)"
+
+      - name: The boot partition's mark checked and cleared, and nothing else touched
+        if: ${{ !cancelled() }}
+        run: sudo bash tests/ubuntu/boot-partition-mark.sh "$(command -v node)"
+
   # The agents runner's hard caps (M37) on real systemd: deploy/boxpilot-agents.service as shipped,
   # the real runner and a fake model burning three times the unit's processor quota. The service's
   # own cgroup must stay at or under CPUQuota=200% under load and idle near 0% afterwards. Both LTS

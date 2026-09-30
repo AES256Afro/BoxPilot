@@ -19,6 +19,7 @@
 import { createHash } from "node:crypto";
 import { backupMountpoint, legacyBackupMountpoint, mountpointFor } from "./backup-mount.mjs";
 import { coversEveryAddress, findPortConflicts, freePortNear, holderWords, portHolders, serveTargetPort, serveUrl } from "./ports.mjs";
+import { nameLookupVerdict, stubAddress, stubLinkTarget, tailscaleBackupPath, tailscaleResolver } from "./name-lookups.mjs";
 
 export const severities = Object.freeze(["critical", "warning", "info"]);
 
@@ -937,6 +938,141 @@ export function backupsDue({ protection = null, schedules = [], now = Date.now()
   })];
 }
 
+/**
+ * A server that cannot look names up (2026-09-29). After a power cut the owner's server came back
+ * with Tailscale's resolver in /etc/resolv.conf instead of systemd-resolved's stub, so every lookup
+ * through the system resolver failed while `resolvectl query` worked: the BoxPilot upgrade could not
+ * download, and an app update failed pulling its image. Nothing said why; "my network is broken"
+ * was all the owner had, although Pi-hole, the house's DNS, was fine.
+ *
+ * `facts.nameLookups` is server/name-lookups.mjs's reading, and nameLookupVerdict says which of its
+ * shapes this is. Only the owner's shape - resolved running and answering, resolv.conf not its stub
+ * link - has a fix; every other one says what is wrong and what the owner does.
+ */
+export function nameLookupsBroken({ nameLookups = null, hostname = null } = {}) {
+  const verdict = nameLookupVerdict(nameLookups);
+  if (!verdict) return [];
+  const host = hostname || "This server";
+  const facts = nameLookups;
+  const conf = facts.resolvConf ?? {};
+  const resolved = facts.resolved ?? {};
+  const names = (facts.names ?? []).map((entry) => entry.name);
+  const servers = (conf.nameservers ?? []).join(", ");
+  const offline = verdict.kind === "upstream" && verdict.internet === false;
+  const dns = facts.dnsServer;
+  const effect = offline
+    ? "Nothing on it can reach the internet: BoxPilot cannot download its updates, Ubuntu's updates cannot be fetched, and apps cannot pull their images."
+    : `Every name it looks up fails, the way curl, apt and Docker look them up (${listOf(names)} included), so BoxPilot cannot download its updates, Ubuntu's updates cannot be fetched, and apps cannot pull their images.`;
+  const notAsked = "systemd-resolved, which normally answers them on Ubuntu, is running and works; it is just not being asked.";
+  const cause = {
+    repoint: verdict.tailscaleWrote
+      ? `The cause is Tailscale: when it started with the server, it took over name lookups and left /etc/resolv.conf sending them all to its own resolver (${tailscaleResolver}), which answers nothing, because Tailscale could not read this server's own DNS settings. ${notAsked}`
+      : `/etc/resolv.conf, the file that says where lookups go, is no longer the link to systemd-resolved${servers ? `: it sends them to ${servers}, which does not answer` : ""}. ${notAsked}`,
+    "stub-off": `systemd-resolved can look names up, but its local listener (${stubAddress}) is switched off - setting up Pi-hole on the server itself often does that - and /etc/resolv.conf${servers ? ` sends lookups to ${servers}, which` : ""} does not answer.`,
+    upstream: offline
+      ? "Connections to the internet fail too, so this is the router or the internet connection, not a setting on this server. It clears by itself once the connection is back."
+      : `systemd-resolved cannot get an answer from the DNS servers this server was given, although the internet itself is reachable: the DNS server your router hands out is not answering.`,
+    "no-resolved": `systemd-resolved, which answers lookups on Ubuntu, is ${resolved.active ? "running without its stub file" : "not running"} here, and /etc/resolv.conf${servers ? ` sends lookups to ${servers}, which` : ""} does not answer.${verdict.tailscaleWrote ? " Tailscale wrote that file." : ""}`,
+    other: "systemd-resolved answers, and /etc/resolv.conf points at it, yet lookups through the system resolver fail.",
+  }[verdict.kind];
+  const house = !dns ? "" : dns.running === false
+    ? ` ${dns.name}, the DNS server your home network uses, is stopped too, so devices that use it cannot look names up either.`
+    : dns.answers === true ? ` ${dns.name}, the DNS server the rest of your home network uses, is separate and still answering, so other devices are not affected.`
+      : dns.answers === false ? ` ${dns.name}, the DNS server the rest of your home network uses, is not answering either, so other devices may be affected too.` : "";
+  const confWords = conf.kind === "link" ? (conf.stub ? "/etc/resolv.conf is the link to systemd-resolved" : `/etc/resolv.conf is a link to ${conf.target}, not to systemd-resolved`)
+    : conf.kind === "file" ? "/etc/resolv.conf is a plain file, not the link to systemd-resolved" : conf.kind === "missing" ? "/etc/resolv.conf is missing" : "/etc/resolv.conf could not be read";
+  const stub = resolved.stubAnswers;
+  const evidence = [
+    ...(facts.names ?? []).map((entry) => `getent ahosts ${entry.name}: ${entry.ok ? entry.addresses.join(", ") : entry.error}`),
+    confWords,
+    ...(servers ? [`it sends lookups to ${servers}`] : []),
+    ...(conf.generatedBy === "tailscale" ? ["the file says Tailscale wrote it"] : []),
+    ...(conf.tailscaleBackup ? [`Tailscale kept the one it replaced at ${tailscaleBackupPath} (a link to ${conf.tailscaleBackup})`] : []),
+    ...(facts.tailscale?.dnsWarnings ?? []).map((warning) => `Tailscale says: "${warning}"`),
+    !resolved.active ? "systemd-resolved is not running" : !resolved.stubPresent ? "systemd-resolved has no stub file"
+      : stub?.ok ? `systemd-resolved answers: ${names[0]} is ${stub.addresses.join(", ")}` : `systemd-resolved's listener at ${stubAddress} does not answer (${stub?.error ?? "no answer"})${resolved.resolves === true ? ", though resolvectl query works" : resolved.resolves === false ? ", and resolvectl query fails too" : ""}`,
+    ...(facts.internet ? [facts.internet.reachable ? `the internet is reachable: ${facts.internet.probes.filter((probe) => probe.ok).map((probe) => `${probe.host}:${probe.port}`).join(" and ")} ${facts.internet.probes.filter((probe) => probe.ok).length === 1 ? "answers" : "answer"}` : `${facts.internet.probes.map((probe) => `${probe.host}:${probe.port}`).join(" and ")} do not answer either`] : []),
+    ...(dns ? [dns.running === false ? `${dns.name} is stopped` : dns.answers === null ? `${dns.name} was not asked` : `${dns.name} ${dns.answers ? "answers" : "does not answer"}${dns.address ? ` at ${dns.address}` : ""}`] : []),
+  ];
+  const manual = {
+    "stub-off": "Point /etc/resolv.conf at the list of real DNS servers systemd-resolved keeps: sudo ln -sfn ../run/systemd/resolve/resolv.conf /etc/resolv.conf, then check with getent hosts github.com.",
+    upstream: offline
+      ? "Check the router and its cable, and restart the router if other devices are offline too. Nothing on this server needs changing."
+      : `Check which DNS server the router hands out: resolvectl status shows what this server was given.${dns ? ` If it is this server's own ${dns.name} and that is not answering, start ${dns.name} or fix it first.` : ""}`,
+    "no-resolved": verdict.tailscaleWrote
+      ? `Restart Tailscale (sudo systemctl restart tailscaled) so it sets name lookups up again, or put back the file it replaced: sudo cp --remove-destination ${tailscaleBackupPath} /etc/resolv.conf.`
+      : "Start systemd-resolved (sudo systemctl enable --now systemd-resolved) and link /etc/resolv.conf to it, or put a DNS server that answers in /etc/resolv.conf.",
+    other: "Check the hosts line in /etc/nsswitch.conf: it should include dns (or resolve).",
+  }[verdict.kind] ?? null;
+  return [finding({
+    id: "name-lookups",
+    severity: "critical",
+    title: offline ? `${host} cannot reach the internet, so updates and app downloads fail` : `${host} cannot look up website names, so updates and app downloads fail`,
+    detail: `${effect} ${cause}${house}`,
+    evidence,
+    fixes: verdict.kind === "repoint" ? [{
+      operationId: "dns.lookups.restore",
+      parameters: {},
+      label: "Point name lookups back to systemd-resolved",
+      preview: `Keeps the current /etc/resolv.conf as /etc/resolv.conf.boxpilot-<date and time>, makes /etc/resolv.conf the link to systemd-resolved (${stubLinkTarget}) that it is on a normal Ubuntu server, and looks ${names[0] ?? "a name"} up again. If names still do not resolve, the old file is put back. Tailscale is not restarted: its warning about DNS clears the next time it starts, when it finds systemd-resolved and uses it.${dns ? ` ${dns.name} is not touched.` : ""}`,
+    }] : [],
+    manual,
+  })];
+}
+
+/** Where Ubuntu and systemd mount the EFI system partition, most usual first. */
+const bootPartitionTargets = ["/boot/efi", "/efi", "/boot"];
+
+/**
+ * The boot partition still marked "not properly unmounted" (2026-09-29). After the power cut the
+ * kernel said "FAT-fs (nvme0n1p1): Volume was not properly unmounted. Some data may be corrupt.
+ * Please run fsck." about /boot/efi, and says it at every boot since: Linux never clears a FAT mark
+ * it found set, and Ubuntu's boot-time check, which would, needs fsck.fat. Not a drive BoxPilot
+ * mounted, so the drive checks never looked at it.
+ *
+ * The kernel's line is the evidence (the mark cannot be read on a mounted FAT partition: the kernel
+ * keeps it set while mounted). A check since that line, recorded by the fix, answers it.
+ */
+export function bootPartitionUnclean({ mounts = [], unclean = null, tools = null, bootChecks = {}, fstab = [], hostname = null } = {}) {
+  if (!unclean?.available || !Array.isArray(unclean.events)) return [];
+  const partition = bootPartitionTargets.map((target) => mounts.find((mount) => mount.target === target && ["vfat", "msdos"].includes(String(mount.fstype ?? "").toLowerCase()))).find(Boolean);
+  if (!partition?.source) return [];
+  const event = unclean.events.find((entry) => entry.device === partition.source && /not properly unmounted/i.test(entry.message ?? ""));
+  if (!event) return [];
+  const check = bootChecks?.[partition.source];
+  if (check?.clean && Date.parse(check.checkedAt) > Date.parse(event.at)) return [];
+  const host = hostname || "the server";
+  const checker = tools?.fsckFat !== false;
+  const checkedAtBoot = (fstab.find((row) => row.mountpoint === partition.target)?.pass ?? 0) > 0;
+  const target = partition.target;
+  return [finding({
+    id: "boot-partition-mark",
+    severity: "warning",
+    title: "The boot partition was not cleanly unmounted",
+    detail: `${target}, the small partition ${host} starts from, was in use when the server last went down without shutting down, and it still carries a "not properly unmounted" mark. Linux never clears a mark it found set, so it repeats the warning at every start until a check clears it. The partition is only written when the bootloader or a kernel is updated, so damage is unlikely, but the check is what says so.${checker ? "" : ` fsck.fat, its checker, is not installed, so the check comes first${checkedAtBoot ? "; once it is, Ubuntu also checks the partition by itself at each start, as fstab asks, and a mark like this one clears at the next reboot" : ""}.`}`,
+    evidence: [
+      `kernel, ${new Date(event.at).toLocaleString()}: ${event.message}`,
+      `${target} is ${partition.fstype} on ${partition.source}`,
+      ...(checker ? [] : ["fsck.fat not found in /usr/sbin or /sbin"]),
+      ...(check ? [`last check ${new Date(check.checkedAt).toLocaleString()}${check.clean ? " (clean)" : " (found more than the mark)"}`] : []),
+    ],
+    fixes: [checker
+      ? {
+        operationId: "storage.boot-mark.clear",
+        parameters: {},
+        label: "Check and clear the boot partition's mark",
+        preview: `Makes sure nothing is installing packages or updating the bootloader, then unmounts ${target} (refused, with nothing changed, if anything has a file open on it) and reads ${partition.source} with fsck.fat -n. Only if the mark is all it finds does it clear it with fsck.fat -a and check again that nothing is left. Then it mounts ${target} again and reads it. It takes under a minute and stops nothing else; anything beyond the mark is left as it is, with the check's words.`,
+      }
+      : {
+        operationId: "apt.install",
+        parameters: { packages: ["dosfstools"] },
+        label: "Install the FAT checker",
+        preview: `Installs the dosfstools package (fsck.fat). Nothing on ${target} is touched by this step; the check is offered next.`,
+      }],
+    manual: `When the check finds more than the mark, it stops, leaves ${target} as it was, and its log says what it found. To repair it anyway, from a terminal: sudo umount ${target} && sudo fsck.fat -a ${partition.source} && sudo mount ${target}.`,
+  })];
+}
+
 /** Everything, worst first, with a stable order inside a severity so the list does not shuffle. */
 export function detectRemediations(facts = {}) {
   // Drives mounted after one of the apps using them started: those apps hold what was there before.
@@ -949,8 +1085,10 @@ export function detectRemediations(facts = {}) {
   const ports = portConflicts(facts);
   const portBlocked = new Map(ports.map((entry) => [entry.id.slice("port-conflict:".length), entry]));
   const findings = [
+    ...nameLookupsBroken(facts),
     ...staleMounts(facts),
     ...readOnlyRemounts(facts),
+    ...bootPartitionUnclean(facts),
     ...exfatCheckerMissing(facts),
     ...flakyDrives(facts),
     ...drivesNeedingCheck(facts),

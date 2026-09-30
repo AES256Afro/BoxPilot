@@ -46,6 +46,7 @@ export const answers: Record<string, unknown> = {
   "/api/v1/setup": { firstRun: false, installedApps: 2 },
   "/api/v1/setup/checklist": { done: 5, total: 5, items: [] },
   "/api/v1/virtualization/domains": { domains: [] },
+  "/api/v1/power/outages": { outages: [], unacknowledged: 0 },
   "/api/v1/jobs?limit=50": { jobs: [] },
   "/api/v1/jobs?limit=200": { jobs: [] },
 };

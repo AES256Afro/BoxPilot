@@ -1,5 +1,7 @@
 import { readFile, readlink } from "node:fs/promises";
+import os from "node:os";
 import { defineOperation } from "./registry.mjs";
+import { inspectBoots } from "../power-loss.mjs";
 import { inspectControllerFiles } from "../controller-doctor.mjs";
 import { runtimeDiagnostics } from "../runtime-diagnostics.mjs";
 import { hostnamePattern, timezonePattern } from "../tasks/system.mjs";
@@ -49,6 +51,16 @@ export function systemOperations() {
       id: "system.controller.inspect", title: "Check BoxPilot installation health", risk: "low", readOnly: true, minimumRole: "operator", timeoutMs: 30_000,
       description: "Checks service state, protected file metadata, release assets and free space. Reads no database, log or configuration contents.",
       run: (_parameters, { run }) => inspectControllerFiles({ run }),
+    }),
+    defineOperation({
+      // operator (ADR-003): it reads the journal, which nobody else can. The web service asks it once
+      // at start, to tell a power cut from a shutdown (2026-09-29).
+      id: "system.boots.inspect", title: "Read how the previous boot ended", risk: "low", readOnly: true, minimumRole: "operator", timeoutMs: 2 * 60_000,
+      description: "Whether the boot before this one ended with a shutdown, from the journal: the end of that boot's log, and what this boot said as it started about files and filesystems left open. Returns the times and the lines that say so. Read-only.",
+      run: async (_parameters, { run }) => {
+        const bootId = (await readText("/proc/sys/kernel/random/boot_id"))?.replaceAll("-", "") ?? null;
+        return inspectBoots({ run, uptimeSeconds: os.uptime(), bootId });
+      },
     }),
     defineOperation({
       id: "system.runtime.inspect", title: "Check BoxPilot helper resource use", risk: "low", readOnly: true, timeoutMs: 10_000,
