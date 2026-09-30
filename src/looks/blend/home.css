@@ -1,0 +1,223 @@
+/*
+ * Home in Home + Ops (src/looks/blend/Home.tsx), sized from the drawing (blendHome, 1em = 19.46 px
+ * at 1440 wide). The page fills the window down to the gutter, as the drawing does: when the apps
+ * or what needs you outgrow their panels, the lists scroll inside them and the strip and Overnight
+ * stay in view. Every selector starts with .blend- (src/looks/looksCss.test.ts); the skin draws the
+ * frame (the wallpaper, the sidebar, the name at the top).
+ */
+
+.blend-home {
+  display: flex;
+  flex-direction: column;
+  gap: 16.5px;
+  min-width: 0;
+  max-height: max(640px, calc(100dvh - 69.8px - 19.5px - var(--shell-bottom-inset, 0px)));
+  color: var(--lx-ink);
+  font-family: var(--font-sans);
+}
+.blend-home > * { flex: none; }
+
+/* The verdict under the greeting: the chip, then the sentence. */
+.blend-home .blend-home__verdict { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 7.8px; margin: 0; color: var(--lx-ink); font-size: 15.6px; line-height: 1.3; }
+.blend-home .blend-home__verdict .ui-chip { font-size: 10.6px; }
+
+/* ── The strip: six figures in one glass band ── */
+.blend-strip {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  overflow: hidden;
+  border: 1px solid var(--lx-glass-border);
+  border-radius: 19.5px;
+  background: var(--lx-glass);
+  box-shadow: var(--blend-shadow);
+  -webkit-backdrop-filter: var(--blend-glass-filter);
+  backdrop-filter: var(--blend-glass-filter);
+}
+.blend-cell {
+  position: relative;
+  display: grid;
+  align-content: start;
+  gap: 2.9px;
+  min-width: 0;
+  padding: 12.6px 16.5px 13.6px;
+  border: 0;
+  color: var(--lx-ink);
+  background: transparent;
+  box-shadow: -1px 0 0 var(--lx-hairline), 0 -1px 0 var(--lx-hairline);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.blend-cell:hover { background: var(--lx-glass); }
+.blend-home .blend-strip .blend-cell:focus-visible { outline-offset: -3px; }
+.blend-cell__k { overflow: hidden; color: var(--lx-ink-muted); font: 600 10.5px/1.2 var(--blend-label); letter-spacing: 0.12em; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
+.blend-cell:has(.blend-cell__spark .ui-spark) .blend-cell__k { padding-right: 70px; }
+.blend-cell__v { color: var(--lx-ink); font: 600 25.3px/1.1 var(--font-mono); letter-spacing: -0.01em; white-space: nowrap; }
+.blend-cell__v small { margin-left: 2.9px; color: var(--lx-ink-muted); font-size: 12.65px; font-weight: 500; letter-spacing: 0; }
+.blend-cell__d { overflow: hidden; color: var(--lx-ink-muted); font-size: 11.7px; line-height: 1.3; text-overflow: ellipsis; white-space: nowrap; }
+.blend-cell__spark { position: absolute; top: 14.6px; right: 13.6px; width: 66px; height: 23px; color: var(--look-accent); }
+.blend-cell__spark .ui-spark__line { stroke: var(--look-accent); stroke-width: 1.6; }
+.blend-cell__spark .ui-spark__area { fill: transparent; }
+.blend-cell__bar { display: block; height: 5.8px; margin-top: 2.9px; overflow: hidden; border-radius: 999px; background: var(--lx-track); }
+.blend-cell__bar > i { display: block; height: 100%; border-radius: inherit; background: var(--look-accent); }
+.blend-cell[data-status="danger"] .blend-cell__bar > i { background: var(--lx-danger); }
+
+/* ── The two columns: the apps, and what needs you ── */
+.blend-home > .blend-cols {
+  display: grid;
+  flex: 0 1 auto;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  gap: 16.5px;
+  min-height: 300px;
+}
+.blend-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 11.7px;
+  min-width: 0;
+  min-height: 0;
+  padding: 17.5px 19.5px;
+  border: 1px solid var(--lx-glass-border);
+  border-radius: 21px;
+  background: var(--lx-glass);
+  box-shadow: var(--blend-shadow);
+  -webkit-backdrop-filter: var(--blend-glass-filter);
+  backdrop-filter: var(--blend-glass-filter);
+}
+.blend-panel__head { display: flex; flex: none; align-items: center; gap: 10px; min-width: 0; }
+.blend-panel__title { display: flex; align-items: center; gap: 6.2px; margin: 0; color: var(--lx-ink-muted); font: 700 12.45px/1.2 var(--font-sans); letter-spacing: 0.1em; text-transform: uppercase; white-space: nowrap; }
+.blend-panel__title svg { width: 16.8px; height: 16.8px; flex: none; }
+.blend-panel__meta { min-width: 0; margin-left: auto; overflow: hidden; color: var(--lx-ink); font: 700 12.45px/1.2 var(--font-sans); text-overflow: ellipsis; white-space: nowrap; }
+.blend-home .blend-panel__chip { margin-left: auto; padding: 3px 6px; font-size: 9.5px; }
+.blend-quiet { margin: 0; color: var(--lx-ink-muted); font-size: 13.5px; line-height: 1.45; }
+.blend-quiet .ui-chip { vertical-align: 1px; }
+
+/* The apps: four to a row, each square with its health on the corner. */
+.blend-apps__grid {
+  display: grid;
+  flex: 1 1 auto;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  align-content: start;
+  gap: 12px 5.8px;
+  min-height: 0;
+  margin: -6px -6px 0;
+  padding: 6px 6px 18px;
+  overflow-y: auto;
+  scrollbar-color: var(--blend-line-strong) transparent;
+  scrollbar-width: thin;
+  /* More below the edge fades out rather than being cut. */
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 20px), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 20px), transparent);
+}
+.blend-app {
+  display: grid;
+  justify-items: center;
+  align-content: start;
+  gap: 3.5px;
+  min-width: 0;
+  padding: 3px 2px 4px;
+  border: 0;
+  border-radius: 14px;
+  color: var(--lx-ink);
+  background: transparent;
+  font: inherit;
+  text-align: center;
+  cursor: pointer;
+}
+.blend-app:hover { background: var(--lx-glass); }
+.blend-app__square { position: relative; display: grid; width: 56.4px; height: 56.4px; margin-bottom: 2.9px; place-items: center; }
+.blend-app .blend-app__icon {
+  width: 56.4px;
+  height: 56.4px;
+  border-radius: 13.5px;
+  font-size: 22px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), 0 6.8px 15.6px rgba(0, 0, 0, 0.2);
+}
+.blend-app .blend-app__icon[data-emoji] { font-size: 24.8px; }
+.blend-app__badge { position: absolute; top: -5.4px; right: -5.4px; box-sizing: border-box; width: 20.4px; height: 20.4px; border: 3.1px solid var(--lx-badge-ring); border-radius: 50%; background: var(--lx-good); }
+.blend-app[data-status="warning"] .blend-app__badge { background: var(--lx-warning); }
+.blend-app[data-status="danger"] .blend-app__badge { background: var(--lx-danger); }
+.blend-app[data-status="neutral"] .blend-app__badge { background: var(--lx-ink-muted); }
+.blend-app[data-status="unknown"] .blend-app__badge { border: 2px dashed var(--lx-ink-muted); background: var(--lx-badge-ring); }
+.blend-app__name { max-width: 100%; overflow: hidden; color: var(--lx-ink); font-size: 12px; font-weight: 600; line-height: 1.3; text-overflow: ellipsis; white-space: nowrap; }
+.blend-app__line { max-width: 100%; overflow: hidden; color: var(--lx-ink-muted); font: 500 10.1px/1.3 var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }
+.blend-app:is([data-status="warning"], [data-status="danger"]) .blend-app__line { color: var(--lx-warning-text); }
+.blend-app[data-status="danger"] .blend-app__line { color: var(--lx-danger-text); }
+.blend-app--add .blend-app__square { box-sizing: border-box; border: 1px dashed var(--lx-ink-muted); border-radius: 13.5px; color: var(--lx-ink); }
+.blend-app--add .blend-app__square svg { width: 40%; height: 40%; }
+
+/* What needs you: the tier leads each row, then the words and the pills, as the drawing's inbox. */
+.blend-needs__list {
+  display: grid;
+  flex: 1 1 auto;
+  align-content: start;
+  gap: 8px;
+  min-height: 0;
+  margin: 0 -6px;
+  padding: 2px 6px 18px;
+  overflow-y: auto;
+  scrollbar-color: var(--blend-line-strong) transparent;
+  scrollbar-width: thin;
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 20px), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 20px), transparent);
+}
+.blend-home .blend-needs .need {
+  display: grid;
+  grid-template-columns: 75.9px minmax(0, 1fr);
+  align-items: start;
+  gap: 3.9px 11.7px;
+  padding: 11.7px 0 12px;
+  border-top: 1px solid var(--lx-hairline);
+  box-shadow: none;
+}
+.blend-home .blend-needs .need:first-child { padding-top: 0; border-top: 0; }
+.blend-home .blend-needs :is(.need__body, .need__head) { display: contents; }
+.blend-home .blend-needs .need__mark { grid-row: 1; grid-column: 1; justify-self: start; width: 9px; height: 9px; margin-top: 5px; }
+.blend-home .blend-needs .need:has(.need__tier-tag, .need__tier) .need__mark { display: none; }
+.blend-home .blend-needs :is(.need__tier-tag, .need__tier) { grid-row: 1 / span 3; grid-column: 1; justify-self: start; margin-top: 1.5px; }
+.blend-home .blend-needs .need__tier-tag .ui-risk { padding: 3.6px 5.2px; }
+.blend-home .blend-needs .need__title { grid-column: 2; color: var(--lx-ink); font-size: 14.8px; font-weight: 600; line-height: 1.25; }
+.blend-home .blend-needs .need__detail { grid-column: 2; color: var(--lx-ink-muted); font-size: 12px; line-height: 1.4; }
+.blend-home .blend-needs .need__run { grid-column: 2; }
+.blend-home .blend-needs .need__acts { grid-column: 2; justify-content: flex-start; gap: 7.8px; margin: 3.9px 0 0; }
+.blend-home .blend-needs .need__act { margin-left: 0; }
+.blend-home .blend-needs .ui-button { min-height: 26px; padding: 0 11.8px; font-size: 12.45px; }
+.blend-home .blend-needs :is(.ui-button--risk-medium, .ui-button--risk-high) { padding-left: 20.5px; }
+.blend-home .blend-needs :is(.ui-button--risk-medium, .ui-button--risk-high)::before { left: 11.8px; }
+
+/* ── Overnight: what ran, one line each, figures in mono ── */
+.blend-home > .blend-night { gap: 10px; }
+.blend-night__jobs { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto auto; align-items: center; gap: 5px 23.4px; margin: 0; padding: 0; list-style: none; font: 500 12.45px/1.35 var(--font-mono); }
+.blend-job { display: grid; grid-column: 1 / -1; grid-template-columns: subgrid; align-items: center; }
+.blend-job__time, .blend-job__op, .blend-job__took { color: var(--lx-ink-muted); white-space: nowrap; }
+.blend-job__op { overflow: hidden; text-overflow: ellipsis; }
+.blend-job__what { justify-self: start; padding: 0; border: 0; color: var(--lx-ink); background: none; font: inherit; text-align: left; white-space: nowrap; cursor: pointer; }
+.blend-job__what:hover { text-decoration: underline; }
+.blend-job__state { color: var(--lx-good-text); white-space: nowrap; }
+.blend-job[data-state="failed"] .blend-job__state { color: var(--lx-danger-text); }
+.blend-job[data-state="running"] .blend-job__state { color: var(--look-accent); }
+.blend-job__took { text-align: right; }
+.blend-night__all { padding: 0; border: 0; background: none; text-decoration: underline; text-decoration-color: var(--lx-hairline); text-underline-offset: 3px; cursor: pointer; }
+.blend-night__all:hover { text-decoration-color: currentColor; }
+
+/* ── Narrower: the strip in three, then everything in one column ── */
+@media (max-width: 1180px) {
+  .blend-strip { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .blend-home > .blend-cols { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .blend-apps__grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 900px), (max-height: 700px) {
+  .blend-home { max-height: none; }
+  .blend-home > .blend-cols { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; min-height: 0; }
+  .blend-apps__grid, .blend-needs__list { overflow: visible; padding-bottom: 4px; -webkit-mask-image: none; mask-image: none; }
+}
+@media (max-width: 760px) {
+  .blend-home { gap: 12px; }
+  .blend-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .blend-apps__grid { grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); }
+  .blend-home .blend-needs .need { grid-template-columns: 64px minmax(0, 1fr); }
+  .blend-night__jobs { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .blend-job__op, .blend-job__took { display: none; }
+  .blend-job__what { white-space: normal; }
+}
