@@ -106,11 +106,13 @@ export function processorWords(quotaPercent: number): string {
 
 /**
  * The runner's caps in words, from what the server reports ("four processors at most, idle
- * priority, 8 GiB"), or in general terms while they have not been read.
+ * priority, 8 GiB"; since M40 "four processors at most, eight while you wait, ..."), or in general
+ * terms while they have not been read.
  */
-export function capsWords(caps: { cpuQuotaPercent?: number | null; memoryMaxBytes?: number | null } | null | undefined): string {
+export function capsWords(caps: { cpuQuotaPercent?: number | null; waitingQuotaPercent?: number | null; memoryMaxBytes?: number | null } | null | undefined): string {
   if (!caps?.cpuQuotaPercent) return "capped processors and memory, idle priority";
-  return `${processorWords(caps.cpuQuotaPercent)} at most, idle priority${caps.memoryMaxBytes ? `, ${gibibytes(caps.memoryMaxBytes)}` : ""}`;
+  const waiting = caps.waitingQuotaPercent && caps.waitingQuotaPercent > caps.cpuQuotaPercent ? `, ${processorWords(caps.waitingQuotaPercent).replace(/ processors?$/, "")} while you wait` : "";
+  return `${processorWords(caps.cpuQuotaPercent)} at most${waiting}, idle priority${caps.memoryMaxBytes ? `, ${gibibytes(caps.memoryMaxBytes)}` : ""}`;
 }
 
 /** "8 GB", "650 MB": sizes as the owner reads them, in powers of 1000 like a disk's label. */

@@ -667,3 +667,94 @@ tick, ten seconds at most, never retried in a loop.
   the units as shipped on real systemd.
 - Left for later: syncing a second Pi-hole (b) once there is a second box; reading the router's DNS
   settings over GL.iNet's API through the existing router connection.
+
+## ADR-009: agents get more processors while a person waits, set per run by the root helper
+
+**Date:** 2026-09-29 · **Status:** Accepted (M40.4, unreleased) · **Refines:** ADR-005's caps and
+ADR-006's four processors.
+
+### Context
+
+On the owner's server (Ryzen 7 7800X3D: 8 cores, 16 processors) Unsloth with Qwen 3.5 4B at four
+threads under `CPUQuota=400%` read prompts at 52 tokens a second and wrote at 10; the owner's
+question about the drives took 99 s. Asked how many cores to give agents, the owner chose **eight
+while a person waits** (a question, the Test tab, a Zulip message) and **four for background work**
+(schedules, events, webhooks, learning, indexing, image descriptions, the nightly evaluation). The
+standing requirements stay: kernel-enforced caps, idle priority and idle I/O, the memory cap, no
+processor at all when idle, everything pausable.
+
+Two facts shape the design. The quota is the unit's (`CPUQuota=` on `boxpilot-agents.service`), and
+only root changes a unit; the runner has no privilege and reads untrusted text all day. And
+llama-server's `--threads` is fixed when it starts: the spike found threads above the quota spend it
+and sit throttled.
+
+### Options weighed
+
+- **(a) One model server at eight threads; only the quota changes per run.** No restarts and the
+  prompt cache survives, but background runs put eight threads under a four-processor quota: every
+  100 ms period they spend the quota in half the time and all stop together, and llama.cpp's threads
+  meet at a barrier for every layer. Measured below as four threads under 200% against two (the same
+  ratio on a four-processor runner).
+- **(b) A thread for each processor the run was given, and the quota set per run.** Chosen. A change
+  of class restarts the model server (the owner measured about 5 s, and llama-server's prompt cache
+  goes with it); runs of the same class keep it. A background run can never use more than its four
+  threads, so even a quota left raised would not let it run hot.
+- **(c) Two model servers, one at each thread count.** Twice the model in memory (2.6 GB each, plus
+  the page cache) inside the 8 GB cap, and two loads. Rejected.
+- **(d) Delegate the cgroup to the runner** (`Delegate=cpu`, the model server in a child cgroup whose
+  `cpu.max` the runner sets itself within an 800% unit). No root per run, but the unit's quota becomes
+  the burst, and the background limit a promise kept by the unprivileged process that reads model
+  output; it also means the runner moving itself into a leaf cgroup, against
+  `ProtectControlGroups=true`. Rejected.
+- **(e) Pin CPUs instead** (`AllowedCPUs=`). Still root per run, and eight threads time-sliced on four
+  pinned processors is worse for llama.cpp's barriers than a quota. Rejected.
+
+### Decision
+
+1. **The shipped unit holds the background quota** (`CPUQuota=400%`, unchanged; `caps.test.mjs`
+   holds it). The owner's two numbers live in the Agents settings (`cores: { waiting, background }`,
+   saved with the owner's password on the Usage tab), each **2 to 8, never more than this machine's
+   processors less two** (what CPUQuota counts; a four-processor machine gives agents two), the
+   background never more than while someone waits.
+2. **The web service decides the class** when it hands a run out: a person waits on it (their own
+   question or console run, or a hand-off or follow-up made for one), or nobody does. It then asks
+   the helper for the registered operation **`agents.runtime.cpu`** (low, owner, run by BoxPilot
+   itself like the TLS renewal, on a lane of its own so a question never waits behind an upgrade),
+   which runs `systemctl set-property --runtime boxpilot-agents.service CPUQuota=<n×100>%` - a
+   drop-in under `/run`, gone at the next boot - and holds the numbers to the machine's ceiling again,
+   whatever it was asked (`server/agents/cpu.mjs`).
+3. **A raise never goes without its way back.** It arms a transient timer (`systemd-run --on-active`,
+   `boxpilot-agents-cpu-reset`, collected once it has run) that sets the background quota after the
+   run's longest time plus two minutes; each raise re-arms it for its own run. A raise whose timer
+   cannot be set is taken back at once and the run goes at the background number. The web service
+   also lowers it as soon as nobody waits (after the run, on the tick, after the kill switch, at
+   start after a restart of BoxPilot).
+4. **Threads follow the processors**, one each, never more than the physical cores (sysfs); a run
+   whose raise could not be set gets the background number's threads. The runtime already restarts
+   the model server when its threads change. Speeds are measured and kept per thread count, and a
+   run at a count not yet measured plans with the next lower one's (slower, so never too short).
+5. The trace says what each run was given ("with 8 processors and 8 model threads while you wait"),
+   the Usage tab shows the quota set now and both numbers, and the audit records each change.
+
+### Consequences
+
+- A question after background work costs a model restart (a few seconds) and a cold prompt cache;
+  background work in quiet hours usually finds the model server stopped by its idle timer anyway.
+- Nothing else about the unit moves: idle weight, `Nice=19`, idle I/O, `MemoryMax=8G`, no swap,
+  loopback only. Idle is still no model server at all, whatever the quota.
+- A helper call per class change (tens of milliseconds); none between runs of the same class.
+- `agents-caps` (both LTS releases) now sets the background quota, raises it with the helper's own
+  code while the fake model burns three threads, reads it in the cgroup and in the load, checks idle
+  priority and the memory cap while raised, and watches the timer put it back with nobody asking.
+- The owner's bound "never more than physical cores minus 2" is read as processors minus two: on
+  their 8-core, 16-processor server a literal physical-cores bound would be 6 and forbid the eight
+  they chose. Threads are what is held to the physical cores.
+- **Measured** (`agents-bench.yml` run 36657859664: Qwen 3.5 4B under Unsloth, the owner's first
+  question twice and a typical one, on a four-processor GitHub runner, an AMD EPYC 7763 with two
+  cores): two threads under 200% read 14.1-14.7 tokens a second and wrote 5.3-6.9; **four threads
+  under the same 200% read 7.5-7.8 and wrote 2.9-3.9, about half**, and the owner's question took
+  436 s against 257 s. That is option (a)'s cost, and why threads follow the processors. Four threads
+  under 400% read 14.6-15.4 and wrote 6.2-8.4, little more than two under 200%: the runner's two
+  cores give two threads what four processors would. What eight threads under 800% gain on the
+  owner's eight cores is not measurable on a four-processor runner; the owner's Usage tab keeps
+  speeds per thread count, so their first questions at eight will show it.

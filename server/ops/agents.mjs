@@ -9,6 +9,7 @@
  * is recorded by the web process (index.mjs, operationRecordHooks), where the runner reads it.
  */
 import { defineOperation } from "./registry.mjs";
+import { setRunnerProcessors } from "../agents/cpu.mjs";
 import { agentsPaths, checkDownloaded, inspectRuntime } from "../agents/host.mjs";
 import { ggufPattern, repoPattern } from "../agents/models.mjs";
 import { createPiholeReader } from "../agents/pihole.mjs";
@@ -37,6 +38,22 @@ export function agentsOperations() {
       id: "agents.runtime.enable", title: "Start the agents runner", risk: "medium", minimumRole: "owner", timeoutMs: minutes(3),
       description: "Enables and starts boxpilot-agents.service: the capped runner (four processors at most, idle priority, 8 GB of memory, loopback only). It starts the model server only when an agent runs, and stops it after an hour with nothing to do.",
       run: (_parameters, { runUnit, jobLog }) => runUnit.runTask("agents.enable", {}, { timeoutMs: minutes(2), logPath: jobLog?.path ?? null }),
+    }),
+    defineOperation({
+      // Run by BoxPilot itself at each run (M40, ADR-009), as the TLS renewal runs its operation:
+      // more processors while a person waits, the background ones otherwise. Low: it only moves the
+      // runner's quota between the owner's two settings, both inside the machine's ceiling.
+      id: "agents.runtime.cpu", title: "Set the agents runner's processors", risk: "low", minimumRole: "owner", timeoutMs: 45_000,
+      description: "Sets how many processors the capped agents runner may use, with systemctl set-property --runtime on boxpilot-agents.service: the owner's \"while you wait\" number during a run a person waits on, the \"background\" number otherwise. Idle priority, idle I/O and the memory cap stay. A raise arms a timer that puts the background number back after the run's longest time. Never more than eight, or all of this machine's processors but two.",
+      parameters: {
+        exact: true,
+        fields: {
+          processors: { type: "number", validate: (value) => (Number.isInteger(value) && value >= 1 && value <= 64 ? null : "must be a whole number of processors") },
+          background: { type: "number", validate: (value) => (Number.isInteger(value) && value >= 1 && value <= 64 ? null : "must be a whole number of processors") },
+          resetAfterSeconds: { type: "number", validate: (value) => (Number.isInteger(value) && value >= 60 && value <= 7_200 ? null : "must be 60 to 7200 seconds") },
+        },
+      },
+      run: (parameters, { run }) => setRunnerProcessors(parameters, { run }),
     }),
     defineOperation({
       id: "agents.runtime.disable", title: "Stop the agents runner", risk: "low", timeoutMs: minutes(3),
