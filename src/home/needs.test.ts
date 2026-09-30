@@ -92,7 +92,34 @@ describe("what needs you", () => {
       schedules: [{ id: "s1", operationId: "app.backup", title: "Back up application data", parameters: { subject: "immich" }, enabled: true, overdue: false, cadence: "daily at 03:00", lastRunAt: hoursAgo(16), lastOutcome: "failed", lastReason: "tar failed" }],
     }), { now, role: "owner" });
     expect(ids(needs)).toEqual(["backup-failed:immich"]);
-    expect(needs[0]).toMatchObject({ title: "The last backup of Immich failed", detail: "tar failed: No space left on device", appId: "immich", action: { operationId: "app.backup", parameters: { id: "immich" }, label: "Back up again" } });
+    // No space left fails the same way every time: the button frees space rather than backing up again.
+    expect(needs[0]).toMatchObject({ title: "The last backup of Immich failed", detail: "tar failed: No space left on device", appId: "immich", action: { kind: "open", label: "Free up space", open: { view: "system", tab: "housekeeping" } } });
+    const flaky = buildNeeds(facts({ catalog: { apps: [app({ id: "immich", name: "Immich" })], total: 1, liveKnown: true }, jobs: [job({ id: "b2", type: "op:app.backup", state: "failed", parameters: { id: "immich" }, error: "tar failed: file changed as we read it" })] }), { now, role: "owner" });
+    expect(flaky[0].action).toMatchObject({ operationId: "app.backup", parameters: { id: "immich" }, label: "Back up again" });
+  });
+
+  it("lets a failed backup go once the app has been backed up since, however that happened", () => {
+    const failed = job({ id: "b2", type: "op:app.backup", state: "failed", parameters: { id: "immich" }, error: "tar failed: No space left on device", createdAt: hoursAgo(16) });
+    const schedule = { id: "s1", operationId: "app.backup", title: "Back up application data", parameters: { subject: "immich" }, enabled: true, overdue: false, cadence: "daily at 03:00", lastRunAt: hoursAgo(16), lastOutcome: "failed", lastReason: "tar failed" };
+    const listed = (overrides: Partial<FactValues>) => ids(buildNeeds(facts({ catalog: { apps: [app({ id: "immich", name: "Immich" })], total: 1, liveKnown: true }, jobs: [failed], schedules: [schedule], ...overrides }), { now, role: "owner" }));
+    expect(listed({})).toEqual(["backup-failed:immich"]);
+    // Repair's "Back up now" for several apps is one app.backup.many; the backups list knows the newest copy.
+    expect(listed({ jobs: [job({ id: "m", type: "op:app.backup.many", state: "completed", parameters: { ids: ["immich", "jellyfin"] }, createdAt: hoursAgo(2) }), failed] })).toEqual([]);
+    expect(listed({ protection: [{ id: "immich", name: "Immich", protectable: true, backups: 3, newestAt: hoursAgo(1) }] })).toEqual([]);
+    // A copy older than the failure, or another app's, settles nothing.
+    expect(listed({ protection: [{ id: "immich", name: "Immich", protectable: true, backups: 3, newestAt: hoursAgo(20) }] })).toEqual(["backup-failed:immich"]);
+    expect(listed({ jobs: [job({ id: "m", type: "op:app.backup.many", state: "completed", parameters: { ids: ["jellyfin"] }, createdAt: hoursAgo(2) }), failed] })).toEqual(["backup-failed:immich"]);
+    // "The backup succeeded, but it did not start again": the copy is made; the app being down is its own line.
+    expect(listed({ jobs: [{ ...failed, error: "The backup succeeded (immich-20260928.tar.zst), but Immich did not start again: port busy" }], schedules: [] })).toEqual([]);
+  });
+
+  it("lets a failed scheduled backup go once the same backup has worked since, rather than waiting for the next night", () => {
+    const schedule = { id: "s1", operationId: "backup.remote.sync", title: "Copy backups to another machine", parameters: null, enabled: true, overdue: false, cadence: "daily at 04:00", lastRunAt: hoursAgo(8), lastOutcome: "failed" as const, lastReason: "Mount an independent filesystem at /mnt/boxpilot/backup" };
+    const listed = (jobs: Job[]) => ids(buildNeeds(facts({ schedules: [schedule], jobs }), { now, role: "owner" })).filter((id) => id.startsWith("schedule:"));
+    expect(listed([])).toEqual(["schedule:s1"]);
+    expect(listed([job({ id: "c", type: "op:backup.remote.sync", state: "completed", createdAt: hoursAgo(1) })])).toEqual([]);
+    expect(listed([job({ id: "c", type: "op:backup.remote.sync", state: "failed", createdAt: hoursAgo(1) })])).toEqual(["schedule:s1"]);
+    expect(listed([job({ id: "c", type: "op:backup.remote.sync", state: "completed", createdAt: hoursAgo(9) })])).toEqual(["schedule:s1"]);
   });
 
   it("carries over what the Classic overview warned about: backups, the database, a failed job, setup", () => {
@@ -253,6 +280,30 @@ describe("Repair's fixes on Home and Ops (M35)", () => {
     expect(needs[0]).toMatchObject({ detail: "Last try failed: target is busy", action: { label: "Try again", operationId: "storage.remount" } });
   });
 
+  it("offers the fix's own place, not Try again, when its last failure names one, and keeps what the error says to do", () => {
+    const check = { operationId: "storage.check", parameters: { name: "media" }, label: "Check the drive", preview: "", risk: "medium" as const };
+    const finding = { id: "unclean:media", severity: "warning" as const, title: "/mnt/media was not unmounted cleanly", detail: "", evidence: [], fix: check, fixes: [check], manual: null,
+      lastAttempt: { jobId: "c1", state: "failed", error: "fsck.exfat is not installed, so nothing was stopped or unmounted. Install the drive check tools from Repair first.", at: hoursAgo(1), title: "Check a drive", operationId: "storage.check", label: "Check the drive" } };
+    const [need] = buildNeeds(facts({ repairs: { findings: [finding], unavailableChecks: [] } }), { now, role: "owner" });
+    expect(need.actions?.map((action) => [action.kind, action.label])).toEqual([["open", "Open Repair"], ["operation", "Check the drive"]]);
+    // It still runs something, so Ops puts it in by the fix's tier, not with what is only looked at.
+    expect(groupByTier([need]).medium).toHaveLength(1);
+    // A drive that was unplugged: Try again is right once it is back, and the row says to plug it in.
+    const remount = { operationId: "storage.remount", parameters: { name: "media" }, label: "Reconnect the drive", preview: "", risk: "medium" as const };
+    const unplugged = { ...finding, id: "stale-mount:media", fix: remount, fixes: [remount], lastAttempt: { ...finding.lastAttempt, error: "The drive for /mnt/media (UUID=77aa-media-0000-0000-0000-000000000000) is not connected to this server right now, so nothing was stopped or unmounted. Check that it is plugged in and powered on, then try again." } };
+    const [back] = buildNeeds(facts({ repairs: { findings: [unplugged], unavailableChecks: [] } }), { now, role: "owner" });
+    expect(back.action).toMatchObject({ label: "Try again", operationId: "storage.remount" });
+    expect(back.detail).toMatch(/Check that it is plugged in and powered on, then try again\.$/);
+  });
+
+  it("does not offer Try again on a failed job whose error names another fix, only the way there and Dismiss", () => {
+    const refused = job({ id: "x1", type: "op:app.start", title: "Start Uptime Kuma", state: "failed", error: "Port 3001 is already in use by tailscaled. Move Uptime Kuma to a free port in its Settings, or stop what holds it.", parameters: { id: "uptime-kuma" } });
+    const [need] = buildNeeds(facts({ jobs: [refused] }), { now, role: "owner" });
+    expect(need.actions?.map((action) => [action.kind, action.label])).toEqual([["open", "Open Repair"], ["dismiss", "Dismiss"]]);
+    expect(groupByTier([need]).look).toHaveLength(1);
+    expect(buildNeeds(facts({ jobs: [refused] }), { now, role: "viewer" })[0].actions).toBeUndefined();
+  });
+
   it("lets a failed job go once its finding is gone, it was dismissed, or the same thing later worked", () => {
     const failed = job({ id: "x1", type: "op:storage.remount", title: "Reconnect a drive", state: "failed", error: "target is busy", parameters: { name: "media" }, createdAt: hoursAgo(3), updatedAt: hoursAgo(3) });
     const withJobs = (jobs: Job[], settled: { resolved?: string[] } = {}) => ids(buildNeeds(facts({ jobs, repairs: { findings: [], unavailableChecks: [], jobs: { attached: [], resolved: settled.resolved ?? [], dismissed: [] } } }), { now, role: "owner" }));
@@ -264,6 +315,10 @@ describe("Repair's fixes on Home and Ops (M35)", () => {
     expect(withJobs([later, failed])).toEqual([]);
     // Another drive's reconnect working says nothing about this one.
     expect(withJobs([{ ...later, parameters: { name: "backup" } }, failed])).toEqual(["job:x1"]);
+    // Reconnect a drive given a share reconnects it as the share: either one working settles the other.
+    const share = { ...failed, parameters: { name: "share-boxpilot-backup" } };
+    expect(withJobs([job({ id: "x3", type: "op:share.reconnect", state: "completed", parameters: { name: "boxpilot-backup" }, createdAt: hoursAgo(1) }), share])).toEqual([]);
+    expect(withJobs([job({ id: "x3", type: "op:share.reconnect", state: "completed", parameters: { name: "nas-public" }, createdAt: hoursAgo(1) }), share])).toEqual(["job:x1"]);
   });
 
   it("offers Try again and Dismiss on a failed job, more time for one that ran out of it, and neither to a viewer", () => {

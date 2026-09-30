@@ -119,7 +119,7 @@ const prerequisiteStatus: Record<Prerequisite["status"], Status> = { ready: "goo
 const recoveryStatus: Record<RecoveryKit["checks"][number]["state"], Status> = { verified: "good", "action-required": "warning", "operator-check": "neutral", "not-applicable": "neutral", unavailable: "unknown" };
 const tierWord = (risk: string): RiskTier => (risk === "low" || risk === "medium" || risk === "high" ? risk : "high");
 
-export default function RepairCenter({ csrfToken, role = "owner", onNavigate = () => undefined }: { csrfToken: string; role?: string; onNavigate?: (view: ViewName) => void }) {
+export default function RepairCenter({ csrfToken, role = "owner", onNavigate = () => undefined }: { csrfToken: string; role?: string; onNavigate?: (view: ViewName, options?: { tab?: string }) => void }) {
   const [checks, setChecks] = useState<Prerequisite[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [recoveryKit, setRecoveryKit] = useState<RecoveryKit | null>(null);
@@ -373,7 +373,7 @@ export default function RepairCenter({ csrfToken, role = "owner", onNavigate = (
 
   const card = (finding: Finding, gone = false) => (
     <FindingCard key={finding.id} finding={finding} role={role} run={fixes.runs[finding.id]} gone={gone}
-      onFix={(fix) => fixes.start(finding, fix)} onDismiss={() => fixes.dismiss({ kind: "finding", finding })}
+      onFix={(fix) => fixes.start(finding, fix)} onDismiss={() => fixes.dismiss({ kind: "finding", finding })} onOpen={onNavigate}
       extra={droppedDrive(finding) && !gone ? <DriveAutoReconnect drive={droppedDrive(finding)!} control={autoReconnect} /> : undefined} />
   );
 
