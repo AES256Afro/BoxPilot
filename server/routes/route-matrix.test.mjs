@@ -615,7 +615,8 @@ beforeAll(async () => {
   routers.createAssistantRouter = createAssistantRouter({ assistant, state, auth });
   // Agents (M37), with the runner's key issued the way turning Agents on issues it.
   agentStore = createAgentStore({ databasePath: state.databasePath });
-  agents = createAgentService({ state, store: agentStore, registry, helper, inventory, redactor: createRedactor(), tokenPath: path.join(directory, "agents", "runner.token"), hostLoad: () => 0 });
+  // A machine of 16 processors on 8 cores, whatever runs the test: agents may use at most processors less two (M40).
+  agents = createAgentService({ state, store: agentStore, registry, helper, inventory, redactor: createRedactor(), tokenPath: path.join(directory, "agents", "runner.token"), hostLoad: () => 0, processors: 16, physicalCoreCount: 8 });
   routers.createAgentsRouter = createAgentsRouter({ agents, state, auth });
   routers.createAgentRunnerRouter = createAgentRunnerRouter({ agents });
   // Push approvals (M25.2), with a VAPID key made here rather than read from the state directory.

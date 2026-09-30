@@ -19,7 +19,7 @@ export function outputTailFrom(final, sentBytes) {
   return bytes.subarray(sentBytes).toString("utf8");
 }
 
-export function createJobsRouter({ state, jobs, scheduler, flows = null, autoReconnect = null, helper = null, jobLogReader, auth, streamBudget = createStreamBudget() }) {
+export function createJobsRouter({ state, jobs, scheduler, flows = null, autoReconnect = null, helper = null, jobLogReader, auth, streamBudget = createStreamBudget(), streamPingMs = 25_000 }) {
   const router = Router();
   function openStream(request, response) {
     const release = streamBudget.acquire(request.boxpilotSession?.owner?.id ?? "anonymous");
@@ -79,10 +79,16 @@ export function createJobsRouter({ state, jobs, scheduler, flows = null, autoRec
     const persisted = state.getJobOutput(initial.id);
     if (persisted !== null) { await stream.output(persisted); stream.send("state", { state: initial.state, error: initial.error }); stream.end(); return; }
     const started = Date.now();
+    // A job waiting for approval, or one that prints nothing for a while, wrote nothing here, so a
+    // client that went away without closing (a laptop put to sleep) was never noticed: its stream
+    // held one of the account's eight slots for up to three hours. A comment line now and then is
+    // what finds the dead connection, as /events does.
+    let lastWrite = Date.now();
     while (!stream.closed && Date.now() - started < 3 * 60 * 60 * 1000) {
       if (!await stream.ready()) break;
       const chunk = await jobLogReader.read(initial.id, offset).catch(() => ({ text: "", offset, exists: false }));
-      if (chunk.text) { if (!await stream.output(chunk.text)) break; offset = chunk.offset; }
+      if (chunk.text) { if (!await stream.output(chunk.text)) break; offset = chunk.offset; lastWrite = Date.now(); }
+      else if (Date.now() - lastWrite >= streamPingMs) { if (!stream.write(": ping\n\n")) break; lastWrite = Date.now(); }
       const current = state.getJob(initial.id);
       if (!current || ["completed", "failed", "cancelled"].includes(current.state)) {
         const final = state.getJobOutput(initial.id);

@@ -694,7 +694,28 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
   }
   const getEvalRun = (id) => evalRunOf(prepare("SELECT * FROM agent_eval_runs WHERE id = ?").get(id));
   const setEvalResults = (id, results) => prepare("UPDATE agent_eval_runs SET results_json = ? WHERE id = ?").run(json(results), id);
-  const listEvalRuns = (agentId, limit = 10) => prepare("SELECT * FROM agent_eval_runs WHERE agent_id = ? ORDER BY created_at DESC, rowid DESC LIMIT ?").all(agentId, limit).map(evalRunOf);
+  const listEvalRuns = (agentId, limit = 10) => prepare("SELECT * FROM agent_eval_runs WHERE agent_id = ? ORDER BY created_at DESC, rowid DESC LIMIT ?").all(agentId, limit).map(evalRunOf).map(settleEvalRun);
+
+  /**
+   * An evaluation as its runs have ended. Only the runner's finish graded a question, so a run that
+   * ended any other way - cancelled, waited too long in the queue, lost its lease, cut off by a
+   * restart, killed - left its evaluation "running" for good, and every later one of that agent was
+   * refused as "ran in the last hour". Such a question is graded here, as its run ended, whenever
+   * the evaluation is listed; so is one whose run was never queued (BoxPilot stopped part-way through
+   * setting the evaluation up). A completed run is left to the runner's finish, which grades its
+   * answer a moment after marking it completed; any other ending grades the same either way.
+   */
+  function settleEvalRun(evaluation) {
+    if (!evaluation || evaluation.state !== "running") return evaluation;
+    let settled = evaluation;
+    for (const result of evaluation.results) {
+      if (result.passed !== null) continue;
+      const run = result.runId ? getRun(result.runId) : null;
+      if (run && (!finishedStates.has(run.state) || run.state === "completed")) continue;
+      settled = gradeEval(evaluation.id, result.questionId, { passed: false, found: run ? `The run ended ${run.state}` : "The run was never queued" }) ?? settled;
+    }
+    return settled;
+  }
 
   /** Record one question's grade; when none is left pending, the evaluation is done and scored. */
   function gradeEval(evalId, questionId, grade) {
