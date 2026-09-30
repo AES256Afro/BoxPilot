@@ -4,7 +4,11 @@ import { countOf } from "../../data";
 import { readJson } from "../../http";
 import { inspectOperation } from "../../operations";
 import { Button, Checkbox, EmptyState, Field, KeyValue, Notice, Panel, Select, Sheet, StatusChip, Table, Tag, TextInput, mayStart, riskOf, type KeyValueItem, type Status, type TableColumn } from "../../ui";
-import type { Topology } from "./types";
+import { NetworkResilience } from "./NetworkResilience";
+import type { Resilience, Topology } from "./types";
+
+/** The DNS apps that can be the house's DNS, which the rehearsal can stop and start again (server/dns-resilience.mjs). */
+const dnsAppIds = ["pi-hole", "adguard-home", "technitium-dns"];
 
 /*
  * The Network page's Names & DNS tab (M33.10): whether the DNS blocker here actually works and is
@@ -90,11 +94,26 @@ export interface NetworkDnsProps {
   start: (operation: PendingOperation) => void;
   /** A finished operation bumps this, so the names are read again. */
   refreshKey: number;
+  /** Whether the house keeps its DNS with this server off (M39.2), read by the page. */
+  resilience?: Resilience | null;
+  resilienceError?: string | null;
+  checkingDns?: boolean;
+  onCheckDns?: () => void;
+  now?: number;
 }
 
-export function NetworkDns({ csrfToken, topology, role, start, refreshKey }: NetworkDnsProps) {
+export function NetworkDns({ csrfToken, topology, role, start, refreshKey, resilience = null, resilienceError = null, checkingDns = false, onCheckDns = () => {}, now = Date.now() }: NetworkDnsProps) {
   const lanAddress = topology?.eligibleLanAddresses[0]?.address ?? null;
   const canPlan = role === "owner" || role === "operator";
+
+  // The DNS app running here, for the rehearsal: the catalog's summary says which is installed and running.
+  const [dnsApp, setDnsApp] = useState<{ id: string; name: string } | null>(null);
+  useEffect(() => {
+    fetch("/api/v1/catalog?view=summary").then((response) => (response.ok ? response.json() : null)).then((data: { applications?: Array<{ manifest: { id: string; name: string }; live: { installed: boolean; container: { running: boolean } } | null }> } | null) => {
+      const found = (data?.applications ?? []).find((app) => dnsAppIds.includes(app.manifest.id) && app.live?.installed && app.live.container.running);
+      setDnsApp(found ? { id: found.manifest.id, name: found.manifest.name } : null);
+    }).catch(() => {});
+  }, [refreshKey]);
 
   // The blocker check.
   const [report, setReport] = useState<BlockerReport | null>(null);
@@ -228,6 +247,9 @@ export function NetworkDns({ csrfToken, topology, role, start, refreshKey }: Net
 
   return (
     <>
+      <NetworkResilience resilience={resilience} checking={checkingDns} error={resilienceError} onCheck={onCheckDns} role={role} start={start} dnsApp={dnsApp}
+        lanNames={(names?.records ?? []).some((record) => record.name.endsWith(".lan"))} now={now} />
+
       <Panel
         className="network-blocker"
         title="DNS blocker"

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Button, Field, KeyValue, Notice, Panel, SecretInput, Select, StatusChip, TextInput } from "../../ui";
+import HeartbeatPanel from "./HeartbeatPanel";
 
 interface NotificationState { configured: boolean; kind: "ntfy" | "gotify" | "webhook" | null; url: string | null; topic: string | null; hasToken: boolean }
 interface WatchCondition { key: string; label: string; active: boolean; details: Array<{ title: string; since: string | null }> }
@@ -228,6 +229,9 @@ export default function NotificationsPanel({ csrfToken, onChange }: { csrfToken:
         <WeeklyReport csrfToken={csrfToken} targetConfigured={configured} />
       </div>
 
+      <div className="settings-column">
+      {/* M39.3: something outside this server that notices when it goes quiet. */}
+      <HeartbeatPanel csrfToken={csrfToken} />
       {watch && (
         <Panel
           title="What BoxPilot watches"
@@ -246,7 +250,7 @@ export default function NotificationsPanel({ csrfToken, onChange }: { csrfToken:
           </ul>
         </Panel>
       )}
-
+      </div>
     </>
   );
 }

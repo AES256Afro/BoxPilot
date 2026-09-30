@@ -44,7 +44,7 @@ describe("the finding on Home", () => {
   it("says the house goes down with this server, points at the Network page, and offers no fix it cannot make", () => {
     const [found] = dnsLeansOnThisServer({ dnsResilience: { state: "single-point", headline: "If homebox goes down, every device on your network loses the internet", detail: "Your router hands out 192.168.50.20 (this server) as the only DNS server.", servers, via: "systemd-networkd", router: null, lanAddress: "192.168.50.20" }, apps });
     expect(found).toMatchObject({ id: "dns-single-point", severity: "warning", title: "If homebox goes down, every device on your network loses the internet", view: "network", fix: null, fixes: [] });
-    expect(found.evidence).toEqual(["192.168.50.20 is this server: Goes when homebox goes.", "what the router hands out, read from systemd-networkd"]);
+    expect(found.evidence).toEqual(["devices are given 192.168.50.20 (this server)", "192.168.50.20: Goes when homebox goes.", "what the router hands out, read from systemd-networkd"]);
     expect(found.manual).toContain("GL.iNet");
   });
 
