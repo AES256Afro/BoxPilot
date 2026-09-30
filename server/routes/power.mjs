@@ -24,6 +24,8 @@ export function createPowerRouter({
     const [devices, nutInstalled] = await Promise.all([detect().catch(() => []), exists("/usr/bin/upsc")]);
     response.json({ devices, nutInstalled });
   });
+  // Merging #334 (feat/repair-dns-power): keep this route above its `if (!state) return router;`.
+  // It needs no state, and below an early return it would not be registered at all.
   router.get("/power/overview", async (_request, response) => {
     const [state, log, setup, vendor] = await Promise.all([
       ups.inspect().catch(() => unavailableUpsEvidence()),

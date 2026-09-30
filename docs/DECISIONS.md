@@ -530,3 +530,140 @@ may open a port to the internet or send data out without the owner saying so.
   #agent-files every three minutes, and none of either while Agents are off or paused.
 - Two-way chat - asking an agent from a DM or an @mention - needs each Zulip user mapped to a
   BoxPilot account and runs as that person; it is specified as M38.3 and not built yet.
+
+## ADR-008: the router is the house's DNS and asks this server first; a heartbeat elsewhere says when it is down
+
+**Date:** 2026-09-29 · **Status:** Accepted (M39.2, M39.3, unreleased) · **Builds on:** ADR-001 (the
+router stays the owner's: BoxPilot reads and verifies, it does not sign in to change it).
+
+### Context
+
+On 2026-09-29 the owner's server lost power and stayed off for three hours and thirty-seven
+minutes. Pi-hole ran on it (host network, port 53) and was the only DNS server the router handed
+out, so every device in the house lost its name lookups at once. The owner found out because "the
+network" broke, and got a PC working again by typing a public resolver into it by hand. Nothing
+told them the server was down, because their notifier, ntfy, ran on the same server.
+
+The router runs GL.iNet's firmware 4.x: OpenWrt underneath, dnsmasq as its resolver, and AdGuard
+Home built in. Nothing else on the network is an always-on machine that could run a second DNS
+server. Research (GL.iNet's 4.x
+docs and forum, the dnsmasq manual, OpenWrt's DHCP and LuCI sources, AdGuard Home's configuration
+reference, Tailscale's KB, healthchecks.io's and Uptime Kuma's docs and source) settled the rest.
+
+### Decision: DNS that survives the server being off (M39.2)
+
+Three shapes were weighed.
+
+- **(a) A second DNS server handed out by DHCP.** Devices use either server whenever they like
+  (Windows, macOS, iOS and Android all rotate or race), so with a public second they skip the
+  blocking some of the time, and BoxPilot's local names for the apps resolve only some of the time.
+  With the router's own AdGuard Home as the second, two blocklists drift apart. Kept as the "any
+  router" last resort, and the check says "skips the blocking" when it sees it.
+- **(b) A second Pi-hole kept in sync** (Pi-hole v6's `GET`/`POST /api/teleporter` with `import`
+  choosing config and gravity tables; nebula-sync does it on a schedule). The best answer for
+  blocking, and it needs a second always-on Linux machine, which this house does not have (the
+  router cannot run Pi-hole). Not built; the sync operation waits for a second box.
+- **(c) The router is the one DNS server devices are given, and it asks Pi-hole first, falling back
+  to a public resolver only when Pi-hole does not answer.** Chosen. While the server is up every
+  lookup goes through Pi-hole, so blocking and local names hold; while it is down the router still
+  resolves, and its cache softens the switch. One place to look when something is wrong.
+
+(c) against GL.iNet's current firmware:
+
+1. **NETWORK, LAN, DHCP Server, Advanced** has *DNS Server 1* and *DNS Server 2*: DHCP option 6. Empty,
+   devices are given the router. This is where the server's address was, and why nothing else was
+   asked.
+2. **NETWORK, DNS, Manual DNS** takes *DNS Server 1* and *DNS Server 2*: the router's own upstreams.
+3. GL.iNet does not document an order between them, and dnsmasq by default prefers whichever
+   answers fastest, re-trying all of them every 50 queries or 20 seconds: a public second server
+   would take a share of the lookups past Pi-hole. `uci set dhcp.@dnsmasq[0].strictorder='1'` (one
+   SSH command; LuCI's *Strict order* on OpenWrt) keeps Pi-hole first. dnsmasq then fails over on the
+   device's retry (a second on Windows and Apple devices, up to five with glibc), or by itself with
+   `fast-dns-retry` on dnsmasq 2.88 or later. A slower first lookup during an outage is the price.
+4. *Override DNS Settings for All Clients* must be off: it would send Pi-hole's own upstream queries
+   back to the router, and round again. *DNS Rebinding Attack Protection* drops private answers, so
+   it is off when BoxPilot's app names are used, and those names move from `.lan`, which the router
+   answers itself and never passes on, to `.home.arpa`.
+5. The router's AdGuard Home can do the same (*Upstream DNS servers*: Pi-hole only; *Fallback DNS
+   servers*: a public one, "used when upstream DNS servers are not responding"; *Handle Client
+   Requests* off). GL.iNet's wiring of AdGuard Home is not in its official docs, so it is the
+   alternative in the steps, not the main path.
+
+Because the firmware does not promise its behaviour and BoxPilot does not sign in to the router for
+this (the existing router connection is neither used nor extended), the design is **guidance plus
+verification**, and the verification is what BoxPilot owns:
+
+- **What the router hands out** is read from this server's own DHCP lease (`networkctl status --json`,
+  networkd's lease file, NetworkManager's options, dhclient's lease): the router gives every device
+  the same options. A server with a hand-set address, like the owner's, has no lease, and its own DNS
+  setting says nothing about the devices. Then Pi-hole's own query database is asked who asks it
+  (`dns.blocker.askers`: `pihole-FTL sqlite3 -readonly` on `/etc/pihole/pihole-FTL.db` inside its
+  container, as the catalog already runs it for gravity; no admin password). Three or more devices on
+  the LAN asking it directly in the last hour (the last day if the hour was quiet) means the router
+  hands this server out to them; only the router (and this server) asking means the router passes
+  lookups on, and it is judged as below. Only counts leave the helper, never a device's address or a
+  domain. Anything else, or a log that cannot be read (Pi-hole not BoxPilot's, not running, behind
+  Docker's bridge, a privacy level that hides clients), is "not known", never a guess. A DHCPINFORM
+  or DISCOVER probe was weighed and left out: it needs a raw socket or port 68 beside networkd,
+  `udhcpc` is not on every Ubuntu 24.04 and 26.04 server, and routers answer INFORM unevenly.
+- **Every server on that list that is not this one is asked directly**, as a device asks when this
+  server is off, with node's resolver and explicit servers (no `dig`, `ping` or `tcpdump`).
+- **Whether the router passes lookups here** is a canary: a made-up name asked of the router, looked
+  for in Pi-hole's query log, beside one asked of Pi-hole directly to prove the log is written.
+- **Whether the router falls back** can only be seen by taking Pi-hole away: the rehearsal
+  (`dns.fallback.rehearse`, medium) stops the DNS app for about half a minute behind a transient
+  systemd timer that starts it again in three minutes whatever happens, asks the router three names
+  no cache holds, starts the app, and waits until it answers on the LAN. Its verdict stands ninety
+  days.
+- **The finding** "If <server> goes down, every device on your network loses the internet" is raised
+  only on evidence: a lease naming nothing but this server, devices asking Pi-hole directly on a
+  server with no lease, a failed rehearsal, or second servers that do not answer. A router passing lookups here that nobody has rehearsed is "not known yet"
+  (info), with the rehearsal as its fix. It shows on Network (a notice, the strip, the panel with
+  the steps) and on Home and Ops through Repair's scan.
+- **After a boot that followed an unclean end** (feat/repair-dns-power's detection, asked by its
+  function `previousBootEndedUncleanly()` when it has one, otherwise read from the outage it records),
+  Pi-hole is asked on the LAN address and the host through NSS (`getent`), and both lines go on the
+  outage's record.
+
+### Decision: knowing the server is down, from outside it (M39.3)
+
+- **(a) An outbound heartbeat to a dead man's switch the owner chooses.** Chosen. healthchecks.io's
+  free plan (20 checks, ntfy, Pushover, Telegram and others as alerts), or Healthchecks or an Uptime
+  Kuma push monitor on another machine. Private: one bare `GET`, no body, no header of BoxPilot's, no
+  hostname or status; the switch learns the time and the address it came from, as a web server does
+  from any request (healthchecks.io keeps the address and user agent with each ping). Off until the
+  owner turns it on, and owner-only, because it reaches a third party.
+- **(b) Tailscale's own notifications.** Not possible: webhooks are on every plan, but their events
+  (node created, approved, key expiring, policy updated and the like) include no "device offline",
+  and there is no other offline alert. Tailscale's `LastSeen` for each device is already on
+  Network, Tailnet.
+- **(c) A cron script on the router** pinging the server and posting to ntfy.sh. Works, and needs no
+  account, but it is a script on a device BoxPilot cannot see or test, alerts on every run while the
+  server is down unless it keeps state, and makes an ntfy.sh topic the password. Documented in
+  `docs/NETWORK.md` as an option, not built.
+
+The pinging is a **systemd timer** (`deploy/boxpilot-heartbeat.timer`, a oneshot service running
+`scripts/boxpilot-heartbeat.mjs`), not BoxPilot's scheduler: pings then mean "the server is up" through
+BoxPilot restarts and upgrades, no job record is written every five minutes, and a tick costs one
+short node process. The address is a credential (whoever has it can send heartbeats) in the
+root-only credential store under `heartbeat-url`; the unit runs as root with no capabilities at
+all, which is enough to read a file root owns; its status file holds no address. The interval is a
+drop-in (`boxpilot-heartbeat.timer.d/interval.conf`, five minutes unless changed); one try per
+tick, ten seconds at most, never retried in a loop.
+
+### Consequences
+
+- Two new units ship with every install and upgrade and are never enabled by either; only
+  `heartbeat.set` enables the timer.
+- The router's settings stay the owner's. BoxPilot shows the steps (GL.iNet 4.x, OpenWrt, any router)
+  with the addresses filled in, and reads the result; a changed router is seen at the next check.
+- The rehearsal takes the house's DNS away for up to a minute if the router has no fallback. It is
+  offered only where it can prove something (a router passing lookups here) and says so before
+  anyone approves it.
+- `tests/ubuntu/dns-fallback.sh` runs the check and the rehearsal against real dnsmasq routers with
+  and without a fallback, and the lease reader against the runner's own lease;
+  `tests/ubuntu/pihole-askers.sh` runs the catalog's Pi-hole image, asked by eight devices from
+  their own addresses, and reads its database as the helper does; `tests/ubuntu/heartbeat.sh` runs
+  the units as shipped on real systemd.
+- Left for later: syncing a second Pi-hole (b) once there is a second box; reading the router's DNS
+  settings over GL.iNet's API through the existing router connection.
