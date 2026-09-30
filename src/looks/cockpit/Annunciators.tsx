@@ -70,7 +70,7 @@ export default function Annunciators({ role, onNavigate, now = Date.now }: LookB
   return (
     <>
       <div className="cockpit-ann" role="group" aria-label="Annunciators">
-        <button type="button" className="cockpit-lamp cockpit-lamp--master" data-state={master}
+        <button type="button" className="cockpit-lamp cockpit-lamp--master" data-state={master} title={verdict.sentence}
           aria-label={master === "off" ? `Master caution: ${checking ? "checking" : "nothing needs you"}` : `Master ${master === "danger" ? "warning" : "caution"}: ${verdict.label}. Go to the memo`}
           onClick={toMemo}>
           <span>MASTER</span><span>{master === "danger" ? "WARNING" : "CAUTION"}</span>
