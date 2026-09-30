@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { appStatus, offlineFor } from "./appState";
+import { appStatus, installTier, offlineFor } from "./appState";
 import type { LiveState } from "./types";
 
 /**
@@ -57,5 +57,14 @@ describe("an app's state, as the tile, the sheet and the verdict all say it", ()
     expect(appStatus(live({ sidecars: [{ id: "vpn", running: false, status: "exited", restarts: 0 }] })).label).toBe("Running · vpn is down");
     expect(appStatus(live({ container: { exists: true, running: false, status: "exited", health: "none", restarts: 0, image: null } }))).toEqual({ status: "warning", label: "Stopped" });
     expect(appStatus(live({ installed: false, dataPresent: true }))).toEqual({ status: "neutral", label: "Not installed · data kept" });
+  });
+});
+
+describe("the tier installing an app asks for", () => {
+  it("is the manifest's own when it is higher than app.install's, as the server stages it, and never lower", () => {
+    // Pi-hole, AdGuard Home, Technitium and wg-easy say high (server/catalog installRiskLookup).
+    expect(installTier({ risk: "high" })).toBe("high");
+    expect(installTier({ risk: "medium" })).toBe("medium");
+    expect(installTier({ risk: "low" })).toBe("medium");
   });
 });
