@@ -18,7 +18,7 @@
   grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr) auto;
   gap: 1em;
-  height: calc(100vh - var(--qs-top, 40px) - var(--shell-bottom-inset, 0px) - 2.1em - 0.5em);
+  height: calc(100vh - var(--qs-top, 40px) - var(--shell-bottom-inset, 0px) - 2.4em - 0.4em);
   min-height: 30em;
   color: var(--qs-tx);
   font-family: "Pixelify Sans", ui-monospace, monospace;

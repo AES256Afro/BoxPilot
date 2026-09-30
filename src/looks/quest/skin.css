@@ -15,7 +15,10 @@
 
   --qs-em: clamp(12px, calc(100vw / 74), 22px);
   --qs-top: 40px;
-  --qs-rail: 48px;
+  --qs-rail: 44px;
+  /* A key in the menu, and where it stands in it. */
+  --qs-key: 32px;
+  --qs-key-x: 7px;
   --qs-bg: #1d1838;
   --qs-pn: #2c2554;
   --qs-bd: #f3e6c4;
@@ -30,7 +33,7 @@
     radial-gradient(3px 3px at 83% 14%, #ffffff 99%, transparent),
     radial-gradient(2px 2px at 66% 92%, #ffffff 99%, transparent),
     radial-gradient(2px 2px at 30% 64%, rgba(255, 255, 255, 0.7) 99%, transparent),
-    radial-gradient(2px 2px at 93% 58%, rgba(255, 255, 255, 0.7) 99%, transparent);
+    radial-gradient(2px 2px at 76% 84%, rgba(255, 255, 255, 0.7) 99%, transparent);
 
   --font-condensed: "Pixelify Sans", ui-monospace, monospace;
   --font-sans: "Pixelify Sans", ui-monospace, monospace;
@@ -103,25 +106,28 @@
 :root[data-look="quest"] body { background: var(--qs-bg); }
 :root[data-look="quest"] .app-shell[data-shell="console"] {
   color: var(--qs-tx);
-  background-color: var(--qs-bg);
+  background: var(--qs-bg);
+  font-family: var(--font-sans);
+}
+/* The stars are Home's, behind its windows as drawn; on a page they would sit on its facts and tabs. */
+:root[data-look="quest"] .app-shell[data-view="home"] {
   background-image: var(--qs-stars);
   background-attachment: fixed;
-  font-family: var(--font-sans);
 }
 :root[data-look="quest"] .app-shell[data-shell="console"]::before { background: var(--qs-pn); }
 :root[data-look="quest"] ::selection { color: var(--qs-deep); background: var(--qs-gold); }
 :root[data-look="quest"] :is(button, a, input, select, textarea, summary, [tabindex]):focus-visible { outline: 2px solid var(--qs-gold); outline-offset: 2px; }
 :root[data-look="quest"] .look-console :focus-visible:not([tabindex="-1"]) { outline-color: var(--qs-gold); }
-:root[data-look="quest"] #content > .content { max-width: none; padding: calc(var(--qs-em) * 0.9) calc(var(--qs-em) * 1.1) calc(var(--qs-em) * 1.2); }
+:root[data-look="quest"] #content > .content { max-width: none; padding: calc(var(--qs-em) * 0.6) calc(var(--qs-em) * 1.1) calc(var(--qs-em) * 1.2) calc(var(--qs-em) * 0.8); }
+/* Home's windows fill the screen as drawn: 1.2em from the top and the bottom, 1.4em from the right. */
+:root[data-look="quest"] .app-shell[data-view="home"] #content > .content { padding: calc(var(--qs-em) * 1.2) calc(var(--qs-em) * 1.4) calc(var(--qs-em) * 1.2) calc(var(--qs-em) * 0.7); }
 
 /* ── The top strip: a pixel window along the top, the controls as small pixel buttons. ── */
 :root[data-look="quest"] .topbar {
   min-height: var(--qs-top);
   padding: 0 calc(var(--qs-em) * 1.1);
   border-bottom: 0;
-  background-color: var(--qs-bg);
-  background-image: var(--qs-stars);
-  background-attachment: fixed;
+  background: var(--qs-bg);
   box-shadow: none;
   backdrop-filter: none;
 }
@@ -165,8 +171,8 @@
     box-shadow: var(--qs-frame) 0 0 var(--qs-deep);
   }
   :root[data-look="quest"] .shell-dock--rail .ui-dock__separator { height: 2px; background: rgba(243, 230, 196, 0.35); }
-  :root[data-look="quest"] .shell-dock--rail .ui-dock__item { width: 34px; margin-left: 5px; }
-  :root[data-look="quest"] .shell-dock--rail .ui-dock__icon { width: 34px; border-radius: 0; color: var(--qs-dim); }
+  :root[data-look="quest"] .shell-dock--rail .ui-dock__item { width: var(--qs-key); margin-left: 5px; }
+  :root[data-look="quest"] .shell-dock--rail .ui-dock__icon { width: var(--qs-key); height: 30px; border-radius: 0; color: var(--qs-dim); }
   :root[data-look="quest"] .shell-dock--rail .ui-dock__item:hover .ui-dock__icon { color: var(--qs-gold); background: rgba(255, 209, 102, 0.1); }
   :root[data-look="quest"] .shell-dock--rail .ui-dock__item[aria-current="page"] .ui-dock__icon { color: var(--qs-gold); background: rgba(255, 209, 102, 0.12); box-shadow: none; }
   :root[data-look="quest"] .shell-dock--rail .ui-dock__item[aria-current="page"]::before {
@@ -190,6 +196,77 @@
   }
   :root[data-look="quest"] .shell-dock--rail .ui-dock__badge { border-radius: 0; background: var(--qs-gold); box-shadow: 0 0 0 2px var(--qs-pn); }
   :root[data-look="quest"] .shell-rail__logo { border-radius: 0; color: var(--qs-deep); background: var(--qs-gold); box-shadow: 3px 3px 0 var(--qs-deep); font-family: var(--font-sans); font-weight: 700; }
+
+  /*
+   * The bar's controls stand in the menu, as an RPG keeps every command in one window: Home at its
+   * head, in the mark's place (Ops is the menu's first key); the search, the bell and the account
+   * (Activity, light or dark, Settings, Sign out) at its foot. The bar keeps the page's name, and on
+   * Home, whose drawing has no bar, it takes no room at all.
+   */
+  :root[data-look="quest"] .shell-dock.shell-dock--rail { padding-bottom: calc(22px + 3 * var(--qs-key) + 8px); }
+  :root[data-look="quest"] .shell-rail__logo { visibility: hidden; }
+  :root[data-look="quest"] .topbar { z-index: 31; }
+  :root[data-look="quest"] .app-shell[data-view="home"] { --qs-top: 0px; }
+  :root[data-look="quest"] .app-shell[data-view="home"] .topbar { align-items: flex-start; height: 0; min-height: 0; padding-block: 0; }
+  :root[data-look="quest"] :is(.bar-activity, .bar-sign-out, .signed-in-user, .bar-tiers, .bar-role, .connection-pill) { display: none; }
+  :root[data-look="quest"] .view-switch {
+    position: fixed;
+    z-index: 31;
+    top: calc(10px + env(safe-area-inset-top, 0px));
+    left: calc(var(--qs-key-x) + env(safe-area-inset-left, 0px));
+    display: block;
+  }
+  :root[data-look="quest"] .view-switch__option + .view-switch__option { display: none; }
+  :root[data-look="quest"] :is(.view-switch__option, .command-trigger, .bar-bell) {
+    position: relative;
+    justify-content: center;
+    width: var(--qs-key);
+    min-width: 0;
+    max-width: none;
+    height: var(--qs-key);
+    min-height: 0;
+    padding: 0;
+  }
+  :root[data-look="quest"] .view-switch__option > span,
+  :root[data-look="quest"] .command-trigger__label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  :root[data-look="quest"] .command-trigger__keys { display: none; }
+  :root[data-look="quest"] .view-switch__option[aria-current="page"]::before { position: absolute; top: 50%; left: -7px; color: var(--qs-gold); content: "▶"; font-size: 10px; line-height: 1; transform: translateY(-50%); }
+  :root[data-look="quest"] :is(.command-trigger, .bar-bell, .account-menu) { position: fixed; z-index: 31; left: calc(var(--qs-key-x) + env(safe-area-inset-left, 0px)); flex: none; }
+  :root[data-look="quest"] .command-trigger { bottom: calc(10px + 2 * (var(--qs-key) + 4px)); color: var(--qs-tx); background: var(--qs-pn); }
+  :root[data-look="quest"] .bar-bell { bottom: calc(10px + var(--qs-key) + 4px); }
+  :root[data-look="quest"] .bar-bell .bar-badge { position: absolute; top: -6px; right: -6px; min-width: 16px; height: 16px; padding: 0 3px; font-size: 10px; }
+  :root[data-look="quest"] .account-menu { bottom: 10px; display: block; }
+  :root[data-look="quest"] .account-menu__button { width: var(--qs-key); height: var(--qs-key); border-radius: 0; }
+  :root[data-look="quest"] .account-menu__avatar { width: 100%; height: 100%; border-radius: 0; color: var(--qs-deep); background: var(--qs-gold); box-shadow: 2px 2px 0 var(--qs-deep); font-family: var(--font-sans); font-size: 14px; }
+  :root[data-look="quest"] .account-menu__button[aria-expanded="true"] .account-menu__avatar { box-shadow: 0 0 0 2px var(--qs-pn), 0 0 0 4px var(--qs-bd); }
+  :root[data-look="quest"] .account-menu__list {
+    top: auto;
+    right: auto;
+    bottom: 0;
+    left: calc(100% + 14px);
+    border: var(--qs-frame) solid var(--qs-bd);
+    border-radius: 0;
+    color: var(--qs-tx);
+    background: var(--qs-pn);
+    box-shadow: 0 0 0 var(--qs-frame) var(--qs-deep), 5px 5px 0 var(--qs-frame) var(--qs-deep);
+    font-family: var(--font-sans);
+  }
+  :root[data-look="quest"] .account-menu__who { border-bottom: 2px dashed rgba(243, 230, 196, 0.3); color: var(--qs-dim); }
+  /* Dark only: the menu's light and dark have nothing to choose here either. */
+  :root[data-look="quest"] .account-menu__group { display: none; }
+  :root[data-look="quest"] .account-menu__item { border-radius: 0; color: var(--qs-tx); font-weight: 600; }
+  :root[data-look="quest"] .account-menu__item:is(:hover, :focus-visible) { color: var(--qs-gold); background: rgba(255, 209, 102, 0.1); }
+  :root[data-look="quest"] .account-menu__item--choice[aria-checked="true"] { color: var(--qs-deep); background: var(--qs-gold); }
+  :root[data-look="quest"] .account-menu__item--out { color: #ff9aab; }
+}
+
+/* A shorter screen: the menu's keys shorter, so every area still fits above the controls. */
+@media (min-width: 761px) and (max-height: 860px) {
+  :root[data-look="quest"] .shell-dock--rail .ui-dock__icon { height: 26px; }
+}
+@media (min-width: 761px) and (max-height: 760px) {
+  :root[data-look="quest"] .shell-dock--rail .ui-dock__icon { height: 22px; }
+  :root[data-look="quest"] .shell-dock--rail .ui-dock__separator { margin: 1px 0; }
 }
 
 /* ── Pixel windows for the page kit: panels, figures, sheets and dialogs. ── */

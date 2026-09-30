@@ -103,7 +103,8 @@
 .cockpit-line:is(button):disabled { cursor: default; opacity: 0.55; }
 
 .cockpit-line--dim { color: var(--ck-d); }
-.cockpit-line--caution { white-space: normal; }
+/* One line each, as the ECAM has them; the whole need is the tooltip and the name. */
+.cockpit-line:is(.cockpit-line--caution, .cockpit-line--open) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cockpit-line--caution[data-severity="warning"] { color: var(--ck-a); }
 .cockpit-line--caution[data-severity="danger"] { color: var(--ck-r); }
 .cockpit-line--caution[data-severity="neutral"] { color: var(--ck-g); }
@@ -116,11 +117,6 @@
 .cockpit-line--run { color: var(--ck-c); }
 .cockpit-line--run[data-phase="fixed"], .cockpit-line--run[data-phase="scheduled"] { color: var(--ck-g); }
 .cockpit-line--run[data-phase="failed"], .cockpit-line--run[data-phase="still"] { color: var(--ck-a); }
-.cockpit-verdict { margin-top: 0.15em; }
-.cockpit-verdict[data-status="good"] { color: var(--ck-g); }
-.cockpit-verdict[data-status="warning"] { color: var(--ck-a); }
-.cockpit-verdict[data-status="danger"] { color: var(--ck-r); }
-.cockpit-verdict:is([data-status="unknown"], [data-status="neutral"]) { color: var(--ck-d); }
 
 /* A narrower screen: the memo under the gauges; a phone, the gauges two by two at its width. */
 @media (max-width: 1100px) {
