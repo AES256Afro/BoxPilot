@@ -80,7 +80,21 @@ const argumentsFor = (tool, question) => {
 
 // The request is in the first user message (the task); the plan and the planner's instruction the
 // runner adds after it, and later messages, are the runner's own words.
-const lastUserText = (messages) => textOf(messages.find((message) => message?.role === "user")?.content ?? "").split(/\n\n(?:Your plan:|Work out what is asked and plan it\.)/)[0];
+const lastUserText = (messages) => textOf(messages.find((message) => message?.role === "user")?.content ?? "").split(/\n\n(?:Your plan:|Work out what is asked and plan it\.|Tools made for requests worded like this:)/)[0];
+const firstUserText = (messages) => textOf(messages.find((message) => message?.role === "user")?.content ?? "");
+
+/**
+ * The tools the runner pointed at (M40): the planner's "Tools made for requests worded like this"
+ * and, once there is a plan, its steps' tools and "The request's words fit ..." - what a model that
+ * reads its prompt would take up. As catalog ids.
+ */
+function pointedAt(messages) {
+  const text = firstUserText(messages);
+  const hinted = /Tools made for requests worded like this: ([^\n]*)/.exec(text)?.[1] ?? "";
+  const plan = text.split(/\n\nYour plan:\n/)[1]?.split(/\n\nCarry it out/)[0] ?? "";
+  const names = [...`${hinted}\n${plan}`.matchAll(/\b([a-z]+_[a-z_]+)\b/g)].map((match) => match[1].replace(/_/g, "."));
+  return { hinted: [...new Set([...hinted.matchAll(/\b([a-z]+_[a-z_]+)\b/g)].map((match) => match[1].replace(/_/g, ".")))], planned: plan ? [...new Set(names)] : null };
+}
 
 /** The tools the planner may name: the schema's list when it has one, else the system message's "Tools:" lines. */
 function plannerTools(body) {
@@ -102,7 +116,9 @@ export function structuredReply(body) {
     const messages = Array.isArray(body?.messages) ? body.messages : [];
     const question = lastUserText(messages);
     const offered = plannerTools(body);
-    const tools = pickTools(question, offered.filter((toolName) => !["notes.write", "plan.propose", "notify.owner"].includes(toolName)));
+    const readable = offered.filter((toolName) => !["notes.write", "plan.propose", "notify.owner"].includes(toolName));
+    // The tools the runner pointed at first, then the ones the words suggest.
+    const tools = [...new Set([...pointedAt(messages).hinted.filter((toolName) => readable.includes(toolName)), ...pickTools(question, readable)])].slice(0, 2);
     const asked = /<question>\s*([\s\S]*?)\s*<\/question>/.exec(question)?.[1]?.trim();
     const understanding = {
       goal: asked ? `Answer “${asked.slice(0, 160)}”` : "Do my job once and report",
@@ -132,14 +148,17 @@ export function policyReply(body) {
   const question = lastUserText(messages);
   const toolResults = messages.filter((message) => message?.role === "tool");
   if (offered.length && toolResults.length === 0 && body?.tool_choice !== "none") {
-    const tools = pickTools(question, offered.filter((name) => !["notes.write", "plan.propose", "notify.owner"].includes(name)));
+    const readable = offered.filter((name) => !["notes.write", "plan.propose", "notify.owner"].includes(name));
+    // With a plan, it follows the plan (and what the runner said the words fit); without one, the words.
+    const { planned } = pointedAt(messages);
+    const tools = planned?.some((name) => readable.includes(name)) ? planned.filter((name) => readable.includes(name)).slice(0, 3) : pickTools(question, readable);
     if (tools.length) return { toolCalls: tools.map((name) => ({ name: name.replace(/\./g, "_"), arguments: argumentsFor(name, question) })) };
   }
   if (!toolResults.length) return { content: "I have no tool output to go on, so I cannot say anything about this server yet." };
   const lines = toolResults.slice(0, 4).map((message, index) => {
     const text = textOf(message.content).replace(/<\/?tool_output[^>]*>/g, "").replace(/\s+/g, " ").trim();
-    const first = text.replace(/^Data from [^:]*:\s*/i, "").slice(0, 180);
-    return `- ${first}${first.length >= 180 ? "…" : ""} [T${index + 1}]`;
+    const first = text.replace(/^Data from [^:]*:\s*/i, "").slice(0, 400);
+    return `- ${first}${first.length >= 400 ? "…" : ""} [T${index + 1}]`;
   });
   return { content: `Here is what I found.\n\n${lines.join("\n")}` };
 }

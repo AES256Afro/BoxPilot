@@ -11,6 +11,15 @@ on:
         description: "Comma-separated thread counts to measure (each under a quota of that many processors)"
         default: "4,1"
         type: string
+      mode:
+        description: "question: the owner's first question, timed. eval: the built-in evaluation, graded (M40)"
+        default: "question"
+        type: choice
+        options: [question, eval]
+      baseline:
+        description: "For eval: also ask it of this ref (for example main), with the same model, for a before and after"
+        default: ""
+        type: string
   push:
     branches: [fix/agents-first-run]
     paths: [".github/workflows/agents-bench.yml", "tests/bench/**"]
@@ -69,7 +78,42 @@ jobs:
           env UNSLOTH_STUDIO_HOME="$RUNNER_TEMP/unsloth" "$RUNNER_TEMP/unsloth/bin/unsloth" --version
           lscpu | grep -E '^(Model name|CPU\(s\)|Thread)'
 
+      - name: Check out the baseline, with this branch's evaluation beside it
+        if: inputs.mode == 'eval' && inputs.baseline != ''
+        env:
+          BASELINE: ${{ inputs.baseline }}
+        run: |
+          git fetch --no-tags --depth 1 origin "$BASELINE"
+          git worktree add --detach "$RUNNER_TEMP/baseline" FETCH_HEAD
+          ln -s "$GITHUB_WORKSPACE/node_modules" "$RUNNER_TEMP/baseline/node_modules"
+          # The questions, the facts and the graders are this branch's; everything they ask is the baseline's.
+          cp test/agents-eval.mjs "$RUNNER_TEMP/baseline/test/"
+          cp test/fixtures/agents-storage.mjs "$RUNNER_TEMP/baseline/test/fixtures/"
+          cp tests/bench/agents-real.mjs "$RUNNER_TEMP/baseline/tests/bench/"
+          for file in grade.mjs verify.mjs tool-text.mjs; do [ -e "$RUNNER_TEMP/baseline/server/agents/$file" ] || cp "server/agents/$file" "$RUNNER_TEMP/baseline/server/agents/"; done
+          git -C "$RUNNER_TEMP/baseline" log --oneline -1
+
+      - name: Ask the built-in evaluation under each cap
+        if: inputs.mode == 'eval'
+        env:
+          THREADS: ${{ inputs.threads || '4' }}
+          BASELINE: ${{ inputs.baseline }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/bench"
+          { echo '## Agents evaluation on the real model'; echo; echo "$(lscpu | grep '^Model name' | sed 's/  */ /g'), $(nproc) processors"; echo; } >>"$GITHUB_STEP_SUMMARY"
+          for threads in $(echo "$THREADS" | tr ',' ' '); do
+            for tree in ${BASELINE:+baseline} this; do
+              dir="$GITHUB_WORKSPACE"; [ "$tree" = baseline ] && dir="$RUNNER_TEMP/baseline"
+              sudo systemd-run --scope --quiet -p "CPUQuota=$((threads * 100))%" -p CPUWeight=idle -- \
+                sudo -u "$(id -un)" env PATH="$PATH" HOME="$HOME" \
+                nice -n 19 ionice -c 3 node "$dir/tests/bench/agents-real.mjs" --eval --runtime "$RUNNER_TEMP/unsloth" --state "$RUNNER_TEMP/agents-state" --threads "$threads" --out "$RUNNER_TEMP/bench/eval-$tree-$threads.json" \
+                2>"$RUNNER_TEMP/bench/eval-$tree-$threads.log" | tee "$RUNNER_TEMP/bench/eval-$tree-$threads.txt"
+              { echo "### ${tree}${BASELINE:+ ($([ "$tree" = baseline ] && echo "$BASELINE" || echo "${GITHUB_REF_NAME}"))}, ${threads} thread(s) under CPUQuota=$((threads * 100))%"; echo; echo '```'; tail -n 8 "$RUNNER_TEMP/bench/eval-$tree-$threads.txt"; echo '```'; echo; } >>"$GITHUB_STEP_SUMMARY"
+            done
+          done
+
       - name: Ask the owner's question under each cap
+        if: inputs.mode != 'eval'
         env:
           THREADS: ${{ inputs.threads || '4,1' }}
         run: |

@@ -7,19 +7,19 @@
  *
  * Notes, plans and notifications are the service's (service.mjs); everything here only reads.
  */
-import { alertSources, appSummary, asRequest, backupSummary, maskedParameters, storageSummary } from "../assistant/facts.mjs";
+import { alertSources, asRequest, backupSummary, maskedParameters } from "../assistant/facts.mjs";
 import { createBm25, tokenize } from "../assistant/knowledge.mjs";
 import { seesEveryAccount } from "../routes/access.mjs";
 import { searxSearch } from "./connectors.mjs";
 import { exactTools } from "./deterministic.mjs";
 import { describePihole } from "./pihole.mjs";
+import { describeApps, describePlaces, describeServer, describeStorage, locate } from "./tool-text.mjs";
 
 /** Whether an agent's allowlist lets it look at this app (spec.allow.apps: "*" or ids). */
 export const appAllowed = (spec, appId) => !spec?.allow || spec.allow.apps === "*" || spec.allow.apps.includes(String(appId ?? "").replace(/^bp-/, ""));
 
 const clip = (text, max) => { const value = String(text ?? ""); return value.length > max ? `${value.slice(0, max - 1)}…` : value; };
 const gigabytes = (bytes) => (Number.isFinite(bytes) ? `${(bytes / 1e9).toFixed(bytes >= 100e9 ? 0 : 1)} GB` : "unknown");
-const hours = (seconds) => (Number.isFinite(seconds) ? `${Math.floor(seconds / 86_400)} days ${Math.floor((seconds % 86_400) / 3600)} hours` : "unknown");
 
 export class ToolError extends Error {
   constructor(message) { super(message); this.code = "tool_failed"; }
@@ -72,26 +72,14 @@ export function createToolRunner({ state, store, registry, helper = null, invent
     async "server.facts"() {
       const snapshot = await inventory?.inspect();
       if (!snapshot) throw new ToolError("The server's facts could not be read");
-      const { host = {}, compute = {}, network = {}, services = [] } = snapshot;
-      const addresses = (network.addresses ?? []).slice(0, 8).map((entry) => `${entry.interface} ${entry.address}`).join(", ");
-      return [
-        `Name: ${host.hostname ?? "unknown"}. Operating system: ${host.operatingSystem ?? "unknown"}, kernel ${host.kernel ?? "unknown"} (${host.architecture ?? "?"}). Up ${hours(host.uptimeSeconds)}.`,
-        `Processor: ${compute.cpuModel ?? "unknown"}, ${compute.cpuCount ?? "?"} threads, load ${Number(compute.load1 ?? 0).toFixed(2)} (${compute.loadPercent ?? "?"}%).`,
-        `Memory: ${gigabytes(compute.usedMemoryBytes)} used of ${gigabytes(compute.totalMemoryBytes)} (${compute.memoryUsedPercent ?? "?"}%).`,
-        `Network: ${addresses || "no addresses read"}. Tailscale: ${network.tailscale?.connected ? `connected as ${network.tailscale.dnsName ?? "unknown"}` : network.tailscale?.installed ? "installed, not connected" : "not installed"}.`,
-        `Key services: ${services.map((service) => `${service.unit} ${service.active}`).join(", ") || "not read"}.`,
-      ].join("\n");
+      return describeServer(snapshot);
     },
 
     async "apps.list"(_input, context) {
       const [apps, snapshot] = await Promise.all([readApps().catch(() => null), inventory?.inspect().catch(() => null)]);
       const applications = Array.isArray(apps?.applications) ? apps.applications.filter((app) => appAllowed(context?.spec, app?.id)) : null;
-      const lines = [];
-      if (applications) lines.push(appSummary(applications, { sourceChars: 3_000 }).text);
-      else lines.push("Which BoxPilot apps are installed could not be read.");
       const others = (snapshot?.docker?.containers ?? []).filter((container) => !container.app && !String(container.name ?? "").startsWith("bp-"));
-      if (others.length) lines.push(`Other Docker containers (not installed by BoxPilot): ${others.slice(0, 20).map((container) => `${container.name} (${container.image}, ${container.state}${container.health !== "none" ? `, ${container.health}` : ""})`).join("; ")}.`);
-      return lines.join("\n");
+      return describeApps(applications, others);
     },
 
     async "services.status"({ unit = null }, context) {
@@ -117,9 +105,9 @@ export function createToolRunner({ state, store, registry, helper = null, invent
     },
 
     async "storage.health"() {
-      const snapshot = await inventory?.inspect();
-      const summary = storageSummary(snapshot, { sourceChars: 3_000 });
-      return summary ? summary.text : "Storage and drive health could not be read.";
+      const snapshot = await inventory?.inspect().catch(() => null);
+      if (!snapshot?.storage) return "Storage and drive health could not be read.";
+      return describeStorage(snapshot);
     },
 
     async "docs.search"({ query, limit = 4 }, context) {
@@ -217,27 +205,25 @@ export function createToolRunner({ state, store, registry, helper = null, invent
     ...Object.fromEntries(Object.entries(exactTools).map(([id, fn]) => [id, (input) => Promise.resolve().then(() => fn(input, { now })).catch((error) => { throw new ToolError(error.message); })])),
 
     async "where.runs"({ name }, context) {
-      const wanted = name.toLowerCase().replace(/[\s._-]+/g, "");
-      const matches = (value) => String(value ?? "").toLowerCase().replace(/[\s._-]+/g, "").includes(wanted);
-      const [apps, snapshot, units] = await Promise.all([
-        readApps().catch(() => null),
-        inventory?.inspect().catch(() => null),
-        helper ? helper.request("service.list", {}, { timeoutMs: helperTimeoutMs }).catch(() => null) : null,
-      ]);
-      const found = [];
-      for (const app of (apps?.applications ?? []).filter((entry) => entry?.installed && appAllowed(context?.spec, entry.id) && (matches(entry.id) || matches(entry.name)))) {
-        found.push(`${app.id} is a BoxPilot app: container bp-${app.id}, ${app.container?.running ? "running" : app.container?.status ?? "not running"}.`);
-      }
-      for (const container of (snapshot?.docker?.containers ?? []).filter((entry) => !String(entry.name ?? "").startsWith("bp-") && (matches(entry.name) || matches(entry.image)))) {
-        found.push(`${container.name} is a Docker container BoxPilot did not install, from image ${container.image}, ${container.state}.`);
-      }
-      for (const unit of (units?.units ?? []).filter((entry) => matches(entry.unit.replace(/\.(service|timer|socket|mount)$/, "")))) {
-        found.push(`${unit.unit} runs natively on the host as a systemd unit: ${unit.active} (${unit.sub}).`);
-      }
-      if (!found.length) return `Nothing called "${name}" runs here: no BoxPilot app, no Docker container and no systemd unit by that name.${!apps || !snapshot || !units ? " (Some of these could not be read.)" : ""}`;
-      return found.slice(0, 12).join("\n");
+      const found = await whereRuns(name, context);
+      return describePlaces(name, found.places, { unread: found.unread });
     },
   };
+
+  /** Where something runs, as places: a BoxPilot app, another container, a unit on the host. */
+  async function whereRuns(name, context = null) {
+    const [apps, snapshot, units] = await Promise.all([
+      readApps().catch(() => null),
+      inventory?.inspect().catch(() => null),
+      helper ? helper.request("service.list", {}, { timeoutMs: helperTimeoutMs }).catch(() => null) : null,
+    ]);
+    const places = locate(name, {
+      applications: (apps?.applications ?? []).filter((entry) => appAllowed(context?.spec, entry?.id)),
+      containers: snapshot?.docker?.containers ?? [],
+      units: units?.units ?? [],
+    });
+    return { places, unread: !apps || !snapshot || !units };
+  }
 
   /** Run one read tool. `context` carries the run's role, whom it reads as, and the agent's spec. */
   async function run(toolId, input, context) {
@@ -246,5 +232,5 @@ export function createToolRunner({ state, store, registry, helper = null, invent
     return tool(input ?? {}, context);
   }
 
-  return { run, has: (toolId) => Object.hasOwn(tools, toolId), readApps };
+  return { run, has: (toolId) => Object.hasOwn(tools, toolId), readApps, whereRuns };
 }

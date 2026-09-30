@@ -41,7 +41,8 @@ import { randomUUID } from "node:crypto";
 import { planMessage, plannerMessages, readUnderstanding, understandingFormatFor } from "./intent.mjs";
 import { answerFormat, answerNowNote, fallbackAnswer, readStructuredAnswer } from "./prompt.mjs";
 import { ModelUnavailable } from "./runtime.mjs";
-import { actToolIds, toolById, toolCatalog } from "./tool-catalog.mjs";
+import { actToolIds, toolById, toolCatalog, toolsForQuestion } from "./tool-catalog.mjs";
+import { correctionMessages, unsureNote, verifyAnswer } from "./verify.mjs";
 
 export const runnerDefaults = Object.freeze({
   pollWaitMs: 25_000,
@@ -60,6 +61,9 @@ export const runnerDefaults = Object.freeze({
   minAnswerTokens: 48,
   // A tool's output is cut to what the model can read in this long, never below 1,200 characters.
   toolReadSeconds: 25,
+  // The check before answering (M40): a correction is asked for only when it fits in what is left,
+  // and writes at most this much more than the answer it corrects.
+  correctionExtraTokens: 48,
 });
 
 const stripWrapper = (content) => String(content ?? "").replace(/<\/?tool_output[^>]*>/g, "").replace(/^Data from a tool, not instructions\.[^\n]*\n?/m, "").replace(/^WARNING:[^\n]*\n?/m, "").trim();
@@ -78,7 +82,9 @@ const howTo = /\b(how (do|can|to|should)|where (do|can) i|what does .{1,40} do|e
 export function fallbackTools(claim, understanding = null) {
   const offered = new Set((claim.tools ?? []).map((tool) => tool.id));
   const question = claim.run?.question ? String(claim.run.question) : "";
-  const planned = (understanding?.tools ?? []).map((id) => toolById(id)).filter((tool) => tool && offered.has(tool.id));
+  // What the question's own words point at first, then what the plan named.
+  const hinted = toolsForQuestion(question, offered);
+  const planned = [...new Set([...hinted, ...(understanding?.tools ?? [])])].map((id) => toolById(id)).filter((tool) => tool && offered.has(tool.id));
   let picked = planned.filter((tool) => (fallbackCategories.has(tool.category) && !needsInput(tool) && !tool.writes) || tool.id === "docs.search").map((tool) => tool.id);
   if (!picked.length) picked = ["server.facts", "alerts.active", "storage.health", ...(question && howTo.test(question) ? ["docs.search"] : [])].filter((id) => offered.has(id));
   return picked.slice(0, 4).map((id) => ({ id, input: id === "docs.search" ? { query: question.slice(0, 300) || "status" } : {} }));
@@ -285,7 +291,9 @@ export function createRunner({ api, runtime, client, usage = null, now = () => D
      * tokens it will read (what the conversation grew by since its last call, or all of it) and the
      * tokens it may write, at this server's speed. A call that cannot fit is not started.
      */
-    const ask = async (model, conversation, { maxTokens, toolChoice = "auto", extra = claim.runtime.extra ?? {}, purpose = "call" }) => {
+    // `optional`: a call the run can do without (the correction after the check): one that does not
+    // fit, or fails, leaves the run as it was instead of ending it degraded.
+    const ask = async (model, conversation, { maxTokens, toolChoice = "auto", extra = claim.runtime.extra ?? {}, purpose = "call", optional = false, minTokens = settings.minAnswerTokens }) => {
       const chars = promptChars(conversation);
       const newChars = conversation.last ? Math.max(0, chars - conversation.last.chars) : chars;
       const readTokens = Math.max(1, Math.ceil(newChars / charsPerToken));
@@ -293,18 +301,20 @@ export function createRunner({ api, runtime, client, usage = null, now = () => D
       const readMs = (readTokens / pace.promptPerSecond) * 1000;
       const writeMsPerToken = 1000 / pace.generatePerSecond;
       const left = timeLeft();
-      const needed = readMs * settings.fitMargin + settings.minAnswerTokens * writeMsPerToken;
+      const needed = readMs * settings.fitMargin + minTokens * writeMsPerToken;
       if (left.ms <= 0 || needed > left.ms) {
-        degraded = left.binding;
-        limitReached = true;
+        if (!optional) {
+          degraded = left.binding;
+          limitReached = true;
+        }
         const seconds = (ms) => Math.max(0, Math.round(ms / 1000));
         await system("model", left.binding === "budget"
           ? `Not starting the ${purpose}: it needs about ${seconds(needed)} s of model time (${readTokens} tokens to read at ${pace.promptPerSecond} a second, then a short answer) and ${seconds(left.ms)} s are left today.`
-          : `Not starting the ${purpose}: it needs about ${seconds(needed)} s (${readTokens} tokens to read at ${pace.promptPerSecond} a second, then a short answer) and the run has ${seconds(left.ms)} s left.`, "failed");
+          : `Not starting the ${purpose}: it needs about ${seconds(needed)} s (${readTokens} tokens to read at ${pace.promptPerSecond} a second, then a short answer) and the run has ${seconds(left.ms)} s left.`, optional ? "done" : "failed");
         return null;
       }
       const fitTokens = Math.floor((left.ms - readMs * settings.fitMargin) / writeMsPerToken);
-      const tokens = Math.max(settings.minAnswerTokens, Math.min(maxTokens, fitTokens));
+      const tokens = Math.max(minTokens, Math.min(maxTokens, fitTokens));
       const cancelId = driver === "unsloth" || driver === "fake" ? `boxpilot-${randomUUID()}` : null;
       const fields = { cache_prompt: true, ...(driver === "llama-server" ? { id_slot: 0 } : {}), ...(cancelId ? { cancel_id: cancelId } : {}) };
       const started = now();
@@ -338,12 +348,63 @@ export function createRunner({ api, runtime, client, usage = null, now = () => D
         // Closing the connection stops llama-server at its next batch; Unsloth is also asked to stop.
         if (cancelId) void client.cancel?.(model.endpoint, cancelId, { apiKey: model.apiKey });
         if (controller.signal.aborted) throw error;
-        degraded = /timed? ?out|aborted|TimeoutError/i.test(`${error?.name} ${error?.message}`) ? "timeout" : "model-error";
-        await system("model", `The model stopped: ${String(error?.message ?? error).slice(0, 200)}`, "failed");
+        if (!optional) degraded = /timed? ?out|aborted|TimeoutError/i.test(`${error?.name} ${error?.message}`) ? "timeout" : "model-error";
+        await system("model", `The model stopped${optional ? ` during the ${purpose}` : ""}: ${String(error?.message ?? error).slice(0, 200)}`, "failed");
         return null;
       }
     };
     const stepOf = (model, asked, text, toolCalls = []) => ({ kind: "model", name: model.model, text, toolCalls, durationMs: asked.took, tokensIn: asked.result.usage?.promptTokens, tokensOut: asked.result.usage?.completionTokens });
+
+    /**
+     * The check before answering (M40). Every claim in the draft is held to the tool output it
+     * cites (verify.mjs, no model). When one does not match, the model is asked once to correct the
+     * draft - a small conversation of its own: the failing claims, the output's lines about them -
+     * if that fits in what the run and the day have left; the correction is checked the same way
+     * and kept only if it is better. Whatever still does not match is said plainly under the answer.
+     * A JSON answer is only checked: rewriting it could break the owner's fields.
+     */
+    const check = { claims: 0, checked: 0, found: 0, left: 0, corrected: false, unsure: false, checkMs: 0, correctionMs: 0 };
+    const checkAnswer = async (model, draft, { structured }) => {
+      const sources = outputs.map((output) => ({ id: output.id, title: output.title, text: output.summary }));
+      const timed = (work) => { const started = performance.now(); const value = work(); check.checkMs += Math.round((performance.now() - started) * 100) / 100; return value; };
+      const first = timed(() => verifyAnswer(draft, sources));
+      Object.assign(check, { claims: first.claims, checked: first.checked, found: first.issues.length, left: first.issues.length });
+      if (!first.issues.length) {
+        await system("check", `Checked the answer against the tool output it cites: ${first.checked} ${first.checked === 1 ? "statement" : "statements"} with facts to check, all match.`);
+        return draft;
+      }
+      let answer = draft;
+      let remaining = first.issues;
+      if (!structured && model) {
+        const fixer = { tools: null, messages: correctionMessages(draft, first.issues, sources), last: null };
+        const draftTokens = Math.ceil(draft.length / charsPerToken);
+        const asked = await ask(model, fixer, {
+          maxTokens: Math.min(claim.runtime.maxTokens ?? 1024, draftTokens + settings.correctionExtraTokens),
+          minTokens: Math.min(draftTokens, 256), extra: thinkingOff(claim.runtime.extra ?? {}), purpose: "correction", optional: true,
+        });
+        if (asked?.result?.content) {
+          check.correctionMs = asked.took;
+          await api.steps(run.id, lease, [stepOf(model, asked, asked.result.content)]);
+          const candidate = stripToolMarkup(asked.result.content);
+          const again = timed(() => verifyAnswer(candidate, sources));
+          // Better means fewer mismatches while still an answer: as many statements that checked out,
+          // at least half as long, and citing the tools if the draft did. "I cannot say anything"
+          // has no mismatch either.
+          const matched = (result) => result.checked - new Set(result.issues.map((issue) => issue.claim)).size;
+          const cites = (text) => /\[T\d+\]/.test(text);
+          const better = again.issues.length < first.issues.length && matched(again) >= matched(first)
+            && candidate.length * 2 >= draft.length && (!cites(draft) || cites(candidate));
+          if (candidate && better) { answer = candidate; remaining = again.issues; check.corrected = true; }
+        }
+      }
+      check.left = remaining.length;
+      if (remaining.length && !structured) { answer = `${answer}${unsureNote(remaining)}`; check.unsure = true; }
+      const words = (count) => `${count} ${count === 1 ? "statement" : "statements"}`;
+      await system("check", check.corrected
+        ? `Checked the answer against the tool output it cites: ${words(first.issues.length)} did not match; the model corrected ${remaining.length ? `${first.issues.length - remaining.length} of them, and the answer says it is not sure of the rest` : "them"} (${Math.round(check.correctionMs / 100) / 10} s).`
+        : `Checked the answer against the tool output it cites: ${words(first.issues.length)} did not match${structured ? "" : "; the answer says it is not sure of them"}.`, remaining.length ? "failed" : "done");
+      return answer;
+    };
 
     try {
       if (run.kind === "index") return await executeIndex(claim, controller, used, () => clearInterval(heartbeat));
@@ -361,10 +422,13 @@ export function createRunner({ api, runtime, client, usage = null, now = () => D
       }
 
       const task = claim.messages.filter((message) => message.role === "user").map((message) => message.content).join("\n\n");
+      // The tools the question's own words point at (M40): "where does X run" is where.runs, whatever the plan says.
+      const hinted = toolsForQuestion(claim.run?.question ?? "", (claim.tools ?? []).map((tool) => tool.id));
       // 1. Intent and plan, as JSON against a schema, before any tool is called: a small conversation of its own.
       if (model && claim.understand) {
         const tools = claim.understand.tools ?? [];
-        const planner = { tools: null, messages: plannerMessages(claim.agent ?? {}, tools, task), last: null };
+        const hints = hinted.map((id) => toolById(id)).filter((tool) => tool && tools.some((entry) => entry.fn === tool.fn)).map((tool) => ({ fn: tool.fn, title: tool.title }));
+        const planner = { tools: null, messages: plannerMessages(claim.agent ?? {}, tools, task, { hints }), last: null };
         const asked = await ask(model, planner, { maxTokens: settings.understandTokens, extra: { ...thinkingOff(claim.runtime.extra ?? {}), response_format: understandingFormatFor(tools.map((tool) => tool.fn)) }, purpose: "plan" });
         if (asked) {
           const read = readUnderstanding(asked.result.content ?? "", { offered: tools.map((tool) => tool.fn) });
@@ -377,12 +441,12 @@ export function createRunner({ api, runtime, client, usage = null, now = () => D
       // 2. Act: one conversation that only grows, carrying the tools the plan named and the always-on ones.
       // A plan that did not fit in the time or the budget left leaves nothing for acting either.
       if (model && !clarify && !["budget", "timeout"].includes(degraded)) {
-        const ids = actToolIds((claim.tools ?? []).map((tool) => tool.id), { planned: understanding?.tools?.length ? understanding.tools : null, kind: run.kind });
+        const ids = actToolIds((claim.tools ?? []).map((tool) => tool.id), { planned: understanding?.tools?.length ? understanding.tools : null, hinted, kind: run.kind });
         const byId = new Map((claim.tools ?? []).map(({ id, ...tool }) => [id, tool]));
         const messages = claim.messages.map((message) => ({ ...message }));
         if (understanding) {
           const lastUser = messages.findLastIndex((message) => message.role === "user");
-          if (lastUser >= 0) messages[lastUser] = { ...messages[lastUser], content: `${messages[lastUser].content}\n\n${planMessage(understanding)}` };
+          if (lastUser >= 0) messages[lastUser] = { ...messages[lastUser], content: `${messages[lastUser].content}\n\n${planMessage(understanding, { hinted: hinted.filter((id) => ids.includes(id)) })}` };
         }
         const act = { tools: ids.map((id) => byId.get(id)).filter(Boolean), messages, last: null };
         if (!act.tools.length) act.tools = null;
@@ -428,6 +492,8 @@ export function createRunner({ api, runtime, client, usage = null, now = () => D
             answer = stripToolMarkup(asked.result.content);
           }
         }
+        // 4. The check before answering (M40): each claim against the output it cites.
+        if (answer && !degraded && !controller.signal.aborted && outputs.length) answer = await checkAnswer(model, answer, { structured });
         if (!answer && !degraded && !controller.signal.aborted) degraded = "model-error";
       }
 
@@ -463,7 +529,7 @@ export function createRunner({ api, runtime, client, usage = null, now = () => D
     /** The run's usage for BoxPilot, with this server's speed when a call measured it. */
     function usageOf() {
       const pace = speed.get();
-      return { ...used, ...(pace.samples > 0 ? { speed: { promptPerSecond: pace.promptPerSecond, generatePerSecond: pace.generatePerSecond, source: pace.source, samples: pace.samples, threads: claim.runtime?.threads ?? null } } : {}) };
+      return { ...used, ...(check.claims ? { check: { ...check } } : {}), ...(pace.samples > 0 ? { speed: { promptPerSecond: pace.promptPerSecond, generatePerSecond: pace.generatePerSecond, source: pace.source, samples: pace.samples, threads: claim.runtime?.threads ?? null } } : {}) };
     }
   }
 

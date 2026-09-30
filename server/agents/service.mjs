@@ -38,9 +38,14 @@ import { exportDefinition, readDefinition } from "./portable.mjs";
 import { checkCitations, readStructuredAnswer, systemMessage, taskMessage } from "./prompt.mjs";
 import { SpecError, agentEvents, budgetCeilings, diffSpecs, normalizeSpec, outputFormats, previousRunSecondsDefault, scopeWarnings, specText } from "./spec.mjs";
 import { digestToken, finishedStates } from "./store.mjs";
-import { agentTemplates, templateById, templateQuestions } from "./templates.mjs";
+import { agentTemplates, builtInQuestions, evaluationFacts, templateById, templateQuestions } from "./templates.mjs";
+import { drivesOf, placementOf, stoppedAppsOf } from "./tool-text.mjs";
 import { describeTools, readToolInput, roleAtLeast, toModelTool, toolAllowed, toolById, toolCatalog, toolCategories } from "./tool-catalog.mjs";
 import { ToolError, createToolRunner } from "./tools.mjs";
+import { gradeFact } from "./grade.mjs";
+import { verifyAnswer } from "./verify.mjs";
+
+export { gradeDrives, gradeFact } from "./grade.mjs";
 
 export const agentsSettingKey = "agents";
 export const agentsRuntimeKey = "agentsRuntime";
@@ -88,6 +93,11 @@ export const serviceLimits = Object.freeze({
   toolTimeoutMs: 35_000,
   evalQuestions: 10,
   evalEveryMs: 3600_000,
+  // The nightly evaluation (M40): once a day at most, the evaluations kept to draw accuracy over
+  // time, and what one question is reckoned to cost before it is queued.
+  nightlyEvalEveryMs: 20 * 3600_000,
+  evalHistory: 60,
+  evalSecondsPerQuestion: 120,
 });
 
 /**
@@ -111,8 +121,11 @@ const personKinds = new Set(["ask", "manual", "eval"]);
 // One queue for every agent: a person's live question first, orchestrated follow-ups with it, then
 // evaluations, events and webhooks, schedules, and background work (learning, indexing) last.
 const kindRank = { ask: 0, manual: 0, continue: 0, handoff: 1, eval: 1, event: 2, webhook: 2, schedule: 3, learn: 4, index: 5, describe: 5 };
-/** Whether a person is waiting on this run: their own question, or a hand-off made for one. */
-const personWaiting = (run) => personKinds.has(run.kind) || (["handoff", "continue"].includes(run.kind) && Boolean(run.requestedBy));
+/**
+ * Whether a person is waiting on this run: their own question, or a hand-off made for one. A
+ * nightly evaluation (M40) asks as the agent's maker with nobody waiting: it is background work.
+ */
+const personWaiting = (run) => (personKinds.has(run.kind) && (run.kind !== "eval" || Boolean(run.requestedBy))) || (["handoff", "continue"].includes(run.kind) && Boolean(run.requestedBy));
 /** The id of the index runs, which belong to no agent: the memory's own. */
 export const memoryIndexAgentId = "boxpilot-memory-index";
 /** The id of the runs that describe images from #agent-files (M38), which belong to no agent either. */
@@ -206,6 +219,8 @@ export function createAgentService({
   let previousAlerts = null;
   let droppedRuns = 0;
   let stopModelRequested = false;
+  // The night an agent's evaluation was last skipped for want of budget, so it is said once a night.
+  const nightlySkipped = new Map();
   let issuing = null;   // the runner's key being issued, so two callers never make two keys
   // Step kinds whose output the model is given, numbered T1, T2 ... in the order they happened.
   const outputKinds = ["tool", "memory", "proposal", "note", "notify", "handoff"];
@@ -416,7 +431,9 @@ export function createAgentService({
       if ((hostBusy || hostLoad() > 0.85) && !personWaiting(run)) continue;
       eligible.push(run);
     }
-    eligible.sort((a, b) => (kindRank[a.kind] ?? 9) - (kindRank[b.kind] ?? 9) || a.queuedAt.localeCompare(b.queuedAt));
+    // A nightly evaluation, which nobody waits on, goes after everything else (M40).
+    const rank = (run) => (run.kind === "eval" && !run.requestedBy ? 6 : kindRank[run.kind] ?? 9);
+    eligible.sort((a, b) => rank(a) - rank(b) || a.queuedAt.localeCompare(b.queuedAt));
     return eligible[0] ?? null;
   }
 
@@ -596,7 +613,9 @@ export function createAgentService({
     const handoffOutputs = run.kind === "continue" ? store.listSteps(run.id).filter((step) => step.kind === "tool" && step.name === "agents.handoff").map((step, index) => wrapToolOutput({ index: index + 1, tool: "agents_handoff", text: step.output ?? "", flags: step.flags })) : [];
     const budget = budgetOf({ ...agent, spec });
     const deadlineAt = new Date(Date.parse(run.startedAt) + spec.budget.runSeconds * 1000).toISOString();
-    const understand = !["eval", "continue"].includes(run.kind);
+    // An evaluation plans too (M40): it measures what a person asking gets, and the plan is where
+    // a tool is chosen. A supervisor's follow-up does not: it writes up what it was handed.
+    const understand = run.kind !== "continue";
     return {
       run: { id: run.id, kind: run.kind, question: run.question, trigger: run.trigger, readRole: run.readRole, startedAt: run.startedAt, deadlineAt },
       lease,
@@ -608,7 +627,7 @@ export function createAgentService({
       ],
       tools: offered.map((tool) => ({ id: tool.id, ...toModelTool(tool) })),
       // Intent, then plan, then act: the runner asks for the structured understanding first.
-      understand: understand ? { tools: offered.map((tool) => ({ fn: tool.fn, title: tool.title })) } : null,
+      understand: understand ? { tools: offered.map((tool) => ({ fn: tool.fn, title: tool.title, ...(tool.use ? { use: tool.use } : {}) })) } : null,
       output: spec.prompt?.output ?? { format: "text", fields: [] },
       runtime: runtimeClaim(spec),
       limits: {
@@ -1028,6 +1047,9 @@ export function createAgentService({
     }
     const toolOutputs = outputsSoFar(run.id);
     const citations = checkCitations(answer, toolOutputs);
+    // The check before answering (M40), done again here on what was kept: the runner's report says
+    // whether the model corrected anything; what still does not match is counted from the answer.
+    const checked = answer && outcomeIsAnswer(outcome) && !clarify ? checkKept(run.id, answer, result.usage?.check) : null;
     const usage = {
       modelMs: Math.round(finite(result.usage?.modelMs, 3_600_000)),
       loadMs: Math.round(finite(result.usage?.loadMs, 3_600_000)),
@@ -1039,6 +1061,8 @@ export function createAgentService({
       modelCalls: Math.round(finite(result.usage?.modelCalls, 1000)),
       toolCalls: store.countSteps(run.id, "tool"),
       wallMs: Math.max(0, now().getTime() - Date.parse(run.startedAt)),
+      // What the check before answering cost: the text check itself, and the model's correction.
+      ...(checked ? { checkMs: Math.round(finite(result.usage?.check?.checkMs, 60_000) * 100) / 100, correctionMs: Math.round(finite(result.usage?.check?.correctionMs, 3_600_000)) } : {}),
     };
     const measured = noteModelSpeed(result.usage?.speed);
     if (measured) usage.speed = { promptPerSecond: measured.promptPerSecond, generatePerSecond: measured.generatePerSecond, threads: measured.threads };
@@ -1051,6 +1075,7 @@ export function createAgentService({
       answer, outputKind, usage,
       flags: {
         citations: { cited: citations.cited.length, unknown: citations.unknown }, ...(degradedReason ? { degraded: degradedReason } : {}),
+        ...(checked ? { check: checked } : {}),
         ...(clarify ? { clarify: true } : {}), ...(structured ? { structured } : {}), ...(limitReached ? { limitReached: true } : {}),
         model: embedModelName(),
       },
@@ -1074,6 +1099,23 @@ export function createAgentService({
   }
 
   const outcomeIsAnswer = (outcome) => outcome === "completed";
+
+  /**
+   * The check, from what BoxPilot kept: the run's tool outputs numbered as the model saw them, and
+   * the answer without the runner's own "not sure" note. `reported` is the runner's account, of
+   * which only whether the model corrected something is taken.
+   */
+  function checkKept(runId, answer, reported) {
+    const sources = store.listSteps(runId).filter((step) => outputKinds.includes(step.kind) && step.state === "done").map((step, index) => ({ id: `T${index + 1}`, title: step.name, text: step.output ?? "" }));
+    if (!sources.length) return null;
+    const [body, note] = String(answer).split(/\n\nChecked against the tools, some of this does not match/);
+    const found = verifyAnswer(body, sources);
+    if (!found.claims) return null;
+    return {
+      claims: found.claims, checked: found.checked, mismatches: found.issues.length,
+      corrected: reported?.corrected === true, found: Math.round(finite(reported?.found, 50)), unsure: note !== undefined,
+    };
+  }
 
   /** An index run's end: its usage counts toward the day's budget like any run's. */
   function finishIndex(run, result) {
@@ -1397,6 +1439,11 @@ export function createAgentService({
       triggers: { ask: spec.triggers.ask, schedule: spec.triggers.schedule, events: spec.triggers.events },
       audience: spec.audience,
     };
+    // Its latest evaluation score and whether it dropped (M40), for the owner and operators.
+    if (caller.role !== "viewer") {
+      const history = historyOf(store.listEvalRuns(agent.id, 6));
+      if (history.length) summary.accuracy = { score: history.at(-1).score, at: history.at(-1).at, dropped: Boolean(accuracyDrop(history)) };
+    }
     if (!detail || caller.role === "viewer") return summary;
     return {
       ...summary, spec, versions: store.listVersions(agent.id).map((version) => ({ ...version, createdBy: ownActor(caller, version.createdBy) })), createdBy: ownActor(caller, agent.createdBy),
@@ -1556,16 +1603,37 @@ export function createAgentService({
   // ---- feedback on a run ----
 
   /** "Was this right?": thumbs up or down on a run, by whoever may see it; it feeds the evaluation. */
-  function giveFeedback(caller, runId, { verdict, note = null } = {}) {
+  /**
+   * "Was this right?" A verdict counts toward the agent's accuracy by version and model. A "wrong"
+   * with `expect` - words the right answer contains - also makes the question one of the agent's
+   * own golden questions (M40), for whoever may change the agent: every evaluation asks it again.
+   */
+  function giveFeedback(caller, runId, { verdict, note = null, expect = null } = {}) {
     const person = personOf(caller);
     const run = store.getRun(runId);
     if (!run || ["index", "describe"].includes(run.kind) || !canSeeRun(person, run)) refuse(404, "There is no run with that id", "run_not_found");
     if (!finishedStates.has(run.state)) refuse(409, "Say whether it was right once it has answered", "run_running");
     if (!["up", "down"].includes(verdict)) refuse(400, "Feedback is up or down", "invalid_feedback");
     const cleanNote = typeof note === "string" && note.trim() ? redact(clip(note.replace(/[\u0000-\u001f\u007f]/g, " ").trim(), 300)) : null;
+    const words = Array.isArray(expect) ? expect.filter((entry) => typeof entry === "string" && entry.trim()).map((entry) => redact(entry.replace(/[\u0000-\u001f\u007f]/g, " ").trim()).slice(0, 80)).slice(0, 5) : [];
+    let added = null;
+    if (words.length) {
+      if (verdict !== "down") refuse(400, "Only a wrong answer becomes a golden question", "invalid_feedback");
+      const agent = store.getAgent(run.agentId);
+      if (!agent || !canEdit(person, agent)) refuse(403, "Only whoever may change this agent adds to its evaluation", "forbidden");
+      const question = String(run.question ?? "").trim();
+      if (!question || run.kind === "eval") refuse(400, "Only a question someone asked becomes a golden question", "invalid_feedback");
+      const current = store.getQuestions(agent.id) ?? templateQuestions[agent.template] ?? [];
+      const same = current.find((entry) => entry.question.toLowerCase() === question.slice(0, 300).toLowerCase());
+      const kept = same ? current.map((entry) => (entry === same ? { ...entry, expect: { includes: words } } : entry)) : [...current, { id: `q${Date.now().toString(36)}`, question: question.slice(0, 300), expect: { includes: words } }];
+      const normalized = normalizeQuestions(kept);
+      store.setQuestions(agent.id, normalized, { updatedBy: person.id });
+      added = { questionId: normalized.find((entry) => entry.question.toLowerCase() === question.slice(0, 300).toLowerCase())?.id ?? null };
+      audit("agents.evaluation.changed", { actorId: person.id, subjectId: agent.id, details: { questions: normalized.length, fromFeedback: run.id } });
+    }
     const given = store.setFeedback(run.id, { agentId: run.agentId, version: run.version, model: run.flags?.model ?? null, verdict, note: cleanNote, givenBy: person.id });
     audit("agents.feedback", { actorId: person.id, subjectId: run.id, details: { agentId: run.agentId, version: run.version, verdict } });
-    return { verdict: given.verdict, note: given.note, mine: true };
+    return { verdict: given.verdict, note: given.note, mine: true, ...(added ? { addedToEvaluation: added } : {}) };
   }
 
   // ---- export and import ----
@@ -1879,15 +1947,27 @@ export function createAgentService({
 
   // ---- evaluation ----
 
+  /**
+   * The questions an agent is evaluated on (M40): the built-in ones its own tools can answer - which
+   * drives, how full the root filesystem is, where Pi-hole runs, which apps are stopped, the OS and
+   * its version - then the owner's own (or its template's, until the owner saves some). An owner's
+   * question about the same fact takes the built-in one's place.
+   */
+  function evaluationSet(agent) {
+    const custom = store.getQuestions(agent.id) ?? templateQuestions[agent.template] ?? [];
+    const covered = new Set(custom.map((question) => question.expect?.fact).filter(Boolean));
+    const builtIn = builtInQuestions(agent.spec).filter((question) => !covered.has(question.expect.fact));
+    return { builtIn, custom, all: [...builtIn, ...custom] };
+  }
+
   function normalizeQuestions(list) {
     if (!Array.isArray(list) || list.length > limits.evalQuestions) refuse(400, `At most ${limits.evalQuestions} golden questions`, "invalid_questions");
-    const facts = ["hostname", "operatingSystem", "installedApps", "rootDiskPercent", "piholePlacement", "piholeBlocking"];
     return list.map((entry, index) => {
       const question = typeof entry?.question === "string" ? entry.question.replace(/[\u0000-\u001f\u007f]/g, " ").trim() : "";
       if (!question || question.length > 300) refuse(400, `Question ${index + 1} needs words, under 300 characters`, "invalid_questions");
       const expect = entry.expect ?? {};
       if (expect.fact !== undefined) {
-        if (!facts.includes(expect.fact)) refuse(400, `Question ${index + 1}: the fact is one of ${facts.join(", ")}`, "invalid_questions");
+        if (!evaluationFacts.includes(expect.fact)) refuse(400, `Question ${index + 1}: the fact is one of ${evaluationFacts.join(", ")}`, "invalid_questions");
         return { id: typeof entry.id === "string" && /^[a-z0-9-]{1,40}$/.test(entry.id) ? entry.id : `q${index + 1}`, question, expect: { fact: expect.fact } };
       }
       const includes = Array.isArray(expect.includes) ? expect.includes.filter((text) => typeof text === "string" && text.trim()).map((text) => text.trim().slice(0, 80)).slice(0, 5) : [];
@@ -1900,14 +1980,59 @@ export function createAgentService({
     const person = personOf(caller);
     const agent = agentFor(person, agentId);
     if (person.role === "viewer") refuse(403, "Evaluations are for the owner and operators", "forbidden");
-    const runs = store.listEvalRuns(agent.id, 20);
+    const runs = store.listEvalRuns(agent.id, limits.evalHistory);
+    const set = evaluationSet(agent);
+    const history = historyOf(runs);
+    const last = store.listEvalRuns(agent.id, 1)[0] ?? null;
     return {
-      questions: store.getQuestions(agent.id) ?? templateQuestions[agent.template] ?? [],
-      runs: runs.map((run) => ({ ...run, createdBy: ownActor(person, run.createdBy) })),
+      builtIn: set.builtIn,
+      questions: set.custom,
+      runs: runs.slice(0, 20).map((run) => ({ ...run, createdBy: ownActor(person, run.createdBy) })),
       canEdit: canEdit(person, agent),
       successCriteria: agent.spec.successCriteria ?? [],
       accuracy: accuracyOf(agent, runs),
+      history,
+      drop: accuracyDrop(history),
+      people: peopleOf(agent),
+      nightly: { quietHours: moduleSettings().quietHours, next: nightlyDue(agent, last) ? "tonight" : "tomorrow night" },
     };
+  }
+
+  /** Each finished evaluation's score, oldest first: accuracy over time. */
+  function historyOf(runs) {
+    return [...runs].reverse().filter((run) => run.state === "done" && run.score !== null).map((run) => ({
+      id: run.id, at: run.finishedAt ?? run.createdAt, score: run.score, version: run.version, model: run.model, nightly: !run.createdBy,
+      right: run.results.filter((result) => result.passed).length, questions: run.results.length,
+    }));
+  }
+
+  /**
+   * A drop worth flagging: the latest score more than 20 points under the average of the five
+   * before it, or more than 25 under the one before it - one question of five going wrong is not
+   * yet a drop, two are - with the evaluations it is measured against.
+   */
+  function accuracyDrop(history) {
+    if (history.length < 2) return null;
+    const latest = history.at(-1);
+    const before = history.slice(-6, -1);
+    const average = before.reduce((sum, entry) => sum + entry.score, 0) / before.length;
+    const previous = before.at(-1);
+    if (latest.score < average - 0.2 - 1e-9 || latest.score < previous.score - 0.25 - 1e-9) {
+      return { from: Math.round(average * 100) / 100, to: latest.score, previous: previous.score, at: latest.at, evalId: latest.id, version: latest.version, previousVersion: previous.version, model: latest.model, previousModel: previous.model };
+    }
+    return null;
+  }
+
+  /** People's verdicts on the agent's answers, by day, for the last month. */
+  function peopleOf(agent) {
+    const since = new Date(now().getTime() - 30 * 86_400_000).toISOString();
+    const days = new Map();
+    for (const feedback of store.listFeedback(agent.id).filter((entry) => entry.givenAt >= since)) {
+      const day = feedback.givenAt.slice(0, 10);
+      if (!days.has(day)) days.set(day, { day, up: 0, down: 0 });
+      days.get(day)[feedback.verdict === "up" ? "up" : "down"] += 1;
+    }
+    return [...days.values()].sort((a, b) => a.day.localeCompare(b.day));
   }
 
   /**
@@ -1944,21 +2069,26 @@ export function createAgentService({
     return getEvaluation(person, agent.id);
   }
 
-  /** What a golden question's fact is on this server right now. */
+  /** What a golden question's fact is on this server right now, read as `role` reads. */
   async function resolveFacts({ role }) {
-    const [snapshot, apps, pihole] = await Promise.all([
+    const [snapshot, apps, pihole, placed] = await Promise.all([
       inventory?.inspect().catch(() => null),
       tools.readApps().catch(() => null),
       // An operator read (ADR-003); an evaluation is started by the owner or an operator anyway.
       helper && ["owner", "operator"].includes(role) ? helper.request("app.pihole.inspect", {}, { timeoutMs: 30_000 }).catch(() => null) : null,
+      tools.whereRuns("pihole").catch(() => null),
     ]);
+    const applications = Array.isArray(apps?.applications) ? apps.applications : null;
     return {
       hostname: snapshot?.host?.hostname ?? null,
       operatingSystem: snapshot?.host?.operatingSystem ?? null,
-      installedApps: Array.isArray(apps?.applications) ? apps.applications.filter((entry) => entry?.installed).length : null,
+      installedApps: applications ? applications.filter((entry) => entry?.installed).length : null,
       rootDiskPercent: Number.isFinite(snapshot?.storage?.root?.usedPercent) ? snapshot.storage.root.usedPercent : null,
-      piholePlacement: pihole?.placement ?? null,
+      // Where where.runs finds it, the tool an agent asks; Pi-hole's own read when that could not look.
+      piholePlacement: placed && !(placed.unread && !placed.places.length) ? placementOf(placed.places) : pihole?.placement ?? null,
       piholeBlocking: pihole?.available ? (pihole.blocking === true ? "on" : pihole.blocking === false ? "off" : null) : null,
+      drives: snapshot ? drivesOf(snapshot) : null,
+      stoppedApps: stoppedAppsOf(applications),
     };
   }
 
@@ -1970,20 +2100,72 @@ export function createAgentService({
     if (modulePaused(settings) || agentPaused(agent)) refuse(409, "Resume the agent to run an evaluation", "agent_paused");
     const recent = store.listEvalRuns(agent.id, 1)[0];
     if (recent && (recent.state === "running" || now().getTime() - Date.parse(recent.createdAt) < limits.evalEveryMs)) refuse(429, "An evaluation ran in the last hour. Try again later.", "evaluation_recent");
-    const questions = store.getQuestions(agent.id) ?? templateQuestions[agent.template] ?? [];
+    const questions = evaluationSet(agent).all;
     if (!questions.length) refuse(400, "Give this agent some golden questions first", "no_questions");
     if (queueCounts().queued + questions.length > limits.queueMax) refuse(503, "Agents have too much waiting right now. Try again later.", "agents_backlog");
-    const facts = await resolveFacts(person);
-    const results = questions.map((question) => ({ questionId: question.id, question: question.question, expected: question.expect.fact ? { fact: question.expect.fact, value: facts[question.expect.fact] } : { includes: question.expect.includes }, runId: null, passed: null, found: null }));
-    const evaluation = store.createEvalRun({ agentId: agent.id, version: agent.version, results, createdBy: person.id, model: embedModelName() });
+    const evaluation = await startEvaluation(agent, questions, { person });
+    audit("agents.evaluation.started", { actorId: person.id, subjectId: agent.id, details: { questions: questions.length } });
+    return evaluation;
+  }
+
+  /**
+   * An evaluation: every question asked as its own run and graded when it finishes. A person's is
+   * asked as them, now; the nightly one as the person who made the agent, in quiet hours, as
+   * background work nobody waits on.
+   */
+  async function startEvaluation(agent, questions, { person = null, reader = null } = {}) {
+    const asWho = person ?? reader;
+    const facts = await resolveFacts(asWho);
+    const results = questions.map((question) => ({ questionId: question.id, question: question.question, expected: question.expect.fact ? { fact: question.expect.fact, value: facts[question.expect.fact] ?? null } : { includes: question.expect.includes }, runId: null, passed: null, found: null }));
+    const evaluation = store.createEvalRun({ agentId: agent.id, version: agent.version, results, createdBy: person?.id ?? null, model: embedModelName() });
     for (const result of results) {
-      const run = store.enqueueRun({ agentId: agent.id, version: agent.version, kind: "eval", question: result.question, requestedBy: person.id, readRole: person.role, readAs: person.id, evalInfo: { evalId: evaluation.id, questionId: result.questionId, expected: result.expected } });
+      const run = store.enqueueRun({
+        agentId: agent.id, version: agent.version, kind: "eval", question: result.question, requestedBy: person?.id ?? null, readRole: asWho.role, readAs: asWho.id,
+        trigger: person ? {} : { title: "Nightly evaluation", quietHours: true },
+        evalInfo: { evalId: evaluation.id, questionId: result.questionId, expected: result.expected },
+      });
       result.runId = run.id;
     }
     store.setEvalResults(evaluation.id, results);
-    audit("agents.evaluation.started", { actorId: person.id, subjectId: agent.id, details: { questions: results.length } });
     wake();
     return store.getEvalRun(evaluation.id);
+  }
+
+  /** Whether an agent's nightly evaluation is due: none yet, or the last one began a day ago or more. */
+  const nightlyDue = (agent, last) => !last || (last.state !== "running" && now().getTime() - Date.parse(last.createdAt) >= limits.nightlyEvalEveryMs);
+
+  /**
+   * The nightly evaluation (M40), from the service's tick in quiet hours: one agent at a time, each
+   * at most once a day, as the person who made it, only when its own budget and every agent's
+   * together have room for its questions and still keep half of the day's model time for people.
+   */
+  async function queueNightlyEvaluation() {
+    const settings = moduleSettings();
+    if (!settings.enabled || modulePaused(settings) || settings.killedAt) return null;
+    if (store.activeRuns().some((run) => run.kind === "eval")) return null;
+    for (const agent of store.listAgents()) {
+      if (agentPaused(agent)) continue;
+      if (!nightlyDue(agent, store.listEvalRuns(agent.id, 1)[0] ?? null)) continue;
+      const questions = evaluationSet(agent).all;
+      if (!questions.length) continue;
+      const creator = agent.createdBy ? state.findOwnerById?.(agent.createdBy) : null;
+      if (!["owner", "operator"].includes(creator?.role)) continue;
+      const needed = questions.length * limits.evalSecondsPerQuestion * 1000;
+      const own = budgetOf(agent);
+      const all = moduleBudget();
+      const keep = Math.min(agent.spec.budget.modelSecondsPerDay * 1000, all.modelSecondsPerDay * 1000) / 2;
+      if (own.refusal || own.modelMsLeft - needed < keep || all.modelMsLeft - needed < all.modelSecondsPerDay * 500) {
+        // Said once a night, not every minute of quiet hours.
+        const night = startOfLocalDay(now()).toISOString();
+        if (nightlySkipped.get(agent.id) !== night) { nightlySkipped.set(agent.id, night); audit("agents.evaluation.skipped", { subjectId: agent.id, details: { reason: "budget", questions: questions.length } }); }
+        continue;
+      }
+      if (queueCounts().queued + questions.length > limits.queueMax) return null;
+      const evaluation = await startEvaluation(agent, questions, { reader: { id: creator.id, role: creator.role } });
+      audit("agents.evaluation.started", { subjectId: agent.id, details: { questions: questions.length, nightly: true } });
+      return evaluation;
+    }
+    return null;
   }
 
   async function gradeEvalRun(run) {
@@ -1997,7 +2179,12 @@ export function createAgentService({
     } else if (expected.fact) {
       ({ passed, found } = gradeFact(expected.fact, expected.value, answer));
     }
-    store.gradeEval(run.eval.evalId, run.eval.questionId, { passed, found });
+    const graded = store.gradeEval(run.eval.evalId, run.eval.questionId, { passed, found });
+    // The last answer is in: a drop against the evaluations before it is flagged (M40).
+    if (graded?.state === "done") {
+      const drop = accuracyDrop(historyOf(store.listEvalRuns(run.agentId, limits.evalHistory)));
+      audit("agents.evaluation.finished", { subjectId: run.agentId, details: { evalId: graded.id, score: graded.score, questions: graded.results.length, nightly: !graded.createdBy, dropped: Boolean(drop && drop.evalId === graded.id) } });
+    }
   }
 
   return {
@@ -2204,6 +2391,8 @@ export function createAgentService({
       await syncFolder().catch(() => null);
       queueIndexing();
       queueDescribing();
+      // Each agent's evaluation, once a night, within the budgets (M40).
+      await queueNightlyEvaluation().catch(() => null);
     }
     // The team chat: what waits is sent, and #agent-files is read every few minutes (M38).
     await chat.tick().catch(() => null);
@@ -2250,35 +2439,4 @@ export function createAgentService({
     if (moduleSettings().enabled) void ensureRunnerToken().catch(() => null);
     return () => { clearInterval(timer); unsubscribeJobs?.(); unsubscribeRounds?.(); wake(); };
   }
-}
-
-/** Whether an answer states a fact's value, allowing the ways a model writes it. */
-export function gradeFact(fact, value, answer) {
-  const text = String(answer ?? "").toLowerCase();
-  if (value === null || value === undefined) return { passed: false, found: "The fact could not be read on this server, so the answer cannot be checked" };
-  if (fact === "installedApps" || fact === "rootDiskPercent") {
-    const numbers = [...text.matchAll(/\b(\d{1,4})(?:\.\d+)?\b/g)].map((match) => Number(match[1]));
-    const words = ["no", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve"];
-    words.forEach((word, index) => { if (new RegExp(`\\b${word}\\b`).test(text)) numbers.push(index); });
-    const tolerance = fact === "rootDiskPercent" ? 2 : 0;
-    const passed = numbers.some((number) => Math.abs(number - value) <= tolerance);
-    return { passed, found: passed ? `Says ${value}` : `Expected ${value}` };
-  }
-  if (fact === "operatingSystem") {
-    const [name, version] = String(value).toLowerCase().match(/^(\S+)\s+([\d.]+)/)?.slice(1) ?? [String(value).toLowerCase(), ""];
-    const short = version.split(".").slice(0, 2).join(".");
-    const passed = text.includes(name) && (!short || text.includes(short));
-    return { passed, found: passed ? `Says ${value}` : `Expected ${value}` };
-  }
-  if (fact === "piholePlacement") {
-    const words = { "boxpilot-app": ["boxpilot app", "boxpilot's app", "bp-pi-hole", "installed by boxpilot", "boxpilot container"], container: ["docker container", "a container", "another container"], host: ["natively", "on the host", "systemd", "pihole-ftl.service", "host service"], absent: ["not installed", "isn't installed", "is not running here", "no pi-hole"] }[value] ?? [];
-    const passed = words.some((word) => text.includes(word));
-    return { passed, found: passed ? `Says ${value}` : `Expected ${value}` };
-  }
-  if (fact === "piholeBlocking") {
-    const passed = value === "on" ? /\b(on|enabled|active|is blocking)\b/.test(text) && !/\b(off|disabled|not blocking)\b/.test(text) : /\b(off|disabled|not blocking)\b/.test(text);
-    return { passed, found: passed ? `Says ${value}` : `Expected ${value}` };
-  }
-  const passed = text.includes(String(value).toLowerCase());
-  return { passed, found: passed ? `Says ${value}` : `Expected ${value}` };
 }

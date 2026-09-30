@@ -22,7 +22,9 @@ describe("an evaluation whose runs ended without the runner", () => {
 
     const [ended] = h.service.getEvaluation(h.caller("owner"), helper.id).runs;
     expect(ended).toMatchObject({ state: "done", score: 0 });
-    expect(ended.results.map((result) => [result.passed, result.found])).toEqual([[false, "The run ended cancelled"], [false, "The run ended cancelled"]]);
+    // Its own two questions and the built-in ones its tools answer (M40): every one graded as it ended.
+    expect(ended.results.length).toBeGreaterThan(2);
+    expect(ended.results.map((result) => [result.passed, result.found])).toEqual(started.results.map(() => [false, "The run ended cancelled"]));
 
     h.advance(61 * 60_000);
     await expect(h.service.runEvaluation(h.caller("owner"), helper.id)).resolves.toMatchObject({ state: "running" });
@@ -33,10 +35,10 @@ describe("an evaluation whose runs ended without the runner", () => {
     const helper = h.service.createAgent(h.caller("owner"), { template: "it-support" });
     const started = await h.service.runEvaluation(h.caller("owner"), helper.id);
     h.service.cancelRun(h.caller("owner"), started.results[0].runId);
-    // One ended, one still queued: the evaluation goes on running, with the ended one graded.
+    // One ended, the rest still queued: the evaluation goes on running, with the ended one graded.
     const [partly] = h.store.listEvalRuns(helper.id, 1);
     expect(partly.state).toBe("running");
-    expect(partly.results.map((result) => result.passed)).toEqual([false, null]);
+    expect(partly.results.map((result) => result.passed)).toEqual([false, ...started.results.slice(1).map(() => null)]);
     // The runner marks a run completed a moment before it grades the answer: never graded here.
     h.store.finishRun(started.results[1].runId, { state: "completed", answer: "It is called testbox." });
     expect(h.store.listEvalRuns(helper.id, 1)[0].results[1].passed).toBeNull();

@@ -66,17 +66,22 @@ export function busyServer(h) {
     ],
     counts: { total: 187, active: 142, failed: 1 },
   });
+  // The inventory's own shapes (server/inventory.mjs): the root scan's mounts, lsblk's devices and SMART.
+  const mount = (target, source, totalBytes, usedPercent) => ({ target, source, filesystem: "ext4", totalBytes, usedBytes: Math.round(totalBytes * usedPercent / 100), availableBytes: Math.round(totalBytes * (100 - usedPercent) / 100), usedPercent, capacityState: usedPercent >= 85 ? "warning" : "healthy", readOnly: false });
+  const disk = (name, sizeBytes, transport, rotational, model) => ({ name, parent: null, type: "disk", filesystem: null, sizeBytes, mountTargets: [], rotational, readOnly: false, transport, model });
+  const part = (name, parent, target) => ({ name, parent, type: "part", filesystem: "ext4", sizeBytes: null, mountTargets: [target], rotational: null, readOnly: false, transport: null, model: null });
   Object.assign(h.snapshot.storage, {
     root: { usedPercent: 58, freeBytes: 290e9, totalBytes: 700e9 },
-    filesystems: { available: true, mounts: [
-      { target: "/", source: "/dev/nvme0n1p2", fstype: "ext4", usedPercent: 58, sizeBytes: 700e9, readOnly: false },
-      { target: "/mnt/media", source: "/dev/sda1", fstype: "ext4", usedPercent: 81, sizeBytes: 8e12, readOnly: false },
-      { target: "/mnt/boxpilot/backup", source: "/dev/sdb1", fstype: "ext4", usedPercent: 64, sizeBytes: 4e12, readOnly: false },
+    filesystems: { available: true, mounts: [mount("/", "/dev/nvme0n1p2", 700e9, 58), mount("/mnt/media", "/dev/sda1", 8e12, 81), mount("/mnt/boxpilot/backup", "/dev/sdb1", 4e12, 64)] },
+    blockDevices: { available: true, devices: [
+      disk("/dev/nvme0n1", 1e12, "nvme", false, "Example NVMe 1TB"), part("/dev/nvme0n1p2", "/dev/nvme0n1", "/"),
+      disk("/dev/sda", 8e12, "sata", true, "Example HDD 8TB"), part("/dev/sda1", "/dev/sda", "/mnt/media"),
+      disk("/dev/sdb", 4e12, "sata", true, "Example HDD 4TB"), part("/dev/sdb1", "/dev/sdb", "/mnt/boxpilot/backup"),
     ] },
-    smart: { available: true, status: "failing", summary: { healthy: 2, failing: 1 }, drives: [
-      { device: "/dev/nvme0n1", model: "Example NVMe 1TB", health: "PASSED", temperatureC: 41 },
-      { device: "/dev/sda", model: "Example HDD 8TB", health: "PASSED", temperatureC: 36 },
-      { device: "/dev/sdb", model: "Example HDD 4TB", health: "FAILING", reallocatedSectors: 48, temperatureC: 44 },
+    smart: { available: true, status: "critical", generatedAt: "2026-09-29T03:00:00.000Z", summary: { healthy: 2, warning: 0, critical: 1, unavailable: 0 }, disks: [
+      { device: "/dev/nvme0n1", health: "healthy", temperatureCelsius: 41, percentageUsed: 4, mediaErrors: 0 },
+      { device: "/dev/sda", health: "healthy", temperatureCelsius: 36 },
+      { device: "/dev/sdb", health: "critical", temperatureCelsius: 44, reason: "ok" },
     ] },
   });
 }

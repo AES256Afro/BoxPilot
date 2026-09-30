@@ -21,15 +21,17 @@ describe("the owner's first question, at 20 tokens a second read and 4 written",
     expect(result.wallMs).toBeLessThan(budgetCeilings.runSeconds.default * 1000);
     for (const call of result.calls) expect(call.seconds, call.call).toBeLessThan(150);
     // The plan reads its own small prompt; the calls that act carry 8 of the 22 tools, and each
-    // reads only what the last one added.
+    // reads only what the last one added. Since M40 the planner lists what each tool is for, and
+    // the reads state their facts outright (a drive's device, attachment and size on its line), so
+    // both are a little longer: read once, then cached.
     const [plan, first, ...later] = result.calls;
     expect(plan).toMatchObject({ call: "plan", tools: 0 });
-    expect(plan.promptTokens).toBeLessThan(800);
+    expect(plan.promptTokens).toBeLessThan(900);
     expect(first.tools).toBe(8);
     expect(first.promptTokens).toBeLessThan(2_400);
     for (const call of later) {
       expect(call.tools).toBe(8);
-      expect(call.readTokens, call.call).toBeLessThan(400);
+      expect(call.readTokens, call.call).toBeLessThan(700);
       expect(call.cachedTokens, call.call).toBeGreaterThan(first.promptTokens);
     }
     expect(result.run.usage.cachedTokens).toBeGreaterThan(result.run.usage.readTokens);

@@ -37,13 +37,13 @@ describe("the understanding a model returns", () => {
     const read = readUnderstanding(JSON.stringify(owners), { offered: offeredFns });
     expect(read.understanding.tools).toEqual(["alerts.active", "storage.health", "services.status", "apps.list", "memory.search"]);
     expect(read.understanding.plan).toEqual([
-      { step: "Use Health alerts", tool: "alerts.active" }, { step: "Use Storage and SMART", tool: "storage.health" }, { step: "Use Service status", tool: "services.status" },
+      { step: "Use Health alerts", tool: "alerts.active" }, { step: "Use Drives, filesystems and SMART", tool: "storage.health" }, { step: "Use Service status", tool: "services.status" },
       { step: "Use Apps and containers", tool: "apps.list" }, { step: "Use Search memory", tool: "memory.search" },
     ]);
     expect(read.dropped).toEqual([]);
     const told = planMessage(read.understanding);
     expect(told).not.toMatch(/},|\d\. \d\b/);
-    expect(told).toMatch(/^Your plan:\n1\. Use Health alerts \(alerts_active\)\n2\. Use Storage and SMART \(storage_health\)/);
+    expect(told).toMatch(/^Your plan:\n1\. Use Health alerts \(alerts_active\)\n2\. Use Drives, filesystems and SMART \(storage_health\)/);
   });
 
   it("reads a tool however the model spelled it", () => {

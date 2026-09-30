@@ -64,6 +64,8 @@ export interface AgentSummary {
   toolsOn: number;
   triggers: AgentSpec["triggers"];
   audience: AgentSpec["audience"];
+  /** M40: its latest evaluation score and whether it dropped; the owner's and operators' only. */
+  accuracy?: { score: number; at: string; dropped: boolean };
 }
 
 export interface AgentVersion { version: number; note: string | null; createdBy: string | null; createdAt: string }
@@ -81,7 +83,7 @@ export interface Overview {
 }
 
 export interface ToolInfo { id: string; fn: string; title: string; description: string; category: string; categoryTitle: string; role: "viewer" | "operator"; cost: "cheap" | "moderate" | "heavy"; writes: string | null; defaultOff: boolean; params: Array<{ name: string; type: string; required: boolean; description: string }> }
-export interface Question { id: string; question: string; expect: { fact?: string; includes?: string[] } }
+export interface Question { id: string; question: string; expect: { fact?: string; includes?: string[] }; tool?: string; builtIn?: boolean }
 export interface Template { id: string; title: string; summary: string; spec: AgentSpec; questions: Question[] }
 export interface Catalog {
   templates: Template[]; tools: ToolInfo[]; events: Array<{ id: string; title: string }>;
@@ -110,7 +112,9 @@ export interface Proposal {
   expiresAt: string;
   jobIds: string[];
 }
-export interface RunUsage { modelMs?: number; loadMs?: number; promptTokens?: number; completionTokens?: number; modelCalls?: number; toolCalls?: number; wallMs?: number }
+export interface RunUsage { modelMs?: number; loadMs?: number; promptTokens?: number; completionTokens?: number; modelCalls?: number; toolCalls?: number; wallMs?: number; checkMs?: number; correctionMs?: number }
+/** M40: the check before answering - statements held to the tool output they cite. */
+export interface RunCheck { claims: number; checked: number; mismatches: number; corrected: boolean; found: number; unsure: boolean }
 export interface Run {
   id: string;
   agentId: string;
@@ -128,7 +132,7 @@ export interface Run {
   answer: string | null;
   outputKind: string | null;
   usage: RunUsage;
-  flags: { injection?: boolean; degraded?: string; citations?: { cited: number; unknown: string[] } };
+  flags: { injection?: boolean; degraded?: string; citations?: { cited: number; unknown: string[] }; check?: RunCheck };
   eval?: { evalId: string; questionId: string } | null;
   parentRunId?: string | null;
   rootRunId?: string;
@@ -197,8 +201,15 @@ export interface Memory {
 export interface Accuracy { version: number; model: string | null; evaluations: number; score: number | null; up: number; down: number; since: string | null }
 export interface Note { id: string; title: string; body: string; source: { runId?: string; by?: string; tools?: string[]; injection?: boolean }; createdAt: string; updatedAt: string; freshUntil: string | null; stale: boolean }
 export interface EvalResult { questionId: string; question: string; expected: { fact?: string; value?: unknown; includes?: string[] }; runId: string | null; passed: boolean | null; found: string | null }
-export interface EvalRun { id: string; version: number; model?: string | null; state: "running" | "done"; results: EvalResult[]; score: number | null; createdAt: string; finishedAt: string | null }
-export interface Evaluation { questions: Question[]; runs: EvalRun[]; canEdit: boolean; successCriteria?: string[]; accuracy?: Accuracy[] }
+export interface EvalRun { id: string; version: number; model?: string | null; state: "running" | "done"; results: EvalResult[]; score: number | null; createdAt: string; finishedAt: string | null; createdBy?: string | null }
+/** M40: each finished evaluation's score, oldest first, and a drop worth flagging. */
+export interface AccuracyPoint { id: string; at: string; score: number; version: number; model: string | null; nightly: boolean; right: number; questions: number }
+export interface AccuracyDrop { from: number; to: number; previous: number; at: string; evalId: string; version: number; previousVersion: number; model: string | null; previousModel: string | null }
+export interface Evaluation {
+  questions: Question[]; runs: EvalRun[]; canEdit: boolean; successCriteria?: string[]; accuracy?: Accuracy[];
+  builtIn?: Question[]; history?: AccuracyPoint[]; drop?: AccuracyDrop | null; people?: Array<{ day: string; up: number; down: number }>;
+  nightly?: { quietHours: { start: string; end: string }; next: string };
+}
 export interface Glance { enabled: boolean; paused: boolean; runnerOnline: boolean; queued?: number; digest: { agentId: string; agentName: string; runId: string; at: string; excerpt: string; state: RunState } | null; cardsWaiting: number }
 
 const base = "/api/v1/agents";
@@ -249,7 +260,8 @@ export const agentsApi = {
   editMemory: (csrf: string, id: string, noteId: string, patch: { title?: string; body?: string; freshDays?: number | null; pinned?: boolean; shared?: boolean }) => send<MemoryNote>("PUT", `/${encodeURIComponent(id)}/memory/notes/${encodeURIComponent(noteId)}`, csrf, patch),
   forget: (csrf: string, id: string, kind: "notes" | "episodes", itemId: string) => send<{ forgotten: boolean }>("DELETE", `/${encodeURIComponent(id)}/memory/${kind}/${encodeURIComponent(itemId)}`, csrf),
   forgetThread: (csrf: string, id: string) => send<{ forgotten: boolean }>("DELETE", `/${encodeURIComponent(id)}/memory/thread`, csrf),
-  feedback: (csrf: string, runId: string, verdict: "up" | "down", note?: string) => send<{ verdict: "up" | "down"; note: string | null; mine: boolean }>("POST", `/runs/${encodeURIComponent(runId)}/feedback`, csrf, { verdict, note: note || null }),
+  /** A verdict; a "wrong" with `expect` (words the right answer holds) also becomes a golden question (M40). */
+  feedback: (csrf: string, runId: string, verdict: "up" | "down", note?: string, expect?: string[]) => send<{ verdict: "up" | "down"; note: string | null; mine: boolean; addedToEvaluation?: { questionId: string | null } }>("POST", `/runs/${encodeURIComponent(runId)}/feedback`, csrf, { verdict, note: note || null, ...(expect?.length ? { expect } : {}) }),
   exportAgent: (id: string) => get<Record<string, unknown>>(`/${encodeURIComponent(id)}/export`),
   importAgent: (csrf: string, definition: string) => send<AgentDetail>("POST", "/import", csrf, { definition }),
   mintWebhook: (csrf: string, id: string) => send<{ token: string; path: string }>("POST", `/${encodeURIComponent(id)}/webhook`, csrf),

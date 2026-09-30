@@ -733,13 +733,13 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
   /**
    * Keep what the pages show: finished runs from the last 30 days beyond the newest 500 (their
    * steps go with them), decided or expired proposals after 30 days, finished evaluations beyond
-   * the newest 20 per agent.
+   * the newest 60 per agent (two months of nightly ones: accuracy over time, M40).
    */
-  function prune({ keepRuns = 500, runDays = 30, at = now() } = {}) {
+  function prune({ keepRuns = 500, runDays = 30, keepEvals = 60, at = now() } = {}) {
     const cutoff = new Date(at.getTime() - runDays * 86_400_000).toISOString();
     const runs = prepare(`DELETE FROM agent_runs WHERE state NOT IN ('queued', 'running') AND queued_at < ? AND id NOT IN (SELECT id FROM agent_runs ORDER BY queued_at DESC, rowid DESC LIMIT ?)`).run(cutoff, keepRuns).changes;
     const proposals = prepare("DELETE FROM agent_proposals WHERE state != 'open' AND created_at < ?").run(cutoff).changes;
-    const evals = prepare("DELETE FROM agent_eval_runs WHERE state = 'done' AND id NOT IN (SELECT id FROM agent_eval_runs e WHERE e.agent_id = agent_eval_runs.agent_id ORDER BY created_at DESC LIMIT 20)").run().changes;
+    const evals = prepare("DELETE FROM agent_eval_runs WHERE state = 'done' AND id NOT IN (SELECT id FROM agent_eval_runs e WHERE e.agent_id = agent_eval_runs.agent_id ORDER BY created_at DESC LIMIT ?)").run(keepEvals).changes;
     return { runs: Number(runs), proposals: Number(proposals), evals: Number(evals) };
   }
 
