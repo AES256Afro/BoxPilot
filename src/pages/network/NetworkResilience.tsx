@@ -109,7 +109,9 @@ export function NetworkResilience({ resilience, checking, error, onCheck, role, 
           <Button onClick={() => setSteps(true)}>Router steps…</Button>
           {canRehearse && <Button risk={riskOf("dns.fallback.rehearse")} onClick={rehearse}>Rehearse</Button>}
         </>}
-        footer={resilience ? <>{resilience.source === "dhcp" ? <>Read from this server&apos;s DHCP lease ({resilience.via ?? "its network manager"})</> : "No DHCP lease to read"} · checked {relativeTime(resilience.checkedAt, now) ?? "just now"}. To hear when this server goes down, turn on the heartbeat in Settings, Notifications.</> : undefined}
+        footer={resilience ? <>{resilience.source === "dhcp" ? <>Read from this server&apos;s DHCP lease ({resilience.via ?? "its network manager"})</>
+          : resilience.source === "pihole-log" && resilience.askers ? <>This server&apos;s address is set by hand, so read from Pi-hole&apos;s query log: {resilience.askers.lanClients > 0 ? `${resilience.askers.lanClients} ${resilience.askers.lanClients === 1 ? "device" : "devices"} asked it directly` : "only the router asked it"} in the last {resilience.askers.window}</>
+            : "No DHCP lease to read"} · checked {relativeTime(resilience.checkedAt, now) ?? "just now"}. To hear when this server goes down, turn on the heartbeat in Settings, Notifications.</> : undefined}
       >
         {error && <div className="network-pad"><Notice tone="danger" live title="The DNS check could not run" action={<Button onClick={onCheck}>Try again</Button>}>{error}</Notice></div>}
         {!resilience ? (

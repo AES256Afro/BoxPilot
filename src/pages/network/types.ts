@@ -60,8 +60,11 @@ export interface Resilience {
   status: "good" | "warning" | "danger" | "neutral" | "unknown";
   headline: string;
   detail: string;
-  source: "dhcp" | "configured" | "none";
+  /** dhcp: this server's own lease; pihole-log: a hand-set server, told by who asks Pi-hole. */
+  source: "dhcp" | "pihole-log" | "configured" | "none";
   via: string | null;
+  /** Counts from Pi-hole's own log, when that is where the answer came from. */
+  askers?: { window: "hour" | "day"; lanClients: number; routerAsks: boolean } | null;
   servers: ResilienceServer[];
   router: string | null;
   skipsBlocking: boolean;

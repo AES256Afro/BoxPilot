@@ -12,8 +12,12 @@
  *      gives every device on the LAN the same DNS options: systemd-networkd's view of the link
  *      (`networkctl status --json`), its lease file, NetworkManager's DHCP options, or dhclient's
  *      lease file, whichever this server has. A server whose address is set by hand has no lease,
- *      and its own DNS setting says nothing about the devices, so then the answer is "not known",
- *      never a guess.
+ *      and its own DNS setting says nothing about the devices; the owner's server is one. Then
+ *      Pi-hole's own query log is asked who asks it (`dns.blocker.askers`, counts only): several
+ *      devices on the LAN asking it directly means the router hands this server out to them;
+ *      only the router (and this server) asking means the router passes lookups on, and the router
+ *      is judged as below. Anything else, or a log that cannot be read, is "not known", never a
+ *      guess.
  *   2. Does each of those servers still answer with this server out of the picture? Asked the way a
  *      device asks when this server is off: directly. A second server on another box, or a public
  *      one, answers or it does not. The router is the hard case, since it may only be passing
@@ -73,6 +77,78 @@ export function isPrivateIpv4(address) {
   if (!isIpv4(address)) return false;
   return [["10.0.0.0", 8], ["172.16.0.0", 12], ["192.168.0.0", 16], ["100.64.0.0", 10], ["169.254.0.0", 16], ["127.0.0.0", 8]]
     .some(([base, prefix]) => inRange(address, base, prefix));
+}
+
+/** "192.168.50.20/24" contains "192.168.50.31". */
+export function inCidr(address, cidr) {
+  const [base, prefix] = String(cidr ?? "").split("/");
+  const bits = Number(prefix);
+  return isIpv4(address) && isIpv4(base) && Number.isInteger(bits) && bits >= 8 && bits <= 32 && inRange(address, base, bits);
+}
+
+/**
+ * Who asks Pi-hole, from its own database (/etc/pihole/pihole-FTL.db, read-only, inside its
+ * container, the way the catalog already runs `pihole-FTL sqlite3` for gravity). One row per client
+ * over the last day, with how many of its queries fell in the last hour. The same `queries` name is
+ * a table in Pi-hole v5 and a view in v6, with the same `timestamp` and `client` columns.
+ */
+export const askersSql = "SELECT client, SUM(timestamp >= CAST(strftime('%s','now') AS INTEGER) - 3600), COUNT(*) FROM queries WHERE timestamp >= CAST(strftime('%s','now') AS INTEGER) - 86400 GROUP BY client;";
+export const askersDatabase = "/etc/pihole/pihole-FTL.db";
+/** Fewer devices than this asking Pi-hole directly says nothing either way (a laptop set by hand, a test). */
+export const directAskersThreshold = 3;
+
+/** The sqlite shell's `client|hour|day` lines. */
+export function parseAskerRows(stdout) {
+  return String(stdout ?? "").split("\n").map((line) => line.trim()).filter(Boolean).flatMap((line) => {
+    const [client, hour, day] = line.split("|");
+    const lastHour = Number(hour);
+    const lastDay = Number(day);
+    return client !== undefined && Number.isFinite(lastHour) && Number.isFinite(lastDay) ? [{ client: client.trim(), lastHour, lastDay }] : [];
+  });
+}
+
+/**
+ * The rows reduced to counts, which is all that leaves the helper: how many devices on the LAN asked
+ * Pi-hole directly, whether the router did, and how much was this server's own. The last hour when it
+ * has any queries (so a router changed this afternoon counts from this afternoon), else the last day.
+ * No device's address or name, and no domain, is in the answer.
+ */
+export function summarizeAskers(rows, { router = null, lanCidr = null, selfAddresses = [] } = {}) {
+  const window = rows.some((row) => row.lastHour > 0) ? "hour" : "day";
+  const summary = { window, queries: 0, lanClients: 0, routerQueries: 0, selfQueries: 0, tailnetClients: 0, bridgeClients: 0, otherClients: 0, unnamedQueries: 0 };
+  for (const row of rows) {
+    const queries = window === "hour" ? row.lastHour : row.lastDay;
+    if (!queries) continue;
+    summary.queries += queries;
+    const client = row.client;
+    if (!net.isIP(client)) summary.unnamedQueries += queries;   // Pi-hole's privacy levels write "hidden" or nothing
+    else if (client === "::1" || client.startsWith("127.") || selfAddresses.includes(client)) summary.selfQueries += queries;
+    else if (router && client === router) summary.routerQueries += queries;
+    else if (lanCidr && inCidr(client, lanCidr)) summary.lanClients += 1;
+    else if (isIpv4(client) && inRange(client, "100.64.0.0", 10)) summary.tailnetClients += 1;
+    else if (isIpv4(client) && inRange(client, "172.16.0.0", 12)) summary.bridgeClients += 1;   // Docker's bridge: every device looks like one
+    else summary.otherClients += 1;
+  }
+  return { ...summary, routerAsks: summary.routerQueries > 0 };
+}
+
+/**
+ * What Pi-hole's askers say the router hands out, for a server with no lease: this server (several
+ * LAN devices ask it directly), the router (only the router asks), or null with the reason.
+ */
+export function inferFromAskers(askers, { gateway = null, lanAddress = null } = {}) {
+  if (!askers?.available) return { handedOut: null, reason: askers?.reason ?? "Pi-hole's query log could not be read." };
+  if (askers.lanClients >= directAskersThreshold && lanAddress) {
+    return { handedOut: { source: "pihole-log", via: "Pi-hole's query log", servers: [lanAddress], dhcpServer: gateway }, reason: null };
+  }
+  if (askers.lanClients === 0 && askers.routerAsks && gateway) {
+    return { handedOut: { source: "pihole-log", via: "Pi-hole's query log", servers: [gateway], dhcpServer: gateway }, reason: null };
+  }
+  const reason = askers.queries === 0 ? "Pi-hole has answered nothing in the last day, so its log cannot say who uses it."
+    : askers.bridgeClients > 0 && askers.lanClients === 0 && !askers.routerAsks ? "Pi-hole sees every device as Docker's own address (it runs in bridge mode), so its log cannot say who asks it."
+      : askers.unnamedQueries > 0 && askers.lanClients === 0 && !askers.routerAsks ? "Pi-hole's privacy level hides who asks it, so its log cannot say."
+        : `Pi-hole's log shows ${askers.lanClients} ${askers.lanClients === 1 ? "device" : "devices"} on your network asking it directly${askers.routerAsks ? " and the router asking it too" : ""} in the last ${askers.window}, which is not enough to tell what the router hands out.`;
+  return { handedOut: null, reason };
 }
 
 /** systemd's JSON writes an address as its bytes; older builds and other tools as a string. */
@@ -221,7 +297,7 @@ export async function askName(server, name, { timeoutMs = 3000, tries = 1, Resol
  * (Tailscale's own resolver). The house survives this server going down when one is independent.
  */
 export function judgeResilience(facts, { now = new Date(), hostname = "This server" } = {}) {
-  const { handedOut = { source: "none", servers: [] }, selfAddresses = [], gateway = null, servesDns = false, answers = {}, canary = null, rehearsal = null } = facts ?? {};
+  const { handedOut = { source: "none", servers: [] }, selfAddresses = [], gateway = null, servesDns = false, answers = {}, canary = null, rehearsal = null, askers = null, askersReason = null } = facts ?? {};
   const at = now instanceof Date ? now.getTime() : Number(now);
   const fresh = rehearsal && Number.isFinite(Date.parse(rehearsal.at)) && at - Date.parse(rehearsal.at) <= rehearsalFreshForMs ? rehearsal : null;
   const servers = handedOut.servers.map((address) => {
@@ -253,15 +329,20 @@ export function judgeResilience(facts, { now = new Date(), hostname = "This serv
   const skipsBlocking = independent.some((server) => !server.leansHere && server.blocking === false) && counted.some((server) => server.role === "this-server");
   const router = counted.find((server) => server.role === "router")?.address ?? null;
   const list = (entries) => entries.map((server) => server.address).join(" and ");
-  const base = { source: handedOut.source, via: handedOut.via ?? null, dhcpServer: handedOut.dhcpServer ?? null, servers, router, skipsBlocking, rehearsal: fresh ?? rehearsal ?? null, rehearsalStale: Boolean(rehearsal && !fresh), servesDns: Boolean(servesDns) };
+  // Counts only, from Pi-hole's own log: never a device's address, name or domain.
+  const asked = askers?.available ? { window: askers.window, lanClients: askers.lanClients, routerAsks: askers.routerAsks } : null;
+  const base = { source: handedOut.source, via: handedOut.via ?? null, dhcpServer: handedOut.dhcpServer ?? null, servers, router, skipsBlocking, rehearsal: fresh ?? rehearsal ?? null, rehearsalStale: Boolean(rehearsal && !fresh), servesDns: Boolean(servesDns), askers: asked };
+  const fromLog = handedOut.source === "pihole-log";
+  const devicesWords = asked ? `${asked.lanClients} ${asked.lanClients === 1 ? "device" : "devices"} on your network` : "devices on your network";
 
-  if (handedOut.source !== "dhcp" || counted.length === 0) {
+  if (!["dhcp", "pihole-log"].includes(handedOut.source) || counted.length === 0) {
+    const lookOnADevice = "A device's network details show it: on Windows, ipconfig /all; on an iPhone, Settings, Wi-Fi, the (i) beside the network.";
     return {
       ...base, state: "unknown", status: "unknown",
       headline: "Not known what your router hands out",
       detail: handedOut.source === "configured"
-        ? `This server's address and DNS are set by hand (${list(counted.length ? counted : servers)}), so it has no lease to show what the router gives your devices. A device's network details show it: on Windows, ipconfig /all; on an iPhone, Settings, Wi-Fi, the (i) beside the network.`
-        : "This server has no DHCP lease to read, so what the router gives your devices cannot be seen from here.",
+        ? `This server's address and DNS are set by hand (${list(counted.length ? counted : servers)}), so it has no lease to show what the router gives your devices.${askersReason ? ` ${askersReason}` : ""} ${lookOnADevice}`
+        : `This server has no DHCP lease to read, so what the router gives your devices cannot be seen from here.${askersReason ? ` ${askersReason}` : ""} ${lookOnADevice}`,
     };
   }
   if (counted.every((server) => server.verdict === "broken")) {
@@ -284,7 +365,9 @@ export function judgeResilience(facts, { now = new Date(), hostname = "This serv
     return {
       ...base, state: "unproven", status: "warning",
       headline: `Not known yet whether your network keeps working when ${hostname} is off`,
-      detail: `Devices ask your router at ${unknown[0].address}${unknown[0].forwards ? ", and the router passes their lookups to the DNS server here" : ""}. Whether it falls back to another resolver when this server is off can only be seen by trying: rehearse it.`,
+      detail: fromLog
+        ? `Only your router at ${unknown[0].address} asks Pi-hole here, so devices ask the router and it passes their lookups on. Whether it falls back to another resolver when this server is off can only be seen by trying: rehearse it.`
+        : `Devices ask your router at ${unknown[0].address}${unknown[0].forwards ? ", and the router passes their lookups to the DNS server here" : ""}. Whether it falls back to another resolver when this server is off can only be seen by trying: rehearse it.`,
     };
   }
   const broken = counted.filter((server) => server.verdict === "broken");
@@ -297,7 +380,9 @@ export function judgeResilience(facts, { now = new Date(), hostname = "This serv
       ? `Devices ask your router at ${routerFailed.address}, and the router only asks the DNS server here: when it was stopped for the rehearsal, the router answered nothing.`
       : broken.length
         ? `${only.length ? `Your router hands out ${list(only)} (this server) and ${list(broken)}, but ${broken.length === 1 ? "that one" : "those"} did not` : `${list(broken)} did not`} answer a lookup from here, so ${broken.length === 1 ? "it" : "they"} would not help while this server is off.`
-        : `Your router hands out ${list(only)} (this server) as the only DNS server, so every lookup in the house goes to the DNS server here. While this server is off, names stop resolving and the internet looks down on every device.`,
+        : fromLog
+          ? `Pi-hole's own log shows ${devicesWords} asking it directly in the last ${asked?.window ?? "day"}: your router hands this server out as their DNS server. While this server is off they have nothing to ask, so names stop resolving and the internet looks down. This server's address is set by hand, so the router's whole list cannot be read here; a device's network details show it (on Windows, ipconfig /all).`
+          : `Your router hands out ${list(only)} (this server) as the only DNS server, so every lookup in the house goes to the DNS server here. While this server is off, names stop resolving and the internet looks down on every device.`,
   };
 }
 
@@ -330,16 +415,25 @@ export function createDnsResilienceService({ network, helper = null, store = nul
     const eligible = topology.eligibleLanAddresses ?? [];
     const lan = eligible.find((entry) => entry.interface === route?.interface) ?? eligible[0] ?? null;
     const selfAddresses = unique((topology.addresses ?? []).map((entry) => entry.address).filter(isIpv4));
-    const handedOut = await readHandedOut({ interface: lan?.interface ?? route?.interface, resolverLinks: topology.resolverLinks ?? [], run, readFile });
+    let handedOut = await readHandedOut({ interface: lan?.interface ?? route?.interface, resolverLinks: topology.resolverLinks ?? [], run, readFile });
     // Something here answers DNS for the LAN: a listener on every address or on the LAN address.
     const servesDns = (topology.dnsListeners ?? []).some((listener) => listener.scope === "wildcard" || listener.address === lan?.address);
     const gateway = route?.gateway ?? null;
+    // No lease (a hand-set address): ask Pi-hole's own log who asks it. Counts come back, nothing else.
+    let askers = null;
+    let askersReason = null;
+    if (handedOut.source !== "dhcp" && helper && servesDns && lan?.address) {
+      askers = await helper.request("dns.blocker.askers", { router: isIpv4(gateway) ? gateway : null, lanCidr: lan.cidr ?? null, selfAddresses: selfAddresses.slice(0, 32) }, { timeoutMs: 45_000 }).catch(() => null);
+      const inferred = inferFromAskers(askers ?? { available: false, reason: "Pi-hole's query log could not be read." }, { gateway, lanAddress: lan.address });
+      if (inferred.handedOut) handedOut = inferred.handedOut;
+      else askersReason = inferred.reason;
+    }
     const asked = handedOut.servers.filter((address) => address !== tailscaleResolver).slice(0, 4);
     const answers = Object.fromEntries(await Promise.all(asked.map(async (address) => [address, await ask(address)])));
     const routerAddress = handedOut.servers.find((address) => roleOf(address, { selfAddresses, gateway, dhcpServer: handedOut.dhcpServer }) === "router") ?? null;
     const canary = routerAddress && servesDns && answers[routerAddress]?.answering ? await routerCanary(routerAddress, lan?.address ?? null).catch(() => null) : null;
     const rehearsal = store?.getSetting?.(rehearsalSetting, null) ?? null;
-    const facts = { handedOut, selfAddresses, gateway, servesDns, answers, canary, rehearsal };
+    const facts = { handedOut, selfAddresses, gateway, servesDns, answers, canary, rehearsal, askers, askersReason };
     const verdict = judgeResilience(facts, { now: now(), hostname: hostname() });
     return { ...verdict, checkedAt: now().toISOString(), lanAddress: lan?.address ?? null, gateway, canary };
   }

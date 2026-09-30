@@ -27,6 +27,14 @@ describe("whether the house keeps its DNS when this server is off", () => {
     expect(screen.getAllByText("If homebox goes down, every device on your network loses the internet")).toHaveLength(1);
   });
 
+  it("says, for a server with a hand-set address, that Pi-hole's own log told it, in counts", async () => {
+    open("dns", { ...singlePoint, source: "pihole-log", via: "Pi-hole's query log", askers: { window: "hour", lanClients: 8, routerAsks: false },
+      detail: "Pi-hole's own log shows 8 devices on your network asking it directly in the last hour: your router hands this server out as their DNS server." });
+    const panel = await screen.findByRole("region", { name: /If this server is off/ });
+    expect(await within(panel).findByText("If homebox goes down, every device on your network loses the internet")).toBeTruthy();
+    expect(panel.textContent).toContain("This server's address is set by hand, so read from Pi-hole's query log: 8 devices asked it directly in the last hour");
+  });
+
   it("lists each server the devices are given, and what becomes of it with this server off", async () => {
     open("dns", resilience);
     const table = await screen.findByRole("table", { name: "DNS servers your devices are given" });

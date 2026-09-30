@@ -84,15 +84,17 @@ Network, Names & DNS, **If this server is off** checks it, read-only:
 | It reads | From |
 | --- | --- |
 | What the router hands out | this server's own DHCP lease (`networkctl`, networkd's lease file, NetworkManager, dhclient), since the router gives every device the same DNS options |
+| The same, on a server with a hand-set address | who asks Pi-hole, from its own query database (read-only, no admin password): three or more devices asking it directly means the router hands this server out; only the router asking means the router passes lookups on. Counts only; no device's address or domain is kept or shown |
 | Whether each of those answers without this server | a lookup sent straight to each one, as a device sends it when this server is off |
 | Whether the router passes lookups here | a made-up name asked of the router, looked for in Pi-hole's query log |
 | Whether the router falls back | the last rehearsal (below) |
 
 It says "If this server goes down, every device on your network loses the internet" (on Network, and
-on Home through Repair) only when the lease names nothing but this server, a second server does not
-answer, or a rehearsal showed the router answering nothing. A router nobody has rehearsed is "not
-known yet". A server with a hand-set address has no lease, so what the router hands out is then
-"not known": look on a device instead (Windows: `ipconfig /all`; iPhone: Settings, Wi-Fi, the (i)).
+on Home through Repair) only when the lease names nothing but this server, devices ask Pi-hole
+directly on a server with no lease, a second server does not answer, or a rehearsal showed the
+router answering nothing. A router nobody has rehearsed is "not known yet". When neither the lease
+nor Pi-hole's log can tell (no Pi-hole of BoxPilot's, its log unreadable, too few askers), the answer
+is "not known": look on a device instead (Windows: `ipconfig /all`; iPhone: Settings, Wi-Fi, the (i)).
 
 **Rehearse** (medium risk) proves the fallback: it stops the DNS app for about half a minute, asks the
 router three names it cannot have cached, starts the app again and waits until it answers. A
