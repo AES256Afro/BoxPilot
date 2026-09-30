@@ -9,8 +9,11 @@
  * part of it, because the interface is built to tolerate exactly that and a friendlier answer here
  * would make the hosted copy behave differently from the one used for review.
  *
- * There is no data here belonging to anybody. Every value is invented.
+ * There is no data here belonging to anybody. Every value is invented. All of it, and the looks'
+ * mockups at /mockups/, is behind the password in gate.js.
  */
+import { gate, noIndex } from "./gate.js";
+
 const API = "/api/v1";
 let cached = null;
 
@@ -68,24 +71,41 @@ async function api(request, env, url) {
   return json({ error: "Not part of the demo", code: "demo_missing" }, 404);
 }
 
+/** The same answer, marked for search engines and AI crawlers to leave alone. */
+function marked(response) {
+  const copy = new Response(response.body, response);
+  for (const [name, value] of Object.entries(noIndex)) copy.headers.set(name, value);
+  return copy;
+}
+
 export default {
   async fetch(request, env) {
-    const url = new URL(request.url);
-    if (url.pathname === API || url.pathname.startsWith(`${API}/`)) return api(request, env, url);
-
-    // Anything with a file extension is a real asset; everything else is a view of the single-page
-    // app, including "/" itself, and has to come back as the shell with the world bar in it.
-    const looksLikeAFile = /\.[a-z0-9]+$/i.test(url.pathname);
-    if (looksLikeAFile) {
-      const asset = await env.ASSETS.fetch(request);
-      if (asset.status !== 404) return asset;
-    }
-
-    const data = await bundle(env);
-    const worlds = Object.keys(data.scenarios);
-    const name = worlds.includes(url.searchParams.get("scenario")) ? url.searchParams.get("scenario") : "default";
-    const shell = await env.ASSETS.fetch(new Request(new URL("/index.html", url).toString()));
-    const html = (await shell.text()).replace("</body>", `${data.scenarios[name].switcher}</body>`);
-    return new Response(html, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+    const stopped = await gate(request, env);
+    return stopped ?? marked(await serve(request, env));
   },
 };
+
+async function serve(request, env) {
+  const url = new URL(request.url);
+  if (url.pathname === API || url.pathname.startsWith(`${API}/`)) return api(request, env, url);
+
+  // The looks' mockups (docs/design-directions/05-looks.html), a page of their own beside the
+  // app: with a trailing slash, so its pictures (05-looks/…) resolve inside /mockups/.
+  if (url.pathname === "/mockups") return Response.redirect(new URL("/mockups/", url).toString(), 308);
+  if (url.pathname === "/mockups/") return env.ASSETS.fetch(new Request(new URL("/mockups/index.html", url).toString()));
+
+  // Anything with a file extension is a real asset; everything else is a view of the single-page
+  // app, including "/" itself, and has to come back as the shell with the world bar in it.
+  const looksLikeAFile = /\.[a-z0-9]+$/i.test(url.pathname);
+  if (looksLikeAFile) {
+    const asset = await env.ASSETS.fetch(request);
+    if (asset.status !== 404) return asset;
+  }
+
+  const data = await bundle(env);
+  const worlds = Object.keys(data.scenarios);
+  const name = worlds.includes(url.searchParams.get("scenario")) ? url.searchParams.get("scenario") : "default";
+  const shell = await env.ASSETS.fetch(new Request(new URL("/index.html", url).toString()));
+  const html = (await shell.text()).replace("</body>", `${data.scenarios[name].switcher}</body>`);
+  return new Response(html, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+}
