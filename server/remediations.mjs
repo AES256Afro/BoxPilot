@@ -20,6 +20,7 @@ import { createHash } from "node:crypto";
 import { backupMountpoint, legacyBackupMountpoint, mountpointFor } from "./backup-mount.mjs";
 import { coversEveryAddress, findPortConflicts, freePortNear, holderWords, portHolders, serveTargetPort, serveUrl } from "./ports.mjs";
 import { dnsAppIds } from "./dns-resilience.mjs";
+import { checkableFilesystems } from "./tasks/storage.mjs";
 
 export const severities = Object.freeze(["critical", "warning", "info"]);
 
@@ -258,6 +259,9 @@ export function drivesNeedingCheck(facts = {}) {
       const drop = droppedWith(mount);
       const evidence = uncleanEvidence(uncleanByDevice.get(mount.source) ?? null, volumeByTarget.get(mount.target) ?? null);
       const checkerMissing = mount.fstype === "exfat" && tools?.fsckExfat === false;
+      // storage.check has no read-only checker for NTFS, XFS or btrfs and refuses them, so offering
+      // it there gave the finding one fix that failed the same way every time it was pressed.
+      const checkable = checkableFilesystems.includes(mount.fstype);
       const lastCheck = last ? `last check ${new Date(last.checkedAt).toLocaleString()}${last.clean ? (last.markedDirty ? " (clean, still marked)" : " (clean)") : " (problems found)"}` : "never checked";
       // The exFAT mark a clean check already found: Linux keeps it until a repairing check and
       // repeats its warning at every mount, so a later warning is that mark again, not news, and a
@@ -276,11 +280,13 @@ export function drivesNeedingCheck(facts = {}) {
           title: unclean ? `${mount.target} was not unmounted cleanly and has not been checked since` : `${mount.target} has not been checked since its drive dropped`,
           detail: `${unclean
             ? "This drive was not unmounted cleanly before it was last mounted - after a power cut, a reboot that did not wait for it, or an unplug - and its filesystem says so. Whatever was being written then may have left the directory table damaged, which shows up later as files that vanish or a folder that will not open."
-            : "A drive that drops off USB mid-write can be left with a damaged directory table that only shows up later, as files that vanish or a folder that will not open."} The filesystem's own checker can read the whole table without changing anything. ${checkerMissing
-            ? "This drive is exFAT and fsck.exfat is not installed, so the checker comes first: install it, and this becomes the check itself."
-            : "The apps using the drive are paused for the check and started again after it."}`,
+            : "A drive that drops off USB mid-write can be left with a damaged directory table that only shows up later, as files that vanish or a folder that will not open."} ${!checkable
+            ? `BoxPilot has no read-only checker for ${mount.fstype ?? "this"} filesystems. Check it on a computer that has one (Windows' chkdsk for NTFS), with the drive unmounted here first.`
+            : `The filesystem's own checker can read the whole table without changing anything. ${checkerMissing
+              ? "This drive is exFAT and fsck.exfat is not installed, so the checker comes first: install it, and this becomes the check itself."
+              : "The apps using the drive are paused for the check and started again after it."}`}`,
           evidence: [...(uncleanDue ? evidence.lines : []), ...(drop ? [`last drop ${new Date(drop).toLocaleString()}`] : []), lastCheck, ...(checkerMissing ? ["fsck.exfat not found in /usr/sbin or /sbin"] : [])],
-          fixes: [checkerMissing
+          fixes: !checkable ? [] : [checkerMissing
             ? installDriveToolsFix(driveTools)
             : { operationId: "storage.check", parameters: { name }, label: "Check the drive", preview: `${pauses}, runs the read-only checker, mounts it again and starts ${apps.length ? listOf(apps) : "them"} again. Nothing is repaired or written.` }],
         })];

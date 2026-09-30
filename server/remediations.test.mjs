@@ -322,6 +322,17 @@ describe("a drive the kernel found not cleanly unmounted (M26)", () => {
     expect(drivesNeedingCheck({ mounts, devices, unclean, driveChecks: { "the-dump": { checkedAt: "2026-09-28T08:00:00.000Z", clean: false } } })).toHaveLength(1);
   });
 
+  it("offers no check it would refuse: an NTFS drive is said to need one elsewhere", () => {
+    // storage.check has no read-only checker for NTFS and refuses it, so "Check the drive" failed
+    // the same way every time, and the finding never cleared.
+    const ntfs = [{ ...mounts[0], fstype: "ntfs3" }];
+    const ntfsLine = { available: true, events: [{ device: "/dev/sda2", driver: "ntfs3", at: "2026-09-27T21:14:09.000Z", message: "ntfs3 (sda2): volume is dirty and \"force\" flag is not set!" }] };
+    const [found] = drivesNeedingCheck({ mounts: ntfs, devices, unclean: ntfsLine });
+    expect(found).toMatchObject({ id: "drive-check:the-dump", fix: null, fixes: [] });
+    expect(found.detail).toContain("BoxPilot has no read-only checker for ntfs3 filesystems");
+    for (const fstype of ["exfat", "vfat", "ext4"]) expect(drivesNeedingCheck({ mounts: [{ ...mounts[0], fstype }], devices, unclean })[0].fix).toMatchObject({ operationId: "storage.check" });
+  });
+
   it("matches the kernel's device to the drive mounted from it, not to any other", () => {
     expect(drivesNeedingCheck({ mounts: [{ ...mounts[0], source: "/dev/sdb2" }], devices, unclean })).toEqual([]);
   });
