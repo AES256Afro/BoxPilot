@@ -209,6 +209,8 @@ const changeRoutes = [
   "POST /api/v1/drives/:name/auto-reconnect", "DELETE /api/v1/drives/:name/auto-reconnect",
   // Repair's memory (M35): a finding or failed job set aside, and which job was fixing which finding.
   "POST /api/v1/remediations/dismissals", "DELETE /api/v1/remediations/dismissals/:id", "POST /api/v1/remediations/attempts",
+  // "Got it" on a power cut Home is saying (2026-09-29).
+  "POST /api/v1/power/outages/:id/acknowledge",
   "POST /api/v1/oidc/clients", "DELETE /api/v1/oidc/clients/:id",
   "POST /api/v1/people", "PUT /api/v1/people/:id", "DELETE /api/v1/people/:id",
   "PUT /api/v1/settings/weekly-report", "POST /api/v1/settings/weekly-report/send", "PUT /api/v1/settings/notifications", "POST /api/v1/settings/notifications/test",
@@ -373,6 +375,8 @@ const dataRoutes = {
     },
   }],
   "GET /api/v1/power/ups/detect": [open],
+  // When the server went down without shutting down (2026-09-29): every role reads it; who said "Got it" is the owner's.
+  "GET /api/v1/power/outages": [{ ...open, check: ({ role, body }) => expect(body.outages[0].acknowledged, role).toMatchObject({ by: role === "owner" ? accounts.owner.id : null }) }],
   "GET /api/v1/setup/checklist": [{ ...open, check: ({ role, body }) => expect(body.items.find((item) => item.id === "shares").done, role).toBe(true) }],
   "GET /api/v1/diagnostics/runtime": [open],
   "GET /api/v1/catalog": [{
@@ -559,14 +563,14 @@ beforeAll(async () => {
     run: async () => ({ ok: true, stdout: "[]", stderr: "" }), probe: async () => false, reverse: async () => [],
     collect: async () => ({ devices: [], mounts: [], fstab: [], snapshots: [{ path: "/dev/vg0/data-snap", name: "data-snap" }] }),
   });
-  routers.createPowerRouter = createPowerRouter({ detect: async () => [], exists: async () => false });
+  routers.createPowerRouter = createPowerRouter({ detect: async () => [], exists: async () => false, state, auth });
   routers.createChecklistRouter = createChecklistRouter({ state, helper, notifications, inventory, network, driveChecks: async () => null });
   routers.createHostRouter = createHostRouter({
     state, helper, catalogService, inventory, network, notifications,
     controllerProtection: createControllerProtectionService({ store: state, helper }), controllerRetention: createControllerRetentionService({ store: state, helper }),
     githubProvenance: { inspect: async () => ({ repositories: [] }) }, releaseUpdates: { inspect: async () => ({ current: "0.0.0" }) },
     setup: createSetupService({ helper, scheduler }), supportBundle, audit, auth, identity, tlsDir,
-    collect: async () => ({ devices: [], mounts: [], fstab: [] }),
+    collect: async () => ({ devices: [], mounts: [], fstab: [] }), inspectNames: async () => null,
   });
   routers.createOidcAdminRouter = createOidcAdminRouter({ oidc, auth });
   const runbook = createRunbookService({
@@ -657,6 +661,8 @@ beforeAll(async () => {
   state.setSetting("diskUsageHistory", { "/srv": [0, 1, 2, 3].map((index) => ({ at: new Date(Date.now() - (4 - index) * day).toISOString(), availableBytes: 400e9 - index * 50e9, totalBytes: 1e12 })) });
   state.setSetting("appDataUsageHistory", { "jellyfin:/srv/media": [2, 1].map((ago, index) => ({ appId: "jellyfin", path: "/srv/media", mount: "/srv", bytes: (index + 1) * 1e9, at: new Date(Date.now() - ago * day).toISOString() })) });
   state.setSetting("appDataUsageLastRun", { at: checkedAt, sampled: 1, unmeasured: 0, error: null });
+  // A power cut the owner has seen and said "Got it" to: who said it is theirs to see.
+  state.setSetting("powerOutages", [{ id: "7a0b2f1c3d4e5f60718293a4b5c6d7e8", stoppedAt: "2026-09-29T18:41:02.000Z", backAt: "2026-09-29T22:18:00.000Z", offForMs: 13_018_000, cause: "power", dnsApps: ["Pi-hole"], ups: false, evidence: [], detectedAt: checkedAt, acknowledged: { at: checkedAt, by: owner.id } }]);
   state.setSetting("healthAlertsState", {
     "system.reboot": { title: "A reboot is required", since: checkedAt, notified: true },
     [`schedule.failed:${ownerSchedule.id}`]: { title: "Scheduled task failed: owner-marker", since: checkedAt, notified: false },

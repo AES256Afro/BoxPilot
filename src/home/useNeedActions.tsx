@@ -1,4 +1,5 @@
-import { useCallback, type ReactNode } from "react";
+import { useCallback, useState, type ReactNode } from "react";
+import { readJson } from "../http";
 import { useOperation } from "../shell/ApproveDialog";
 import { useRepairFixes, type FixRun } from "../repair/useRepairFixes";
 import type { Finding } from "../repair/types";
@@ -33,15 +34,25 @@ export function useNeedActions({ csrfToken, refresh, accept }: { csrfToken: stri
     }
   }, [accept, refresh]);
   const repair = useRepairFixes({ csrfToken, recheck });
+  // "Got it" on a power cut (2026-09-29): it stays on record and stops being said, here and in the ledger.
+  const [problem, setProblem] = useState<string | null>(null);
+  const acknowledge = useCallback((need: Need, id: string) => {
+    setProblem(null);
+    void fetch(`/api/v1/power/outages/${encodeURIComponent(id)}/acknowledge`, { method: "POST", headers: { "X-BoxPilot-CSRF": csrfToken } })
+      .then((response) => readJson(response))
+      .then(() => refresh(["outages", "watch"]))
+      .catch((error: unknown) => setProblem(`Could not mark "${need.title}" as seen: ${error instanceof Error ? error.message : "that did not work"}`));
+  }, [csrfToken, refresh]);
   const act = useCallback((need: Need, action: NeedAction | null = need.action) => {
     if (!action) return;
     if (action.kind === "dismiss") { if (need.jobId) repair.dismiss({ kind: "job", jobId: need.jobId, title: need.title }); return; }
+    if (action.kind === "acknowledge") { if (typeof action.parameters.id === "string") acknowledge(need, action.parameters.id); return; }
     if (need.finding && action.fix) { repair.start(need.finding, action.fix); return; }
     // A job already staged is reviewed and approved as it is (M36's Review); nothing new is staged.
     start({ operationId: action.operationId, title: action.title, parameters: action.parameters, preview: action.preview ? <span>{action.preview}</span> : undefined,
       ...(action.moreTimeFor ? { moreTimeFor: action.moreTimeFor } : {}), ...(action.existingJobId ? { existingJobId: action.existingJobId } : {}) });
-  }, [repair, start]);
-  return { act, runs: repair.runs, remembered: repair.remembered, dialog: <>{operationDialog}{repair.dialog}</> };
+  }, [acknowledge, repair, start]);
+  return { act, runs: repair.runs, remembered: repair.remembered, dialog: <>{operationDialog}{repair.dialog}{problem && <p className="rp-dialog__error" role="alert">{problem}</p>}</> };
 }
 
 /** A fix's progress in a word or a sentence, for a row too narrow for its log. */

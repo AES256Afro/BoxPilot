@@ -58,8 +58,8 @@ export function NeedRow({ need, onOpen, onAct, icon, tier, run }: NeedRowProps) 
       {need.risk && !need.action && <RiskTag risk={need.risk} className="need__tier" />}
       {actions.length > 0 && (
         <span className="need__acts">
-          {actions.map((action) => (action.kind === "dismiss"
-            ? <Button key="dismiss" variant="ghost" className="need__act need__dismiss" aria-label={`Dismiss: ${need.title}`} onClick={() => onAct(need, action)}>Dismiss</Button>
+          {actions.map((action) => (action.kind === "dismiss" || action.kind === "acknowledge"
+            ? <Button key={action.kind} variant="ghost" className="need__act need__dismiss" aria-label={`${action.label}: ${need.title}`} onClick={() => onAct(need, action)}>{action.label}</Button>
             : <Button key={`${action.operationId}:${action.label}`} className="need__act" risk={action.risk} disabled={Boolean(busy)} aria-label={`${action.label}: ${need.title}`} onClick={() => onAct(need, action)}>{action.label}</Button>))}
         </span>
       )}

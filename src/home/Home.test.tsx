@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { TopBarSlotProvider } from "../shell/TopBarSlot";
 import { FactsProvider } from "./facts";
 import Home from "./Home";
+import type { OutageFact } from "./outage";
 import { stubFetch } from "./testData";
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
@@ -167,5 +168,30 @@ describe("Home", () => {
     await waitFor(() => expect(posted).toEqual(["/api/v1/jobs/f1/dismiss"]));
     // Not Repair's ledger: one mark for a failed job, wherever it is let go.
     expect(vi.mocked(fetch).mock.calls.some(([input]) => String(input).includes("/remediations/dismissals"))).toBe(false);
+  });
+
+  // 2026-09-29: a power cut took the server, and Pi-hole with it, down for 3.6 hours. Said once.
+  it("says the server lost power until someone says Got it", async () => {
+    const cut: OutageFact = { id: "7a0b2f1c3d4e5f60718293a4b5c6d7e8", stoppedAt: new Date(Date.now() - 4 * 3_600_000).toISOString(), backAt: new Date(Date.now() - 20 * 60_000).toISOString(), offForMs: 13_018_000, cause: "power", dnsApps: ["Pi-hole"], ups: false, acknowledged: null };
+    let outages: OutageFact[] = [cut];
+    const base = stubFetch();
+    const posted: Array<{ url: string; csrf: string | null }> = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url === "/api/v1/power/outages") return new Response(JSON.stringify({ outages, unacknowledged: outages.filter((entry) => !entry.acknowledged).length }));
+      if (init?.method === "POST" && url.endsWith("/acknowledge")) {
+        posted.push({ url, csrf: new Headers(init.headers).get("X-BoxPilot-CSRF") });
+        outages = [{ ...cut, acknowledged: { at: new Date().toISOString(), by: "owner-1" } }];
+        return new Response(JSON.stringify({ outage: outages[0] }));
+      }
+      return base(input, init);
+    }));
+    renderHome();
+    const needs = await screen.findByRole("region", { name: /What needs you/ });
+    const title = await within(needs).findByRole("button", { name: /^Needs a look: homebox lost power \(or froze\) at .+ and was off for 3 h 37 min\.$/ });
+    expect(title.closest("li")?.textContent).toContain("Pi-hole was down with it, so devices using it had no DNS.");
+    fireEvent.click(within(needs).getByRole("button", { name: /^Got it: homebox lost power/ }));
+    await waitFor(() => expect(posted).toEqual([{ url: `/api/v1/power/outages/${cut.id}/acknowledge`, csrf: "csrf" }]));
+    await waitFor(() => expect(within(needs).queryByRole("button", { name: /lost power/ })).toBeNull());
   });
 });

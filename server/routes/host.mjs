@@ -15,9 +15,25 @@ import { readTlsStatus } from "../tls-status.mjs";
 import { collectStorage } from "../storage-inventory.mjs";
 import { detectRemediations } from "../remediations.mjs";
 import { applyLedger, attemptsKey, dismissalFrom, dismissalsKey, findingIdPattern, jobIdPattern, withAttempt, withDismissal } from "../repair-ledger.mjs";
+import { inspectNameLookups } from "../name-lookups.mjs";
+import { dnsAppIds } from "../power-loss.mjs";
 import { callerId, readsThroughHelper, seesEveryAccount, withOwnActors } from "./access.mjs";
 import { access, readFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
+
+/**
+ * The DNS app on this server the rest of the house uses, if one is installed (Pi-hole, AdGuard Home),
+ * and where to ask it: the address its port 53 is published on, or this server itself (host network,
+ * or published on every address). For "the home network's DNS is separate and fine" (2026-09-29).
+ */
+export function dnsServerFrom(live, manifests = []) {
+  const app = (live?.applications ?? []).find((entry) => entry.installed && dnsAppIds.includes(entry.id));
+  if (!app) return null;
+  const port = (app.published ?? []).find((entry) => entry.host === 53);
+  const bound = typeof port?.bind === "string" && /^\d+\.\d+\.\d+\.\d+$/.test(port.bind) && port.bind !== "0.0.0.0" ? port.bind : "127.0.0.1";
+  return { name: manifests.find((manifest) => manifest.id === app.id)?.name ?? app.id, address: bound, running: Boolean(app.container?.running) && app.container?.status !== "paused" };
+}
 
 /**
  * The ports an installed app is already holding, as `port/protocol`, so reconfiguring it does not
@@ -59,7 +75,7 @@ export function buildReachability({ webHost, webPort, lanIp, dnsName, tls, serve
   return { ways, onLan, tlsProvisioned: Boolean(tls?.provisioned), servePublished: Boolean(servePublished) };
 }
 
-export function createHostRouter({ state, helper, catalogService, inventory, network, notifications = null, controllerProtection, controllerRetention, githubProvenance, releaseUpdates, setup, supportBundle, audit, auth, identity = null, webHost = "127.0.0.1", webPort = 8787, tlsDir = process.env.BOXPILOT_TLS_DIR ?? "/etc/boxpilot/tls", collect = collectStorage, fileExists = (file) => access(file).then(() => true, () => false), readListeners = listListeners }) {
+export function createHostRouter({ state, helper, catalogService, inventory, network, notifications = null, controllerProtection, controllerRetention, githubProvenance, releaseUpdates, setup, supportBundle, audit, auth, identity = null, webHost = "127.0.0.1", webPort = 8787, tlsDir = process.env.BOXPILOT_TLS_DIR ?? "/etc/boxpilot/tls", collect = collectStorage, fileExists = (file) => access(file).then(() => true, () => false), readListeners = listListeners, inspectNames = inspectNameLookups, hostname = os.hostname() }) {
   const router = Router();
   router.get("/diagnostics/runtime", async (_request, response) => {
     const [web, worker] = await Promise.allSettled([
@@ -171,9 +187,15 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
     // operator reads (ADR-003). A viewer is not handed what they hold as findings: they are not read
     // on a viewer's behalf, and the scan says which checks it left to an operator (M29.4).
     const operatorReads = readsThroughHelper(request);
+    const reading = helper.request("app.inspect", {}, { timeoutMs: 30_000 }).catch(() => null);
+    // Whether this server can look names up (2026-09-29), read here: the helper has no network. The
+    // home network's DNS app is asked too, but only once lookups have failed.
+    const namesRead = Promise.resolve().then(() => inspectNames({
+      dnsServer: async () => dnsServerFrom(await reading, await catalogService.all().then(({ manifests }) => manifests).catch(() => [])),
+    })).catch(() => ({ available: false }));
     const [storage, live, samba, usb, unclean, volumes, protection] = await Promise.all([
       collect().catch(() => null),
-      helper.request("app.inspect", {}, { timeoutMs: 30_000 }).catch(() => null),
+      reading,
       operatorReads ? helper.request("samba.inspect", {}, { timeoutMs: 30_000 }).catch(() => null) : null,
       operatorReads ? helper.request("storage.usb.events", {}, { timeoutMs: 45_000 }).catch(() => null) : null,
       operatorReads ? helper.request("storage.unclean.events", {}, { timeoutMs: 45_000 }).catch(() => null) : null,
@@ -188,19 +210,27 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
     facts.volumes = volumes;
     facts.driveTools = null;
     facts.driveChecks = state.getSetting("driveChecks", {}) ?? {};
+    // The boot partition's check, answering the kernel's "not properly unmounted" line (2026-09-29).
+    facts.bootChecks = state.getSetting("bootPartitionChecks", {}) ?? {};
+    facts.hostname = hostname;
+    facts.nameLookups = await namesRead;
     if (storage) {
       // findmnt knows what is mounted; fstab knows which of those BoxPilot manages and with what
       // options. Only managed mounts are offered a fix, so a hand-made entry is never touched.
       const byMountpoint = new Map((storage.fstab ?? []).map((row) => [row.mountpoint, row]));
-      facts.fstab = (storage.fstab ?? []).map((row) => ({ device: row.device, mountpoint: row.mountpoint, managedName: row.managedName ?? null }));
+      facts.fstab = (storage.fstab ?? []).map((row) => ({ device: row.device, mountpoint: row.mountpoint, managedName: row.managedName ?? null, pass: row.pass ?? 0 }));
       facts.mounts = (storage.mounts ?? []).map((mount) => {
         const entry = byMountpoint.get(mount.target);
         return { ...mount, managedName: entry?.managedName ?? null, options: entry?.options ?? null };
       });
       facts.devices = (storage.devices ?? []).filter((device) => device.path).map((device) => ({ path: device.path, transport: device.transport ?? device.tran ?? null }));
       // Whether the exFAT checker exists here at all; asked of the filesystem, not of apt.
-      const present = await Promise.all(["/usr/sbin/fsck.exfat", "/sbin/fsck.exfat"].map((file) => fileExists(file)));
-      facts.tools = { fsckExfat: present.some(Boolean) };
+      const [present, fat] = await Promise.all([
+        Promise.all(["/usr/sbin/fsck.exfat", "/sbin/fsck.exfat"].map((file) => fileExists(file))),
+        // The boot partition's checker (dosfstools), asked only when a FAT partition is mounted.
+        facts.mounts.some((mount) => ["vfat", "msdos"].includes(mount.fstype)) ? Promise.all(["/usr/sbin/fsck.fat", "/sbin/fsck.fat"].map((file) => fileExists(file))) : null,
+      ]);
+      facts.tools = { fsckExfat: present.some(Boolean), fsckFat: fat ? fat.some(Boolean) : null };
       // The exact versions the drive-tools fix would install, asked only when a finding offers that
       // fix: an exFAT drive and no fsck.exfat. Asked on every scan, it was eight root processes, two
       // of them apt-cache, on every Repair load of a server that already had the checker.
@@ -307,6 +337,7 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
     if (storage?.availability?.mounts === false) unavailableChecks.push("Current mounts");
     if (storage?.availability?.fstab === false) unavailableChecks.push("Saved mount configuration");
     if (!catalogManifests) unavailableChecks.push("Application definitions");
+    if (facts.nameLookups?.available === false) unavailableChecks.push("Name lookups");
     if (facts.apps.some((app) => app.published?.length) && !Array.isArray(facts.listeners)) unavailableChecks.push("Ports in use");
     const detected = detectRemediations(facts);
     // Each fix carries its tier from the registry, the same the approval dialog will ask for.

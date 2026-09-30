@@ -1,16 +1,17 @@
 import { describe, expect, it } from "vitest";
 import type { Job } from "../operations";
 import type { AppFact, FactValues } from "./facts";
-import { appFactsFrom, inventoryFactsFrom, watchFactsFrom } from "./facts";
+import { appFactsFrom, inventoryFactsFrom, outagesFrom, watchFactsFrom } from "./facts";
 import { elapsed, greeting, relativeTime, shortAge, size } from "./format";
 import { appHealth, buildNeeds, groupByTier, needsLabel, reachOf, sortNeeds, verdictFor, type Need } from "./needs";
+import { outageDetail, outageTitle, type OutageFact } from "./outage";
 
 const now = Date.parse("2026-09-28T12:00:00Z");
 const hoursAgo = (hours: number) => new Date(now - hours * 3_600_000).toISOString();
 
 const none: FactValues = {
   catalog: null, inventory: null, updates: null, unattended: null, services: null, watch: null, repairs: null, jobs: null,
-  schedules: null, protection: null, offBox: null, database: null, setup: null, checklist: null, vms: null, rebuild: null,
+  schedules: null, protection: null, offBox: null, database: null, setup: null, checklist: null, vms: null, rebuild: null, outages: null,
 };
 const facts = (overrides: Partial<FactValues>): FactValues => ({ ...none, ...overrides });
 
@@ -280,6 +281,47 @@ describe("Repair's fixes on Home and Ops (M35)", () => {
     const [viewed] = buildNeeds(facts({ jobs: [failed] }), { now, role: "viewer" });
     expect(viewed.action).toBeNull();
     expect(viewed.actions).toBeUndefined();
+  });
+});
+
+// 2026-09-29: the power went at 18:41 UTC and the server stayed off until 22:18, with Pi-hole on it.
+describe("a power cut, said once (2026-09-29)", () => {
+  const cut: OutageFact = { id: "7a0b2f1c3d4e5f60718293a4b5c6d7e8", stoppedAt: "2026-09-29T18:41:02.000Z", backAt: "2026-09-29T22:18:00.000Z", offForMs: 13_018_000, cause: "power", dnsApps: ["Pi-hole"], ups: false, acknowledged: null };
+  const host = inventoryFactsFrom({ host: { hostname: "homebox", uptimeSeconds: 1_200 }, compute: {}, storage: {} });
+  const watched = { targetConfigured: true, notices: [], alerts: [{ family: "power.lost", title: "homebox lost power (or froze) at 6:41 PM and was off for 3 h 37 min.", since: "2026-09-29T22:19:00.000Z", announced: true }] };
+
+  it("says what happened, what went down with it, and what would help, with Got it for whoever may", () => {
+    const needs = buildNeeds(facts({ outages: [cut], inventory: host, watch: watched }), { now: Date.parse("2026-09-29T22:40:00Z"), role: "owner" });
+    // The ledger's copy of it is not said twice.
+    expect(ids(needs)).toEqual([`outage:${cut.id}`]);
+    const [need] = needs;
+    expect(need).toMatchObject({ kind: "alert", severity: "warning", view: "system", action: null });
+    expect(need.title).toMatch(/^homebox lost power \(or froze\) at .+ and was off for 3 h 37 min\.$/);
+    expect(need.detail).toBe("Pi-hole was down with it, so devices using it had no DNS. Next time: set “Restore on AC power loss” to Power On in its BIOS, add a UPS and give your router a second DNS server.");
+    expect(need.actions).toEqual([{ kind: "acknowledge", operationId: "", label: "Got it", title: `Got it: ${need.title}`, parameters: { id: cut.id }, preview: "", risk: "low" }]);
+    // Not a fix: Ops lists it with what is only looked at.
+    expect(groupByTier(needs).look).toEqual(needs);
+    const [viewed] = buildNeeds(facts({ outages: [cut], inventory: host }), { now, role: "viewer" });
+    expect(viewed.actions).toBeUndefined();
+  });
+
+  it("is gone once someone said Got it, and the ledger's words stand in when the record cannot be read", () => {
+    expect(buildNeeds(facts({ outages: [{ ...cut, acknowledged: { at: "2026-09-29T23:00:00.000Z", by: null } }] }), { now, role: "owner" })).toEqual([]);
+    const fallback = buildNeeds(facts({ watch: watched }), { now, role: "owner" });
+    expect(fallback.map((need) => [need.id, need.title, need.view])).toEqual([["alert:power.lost:0", "homebox lost power (or froze) at 6:41 PM and was off for 3 h 37 min.", "system"]]);
+  });
+
+  it("puts it in the owner's time, and says the day when it was not today", () => {
+    const clock = { now: Date.parse("2026-09-29T22:40:00Z"), locale: "en-US", timeZone: "America/Chicago" };
+    expect(outageTitle(cut, "homebox", clock)).toBe("homebox lost power (or froze) at 1:41 PM and was off for 3 h 37 min.");
+    expect(outageTitle(cut, "homebox", { ...clock, now: Date.parse("2026-09-30T20:00:00Z") })).toBe("homebox lost power (or froze) at 1:41 PM on Tue 29 Sep and was off for 3 h 37 min.");
+    expect(outageDetail({ ...cut, dnsApps: [], ups: true })).toBe("Next time: set “Restore on AC power loss” to Power On in its BIOS and check the UPS, which did not shut it down cleanly.");
+    expect(outageDetail({ ...cut, cause: "overheated" })).toBe("Pi-hole was down with it, so devices using it had no DNS. Check that its fans turn and its vents are free of dust.");
+  });
+
+  it("reads the server's list, and refuses one without it", () => {
+    expect(outagesFrom({ outages: [{ ...cut, acknowledged: { at: "2026-09-29T23:00:00.000Z", by: null } }, { id: 7 } as never] })).toEqual([{ ...cut, acknowledged: { at: "2026-09-29T23:00:00.000Z", by: null } }]);
+    expect(() => outagesFrom({} as never)).toThrow();
   });
 });
 

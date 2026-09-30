@@ -10,6 +10,7 @@ import { mayStart, riskOf } from "../ui/operationRisk";
 import type { RiskTier, Status } from "../ui/types";
 import type { AppFact, FactValues, Facts } from "./facts";
 import { relativeTime } from "./format";
+import { outageDetail, outageTitle } from "./outage";
 
 /*
  * "What needs you" (M33.2): everything BoxPilot knows that the owner should look at or act on,
@@ -25,10 +26,11 @@ export type NeedSeverity = "danger" | "warning" | "neutral";
  * A fix that can be started from the list itself, through the ordinary approval dialog. A Repair
  * finding's fixes carry the finding's own `fix`, so Home and Ops run them exactly as Repair does
  * (M35): recorded against the finding, and the finding checked again when the job ends. `dismiss`
- * sets a failed job aside; it runs nothing.
+ * sets a failed job aside, and `acknowledge` says "Got it" to a power cut Home is telling the owner
+ * about (`parameters.id` is the outage); neither runs anything.
  */
 export interface NeedAction {
-  kind?: "operation" | "schedule" | "dismiss";
+  kind?: "operation" | "schedule" | "dismiss" | "acknowledge";
   fix?: RepairFix;
   /** Stage this timed-out job again with more time, rather than `operationId` afresh (M30.3). */
   moreTimeFor?: string;
@@ -76,6 +78,8 @@ export function watchView(family: string): ViewName {
   if (family === "release.available") return "system";
   if (family === "drive.reconnected") return "storage";
   if (family === "signin.new" || family === "report.weekly") return "settings";
+  // A power cut: its advice is a UPS, which the System page sets up.
+  if (family === "power.lost") return "system";
   return "repairs";
 }
 
@@ -121,10 +125,21 @@ export function buildNeeds(facts: FactValues, { now, role }: { now: number; role
       needs.push({ id: "unannounced", kind: "alert", severity: "warning", title: `BoxPilot could not tell you about ${countOf(unannounced, "thing")}`,
         detail: watch.targetConfigured ? "They have not reached your notification target yet" : "No notification target is set", view: "settings", action: null });
     }
-    watch.alerts.forEach((alert, index) => needs.push({
-      id: `alert:${alert.family}:${index}`, kind: "alert", severity: dangerFamilies.has(alert.family) ? "danger" : "warning", title: alert.title,
-      detail: alert.since ? `Since ${relativeTime(alert.since, now)}` : null, view: watchView(alert.family), action: null,
-    }));
+    watch.alerts.forEach((alert, index) => {
+      // A power cut is said below from its own record, in the owner's time, with "Got it".
+      if (alert.family === "power.lost" && facts.outages) return;
+      needs.push({
+        id: `alert:${alert.family}:${index}`, kind: "alert", severity: dangerFamilies.has(alert.family) ? "danger" : "warning", title: alert.title,
+        detail: alert.since ? `Since ${relativeTime(alert.since, now)}` : null, view: watchView(alert.family), action: null,
+      });
+    });
+  }
+
+  // ── The server went down without shutting down (2026-09-29): said once, until someone has seen it. ──
+  for (const outage of (facts.outages ?? []).filter((entry) => !entry.acknowledged)) {
+    const title = outageTitle(outage, facts.inventory?.hostname || "This server", { now });
+    const seen: NeedAction | null = role === "owner" || role === "operator" ? { kind: "acknowledge", operationId: "", label: "Got it", title: `Got it: ${title}`, parameters: { id: outage.id }, preview: "", risk: "low" } : null;
+    needs.push({ id: `outage:${outage.id}`, kind: "alert", severity: "warning", title, detail: outageDetail(outage), view: "system", action: null, ...(seen ? { actions: [seen] } : {}) });
   }
 
   // ── Apps: stopped, leaking, unwell. A pause is a choice, so it is said, not alarmed about. ──
