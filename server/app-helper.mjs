@@ -8,6 +8,7 @@ import { constants as fsConstants, createReadStream } from "node:fs";
 import { lchown, lstat, mkdir, open, readFile, readdir, rename, rm, stat, writeFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import YAML from "yaml";
+import { writeFileDurably } from "./durable-file.mjs";
 import { fixedRun } from "./exec.mjs";
 import { parseServeStatus } from "./tailscale-serve.mjs";
 import { createCatalogService } from "./catalog/index.mjs";
@@ -143,11 +144,63 @@ export function createAppHelper({
   }
   async function writeState(id, state) {
     const target = path.join(dirFor(id), "boxpilot.json");
-    await writeFile(`${target}.tmp`, JSON.stringify(state, null, 2), { mode: 0o600 });
+    await writeFileDurably(`${target}.tmp`, JSON.stringify(state, null, 2), { mode: 0o600 });
     await rename(`${target}.tmp`, target);
   }
   async function readEnv(id) {
     try { return parseEnvFile(await readFile(path.join(dirFor(id), ".env"), "utf8")); } catch { return {}; }
+  }
+
+  /** Where a backup in progress says what it stopped and what it is writing (see backup). */
+  const interruptedBackupMarker = (id) => path.join(dirFor(id), ".boxpilot-backup-in-progress.json");
+  /** Flush a file's data to disk before it is renamed into place. */
+  async function syncFile(file) {
+    const handle = await open(file, "r+");
+    try { await handle.sync(); } finally { await handle.close(); }
+  }
+
+  /**
+   * Backups a power cut or a restart cut off: each app whose marker is still there, with what the
+   * backup had stopped and the archive it was writing. Read when the helper starts, before it takes
+   * a request; a marker that cannot be read says nothing it could act on and is left alone.
+   */
+  async function interruptedBackups() {
+    const ids = await presentIds();
+    const found = [];
+    for (const id of [...ids ?? []].filter((entry) => idPattern.test(entry)).sort()) {
+      const text = await readFile(interruptedBackupMarker(id), "utf8").catch(() => null);
+      if (text === null) continue;
+      let marker = null;
+      try { marker = JSON.parse(text); } catch { marker = null; }
+      if (marker && typeof marker === "object") found.push({ id, restart: marker.restart === true, partial: typeof marker.partial === "string" ? marker.partial : null, startedAt: marker.startedAt ?? null });
+    }
+    return found;
+  }
+
+  /**
+   * Put right what an interrupted backup left: its half-written archive is removed, and an app it
+   * had stopped is started again. Docker never starts a container stopped by hand, whatever its
+   * restart policy, so after a power cut during the nightly backup the app stayed down until
+   * someone noticed. Docker may not be up yet at boot, so the start is tried for a while.
+   */
+  async function resumeInterruptedBackup({ id, restart, partial }, { attempts = 40, delayMs = 15_000 } = {}) {
+    let removedPartial = false;
+    if (partial && /^\d{8}T\d{6}Z\.tar\.gz\.partial$/.test(partial)) {
+      const file = path.join(backupDirFor(id), partial);
+      removedPartial = await stat(file).then(() => rm(file, { force: true }).then(() => true), () => false);
+    }
+    let started = false;
+    let error = null;
+    for (let attempt = 1; restart && !started && attempt <= attempts; attempt += 1) {
+      const result = await compose(id, ["start"], { timeout: 180_000 });
+      if (result.ok) started = true;
+      else {
+        error = redact(result.stderr).split("\n").filter(Boolean).slice(-2).join(" ") || "docker compose start failed";
+        if (attempt < attempts) await wait(delayMs);
+      }
+    }
+    if (!restart || started) await rm(interruptedBackupMarker(id), { force: true });
+    return { id, removedPartial, restarted: started, ...(restart && !started ? { error } : {}) };
   }
 
   /** The deployed compose.yaml and .env as they are now (null when absent), so a failed change can put them back. */
@@ -159,7 +212,7 @@ export function createAppHelper({
   async function restoreProjectFiles(id, saved) {
     for (const [name, content] of [["compose.yaml", saved.compose], [".env", saved.env]]) {
       if (content === null) continue;
-      await writeFile(path.join(dirFor(id), `${name}.tmp`), content, { mode: 0o600 });
+      await writeFileDurably(path.join(dirFor(id), `${name}.tmp`), content, { mode: 0o600 });
       await rename(path.join(dirFor(id), `${name}.tmp`), path.join(dirFor(id), name));
     }
   }
@@ -624,9 +677,9 @@ export function createAppHelper({
       }
     }
     const rendered = renderCompose(manifest, values, { existingEnv, lanAddress, devices, tailnetAddress: await tailnetAddressFor(manifest, values), tailnetHost, sidecarEnvOverrides, gpu });
-    await writeFile(path.join(directory, ".env.tmp"), rendered.envFile, { mode: 0o600 });
+    await writeFileDurably(path.join(directory, ".env.tmp"), rendered.envFile, { mode: 0o600 });
     await rename(path.join(directory, ".env.tmp"), path.join(directory, ".env"));
-    await writeFile(path.join(directory, "compose.yaml.tmp"), rendered.composeYaml, { mode: 0o600 });
+    await writeFileDurably(path.join(directory, "compose.yaml.tmp"), rendered.composeYaml, { mode: 0o600 });
     await rename(path.join(directory, "compose.yaml.tmp"), path.join(directory, "compose.yaml"));
     // Config files shipped with the app (a prometheus.yml, a datasource yaml). Their paths were
     // validated safe and relative by the schema; each is written under the project directory and
@@ -1147,8 +1200,8 @@ export function createAppHelper({
     } catch (error) {
       let rolledBack = false;
       if (previousCompose !== null) {
-        await writeFile(path.join(dirFor(id), "compose.yaml"), previousCompose, { mode: 0o600 });
-        await writeFile(path.join(dirFor(id), ".env"), previousEnv, { mode: 0o600 });
+        await writeFileDurably(path.join(dirFor(id), "compose.yaml"), previousCompose, { mode: 0o600 });
+        await writeFileDurably(path.join(dirFor(id), ".env"), previousEnv, { mode: 0o600 });
         progress?.(`Reconfiguration failed: ${error.message}. Restoring previous configuration...`, "stderr");
         rolledBack = (await compose(id, ["up", "--detach", "--remove-orphans"], { timeout: 10 * 60_000, progress })).ok;
       }
@@ -1173,10 +1226,10 @@ export function createAppHelper({
     const previous = await readFile(target, "utf8").catch(() => null);
     if (previous === null) throw new Error("There is no compose.yaml to edit");
     const saved = takeCheckpoint ? await checkpoint({ id, reason: "compose edit" }, { progress }) : null;
-    await writeFile(target, composeText, { mode: 0o600 });
+    await writeFileDurably(target, composeText, { mode: 0o600 });
     const check = await compose(id, ["config", "--quiet"], { timeout: 60_000, progress });
     if (!check.ok) {
-      await writeFile(target, previous, { mode: 0o600 });
+      await writeFileDurably(target, previous, { mode: 0o600 });
       throw new Error(`docker compose rejected the file; the previous one was restored: ${redact(check.stderr).split("\n").slice(-3).join(" ")}`);
     }
     const up = await compose(id, ["up", "--detach", "--remove-orphans"], { timeout: 15 * 60_000, progress });
@@ -1187,7 +1240,7 @@ export function createAppHelper({
       return { edited: true, id, rawEdited: true, checkpoint: saved };
     } catch (error) {
       progress?.(`Edit failed: ${error.message}. Restoring the previous compose file...`, "stderr");
-      await writeFile(target, previous, { mode: 0o600 });
+      await writeFileDurably(target, previous, { mode: 0o600 });
       const rolledBack = (await compose(id, ["up", "--detach", "--remove-orphans"], { timeout: 10 * 60_000, progress })).ok;
       throw new Error(`${manifest.name} rejected the edited compose file${rolledBack ? "; the previous one was restored" : " and automatic rollback also failed"}. ${error.message}`);
     }
@@ -1646,12 +1699,6 @@ export function createAppHelper({
     }
     const status = await containerStatus(id);
     const wasRunning = status.running;
-    const started = clock().getTime();
-    if (wasRunning) {
-      progress?.(`Stopping ${manifest.name} for a consistent backup...`, "stdout");
-      const stop = await compose(id, ["stop"], { timeout: 120_000, progress });
-      if (!stop.ok) throw new Error(`docker compose stop failed: ${redact(stop.stderr).split("\n").slice(-3).join(" ")}`);
-    }
     const backupDirectory = backupDirFor(id);
     // Names are second-granular; a checkpoint followed by a restore's safety copy can land in
     // the same second, so step forward until the name is free instead of overwriting.
@@ -1662,26 +1709,52 @@ export function createAppHelper({
       if (!(await stat(artifact).then(() => true, () => false))) break;
       if (offset === 119) throw new Error("Could not find a free backup name");
     }
+    // The archive is written under a name no listing reads, and takes its own only once it is whole
+    // and described, so a backup cut off part-way is never counted as one, pruned against, or mirrored.
+    const partial = `${artifact}.partial`;
+    // Said on disk before the app stops. A power cut or a restart mid-backup leaves the app stopped
+    // by hand, which Docker's unless-stopped never undoes, and half an archive; the helper's next
+    // start reads this and puts both right (resumeInterruptedBackup).
+    await writeFileDurably(interruptedBackupMarker(id), JSON.stringify({ startedAt: clock().toISOString(), partial: path.basename(partial), restart: wasRunning }), { mode: 0o600 });
+    const started = clock().getTime();
     let downtimeMs = null;
+    let restartError = null;
+    let meta = null;
     try {
-      await mkdir(backupDirectory, { recursive: true, mode: 0o700 });
-      progress?.(`$ tar -czf ${stamp}.tar.gz ${contents.join(" ")}`, "stdout");
-      const archive = await runCommand(tarBinary, ["-czf", artifact, "-C", directory, ...contents], { timeout: 60 * 60_000, maxBuffer: 4 * 1024 * 1024 });
-      if (!archive.ok) throw new Error(`tar failed: ${archive.stderr.split("\n").slice(-2).join(" ")}`);
-    } catch (error) {
-      await rm(artifact, { force: true }).catch(() => {});
-      if (wasRunning) await compose(id, ["start"], { timeout: 180_000, progress }).catch(() => {});
-      throw error;
+      if (wasRunning) {
+        progress?.(`Stopping ${manifest.name} for a consistent backup...`, "stdout");
+        const stop = await compose(id, ["stop"], { timeout: 120_000, progress });
+        if (!stop.ok) throw new Error(`docker compose stop failed: ${redact(stop.stderr).split("\n").slice(-3).join(" ")}`);
+      }
+      try {
+        await mkdir(backupDirectory, { recursive: true, mode: 0o700 });
+        progress?.(`$ tar -czf ${stamp}.tar.gz ${contents.join(" ")}`, "stdout");
+        const archive = await runCommand(tarBinary, ["-czf", partial, "-C", directory, ...contents], { timeout: 60 * 60_000, maxBuffer: 4 * 1024 * 1024 });
+        if (!archive.ok) throw new Error(`tar failed: ${archive.stderr.split("\n").slice(-2).join(" ")}`);
+      } catch (error) {
+        await rm(partial, { force: true }).catch(() => {});
+        // Said with the failure: a start that did not work left the app down while the job spoke
+        // only of tar (a full disk fails both).
+        const back = wasRunning ? await compose(id, ["start"], { timeout: 180_000, progress }).catch((failure) => ({ ok: false, stderr: failure.message })) : { ok: true };
+        if (!back.ok) throw new Error(`${String(error.message).replace(/[.\s]+$/, "")}. ${manifest.name} did not start again either: ${redact(back.stderr ?? "").split("\n").slice(-3).join(" ") || "docker compose start failed"}`);
+        throw error;
+      } finally {
+        if (wasRunning) downtimeMs = clock().getTime() - started;
+      }
+      if (wasRunning) {
+        const start = await compose(id, ["start"], { timeout: 180_000, progress });
+        if (!start.ok) restartError = redact(start.stderr).split("\n").slice(-3).join(" ");
+      }
+      await syncFile(partial);
+      const [checksumSha256, artifactStat] = await Promise.all([sha256File(partial), stat(partial)]);
+      meta = { id, createdAt: clock().toISOString(), artifact: path.basename(artifact), checksumSha256, sizeBytes: artifactStat.size, downtimeMs, contents, skippedVolumes, skippedHostPaths, image: state.image?.reference ?? null, ...(checkpointReason ? { checkpoint: { reason: checkpointReason } } : {}) };
+      await writeFileDurably(path.join(backupDirectory, `${stamp}.json`), JSON.stringify(meta, null, 2), { mode: 0o600 });
+      await rename(partial, artifact);
+      if (restartError) throw new Error(`The backup succeeded (${path.basename(artifact)}), but ${manifest.name} did not start again: ${restartError}`);
     } finally {
-      if (wasRunning) downtimeMs = clock().getTime() - started;
+      // Not reached when the process dies mid-backup, which is when the marker is wanted.
+      await rm(interruptedBackupMarker(id), { force: true }).catch(() => {});
     }
-    if (wasRunning) {
-      const start = await compose(id, ["start"], { timeout: 180_000, progress });
-      if (!start.ok) throw new Error(`The backup succeeded (${path.basename(artifact)}), but ${manifest.name} did not start again: ${redact(start.stderr).split("\n").slice(-3).join(" ")}`);
-    }
-    const [checksumSha256, artifactStat] = await Promise.all([sha256File(artifact), stat(artifact)]);
-    const meta = { id, createdAt: clock().toISOString(), artifact: path.basename(artifact), checksumSha256, sizeBytes: artifactStat.size, downtimeMs, contents, skippedVolumes, skippedHostPaths, image: state.image?.reference ?? null, ...(checkpointReason ? { checkpoint: { reason: checkpointReason } } : {}) };
-    await writeFile(path.join(backupDirectory, `${stamp}.json`), JSON.stringify(meta, null, 2), { mode: 0o600 });
     let pruned = [];
     if (keep !== null) {
       // Each kind is counted against its own kind only. An archive without metadata is treated as
@@ -2236,5 +2309,5 @@ export function createAppHelper({
     return installed;
   }
 
-  return { syncHomepage, inspect, installedIds, dataUsage: shared(dataUsage), reachabilityFacts, vpnKillSwitchDrill, foreignProjects, foreignProjectAction, foreignProjectLogs, vpnStatus, listModels, pullModel, removeModel, countAppBackups, backupProtection, install, uninstall, reinstall, backupMany, update, reconfigure, action, execIn, logs, config, readComposeConfig, editCompose, secrets, setPassword, backup, listAppBackups, verifyAppBackup, restoreAppBackup, rollbackApp, listAppBackupFiles, restoreAppBackupPath, deleteAppBackup, checkUpdates, catalogRoot: root, internals: { imageDeclaredOwner, parseModelList, containerStatus, waitHealthy, writeProject, readState, parseEnvFile } };
+  return { syncHomepage, inspect, installedIds, dataUsage: shared(dataUsage), reachabilityFacts, vpnKillSwitchDrill, foreignProjects, foreignProjectAction, foreignProjectLogs, vpnStatus, listModels, pullModel, removeModel, countAppBackups, backupProtection, install, uninstall, reinstall, backupMany, interruptedBackups, resumeInterruptedBackup, update, reconfigure, action, execIn, logs, config, readComposeConfig, editCompose, secrets, setPassword, backup, listAppBackups, verifyAppBackup, restoreAppBackup, rollbackApp, listAppBackupFiles, restoreAppBackupPath, deleteAppBackup, checkUpdates, catalogRoot: root, internals: { imageDeclaredOwner, parseModelList, containerStatus, waitHealthy, writeProject, readState, parseEnvFile } };
 }

@@ -37,7 +37,12 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const running = new Map();
 function dnsmasq(name, address, extra) {
-  const args = ["--keep-in-foreground", "--conf-file=/dev/null", "--no-hosts", "--bind-interfaces", `--listen-address=${address}`, "--port=53", "--user=root", "--cache-size=150", ...extra];
+  // A pid file each. Four started at once all reached for /var/run/dnsmasq.pid, and whichever found
+  // it taken exited ("failed to open pidfile: File exists"): on 2026-09-30 that was the router, and
+  // every check through it failed.
+  const pidFile = `/tmp/bp-dns-fallback-${name}.pid`;
+  rmSync(pidFile, { force: true });
+  const args = ["--keep-in-foreground", "--conf-file=/dev/null", "--no-hosts", "--bind-interfaces", `--listen-address=${address}`, "--port=53", "--user=root", "--cache-size=150", `--pid-file=${pidFile}`, ...extra];
   const child = spawn("dnsmasq", args, { stdio: ["ignore", "inherit", "inherit"] });
   running.set(name, child);
   return child;
@@ -46,6 +51,9 @@ async function stop(name) {
   const child = running.get(name);
   if (!child) return;
   running.delete(name);
+  // One that has exited already will not say so again: waiting for it held the job until CI's
+  // ten-minute limit cancelled it, after a failure the test had already reported.
+  if (child.exitCode !== null || child.signalCode !== null) return;
   const exited = new Promise((resolve) => child.once("exit", resolve));
   child.kill("SIGTERM");
   await exited;
