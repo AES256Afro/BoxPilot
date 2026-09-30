@@ -10,8 +10,9 @@
 #   1. A share whose folder leads into /etc through a link, and one whose path is spelled to reach
 #      /etc, are refused before smb.conf is written.
 #   2. root and a system account BoxPilot did not make get no Samba password.
-#   3. An ordinary share applies: testparm accepts what BoxPilot writes, smbd serves it, and a user
-#      BoxPilot made lists it.
+#   3. An ordinary share applies: testparm accepts what BoxPilot writes, smbd - started by the
+#      package, listening everywhere - ends up listening only where smb.conf says, and a user
+#      BoxPilot made lists the share.
 #   4. root cannot sign in even with a Samba password someone set by hand: smb.conf names it an
 #      invalid user.
 set -uo pipefail
@@ -57,6 +58,9 @@ await refused("a Samba password for root", () => sambaUserSet({ username: "root"
 await refused("a Samba password for daemon", () => sambaUserSet({ username: "daemon", password: "long enough pw" }, { log }), /system account/);
 const applied = await sambaApply({ shares: [{ name: "Audit", path: process.env.BP_SHARE, readOnly: false }] }, { log });
 console.log(`   ok: applied ${JSON.stringify(applied.shares)} listening on ${JSON.stringify(applied.listening)}`);
+// Tailnet scope: loopback and tailscale0 only (this runner has no tailscale0), never every address.
+if (applied.listening.some((address) => /^(0\.0\.0\.0|\[::\]|\*):445$/.test(address))) { console.log("   FAILED: smbd listens on every address after a tailnet-only apply"); failures += 1; }
+else console.log("   ok: smbd listens only where smb.conf says");
 await sambaUserSet({ username: process.env.BP_USER, password: process.env.BP_PASSWORD }, { log });
 console.log(`   ok: made ${process.env.BP_USER} a file-server user`);
 process.exitCode = failures ? 1 : 0;

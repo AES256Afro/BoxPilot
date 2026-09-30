@@ -238,10 +238,27 @@ export async function sambaApply({ workgroup = "WORKGROUP", scope = "tailscale",
   if (!enable.ok) throw new Error(`Could not start smbd: ${tail(enable.stderr)}`);
   await run(binaries.systemctl, ["reload-or-restart", "smbd"], { timeout: 60_000 });
   await run(binaries.systemctl, [scope === "lan" ? "enable" : "disable", scope === "lan" ? "--now" : "--now", "nmbd"], { timeout: 60_000 }).catch(() => {});
-  const listening = await run(binaries.ss, ["-H", "-l", "-n", "-t"], { timeout: 10_000 });
-  const bound = listening.ok ? listening.stdout.split("\n").filter((line) => /:445\s/.test(line)).map((line) => line.trim().split(/\s+/)[3]).filter(Boolean) : [];
+  let bound = await smbdListening(run);
+  // A reload rereads smb.conf and keeps the sockets smbd already has. One the package started with
+  // its own configuration listens on every address, and went on doing so after a tailnet-only
+  // apply: the shares answered on the LAN the owner had left out. Listening anywhere at all is
+  // never what this file asks for, so smbd is restarted to bind where it is told.
+  if (bound.some(everyAddress)) {
+    log?.("smbd was still listening on every address after the reload; restarting it so it listens only where smb.conf says", "stderr");
+    await run(binaries.systemctl, ["restart", "smbd"], { timeout: 60_000 });
+    bound = await smbdListening(run);
+  }
   return { applied: true, scope, workgroup, shares: shares.map((share) => share.name), interfaces: ["lo", "tailscale0", ...(lanInterface ? [lanInterface] : [])], listening: bound, forceUsers };
 }
+
+/** Where smbd listens on 445, as `ss` names each address. */
+async function smbdListening(run) {
+  const listening = await run(binaries.ss, ["-H", "-l", "-n", "-t"], { timeout: 10_000 });
+  return listening.ok ? listening.stdout.split("\n").filter((line) => /:445\s/.test(line)).map((line) => line.trim().split(/\s+/)[3]).filter(Boolean) : [];
+}
+
+/** A listener on every address rather than an interface's: 0.0.0.0, [::] or *. */
+const everyAddress = (address) => /^(0\.0\.0\.0|\[::\]|\*|\[::ffff:0\.0\.0\.0\]):445$/.test(address);
 
 /** Filesystems that keep no owners: their mount decides who owns every file (see storage.writable). */
 const ownerlessFilesystems = new Set(["exfat", "vfat", "ntfs", "ntfs3", "msdos"]);

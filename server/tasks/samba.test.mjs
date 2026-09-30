@@ -74,6 +74,22 @@ describe("what a share may serve, and who may sign in", () => {
     await expect(sambaUserSet({ username: "backup", password: "long enough pw" }, { run })).resolves.toMatchObject({ updated: true });
   });
 
+  // A reload rereads smb.conf but keeps the sockets smbd already has: one started by the package
+  // with its own configuration went on listening on every address after a tailnet-only apply.
+  it("restarts smbd when a reload leaves it listening on every address", async () => {
+    const files = fakeFiles({ existing: "# Managed by BoxPilot\n[global]\n" });
+    let restarted = false;
+    const base = fakeRun();
+    const run = vi.fn(async (binary, args, options) => {
+      if (binary.endsWith("systemctl") && args[0] === "restart" && args[1] === "smbd") { restarted = true; return { ok: true, stdout: "", stderr: "" }; }
+      if (binary.endsWith("/ss")) return { ok: true, stdout: restarted ? "LISTEN 0 50 127.0.0.1:445 0.0.0.0:*\nLISTEN 0 50 [::1]:445 [::]:*\n" : "LISTEN 0 50 0.0.0.0:445 0.0.0.0:*\nLISTEN 0 50 [::]:445 [::]:*\n", stderr: "" };
+      return base(binary, args, options);
+    });
+    const result = await sambaApply({ shares: [{ name: "Media", path: "/srv/media" }] }, { run, files });
+    expect(restarted).toBe(true);
+    expect(result.listening).toEqual(["127.0.0.1:445", "[::1]:445"]);
+  });
+
   it("tells Samba itself never to sign root in", () => {
     expect(renderSmbConf({ scope: "tailscale" })).toContain("   invalid users = root\n");
   });
