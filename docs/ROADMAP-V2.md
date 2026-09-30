@@ -2087,6 +2087,45 @@ Left, and why:
 - **Per-device Pi-hole numbers**: only if the owner opts in, as a separate owner-only read.
 - **Learning on its own schedule**: a learning pass runs when asked ("Re-learn"), in quiet hours.
 
+## M39 — Keep the house running when the server does not
+
+Approved 2026-09-29, after the owner's server lost power for 3 h 37 min: Pi-hole on it was the
+house's only DNS, so every device lost the internet, and nothing said so because ntfy was on the
+same server. Decided in ADR-007. The network half is `feat/m39-network`.
+
+- ✅ **M39.2 DNS that survives the server being off** (unreleased). The router becomes the one DNS
+  server devices are given, asks Pi-hole here first and a public resolver only when it does not
+  answer (ADR-007 weighs a second DHCP server and a synced second Pi-hole). BoxPilot does not sign in
+  to the router; it shows the steps and proves the result. `server/dns-resilience.mjs` reads what the
+  router hands out from this server's own DHCP lease (networkd's JSON or lease file, NetworkManager,
+  dhclient), asks every other server on the list directly with node's resolver (no dig, ping or
+  tcpdump), sends a canary through the router and looks for it in Pi-hole's query log
+  (`dns.blocker.canary`), and reads the last rehearsal. **Rehearse** (`dns.fallback.rehearse`, medium)
+  stops the DNS app for about half a minute behind a three-minute safety timer, asks the router three
+  uncached names, starts the app and waits until it answers on the LAN. "If <server> goes down, every
+  device on your network loses the internet" is said only on evidence (a lease naming nothing else,
+  a failed rehearsal, second servers that do not answer), on Network (a notice, the strip, the
+  panel) and on Home and Ops through Repair; an unrehearsed router is "not known yet", with the
+  rehearsal as its fix. **Router steps** for GL.iNet 4.x, OpenWrt and any router, addresses filled
+  in (`docs/NETWORK.md` too). After a boot that followed an unclean end, the DNS app is asked on the
+  LAN and the host through NSS, and both lines go on the outage's record
+  (`server/outage-dns.mjs`, plugged into feat/repair-dns-power's `previousBootEndedUncleanly()`).
+  `tests/ubuntu/dns-fallback.sh` runs it all against real dnsmasq routers with and without a
+  fallback and the runner's own lease, on both LTS releases.
+- ✅ **M39.3 Knowing the server is down, from outside it** (unreleased). An opt-in heartbeat (Settings,
+  Notifications): a bare `GET` every few minutes (five unless changed) to a dead man's switch the
+  owner picks (healthchecks.io's free plan, or Healthchecks or Uptime Kuma push on another machine),
+  which alerts their phone when the pings stop. No body, no header of BoxPilot's, nothing about the
+  server. The address is a credential in the root-only store (`heartbeat-url`); the pinging is
+  `deploy/boxpilot-heartbeat.timer` and a capability-less oneshot, so a BoxPilot restart does not
+  trip the alarm; never retried in a loop. `heartbeat.set` (medium, owner), `heartbeat.test` (low,
+  owner), the last ping and the host on the panel. Tailscale has no device-offline alert (its webhooks
+  have no such event); a router cron script is documented, not built. `tests/ubuntu/heartbeat.sh`
+  runs the units as shipped on real systemd.
+- **Later**: sync a second Pi-hole over Pi-hole v6's teleporter API once there is a second always-on
+  box; read the router's DNS settings through the existing GL.iNet connection; a DHCPINFORM probe so a
+  server with a hand-set address can still see what the router hands out.
+
 ## App catalogue candidates
 
 Checked against the 164 manifests already in `catalog/`, so nothing here duplicates an existing

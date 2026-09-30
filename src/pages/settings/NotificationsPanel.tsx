@@ -230,26 +230,26 @@ export default function NotificationsPanel({ csrfToken, onChange }: { csrfToken:
       </div>
 
       <div className="settings-column">
-      {/* M39.3: something outside this server that notices when it goes quiet. */}
-      <HeartbeatPanel csrfToken={csrfToken} />
-      {watch && (
-        <Panel
-          title="What BoxPilot watches"
-          count={{ status: watch.activeCount ? "warning" : "good", label: watch.activeCount ? `${watch.activeCount} needs attention` : "All clear" }}
-          meta={watch.targetConfigured ? "checked every 15 minutes" : "no target: these cannot reach you"}
-          className="settings-panel"
-          footer="A push when one turns bad, and again when it clears. A scheduled task or automation that keeps failing is one push until it works again; anything that could not be sent is listed on Home and Ops."
-        >
-          <ul className="settings-watch" aria-label="Conditions BoxPilot watches for">
-            {watch.conditions.map((condition) => (
-              <li key={condition.key} className="settings-watch__item" title={condition.active ? condition.details.map((detail) => detail.title).join("; ") : "Clear"}>
-                <span>{condition.label}{condition.active && condition.details.length > 1 ? ` (${condition.details.length})` : ""}</span>
-                <StatusChip status={condition.active ? "warning" : "good"}>{condition.active ? "needs a look" : "clear"}</StatusChip>
-              </li>
-            ))}
-          </ul>
-        </Panel>
-      )}
+        {/* M39.3: something outside this server that notices when it goes quiet. */}
+        <HeartbeatPanel csrfToken={csrfToken} />
+        {watch && (
+          <Panel
+            title="What BoxPilot watches"
+            count={{ status: watch.activeCount ? "warning" : "good", label: watch.activeCount ? `${watch.activeCount} needs attention` : "All clear" }}
+            meta={watch.targetConfigured ? "checked every 15 minutes" : "no target: these cannot reach you"}
+            className="settings-panel"
+            footer="A push when one turns bad, and again when it clears. A scheduled task or automation that keeps failing is one push until it works again; anything that could not be sent is listed on Home and Ops."
+          >
+            <ul className="settings-watch" aria-label="Conditions BoxPilot watches for">
+              {watch.conditions.map((condition) => (
+                <li key={condition.key} className="settings-watch__item" title={condition.active ? condition.details.map((detail) => detail.title).join("; ") : "Clear"}>
+                  <span>{condition.label}{condition.active && condition.details.length > 1 ? ` (${condition.details.length})` : ""}</span>
+                  <StatusChip status={condition.active ? "warning" : "good"}>{condition.active ? "needs a look" : "clear"}</StatusChip>
+                </li>
+              ))}
+            </ul>
+          </Panel>
+        )}
       </div>
     </>
   );
