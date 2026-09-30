@@ -227,6 +227,23 @@ describe("App catalog: installing", () => {
     expect(JSON.parse(stagedBody ?? "{}")).toEqual({ parameters: { id: "jellyfin", values: { ports: { web: 8097 }, env: {}, volumes: { media: "/mnt/media" } } } });
   });
 
+  it("marks Install with the tier the server will approve it at: the manifest's, when higher", async () => {
+    // Installing a DNS server the house leans on is high since the security audit; the button said medium.
+    serve(catalogOf([{ manifest: { ...dnsManifest, risk: "high" }, live: absent("pi-hole") }, { manifest, live: absent("jellyfin") }]), (url) => (url.endsWith("/precheck") ? json({ ok: true, errors: [], conflicts: [] }) : undefined));
+    render(<CatalogPage csrfToken="csrf-token" />);
+    fireEvent.click(await screen.findByRole("tab", { name: /Catalog/ }));
+    expect((await screen.findByRole("button", { name: "Install Pi-hole" })).getAttribute("data-risk")).toBe("high");
+    expect(screen.getByRole("button", { name: "Install Jellyfin" }).getAttribute("data-risk")).toBe("medium");
+    fireEvent.click(screen.getByRole("button", { name: "Install Pi-hole" }));
+    const sheet = await screen.findByRole("dialog", { name: "Pi-hole" });
+    expect(within(sheet).getByRole("button", { name: /Continue to install/ }).getAttribute("data-risk")).toBe("high");
+    fireEvent.click(within(sheet).getByRole("button", { name: "Cancel" }));
+    // The app's own sheet says the same.
+    fireEvent.click(await screen.findByRole("button", { name: /^Pi-hole: / }));
+    const app = await screen.findByRole("dialog", { name: "Pi-hole" });
+    expect(within(app).getByRole("button", { name: "Install" }).getAttribute("data-risk")).toBe("high");
+  });
+
   it("opens the app on the Installed tab once its install has finished, rather than leaving it to vanish from the list", async () => {
     let installed = false;
     serve(catalogOf([{ manifest, live: absent("jellyfin") }]), (url) => {

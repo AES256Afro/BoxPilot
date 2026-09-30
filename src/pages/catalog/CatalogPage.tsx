@@ -7,7 +7,7 @@ import { strandedServes } from "../../strandedServes";
 import { AppIcon, Button, CodeBlock, EmptyState, Notice, PageHeader, Panel, SearchField, Select, Sheet, StatusChip, Table, Tabs, Tag, Tile, Toolbar, appHue, mayStart, riskOf, useUrlParam, type Status, type TableColumn } from "../../ui";
 import { AppSheet, type SheetTab } from "./AppSheet";
 import { ConfigSheet } from "./ConfigSheet";
-import { appStatus, isRunning, runRead, tileDetail } from "./appState";
+import { appStatus, installTier, isRunning, runRead, tileDetail } from "./appState";
 import type { AppStats, CatalogContext, CatalogResponse, Entry, KillswitchSchedule, Serve, Tunnel, Values } from "./types";
 import "./catalog.css";
 
@@ -394,7 +394,7 @@ export default function CatalogPage({ csrfToken, focusApp, role = "owner" }: Cat
                             <p className="catalog-card__description">{manifest.description}</p>
                             <div className="catalog-card__foot">
                               {live?.dataPresent ? <Tag tone="warning" title="Its data is still on this server from before">data kept</Tag> : !live ? <Tag>state unknown</Tag> : <span />}
-                              {mayStart(role, "app.install") && <Button aria-label={`Install ${manifest.name}`} onClick={() => ctx?.configure(entry, "install")}>Install</Button>}
+                              {mayStart(role, "app.install") && <Button aria-label={`Install ${manifest.name}`} risk={installTier(manifest)} onClick={() => ctx?.configure(entry, "install")}>Install</Button>}
                             </div>
                           </li>
                         );

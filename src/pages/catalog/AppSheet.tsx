@@ -6,7 +6,7 @@ import { ConfigTab } from "./ConfigTab";
 import { LogsTab } from "./LogsTab";
 import { ModelsTab } from "./ModelsTab";
 import { ReachTab, reachOf } from "./ReachTab";
-import { appStatus, drillFailed, isPaused, isRunning, troubledSidecar } from "./appState";
+import { appStatus, drillFailed, installTier, isPaused, isRunning, troubledSidecar } from "./appState";
 import type { CatalogContext, Entry } from "./types";
 
 /*
@@ -159,7 +159,7 @@ function Overview({ entry, ctx, onTab }: { entry: Entry; ctx: CatalogContext; on
         {installed && live && live.urls.map((port, index) => (
           <a key={port.id} className={`ui-button ui-button--${index === 0 ? "primary" : "secondary"}`} href={ctx.openUrl(port, manifest)} target="_blank" rel="noreferrer"><span className="ui-button__label">Open {port.label}</span></a>
         ))}
-        {!installed && may("app.install") && <Button variant="primary" onClick={() => ctx.configure(entry, "install")}>Install</Button>}
+        {!installed && may("app.install") && <Button variant="primary" risk={installTier(manifest)} onClick={() => ctx.configure(entry, "install")}>Install</Button>}
         {installed && may("app.action") && (paused
           ? <>
             <Button risk={riskOf("app.action")} onClick={() => lifecycle("unpause", `Resume ${name}`, <span>Thaws {name} exactly where it left off.</span>)}>Resume</Button>
