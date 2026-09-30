@@ -32,6 +32,60 @@ export const runnerCaps = Object.freeze({
   modelThreads: 4,
 });
 
+/**
+ * Processors while someone waits, and in the background (M40, ADR-009). The owner's decision: up
+ * to eight while a person waits on the answer (their question, the Test tab, a Zulip message), four
+ * for everything nobody waits on (schedules, events, webhooks, learning, indexing, the nightly
+ * evaluation). The shipped unit holds the background quota; a person's run raises the running
+ * unit's quota for itself (`systemctl set-property --runtime`, from the root helper), and a timer
+ * set with it takes it back if nothing else does.
+ *
+ * "Processors" are what CPUQuota counts: 800% is eight processors' time. Each setting is 2 to 8,
+ * and never more than this machine's processors less two, so the rest of the server always keeps
+ * two. The model runs a thread for each, but never more threads than the machine has physical
+ * cores: on a Ryzen 7 7800X3D (8 cores, 16 processors) that is 8 and 4.
+ */
+export const defaultCores = Object.freeze({ waiting: 8, background: 4 });
+export const coreLimits = Object.freeze({ min: 2, max: 8, keepFree: 2 });
+
+/** The most processors agents may have on a machine with this many: 8, or all but two, never under 2. */
+export function coreCeiling(processors) {
+  const count = Number.isInteger(processors) && processors > 0 ? processors : coreLimits.max + coreLimits.keepFree;
+  return Math.max(coreLimits.min, Math.min(coreLimits.max, count - coreLimits.keepFree));
+}
+
+/** The owner's two settings, each held to 2 and the machine's ceiling, background no more than waiting. */
+export function effectiveCores(saved = {}, { processors } = {}) {
+  const ceiling = coreCeiling(processors);
+  const clamp = (value, fallback) => Math.min(ceiling, Math.max(coreLimits.min, Number.isInteger(value) ? value : fallback));
+  const waiting = clamp(saved?.waiting, defaultCores.waiting);
+  return { waiting, background: Math.min(waiting, clamp(saved?.background, defaultCores.background)), ceiling };
+}
+
+/** The model's threads for so many processors: one each, never more than the physical cores. */
+export const threadsFor = (cores, physicalCores = null) => Math.max(1, Number.isInteger(physicalCores) && physicalCores > 0 ? Math.min(cores, physicalCores) : cores);
+
+/**
+ * This machine's physical cores, from sysfs: the distinct (package, core) pairs of its processors.
+ * Null where they cannot be read (not Linux, a sandbox that hides them): threads then follow the setting.
+ */
+export async function physicalCores({ readdir, readFile } = {}) {
+  try {
+    const fs = await import("node:fs/promises");
+    const list = readdir ?? fs.readdir;
+    const read = readFile ?? ((file) => fs.readFile(file, "utf8"));
+    const cpus = (await list("/sys/devices/system/cpu")).filter((name) => /^cpu\d+$/.test(name));
+    const pairs = new Set();
+    for (const cpu of cpus) {
+      const [pkg, core] = await Promise.all([read(`/sys/devices/system/cpu/${cpu}/topology/physical_package_id`), read(`/sys/devices/system/cpu/${cpu}/topology/core_id`)]);
+      pairs.add(`${String(pkg).trim()}:${String(core).trim()}`);
+    }
+    return pairs.size || null;
+  } catch {
+    return null;
+  }
+}
+
 /** The unit's own words for the caps, as systemd reads them. */
 export function unitDirectives(caps = runnerCaps) {
   return {

@@ -32,7 +32,8 @@ export interface UsageProps {
 const driverWords: Record<RuntimeDriver, string> = { unsloth: "Unsloth", "llama-server": "llama.cpp's llama-server", external: "A model server already on this machine", fake: "The demo's stand-in model" };
 
 function coolness(usage: UsageState): { status: Status; label: string } {
-  const cap = usage.caps.cpuQuotaPercent;
+  // The quota set now (M40): raised while someone waits, the background one otherwise.
+  const cap = usage.runner.usage?.cpuQuotaPercent ?? usage.caps.cpuQuotaPercent;
   const cpu = usage.runner.usage?.cpuPercent ?? null;
   if (!usage.runner.online || cpu === null) return { status: "unknown", label: "Not measured" };
   if (cpu >= cap * 0.9) return { status: "warning", label: "At its cap" };
@@ -43,7 +44,7 @@ export function Usage({ module, csrfToken, role, now, onStart, onModuleChanged, 
   const [usage, setUsage] = useState<UsageState | null>(null);
   const [runtime, setRuntime] = useState<RuntimeState | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [draft, setDraft] = useState<{ driver: RuntimeDriver; endpoint: string; idleStopMinutes: string; quietStart: string; quietEnd: string; notify: boolean; runsPerDay: string; modelSecondsPerDay: string; embeddings: boolean } | null>(null);
+  const [draft, setDraft] = useState<{ driver: RuntimeDriver; endpoint: string; idleStopMinutes: string; quietStart: string; quietEnd: string; notify: boolean; runsPerDay: string; modelSecondsPerDay: string; embeddings: boolean; waiting: string; background: string } | null>(null);
   const [confirm, setConfirm] = useState<null | "settings" | "off">(null);
   const [saved, setSaved] = useState<string | null>(null);
   const owner = role === "owner";
@@ -69,6 +70,7 @@ export function Usage({ module, csrfToken, role, now, onStart, onModuleChanged, 
     setDraft({
       driver: runtime.settings.driver, endpoint: runtime.settings.endpoint ?? "", idleStopMinutes: String(runtime.settings.idleStopMinutes ?? 60), quietStart: module.quietHours.start, quietEnd: module.quietHours.end, notify: module.notify,
       runsPerDay: String(module.budget?.runsPerDay ?? 300), modelSecondsPerDay: String(module.budget?.modelSecondsPerDay ?? 10_800), embeddings: module.embeddings !== false,
+      waiting: String(module.cores?.waiting ?? 8), background: String(module.cores?.background ?? 4),
     });
   }, [runtime, draft, module]);
 
@@ -82,6 +84,9 @@ export function Usage({ module, csrfToken, role, now, onStart, onModuleChanged, 
   const live = usage.runner.usage;
   const verdict = coolness(usage);
   const cpu = live?.cpuPercent ?? null;
+  const cores = usage.module.cores ?? module.cores ?? null;
+  // The cap the kernel holds it to now: raised while someone waits (M40), the background one otherwise.
+  const capNow = live?.cpuQuotaPercent ?? caps.cpuQuotaPercent;
   const installed = runtime.installed;
   const unsloth = runtime.unsloth;
   const service = installed?.service ?? null;
@@ -134,7 +139,11 @@ export function Usage({ module, csrfToken, role, now, onStart, onModuleChanged, 
   const saveSettings = async (password: string) => {
     if (!draft) return;
     const runtimeChange = { driver: draft.driver, idleStopMinutes: Number.parseInt(draft.idleStopMinutes, 10), ...(draft.driver === "external" ? { endpoint: draft.endpoint.trim() } : {}) };
-    await agentsApi.saveSettings(csrfToken, { password, quietHours: { start: draft.quietStart, end: draft.quietEnd }, notify: draft.notify, runtime: runtimeChange, embeddings: draft.embeddings, budget: { runsPerDay: Number.parseInt(draft.runsPerDay, 10), modelSecondsPerDay: Number.parseInt(draft.modelSecondsPerDay, 10) } });
+    await agentsApi.saveSettings(csrfToken, {
+      password, quietHours: { start: draft.quietStart, end: draft.quietEnd }, notify: draft.notify, runtime: runtimeChange, embeddings: draft.embeddings,
+      budget: { runsPerDay: Number.parseInt(draft.runsPerDay, 10), modelSecondsPerDay: Number.parseInt(draft.modelSecondsPerDay, 10) },
+      ...(cores ? { cores: { waiting: Number.parseInt(draft.waiting, 10), background: Number.parseInt(draft.background, 10) } } : {}),
+    });
     setSaved("Saved. The next run uses these settings.");
     onModuleChanged();
     await read();
@@ -147,7 +156,7 @@ export function Usage({ module, csrfToken, role, now, onStart, onModuleChanged, 
       <Panel className="agents-now" title="Right now" count={{ status: verdict.status, label: verdict.label }}
         meta={usage.runner.online ? <>runner <b>{usage.runner.version ?? "?"}</b> · seen {relativeTime(usage.runner.lastSeenAt, now) ?? "just now"}</> : service && !silent ? "the runner is stopped" : "the runner is not answering"} padded>
         <MetricStrip label="The runner right now: processor, memory, model and throttling">
-          <MetricTile label="Processor" value={cpu === null ? "—" : `${cpu}%`} caption={`of a ${caps.cpuQuotaPercent}% cap (${processorWords(caps.cpuQuotaPercent)})`} status={verdict.status} bar={cpu === null ? undefined : { value: cpu, max: caps.cpuQuotaPercent }} />
+          <MetricTile label="Processor" value={cpu === null ? "—" : `${cpu}%`} caption={`of a ${capNow}% cap (${processorWords(capNow)}${cores?.now.burst ? ", while someone waits" : ""})`} status={verdict.status} bar={cpu === null ? undefined : { value: cpu, max: capNow }} />
           <MetricTile label="Memory" value={live ? bytes(live.memoryBytes) : "—"} caption={`of ${gibibytes(live?.memoryMaxBytes ?? caps.memoryMaxBytes)}${live?.memoryPeakBytes ? ` · peak ${bytes(live.memoryPeakBytes)}` : ""}`}
             status={live ? (live.memoryBytes > caps.memoryMaxBytes * 0.9 ? "warning" : "good") : "unknown"} bar={live ? { value: live.memoryBytes, max: live.memoryMaxBytes ?? caps.memoryMaxBytes } : undefined} />
           <MetricTile label="Model" value={modelLoaded ? "Loaded" : "Not loaded"}
@@ -164,14 +173,20 @@ export function Usage({ module, csrfToken, role, now, onStart, onModuleChanged, 
         <Panel className="agents-caps" title="Hard caps" meta={<code>{caps.unit}</code>} padded
           footer="Enforced by the kernel through systemd, for the runner and its model together. CI proves them on real systemd.">
           <KeyValue layout="rows" items={[
-            { id: "cpu", label: "Processor", value: `${caps.cpuQuotaPercent}% (CPUQuota)`, mono: true },
+            ...(cores
+              ? [
+                  { id: "cpu", label: "Processors", value: `${cores.background} in the background · ${cores.waiting} while you wait`, mono: true },
+                  { id: "quota", label: "CPUQuota now", value: `${capNow}%${cores.now.burst ? " · raised while someone waits" : ""}`, mono: true, status: cores.now.error ? "warning" as const : undefined },
+                ]
+              : [{ id: "cpu", label: "Processor", value: `${caps.cpuQuotaPercent}% (CPUQuota)`, mono: true }]),
             { id: "weight", label: "Priority", value: `CPUWeight=${caps.cpuWeight} · Nice ${caps.nice}`, mono: true },
             { id: "io", label: "Disk", value: `IOSchedulingClass=${caps.ioSchedulingClass}`, mono: true },
             { id: "memory", label: "Memory", value: `${gibibytes(caps.memoryMaxBytes)} · no swap`, mono: true },
             { id: "tasks", label: "Tasks", value: String(caps.tasksMax), mono: true },
-            { id: "threads", label: "Model threads", value: String(caps.modelThreads), mono: true },
+            { id: "threads", label: "Model threads", value: cores ? `one a processor${cores.physical ? `, ${cores.physical} at most (its cores)` : ""}` : String(caps.modelThreads), mono: true },
             { id: "network", label: "Network", value: "this machine only", mono: true },
           ]} />
+          {cores?.now.error && <p className="agents-dim">The last change of processors did not take: {cores.now.error.message}. Runs go with {cores.background} until it does.</p>}
         </Panel>
 
         <Panel className="agents-today" title="Today" meta={<><b>{usage.today.runs}</b> runs · <b>{usage.today.modelSeconds}</b> s of model time · <b>{usage.queue.queued}</b> waiting{usage.queue.dropped ? <> · <b>{usage.queue.dropped}</b> dropped</> : null}</>} padded>
@@ -251,6 +266,18 @@ export function Usage({ module, csrfToken, role, now, onStart, onModuleChanged, 
             <Field label="Runs a day, all agents together" hint="10 to 2,000"><TextInput mono type="number" min={10} max={2000} value={draft.runsPerDay} onValueChange={(value) => setDraft({ ...draft, runsPerDay: value })} /></Field>
             <Field label="Model seconds a day, all together" hint="60 to 86,400"><TextInput mono type="number" min={60} max={86400} value={draft.modelSecondsPerDay} onValueChange={(value) => setDraft({ ...draft, modelSecondsPerDay: value })} /></Field>
           </div>
+          {cores && (
+            <div className="agents-form__grid">
+              {/* M40: the owner's two numbers; the kernel holds the runner to whichever a run has. */}
+              <Field label="Processors while you wait" hint={`${cores.limits.min} to ${cores.ceiling}: your questions, the Test tab, Zulip`}>
+                <TextInput mono type="number" min={cores.limits.min} max={cores.ceiling} value={draft.waiting} onValueChange={(value) => setDraft({ ...draft, waiting: value })} />
+              </Field>
+              <Field label="Processors in the background" hint={`${cores.limits.min} to ${cores.ceiling}: schedules, events, learning, the nightly evaluation`}>
+                <TextInput mono type="number" min={cores.limits.min} max={cores.ceiling} value={draft.background} onValueChange={(value) => setDraft({ ...draft, background: value })} />
+              </Field>
+            </div>
+          )}
+          {cores && <p className="agents-dim">This server has {cores.processors} processors{cores.physical ? ` (${cores.physical} cores)` : ""}; agents never get the last {cores.limits.keepFree}. The model runs a thread for each processor{cores.physical ? `, ${cores.physical} at most` : ""}; a change of threads restarts it, which takes a few seconds.</p>}
           <Switch label="Agents may tell me what is important" description="Through BoxPilot's notifications, a few times a day at most." checked={draft.notify} onChange={(checked) => setDraft({ ...draft, notify: checked })} />
           <Switch label="Search memory by meaning" description="Embeddings from the model server, made in quiet hours; off, memory is searched by words only." checked={draft.embeddings} onChange={(checked) => setDraft({ ...draft, embeddings: checked })} />
           {draft.driver === "llama-server" && <Notice tone="info">llama.cpp's own server from the Unsloth install: no Python layer and no Studio, idle at nothing, but without Unsloth's tool-call repair. It was measured for embeddings, not yet for chat.</Notice>}

@@ -2356,7 +2356,26 @@ twice. The hard caps and "agents propose, never act" stay as they are.
   NVMe), and for Pi-hole and the stopped apps it never called where.runs or apps.list and said it
   could not know. After, each question used the tool made for it, and the check found no mismatch;
   each answer took 100 to 230 s there (run 36656892146).
-- **M40.4 Faster while someone waits** (in the pull request stacked on this one).
+- ✅ **M40.4 Faster while someone waits** (unreleased, `feat/m40-burst`; ADR-009). The owner's
+  decision: **eight processors while a person waits** (their question, the Test tab, a Zulip
+  message, and the hand-offs and follow-ups made for one), **four for everything else**. The shipped
+  unit keeps `CPUQuota=400%`; when a person's run is handed out the root helper raises the running
+  unit's quota (`agents.runtime.cpu`, low, owner, BoxPilot's own: `systemctl set-property --runtime`,
+  its own helper lane) and arms a transient timer that puts the background quota back after the
+  run's longest time plus two minutes; the web service lowers it as soon as nobody waits (after the
+  run, on the tick, after the kill switch, at start). A raise whose timer cannot be set is taken
+  back and refused. The model runs a thread per processor, never more than the physical cores, so a
+  class change restarts it (a few seconds) instead of oversubscribing the quota; speeds are kept per
+  thread count. **Usage** shows the quota set now, and the owner's "Processors while you wait" and
+  "Processors in the background", 2 to 8 and never more than the machine's processors less two,
+  checked in the web service and again in the helper. Idle priority, idle I/O, the memory cap and
+  "no process when idle" are untouched. `agents-caps` raises and lowers the quota with the helper's
+  own code on real systemd, with the fake model busy, and watches the timer take it back. **Measured**
+  on the real model (`agents-bench.yml`, a four-processor runner on two cores): four threads under a
+  200% quota ran at half the speed of two (7.5 against 14.4 tokens a second read, the owner's
+  question 436 s against 257 s), which is why threads follow the processors; four under 400% gained
+  little over two on that runner's two cores. The gain at eight on the owner's eight cores shows in
+  their Usage tab, which keeps speeds per thread count.
 - **M40.5 Talk to agents in Zulip** (M38.3; in the pull request stacked on the M40.4 one).
 - **M40.6 Pictures** (with M40.5).
 

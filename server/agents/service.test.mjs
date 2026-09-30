@@ -124,9 +124,9 @@ describe("asking an agent", () => {
     h.state.setSetting(agentsRuntimeKey, defaultRuntimeSettings());
     ask(make("it-support"), "owner", "Hi");
     const claim = await h.service.runnerNext(h.runnerId, { waitMs: 0 });
-    // Four threads under the four-processor cap (one for each; the spike: more spend the quota and
-    // sit throttled), and an hour before the idle model server stops.
-    expect(claim.runtime).toMatchObject({ driver: "unsloth", model: "unsloth/Qwen3.5-4B-GGUF:UD-Q4_K_XL", requestModel: "unsloth/Qwen3.5-4B-GGUF", threads: 4, contextTokens: 8192, endpoint: null, idleStopMs: 3_600_000, extra: { enable_thinking: false }, speed: null });
+    // Eight threads for the eight processors a person's question gets (M40; one for each: the spike
+    // found more spend the quota and sit throttled), and an hour before the idle model server stops.
+    expect(claim.runtime).toMatchObject({ driver: "unsloth", model: "unsloth/Qwen3.5-4B-GGUF:UD-Q4_K_XL", requestModel: "unsloth/Qwen3.5-4B-GGUF", threads: 8, cpu: { processors: 8, threads: 8, waiting: true }, contextTokens: 8192, endpoint: null, idleStopMs: 3_600_000, extra: { enable_thinking: false }, speed: null });
     // What the planner reads about the agent.
     expect(claim.agent).toMatchObject({ name: "IT Support helper", job: "Answer how-to questions about this server and BoxPilot in plain words.", steps: expect.arrayContaining(["Answer how-to questions from docs.search."]) });
     expect(claim.limits).toMatchObject({ steps: 4, tokens: 8000, runSeconds: 300, toolCallsPerStep: 3, maxToolCalls: 12 });

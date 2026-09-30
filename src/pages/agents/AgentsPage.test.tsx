@@ -611,6 +611,29 @@ describe("a runner that is not running", () => {
     expect(document.querySelector(".ui-page-header__about")?.textContent).toContain("(four processors at most, idle priority, 8 GiB, this machine only)");
   });
 
+  it("shows the processors while someone waits and in the background, and saves the owner's two numbers (M40)", async () => {
+    window.history.replaceState(null, "", "/?view=agents&tab=usage");
+    const cores = { waiting: 8, background: 4, ceiling: 8, processors: 16, physical: 8, limits: { min: 2, max: 8, keepFree: 2 }, now: { processors: 8, burst: true, at: ago(1), resetAt: ago(-15), error: null } };
+    const raised = { ...usage, runner: { ...runner, usage: { ...runner.usage, cpuQuotaPercent: 800 } }, caps: { ...caps, cpuQuotaPercent: 400, waitingQuotaPercent: 800 }, module: { ...usage.module, cores } };
+    const calls = serve(base({
+      "GET /api/v1/agents/usage": raised,
+      "GET /api/v1/agents/runtime": { ...runtime, caps: { ...caps, cpuQuotaPercent: 400, waitingQuotaPercent: 800 } },
+      "PUT /api/v1/settings/agents": { module: { ...usage.module, cores } },
+    }));
+    render(<AgentsPage csrfToken="csrf" now={() => now} />);
+    expect(await screen.findByText("of a 800% cap (eight processors, while someone waits)")).toBeTruthy();
+    const hard = screen.getByRole("region", { name: "Hard caps" });
+    expect(hard.textContent).toContain("4 in the background · 8 while you wait");
+    expect(hard.textContent).toContain("800% · raised while someone waits");
+    const waiting = await screen.findByRole("spinbutton", { name: "Processors while you wait" });
+    expect(waiting.getAttribute("max")).toBe("8");
+    fireEvent.change(screen.getByRole("spinbutton", { name: "Processors in the background" }), { target: { value: "3" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
+    fireEvent.change(await screen.findByLabelText("Your password"), { target: { value: "right" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(calls.find((call) => call.method === "PUT" && call.path === "/api/v1/settings/agents")?.body).toMatchObject({ password: "right", cores: { waiting: 8, background: 3 } }));
+  });
+
   it("goes on from downloading the model on Usage to starting the runner", async () => {
     window.history.replaceState(null, "", "/?view=agents&tab=usage");
     const calls = serve(base({
