@@ -85,6 +85,18 @@ describe("shares and drives nobody can write to", () => {
     expect(found.evidence).toContain("/mnt/the-dump is exfat, mounted without uid=");
   });
 
+  it("offers no fix it would refuse for a share on an exFAT drive BoxPilot did not mount, and says what to do", () => {
+    // samba.share.writable refuses a folder on a drive that keeps no owners and points at
+    // storage.writable, which changes only drives BoxPilot mounted: pressed, it failed every time.
+    const foreign = { target: "/media/usb", source: "/dev/sdc1", fstype: "exfat", options: "rw,nosuid,nodev", managedName: null };
+    const [found] = unwritableShares({ mounts: [foreign], shares: [{ name: "Stick", path: "/media/usb/share", readOnly: false, ownerUid: 0, forceUser: null }] });
+    expect(found).toMatchObject({ id: "share-unwritable:Stick", fix: null, fixes: [] });
+    expect(found.detail).toContain("add uid=1000,gid=1000 to its line in /etc/fstab");
+    // A drive BoxPilot mounted is still fixed through the drive, and a Linux folder by handing it over.
+    expect(unwritableShares({ mounts: [{ ...foreign, managedName: "stick" }], shares: [{ name: "Stick", path: "/media/usb/share", readOnly: false, ownerUid: 0, forceUser: null }] })[0].fix).toMatchObject({ operationId: "storage.writable" });
+    expect(unwritableShares({ mounts: [{ ...foreign, fstype: "ext4" }], shares: [{ name: "Stick", path: "/media/usb/share", readOnly: false, ownerUid: 0, forceUser: null }] })[0].fix).toMatchObject({ operationId: "samba.share.writable" });
+  });
+
   it("needs the real owner, not one inferred from whether a force user exists", () => {
     // Deriving ownerUid from `forceUser ? 1000 : 0` made every force-user-less read-write share
     // report "nobody can write to it", whoever actually owned the folder.

@@ -420,6 +420,21 @@ export function unwritableShares(facts = {}) {
     .filter((share) => !share.readOnly && share.ownerUid === 0 && !share.forceUser)
     .map((share) => {
       const drive = ownerlessDriveUnder(share.path, mounts);
+      // An exFAT, FAT or NTFS drive BoxPilot did not mount: the folder cannot be handed over (the
+      // drive keeps no owners, and samba.share.writable refuses it) and storage.writable changes only
+      // drives BoxPilot mounted, so either fix failed every time it was pressed. Said instead.
+      const onMount = mountFor(share.path, mounts);
+      const foreignOwnerless = !drive && onMount && ownerless.includes(String(onMount.fstype ?? "").toLowerCase()) ? onMount : null;
+      if (foreignOwnerless) {
+        return finding({
+          id: `share-unwritable:${share.name}`,
+          severity: "warning",
+          title: `Nobody can write to the ${share.name} share`,
+          detail: `${share.path} is on ${foreignOwnerless.target}, a ${foreignOwnerless.fstype} drive mounted without an owner and not by BoxPilot, so everything on it belongs to root and everyone connecting is read-only there. BoxPilot changes only the drives it mounted: add uid=${appUser},gid=${appUser} to its line in /etc/fstab and mount it again, or unmount it and mount it from Storage with "apps can write".`,
+          evidence: [`${share.path} is owned by root`, "the share is set read-write", `${foreignOwnerless.target} is ${foreignOwnerless.fstype}, mounted without uid=, and not by BoxPilot`],
+          fixes: [],
+        });
+      }
       return finding({
         id: `share-unwritable:${share.name}`,
         severity: "warning",
