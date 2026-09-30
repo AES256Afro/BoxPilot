@@ -182,7 +182,7 @@ sudo cp /path/to/installer.iso /var/lib/libvirt/boot/
 sudo chmod 0644 /var/lib/libvirt/boot/installer.iso
 ```
 
-The production helper unit deliberately fixes the managed library to `/var/lib/libvirt/boot` and the upload staging directory to `/var/lib/boxpilot-managed/vm-media-inbox`. If a different dedicated library is required, a root administrator must update `BOXPILOT_ISO_DIRECTORY` consistently in both `/etc/boxpilot/boxpilot.env` and `boxpilot-helper.service`, then reload systemd and restart both services. Do not point either boundary at `/`, a home directory, or a directory containing secrets. Do not make the managed library writable by the web service.
+The production helper unit deliberately fixes the managed library to `/var/lib/libvirt/boot` and the upload staging directory to `/var/lib/boxpilot-managed/vm-media-inbox`. If a different dedicated library is required, a root administrator must update `BOXPILOT_ISO_DIRECTORY` consistently in both `/etc/boxpilot/boxpilot.env` and `boxpilot-helper.service`, then reload systemd and restart both services. Do not point either boundary at `/`, a home directory, or a directory containing secrets. Do not make the managed library writable by the web service. The inbox is the web service's own (`boxpilot`, 0700) inside the helper's `/var/lib/boxpilot-managed`, which the helper sets to `root:boxpilot` 0710 on every start: the web service can pass through to the inbox but cannot list the directory or open anything else in it.
 
 In BoxPilot:
 
