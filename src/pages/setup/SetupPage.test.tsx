@@ -104,6 +104,34 @@ describe("Setup", () => {
     expect(screen.getByRole("button", { name: "Skip and continue" })).toBeTruthy();
   });
 
+  it("starts nothing more once the page is left, though the step already running goes on", async () => {
+    // The run is the page's own loop. Left running after the owner went to another page, it went
+    // on staging and approving each later step with the password it held, where nobody could see
+    // or stop it, and coming back offered to start the same steps again beside it.
+    let finished = false;
+    const calls: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      calls.push(`${init?.method ?? "GET"} ${url}`);
+      if (url.endsWith("/api/v1/setup")) return json(setupState);
+      if (url.endsWith("/operations/app.install/jobs")) return json({ job: { id: "job-1" } }, 201);
+      if (url.endsWith("/jobs/job-1/approve")) return json({ job: { id: "job-1", state: "applying" } }, 202);
+      if (url.endsWith("/jobs/job-1")) return json({ job: { id: "job-1", state: finished ? "completed" : "applying", error: null } });
+      if (url.endsWith("/api/v1/schedules")) return json({ schedule: { id: "s1" } }, 201);
+      return json({ error: `unexpected ${url}` }, 500);
+    }));
+    const view = render(<SetupPage csrfToken="csrf" onDone={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: /Home server/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Install everything \(2\)/ }));
+    await vi.waitFor(() => expect(calls).toContain("GET /api/v1/jobs/job-1"));
+    view.unmount();
+    finished = true;
+    const before = calls.length;
+    // One of the loop's two-second waits, and a little more.
+    await new Promise((resolve) => setTimeout(resolve, 2_500));
+    expect(calls.slice(before)).toEqual([]);
+  });
+
   it("lets a viewer read the profiles and run nothing", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => json(setupState)));
     render(<SetupPage csrfToken="csrf" role="viewer" onDone={vi.fn()} />);
