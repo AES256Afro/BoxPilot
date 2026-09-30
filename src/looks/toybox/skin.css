@@ -2,10 +2,11 @@
  * The Toybox look's skin (M41), as docs/design-directions/05-looks.html draws it (M.toybox and the
  * .ty* rules). Light only, whatever the device prefers: a light sky with two soft round blobs,
  * chunky white cards with an ink edge and a flat ink shadow, Fredoka everywhere, yellow pill
- * buttons that press down and white ones beside them, pastel accents. The top bar is a slim white
- * strip (the robot mark, the server and the page's name, Home and Ops, search, the bell, Activity,
- * Sign out); the areas are a chunky tray floating at the bottom, the current one a yellow pill, so
- * Home's two columns sit where the drawing has them. Every selector starts with :root[data-look="toybox"].
+ * buttons that press down and white ones beside them, pastel accents. There is no bar: its
+ * controls (the robot mark, the server and the page's name, Home and Ops, search, the bell and the
+ * account menu) float on the sky as pills; the areas are a chunky tray floating at the bottom, the
+ * current one a yellow pill, so Home's two columns sit where the drawing has them.
+ * Every selector starts with :root[data-look="toybox"].
  */
 
 :root[data-look="toybox"] {
@@ -141,19 +142,37 @@
 /* Light only: the switch has nothing to offer here. */
 :root[data-look="toybox"] .ui-theme-switch { display: none; }
 
-/* ── The top bar: a slim white strip over an ink rule ── */
+/* ── The top bar: no strip at all, as the drawing has none: the controls float on the sky as
+   chunky pills and scroll away with the page, while the tray of areas stays put ── */
 :root[data-look="toybox"] .topbar {
+  position: relative;
   z-index: 40;
   gap: 12px;
   min-height: var(--ty-bar-h);
   padding: 0 var(--ty-x);
-  border-bottom: 3.5px solid var(--ty-ink);
+  border-bottom: 0;
   color: var(--ty-ink);
-  background: #ffffff;
+  background: transparent;
   box-shadow: none;
   backdrop-filter: none;
   font-family: var(--font-toy);
 }
+:root[data-look="toybox"] .app-shell::before { background: #dcefff; }
+/* Sign out, light or dark and Settings are in the account menu; Activity shows itself while
+   something runs, and the bell with its count always. */
+:root[data-look="toybox"] :is(.bar-sign-out, .bar-activity:not([data-live])) { display: none; }
+:root[data-look="toybox"] .account-menu { display: flex; }
+:root[data-look="toybox"] .account-menu__button { width: 30px; height: 30px; border: 2.2px solid var(--ty-ink); background: #ffffff; box-shadow: 0 2.5px 0 var(--ty-ink); }
+:root[data-look="toybox"] .account-menu__button:active { box-shadow: 0 0 0 var(--ty-ink); transform: translateY(2.5px); }
+:root[data-look="toybox"] .account-menu__avatar { width: 22px; height: 22px; color: var(--ty-ink); background: var(--ty-lilac); font: 700 12px/1 var(--font-toy); }
+:root[data-look="toybox"] .account-menu__button[aria-expanded="true"] .account-menu__avatar { background: var(--ty-yellow); box-shadow: none; }
+:root[data-look="toybox"] .account-menu__list { top: calc(100% + 10px); min-width: 210px; padding: 8px; border: 3px solid var(--ty-ink); border-radius: 20px; color: var(--ty-ink); background: #ffffff; box-shadow: 0 5px 0 var(--ty-ink); font-family: var(--font-toy); }
+:root[data-look="toybox"] .account-menu__who { border-bottom: 2px dashed rgba(43, 35, 64, 0.2); color: var(--ty-soft); font-weight: 600; }
+:root[data-look="toybox"] .account-menu__group { gap: 4px; border-block: 2px dashed rgba(43, 35, 64, 0.2); }
+:root[data-look="toybox"] .account-menu__item { border-radius: 999px; color: var(--ty-ink); font-weight: 600; }
+:root[data-look="toybox"] .account-menu__item:is(:hover, :focus-visible) { color: var(--ty-ink); background: #fff8e0; }
+:root[data-look="toybox"] .account-menu__item--choice[aria-checked="true"] { color: var(--ty-ink); background: var(--ty-yellow); box-shadow: inset 0 0 0 2px var(--ty-ink); }
+:root[data-look="toybox"] .account-menu__item--out { color: #8a1c35; }
 :root[data-look="toybox"] .topbar-left { flex: 1 1 auto; gap: 12px; min-width: 0; }
 /* The mark: the robot's face, small. */
 :root[data-look="toybox"] .brand { display: flex; }
@@ -244,11 +263,11 @@
 :root[data-look="toybox"] .bar-lock__long { display: none; }
 :root[data-look="toybox"] .bar-lock__short { display: inline; }
 :root[data-look="toybox"] .content { max-width: none; padding: 20px var(--ty-x) calc(var(--shell-bottom-inset, 0px) + 116px); }
-/* Home, as the drawing has it: the page starts right under the bar, whose words begin over the
-   speech bubble, and the big robot stands at the left with its antenna up in the bar in place of
-   the small mark. The bar scrolls away with Home rather than riding over the robot. */
+/* Home, as the drawing has it: the page starts right under the controls, whose words begin over
+   the speech bubble, and the big robot stands at the left with its antenna up among them in place
+   of the small mark, crossing nothing. */
 @media (min-width: 761px) {
-  :root[data-look="toybox"] .app-shell[data-view="home"] .topbar { position: relative; padding-left: 176px; }
+  :root[data-look="toybox"] .app-shell[data-view="home"] .topbar { padding-left: 176px; }
   :root[data-look="toybox"] .app-shell[data-view="home"] .brand { display: none; }
   :root[data-look="toybox"] .app-shell[data-view="home"] .content { padding-top: 3px; }
 }
@@ -520,6 +539,7 @@
 @media (pointer: coarse) {
   :root[data-look="toybox"] :is(.ui-button, .ui-tabs__tab, .ui-segmented__option, .ui-select__control, .ui-input, .ui-textarea, .ui-switch__control, .ui-secret__toggle, .bar-button, .command-trigger, .view-switch__option) { min-height: 44px; }
   :root[data-look="toybox"] .bar-button { min-width: 44px; }
+  :root[data-look="toybox"] .account-menu__button { width: 44px; height: 44px; }
   :root[data-look="toybox"] .topbar .bar-button[aria-haspopup="dialog"]:has(> svg) { width: 44px; }
   :root[data-look="toybox"] :is(.ui-info-toggle, .ui-sheet__close, .approve-close) { width: 44px; height: 44px; }
 }
