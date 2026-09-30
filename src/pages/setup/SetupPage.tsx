@@ -74,12 +74,22 @@ export default function SetupPage({ csrfToken, role = "owner", onDone }: SetupPa
     }
   }, []);
   useEffect(() => { void load(); }, [load]);
+  // Whether the page is still open. The run is this page's loop, not the server's: leaving the page
+  // used to leave it going unseen, staging and approving each later step with the password it held,
+  // and coming back offered to start the same steps again beside it. The job already running goes
+  // on, on the server; nothing after it is started.
+  const open = useRef(true);
+  useEffect(() => {
+    open.current = true;
+    return () => { open.current = false; passwordRef.current = ""; };
+  }, []);
 
-  const headers = { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken };
+  const headers ={ "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken };
   const profile = setup?.profiles.find((entry) => entry.id === selected) ?? null;
   const mark = (id: string, state: StepProgress[string]) => setProgress((current) => ({ ...current, [id]: state }));
 
-  async function runStep(step: Step): Promise<"done" | "password" | "failed"> {
+  async function runStep(step: Step): Promise<"done" | "password" | "failed" | "left"> {
+    if (!open.current) return "left";
     if (step.kind === "schedule" && step.schedule) {
       const response = await fetch("/api/v1/schedules", { method: "POST", headers, body: JSON.stringify(step.schedule) });
       if (!response.ok) { const body = (await response.json().catch(() => ({}))) as { error?: string }; mark(step.id, { state: "failed", error: body.error ?? `Schedule rejected (${response.status})` }); return "failed"; }
@@ -89,6 +99,8 @@ export default function SetupPage({ csrfToken, role = "owner", onDone }: SetupPa
     const staged = await fetch(`/api/v1/operations/${encodeURIComponent(step.job.operationId)}/jobs`, { method: "POST", headers, body: JSON.stringify({ parameters: step.job.parameters }) });
     const stagedBody = (await staged.json().catch(() => ({}))) as { job?: { id: string }; error?: string };
     if (!staged.ok || !stagedBody.job) { mark(step.id, { state: "failed", error: stagedBody.error ?? `Could not prepare this step (server error ${staged.status})` }); return "failed"; }
+    // Staged but not approved: it waits in Activity for whoever comes back, rather than running unseen.
+    if (!open.current) return "left";
     const approve = await fetch(`/api/v1/jobs/${stagedBody.job.id}/approve`, { method: "POST", headers, body: JSON.stringify(passwordRef.current ? { password: passwordRef.current } : {}) });
     if (approve.status === 401) return "password";
     if (!approve.ok) { const body = (await approve.json().catch(() => ({}))) as { error?: string }; mark(step.id, { state: "failed", error: body.error ?? `Approval failed (${approve.status})` }); return "failed"; }
@@ -107,6 +119,7 @@ export default function SetupPage({ csrfToken, role = "owner", onDone }: SetupPa
       } else unreadable = 0;
       if (Date.now() - started > 45 * 60 * 1000) { mark(step.id, { state: "failed", error: "Timed out waiting for the job" }); return "failed"; }
       await sleep(2000);
+      if (!open.current) return "left";
     }
   }
 
@@ -142,8 +155,10 @@ export default function SetupPage({ csrfToken, role = "owner", onDone }: SetupPa
         if (!now || now.status !== "ready") { mark(step.id, { state: "skipped" }); continue; }
         plan.steps[index] = now;
       }
+      if (!open.current) return;
       mark(step.id, { state: "running" });
       const outcome = await runStep(plan.steps[index]);
+      if (outcome === "left") return;
       if (outcome === "password") { mark(step.id, { state: "pending" }); setNeedPassword(true); setPhase("paused"); return; }
       if (outcome === "failed") { setPhase("paused"); return; }
       mark(step.id, { state: "done" });
