@@ -20,7 +20,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { runnerUnit } from "../agents/caps.mjs";
 import { boundSync, connectors } from "../agents/connectors.mjs";
-import { createCredentialStore } from "../credentials.mjs";
+import { createCredentialStore, headerUnsafe } from "../credentials.mjs";
 import { agentsPaths, readModelParameters } from "../agents/host.mjs";
 import { embedderModel, testedUnslothVersion } from "../agents/models.mjs";
 
@@ -141,6 +141,8 @@ export async function agentsConnectorSync(parameters = {}, { log = () => {}, cre
   if (!connector) throw new Error("The connector is notion or slack");
   const token = await credentials.read(parameters.credentialName);
   if (token === null || token === undefined) throw new Error(`No credential is named ${parameters.credentialName}; save it under Settings first`);
+  // fetch refuses such a header with an error that quotes the token; say so here, without it.
+  if (headerUnsafe.test(String(token))) throw new Error(`The credential ${parameters.credentialName} holds a line break, which no request header can carry; save it again as one line`);
   log(`Reading ${connector.title} with the credential ${parameters.credentialName}`, "stdout");
   const documents = await connector.fetch({ token, channels: parameters.channels ?? [] }, { fetcher });
   const bounded = boundSync(documents);

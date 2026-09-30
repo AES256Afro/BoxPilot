@@ -112,6 +112,29 @@ jobs:
       - name: Shares mount and unmount on the host, not in the task's namespace
         run: sudo bash tests/ubuntu/share-mount-host.sh "$(command -v node)"
 
+  # The file server's limits on a real Samba: a share that leads into a protected folder is refused
+  # before smb.conf is written, root and system accounts get no Samba password, what BoxPilot
+  # writes passes testparm and serves a share, and root cannot sign in even with a password set by
+  # hand. Both LTS releases, since Samba's version differs between them.
+  samba-boundaries:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-26.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Shares stay out of protected folders, and root never signs in
+        run: sudo bash tests/ubuntu/samba-boundaries.sh "$(command -v node)"
+
   # The agents runner's hard caps (M37) on real systemd: deploy/boxpilot-agents.service as shipped,
   # the real runner and a fake model burning three times the unit's processor quota. The service's
   # own cgroup must stay at or under CPUQuota=200% under load and idle near 0% afterwards. Both LTS

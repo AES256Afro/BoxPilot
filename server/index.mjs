@@ -7,7 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { startTlsListener } from "./tls-listener.mjs";
 import { productVersion } from "./version.mjs";
-import { createCatalogService, secretEnvNamesLookup } from "./catalog/index.mjs";
+import { createCatalogService, installRiskLookup, secretEnvNamesLookup } from "./catalog/index.mjs";
 import { createJobLogReader } from "./job-log.mjs";
 import { createActionCenterService } from "./action-center.mjs";
 import { createAuditLog } from "./audit.mjs";
@@ -86,7 +86,7 @@ import { createVmRestoreDrillService } from "./vm-restore-drill.mjs";
 import { foldVerdict, verdictFrom } from "./backup-verdicts.mjs";
 import { appStopClearingOperations, foldAppStop, seedAppStops } from "./app-stops.mjs";
 import { jsonGzip, precompressedAssets } from "./compress.mjs";
-import { securityHeaders } from "./security-headers.mjs";
+import { rootFileHeaders, securityHeaders } from "./security-headers.mjs";
 
 const app = express();
 const host = process.env.BOXPILOT_HOST ?? "127.0.0.1";
@@ -234,6 +234,9 @@ const jobs = createJobService(state, helper, {
       dnsResilience.forget();
     },
   },
+  // Installing an app its manifest calls high risk (the house's DNS, the VPN) is staged and approved
+  // as high: the owner, with the password.
+  operationRiskHooks: { "app.install": installRiskLookup(catalogService) },
   // Prepare hooks pin server-derived expectations into the staged parameters.
   operationPrepareHooks: {
     // Device globs (/dev/sd?, /dev/ttyUSB?) resolve here against the real /dev; the helper runs with PrivateDevices.
@@ -478,7 +481,7 @@ app.use(createOidcRouter({ oidc, auth, store: state }));
 const assets = path.join(dist, "assets");
 app.use("/assets", precompressedAssets(assets));
 app.use("/assets", express.static(assets, { index: false, maxAge: "365d", immutable: true }));
-app.use(express.static(dist, { index: false }));
+app.use(express.static(dist, { index: false, setHeaders: rootFileHeaders }));
 app.use((request, response, next) => {
   if (request.method !== "GET" || request.path.startsWith("/api/")) {
     next();
