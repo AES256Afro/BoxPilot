@@ -418,6 +418,7 @@ const dataRoutes = {
   "GET /api/v1/inventory": [open],
   "GET /api/v1/network/topology": [open],
   "GET /api/v1/network/tailnet": [open],
+  "GET /api/v1/network/dns-resilience": [open],
   "GET /api/v1/network/reachability": [open],
   "GET /api/v1/backups": [{
     ...open,
@@ -569,6 +570,7 @@ beforeAll(async () => {
   routers.createChecklistRouter = createChecklistRouter({ state, helper, notifications, inventory, network, driveChecks: async () => null });
   routers.createHostRouter = createHostRouter({
     state, helper, catalogService, inventory, network, notifications,
+    dnsResilience: { check: async () => ({ state: "unknown", status: "unknown", headline: "Not known what your router hands out", detail: "", source: "none", servers: [] }) },
     controllerProtection: createControllerProtectionService({ store: state, helper }), controllerRetention: createControllerRetentionService({ store: state, helper }),
     githubProvenance: { inspect: async () => ({ repositories: [] }) }, releaseUpdates: { inspect: async () => ({ current: "0.0.0" }) },
     setup: createSetupService({ helper, scheduler }), supportBundle, audit, auth, identity, tlsDir,
