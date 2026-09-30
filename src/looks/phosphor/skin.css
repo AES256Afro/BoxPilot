@@ -1,1 +1,285 @@
-/* The phosphor look's skin (M41): every selector starts with :root[data-look="phosphor"]. */
+/*
+ * The phosphor look's skin (M41): every selector starts with :root[data-look="phosphor"].
+ *
+ * A green CRT terminal (docs/design-directions/05-looks.html, M.phosphor): near-black green glass
+ * with a soft glow, scanlines over everything, VT323 throughout, and no colour but green. What is
+ * current, selected or needs a look is drawn in inverse video, a green block with dark letters.
+ * Dark only: the light and dark switch is hidden.
+ *
+ * VT323 is small for its size, so every page's type is sized up by its x-height (font-size-adjust)
+ * rather than rule by rule: a page's 13px reads as a terminal's 18px, and its layout keeps its
+ * measurements. Panels are sections under a dashed rule, as the drawing sets NEEDS YOU apart.
+ */
+
+:root[data-look="phosphor"] {
+  color-scheme: dark;
+  --ph-g: #62ff96;
+  --ph-dim: #45b870;
+  --ph-faint: rgba(98, 255, 150, 0.45);
+  --ph-ink: #021006;
+  --ph-glow: rgba(98, 255, 150, 0.4);
+  --ph-screen: radial-gradient(120% 110% at 50% 45%, #07301a 0%, #031509 62%, #000000 100%);
+  --ph-rail: 48px;
+
+  --font-condensed: "VT323", ui-monospace, "SF Mono", Menlo, monospace;
+  --font-mono: "VT323", ui-monospace, "SF Mono", Menlo, monospace;
+  --font-sans: "VT323", ui-monospace, "SF Mono", Menlo, monospace;
+  --font-display: "VT323", ui-monospace, monospace;
+  font-size-adjust: ex-height 0.55;
+
+  --cc-canvas: #031509;
+  --cc-topbar: #031509;
+  --cc-rail: #031509;
+  --cc-panel: #041a0c;
+  --cc-raised: #0a2e18;
+  --cc-inset: #020f06;
+  --cc-line: rgba(98, 255, 150, 0.55);
+  --cc-hairline: rgba(98, 255, 150, 0.22);
+  --cc-line-strong: #62ff96;
+  --cc-text: #62ff96;
+  --cc-text-strong: #8dffb4;
+  --cc-muted: #45b870;
+  --cc-icon: #62ff96;
+  --cc-amber: #62ff96;
+  --cc-amber-ink: #021006;
+  --cc-amber-bg: rgba(98, 255, 150, 0.1);
+  --cc-amber-border: rgba(98, 255, 150, 0.6);
+  --cc-cyan: #62ff96;
+  --cc-cyan-fill: rgba(98, 255, 150, 0.14);
+  --cc-green: #62ff96;
+  --cc-green-bg: transparent;
+  --cc-green-border: rgba(98, 255, 150, 0.6);
+  --cc-red: #62ff96;
+  --cc-red-text: #62ff96;
+  --cc-red-bg: rgba(98, 255, 150, 0.14);
+  --cc-red-border: #62ff96;
+  --cc-track: rgba(98, 255, 150, 0.16);
+  --status-unknown: #45b870;
+  --modal-bg: rgba(0, 6, 2, 0.78);
+  --radius-sm: 0;
+  --radius-md: 0;
+  --radius-lg: 0;
+  --radius-pill: 0;
+  --radius-control: 0;
+  --elevation-3: none;
+  --shadow-xl: none;
+}
+
+:root[data-look="phosphor"] .ui-theme-switch { display: none; }
+/* The bar's own controls keep their room; the search and the page's name give way first. */
+:root[data-look="phosphor"] .topbar-right { flex-shrink: 0; }
+:root[data-look="phosphor"] .command-trigger { min-width: 36px; }
+
+/* ── The glass: the green-black screen, the glow on every letter, the scanlines over it all ── */
+:root[data-look="phosphor"] body,
+:root[data-look="phosphor"] .app-shell[data-shell="console"] {
+  color: var(--ph-g);
+  background: var(--ph-screen) fixed, #000000;
+}
+:root[data-look="phosphor"] .app-shell,
+:root[data-look="phosphor"] :is(.ui-sheet, .command-dialog, .look-console, .approve-dialog) {
+  font-family: var(--font-mono);
+  letter-spacing: 0;
+  text-shadow: 0 0 0.35em var(--ph-glow);
+}
+:root[data-look="phosphor"] body::after {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  background: repeating-linear-gradient(to bottom, rgba(0, 0, 0, 0.3) 0 1px, transparent 1px 3px);
+  content: "";
+  pointer-events: none;
+}
+:root[data-look="phosphor"] .app-shell :is(button, a, input, select, textarea, summary, [tabindex]):focus-visible,
+:root[data-look="phosphor"] .look-console :focus-visible:not([tabindex="-1"]),
+:root[data-look="phosphor"] :is(.ui-sheet, .command-dialog) :is(button, a, input, select, textarea, summary):focus-visible {
+  outline: 2px solid var(--ph-g);
+  outline-offset: 2px;
+}
+:root[data-look="phosphor"] ::selection { color: var(--ph-ink); background: var(--ph-g); text-shadow: none; }
+
+/* Inverse video: the one way this screen says "this one". */
+:root[data-look="phosphor"] :is(.view-switch__option[aria-current="page"], .ui-tabs__tab[aria-selected="true"], .ui-segmented__option[aria-checked="true"], .command-option[aria-selected="true"], .ui-button--primary, .ui-button:hover:not(:disabled), .ui-chip--warning, .ui-chip--danger, .ui-risk--medium, .ui-risk--high, .ui-tag--tier-medium, .ui-tag--tier-high) {
+  color: var(--ph-ink);
+  background: var(--ph-g);
+  text-shadow: none;
+}
+
+/* ── The rail: a column of keys down the left of the glass ── */
+@media (min-width: 761px) {
+  :root[data-look="phosphor"] .app-shell[data-shell="console"] { padding-left: var(--ph-rail); }
+  :root[data-look="phosphor"] .shell-dock.shell-dock--rail { width: var(--ph-rail); border-right: 1px dashed var(--ph-faint); background: transparent; }
+  :root[data-look="phosphor"] .shell-rail__logo { width: 34px; height: 30px; border-radius: 0; color: var(--ph-ink); background: var(--ph-g); font: 400 20px/1 var(--font-mono); text-shadow: none; box-shadow: 0 0 10px var(--ph-glow); }
+  :root[data-look="phosphor"] .shell-dock--rail .ui-dock__item { width: 36px; }
+  :root[data-look="phosphor"] .shell-dock--rail .ui-dock__icon { width: 36px; height: 30px; border: 0; border-radius: 0; color: var(--ph-g); background: transparent; filter: drop-shadow(0 0 3px var(--ph-glow)); }
+  :root[data-look="phosphor"] .shell-dock--rail .ui-dock__item:hover .ui-dock__icon { color: var(--ph-g); background: rgba(98, 255, 150, 0.14); }
+  :root[data-look="phosphor"] .shell-dock--rail .ui-dock__item[aria-current="page"] .ui-dock__icon { color: var(--ph-ink); background: var(--ph-g); box-shadow: none; filter: none; }
+  :root[data-look="phosphor"] .shell-dock--rail .ui-dock__separator { background: var(--ph-faint); }
+  :root[data-look="phosphor"] .shell-dock--rail .ui-dock__badge { background: var(--ph-g); box-shadow: 0 0 0 2px #031509; }
+  :root[data-look="phosphor"] .shell-dock--rail .ui-dock__label { border: 1px solid var(--ph-g); border-radius: 0; color: var(--ph-ink); background: var(--ph-g); font: 400 19px/1.1 var(--font-mono); text-shadow: none; text-transform: lowercase; }
+}
+
+/* ── The top bar: the terminal's first line ── */
+:root[data-look="phosphor"] .topbar {
+  min-height: 46px;
+  padding-right: 28px;
+  padding-left: 24px;
+  border-bottom: 1px dashed var(--ph-faint);
+  background: #031509;
+  backdrop-filter: none;
+}
+:root[data-look="phosphor"] .app-shell[data-view="home"] .topbar { min-height: 50px; border-bottom-color: transparent; background: transparent; }
+:root[data-look="phosphor"] .cc-crumb { align-items: center; }
+:root[data-look="phosphor"] .cc-crumb__host { padding: 0 0.4ch; color: var(--ph-ink); background: var(--ph-g); font-size: 16px; font-weight: 400; text-shadow: none; text-transform: uppercase; }
+:root[data-look="phosphor"] .cc-crumb__sep { color: var(--ph-dim); font-size: 16px; }
+:root[data-look="phosphor"] .cc-crumb h1 { color: var(--ph-g); font-size: 16px; font-weight: 400; }
+:root[data-look="phosphor"] .cc-kv { color: var(--ph-dim); font-size: 13px; }
+:root[data-look="phosphor"] .cc-kv b { color: var(--ph-g); font-weight: 400; }
+:root[data-look="phosphor"] .view-switch { gap: 0.5ch; padding: 0; border: 0; border-radius: 0; background: transparent; backdrop-filter: none; }
+:root[data-look="phosphor"] .view-switch__option { min-height: 26px; padding: 0 0.6ch; border: 0; border-radius: 0; color: var(--ph-g); font-size: 14px; font-weight: 400; text-transform: lowercase; }
+:root[data-look="phosphor"] .view-switch__option svg { display: none; }
+:root[data-look="phosphor"] .view-switch__option[aria-current="page"] { color: var(--ph-ink); background: var(--ph-g); text-shadow: none; }
+:root[data-look="phosphor"] .command-trigger { min-height: 28px; border: 1px dashed var(--ph-faint); border-radius: 0; color: var(--ph-dim); background: transparent; backdrop-filter: none; font-size: 14px; text-transform: lowercase; }
+:root[data-look="phosphor"] .command-trigger:hover { color: var(--ph-g); border-style: solid; }
+:root[data-look="phosphor"] .command-trigger__keys { border: 0; border-radius: 0; color: var(--ph-ink); background: var(--ph-g); font-size: 12px; text-shadow: none; }
+:root[data-look="phosphor"] .connection-pill { border: 0; border-radius: 0; color: var(--ph-dim); background: transparent; font-size: 12px; }
+:root[data-look="phosphor"] .connection-pill::before { border-radius: 0; background: var(--ph-g); }
+:root[data-look="phosphor"] .bar-button { color: var(--ph-g); font-size: 14px; text-transform: lowercase; }
+:root[data-look="phosphor"] .bar-button:hover,
+:root[data-look="phosphor"] .bar-button[aria-expanded="true"] { color: var(--ph-ink); background: var(--ph-g); text-shadow: none; }
+:root[data-look="phosphor"] .bar-badge { border-radius: 0; color: var(--ph-ink); background: var(--ph-g); text-shadow: none; }
+:root[data-look="phosphor"] .bar-label { border: 1px dashed var(--ph-faint); border-radius: 0; color: var(--ph-dim); }
+:root[data-look="phosphor"] .signed-in-user { color: var(--ph-g); font-size: 13px; }
+:root[data-look="phosphor"] .signed-in-user__avatar { border-radius: 0; color: var(--ph-ink); background: var(--ph-g); text-shadow: none; }
+
+/* ── Pages: sections under a dashed rule, words in green, figures in green ── */
+:root[data-look="phosphor"] .content { padding-left: 24px; padding-right: 28px; }
+:root[data-look="phosphor"] .ui-panel { border: 0; border-radius: 0; background: transparent; overflow: visible; }
+:root[data-look="phosphor"] .ui-panel__head { min-height: 30px; padding: 0; border-bottom: 1px dashed var(--ph-g); }
+:root[data-look="phosphor"] .ui-panel__title { color: var(--ph-g); font-size: 15px; font-weight: 400; letter-spacing: 0.04em; }
+:root[data-look="phosphor"] .ui-panel__count { color: var(--ph-g); }
+:root[data-look="phosphor"] .ui-panel__meta,
+:root[data-look="phosphor"] .ui-panel__foot { color: var(--ph-dim); }
+:root[data-look="phosphor"] .ui-panel__foot { padding-inline: 0; border-top: 1px dashed var(--ph-faint); }
+:root[data-look="phosphor"] .ui-panel--padded > .ui-panel__body { padding-inline: 0; }
+:root[data-look="phosphor"] .ui-page-header__about { border-left: 1px dashed var(--ph-g); color: var(--ph-dim); }
+:root[data-look="phosphor"] .ui-info-toggle { border: 1px dashed var(--ph-faint); border-radius: 0; color: var(--ph-g); }
+:root[data-look="phosphor"] .ui-metric { border: 1px dashed var(--ph-faint); border-radius: 0; background: transparent; }
+:root[data-look="phosphor"] .ui-metric--link:hover { background: rgba(98, 255, 150, 0.08); }
+:root[data-look="phosphor"] .ui-metric__label { color: var(--ph-dim); font-size: 12px; }
+:root[data-look="phosphor"] .ui-metric__value { color: var(--ph-g); font-size: 28px; font-weight: 400; letter-spacing: 0; }
+:root[data-look="phosphor"] .ui-metric__value small { color: var(--ph-dim); font-size: 15px; }
+:root[data-look="phosphor"] :is(.ui-metric[data-status="warning"], .ui-metric[data-status="danger"]) .ui-metric__value { color: var(--ph-g); }
+:root[data-look="phosphor"] :is(.ui-metric[data-status="warning"], .ui-metric[data-status="danger"]) .ui-metric__label { width: fit-content; padding: 0 0.4ch; color: var(--ph-ink); background: var(--ph-g); text-shadow: none; }
+:root[data-look="phosphor"] .ui-metric__caption { color: var(--ph-dim); font-size: 13px; }
+/* A bar is a row of blocks and dots, as the drawing's [#####.....]. */
+:root[data-look="phosphor"] :is(.ui-metric__bar, .ui-progress__track, .ops-bar) { height: 9px; border-radius: 0; background: radial-gradient(circle, rgba(98, 255, 150, 0.55) 0 1px, transparent 1.5px) 0 50% / 6px 9px repeat-x; }
+:root[data-look="phosphor"] :is(.ui-metric__bar, .ui-progress__track, .ops-bar) > i,
+:root[data-look="phosphor"] .ui-metric[data-status] .ui-metric__bar > i,
+:root[data-look="phosphor"] .ui-progress__fill { border-radius: 0; background: repeating-linear-gradient(90deg, var(--ph-g) 0 4px, transparent 4px 6px); box-shadow: 0 0 6px var(--ph-glow); }
+:root[data-look="phosphor"] .ui-spark__line { stroke: var(--ph-g); filter: drop-shadow(0 0 2px var(--ph-glow)); }
+:root[data-look="phosphor"] .ui-spark__area { fill: rgba(98, 255, 150, 0.1); }
+
+/* Buttons: a bracketed key; the one to press, and any under the pointer, in inverse video. */
+:root[data-look="phosphor"] .ui-button {
+  min-height: 28px;
+  padding: 0 1ch;
+  border: 1px solid var(--ph-g);
+  border-radius: 0;
+  color: var(--ph-g);
+  background: transparent;
+  box-shadow: none;
+  font-size: 14px;
+  font-weight: 400;
+  text-transform: lowercase;
+}
+:root[data-look="phosphor"] .ui-button--ghost { border-color: transparent; text-decoration: underline; text-underline-offset: 3px; }
+:root[data-look="phosphor"] :is(.ui-button--risk-medium, .ui-button--risk-high)::before { border-radius: 0; background: currentColor; }
+:root[data-look="phosphor"] .ui-button__tier { border: 1px solid currentColor; border-radius: 0; color: inherit; background: transparent; }
+:root[data-look="phosphor"] .ui-button:disabled { opacity: 0.5; }
+
+/* Chips, tiers and tags: bracketed words; what needs a look in inverse video. */
+:root[data-look="phosphor"] :is(.ui-chip, .ui-risk, .ui-tag, .cc-tag) { border: 0; border-radius: 0; color: var(--ph-g); background: transparent; font-family: var(--font-mono); font-size: 13px; font-weight: 400; letter-spacing: 0; text-transform: uppercase; }
+:root[data-look="phosphor"] :is(.ui-chip, .ui-risk, .ui-tag, .cc-tag)::before { content: "["; }
+:root[data-look="phosphor"] :is(.ui-chip, .ui-risk, .ui-tag, .cc-tag)::after { content: "]"; }
+:root[data-look="phosphor"] .ui-chip .ui-mark { display: none; }
+:root[data-look="phosphor"] .ui-table .ui-chip::before,
+:root[data-look="phosphor"] .ui-table .ui-chip::after { content: none; }
+
+/* Tables: a listing, the headings dim, the row under the pointer in inverse video. */
+:root[data-look="phosphor"] .ui-table th { border-bottom: 1px dashed var(--ph-g); color: var(--ph-dim); background: transparent; font-size: 13px; font-weight: 400; letter-spacing: 0.04em; }
+:root[data-look="phosphor"] .ui-table td { border-bottom: 0; color: var(--ph-g); font-size: 14px; }
+:root[data-look="phosphor"] .ui-table tbody tr:hover td { color: var(--ph-ink); background: var(--ph-g); text-shadow: none; }
+:root[data-look="phosphor"] .ui-table tbody tr:hover :is(td *, td) { color: var(--ph-ink); }
+:root[data-look="phosphor"] .ui-table .ops-link { color: var(--ph-g); }
+:root[data-look="phosphor"] .ui-table__mark { border-radius: 0; }
+
+/* Tabs and segments: words; the open one in inverse video. */
+:root[data-look="phosphor"] .ui-tabs__list { gap: 1ch; border-bottom: 1px dashed var(--ph-faint); }
+:root[data-look="phosphor"] .ui-tabs__tab { min-height: 28px; margin-bottom: 4px; padding: 0 1ch; border: 0; color: var(--ph-g); font-size: 15px; font-weight: 400; text-transform: lowercase; }
+:root[data-look="phosphor"] .ui-tabs__tab[aria-selected="true"] .ui-tabs__count { color: var(--ph-ink); }
+:root[data-look="phosphor"] .ui-tabs__count { color: var(--ph-dim); }
+:root[data-look="phosphor"] .ui-segmented { gap: 1ch; padding: 0; border: 0; border-radius: 0; background: transparent; }
+:root[data-look="phosphor"] .ui-segmented__option { border-radius: 0; color: var(--ph-g); font-size: 14px; font-weight: 400; box-shadow: none; }
+:root[data-look="phosphor"] .ui-segmented__option[aria-checked="true"] { box-shadow: none; }
+:root[data-look="phosphor"] .ui-switch__track { border: 1px solid var(--ph-g); border-radius: 0; background: transparent; }
+:root[data-look="phosphor"] .ui-switch__thumb { border-radius: 0; background: var(--ph-dim); }
+:root[data-look="phosphor"] .ui-switch__control[aria-checked="true"] .ui-switch__track { background: rgba(98, 255, 150, 0.2); }
+:root[data-look="phosphor"] .ui-switch__control[aria-checked="true"] .ui-switch__thumb { background: var(--ph-g); box-shadow: 0 0 6px var(--ph-glow); }
+:root[data-look="phosphor"] .ui-switch__state { color: var(--ph-g); font-size: 13px; }
+:root[data-look="phosphor"] :is(.ui-input, .ui-textarea, .ui-select__control) { border: 1px solid var(--ph-faint); border-radius: 0; color: var(--ph-g); background: rgba(0, 0, 0, 0.35); caret-color: var(--ph-g); font-family: var(--font-mono); font-size: 15px; }
+:root[data-look="phosphor"] :is(.ui-input, .ui-textarea)::placeholder { color: var(--ph-dim); }
+:root[data-look="phosphor"] .ui-check__mark { border: 1px solid var(--ph-g); border-radius: 0; background: transparent; }
+:root[data-look="phosphor"] .ui-check__input:checked + .ui-check__mark { background: var(--ph-g); }
+:root[data-look="phosphor"] .ui-check__mark::after { border-color: var(--ph-ink); }
+:root[data-look="phosphor"] .ui-kv--strip { border: 1px dashed var(--ph-faint); border-radius: 0; background: transparent; }
+:root[data-look="phosphor"] .ui-kv--strip .ui-kv__item { border-right: 1px dashed var(--ph-faint); box-shadow: none; }
+:root[data-look="phosphor"] .ui-kv--rows .ui-kv__item { border-top: 1px dashed var(--cc-hairline); }
+:root[data-look="phosphor"] .ui-kv__label { color: var(--ph-dim); }
+:root[data-look="phosphor"] .ui-kv__value { color: var(--ph-g); font-weight: 400; }
+:root[data-look="phosphor"] .ui-field__label,
+:root[data-look="phosphor"] .ui-switch__label,
+:root[data-look="phosphor"] .ui-check__label { color: var(--ph-g); font-weight: 400; }
+
+/* Notices, needs, jobs, code: the line's mark is a block, not a colour. */
+:root[data-look="phosphor"] .ui-notice { border: 1px dashed var(--ph-faint); border-radius: 0; background: transparent; box-shadow: inset 4px 0 0 var(--ph-g); }
+:root[data-look="phosphor"] :is(.ui-notice__title, .need__title, .ui-empty__title, .ui-job__title, .ui-sheet__title) { color: var(--ph-g); font-weight: 400; }
+:root[data-look="phosphor"] .need { border-top: 1px dashed var(--cc-hairline); box-shadow: none; }
+:root[data-look="phosphor"] .ui-mark { border-radius: 0; background: var(--ph-g); }
+:root[data-look="phosphor"] :is(.ui-job, .ui-code) { border: 1px dashed var(--ph-faint); border-radius: 0; background: rgba(0, 0, 0, 0.3); }
+:root[data-look="phosphor"] .ui-code__bar { border-bottom: 1px dashed var(--ph-faint); background: transparent; }
+:root[data-look="phosphor"] .ui-code__text { color: var(--ph-g); font-size: 15px; }
+:root[data-look="phosphor"] .ui-code__copy { border: 1px solid var(--ph-g); border-radius: 0; color: var(--ph-g); background: transparent; }
+:root[data-look="phosphor"] .ui-empty__icon { border: 1px dashed var(--ph-g); border-radius: 0; }
+:root[data-look="phosphor"] :is(.ui-app-icon, .ui-tile__icon) { border: 1px solid var(--ph-g); border-radius: 0; color: var(--ph-g); background: transparent; box-shadow: 0 0 8px var(--ph-glow); }
+/* An app's picture on this glass: its emoji lit in the phosphor's one colour. */
+:root[data-look="phosphor"] :is(.ui-app-icon[data-emoji], .ui-tile__icon) > :not(.ui-mark) { filter: grayscale(1) sepia(1) hue-rotate(80deg) saturate(3) brightness(1.1); }
+
+/* ── What opens over a page: another window on the same glass ── */
+:root[data-look="phosphor"] :is(.ui-sheet, .approve-dialog, .command-dialog) {
+  border: 1px solid var(--ph-g);
+  border-radius: 0;
+  color: var(--ph-g);
+  background: #031509;
+  box-shadow: 0 0 0 4px #031509, 0 0 0 5px var(--ph-faint), 0 0 30px rgba(98, 255, 150, 0.18);
+}
+:root[data-look="phosphor"] :is(.ui-sheet__head, .ui-sheet__foot) { border-color: var(--ph-faint); border-style: dashed; }
+:root[data-look="phosphor"] :is(.ui-sheet__close, .command-close, .approve-close) { border: 1px solid var(--ph-g); border-radius: 0; color: var(--ph-g); background: transparent; }
+:root[data-look="phosphor"] .command-input { border-bottom: 1px dashed var(--ph-g); }
+:root[data-look="phosphor"] .command-input input { color: var(--ph-g); caret-color: var(--ph-g); font-family: var(--font-mono); font-size: 18px; }
+:root[data-look="phosphor"] .command-option { border-radius: 0; }
+
+/* ── A phone: the dock is a row of keys along the foot of the glass ── */
+@media (max-width: 760px) {
+  :root[data-look="phosphor"] .content { padding: 10px 14px calc(var(--shell-bottom-inset, 0px) + 104px); }
+  :root[data-look="phosphor"] .topbar { padding: 8px 12px; }
+  :root[data-look="phosphor"] .ui-dock.shell-dock ul { border: 1px solid var(--ph-g); border-radius: 0; background: #031509; box-shadow: 0 0 20px rgba(98, 255, 150, 0.15); backdrop-filter: none; }
+  :root[data-look="phosphor"] .shell-dock .ui-dock__icon { border: 0; border-radius: 0; color: var(--ph-g); background: transparent; }
+  :root[data-look="phosphor"] .shell-dock .ui-dock__item[aria-current="page"] .ui-dock__icon { border: 0; color: var(--ph-ink); background: var(--ph-g); }
+  :root[data-look="phosphor"] .shell-dock .ui-dock__label { color: var(--ph-g); font-size: 13px; text-transform: lowercase; }
+  :root[data-look="phosphor"] .ui-dock__badge { border-radius: 0; color: var(--ph-ink); background: var(--ph-g); box-shadow: 0 0 0 2px #031509; text-shadow: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-look="phosphor"] .ui-button { transition: none; }
+}

@@ -1,1 +1,412 @@
-/* The rack look's skin (M41): every selector starts with :root[data-look="rack"]. */
+/*
+ * The rack panel look's skin (M41): every selector starts with :root[data-look="rack"].
+ *
+ * Brushed-metal rack units in a dark cabinet (docs/design-directions/05-looks.html, M.rack): each
+ * block of a page is a unit, its name engraved in Barlow Condensed capitals on the aluminium with a
+ * screw in each ear, and what it holds sits in a dark recessed module underneath, in light type, the
+ * figures in Share Tech Mono. Buttons are chunky push buttons (amber for the one to press, grey for
+ * the rest), figures glow in red segment windows, and status is an LED. One look: the light and dark
+ * switch is hidden. The rail is a rack rail, its areas mounted down it.
+ */
+
+:root[data-look="rack"] {
+  color-scheme: dark;
+  --rk-metal: repeating-linear-gradient(90deg, #cdd0d4 0 2px, #c1c5ca 2px 3px, #d6d9dc 3px 5px);
+  --rk-face: linear-gradient(180deg, rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0) 30%, rgba(0, 0, 0, 0.1)), var(--rk-metal);
+  --rk-unit-shadow: inset 0 1px 0 #ffffff, inset 0 -1px 0 #7f8389, 0 4px 10px rgba(0, 0, 0, 0.6);
+  --rk-screw: linear-gradient(45deg, transparent 44%, #55595e 44% 56%, transparent 56%), radial-gradient(circle at 35% 35%, #fafafa, #9a9ea4 60%, #5f6368);
+  --rk-engraved: #33363b;
+  --rk-module: linear-gradient(#2a2c30, #1d1f22);
+  --rk-module-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.8), 0 1px 0 rgba(255, 255, 255, 0.7);
+  --rk-cabinet: linear-gradient(#111213, #1c1d1f 30%, #111213);
+  --rk-amber: #ffb20f;
+  --rk-led-green: #2ee65a;
+  --rk-seg: #ff3b2f;
+  --rk-rail: 40px;
+
+  --font-condensed: "Barlow Condensed", "Arial Narrow", ui-sans-serif, sans-serif;
+  --font-sans: "Barlow Condensed", "Arial Narrow", ui-sans-serif, sans-serif;
+  --font-mono: "Share Tech Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --font-display: "Barlow Condensed", "Arial Narrow", sans-serif;
+
+  /* What sits inside a unit is a dark module: light type on it, amber to act, an LED's green. */
+  --cc-canvas: #151618;
+  --cc-topbar: #cdd0d4;
+  --cc-rail: #1a1b1d;
+  --cc-panel: #1f2124;
+  --cc-raised: #2a2c30;
+  --cc-inset: #111213;
+  --cc-line: #3a3d42;
+  --cc-hairline: #2c2f33;
+  --cc-line-strong: #555960;
+  --cc-text: #dfe2e6;
+  --cc-text-strong: #ffffff;
+  --cc-muted: #a9aeb5;
+  --cc-icon: #b8bcc2;
+  --cc-amber: #ffb20f;
+  --cc-amber-ink: #2a1a00;
+  --cc-amber-bg: rgba(255, 178, 15, 0.12);
+  --cc-amber-border: rgba(255, 178, 15, 0.55);
+  --cc-cyan: #2ee65a;
+  --cc-cyan-fill: rgba(46, 230, 90, 0.14);
+  --cc-green: #2ee65a;
+  --cc-green-bg: rgba(46, 230, 90, 0.1);
+  --cc-green-border: rgba(46, 230, 90, 0.45);
+  --cc-red: #ff3b2f;
+  --cc-red-text: #ff7a70;
+  --cc-red-bg: rgba(255, 59, 47, 0.12);
+  --cc-red-border: rgba(255, 59, 47, 0.55);
+  --cc-track: #0e0f10;
+  --modal-bg: rgba(6, 6, 7, 0.72);
+  --radius-sm: 2px;
+  --radius-md: 3px;
+  --radius-lg: 4px;
+  --radius-pill: 3px;
+  --radius-control: 3px;
+}
+
+:root[data-look="rack"] .ui-theme-switch { display: none; }
+/* The bar's own controls keep their room; the search and the page's name give way first. */
+:root[data-look="rack"] .topbar-right { flex-shrink: 0; }
+:root[data-look="rack"] .command-trigger { min-width: 36px; }
+
+/* ── The cabinet ── */
+:root[data-look="rack"] body,
+:root[data-look="rack"] .app-shell[data-shell="console"] { background: var(--rk-cabinet) fixed, #151618; }
+:root[data-look="rack"] .app-shell,
+:root[data-look="rack"] :is(.ui-sheet, .command-dialog, .look-console) { font-family: var(--font-condensed); letter-spacing: 0.01em; }
+:root[data-look="rack"] .app-shell :is(button, a, input, select, textarea, summary, [tabindex]):focus-visible,
+:root[data-look="rack"] .look-console :focus-visible:not([tabindex="-1"]),
+:root[data-look="rack"] :is(.ui-sheet, .command-dialog) :is(button, a, input, select, textarea, summary):focus-visible {
+  outline: 2px solid var(--rk-amber);
+  outline-offset: 2px;
+}
+
+/* ── The rack rail: a strip of metal down the left, its square holes, each area mounted on it ── */
+@media (min-width: 761px) {
+  :root[data-look="rack"] .app-shell[data-shell="console"] { padding-left: var(--rk-rail); }
+  :root[data-look="rack"] .shell-dock.shell-dock--rail {
+    width: var(--rk-rail);
+    padding-top: 8px;
+    border-right: 1px solid #000000;
+    background:
+      linear-gradient(transparent 4px, #060607 4px 10px, transparent 10px) 3px 0 / 6px 22px repeat-y,
+      linear-gradient(transparent 4px, #060607 4px 10px, transparent 10px) right 3px top 0 / 6px 22px repeat-y,
+      linear-gradient(90deg, #26282b, #1b1c1e 20%, #1b1c1e 80%, #26282b);
+    box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.08), inset 1px 0 0 rgba(255, 255, 255, 0.08);
+  }
+  :root[data-look="rack"] .shell-rail__logo {
+    width: 30px;
+    height: 26px;
+    border-radius: 3px;
+    color: #2a1a00;
+    background: radial-gradient(circle, #ffe08a, #ffb20f 70%);
+    box-shadow: 0 0 10px rgba(255, 178, 15, 0.55), inset 0 0 0 2px #7a4b00;
+    font: 700 13px/1 var(--font-condensed);
+    letter-spacing: 0.08em;
+  }
+    :root[data-look="rack"] .shell-dock--rail .ui-dock__item { width: 28px; }
+  :root[data-look="rack"] .shell-dock--rail .ui-dock__icon {
+    width: 28px;
+    height: 26px;
+    border: 0;
+    border-radius: 3px;
+    color: #26282c;
+    background: linear-gradient(#e4e6e9, #b3b7bc);
+    box-shadow: 0 2px 0 #3c3f44, inset 0 1px 0 #ffffff;
+  }
+  :root[data-look="rack"] .shell-dock--rail .ui-dock__icon svg { width: 16px; height: 16px; }
+  :root[data-look="rack"] .shell-dock--rail .ui-dock__item:hover .ui-dock__icon { color: #000000; background: linear-gradient(#ffffff, #c4c8cd); }
+  :root[data-look="rack"] .shell-dock--rail .ui-dock__item[aria-current="page"] .ui-dock__icon { color: #2a1a00; background: linear-gradient(#ffcf5a, #e39a00); box-shadow: 0 0 8px rgba(255, 178, 15, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.7); }
+  :root[data-look="rack"] .shell-dock--rail .ui-dock__separator { width: 24px; background: #000000; box-shadow: 0 1px 0 rgba(255, 255, 255, 0.12); }
+  :root[data-look="rack"] .shell-dock--rail .ui-dock__badge { background: var(--rk-amber); box-shadow: 0 0 6px var(--rk-amber); }
+  :root[data-look="rack"] .shell-dock--rail .ui-dock__label { border: 0; border-radius: 1px; color: #f4f4f4; background: #111111; font: 600 13px/1.2 var(--font-condensed); letter-spacing: 0.08em; text-transform: uppercase; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.6); }
+}
+
+/* ── The top bar: a 1U unit across the top, its words engraved, its search a dark window ── */
+:root[data-look="rack"] .topbar {
+  min-height: 32px;
+  margin: 4px 12px 0 8px;
+  padding: 0 40px;
+  border: 0;
+  border-radius: 3px;
+  color: var(--rk-engraved);
+  background: var(--rk-face);
+  box-shadow: var(--rk-unit-shadow);
+  backdrop-filter: none;
+}
+:root[data-look="rack"] .topbar::before,
+:root[data-look="rack"] .topbar::after {
+  position: absolute;
+  top: 50%;
+  width: 13px;
+  height: 13px;
+  margin-top: -6.5px;
+  border-radius: 50%;
+  background: var(--rk-screw);
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.25);
+  content: "";
+}
+:root[data-look="rack"] .topbar::before { left: 15px; }
+:root[data-look="rack"] .topbar::after { right: 15px; }
+:root[data-look="rack"] .app-shell[data-view="home"] .topbar { position: sticky; min-height: 32px; background: var(--rk-face); }
+/* On Home the bar is the top row of the head unit, a 2U panel: square below, a groove under it. */
+@media (min-width: 761px) {
+  :root[data-look="rack"] .app-shell[data-view="home"] .topbar { border-radius: 3px 3px 0 0; box-shadow: inset 0 1px 0 #ffffff, inset 0 -1px 0 rgba(0, 0, 0, 0.18); }
+}
+:root[data-look="rack"] :is(.cc-crumb__host, .cc-crumb h1, .cc-crumb__sep) { color: var(--rk-engraved); font-family: var(--font-condensed); font-size: 17px; font-weight: 700; letter-spacing: 0.14em; text-shadow: 0 1px 0 rgba(255, 255, 255, 0.8); text-transform: uppercase; }
+:root[data-look="rack"] .cc-crumb h1 { color: #4a4e55; }
+:root[data-look="rack"] .cc-kv { color: #4a4e55; font-family: var(--font-condensed); font-size: 13px; font-weight: 600; letter-spacing: 0.08em; text-shadow: 0 1px 0 rgba(255, 255, 255, 0.7); text-transform: uppercase; }
+:root[data-look="rack"] .cc-kv b { color: var(--rk-engraved); font-weight: 700; }
+:root[data-look="rack"] .view-switch { gap: 6px; padding: 0; border: 0; background: transparent; backdrop-filter: none; }
+:root[data-look="rack"] .view-switch__option {
+  min-height: 22px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 3px;
+  color: #26282c;
+  background: linear-gradient(#f2f3f4, #b8bcc1);
+  box-shadow: 0 2px 0 #55595e, inset 0 1px 0 #ffffff;
+  font: 700 13px/1 var(--font-condensed);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+:root[data-look="rack"] .view-switch__option[aria-current="page"] { color: #2a1a00; background: linear-gradient(#ffcf5a, #e39a00); box-shadow: 0 2px 0 #6e4600, inset 0 1px 0 rgba(255, 255, 255, 0.7); }
+:root[data-look="rack"] .command-trigger {
+  min-height: 24px;
+  border: 0;
+  border-radius: 2px;
+  color: #b8bcc2;
+  background: #111213;
+  box-shadow: inset 0 0 0 2px #2b2d30, inset 0 3px 6px rgba(0, 0, 0, 0.7), 0 1px 0 rgba(255, 255, 255, 0.8);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  backdrop-filter: none;
+}
+:root[data-look="rack"] .command-trigger__keys { border: 1px solid #555960; border-radius: 2px; color: #dfe2e6; background: transparent; }
+:root[data-look="rack"] .connection-pill { border: 0; color: var(--rk-engraved); background: transparent; font-family: var(--font-condensed); font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }
+:root[data-look="rack"] .connection-pill::before { background: radial-gradient(circle at 40% 35%, #d8ffd9, #2ee65a 55%, #13862f); box-shadow: 0 0 6px #2ee65a; }
+:root[data-look="rack"] .bar-button { min-height: 26px; color: var(--rk-engraved); font-family: var(--font-condensed); font-size: 14px; font-weight: 700; letter-spacing: 0.12em; text-shadow: 0 1px 0 rgba(255, 255, 255, 0.8); text-transform: uppercase; }
+:root[data-look="rack"] .bar-button:hover,
+:root[data-look="rack"] .bar-button[aria-expanded="true"] { color: #000000; }
+:root[data-look="rack"] .bar-button[data-live] { color: #7a4b00; }
+:root[data-look="rack"] .bar-badge { border-radius: 2px; color: #2a1a00; background: radial-gradient(circle, #ffe08a, #ffb20f 70%); box-shadow: 0 0 6px rgba(255, 178, 15, 0.7); text-shadow: none; }
+:root[data-look="rack"] .bar-label { border-color: #7f8389; color: var(--rk-engraved); }
+:root[data-look="rack"] .signed-in-user { color: var(--rk-engraved); font-weight: 700; }
+:root[data-look="rack"] .signed-in-user__avatar { border-radius: 2px; color: #f4f4f4; background: #111111; }
+
+/* ── Units: every panel is a rack unit, its name engraved on the metal and its insides a dark module ── */
+:root[data-look="rack"] .content { padding: 8px 12px calc(var(--shell-bottom-inset, 0px) + 28px) 8px; }
+:root[data-look="rack"] .ui-panel {
+  position: relative;
+  padding: 0 28px 10px;
+  overflow: visible;
+  border: 0;
+  border-radius: 3px;
+  background: var(--rk-face);
+  box-shadow: var(--rk-unit-shadow);
+}
+:root[data-look="rack"] .ui-panel::before,
+:root[data-look="rack"] .ui-panel::after {
+  position: absolute;
+  top: 13px;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--rk-screw);
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.25);
+  content: "";
+}
+:root[data-look="rack"] .ui-panel::before { left: 8px; }
+:root[data-look="rack"] .ui-panel::after { right: 8px; }
+:root[data-look="rack"] .ui-panel__head { min-height: 40px; padding: 4px 2px; border: 0; }
+:root[data-look="rack"] .ui-panel__title { color: var(--rk-engraved); font-family: var(--font-condensed); font-size: 14px; font-weight: 700; letter-spacing: 0.18em; text-shadow: 0 1px 0 rgba(255, 255, 255, 0.8); }
+:root[data-look="rack"] .ui-panel__count { color: #7a4b00; }
+:root[data-look="rack"] .ui-panel__count.ui-marked { color: var(--rk-engraved); }
+:root[data-look="rack"] .ui-panel__meta { color: #464a50; font-family: var(--font-condensed); font-size: 13px; font-weight: 600; letter-spacing: 0.06em; text-shadow: 0 1px 0 rgba(255, 255, 255, 0.6); text-transform: uppercase; }
+:root[data-look="rack"] .ui-panel__meta b { color: var(--rk-engraved); }
+:root[data-look="rack"] .ui-panel__body {
+  border-radius: 3px;
+  color: var(--cc-text);
+  background: var(--rk-module);
+  box-shadow: var(--rk-module-shadow);
+}
+:root[data-look="rack"] .ui-panel__foot { margin-top: 8px; padding: 0 2px; border: 0; color: #464a50; font-family: var(--font-condensed); font-size: 13px; font-weight: 600; text-shadow: 0 1px 0 rgba(255, 255, 255, 0.6); }
+:root[data-look="rack"] .ui-panel__foot b { color: var(--rk-engraved); }
+/* Whatever a unit's head or foot says is engraved on its metal, dark; its links a dark amber. */
+:root[data-look="rack"] .ui-panel__foot :where(*):not(.ui-button, .ui-button *) { color: inherit; text-shadow: inherit; }
+:root[data-look="rack"] :is(.ui-panel__foot, .ui-panel__actions) .ui-button--ghost { color: #6b4100; text-shadow: 0 1px 0 rgba(255, 255, 255, 0.6); }
+:root[data-look="rack"] .ui-panel__actions .ui-button--ghost { color: #7a4b00; }
+:root[data-look="rack"] .ui-page-header__summary { color: var(--cc-text); font-size: 15px; }
+:root[data-look="rack"] .ui-page-header__about { border-left: 3px solid var(--rk-amber); color: var(--cc-muted); }
+:root[data-look="rack"] .ui-info-toggle { border: 0; border-radius: 3px; color: #26282c; background: linear-gradient(#f2f3f4, #b8bcc1); box-shadow: 0 2px 0 #55595e, inset 0 1px 0 #ffffff; }
+:root[data-look="rack"] .cc-crumb .ui-info-toggle { width: 22px; height: 22px; }
+
+/* Figures: a label engraved on a unit, the figure glowing red in a black window. */
+:root[data-look="rack"] .ui-metric {
+  padding: 12px 14px;
+  border: 0;
+  border-radius: 3px;
+  background: var(--rk-face);
+  box-shadow: var(--rk-unit-shadow);
+}
+:root[data-look="rack"] .ui-metric--link:hover { background: var(--rk-face); box-shadow: var(--rk-unit-shadow), inset 0 0 0 2px rgba(255, 178, 15, 0.6); }
+:root[data-look="rack"] .ui-metric__label { color: var(--rk-engraved); font-family: var(--font-condensed); font-size: 13px; font-weight: 700; letter-spacing: 0.16em; text-shadow: 0 1px 0 rgba(255, 255, 255, 0.8); text-transform: uppercase; }
+:root[data-look="rack"] .ui-metric__value {
+  width: fit-content;
+  max-width: 100%;
+  margin-top: 6px;
+  padding: 2px 8px;
+  border-radius: 2px;
+  color: var(--rk-seg);
+  background: #140404;
+  box-shadow: inset 0 0 0 2px #000000;
+  font-family: var(--font-mono);
+  font-size: 26px;
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  text-shadow: 0 0 0.35em rgba(255, 59, 47, 0.8);
+}
+:root[data-look="rack"] .ui-metric__value small { color: #ff8a80; font-size: 14px; }
+:root[data-look="rack"] :is(.ui-metric[data-status="warning"], .ui-metric[data-status="danger"]) .ui-metric__value { color: var(--rk-seg); }
+:root[data-look="rack"] .ui-metric__caption { color: #464a50; font-size: 13.5px; font-weight: 600; text-shadow: 0 1px 0 rgba(255, 255, 255, 0.6); }
+:root[data-look="rack"] :is(.ui-metric__bar, .ui-progress__track, .ops-bar) { height: 8px; border-radius: 1px; background: #0e0f10; box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.8); }
+:root[data-look="rack"] :is(.ui-metric__bar, .ui-progress__track, .ops-bar) > i,
+:root[data-look="rack"] .ui-metric[data-status] .ui-metric__bar > i,
+:root[data-look="rack"] .ui-progress__fill { border-radius: 0; background: repeating-linear-gradient(90deg, #2ee65a 0 6px, transparent 6px 8px); box-shadow: 0 0 6px rgba(46, 230, 90, 0.6); }
+:root[data-look="rack"] .ui-metric[data-status="warning"] .ui-metric__bar > i { background: repeating-linear-gradient(90deg, #ffb20f 0 6px, transparent 6px 8px); box-shadow: 0 0 6px rgba(255, 178, 15, 0.6); }
+:root[data-look="rack"] .ui-metric[data-status="danger"] .ui-metric__bar > i { background: repeating-linear-gradient(90deg, #ff3b2f 0 6px, transparent 6px 8px); }
+:root[data-look="rack"] .ui-metric__graphic { right: 14px; }
+:root[data-look="rack"] .ui-spark__line { stroke: #2ee65a; }
+:root[data-look="rack"] .ui-spark__area { fill: rgba(46, 230, 90, 0.12); }
+
+/* Push buttons: grey keys that press down; amber for the one to press. */
+:root[data-look="rack"] .ui-button {
+  min-height: 30px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 3px;
+  color: #26282c;
+  background: linear-gradient(#f2f3f4, #b8bcc1);
+  box-shadow: 0 3px 0 #55595e, inset 0 1px 0 #ffffff;
+  font-family: var(--font-condensed);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  transition: transform 80ms ease, box-shadow 80ms ease;
+}
+:root[data-look="rack"] .ui-button:hover:not(:disabled) { color: #000000; background: linear-gradient(#ffffff, #c4c8cd); }
+:root[data-look="rack"] .ui-button:active:not(:disabled) { box-shadow: 0 1px 0 #55595e, inset 0 1px 0 #ffffff; transform: translateY(2px); }
+:root[data-look="rack"] .ui-button--primary { color: #2a1a00; background: linear-gradient(#ffcf5a, #e39a00); box-shadow: 0 3px 0 #6e4600, inset 0 1px 0 rgba(255, 255, 255, 0.7); }
+:root[data-look="rack"] .ui-button--primary:hover:not(:disabled) { color: #2a1a00; background: linear-gradient(#ffd97a, #eea800); }
+:root[data-look="rack"] .ui-button--primary:active:not(:disabled) { box-shadow: 0 1px 0 #6e4600, inset 0 1px 0 rgba(255, 255, 255, 0.7); }
+:root[data-look="rack"] .ui-button--ghost { color: var(--rk-amber); background: transparent; box-shadow: none; text-decoration: underline; text-underline-offset: 3px; }
+:root[data-look="rack"] .ui-button--ghost:hover:not(:disabled) { color: #ffd06a; background: transparent; }
+:root[data-look="rack"] .ui-button--ghost:active:not(:disabled) { box-shadow: none; }
+/* The tier on a key: an LED in its corner, amber for medium, red for high. */
+:root[data-look="rack"] :is(.ui-button--risk-medium, .ui-button--risk-high) { padding-left: 24px; }
+:root[data-look="rack"] :is(.ui-button--risk-medium, .ui-button--risk-high)::before { top: 50%; bottom: auto; left: 9px; width: 7px; height: 7px; margin-top: -3.5px; border-radius: 50%; background: radial-gradient(circle at 40% 35%, #fff1c9, #ffb20f 55%, #b56a00); box-shadow: 0 0 5px #ffb20f; }
+:root[data-look="rack"] .ui-button--risk-high::before { background: radial-gradient(circle at 40% 35%, #ffd0cc, #ff3b2f 55%, #a01b12); box-shadow: 0 0 5px #ff3b2f; }
+:root[data-look="rack"] .ui-button--primary.ui-button--risk-medium::before { background: radial-gradient(circle at 40% 35%, #fff, #7a4b00 60%); box-shadow: none; }
+:root[data-look="rack"] .ui-button__tier { border: 1px solid currentColor; border-radius: 2px; color: #a01b12; background: transparent; }
+:root[data-look="rack"] .ui-button:disabled { opacity: 0.5; }
+
+/* Chips and tiers: a strip of label tape with an LED on it. */
+:root[data-look="rack"] :is(.ui-chip, .ui-risk, .ui-tag, .cc-tag) { border: 0; border-radius: 1px; color: #f4f4f4; background: #111111; box-shadow: 0 1px 0 rgba(255, 255, 255, 0.15); font-family: var(--font-condensed); font-size: 12.5px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
+:root[data-look="rack"] .ui-chip .ui-mark,
+:root[data-look="rack"] .ui-table__mark,
+:root[data-look="rack"] .need__mark { border-radius: 50%; clip-path: none; transform: none; background: radial-gradient(circle at 40% 35%, #ffffff, var(--mark) 55%); box-shadow: 0 0 6px var(--mark); }
+:root[data-look="rack"] .ui-risk--medium { color: #ffcf5a; }
+:root[data-look="rack"] .ui-risk--high { color: #ff7a70; }
+:root[data-look="rack"] .ui-table .ui-chip { padding: 0; color: var(--cc-text); background: none; box-shadow: none; font-family: var(--font-mono); font-size: 13px; letter-spacing: 0; text-transform: none; }
+
+/* Tables inside a module: engraved-style headings, mono rows. */
+:root[data-look="rack"] .ui-table th { border-bottom: 1px solid #000000; color: #a9aeb5; background: transparent; font-family: var(--font-condensed); font-size: 12.5px; font-weight: 700; letter-spacing: 0.14em; box-shadow: 0 1px 0 rgba(255, 255, 255, 0.06); }
+:root[data-look="rack"] .ui-table td { border-bottom: 1px solid #000000; color: var(--cc-text); font-family: var(--font-mono); font-size: 13.5px; box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04); }
+:root[data-look="rack"] .ui-table tbody tr:hover td { background: rgba(255, 255, 255, 0.04); }
+:root[data-look="rack"] .ui-table .ops-link { color: #ffffff; font-family: var(--font-mono); }
+
+/* Tabs: a row of keys, the open one lit; segments and switches likewise. */
+:root[data-look="rack"] .ui-tabs__list { gap: 8px; padding: 2px 0 8px; border-bottom: 0; }
+:root[data-look="rack"] .ui-tabs__tab {
+  min-height: 30px;
+  margin: 0;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 3px;
+  color: #26282c;
+  background: linear-gradient(#f2f3f4, #b8bcc1);
+  box-shadow: 0 3px 0 #55595e, inset 0 1px 0 #ffffff;
+  font-family: var(--font-condensed);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+:root[data-look="rack"] .ui-tabs__tab:hover { color: #000000; }
+:root[data-look="rack"] .ui-tabs__tab[aria-selected="true"] { color: #2a1a00; background: linear-gradient(#ffcf5a, #e39a00); box-shadow: 0 1px 0 #6e4600, inset 0 1px 0 rgba(255, 255, 255, 0.7), 0 0 10px rgba(255, 178, 15, 0.35); transform: translateY(2px); }
+:root[data-look="rack"] :is(.ui-tabs__count, .ui-tabs__tab[aria-selected="true"] .ui-tabs__count) { color: inherit; font-family: var(--font-mono); opacity: 0.8; }
+:root[data-look="rack"] .ui-segmented { gap: 6px; padding: 4px; border: 0; border-radius: 3px; background: #111213; box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.8); }
+:root[data-look="rack"] .ui-segmented__option { border-radius: 2px; color: #b8bcc2; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+:root[data-look="rack"] .ui-segmented__option[aria-checked="true"] { color: #2a1a00; background: linear-gradient(#ffcf5a, #e39a00); box-shadow: 0 0 8px rgba(255, 178, 15, 0.4); }
+:root[data-look="rack"] .ui-switch__track { width: 38px; height: 20px; border: 0; border-radius: 3px; background: #0e0f10; box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.9), 0 1px 0 rgba(255, 255, 255, 0.2); }
+:root[data-look="rack"] .ui-switch__thumb { top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 2px; background: linear-gradient(90deg, #8d9197, #e9eaec 50%, #8d9197); box-shadow: 0 2px 0 #000000; }
+:root[data-look="rack"] .ui-switch__control[aria-checked="true"] .ui-switch__track { background: #0e0f10; box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.9), 0 0 0 1px rgba(46, 230, 90, 0.5); }
+:root[data-look="rack"] .ui-switch__control[aria-checked="true"] .ui-switch__thumb { background: linear-gradient(90deg, #8d9197, #e9eaec 50%, #8d9197); transform: translateX(18px); }
+:root[data-look="rack"] .ui-switch__control[aria-checked="true"] .ui-switch__state { color: var(--rk-led-green); text-shadow: 0 0 6px rgba(46, 230, 90, 0.6); }
+:root[data-look="rack"] :is(.ui-input, .ui-textarea, .ui-select__control) { border: 0; border-radius: 2px; color: #eef0f2; background: #0e0f10; box-shadow: inset 0 0 0 1px #3a3d42, inset 0 2px 5px rgba(0, 0, 0, 0.8); font-family: var(--font-mono); }
+:root[data-look="rack"] .ui-check__mark { border-color: #555960; border-radius: 2px; background: #0e0f10; }
+:root[data-look="rack"] .ui-check__input:checked + .ui-check__mark { border-color: var(--rk-amber); background: var(--rk-amber); }
+:root[data-look="rack"] .ui-check__mark::after { border-color: #2a1a00; }
+:root[data-look="rack"] .ui-kv--strip { border: 0; background: var(--rk-module); box-shadow: var(--rk-module-shadow); }
+:root[data-look="rack"] .ui-kv--strip .ui-kv__item { border-right-color: #000000; box-shadow: none; }
+:root[data-look="rack"] .ui-kv__label { color: #a9aeb5; font-family: var(--font-condensed); font-weight: 700; letter-spacing: 0.12em; }
+:root[data-look="rack"] .ui-kv__value { font-family: var(--font-mono); font-weight: 400; }
+
+/* Notices and needs: an LED down the side instead of a coloured edge. */
+:root[data-look="rack"] .ui-notice { border: 0; border-radius: 3px; background: var(--rk-module); box-shadow: var(--rk-module-shadow); }
+:root[data-look="rack"] .ui-notice__mark { border-radius: 50%; clip-path: none; transform: none; box-shadow: 0 0 6px var(--mark); }
+:root[data-look="rack"] .need { border-top: 1px solid #000000; box-shadow: 0 -1px 0 rgba(255, 255, 255, 0.04); }
+:root[data-look="rack"] .need__title { color: #ffffff; }
+:root[data-look="rack"] :is(.ui-job, .ui-code) { border: 0; border-radius: 3px; background: #0e0f10; box-shadow: inset 0 0 0 1px #2b2d30, inset 0 2px 5px rgba(0, 0, 0, 0.8); }
+:root[data-look="rack"] .ui-code__bar { border-bottom: 1px solid #000000; background: #1a1b1d; }
+:root[data-look="rack"] .ui-code__text { color: #cfe9a8; }
+:root[data-look="rack"] .ui-code__copy { border: 0; border-radius: 3px; color: #26282c; background: linear-gradient(#f2f3f4, #b8bcc1); box-shadow: 0 2px 0 #55595e; }
+:root[data-look="rack"] .ui-empty__icon { border-color: #555960; border-radius: 3px; }
+:root[data-look="rack"] :is(.ui-app-icon, .ui-tile__icon) { border-radius: 3px; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.3); }
+
+/* ── What opens over a page: a unit pulled out of the rack ── */
+:root[data-look="rack"] :is(.ui-sheet, .approve-dialog, .command-dialog) {
+  border: 0;
+  border-radius: 4px;
+  color: var(--cc-text);
+  background: linear-gradient(#232528, #1a1b1e);
+  box-shadow: inset 0 0 0 1px #3a3d42, 0 0 0 6px #b9bdc2, 0 0 0 7px #7f8389, 0 24px 60px rgba(0, 0, 0, 0.7);
+}
+:root[data-look="rack"] :is(.ui-sheet__head, .ui-sheet__foot) { border-color: #000000; }
+:root[data-look="rack"] :is(.ui-sheet__title, .approve-title) { font-family: var(--font-condensed); font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+:root[data-look="rack"] :is(.ui-sheet__close, .command-close, .approve-close) { border: 0; border-radius: 3px; color: #26282c; background: linear-gradient(#f2f3f4, #b8bcc1); box-shadow: 0 2px 0 #55595e; }
+:root[data-look="rack"] .command-input { border-bottom: 1px solid #000000; }
+:root[data-look="rack"] .command-input input { color: #ffffff; font-family: var(--font-mono); }
+:root[data-look="rack"] .command-option[aria-selected="true"] { color: #2a1a00; background: linear-gradient(#ffcf5a, #e39a00); }
+
+/* ── A phone: the dock is a strip of the rail's metal along the foot ── */
+@media (max-width: 760px) {
+  :root[data-look="rack"] .content { padding: 8px 6px calc(var(--shell-bottom-inset, 0px) + 104px); }
+  :root[data-look="rack"] .topbar { margin: 6px 6px 0; padding: 8px 34px; }
+  :root[data-look="rack"] .topbar::before { left: 10px; }
+  :root[data-look="rack"] .topbar::after { right: 10px; }
+  :root[data-look="rack"] .ui-panel { padding-inline: 26px; }
+  :root[data-look="rack"] .ui-panel::before { left: 7px; }
+  :root[data-look="rack"] .ui-panel::after { right: 7px; }
+  :root[data-look="rack"] .ui-dock.shell-dock ul { border: 0; border-radius: 3px; background: var(--rk-face); box-shadow: var(--rk-unit-shadow); backdrop-filter: none; }
+  :root[data-look="rack"] .shell-dock .ui-dock__icon { border: 0; border-radius: 3px; color: #c9ccd1; background: var(--rk-module); box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.8); }
+  :root[data-look="rack"] .shell-dock .ui-dock__item[aria-current="page"] .ui-dock__icon { color: #2a1a00; background: linear-gradient(#ffcf5a, #e39a00); }
+  :root[data-look="rack"] .shell-dock .ui-dock__label { color: var(--rk-engraved); font-weight: 700; letter-spacing: 0.08em; text-shadow: 0 1px 0 rgba(255, 255, 255, 0.7); text-transform: uppercase; }
+  :root[data-look="rack"] .ui-dock__badge { color: #2a1a00; background: var(--rk-amber); box-shadow: 0 0 6px var(--rk-amber); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-look="rack"] .ui-button { transition: none; }
+}
