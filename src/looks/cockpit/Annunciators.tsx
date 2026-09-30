@@ -16,6 +16,11 @@ import "./annunciators.css";
  * a lamp for the backups, the updates, the network, the heat, the disks and the UPS, lit amber from
  * what needs a look or dark green when it is normal, and the clock in its black box. Each lamp opens
  * its page; the master lamp goes to the memo on Home, where what it is lit for is said.
+ *
+ * It only glances at the facts (as the dock's counts do): Home keeps them fresh while it is open,
+ * and on any other page the lamps say what the shell read once for the verdict; a source never read
+ * leaves its lamp dark. Its own read of the sensors, which asks the helper for Docker's stats, is a
+ * slow one, once a minute.
  */
 
 type LampState = "danger" | "warning" | "good" | "off";
@@ -23,11 +28,11 @@ const lampOf = (status: Status): LampState => (status === "danger" ? "danger" : 
 const lampWords: Record<LampState, string> = { danger: "problem", warning: "needs a look", good: "normal", off: "not known" };
 
 export default function Annunciators({ role, onNavigate, now = Date.now }: LookBarProps) {
-  const { facts } = useFacts();
+  const { facts } = useFacts({ active: false });
   const clock = now();
   const values = useMemo(() => valuesOf(facts), [facts]);
   const needs = buildNeeds(values, { now: clock, role });
-  const performance = useLivePerformance(30_000);
+  const performance = useLivePerformance(60_000);
 
   const inventory = values.inventory;
   const checking = verdictSources.some(([key]) => facts[key].state === "idle" || facts[key].state === "loading");
@@ -70,7 +75,7 @@ export default function Annunciators({ role, onNavigate, now = Date.now }: LookB
   return (
     <>
       <div className="cockpit-ann" role="group" aria-label="Annunciators">
-        <button type="button" className="cockpit-lamp cockpit-lamp--master" data-state={master}
+        <button type="button" className="cockpit-lamp cockpit-lamp--master" data-state={master} title={verdict.sentence}
           aria-label={master === "off" ? `Master caution: ${checking ? "checking" : "nothing needs you"}` : `Master ${master === "danger" ? "warning" : "caution"}: ${verdict.label}. Go to the memo`}
           onClick={toMemo}>
           <span>MASTER</span><span>{master === "danger" ? "WARNING" : "CAUTION"}</span>
