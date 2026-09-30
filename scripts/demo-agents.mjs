@@ -35,6 +35,7 @@ import { createRunner, directRunnerApi } from "../server/agents/runner.mjs";
 import { ModelUnavailable, createRuntime } from "../server/agents/runtime.mjs";
 import { agentsRuntimeKey, createAgentService, defaultRuntimeSettings } from "../server/agents/service.mjs";
 import { createAgentStore } from "../server/agents/store.mjs";
+import { drivesOf } from "../server/agents/tool-text.mjs";
 import { registry } from "../server/ops/index.mjs";
 import { createRedactor } from "../server/redaction.mjs";
 import { createAgentsRouter } from "../server/routes/agents.mjs";
@@ -130,7 +131,7 @@ async function buildWorld(world, fixtures) {
   };
   const script = (fn) => { fake.state.script = fn; };
 
-  if (world !== "fresh") await seed({ service, state, caller, at, runNext, script, world });
+  if (world !== "fresh") await seed({ service, state, store, caller, at, runNext, script, world, fixtures });
   offset = 0;
   script(null);
 
@@ -150,12 +151,35 @@ async function buildWorld(world, fixtures) {
   };
 }
 
+/**
+ * The nightly evaluations of the nights before (M40), as the evaluation records them: each agent's
+ * built-in and own questions, graded against the demo server's facts. `wrong` names, for a night,
+ * the questions answered wrong. Written straight to the store: the runs themselves are long gone.
+ */
+function seedNights({ service, store, caller, at, agents, facts, nights }) {
+  for (const { night, wrong = {} } of nights) {
+    at(night);
+    for (const agent of agents) {
+      const evaluation = service.getEvaluation(caller, agent.id);
+      const questions = [...(evaluation.builtIn ?? []), ...evaluation.questions];
+      if (!questions.length) continue;
+      const results = questions.map((question) => ({ questionId: question.id, question: question.question, expected: question.expect.fact ? { fact: question.expect.fact, value: facts[question.expect.fact] ?? null } : { includes: question.expect.includes }, runId: null, passed: null, found: null }));
+      const run = store.createEvalRun({ agentId: agent.id, version: agent.version, results, createdBy: null, model: defaultRuntimeSettings().repo });
+      for (const result of results) {
+        const right = !(wrong[agent.id] ?? []).includes(result.questionId);
+        store.gradeEval(run.id, result.questionId, { passed: right, found: right ? "Says it" : "Did not say it" });
+      }
+    }
+  }
+}
+
 /** What happened before the demo opened: made with the real service, the runner and the stand-in model. */
-async function seed({ service, state, caller, at, runNext, script, world }) {
+async function seed({ service, state, store, caller, at, runNext, script, world, fixtures }) {
   const today = new Date();
   const morning = (hour, minute = 0) => { const date = new Date(today); date.setHours(hour, minute, 0, 0); if (date > today) date.setDate(date.getDate() - 1); return date; };
-  // Made before quiet hours ended, so the Server Keeper's 05:30 digest falls due.
-  at(morning(4, 0));
+  const nightsAgo = (count) => { const date = morning(2, 40); date.setDate(date.getDate() - count); return date; };
+  // Made five days ago, before quiet hours ended, so the Server Keeper's 05:30 digest falls due.
+  at(new Date(morning(4, 0).getTime() - 5 * 86_400_000));
   service.saveModule(caller, { enabled: true });
   state.setSetting(agentsRuntimeKey, defaultRuntimeSettings(), { updatedBy: caller.id });
   service.noteRuntimeInstalled({ installed: true, version: `unsloth ${testedUnslothVersion}`, installerSha256: "5f0c".repeat(16) }, { actorId: caller.id });
@@ -171,6 +195,17 @@ async function seed({ service, state, caller, at, runNext, script, world }) {
     botEmail: "boxpilot-agents-bot@homebox.tail0a1b.ts.net", botCreated: true, credential: "zulip-agents-bot",
     channels: { findings: "agent-findings", logs: "agent-logs", knowledge: "agent-knowledge", files: "agent-files" }, made: ["agent-findings", "agent-logs", "agent-knowledge", "agent-files"], public: [],
   }, { actorId: caller.id, boxpilotUrl: "https://homebox.tail0a1b.ts.net" });
+
+  // Five nights of evaluations (M40): the Server Keeper got which apps are stopped wrong on one.
+  const inventory = fixtures.inventory();
+  seedNights({
+    service, store, caller, at, agents: [keeper, pihole, auditor, helper].map((agent) => service.getAgent(caller, agent.id)),
+    facts: {
+      hostname: inventory.host.hostname, operatingSystem: inventory.host.operatingSystem, installedApps: Object.keys(fixtures.apps).length, rootDiskPercent: inventory.storage.root.usedPercent,
+      piholePlacement: "boxpilot-app", piholeBlocking: "on", drives: drivesOf(inventory), stoppedApps: [],
+    },
+    nights: [{ night: nightsAgo(4) }, { night: nightsAgo(3) }, { night: nightsAgo(2), wrong: { [keeper.id]: ["builtin-stopped"] } }, { night: nightsAgo(1) }, { night: nightsAgo(0) }],
+  });
 
   if (world === "trouble") {
     at(new Date(Date.now() - hours(1)));
@@ -264,8 +299,10 @@ async function seed({ service, state, caller, at, runNext, script, world }) {
   // The Server Keeper's golden questions, scored against what BoxPilot reads from homebox.
   at(new Date(Date.now() - hours(0.5)));
   script(null);
-  await service.runEvaluation(caller, keeper.id);
-  for (let index = 0; index < 12 && (await runNext()); index += 1) { /* each question in turn */ }
+  // Refused only when the demo opens within an hour of last night's evaluation: the tab shows that one.
+  if (await service.runEvaluation(caller, keeper.id).catch(() => null)) {
+    for (let index = 0; index < 16 && (await runNext()); index += 1) { /* each question in turn */ }
+  }
 
   // One request, handed by the Server Keeper (the supervisor) to two specialists, then answered
   // from what they found: one trace tree on the one queue, as the person who asked.
