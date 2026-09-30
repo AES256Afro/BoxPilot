@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { openActivity, openNotifications } from "../../activityEvents";
 import type { HomeProps } from "../../home/Home";
-import { useFacts, valuesOf, type MountFact } from "../../home/facts";
+import { useFacts, valuesOf, type AppFact, type MountFact } from "../../home/facts";
 import { greeting, size, uptime } from "../../home/format";
 import { actionsOf, appHealth, buildNeeds, runs, verdictFor, verdictSources, type Need, type NeedAction } from "../../home/needs";
 import { usePerformance } from "../../home/Ops";
@@ -9,6 +9,7 @@ import { runWords, useNeedActions } from "../../home/useNeedActions";
 import { TopBarSlot } from "../../shell/TopBarSlot";
 import { Button } from "../../ui";
 import type { RiskTier } from "../../ui/types";
+import { barKeys, openCommandBar, typingPlaces } from "./Bar";
 import "./home.css";
 
 /*
@@ -46,6 +47,9 @@ export function keyedActions(actions: NeedAction[], taken: Set<string>): Array<{
       if (same > 0) words = b.slice(same).join(" ");
     }
     const lower = words.toLowerCase();
+    // Dismiss sets a failure aside at once, with no dialog to catch a stray keypress: it is pressed
+    // with the pointer or Enter, never by a letter. Every other key only opens the approval dialog.
+    if (action.kind === "dismiss") return { action, words, key: null, at: -1 };
     const starts = [...lower.matchAll(/\b[a-z]/g)].map((match) => match.index ?? 0);
     const any = [...lower].map((char, at) => (/[a-z]/.test(char) ? at : -1)).filter((at) => at >= 0);
     const at = [...starts, ...any].find((position) => !taken.has(lower[position])) ?? -1;
@@ -94,8 +98,24 @@ function useForecasts(): Forecast[] {
 const dataDrive = (mounts: MountFact[]) => mounts.filter((mount) => mount.target !== "/" && !mount.target.startsWith("/boot") && mount.total !== null && mount.percent !== null)
   .sort((a, b) => (b.percent ?? 0) - (a.percent ?? 0))[0] ?? null;
 
-/** Opens the command bar, as Ctrl K does. */
-const openCommandBar = () => window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", ctrlKey: true }));
+/**
+ * What the prompt offers to type next, as the drawing's "back up vaultwarden": the first fix on the
+ * list, as its button's words and the app it is for ("Back up now" for Vaultwarden and 3 more is
+ * "back up vaultwarden", "Install" for the updates is "install updates").
+ */
+export function suggestion(need: Need, action: NeedAction, apps: Array<Pick<AppFact, "id" | "name">>): string {
+  const verb = action.label.toLowerCase().replace(/\s+now$/, "");
+  const ids: string[] = need.appId ? [need.appId] : [];
+  for (const fix of need.finding ? [need.finding.fix, ...(need.finding.fixes ?? [])] : []) {
+    const parameters = (fix?.parameters ?? {}) as { id?: unknown; ids?: unknown };
+    if (typeof parameters.id === "string") ids.push(parameters.id);
+    if (Array.isArray(parameters.ids)) for (const id of parameters.ids) if (typeof id === "string") ids.push(id);
+  }
+  const app = ids.length ? apps.find((entry) => entry.id === ids[0]) : undefined;
+  const object = app ? app.name.replace(/\s*\(.*\)\s*$/, "").replace(/\s*\+.*$/, "").toLowerCase()
+    : ids[0] ?? (need.kind === "updates" && /update/i.test(need.title) ? "updates" : "");
+  return `${verb} ${object}`.trim();
+}
 
 /** "(b)ack up now", the key letter in brackets and underlined. */
 function Keyed({ words, at }: { words: string; at: number }) {
@@ -128,19 +148,28 @@ export default function PhosphorHome({ csrfToken, role, onNavigate, now = Date.n
   const hidden = urgent.length - shownUrgent.length + waiting.length - shownWaiting.length;
   const open = (need: Need) => (need.jobId ? openActivity(need.jobId) : need.id === "unannounced" ? openNotifications() : onNavigate(need.view, need.appId && need.view === "catalog" ? { app: need.appId } : undefined));
 
-  // Every fix on screen with its key, in the order the needs are listed; no two share a letter.
+  // Every fix on screen with its key, in the order the needs are listed; no two share a letter, and
+  // none takes a key the bar answers to on every page ("(/)search", "(a)ctivity").
   const shown = [...shownUrgent, ...shownWaiting];
-  const taken = new Set<string>();
+  const taken = new Set<string>(barKeys);
   const keyed = new Map(shown.map((need) => [need.id, keyedActions(actionsOf(need), taken)]));
   const byKey = new Map<string, { need: Need; action: NeedAction }>();
   for (const need of shown) for (const entry of keyed.get(need.id) ?? []) if (entry.key) byKey.set(entry.key, { need, action: entry.action });
+
+  // The prompt offers the first fix on the list, typed out; running it opens the same approval dialog.
+  const firstFix = shown.map((need) => ({ need, action: runs(need) })).find((entry): entry is { need: Need; action: NeedAction } => entry.action !== null);
+  const next = firstFix ? {
+    ...firstFix,
+    words: suggestion(firstFix.need, firstFix.action, values.catalog?.apps ?? []),
+    busy: Boolean(firstFix.need.finding && ["queued", "running", "checking"].includes(fixRuns[firstFix.need.finding.id]?.phase ?? "")),
+  } : null;
 
   // Pressing a fix's letter on Home presses its button: the approval dialog opens at its tier.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.ctrlKey || event.metaKey || event.altKey || event.defaultPrevented || event.repeat) return;
       const target = event.target instanceof Element ? event.target : null;
-      if (target?.closest("input, textarea, select, [contenteditable='true'], [role='dialog']")) return;
+      if (target?.closest(typingPlaces)) return;
       if (document.querySelector('[aria-modal="true"]')) return;
       const entry = byKey.get(event.key.toLowerCase());
       if (!entry) return;
@@ -237,7 +266,6 @@ export default function PhosphorHome({ csrfToken, role, onNavigate, now = Date.n
         <span>STATUS</span>
         <span className={urgent.length ? "phosphor-inv" : ""}>{` ${status} `}</span>
         <span className="phosphor-status__verdict">{verdict.sentence}</span>
-        <span className="phosphor-right phosphor-dim">boxpilot {__BOXPILOT_VERSION__} :: {new Date(clock).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })}</span>
       </p>
 
       <div className="phosphor-bars">
@@ -282,9 +310,12 @@ export default function PhosphorHome({ csrfToken, role, onNavigate, now = Date.n
         ))}
       </div>
 
-      <button type="button" className="phosphor-line phosphor-prompt" aria-label="Search, or say what you want (Ctrl K)" aria-haspopup="dialog" onClick={openCommandBar}>
-        {hostname.toLowerCase()}:~$ <span className="phosphor-cursor" aria-hidden="true" />
-      </button>
+      <p className="phosphor-line phosphor-prompt">
+        <button type="button" className="phosphor-prompt__ps" aria-label="Search, or say what you want (Ctrl K)" aria-haspopup="dialog" onClick={openCommandBar}>{hostname.toLowerCase()}:~$</button>
+        {next
+          ? <button type="button" className="phosphor-prompt__next" aria-label={`Run: ${next.words}. ${next.need.title}`} disabled={next.busy} onClick={() => act(next.need, next.action)}>{next.words}<span className="phosphor-cursor" aria-hidden="true" /></button>
+          : <span className="phosphor-cursor" aria-hidden="true" />}
+      </p>
     </div>
   );
 }

@@ -2,8 +2,8 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/rea
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FactsProvider } from "../../home/facts";
 import { stubFetch } from "../../home/testData";
-import type { NeedAction } from "../../home/needs";
-import PhosphorHome, { asciiBar, keyedActions } from "./Home";
+import type { Need, NeedAction } from "../../home/needs";
+import PhosphorHome, { asciiBar, keyedActions, suggestion } from "./Home";
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
@@ -57,6 +57,54 @@ describe("Home as a phosphor terminal", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Search, or say what you want (Ctrl K)" }));
     window.removeEventListener("keydown", pressed);
     expect(pressed.mock.calls[0][0]).toMatchObject({ key: "k", ctrlKey: true });
+  });
+
+  it("offers the first fix at the prompt, typed out, and runs it through the approval dialog", async () => {
+    vi.stubGlobal("fetch", stubFetch());
+    renderHome();
+    const next = await screen.findByRole("button", { name: "Run: start vaultwarden. Vaultwarden is not running" });
+    expect(next.textContent).toBe("start vaultwarden");
+    fireEvent.click(next);
+    expect(await screen.findByRole("dialog", { name: "Start Vaultwarden" })).toBeTruthy();
+  });
+
+  it("gives Dismiss no letter: a stray keypress never sets a failure aside", async () => {
+    const failed = { id: "f1", type: "op:app.update", title: "Update Immich", state: "failed", risk: "medium", error: "pull failed", parameters: { id: "immich" }, steps: [], approvals: [], createdAt: new Date(Date.now() - 3_600_000).toISOString() };
+    vi.stubGlobal("fetch", stubFetch({ "/api/v1/jobs?limit=50": { jobs: [failed] } }));
+    renderHome();
+    const dismiss = await screen.findByRole("button", { name: "Dismiss: Failed: Update Immich" });
+    expect(dismiss.hasAttribute("aria-keyshortcuts")).toBe(false);
+    expect(dismiss.textContent).toBe("dismiss");
+    // Every letter of the word it is written with, and the ones no other fix took.
+    const taken = [...document.querySelectorAll("[aria-keyshortcuts]")].map((button) => button.getAttribute("aria-keyshortcuts"));
+    for (const key of "dismiss".split("").filter((letter) => !taken.includes(letter))) fireEvent.keyDown(document, { key });
+    expect(vi.mocked(fetch).mock.calls.some(([input, init]) => String(input).endsWith("/dismiss") && init?.method === "POST")).toBe(false);
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("answers no key while someone types, in a field or anything editable", async () => {
+    vi.stubGlobal("fetch", stubFetch());
+    renderHome();
+    await screen.findByRole("button", { name: "Install: 4 updates available" });
+    for (const value of ["", "true", "plaintext-only"]) {
+      const editable = document.createElement("div");
+      editable.setAttribute("contenteditable", value);
+      document.body.append(editable);
+      fireEvent.keyDown(editable, { key: "i" });
+      editable.remove();
+    }
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("writes the prompt's suggestion as the drawing does", () => {
+    const apps = [{ id: "vaultwarden", name: "Vaultwarden" }, { id: "open-webui", name: "Open WebUI + Ollama" }];
+    const backUp: NeedAction = { operationId: "app.backup.many", label: "Back up now", title: "", parameters: {}, preview: "", risk: "medium" };
+    const due = { id: "repair:backups-due", kind: "repair", title: "", detail: null, finding: { id: "backups-due", fix: { operationId: "app.backup.many", parameters: { ids: ["vaultwarden", "immich"] } }, fixes: [] } } as unknown as Need;
+    expect(suggestion(due, backUp, apps)).toBe("back up vaultwarden");
+    const install: NeedAction = { operationId: "apt.upgrade", label: "Install", title: "", parameters: {}, preview: "", risk: "medium" };
+    expect(suggestion({ id: "updates", kind: "updates", title: "4 updates available", detail: null } as Need, install, apps)).toBe("install updates");
+    const resume: NeedAction = { operationId: "app.action", label: "Resume", title: "", parameters: {}, preview: "", risk: "low" };
+    expect(suggestion({ id: "app-paused:open-webui", kind: "alert", appId: "open-webui", title: "", detail: null } as unknown as Need, resume, apps)).toBe("resume open webui");
   });
 
   it("draws bars and gives each fix a key of its own", () => {

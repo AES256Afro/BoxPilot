@@ -99,9 +99,10 @@
 .phosphor-app { display: block; width: fit-content; max-width: 100%; overflow: hidden; white-space: pre; }
 .phosphor-app.phosphor-inv:hover { background: var(--dim); }
 
-.phosphor-prompt { margin-top: 0.8em; width: fit-content; }
-.phosphor-cursor { display: inline-block; width: 0.55em; height: 0.95em; margin-left: -0.3ch; vertical-align: -0.1em; background: var(--g); box-shadow: 0 0 0.4em rgba(98, 255, 150, 0.4); }
-.phosphor-prompt:hover .phosphor-cursor { background: var(--ink); }
+/* homebox:~$ back up vaultwarden█ : the prompt opens the command bar, what is typed after it runs. */
+.phosphor-prompt { margin-top: 0.8em; }
+.phosphor-cursor { display: inline-block; width: 0.55em; height: 0.95em; vertical-align: -0.1em; background: var(--g); box-shadow: 0 0 0.4em rgba(98, 255, 150, 0.4); }
+.phosphor-prompt :where(button):hover .phosphor-cursor { background: var(--ink); box-shadow: none; }
 @keyframes phosphor-blink { 50% { opacity: 0; } }
 @media (prefers-reduced-motion: no-preference) {
   .phosphor-cursor { animation: phosphor-blink 1.1s steps(1) infinite; }
