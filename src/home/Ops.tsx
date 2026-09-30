@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { openActivity, openNotifications } from "../activityEvents";
+import { useCheckAgain } from "./useCheckAgain";
 import { useNeedActions } from "./useNeedActions";
 import { countOf, sentenceList, type ViewName } from "../data";
 import { readJson } from "../http";
@@ -32,7 +33,7 @@ import { backupMatrix, jobState, jobTarget, performanceFrom, pushSample, sampleF
 export interface OpsProps {
   csrfToken: string;
   role: string;
-  onNavigate: (view: ViewName, options?: { app?: string }) => void;
+  onNavigate: (view: ViewName, options?: { app?: string; tab?: string }) => void;
   now?: () => number;
   /** How often the metric strip is read again while Ops is open. */
   pollMs?: number;
@@ -103,8 +104,9 @@ export default function Ops({ csrfToken, role, onNavigate, now = Date.now, pollM
   const performance = usePerformance(pollMs, now);
   const history = useJobHistory();
   // Every button in the alerts and the inbox, Repair's fixes included, run as Repair runs them (M35).
-  const { act, runs, dialog } = useNeedActions({ csrfToken, refresh, accept });
+  const { act, runs, dialog } = useNeedActions({ csrfToken, refresh, accept, navigate: onNavigate });
   const runOf = (need: Need) => (need.finding ? runs[need.finding.id] : undefined);
+  const again = useCheckAgain(refresh);
 
   const inventory = values.inventory;
   const hostname = inventory?.hostname ?? "This server";
@@ -218,7 +220,7 @@ export default function Ops({ csrfToken, role, onNavigate, now = Date.now, pollM
         host={inventory?.hostname ?? null}
         status={{ status: verdict.status, label: verdict.label }}
         summary={verdict.sentence}
-        actions={<Button variant="ghost" onClick={() => refresh()}>Read again</Button>}
+        actions={<>{again.said}<Button variant="ghost" busy={again.checking} onClick={again.run}>{again.checking ? "Reading…" : "Read again"}</Button></>}
         barFacts={inventory
           ? <>{inventory.operatingSystem} · up <b>{uptime(inventory.uptimeSeconds)}</b> · kernel <b>{inventory.kernel}</b> · boxpilot <b>{__BOXPILOT_VERSION__}</b></>
           : <>boxpilot <b>{__BOXPILOT_VERSION__}</b></>}
