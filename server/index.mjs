@@ -7,7 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { startTlsListener } from "./tls-listener.mjs";
 import { productVersion } from "./version.mjs";
-import { createCatalogService, secretEnvNamesLookup } from "./catalog/index.mjs";
+import { createCatalogService, installRiskLookup, secretEnvNamesLookup } from "./catalog/index.mjs";
 import { createJobLogReader } from "./job-log.mjs";
 import { createActionCenterService } from "./action-center.mjs";
 import { createAuditLog } from "./audit.mjs";
@@ -234,6 +234,9 @@ const jobs = createJobService(state, helper, {
       dnsResilience.forget();
     },
   },
+  // Installing an app its manifest calls high risk (the house's DNS, the VPN) is staged and approved
+  // as high: the owner, with the password.
+  operationRiskHooks: { "app.install": installRiskLookup(catalogService) },
   // Prepare hooks pin server-derived expectations into the staged parameters.
   operationPrepareHooks: {
     // Device globs (/dev/sd?, /dev/ttyUSB?) resolve here against the real /dev; the helper runs with PrivateDevices.
