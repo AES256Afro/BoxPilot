@@ -68,6 +68,24 @@ describe("approval dialog", () => {
     expect(calls.find((call) => call.url.endsWith("/once"))?.method).toBe("POST");
   });
 
+  // An agent's or the assistant's step: its reason is the model's own words, which text the model
+  // read can steer, so what the operation is actually given is shown in full, not folded away.
+  it("shows everything a suggested step is given, and says whose reason it is", async () => {
+    stubApi({ confirmText: "" });
+    const answered = vi.mocked(fetch).getMockImplementation()!;
+    const suggested = { ...stagedJob, type: "op:users.add", title: "Add a user", risk: "medium", parameters: { username: "backup", githubUser: "someone-else" } };
+    vi.mocked(fetch).mockImplementation((input, init) => {
+      if (input.toString().endsWith("/jobs") && init?.method === "POST") {
+        return Promise.resolve(new Response(JSON.stringify({ job: suggested, approval: { tier: "medium", passwordRequired: false, elevated: false, mode: "tiered", confirmText: null, expiresAt: null, expired: false } }), { status: 201, headers: { "Content-Type": "application/json" } }));
+      }
+      return answered(input, init);
+    });
+    render(<ApproveDialog operationId="users.add" title="Add a user" parameters={{ username: "backup", githubUser: "someone-else" }} preview={<span>A service account for the nightly backup</span>} proposedBy="Server Keeper" csrfToken="csrf" onClose={() => {}} />);
+    await screen.findByRole("button", { name: "Confirm and run" });
+    expect(screen.getByText("someone-else").closest("details")).toBeNull();
+    expect(screen.getByText(/Server Keeper's reason, in its own words/)).toBeTruthy();
+  });
+
   it("contains keyboard focus and returns it to the opener", async () => {
     stubApi({ confirmText: "" });
     const opener = document.createElement("button"); document.body.append(opener); opener.focus();

@@ -18,6 +18,8 @@ function Svg({ children, ...props }: SVGProps<SVGSVGElement>) {
 
 const shapes: Record<ViewName, ReactNode> = {
   home: <path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z" />,
+  // Today (M25.3): the sun over the horizon, the morning glance.
+  today: <><path d="M3 19h18M7 19a5 5 0 0 1 10 0" /><path d="M12 5.5v2.5M5.3 10.3l1.8 1.8M18.7 10.3l-1.8 1.8M2.5 15h2M19.5 15h2" /></>,
   ops: <path d="M3 12h4l3-8 4 16 3-8h4" />,
   updates: <><path d="M20 11a8 8 0 0 0-14.9-3M4 13a8 8 0 0 0 14.9 3" /><path d="M4 4v4h4M20 20v-4h-4" /></>,
   catalog: <><rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" /></>,
@@ -68,6 +70,11 @@ export function MoreIcon(props: Omit<SVGProps<SVGSVGElement>, "children">) {
 /** Something the command bar does rather than opens (M36). */
 export function RunIcon(props: Omit<SVGProps<SVGSVGElement>, "children">) {
   return <Svg {...props}><path d="M8 5.5v13l10-6.5z" /></Svg>;
+}
+
+/** The bar's Refresh (M25): read this page again. */
+export function RefreshIcon(props: Omit<SVGProps<SVGSVGElement>, "children">) {
+  return <Svg {...props}><path d="M20 11a8 8 0 1 0-2.3 5.7" /><path d="M20 4v7h-7" /></Svg>;
 }
 
 export function ExternalIcon(props: Omit<SVGProps<SVGSVGElement>, "children">) {
