@@ -159,7 +159,8 @@ function EventsPanel({ overview }: { overview: PowerOverview | null }) {
         caption="Power events, newest first"
         columns={[
           { id: "when", header: "When", cell: (row) => <span className="system-sub">{when(row.at)}</span> },
-          { id: "what", header: "What happened", cell: (row) => <span className="system-event ui-marked" data-status={row.status}><span className="ui-mark" aria-hidden="true" /><span>{row.title}{row.detail && row.event !== "on-battery" && row.event !== "on-mains" && row.event !== "low-battery" ? <span className="system-event__detail">{row.detail}</span> : null}</span></span> },
+          // The battery has its own column; a detail that only repeats it is left out.
+          { id: "what", header: "What happened", cell: (row) => <span className="system-event ui-marked" data-status={row.status}><span className="ui-mark" aria-hidden="true" /><span>{row.title}{row.detail && row.detail !== batteryWords(row) ? <span className="system-event__detail">{row.detail}</span> : null}</span></span> },
           { id: "battery", header: "Battery", hideOnPhone: true, cell: (row) => batteryWords(row) ?? "—" },
         ]}
         rows={rows}
@@ -217,7 +218,7 @@ function WatchdogPanel({ role, operator, start, hardware, error, loading, onRead
                     <div className="system-form"><Button risk={riskOf("power.watchdog.disable")} onClick={disable}>Turn off</Button></div>
                   )}
                   {canTurnOn && mayStart(role, "power.watchdog.enable") && (
-                    <form className="system-form" onSubmit={(event) => { event.preventDefault(); enable(); }}>
+                    <form className="system-form system-ups__form" onSubmit={(event) => { event.preventDefault(); enable(); }}>
                       <Field label="Restart after the server is silent for" hint="60 seconds suits most servers.">
                         <Select value={seconds} onValueChange={setSeconds} options={[{ value: "60", label: "1 minute" }, { value: "120", label: "2 minutes" }, { value: "300", label: "5 minutes" }]} />
                       </Field>

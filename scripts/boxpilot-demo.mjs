@@ -955,6 +955,8 @@ export function emptied(value) {
 
 /** The words that only appear when there is nothing to show, which emptying cannot invent. */
 const freshWords = {
+  // A fresh box is the same hardware: its watchdog and network port are there before anything is set up.
+  "power.hardware.inspect": inspections["power.hardware.inspect"],
   // A fresh box has had no update, so no database copies; the rule keeps its numbers.
   "housekeeping.database-copies.inspect": { rule: databaseCopyRule(), defaults: databaseCopyRule(), limits: { keep: [1, 50], keepDays: [0, 3650] }, secretScrubVersion: "1.127.0" },
   // The rebuild persona: a fresh box with the old server's backup drive already mounted. This is
