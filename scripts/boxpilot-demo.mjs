@@ -21,7 +21,8 @@ import { annotateDevices, parseLsblkTree, sharesFrom, volumeGroupsFrom } from ".
 import { cloudProviders } from "../server/backup-cloud.mjs";
 import { buildChecklist } from "../server/setup-checklist.mjs";
 import { assessDriveChecks } from "../server/drive-checks.mjs";
-import { backupsDue, detectRemediations, fingerprintOf } from "../server/remediations.mjs";
+import { backupsDue, detectRemediations, dnsLeansOnThisServer, fingerprintOf } from "../server/remediations.mjs";
+import { judgeResilience } from "../server/dns-resilience.mjs";
 import { applyLedger } from "../server/repair-ledger.mjs";
 import { setupProfiles } from "../server/setup-profiles.mjs";
 import { productVersion } from "../server/version.mjs";
@@ -411,6 +412,8 @@ export const inspections = {
   "dns.blocker.verify": { address: host.lan, answering: true, resolving: true, blocking: true, intercepted: false, interceptorBlocking: null,
     control: { domain: "example.com", addresses: ["93.184.216.34"], error: null },
     probe: { domain: "doubleclick.net", addresses: ["0.0.0.0"], error: null }, reason: null },
+  // M39.3: the heartbeat on, pinging a dead man's switch every five minutes; the last one taken.
+  "heartbeat.inspect": { configured: true, host: "hc-ping.com", installed: true, enabled: true, intervalMinutes: 5, last: { at: ago(0.04), ok: true, status: 200, ms: 142, error: null }, intervals: [1, 2, 5, 10, 15, 30, 60] },
   "router.inspect": { configured: true, reachable: true, host: "192.168.1.1", username: "root", model: "GL-MT6000", firmware: "4.7.0", reason: null },
   "router.leases": { host: "192.168.1.1", leases: [
     { name: "homebox", address: host.lan, mac: "aa:bb:cc:dd:ee:02", online: true, reserved: true },
@@ -855,10 +858,37 @@ const troubleFacts = () => ({
 const refusedRemount = { id: "t4", type: "op:storage.remount", title: "Reconnect a drive", state: "failed", risk: "medium", result: null, createdAt: ago(1.2), updatedAt: ago(1.19), approvals: [],
   parameters: { name: "media" }, error: "/mnt/media is in use, so it was left alone: umount: /mnt/media: target is busy. Stop whatever is using it — an app with that folder mounted, or the file server — and try again.",
   steps: [{ name: "apply", state: "running", detail: "Running Reconnect a drive", createdAt: ago(1.2) }, { name: "apply", state: "failed", detail: "Reconnect a drive failed: /mnt/media is in use, so it was left alone", createdAt: ago(1.19) }] };
+/**
+ * Whether the house keeps its DNS with homebox off (M39.2), judged by the product's own rules from
+ * facts per world: the lease names only homebox (the 2026-09-29 outage's shape); the unwell world's
+ * router passes lookups to a Pi-hole that is stopped, with the check after a power cut failing; a
+ * new server has nothing on it that the house leans on.
+ */
+function resilienceFor(world) {
+  const healthy = { answering: true, resolving: true, blocking: true, error: null };
+  const facts = world === "fresh"
+    ? { handedOut: { source: "dhcp", via: "systemd-networkd", servers: [host.gateway], dhcpServer: host.gateway }, servesDns: false, answers: { [host.gateway]: { ...healthy, blocking: false } } }
+    : world === "trouble"
+      ? { handedOut: { source: "dhcp", via: "systemd-networkd", servers: [host.gateway], dhcpServer: host.gateway }, servesDns: true, answers: { [host.gateway]: healthy }, canary: { router: host.gateway, forwards: true } }
+      // homebox's address is set by hand, so no lease: Pi-hole's own log says eight devices ask it directly.
+      : { handedOut: { source: "pihole-log", via: "Pi-hole's query log", servers: [host.lan], dhcpServer: host.gateway }, servesDns: true, answers: { [host.lan]: healthy },
+        askers: { available: true, window: "hour", queries: 1840, lanClients: 8, routerQueries: 0, routerAsks: false } };
+  const verdict = judgeResilience({ selfAddresses: [host.lan, host.tailscaleIp], gateway: host.gateway, rehearsal: null, ...facts }, { now: now(), hostname: host.hostname });
+  // After the power cut the unwell world had: Pi-hole came back, this server's own lookups did not
+  // (the 2026-09-29 resolv.conf trap), which is also why its heartbeat is failing.
+  const afterOutage = world === "trouble" ? { at: ago(0.3), ok: false, outage: { id: "demo-outage", stoppedAt: ago(4), backAt: ago(0.35) }, checks: [
+    { id: "dns-app-lan", ok: true, label: "Pi-hole answers on the LAN", detail: `A lookup sent to ${host.lan}, as a device on your network sends it, came back.` },
+    { id: "host-lookups", ok: false, label: "This server cannot look names up", detail: "github.com did not resolve through the system's resolver: no such name, or no DNS server answered." },
+  ] } : null;
+  return { ...verdict, checkedAt: ago(0.05), lanAddress: host.lan, gateway: host.gateway, canary: facts.canary ?? null, afterOutage };
+}
+api.get("/network/dns-resilience", (request, response) => json(response, resilienceFor(scenarioOf(request.get("referer")))));
+
 function demoScan(world) {
   if (world === "fresh") return { findings: [], dismissed: [], counts: { critical: 0, warning: 0, info: 0 }, jobs: { attached: [], resolved: [], dismissed: [] }, checkedAt: now().toISOString(), sourceStatus: "ready", unavailableChecks: [] };
   const facts = world === "trouble" ? troubleFacts() : { now: Date.now(), protection: protectionFixture(), schedules: [{ operationId: "app.backup", parameters: { id: "immich" }, enabled: true }] };
-  const { findings } = world === "trouble" ? detectRemediations(facts) : { findings: backupsDue(facts) };
+  const pihole = [{ id: "pi-hole", name: "Pi-hole", container: { running: world !== "trouble" } }];
+  const { findings } = world === "trouble" ? detectRemediations({ ...facts, dnsResilience: resilienceFor(world) }) : { findings: [...backupsDue(facts), ...dnsLeansOnThisServer({ dnsResilience: resilienceFor(world), apps: pihole })] };
   const split = findings.find((entry) => entry.id === "split-data-folders");
   const ledger = applyLedger(findings, world === "trouble" ? {
     // Set aside two days ago with a reason, as the owner would a split that is deliberate.
@@ -941,6 +971,8 @@ const freshWords = {
   "dns.names.inspect": { available: false, reason: "No DNS server BoxPilot can write to is installed. Install Pi-hole from the App catalog.", platform: null, records: [], apps: [] },
   "router.inspect": { configured: false, reachable: false, host: null, username: null, model: null, firmware: null, reason: "No router is connected yet." },
   "router.leases": { host: null, leases: [] },
+  // Off until the owner turns it on (M39.3).
+  "heartbeat.inspect": { configured: false, host: null, installed: true, enabled: false, intervalMinutes: null, last: null, intervals: [1, 2, 5, 10, 15, 30, 60] },
   // A new server can read its backup folder; it just has no apps in it yet.
   "app.backup.protection": { available: true, apps: [] },
   // The machine itself is there on a new server (M33.12): its name, clock, memory and swap. Only
@@ -970,6 +1002,8 @@ const troubleWords = {
     reason: 'The router did not accept that password for "root". This is the password for the router\'s own admin page, which is often not the same as any other password on this network.' },
   // Pi-hole is installed but its container is stopped, so the names it serves have gone with it.
   "dns.names.inspect": { available: true, reason: null, platform: { id: "pi-hole", label: "Pi-hole", running: false }, records: [] },
+  // The heartbeat is on, and the last ping did not get through: DNS was down on this server too.
+  "heartbeat.inspect": { configured: true, host: "hc-ping.com", installed: true, enabled: true, intervalMinutes: 5, last: { at: ago(0.07), ok: false, status: null, ms: 38, error: "its name did not resolve (DNS is not answering)" }, intervals: [1, 2, 5, 10, 15, 30, 60] },
   "dns.blocker.clients": { available: true, reason: null, platform: { id: "pi-hole", label: "Pi-hole", running: true }, clients: [], self: 9 },
   "app.serve.inspect": { available: false, serves: [] },
   "dns.blocker.verify": { address: "192.168.1.10", answering: true, resolving: false, blocking: true, intercepted: true, interceptorBlocking: false,
