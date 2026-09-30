@@ -957,6 +957,81 @@ sidecars:
     await expect(apps.restoreAppBackupPath({ id: "demo", backup: backupResult.artifact, path: "data/missing.txt" })).rejects.toThrow("is not in");
   });
 
+  describe("a backup a power cut or a restart cut off", () => {
+    // The helper as the next boot starts it, over the same folders and the same Docker.
+    const helperOver = ({ catalogRoot, backupRoot, runDocker, catalogDirectory }, options = {}) => createAppHelper({
+      catalogRoot, backupRoot, runDocker, catalog: createCatalogService({ directory: catalogDirectory, ttlMs: 0 }), wait: async () => {}, clock: () => new Date("2026-09-29T03:15:00.000Z"), ...options,
+    });
+    // tar gets part of the archive out and the process dies: nothing is left to settle the promise.
+    const dyingTar = async (_binary, args) => { await writeFile(args[args.indexOf("-czf") + 1], "half an archi"); return new Promise(() => {}); };
+
+    it("starts the app it stopped again, and drops the half-written archive, when the helper next starts", async () => {
+      const context = await setup();
+      const { apps, containers, backupRoot } = context;
+      await apps.install({ id: "demo" });
+      expect(containers.get("bp-demo").running).toBe(true);
+      void helperOver(context, { runCommand: dyingTar }).backup({ id: "demo" });
+      await vi.waitFor(async () => expect(await readdir(path.join(backupRoot, "demo")).catch(() => [])).toEqual(["20260929T031500Z.tar.gz.partial"]));
+      // Docker's unless-stopped never starts a container that was stopped by hand, reboot or not.
+      expect(containers.get("bp-demo").running).toBe(false);
+
+      const next = helperOver(context);
+      // Half an archive is not a backup: not listed, so never counted, pruned against or verified.
+      expect((await next.listAppBackups({ id: "demo" })).backups).toEqual([]);
+      const interrupted = await next.interruptedBackups();
+      expect(interrupted).toEqual([{ id: "demo", restart: true, partial: "20260929T031500Z.tar.gz.partial", startedAt: "2026-09-29T03:15:00.000Z" }]);
+      await expect(next.resumeInterruptedBackup(interrupted[0])).resolves.toEqual({ id: "demo", removedPartial: true, restarted: true });
+      expect(containers.get("bp-demo").running).toBe(true);
+      expect(await readdir(path.join(backupRoot, "demo"))).toEqual([]);
+      expect(await next.interruptedBackups()).toEqual([]);
+    });
+
+    it("leaves an app the owner had stopped as it was, and waits for Docker to come up for one it had not", async () => {
+      const context = await setup();
+      const { apps, containers, backupRoot, runDocker } = context;
+      await apps.install({ id: "demo" });
+      await apps.action({ id: "demo", action: "stop" });
+      void helperOver(context, { runCommand: dyingTar }).backup({ id: "demo" });
+      await vi.waitFor(async () => expect(await readdir(path.join(backupRoot, "demo")).catch(() => [])).toHaveLength(1));
+      const next = helperOver(context);
+      const [stopped] = await next.interruptedBackups();
+      expect(stopped).toMatchObject({ id: "demo", restart: false });
+      await expect(next.resumeInterruptedBackup(stopped)).resolves.toEqual({ id: "demo", removedPartial: true, restarted: false });
+      expect(containers.get("bp-demo").running).toBe(false);
+
+      // A running one, at a boot where Docker answers only on the third try.
+      await apps.action({ id: "demo", action: "start" });
+      void helperOver(context, { runCommand: dyingTar }).backup({ id: "demo" });
+      await vi.waitFor(() => expect(containers.get("bp-demo").running).toBe(false));
+      let refusals = 2;
+      const slowDocker = vi.fn(async (binary, args, options) => (args[0] === "compose" && args.includes("start") && refusals-- > 0
+        ? { ok: false, stdout: "", stderr: "Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?" }
+        : runDocker(binary, args, options)));
+      const booting = helperOver({ ...context, runDocker: slowDocker });
+      const [cutOff] = await booting.interruptedBackups();
+      await expect(booting.resumeInterruptedBackup(cutOff, { delayMs: 0 })).resolves.toMatchObject({ id: "demo", restarted: true });
+      expect(containers.get("bp-demo").running).toBe(true);
+    });
+
+    it("is not left behind by a backup that finished, or one that failed on its own", async () => {
+      const context = await setup();
+      const { containers, backupRoot, catalogRoot } = context;
+      await context.apps.install({ id: "demo" });
+      const tarWrites = async (_binary, args) => { await writeFile(args[args.indexOf("-czf") + 1], "a whole archive"); return { ok: true, stdout: "", stderr: "" }; };
+      const made = await helperOver(context, { runCommand: tarWrites }).backup({ id: "demo" });
+      expect(made).toMatchObject({ backedUp: true, artifact: "20260929T031500Z.tar.gz" });
+      expect((await readdir(path.join(backupRoot, "demo"))).sort()).toEqual(["20260929T031500Z.json", "20260929T031500Z.tar.gz"]);
+      expect(containers.get("bp-demo").running).toBe(true);
+
+      const tarFails = async (_binary, args) => { await writeFile(args[args.indexOf("-czf") + 1], "no space"); return { ok: false, stdout: "", stderr: "tar: write error: No space left on device" }; };
+      const later = createAppHelper({ ...{ catalogRoot, backupRoot, runDocker: context.runDocker }, catalog: createCatalogService({ directory: context.catalogDirectory, ttlMs: 0 }), wait: async () => {}, clock: () => new Date("2026-09-30T03:15:00.000Z"), runCommand: tarFails });
+      await expect(later.backup({ id: "demo" })).rejects.toThrow("tar failed");
+      expect(containers.get("bp-demo").running).toBe(true);
+      expect((await readdir(path.join(backupRoot, "demo"))).sort()).toEqual(["20260929T031500Z.json", "20260929T031500Z.tar.gz"]);
+      expect(await later.interruptedBackups()).toEqual([]);
+    });
+  });
+
   // Linux only: needs /usr/bin/tar.
   it.skipIf(onWindows)("restores a file from the oldest backup without its own checkpoint pruning that backup", async () => {
     const { apps, catalogRoot, advance } = await setup();
