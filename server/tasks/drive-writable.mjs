@@ -1,4 +1,5 @@
-import { readdir, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
+import { readdir, readFile, rename, stat, unlink } from "node:fs/promises";
+import { writeFileDurably as writeFile } from "../durable-file.mjs";
 import { fixedRun } from "../exec.mjs";
 import { managedDriveEntries, verificationAllows, verifyFstab } from "./drive-shutdown.mjs";
 import { appUserId, hostMountAt, managedDrive, permissionlessFilesystems, remountDrive } from "./storage.mjs";
