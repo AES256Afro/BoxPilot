@@ -1,5 +1,5 @@
 /**
- * DNS that survives this server being off (M39.2, ADR-007): the two pieces of the check that need the
+ * DNS that survives this server being off (M39.2, ADR-008): the two pieces of the check that need the
  * helper, and the rehearsal. The check itself is read in the web service (server/dns-resilience.mjs).
  */
 import { defineOperation } from "./registry.mjs";

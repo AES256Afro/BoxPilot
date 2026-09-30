@@ -2087,15 +2087,106 @@ Left, and why:
 - **Per-device Pi-hole numbers**: only if the owner opts in, as a separate owner-only read.
 - **Learning on its own schedule**: a learning pass runs when asked ("Re-learn"), in quiet hours.
 
+## M38 — Agents in Zulip
+
+Asked for 2026-09-29: "Install Zulip... Setup the rooms for the agents so all future agents know
+they can report their findings, detail logs, knowledge, a channel for dumping images, documents,
+files for training." Zulip over Mattermost and Matrix: fully open source, no cap on history, and
+channel plus topic fits agents (ADR-007). The owner's rules stand: agents propose and never act,
+nothing leaves the server unless the owner says so, and no account is made with a password.
+
+- ✅ **M38.1 Zulip in the catalog** (unreleased). `catalog/zulip.yaml`: Zulip Server 12.3 from
+  docker-zulip's image with its PostgreSQL 14, memcached, RabbitMQ 4.2 and Redis as sidecars, every
+  image pinned, every internal secret generated and passed by reference, the database and uploads
+  in app backups, a health check, Zulip's own nightly dump off, threaded queue workers.
+  - **Tailnet only by default.** Manifests can say `defaultExposure: tailnet`: installed without a
+    choice, the web port binds 127.0.0.1 (never every address, #323) and `app.install` publishes it
+    with Tailscale Serve; if Serve fails, the install stands and says so, and the Reach tab offers
+    "Publish on the tailnet". Zulip's port is 8543.
+  - **Its address is the Serve address.** Env values may name `${TAILNET_HOST}`, this server's
+    tailnet name, filled in at every deploy (Zulip's `EXTERNAL_HOST` is `${TAILNET_HOST}:${PORT_WEB}`),
+    so the phone apps get a valid certificate; an app that needs it is refused, unchanged, when
+    Tailscale gives no name. Zulip trusts Serve's forwarded headers from Docker's gateway only.
+  - **Create your organization.** Manifests can put `actions` on an app's sheet, each a registered
+    operation run with the app's id. Zulip's is `app.zulip.organization.link` (medium, owner): Zulip's
+    own `manage.py generate_realm_creation_link`, as the zulip user; refused once an organization
+    exists. The registry's new `oneTimeFields` keep the link out of the job's record and log: the
+    approval dialog asks `POST /jobs/:id/once` for it, once, and shows it with Copy and Open.
+  - **Email and push**: without SMTP nothing is emailed, which the install form and the notes say;
+    the SMTP server, user, password, port and sender are optional settings. Phone push is a setting
+    that is off, with the steps to register with Zulip's push service; BoxPilot never registers.
+  - The demo shows Zulip installed and served; the screenshots take its sheet, the approval for
+    Create your organization, and its install form on a new server.
+  - **On a real host** (`zulip-host.yml`, run when Zulip's files change or by hand): BoxPilot's own
+    deployer and install operation bring it up healthy in about two and a half minutes on a GitHub
+    runner, its port on 127.0.0.1 only, answering through Serve's headers as Zulip 12.3; Create your
+    organization's link opens the organization form. A minute later it used about 2.6 GB of memory
+    (Zulip 2.4 GB, RabbitMQ 150 MB, PostgreSQL 60 MB, Redis and memcached 17 MB) and 3.5 GB of disk
+    for its images.
+- ✅ **M38.2 Agents talk to Zulip** (unreleased).
+  - **Connect** (`agents.zulip.connect`, medium, owner, the approval dialog from the Agents tab's
+    Team chat panel): one fixed script (`server/agents/zulip-connect.py`) through `manage.py shell`
+    as the zulip user makes a generic bot with Zulip's own `do_create_user`, owned by the
+    organization's owner, and four private channels only the owner and the bot are in -
+    #agent-findings, #agent-logs, #agent-knowledge, #agent-files - and is safe to run again (it
+    reuses the bot, reactivates it if needed, keeps channels that exist and says which are public).
+    Chosen over a key the owner pastes: the key never passes through a browser or the web process,
+    nothing is made by hand, and running it again repairs. The key goes straight into the
+    credential store (`zulip-agents-bot`); a root task checks it with Zulip and says hello in
+    #agent-findings. `agents.zulip.disconnect` (low) removes the key; nothing in Zulip is deleted.
+  - **Every agent has chat outputs**: findings, logs and knowledge, each on by default, to the
+    connection's channel under the agent's name, overridable per agent (channel, topic, on or off)
+    on the Build tab's guardrails; templates, new agents and agents saved before M38 all get them.
+    Once connected, the system prompt says where each goes, that BoxPilot posts and the agent
+    cannot, that approvals never happen in chat, and that #agent-files is data (`chatParagraph`).
+  - **The runtime posts, never the model** (`server/agents/chat.mjs`): after a run, its answer or
+    digest and its cards (at most two, each linking back to BoxPilot, where it is decided) go to
+    #agent-findings, its trace to #agent-logs (a summary; a long trace as an attached Markdown
+    file, 48,000 characters at most), and the notes it kept to #agent-knowledge. Every word is
+    redacted as the runner's are, stripped of template tokens, and has its @-mentions broken, so an
+    agent pages nobody; BoxPilot's own links are added after redaction. An outbox table
+    (`agent_chat_posts`) holds at most 200 waiting posts, sends batches of ten through the root task
+    (`agents.zulip.post`, low, run by BoxPilot itself like the TLS renewal, on a helper lane of its
+    own), sixty posts an hour for all agents, three tries each, and waits while Agents are off,
+    paused or killed.
+  - **#agent-files into Knowledge**: every three minutes while Agents run (or "Check #agent-files
+    now"), the read `agents.zulip.poll` (owner) reads the messages after the last one seen, twenty
+    at most, and downloads the files they link: PDFs, Markdown and text through the uploads' own
+    reader, images kept as they came (60 at most) - at most 5 MB each, ten files and 12 MB a poll. A
+    message of words alone becomes a note. Each is redacted, is data, and is answered in its topic
+    ("Added to Knowledge as ..." or why not). An image is described by the model in quiet hours (a
+    `describe` run like the memory index's: one image, 320 tokens, within the day's model time),
+    and the description becomes the document's text.
+  - **The Team chat panel** (Agents tab): installed, connected, the channels and what goes where,
+    the last post or error, what came in from #agent-files, counts and, for the owner, the last
+    posts; Connect, Connect again, Disconnect, Check now. Links from chat open the run
+    (`?view=agents&tab=test&agent=..&run=..`).
+  - Tests: the connect operation (key only in the store, safe to run again, what to do first), the
+    script parses (Python), channel names and posts validated, lanes; the root tasks against a
+    stand-in Zulip API (`test/fake-zulip.mjs`: loopback only, Serve's headers, attachments, the
+    poll's limits); the words (redaction, mentions, cards, traces as files); the service end to end
+    with the real runner (nothing before Connect, outputs per agent, the outbox's limits, pause,
+    failures, disconnect, ingest and acks, an image described in quiet hours); the panel and the
+    Builder. `zulip-host.yml` runs Connect twice, posts, and reads back a file the owner dropped, on
+    a real Zulip.
+- **M38.3 Two-way chat** (specified, not built): a DM or an @-mention of the bot asks an agent, and
+  the answer goes to the thread. The owner maps each Zulip user to a BoxPilot account in the Team
+  chat panel; a message from anyone unmapped is answered with "you are not set up to ask" and never
+  reaches a model. The question runs as that person, read-only, exactly as the Test tab's Ask does
+  (their role's tools, their rate limit, their conversation), against the agent named in the
+  message or the owner's default (the Server Keeper). The poll that reads #agent-files would also
+  read `is:dm` and `is:mentioned` after the last seen id; the reply is an ordinary queued post.
+  Cards it proposes still link back to BoxPilot; nothing is approved in chat.
+
 ## M39 — Keep the house running when the server does not
 
 Approved 2026-09-29, after the owner's server lost power for 3 h 37 min: Pi-hole on it was the
 house's only DNS, so every device lost the internet, and nothing said so because ntfy was on the
-same server. Decided in ADR-007. The network half is `feat/m39-network`.
+same server. Decided in ADR-008. The network half is `feat/m39-network`.
 
-- ✅ **M39.2 DNS that survives the server being off** (unreleased). The router becomes the one DNS
-  server devices are given, asks Pi-hole here first and a public resolver only when it does not
-  answer (ADR-007 weighs a second DHCP server and a synced second Pi-hole). BoxPilot does not sign in
+- ✅ **M39.2 DNS that survives the server** (unreleased, `feat/m39-network`). The router becomes the
+  one DNS server devices are given, asks Pi-hole here first and a public resolver only when it does
+  not answer (ADR-008 weighs a second DHCP server and a synced second Pi-hole). BoxPilot does not sign in
   to the router; it shows the steps and proves the result. `server/dns-resilience.mjs` reads what the
   router hands out from this server's own DHCP lease (networkd's JSON or lease file, NetworkManager,
   dhclient), asks every other server on the list directly with node's resolver (no dig, ping or
@@ -2112,8 +2203,8 @@ same server. Decided in ADR-007. The network half is `feat/m39-network`.
   (`server/outage-dns.mjs`, plugged into feat/repair-dns-power's `previousBootEndedUncleanly()`).
   `tests/ubuntu/dns-fallback.sh` runs it all against real dnsmasq routers with and without a
   fallback and the runner's own lease, on both LTS releases.
-- ✅ **M39.3 Knowing the server is down, from outside it** (unreleased). An opt-in heartbeat (Settings,
-  Notifications): a bare `GET` every few minutes (five unless changed) to a dead man's switch the
+- ✅ **M39.3 Told when the server is down** (unreleased, `feat/m39-network`). An opt-in heartbeat
+  (Settings, Notifications): a bare `GET` every few minutes (five unless changed) to a dead man's switch the
   owner picks (healthchecks.io's free plan, or Healthchecks or Uptime Kuma push on another machine),
   which alerts their phone when the pings stop. No body, no header of BoxPilot's, nothing about the
   server. The address is a credential in the root-only store (`heartbeat-url`); the pinging is

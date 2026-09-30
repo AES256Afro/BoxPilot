@@ -224,6 +224,9 @@ const jobs = createJobService(state, helper, {
     "agents.runtime.install": (job, result) => agents.noteRuntimeInstalled(result, { actorId: job.createdBy }),
     // M37: a connector's documents, read in the root task with its credential, into the library.
     "agents.connector.sync": (job, result) => agents.ingestConnector(result, { actorId: job.createdBy }),
+    // M38: where Zulip is and what Connect made; the bot's key stayed in the helper's credential store.
+    "agents.zulip.connect": (job, result) => { agents.zulipConnected(result, { actorId: job.createdBy, boxpilotUrl: job.parameters?.boxpilotUrl ?? null }); },
+    "agents.zulip.disconnect": (job) => { agents.zulipDisconnected({ actorId: job.createdBy }); },
     // M39.2: whether the router kept answering with the DNS app here stopped. The DNS check reads it
     // (a job is pruned within weeks; the verdict holds for ninety days).
     "dns.fallback.rehearse": (job, result) => {

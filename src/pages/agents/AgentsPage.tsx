@@ -12,6 +12,7 @@ import { Memory } from "./Memory";
 import { PasswordSheet } from "./PasswordSheet";
 import { SetupAction, chainSteps, runnerDetail, setupSteps, type RunnerWait } from "./setup";
 import { Usage } from "./Usage";
+import { ZulipPanel } from "./ZulipPanel";
 import "./agents.css";
 
 /*
@@ -42,6 +43,15 @@ function readAgentParam(): string | null {
   const value = new URLSearchParams(window.location.search).get("agent");
   return value && /^[0-9a-f-]{36}$/i.test(value) ? value : null;
 }
+/**
+ * A run named in the address (?run=<id>), which a link from the team chat opens (M38): read once,
+ * when the page opens, with the Test tab and the agent the same link names.
+ */
+function readRunParam(): string | null {
+  if (typeof window === "undefined") return null;
+  const value = new URLSearchParams(window.location.search).get("run");
+  return value && /^[0-9a-f-]{36}$/i.test(value) ? value : null;
+}
 function writeAgentParam(id: string | null) {
   if (typeof window === "undefined") return;
   const url = new URL(window.location.href);
@@ -59,7 +69,7 @@ export default function AgentsPage({ csrfToken, role = "owner", now = Date.now }
   const [notice, setNotice] = useState<string | null>(null);
   const [tab, setTab] = useUrlParam<Tab>("tab", allTabs, "agents");
   const [agentId, setAgentIdState] = useState<string | null>(readAgentParam);
-  const [runId, setRunId] = useState<string | null>(null);
+  const [runId, setRunId] = useState<string | null>(readRunParam);
   const [turningOn, setTurningOn] = useState(false);
   const [busy, setBusy] = useState(false);
   const [jobsFinished, setJobsFinished] = useState(0);
@@ -226,11 +236,15 @@ export default function AgentsPage({ csrfToken, role = "owner", now = Date.now }
           if (current === "evaluation") {
             return <Evaluation agents={agents} agentId={selected} csrfToken={csrfToken} now={now()} enabled={module.enabled && !module.paused} onSelectAgent={setAgentId} onOpenRun={(id, run) => open(id, "test", run)} />;
           }
-          return <AgentList overview={overview} proposals={proposals} glance={glance} csrfToken={csrfToken} role={role} now={now()} runnerWait={runnerWait}
-            onOpen={open} onNew={() => { setAgentId(null); setTab("build"); }}
-            onPause={(agent, until) => void agentAction(() => agentsApi.pause(csrfToken, agent.id, until), until ? `${agent.name} is paused until 07:00 tomorrow.` : `${agent.name} is paused.`)}
-            onResume={(agent) => void agentAction(() => agentsApi.resume(csrfToken, agent.id), `${agent.name} is running again.`)}
-            onStage={start} onProposalDecided={() => void refresh()} onTurnOn={owner ? () => setTurningOn(true) : null} />;
+          return <>
+            <AgentList overview={overview} proposals={proposals} glance={glance} csrfToken={csrfToken} role={role} now={now()} runnerWait={runnerWait}
+              onOpen={open} onNew={() => { setAgentId(null); setTab("build"); }}
+              onPause={(agent, until) => void agentAction(() => agentsApi.pause(csrfToken, agent.id, until), until ? `${agent.name} is paused until 07:00 tomorrow.` : `${agent.name} is paused.`)}
+              onResume={(agent) => void agentAction(() => agentsApi.resume(csrfToken, agent.id), `${agent.name} is running again.`)}
+              onStage={start} onProposalDecided={() => void refresh()} onTurnOn={owner ? () => setTurningOn(true) : null} />
+            {/* The team chat (M38): Zulip, where agents report and the owner drops files for them. */}
+            {staff && <ZulipPanel csrfToken={csrfToken} role={role} now={now()} onStart={start} refreshKey={jobsFinished} />}
+          </>;
         }}
       </Tabs>
 

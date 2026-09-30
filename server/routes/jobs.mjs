@@ -109,6 +109,16 @@ export function createJobsRouter({ state, jobs, scheduler, flows = null, autoRec
     return response.json({ job });
   });
 
+  // What a finished job showed once (its operation's oneTimeFields): to the person who ran it, the
+  // first time they ask, within a quarter of an hour. Never stored, so never shown again.
+  router.post("/jobs/:id/once", auth.requireCsrf, (request, response) => {
+    const job = state.getJob(request.params.id);
+    if (!job || !mayRead(request, job)) return response.status(404).json({ error: "Job not found", code: "job_not_found" });
+    const value = typeof jobs.takeOneTime === "function" ? jobs.takeOneTime(job.id, request.boxpilotSession?.owner?.id ?? null) : null;
+    if (!value) return response.status(410).json({ error: "This was shown once already, or it was for someone else. Run the action again for a new one.", code: "shown_once" });
+    return response.json({ jobId: job.id, value });
+  });
+
   router.post("/jobs/:id/approve", auth.requireCsrf, async (request, response) => {
     try {
       const approval = { password: typeof request.body?.password === "string" ? request.body.password : null, confirmText: typeof request.body?.confirmText === "string" ? request.body.confirmText : null, session: request.boxpilotSession };

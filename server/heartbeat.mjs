@@ -1,5 +1,5 @@
 /**
- * The heartbeat: telling something outside this server that it is up (M39.3, ADR-007).
+ * The heartbeat: telling something outside this server that it is up (M39.3, ADR-008).
  *
  * On 2026-09-29 the server was off for three and a half hours and nothing told the owner, because
  * the thing that tells them, ntfy, runs on the same server. Nothing on a machine that is off can say

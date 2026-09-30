@@ -9,7 +9,7 @@ import type { RiskTier } from "../../ui";
 export type ToolPermission = "auto" | "ask" | "off";
 export type AgentStatus = "off" | "module-paused" | "paused" | "running" | "queued" | "idle";
 export type RunState = "queued" | "running" | "completed" | "degraded" | "failed" | "cancelled" | "killed" | "interrupted" | "refused" | "timeout";
-export type RunKind = "ask" | "manual" | "schedule" | "event" | "learn" | "eval" | "webhook" | "handoff" | "continue" | "index";
+export type RunKind = "ask" | "manual" | "schedule" | "event" | "learn" | "eval" | "webhook" | "handoff" | "continue" | "index" | "describe";
 export type Cadence = "hourly" | "every-6-hours" | "daily" | "weekly";
 
 export interface ModuleBudget { runsUsed: number; runsPerDay: number; modelMsUsed: number; modelSecondsPerDay: number; modelMsLeft: number; refusal: string | null }
@@ -35,7 +35,8 @@ export interface AgentSpec {
   tools: Record<string, ToolPermission>;
   triggers: { ask: boolean; schedule: Schedule | null; events: string[]; webhook: boolean };
   budget: { runsPerDay: number; modelSecondsPerDay: number; stepsPerRun: number; tokensPerRun: number; runSeconds: number };
-  outputs: { notes: boolean; digest: boolean; notify: "important" | "never"; proposals: boolean };
+  /** chat (M38): each kind of output to its Zulip channel, on by default; saved before M38, absent. */
+  outputs: { notes: boolean; digest: boolean; notify: "important" | "never"; proposals: boolean; chat?: ChatOutputs };
   memory: { enabled: boolean; freshDays: number; maxNotes: number; share: boolean; threads: boolean; turns: number };
   escalation: { lowConfidence: boolean; limits: boolean; actions: boolean; risk: boolean };
   allow: { apps: "*" | string[]; operations: "*" | string[] };
@@ -162,7 +163,21 @@ export interface RuntimeState {
 }
 
 export interface KnowledgeSource { id: "docs" | "registry" | "catalog" | "notes" | "documents"; title: string; enabled: boolean; items: number | null; size: number | null; unit: string; indexedAt: string | null }
-export interface OwnerDocument { id: string; title: string; enabled: boolean; createdAt: string; characters: number; source: string; externalId: string | null; pinned: boolean }
+export interface OwnerDocument { id: string; title: string; enabled: boolean; createdAt: string; characters: number; source: string; externalId: string | null; pinned: boolean; mediaType?: string; mediaBytes?: number; describedAt?: string | null; describeAttempts?: number }
+
+/** The team chat (M38): an agent's outputs, and the Zulip panel. */
+export type ChatKind = "findings" | "logs" | "knowledge";
+export interface ChatOutput { enabled: boolean; channel: string | null; topic: string | null }
+export type ChatOutputs = Record<ChatKind, ChatOutput>;
+export interface ChatPost { id: string; kind: ChatKind | "ack"; channel: string; topic: string; state: "queued" | "sent" | "failed" | "dropped"; error: string | null; createdAt: string; sentAt: string | null; agentName: string | null; preview: string }
+export interface ZulipState {
+  connected: boolean; site: string | null; realm: string | null; botEmail: string | null;
+  channels: Record<ChatKind | "files", string>; notPrivate: string[]; connectedAt: string | null; boxpilotUrl: string | null;
+  lastPost: { at: string; channel: string; topic: string } | null; lastError: { at: string; message: string } | null;
+  files: { lastPollAt: string | null; lastIngest: { at: string; title: string } | null; lastError: string | null };
+  counts: Partial<Record<ChatPost["state"], number>>; recent: ChatPost[]; active: boolean;
+  app: { installed: boolean; running: boolean; port: number | null } | null; canChange: boolean;
+}
 export interface Knowledge {
   sources: KnowledgeSource[]; documents: OwnerDocument[];
   search: { kind: string; embeddings: string; pending?: number; vectors?: number; enabled?: boolean };
@@ -208,6 +223,8 @@ export const agentsApi = {
   glance: () => get<Glance>("/glance"),
   proposals: () => get<{ proposals: Proposal[] }>("/proposals"),
   knowledge: () => get<Knowledge>("/knowledge"),
+  zulip: () => get<ZulipState>("/zulip"),
+  zulipPoll: (csrf: string) => send<{ messages?: number; added?: number; skipped?: string; error?: string }>("POST", "/zulip/poll", csrf),
   agent: (id: string) => get<AgentDetail>(`/${encodeURIComponent(id)}`),
   version: (id: string, version: number) => get<VersionDetail>(`/${encodeURIComponent(id)}/versions/${version}`),
   runs: (id: string) => get<{ runs: Run[] }>(`/${encodeURIComponent(id)}/runs?limit=30`),

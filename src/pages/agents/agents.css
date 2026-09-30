@@ -198,6 +198,15 @@
 .agents-accuracy__score { display: grid; grid-template-columns: minmax(5rem, 9rem) auto; align-items: center; gap: 8px; }
 .agents-budget--all { padding-bottom: 8px; border-bottom: 1px solid var(--border-subtle); }
 
+/* ---- the team chat (M38) ---- */
+.agents-zulip__body { display: grid; gap: 10px; min-width: 0; }
+.agents-zulip__channels { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.agents-zulip__channel { display: grid; grid-template-columns: minmax(9rem, max-content) minmax(0, 1fr); align-items: baseline; gap: 2px 12px; min-width: 0; }
+.agents-zulip__channel code { color: var(--text-strong); font-size: 12.5px; overflow-wrap: anywhere; }
+.agents-chat { display: grid; gap: 6px; min-width: 0; }
+.agents-chat__row { display: grid; grid-template-columns: minmax(8rem, 12rem) auto minmax(0, 1fr) minmax(0, 1fr); align-items: end; gap: 6px 10px; padding: 6px 0; border-top: 1px solid var(--border-subtle); }
+.agents-chat__row:first-child { border-top: 0; }
+
 @media (max-width: 1100px) {
   .agents-builder, .agents-console, .agents-split { grid-template-columns: minmax(0, 1fr); }
 }
@@ -209,6 +218,7 @@
   .agents-question { grid-template-columns: minmax(0, 1fr); }
   .agents-form__field-row { grid-template-columns: minmax(0, 1fr); }
   .agents-answer--fields { grid-template-columns: minmax(0, 1fr); }
+  .agents-zulip__channel, .agents-chat__row { grid-template-columns: minmax(0, 1fr); }
   .agents-step__facts { margin-left: 0; }
   .agents-form__section--flush .ui-table-wrap, .agents-form__section--flush .ui-table { margin-inline: 0; }
 }

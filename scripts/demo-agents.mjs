@@ -62,7 +62,7 @@ function helperFor(world, { apps, services }) {
       models: [{ repo: model.repo, file: model.file, bytes: 2_910_000_000, complete: true, projector: false }], diskFreeBytes: 12 * 1024 ** 3 },
   }[world];
   const answers = {
-    "app.inspect": () => ({ applications: Object.keys(apps).map((id) => ({ id, name: id, installed: true, container: { running: true, status: "running", health: world === "trouble" && id === "jellyfin" ? "unhealthy" : "healthy", restarts: world === "trouble" && id === "jellyfin" ? 4 : 0 }, urls: [] })) }),
+    "app.inspect": () => ({ applications: Object.keys(apps).map((id) => ({ id, name: id, installed: true, container: { running: true, status: "running", health: world === "trouble" && id === "jellyfin" ? "unhealthy" : "healthy", restarts: world === "trouble" && id === "jellyfin" ? 4 : 0 }, urls: id === "zulip" ? [{ id: "web", host: 8543, exposure: "loopback" }] : [] })) }),
     "service.list": () => services,
     "logs.read": (parameters) => ({ kind: parameters.kind, target: parameters.target, lines: ["demo: nothing is read from this machine"] }),
     "app.pihole.inspect": () => ({
@@ -73,6 +73,13 @@ function helperFor(world, { apps, services }) {
       topBlocked: [{ domain: "telemetry.example.com", count: 1_840 }, { domain: "ads.example.net", count: 1_210 }],
     }),
     "agents.runtime.inspect": () => runtime,
+    // The team chat (M38): Zulip takes every post, except in trouble, where it refuses the bot's key;
+    // #agent-files holds one note the owner dropped this morning, read once.
+    "agents.zulip.post": (parameters) => ({ results: parameters.posts.map((post, index) => (world === "trouble" ? { id: post.id, ok: false, error: "Zulip refused the bot's key; connect Zulip again" } : { id: post.id, ok: true, messageId: 900 + index })) }),
+    "agents.zulip.poll": (parameters) => (parameters.after ? { messages: [], last: parameters.after, more: false } : {
+      last: 41, more: false,
+      messages: [{ id: 41, topic: "network", sender: "Alex", content: "The router notes [router.md](/user_uploads/2/aa/bb/router.md)", files: [{ name: "router.md", kind: "text", path: "/user_uploads/2/aa/bb/router.md", bytes: Buffer.from("# The router\nThe router is upstairs in the office, on the shelf above the printer. Its admin page is at 192.168.50.1.").toString("base64") }] }],
+    }),
   };
   return { request: async (operation, parameters) => { const answer = answers[operation]; if (!answer) throw new Error(`${operation} is not in the demo`); return answer(parameters ?? {}); } };
 }
@@ -158,6 +165,12 @@ async function seed({ service, state, caller, at, runNext, script, world }) {
   const helper = service.createAgent(caller, { template: "it-support" });
   service.updateAgent(caller, keeper.id, { spec: { ...keeper.spec, budget: { ...keeper.spec.budget, runsPerDay: 20 } }, note: "Fewer runs a day" });
   service.addDocument(caller, { title: "How this network is laid out", text: "The router is at 192.168.50.1 and hands out homebox (192.168.50.20) as the DNS server, so Pi-hole answers for the whole house.\nThe media drive is the 4 TB USB disk at /mnt/media; the 2 TB one labelled Backup is for copies and sleeps most of the day.\nLeave Nextcloud's data alone on weekends: the family syncs photos then." });
+  // The team chat (M38): Zulip was connected before these runs, so their outcomes were posted there.
+  service.zulipConnected({
+    connected: true, site: "https://homebox.tail0a1b.ts.net:8543", host: "homebox.tail0a1b.ts.net:8543", port: 8543, realm: "The house", realmId: 2,
+    botEmail: "boxpilot-agents-bot@homebox.tail0a1b.ts.net", botCreated: true, credential: "zulip-agents-bot",
+    channels: { findings: "agent-findings", logs: "agent-logs", knowledge: "agent-knowledge", files: "agent-files" }, made: ["agent-findings", "agent-logs", "agent-knowledge", "agent-files"], public: [],
+  }, { actorId: caller.id, boxpilotUrl: "https://homebox.tail0a1b.ts.net" });
 
   if (world === "trouble") {
     at(new Date(Date.now() - hours(1)));
@@ -279,6 +292,10 @@ async function seed({ service, state, caller, at, runNext, script, world }) {
   // The daily look for a newer small Qwen.
   at(new Date());
   await service.checkForNewerModel();
+  // What the runs left went to Zulip (in trouble, Zulip refused the key), and the note in
+  // #agent-files came into Knowledge and was answered in its topic.
+  if (world === "default") await service.chat.poll({ force: true });
+  for (let batch = 0; batch < 6; batch += 1) { const sent = await service.chat.drain().catch(() => null); if (!sent?.sent) break; }
 }
 
 /**
