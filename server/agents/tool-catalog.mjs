@@ -41,22 +41,30 @@ export const toolCategories = Object.freeze({
 export const toolCatalog = Object.freeze([
   {
     id: "server.facts", title: "Server facts", category: "boxpilot", role: "viewer", cost: "cheap",
-    description: "This server's name, operating system, kernel, processor, memory, uptime, network addresses and whether it is on the tailnet.",
+    description: "This server's hostname, operating system and its version, kernel, processor, memory, uptime, network addresses and whether it is on the tailnet.",
+    use: "what the server is called, its OS or version, CPU, memory, uptime",
+    askedFor: [/\b(operating system|os|ubuntu|debian|distro|version of (ubuntu|linux)|kernel|hostname|host name|called|named|uptime|memory|ram|cpu|processor|cores?)\b/i],
     params: {},
   },
   {
     id: "apps.list", title: "Apps and containers", category: "boxpilot", role: "viewer", cost: "moderate",
-    description: "Every installed BoxPilot app with its container state, health, restarts and web ports, and other Docker containers on the server.",
+    description: "Every installed BoxPilot app with whether its container is running or stopped, its health, restarts and web ports, and the other Docker containers on the server. For where one thing runs, where.runs says it directly.",
+    use: "which apps are installed, stopped, unhealthy or restarting",
+    askedFor: [/\b(apps?|applications?|containers?)\b[^.?!]{0,40}\b(stopped|running|down|unhealthy|installed|restart\w*|crash\w*|failing)\b/i, /\b(stopped|unhealthy|restarting|down)\b[^.?!]{0,30}\b(apps?|applications?|containers?)\b/i, /\bwhat('s| is) installed\b/i],
     params: {},
   },
   {
     id: "services.status", title: "Service status", category: "boxpilot", role: "viewer", cost: "moderate",
-    description: "Failed systemd services, the state of BoxPilot's key services, or the state of one named unit.",
+    description: "Failed systemd services on the host, the state of BoxPilot's key services, or the state of one named unit.",
+    use: "failed systemd services, or one unit's state",
+    askedFor: [/\b(systemd|services?|units?|daemons?)\b/i],
     params: { unit: { type: "string", pattern: /^[A-Za-z0-9:._@\\-]{1,200}\.(service|timer|socket|mount)$/, description: "One unit to look up, such as docker.service. Leave out for the summary." } },
   },
   {
     id: "logs.query", title: "Logs (bounded)", category: "boxpilot", role: "operator", cost: "moderate",
     description: "The last lines of a journal group, one systemd unit or one container, optionally since a time and containing some text. At most 200 lines; secrets are redacted.",
+    use: "log lines of a unit, a container or a group",
+    askedFor: [/\b(logs?|journal\w*)\b/i],
     params: {
       kind: { type: "string", enum: ["group", "unit", "container"], required: true, description: "group (boxpilot, docker, tailscale, ssh, kernel), a unit, or a container." },
       target: { type: "string", maxLength: 200, required: true, description: "The group's name, the unit or the container." },
@@ -66,28 +74,38 @@ export const toolCatalog = Object.freeze([
     },
   },
   {
-    id: "storage.health", title: "Storage and SMART", category: "boxpilot", role: "viewer", cost: "cheap",
-    description: "Disk use of each mounted filesystem, drives that went read-only or dropped, and each drive's SMART health.",
+    id: "storage.health", title: "Drives, filesystems and SMART", category: "boxpilot", role: "viewer", cost: "cheap",
+    description: "Every drive connected, each with its device (like /dev/nvme0n1 or /dev/sda), how it is attached (NVMe, SATA, USB), its size, its model and whether it is the system disk; every mounted filesystem with its mountpoint, the drive under it, its type, size, used and free space; and each drive's SMART health.",
+    use: "which drives are connected, how full a disk or / is, drive health",
+    askedFor: [/\b(drives?|disks?|ssds?|nvme|hdds?|hard drives?|storage|filesystems?|mount(ed|s|points?)?|partitions?|space|capacity|smart)\b/i, /\bhow full\b/i],
     params: {},
   },
   {
     id: "alerts.active", title: "Health alerts", category: "boxpilot", role: "viewer", cost: "cheap",
     description: "BoxPilot's live health alerts and the news no one was told about yet.",
+    use: "what is wrong right now, live alerts",
+    askedFor: [/\b(alerts?|warnings?|problems?|issues?|wrong|broken|attention)\b/i],
     params: {},
   },
   {
     id: "backups.status", title: "Backups", category: "boxpilot", role: "viewer", cost: "cheap",
     description: "The most recent app backups, their restore checks, the off-box and cloud copies, and restore rehearsals.",
+    use: "when apps were backed up and whether the backups restore",
+    askedFor: [/\b(backups?|backed up|restores?|snapshots?)\b/i],
     params: {},
   },
   {
     id: "where.runs", title: "Where does it run?", category: "boxpilot", role: "viewer", cost: "moderate",
-    description: "Whether something - Pi-hole, a database, any app - runs as a BoxPilot app, as another Docker container, or natively on the host as a systemd service.",
+    description: "Where something runs - Pi-hole, a database, any app or service: as a BoxPilot app, as another Docker container, or natively on the host as a systemd service - and whether it is running. Give it the name to look for.",
+    use: "where does X run; is X a container, a BoxPilot app or on the host; is X installed",
+    askedFor: [/\bwhere\b[^.?!]{0,50}\b(run|runs|running|installed|hosted|lives?|live|deployed)\b/i, /\b(container|docker|app)\b[^.?!]{0,30}\bor\b[^.?!]{0,30}\b(host|native\w*|systemd)\b/i, /\b(host|native\w*|systemd)\b[^.?!]{0,30}\bor\b[^.?!]{0,30}\b(container|docker)\b/i, /\bnatively\b/i],
     params: { name: { type: "string", maxLength: 64, pattern: /^[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}$/, required: true, description: "What to look for, such as pihole or postgres." } },
   },
   {
     id: "jobs.recent", title: "BoxPilot jobs", category: "records", role: "viewer", cost: "cheap",
     description: "Recent BoxPilot jobs the run may see: what ran, whether it failed and its error.",
+    use: "BoxPilot jobs that ran or failed",
+    askedFor: [/\bjobs?\b/i],
     params: {
       state: { type: "string", enum: ["failed", "all"], description: "failed (default) or all." },
       limit: { type: "integer", min: 1, max: 10, description: "How many, 1 to 10. Default 5." },
@@ -105,11 +123,15 @@ export const toolCatalog = Object.freeze([
   {
     id: "pihole.stats", title: "Pi-hole (aggregates)", category: "app", role: "operator", cost: "moderate",
     description: "Pi-hole's blocking status, queries and blocked queries in the last 24 hours, the blocklist's age and size, each upstream's share and answer time, and the most blocked domains. Counts for the whole network only: never which device asked for what.",
+    use: "whether Pi-hole blocks, its queries, lists and upstreams",
+    askedFor: [/\bpi-?hole\b[^.?!]{0,50}\b(block\w*|quer\w*|lists?|gravity|upstreams?|ads?)\b/i, /\b(block\w*|quer\w*|gravity|upstreams?)\b[^.?!]{0,40}\bpi-?hole\b/i],
     params: {},
   },
   {
     id: "docs.search", title: "Search docs and knowledge", category: "document", role: "viewer", cost: "cheap",
     description: "Search BoxPilot's documents, its registered operations, the app catalog and the owner's own documents (uploaded, from a folder or from a connector).",
+    use: "how to do something in BoxPilot, the owner's documents, operation ids",
+    askedFor: [/\bhow (do|can|should) i\b/i, /\bhow to\b/i],
     params: {
       query: { type: "string", maxLength: 300, required: true, description: "What to look for." },
       limit: { type: "integer", min: 1, max: 6, description: "How many results, 1 to 6. Default 4." },
@@ -231,6 +253,23 @@ export const toolCatalog = Object.freeze([
 export const toolIds = toolCatalog.map((tool) => tool.id);
 
 /**
+ * The read tools a request's own words point at (M40), whatever the plan said: "where does Pi-hole
+ * run" is where.runs, "which drives" is storage.health. The owner's model twice planned apps.list
+ * for "where does Pi-hole run"; the planner is shown these as a hint, and the calls that act carry
+ * them beside the plan's. Deterministic and cheap: patterns on the words, only offered tools, at
+ * most `limit`.
+ */
+export function toolsForQuestion(question, offered = null, { limit = 3 } = {}) {
+  const text = String(question ?? "");
+  if (!text.trim()) return [];
+  const allowed = offered ? new Set([...offered].map((entry) => toolIdOf(typeof entry === "string" ? entry : entry?.id ?? entry?.fn)).filter(Boolean)) : null;
+  return toolCatalog.filter((tool) => tool.askedFor?.some((pattern) => pattern.test(text)) && (!allowed || allowed.has(tool.id))).slice(0, limit).map((tool) => tool.id);
+}
+
+/** A tool as the planner lists it: its function name, its title and, when it has one, what it is for. */
+export const plannerLine = (tool) => `- ${tool.fn}: ${tool.title}${tool.use ? `. For: ${tool.use}` : ""}`;
+
+/**
  * The registry id for a tool name as a model writes it: the id (alerts.active), the function name
  * it was offered (alerts_active), or the same with hyphens, spaces or capitals, with or without a
  * "functions." prefix. Null for a name that is no tool.
@@ -256,15 +295,16 @@ const defaultActCount = 6;
  * offered, then the ones its plan named. Without a plan (none was asked for, or it did not parse),
  * the cheap reads come first. At most `limit`, the always-on ones and the plan's first steps kept.
  */
-export function actToolIds(offered, { planned = null, kind = null, limit = actToolLimit } = {}) {
+export function actToolIds(offered, { planned = null, hinted = [], kind = null, limit = actToolLimit } = {}) {
   const offeredIds = new Set((offered ?? []).map((entry) => toolIdOf(typeof entry === "string" ? entry : entry?.id ?? entry?.fn)).filter(Boolean));
   const always = toolCatalog.filter((tool) => offeredIds.has(tool.id) && (tool.always || (kind && tool.alwaysFor?.includes(kind)))).map((tool) => tool.id);
   const fromPlan = Array.isArray(planned);
-  const wanted = fromPlan ? planned.map(toolIdOf) : [...defaultActOrder, ...toolIds];
+  // The tools the request's words point at come first (M40), then the plan's, or the cheap reads.
+  const wanted = [...hinted.map(toolIdOf), ...(fromPlan ? planned.map(toolIdOf) : [...defaultActOrder, ...toolIds])];
   const room = Math.max(0, limit - always.length);
   const chosen = [];
   for (const id of wanted) {
-    if (chosen.length >= (fromPlan ? room : Math.min(room, defaultActCount))) break;
+    if (chosen.length >= (fromPlan ? room : Math.min(room, defaultActCount + hinted.length))) break;
     if (!id || !offeredIds.has(id) || always.includes(id) || chosen.includes(id)) continue;
     chosen.push(id);
   }
