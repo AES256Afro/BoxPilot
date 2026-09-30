@@ -33,10 +33,12 @@
           if (looks.indexOf(stored) >= 0) look = stored;
           var view = new URLSearchParams(location.search).get('view');
           if (localStorage.getItem('boxpilot-look-scope') === 'not-home' && (!view || view === 'home')) look = 'launcher';
+          // Only the choices Settings offers (ACCENTS and WALLPAPERS in src/looks/looks.ts); the
+          // default, sea, sets no attribute.
           var accent = localStorage.getItem('boxpilot-accent');
-          if (accent) root.setAttribute('data-accent', accent);
+          if (['amber', 'blue', 'violet', 'rose', 'graphite'].indexOf(accent) >= 0) root.setAttribute('data-accent', accent);
           var wallpaper = localStorage.getItem('boxpilot-wallpaper');
-          if (wallpaper) root.setAttribute('data-wallpaper', wallpaper);
+          if (['dusk', 'meadow', 'plain'].indexOf(wallpaper) >= 0) root.setAttribute('data-wallpaper', wallpaper);
           if (localStorage.getItem('boxpilot-solid') === '1') root.setAttribute('data-solid', '');
         } catch (error) { /* no storage: the default look */ }
         root.setAttribute('data-look', look);
