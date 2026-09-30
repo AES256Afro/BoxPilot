@@ -79,11 +79,14 @@ interface Drive {
 /** Where a drive stands in the list: data first, as the owner thinks of them. */
 const rank = (drive: Drive) => (drive.system ? 1 : drive.mount ? 0 : 2);
 
-function Pane({ icon, title, count, className, children }: { icon: ReactNode; title: ReactNode; count?: ReactNode; className?: string; children: ReactNode }) {
+function Pane({ icon, title, count, all, className, children }: { icon: ReactNode; title: ReactNode; count?: ReactNode; /** A way to the rest, when the panel shows only the first few. */ all?: { label: string; onClick: () => void }; className?: string; children: ReactNode }) {
   const titleId = useId();
   return (
     <section className={className ? `launcher-pane ${className}` : "launcher-pane"} aria-labelledby={titleId}>
-      <h2 className="launcher-pane__title"><span className="launcher-pane__icon" aria-hidden="true">{icon}</span><span id={titleId}>{title}</span>{count !== undefined && count !== null && <span className="launcher-pane__count">{count}</span>}</h2>
+      <div className="launcher-pane__head">
+        <h2 className="launcher-pane__title"><span className="launcher-pane__icon" aria-hidden="true">{icon}</span><span id={titleId}>{title}</span>{!all && count !== undefined && count !== null && <span className="launcher-pane__count">{count}</span>}</h2>
+        {all && <button type="button" className="launcher-pane__all" onClick={all.onClick}>{all.label}</button>}
+      </div>
       {children}
     </section>
   );
@@ -144,9 +147,17 @@ export default function StorageLead({ csrfToken, role, report, loading, forecast
   const dropped = (report?.shares ?? []).filter((share) => !share.mounted && !share.automount);
   const needCount = full.length + dropped.length + (claim ? 1 : 0);
 
-  // Shared folders: this server's own, then what it mounts from a NAS.
+  // Shared folders: this server's own, then what it mounts from a NAS; the first two, as drawn.
   const shares = report?.shares ?? [];
   const sharedCount = sambaShares.length + shares.length;
+  const sharedRows = [
+    ...sambaShares.map((share) => ({ key: `smb:${share.name}`, tab: "sharing" as const, name: share.name, line: `Shared from ${share.path} (SMB)`, status: "good" as Status, state: "Shared", said: "shared. Open File sharing" })),
+    ...shares.map((share) => ({ key: `nas:${share.name}`, tab: "shares" as const, name: share.name,
+      line: share.mounted ? `Connected${share.automount ? " · reconnects by itself" : ` at ${share.mountpoint}`}` : `Not connected · ${share.source}`,
+      status: (share.mounted ? "good" : "warning") as Status, state: share.mounted ? "Connected" : "Not connected", said: `${share.mounted ? "connected" : "not connected"}. Open Shares` })),
+  ];
+  const shownShared = sharedRows.slice(0, 2);
+  const hiddenShared = sharedRows.slice(2);
 
   // Snapshots: LVM's with their names, then btrfs' and ZFS', newest first.
   const lvmSnapshots = [...(report?.snapshots ?? [])].sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
@@ -242,7 +253,8 @@ export default function StorageLead({ csrfToken, role, report, loading, forecast
           )}
         </Pane>
 
-        <Pane icon={<AreaIcon view="network" />} title="Shared folders" count={report && sharedCount ? sharedCount : undefined}>
+        <Pane icon={<AreaIcon view="network" />} title="Shared folders" count={report && sharedCount ? sharedCount : undefined}
+          all={report && hiddenShared.length ? { label: `All ${sharedCount}`, onClick: () => open(hiddenShared.some((row) => row.tab === "shares") ? "shares" : "sharing") } : undefined}>
           {reading && <p className="launcher-quiet">{reading}</p>}
           {report && sharedCount === 0 && (
             <div className="launcher-li">
@@ -250,22 +262,16 @@ export default function StorageLead({ csrfToken, role, report, loading, forecast
               <Button variant="ghost" onClick={() => open("sharing")}>Share a folder…</Button>
             </div>
           )}
-          {report && sambaShares.slice(0, 3).map((share) => (
-            <div key={`smb:${share.name}`} className="launcher-li">
-              <span className="launcher-li__words"><b>{share.name}</b><small>Shared from {share.path} (SMB)</small></span>
-              <button type="button" className="launcher-state" data-status="good" onClick={() => open("sharing")} aria-label={`${share.name}: shared. Open File sharing`}><span className="ui-mark" aria-hidden="true" />Shared</button>
+          {report && shownShared.map((row) => (
+            <div key={row.key} className="launcher-li">
+              <span className="launcher-li__words"><b>{row.name}</b><small>{row.line}</small></span>
+              <button type="button" className="launcher-state" data-status={row.status} onClick={() => open(row.tab)} aria-label={`${row.name}: ${row.said}`}><span className="ui-mark" aria-hidden="true" />{row.state}</button>
             </div>
           ))}
-          {report && shares.slice(0, 3).map((share) => (
-            <div key={`nas:${share.name}`} className="launcher-li">
-              <span className="launcher-li__words"><b>{share.name}</b><small>{share.mounted ? `Connected${share.automount ? " · reconnects by itself" : ` at ${share.mountpoint}`}` : `Not connected · ${share.source}`}</small></span>
-              <button type="button" className="launcher-state" data-status={share.mounted ? "good" : "warning"} onClick={() => open("shares")} aria-label={`${share.name}: ${share.mounted ? "connected" : "not connected"}. Open Shares`}><span className="ui-mark" aria-hidden="true" />{share.mounted ? "Connected" : "Not connected"}</button>
-            </div>
-          ))}
-          {report && sambaShares.length + shares.length > 6 && <Button variant="ghost" className="launcher-more" onClick={() => open("sharing")}>And {sambaShares.length + shares.length - 6} more</Button>}
         </Pane>
 
-        <Pane icon={<AreaIcon view="backups" />} title="Snapshots" count={report ? snapshotRows.length : undefined}>
+        <Pane icon={<AreaIcon view="backups" />} title="Snapshots" count={report ? snapshotRows.length : undefined}
+          all={report && snapshotRows.length > shownSnapshots.length ? { label: `All ${snapshotRows.length}`, onClick: () => open("snapshots") } : undefined}>
           {reading && <p className="launcher-quiet">{reading}</p>}
           {report && snapshotRows.length === 0 && (
             <div className="launcher-li">
@@ -279,7 +285,6 @@ export default function StorageLead({ csrfToken, role, report, loading, forecast
               <Button variant="ghost" aria-label={`${snapshot.name}: open Snapshots`} onClick={() => open("snapshots")}>Details</Button>
             </div>
           ))}
-          {report && snapshotRows.length > shownSnapshots.length && <Button variant="ghost" className="launcher-more" onClick={() => open("snapshots")}>And {snapshotRows.length - shownSnapshots.length} more</Button>}
         </Pane>
       </div>
     </div>

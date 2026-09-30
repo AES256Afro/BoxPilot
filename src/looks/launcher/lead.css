@@ -4,6 +4,10 @@
 
 .launcher-lead { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); align-items: start; gap: 19px; min-width: 0; color: var(--lx-ink); font-family: var(--font-sans); }
 .launcher-stack { display: grid; align-content: start; gap: 17px; min-width: 0; }
+/* On the first screen the glance is all there is, as drawn: the tabs start below it, clear of the dock. */
+@media (min-width: 761px) {
+  .launcher-lead { min-height: calc(100dvh - 180px); }
+}
 
 /* A glass panel: a heading in small capitals with its icon, a count at the right. */
 .launcher-pane {
@@ -19,14 +23,17 @@
   -webkit-backdrop-filter: blur(var(--look-blur)) saturate(140%);
   backdrop-filter: blur(var(--look-blur)) saturate(140%);
 }
-.launcher-pane__title { display: flex; align-items: center; gap: 7px; min-height: 18px; margin: 0; color: var(--lx-ink-muted); font-size: 12.5px; font-weight: 700; letter-spacing: 0.1em; line-height: 1.3; text-transform: uppercase; }
+.launcher-pane__head { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.launcher-pane__title { flex: 1 1 auto; display: flex; align-items: center; gap: 7px; min-height: 18px; margin: 0; color: var(--lx-ink-muted); font-size: 12.5px; font-weight: 700; letter-spacing: 0.1em; line-height: 1.3; text-transform: uppercase; }
 .launcher-pane__icon { display: inline-grid; flex: none; }
 .launcher-pane__icon svg { width: 17px; height: 17px; }
 .launcher-pane__count { margin-left: auto; color: var(--lx-ink); font-weight: 700; letter-spacing: 0; text-transform: none; }
 .launcher-pane__count .ui-chip { padding: 1px 5px; border-radius: 4px; font-size: 10px; letter-spacing: 0; }
 .launcher-pane__count .ui-chip .ui-mark { width: 6px; height: 6px; }
 .launcher-quiet { margin: 0; color: var(--lx-ink-muted); font-size: 14.5px; line-height: 1.45; }
-.launcher-more.ui-button { justify-self: start; }
+/* The rest of a list the panel shows the first two of: a small glass pill in the heading's place. */
+.launcher-pane__all { flex: none; padding: 2px 9px; border: 1px solid var(--lx-glass-border); border-radius: 999px; color: var(--lx-ink); background: var(--lx-glass-raised); font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
+.launcher-pane__all:hover { text-decoration: underline; }
 
 /* An icon on a glass well, as Home's needs have. */
 .launcher-well { display: grid; flex: none; width: 51px; height: 51px; place-items: center; border: 1px solid var(--lx-glass-border); border-radius: 15px; color: var(--lx-ink); background: var(--lx-glass-raised); }
@@ -57,7 +64,6 @@
 .launcher-drive[data-status="danger"] .launcher-meter > i { background: var(--lx-danger); }
 .launcher-drive[data-status="danger"] .launcher-drive__value b { color: var(--lx-danger-text); }
 .launcher-drive__row { display: flex; grid-column: 2 / -1; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 14px; min-width: 0; min-height: 25px; font-size: 14.8px; line-height: 1.35; }
-.launcher-drive__row .ui-button { min-height: 25px; padding: 0 10px; font-size: 12px; }
 
 /* Reconnecting a drive: the Drives tab's own switch, its name first and the switch at the right. */
 .launcher-drive__row .storage-reconnect { flex: 1 1 100%; min-width: 0; padding: 0; }
@@ -66,9 +72,6 @@
 .launcher-drive__row .ui-switch__label { color: var(--lx-ink); font-size: 14.8px; font-weight: 400; }
 .launcher-drive__row .ui-switch__state { display: none; }
 .launcher-drive__row .ui-switch__description { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-.launcher-drive__row .ui-switch__track { width: 36px; height: 20px; }
-.launcher-drive__row .ui-switch__thumb { top: 2.5px; left: 2.5px; width: 15px; height: 15px; }
-.launcher-drive__row .ui-switch__control[aria-checked="true"] .ui-switch__thumb { transform: translateX(16px); }
 
 /* What needs you: an icon, the words with the fix's tier, the fix as a pill. */
 .launcher-needs { display: grid; gap: 14px; margin: 0; padding: 0; list-style: none; }
@@ -81,7 +84,7 @@
 
 /* A shared folder or a snapshot: its name, a line under it, its state or a pill at the right. */
 .launcher-li { display: flex; align-items: center; justify-content: space-between; gap: 6px 16px; min-width: 0; padding-top: 11px; border-top: 1px solid var(--lx-hairline); }
-.launcher-pane__title + .launcher-li,
+.launcher-pane__head + .launcher-li,
 .launcher-quiet + .launcher-li { padding-top: 0; border-top: 0; }
 .launcher-li__words { display: grid; gap: 3px; min-width: 0; }
 .launcher-li__words b { overflow: hidden; font-size: 15.6px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
