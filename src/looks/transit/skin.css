@@ -6,351 +6,357 @@
  * :root[data-look="transit"].
  */
 
-:root[data-look="transit"] {
-  color-scheme: light;
-  --transit-chrome: 46px;
-  --tm-navy: #13233f;
-  --tm-green: #00843d;
-  --tm-blue: #1f4fd1;
-  --tm-orange: #f08a00;
-  --tm-red: #d52b1e;
-  --tm-yellow: #ffcf33;
-  --tm-grey: #9b9b9b;
+/* Every rule of the skin sits in @media (min-width: 0), which a browser matches at every width.
+   jsdom, which the tests draw pages in, evaluates only a bare `all` or `screen` and so skips the
+   block, rather than matching several hundred selectors per element that apply only once this
+   look is chosen (a test that renders the whole shell slowed past its timeouts without it). */
+@media (min-width: 0) {
+  :root[data-look="transit"] {
+    color-scheme: light;
+    --transit-chrome: 46px;
+    --tm-navy: #13233f;
+    --tm-green: #00843d;
+    --tm-blue: #1f4fd1;
+    --tm-orange: #f08a00;
+    --tm-red: #d52b1e;
+    --tm-yellow: #ffcf33;
+    --tm-grey: #9b9b9b;
 
-  --font-condensed: "Overpass", "Helvetica Neue", Arial, sans-serif;
-  --font-sans: "Overpass", "Helvetica Neue", Arial, sans-serif;
-  --font-mono: "Overpass", "Helvetica Neue", Arial, sans-serif;
-  --font-display: "Overpass", "Helvetica Neue", Arial, sans-serif;
+    --font-condensed: "Overpass", "Helvetica Neue", Arial, sans-serif;
+    --font-sans: "Overpass", "Helvetica Neue", Arial, sans-serif;
+    --font-mono: "Overpass", "Helvetica Neue", Arial, sans-serif;
+    --font-display: "Overpass", "Helvetica Neue", Arial, sans-serif;
 
-  --cc-canvas: #f7f7f3;
-  --cc-topbar: #f7f7f3;
-  --cc-rail: #13233f;
-  --cc-panel: #ffffff;
-  --cc-raised: #efefe9;
-  --cc-inset: #ffffff;
-  --cc-line: #dcdcd5;
-  --cc-hairline: #e9e9e3;
-  --cc-line-strong: #a9a9a2;
-  --cc-text: #1d1d1f;
-  --cc-text-strong: #1d1d1f;
-  --cc-muted: #4a4a4f;
-  --cc-icon: #4a4a4f;
-  /* The console's accent is the navy of the signs. */
-  --cc-amber: #13233f;
-  --cc-amber-ink: #ffffff;
-  --cc-amber-bg: rgba(19, 35, 63, 0.07);
-  --cc-amber-border: rgba(19, 35, 63, 0.5);
-  --cc-cyan: #1f4fd1;
-  --cc-cyan-fill: rgba(31, 79, 209, 0.1);
-  --cc-green: #00843d;
-  --cc-green-bg: rgba(0, 132, 61, 0.09);
-  --cc-green-border: rgba(0, 132, 61, 0.45);
-  --cc-red: #d52b1e;
-  --cc-red-text: #b3261e;
-  --cc-red-bg: rgba(213, 43, 30, 0.08);
-  --cc-red-border: rgba(213, 43, 30, 0.45);
-  --cc-track: #e4e4de;
+    --cc-canvas: #f7f7f3;
+    --cc-topbar: #f7f7f3;
+    --cc-rail: #13233f;
+    --cc-panel: #ffffff;
+    --cc-raised: #efefe9;
+    --cc-inset: #ffffff;
+    --cc-line: #dcdcd5;
+    --cc-hairline: #e9e9e3;
+    --cc-line-strong: #a9a9a2;
+    --cc-text: #1d1d1f;
+    --cc-text-strong: #1d1d1f;
+    --cc-muted: #4a4a4f;
+    --cc-icon: #4a4a4f;
+    /* The console's accent is the navy of the signs. */
+    --cc-amber: #13233f;
+    --cc-amber-ink: #ffffff;
+    --cc-amber-bg: rgba(19, 35, 63, 0.07);
+    --cc-amber-border: rgba(19, 35, 63, 0.5);
+    --cc-cyan: #1f4fd1;
+    --cc-cyan-fill: rgba(31, 79, 209, 0.1);
+    --cc-green: #00843d;
+    --cc-green-bg: rgba(0, 132, 61, 0.09);
+    --cc-green-border: rgba(0, 132, 61, 0.45);
+    --cc-red: #d52b1e;
+    --cc-red-text: #b3261e;
+    --cc-red-bg: rgba(213, 43, 30, 0.08);
+    --cc-red-border: rgba(213, 43, 30, 0.45);
+    --cc-track: #e4e4de;
 
-  --radius-sm: 3px;
-  --radius-md: 4px;
-  --radius-lg: 6px;
-  --radius-card: 6px;
-  --radius-control: 4px;
-  --elevation-1: none;
-  --elevation-2: 0 2px 8px rgba(19, 35, 63, 0.12);
-  --elevation-3: 0 18px 50px rgba(19, 35, 63, 0.28);
-  --shadow-lg: 0 18px 50px rgba(19, 35, 63, 0.22);
-  --shadow-xl: 0 24px 70px rgba(19, 35, 63, 0.28);
-  --modal-bg: rgba(19, 35, 63, 0.45);
-  --backdrop-bg: rgba(19, 35, 63, 0.3);
-  --text-on-emphasis: #ffffff;
-  --lx-avatar: #ffcf33;
-  --lx-avatar-ink: #1d1600;
-  --lx-focus: #13233f;
-}
+    --radius-sm: 3px;
+    --radius-md: 4px;
+    --radius-lg: 6px;
+    --radius-card: 6px;
+    --radius-control: 4px;
+    --elevation-1: none;
+    --elevation-2: 0 2px 8px rgba(19, 35, 63, 0.12);
+    --elevation-3: 0 18px 50px rgba(19, 35, 63, 0.28);
+    --shadow-lg: 0 18px 50px rgba(19, 35, 63, 0.22);
+    --shadow-xl: 0 24px 70px rgba(19, 35, 63, 0.28);
+    --modal-bg: rgba(19, 35, 63, 0.45);
+    --backdrop-bg: rgba(19, 35, 63, 0.3);
+    --text-on-emphasis: #ffffff;
+    --lx-avatar: #ffcf33;
+    --lx-avatar-ink: #1d1600;
+    --lx-focus: #13233f;
+  }
 
-/* Service colours for states and tiers. Set again on Home's shell and on what opens over a
-   page (.look-console), which point these names elsewhere. */
-:root[data-look="transit"],
-:root[data-look="transit"] .app-shell[data-view="home"],
-:root[data-look="transit"] .look-console {
-  --status-good: #00843d;
-  --status-good-text: #006b31;
-  --status-good-bg: rgba(0, 132, 61, 0.09);
-  --status-good-border: rgba(0, 132, 61, 0.45);
-  --status-warning: #f08a00;
-  --status-warning-text: #8a4b00;
-  --status-warning-bg: rgba(255, 207, 51, 0.28);
-  --status-warning-border: #e0b000;
-  --status-danger: #d52b1e;
-  --status-danger-text: #b3261e;
-  --status-danger-bg: rgba(213, 43, 30, 0.08);
-  --status-danger-border: rgba(213, 43, 30, 0.45);
-  --status-neutral: #6b7280;
-  --status-neutral-text: #13233f;
-  --status-neutral-bg: #e4e7ee;
-  --status-neutral-border: #c3c8d3;
-  --risk-low: #00843d;
-  --risk-low-text: #006b31;
-  --risk-low-bg: rgba(0, 132, 61, 0.09);
-  --risk-low-border: rgba(0, 132, 61, 0.45);
-  --risk-medium: #f08a00;
-  --risk-medium-text: #8a4b00;
-  --risk-medium-bg: rgba(255, 207, 51, 0.28);
-  --risk-medium-border: #e0b000;
-  --risk-high: #d52b1e;
-  --risk-high-text: #b3261e;
-  --risk-high-bg: rgba(213, 43, 30, 0.08);
-  --risk-high-border: rgba(213, 43, 30, 0.45);
-}
+  /* Service colours for states and tiers. Set again on Home's shell and on what opens over a
+     page (.look-console), which point these names elsewhere. */
+  :root[data-look="transit"],
+  :root[data-look="transit"] .app-shell[data-view="home"],
+  :root[data-look="transit"] .look-console {
+    --status-good: #00843d;
+    --status-good-text: #006b31;
+    --status-good-bg: rgba(0, 132, 61, 0.09);
+    --status-good-border: rgba(0, 132, 61, 0.45);
+    --status-warning: #f08a00;
+    --status-warning-text: #8a4b00;
+    --status-warning-bg: rgba(255, 207, 51, 0.28);
+    --status-warning-border: #e0b000;
+    --status-danger: #d52b1e;
+    --status-danger-text: #b3261e;
+    --status-danger-bg: rgba(213, 43, 30, 0.08);
+    --status-danger-border: rgba(213, 43, 30, 0.45);
+    --status-neutral: #6b7280;
+    --status-neutral-text: #13233f;
+    --status-neutral-bg: #e4e7ee;
+    --status-neutral-border: #c3c8d3;
+    --risk-low: #00843d;
+    --risk-low-text: #006b31;
+    --risk-low-bg: rgba(0, 132, 61, 0.09);
+    --risk-low-border: rgba(0, 132, 61, 0.45);
+    --risk-medium: #f08a00;
+    --risk-medium-text: #8a4b00;
+    --risk-medium-bg: rgba(255, 207, 51, 0.28);
+    --risk-medium-border: #e0b000;
+    --risk-high: #d52b1e;
+    --risk-high-text: #b3261e;
+    --risk-high-bg: rgba(213, 43, 30, 0.08);
+    --risk-high-border: rgba(213, 43, 30, 0.45);
+  }
 
-/* Home in this look is drawn inside the console shell, but the Launcher's rules still point the
-   page's tokens at its glass on .app-shell[data-view="home"]; they are pointed back here. */
-:root[data-look="transit"] .app-shell[data-view="home"] {
-  --text: inherit;
-  --text-strong: inherit;
-  --text-muted: inherit;
-  --text-secondary: inherit;
-  --accent: inherit;
-  --accent-faint: inherit;
-  --link: inherit;
-  --border: inherit;
-  --border-subtle: inherit;
-  --border-strong: inherit;
-  --meter-track: inherit;
-  color: inherit;
-}
+  /* Home in this look is drawn inside the console shell, but the Launcher's rules still point the
+     page's tokens at its glass on .app-shell[data-view="home"]; they are pointed back here. */
+  :root[data-look="transit"] .app-shell[data-view="home"] {
+    --text: inherit;
+    --text-strong: inherit;
+    --text-muted: inherit;
+    --text-secondary: inherit;
+    --accent: inherit;
+    --accent-faint: inherit;
+    --link: inherit;
+    --border: inherit;
+    --border-subtle: inherit;
+    --border-strong: inherit;
+    --meter-track: inherit;
+    color: inherit;
+  }
 
-/* ── Every page ── */
-:root[data-look="transit"] body { background: #f7f7f3; }
-:root[data-look="transit"] .app-shell { color: #1d1d1f; background: #f7f7f3; }
-:root[data-look="transit"] ::selection { color: #1d1600; background: #ffcf33; }
-:root[data-look="transit"] :is(button, a, input, select, textarea, summary, [tabindex]):focus-visible { outline: 2px solid #1f4fd1; outline-offset: 2px; }
-:root[data-look="transit"] :is(code, kbd, samp, pre, .ui-code__text, .ui-input--mono, .ops-mono, .ops-link--mono) { font-family: "JetBrains Mono", ui-monospace, monospace; }
-:root[data-look="transit"] :is(.ui-table td, .ui-metric__value, .ui-kv__value, .ui-facts) { font-variant-numeric: tabular-nums; }
+  /* ── Every page ── */
+  :root[data-look="transit"] body { background: #f7f7f3; }
+  :root[data-look="transit"] .app-shell { color: #1d1d1f; background: #f7f7f3; }
+  :root[data-look="transit"] ::selection { color: #1d1600; background: #ffcf33; }
+  :root[data-look="transit"] :is(button, a, input, select, textarea, summary, [tabindex]):focus-visible { outline: 2px solid #1f4fd1; outline-offset: 2px; }
+  :root[data-look="transit"] :is(code, kbd, samp, pre, .ui-code__text, .ui-input--mono, .ops-mono, .ops-link--mono) { font-family: "JetBrains Mono", ui-monospace, monospace; }
+  :root[data-look="transit"] :is(.ui-table td, .ui-metric__value, .ui-kv__value, .ui-facts) { font-variant-numeric: tabular-nums; }
 
-/* ── The bar: paper, the station name in heavy Overpass ── */
-:root[data-look="transit"] .topbar { position: sticky; top: 0; min-height: 46px; gap: 16px; padding: 0 18px; border-bottom: 1px solid #dcdcd5; background: #f7f7f3; backdrop-filter: none; }
-:root[data-look="transit"] .cc-crumb { align-items: baseline; gap: 6px; }
-:root[data-look="transit"] .cc-crumb__host,
-:root[data-look="transit"] .transit-bar b { color: #1d1d1f; font-size: 17px; font-weight: 800; }
-:root[data-look="transit"] .cc-crumb__sep,
-:root[data-look="transit"] .transit-bar > span { color: #9b9b9b; font-size: 17px; }
-:root[data-look="transit"] .cc-crumb h1,
-:root[data-look="transit"] .transit-bar { color: #4a4a4f; font-size: 17px; font-weight: 600; text-transform: none; }
-:root[data-look="transit"] .cc-kv { color: #4a4a4f; font-family: "Overpass", sans-serif; font-size: 13px; }
-:root[data-look="transit"] .cc-kv b { color: #1d1d1f; font-weight: 700; }
-:root[data-look="transit"] .view-switch { border: 0; border-radius: 999px; background: #e9e9e3; }
-:root[data-look="transit"] .view-switch__option { border-radius: 999px; color: #13233f; font-size: 13.5px; font-weight: 700; }
-:root[data-look="transit"] .view-switch__option[aria-current="page"] { border-color: transparent; color: #ffffff; background: #13233f; box-shadow: none; }
-:root[data-look="transit"] .command-trigger { border: 1.5px solid #c9c9c2; border-radius: 999px; color: #4a4a4f; background: #ffffff; font-size: 14px; }
-:root[data-look="transit"] .command-trigger__keys { border-color: #c9c9c2; border-radius: 4px; color: #4a4a4f; background: #f7f7f3; font: 700 11px/1.4 "Overpass", sans-serif; }
-:root[data-look="transit"] .ui-theme-switch { display: none; }
-:root[data-look="transit"] .connection-pill { border: 1.5px solid #c9c9c2; border-radius: 999px; color: #13233f; background: #ffffff; font: 700 11px "Overpass", sans-serif; }
-:root[data-look="transit"] .connection-pill::before { background: #00843d; }
-:root[data-look="transit"] .bar-button { color: #13233f; font-family: "Overpass", sans-serif; font-size: 13.5px; font-weight: 700; }
-:root[data-look="transit"] .bar-button:hover { color: #1f4fd1; }
-:root[data-look="transit"] .bar-button[data-live] { color: #13233f; }
-:root[data-look="transit"] .bar-badge { color: #1d1600; background: #ffcf33; font-family: "Overpass", sans-serif; font-weight: 800; }
-:root[data-look="transit"] .bar-label { border-color: #c9c9c2; color: #4a4a4f; font-family: "Overpass", sans-serif; }
-:root[data-look="transit"] .signed-in-user { color: #13233f; font-family: "Overpass", sans-serif; }
+  /* ── The bar: paper, the station name in heavy Overpass ── */
+  :root[data-look="transit"] .topbar { position: sticky; top: 0; min-height: 46px; gap: 16px; padding: 0 18px; border-bottom: 1px solid #dcdcd5; background: #f7f7f3; backdrop-filter: none; }
+  :root[data-look="transit"] .cc-crumb { align-items: baseline; gap: 6px; }
+  :root[data-look="transit"] .cc-crumb__host,
+  :root[data-look="transit"] .transit-bar b { color: #1d1d1f; font-size: 17px; font-weight: 800; }
+  :root[data-look="transit"] .cc-crumb__sep,
+  :root[data-look="transit"] .transit-bar > span { color: #9b9b9b; font-size: 17px; }
+  :root[data-look="transit"] .cc-crumb h1,
+  :root[data-look="transit"] .transit-bar { color: #4a4a4f; font-size: 17px; font-weight: 600; text-transform: none; }
+  :root[data-look="transit"] .cc-kv { color: #4a4a4f; font-family: "Overpass", sans-serif; font-size: 13px; }
+  :root[data-look="transit"] .cc-kv b { color: #1d1d1f; font-weight: 700; }
+  :root[data-look="transit"] .view-switch { border: 0; border-radius: 999px; background: #e9e9e3; }
+  :root[data-look="transit"] .view-switch__option { border-radius: 999px; color: #13233f; font-size: 13.5px; font-weight: 700; }
+  :root[data-look="transit"] .view-switch__option[aria-current="page"] { border-color: transparent; color: #ffffff; background: #13233f; box-shadow: none; }
+  :root[data-look="transit"] .command-trigger { border: 1.5px solid #c9c9c2; border-radius: 999px; color: #4a4a4f; background: #ffffff; font-size: 14px; }
+  :root[data-look="transit"] .command-trigger__keys { border-color: #c9c9c2; border-radius: 4px; color: #4a4a4f; background: #f7f7f3; font: 700 11px/1.4 "Overpass", sans-serif; }
+  :root[data-look="transit"] .ui-theme-switch { display: none; }
+  :root[data-look="transit"] .connection-pill { border: 1.5px solid #c9c9c2; border-radius: 999px; color: #13233f; background: #ffffff; font: 700 11px "Overpass", sans-serif; }
+  :root[data-look="transit"] .connection-pill::before { background: #00843d; }
+  :root[data-look="transit"] .bar-button { color: #13233f; font-family: "Overpass", sans-serif; font-size: 13.5px; font-weight: 700; }
+  :root[data-look="transit"] .bar-button:hover { color: #1f4fd1; }
+  :root[data-look="transit"] .bar-button[data-live] { color: #13233f; }
+  :root[data-look="transit"] .bar-badge { color: #1d1600; background: #ffcf33; font-family: "Overpass", sans-serif; font-weight: 800; }
+  :root[data-look="transit"] .bar-label { border-color: #c9c9c2; color: #4a4a4f; font-family: "Overpass", sans-serif; }
+  :root[data-look="transit"] .signed-in-user { color: #13233f; font-family: "Overpass", sans-serif; }
 
-/* ── The rail: navy signage, each area a roundel in its own line's colour ── */
-@media (min-width: 761px) {
-  :root[data-look="transit"] .app-shell[data-shell="console"] { padding-left: 64px; }
-  :root[data-look="transit"] .shell-dock.shell-dock--rail { width: 64px; padding: 10px 0; border-right: 0; background: #13233f; }
-  :root[data-look="transit"] .ui-dock.shell-dock--rail ul { gap: 5px; border: 0; border-radius: 0; background: none; box-shadow: none; backdrop-filter: none; }
-  :root[data-look="transit"] .shell-dock--rail .ui-dock__item { width: 48px; }
-  :root[data-look="transit"] .shell-dock--rail .ui-dock__icon { width: 34px; height: 34px; border: 3.5px solid var(--line, #9b9b9b); border-radius: 50%; color: #ffffff; background: #13233f; }
-  :root[data-look="transit"] .shell-dock--rail .ui-dock__icon svg { width: 16px; height: 16px; }
-  :root[data-look="transit"] .shell-dock--rail .ui-dock__item:hover .ui-dock__icon { color: #13233f; background: #ffffff; }
-  :root[data-look="transit"] .shell-dock--rail .ui-dock__item[aria-current="page"] .ui-dock__icon { border-color: #ffffff; color: #ffffff; background: var(--line, #9b9b9b); box-shadow: 0 0 0 2px var(--line, #9b9b9b); }
-  :root[data-look="transit"] .shell-dock--rail .ui-dock__separator { width: 30px; height: 3px; margin: 4px 0; border-radius: 2px; background: rgba(255, 255, 255, 0.25); }
-  :root[data-look="transit"] .shell-dock--rail .ui-dock__label { border: 0; border-radius: 4px; color: #ffffff; background: #13233f; box-shadow: 0 0 0 2px var(--line, #9b9b9b), 0 6px 18px rgba(19, 35, 63, 0.3); font: 800 13.5px "Overpass", sans-serif; }
-  :root[data-look="transit"] .shell-dock--rail .ui-dock__badge { top: 1px; right: 1px; width: 11px; height: 11px; background: #ffcf33; box-shadow: 0 0 0 2px #13233f; }
-  :root[data-look="transit"] .shell-rail__logo { width: 40px; height: 40px; margin-bottom: 10px; border: 4px solid #d52b1e; border-radius: 50%; color: #13233f; background: #ffffff; font: 800 12.5px "Overpass", sans-serif; }
-}
-@media (min-width: 761px) and (max-height: 820px) {
-  :root[data-look="transit"] .shell-dock--rail .ui-dock__icon { width: 30px; height: 30px; border-width: 3px; }
-  :root[data-look="transit"] .ui-dock.shell-dock--rail ul { gap: 3px; }
-}
-:root[data-look="transit"] .shell-dock li[data-area="ops"] { --line: #d52b1e; }
-:root[data-look="transit"] .shell-dock li[data-area="today"] { --line: #ffcf33; }
-:root[data-look="transit"] .shell-dock li[data-area="updates"] { --line: #f08a00; }
-:root[data-look="transit"] .shell-dock li[data-area="storage"] { --line: #7d3c98; }
-:root[data-look="transit"] .shell-dock li[data-area="firewall"] { --line: #d52b1e; }
-:root[data-look="transit"] .shell-dock li[data-area="network"] { --line: #00843d; }
-:root[data-look="transit"] .shell-dock li[data-area="backups"] { --line: #f08a00; }
-:root[data-look="transit"] .shell-dock li[data-area="virtualization"] { --line: #0098d4; }
-:root[data-look="transit"] .shell-dock li[data-area="repairs"] { --line: #e0529c; }
-:root[data-look="transit"] .shell-dock li[data-area="logs"] { --line: #9b9b9b; }
-:root[data-look="transit"] .shell-dock li[data-area="catalog"] { --line: #1f4fd1; }
-:root[data-look="transit"] .shell-dock li[data-area="automations"] { --line: #b36b00; }
-:root[data-look="transit"] .shell-dock li[data-area="agents"] { --line: #00a3a3; }
-:root[data-look="transit"] .shell-dock li[data-area="services"] { --line: #7d3c98; }
-:root[data-look="transit"] .shell-dock li[data-area="system"] { --line: #6b7280; }
-:root[data-look="transit"] .shell-dock li[data-area="performance"] { --line: #1f4fd1; }
-:root[data-look="transit"] .shell-dock li[data-area="users"] { --line: #00843d; }
-:root[data-look="transit"] .shell-dock li[data-area="github"] { --line: #9b9b9b; }
-:root[data-look="transit"] .shell-dock li[data-area="settings"] { --line: #7c8594; }
-:root[data-look="transit"] .shell-dock li[data-area="more"] { --line: #7c8594; }
+  /* ── The rail: navy signage, each area a roundel in its own line's colour ── */
+  @media (min-width: 761px) {
+    :root[data-look="transit"] .app-shell[data-shell="console"] { padding-left: 64px; }
+    :root[data-look="transit"] .shell-dock.shell-dock--rail { width: 64px; padding: 10px 0; border-right: 0; background: #13233f; }
+    :root[data-look="transit"] .ui-dock.shell-dock--rail ul { gap: 5px; border: 0; border-radius: 0; background: none; box-shadow: none; backdrop-filter: none; }
+    :root[data-look="transit"] .shell-dock--rail .ui-dock__item { width: 48px; }
+    :root[data-look="transit"] .shell-dock--rail .ui-dock__icon { width: 34px; height: 34px; border: 3.5px solid var(--line, #9b9b9b); border-radius: 50%; color: #ffffff; background: #13233f; }
+    :root[data-look="transit"] .shell-dock--rail .ui-dock__icon svg { width: 16px; height: 16px; }
+    :root[data-look="transit"] .shell-dock--rail .ui-dock__item:hover .ui-dock__icon { color: #13233f; background: #ffffff; }
+    :root[data-look="transit"] .shell-dock--rail .ui-dock__item[aria-current="page"] .ui-dock__icon { border-color: #ffffff; color: #ffffff; background: var(--line, #9b9b9b); box-shadow: 0 0 0 2px var(--line, #9b9b9b); }
+    :root[data-look="transit"] .shell-dock--rail .ui-dock__separator { width: 30px; height: 3px; margin: 4px 0; border-radius: 2px; background: rgba(255, 255, 255, 0.25); }
+    :root[data-look="transit"] .shell-dock--rail .ui-dock__label { border: 0; border-radius: 4px; color: #ffffff; background: #13233f; box-shadow: 0 0 0 2px var(--line, #9b9b9b), 0 6px 18px rgba(19, 35, 63, 0.3); font: 800 13.5px "Overpass", sans-serif; }
+    :root[data-look="transit"] .shell-dock--rail .ui-dock__badge { top: 1px; right: 1px; width: 11px; height: 11px; background: #ffcf33; box-shadow: 0 0 0 2px #13233f; }
+    :root[data-look="transit"] .shell-rail__logo { width: 40px; height: 40px; margin-bottom: 10px; border: 4px solid #d52b1e; border-radius: 50%; color: #13233f; background: #ffffff; font: 800 12.5px "Overpass", sans-serif; }
+  }
+  @media (min-width: 761px) and (max-height: 820px) {
+    :root[data-look="transit"] .shell-dock--rail .ui-dock__icon { width: 30px; height: 30px; border-width: 3px; }
+    :root[data-look="transit"] .ui-dock.shell-dock--rail ul { gap: 3px; }
+  }
+  :root[data-look="transit"] .shell-dock li[data-area="ops"] { --line: #d52b1e; }
+  :root[data-look="transit"] .shell-dock li[data-area="today"] { --line: #ffcf33; }
+  :root[data-look="transit"] .shell-dock li[data-area="updates"] { --line: #f08a00; }
+  :root[data-look="transit"] .shell-dock li[data-area="storage"] { --line: #7d3c98; }
+  :root[data-look="transit"] .shell-dock li[data-area="firewall"] { --line: #d52b1e; }
+  :root[data-look="transit"] .shell-dock li[data-area="network"] { --line: #00843d; }
+  :root[data-look="transit"] .shell-dock li[data-area="backups"] { --line: #f08a00; }
+  :root[data-look="transit"] .shell-dock li[data-area="virtualization"] { --line: #0098d4; }
+  :root[data-look="transit"] .shell-dock li[data-area="repairs"] { --line: #e0529c; }
+  :root[data-look="transit"] .shell-dock li[data-area="logs"] { --line: #9b9b9b; }
+  :root[data-look="transit"] .shell-dock li[data-area="catalog"] { --line: #1f4fd1; }
+  :root[data-look="transit"] .shell-dock li[data-area="automations"] { --line: #b36b00; }
+  :root[data-look="transit"] .shell-dock li[data-area="agents"] { --line: #00a3a3; }
+  :root[data-look="transit"] .shell-dock li[data-area="services"] { --line: #7d3c98; }
+  :root[data-look="transit"] .shell-dock li[data-area="system"] { --line: #6b7280; }
+  :root[data-look="transit"] .shell-dock li[data-area="performance"] { --line: #1f4fd1; }
+  :root[data-look="transit"] .shell-dock li[data-area="users"] { --line: #00843d; }
+  :root[data-look="transit"] .shell-dock li[data-area="github"] { --line: #9b9b9b; }
+  :root[data-look="transit"] .shell-dock li[data-area="settings"] { --line: #7c8594; }
+  :root[data-look="transit"] .shell-dock li[data-area="more"] { --line: #7c8594; }
 
-/* ── The page ── */
-:root[data-look="transit"] .content { padding: 18px 22px calc(var(--shell-bottom-inset, 0px) + 32px); }
-:root[data-look="transit"] .app-shell[data-view="home"] .content { max-width: none; padding: 0; }
-/* On Home the line status board stands the window's full height at the right; the bar stops short of it. */
-@media (min-width: 1101px) {
-  :root[data-look="transit"] .app-shell[data-view="home"] .topbar { padding-right: calc(clamp(12px, 100vw / 74, 22px) * 21 + 18px); }
-  :root[data-look="transit"] .app-shell[data-view="home"] .topbar-slot { flex: none; }
-  :root[data-look="transit"] .app-shell[data-view="home"] .command-trigger { flex: 0 1 15rem; min-width: 36px; }
-}
-@media (min-width: 1101px) and (max-width: 1439px) {
-  :root[data-look="transit"] .app-shell[data-view="home"] :is(.signed-in-user, .command-trigger__keys) { display: none; }
-}
-:root[data-look="transit"] .content--console { gap: 14px; }
-:root[data-look="transit"] .ui-page-header__summary { color: #1d1d1f; font-size: 16px; }
-:root[data-look="transit"] .ui-facts { color: #4a4a4f; font-family: "Overpass", sans-serif; font-size: 13px; }
-:root[data-look="transit"] .ui-facts b { color: #1d1d1f; font-weight: 700; }
-:root[data-look="transit"] .ui-info-toggle { border: 1.5px solid #c9c9c2; border-radius: 50%; color: #13233f; }
+  /* ── The page ── */
+  :root[data-look="transit"] .content { padding: 18px 22px calc(var(--shell-bottom-inset, 0px) + 32px); }
+  :root[data-look="transit"] .app-shell[data-view="home"] .content { max-width: none; padding: 0; }
+  /* On Home the line status board stands the window's full height at the right; the bar stops short of it. */
+  @media (min-width: 1101px) {
+    :root[data-look="transit"] .app-shell[data-view="home"] .topbar { padding-right: calc(clamp(12px, 100vw / 74, 22px) * 21 + 18px); }
+    :root[data-look="transit"] .app-shell[data-view="home"] .topbar-slot { flex: none; }
+    :root[data-look="transit"] .app-shell[data-view="home"] .command-trigger { flex: 0 1 15rem; min-width: 36px; }
+  }
+  @media (min-width: 1101px) and (max-width: 1439px) {
+    :root[data-look="transit"] .app-shell[data-view="home"] :is(.signed-in-user, .command-trigger__keys) { display: none; }
+  }
+  :root[data-look="transit"] .content--console { gap: 14px; }
+  :root[data-look="transit"] .ui-page-header__summary { color: #1d1d1f; font-size: 16px; }
+  :root[data-look="transit"] .ui-facts { color: #4a4a4f; font-family: "Overpass", sans-serif; font-size: 13px; }
+  :root[data-look="transit"] .ui-facts b { color: #1d1d1f; font-weight: 700; }
+  :root[data-look="transit"] .ui-info-toggle { border: 1.5px solid #c9c9c2; border-radius: 50%; color: #13233f; }
 
-/* Panels: a navy sign across the top, white paper under it. */
-:root[data-look="transit"] .ui-panel { border: 0; border-radius: 6px; background: #ffffff; box-shadow: 0 0 0 1px #e2e2dc, 0 1px 2px rgba(19, 35, 63, 0.06); }
-:root[data-look="transit"] .ui-panel__head { min-height: 38px; padding: 6px 14px; border-bottom: 0; color: #ffffff; background: #13233f; }
-:root[data-look="transit"] .ui-panel__title { color: #ffffff; font: 800 14px "Overpass", sans-serif; letter-spacing: 0.01em; text-transform: none; }
-:root[data-look="transit"] .ui-panel__count,
-:root[data-look="transit"] .ui-panel__count.ui-marked { padding: 1px 7px; border-radius: 3px; color: #13233f; background: #ffffff; font-size: 12px; font-weight: 800; }
-:root[data-look="transit"] .ui-panel__count[data-status="warning"] { color: #1d1600; background: #ffcf33; }
-:root[data-look="transit"] .ui-panel__count[data-status="danger"] { color: #ffffff; background: #d52b1e; }
-:root[data-look="transit"] .ui-panel__count .ui-mark { display: none; }
-:root[data-look="transit"] .ui-panel__meta { color: rgba(255, 255, 255, 0.82); font-family: "Overpass", sans-serif; font-size: 12.5px; }
-:root[data-look="transit"] .ui-panel__meta b { color: #ffffff; }
-:root[data-look="transit"] .ui-panel__head .ui-button { border-color: #ffffff; color: #13233f; background: #ffffff; }
-:root[data-look="transit"] .ui-panel__head .ui-button--ghost { border-color: transparent; color: #ffffff; background: none; text-decoration: underline; }
-:root[data-look="transit"] .ui-panel__head .ui-button--primary { border-color: #ffcf33; color: #1d1600; background: #ffcf33; }
-:root[data-look="transit"] .ui-panel__foot { border-top-color: #e9e9e3; color: #4a4a4f; font-family: "Overpass", sans-serif; }
-:root[data-look="transit"] .ui-card { border: 0; box-shadow: 0 0 0 1px #e2e2dc; }
+  /* Panels: a navy sign across the top, white paper under it. */
+  :root[data-look="transit"] .ui-panel { border: 0; border-radius: 6px; background: #ffffff; box-shadow: 0 0 0 1px #e2e2dc, 0 1px 2px rgba(19, 35, 63, 0.06); }
+  :root[data-look="transit"] .ui-panel__head { min-height: 38px; padding: 6px 14px; border-bottom: 0; color: #ffffff; background: #13233f; }
+  :root[data-look="transit"] .ui-panel__title { color: #ffffff; font: 800 14px "Overpass", sans-serif; letter-spacing: 0.01em; text-transform: none; }
+  :root[data-look="transit"] .ui-panel__count,
+  :root[data-look="transit"] .ui-panel__count.ui-marked { padding: 1px 7px; border-radius: 3px; color: #13233f; background: #ffffff; font-size: 12px; font-weight: 800; }
+  :root[data-look="transit"] .ui-panel__count[data-status="warning"] { color: #1d1600; background: #ffcf33; }
+  :root[data-look="transit"] .ui-panel__count[data-status="danger"] { color: #ffffff; background: #d52b1e; }
+  :root[data-look="transit"] .ui-panel__count .ui-mark { display: none; }
+  :root[data-look="transit"] .ui-panel__meta { color: rgba(255, 255, 255, 0.82); font-family: "Overpass", sans-serif; font-size: 12.5px; }
+  :root[data-look="transit"] .ui-panel__meta b { color: #ffffff; }
+  :root[data-look="transit"] .ui-panel__head .ui-button { border-color: #ffffff; color: #13233f; background: #ffffff; }
+  :root[data-look="transit"] .ui-panel__head .ui-button--ghost { border-color: transparent; color: #ffffff; background: none; text-decoration: underline; }
+  :root[data-look="transit"] .ui-panel__head .ui-button--primary { border-color: #ffcf33; color: #1d1600; background: #ffcf33; }
+  :root[data-look="transit"] .ui-panel__foot { border-top-color: #e9e9e3; color: #4a4a4f; font-family: "Overpass", sans-serif; }
+  :root[data-look="transit"] .ui-card { border: 0; box-shadow: 0 0 0 1px #e2e2dc; }
 
-/* Figures: white cards with a line's colour along the top. */
-:root[data-look="transit"] .ui-metric,
-:root[data-look="transit"] .ui-metric[data-status] { border: 0; border-top: 5px solid #1f4fd1; border-radius: 6px; background: #ffffff; box-shadow: 0 0 0 1px #e2e2dc; }
-:root[data-look="transit"] .ui-metric[data-status="good"] { border-top-color: #00843d; }
-:root[data-look="transit"] .ui-metric[data-status="warning"] { border-top-color: #ffcf33; }
-:root[data-look="transit"] .ui-metric[data-status="danger"] { border-top-color: #d52b1e; }
-:root[data-look="transit"] .ui-metric[data-status="unknown"] { border-top: 5px dashed #9b9b9b; }
-:root[data-look="transit"] .ui-metric--link:hover { background: #fbfbf8; }
-:root[data-look="transit"] .ui-metric__label { color: #13233f; font: 800 11.5px "Overpass", sans-serif; letter-spacing: 0.06em; }
-:root[data-look="transit"] .ui-metric__value { color: #1d1d1f; font: 800 26px/1.1 "Overpass", sans-serif; letter-spacing: -0.01em; }
-:root[data-look="transit"] .ui-metric__value small { color: #4a4a4f; font-weight: 600; }
-:root[data-look="transit"] .ui-metric[data-status="warning"] .ui-metric__value { color: #8a4b00; }
-:root[data-look="transit"] .ui-metric__bar { height: 6px; border-radius: 3px; background: #e4e4de; }
-:root[data-look="transit"] .ui-metric__bar > i,
-:root[data-look="transit"] .ui-metric[data-status="good"] .ui-metric__bar > i { border-radius: 3px; background: #1f4fd1; }
-:root[data-look="transit"] .ui-metric[data-status="warning"] .ui-metric__bar > i { background: #f08a00; }
-:root[data-look="transit"] .ui-kv--strip { border: 0; border-radius: 6px; background: #ffffff; box-shadow: 0 0 0 1px #e2e2dc; }
-:root[data-look="transit"] .ui-kv--strip .ui-kv__item { border-right-color: #e9e9e3; box-shadow: none; }
-:root[data-look="transit"] .ui-kv--strip .ui-kv__value { font: 800 15px "Overpass", sans-serif; }
-:root[data-look="transit"] :is(.ui-kv__label, .ui-kv--columns .ui-kv__label, .ui-kv--strip .ui-kv__label) { color: #4a4a4f; font-family: "Overpass", sans-serif; font-weight: 700; }
+  /* Figures: white cards with a line's colour along the top. */
+  :root[data-look="transit"] .ui-metric,
+  :root[data-look="transit"] .ui-metric[data-status] { border: 0; border-top: 5px solid #1f4fd1; border-radius: 6px; background: #ffffff; box-shadow: 0 0 0 1px #e2e2dc; }
+  :root[data-look="transit"] .ui-metric[data-status="good"] { border-top-color: #00843d; }
+  :root[data-look="transit"] .ui-metric[data-status="warning"] { border-top-color: #ffcf33; }
+  :root[data-look="transit"] .ui-metric[data-status="danger"] { border-top-color: #d52b1e; }
+  :root[data-look="transit"] .ui-metric[data-status="unknown"] { border-top: 5px dashed #9b9b9b; }
+  :root[data-look="transit"] .ui-metric--link:hover { background: #fbfbf8; }
+  :root[data-look="transit"] .ui-metric__label { color: #13233f; font: 800 11.5px "Overpass", sans-serif; letter-spacing: 0.06em; }
+  :root[data-look="transit"] .ui-metric__value { color: #1d1d1f; font: 800 26px/1.1 "Overpass", sans-serif; letter-spacing: -0.01em; }
+  :root[data-look="transit"] .ui-metric__value small { color: #4a4a4f; font-weight: 600; }
+  :root[data-look="transit"] .ui-metric[data-status="warning"] .ui-metric__value { color: #8a4b00; }
+  :root[data-look="transit"] .ui-metric__bar { height: 6px; border-radius: 3px; background: #e4e4de; }
+  :root[data-look="transit"] .ui-metric__bar > i,
+  :root[data-look="transit"] .ui-metric[data-status="good"] .ui-metric__bar > i { border-radius: 3px; background: #1f4fd1; }
+  :root[data-look="transit"] .ui-metric[data-status="warning"] .ui-metric__bar > i { background: #f08a00; }
+  :root[data-look="transit"] .ui-kv--strip { border: 0; border-radius: 6px; background: #ffffff; box-shadow: 0 0 0 1px #e2e2dc; }
+  :root[data-look="transit"] .ui-kv--strip .ui-kv__item { border-right-color: #e9e9e3; box-shadow: none; }
+  :root[data-look="transit"] .ui-kv--strip .ui-kv__value { font: 800 15px "Overpass", sans-serif; }
+  :root[data-look="transit"] :is(.ui-kv__label, .ui-kv--columns .ui-kv__label, .ui-kv--strip .ui-kv__label) { color: #4a4a4f; font-family: "Overpass", sans-serif; font-weight: 700; }
 
-/* Tables: navy headings on a navy rule, like a timetable. */
-:root[data-look="transit"] .ui-table th { height: 32px; border-bottom: 2px solid #13233f; color: #13233f; background: #ffffff; font: 800 11.5px "Overpass", sans-serif; letter-spacing: 0.06em; }
-:root[data-look="transit"] .ui-table td { height: 34px; color: #1d1d1f; font-family: "Overpass", sans-serif; font-size: 14px; }
-:root[data-look="transit"] .ui-table tbody tr:hover td { background: #f3f3ee; }
-:root[data-look="transit"] .ui-table .ops-link { color: #13233f; font-weight: 700; }
-:root[data-look="transit"] .ui-table th[aria-sort="ascending"],
-:root[data-look="transit"] .ui-table th[aria-sort="descending"] { color: #1f4fd1; }
-:root[data-look="transit"] :is(.cc-tag, .ui-tag) { border-radius: 3px; color: #13233f; background: #e4e7ee; font-family: "Overpass", sans-serif; font-size: 12px; font-weight: 700; }
-:root[data-look="transit"] :is(.cc-tag[data-reach="LAN"], .ui-tag[data-reach="lan"]) { color: #ffffff; background: #00843d; }
-:root[data-look="transit"] .ui-tag--info { color: #ffffff; background: #1f4fd1; }
-:root[data-look="transit"] :is(.cc .ops-bar, .ops-bar) { height: 6px; border-radius: 3px; }
-:root[data-look="transit"] :is(.cc .ops-bar, .ops-bar) > i { background: #1f4fd1; }
+  /* Tables: navy headings on a navy rule, like a timetable. */
+  :root[data-look="transit"] .ui-table th { height: 32px; border-bottom: 2px solid #13233f; color: #13233f; background: #ffffff; font: 800 11.5px "Overpass", sans-serif; letter-spacing: 0.06em; }
+  :root[data-look="transit"] .ui-table td { height: 34px; color: #1d1d1f; font-family: "Overpass", sans-serif; font-size: 14px; }
+  :root[data-look="transit"] .ui-table tbody tr:hover td { background: #f3f3ee; }
+  :root[data-look="transit"] .ui-table .ops-link { color: #13233f; font-weight: 700; }
+  :root[data-look="transit"] .ui-table th[aria-sort="ascending"],
+  :root[data-look="transit"] .ui-table th[aria-sort="descending"] { color: #1f4fd1; }
+  :root[data-look="transit"] :is(.cc-tag, .ui-tag) { border-radius: 3px; color: #13233f; background: #e4e7ee; font-family: "Overpass", sans-serif; font-size: 12px; font-weight: 700; }
+  :root[data-look="transit"] :is(.cc-tag[data-reach="LAN"], .ui-tag[data-reach="lan"]) { color: #ffffff; background: #00843d; }
+  :root[data-look="transit"] .ui-tag--info { color: #ffffff; background: #1f4fd1; }
+  :root[data-look="transit"] :is(.cc .ops-bar, .ops-bar) { height: 6px; border-radius: 3px; }
+  :root[data-look="transit"] :is(.cc .ops-bar, .ops-bar) > i { background: #1f4fd1; }
 
-/* States as service pills; tiers as line-coloured tags. */
-:root[data-look="transit"] .ui-chip { padding: 1px 7px; border: 0; border-radius: 3px; font-family: "Overpass", sans-serif; font-size: 12.5px; font-weight: 700; }
-:root[data-look="transit"] .ui-chip--good { color: #ffffff; background: #00843d; }
-:root[data-look="transit"] .ui-chip--warning { color: #1d1600; background: #ffcf33; }
-:root[data-look="transit"] .ui-chip--danger { color: #ffffff; background: #d52b1e; }
-:root[data-look="transit"] .ui-chip--neutral { color: #13233f; background: #d3d7df; }
-:root[data-look="transit"] .ui-chip--unknown { border: 1.5px dashed #6b7280; color: #4a4a4f; background: none; }
-:root[data-look="transit"] :is(.ui-chip--good, .ui-chip--danger) .ui-mark { --mark: #ffffff; --mark-fill: #ffffff; }
-:root[data-look="transit"] .ui-chip--warning .ui-mark { --mark: #1d1600; --mark-fill: #1d1600; }
-:root[data-look="transit"] .ui-table .ui-chip { padding: 1px 7px; font-family: "Overpass", sans-serif; font-size: 12.5px; }
-:root[data-look="transit"] .ui-table .ui-chip--good { color: #ffffff; background: #00843d; }
-:root[data-look="transit"] .ui-table .ui-chip--warning { color: #1d1600; background: #ffcf33; }
-:root[data-look="transit"] .ui-table .ui-chip--danger { color: #ffffff; background: #d52b1e; }
-:root[data-look="transit"] .ui-table .ui-chip--neutral { color: #13233f; background: #d3d7df; }
-:root[data-look="transit"] .ui-risk { border: 0; border-radius: 3px; font-family: "Overpass", sans-serif; font-weight: 800; }
-:root[data-look="transit"] .ui-risk--low { color: #ffffff; background: #00843d; }
-:root[data-look="transit"] .ui-risk--medium { color: #1d1600; background: #ffcf33; }
-:root[data-look="transit"] .ui-risk--high { color: #ffffff; background: #d52b1e; }
+  /* States as service pills; tiers as line-coloured tags. */
+  :root[data-look="transit"] .ui-chip { padding: 1px 7px; border: 0; border-radius: 3px; font-family: "Overpass", sans-serif; font-size: 12.5px; font-weight: 700; }
+  :root[data-look="transit"] .ui-chip--good { color: #ffffff; background: #00843d; }
+  :root[data-look="transit"] .ui-chip--warning { color: #1d1600; background: #ffcf33; }
+  :root[data-look="transit"] .ui-chip--danger { color: #ffffff; background: #d52b1e; }
+  :root[data-look="transit"] .ui-chip--neutral { color: #13233f; background: #d3d7df; }
+  :root[data-look="transit"] .ui-chip--unknown { border: 1.5px dashed #6b7280; color: #4a4a4f; background: none; }
+  :root[data-look="transit"] :is(.ui-chip--good, .ui-chip--danger) .ui-mark { --mark: #ffffff; --mark-fill: #ffffff; }
+  :root[data-look="transit"] .ui-chip--warning .ui-mark { --mark: #1d1600; --mark-fill: #1d1600; }
+  :root[data-look="transit"] .ui-table .ui-chip { padding: 1px 7px; font-family: "Overpass", sans-serif; font-size: 12.5px; }
+  :root[data-look="transit"] .ui-table .ui-chip--good { color: #ffffff; background: #00843d; }
+  :root[data-look="transit"] .ui-table .ui-chip--warning { color: #1d1600; background: #ffcf33; }
+  :root[data-look="transit"] .ui-table .ui-chip--danger { color: #ffffff; background: #d52b1e; }
+  :root[data-look="transit"] .ui-table .ui-chip--neutral { color: #13233f; background: #d3d7df; }
+  :root[data-look="transit"] .ui-risk { border: 0; border-radius: 3px; font-family: "Overpass", sans-serif; font-weight: 800; }
+  :root[data-look="transit"] .ui-risk--low { color: #ffffff; background: #00843d; }
+  :root[data-look="transit"] .ui-risk--medium { color: #1d1600; background: #ffcf33; }
+  :root[data-look="transit"] .ui-risk--high { color: #ffffff; background: #d52b1e; }
 
-/* Buttons: navy for the main one, a navy outline for the rest. */
-:root[data-look="transit"] .ui-button { min-height: 32px; border: 2px solid #13233f; border-radius: 4px; color: #13233f; background: #ffffff; font-family: "Overpass", sans-serif; font-size: 14px; font-weight: 800; }
-:root[data-look="transit"] .ui-button:hover:not(:disabled) { border-color: #13233f; background: #eef0f5; }
-:root[data-look="transit"] .ui-button--primary { color: #ffffff; background: #13233f; }
-:root[data-look="transit"] .ui-button--primary:hover:not(:disabled) { border-color: #1f4fd1; background: #1f4fd1; }
-:root[data-look="transit"] .ui-button--ghost { border-color: transparent; color: #1f4fd1; background: none; }
-:root[data-look="transit"] .ui-button--ghost:hover:not(:disabled) { border-color: transparent; background: rgba(31, 79, 209, 0.08); }
-:root[data-look="transit"] :is(.ui-button--risk-medium, .ui-button--risk-high)::before { width: 4px; }
-:root[data-look="transit"] .ui-button--primary.ui-button--risk-medium::before { background: #ffcf33; }
-:root[data-look="transit"] .ui-button--primary.ui-button--risk-high::before { background: #ff8a80; }
+  /* Buttons: navy for the main one, a navy outline for the rest. */
+  :root[data-look="transit"] .ui-button { min-height: 32px; border: 2px solid #13233f; border-radius: 4px; color: #13233f; background: #ffffff; font-family: "Overpass", sans-serif; font-size: 14px; font-weight: 800; }
+  :root[data-look="transit"] .ui-button:hover:not(:disabled) { border-color: #13233f; background: #eef0f5; }
+  :root[data-look="transit"] .ui-button--primary { color: #ffffff; background: #13233f; }
+  :root[data-look="transit"] .ui-button--primary:hover:not(:disabled) { border-color: #1f4fd1; background: #1f4fd1; }
+  :root[data-look="transit"] .ui-button--ghost { border-color: transparent; color: #1f4fd1; background: none; }
+  :root[data-look="transit"] .ui-button--ghost:hover:not(:disabled) { border-color: transparent; background: rgba(31, 79, 209, 0.08); }
+  :root[data-look="transit"] :is(.ui-button--risk-medium, .ui-button--risk-high)::before { width: 4px; }
+  :root[data-look="transit"] .ui-button--primary.ui-button--risk-medium::before { background: #ffcf33; }
+  :root[data-look="transit"] .ui-button--primary.ui-button--risk-high::before { background: #ff8a80; }
 
-/* Tabs: the open one on a navy line. */
-:root[data-look="transit"] .ui-tabs__list { gap: 6px; border-bottom: 2px solid #dcdcd5; }
-:root[data-look="transit"] .ui-tabs__tab { min-height: 38px; margin-bottom: -2px; border-bottom-width: 4px; color: #4a4a4f; font-family: "Overpass", sans-serif; font-size: 15px; font-weight: 700; }
-:root[data-look="transit"] .ui-tabs__tab:hover { color: #13233f; }
-:root[data-look="transit"] .ui-tabs__tab[aria-selected="true"] { border-bottom-color: #13233f; color: #13233f; font-weight: 800; }
-:root[data-look="transit"] :is(.ui-tabs__count, .ui-tabs__tab[aria-selected="true"] .ui-tabs__count) { padding: 0 5px; border-radius: 3px; color: #13233f; background: #e4e7ee; font-family: "Overpass", sans-serif; font-size: 11.5px; font-weight: 800; }
+  /* Tabs: the open one on a navy line. */
+  :root[data-look="transit"] .ui-tabs__list { gap: 6px; border-bottom: 2px solid #dcdcd5; }
+  :root[data-look="transit"] .ui-tabs__tab { min-height: 38px; margin-bottom: -2px; border-bottom-width: 4px; color: #4a4a4f; font-family: "Overpass", sans-serif; font-size: 15px; font-weight: 700; }
+  :root[data-look="transit"] .ui-tabs__tab:hover { color: #13233f; }
+  :root[data-look="transit"] .ui-tabs__tab[aria-selected="true"] { border-bottom-color: #13233f; color: #13233f; font-weight: 800; }
+  :root[data-look="transit"] :is(.ui-tabs__count, .ui-tabs__tab[aria-selected="true"] .ui-tabs__count) { padding: 0 5px; border-radius: 3px; color: #13233f; background: #e4e7ee; font-family: "Overpass", sans-serif; font-size: 11.5px; font-weight: 800; }
 
-/* Forms. */
-:root[data-look="transit"] :is(.ui-input, .ui-textarea, .ui-select__control) { border: 1.5px solid #b9b9b2; border-radius: 4px; background: #ffffff; font-family: "Overpass", sans-serif; }
-:root[data-look="transit"] :is(.ui-input, .ui-textarea, .ui-select__control):focus-visible { border-color: #1f4fd1; outline: 2px solid #1f4fd1; }
-:root[data-look="transit"] .ui-switch__control[aria-checked="true"] .ui-switch__track { border-color: #00843d; background: #00843d; }
-:root[data-look="transit"] .ui-segmented { border: 1.5px solid #c9c9c2; border-radius: 999px; background: #ffffff; }
-:root[data-look="transit"] .ui-segmented__option { border-radius: 999px; color: #13233f; font-family: "Overpass", sans-serif; font-weight: 700; }
-:root[data-look="transit"] .ui-segmented__option[aria-checked="true"] { color: #ffffff; background: #13233f; box-shadow: none; }
-:root[data-look="transit"] .ui-check__input:checked + .ui-check__mark { border-color: #13233f; background: #13233f; }
+  /* Forms. */
+  :root[data-look="transit"] :is(.ui-input, .ui-textarea, .ui-select__control) { border: 1.5px solid #b9b9b2; border-radius: 4px; background: #ffffff; font-family: "Overpass", sans-serif; }
+  :root[data-look="transit"] :is(.ui-input, .ui-textarea, .ui-select__control):focus-visible { border-color: #1f4fd1; outline: 2px solid #1f4fd1; }
+  :root[data-look="transit"] .ui-switch__control[aria-checked="true"] .ui-switch__track { border-color: #00843d; background: #00843d; }
+  :root[data-look="transit"] .ui-segmented { border: 1.5px solid #c9c9c2; border-radius: 999px; background: #ffffff; }
+  :root[data-look="transit"] .ui-segmented__option { border-radius: 999px; color: #13233f; font-family: "Overpass", sans-serif; font-weight: 700; }
+  :root[data-look="transit"] .ui-segmented__option[aria-checked="true"] { color: #ffffff; background: #13233f; box-shadow: none; }
+  :root[data-look="transit"] .ui-check__input:checked + .ui-check__mark { border-color: #13233f; background: #13233f; }
 
-/* Notices and needs: a coloured line down the edge, as a line on the map. */
-:root[data-look="transit"] .ui-notice { border: 0; border-radius: 6px; background: #ffffff; box-shadow: inset 5px 0 0 var(--mark), 0 0 0 1px #e2e2dc; }
-:root[data-look="transit"] .ui-notice--warning { background: #fff8dc; }
-:root[data-look="transit"] .ui-notice--danger { background: #fdecea; }
-:root[data-look="transit"] .need { box-shadow: inset 4px 0 0 var(--mark); }
-:root[data-look="transit"] .need__title { color: #13233f; font-weight: 800; }
-:root[data-look="transit"] .need__title:hover { color: #1f4fd1; }
-:root[data-look="transit"] .ui-code { border-radius: 6px; }
-:root[data-look="transit"] .ui-code__bar { color: #ffffff; background: #13233f; }
-:root[data-look="transit"] .ui-code__label { color: #ffffff; }
-:root[data-look="transit"] .ui-code__meta { color: rgba(255, 255, 255, 0.8); }
-:root[data-look="transit"] .ui-code__copy { border-color: #ffffff; color: #13233f; background: #ffffff; }
-:root[data-look="transit"] .ui-progress__fill { background: #1f4fd1; }
-:root[data-look="transit"] .ui-job { border-radius: 6px; }
-:root[data-look="transit"] .ui-tile__mark { box-shadow: 0 0 0 2px #ffffff; }
+  /* Notices and needs: a coloured line down the edge, as a line on the map. */
+  :root[data-look="transit"] .ui-notice { border: 0; border-radius: 6px; background: #ffffff; box-shadow: inset 5px 0 0 var(--mark), 0 0 0 1px #e2e2dc; }
+  :root[data-look="transit"] .ui-notice--warning { background: #fff8dc; }
+  :root[data-look="transit"] .ui-notice--danger { background: #fdecea; }
+  :root[data-look="transit"] .need { box-shadow: inset 4px 0 0 var(--mark); }
+  :root[data-look="transit"] .need__title { color: #13233f; font-weight: 800; }
+  :root[data-look="transit"] .need__title:hover { color: #1f4fd1; }
+  :root[data-look="transit"] .ui-code { border-radius: 6px; }
+  :root[data-look="transit"] .ui-code__bar { color: #ffffff; background: #13233f; }
+  :root[data-look="transit"] .ui-code__label { color: #ffffff; }
+  :root[data-look="transit"] .ui-code__meta { color: rgba(255, 255, 255, 0.8); }
+  :root[data-look="transit"] .ui-code__copy { border-color: #ffffff; color: #13233f; background: #ffffff; }
+  :root[data-look="transit"] .ui-progress__fill { background: #1f4fd1; }
+  :root[data-look="transit"] .ui-job { border-radius: 6px; }
+  :root[data-look="transit"] .ui-tile__mark { box-shadow: 0 0 0 2px #ffffff; }
 
-/* Sheets and dialogs: headed by a navy sign. */
-:root[data-look="transit"] :is(.ui-sheet, .approve-dialog, .command-dialog) { border: 0; background: #ffffff; }
-:root[data-look="transit"] :is(.ui-sheet__head, .approve-head) { border-bottom: 0; color: #ffffff; background: #13233f; }
-:root[data-look="transit"] :is(.ui-sheet__title, .approve-title) { color: #ffffff; font-family: "Overpass", sans-serif; font-weight: 800; }
-:root[data-look="transit"] :is(.ui-sheet__kicker, .approve-kicker) { color: rgba(255, 255, 255, 0.8); font-family: "Overpass", sans-serif; }
-:root[data-look="transit"] :is(.ui-sheet__head, .approve-head) :is(.ui-facts, .ui-facts b, .ui-facts code, code) { color: rgba(255, 255, 255, 0.85); }
-:root[data-look="transit"] :is(.ui-sheet__close, .approve-close) { border: 2px solid #ffffff; border-radius: 50%; color: #ffffff; background: none; }
-:root[data-look="transit"] .approve-tier__name { font-family: "Overpass", sans-serif; font-weight: 800; }
-:root[data-look="transit"] .command-option[aria-selected="true"] { color: #13233f; background: #eef0f5; box-shadow: inset 4px 0 0 #1f4fd1; }
-:root[data-look="transit"] .command-input:focus-within { box-shadow: inset 0 -3px 0 #1f4fd1; }
+  /* Sheets and dialogs: headed by a navy sign. */
+  :root[data-look="transit"] :is(.ui-sheet, .approve-dialog, .command-dialog) { border: 0; background: #ffffff; }
+  :root[data-look="transit"] :is(.ui-sheet__head, .approve-head) { border-bottom: 0; color: #ffffff; background: #13233f; }
+  :root[data-look="transit"] :is(.ui-sheet__title, .approve-title) { color: #ffffff; font-family: "Overpass", sans-serif; font-weight: 800; }
+  :root[data-look="transit"] :is(.ui-sheet__kicker, .approve-kicker) { color: rgba(255, 255, 255, 0.8); font-family: "Overpass", sans-serif; }
+  :root[data-look="transit"] :is(.ui-sheet__head, .approve-head) :is(.ui-facts, .ui-facts b, .ui-facts code, code) { color: rgba(255, 255, 255, 0.85); }
+  :root[data-look="transit"] :is(.ui-sheet__close, .approve-close) { border: 2px solid #ffffff; border-radius: 50%; color: #ffffff; background: none; }
+  :root[data-look="transit"] .approve-tier__name { font-family: "Overpass", sans-serif; font-weight: 800; }
+  :root[data-look="transit"] .command-option[aria-selected="true"] { color: #13233f; background: #eef0f5; box-shadow: inset 4px 0 0 #1f4fd1; }
+  :root[data-look="transit"] .command-input:focus-within { box-shadow: inset 0 -3px 0 #1f4fd1; }
 
-:root[data-look="transit"] .settings-appearance { border: 0; box-shadow: 0 0 0 1px #e2e2dc; }
-:root[data-look="transit"] .settings-appearance__title { font-weight: 800; }
+  :root[data-look="transit"] .settings-appearance { border: 0; box-shadow: 0 0 0 1px #e2e2dc; }
+  :root[data-look="transit"] .settings-appearance__title { font-weight: 800; }
 
-/* ── A phone: the rail becomes the dock, on a navy strip of roundels ── */
-@media (max-width: 760px) {
-  :root[data-look="transit"] .topbar { padding: 8px 12px; }
-  :root[data-look="transit"] .content { padding: 14px 16px calc(var(--shell-bottom-inset, 0px) + 104px); }
-  :root[data-look="transit"] .app-shell[data-view="home"] .content { padding: 0 0 calc(var(--shell-bottom-inset, 0px) + 96px); }
-  :root[data-look="transit"] .ui-dock.shell-dock ul { border: 0; border-radius: 10px; background: #13233f; box-shadow: 0 6px 20px rgba(19, 35, 63, 0.3); }
-  :root[data-look="transit"] .shell-dock .ui-dock__icon { width: 36px; height: 36px; border: 3.5px solid var(--line, #9b9b9b); border-radius: 50%; color: #ffffff; background: #13233f; }
-  :root[data-look="transit"] .shell-dock .ui-dock__icon svg { width: 17px; height: 17px; }
-  :root[data-look="transit"] .shell-dock .ui-dock__label { color: #ffffff; font-family: "Overpass", sans-serif; font-weight: 700; }
-  :root[data-look="transit"] .shell-dock .ui-dock__item:hover .ui-dock__icon { border-color: var(--line, #9b9b9b); color: #13233f; background: #ffffff; }
-  :root[data-look="transit"] .shell-dock .ui-dock__item[aria-current="page"] .ui-dock__icon { border-color: #ffffff; color: #ffffff; background: var(--line, #9b9b9b); }
-  :root[data-look="transit"] .shell-dock .ui-dock__badge { color: #1d1600; background: #ffcf33; box-shadow: 0 0 0 2px #13233f; }
-  :root[data-look="transit"] .shell-dock .ui-dock__separator { background: rgba(255, 255, 255, 0.25); }
+  /* ── A phone: the rail becomes the dock, on a navy strip of roundels ── */
+  @media (max-width: 760px) {
+    :root[data-look="transit"] .topbar { padding: 8px 12px; }
+    :root[data-look="transit"] .content { padding: 14px 16px calc(var(--shell-bottom-inset, 0px) + 104px); }
+    :root[data-look="transit"] .app-shell[data-view="home"] .content { padding: 0 0 calc(var(--shell-bottom-inset, 0px) + 96px); }
+    :root[data-look="transit"] .ui-dock.shell-dock ul { border: 0; border-radius: 10px; background: #13233f; box-shadow: 0 6px 20px rgba(19, 35, 63, 0.3); }
+    :root[data-look="transit"] .shell-dock .ui-dock__icon { width: 36px; height: 36px; border: 3.5px solid var(--line, #9b9b9b); border-radius: 50%; color: #ffffff; background: #13233f; }
+    :root[data-look="transit"] .shell-dock .ui-dock__icon svg { width: 17px; height: 17px; }
+    :root[data-look="transit"] .shell-dock .ui-dock__label { color: #ffffff; font-family: "Overpass", sans-serif; font-weight: 700; }
+    :root[data-look="transit"] .shell-dock .ui-dock__item:hover .ui-dock__icon { border-color: var(--line, #9b9b9b); color: #13233f; background: #ffffff; }
+    :root[data-look="transit"] .shell-dock .ui-dock__item[aria-current="page"] .ui-dock__icon { border-color: #ffffff; color: #ffffff; background: var(--line, #9b9b9b); }
+    :root[data-look="transit"] .shell-dock .ui-dock__badge { color: #1d1600; background: #ffcf33; box-shadow: 0 0 0 2px #13233f; }
+    :root[data-look="transit"] .shell-dock .ui-dock__separator { background: rgba(255, 255, 255, 0.25); }
+  }
 }

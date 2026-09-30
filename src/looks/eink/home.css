@@ -141,6 +141,10 @@
   .eink-cols { grid-template-columns: minmax(0, 1fr); }
 }
 
+@media (max-width: 900px) {
+  .eink-bar__refresh { display: none; }
+}
+
 @media (max-width: 760px) {
   .eink-home { font-size: 16px; }
   .eink-lead h1 { font-size: 2.6em; }
