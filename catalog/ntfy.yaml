@@ -29,6 +29,9 @@ env:
   - name: NTFY_BASE_URL
     label: Base URL
     description: Optional. The address subscribers use, for example http://192.168.1.10:8093. Needed for attachments and iOS.
+  - name: NTFY_UPSTREAM_BASE_URL
+    label: Upstream for iPhone and iPad
+    description: Optional. Set to https://ntfy.sh so the ntfy app on an iPhone or iPad is woken as soon as a message arrives. Only a poll request with the message's id goes there, never the message; the phone then fetches it from this server, so Base URL must be the address the phone uses.
   - name: NTFY_CACHE_FILE
     label: Cache file
     default: /var/cache/ntfy/cache.db
