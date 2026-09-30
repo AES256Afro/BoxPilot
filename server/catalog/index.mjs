@@ -92,6 +92,19 @@ export function createCatalogService({ directory = defaultCatalogDirectory, ttlM
 }
 
 /**
+ * The tier installing an app asks for, from its manifest (`risk`): the DNS servers the house leans
+ * on and the VPN say high, as ADR-001 counts DNS cutovers and network-critical deploys. The job
+ * layer stages app.install at the higher of this and the operation's own medium (jobs.mjs,
+ * operationRiskHooks). Null when the catalog does not have the app, which the install refuses anyway.
+ */
+export function installRiskLookup(catalog) {
+  return async (parameters) => {
+    const manifest = typeof parameters?.id === "string" ? await catalog.get(parameters.id).catch(() => null) : null;
+    return manifest?.risk ?? null;
+  };
+}
+
+/**
  * Which of an app's settings are secrets, from its manifest: `(appId) => names`, or null when the
  * catalog does not have the app. Null is "cannot tell", never "none": a mistyped id, a retired app
  * or a flow step that names its app as {{ steps.pick.id }} must not let a token through as an

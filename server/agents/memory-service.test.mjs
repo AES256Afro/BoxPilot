@@ -57,6 +57,34 @@ describe("memory", () => {
     await h.runner.execute(operatorClaim);
   });
 
+  // A note is what a run read, at that run's role: the Server Keeper's owner runs read every
+  // account's jobs. An operator asking the same agent gets none of it, in the prompt, from
+  // notes_read, or on the memory page, as another agent's shared notes were already kept back.
+  it("keeps an agent's own notes from a run that reads less than the one that wrote them", async () => {
+    const keeper = make("server-keeper");
+    await learn(keeper, "owner", "Owner fact", "Only an owner run read this: vault code 4711.");
+    expect(h.store.listNotes(keeper.id)[0]).toMatchObject({ readRole: "owner" });
+    h.fake.state.script = (request) => (withTools(request) === 0 ? { toolCalls: [{ name: "notes_read", arguments: {} }] } : { content: "Done [T1]." });
+    ask(keeper, "operator", "What do you know?");
+    const claim = await h.service.runnerNext(h.runnerId, { waitMs: 0 });
+    expect(JSON.stringify(claim.messages)).not.toContain("vault code 4711");
+    await h.runner.execute(claim);
+    h.fake.state.script = null;
+    const run = h.service.getRun(h.caller("operator"), claim.run.id);
+    expect(run.steps.some((step) => step.kind === "tool" || step.name === "notes.read")).toBe(true);
+    expect(JSON.stringify(run.steps)).not.toContain("vault code 4711");
+    // Nor on the memory page of an operator who made an agent that learned at the owner's role.
+    const made = make("server-keeper", "operator");
+    h.store.writeNote(made.id, { title: "Owner fact", body: "vault code 4711", readRole: "owner" });
+    expect(JSON.stringify(h.service.memoryOf(h.caller("operator"), made.id).facts)).not.toContain("vault code 4711");
+    expect(JSON.stringify(h.service.listNotes(h.caller("operator"), made.id))).not.toContain("vault code 4711");
+    // The owner's own runs still have it.
+    ask(keeper, "owner", "What do you know?");
+    const ownerClaim = await h.service.runnerNext(h.runnerId, { waitMs: 0 });
+    expect(JSON.stringify(ownerClaim.messages)).toContain("vault code 4711");
+    await h.runner.execute(ownerClaim);
+  });
+
   it("indexes what is new in quiet hours, and searches memory by meaning and by words", async () => {
     const keeper = make("server-keeper");
     await learn(keeper, "owner", "Media drive", "The media drive is the 4 TB USB disk at /mnt/media.");
