@@ -105,7 +105,7 @@ describe("writing a boot-critical file", () => {
     expect((await stat(created)).mode & 0o777).toBe(0o600);
   });
 
-  it("is what every root task writes with, bar the two whose files are new or not yet converted", async () => {
+  it("is what every root task writes with, bar the few named below and why", async () => {
     // fstab, smb.conf, exports, daemon.json, sshd's drop-in, the hosts file, BoxPilot's own env:
     // the root tasks write the files a boot depends on. None may truncate one in place again.
     const exceptions = new Map([
