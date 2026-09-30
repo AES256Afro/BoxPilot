@@ -18,7 +18,7 @@
   line-height: 1.3;
 }
 
-.transit-home :is(h2, h3, p) { margin: 0; }
+.transit-home :where(h2, h3, p) { margin: 0; }
 .transit-home button { font-family: inherit; }
 
 /* ── The map ── */
@@ -27,6 +27,7 @@
 .transit-map__title { font: 800 1.9em/1 "Overpass", sans-serif; letter-spacing: -0.01em; }
 .transit-map__lead { margin-top: 0.3em; color: #4a4a4f; font-size: 0.8em; }
 .transit-map__scroll { display: grid; min-width: 0; min-height: 0; }
+.transit-map__hint { display: none; }
 .transit-map__svg { display: block; width: 100%; height: 100%; min-height: 20em; overflow: visible; font-family: "Overpass", Arial, sans-serif; }
 .transit-map__svg text { fill: var(--tm-k); font-size: 10.5px; font-weight: 600; }
 .transit-hub { font-weight: 800; letter-spacing: 2px; }
@@ -72,7 +73,10 @@
   border-bottom: 0.06em solid rgba(255, 255, 255, 0.15);
 }
 .transit-line > :not(.transit-line__bar) { grid-column: 2; }
+/* The line's bar runs beside its name, its state and what it says; the buttons go under it. */
 .transit-line__bar { grid-row: 1 / span 3; min-height: 2.4em; border-radius: 0.1em; background: var(--line); }
+.transit-line > .transit-acts { grid-column: 1 / -1; margin-top: 0.3em; }
+.transit-line__words { display: grid; gap: 0.3em; }
 .transit-line__bar--dashed { background: repeating-linear-gradient(var(--line) 0 0.5em, transparent 0.5em 0.8em); }
 .transit-line__name { font-size: 0.8em; font-weight: 800; }
 .transit-line__name button { padding: 0; border: 0; color: inherit; background: none; font: inherit; text-align: left; cursor: pointer; }
@@ -83,7 +87,6 @@
 .transit-status[data-tone="bad"] { color: #ffffff; background: #d52b1e; }
 .transit-line p { font-size: 0.64em; opacity: 0.9; }
 .transit-need { display: grid; gap: 0.25em; }
-.transit-need + .transit-need { margin-top: 0.4em; }
 .transit-need__title {
   display: inline;
   padding: 0;
@@ -115,8 +118,6 @@
 .transit-home .transit-btn.ui-button::before { display: none; }
 .transit-home .transit-btn .ui-button__tier { border-color: currentColor; color: inherit; background: none; }
 
-.transit-bar { display: inline-flex; align-items: baseline; gap: 6px; white-space: nowrap; }
-.transit-bar b { font-weight: 800; }
 
 @media (max-width: 1100px) {
   .transit-home { grid-template-columns: minmax(0, 1fr); font-size: clamp(13px, calc(100vw / 56), 20px); }
@@ -127,6 +128,14 @@
   .transit-home { min-height: 0; font-size: 16px; }
   /* The map keeps names big enough to read and scrolls sideways within itself. */
   .transit-map { padding: 1em 0.4em 0.6em; }
-  .transit-map__scroll { overflow-x: auto; }
-  .transit-map__svg { min-width: 600px; min-height: 0; }
+  .transit-map { grid-template-rows: auto auto minmax(0, 1fr); }
+  .transit-map__scroll {
+    overflow-x: auto;
+    /* The map's far side fades out at the screen's edge, so it reads as going on. */
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 48px), transparent);
+    mask-image: linear-gradient(to right, #000 calc(100% - 48px), transparent);
+  }
+  .transit-map__hint { display: block; margin: 0.6em 0 0 0.8em; color: #4a4a4f; font-size: 0.8em; font-weight: 600; }
+  /* Room past the map's end, so scrolled all the way the fade falls on paper, not on a name. */
+  .transit-map__svg { min-width: 600px; min-height: 0; margin-right: 48px; }
 }

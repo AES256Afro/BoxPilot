@@ -18,7 +18,7 @@
   line-height: 1.3;
 }
 
-.eink-home :is(h1, h2, p, ul) { margin: 0; }
+.eink-home :where(h1, h2, p, ul) { margin: 0; }
 .eink-home ul { padding: 0; list-style: none; }
 .eink-home button { font-family: inherit; }
 .eink-home :is(button, a):focus-visible { outline: 0.12em solid var(--ei-k); outline-offset: 0.14em; }
@@ -56,6 +56,9 @@
 }
 .eink-need__title:hover { text-decoration: underline; text-decoration-thickness: 0.06em; }
 .eink-need[data-soft] .eink-need__title { font-weight: 600; }
+.eink-need__title--soft { cursor: default; }
+.eink-need__part { padding: 0; border: 0; color: inherit; background: none; font: inherit; text-align: left; cursor: pointer; }
+.eink-need__part:hover { text-decoration: underline; text-decoration-thickness: 0.06em; }
 .eink-need__detail { grid-column: 2; color: var(--ei-g); font-size: 0.86em; }
 .eink-need__detail i { color: var(--ei-k); }
 .eink-acts { display: flex; flex-wrap: wrap; grid-column: 2; gap: 0.5em; margin-top: 0.3em; }
