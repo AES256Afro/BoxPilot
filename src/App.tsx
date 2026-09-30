@@ -21,6 +21,7 @@ import { NotificationCentre } from "./shell/NotificationCentre";
 import { PageLoading } from "./shell/PageLoading";
 import { ShellDock, ViewSwitch, type DockVariant } from "./shell/ShellNav";
 import { ShellSidebar } from "./shell/ShellSidebar";
+import { TopBarClock } from "./shell/TopBarClock";
 import { DrawnLookProvider } from "./looks/drawnLook";
 import { LookHome } from "./looks/LookHome";
 import { lookById, type LookId } from "./looks/looks";
@@ -237,6 +238,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
             <NotificationCentre csrfToken={csrfToken} role={role} onNavigate={setView} />
             <ActivityDrawer csrfToken={csrfToken} role={role} />
             <SessionControls authStatus={authStatus} csrfToken={csrfToken} onRefresh={() => void refreshAuth()} onSignedOut={onSignedOut} />
+            <TopBarClock />
           </div>
         </header>
 
