@@ -1,5 +1,13 @@
 import { useEffect, useState } from "react";
 
+const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/** "Tue 7:41 AM", as a menu bar says it. */
+export function clockWords(date: Date): string {
+  const hours = date.getHours();
+  return `${days[date.getDay()]} ${hours % 12 || 12}:${String(date.getMinutes()).padStart(2, "0")} ${hours < 12 ? "AM" : "PM"}`;
+}
+
 /**
  * The time at the end of the top bar (M41), for the looks whose drawing has a clock there (Aqua's
  * menu bar). It is hidden until a look's skin shows `.topbar-clock`, so every other look is as it
@@ -12,9 +20,5 @@ export function TopBarClock({ now = Date.now }: { now?: () => number }) {
     return () => window.clearInterval(timer);
   }, [now]);
   const date = new Date(at);
-  return (
-    <time className="topbar-clock" dateTime={date.toISOString()} hidden>
-      {date.toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" })}
-    </time>
-  );
+  return <time className="topbar-clock" dateTime={date.toISOString()} hidden>{clockWords(date)}</time>;
 }
