@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { countOf } from "../../data";
+import { adviseRetry } from "../../retryAdvice";
 import { useShellHost } from "../../shell/TopBarSlot";
 import { Button, EmptyState, Field, Notice, PageHeader, Panel, Progress, SecretInput, StatusChip, Tabs, Tag, appHue, mayStart, riskOf, useUrlParam, type RiskTier, type Status } from "../../ui";
 import { Autoinstall } from "./Autoinstall";
@@ -60,6 +61,15 @@ export default function SetupPage({ csrfToken, role = "owner", onDone }: SetupPa
   const passwordRef = useRef("");
   const skipped = useRef<Set<string>>(new Set());
   const canRun = mayStart(role, "app.install");
+  // Choosing a profile swaps the grid for its plan: focus goes to the plan, not to a button that is
+  // gone (it fell to the page, and on a phone Install everything was scrolled away). Going back puts
+  // it on the profile it came from.
+  const planRef = useRef<HTMLDivElement>(null);
+  const cameFrom = useRef<string | null>(null);
+  useEffect(() => {
+    if (selected) { planRef.current?.focus(); planRef.current?.scrollIntoView?.({ block: "start" }); return; }
+    if (cameFrom.current) document.querySelector<HTMLElement>(`[data-profile="${cameFrom.current}"]`)?.focus();
+  }, [selected]);
 
   const load = useCallback(async () => {
     try {
@@ -152,9 +162,15 @@ export default function SetupPage({ csrfToken, role = "owner", onDone }: SetupPa
     void load();
   }
 
-  const choose = (id: string) => { setSelected(id); setProgress({}); skipped.current = new Set(); setPhase("choose"); };
+  const choose = (id: string) => { cameFrom.current = id; setSelected(id); setProgress({}); skipped.current = new Set(); setPhase("choose"); };
   const resume = () => { passwordRef.current = password; if (profile) void run(profile); };
-  const retry = () => { for (const [id, entry] of Object.entries(progress)) if (entry.state === "failed") mark(id, { state: "pending" }); if (profile) void run(profile); };
+  // Read the server again first: a step that timed out here may have finished there, and running it
+  // again staged a second install that was refused as "already installed".
+  const retry = async () => {
+    for (const [id, entry] of Object.entries(progress)) if (entry.state === "failed") mark(id, { state: "pending" });
+    if (!profile) return;
+    void run((await currentProfile(profile.id)) ?? profile);
+  };
   const skipFailed = () => { for (const [id, entry] of Object.entries(progress)) if (entry.state === "failed") { skipped.current.add(id); mark(id, { state: "skipped" }); } if (profile) void run(profile); };
 
   const ready = setup ? setup.profiles.filter((entry) => entry.remaining === 0).length : 0;
@@ -163,6 +179,10 @@ export default function SetupPage({ csrfToken, role = "owner", onDone }: SetupPa
       : { status: "good" as const, label: countOf(setup.installedApps, "app installed", "apps installed") };
 
   const runnable = profile?.steps.filter((step) => step.status === "ready") ?? [];
+  // A failure that names another fix fails the same way when retried: only skipping moves on.
+  const failures = Object.values(progress).filter((entry) => entry.state === "failed");
+  const deadEnd = failures.find((entry) => !adviseRetry(entry.error).retry) ?? null;
+  const skippedCount = Object.values(progress).filter((entry) => entry.state === "skipped").length;
   const settled = profile ? profile.steps.filter((step) => step.status === "done" || progress[step.id]?.state === "done" || progress[step.id]?.state === "skipped").length : 0;
   const tier = batchTier(runnable);
 
@@ -197,7 +217,7 @@ export default function SetupPage({ csrfToken, role = "owner", onDone }: SetupPa
                   return (
                     <li key={entry.id}>
                       {/* Named by the profile and its state, not its emoji; described by what it brings. */}
-                      <button type="button" className="setup-profile" onClick={() => choose(entry.id)} aria-label={`${entry.name}, ${state.toLowerCase()}`} aria-describedby={`setup-profile-${entry.id}`}>
+                      <button type="button" className="setup-profile" data-profile={entry.id} onClick={() => choose(entry.id)} aria-label={`${entry.name}, ${state.toLowerCase()}`} aria-describedby={`setup-profile-${entry.id}`}>
                         <span className="setup-profile__square" data-hue={appHue(entry.id)} aria-hidden="true">{entry.icon}</span>
                         <span className="setup-profile__text">
                           <span className="setup-profile__name">{entry.name}</span>
@@ -217,6 +237,7 @@ export default function SetupPage({ csrfToken, role = "owner", onDone }: SetupPa
         ) : (
           <>
             <div className="setup-back"><Button variant="ghost" disabled={phase === "running"} onClick={() => setSelected(null)}>← All profiles</Button></div>
+            <div ref={planRef} tabIndex={-1} className="setup-plan-focus" aria-label={`${profile.name}: its steps`}>
             <Panel className="setup-plan" title={profile.name} count={phase === "finished" ? { status: "good", label: "done" } : `${runnable.length} to run`}
               meta={`${settled} of ${profile.steps.length} in place`}
               actions={phase === "choose" && canRun ? (
@@ -248,6 +269,7 @@ export default function SetupPage({ csrfToken, role = "owner", onDone }: SetupPa
               </ol>
               {runnable.length === 0 && phase === "choose" && <EmptyState title="Nothing to run">Everything in this profile is already in place, or waits on something outside it.</EmptyState>}
             </Panel>
+            </div>
             {phase === "running" && <Notice live tone="info" title="Running">Each step is a normal job; follow the details in Activity.</Notice>}
             {phase === "paused" && needPassword && (
               <Panel padded title="Approval">
@@ -260,11 +282,17 @@ export default function SetupPage({ csrfToken, role = "owner", onDone }: SetupPa
               </Panel>
             )}
             {phase === "paused" && !needPassword && (
-              <Notice live tone="danger" title="A step failed" action={<><Button variant="primary" onClick={retry}>Retry</Button><Button onClick={skipFailed}>Skip and continue</Button></>}>
-                Fix the cause (its job log is in Activity), then retry, or skip it and go on.
+              <Notice live tone="danger" title="A step failed" action={deadEnd
+                ? <Button variant="primary" onClick={skipFailed}>Skip and continue</Button>
+                : <><Button variant="primary" onClick={() => void retry()}>Retry</Button><Button onClick={skipFailed}>Skip and continue</Button></>}>
+                {deadEnd
+                  ? "Running it again would stop the same way: the step's error names what has to happen first. Skip it and go on, and run it from its own page once that is done."
+                  : "Fix the cause (its job log is in Activity), then retry, or skip it and go on."}
               </Notice>
             )}
-            {phase === "finished" && <Notice live tone="success" title="All done">Anything skipped can be run later from its own page.</Notice>}
+            {phase === "finished" && (skippedCount === 0
+              ? <Notice live tone="success" title="All done">Every step in this profile is in place.</Notice>
+              : <Notice live tone="warning" title={`Done, with ${countOf(skippedCount, "step")} skipped`}>The steps marked skipped above did not run; each can be run later from its own page.</Notice>)}
           </>
         )}
       </Tabs>
