@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Button, Checkbox, EmptyState, Field, KeyValue, Notice, Panel, Switch, Table, TextInput, mayStart, riskOf } from "../../ui";
 import { gib, upsLabel, type StartOperation, type SystemSettings, type UpsDetection } from "./systemTypes";
 
@@ -22,7 +22,10 @@ export function SystemHardware({ settings, loading, role, start, ups, upsError, 
   // from it. An "edited" flag used to hold the first thing typed for as long as the tab was open.
   const saved = settings?.swappiness ?? null;
   const [draft, setDraft] = useState<string | null>(null);
-  useEffect(() => { setDraft(null); }, [saved]);
+  // Started over in the render that shows the new value, not in an effect after it: an effect runs
+  // once the value is on screen, and wiped anything typed in between (CI caught it under load).
+  const [draftFor, setDraftFor] = useState(saved);
+  if (draftFor !== saved) { setDraftFor(saved); setDraft(null); }
   const swappiness = draft ?? (saved === null ? "" : String(saved));
   const [swapFileGiB, setSwapFileGiB] = useState("4");
   const [shutdown, setShutdown] = useState(true);
