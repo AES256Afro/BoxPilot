@@ -30,7 +30,7 @@ export function partName(name: string): string {
 }
 
 /** Bytes as a drawing writes them: "70MB", "1.4GB". */
-const tight = (bytes: number | null | undefined) => (bytes === null || bytes === undefined ? "—" : size(bytes).replace(" ", ""));
+const tight = (bytes: number | null | undefined) => (bytes === null || bytes === undefined ? "--" : size(bytes).replace(" ", ""));
 
 /**
  * The apps a note is about: the one it names, or those its fix is for (a Repair finding's
@@ -85,12 +85,12 @@ function useCheckedAt(read: unknown, now: () => number): number | null {
 export function driveFigures(used: number | null, total: number | null): { used: string; total: string; unit: string } {
   const tera = (total ?? 0) >= 1024 ** 4;
   const div = tera ? 1024 ** 4 : 1024 ** 3;
-  const figure = (bytes: number | null) => (bytes === null ? "—" : tera ? (bytes / div).toFixed(2) : String(Math.round(bytes / div)));
+  const figure = (bytes: number | null) => (bytes === null ? "--" : tera ? (bytes / div).toFixed(2) : String(Math.round(bytes / div)));
   return { used: figure(used), total: figure(total), unit: tera ? "TB" : "GB" };
 }
 
-const clockTime = (at: number | null) => (at === null ? "—" : new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false }));
-const deviceName = (source: string) => (source.startsWith("/dev/mapper/") ? "LVM" : source.replace(/^\/dev\//, "") || "—");
+const clockTime = (at: number | null) => (at === null ? "--" : new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false }));
+const deviceName = (source: string) => (source.startsWith("/dev/mapper/") ? "LVM" : source.replace(/^\/dev\//, "") || "--");
 
 /** The note's triangle with its number, as the drawing marks a note and each part it is about. */
 function Marker({ n, className }: { n: number; className: string }) {
@@ -147,8 +147,8 @@ export default function BlueprintHome({ csrfToken, role, onNavigate, now = Date.
   const memUsed = perf?.memory.usedBytes ?? inventory?.memoryUsed ?? null;
   const memTotal = perf?.memory.totalBytes ?? inventory?.memoryTotal ?? null;
   const tailscale = inventory?.tailscale ?? null;
-  const net = !tailscale ? "—" : tailscale.connected ? "TAILNET UP" : tailscale.installed ? "TAILNET DOWN" : "LAN ONLY";
-  const gb = (bytes: number | null) => (bytes === null ? "—" : (bytes / 1024 ** 3).toFixed(bytes / 1024 ** 3 >= 100 ? 0 : 1));
+  const net = !tailscale ? "--" : tailscale.connected ? "TAILNET UP" : tailscale.installed ? "TAILNET DOWN" : "LAN ONLY";
+  const gb = (bytes: number | null) => (bytes === null ? "--" : (bytes / 1024 ** 3).toFixed(bytes / 1024 ** 3 >= 100 ? 0 : 1));
 
   const sub = [inventory?.operatingSystem, inventory ? `UP ${uptime(inventory.uptimeSeconds).replace(/(\d+)([dhm])/g, "$1 $2")}` : null].filter(Boolean).join(" · ");
 
@@ -182,7 +182,7 @@ export default function BlueprintHome({ csrfToken, role, onNavigate, now = Date.
                         <rect className="blueprint-part__box" x="0.5" y="0.5" width="91" height="51" />
                         <text className="blueprint-part__name" x="7" y="19">{partName(app.name).toUpperCase()}</text>
                         <text className="blueprint-part__fact" x="7" y="33">{app.port === null ? "NO PORT" : `:${app.port}`} · {tight(live && stats ? stats.memBytes : null)}</text>
-                        <text className="blueprint-part__fact" x="7" y="44">{state ?? `CPU ${stats && live ? `${stats.cpuPercent.toFixed(1)}%` : "—"}`}</text>
+                        <text className="blueprint-part__fact" x="7" y="44">{state ?? `CPU ${stats && live ? `${stats.cpuPercent.toFixed(1)}%` : "--"}`}</text>
                       </svg>
                       {refs.length > 0 && <Marker n={refs[0]} className="blueprint-part__marker" />}
                     </button>
@@ -259,11 +259,11 @@ export default function BlueprintHome({ csrfToken, role, onNavigate, now = Date.
               <caption className="ui-visually-hidden">Loads</caption>
               <tbody>
                 <tr>
-                  <td><button type="button" onClick={() => onNavigate("performance")}>CPU {cpu === null ? "—" : Math.round(cpu)} %</button></td>
-                  <td><button type="button" onClick={() => onNavigate("performance")}>MEM {gb(memUsed)} / {memTotal === null ? "—" : Math.round(memTotal / 1024 ** 3)} GB</button></td>
+                  <td><button type="button" onClick={() => onNavigate("performance")}>CPU {cpu === null ? "--" : Math.round(cpu)} %</button></td>
+                  <td><button type="button" onClick={() => onNavigate("performance")}>MEM {gb(memUsed)} / {memTotal === null ? "--" : Math.round(memTotal / 1024 ** 3)} GB</button></td>
                 </tr>
                 <tr>
-                  <td><button type="button" onClick={() => onNavigate("performance")}>{hottest === null ? `LOAD ${inventory ? inventory.load1.toFixed(2) : "—"}` : `TEMP ${hottest} °C`}</button></td>
+                  <td><button type="button" onClick={() => onNavigate("performance")}>{hottest === null ? `LOAD ${inventory ? inventory.load1.toFixed(2) : "--"}` : `TEMP ${hottest} °C`}</button></td>
                   <td><button type="button" onClick={() => onNavigate("network")}>NET {net}</button></td>
                 </tr>
               </tbody>

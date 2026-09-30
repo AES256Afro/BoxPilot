@@ -161,7 +161,7 @@ export default function RackHome({ csrfToken, role, onNavigate, now = Date.now }
         </div>
         <div className="rack-leds">
           <span className="rack-eng"><Led state={inventory ? "green" : "off"} />Power</span>
-          <span className="rack-eng"><Led state={inventory ? "green" : "off"} />{inventory ? `Up ${uptime(inventory.uptimeSeconds).replace(/(\d+)h$/, (_, h: string) => `${h.padStart(2, "0")}h`)}` : "Up —"}</span>
+          <span className="rack-eng"><Led state={inventory ? "green" : "off"} />{inventory ? `Up ${uptime(inventory.uptimeSeconds).replace(/(\d+)h$/, (_, h: string) => `${h.padStart(2, "0")}h`)}` : "Up --"}</span>
         </div>
         <span className="rack-lamp" data-lit={urgent.length > 0 || undefined} role="status">
           {urgent.length > 0 ? <>{urgent.length} to<br />look at</> : checking ? "Checking" : "All clear"}
