@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Button, Field, KeyValue, Panel, Select, TextInput, mayStart, riskOf } from "../../ui";
 import type { StartOperation, SystemSettings } from "./systemTypes";
 
@@ -17,9 +17,19 @@ export function SystemTime({ settings, loading, role, start }: { settings: Syste
   const savedTimezone = settings?.timezone ?? "";
   const savedLocale = settings?.locale ?? "";
   const [draft, setDraft] = useState<{ hostname?: string; timezone?: string; locale?: string }>({});
-  useEffect(() => { setDraft(({ hostname: _, ...rest }) => rest); }, [savedHostname]);
-  useEffect(() => { setDraft(({ timezone: _, ...rest }) => rest); }, [savedTimezone]);
-  useEffect(() => { setDraft(({ locale: _, ...rest }) => rest); }, [savedLocale]);
+  // Each field starts over in the render that shows its new value in force, not in an effect after
+  // it: an effect runs once the value is on screen and wiped anything typed in between, as System's
+  // swappiness did (91e0dca). CI caught it here too, a half-typed hostname read back as the old one.
+  const [draftFor, setDraftFor] = useState({ hostname: savedHostname, timezone: savedTimezone, locale: savedLocale });
+  if (draftFor.hostname !== savedHostname || draftFor.timezone !== savedTimezone || draftFor.locale !== savedLocale) {
+    const stale = { hostname: draftFor.hostname !== savedHostname, timezone: draftFor.timezone !== savedTimezone, locale: draftFor.locale !== savedLocale };
+    setDraftFor({ hostname: savedHostname, timezone: savedTimezone, locale: savedLocale });
+    setDraft((current) => ({
+      ...(stale.hostname || current.hostname === undefined ? {} : { hostname: current.hostname }),
+      ...(stale.timezone || current.timezone === undefined ? {} : { timezone: current.timezone }),
+      ...(stale.locale || current.locale === undefined ? {} : { locale: current.locale }),
+    }));
+  }
   const hostname = draft.hostname ?? savedHostname;
   const timezone = draft.timezone ?? savedTimezone;
   const locale = draft.locale ?? savedLocale;
