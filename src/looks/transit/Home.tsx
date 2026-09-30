@@ -4,7 +4,6 @@ import type { HomeProps } from "../../home/Home";
 import { greeting } from "../../home/format";
 import { actionsOf, runs, type Need } from "../../home/needs";
 import { runWords } from "../../home/useNeedActions";
-import { TopBarSlot } from "../../shell/TopBarSlot";
 import { Button } from "../../ui";
 import { riskCopy } from "../../ui/Button";
 import { clockTime, shortName, useHomeData, type AppRow } from "../swiss/homeData";
@@ -109,12 +108,10 @@ export default function TransitHome(props: HomeProps) {
     }),
   ];
 
-  const needLines = (need: Need) => {
+  const needWords = (need: Need) => {
     const runnable = runs(need);
     const tier = runnable ? riskCopy[runnable.risk].label : need.risk ? riskCopy[need.risk].label : null;
     const run = runOf(need);
-    const busy = run && ["queued", "running", "checking"].includes(run.phase);
-    const actions = actionsOf(need);
     return (
       <div key={need.id} className="transit-need">
         <p>
@@ -123,18 +120,18 @@ export default function TransitHome(props: HomeProps) {
           {tier && <> {tier} risk.</>}
         </p>
         {run && <p role="status">{runWords(run)}</p>}
-        {actions.length > 0 && (
-          <div className="transit-acts">
-            {actions.map((action, index) => (
-              <Button key={`${action.operationId}:${action.label}`} variant={index === 0 ? "primary" : "secondary"} className="transit-btn"
-                risk={action.kind === "open" || action.kind === "dismiss" ? undefined : action.risk} disabled={Boolean(busy)} aria-label={`${action.label}: ${need.title}`} onClick={() => act(need, action)}>
-                {action.label}
-              </Button>
-            ))}
-          </div>
-        )}
       </div>
     );
+  };
+  const needButtons = (need: Need) => {
+    const run = runOf(need);
+    const busy = run && ["queued", "running", "checking"].includes(run.phase);
+    return actionsOf(need).map((action, index) => (
+      <Button key={`${need.id}:${action.operationId}:${action.label}`} variant={index === 0 ? "primary" : "secondary"} className="transit-btn"
+        risk={action.kind === "open" || action.kind === "dismiss" ? undefined : action.risk} disabled={Boolean(busy)} aria-label={`${action.label}: ${need.title}`} onClick={() => act(need, action)}>
+        {action.label}
+      </Button>
+    ));
   };
 
   const hub = map.interchange;
@@ -144,9 +141,6 @@ export default function TransitHome(props: HomeProps) {
   return (
     <div className="transit-home">
       {dialog}
-      <TopBarSlot>
-        <span className="transit-bar"><b>{hostname}</b><span aria-hidden="true">/</span>Home</span>
-      </TopBarSlot>
       <h1 className="ui-visually-hidden">{greeting(clock)}</h1>
 
       <section className="transit-map" aria-labelledby={titleId}>
@@ -154,6 +148,8 @@ export default function TransitHome(props: HomeProps) {
           <p className="transit-map__title" id={titleId}>{hostname}</p>
           <p className="transit-map__lead">{verdict.sentence} Each line is a way in or a way out; stations are your apps.</p>
         </div>
+        {/* On a phone the map keeps names big enough to read and scrolls sideways within itself. */}
+        <p className="transit-map__hint" aria-hidden="true">Swipe sideways for the whole map →</p>
         <div className="transit-map__scroll">
           <svg className="transit-map__svg" viewBox="12 8 508 372" role="group" aria-label="Your apps on the lines">
             {map.paths.map((path) => (
@@ -194,8 +190,13 @@ export default function TransitHome(props: HomeProps) {
             <i className={row.dashed ? "transit-line__bar transit-line__bar--dashed" : "transit-line__bar"} aria-hidden="true" />
             <h3 className="transit-line__name"><button type="button" onClick={row.go}>{row.name}</button></h3>
             <span className="transit-status" data-tone={row.tone}>{row.status}</span>
-            {row.lines.map((line, index) => <p key={index}>{line}</p>)}
-            {row.needs.map(needLines)}
+            {(row.lines.length > 0 || row.needs.length > 0) && (
+              <div className="transit-line__words">
+                {row.lines.map((line, index) => <p key={index}>{line}</p>)}
+                {row.needs.map(needWords)}
+              </div>
+            )}
+            {row.needs.some((need) => actionsOf(need).length > 0) && <div className="transit-acts">{row.needs.flatMap(needButtons)}</div>}
           </div>
         ))}
       </section>

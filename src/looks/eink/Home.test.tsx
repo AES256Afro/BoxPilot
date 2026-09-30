@@ -28,7 +28,9 @@ describe("Home on e-paper", () => {
     expect(items.map((item) => item.hasAttribute("data-soft"))).toEqual([false, false, true]);
     expect(within(needs).getByRole("button", { name: "Problem: Vaultwarden is not running." })).toBeTruthy();
     expect(within(needs).getByRole("button", { name: "Needs you: Four updates available." })).toBeTruthy();
-    expect(within(needs).getByRole("button", { name: "Can wait: An update for Jellyfin." })).toBeTruthy();
+    // What can wait is one sentence with no buttons, as the paper draws it; each part opens its page.
+    expect(items[2].textContent).toBe("Can wait: Jellyfin has an update.These can wait.");
+    expect(within(items[2]).getAllByRole("button").map((button) => button.textContent)).toEqual(["Jellyfin has an update"]);
     expect(items[1].querySelector(".eink-need__detail i")?.textContent).toBe("Medium.");
     expect(items[0].querySelector(".eink-need__detail i")?.textContent).toBe("Low.");
 
