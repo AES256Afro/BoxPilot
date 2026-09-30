@@ -1,0 +1,185 @@
+/*
+ * Home in the Glass Cockpit look (M41): the study's .ck screen (docs/design-directions/05-looks.html),
+ * in its em, which is the screen's width / 74 (the skin sets --ck-em). The bezel, the screen and the
+ * soft keys are the skin's; here are the gauges, the memo and the annunciators in the bar.
+ */
+
+.cockpit-home {
+  --ck-g: #39e27d;
+  --ck-c: #3fd7f2;
+  --ck-a: #ffbf1f;
+  --ck-m: #ff5ce1;
+  --ck-w: #f1f4f6;
+  --ck-d: #7d8894;
+  --ck-r: #ff4d4d;
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  gap: 1em;
+  min-height: calc(100vh - var(--ck-top, 75px) - var(--ck-bottom, 64px) - 2em);
+  color: var(--ck-w);
+  font-family: "B612", "Arial", sans-serif;
+  font-size: var(--ck-em, 19.46px);
+  line-height: 1.3;
+}
+
+/* ── The gauges: two by two, each dial at the top of its half. ── */
+.cockpit-gauges {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: repeat(2, minmax(13em, 1fr));
+  gap: 0.2em 0.6em;
+}
+.cockpit-gauge {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 0.4em;
+  color: inherit;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}
+.cockpit-gauge svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 100%;
+  overflow: visible;
+}
+.cockpit-gauge:hover svg { filter: drop-shadow(0 0 0.35em rgba(63, 215, 242, 0.18)); }
+.cockpit-gauge:focus-visible { outline: 2px solid var(--ck-c); outline-offset: -2px; }
+
+/* ── The memo: ECAM words in B612 Mono, a colour for each kind of line. ── */
+.cockpit-memo {
+  display: grid;
+  align-content: start;
+  gap: 0.1em;
+  min-width: 0;
+  padding-left: 1em;
+  border-left: 0.12em solid #1c2530;
+  font-family: "B612 Mono", ui-monospace, monospace;
+  font-size: 0.78em;
+  text-transform: uppercase;
+}
+.cockpit-t {
+  justify-self: start;
+  margin: 0.55em 0 0;
+  color: var(--ck-w);
+  font: inherit;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+.cockpit-memo > .cockpit-t:first-child { margin-top: 0; }
+.cockpit-section { display: grid; gap: 0.1em; }
+.cockpit-lines { display: grid; gap: 0.1em; margin: 0; padding: 0; list-style: none; }
+.cockpit-lines > li { display: grid; min-width: 0; }
+
+.cockpit-line {
+  display: block;
+  justify-self: start;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  color: var(--ck-g);
+  background: none;
+  font: inherit;
+  letter-spacing: 0;
+  line-height: 1.3;
+  text-align: left;
+  text-transform: inherit;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.cockpit-line:is(button) { cursor: pointer; }
+.cockpit-line:is(button):hover:not(:disabled) { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 0.2em; }
+.cockpit-line:is(button):focus-visible { outline: 2px solid var(--ck-c); outline-offset: 1px; }
+.cockpit-line:is(button):disabled { cursor: default; opacity: 0.55; }
+
+.cockpit-line--dim { color: var(--ck-d); }
+.cockpit-line--detail { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cockpit-line--caution { white-space: normal; }
+.cockpit-line--caution[data-severity="warning"] { color: var(--ck-a); }
+.cockpit-line--caution[data-severity="danger"] { color: var(--ck-r); }
+.cockpit-line--caution[data-severity="neutral"] { color: var(--ck-g); }
+.cockpit-line--act { color: var(--ck-c); white-space: pre; }
+.cockpit-line--target { color: var(--ck-m); }
+.cockpit-line--open[data-status="good"] { color: var(--ck-g); }
+.cockpit-line--open[data-status="warning"] { color: var(--ck-a); }
+.cockpit-line--open[data-status="danger"] { color: var(--ck-r); }
+.cockpit-line--open:is([data-status="unknown"], [data-status="neutral"]) { color: var(--ck-d); }
+.cockpit-line--run { color: var(--ck-c); }
+.cockpit-line--run[data-phase="fixed"], .cockpit-line--run[data-phase="scheduled"] { color: var(--ck-g); }
+.cockpit-line--run[data-phase="failed"], .cockpit-line--run[data-phase="still"] { color: var(--ck-a); }
+.cockpit-verdict { margin-top: 0.15em; }
+.cockpit-verdict[data-status="good"] { color: var(--ck-g); }
+.cockpit-verdict[data-status="warning"] { color: var(--ck-a); }
+.cockpit-verdict[data-status="danger"] { color: var(--ck-r); }
+.cockpit-verdict:is([data-status="unknown"], [data-status="neutral"]) { color: var(--ck-d); }
+
+/* ── The annunciator row, in the shell's bar: lamps, then the clock at the far right. ── */
+.cockpit-ann {
+  display: flex;
+  align-items: stretch;
+  gap: calc(var(--ck-em, 19.46px) * 0.5);
+  height: 100%;
+  font-size: var(--ck-em, 19.46px);
+}
+.cockpit-lamp {
+  display: grid;
+  place-content: center;
+  min-width: 0;
+  padding: 0.6em 0.8em;
+  border: 0;
+  border-radius: 0.2em;
+  color: #a0916f;
+  background: #2a2418;
+  box-shadow: inset 0 0 0 0.15em #111111;
+  font: 700 0.62em/1 "B612", "Arial", sans-serif;
+  letter-spacing: 0.08em;
+  text-align: center;
+  cursor: pointer;
+}
+.cockpit-lamp[data-state="good"] { color: #56a06d; background: #102a18; }
+.cockpit-lamp[data-state="warning"] { color: #1a1000; background: #ffbf1f; box-shadow: inset 0 0 0 0.15em #111111, 0 0 1em rgba(255, 191, 31, 0.6); }
+.cockpit-lamp[data-state="danger"] { color: #1a0000; background: #ff4d4d; box-shadow: inset 0 0 0 0.15em #111111, 0 0 1em rgba(255, 77, 77, 0.6); }
+.cockpit-lamp--master { gap: 0.1em; padding: 0.5em 1.2em; font-size: 0.78em; }
+.cockpit-lamp:hover { filter: brightness(1.12); }
+.cockpit-lamp:focus-visible { outline: 2px solid #3fd7f2; outline-offset: 2px; }
+
+.cockpit-clock {
+  position: absolute;
+  top: 50%;
+  right: calc(var(--ck-em, 19.46px) * 1.1);
+  padding: 0.2em 0.6em;
+  border-radius: 0.2em;
+  color: #39e27d;
+  background: #000000;
+  box-shadow: inset 0 0 0 0.12em #111111;
+  font: 700 1.1em/1.3 "B612 Mono", ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  transform: translateY(-50%);
+}
+
+/* A narrower screen: the memo under the gauges; a phone, the gauges two by two at its width. */
+@media (max-width: 1100px) {
+  .cockpit-home { grid-template-columns: minmax(0, 1fr); min-height: 0; font-size: clamp(14px, 1.9vw, 19px); }
+  .cockpit-gauges { grid-template-rows: none; }
+  .cockpit-memo { padding: 0.8em 0 0; border-top: 0.12em solid #1c2530; border-left: 0; }
+}
+@media (max-width: 760px) {
+  .cockpit-home { font-size: 14px; }
+  .cockpit-gauges { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.4em; }
+  .cockpit-memo { font-size: 13px; }
+  .cockpit-line--act { white-space: pre-wrap; }
+  .cockpit-ann { flex: 1 1 auto; gap: 4px; min-height: 40px; font-size: 14px; }
+  .cockpit-lamp { flex: 1 1 auto; padding: 0.5em 0.3em; }
+  .cockpit-lamp--master { flex-grow: 1.6; padding: 0.35em 0.4em; }
+  .cockpit-clock { display: none; }
+}
