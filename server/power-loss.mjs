@@ -92,7 +92,8 @@ const shutdownMarkers = [
   // PID 1 only: a user's own systemd reaches its "Shutdown" target whenever their last session ends.
   { test: (entry) => entry.identifier === "systemd" && entry.pid === 1 && /^Shutting down\.?$/.test(entry.message), words: "systemd: Shutting down." },
   { test: (entry) => entry.identifier === "systemd" && entry.pid === 1 && /^Reached target .*(Shutdown|Power[- ]?Off|Reboot|Halt|[Kk]exec)/i.test(entry.message), words: null },
-  { test: (entry) => entry.identifier === "systemd-logind" && /System is (powering down|rebooting|halting)|The system will (power off|reboot|halt)/i.test(entry.message), words: null },
+  // "now" only: "The system will reboot at 03:00" is a shutdown that may yet be cancelled.
+  { test: (entry) => entry.identifier === "systemd-logind" && /System is (powering down|rebooting|halting)|The system will (power off|reboot|halt) now/i.test(entry.message), words: null },
 ];
 
 /**
@@ -122,7 +123,8 @@ export function uncleanSignsIn(entries = []) {
   const signs = [];
   for (const entry of entries) {
     const sign = uncleanSigns.find(({ pattern }) => pattern.test(entry.message));
-    if (sign && signs.length < 8) signs.push({ at: entry.at, kind: sign.kind, message: `${entry.kernel ? "kernel" : entry.identifier ?? "?"}: ${entry.message}` });
+    // journald's own early lines come through the kernel's log (kmsg) but keep its name.
+    if (sign && signs.length < 8) signs.push({ at: entry.at, kind: sign.kind, message: `${entry.identifier ?? (entry.kernel ? "kernel" : "?")}: ${entry.message}` });
   }
   return signs;
 }
