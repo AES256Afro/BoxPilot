@@ -758,3 +758,12 @@ and sit throttled.
 - The owner's bound "never more than physical cores minus 2" is read as processors minus two: on
   their 8-core, 16-processor server a literal physical-cores bound would be 6 and forbid the eight
   they chose. Threads are what is held to the physical cores.
+- **Measured** (`agents-bench.yml` run 36657859664: Qwen 3.5 4B under Unsloth, the owner's first
+  question twice and a typical one, on a four-processor GitHub runner, an AMD EPYC 7763 with two
+  cores): two threads under 200% read 14.1-14.7 tokens a second and wrote 5.3-6.9; **four threads
+  under the same 200% read 7.5-7.8 and wrote 2.9-3.9, about half**, and the owner's question took
+  436 s against 257 s. That is option (a)'s cost, and why threads follow the processors. Four threads
+  under 400% read 14.6-15.4 and wrote 6.2-8.4, little more than two under 200%: the runner's two
+  cores give two threads what four processors would. What eight threads under 800% gain on the
+  owner's eight cores is not measurable on a four-processor runner; the owner's Usage tab keeps
+  speeds per thread count, so their first questions at eight will show it.
