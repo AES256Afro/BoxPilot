@@ -20,7 +20,7 @@ curl -fsSL https://raw.githubusercontent.com/AES256Afro/BoxPilot/main/scripts/bo
 
 It installs Node 24, builds BoxPilot under `/opt/boxpilot`, enables the `boxpilot` and `boxpilot-helper` services, and prints the URL with a one-time owner token. Create the owner account, pick a setup profile (home server, DNS appliance, hypervisor, dev box, media server, smart home, observability, or just the essentials), and follow the setup checklist on Ops. BoxPilot tells you when a new release is out; applying it is a one-click job that needs your password and rolls back by itself if the new version fails its health check.
 
-**See it without installing:** [antifascist.work](https://antifascist.work) runs the real UI on fictional data. Locally: `npm install && npm run build && npm run demo`, then open <http://127.0.0.1:8799>.
+**See it without installing:** [antifascist.work](https://antifascist.work) runs the real UI on fictional data, with every look to try and the looks' mockups at `/mockups/`. It asks for a password, to keep scrapers out; ask the owner for it. Locally: `npm install && npm run build && npm run demo`, then open <http://127.0.0.1:8799>.
 
 ## Features
 

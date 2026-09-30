@@ -17,3 +17,6 @@ binding = "ASSETS"
 # world switcher into the page shell. Cloudflare serves assets before the Worker by default, which
 # meant "/" came back as the bare index.html with no way to reach the empty or broken worlds.
 run_worker_first = true
+# Every page is chosen by the Worker, which asks for files by their exact names (/index.html,
+# /mockups/index.html); "none" serves exactly those instead of redirecting them to a pretty path.
+html_handling = "none"
