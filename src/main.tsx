@@ -4,6 +4,8 @@ import App from "./App";
 import { registerServiceWorker } from "./pwa/register";
 import { watchConnection } from "./pwa/connection";
 import "./styles.css";
+// After the tokens, so a look's values win over the defaults they replace (M41).
+import "./looks/skins";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

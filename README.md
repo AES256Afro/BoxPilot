@@ -6,6 +6,8 @@ Point-and-click setup and management for an Ubuntu home server, from a browser, 
 
 Install updates, add apps from a catalog, open only the ports you mean to, mount and share storage, run VMs, and back everything up with restores that are actually tested. Low-risk changes are one click, medium-risk ones show a preview to confirm, high-risk ones ask for your password. A root helper does the work; the web process never runs privileged.
 
+You pick how it looks: thirteen looks in Settings → Appearance, from frosted glass over a wallpaper to a green terminal, a rack of LEDs, or an e-paper screen. [See them all.](#looks)
+
 *Screenshots come from the built-in demo (`npm run demo`): the real UI on fictional data.*
 
 ## Install
@@ -18,7 +20,7 @@ curl -fsSL https://raw.githubusercontent.com/AES256Afro/BoxPilot/main/scripts/bo
 
 It installs Node 24, builds BoxPilot under `/opt/boxpilot`, enables the `boxpilot` and `boxpilot-helper` services, and prints the URL with a one-time owner token. Create the owner account, pick a setup profile (home server, DNS appliance, hypervisor, dev box, media server, smart home, observability, or just the essentials), and follow the setup checklist on Ops. BoxPilot tells you when a new release is out; applying it is a one-click job that needs your password and rolls back by itself if the new version fails its health check.
 
-**See it without installing:** [antifascist.work](https://antifascist.work) runs the real UI on fictional data. Locally: `npm install && npm run build && npm run demo`, then open <http://127.0.0.1:8799>.
+**See it without installing:** [antifascist.work](https://antifascist.work) runs the real UI on fictional data, with every look to try and the looks' mockups at `/mockups/`. It asks for a password, to keep scrapers out; ask the owner for it. Locally: `npm install && npm run build && npm run demo`, then open <http://127.0.0.1:8799>.
 
 ## Features
 
@@ -38,6 +40,7 @@ It installs Node 24, builds BoxPilot under `/opt/boxpilot`, enables the `boxpilo
 | **Repair Center** | Prerequisite installs, the disaster-recovery kit, guided fixes. |
 | **Logs** | Any unit, container, or journal group: tail, filter, follow, download. |
 | **Settings** | Approval mode, alerts (ntfy, Gotify, webhook) for failed jobs, full disks, SMART warnings, power cuts; GitHub and Tailscale sign-in. |
+| **Appearance** | Thirteen looks for every page, each with its own Home: Home + Ops (the default), Launcher, Command Center, Aqua, Blueprint, Phosphor, Rack Panel, Swiss Poster, Toybox, Glass Cockpit, E-Ink, Quest and Transit Map. Light or dark, accent colour, wallpaper, compact or comfortable rows, solid panels instead of glass, or keep today's Home and change the rest. Kept per browser, so a phone and a wall screen can differ. |
 
 Sign in with a local password, your Tailscale identity, or GitHub.
 
@@ -100,6 +103,18 @@ what you would need to rebuild this server from nothing.
 
 ![Repair](docs/screenshots/repairs.jpg)
 
+### Looks
+
+Settings → Appearance changes every page at once. Pick a look and it applies straight away, with Keep this look or Go back. Each look below is its Home on the demo's fictional server; every other page follows it.
+
+<table>
+<tr><td width="33%" valign="top"><img src="docs/screenshots/looks/blend.jpg" alt="Home + Ops: Glass over a wallpaper, with the console's numbers inside. The default."><br><b>Home + Ops</b><br>Glass over a wallpaper, with the console's numbers inside. The default.</td><td width="33%" valign="top"><img src="docs/screenshots/looks/launcher.jpg" alt="Launcher: Home's wallpaper, frosted glass and dock on every page."><br><b>Launcher</b><br>Home's wallpaper, frosted glass and dock on every page.</td><td width="33%" valign="top"><img src="docs/screenshots/looks/console.jpg" alt="Command Center: The Ops console on every page, Home included."><br><b>Command Center</b><br>The Ops console on every page, Home included.</td></tr>
+<tr><td width="33%" valign="top"><img src="docs/screenshots/looks/aqua.jpg" alt="Aqua: Mac OS X, 2001: pinstripes, gel buttons, a source list and a dock."><br><b>Aqua</b><br>Mac OS X, 2001: pinstripes, gel buttons, a source list and a dock.</td><td width="33%" valign="top"><img src="docs/screenshots/looks/blueprint.jpg" alt="Blueprint: The server as a technical drawing on blue drafting paper."><br><b>Blueprint</b><br>The server as a technical drawing on blue drafting paper.</td><td width="33%" valign="top"><img src="docs/screenshots/looks/phosphor.jpg" alt="Phosphor: A green CRT terminal with a key for every action."><br><b>Phosphor</b><br>A green CRT terminal with a key for every action.</td></tr>
+<tr><td width="33%" valign="top"><img src="docs/screenshots/looks/rack.jpg" alt="Rack Panel: Brushed-metal rack units, LEDs and segment displays."><br><b>Rack Panel</b><br>Brushed-metal rack units, LEDs and segment displays.</td><td width="33%" valign="top"><img src="docs/screenshots/looks/swiss.jpg" alt="Swiss Poster: White, black and one red: type and rules, no boxes."><br><b>Swiss Poster</b><br>White, black and one red: type and rules, no boxes.</td><td width="33%" valign="top"><img src="docs/screenshots/looks/toybox.jpg" alt="Toybox: Chunky pastel cards and buttons that press down."><br><b>Toybox</b><br>Chunky pastel cards and buttons that press down.</td></tr>
+<tr><td width="33%" valign="top"><img src="docs/screenshots/looks/cockpit.jpg" alt="Glass Cockpit: Round gauges, a master caution lamp and soft keys."><br><b>Glass Cockpit</b><br>Round gauges, a master caution lamp and soft keys.</td><td width="33%" valign="top"><img src="docs/screenshots/looks/eink.jpg" alt="E-Ink: Black on e-paper grey: serif text, dithered bars, shapes and words for status."><br><b>E-Ink</b><br>Black on e-paper grey: serif text, dithered bars, shapes and words for status.</td><td width="33%" valign="top"><img src="docs/screenshots/looks/quest.jpg" alt="Quest: An RPG party screen: apps are party members, problems are quests."><br><b>Quest</b><br>An RPG party screen: apps are party members, problems are quests.</td></tr>
+<tr><td width="33%" valign="top"><img src="docs/screenshots/looks/transit.jpg" alt="Transit Map: The box as a subway map, with a line status board."><br><b>Transit Map</b><br>The box as a subway map, with a line status board.</td></tr>
+</table>
+
 ## How it works
 
 - **One operation registry** (`server/ops/`): every action declares a risk tier, a parameter schema, and a `run`. Nothing runs that is not declared.
@@ -118,6 +133,7 @@ npm run dev               # UI at http://127.0.0.1:5173
 npm run check             # build + tests + syntax checks
 npm run demo              # the built UI on fictional data at http://127.0.0.1:8799
 npm run demo:screenshots  # regenerate docs/screenshots from the demo (needs Chrome)
+node scripts/look-check.mjs look aqua  # score a look against its drawing (needs Chrome)
 ```
 
 `npm run build && npm start` listens on `127.0.0.1:8787` (`BOXPILOT_HOST` changes it). Native installs run as systemd units from `deploy/`.

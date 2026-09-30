@@ -95,7 +95,7 @@ export function ActivityDrawer({ csrfToken = "", role = "owner" }: { csrfToken?:
 
   return (
     <>
-      <button className="bar-button" data-live={runningCount > 0 || undefined} type="button" aria-expanded={open} aria-haspopup="dialog" onClick={() => setOpen((value) => !value)}>
+      <button className="bar-button bar-activity" data-live={runningCount > 0 || undefined} type="button" aria-expanded={open} aria-haspopup="dialog" onClick={() => setOpen((value) => !value)}>
         Activity{runningCount > 0 ? <span className="bar-badge" aria-label={`${runningCount} running`}>{runningCount}</span> : null}
       </button>
       {open && (

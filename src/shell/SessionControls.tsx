@@ -3,6 +3,13 @@ import { dropElevation, forgetSession, logoutOwner, type AuthStatus, type Signed
 import { turnOffThisDevice } from "../pwa/push";
 import "./bar.css";
 
+/** Signs out of this browser, and stops this device's approval pushes (M25.2) while the session can still say so. */
+export function signOut(csrfToken: string, onSignedOut: (reason: SignedOutReason | null) => void) {
+  forgetSession();
+  void turnOffThisDevice(csrfToken).catch(() => undefined)
+    .then(() => logoutOwner(csrfToken)).then(() => onSignedOut(null)).catch(() => onSignedOut(null));
+}
+
 /**
  * Who is signed in, at the end of the top bar (M33.13): the role when it is not the owner's, the
  * elevated session's lock (or, when there is none, that approvals are tiered), the person, and
@@ -42,12 +49,7 @@ export function SessionControls({ authStatus, csrfToken, onRefresh, onSignedOut 
         {username && <span className="signed-in-user__avatar" aria-hidden="true">{username.slice(0, 1).toUpperCase()}</span>}
         <span className="signed-in-user__name">{username}</span>
       </span>
-      <button className="bar-button" type="button" onClick={() => {
-        forgetSession();
-        // Signing out here also stops this device's approval pushes (M25.2), while the session can still say so.
-        void turnOffThisDevice(csrfToken).catch(() => undefined)
-          .then(() => logoutOwner(csrfToken)).then(() => onSignedOut(null)).catch(() => onSignedOut(null));
-      }}>Sign out</button>
+      <button className="bar-button bar-sign-out" type="button" onClick={() => signOut(csrfToken, onSignedOut)}>Sign out</button>
     </>
   );
 }

@@ -61,6 +61,7 @@ describe("Settings (M33.13)", () => {
     expect(await screen.findByText("alex")).toBeTruthy();
     fireEvent.click(screen.getByRole("tab", { name: "Appearance" }));
     expect(window.location.search).toBe("?view=settings&tab=appearance");
-    expect(screen.getByRole("radiogroup", { name: "Theme" })).toBeTruthy();
+    expect(screen.getByRole("radiogroup", { name: "Look" })).toBeTruthy();
+    expect(screen.getByRole("radiogroup", { name: "Light or dark" })).toBeTruthy();
   });
 });

@@ -1,0 +1,479 @@
+/*
+ * The blueprint look's skin (M41): every selector starts with :root[data-look="blueprint"].
+ *
+ * The server as a technical drawing (docs/design-directions/05-looks.html, M.blueprint): cobalt
+ * drafting paper with a fine grid every em and a coarser one every five, white linework, Martian
+ * Mono, and a double drawing border inset around the sheet. Dark only: the paper is the same
+ * whatever the device prefers, and the light and dark switch is hidden.
+ *
+ * Panels are white-outlined rectangles on the paper with no fill, tables are drafting tables,
+ * buttons are outlined, and the rail and the top bar are the sheet's title strip, inside the border.
+ * Labels, headings, buttons and the navigation are in capitals, as a drawing's annotations are;
+ * sentences and data (paths, names, logs, what is typed) keep their own case, so they read as typed.
+ */
+
+:root[data-look="blueprint"] {
+  color-scheme: dark;
+  --bp-paper: #1f4f98;
+  --bp-ink: #f2f6ff;
+  /* The study's dim ink is 62% white, which is 3.9:1 on the paper; lifted to clear 4.5:1. */
+  --bp-dim: #bccbe4;
+  --bp-faint: rgba(242, 246, 255, 0.3);
+  --bp-grid: clamp(14px, calc(100vw / 74), 26px);
+  --bp-paper-image:
+    linear-gradient(rgba(242, 246, 255, 0.13) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(242, 246, 255, 0.13) 1px, transparent 1px),
+    linear-gradient(rgba(242, 246, 255, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(242, 246, 255, 0.05) 1px, transparent 1px);
+  --bp-paper-size: calc(var(--bp-grid) * 5) calc(var(--bp-grid) * 5), calc(var(--bp-grid) * 5) calc(var(--bp-grid) * 5), var(--bp-grid) var(--bp-grid), var(--bp-grid) var(--bp-grid);
+  --bp-hatch: repeating-linear-gradient(-45deg, var(--bp-ink) 0 1.4px, transparent 1.4px 6px);
+  /* Where the drawing border sits: its outer line, its inner line, and the sheet inside them. */
+  /* The heavy line at 18px from the edges, 26px at the top, whose margin holds the bar's controls as
+     a sheet's edge carries its annotations; the fine line 14px inside it, except on the left, where
+     the rail stands between the two and the fine line is the rail's own rule. */
+  --bp-edge: 18px;
+  --bp-edge-top: 26px;
+  --bp-frame: 32px;
+  --bp-frame-top: 40px;
+  --bp-frame-left: 62px;
+  /* One em of the drawing: the sheet's width across 68 of them, as the study's 1440 px screen. */
+  --bp-em: clamp(12px, calc((100vw - 122px) / 68), 21px);
+
+  --font-condensed: "Martian Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --font-mono: "Martian Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --font-sans: "Martian Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --font-display: "Martian Mono", ui-monospace, monospace;
+
+  /* The Command Center's family, drawn in white on the paper. Panels are the paper itself (opaque,
+     for what opens over a page); the page's own panels draw no fill at all (below). */
+  --cc-canvas: #1f4f98;
+  --cc-topbar: #1f4f98;
+  --cc-rail: #1f4f98;
+  --cc-panel: #1f4f98;
+  --cc-raised: #2a5aa3;
+  --cc-inset: #1b478b;
+  --cc-line: rgba(242, 246, 255, 0.85);
+  --cc-hairline: rgba(242, 246, 255, 0.28);
+  --cc-line-strong: #f2f6ff;
+  --cc-text: #f2f6ff;
+  --cc-text-strong: #ffffff;
+  --cc-muted: #bccbe4;
+  --cc-icon: #d9e2f3;
+  /* What to act on is white: a filled button is the ink with the paper's blue in it. */
+  --cc-amber: #f2f6ff;
+  --cc-amber-ink: #1f4f98;
+  --cc-amber-bg: rgba(242, 246, 255, 0.1);
+  --cc-amber-border: rgba(242, 246, 255, 0.7);
+  --cc-cyan: #f2f6ff;
+  --cc-cyan-fill: rgba(242, 246, 255, 0.12);
+  --cc-green: #a6f0c6;
+  --cc-green-bg: rgba(166, 240, 198, 0.1);
+  --cc-green-border: rgba(166, 240, 198, 0.7);
+  --cc-red: #ffb3b3;
+  --cc-red-text: #ffc4c4;
+  --cc-red-bg: rgba(255, 179, 179, 0.12);
+  --cc-red-border: rgba(255, 179, 179, 0.8);
+  --cc-track: transparent;
+
+  /* A drawing marks what needs a look in its own pencil: yellow, pink for a fault. */
+  --status-warning: #ffd76a;
+  --status-warning-text: #ffd76a;
+  --status-warning-bg: rgba(255, 215, 106, 0.1);
+  --status-warning-border: rgba(255, 215, 106, 0.8);
+  --risk-medium: #ffd76a;
+  --risk-medium-text: #ffd76a;
+  --risk-medium-bg: transparent;
+  --risk-medium-border: rgba(255, 215, 106, 0.8);
+  --risk-low-bg: transparent;
+  --risk-high-bg: transparent;
+  --status-good-bg: transparent;
+  --status-danger-bg: transparent;
+  --status-neutral-bg: transparent;
+  --modal-bg: rgba(10, 30, 66, 0.72);
+  --radius-sm: 0;
+  --radius-md: 0;
+  --radius-lg: 0;
+  --radius-pill: 0;
+  --radius-control: 0;
+  --elevation-3: none;
+  --shadow-xl: none;
+}
+
+/* Only the light theme could have been chosen: the paper is drawn the same, and the switch goes. */
+:root[data-look="blueprint"] .ui-theme-switch { display: none; }
+
+/* ── The paper ── */
+:root[data-look="blueprint"] body,
+:root[data-look="blueprint"] .app-shell[data-shell="console"] {
+  background-color: var(--bp-paper);
+  background-image: var(--bp-paper-image);
+  background-size: var(--bp-paper-size);
+  background-attachment: fixed;
+}
+:root[data-look="blueprint"] .app-shell :is(button, a, input, select, textarea, summary, [tabindex]):focus-visible,
+:root[data-look="blueprint"] .look-console :focus-visible:not([tabindex="-1"]),
+:root[data-look="blueprint"] :is(.ui-sheet, .command-dialog) :is(button, a, input, select, textarea, summary):focus-visible {
+  outline: 2px dashed var(--bp-ink);
+  outline-offset: 2px;
+}
+:root[data-look="blueprint"] ::selection { color: var(--bp-paper); background: var(--bp-ink); }
+
+/* ── The drawing border: a heavy line and a fine one inside it, around every page. What scrolls
+   passes under the margin outside the fine line, which is the same paper, so the sheet keeps its
+   edge. ── */
+:root[data-look="blueprint"] body::before {
+  position: fixed;
+  z-index: 25;
+  inset: 0 0 var(--shell-bottom-inset, 0px);
+  background-color: var(--bp-paper);
+  background-image: var(--bp-paper-image);
+  background-size: var(--bp-paper-size);
+  background-attachment: fixed;
+  clip-path: polygon(evenodd, 0 0, 100% 0, 100% 100%, 0 100%, 0 0,
+    var(--bp-frame-left) var(--bp-frame-top), var(--bp-frame-left) calc(100% - var(--bp-frame)), calc(100% - var(--bp-frame)) calc(100% - var(--bp-frame)), calc(100% - var(--bp-frame)) var(--bp-frame-top), var(--bp-frame-left) var(--bp-frame-top));
+  content: "";
+  pointer-events: none;
+}
+/* The heavy line. */
+:root[data-look="blueprint"] body::after {
+  position: fixed;
+  z-index: 26;
+  inset: var(--bp-edge-top) var(--bp-edge) calc(var(--shell-bottom-inset, 0px) + var(--bp-edge));
+  border: 3.5px solid var(--bp-ink);
+  content: "";
+  pointer-events: none;
+}
+/* The fine line. */
+:root[data-look="blueprint"] .app-shell::after {
+  position: fixed;
+  z-index: 26;
+  inset: var(--bp-frame-top) var(--bp-frame) calc(var(--shell-bottom-inset, 0px) + var(--bp-frame)) var(--bp-frame-left);
+  border: 1.4px solid var(--bp-ink);
+  content: "";
+  pointer-events: none;
+}
+
+/* ── The sheet: inside the fine line, the title strip across its head ── */
+@media (min-width: 761px) {
+  :root[data-look="blueprint"] .app-shell[data-shell="console"] {
+    padding: calc(var(--bp-frame-top) + 1.4px) calc(var(--bp-frame) + 1.4px) 0 calc(var(--bp-frame-left) + 1.4px);
+  }
+  :root[data-look="blueprint"] .content { padding: 14px 20px calc(var(--shell-bottom-inset, 0px) + var(--bp-frame) + 24px) 10px; }
+  :root[data-look="blueprint"] .topbar { padding-left: 10px; }
+}
+
+/* The rail: between the heavy line and the fine one down the left edge, the fine line its rule. */
+@media (min-width: 761px) {
+  :root[data-look="blueprint"] .shell-dock.shell-dock--rail {
+    top: calc(var(--bp-edge-top) + 3.5px);
+    bottom: calc(var(--shell-bottom-inset, 0px) + var(--bp-edge) + 3.5px);
+    left: calc(var(--bp-edge) + 3.5px);
+    width: calc(var(--bp-frame-left) - var(--bp-edge) - 3.5px);
+    padding: 8px 0;
+    border-right: 0;
+    background: transparent;
+  }
+  :root[data-look="blueprint"] .shell-rail__logo {
+    width: 30px;
+    height: 30px;
+    border: 1.6px solid var(--bp-ink);
+    border-radius: 0;
+    color: var(--bp-ink);
+    background: transparent;
+    font: 600 11px/1 var(--font-mono);
+    letter-spacing: 0.04em;
+  }
+  :root[data-look="blueprint"] .shell-dock--rail .ui-dock__item { width: 30px; }
+  :root[data-look="blueprint"] .shell-dock--rail .ui-dock__icon { width: 30px; height: 30px; border: 0; border-radius: 0; color: var(--bp-dim); background: transparent; }
+  :root[data-look="blueprint"] .shell-dock--rail .ui-dock__icon svg { width: 18px; height: 18px; stroke-width: 1.6; }
+  :root[data-look="blueprint"] .shell-dock--rail .ui-dock__item:hover .ui-dock__icon { color: var(--bp-ink); background: transparent; box-shadow: inset 0 0 0 1px var(--bp-faint); }
+  :root[data-look="blueprint"] .shell-dock--rail .ui-dock__item[aria-current="page"] .ui-dock__icon { color: var(--bp-ink); background: transparent; box-shadow: inset 0 0 0 1.6px var(--bp-ink); }
+  :root[data-look="blueprint"] .shell-dock--rail .ui-dock__separator { width: 26px; background: var(--bp-faint); }
+  :root[data-look="blueprint"] .shell-dock--rail .ui-dock__badge { background: var(--bp-ink); box-shadow: 0 0 0 2px var(--bp-paper); }
+  :root[data-look="blueprint"] .shell-dock--rail .ui-dock__label {
+    border: 1.4px solid var(--bp-ink);
+    border-radius: 0;
+    color: var(--bp-ink);
+    background: var(--bp-paper);
+    font: 600 11px/1.3 var(--font-mono);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+}
+
+/* The title strip at the head of the sheet: the page's name (on Home, the drawing's title), ruled off
+   from the drawing under it. */
+:root[data-look="blueprint"] .topbar {
+  z-index: 28;
+  top: calc(var(--bp-frame-top) + 1.4px);
+  min-height: 52px;
+  border-bottom: 1.4px solid var(--bp-ink);
+  background-color: var(--bp-paper);
+  background-image: var(--bp-paper-image);
+  background-size: var(--bp-paper-size);
+  background-attachment: fixed;
+  text-transform: uppercase;
+}
+:root[data-look="blueprint"] .cc-crumb__host { color: var(--bp-ink); font-size: 14px; font-weight: 600; letter-spacing: 0.08em; }
+:root[data-look="blueprint"] .cc-crumb__sep { color: var(--bp-dim); font-size: 14px; }
+:root[data-look="blueprint"] .cc-crumb h1 { color: var(--bp-ink); font-size: 14px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
+:root[data-look="blueprint"] .cc-kv { color: var(--bp-dim); font-size: 11px; letter-spacing: 0.02em; }
+:root[data-look="blueprint"] .cc-kv b { color: var(--bp-ink); }
+
+/* The bar's controls: small outlined annotations. On a wide screen they stand in the sheet's top
+   margin, above the heavy line: Home and Ops at its left, the search whole in the middle, the bell,
+   Activity and the account menu at its right. The account menu holds the person and Sign out. */
+:root[data-look="blueprint"] .view-switch { gap: 0; padding: 0; border: 1.4px solid var(--bp-ink); border-radius: 0; background: transparent; }
+:root[data-look="blueprint"] .view-switch__option { min-height: 28px; padding: 0 10px; border: 0; border-radius: 0; color: var(--bp-dim); font-size: 11px; font-weight: 600; letter-spacing: 0.06em; }
+:root[data-look="blueprint"] .view-switch__option + .view-switch__option { border-left: 1.4px solid var(--bp-ink); }
+:root[data-look="blueprint"] .view-switch__option[aria-current="page"] { color: var(--bp-paper); background: var(--bp-ink); box-shadow: none; }
+:root[data-look="blueprint"] .command-trigger { min-width: 36px; min-height: 30px; border: 1.4px solid var(--bp-ink); border-radius: 0; color: var(--bp-dim); background: transparent; font-size: 11px; letter-spacing: 0.04em; }
+:root[data-look="blueprint"] .command-trigger:hover { color: var(--bp-ink); }
+:root[data-look="blueprint"] .command-trigger__keys { border: 1px solid var(--bp-dim); border-radius: 0; color: var(--bp-ink); background: transparent; font-size: 10px; }
+:root[data-look="blueprint"] .topbar-right { flex-shrink: 0; }
+:root[data-look="blueprint"] .connection-pill { border: 1px solid var(--bp-dim); border-radius: 0; color: var(--bp-dim); background: transparent; }
+:root[data-look="blueprint"] .connection-pill::before { border-radius: 0; background: var(--bp-ink); }
+:root[data-look="blueprint"] .bar-button { color: var(--bp-dim); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; }
+:root[data-look="blueprint"] .bar-button:hover,
+:root[data-look="blueprint"] .bar-button[aria-expanded="true"] { color: var(--bp-ink); }
+:root[data-look="blueprint"] .bar-button[data-live] { color: var(--bp-ink); }
+:root[data-look="blueprint"] .bar-badge { border-radius: 0; color: var(--bp-paper); background: var(--bp-ink); }
+:root[data-look="blueprint"] .bar-label { border-color: var(--bp-dim); border-radius: 0; color: var(--bp-dim); }
+:root[data-look="blueprint"] :is(.signed-in-user, .bar-sign-out, .bar-tiers, .bar-role) { display: none; }
+:root[data-look="blueprint"] .account-menu { display: flex; }
+:root[data-look="blueprint"] .account-menu__button { width: auto; height: auto; border-radius: 0; }
+:root[data-look="blueprint"] .account-menu__avatar { width: 22px; height: 22px; border: 1.4px solid var(--bp-ink); border-radius: 0; color: var(--bp-ink); background: transparent; font: 600 11px/1 var(--font-mono); }
+:root[data-look="blueprint"] .account-menu__button[aria-expanded="true"] .account-menu__avatar { color: var(--bp-paper); background: var(--bp-ink); box-shadow: none; }
+:root[data-look="blueprint"] .account-menu__list {
+  border: 2px solid var(--bp-ink);
+  border-radius: 0;
+  outline: 1px solid var(--bp-ink);
+  outline-offset: -5px;
+  color: var(--bp-ink);
+  background-color: var(--bp-paper);
+  background-image: var(--bp-paper-image);
+  background-size: var(--bp-paper-size);
+  box-shadow: 0 12px 28px rgba(6, 20, 48, 0.5);
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+}
+:root[data-look="blueprint"] .account-menu__who { border-bottom-color: var(--bp-faint); color: var(--bp-dim); font-size: 11px; letter-spacing: 0.04em; text-transform: none; }
+:root[data-look="blueprint"] .account-menu__group { border-color: var(--bp-faint); }
+:root[data-look="blueprint"] .account-menu__item { border-radius: 0; color: var(--bp-ink); font-size: 11.5px; letter-spacing: 0.05em; }
+:root[data-look="blueprint"] :is(.account-menu__item:hover, .account-menu__item:focus-visible, .account-menu__item--choice[aria-checked="true"]) { color: var(--bp-paper); background: var(--bp-ink); }
+:root[data-look="blueprint"] .account-menu__item--out { color: var(--bp-ink); }
+/* The top bar's words are the strip's lettering, in capitals like the rest of the drawing's. */
+:root[data-look="blueprint"] .topbar :is(button, a) { text-transform: uppercase; }
+
+@media (min-width: 761px) {
+  :root[data-look="blueprint"] .topbar :is(.view-switch, .command-trigger, .topbar-right) { position: fixed; top: calc((var(--bp-edge-top) - 20px) / 2); height: 20px; margin: 0; }
+  :root[data-look="blueprint"] .topbar .view-switch { left: var(--bp-frame-left); border-width: 1px; }
+  :root[data-look="blueprint"] .topbar .view-switch__option { min-height: 0; height: 18px; padding: 0 8px; font-size: 9.5px; }
+  :root[data-look="blueprint"] .topbar .view-switch__option svg { width: 11px; height: 11px; }
+  :root[data-look="blueprint"] .topbar .view-switch__option + .view-switch__option { border-left-width: 1px; }
+  :root[data-look="blueprint"] .topbar .command-trigger { left: 50%; flex: none; width: auto; max-width: none; min-height: 0; padding: 0 3px 0 8px; gap: 8px; border-width: 1px; font-size: 9.5px; transform: translateX(-50%); }
+  :root[data-look="blueprint"] .topbar .command-trigger__label { overflow: visible; }
+  :root[data-look="blueprint"] .topbar .command-trigger__icon { width: 11px; height: 11px; }
+  :root[data-look="blueprint"] .topbar .command-trigger__keys { padding: 0 5px; font-size: 8.5px; line-height: 14px; }
+  :root[data-look="blueprint"] .topbar .topbar-right { right: var(--bp-edge); gap: 16px; }
+  :root[data-look="blueprint"] .topbar :is(.bar-button, .account-menu__button) { min-height: 0; height: 20px; padding: 0 2px; font-size: 9.5px; }
+  :root[data-look="blueprint"] .topbar .bar-button svg { width: 13px; height: 13px; }
+  :root[data-look="blueprint"] .topbar .bar-badge { min-width: 14px; height: 14px; padding: 0 3px; font-size: 9px; }
+  :root[data-look="blueprint"] .topbar .account-menu__avatar { width: 18px; height: 18px; border-width: 1px; font-size: 9.5px; }
+  :root[data-look="blueprint"] .topbar .connection-pill { padding: 0 6px; font-size: 9px; }
+}
+/* A narrower sheet: the search keeps its icon and its keys, not a word cut short. */
+@media (min-width: 761px) and (max-width: 1099px) {
+  :root[data-look="blueprint"] .topbar .command-trigger__label { display: none; }
+}
+/* A finger, not a pointer: a margin tall enough for the controls to be tapped. */
+@media (min-width: 761px) and (pointer: coarse) {
+  :root[data-look="blueprint"] { --bp-edge-top: 50px; --bp-frame-top: 64px; }
+  :root[data-look="blueprint"] .topbar :is(.view-switch, .command-trigger, .topbar-right) { top: 2px; height: 44px; }
+  :root[data-look="blueprint"] .topbar :is(.view-switch__option, .bar-button, .account-menu__button) { height: 44px; }
+}
+
+/* Home's head is the drawing's own title: no rule under it, the title where the page name was. */
+:root[data-look="blueprint"] .app-shell[data-view="home"] .topbar { position: sticky; min-height: 0; align-items: flex-start; padding-top: 18px; padding-bottom: 6px; border-bottom-color: transparent; }
+
+/* ── Type: Martian Mono throughout; annotations in capitals, sentences and data as written ── */
+:root[data-look="blueprint"] .app-shell,
+:root[data-look="blueprint"] :is(.ui-sheet, .command-dialog, .look-console) { font-family: var(--font-mono); letter-spacing: 0; }
+:root[data-look="blueprint"] :is(.ui-panel__title, .ui-sheet__kicker, .ui-sheet__title, .ui-page-header h1, .ui-button, .ui-tabs__tab, .ui-segmented__option, .ui-chip, .ui-risk, .ui-tag, .ui-metric__label, .ui-kv__label, .ui-table th, .ui-field__label, .ui-switch__state, .ui-notice__title, .approve-kicker, .approve-title, .approve-tier__name, .command-group, .ui-dock__label, .ui-empty__title, .ui-progress__label, .ui-job__title, .ui-code__label) {
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+:root[data-look="blueprint"] .ui-page-header__summary,
+:root[data-look="blueprint"] .ui-notice__text,
+:root[data-look="blueprint"] .need__detail,
+:root[data-look="blueprint"] .ui-field__hint,
+:root[data-look="blueprint"] .ui-switch__description,
+:root[data-look="blueprint"] .ui-check__description,
+:root[data-look="blueprint"] .ui-empty__text { font-size: 12px; line-height: 1.55; }
+
+/* ── Panels: white-outlined rectangles on the paper, no fill ── */
+:root[data-look="blueprint"] .ui-panel {
+  border: 1.6px solid var(--bp-ink);
+  border-radius: 0;
+  background: transparent;
+}
+:root[data-look="blueprint"] .ui-panel__head { border-bottom: 1px solid var(--bp-ink); }
+:root[data-look="blueprint"] .ui-panel__title { color: var(--bp-ink); font-size: 11.5px; font-weight: 600; letter-spacing: 0.1em; }
+:root[data-look="blueprint"] .ui-panel__count { color: var(--bp-ink); }
+:root[data-look="blueprint"] .ui-panel__meta,
+:root[data-look="blueprint"] .ui-panel__foot { color: var(--bp-dim); font-size: 10.5px; }
+:root[data-look="blueprint"] .ui-panel__foot { border-top-color: var(--bp-faint); }
+:root[data-look="blueprint"] .ui-page-header__summary { color: var(--bp-ink); }
+:root[data-look="blueprint"] .ui-page-header__about { border-left: 1.4px solid var(--bp-ink); color: var(--bp-dim); }
+:root[data-look="blueprint"] .ui-info-toggle { border: 1.4px solid var(--bp-ink); border-radius: 0; color: var(--bp-ink); }
+:root[data-look="blueprint"] .cc-crumb .ui-info-toggle { border-color: transparent; }
+
+/* The figures across the top of a page: a cell of a drafting table each, the bar hatched to scale. */
+:root[data-look="blueprint"] .ui-metric { border: 1.4px solid var(--bp-ink); border-radius: 0; background: transparent; }
+:root[data-look="blueprint"] .ui-metric--link:hover { background: var(--cc-amber-bg); }
+:root[data-look="blueprint"] .ui-metric__label { color: var(--bp-dim); font-size: 10.5px; letter-spacing: 0.08em; }
+:root[data-look="blueprint"] .ui-metric__value { color: var(--bp-ink); font-size: 22px; font-weight: 500; letter-spacing: -0.02em; }
+:root[data-look="blueprint"] .ui-metric__value small { color: var(--bp-dim); font-size: 12px; }
+:root[data-look="blueprint"] .ui-metric[data-status="warning"] .ui-metric__value { color: var(--status-warning-text); }
+:root[data-look="blueprint"] .ui-metric__caption { color: var(--bp-dim); font-size: 11.5px; }
+:root[data-look="blueprint"] :is(.ui-metric__bar, .ui-progress__track, .ops-bar, .ui-meter) { height: 8px; border: 1px solid var(--bp-ink); border-radius: 0; background: transparent; }
+:root[data-look="blueprint"] :is(.ui-metric__bar, .ui-progress__track, .ops-bar, .ui-meter) > i,
+:root[data-look="blueprint"] .ui-metric[data-status] .ui-metric__bar > i,
+:root[data-look="blueprint"] .ui-progress__fill { border-radius: 0; background: var(--bp-hatch); box-shadow: 1px 0 0 var(--bp-ink); }
+:root[data-look="blueprint"] .ui-spark__line { stroke: var(--bp-ink); }
+:root[data-look="blueprint"] .ui-spark__area { fill: rgba(242, 246, 255, 0.1); }
+
+/* ── Buttons: outlined; the filled one is the ink with the paper in it ── */
+:root[data-look="blueprint"] .ui-button {
+  min-height: 30px;
+  padding: 0 12px;
+  border: 1.6px solid var(--bp-ink);
+  border-radius: 0;
+  color: var(--bp-ink);
+  background: transparent;
+  box-shadow: none;
+  font-size: 11px;
+  font-weight: 600;
+}
+:root[data-look="blueprint"] .ui-button:hover:not(:disabled) { border-color: var(--bp-ink); background: rgba(242, 246, 255, 0.12); }
+:root[data-look="blueprint"] .ui-button--primary { color: var(--bp-paper); background: var(--bp-ink); }
+:root[data-look="blueprint"] .ui-button--primary:hover:not(:disabled) { background: #ffffff; }
+:root[data-look="blueprint"] .ui-button--ghost { border-color: transparent; color: var(--bp-ink); text-decoration: underline; text-underline-offset: 3px; }
+:root[data-look="blueprint"] .ui-button--ghost:hover:not(:disabled) { border-color: var(--bp-ink); background: transparent; }
+/* The tier: a short bar for medium, a double one and the word for high, drawn in the ink. */
+:root[data-look="blueprint"] :is(.ui-button--risk-medium, .ui-button--risk-high)::before { border-radius: 0; background: var(--risk-medium); }
+:root[data-look="blueprint"] .ui-button--risk-high::before { background: var(--cc-red); }
+:root[data-look="blueprint"] .ui-button__tier { border: 1px solid currentColor; border-radius: 0; background: transparent; }
+:root[data-look="blueprint"] .ui-button--primary .ui-button__tier { border-color: var(--bp-paper); color: var(--bp-paper); }
+
+/* ── Chips, tiers and tags: a boxed word, as a drawing boxes a callout ── */
+:root[data-look="blueprint"] :is(.ui-chip, .ui-risk, .ui-tag, .cc-tag) { border: 1px solid currentColor; border-radius: 0; background: transparent; font-family: var(--font-mono); font-size: 10px; font-weight: 600; }
+:root[data-look="blueprint"] .ui-tag { color: var(--bp-dim); }
+:root[data-look="blueprint"] :is(.ui-tag--info, .ui-tag--accent) { color: var(--bp-ink); }
+:root[data-look="blueprint"] .ui-table .ui-chip { border: 0; padding: 0; font-size: 11px; }
+
+/* ── Tables: a drafting table, every cell ruled ── */
+:root[data-look="blueprint"] .ui-table { border-collapse: collapse; font-size: 12px; }
+:root[data-look="blueprint"] .ui-table th {
+  height: 30px;
+  border-bottom: 1.4px solid var(--bp-ink);
+  color: var(--bp-ink);
+  background: transparent;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+:root[data-look="blueprint"] .ui-table td { border-bottom: 1px solid var(--bp-faint); color: var(--bp-ink); font-size: 11.5px; }
+:root[data-look="blueprint"] .ui-table :is(th, td) + :is(th, td) { border-left: 1px solid var(--bp-faint); }
+:root[data-look="blueprint"] .ui-table tbody tr:hover td { background: rgba(242, 246, 255, 0.07); }
+:root[data-look="blueprint"] .ui-table .ops-link { color: var(--bp-ink); }
+
+/* ── Tabs, segments, switches, fields ── */
+:root[data-look="blueprint"] .ui-tabs__list { gap: 0; border-bottom: 1.4px solid var(--bp-ink); }
+:root[data-look="blueprint"] .ui-tabs__tab { margin-bottom: 0; padding: 0 14px; border: 1.4px solid transparent; border-bottom: 0; color: var(--bp-dim); font-size: 11px; }
+:root[data-look="blueprint"] .ui-tabs__tab:hover { color: var(--bp-ink); }
+:root[data-look="blueprint"] .ui-tabs__tab[aria-selected="true"] { border-color: var(--bp-ink); color: var(--bp-paper); background: var(--bp-ink); }
+:root[data-look="blueprint"] .ui-tabs__tab[aria-selected="true"] .ui-tabs__count { color: var(--bp-paper); }
+:root[data-look="blueprint"] .ui-tabs__count { color: var(--bp-dim); }
+:root[data-look="blueprint"] .ui-segmented { gap: 0; padding: 0; border: 1.4px solid var(--bp-ink); border-radius: 0; background: transparent; }
+:root[data-look="blueprint"] .ui-segmented__option { border-radius: 0; color: var(--bp-dim); font-size: 11px; }
+:root[data-look="blueprint"] .ui-segmented__option + .ui-segmented__option { border-left: 1px solid var(--bp-faint); }
+:root[data-look="blueprint"] .ui-segmented__option[aria-checked="true"] { color: var(--bp-paper); background: var(--bp-ink); box-shadow: none; }
+:root[data-look="blueprint"] .ui-switch__track { border: 1.4px solid var(--bp-ink); border-radius: 0; background: transparent; }
+:root[data-look="blueprint"] .ui-switch__thumb { border-radius: 0; background: var(--bp-dim); }
+:root[data-look="blueprint"] .ui-switch__control[aria-checked="true"] .ui-switch__track { border-color: var(--bp-ink); background: var(--bp-hatch); }
+:root[data-look="blueprint"] .ui-switch__control[aria-checked="true"] .ui-switch__thumb { background: var(--bp-ink); box-shadow: 0 0 0 2px var(--bp-paper); }
+:root[data-look="blueprint"] :is(.ui-input, .ui-textarea, .ui-select__control) { border: 1.4px solid var(--bp-ink); border-radius: 0; color: var(--bp-ink); background: rgba(10, 30, 66, 0.25); font-family: var(--font-mono); font-size: 12.5px; }
+:root[data-look="blueprint"] :is(.ui-input, .ui-textarea)::placeholder { color: var(--bp-dim); }
+:root[data-look="blueprint"] .ui-check__mark { border: 1.4px solid var(--bp-ink); border-radius: 0; background: transparent; }
+:root[data-look="blueprint"] .ui-check__input:checked + .ui-check__mark { background: var(--bp-ink); }
+:root[data-look="blueprint"] .ui-check__mark::after { border-color: var(--bp-paper); }
+:root[data-look="blueprint"] .ui-kv--strip { border: 1.4px solid var(--bp-ink); border-radius: 0; background: transparent; }
+:root[data-look="blueprint"] .ui-kv--strip .ui-kv__item { border-right-color: var(--bp-faint); box-shadow: 0 1px 0 var(--bp-faint); }
+:root[data-look="blueprint"] .ui-kv--rows .ui-kv__item { border-top-color: var(--bp-faint); }
+:root[data-look="blueprint"] .ui-kv__label { color: var(--bp-dim); font-size: 10.5px; }
+:root[data-look="blueprint"] .ui-kv__value { color: var(--bp-ink); font-size: 12.5px; font-weight: 600; }
+
+/* ── Notices, needs, jobs, code: callouts boxed in the ink ── */
+:root[data-look="blueprint"] .ui-notice { border: 1.4px solid var(--bp-ink); border-radius: 0; background: transparent; box-shadow: inset 4px 0 0 var(--mark); }
+:root[data-look="blueprint"] .ui-notice__title { font-size: 12.5px; }
+:root[data-look="blueprint"] .need { border-top-color: var(--bp-faint); box-shadow: inset 3px 0 0 var(--mark); }
+:root[data-look="blueprint"] .need__title { color: var(--bp-ink); font-size: 12.5px; }
+:root[data-look="blueprint"] .ui-job,
+:root[data-look="blueprint"] .ui-code { border: 1.4px solid var(--bp-ink); border-radius: 0; background: transparent; }
+:root[data-look="blueprint"] .ui-code__bar { border-bottom-color: var(--bp-ink); background: transparent; }
+:root[data-look="blueprint"] .ui-code__text { color: var(--bp-ink); font-size: 11.5px; }
+:root[data-look="blueprint"] .ui-code__copy { border: 1.4px solid var(--bp-ink); border-radius: 0; background: transparent; }
+:root[data-look="blueprint"] .ui-empty__icon { border: 1.4px dashed var(--bp-ink); border-radius: 0; }
+:root[data-look="blueprint"] :is(.ui-app-icon, .ui-tile__icon) { border: 1.6px solid var(--bp-ink); border-radius: 0; color: var(--bp-ink); background: transparent; box-shadow: none; }
+/* An app's picture is drawn in the ink too: its emoji in grey, the way a print would take it. */
+:root[data-look="blueprint"] :is(.ui-app-icon[data-emoji], .ui-tile__icon) { filter: grayscale(1) brightness(1.25); }
+:root[data-look="blueprint"] .ui-tile__icon .ui-tile__mark { filter: none; }
+
+/* ── What opens over a page: a sheet of the same paper, bordered twice ── */
+:root[data-look="blueprint"] :is(.ui-sheet, .approve-dialog, .command-dialog) {
+  border: 3px solid var(--bp-ink);
+  border-radius: 0;
+  outline: 1.2px solid var(--bp-ink);
+  outline-offset: -8px;
+  color: var(--bp-ink);
+  background-color: var(--bp-paper);
+  background-image: var(--bp-paper-image);
+  background-size: var(--bp-paper-size);
+  box-shadow: 0 18px 40px rgba(6, 20, 48, 0.55);
+}
+:root[data-look="blueprint"] :is(.ui-sheet__head, .ui-sheet__foot) { padding-inline: 18px; border-color: var(--bp-ink); }
+:root[data-look="blueprint"] .ui-sheet__body { padding-inline: 18px; }
+:root[data-look="blueprint"] .ui-sheet__title { font-size: 15px; font-weight: 600; }
+:root[data-look="blueprint"] :is(.ui-sheet__close, .command-close, .approve-close) { border: 1.4px solid var(--bp-ink); border-radius: 0; color: var(--bp-ink); background: transparent; }
+:root[data-look="blueprint"] .command-input { border-bottom: 1.4px solid var(--bp-ink); }
+:root[data-look="blueprint"] .command-input input { color: var(--bp-ink); font-family: var(--font-mono); }
+:root[data-look="blueprint"] .command-option { border-radius: 0; }
+:root[data-look="blueprint"] .command-option[aria-selected="true"] { color: var(--bp-paper); background: var(--bp-ink); }
+
+/* ── A phone: a narrower border, and the dock along the foot of the sheet as a strip ── */
+@media (max-width: 760px) {
+  :root[data-look="blueprint"] {
+    --bp-edge: 4px;
+    --bp-edge-top: 4px;
+    --bp-frame: 9px;
+    --bp-frame-top: 9px;
+    --bp-frame-left: 9px;
+    --bp-em: 12px;
+  }
+  :root[data-look="blueprint"] .app-shell[data-shell="console"] { padding: calc(var(--bp-frame) + 1.2px) calc(var(--bp-frame) + 1.2px) 0; }
+  :root[data-look="blueprint"] .topbar { top: calc(var(--bp-frame) + 1.2px); }
+  :root[data-look="blueprint"] body::after { border-width: 2px; }
+  :root[data-look="blueprint"] .app-shell::after { border-width: 1.2px; }
+  :root[data-look="blueprint"] .content { padding: 10px 12px calc(var(--shell-bottom-inset, 0px) + 112px); }
+  :root[data-look="blueprint"] .shell-dock { right: calc(var(--bp-frame) + 6px); bottom: calc(var(--shell-bottom-inset, 0px) + var(--bp-frame) + 6px + env(safe-area-inset-bottom, 0px)); left: calc(var(--bp-frame) + 6px); }
+  :root[data-look="blueprint"] .ui-dock.shell-dock ul { border: 1.6px solid var(--bp-ink); border-radius: 0; background: var(--bp-paper); box-shadow: 0 0 0 4px var(--bp-paper); backdrop-filter: none; }
+  :root[data-look="blueprint"] .shell-dock .ui-dock__icon { border: 0; border-radius: 0; color: var(--bp-dim); background: transparent; }
+  :root[data-look="blueprint"] .shell-dock .ui-dock__item[aria-current="page"] .ui-dock__icon { border: 0; color: var(--bp-paper); background: var(--bp-ink); }
+  :root[data-look="blueprint"] .shell-dock .ui-dock__label { color: var(--bp-ink); font-size: 9.5px; text-transform: uppercase; }
+  :root[data-look="blueprint"] .ui-dock__badge { border-radius: 0; color: var(--bp-paper); background: var(--bp-ink); box-shadow: 0 0 0 2px var(--bp-paper); }
+  :root[data-look="blueprint"] .app-shell[data-view="home"] .topbar { padding-top: 10px; }
+}
+
+/* Settings > Appearance: the line that says what is chosen is a boxed callout like the rest. */
+:root[data-look="blueprint"] .settings-appearance__now { border: 1.4px solid var(--bp-ink); border-radius: 0; background: transparent; }

@@ -1,0 +1,187 @@
+/* Home in the Command Center (M41): docs/design-directions/05-looks.html, M.opsHome. The console's
+   own tokens (--cc-*), so light and dark come with them; every selector starts with .console-. */
+
+.console-home { display: grid; gap: 12px; min-width: 0; padding-inline: 9px; }
+
+/* The name in the compact bar: "homebox / home", then the host's facts in mono. */
+.console-crumb .cc-crumb__host { flex: none; font-size: 18px; font-weight: 600; }
+.console-crumb .cc-crumb__sep { font-size: 18px; }
+.console-crumb__page { flex: none; color: var(--cc-muted); font-size: 18px; font-weight: 400; line-height: 1.2; }
+.console-crumb .cc-kv { margin-left: 14px; font-size: 14px; }
+
+/* The verdict: the chip, the greeting and one sentence, Read again at the far right. */
+.console-verdict { display: flex; align-items: center; gap: 12px; min-height: 38px; margin: -6px 0 -6px; }
+.console-verdict__chip.ui-chip { flex: none; padding: 3px 10px; border-radius: 999px; font-family: var(--font-condensed); font-size: 13px; font-weight: 600; line-height: 1.2; }
+.console-verdict__chip .ui-mark { width: 8px; height: 8px; }
+.console-verdict__words { min-width: 0; color: var(--cc-text-strong); font-size: 17.5px; line-height: 1.3; }
+.console-verdict__hello { display: inline; margin: 0 0.3em 0 0; color: inherit; font: inherit; }
+.console-verdict__sentence { display: inline; margin: 0; }
+.console-verdict__again.ui-button { flex: none; margin-left: auto; padding-inline: 0; font-size: 16px; }
+.console-verdict__again.ui-button:hover:not(:disabled) { background: transparent; text-decoration: underline; }
+
+/* The six figures, as the drawing sets them: small mono capitals, the figure large, one line under it. */
+.console-strip.ui-metric-strip { grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 11px; }
+.console-strip .ui-metric { gap: 3px; min-height: 108px; padding: 13px 15px 12px; }
+.console-strip .ui-metric__label { font-size: 11px; letter-spacing: 0.12em; }
+.console-strip .ui-metric__value { margin-top: 4px; font-size: 30px; letter-spacing: -0.02em; line-height: 1.05; }
+.console-strip .ui-metric__value small { font-size: 13.5px; }
+.console-strip .ui-metric__caption { padding-right: 78px; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.console-strip .ui-metric:has(.ui-metric__bar) .ui-metric__caption { padding-right: 0; }
+.console-strip .ui-metric__graphic { right: 14px; bottom: 14px; width: 70px; height: 25px; }
+/* The drawing's sparklines are a line only. */
+.console-strip .ui-spark__area { fill: none; }
+.console-strip .ui-spark__line { stroke-width: 1.6; }
+.console-strip .ui-metric__bar { height: 5px; margin-top: 6px; }
+
+/* Two columns: the apps and last night's jobs; the inbox and the backups. */
+.console-grid { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); align-items: start; gap: 11px; }
+.console-col { display: grid; align-content: start; gap: 11px; min-width: 0; }
+.console-home .ui-panel__head { min-height: 38px; padding: 4px 11px; }
+.console-home .ui-panel__title { color: var(--cc-text); font-size: 12px; letter-spacing: 0.12em; }
+.console-home .ui-panel__meta { font-size: 12.5px; letter-spacing: 0.02em; }
+.console-home .ui-panel__meta b { color: var(--cc-muted); font-weight: 400; }
+
+/* The apps: a small square, the name in mono, the state in its colour. */
+.console-apps__grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 0; padding: 0; list-style: none; }
+.console-apps__grid > li { min-width: 0; border-right: 1px solid var(--cc-hairline); border-bottom: 1px solid var(--cc-hairline); }
+.console-apps__grid > li:nth-child(3n) { border-right: 0; }
+.console-app {
+  display: grid;
+  grid-template-columns: 39px minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  align-items: center;
+  column-gap: 12px;
+  width: 100%;
+  min-height: 58px;
+  padding: 9px 15px;
+  border: 0;
+  color: inherit;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.console-app:hover { background: var(--cc-raised); }
+.console-app__icon.ui-app-icon,
+.console-app__plus { grid-row: 1 / span 2; width: 39px; height: 39px; border-radius: 9px; font-size: 15px; }
+.console-app__icon.ui-app-icon[data-emoji] { font-size: 20px; }
+.console-app__plus { display: grid; place-items: center; border: 1px dashed var(--cc-line-strong); color: var(--cc-muted); }
+.console-app__plus svg { width: 20px; height: 20px; }
+.console-app__name { align-self: end; min-width: 0; overflow: hidden; color: var(--cc-text-strong); font-family: var(--font-mono); font-size: 14px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.console-app__state { display: flex; align-items: center; gap: 5px; align-self: start; min-width: 0; overflow: hidden; color: var(--cc-muted); font-size: 12.5px; text-overflow: ellipsis; white-space: nowrap; }
+.console-app__state .ui-mark { width: 6px; height: 6px; }
+.console-app[data-status="good"] .console-app__state { color: var(--cc-green); }
+.console-app[data-status="warning"] .console-app__state { color: var(--cc-amber); }
+.console-app[data-status="danger"] .console-app__state { color: var(--cc-red-text); }
+.console-app[data-status="neutral"] .console-app__state .ui-mark,
+.console-app[data-status="unknown"] .console-app__state .ui-mark { display: none; }
+.console-app--add .console-app__name { color: var(--cc-muted); font-family: var(--font-condensed); font-weight: 600; }
+
+/* Last night: time, operation, target, state and how long, in mono rows. */
+.console-jobs { width: 100%; border-collapse: collapse; font-family: var(--font-mono); font-size: 12.8px; }
+.console-jobs td { height: 30px; padding: 0 12px; border-bottom: 1px solid var(--cc-hairline); color: var(--cc-text); white-space: nowrap; }
+.console-jobs tr:last-child td { border-bottom: 0; }
+.console-jobs td:nth-child(3) { width: 100%; max-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.console-jobs .ops-link { max-width: 13rem; overflow: hidden; color: var(--cc-text); font-weight: 400; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; }
+.console-jobs__dim { color: var(--cc-muted); }
+.console-jobs__took { text-align: right; }
+.console-night__more.ops-link { color: var(--cc-amber); font-family: var(--font-condensed); font-size: 13px; }
+.console-jobs__state { display: table-cell; }
+.console-jobs__state .ui-mark { width: 7px; height: 7px; margin-right: 8px; vertical-align: 1px; }
+.console-jobs__state[data-status="good"] { color: var(--cc-green); }
+.console-jobs__state[data-status="warning"] { color: var(--cc-amber); }
+.console-jobs__state[data-status="danger"] { color: var(--cc-red-text); }
+
+/* The inbox: each fix led by its tier in a box, its buttons under the words with the tier's stripe. */
+.console-home .console-inbox .need.need--lead {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr);
+  align-items: start;
+  gap: 4px 16px;
+  padding: 13px 17px 14px;
+  border-top: 1px solid var(--cc-hairline);
+  box-shadow: none;
+}
+.console-home .console-inbox .need.need--lead:first-child { padding-top: 13px; }
+.console-home .console-inbox .need--lead > .need__tier-tag { grid-column: 1; grid-row: 1 / span 2; width: 100%; }
+.console-home .console-inbox .need--lead .need__tier-tag .ui-risk { justify-content: center; padding: 5px 0; border-radius: 2px; font-size: 11.5px; line-height: 1.2; }
+.console-home .console-inbox .need--lead .need__tier-tag .ui-risk--low { background: transparent; }
+/* A note, which has no fix and so no tier, is led by a box of the same shape reading NOTE. */
+.console-home .console-inbox .need--lead > .need__mark:first-child {
+  display: flex;
+  grid-column: 1;
+  grid-row: 1 / span 2;
+  justify-content: center;
+  align-self: start;
+  width: 100%;
+  height: auto;
+  margin: 0;
+  padding: 5px 0;
+  border: 1px solid var(--cc-line-strong);
+  border-radius: 2px;
+  background: transparent;
+  clip-path: none;
+  transform: none;
+}
+.console-home .console-inbox .need--lead > .need__mark:first-child::before { color: var(--cc-muted); content: "NOTE"; font: 700 11.5px/1.2 var(--font-mono); letter-spacing: 0.05em; }
+/* Beside a tier the mark is left out, as drawn, except for a problem, which keeps its red diamond. */
+.console-home .console-inbox .need--lead > .need__tier-tag ~ .need__mark { display: none; }
+.console-home .console-inbox .need--lead[data-severity="danger"] { position: relative; }
+.console-home .console-inbox .need--lead[data-severity="danger"] > .need__tier-tag ~ .need__mark { position: absolute; top: 19px; left: 79px; display: block; margin: 0; }
+.console-home .console-inbox .need--lead > .need__body { grid-column: 2; gap: 3px; }
+.console-home .console-inbox .need--lead .need__title { font-size: 15px; line-height: 1.3; }
+.console-home .console-inbox .need--lead .need__detail { font-size: 12.8px; }
+.console-home .console-inbox .need--lead > .need__tier { grid-column: 1; grid-row: 1; justify-self: stretch; justify-content: center; }
+.console-home .console-inbox .need--lead > .need__acts { grid-column: 2; justify-content: flex-start; margin: 4px 0 0; }
+.console-home .console-inbox .need__acts .need__act.ui-button { min-height: 28px; margin-left: 0; padding: 0 10px 0 8px; border-left-width: 3px; border-radius: 2px; font-size: 12.8px; }
+.console-home .console-inbox .need__act.ui-button::before { display: none; }
+.console-home .console-inbox .need__act.ui-button--risk-medium { border-left-color: var(--cc-amber); }
+.console-home .console-inbox .need__act.ui-button--risk-high { border-left-color: var(--cc-red); }
+
+/* Backups: a figure a row, the share of apps backed up as an amber bar. */
+.console-kv {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px 16px;
+  width: 100%;
+  padding: 11px 13px;
+  border: 0;
+  border-top: 1px solid var(--cc-hairline);
+  color: var(--cc-text);
+  background: none;
+  font: inherit;
+  font-size: 14.4px;
+  text-align: left;
+  cursor: pointer;
+}
+.console-kv:first-child { border-top: 0; }
+.console-kv:hover { background: var(--cc-raised); }
+.console-kv__value { color: var(--cc-text-strong); font-family: var(--font-mono); font-weight: 600; }
+.console-kv[data-status="warning"] .console-kv__value { color: var(--cc-text-strong); }
+.console-kv__bar { grid-column: 1 / -1; height: 4px; overflow: hidden; border-radius: 4px; background: var(--cc-track); }
+.console-kv__bar > i { display: block; height: 100%; background: var(--cc-amber); }
+
+@media (max-width: 1280px) {
+  .console-strip.ui-metric-strip { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+@media (max-width: 1100px) {
+  .console-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 760px) {
+  .console-home { padding-inline: 0; }
+  .console-verdict { flex-wrap: wrap; }
+  .console-verdict__words { flex: 1 1 100%; order: 2; font-size: 15.5px; }
+  .console-verdict__again.ui-button { order: 1; }
+  .console-strip.ui-metric-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .console-strip .ui-metric__caption { padding-right: 0; white-space: normal; }
+  .console-apps__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .console-apps__grid > li:nth-child(3n) { border-right: 1px solid var(--cc-hairline); }
+  .console-apps__grid > li:nth-child(2n) { border-right: 0; }
+  .console-app { padding: 9px 10px; column-gap: 9px; }
+  .console-jobs td { padding: 0 8px; }
+  .console-home .console-inbox .need.need--lead { padding: 12px; gap: 4px 12px; }
+  .console-home .console-inbox .need--lead[data-severity="danger"] > .need__tier-tag ~ .need__mark { left: 72px; }
+}

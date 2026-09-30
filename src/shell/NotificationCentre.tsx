@@ -120,7 +120,7 @@ export function NotificationCentre({ csrfToken, role = "owner", onNavigate }: { 
 
   return (
     <>
-      <button className="bar-button" data-live={unseen > 0 || undefined} type="button" aria-expanded={open} aria-haspopup="dialog" aria-label={unseen ? `Notifications, ${unseen} new` : "Notifications"} onClick={() => setOpen((value) => !value)}>
+      <button className="bar-button bar-bell" data-live={unseen > 0 || undefined} type="button" aria-expanded={open} aria-haspopup="dialog" aria-label={unseen ? `Notifications, ${unseen} new` : "Notifications"} onClick={() => setOpen((value) => !value)}>
         <BellIcon aria-hidden="true" />
         {unseen > 0 && <span className="bar-badge" aria-hidden="true">{unseen > 99 ? "99+" : unseen}</span>}
       </button>

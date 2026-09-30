@@ -36,12 +36,18 @@ const catalogSize = manifestCount >= 10 ? `${Math.floor(manifestCount / 10) * 10
 // build also writes each package's LICENSE next to them, from the installed package so it cannot
 // fall out of step with the files it covers.
 const fontPackages = ["@fontsource-variable/figtree", "@fontsource/ibm-plex-sans-condensed", "@fontsource-variable/jetbrains-mono"];
+// The looks' typefaces (src/looks/fonts.css), fetched only by a page in the look that draws them.
+const lookFontPackages = [
+  "@fontsource-variable/archivo", "@fontsource/b612", "@fontsource/b612-mono", "@fontsource/barlow-condensed", "@fontsource-variable/fredoka",
+  "@fontsource-variable/literata", "@fontsource-variable/martian-mono", "@fontsource-variable/overpass", "@fontsource/pt-sans",
+  "@fontsource-variable/pixelify-sans", "@fontsource/share-tech-mono", "@fontsource/vt323",
+];
 function fontLicences(): Plugin {
   return {
     name: "boxpilot-font-licences",
     apply: "build",
     generateBundle() {
-      for (const name of fontPackages) {
+      for (const name of [...fontPackages, ...lookFontPackages]) {
         this.emitFile({ type: "asset", fileName: `licenses/${name.split("/")[1]}-OFL.txt`, source: readFileSync(new URL(`./node_modules/${name}/LICENSE`, import.meta.url)) });
       }
     },
@@ -62,9 +68,10 @@ function serviceWorker(): Plugin {
           precache.push(`/${output.fileName}`, ...output.imports.map((name) => `/${name}`));
           precache.push(...[...(output.viteMetadata?.importedCss ?? [])].map((name) => `/${name}`));
         }
-        // The entry's stylesheet, whether or not the bundler said the entry imports it; and every font.
+        // The entry's stylesheet, whether or not the bundler said the entry imports it; and the
+        // interface's own fonts. A look's typefaces are cached when that look first draws them.
         if (output.type === "asset" && /^assets\/index-[\w-]+\.css$/.test(output.fileName)) precache.push(`/${output.fileName}`);
-        if (output.type === "asset" && output.fileName.endsWith(".woff2")) precache.push(`/${output.fileName}`);
+        if (output.type === "asset" && /^assets\/(figtree|ibm-plex-sans-condensed|jetbrains-mono)-[\w-]+\.woff2$/.test(output.fileName)) precache.push(`/${output.fileName}`);
       }
       const source = (file: string) => readFileSync(new URL(`./src/pwa/${file}`, import.meta.url), "utf8");
       this.emitFile({ type: "asset", fileName: "sw.js", source: serviceWorkerSource({ rules: source("swRules.js"), worker: source("sw.js"), precache, version }) });

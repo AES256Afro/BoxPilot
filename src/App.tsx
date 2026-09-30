@@ -6,6 +6,7 @@ import SignInPage, { SignInLoading, SignInUnavailable } from "./pages/signin/Sig
 import ActivityDrawer from "./shell/ActivityDrawer";
 import { useOperation } from "./shell/ApproveDialog";
 import { SessionControls } from "./shell/SessionControls";
+import { AccountMenu } from "./shell/AccountMenu";
 import { useTheme } from "./useTheme";
 import { ThemeSwitch } from "./ui/ThemeSwitch";
 import { fetchAuthStatus, forgetAccount, forgetSession, rememberSession, rememberedAccount, signedOutReason, type AuthStatus, type SignedOutReason } from "./auth";
@@ -19,7 +20,14 @@ import { FactsProvider } from "./home/facts";
 import { CommandBar } from "./shell/CommandBar";
 import { NotificationCentre } from "./shell/NotificationCentre";
 import { PageLoading } from "./shell/PageLoading";
-import { ShellDock, ViewSwitch } from "./shell/ShellNav";
+import { ShellDock, ViewSwitch, type DockVariant } from "./shell/ShellNav";
+import { ShellSidebar } from "./shell/ShellSidebar";
+import { TopBarClock } from "./shell/TopBarClock";
+import { DrawnLookProvider } from "./looks/drawnLook";
+import { LookBar } from "./looks/LookBar";
+import { LookHome } from "./looks/LookHome";
+import { lookById, type LookId } from "./looks/looks";
+import { applyLook, applyLookChoice, useLook } from "./looks/useLook";
 import { ShellHost } from "./shell/ShellHost";
 import { TopBarSlotProvider } from "./shell/TopBarSlot";
 import { PageHeader } from "./ui/PageHeader";
@@ -30,7 +38,6 @@ import { PageHeader } from "./ui/PageHeader";
 // navigation, once, and the immutable asset cache keeps it after that.
 const BackupsPage = lazy(() => import("./pages/backups/BackupsPage"));
 const GitHubPage = lazy(() => import("./pages/github/GitHubPage"));
-const Home = lazy(() => import("./home/Home"));
 const Ops = lazy(() => import("./home/Ops"));
 const TodayPage = lazy(() => import("./pages/today/TodayPage"));
 const SetupPage = lazy(() => import("./pages/setup/SetupPage"));
@@ -149,9 +156,18 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
 
   const copy = viewCopy[view];
   const showGallery = galleryAsked && apiMode === "demo";
-  // Home is the Launcher; every other page, the gallery included, is inside the console (M33.8):
-  // the rail, the compact bar and the Command Center's look. On a phone the rail is the dock.
-  const shell = showGallery || view !== "home" ? "console" : "launcher";
+  // The look (M41): every page is drawn in the chosen one, except Home when the look is set for
+  // every page but Home; then Home keeps today's Launcher. Home in the Launcher is its own shell
+  // (the wallpaper, the glass, the dock); every other page is inside the console (M33.8), whose
+  // compact bar and components take the look's values, and is reached the look's way around.
+  const lookChoice = useLook();
+  const onHome = !showGallery && view === "home";
+  const drawnLook: LookId = onHome && lookChoice.scope === "not-home" ? "launcher" : lookChoice.look;
+  const shell = onHome && drawnLook === "launcher" ? "launcher" : "console";
+  const nav = shell === "launcher" ? "dock" : lookById(drawnLook).nav;
+  useLayoutEffect(() => { applyLook(drawnLook); }, [drawnLook]);
+  const { accent, wallpaper, solid } = lookChoice;
+  useLayoutEffect(() => { applyLookChoice({ ...lookChoice, accent, wallpaper, solid }); }, [accent, wallpaper, solid]); // eslint-disable-line react-hooks/exhaustive-deps
   // The look is set on the page's root too, so what opens over the page (a sheet, Activity, the
   // command bar, the approval dialog) is drawn in the same look as the page under it.
   useLayoutEffect(() => {
@@ -175,7 +191,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
   }, []);
 
   const pageContent = useMemo(() => {
-    if (view === "home") return <Home csrfToken={csrfToken} role={role} onNavigate={setView} />;
+    if (view === "home") return <LookHome look={drawnLook} csrfToken={csrfToken} role={role} onNavigate={setView} />;
     if (view === "ops") return <Ops csrfToken={csrfToken} role={role} onNavigate={setView} />;
     if (view === "today") return <TodayPage csrfToken={csrfToken} role={role} accountId={accountId} onNavigate={setView} />;
     if (view === "setup") return <SetupPage csrfToken={csrfToken} role={role} onDone={() => setView("home")} />;
@@ -196,7 +212,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
     if (view === "logs") return <LogsPage csrfToken={csrfToken} role={role} />;
     if (view === "agents") return <AgentsPage csrfToken={csrfToken} role={role} />;
     return <Settings csrfToken={csrfToken} role={role} />;
-  }, [accountId, csrfToken, focusApp, role, setView, view]);
+  }, [accountId, csrfToken, drawnLook, focusApp, role, setView, view]);
 
   // Where Home and every console page draw the start of the top bar (src/shell/TopBarSlot.tsx).
   const [topBarSlot, setTopBarSlot] = useState<HTMLDivElement | null>(null);
@@ -207,9 +223,11 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
       <ShellHost ask={shell === "console"}>
       {/* data-shell picks the shell's look (M33.8): Home's Launcher floats over its wallpaper; the
           console, everywhere else, is the compact bar beside a rail. data-view names the page. */}
-      <div className="app-shell" data-view={showGallery ? "gallery" : view} data-shell={shell}>
+      <DrawnLookProvider value={drawnLook}>
+      <div className="app-shell" data-view={showGallery ? "gallery" : view} data-shell={shell} data-nav={nav}>
         <a className="skip-link" href="#content">Skip to the page</a>
         <header className="topbar">
+          <LookBar look={drawnLook} role={role} onNavigate={setView} />
           <div className="topbar-left">
             <div className="brand" title={`BoxPilot ${__BOXPILOT_VERSION__}`}><span aria-hidden="true">B</span><div>BoxPilot<small>v{__BOXPILOT_VERSION__}</small></div></div>
             <div className="topbar-slot" ref={setTopBarSlot} />
@@ -223,13 +241,17 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
             <NotificationCentre csrfToken={csrfToken} role={role} onNavigate={setView} />
             <ActivityDrawer csrfToken={csrfToken} role={role} />
             <SessionControls authStatus={authStatus} csrfToken={csrfToken} onRefresh={() => void refreshAuth()} onSignedOut={onSignedOut} />
+            <AccountMenu authStatus={authStatus} csrfToken={csrfToken} onNavigate={setView} onSignedOut={onSignedOut} />
+            <TopBarClock />
           </div>
         </header>
 
-        <ShellDock view={showGallery ? null : view} onSelect={setView} variant={shell === "console" ? "rail" : "dock"} />
+        {nav === "sidebar"
+          ? <><ShellSidebar view={showGallery ? null : view} onSelect={setView} role={role} username={authStatus.owner?.username ?? null} /><div className="look-phone-dock"><ShellDock view={showGallery ? null : view} onSelect={setView} variant="dock" /></div></>
+          : <ShellDock view={showGallery ? null : view} onSelect={setView} variant={nav as DockVariant} />}
 
         <main id="content" tabIndex={-1}>
-          <div className={shell === "console" ? "content content--console" : "content content--wide"} data-density={shell === "console" ? "compact" : undefined}>
+          <div className={shell === "console" ? "content content--console" : "content content--wide"} data-density={shell === "console" ? lookChoice.density : undefined}>
             <OfflineBanner />
             {showGallery ? <Suspense fallback={<PageLoading name="the design system" />}><Gallery /></Suspense> : <>
               {!ownHeader.has(view) && <PageHeader title={copy.title} about={copy.description} />}
@@ -242,6 +264,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
         {operationDialog}
         {approving && <DeepLinkApproval key={approving} jobId={approving} csrfToken={csrfToken} onClose={() => setApproving(null)} />}
       </div>
+      </DrawnLookProvider>
       </ShellHost>
       </TopBarSlotProvider>
     </FactsProvider>
