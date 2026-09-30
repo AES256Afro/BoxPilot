@@ -1,16 +1,24 @@
 import { describe, expect, it, vi } from "vitest";
-import { bootWritersRunning, clearBootPartitionMark, parseFsckFat } from "./boot-partition.mjs";
+import { bootWritersRunning, clearBootPartitionMark, fsckOutput, parseFsckFat } from "./boot-partition.mjs";
 
-// fsck.fat 4.2's words, as it prints them for a FAT32 EFI partition.
+// fsck.fat 4.2's words for a marked FAT32 partition, as Ubuntu 24.04's dosfstools printed them on
+// the CI runner. It exits 1, and with nothing on stderr fixedRun puts Node's "Command failed" there.
 const version = "fsck.fat 4.2 (2021-01-31)";
 const summary = "/dev/nvme0n1p1: 12 files, 1542/130812 clusters";
 const markOnly = [version, "There are differences between boot sector and its backup.", "This is mostly harmless. Differences: (offset:original/backup)", "  65:01/00", "  Not automatically fixing this.",
-  "0x41: Dirty bit is set. Fs was not properly unmounted and some data may be corrupt.", " Automatically removing dirty bit.", "Leaving filesystem unchanged.", summary].join("\n");
+  "Dirty bit is set. Fs was not properly unmounted and some data may be corrupt.", " Automatically removing dirty bit.", "Leaving filesystem unchanged.", summary].join("\n");
 const clean = `${version}\n${summary}\n`;
+const failed = (command) => `Command failed: /usr/sbin/fsck.fat ${command}`;
 
 describe("reading fsck.fat -n", () => {
   it("calls the mark, and the backup boot sector differing in that one bit, the mark and nothing else", () => {
     expect(parseFsckFat(markOnly)).toMatchObject({ dirty: true, backupDiffers: true, backupIsTheMark: true, onlyTheMark: true, clean: false, beyond: [], summary });
+    // Older builds put the byte's offset first.
+    expect(parseFsckFat(markOnly.replace("Dirty bit", "0x41: Dirty bit"))).toMatchObject({ onlyTheMark: true });
+    // fixedRun's "Command failed" is not fsck.fat's: the runner's own /boot/efi was refused for it once.
+    expect(parseFsckFat(`${markOnly}\n${failed("-n /dev/nvme0n1p1")}`)).toMatchObject({ onlyTheMark: true, beyond: [] });
+    expect(fsckOutput({ stdout: markOnly, stderr: failed("-n /dev/nvme0n1p1") })).toBe(markOnly);
+    expect(fsckOutput({ stdout: "", stderr: "open: No such file or directory" })).toBe("open: No such file or directory");
     // FAT16 keeps the mark at 0x25 and has no backup boot sector.
     expect(parseFsckFat(`${version}\n0x25: Dirty bit is set. Fs was not properly unmounted and some data may be corrupt.\n Automatically removing dirty bit.\nLeaving filesystem unchanged.\n${summary}`)).toMatchObject({ onlyTheMark: true, backupDiffers: false });
   });
@@ -58,9 +66,10 @@ function fakeHost({ marked = true, problems = null, busy = false, fstabMount = t
     }
     if (name === "fsck.fat") {
       if (state.mounted) throw new Error("fsck.fat ran on a mounted partition");
-      if (args[0] === "-a") { if (!problems) state.marked = false; return { ok: false, code: 1, stdout: `${version}\n0x41: Dirty bit is set.\n Automatically removing dirty bit.\nPerforming changes.\n${summary}`, stderr: "" }; }
+      // As fixedRun answers: exit 1 with nothing on stderr carries Node's "Command failed" there.
+      if (args[0] === "-a") { if (!problems) state.marked = false; return { ok: false, code: 1, stdout: `${version}\nDirty bit is set. Fs was not properly unmounted and some data may be corrupt.\n Automatically removing dirty bit.\nPerforming changes.\n${summary}`, stderr: failed(args.join(" ")) }; }
       const out = state.marked ? (problems ? markOnly.replace("Leaving filesystem unchanged.", `${problems}\nLeaving filesystem unchanged.`) : markOnly) : clean;
-      return { ok: !state.marked, code: state.marked ? 1 : 0, stdout: out, stderr: "" };
+      return { ok: !state.marked, code: state.marked ? 1 : 0, stdout: out, stderr: state.marked ? failed(args.join(" ")) : "" };
     }
     throw new Error(`unexpected ${binary}`);
   });
