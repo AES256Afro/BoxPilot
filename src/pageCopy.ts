@@ -15,6 +15,10 @@ export const viewCopy: Record<ViewName, { title: string; description: string }> 
     title: "Ops",
     description: "Everything at once: load, what needs you by risk, containers, jobs and backups.",
   },
+  today: {
+    title: "Today",
+    description: "The morning glance: what waits for your approval, what ran overnight, and whether the backups are off this server and current.",
+  },
   setup: {
     title: "Set up this server",
     description: "Pick what this server should be. BoxPilot checks what is already in place and installs the rest, in order, through the normal approved jobs.",
@@ -92,6 +96,7 @@ export const viewCopy: Record<ViewName, { title: string; description: string }> 
 export const viewFeatures: Record<ViewName, string[]> = {
   home: ["Apps with their health", "What needs you, worst first", "System and backups at a glance"],
   ops: ["Load, memory, disks and network", "What needs you, by risk tier", "Containers with their numbers", "Job queue", "Backup matrix"],
+  today: ["Approvals waiting, one tap each", "What ran overnight", "Backups off this server", "The agents' morning digest", "Readable offline"],
   agents: ["Agent builder with templates", "Test console with a live trace", "Cards to approve, never acted on alone", "Pause all, or until tomorrow", "Usage against hard caps", "Unsloth and Qwen models", "Golden-question evaluation"],
   automations: ["Ready-made flows", "Build your own", "Steps run as recorded jobs", "A failed step stops the run"],
   setup: ["Setup profiles", "Checks what is already in place", "Installs the rest in order", "Autoinstall files for a new server"],

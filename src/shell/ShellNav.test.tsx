@@ -1,5 +1,7 @@
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { Job } from "../operations";
+import { publishWaiting } from "./approvalsWaiting";
 import { ShellDock, dockAreas } from "./ShellNav";
 
 afterEach(() => cleanup());
@@ -13,8 +15,8 @@ describe("the dock", () => {
     // The Classic overview left the dock when Home and Ops came to show all it did (M33.8).
     expect(labels).not.toContain("Classic");
     expect(within(dock).getByRole("button", { name: "Backups" }).getAttribute("aria-current")).toBe("page");
-    // A phone keeps four areas and More; every area is still reachable through More.
-    expect(dockAreas.filter((area) => area.priority === 1).map((area) => area.id)).toEqual(["updates", "storage", "backups", "repairs"]);
+    // A phone keeps Today (M25.3) and three everyday areas, and More; every area is still reachable through More.
+    expect(dockAreas.filter((area) => area.priority === 1).map((area) => area.id)).toEqual(["today", "updates", "backups", "repairs"]);
     expect(dock.querySelector('[data-priority="overflow"]')?.textContent).toContain("More");
   });
 
@@ -53,6 +55,21 @@ describe("the dock", () => {
     expect(within(again).getByRole("button", { name: "Services" }).getAttribute("aria-current")).toBe("page");
     fireEvent.click(first);
     expect(onSelect).toHaveBeenLastCalledWith("ops");
+  });
+
+  it("counts the approvals waiting on Today, from Activity's live feed, one tap from anywhere (M25)", () => {
+    const onSelect = vi.fn();
+    const job = (id: string, state: string) => ({ id, type: "op:app.update", title: "Update an app", state, risk: "medium", error: null, result: null, steps: [], approvals: [] }) as unknown as Job;
+    render(<ShellDock view="services" onSelect={onSelect} />);
+    const dock = screen.getByRole("navigation", { name: "Admin areas" });
+    expect(within(dock).getByRole("button", { name: "Today" })).toBeTruthy();
+    act(() => publishWaiting([job("a", "awaiting_approval"), job("b", "awaiting_approval"), job("c", "completed")]));
+    const today = within(dock).getByRole("button", { name: "Today, 2 to approve" });
+    expect(today.querySelector(".ui-dock__badge")?.textContent).toBe("2");
+    fireEvent.click(today);
+    expect(onSelect).toHaveBeenCalledWith("today");
+    act(() => publishWaiting([]));
+    expect(within(dock).getByRole("button", { name: "Today" }).querySelector(".ui-dock__badge")).toBeNull();
   });
 
   it("closes the sheet on Escape without going anywhere", () => {
