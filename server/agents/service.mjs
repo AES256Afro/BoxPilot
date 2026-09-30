@@ -1891,7 +1891,7 @@ export function createAgentService({
     const person = personOf(caller);
     const agent = agentFor(person, agentId);
     if (person.role === "viewer") refuse(403, "Evaluations are for the owner and operators", "forbidden");
-    const runs = store.listEvalRuns(agent.id, 20).map(settleEvaluation);
+    const runs = store.listEvalRuns(agent.id, 20);
     return {
       questions: store.getQuestions(agent.id) ?? templateQuestions[agent.template] ?? [],
       runs: runs.map((run) => ({ ...run, createdBy: ownActor(person, run.createdBy) })),
@@ -1959,7 +1959,7 @@ export function createAgentService({
     const settings = moduleSettings();
     if (!settings.enabled) refuse(409, "Agents are off. Turn them on to run an evaluation.", "agents_off");
     if (modulePaused(settings) || agentPaused(agent)) refuse(409, "Resume the agent to run an evaluation", "agent_paused");
-    const recent = settleEvaluation(store.listEvalRuns(agent.id, 1)[0]);
+    const recent = store.listEvalRuns(agent.id, 1)[0];
     if (recent && (recent.state === "running" || now().getTime() - Date.parse(recent.createdAt) < limits.evalEveryMs)) refuse(429, "An evaluation ran in the last hour. Try again later.", "evaluation_recent");
     const questions = store.getQuestions(agent.id) ?? templateQuestions[agent.template] ?? [];
     if (!questions.length) refuse(400, "Give this agent some golden questions first", "no_questions");
@@ -1975,27 +1975,6 @@ export function createAgentService({
     audit("agents.evaluation.started", { actorId: person.id, subjectId: agent.id, details: { questions: results.length } });
     wake();
     return store.getEvalRun(evaluation.id);
-  }
-
-  /**
-   * Grade the questions whose runs ended some other way than the runner finishing them - cancelled,
-   * waited too long in the queue, cut off by a restart or a lost lease, killed - as the runs ended.
-   * Only the runner's finish graded a question, so any other ending left the evaluation "running"
-   * for good, and every later one was refused as "ran in the last hour". A question whose run was
-   * never queued (BoxPilot stopped while the evaluation was being set up) fails the same way.
-   */
-  function settleEvaluation(evaluation) {
-    if (!evaluation || evaluation.state !== "running") return evaluation;
-    let changed = false;
-    for (const result of evaluation.results) {
-      if (result.passed !== null) continue;
-      const run = result.runId ? store.getRun(result.runId) : null;
-      if (run && !finishedStates.has(run.state)) continue;
-      if (run?.eval?.evalId === evaluation.id) void gradeEvalRun(run).catch(() => {});
-      else store.gradeEval(evaluation.id, result.questionId, { passed: false, found: run ? `The run ended ${run.state}` : "The run was never queued" });
-      changed = true;
-    }
-    return changed ? store.getEvalRun(evaluation.id) : evaluation;
   }
 
   async function gradeEvalRun(run) {
