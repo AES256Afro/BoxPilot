@@ -342,7 +342,10 @@ export function createRuntime({
       const said = entry.driver === "llama-server" ? body?.modalities?.vision : body?.is_vision;
       if (typeof said === "boolean") {
         const fallback = typeof body?.mmproj_fallback_reason === "string" ? body.mmproj_fallback_reason.slice(0, 80) : null;
-        result = { vision: said, reason: said ? (fallback ? `projector ${fallback.replace(/_/g, " ")}` : null) : fallback ? `it started without its vision projector (${fallback.replace(/_/g, " ")})` : entry.driver === "llama-server" ? "llama-server was started without its vision projector" : "the model was loaded without its vision projector" };
+        // What the server itself last printed about its projector, if anything: the owner's lead.
+        const printed = said ? null : [...entry.tail].reverse().find((line) => /mmproj|projector/i.test(line)) ?? null;
+        const blind = fallback ? `it started without its vision projector (${fallback.replace(/_/g, " ")})` : entry.driver === "llama-server" ? "llama-server was started without its vision projector" : "the model was loaded without its vision projector";
+        result = { vision: said, reason: said ? (fallback ? `projector ${fallback.replace(/_/g, " ")}` : null) : `${blind}${printed ? `; it printed: ${printed.slice(0, 160)}` : ""}` };
         entry.vision = result;
       } else {
         result = { vision: null, reason: `the model server did not say (HTTP ${response.status})` };
@@ -390,5 +393,9 @@ export function createRuntime({
     return { state: phase, modelLoaded: Boolean(child && phase === "running"), model: child?.model ?? null, pid: child?.process?.pid ?? null, vision: child?.vision ?? null };
   }
 
-  return { ensure, touch, stop, maybeStopIdle, status, vision, killNow: () => { if (child) signalServer(child, "SIGKILL"); } };
+  return {
+    ensure, touch, stop, maybeStopIdle, status, vision, killNow: () => { if (child) signalServer(child, "SIGKILL"); },
+    /** The running server's last lines of output, keys and passwords left out (for the benchmark's diagnosis). */
+    output: () => (child ? [...child.tail] : []),
+  };
 }

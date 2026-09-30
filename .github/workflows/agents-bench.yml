@@ -117,8 +117,10 @@ jobs:
         env:
           THREADS: ${{ inputs.threads || '4' }}
         run: |
+          set -o pipefail
           mkdir -p "$RUNNER_TEMP/bench"
           threads="$(echo "$THREADS" | cut -d, -f1)"; threads="${threads%@*}"
+          find "$RUNNER_TEMP"/agents-state/hf/hub/models--unsloth--Qwen3.5-4B-GGUF -maxdepth 3 | sed "s|$RUNNER_TEMP/||; s/^/cache: /"
           ls "$RUNNER_TEMP"/agents-state/hf/hub/models--unsloth--Qwen3.5-4B-GGUF/snapshots/*/ | sed 's/^/cached: /'
           status=0
           sudo systemd-run --scope --quiet -p "CPUQuota=$((threads * 100))%" -p CPUWeight=idle -- \
