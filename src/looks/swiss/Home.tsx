@@ -73,7 +73,7 @@ export default function SwissHome(props: HomeProps) {
       <h1 className="ui-visually-hidden">{greeting(clock)}</h1>
 
       <div className="swiss-left">
-        <p className="swiss-num" data-none={count === 0 || undefined} aria-hidden="true">{count}</p>
+        <p className="swiss-num" data-none={count === 0 || undefined} data-digits={Math.min(3, String(count).length)} aria-hidden="true">{count}</p>
         <div className="swiss-metrics">
           {figures.map((figure) => (
             <button key={figure.id} type="button" className="swiss-figure" data-attention={figure.attention || undefined} onClick={figure.go}>

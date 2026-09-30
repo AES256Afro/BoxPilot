@@ -192,8 +192,8 @@
 :root[data-look="transit"] .shell-dock li[data-area="performance"] { --line: #1f4fd1; }
 :root[data-look="transit"] .shell-dock li[data-area="users"] { --line: #00843d; }
 :root[data-look="transit"] .shell-dock li[data-area="github"] { --line: #9b9b9b; }
-:root[data-look="transit"] .shell-dock li[data-area="settings"] { --line: #c9c9c2; }
-:root[data-look="transit"] .shell-dock li[data-area="more"] { --line: #c9c9c2; }
+:root[data-look="transit"] .shell-dock li[data-area="settings"] { --line: #7c8594; }
+:root[data-look="transit"] .shell-dock li[data-area="more"] { --line: #7c8594; }
 
 /* ── The page ── */
 :root[data-look="transit"] .content { padding: 18px 22px calc(var(--shell-bottom-inset, 0px) + 32px); }
@@ -201,6 +201,11 @@
 /* On Home the line status board stands the window's full height at the right; the bar stops short of it. */
 @media (min-width: 1101px) {
   :root[data-look="transit"] .app-shell[data-view="home"] .topbar { padding-right: calc(clamp(12px, 100vw / 74, 22px) * 21 + 18px); }
+  :root[data-look="transit"] .app-shell[data-view="home"] .topbar-slot { flex: none; }
+  :root[data-look="transit"] .app-shell[data-view="home"] .command-trigger { flex: 0 1 15rem; min-width: 36px; }
+}
+@media (min-width: 1101px) and (max-width: 1439px) {
+  :root[data-look="transit"] .app-shell[data-view="home"] :is(.signed-in-user, .command-trigger__keys) { display: none; }
 }
 :root[data-look="transit"] .content--console { gap: 14px; }
 :root[data-look="transit"] .ui-page-header__summary { color: #1d1d1f; font-size: 16px; }
@@ -325,7 +330,7 @@
 :root[data-look="transit"] :is(.ui-sheet__head, .approve-head) { border-bottom: 0; color: #ffffff; background: #13233f; }
 :root[data-look="transit"] :is(.ui-sheet__title, .approve-title) { color: #ffffff; font-family: "Overpass", sans-serif; font-weight: 800; }
 :root[data-look="transit"] :is(.ui-sheet__kicker, .approve-kicker) { color: rgba(255, 255, 255, 0.8); font-family: "Overpass", sans-serif; }
-:root[data-look="transit"] :is(.ui-sheet__head, .approve-head) .ui-facts { color: rgba(255, 255, 255, 0.8); }
+:root[data-look="transit"] :is(.ui-sheet__head, .approve-head) :is(.ui-facts, .ui-facts b, .ui-facts code, code) { color: rgba(255, 255, 255, 0.85); }
 :root[data-look="transit"] :is(.ui-sheet__close, .approve-close) { border: 2px solid #ffffff; border-radius: 50%; color: #ffffff; background: none; }
 :root[data-look="transit"] .approve-tier__name { font-family: "Overpass", sans-serif; font-weight: 800; }
 :root[data-look="transit"] .command-option[aria-selected="true"] { color: #13233f; background: #eef0f5; box-shadow: inset 4px 0 0 #1f4fd1; }

@@ -31,6 +31,8 @@ interface BoardRow {
   tone: Tone;
   lines: ReactNode[];
   needs: Need[];
+  /** Where the line's name leads: the page with its detail. */
+  go: () => void;
 }
 
 const sentence = (text: string) => (/[.!?…]$/.test(text) ? text : `${text}.`);
@@ -74,26 +76,26 @@ export default function TransitHome(props: HomeProps) {
       status: lanDown.length ? "Part suspended" : networkNeeds.some((need) => need.severity !== "neutral") ? "Minor delays" : "Good service",
       tone: lanDown.length || networkNeeds.some((need) => need.severity === "danger") ? "bad" : networkNeeds.some((need) => need.severity !== "neutral") ? "warn" : "good",
       lines: lanDown.length ? [`${lanDown.map((row) => row.app.name).join(", ")} ${lanDown.length === 1 ? "is" : "are"} not running.`] : [],
-      needs: networkNeeds,
+      needs: networkNeeds, go: () => onNavigate("network"),
     },
     {
       id: "tailnet", name: "Tailnet", colour: LINE_COLOURS.tailnet,
       status: !tailscale ? "No information" : !tailscale.installed ? "Not built" : tailnetDown ? "Suspended" : "Good service",
       tone: !tailscale || !tailscale.installed ? "closed" : tailnetDown ? "bad" : "good",
       lines: !tailscale ? [] : !tailscale.installed ? ["Tailscale is not set up on this server."] : tailnetDown ? ["Tailscale is not connected."] : [],
-      needs: [],
+      needs: [], go: () => onNavigate("network", { tab: "tailnet" }),
     },
     {
       id: "backups", name: "Backups", colour: LINE_COLOURS.backups, dashed: unprotected.length > 0,
       status: backupNeeds.some((need) => need.severity === "danger") ? "Suspended" : backupNeeds.length || unprotected.length ? "Part suspended" : "Good service",
       tone: backupNeeds.some((need) => need.severity === "danger") ? "bad" : backupNeeds.length || unprotected.length ? "warn" : "good",
       lines: !backupNeeds.length && unprotected.length ? [`No recent backup for ${unprotected.map((entry) => entry.name).join(", ")}.`] : [],
-      needs: backupNeeds,
+      needs: backupNeeds, go: () => onNavigate("backups"),
     },
     {
       id: "updates", name: "Updates", colour: "#ffffff",
       status: updateNeeds.length ? "Planned works" : "Good service", tone: updateNeeds.length ? "warn" : "good",
-      lines: [], needs: updateNeeds,
+      lines: [], needs: updateNeeds, go: () => onNavigate("updates"),
     },
     ...otherNeeds.map((need): BoardRow => {
       const app = need.appId ? byId.get(need.appId)?.app : undefined;
@@ -102,7 +104,7 @@ export default function TransitHome(props: HomeProps) {
         id: need.id, name: app ? shortName(app.name) : viewLabel(need.view), colour: paused || need.severity === "neutral" ? "#8c8c8c" : need.severity === "danger" ? "#e5484d" : "#ffcf33",
         status: paused ? "Station closed" : need.severity === "danger" ? "Suspended" : need.severity === "warning" ? "Minor delays" : "Planned works",
         tone: paused ? "closed" : need.severity === "danger" ? "bad" : "warn",
-        lines: [], needs: [need],
+        lines: [], needs: [need], go: () => open(need),
       };
     }),
   ];
@@ -152,7 +154,7 @@ export default function TransitHome(props: HomeProps) {
           <p className="transit-map__title" id={titleId}>{hostname}</p>
           <p className="transit-map__lead">{verdict.sentence} Each line is a way in or a way out; stations are your apps.</p>
         </div>
-        <svg className="transit-map__svg" viewBox="0 0 520 380" role="group" aria-label="Your apps on the lines">
+        <svg className="transit-map__svg" viewBox="12 8 508 372" role="group" aria-label="Your apps on the lines">
           {map.paths.map((path) => (
             <path key={path.line} d={path.d} fill="none" stroke={path.line === "tailnet" && tailnetDown ? LINE_COLOURS.unprotected : LINE_COLOURS[path.line]} strokeWidth={8}
               strokeLinejoin="round" strokeDasharray={path.dashed || (path.line === "tailnet" && tailnetDown) ? "12 8" : undefined} />
@@ -188,7 +190,7 @@ export default function TransitHome(props: HomeProps) {
         {board.map((row) => (
           <div key={row.id} className="transit-line" style={{ ["--line" as string]: row.colour }}>
             <i className={row.dashed ? "transit-line__bar transit-line__bar--dashed" : "transit-line__bar"} aria-hidden="true" />
-            <h3 className="transit-line__name">{row.name}</h3>
+            <h3 className="transit-line__name"><button type="button" onClick={row.go}>{row.name}</button></h3>
             <span className="transit-status" data-tone={row.tone}>{row.status}</span>
             {row.lines.map((line, index) => <p key={index}>{line}</p>)}
             {row.needs.map(needLines)}
