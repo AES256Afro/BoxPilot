@@ -392,6 +392,20 @@ describe("evaluation", () => {
     await expect(h.service.runEvaluation(h.caller("owner"), helper.id)).rejects.toMatchObject({ status: 429, code: "evaluation_recent" });
   });
 
+  it("grades a question whose run ended without the runner, so the evaluation finishes and the next one may start", async () => {
+    // Only the runner's finish graded a question. A run cancelled, cut off by a restart, or dropped
+    // from the queue left its evaluation "running" for good, and every later one was refused.
+    h.enable();
+    const helper = make("it-support");
+    const started = await h.service.runEvaluation(h.caller("owner"), helper.id);
+    for (const result of started.results) h.service.cancelRun(h.caller("owner"), result.runId);
+    const [ended] = h.service.getEvaluation(h.caller("owner"), helper.id).runs;
+    expect(ended).toMatchObject({ state: "done", score: 0 });
+    expect(ended.results.map((result) => result.found)).toEqual(["The run ended cancelled", "The run ended cancelled"]);
+    h.advance(61 * 60_000);
+    await expect(h.service.runEvaluation(h.caller("owner"), helper.id)).resolves.toMatchObject({ state: "running" });
+  });
+
   it("grades a fact the way a model writes it", () => {
     expect(gradeFact("installedApps", 2, "There are two apps installed.").passed).toBe(true);
     expect(gradeFact("rootDiskPercent", 42, "The root disk is 43% full.").passed).toBe(true);
