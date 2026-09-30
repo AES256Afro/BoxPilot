@@ -26,6 +26,7 @@
 .transit-map__head { padding-left: 1.2em; }
 .transit-map__title { font: 800 1.9em/1 "Overpass", sans-serif; letter-spacing: -0.01em; }
 .transit-map__lead { margin-top: 0.3em; color: #4a4a4f; font-size: 0.8em; }
+.transit-map__scroll { display: grid; min-width: 0; min-height: 0; }
 .transit-map__svg { display: block; width: 100%; height: 100%; min-height: 20em; overflow: visible; font-family: "Overpass", Arial, sans-serif; }
 .transit-map__svg text { fill: var(--tm-k); font-size: 10.5px; font-weight: 600; }
 .transit-hub { font-weight: 800; letter-spacing: 2px; }
@@ -125,6 +126,7 @@
 @media (max-width: 760px) {
   .transit-home { min-height: 0; font-size: 16px; }
   /* The map keeps names big enough to read and scrolls sideways within itself. */
-  .transit-map { padding: 1em 0.4em 0.6em; overflow-x: auto; }
+  .transit-map { padding: 1em 0.4em 0.6em; }
+  .transit-map__scroll { overflow-x: auto; }
   .transit-map__svg { min-width: 600px; min-height: 0; }
 }
