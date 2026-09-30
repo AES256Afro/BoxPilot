@@ -523,7 +523,9 @@ describe("checking a drive without changing it", () => {
 
   it("checks nothing, and starts again the apps it stopped, when one of them does not stop", async () => {
     const { run, calls, files } = checkFakes({ stuck: ["bp-plex"] });
-    await expect(storageCheck({ name: "the-dump" }, { run, files })).rejects.toThrow("bp-plex did not stop, so /mnt/the-dump was not unmounted and nothing was done to it");
+    const log = vi.fn();
+    await expect(storageCheck({ name: "the-dump" }, { run, files, log, sleep: async () => {} })).rejects.toThrow("bp-plex did not stop, so /mnt/the-dump was not unmounted and nothing was done to it");
+    expect(log).toHaveBeenCalledWith(expect.stringMatching(/^could not stop bp-plex: Error response from daemon/), "stderr");
     expect(calls.some((call) => call.startsWith("umount") || call.startsWith("fsck"))).toBe(false);
   });
 
