@@ -3602,7 +3602,9 @@ body {
 
 /* Home and Ops: the buttons a need offers, and a fix's progress under its words (M35). Last in
    the file, so they win ties with Home's .lx need rules. */
-.need__acts { display: inline-flex; flex: none; flex-wrap: wrap; justify-content: flex-end; gap: 6px; margin-left: auto; }
+/* It may shrink to its row and wrap its buttons there: at flex: none two long fixes in Ops' inbox
+   ("Serve Uptime Kuma only through Tailscale", "Stop serving it on the tailnet") ran off the panel. */
+.need__acts { display: inline-flex; flex: 0 1 auto; flex-wrap: wrap; justify-content: flex-end; gap: 6px; min-width: 0; max-width: 100%; margin-left: auto; }
 .need__acts .need__act { margin-left: 0; }
 .need__run { color: var(--text-muted); font-size: var(--font-size-sm); line-height: 1.4; overflow-wrap: anywhere; }
 .lx-fixed { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 8px 0 0; color: var(--text); font-size: 13.5px; line-height: 1.4; }
