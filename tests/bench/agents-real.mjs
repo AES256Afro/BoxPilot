@@ -50,6 +50,27 @@ if (process.argv.includes("--image")) {
       `Words: ${words ?? "(none)"}`,
       `Usage: ${JSON.stringify(result.usage)}`,
     ].join("\n"));
+    // Diagnosis, while the server still runs: what Unsloth says about the load, the llama-server it
+    // started (was it handed --mmproj?), and what it printed about a projector.
+    try {
+      const model = await runtime.ensure(result.runtimeSpec);
+      const response = await fetch(`${model.endpoint}/api/inference/status`, { headers: model.apiKey ? { Authorization: `Bearer ${model.apiKey}` } : {} });
+      const status = await response.json().catch(() => null);
+      const telling = Object.fromEntries(Object.entries(status ?? {}).filter(([key]) => /vision|mmproj|gguf|model|audio|disable|loaded|projector/i.test(key)));
+      console.log(`Unsloth's status (HTTP ${response.status}): ${JSON.stringify(telling)}`);
+    } catch (error) {
+      console.log(`Unsloth's status could not be read: ${error.message}`);
+    }
+    try {
+      const { execFileSync } = await import("node:child_process");
+      const servers = execFileSync("ps", ["-eo", "args"], { encoding: "utf8" }).split("\n").filter((line) => /llama-server/.test(line) && !/grep/.test(line));
+      console.log(`llama-server as started: ${servers.map((line) => line.replace(/--api-key\S*\s+\S+/g, "--api-key [redacted]").slice(0, 900)).join("\n  ") || "(none running)"}`);
+    } catch (error) {
+      console.log(`ps failed: ${error.message}`);
+    }
+    const printed = runtime.output().filter((line) => /mmproj|projector|vision|clip|image/i.test(line));
+    console.log(`What the server printed about seeing (${printed.length} lines):\n  ${printed.slice(-12).join("\n  ") || "(nothing)"}`);
+    console.log(`Its last lines:\n  ${runtime.output().slice(-12).join("\n  ")}`);
     if (!result.described || !saw) process.exitCode = 1;
   } finally {
     if (out) await writeFile(out, `${JSON.stringify({ threads, image: result }, null, 1)}\n`);

@@ -245,6 +245,8 @@ export async function describeBenchImage({ real = null, png = benchPicture(), na
       // What the model server said about seeing (Unsloth's /api/inference/status), and what was kept.
       server: await runtime.vision?.() ?? null, vision: (await h.service.knowledgeState(h.caller("owner"))).vision,
       described: Boolean(document?.describedAt), text: document?.text ?? null,
+      // What the runner asked the runtime for, so a caller can reach the same running server.
+      runtimeSpec: claim.runtime,
     };
   } finally {
     await h.close();
