@@ -1,4 +1,8 @@
+import { mkdtemp, realpath, rm, symlink } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { onWindows } from "../../test/platform.mjs";
 import { discoveryState, parseSmbConf, renderSmbConf, sambaApply, sambaDiagnose, sambaDiscoverySet, sambaRecycleEmpty, sambaShareWritable, sambaUserRemove, sambaUserSet, validateSambaConfig } from "./samba.mjs";
 
 function fakeRun({ testparmFails = false, lanDevice = "eno1", users = {} } = {}) {
@@ -24,6 +28,56 @@ function fakeFiles({ existing = null, ownerUid = 1000 } = {}) {
     access: vi.fn(async () => {}),
   };
 }
+
+describe("what a share may serve, and who may sign in", () => {
+  // A share is served by smbd as root, and a medium-risk approval sets it up: the folders it may
+  // name are the ones BoxPilot does not protect, however the path is spelled.
+  it.each(["/./etc", "//etc", "/srv/./../etc", "/.", "//", "/var", "/var/lib", "/mnt/boxpilot", "/mnt/boxpilot/backup", "/srv//x"])("refuses %s", (path) => {
+    expect(validateSambaConfig({ shares: [{ name: "X", path }] })).toContain("system locations");
+  });
+
+  it("still serves ordinary folders", () => {
+    for (const path of ["/srv/media", "/mnt/nas-media", "/home/homebox/Shared", "/media/usb", "/data/photos"]) expect(validateSambaConfig({ shares: [{ name: "X", path }] })).toBeNull();
+  });
+
+  it("refuses a folder that leads into a protected location through a link", async () => {
+    const files = { ...fakeFiles({ existing: "# Managed by BoxPilot\n[global]\n" }), realpath: vi.fn(async () => "/etc") };
+    await expect(sambaApply({ shares: [{ name: "Media", path: "/srv/media" }] }, { run: fakeRun(), files })).rejects.toThrow(/protected|system location/);
+    expect(files.writeFile).not.toHaveBeenCalled();
+  });
+
+  // Needs Linux: a real symbolic link to /etc, resolved by the real realpath the task uses.
+  it.skipIf(onWindows)("refuses a real link into /etc, resolved as the root task resolves it", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-share-"));
+    try {
+      await symlink("/etc", path.join(directory, "media"));
+      const files = { ...fakeFiles({ existing: "# Managed by BoxPilot\n[global]\n" }), realpath };
+      await expect(sambaApply({ shares: [{ name: "Media", path: path.join(directory, "media") }] }, { run: fakeRun(), files })).rejects.toThrow(/leads to \/etc/);
+      expect(files.writeFile).not.toHaveBeenCalled();
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  });
+
+  it("never hands a protected folder to anyone, however the share's path was written", async () => {
+    const conf = "# Managed by BoxPilot\n[global]\n   interfaces = lo tailscale0\n[Etc]\n   path = /./etc\n   read only = no\n";
+    const chown = vi.fn(async () => {});
+    const files = { ...fakeFiles({ existing: conf, ownerUid: 0 }), realpath: vi.fn(async (value) => value) };
+    await expect(sambaShareWritable({ share: "Etc" }, { run: fakeRun({ users: { 1000: "homebox:x:1000:1000::/home/homebox:/bin/bash" } }), files, chown })).rejects.toThrow();
+    expect(chown).not.toHaveBeenCalled();
+  });
+
+  it("gives root, and system accounts it did not make, no file-server password", async () => {
+    const run = fakeRun({ users: { root: "root:x:0:0:root:/root:/bin/bash", "www-data": "www-data:x:33:33:www-data:/var/www:/usr/sbin/nologin", backup: "backup:x:998:998:BoxPilot Samba user:/nonexistent:/usr/sbin/nologin" } });
+    await expect(sambaUserSet({ username: "root", password: "long enough pw" }, { run })).rejects.toThrow(/system account/);
+    await expect(sambaUserSet({ username: "www-data", password: "long enough pw" }, { run })).rejects.toThrow(/system account/);
+    expect(run.mock.calls.some(([binary]) => binary.endsWith("smbpasswd") || binary.endsWith("usermod"))).toBe(false);
+    // One BoxPilot made earlier keeps working.
+    await expect(sambaUserSet({ username: "backup", password: "long enough pw" }, { run })).resolves.toMatchObject({ updated: true });
+  });
+
+  it("tells Samba itself never to sign root in", () => {
+    expect(renderSmbConf({ scope: "tailscale" })).toContain("   invalid users = root\n");
+  });
+});
 
 describe("samba tasks", () => {
   it("validates the declarative configuration", () => {

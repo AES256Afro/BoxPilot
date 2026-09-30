@@ -1,5 +1,6 @@
-import { access, copyFile, lchown, readFile, rename, stat, writeFile } from "node:fs/promises";
+import { access, copyFile, lchown, readFile, realpath, rename, stat, writeFile } from "node:fs/promises";
 import { fixedRun } from "../exec.mjs";
+import { cleanServedPath } from "./served-folder.mjs";
 
 /**
  * Root-side Samba (SMB file server) tasks executed by scripts/boxpilot-run.mjs.
@@ -19,7 +20,9 @@ export const workgroupPattern = /^[A-Za-z0-9_-]{1,15}$/;
 export const sambaUsernamePattern = /^[a-z_][a-z0-9_-]{0,31}$/;
 export const scopes = Object.freeze(["tailscale", "lan"]);
 export const reservedShareNames = Object.freeze(["global", "homes", "printers", "print$", "ipc$"]);
-export const sharePathDenyPrefixes = Object.freeze(["/etc", "/proc", "/sys", "/dev", "/boot", "/root", "/run", "/var/run", "/opt", "/snap", "/usr", "/bin", "/sbin", "/lib", "/lib64", "/var/lib/libvirt", "/var/lib/docker", "/var/lib/boxpilot", "/var/lib/boxpilot-managed", "/var/lib/docker", "/var/lib/samba"]);
+export const sharePathDenyPrefixes = Object.freeze(["/etc", "/proc", "/sys", "/dev", "/boot", "/root", "/run", "/var/run", "/opt", "/snap", "/usr", "/bin", "/sbin", "/lib", "/lib64", "/var/lib/libvirt", "/var/lib/docker", "/var/lib/boxpilot", "/var/lib/boxpilot-managed", "/var/lib/docker", "/var/lib/samba", "/mnt/boxpilot"]);
+/** Written by useradd for the accounts sambaUserSet makes (system accounts, no shell, no home). */
+const sambaAccountComment = "BoxPilot Samba user";
 export const maxShares = 32;
 
 const binaries = {
@@ -54,10 +57,15 @@ export const discoveryPorts = Object.freeze([
 ]);
 
 function cleanPath(value) {
-  if (typeof value !== "string" || !/^\/[^\0\r\n]*$/.test(value) || value.includes("/../") || value.endsWith("/..") || value.length > 512) return null;
-  const normalized = value.replace(/\/+$/, "") || "/";
-  if (normalized === "/" || sharePathDenyPrefixes.some((prefix) => normalized === prefix || normalized.startsWith(`${prefix}/`))) return null;
-  return normalized;
+  return cleanServedPath(value, sharePathDenyPrefixes);
+}
+
+/** The share's folder as the kernel will find it, refused when a link leads it somewhere protected. */
+async function resolvedShareFolder(files, share) {
+  const path = cleanPath(share.path);
+  const real = typeof files.realpath === "function" ? await files.realpath(path) : path;
+  if (cleanPath(real) !== real) throw new Error(`share "${share.name}": ${path} leads to ${real}, a system location BoxPilot does not share`);
+  return real;
 }
 
 /** Validate the declarative configuration; returns null or a message. */
@@ -97,6 +105,8 @@ export function renderSmbConf({ workgroup = "WORKGROUP", scope = "tailscale", la
     "   smb ports = 445",
     `   disable netbios = ${scope === "lan" ? "no" : "yes"}`,
     "   security = user",
+    // A session as root writes anywhere a share reaches, whatever the folder's owner.
+    "   invalid users = root",
     "   map to guest = Bad User",
     "   guest account = nobody",
     "   server min protocol = SMB2_02",
@@ -195,14 +205,14 @@ async function ownerOf(run, files, directory) {
 const tail = (text) => String(text ?? "").split("\n").filter(Boolean).slice(-3).join(" ");
 
 /** Render, validate, and apply the whole configuration; reload smbd; verify it listens. */
-export async function sambaApply({ workgroup = "WORKGROUP", scope = "tailscale", shares = [] } = {}, { run = fixedRun, log = null, files = { readFile, writeFile, rename, copyFile, stat, access } } = {}) {
+export async function sambaApply({ workgroup = "WORKGROUP", scope = "tailscale", shares = [] } = {}, { run = fixedRun, log = null, files = { readFile, writeFile, rename, copyFile, stat, access, realpath } } = {}) {
   const problem = validateSambaConfig({ workgroup, scope, shares });
   if (problem) throw new Error(`Invalid configuration: ${problem}`);
   const installed = await files.access(binaries.smbd).then(() => true, () => false);
   if (!installed) throw new Error("Samba is not installed; install it from the Storage page first");
   const forceUsers = {};
   for (const share of shares) {
-    const owner = await ownerOf(run, files, cleanPath(share.path));
+    const owner = await ownerOf(run, files, await resolvedShareFolder(files, share));
     if (owner) forceUsers[share.name] = owner;
     else log?.(`${share.path} is owned by root: every user will be read-only there unless you change the folder's owner`, "stderr");
   }
@@ -248,15 +258,16 @@ const shareOwnerId = 1000;
  * A folder on an exFAT or NTFS drive cannot be handed over: those keep no owners, and the drive's
  * mount decides. That is refused with the fix that does work, before anything is changed.
  */
-export async function sambaShareWritable({ share } = {}, { run = fixedRun, log = null, files = { readFile, writeFile, rename, copyFile, stat, access }, chown = defaultChown } = {}) {
+export async function sambaShareWritable({ share } = {}, { run = fixedRun, log = null, files = { readFile, writeFile, rename, copyFile, stat, access, realpath }, chown = defaultChown } = {}) {
   if (typeof share !== "string" || !shareNamePattern.test(share)) throw new Error("Share name is invalid");
   const config = parseSmbConf(await files.readFile(smbConfPath, "utf8").catch(() => ""));
   if (!config.managed) throw new Error("BoxPilot does not manage this server's file sharing, so nothing was changed");
   const target = config.shares.find((entry) => entry.name === share);
   if (!target) throw new Error(`There is no share named ${share}`);
   if (target.readOnly) throw new Error(`${share} is shared read-only on purpose, so nothing was changed`);
-  const path = cleanPath(target.path);
-  if (!path) throw new Error(`${share}'s folder is in a system location BoxPilot does not hand over`);
+  if (!cleanPath(target.path)) throw new Error(`${share}'s folder is in a system location BoxPilot does not hand over`);
+  // The folder itself, with every link on the way resolved: root hands over what it finds there.
+  const path = await resolvedShareFolder(files, target);
   const info = await files.stat(path);
   if (!info.isDirectory()) throw new Error(`${path} is not a folder`);
   const where = await run(binaries.findmnt, ["--task", "1", "-n", "-o", "FSTYPE,TARGET", "-T", path], { timeout: 15_000 });
@@ -292,9 +303,20 @@ export async function sambaUserSet({ username, password } = {}, { run = fixedRun
   if (typeof username !== "string" || !sambaUsernamePattern.test(username)) throw new Error("Username must be lower-case letters, digits, underscore, or hyphen (max 32)");
   if (typeof password !== "string" || password.length < 8 || password.length > 128 || /[\r\n]/.test(password)) throw new Error("Password must be 8 to 128 characters");
   const existing = await run(binaries.getent, ["passwd", username], { timeout: 10_000 });
+  // A file-server password for root, or for a service's own account (www-data, postgres), would sign
+  // a client in as that account and write wherever it may. People's accounts (uid 1000 and up) and
+  // the ones this task made earlier are the ones that get one.
+  if (existing.ok && existing.stdout) {
+    const [, , uid = "", , comment = ""] = existing.stdout.trim().split(":");
+    if (username === "root" || Number(uid) === 0 || (Number(uid) < 1000 && comment !== sambaAccountComment)) {
+      throw new Error(`${username} is a system account, so it gets no file-server password; add a new user for file sharing instead`);
+    }
+  } else if (username === "root") {
+    throw new Error("root is a system account, so it gets no file-server password; add a new user for file sharing instead");
+  }
   let created = false;
   if (!existing.ok || !existing.stdout) {
-    const add = await run(binaries.useradd, ["--system", "--no-create-home", "--shell", "/usr/sbin/nologin", "--groups", "sambashare", "--comment", "BoxPilot Samba user", username], { timeout: 30_000 });
+    const add = await run(binaries.useradd, ["--system", "--no-create-home", "--shell", "/usr/sbin/nologin", "--groups", "sambashare", "--comment", sambaAccountComment, username], { timeout: 30_000 });
     if (!add.ok) throw new Error(`Could not create the account: ${tail(add.stderr)}`);
     created = true;
     log?.(`Created Linux account ${username} (no shell, no home) in group sambashare`, "stdout");
