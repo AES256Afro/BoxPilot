@@ -1,0 +1,128 @@
+/* The top of Storage in the Launcher (M41): docs/design-directions/05-looks.html, M.homeStorage.
+   Home's glass and ink (--lx-*), so light, dark and the chosen wallpaper come with them. Every
+   selector starts with .launcher-. */
+
+.launcher-lead { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); align-items: start; gap: 19px; min-width: 0; color: var(--lx-ink); font-family: var(--font-sans); }
+.launcher-stack { display: grid; align-content: start; gap: 17px; min-width: 0; }
+
+/* A glass panel: a heading in small capitals with its icon, a count at the right. */
+.launcher-pane {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  min-width: 0;
+  padding: 17px 19px 18px;
+  border: 1px solid var(--lx-glass-border);
+  border-radius: 21px;
+  background: var(--lx-glass);
+  box-shadow: var(--lx-shadow);
+  -webkit-backdrop-filter: blur(var(--look-blur)) saturate(140%);
+  backdrop-filter: blur(var(--look-blur)) saturate(140%);
+}
+.launcher-pane__title { display: flex; align-items: center; gap: 7px; min-height: 18px; margin: 0; color: var(--lx-ink-muted); font-size: 12.5px; font-weight: 700; letter-spacing: 0.1em; line-height: 1.3; text-transform: uppercase; }
+.launcher-pane__icon { display: inline-grid; flex: none; }
+.launcher-pane__icon svg { width: 17px; height: 17px; }
+.launcher-pane__count { margin-left: auto; color: var(--lx-ink); font-weight: 700; letter-spacing: 0; text-transform: none; }
+.launcher-pane__count .ui-chip { padding: 1px 5px; border-radius: 4px; font-size: 10px; letter-spacing: 0; }
+.launcher-pane__count .ui-chip .ui-mark { width: 6px; height: 6px; }
+.launcher-quiet { margin: 0; color: var(--lx-ink-muted); font-size: 14.5px; line-height: 1.45; }
+.launcher-more.ui-button { justify-self: start; }
+
+/* An icon on a glass well, as Home's needs have. */
+.launcher-well { display: grid; flex: none; width: 51px; height: 51px; place-items: center; border: 1px solid var(--lx-glass-border); border-radius: 15px; color: var(--lx-ink); background: var(--lx-glass-raised); }
+.launcher-well svg { width: 25px; height: 25px; }
+
+/* A drive: its plain name, the path in mono, how full, a thick bar, and one thing about it. */
+.launcher-drives__list { display: grid; margin: 0; padding: 0; list-style: none; }
+.launcher-drive {
+  display: grid;
+  grid-template-columns: 51px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px 16px;
+  padding: 14px 0 9px;
+  border-top: 1px solid var(--lx-hairline);
+}
+.launcher-drive:first-child { padding-top: 2px; border-top: 0; }
+.launcher-drive:last-child { padding-bottom: 0; }
+.launcher-drive > .launcher-well { grid-row: 1 / span 1; }
+.launcher-drive__name { display: grid; gap: 4px; min-width: 0; }
+.launcher-drive__name b { overflow: hidden; font-size: 18.5px; font-weight: 700; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
+.launcher-drive__name small,
+.launcher-drive__value small { overflow: hidden; color: var(--lx-ink-muted); font-family: var(--font-mono); font-size: 13.2px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.launcher-drive__value { display: grid; justify-items: end; gap: 4px; text-align: right; }
+.launcher-drive__value b { font-family: var(--font-mono); font-size: 21.5px; font-weight: 700; line-height: 1.1; letter-spacing: -0.02em; }
+.launcher-meter { display: block; grid-column: 2 / -1; height: 9px; overflow: hidden; border-radius: 9px; background: var(--lx-track); }
+.launcher-meter > i { display: block; height: 100%; border-radius: inherit; background: var(--lx-bar); }
+.launcher-drive[data-status="warning"] .launcher-meter > i { background: var(--lx-warning); }
+.launcher-drive[data-status="danger"] .launcher-meter > i { background: var(--lx-danger); }
+.launcher-drive[data-status="danger"] .launcher-drive__value b { color: var(--lx-danger-text); }
+.launcher-drive__row { display: flex; grid-column: 2 / -1; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 14px; min-width: 0; min-height: 25px; font-size: 14.8px; line-height: 1.35; }
+.launcher-drive__row .ui-button { min-height: 25px; padding: 0 10px; font-size: 12px; }
+
+/* Reconnecting a drive: the Drives tab's own switch, its name first and the switch at the right. */
+.launcher-drive__row .storage-reconnect { flex: 1 1 100%; min-width: 0; padding: 0; }
+.launcher-drive__row .ui-switch { flex-direction: row-reverse; align-items: center; justify-content: space-between; }
+.launcher-drive__row .ui-switch__text { padding: 0; }
+.launcher-drive__row .ui-switch__label { color: var(--lx-ink); font-size: 14.8px; font-weight: 400; }
+.launcher-drive__row .ui-switch__state { display: none; }
+.launcher-drive__row .ui-switch__description { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.launcher-drive__row .ui-switch__track { width: 36px; height: 20px; }
+.launcher-drive__row .ui-switch__thumb { top: 2.5px; left: 2.5px; width: 15px; height: 15px; }
+.launcher-drive__row .ui-switch__control[aria-checked="true"] .ui-switch__thumb { transform: translateX(16px); }
+
+/* What needs you: an icon, the words with the fix's tier, the fix as a pill. */
+.launcher-needs { display: grid; gap: 14px; margin: 0; padding: 0; list-style: none; }
+.launcher-need { display: grid; grid-template-columns: 51px minmax(0, 1fr); align-items: start; gap: 6px 16px; }
+.launcher-need__words { display: block; min-width: 0; }
+.launcher-need__words > b { font-size: 16px; font-weight: 600; line-height: 1.35; }
+.launcher-need__tier.ui-risk { margin-left: 7px; vertical-align: 2px; }
+.launcher-need__words > p { margin: 3px 0 0; color: var(--lx-ink-muted); font-size: 13.2px; line-height: 1.4; }
+.launcher-need__acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 7px; }
+
+/* A shared folder or a snapshot: its name, a line under it, its state or a pill at the right. */
+.launcher-li { display: flex; align-items: center; justify-content: space-between; gap: 6px 16px; min-width: 0; padding-top: 11px; border-top: 1px solid var(--lx-hairline); }
+.launcher-pane__title + .launcher-li,
+.launcher-quiet + .launcher-li { padding-top: 0; border-top: 0; }
+.launcher-li__words { display: grid; gap: 3px; min-width: 0; }
+.launcher-li__words b { overflow: hidden; font-size: 15.6px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.launcher-li__words small { overflow: hidden; color: var(--lx-ink-muted); font-size: 12.8px; text-overflow: ellipsis; white-space: nowrap; }
+.launcher-li .ui-button { flex: none; }
+.launcher-state {
+  --mark: var(--lx-good);
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 7px;
+  min-height: 28px;
+  padding: 0 12px 0 10px;
+  border: 0;
+  border-radius: 999px;
+  color: var(--lx-good-text);
+  background: var(--lx-good-bg);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.launcher-state .ui-mark { width: 8px; height: 8px; border-radius: 50%; background: var(--lx-good); }
+.launcher-state[data-status="warning"] { color: var(--lx-warning-text); background: var(--lx-warning-bg); }
+.launcher-state[data-status="warning"] .ui-mark { border-radius: 0; background: var(--lx-warning); clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+.launcher-state:hover { text-decoration: underline; }
+
+@media (max-width: 1100px) {
+  .launcher-lead { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 620px) {
+  .launcher-pane { padding: 14px 14px 15px; }
+  .launcher-drive { grid-template-columns: 40px minmax(0, 1fr) auto; gap: 6px 12px; }
+  .launcher-drive .launcher-well { width: 40px; height: 40px; border-radius: 12px; }
+  .launcher-drive .launcher-well svg { width: 20px; height: 20px; }
+  .launcher-drive__name b { font-size: 16.5px; }
+  .launcher-drive__value b { font-size: 18px; }
+  .launcher-drive__name small, .launcher-drive__value small { font-size: 12px; white-space: normal; }
+  .launcher-drive__row { grid-column: 1 / -1; font-size: 14px; }
+  .launcher-meter { grid-column: 1 / -1; }
+  .launcher-need { grid-template-columns: 40px minmax(0, 1fr); gap: 6px 12px; }
+  .launcher-need .launcher-well { width: 40px; height: 40px; border-radius: 12px; }
+}
