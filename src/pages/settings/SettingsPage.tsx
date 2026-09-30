@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { useDrawnLookInShell } from "../../looks/drawnLook";
+import { lookById } from "../../looks/looks";
 import { PageHeader, Tabs, type Status, type TabItem } from "../../ui";
 import ApprovalsPanel from "./ApprovalsPanel";
 import AppearancePanel from "./AppearancePanel";
@@ -10,6 +12,7 @@ import PeoplePanel from "./PeoplePanel";
 import SessionsPanel from "./SessionsPanel";
 import SignInMethodsPanel from "./SignInMethodsPanel";
 import SingleSignOnPanel from "./SingleSignOnPanel";
+import { sectionsFor, useSettingsSection, type SettingsSection } from "./sections";
 import "./settings.css";
 
 /*
@@ -21,7 +24,21 @@ import "./settings.css";
  * the theme. The panels load in this page's own chunk, so no other page pays for them.
  */
 
-type TabId = "account" | "people" | "notifications" | "approvals" | "sso" | "credentials" | "appearance";
+type TabId = SettingsSection;
+
+/** A screen wide enough for the sidebar (it folds away at 760 px and under, as sidebar.css says). */
+const wideQuery = "(min-width: 761px)";
+function useWideScreen(): boolean {
+  return useSyncExternalStore(
+    (listener) => {
+      const query = typeof window.matchMedia === "function" ? window.matchMedia(wideQuery) : null;
+      query?.addEventListener("change", listener);
+      return () => query?.removeEventListener("change", listener);
+    },
+    () => (typeof window.matchMedia === "function" ? window.matchMedia(wideQuery).matches : true),
+    () => true,
+  );
+}
 
 interface Summary { target: { configured: boolean; kind: string | null } | null; mode: string | null; read: boolean }
 
@@ -43,17 +60,17 @@ export default function SettingsPage({ csrfToken, role = "owner" }: { csrfToken:
   useEffect(() => { void readSummary(); }, [readSummary]);
 
   const noTarget = owner && summary.target !== null && !summary.target.configured;
-  const tabs: Array<TabItem<TabId>> = [
-    { id: "account", label: "Account & sign-in" },
-    ...(owner ? [
-      { id: "people" as const, label: "People" },
-      { id: "notifications" as const, label: "Notifications", ...(noTarget ? { status: "warning" as Status, statusLabel: "no target set" } : {}) },
-      { id: "approvals" as const, label: "Approvals" },
-      { id: "sso" as const, label: "Single sign-on" },
-      { id: "credentials" as const, label: "Credentials" },
-    ] : []),
-    { id: "appearance", label: "Appearance" },
-  ];
+  const tabs: Array<TabItem<TabId>> = sectionsFor(role).map((section) => ({
+    id: section.id,
+    label: section.label,
+    ...(section.id === "notifications" && noTarget ? { status: "warning" as Status, statusLabel: "no target set" } : {}),
+  }));
+  const [tab, setTab] = useSettingsSection(role);
+  // In a look that goes around by the sidebar, the sidebar lists the sections while Settings is
+  // open (src/shell/ShellSidebar.tsx) and the page is the open section, named as its title (M41).
+  const drawn = useDrawnLookInShell();
+  const wide = useWideScreen();
+  const inSidebar = drawn !== null && lookById(drawn).nav === "sidebar" && wide;
 
   const verdict: { status: Status; label: string } | undefined = !owner ? undefined
     : !summary.read ? { status: "unknown", label: "Reading…" }
@@ -61,37 +78,41 @@ export default function SettingsPage({ csrfToken, role = "owner" }: { csrfToken:
         : summary.target.configured ? { status: "good", label: `Alerts go to ${summary.target.kind ?? "a target"}` }
           : { status: "warning", label: "No notification target" };
 
+  const section = (current: TabId) => {
+    if (current === "people") return <div className="settings-grid"><PeoplePanel csrfToken={csrfToken} /></div>;
+    if (current === "notifications") return <div className="settings-grid"><NotificationsPanel csrfToken={csrfToken} onChange={() => void readSummary()} /></div>;
+    if (current === "approvals") return <div className="settings-grid"><ApprovalsPanel csrfToken={csrfToken} onChange={() => void readSummary()} /></div>;
+    if (current === "sso") return <div className="settings-grid"><SingleSignOnPanel csrfToken={csrfToken} /></div>;
+    if (current === "credentials") return <div className="settings-grid"><CredentialsPanel csrfToken={csrfToken} /></div>;
+    if (current === "appearance") return <AppearancePanel />;
+    return (
+      <div className="settings-grid">
+        <PasswordPanel csrfToken={csrfToken} />
+        {/* Linking Tailscale or GitHub changes how this account signs in; a viewer's Settings
+            is their own password, passkeys and sessions (ADR-003). */}
+        {role !== "viewer" && <SignInMethodsPanel csrfToken={csrfToken} />}
+        <PasskeysPanel csrfToken={csrfToken} />
+        <SessionsPanel csrfToken={csrfToken} />
+      </div>
+    );
+  };
+
   return (
-    <div className="settings-page">
+    <div className="settings-page" data-sections={inSidebar ? "sidebar" : "tabs"}>
       <PageHeader
-        title="Settings"
-        status={verdict}
-        meta={<>role <b>{role}</b>{owner && summary.mode ? <> · approvals <b>{modeWords[summary.mode] ?? summary.mode}</b></> : null}</>}
+        title={inSidebar ? sectionsFor(role).find((entry) => entry.id === tab)?.label ?? "Settings" : "Settings"}
+        // The owner's two facts belong to Settings as a whole; a section on its own (Appearance in
+        // the sidebar looks) opens with its own words instead.
+        status={inSidebar && tab === "appearance" ? undefined : verdict}
+        meta={inSidebar && tab === "appearance" ? undefined : <>role <b>{role}</b>{owner && summary.mode ? <> · approvals <b>{modeWords[summary.mode] ?? summary.mode}</b></> : null}</>}
         about={<>
           <p>Your own account on every tab you can see: your password, passkeys and recovery codes, where you are signed in, and the theme.</p>
           {owner && <p>The owner also decides who can sign in, where alerts go, how much approving asks, which apps may sign in with BoxPilot, and the tokens automations send.</p>}
         </>}
       />
-      <Tabs<TabId> label="Settings" tabs={tabs} urlParam="tab" className="settings-tabs">
-        {(tab) => {
-          if (tab === "people") return <div className="settings-grid"><PeoplePanel csrfToken={csrfToken} /></div>;
-          if (tab === "notifications") return <div className="settings-grid"><NotificationsPanel csrfToken={csrfToken} onChange={() => void readSummary()} /></div>;
-          if (tab === "approvals") return <div className="settings-grid"><ApprovalsPanel csrfToken={csrfToken} onChange={() => void readSummary()} /></div>;
-          if (tab === "sso") return <div className="settings-grid"><SingleSignOnPanel csrfToken={csrfToken} /></div>;
-          if (tab === "credentials") return <div className="settings-grid"><CredentialsPanel csrfToken={csrfToken} /></div>;
-          if (tab === "appearance") return <AppearancePanel />;
-          return (
-            <div className="settings-grid">
-              <PasswordPanel csrfToken={csrfToken} />
-              {/* Linking Tailscale or GitHub changes how this account signs in; a viewer's Settings
-                  is their own password, passkeys and sessions (ADR-003). */}
-              {role !== "viewer" && <SignInMethodsPanel csrfToken={csrfToken} />}
-              <PasskeysPanel csrfToken={csrfToken} />
-              <SessionsPanel csrfToken={csrfToken} />
-            </div>
-          );
-        }}
-      </Tabs>
+      {inSidebar
+        ? <div className="settings-section" id="settings-section">{section(tab)}</div>
+        : <Tabs<TabId> label="Settings" tabs={tabs} value={tab} onChange={setTab} className="settings-tabs">{section}</Tabs>}
     </div>
   );
 }
