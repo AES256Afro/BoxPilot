@@ -28,11 +28,16 @@
   --bp-paper-size: calc(var(--bp-grid) * 5) calc(var(--bp-grid) * 5), calc(var(--bp-grid) * 5) calc(var(--bp-grid) * 5), var(--bp-grid) var(--bp-grid), var(--bp-grid) var(--bp-grid);
   --bp-hatch: repeating-linear-gradient(-45deg, var(--bp-ink) 0 1.4px, transparent 1.4px 6px);
   /* Where the drawing border sits: its outer line, its inner line, and the sheet inside them. */
+  /* The heavy line at 18px from the edges, 26px at the top, whose margin holds the bar's controls as
+     a sheet's edge carries its annotations; the fine line 14px inside it, except on the left, where
+     the rail stands between the two and the fine line is the rail's own rule. */
   --bp-edge: 18px;
+  --bp-edge-top: 26px;
   --bp-frame: 32px;
-  --bp-rail: 40px;
+  --bp-frame-top: 40px;
+  --bp-frame-left: 62px;
   /* One em of the drawing: the sheet's width across 68 of them, as the study's 1440 px screen. */
-  --bp-em: clamp(12px, calc((100vw - 132px) / 68), 21px);
+  --bp-em: clamp(12px, calc((100vw - 122px) / 68), 21px);
 
   --font-condensed: "Martian Mono", ui-monospace, "SF Mono", Menlo, monospace;
   --font-mono: "Martian Mono", ui-monospace, "SF Mono", Menlo, monospace;
@@ -96,9 +101,6 @@
 
 /* Only the light theme could have been chosen: the paper is drawn the same, and the switch goes. */
 :root[data-look="blueprint"] .ui-theme-switch { display: none; }
-/* The bar's own controls keep their room; the search and the page's name give way first. */
-:root[data-look="blueprint"] .topbar-right { flex-shrink: 0; }
-:root[data-look="blueprint"] .command-trigger { min-width: 36px; }
 
 /* ── The paper ── */
 :root[data-look="blueprint"] body,
@@ -117,7 +119,8 @@
 :root[data-look="blueprint"] ::selection { color: var(--bp-paper); background: var(--bp-ink); }
 
 /* ── The drawing border: a heavy line and a fine one inside it, around every page. What scrolls
-   passes under the margin outside them, which is the same paper, so the sheet keeps its edge. ── */
+   passes under the margin outside the fine line, which is the same paper, so the sheet keeps its
+   edge. ── */
 :root[data-look="blueprint"] body::before {
   position: fixed;
   z-index: 25;
@@ -127,39 +130,47 @@
   background-size: var(--bp-paper-size);
   background-attachment: fixed;
   clip-path: polygon(evenodd, 0 0, 100% 0, 100% 100%, 0 100%, 0 0,
-    var(--bp-frame) var(--bp-frame), var(--bp-frame) calc(100% - var(--bp-frame)), calc(100% - var(--bp-frame)) calc(100% - var(--bp-frame)), calc(100% - var(--bp-frame)) var(--bp-frame), var(--bp-frame) var(--bp-frame));
+    var(--bp-frame-left) var(--bp-frame-top), var(--bp-frame-left) calc(100% - var(--bp-frame)), calc(100% - var(--bp-frame)) calc(100% - var(--bp-frame)), calc(100% - var(--bp-frame)) var(--bp-frame-top), var(--bp-frame-left) var(--bp-frame-top));
   content: "";
   pointer-events: none;
 }
+/* The heavy line. */
 :root[data-look="blueprint"] body::after {
   position: fixed;
   z-index: 26;
-  inset: var(--bp-edge) var(--bp-edge) calc(var(--shell-bottom-inset, 0px) + var(--bp-edge));
+  inset: var(--bp-edge-top) var(--bp-edge) calc(var(--shell-bottom-inset, 0px) + var(--bp-edge));
   border: 3.5px solid var(--bp-ink);
-  outline: 1.4px solid var(--bp-ink);
-  outline-offset: calc(var(--bp-edge) - var(--bp-frame) + 3.5px - 1.4px);
+  content: "";
+  pointer-events: none;
+}
+/* The fine line. */
+:root[data-look="blueprint"] .app-shell::after {
+  position: fixed;
+  z-index: 26;
+  inset: var(--bp-frame-top) var(--bp-frame) calc(var(--shell-bottom-inset, 0px) + var(--bp-frame)) var(--bp-frame-left);
+  border: 1.4px solid var(--bp-ink);
   content: "";
   pointer-events: none;
 }
 
-/* ── The sheet: inside the border, the rail down its left edge and the top bar across its head ── */
+/* ── The sheet: inside the fine line, the title strip across its head ── */
 @media (min-width: 761px) {
   :root[data-look="blueprint"] .app-shell[data-shell="console"] {
-    padding: var(--bp-frame) var(--bp-frame) 0 calc(var(--bp-frame) + var(--bp-rail));
+    padding: calc(var(--bp-frame-top) + 1.4px) calc(var(--bp-frame) + 1.4px) 0 calc(var(--bp-frame-left) + 1.4px);
   }
   :root[data-look="blueprint"] .content { padding: 14px 20px calc(var(--shell-bottom-inset, 0px) + var(--bp-frame) + 24px) 10px; }
   :root[data-look="blueprint"] .topbar { padding-left: 10px; }
 }
 
-/* The rail: a strip of the title block, one outlined cell per area. */
+/* The rail: between the heavy line and the fine one down the left edge, the fine line its rule. */
 @media (min-width: 761px) {
   :root[data-look="blueprint"] .shell-dock.shell-dock--rail {
-    top: var(--bp-frame);
-    bottom: calc(var(--shell-bottom-inset, 0px) + var(--bp-frame));
-    left: var(--bp-frame);
-    width: var(--bp-rail);
-    padding: 10px 0;
-    border-right: 1.4px solid var(--bp-ink);
+    top: calc(var(--bp-edge-top) + 3.5px);
+    bottom: calc(var(--shell-bottom-inset, 0px) + var(--bp-edge) + 3.5px);
+    left: calc(var(--bp-edge) + 3.5px);
+    width: calc(var(--bp-frame-left) - var(--bp-edge) - 3.5px);
+    padding: 8px 0;
+    border-right: 0;
     background: transparent;
   }
   :root[data-look="blueprint"] .shell-rail__logo {
@@ -190,9 +201,11 @@
   }
 }
 
-/* The top bar: the strip at the head of the sheet, ruled off from the drawing under it. */
+/* The title strip at the head of the sheet: the page's name (on Home, the drawing's title), ruled off
+   from the drawing under it. */
 :root[data-look="blueprint"] .topbar {
-  top: var(--bp-frame);
+  z-index: 28;
+  top: calc(var(--bp-frame-top) + 1.4px);
   min-height: 52px;
   border-bottom: 1.4px solid var(--bp-ink);
   background-color: var(--bp-paper);
@@ -206,13 +219,18 @@
 :root[data-look="blueprint"] .cc-crumb h1 { color: var(--bp-ink); font-size: 14px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
 :root[data-look="blueprint"] .cc-kv { color: var(--bp-dim); font-size: 11px; letter-spacing: 0.02em; }
 :root[data-look="blueprint"] .cc-kv b { color: var(--bp-ink); }
+
+/* The bar's controls: small outlined annotations. On a wide screen they stand in the sheet's top
+   margin, above the heavy line: Home and Ops at its left, the search whole in the middle, the bell,
+   Activity and the account menu at its right. The account menu holds the person and Sign out. */
 :root[data-look="blueprint"] .view-switch { gap: 0; padding: 0; border: 1.4px solid var(--bp-ink); border-radius: 0; background: transparent; }
 :root[data-look="blueprint"] .view-switch__option { min-height: 28px; padding: 0 10px; border: 0; border-radius: 0; color: var(--bp-dim); font-size: 11px; font-weight: 600; letter-spacing: 0.06em; }
 :root[data-look="blueprint"] .view-switch__option + .view-switch__option { border-left: 1.4px solid var(--bp-ink); }
 :root[data-look="blueprint"] .view-switch__option[aria-current="page"] { color: var(--bp-paper); background: var(--bp-ink); box-shadow: none; }
-:root[data-look="blueprint"] .command-trigger { min-height: 30px; border: 1.4px solid var(--bp-ink); border-radius: 0; color: var(--bp-dim); background: transparent; font-size: 11px; letter-spacing: 0.04em; }
+:root[data-look="blueprint"] .command-trigger { min-width: 36px; min-height: 30px; border: 1.4px solid var(--bp-ink); border-radius: 0; color: var(--bp-dim); background: transparent; font-size: 11px; letter-spacing: 0.04em; }
 :root[data-look="blueprint"] .command-trigger:hover { color: var(--bp-ink); }
 :root[data-look="blueprint"] .command-trigger__keys { border: 1px solid var(--bp-dim); border-radius: 0; color: var(--bp-ink); background: transparent; font-size: 10px; }
+:root[data-look="blueprint"] .topbar-right { flex-shrink: 0; }
 :root[data-look="blueprint"] .connection-pill { border: 1px solid var(--bp-dim); border-radius: 0; color: var(--bp-dim); background: transparent; }
 :root[data-look="blueprint"] .connection-pill::before { border-radius: 0; background: var(--bp-ink); }
 :root[data-look="blueprint"] .bar-button { color: var(--bp-dim); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; }
@@ -221,16 +239,62 @@
 :root[data-look="blueprint"] .bar-button[data-live] { color: var(--bp-ink); }
 :root[data-look="blueprint"] .bar-badge { border-radius: 0; color: var(--bp-paper); background: var(--bp-ink); }
 :root[data-look="blueprint"] .bar-label { border-color: var(--bp-dim); border-radius: 0; color: var(--bp-dim); }
-:root[data-look="blueprint"] .signed-in-user { color: var(--bp-dim); font-size: 11px; }
-:root[data-look="blueprint"] .signed-in-user__avatar { border: 1.4px solid var(--bp-ink); border-radius: 0; color: var(--bp-ink); background: transparent; }
+:root[data-look="blueprint"] :is(.signed-in-user, .bar-sign-out, .bar-tiers, .bar-role) { display: none; }
+:root[data-look="blueprint"] .account-menu { display: flex; }
+:root[data-look="blueprint"] .account-menu__button { width: auto; height: auto; border-radius: 0; }
+:root[data-look="blueprint"] .account-menu__avatar { width: 22px; height: 22px; border: 1.4px solid var(--bp-ink); border-radius: 0; color: var(--bp-ink); background: transparent; font: 600 11px/1 var(--font-mono); }
+:root[data-look="blueprint"] .account-menu__button[aria-expanded="true"] .account-menu__avatar { color: var(--bp-paper); background: var(--bp-ink); box-shadow: none; }
+:root[data-look="blueprint"] .account-menu__list {
+  border: 2px solid var(--bp-ink);
+  border-radius: 0;
+  outline: 1px solid var(--bp-ink);
+  outline-offset: -5px;
+  color: var(--bp-ink);
+  background-color: var(--bp-paper);
+  background-image: var(--bp-paper-image);
+  background-size: var(--bp-paper-size);
+  box-shadow: 0 12px 28px rgba(6, 20, 48, 0.5);
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+}
+:root[data-look="blueprint"] .account-menu__who { border-bottom-color: var(--bp-faint); color: var(--bp-dim); font-size: 11px; letter-spacing: 0.04em; text-transform: none; }
+:root[data-look="blueprint"] .account-menu__group { border-color: var(--bp-faint); }
+:root[data-look="blueprint"] .account-menu__item { border-radius: 0; color: var(--bp-ink); font-size: 11.5px; letter-spacing: 0.05em; }
+:root[data-look="blueprint"] :is(.account-menu__item:hover, .account-menu__item:focus-visible, .account-menu__item--choice[aria-checked="true"]) { color: var(--bp-paper); background: var(--bp-ink); }
+:root[data-look="blueprint"] .account-menu__item--out { color: var(--bp-ink); }
 /* The top bar's words are the strip's lettering, in capitals like the rest of the drawing's. */
 :root[data-look="blueprint"] .topbar :is(button, a) { text-transform: uppercase; }
 
+@media (min-width: 761px) {
+  :root[data-look="blueprint"] .topbar :is(.view-switch, .command-trigger, .topbar-right) { position: fixed; top: calc((var(--bp-edge-top) - 20px) / 2); height: 20px; margin: 0; }
+  :root[data-look="blueprint"] .topbar .view-switch { left: var(--bp-frame-left); border-width: 1px; }
+  :root[data-look="blueprint"] .topbar .view-switch__option { min-height: 0; height: 18px; padding: 0 8px; font-size: 9.5px; }
+  :root[data-look="blueprint"] .topbar .view-switch__option svg { width: 11px; height: 11px; }
+  :root[data-look="blueprint"] .topbar .view-switch__option + .view-switch__option { border-left-width: 1px; }
+  :root[data-look="blueprint"] .topbar .command-trigger { left: 50%; flex: none; width: auto; max-width: none; min-height: 0; padding: 0 3px 0 8px; gap: 8px; border-width: 1px; font-size: 9.5px; transform: translateX(-50%); }
+  :root[data-look="blueprint"] .topbar .command-trigger__label { overflow: visible; }
+  :root[data-look="blueprint"] .topbar .command-trigger__icon { width: 11px; height: 11px; }
+  :root[data-look="blueprint"] .topbar .command-trigger__keys { padding: 0 5px; font-size: 8.5px; line-height: 14px; }
+  :root[data-look="blueprint"] .topbar .topbar-right { right: var(--bp-edge); gap: 16px; }
+  :root[data-look="blueprint"] .topbar :is(.bar-button, .account-menu__button) { min-height: 0; height: 20px; padding: 0 2px; font-size: 9.5px; }
+  :root[data-look="blueprint"] .topbar .bar-button svg { width: 13px; height: 13px; }
+  :root[data-look="blueprint"] .topbar .bar-badge { min-width: 14px; height: 14px; padding: 0 3px; font-size: 9px; }
+  :root[data-look="blueprint"] .topbar .account-menu__avatar { width: 18px; height: 18px; border-width: 1px; font-size: 9.5px; }
+  :root[data-look="blueprint"] .topbar .connection-pill { padding: 0 6px; font-size: 9px; }
+}
+/* A narrower sheet: the search keeps its icon and its keys, not a word cut short. */
+@media (min-width: 761px) and (max-width: 1099px) {
+  :root[data-look="blueprint"] .topbar .command-trigger__label { display: none; }
+}
+/* A finger, not a pointer: a margin tall enough for the controls to be tapped. */
+@media (min-width: 761px) and (pointer: coarse) {
+  :root[data-look="blueprint"] { --bp-edge-top: 50px; --bp-frame-top: 64px; }
+  :root[data-look="blueprint"] .topbar :is(.view-switch, .command-trigger, .topbar-right) { top: 2px; height: 44px; }
+  :root[data-look="blueprint"] .topbar :is(.view-switch__option, .bar-button, .account-menu__button) { height: 44px; }
+}
+
 /* Home's head is the drawing's own title: no rule under it, the title where the page name was. */
 :root[data-look="blueprint"] .app-shell[data-view="home"] .topbar { position: sticky; min-height: 0; align-items: flex-start; padding-top: 18px; padding-bottom: 6px; border-bottom-color: transparent; }
-:root[data-look="blueprint"] .app-shell[data-view="home"] .topbar-right,
-:root[data-look="blueprint"] .app-shell[data-view="home"] .command-trigger,
-:root[data-look="blueprint"] .app-shell[data-view="home"] .view-switch { margin-top: calc(var(--bp-em) * 0.4); }
 
 /* ── Type: Martian Mono throughout; annotations in capitals, sentences and data as written ── */
 :root[data-look="blueprint"] .app-shell,
@@ -391,11 +455,16 @@
 @media (max-width: 760px) {
   :root[data-look="blueprint"] {
     --bp-edge: 4px;
+    --bp-edge-top: 4px;
     --bp-frame: 9px;
+    --bp-frame-top: 9px;
+    --bp-frame-left: 9px;
     --bp-em: 12px;
   }
-  :root[data-look="blueprint"] .app-shell[data-shell="console"] { padding: var(--bp-frame) var(--bp-frame) 0; }
-  :root[data-look="blueprint"] body::after { border-width: 2px; outline-offset: calc(var(--bp-edge) - var(--bp-frame) + 2px - 1.2px); outline-width: 1.2px; }
+  :root[data-look="blueprint"] .app-shell[data-shell="console"] { padding: calc(var(--bp-frame) + 1.2px) calc(var(--bp-frame) + 1.2px) 0; }
+  :root[data-look="blueprint"] .topbar { top: calc(var(--bp-frame) + 1.2px); }
+  :root[data-look="blueprint"] body::after { border-width: 2px; }
+  :root[data-look="blueprint"] .app-shell::after { border-width: 1.2px; }
   :root[data-look="blueprint"] .content { padding: 10px 12px calc(var(--shell-bottom-inset, 0px) + 112px); }
   :root[data-look="blueprint"] .shell-dock { right: calc(var(--bp-frame) + 6px); bottom: calc(var(--shell-bottom-inset, 0px) + var(--bp-frame) + 6px + env(safe-area-inset-bottom, 0px)); left: calc(var(--bp-frame) + 6px); }
   :root[data-look="blueprint"] .ui-dock.shell-dock ul { border: 1.6px solid var(--bp-ink); border-radius: 0; background: var(--bp-paper); box-shadow: 0 0 0 4px var(--bp-paper); backdrop-filter: none; }
