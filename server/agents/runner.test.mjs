@@ -91,12 +91,14 @@ describe("each call's time", () => {
   it("is worked out from the speed BoxPilot measured before, and the new measurement is kept for the Usage tab and the next run", async () => {
     bench = await createBench({ promptPerSecond: 25, generatePerSecond: 5, stored: { promptPerSecond: 20, generatePerSecond: 4 } });
     const first = await bench.ask(ownerQuestion);
-    expect(first.claim.runtime.speed).toMatchObject({ promptPerSecond: 20, generatePerSecond: 4, threads: 4 });
+    // A person's question runs at eight threads (M40); with nothing measured at eight yet, the
+    // four threads' speed plans its first call: slower, so no call is planned too short.
+    expect(first.claim.runtime).toMatchObject({ threads: 8, speed: { promptPerSecond: 20, generatePerSecond: 4, threads: 4 } });
     // llama-server's own timings, as Unsloth passes them on: 25 read and 5 written a second.
-    expect(first.run.usage.speed).toMatchObject({ promptPerSecond: 25, generatePerSecond: 5, threads: 4 });
-    expect(bench.usage().modelSpeed).toMatchObject({ promptPerSecond: 25, generatePerSecond: 5, source: "server", model: "unsloth/Qwen3.5-4B-GGUF", threads: 4, runs: 2 });
+    expect(first.run.usage.speed).toMatchObject({ promptPerSecond: 25, generatePerSecond: 5, threads: 8 });
+    expect(bench.usage().modelSpeed).toMatchObject({ promptPerSecond: 25, generatePerSecond: 5, source: "server", model: "unsloth/Qwen3.5-4B-GGUF", threads: 8, runs: 2, byThreads: { 4: { promptPerSecond: 20 }, 8: { promptPerSecond: 25 } } });
     const second = await bench.ask(ownerQuestion);
-    expect(second.claim.runtime.speed).toMatchObject({ promptPerSecond: 25, generatePerSecond: 5 });
+    expect(second.claim.runtime.speed).toMatchObject({ promptPerSecond: 25, generatePerSecond: 5, threads: 8 });
   });
 
   it("is not started when it cannot fit in what the run has left, and the run answers from the tools the plan named", async () => {

@@ -154,7 +154,42 @@ MEMORY="$(cat "${CGROUP}/memory.current")"
 note "memory idle: $((MEMORY / 1024 / 1024)) MiB"
 check "holds little memory idle ($((MEMORY / 1024 / 1024)) MiB < 200 MiB)" [ "$MEMORY" -lt $((200 * 1024 * 1024)) ]
 
+section "5. While someone waits (M40): the helper's own code raises the quota for a run, and its timer takes it back"
+# server/agents/cpu.mjs as the root helper runs it (agents.runtime.cpu), with fixedRun, on this unit.
+# This machine's four processors keep two free, so its own ceiling would be two: the test gives the
+# function a ceiling of three and uses one processor for the background and three while someone waits.
+set_processors() { # set_processors <processors> <background> <reset seconds>
+  "$NODE" --input-type=module -e "import { setRunnerProcessors } from '/opt/boxpilot/server/agents/cpu.mjs'; import { fixedRun } from '/opt/boxpilot/server/exec.mjs'; const [processors, background, resetAfterSeconds] = process.argv.slice(1).map(Number); console.log(JSON.stringify(await setRunnerProcessors({ processors, background, resetAfterSeconds }, { run: fixedRun, bounds: { min: 1, max: 3 } })));" "$@"
+}
+cpu_max() { cut -d' ' -f1-2 "${CGROUP}/cpu.max"; }
+timer_active() { systemctl is-active --quiet boxpilot-agents-cpu-reset.timer; }
+at_background() { [ "$(cpu_max)" = "100000 100000" ]; }
+note "background: $(set_processors 1 1 60)"
+check "the background quota is one processor ($(cpu_max))" at_background
+check "no timer waits after a lowering" sh -c '! systemctl is-active --quiet boxpilot-agents-cpu-reset.timer'
+curl -fsS -X POST "http://127.0.0.1:${PORT}/control/start" >/dev/null
+check "the runner took a second run" wait_for 30 took_run
+wait_for 30 model_running || true
+sleep 3
+LOW="$(cpu_percent 6)"
+note "busy at the background quota: ${LOW}% (100%)"
+check "the background run stays at one processor (${LOW}% <= 105%)" awk -v v="$LOW" 'BEGIN { exit !(v <= 105) }'
+note "raised: $(set_processors 3 1 60)"
+check "the quota is raised to three processors ($(cpu_max))" [ "$(cpu_max)" = "300000 100000" ]
+check "the timer that takes it back is armed" timer_active
+check "systemd lists the raise as a runtime drop-in" sh -c "systemctl show ${UNIT} -p DropInPaths --value | grep -q '/run/systemd/system.control/'"
+RAISED="$(cpu_percent 6)"
+note "busy while someone waits: ${RAISED}% (300%, and the model wants three processors)"
+check "it uses the raise (${RAISED}% >= 150%)" awk -v v="$RAISED" 'BEGIN { exit !(v >= 150) }'
+check "and stays inside it (${RAISED}% <= 305%)" awk -v v="$RAISED" 'BEGIN { exit !(v <= 305) }'
+check "idle priority holds while raised (Nice $(show Nice), $(show IOSchedulingClass))" sh -c "[ \"\$(systemctl show ${UNIT} -p Nice --value)\" = 19 ]"
+check "the memory cap holds while raised ($(show MemoryMax))" [ "$(show MemoryMax)" = "$((8 * 1024 * 1024 * 1024))" ]
+# Nobody takes it back (the web service is gone): the timer does, within its minute.
+check "the timer puts the background quota back by itself" wait_for 80 at_background
+check "and its transient units are collected" sh -c '! systemctl is-active --quiet boxpilot-agents-cpu-reset.timer'
+check "the run finished under its quotas" wait_for 90 finished
+
 section "Results"
 printf '%s' "$RESULTS"
-printf '{"busyCpuPercent":%s,"idleCpuPercent":%s,"capPercent":400,"testQuotaPercent":%s,"idleMemoryBytes":%s}\n' "$BUSY" "$IDLE" "$TEST_QUOTA" "$MEMORY" | tee /tmp/agents-caps-results.json
+printf '{"busyCpuPercent":%s,"idleCpuPercent":%s,"capPercent":400,"testQuotaPercent":%s,"idleMemoryBytes":%s,"backgroundBusyPercent":%s,"raisedBusyPercent":%s}\n' "$BUSY" "$IDLE" "$TEST_QUOTA" "$MEMORY" "$LOW" "$RAISED" | tee /tmp/agents-caps-results.json
 [ "$FAILURES" -eq 0 ] || { echo "${FAILURES} check(s) failed" >&2; exit 1; }

@@ -36,6 +36,8 @@ export function defaultHelperAnswers() {
     "logs.read": (parameters) => ({ kind: parameters.kind, target: parameters.target, lines: ["2026-09-29T09:00:00 boxpilot: started", "2026-09-29T09:01:00 boxpilot: token=SENTINEL-LOG-1 refused"] }),
     "app.pihole.inspect": () => ({ placement: "boxpilot-app", container: "bp-pi-hole", running: true, available: true, blocking: true, last24h: { queries: 1000, blocked: 150, blockedPercent: 15 }, gravity: { domains: 90_000, updatedAt: "2026-09-27T00:00:00.000Z", ageDays: 2.4 }, upstreams: [{ upstream: "9.9.9.9#53", queries: 800, share: 100, averageReplyMs: 14 }], topBlocked: [{ domain: "ads.example.com", count: 40 }] }),
     "agents.runtime.inspect": () => ({ runtime: { installed: false, version: null }, service: { active: "inactive" }, models: [], diskFreeBytes: 100e9 }),
+    // M40: the runner's processors, set at each run as the root helper does (server/agents/cpu.mjs).
+    "agents.runtime.cpu": (parameters) => ({ processors: parameters.processors, background: parameters.background, quotaPercent: parameters.processors * 100, perSecond: `${parameters.processors}s`, resetAt: parameters.processors > parameters.background ? "2026-09-29T10:30:00.000Z" : null }),
   };
 }
 
@@ -90,6 +92,9 @@ export async function createAgentsHarness({ limits = {}, runnerOptions = {}, ser
     fetchJson: async (url) => { fetched.push(url); return url.includes("?author=") ? newerListing.value : { siblings: [{ rfilename: "Qwen3.6-4B-UD-Q4_K_XL.gguf" }, { rfilename: "mmproj-F16.gguf" }] }; },
     hostLoad: () => 0,
     limits,
+    // The owner's machine (a Ryzen 7 7800X3D: 16 processors, 8 cores), whatever runs the tests: a
+    // person's run gets 8 processors and threads, the background 4 (M40).
+    processors: 16, physicalCoreCount: 8,
     ...serviceOptions,
   });
 

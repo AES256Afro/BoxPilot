@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       threads:
-        description: "Comma-separated thread counts to measure (each under a quota of that many processors)"
+        description: "Comma-separated thread counts to measure, each under a quota of that many processors; T@Q runs T threads under Q% (M40: 4@200 against 2@200 is eight threads under 400% against four)"
         default: "4,1"
         type: string
       mode:
@@ -124,13 +124,16 @@ jobs:
             echo "$(lscpu | grep '^Model name' | sed 's/  */ /g'), $(nproc) processors; Unsloth $(env UNSLOTH_STUDIO_HOME="$RUNNER_TEMP/unsloth" "$RUNNER_TEMP/unsloth/bin/unsloth" --version 2>/dev/null | tail -n 1)"
             echo
           } >>"$GITHUB_STEP_SUMMARY"
-          for threads in $(echo "$THREADS" | tr ',' ' '); do
-            # The runner's caps as the unit sets them: this many processors, idle weight, niced, idle I/O.
-            sudo systemd-run --scope --quiet -p "CPUQuota=$((threads * 100))%" -p CPUWeight=idle -- \
+          for entry in $(echo "$THREADS" | tr ',' ' '); do
+            # T or T@Q: T threads under Q% (T processors' worth unless given), as the unit sets it:
+            # idle weight, niced, idle I/O. M40 (ADR-009) measures threads above the quota this way.
+            threads="${entry%@*}"; quota="${entry#*@}"; [ "$quota" = "$entry" ] && quota=$((threads * 100))
+            name="${threads}t-${quota}"
+            sudo systemd-run --scope --quiet -p "CPUQuota=${quota}%" -p CPUWeight=idle -- \
               sudo -u "$(id -un)" env PATH="$PATH" HOME="$HOME" \
-              nice -n 19 ionice -c 3 node tests/bench/agents-real.mjs --runtime "$RUNNER_TEMP/unsloth" --state "$RUNNER_TEMP/agents-state" --threads "$threads" --out "$RUNNER_TEMP/bench/threads-$threads.json" \
-              2>"$RUNNER_TEMP/bench/threads-$threads.log" | tee "$RUNNER_TEMP/bench/threads-$threads.txt"
-            { echo "### ${threads} thread(s) under CPUQuota=$((threads * 100))%"; echo; echo '```'; cat "$RUNNER_TEMP/bench/threads-$threads.txt"; echo '```'; echo; } >>"$GITHUB_STEP_SUMMARY"
+              nice -n 19 ionice -c 3 node tests/bench/agents-real.mjs --runtime "$RUNNER_TEMP/unsloth" --state "$RUNNER_TEMP/agents-state" --threads "$threads" --out "$RUNNER_TEMP/bench/threads-$name.json" \
+              2>"$RUNNER_TEMP/bench/threads-$name.log" | tee "$RUNNER_TEMP/bench/threads-$name.txt"
+            { echo "### ${threads} thread(s) under CPUQuota=${quota}%"; echo; echo '```'; cat "$RUNNER_TEMP/bench/threads-$name.txt"; echo '```'; echo; } >>"$GITHUB_STEP_SUMMARY"
           done
 
       - name: Keep the results

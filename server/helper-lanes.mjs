@@ -36,6 +36,8 @@ export function laneFor(operation, parameters = {}) {
   // M38: the agents' posts to Zulip wait only for each other, never behind an upgrade or an app
   // backup; connecting runs manage.py in Zulip's container, so it holds Zulip's app lane too.
   if (id === "agents.zulip.post" || id === "agents.zulip.disconnect") return [chatLane];
+  // M40: the runner's processors are set at each run; a question never waits behind an upgrade for them.
+  if (id === "agents.runtime.cpu") return ["agents:cpu"];
   if (id === "agents.zulip.connect") return [chatLane, "app:zulip"];
   const subject = (value) => (typeof value === "string" && value.length && value.length <= 64 ? value : null);
   const lanes = [];
