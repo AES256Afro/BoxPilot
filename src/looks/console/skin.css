@@ -59,9 +59,18 @@
 
 /* The compact bar stays at the top as on every console page; Home's is a little taller, as drawn. */
 :root[data-look="console"] .app-shell[data-view="home"][data-shell="console"] .topbar { position: sticky; min-height: 60px; }
-/* Its controls keep their size; the host's facts give way first. */
+/* Its controls keep their size: the host's facts give way first, then the search, never the name. */
 @media (min-width: 621px) {
   :root[data-look="console"] .app-shell[data-view="home"][data-shell="console"] .topbar-right { flex-shrink: 0; }
+  :root[data-look="console"] .app-shell[data-view="home"][data-shell="console"] .command-trigger { min-width: 34px; }
+}
+@media (min-width: 621px) and (max-width: 1280px) {
+  :root[data-look="console"] .app-shell[data-view="home"][data-shell="console"] .topbar-left { flex-shrink: 0; }
+}
+@media (min-width: 621px) and (max-width: 900px) {
+  :root[data-look="console"] .app-shell[data-view="home"][data-shell="console"] .topbar { flex-wrap: wrap; row-gap: 8px; padding-block: 8px; }
+  :root[data-look="console"] .app-shell[data-view="home"][data-shell="console"] .topbar-left { flex: 1 1 100%; }
+  :root[data-look="console"] .app-shell[data-view="home"][data-shell="console"] .command-trigger { flex: 1 1 12rem; }
 }
 :root[data-look="console"] .app-shell[data-view="home"][data-shell="console"] :is(.view-switch, .ui-theme-switch, .command-trigger) {
   border-color: var(--cc-line-strong);

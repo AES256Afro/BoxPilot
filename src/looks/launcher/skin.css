@@ -209,6 +209,7 @@
 :root[data-look="launcher"][data-shell="console"] .command-trigger {
   flex: 0 1 374px;
   max-width: 374px;
+  min-width: 38px;
   min-height: 38px;
   padding: 0 10px 0 16px;
   border: 1px solid var(--lx-glass-border);
@@ -516,8 +517,17 @@
 
 /* ── Narrower screens ── */
 @media (max-width: 1100px) {
+  /* The server's facts go first; then the search gives way before the server's name does. */
   :root[data-look="launcher"][data-shell="console"] .cc-kv { display: none; }
+  :root[data-look="launcher"][data-shell="console"] .topbar-left { flex-shrink: 0; }
   :root[data-look="launcher"][data-shell="console"] .ui-page-header__title { font-size: 46px; }
+}
+
+/* A tablet: the server and Home / Ops on one row, the search and the rest on the next. */
+@media (max-width: 900px) {
+  :root[data-look="launcher"][data-shell="console"] .topbar { flex-wrap: wrap; row-gap: 10px; }
+  :root[data-look="launcher"][data-shell="console"] .topbar-left { flex: 1 1 100%; }
+  :root[data-look="launcher"][data-shell="console"] .command-trigger { flex: 1 1 14rem; }
 }
 
 /* A phone: the bar wraps under the server's name, the page name smaller, the dock holds the everyday areas. */
