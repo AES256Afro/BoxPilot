@@ -33,14 +33,29 @@ const lead = (sentence: string) => spellOut(sentence).replace(/ a look\. (One|Tw
 
 const sentence = (text: string) => (/[.!?…]$/.test(text) ? text : `${text}.`);
 
+/**
+ * What can wait, as one clause the paper can join into a sentence: "Jellyfin has an update",
+ * "Open WebUI is paused". A need with no shorter form keeps its own title.
+ */
+function clause(need: Need, appName: (id: string) => string | null): string {
+  const [kind, id] = need.id.split(":");
+  const name = id ? appName(id) : null;
+  if (name && kind === "app-update") return `${name} has an update`;
+  if (name && kind === "app-paused") return `${name} is paused`;
+  return need.title.replace(/[.!?…]$/, "");
+}
+
+/** What goes before the clause at `index` of `count`: "A, and B"; "A, B, and C". */
+const joiner = (index: number, count: number) => (index === 0 ? "" : index === count - 1 ? ", and " : ", ");
+
 export default function EinkHome(props: HomeProps) {
   const { onNavigate, now = Date.now } = props;
   const data = useHomeData(props);
   const { facts, clock, urgent, waiting, verdict, checking, unread, inventory, hostname, rows, glance, act, runOf, open, dialog } = data;
   const needsId = useId();
   const [all, setAll] = useState(false);
-  const everything = [...urgent, ...waiting];
-  const listed = all ? everything : everything.slice(0, shown);
+  const listed = all ? urgent : urgent.slice(0, shown);
+  const appName = (id: string) => { const row = rows.find((entry) => entry.app.id === id); return row ? shortName(row.app.name) : null; };
   const glanceId = useId();
 
   // When the figures were last read: the moment the inventory's answer last arrived.
@@ -56,18 +71,18 @@ export default function EinkHome(props: HomeProps) {
     { id: "backups", label: "Backed up", share: glance.apps.bar ? (glance.apps.bar.value / (glance.apps.bar.max || 1)) * 100 : null, words: glance.apps.value, go: () => onNavigate("backups") },
   ];
 
-  const item = (need: Need, soft: boolean) => {
+  const item = (need: Need) => {
     const actions = actionsOf(need);
     const runnable = runs(need);
     const tier = runnable ? riskCopy[runnable.risk].label : need.risk ? riskCopy[need.risk].label : null;
     const run = runOf(need);
     const busy = run && ["queued", "running", "checking"].includes(run.phase);
     return (
-      <li key={need.id} className="eink-need" data-soft={soft || undefined}>
+      <li key={need.id} className="eink-need">
         <span className="eink-need__mark" aria-hidden="true" />
         <button type="button" className="eink-need__title" onClick={() => open(need)}>
           {/* The space stays outside the hidden words: a name is built from trimmed pieces. */}
-          <span className="ui-visually-hidden">{soft ? "Can wait:" : need.severity === "danger" ? "Problem:" : "Needs you:"}</span>{` ${sentence(spellOut(need.title))}`}
+          <span className="ui-visually-hidden">{need.severity === "danger" ? "Problem:" : "Needs you:"}</span>{` ${sentence(spellOut(need.title))}`}
         </button>
         {(tier || need.detail) && (
           <p className="eink-need__detail">{tier && <><i>{tier}.</i>{" "}</>}{need.detail ? sentence(spellOut(need.detail)) : null}</p>
@@ -76,7 +91,7 @@ export default function EinkHome(props: HomeProps) {
         {actions.length > 0 && (
           <div className="eink-acts">
             {actions.map((action, index) => (
-              <Button key={`${action.operationId}:${action.label}`} variant={index === 0 && !soft ? "primary" : "secondary"} className="eink-btn"
+              <Button key={`${action.operationId}:${action.label}`} variant={index === 0 ? "primary" : "secondary"} className="eink-btn"
                 risk={action.kind === "open" || action.kind === "dismiss" ? undefined : action.risk} disabled={Boolean(busy)} aria-label={`${action.label}: ${need.title}`} onClick={() => act(need, action)}>
                 {action.label}
               </Button>
@@ -105,10 +120,28 @@ export default function EinkHome(props: HomeProps) {
           <h2 className="eink-h" id={needsId}>Needs you</h2>
           {urgent.length === 0 && waiting.length === 0
             ? <p className="eink-quiet">{checking ? "Reading this server." : unread.length ? "Nothing wrong in what could be read." : "Nothing needs you."}</p>
-            : <ul className="eink-needs">{listed.map((need) => item(need, need.severity === "neutral"))}</ul>}
-          {urgent.length + waiting.length > shown && (
+            : (
+              <ul className="eink-needs">
+                {listed.map((need) => item(need))}
+                {/* What can wait, as the paper sets it: one open square, one sentence, no buttons.
+                    Each part of the sentence opens its page, where its fix is. */}
+                {waiting.length > 0 && (
+                  <li className="eink-need" data-soft>
+                    <span className="eink-need__mark" aria-hidden="true" />
+                    <p className="eink-need__title eink-need__title--soft">
+                      <span className="ui-visually-hidden">Can wait:</span>{" "}
+                      {waiting.map((need, index) => (
+                        <span key={need.id}>{joiner(index, waiting.length)}<button type="button" className="eink-need__part" onClick={() => open(need)}>{spellOut(clause(need, appName))}</button></span>
+                      ))}.
+                    </p>
+                    <p className="eink-need__detail">These can wait.</p>
+                  </li>
+                )}
+              </ul>
+            )}
+          {urgent.length > shown && (
             <button type="button" className="eink-more" aria-expanded={all} onClick={() => setAll((value) => !value)}>
-              {all ? "Show fewer" : `Show all ${urgent.length + waiting.length}`}
+              {all ? "Show fewer" : `Show all ${urgent.length}`}
             </button>
           )}
         </section>

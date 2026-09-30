@@ -13,7 +13,7 @@
 @media (min-width: 0) {
   :root[data-look="swiss"] {
     color-scheme: light;
-    --swiss-chrome: 78px;
+    --swiss-chrome: 70px;
 
     --font-condensed: "Archivo", "Helvetica Neue", Arial, sans-serif;
     --font-sans: "Archivo", "Helvetica Neue", Arial, sans-serif;
@@ -125,10 +125,10 @@
   :root[data-look="swiss"] .topbar {
     position: sticky;
     top: 0;
-    align-items: flex-end;
+    align-items: last baseline;
     gap: 0 31px;
-    height: 50px;
-    min-height: 50px;
+    height: 44px;
+    min-height: 44px;
     padding: 0 39px 9px;
     border-bottom: 0;
     color: #111111;
@@ -185,11 +185,11 @@
     :root[data-look="swiss"] .view-switch {
       position: absolute;
       z-index: 2;
-      top: 50px;
+      top: 44px;
       left: 39px;
       display: flex;
       gap: 18px;
-      height: 28px;
+      height: 26px;
       align-items: center;
       padding: 0;
       border: 0;
@@ -211,12 +211,12 @@
     :root[data-look="swiss"] .shell-dock.shell-dock--top {
       position: sticky;
       z-index: 9;
-      top: 50px;
+      top: 44px;
       right: auto;
       bottom: auto;
       left: auto;
       display: block;
-      height: 28px;
+      height: 26px;
       padding: 0 39px 0 calc(39px + 106px);
       background: #ffffff;
       pointer-events: auto;
@@ -226,7 +226,7 @@
       flex-wrap: nowrap;
       align-items: center;
       gap: 0 16px;
-      height: 28px;
+      height: 26px;
       padding: 0;
       overflow: hidden;
       border: 0;
