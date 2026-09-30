@@ -27,8 +27,10 @@
 .sidebar-host__words { display: grid; min-width: 0; gap: 1px; }
 .sidebar-host__name { overflow: hidden; color: var(--text-strong); font-size: 14.5px; text-overflow: ellipsis; white-space: nowrap; }
 .sidebar-host__facts { display: flex; align-items: center; gap: 6px; color: var(--text-muted); font-size: 11.5px; white-space: nowrap; }
-.sidebar-host__facts::before { width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--status-good); content: ""; }
+.sidebar-host__facts[data-status]::before { width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--status-good); content: ""; }
 .sidebar-host__facts[data-status="warning"]::before { background: var(--status-warning); }
+.sidebar-host__facts[data-status="danger"]::before { background: var(--status-danger); }
+.sidebar-host__facts[data-status="unknown"]::before, .sidebar-host__facts[data-status="neutral"]::before { background: var(--status-unknown); }
 
 .sidebar-group { display: grid; gap: 1px; }
 .sidebar-group__title { margin: 10px 10px 4px; color: var(--text-muted); font: 700 10.5px/1.2 var(--font-sans); letter-spacing: 0.12em; text-transform: uppercase; }

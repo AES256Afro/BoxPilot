@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { viewLabel, type ViewName } from "../data";
 import { useOptionalFacts } from "../home/facts";
 import { uptime } from "../home/format";
+import { useHostVerdict } from "../home/hostVerdict";
 import { sectionsFor, useSettingsSection, type SettingsSection } from "../pages/settings/sections";
 import { AreaIcon } from "./areaIcons";
 import { useAreaBadges } from "./ShellNav";
@@ -99,11 +100,13 @@ function SettingsSidebar({ role = "owner", username, onAreas }: ShellSidebarProp
   );
 }
 
-function AreasSidebar({ view, onSelect, onSettingsAgain }: ShellSidebarProps & { onSettingsAgain?: () => void }) {
+function AreasSidebar({ view, onSelect, onSettingsAgain, role }: ShellSidebarProps & { onSettingsAgain?: () => void }) {
   const facts = useOptionalFacts()?.facts;
   const inventory = facts?.inventory.value;
   const badgeOf = useAreaBadges();
-  const waiting = (badgeOf("updates") ?? 0) + (badgeOf("repairs") ?? 0);
+  // Home's own verdict ("3 to look at"), so the sidebar and Home's chip always agree; nothing
+  // until it has been read, never an "All clear" nobody checked.
+  const verdict = useHostVerdict(role);
   const item = (id: ViewName, short?: string) => {
     const badge = badgeOf(id);
     return (
@@ -122,8 +125,8 @@ function AreasSidebar({ view, onSelect, onSettingsAgain }: ShellSidebarProps & {
         <span className="sidebar-host__mark" aria-hidden="true">BP</span>
         <span className="sidebar-host__words">
           <b className="sidebar-host__name">{inventory?.hostname ?? "BoxPilot"}</b>
-          <small className="sidebar-host__facts" data-status={waiting > 0 ? "warning" : "good"}>
-            {waiting > 0 ? `${waiting} waiting` : "All clear"}{inventory ? ` · up ${uptime(inventory.uptimeSeconds)}` : ""}
+          <small className="sidebar-host__facts" data-status={verdict.status ?? undefined}>
+            {[verdict.label, inventory ? `up ${uptime(inventory.uptimeSeconds)}` : null].filter(Boolean).join(" · ")}
           </small>
         </span>
       </div>
