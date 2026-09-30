@@ -43,6 +43,11 @@ describe("an app's state, as the tile, the sheet and the verdict all say it", ()
     expect(appStatus(live({ container: { exists: true, running: true, status: "paused", health: "none", restarts: 0, image: null } }))).toEqual({ status: "warning", label: "Paused" });
   });
 
+  it("says an installed app with no container has none, as Home does, and a stopped one is stopped", () => {
+    expect(appStatus(live({ container: { exists: false, running: false, status: "absent", health: "none", restarts: 0, image: null } }))).toEqual({ status: "warning", label: "No container" });
+    expect(appStatus(live({ container: { exists: true, running: false, status: "exited", health: "none", restarts: 0, image: null } }))).toEqual({ status: "warning", label: "Stopped" });
+  });
+
   it("puts a leak outside the VPN and a folder it cannot write to above looking alive", () => {
     expect(appStatus(live({ killSwitchDrill: { held: false, leaked: true, downForMs: 3000, at: "x" } })).status).toBe("danger");
     expect(appStatus(live({ folderProblems: [{ path: "/mnt/x", volume: "data", reason: "read-only" }] })).label).toBe("Cannot write to its folder");
