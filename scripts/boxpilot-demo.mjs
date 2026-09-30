@@ -589,8 +589,18 @@ api.get("/notifications", (_request, response) => json(response, { seenAt: ago(3
   { id: "n2", kind: "alert", key: "storage.mount.full:/mnt/media", family: "storage.mount.full", title: "/mnt/media is 91% full", message: "The filesystem mounted at /mnt/media is nearly full.", at: ago(26), delivered: true, reason: null, deliveredAt: ago(26), resolvedAt: ago(22), live: false },
   { id: "n3", kind: "job", key: "job.failed:d3", family: "job.failed", title: "Mirror local backups to the cloud destination failed", message: "rclone: the bucket answered 503; the next scheduled run tries again.", at: ago(50), delivered: true, reason: null, deliveredAt: ago(50), resolvedAt: null, live: false },
   { id: "n4", kind: "notice", key: "drive.reconnected:media", family: "drive.reconnected", title: "The media drive was reconnected automatically", message: "It dropped off USB at 03:12 and was checked and mounted again at 03:14.", at: ago(96), delivered: true, reason: null, deliveredAt: ago(96), resolvedAt: null, live: false },
+  { id: "n5", kind: "approval", key: "approval.waiting:0f8b3c1e-1111-4222-8333-444455556666", family: "approval.waiting", title: "Update an app (Immich): approve?", message: "Medium risk. Tap to review it in BoxPilot; nothing runs until you approve it there.", at: ago(120), delivered: true, reason: null, deliveredAt: ago(120), resolvedAt: null, live: false },
 ] }));
 api.post("/notifications/seen", (_request, response) => json(response, { seenAt: now().toISOString() }));
+/**
+ * Push approvals (M25.2): the panel at the top of the notifications, with the owner's iPhone on and
+ * the choices set. The demo never registers a service worker, so nothing can be turned on or pushed.
+ */
+api.get("/push", (_request, response) => json(response, {
+  canSubscribe: true, publicKey: null, problem: null,
+  devices: [{ id: "demo-iphone", label: "iPhone", service: "Apple", createdAt: ago(72), lastSentAt: ago(2), lastError: null }],
+  settings: { tiers: { low: false, medium: true, high: true }, quietHours: { enabled: true, start: "22:00", end: "07:00" }, ntfy: "fallback", openAt: `https://${host.tailnet}`, timeZone: "Europe/London" },
+}));
 api.get("/settings/weekly-report", (_request, response) => json(response, { enabled: true, cadence: "Sundays at 09:00", nextDueAt: new Date(Date.now() + 4 * 24 * 3600_000).toISOString(), lastSentAt: ago(72), lastResult: "sent", targetConfigured: true }));
 api.get("/settings/weekly-report/preview", (_request, response) => json(response, { title: "Weekly report, nothing failed", message: "Sep 20 to Sep 27: 41 jobs ran, none failed.\nBackups: 7 app backups this week; database backed up today." }));
 api.get("/settings/approval-mode", (_request, response) => json(response, { approvalMode: "tiered", modes: ["tiered", "always-password"], elevationTtlMs: 10 * 60_000 }));
