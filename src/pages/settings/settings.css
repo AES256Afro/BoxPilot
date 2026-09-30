@@ -82,3 +82,47 @@
   .settings-row { grid-template-columns: minmax(0, 1fr); }
   .settings-cell-action { width: auto; text-align: left; }
 }
+
+/* Appearance (M41): the looks as cards, the one in use ringed, then the small choices in two
+   columns of rows, as docs/design-directions/05-looks.html drew it. The cards' pictures carry their
+   looks' own colours (src/looks/LookThumb.tsx); everything around them takes the page's tokens. */
+.settings-appearance { display: grid; gap: 16px; min-width: 0; padding: 22px 26px 18px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); box-shadow: var(--elevation-1); }
+.settings-appearance__title { margin: 0; color: var(--text-strong); font: 800 34px/1 var(--font-display, var(--font-sans)); letter-spacing: -0.02em; }
+.settings-appearance__lead { margin: -6px 0 0; color: var(--text-muted); font-size: 14.5px; }
+.settings-appearance__label { display: flex; justify-content: space-between; color: var(--text-muted); font: 700 10.5px/1 var(--font-sans); letter-spacing: 0.13em; text-transform: uppercase; }
+.settings-looks { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 16px 14px; }
+.settings-look { display: grid; align-content: start; gap: 3px; min-width: 0; padding: 0; border: 0; border-radius: 10px; color: var(--text); background: none; font: inherit; text-align: left; cursor: pointer; }
+.settings-look__picture { position: relative; display: block; aspect-ratio: 16 / 10; margin-bottom: 6px; overflow: hidden; border: 1px solid var(--border); border-radius: 9px; box-shadow: 0 3px 8px var(--settings-shadow, transparent); }
+.settings-look__picture > i { position: absolute; display: block; }
+.settings-look:hover .settings-look__picture { border-color: var(--border-strong); }
+.settings-look[aria-checked="true"] .settings-look__picture { box-shadow: 0 0 0 3px var(--text-strong); }
+.settings-look:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+.settings-look__name { overflow: hidden; color: var(--text-strong); font-size: 13px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.settings-look__caption { color: var(--text-muted); font-size: 11.5px; white-space: nowrap; }
+.settings-look--soon { cursor: default; opacity: 0.75; }
+.settings-look__picture--soon { display: grid; place-items: center; border-style: dashed; border-color: var(--text-muted); color: var(--text-muted); font-size: 22px; box-shadow: none; }
+.settings-appearance__now { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; min-height: 44px; padding: 7px 8px 7px 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-raised); font-size: 14px; }
+.settings-appearance__now b { color: var(--text-strong); }
+.settings-appearance__keep { margin-left: auto; }
+.settings-appearance__rows { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 40px; }
+.settings-appearance__row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 2px 16px; padding: 11px 0; border-top: 1px solid var(--border-subtle); }
+.settings-appearance__row > b { color: var(--text-strong); font-size: 14.5px; font-weight: 600; }
+.settings-appearance__row > small { grid-column: 1; color: var(--text-muted); font-size: 12px; }
+.settings-appearance__row > :last-child { grid-row: 1 / 3; grid-column: 2; }
+.settings-appearance__switch .ui-switch__text { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.settings-swatches { display: flex; gap: 8px; }
+.settings-swatch { width: 24px; height: 24px; padding: 0; border: 0; border-radius: 50%; cursor: pointer; }
+.settings-wallpaper { width: 46px; height: 28px; padding: 0; border: 0; border-radius: 6px; cursor: pointer; }
+.settings-swatch[aria-checked="true"], .settings-wallpaper[aria-checked="true"] { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--text-strong); }
+.settings-swatch:focus-visible, .settings-wallpaper:focus-visible { outline: 2px solid var(--accent); outline-offset: 5px; }
+
+@media (max-width: 1100px) {
+  .settings-looks { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+}
+@media (max-width: 760px) {
+  .settings-appearance { padding: 16px; }
+  .settings-looks { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px 10px; }
+  .settings-appearance__rows { grid-template-columns: minmax(0, 1fr); }
+  .settings-appearance__row { grid-template-columns: minmax(0, 1fr); }
+  .settings-appearance__row > :last-child { grid-row: auto; grid-column: 1; margin-top: 6px; }
+}

@@ -79,7 +79,7 @@ export default function SettingsPage({ csrfToken, role = "owner" }: { csrfToken:
           if (tab === "approvals") return <div className="settings-grid"><ApprovalsPanel csrfToken={csrfToken} onChange={() => void readSummary()} /></div>;
           if (tab === "sso") return <div className="settings-grid"><SingleSignOnPanel csrfToken={csrfToken} /></div>;
           if (tab === "credentials") return <div className="settings-grid"><CredentialsPanel csrfToken={csrfToken} /></div>;
-          if (tab === "appearance") return <div className="settings-grid"><AppearancePanel /></div>;
+          if (tab === "appearance") return <AppearancePanel />;
           return (
             <div className="settings-grid">
               <PasswordPanel csrfToken={csrfToken} />
