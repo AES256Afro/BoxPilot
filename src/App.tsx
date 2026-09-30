@@ -6,6 +6,7 @@ import SignInPage, { SignInLoading, SignInUnavailable } from "./pages/signin/Sig
 import ActivityDrawer from "./shell/ActivityDrawer";
 import { useOperation } from "./shell/ApproveDialog";
 import { SessionControls } from "./shell/SessionControls";
+import { AccountMenu } from "./shell/AccountMenu";
 import { useTheme } from "./useTheme";
 import { ThemeSwitch } from "./ui/ThemeSwitch";
 import { fetchAuthStatus, forgetAccount, forgetSession, rememberSession, rememberedAccount, signedOutReason, type AuthStatus, type SignedOutReason } from "./auth";
@@ -240,6 +241,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
             <NotificationCentre csrfToken={csrfToken} role={role} onNavigate={setView} />
             <ActivityDrawer csrfToken={csrfToken} role={role} />
             <SessionControls authStatus={authStatus} csrfToken={csrfToken} onRefresh={() => void refreshAuth()} onSignedOut={onSignedOut} />
+            <AccountMenu authStatus={authStatus} csrfToken={csrfToken} onNavigate={setView} onSignedOut={onSignedOut} />
             <TopBarClock />
           </div>
         </header>
