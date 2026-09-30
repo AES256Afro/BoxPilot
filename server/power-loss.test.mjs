@@ -89,8 +89,11 @@ describe("how the previous boot ended", () => {
     expect(shutdownMarkerIn(tail.slice(-2))).toBe("journald was stopped by systemd-shutdown");
     expect(shutdownMarkerIn(tail.slice(-1))).toBe("journald: Journal stopped");
     expect(shutdownMarkerIn(tail.slice(0, 4))).toBeNull();
-    // A shutdown asked for through logind that hung before the targets: still on purpose.
+    // A shutdown asked for through logind that hung before the targets: still on purpose. One only
+    // scheduled is not: it may have been cancelled, and the power cut came after.
     expect(shutdownMarkerIn(parseJournalJson(line("2026-09-27T03:10:00Z", "systemd-logind", "System is rebooting.", { pid: 700 })))).toBe("systemd-logind: System is rebooting.");
+    expect(shutdownMarkerIn(parseJournalJson(line("2026-09-27T03:10:00Z", "systemd-logind", "The system will reboot now!", { pid: 700 })))).toBe("systemd-logind: The system will reboot now!");
+    expect(shutdownMarkerIn(parseJournalJson(line("2026-09-27T03:10:00Z", "systemd-logind", "The system will reboot at Sun 2026-09-27 04:00:00 UTC!", { pid: 700 })))).toBeNull();
     // Even with this boot saying the journal was not closed cleanly (journald killed at the end).
     expect(judgePreviousBoot({ boots, tail, signs: parseJournalJson(powerCutSigns) }).state).toBe("clean");
   });
@@ -110,6 +113,13 @@ describe("how the previous boot ended", () => {
       "kernel: FAT-fs (nvme0n1p1): Volume was not properly unmounted. Some data may be corrupt. Please run fsck.",
       "the processor's reset reason: ACPI power state transition occurred (0x00200800)",
     ]);
+  });
+
+  it("names journald as the one speaking when its early lines come through the kernel's log", () => {
+    // As the KVM guest in tests/ubuntu/power-loss-vm.sh logged it after its power cut.
+    const early = JSON.stringify({ __REALTIME_TIMESTAMP: String(Date.parse("2026-09-29T22:18:05Z") * 1000), _BOOT_ID: currentBoot, _TRANSPORT: "kernel", SYSLOG_IDENTIFIER: "systemd-journald", MESSAGE: "File /var/log/journal/0123/system.journal corrupted or uncleanly shut down, renaming and replacing." });
+    const judged = judgePreviousBoot({ boots, tail: parseJournalJson(powerCutTail), signs: parseJournalJson(early), bootedAt: "2026-09-29T22:18:00.000Z" });
+    expect(judged.evidence).toContain("systemd-journald: File /var/log/journal/0123/system.journal corrupted or uncleanly shut down, renaming and replacing.");
   });
 
   it("says nothing on a tail without a shutdown unless the next boot says it was not closed", () => {
