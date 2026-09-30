@@ -75,37 +75,6 @@
 :root[data-look="rack"] .app-shell[data-shell="console"] { background: var(--rk-cabinet) fixed, #151618; }
 :root[data-look="rack"] .app-shell,
 :root[data-look="rack"] :is(.ui-sheet, .command-dialog, .look-console) { font-family: var(--font-condensed); letter-spacing: 0.01em; }
-:root[data-look="rack"] .app-shell[data-view="home"] {
-  isolation: auto;
-  color: var(--cc-text);
-  --text: var(--cc-text);
-  --text-strong: var(--cc-text-strong);
-  --text-muted: var(--cc-muted);
-  --text-secondary: var(--cc-text);
-  --accent: var(--cc-amber);
-  --accent-faint: var(--cc-amber-bg);
-  --link: var(--cc-amber);
-  --border: var(--cc-line);
-  --border-subtle: var(--cc-hairline);
-  --border-strong: var(--cc-line-strong);
-  --status-good: var(--cc-green);
-  --status-good-text: var(--cc-green);
-  --status-warning: var(--cc-amber);
-  --status-warning-text: var(--cc-amber);
-  --status-danger: var(--cc-red);
-  --status-danger-text: var(--cc-red-text);
-  --status-neutral: var(--cc-muted);
-  --status-neutral-text: var(--cc-text);
-  --status-unknown: var(--cc-muted);
-  --status-unknown-text: var(--cc-muted);
-  --risk-low: var(--cc-green);
-  --risk-low-text: var(--cc-green);
-  --risk-medium: var(--cc-amber);
-  --risk-medium-text: var(--cc-amber);
-  --risk-high: var(--cc-red);
-  --risk-high-text: var(--cc-red-text);
-}
-:root[data-look="rack"] .app-shell[data-view="home"]::before { display: none; }
 :root[data-look="rack"] .app-shell :is(button, a, input, select, textarea, summary, [tabindex]):focus-visible,
 :root[data-look="rack"] .look-console :focus-visible:not([tabindex="-1"]),
 :root[data-look="rack"] :is(.ui-sheet, .command-dialog) :is(button, a, input, select, textarea, summary):focus-visible {
@@ -126,7 +95,6 @@
       linear-gradient(90deg, #26282b, #1b1c1e 20%, #1b1c1e 80%, #26282b);
     box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.08), inset 1px 0 0 rgba(255, 255, 255, 0.08);
   }
-  :root[data-look="rack"] .app-shell[data-view="home"] .ui-dock.shell-dock ul { border: 0; background: none; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
   :root[data-look="rack"] .shell-rail__logo {
     width: 30px;
     height: 26px;
@@ -190,8 +158,8 @@
 :root[data-look="rack"] .cc-crumb h1 { color: #4a4e55; }
 :root[data-look="rack"] .cc-kv { color: #4a4e55; font-family: var(--font-condensed); font-size: 13px; font-weight: 600; letter-spacing: 0.08em; text-shadow: 0 1px 0 rgba(255, 255, 255, 0.7); text-transform: uppercase; }
 :root[data-look="rack"] .cc-kv b { color: var(--rk-engraved); font-weight: 700; }
-:root[data-look="rack"] :is(.view-switch, .app-shell[data-view="home"] .view-switch) { gap: 6px; padding: 0; border: 0; background: transparent; backdrop-filter: none; }
-:root[data-look="rack"] :is(.view-switch__option, .app-shell[data-view="home"] .view-switch__option) {
+:root[data-look="rack"] .view-switch { gap: 6px; padding: 0; border: 0; background: transparent; backdrop-filter: none; }
+:root[data-look="rack"] .view-switch__option {
   min-height: 22px;
   padding: 0 12px;
   border: 0;
@@ -203,8 +171,8 @@
   letter-spacing: 0.12em;
   text-transform: uppercase;
 }
-:root[data-look="rack"] :is(.view-switch__option[aria-current="page"], .app-shell[data-view="home"] .view-switch__option[aria-current="page"]) { color: #2a1a00; background: linear-gradient(#ffcf5a, #e39a00); box-shadow: 0 2px 0 #6e4600, inset 0 1px 0 rgba(255, 255, 255, 0.7); }
-:root[data-look="rack"] :is(.command-trigger, .app-shell[data-view="home"] .command-trigger) {
+:root[data-look="rack"] .view-switch__option[aria-current="page"] { color: #2a1a00; background: linear-gradient(#ffcf5a, #e39a00); box-shadow: 0 2px 0 #6e4600, inset 0 1px 0 rgba(255, 255, 255, 0.7); }
+:root[data-look="rack"] .command-trigger {
   min-height: 24px;
   border: 0;
   border-radius: 2px;
@@ -215,8 +183,8 @@
   font-size: 13px;
   backdrop-filter: none;
 }
-:root[data-look="rack"] :is(.command-trigger__keys, .app-shell[data-view="home"] .command-trigger__keys) { border: 1px solid #555960; border-radius: 2px; color: #dfe2e6; background: transparent; }
-:root[data-look="rack"] :is(.connection-pill, .app-shell[data-view="home"] .connection-pill) { border: 0; color: var(--rk-engraved); background: transparent; font-family: var(--font-condensed); font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }
+:root[data-look="rack"] .command-trigger__keys { border: 1px solid #555960; border-radius: 2px; color: #dfe2e6; background: transparent; }
+:root[data-look="rack"] .connection-pill { border: 0; color: var(--rk-engraved); background: transparent; font-family: var(--font-condensed); font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }
 :root[data-look="rack"] .connection-pill::before { background: radial-gradient(circle at 40% 35%, #d8ffd9, #2ee65a 55%, #13862f); box-shadow: 0 0 6px #2ee65a; }
 :root[data-look="rack"] .bar-button { min-height: 26px; color: var(--rk-engraved); font-family: var(--font-condensed); font-size: 14px; font-weight: 700; letter-spacing: 0.12em; text-shadow: 0 1px 0 rgba(255, 255, 255, 0.8); text-transform: uppercase; }
 :root[data-look="rack"] .bar-button:hover,
@@ -224,7 +192,7 @@
 :root[data-look="rack"] .bar-button[data-live] { color: #7a4b00; }
 :root[data-look="rack"] .bar-badge { border-radius: 2px; color: #2a1a00; background: radial-gradient(circle, #ffe08a, #ffb20f 70%); box-shadow: 0 0 6px rgba(255, 178, 15, 0.7); text-shadow: none; }
 :root[data-look="rack"] .bar-label { border-color: #7f8389; color: var(--rk-engraved); }
-:root[data-look="rack"] :is(.signed-in-user, .app-shell[data-view="home"] .signed-in-user) { color: var(--rk-engraved); font-weight: 700; }
+:root[data-look="rack"] .signed-in-user { color: var(--rk-engraved); font-weight: 700; }
 :root[data-look="rack"] .signed-in-user__avatar { border-radius: 2px; color: #f4f4f4; background: #111111; }
 
 /* ── Units: every panel is a rack unit, its name engraved on the metal and its insides a dark module ── */
@@ -432,12 +400,11 @@
   :root[data-look="rack"] .ui-panel { padding-inline: 26px; }
   :root[data-look="rack"] .ui-panel::before { left: 7px; }
   :root[data-look="rack"] .ui-panel::after { right: 7px; }
-  :root[data-look="rack"] :is(.ui-dock.shell-dock ul, .app-shell[data-view="home"] .ui-dock.shell-dock ul) { border: 0; border-radius: 3px; background: var(--rk-face); box-shadow: var(--rk-unit-shadow); backdrop-filter: none; }
+  :root[data-look="rack"] .ui-dock.shell-dock ul { border: 0; border-radius: 3px; background: var(--rk-face); box-shadow: var(--rk-unit-shadow); backdrop-filter: none; }
   :root[data-look="rack"] .shell-dock .ui-dock__icon { border: 0; border-radius: 3px; color: #c9ccd1; background: var(--rk-module); box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.8); }
   :root[data-look="rack"] .shell-dock .ui-dock__item[aria-current="page"] .ui-dock__icon { color: #2a1a00; background: linear-gradient(#ffcf5a, #e39a00); }
   :root[data-look="rack"] .shell-dock .ui-dock__label { color: var(--rk-engraved); font-weight: 700; letter-spacing: 0.08em; text-shadow: 0 1px 0 rgba(255, 255, 255, 0.7); text-transform: uppercase; }
   :root[data-look="rack"] .ui-dock__badge { color: #2a1a00; background: var(--rk-amber); box-shadow: 0 0 6px var(--rk-amber); }
-  :root[data-look="rack"] .app-shell[data-view="home"] .topbar-slot { display: flex; }
 }
 
 @media (prefers-reduced-motion: reduce) {
