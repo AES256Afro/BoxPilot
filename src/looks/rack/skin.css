@@ -432,7 +432,10 @@
 /* ── A phone: the dock is a strip of the rail's metal along the foot ── */
 @media (max-width: 760px) {
   :root[data-look="rack"] .content { padding: 8px 6px calc(var(--shell-bottom-inset, 0px) + 104px); }
-  :root[data-look="rack"] .topbar { margin: 6px 6px 0; padding: 8px 34px; }
+  /* Relative, so the screws sit on the bar and not halfway down the page where the phone's bar is static. */
+  :root[data-look="rack"] .topbar { position: relative; margin: 6px 6px 0; padding: 8px 34px; }
+  :root[data-look="rack"] .cc-crumb { min-width: 0; overflow: hidden; }
+  :root[data-look="rack"] .cc-crumb h1 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   :root[data-look="rack"] .topbar::before { left: 10px; }
   :root[data-look="rack"] .topbar::after { right: 10px; }
   :root[data-look="rack"] .ui-panel { padding-inline: 26px; }

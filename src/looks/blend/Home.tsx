@@ -35,6 +35,7 @@ import "./home.css";
  * pace (Ops is opened on purpose); the lines start with the first read and grow from there.
  */
 const homePollMs = 15_000;
+const opsPollMs = 5_000;
 
 function useLivePerformance(now: () => number, pollMs = homePollMs): { value: Performance | null; samples: Sample[] } {
   const [state, setState] = useState<{ value: Performance | null; samples: Sample[] }>({ value: null, samples: [] });
@@ -42,6 +43,7 @@ function useLivePerformance(now: () => number, pollMs = homePollMs): { value: Pe
   clock.current = now;
   useEffect(() => {
     let live = true;
+    let reads = 0;
     let timer: ReturnType<typeof setTimeout> | null = null;
     const tick = async () => {
       if (typeof document === "undefined" || document.visibilityState !== "hidden") {
@@ -51,7 +53,9 @@ function useLivePerformance(now: () => number, pollMs = homePollMs): { value: Pe
           if (live) setState((current) => ({ value, samples: pushSample(current.samples, sampleFrom(value, clock.current())) }));
         } catch { /* the inventory's figures stand in */ }
       }
-      if (live) timer = setTimeout(() => void tick(), pollMs);
+      reads += 1;
+      // Ops' pace for the first three reads, so the lines have a shape within ten seconds; then slower.
+      if (live) timer = setTimeout(() => void tick(), reads < 3 ? opsPollMs : pollMs);
     };
     void tick();
     return () => { live = false; if (timer) clearTimeout(timer); };
@@ -59,12 +63,10 @@ function useLivePerformance(now: () => number, pollMs = homePollMs): { value: Pe
   return state;
 }
 
-/** A figure's reads as a line; one read so far is a dot where the line will start. */
+/** A figure's reads as a line, once there are two of them to draw it between. */
 function Trend({ values, floor }: { values: Array<number | null>; floor: number }) {
   const known = values.filter((value): value is number => value !== null && Number.isFinite(value));
-  if (known.length >= 2) return <Sparkline values={values} floor={floor} />;
-  if (known.length === 0) return null;
-  return <svg className="blend-cell__dot" viewBox="0 0 64 24" preserveAspectRatio="xMaxYMid meet" aria-hidden="true" focusable="false"><circle cx="60" cy="12" r="2.4" /></svg>;
+  return known.length >= 2 ? <Sparkline values={values} floor={floor} /> : null;
 }
 
 interface Forecast { target: string; daysToFull: number }

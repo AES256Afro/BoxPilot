@@ -750,9 +750,9 @@
 :root[data-look="blend"] .settings-appearance__row > small { color: var(--lx-ink-muted); font-size: 11.7px; }
 :root[data-look="blend"] .settings-appearance__row .ui-segmented__option { min-height: 25px; padding: 0 8.7px; font-size: 12.45px; }
 :root[data-look="blend"] .settings-swatches { gap: 6.8px; }
-:root[data-look="blend"] .settings-swatch { width: 24.3px; height: 24.3px; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.15); }
-:root[data-look="blend"] .settings-wallpaper { width: 46.7px; height: 29.2px; border-radius: 6.8px; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.15); }
-:root[data-look="blend"] :is(.settings-swatch, .settings-wallpaper)[aria-checked="true"] { box-shadow: 0 0 0 2.9px var(--lx-badge-ring), 0 0 0 5.8px var(--lx-pill); }
+:root[data-look="blend"] .settings-swatch { width: 24.3px; height: 24.3px; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--lx-ink) 24%, transparent); }
+:root[data-look="blend"] .settings-wallpaper { width: 46.7px; height: 29.2px; border-radius: 6.8px; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--lx-ink) 24%, transparent); }
+:root[data-look="blend"] :is(.settings-swatch, .settings-wallpaper)[aria-checked="true"] { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--lx-ink) 24%, transparent), 0 0 0 2.9px var(--lx-badge-ring), 0 0 0 5.8px var(--lx-pill); }
 :root[data-look="blend"] .settings-appearance__switch .ui-switch__track { width: 44.8px; height: 25.3px; }
 :root[data-look="blend"] .settings-appearance__switch .ui-switch__thumb { top: 3.2px; left: 3.2px; width: 19px; height: 19px; }
 :root[data-look="blend"] .settings-appearance__switch .ui-switch__control[aria-checked="true"] .ui-switch__thumb { transform: translateX(19.5px); }

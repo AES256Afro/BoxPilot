@@ -251,7 +251,7 @@
 }
 /* The bell is a round button, its count a sticker on its shoulder. */
 :root[data-look="toybox"] .topbar .bar-button[aria-haspopup="dialog"]:has(> svg) { width: 28px; padding: 0; justify-content: center; }
-:root[data-look="toybox"] .topbar .bar-button:has(> svg) .bar-badge { position: absolute; top: -8px; right: -10px; }
+:root[data-look="toybox"] .topbar .bar-button:has(> svg) .bar-badge { position: absolute; top: -5px; right: -10px; }
 :root[data-look="toybox"] .bar-button:hover,
 :root[data-look="toybox"] .bar-button[aria-expanded="true"] { color: var(--ty-ink); background: #fff8e0; }
 :root[data-look="toybox"] .bar-button[data-live] { color: var(--ty-ink); background: var(--ty-cream); }

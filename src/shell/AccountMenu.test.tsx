@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { openActivityEvent } from "../activityEvents";
+import { DrawnLookProvider } from "../looks/drawnLook";
 import { AccountMenu } from "./AccountMenu";
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
@@ -38,5 +39,17 @@ describe("the account menu (M41)", () => {
     await vi.waitFor(() => expect(onSignedOut).toHaveBeenCalledWith(null));
     window.removeEventListener(openActivityEvent, opened);
     void screen;
+  });
+
+  it("offers light or dark only in a look that has both", () => {
+    const open = (look: "blend" | "blueprint") => {
+      render(<DrawnLookProvider value={look}><AccountMenu authStatus={authStatus} csrfToken="csrf" onNavigate={vi.fn()} onSignedOut={vi.fn()} /></DrawnLookProvider>);
+      fireEvent.click(document.querySelector<HTMLButtonElement>(".account-menu__button")!);
+      const group = document.querySelector('[role="group"][aria-label="Light or dark"]');
+      cleanup();
+      return group;
+    };
+    expect(open("blend")).not.toBeNull();
+    expect(open("blueprint")).toBeNull();
   });
 });
