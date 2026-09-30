@@ -23,6 +23,24 @@ function fakeFiles({ existing = null, ownerUid = 1000 } = {}) {
   };
 }
 
+describe("what an export may serve", () => {
+  // Exported by the kernel's NFS server, set up by a medium-risk approval: the folders it may name
+  // are the ones BoxPilot does not protect, however the path is spelled.
+  it.each(["/./etc", "//etc", "/.", "/./var/lib/boxpilot", "/var", "/var/lib", "/mnt/boxpilot", "/srv//x"])("refuses %s", (path) => {
+    expect(validateNfsConfig({ exports: [{ path }] })).toContain("system locations");
+  });
+
+  it("still exports ordinary folders", () => {
+    for (const path of ["/srv/media", "/mnt/nas-media", "/home/homebox/Shared", "/data/photos"]) expect(validateNfsConfig({ exports: [{ path }] })).toBeNull();
+  });
+
+  it("refuses a folder that leads into a protected location through a link", async () => {
+    const files = { ...fakeFiles(), realpath: vi.fn(async () => "/var/lib/boxpilot") };
+    await expect(nfsApply({ exports: [{ path: "/srv/media" }] }, { run: fakeRun(), files })).rejects.toThrow(/system location/);
+    expect(files.writeFile).not.toHaveBeenCalled();
+  });
+});
+
 describe("nfs tasks", () => {
   it("validates and renders exports squashed to the folder owner", () => {
     expect(validateNfsConfig({ exports: [{ path: "/srv/media", readOnly: true }] })).toBeNull();
