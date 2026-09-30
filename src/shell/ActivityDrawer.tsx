@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { JobLogView } from "../JobLogView";
 import { ApproveDialog } from "./ApproveDialog";
+import { publishWaiting } from "./approvalsWaiting";
 import { activeJobStates, jobStatus } from "../jobStatus";
 import { openActivityEvent } from "../activityEvents";
 import { JobActions } from "../JobActions";
@@ -56,6 +57,8 @@ export function ActivityDrawer({ csrfToken = "", role = "owner" }: { csrfToken?:
     onStatus: setFeedStatus,
   }), [retry]);
 
+  // The dock's count of approvals waiting (M25) is this feed's, said once more.
+  useEffect(() => { publishWaiting(jobs); }, [jobs]);
   const runningCount = jobs.filter((job) => activeJobStates.has(job.state)).length;
   const waitingCount = jobs.filter((job) => job.state === "awaiting_approval").length;
   const failedCount = jobs.filter((job) => job.state === "failed").length;

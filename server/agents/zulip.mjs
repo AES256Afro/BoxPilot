@@ -110,9 +110,25 @@ export function neutralizeMentions(text) {
 const clipLine = (text, max) => { const value = String(text ?? "").replace(control, " ").trim(); return value.length > max ? `${value.slice(0, max - 1)}…` : value; };
 const clip = (text, max) => { const value = String(text ?? ""); return value.length > max ? `${value.slice(0, max - 1)}…` : value; };
 
-/** Words for a chat message: redacted, template tokens and control characters out, mentions broken, bounded. */
+/**
+ * Links, shown and never linked. What a model writes can be steered by what it read, and in Zulip a
+ * link or an image is a request to wherever it points - fetched by Zulip's previews, or by a click -
+ * so a link in an answer is a way out for what the run read. A Markdown link keeps its words and
+ * shows its target as code; an address (with a scheme, www., or a name Zulip would link) is code.
+ * One pass, so nothing is wrapped twice. An address right after a backtick is already code, or
+ * after a character Zulip never links from, and is left as it is. BoxPilot's own links are added
+ * after this.
+ */
+const linkish = /!?\[([^\]\n]{0,300})\]\(([^)\n]{0,2000})\)|(?<!`)\b(?:[a-z][a-z0-9+.-]{1,15}:\/\/|www\.)[^\s`<>]{1,2000}|(?<!`)\b(?:[\w-]{1,63}\.){1,10}[a-z]{2,63}\b(?:\/[^\s`<>]{0,2000})?/gi;
+const asCode = (value) => `\`${String(value).replace(/`/g, "'")}\``;
+
+export function neutralizeLinks(text) {
+  return String(text ?? "").replace(linkish, (match, words, target) => (words !== undefined ? `${words} (${asCode(target)})` : asCode(match)));
+}
+
+/** Words for a chat message: redacted, template tokens and control characters out, links and mentions broken, bounded. */
 export function chatText(text, { redact = (value) => value, maxChars = chatLimits.messageChars } = {}) {
-  return neutralizeMentions(sanitizeUntrusted(text, { maxChars, redact }).text);
+  return neutralizeMentions(neutralizeLinks(sanitizeUntrusted(text, { maxChars, redact }).text));
 }
 
 /** A link back into BoxPilot, or nothing when BoxPilot's own address is not known. */
