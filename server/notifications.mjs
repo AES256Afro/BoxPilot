@@ -38,15 +38,26 @@ export function validateTarget(target) {
   return null;
 }
 
+/**
+ * Where tapping a push goes (M25.2: an approval in BoxPilot): only an https address with nothing
+ * in it but a path and a query, or nothing at all.
+ */
+function clickUrl(click) {
+  if (typeof click !== "string" || !URL.canParse(click)) return null;
+  const url = new URL(click);
+  return url.protocol === "https:" && !url.username && !url.password && !url.hash ? url.href : null;
+}
+
 /** Build the HTTP request for one message; exported for tests. */
-export function buildRequest(target, { title, message, priority = "default" }) {
+export function buildRequest(target, { title, message, priority = "default", click = null }) {
+  const opens = clickUrl(click);
   if (target.kind === "ntfy") {
     const base = target.url.replace(/\/+$/, "");
     return {
       url: `${base}/${target.topic}`,
       options: {
         method: "POST",
-        headers: { Title: title, Priority: priority === "high" ? "high" : "default", ...(target.token ? { Authorization: `Bearer ${target.token}` } : {}) },
+        headers: { Title: title, Priority: priority === "high" ? "high" : "default", ...(opens ? { Click: opens } : {}), ...(target.token ? { Authorization: `Bearer ${target.token}` } : {}) },
         body: message,
       },
     };
@@ -58,7 +69,7 @@ export function buildRequest(target, { title, message, priority = "default" }) {
       options: {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title, message, priority: priority === "high" ? 8 : 4 }),
+        body: JSON.stringify({ title, message, priority: priority === "high" ? 8 : 4, ...(opens ? { extras: { "client::notification": { click: { url: opens } } } } : {}) }),
       },
     };
   }
@@ -67,7 +78,7 @@ export function buildRequest(target, { title, message, priority = "default" }) {
     options: {
       method: "POST",
       headers: { "Content-Type": "application/json", ...(target.token ? { Authorization: `Bearer ${target.token}` } : {}) },
-      body: JSON.stringify({ source: "boxpilot", title, message, priority }),
+      body: JSON.stringify({ source: "boxpilot", title, message, priority, ...(opens ? { url: opens } : {}) }),
     },
   };
 }
@@ -115,10 +126,10 @@ export function createNotificationService({ store, fetcher = fetch, now = () => 
     return { configured: true, kind: target.kind, url: target.url, topic: target.topic ?? null, hasToken: Boolean(target.token) };
   }
 
-  async function send({ title, message, priority = "default" }) {
+  async function send({ title, message, priority = "default", click = null }) {
     const target = getTarget();
     if (!target) throw new Error("No notification target is configured");
-    const { url, options } = buildRequest(target, { title, message, priority });
+    const { url, options } = buildRequest(target, { title, message, priority, click });
     // A target saved before validateTarget refused such an address: say so without quoting it.
     if (!usableUrl(url)) throw new Error("The notification target's address is not one BoxPilot can send to; set the target again in Settings");
     const response = await fetcher(url, { ...options, signal: AbortSignal.timeout(15_000) });
