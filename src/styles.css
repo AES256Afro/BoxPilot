@@ -3273,7 +3273,7 @@ body {
   :root[data-shell="console"] .shell-dock .ui-dock__item[aria-current="page"] .ui-dock__icon { border-color: var(--cc-amber); color: var(--cc-amber-ink); background: var(--cc-amber); }
   :root[data-shell="console"] .ui-dock__badge { color: var(--cc-amber-ink); background: var(--cc-amber); box-shadow: 0 0 0 2px var(--cc-topbar); }
   /* The rule that sets the areas apart from Ops on the rail has nothing to set apart in the dock. */
-  .shell-dock--rail .ui-dock__separator[data-before="updates"] { display: none; }
+  .shell-dock--rail .ui-dock__separator[data-before="today"] { display: none; }
 }
 
 /* The compact bar gives the host's facts the room: how this browser connected is on Home's bar,
@@ -3609,4 +3609,90 @@ body {
 
 @media (max-width: 620px) {
   .need__acts { flex: 1 1 100%; justify-content: flex-start; margin-left: 0; }
+}
+
+/* ═════════════════════════════════════════════════════════════════════════ */
+/*  In the hand (M25): the installed app on a phone or a tablet. Last in the  */
+/*  file, so these win ties with the rules above for the same controls.      */
+/* ═════════════════════════════════════════════════════════════════════════ */
+
+/* Opened from the home screen the page runs under the status bar and past the home indicator
+   (viewport-fit=cover, black-translucent). The page keeps clear of both, the rounded corners and
+   a landscape notch, and in the console the bar's colour runs up behind the status bar. A browser
+   tab reports every inset as 0, so nothing moves there. */
+.app-shell {
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+  padding-left: env(safe-area-inset-left, 0px);
+}
+.topbar { top: env(safe-area-inset-top, 0px); }
+:root[data-shell="console"] .app-shell::before {
+  position: fixed;
+  z-index: 11;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: env(safe-area-inset-top, 0px);
+  background: var(--cc-topbar);
+  content: "";
+}
+main { padding-bottom: env(safe-area-inset-bottom, 0px); }
+.shell-dock { bottom: calc(var(--shell-bottom-inset, 0px) + 12px + env(safe-area-inset-bottom, 0px)); }
+@media (min-width: 761px) {
+  .app-shell[data-shell="console"] { padding-left: calc(56px + env(safe-area-inset-left, 0px)); }
+  .shell-dock.shell-dock--rail {
+    bottom: calc(var(--shell-bottom-inset, 0px) + env(safe-area-inset-bottom, 0px));
+    width: calc(56px + env(safe-area-inset-left, 0px));
+    padding-top: calc(10px + env(safe-area-inset-top, 0px));
+    padding-left: env(safe-area-inset-left, 0px);
+  }
+}
+/* Sheets: a drawer's top clears the status bar, and every sheet's foot the home indicator. */
+.ui-sheet { padding-bottom: env(safe-area-inset-bottom, 0px); }
+.ui-sheet--right { padding-top: env(safe-area-inset-top, 0px); }
+@media (max-width: 640px) {
+  .ui-sheet--right { padding-top: 0; }
+  /* Rising from the bottom edge, a sheet shows a grip, so it reads as something that closes. */
+  .ui-sheet__head { position: relative; padding-top: 18px; }
+  .ui-sheet__head::before {
+    position: absolute;
+    top: 6px;
+    left: 50%;
+    width: 36px;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--border-strong);
+    content: "";
+    transform: translateX(-50%);
+  }
+}
+
+/* A finger, not a pointer: the shell's controls and the kit's buttons at least 44 px to tap (Apple's
+   and Android's guidance), and text fields at 16 px so iOS does not zoom the page on focus. Only on
+   a touch screen: a desktop keeps the console's density. */
+@media (pointer: coarse) {
+  .view-switch__option,
+  :root[data-shell="console"] .view-switch__option { min-height: 44px; }
+  .command-trigger,
+  :root[data-shell="console"] .command-trigger { min-height: 44px; }
+  .ui-theme-switch__option,
+  :root[data-shell="console"] .ui-theme-switch--compact .ui-theme-switch__option { min-width: 44px; min-height: 44px; }
+  .ui-sheet__close { width: 44px; height: 44px; }
+  .ui-button,
+  :root[data-shell="console"] .ui-button { min-height: 44px; }
+  .ui-info-toggle { width: 44px; height: 44px; }
+  .ui-control,
+  .ui-input,
+  .ui-textarea { min-height: 44px; font-size: 16px; }
+  .shell-dock .ui-dock__item { min-height: 56px; }
+  .areas-sheet__grid .ui-dock__item { min-height: 72px; }
+}
+@media (pointer: coarse) and (max-width: 620px) {
+  :root[data-shell="console"] .command-trigger { flex: 0 0 44px; width: 44px; min-width: 44px; }
+  .command-trigger { flex: 0 0 44px; width: 44px; min-width: 44px; }
+}
+/* On a phone the bar keeps what is used from it - search, Refresh, the bell, Activity, Sign out -
+   on one row under the page's name. The theme follows the phone, and Settings still sets it. */
+@media (max-width: 620px) {
+  .topbar .ui-theme-switch { display: none; }
 }

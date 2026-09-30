@@ -86,7 +86,7 @@ import { createVmRestoreDrillService } from "./vm-restore-drill.mjs";
 import { foldVerdict, verdictFrom } from "./backup-verdicts.mjs";
 import { appStopClearingOperations, foldAppStop, seedAppStops } from "./app-stops.mjs";
 import { jsonGzip, precompressedAssets } from "./compress.mjs";
-import { securityHeaders } from "./security-headers.mjs";
+import { rootFileHeaders, securityHeaders } from "./security-headers.mjs";
 
 const app = express();
 const host = process.env.BOXPILOT_HOST ?? "127.0.0.1";
@@ -478,7 +478,7 @@ app.use(createOidcRouter({ oidc, auth, store: state }));
 const assets = path.join(dist, "assets");
 app.use("/assets", precompressedAssets(assets));
 app.use("/assets", express.static(assets, { index: false, maxAge: "365d", immutable: true }));
-app.use(express.static(dist, { index: false }));
+app.use(express.static(dist, { index: false, setHeaders: rootFileHeaders }));
 app.use((request, response, next) => {
   if (request.method !== "GET" || request.path.startsWith("/api/")) {
     next();
