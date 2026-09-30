@@ -252,6 +252,22 @@ describe("BoxPilot console", () => {
       window.localStorage.clear();
     });
 
+    it("opens the approval a push named, over Today, in the ordinary dialog (M25.2)", async () => {
+      const id = "0f8b3c1e-1111-4222-8333-444455556666";
+      vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+        const url = input.toString();
+        if (url === `/api/v1/jobs/${id}`) return new Response(JSON.stringify({ job: { id, type: "op:app.update", title: "Update an app", state: "awaiting_approval", risk: "medium", error: null, result: null, steps: [], approvals: [], createdAt: "2026-09-29T07:00:00Z" } }), { headers: { "Content-Type": "application/json" } });
+        if (url === `/api/v1/jobs/${id}/approval`) return new Response(JSON.stringify({ tier: "medium", passwordRequired: false, elevated: false, mode: "tiered", confirmText: null }), { headers: { "Content-Type": "application/json" } });
+        return authenticatedFetch(input);
+      }));
+      window.history.replaceState(null, "", `/?approve=${id}`);
+      render(<App />);
+      const dialog = await screen.findByRole("dialog", { name: "Update an app" });
+      expect(await within(dialog).findByText("Medium risk")).toBeTruthy();
+      expect(window.location.search).toBe("?view=today");
+      expect(await screen.findByRole("heading", { level: 1, name: "Today" })).toBeTruthy();
+    });
+
     it("shows the sign-in problem, as before, when no session was remembered", async () => {
       window.localStorage.clear();
       vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("Failed to fetch"); }));
