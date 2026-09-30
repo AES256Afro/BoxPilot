@@ -325,7 +325,10 @@ export default function FirewallPage({ csrfToken, role = "owner", now = Date.now
         rowStatus={({ rule }) => (rule.action === "deny" || rule.action === "reject" ? "danger" : undefined)}
         empty={!report
           ? (loading ? "Reading the firewall…" : "The rules could not be read.")
-          : <EmptyState title="No rules yet">{report.enabled ? "Only the default policy applies." : "The firewall is off."}</EmptyState>}
+          : report.enabled
+            ? <EmptyState title="No rules yet">Only the default policy applies.</EmptyState>
+            // Off, with nothing on the list: the one step that fills it is a profile, which turns it on too.
+            : <EmptyState title="No rules yet" action={canProfile && overview ? <Button onClick={openProfiles}>Choose a profile…</Button> : undefined}>The firewall is off. A profile turns it on with the rules this server needs, keeping SSH, Tailscale and BoxPilot reachable.</EmptyState>}
       />
     </Panel>
   );

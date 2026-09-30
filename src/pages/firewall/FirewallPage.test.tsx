@@ -125,6 +125,16 @@ describe("Firewall page", () => {
     await waitFor(() => expect(staged["firewall.profile.apply"]).toEqual({ parameters: { profile: "home-server", services: ["dns"], replace: false, sshRateLimit: true } }));
   });
 
+  it("offers a profile where an empty, switched-off firewall's rules would be", async () => {
+    window.history.replaceState(null, "", "/?view=firewall&tab=rules");
+    mockFetch(overview({ report: { ...report, rules: [] } }));
+    render(<FirewallPage csrfToken="csrf" now={now} />);
+    const rules = await screen.findByRole("region", { name: "Rules" });
+    expect(await within(rules).findByText(/The firewall is off\. A profile turns it on/)).toBeTruthy();
+    fireEvent.click(within(rules).getByRole("button", { name: "Choose a profile…" }));
+    expect(await screen.findByRole("dialog", { name: "Choose a firewall profile" })).toBeTruthy();
+  });
+
   it("says why the plan could not be built in the sheet, where the owner is, not on the page under it", async () => {
     const fetchMock = mockFetch(overview());
     const answer = fetchMock.getMockImplementation()!;
