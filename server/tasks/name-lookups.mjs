@@ -100,12 +100,22 @@ export async function restoreNameLookups(_parameters = {}, { run = fixedRun, fil
   if (!stub.ok) throw new Error(`systemd-resolved's local resolver (${stubAddress}) did not answer for ${lookupNames[0]} either (${stub.error ?? "no address"}), so pointing /etc/resolv.conf at it would not help. Nothing was changed.`);
   say(`systemd-resolved answers: ${lookupNames[0]} is ${stub.addresses.join(", ")}`);
 
-  // 2. Keep what is there now.
+  // 2. Keep what is there now, never over an earlier copy: two runs in one second share a stamp.
   const stamp = stampOf(now());
-  const backup = current.kind === "missing" ? null : `${resolvConfPath}.boxpilot-${stamp}`;
-  if (current.kind === "link") await files.symlink(current.target, backup);
-  else if (current.kind === "file") await files.copyFile(resolvConfPath, backup);
-  if (backup) say(`Kept the current /etc/resolv.conf as ${backup}`);
+  let backup = null;
+  if (current.kind !== "missing") {
+    for (let attempt = 1; !backup; attempt += 1) {
+      const candidate = `${resolvConfPath}.boxpilot-${stamp}${attempt > 1 ? `-${attempt}` : ""}`;
+      try {
+        if (current.kind === "link") await files.symlink(current.target, candidate);
+        else await files.copyFile(resolvConfPath, candidate);
+        backup = candidate;
+      } catch (error) {
+        if (error?.code !== "EEXIST" || attempt >= 20) throw new Error(`A copy of /etc/resolv.conf could not be kept (${error?.code ?? error?.message}), so nothing was changed.`);
+      }
+    }
+    say(`Kept the current /etc/resolv.conf as ${backup}`);
+  }
 
   // 3. Point it at resolved.
   say(`$ ln -sfn ${stubLinkTarget} ${resolvConfPath}`);

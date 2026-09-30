@@ -53,6 +53,21 @@ describe("Point name lookups back to systemd-resolved", () => {
     expect(lines.join("\n")).toContain("Tailscale was not restarted");
   });
 
+  it("never keeps its copy over an earlier one: two runs in one second share a stamp", async () => {
+    // As two runs within a second on the CI runner did: the second's copy failed with EEXIST.
+    const host = fakeHost();
+    host.paths.set("/etc/resolv.conf.boxpilot-20260929T221804Z", { content: "an earlier copy\n" });
+    const result = await restoreNameLookups({}, { ...host, now });
+    expect(result.backup).toBe("/etc/resolv.conf.boxpilot-20260929T221804Z-2");
+    expect(host.paths.get("/etc/resolv.conf.boxpilot-20260929T221804Z")).toEqual({ content: "an earlier copy\n" });
+    expect(host.paths.get("/etc/resolv.conf.boxpilot-20260929T221804Z-2")).toEqual({ content: tailscaleFile });
+    // A copy that cannot be made at all stops it before anything changes.
+    const full = fakeHost();
+    full.files.copyFile.mockImplementationOnce(async () => { throw Object.assign(new Error("ENOSPC"), { code: "ENOSPC" }); });
+    await expect(restoreNameLookups({}, { ...full, now })).rejects.toThrow("A copy of /etc/resolv.conf could not be kept (ENOSPC), so nothing was changed.");
+    expect(full.paths.get("/etc/resolv.conf")).toEqual({ content: tailscaleFile });
+  });
+
   it("keeps a link as a link", async () => {
     const host = fakeHost({ conf: { target: "/run/tailscale/resolv.conf" } });
     const result = await restoreNameLookups({}, { ...host, now });
