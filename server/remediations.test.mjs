@@ -85,6 +85,18 @@ describe("shares and drives nobody can write to", () => {
     expect(found.evidence).toContain("/mnt/the-dump is exfat, mounted without uid=");
   });
 
+  it("offers no fix it would refuse for a share on an exFAT drive BoxPilot did not mount, and says what to do", () => {
+    // samba.share.writable refuses a folder on a drive that keeps no owners and points at
+    // storage.writable, which changes only drives BoxPilot mounted: pressed, it failed every time.
+    const foreign = { target: "/media/usb", source: "/dev/sdc1", fstype: "exfat", options: "rw,nosuid,nodev", managedName: null };
+    const [found] = unwritableShares({ mounts: [foreign], shares: [{ name: "Stick", path: "/media/usb/share", readOnly: false, ownerUid: 0, forceUser: null }] });
+    expect(found).toMatchObject({ id: "share-unwritable:Stick", fix: null, fixes: [] });
+    expect(found.detail).toContain("add uid=1000,gid=1000 to its line in /etc/fstab");
+    // A drive BoxPilot mounted is still fixed through the drive, and a Linux folder by handing it over.
+    expect(unwritableShares({ mounts: [{ ...foreign, managedName: "stick" }], shares: [{ name: "Stick", path: "/media/usb/share", readOnly: false, ownerUid: 0, forceUser: null }] })[0].fix).toMatchObject({ operationId: "storage.writable" });
+    expect(unwritableShares({ mounts: [{ ...foreign, fstype: "ext4" }], shares: [{ name: "Stick", path: "/media/usb/share", readOnly: false, ownerUid: 0, forceUser: null }] })[0].fix).toMatchObject({ operationId: "samba.share.writable" });
+  });
+
   it("needs the real owner, not one inferred from whether a force user exists", () => {
     // Deriving ownerUid from `forceUser ? 1000 : 0` made every force-user-less read-write share
     // report "nobody can write to it", whoever actually owned the folder.
@@ -320,6 +332,17 @@ describe("a drive the kernel found not cleanly unmounted (M26)", () => {
   it("is satisfied by a clean check after the kernel's line, and asks again after one that found problems", () => {
     expect(drivesNeedingCheck({ mounts, devices, unclean, driveChecks: { "the-dump": { checkedAt: "2026-09-28T08:00:00.000Z", clean: true } } })).toEqual([]);
     expect(drivesNeedingCheck({ mounts, devices, unclean, driveChecks: { "the-dump": { checkedAt: "2026-09-28T08:00:00.000Z", clean: false } } })).toHaveLength(1);
+  });
+
+  it("offers no check it would refuse: an NTFS drive is said to need one elsewhere", () => {
+    // storage.check has no read-only checker for NTFS and refuses it, so "Check the drive" failed
+    // the same way every time, and the finding never cleared.
+    const ntfs = [{ ...mounts[0], fstype: "ntfs3" }];
+    const ntfsLine = { available: true, events: [{ device: "/dev/sda2", driver: "ntfs3", at: "2026-09-27T21:14:09.000Z", message: "ntfs3 (sda2): volume is dirty and \"force\" flag is not set!" }] };
+    const [found] = drivesNeedingCheck({ mounts: ntfs, devices, unclean: ntfsLine });
+    expect(found).toMatchObject({ id: "drive-check:the-dump", fix: null, fixes: [] });
+    expect(found.detail).toContain("BoxPilot has no read-only checker for ntfs3 filesystems");
+    for (const fstype of ["exfat", "vfat", "ext4"]) expect(drivesNeedingCheck({ mounts: [{ ...mounts[0], fstype }], devices, unclean })[0].fix).toMatchObject({ operationId: "storage.check" });
   });
 
   it("matches the kernel's device to the drive mounted from it, not to any other", () => {
