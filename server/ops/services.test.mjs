@@ -37,6 +37,37 @@ describe("service operations", () => {
   });
 });
 
+describe("units that change the state of the whole machine", () => {
+  // Powering off or rebooting is system.reboot's, which is high risk; stopping sysinit.target, or
+  // starting shutdown.target, stops SSH, BoxPilot and Tailscale along with everything else, which is
+  // exactly what the protected-unit guard refuses to do one unit at a time. None of them is a
+  // medium-risk "control a service".
+  const cases = [
+    ["poweroff.target", "start"], ["reboot.target", "start"], ["halt.target", "start"], ["kexec.target", "start"],
+    ["shutdown.target", "start"], ["rescue.target", "start"], ["emergency.target", "start"], ["sysinit.target", "stop"],
+    ["multi-user.target", "stop"], ["basic.target", "restart"], ["graphical.target", "disable"],
+    ["systemd-poweroff.service", "start"], ["systemd-reboot.service", "start"], ["systemd-halt.service", "restart"],
+    ["systemd-kexec.service", "start"], ["systemd-soft-reboot.service", "start"], ["systemd-suspend.service", "start"],
+    ["systemd-hibernate.service", "start"],
+    // A root shell on the console with no password, now or at every boot, and loading a kernel module.
+    ["debug-shell.service", "start"], ["debug-shell.service", "enable"], ["emergency.service", "start"], ["rescue.service", "start"],
+    ["modprobe@dummy.service", "start"],
+  ];
+
+  it.each(cases)("refuses %s %s before staging, and never runs systemctl", async (unit, action) => {
+    expect(registry.validate("service.action", { unit, action })).toMatch(/whole machine|power/i);
+    const run = vi.fn(async () => ({ ok: true, stdout: "", stderr: "" }));
+    await expect(registry.execute("service.action", { unit, action }, { run })).rejects.toThrow();
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("still controls ordinary services and timers", () => {
+    expect(registry.validate("service.action", { unit: "docker.service", action: "restart" })).toBeNull();
+    expect(registry.validate("service.action", { unit: "fstrim.timer", action: "enable" })).toBeNull();
+    expect(registry.validate("service.action", { unit: "cron.service", action: "start" })).toBeNull();
+  });
+});
+
 describe("units with a high-risk equivalent", () => {
   it("refuses to stop or disable ufw and fail2ban from the Services page", async () => {
     const { registry } = await import("./index.mjs");

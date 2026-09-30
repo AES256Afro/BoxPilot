@@ -54,6 +54,8 @@ export function ProposalCard({ proposal, csrfToken, role, onStage, onDecided, on
     title: step.title,
     parameters: step.parameters,
     preview: <span>{step.why || proposal.reason}</span>,
+    // A card from BoxPilot itself (source "runtime") carries no model's words.
+    ...(proposal.source === "runtime" ? {} : { proposedBy: proposal.agentName }),
     onStaged: (job) => {
       stagedRef.current = { ...stagedRef.current, [index]: job.id };
       setStaged(stagedRef.current);
@@ -83,6 +85,14 @@ export function ProposalCard({ proposal, csrfToken, role, onStage, onDecided, on
                 <span className="agents-card__step-title">{step.title}</span>
                 <code className="agents-card__op">{step.operationId}</code>
                 {step.why && <span className="agents-card__why">{step.why}</span>}
+                {/* What it would be given is what runs; the words above are the agent's. */}
+                {Object.keys(step.parameters ?? {}).length > 0 && (
+                  <span className="agents-card__params">
+                    {Object.entries(step.parameters).map(([name, value]) => (
+                      <span key={name} className="agents-card__param"><code>{name}</code> <span>{typeof value === "string" || typeof value === "number" || typeof value === "boolean" ? String(value) : JSON.stringify(value)}</span></span>
+                    ))}
+                  </span>
+                )}
               </span>
               <RiskTag risk={step.risk} />
               {open && (staged[index]
