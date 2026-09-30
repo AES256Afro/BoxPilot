@@ -61,6 +61,7 @@ export function readLookChoice(): LookChoice {
  * by App.tsx (applyLook), because the page in front of you decides which look it is drawn in.
  */
 export function applyLookChoice(choice: LookChoice, root: HTMLElement = document.documentElement) {
+  root.dataset.lookScope = choice.scope;
   root.dataset.accent = choice.accent;
   root.dataset.wallpaper = choice.wallpaper;
   if (choice.solid) root.dataset.solid = "";

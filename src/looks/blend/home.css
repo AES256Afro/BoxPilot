@@ -58,7 +58,6 @@
 .blend-cell__spark { position: absolute; top: 14.6px; right: 13.6px; width: 66px; height: 23px; color: var(--look-accent); }
 .blend-cell__spark .ui-spark__line { stroke: var(--look-accent); stroke-width: 1.6; }
 .blend-cell__spark .ui-spark__area { fill: transparent; }
-.blend-cell__spark .blend-cell__dot { display: block; width: 100%; height: 100%; fill: var(--look-accent); }
 .blend-cell__bar { display: block; height: 5.8px; margin-top: 2.9px; overflow: hidden; border-radius: 999px; background: var(--lx-track); }
 .blend-cell__bar > i { display: block; height: 100%; border-radius: inherit; background: var(--look-accent); }
 .blend-cell[data-status="danger"] .blend-cell__bar > i { background: var(--lx-danger); }

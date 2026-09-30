@@ -207,8 +207,8 @@ export default function Ops({ csrfToken, role, onNavigate, now = Date.now, pollM
         summary={verdict.sentence}
         actions={<>{again.said}<Button variant="ghost" busy={again.checking} onClick={again.run}>{again.checking ? "Reading…" : "Read again"}</Button></>}
         barFacts={inventory
-          ? <>{inventory.operatingSystem} · up <b>{uptime(inventory.uptimeSeconds)}</b> · kernel <b>{inventory.kernel}</b> · boxpilot <b>{__BOXPILOT_VERSION__}</b></>
-          : <>boxpilot <b>{__BOXPILOT_VERSION__}</b></>}
+          ? <>{inventory.operatingSystem} · up <b>{uptime(inventory.uptimeSeconds)}</b> · kernel <b>{inventory.kernel}</b><span className="cc-kv__version"> · boxpilot <b>{__BOXPILOT_VERSION__}</b></span></>
+          : <span className="cc-kv__version">boxpilot <b>{__BOXPILOT_VERSION__}</b></span>}
       />
 
       <MetricStrip label="Load, memory, disks and network" className="ops-strip">

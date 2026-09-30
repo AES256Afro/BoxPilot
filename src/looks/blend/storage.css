@@ -72,7 +72,7 @@
 .blend-table td { padding: 6px 7.2px; border-bottom: 1px solid var(--lx-hairline); white-space: nowrap; }
 .blend-table tr:last-child td { border-bottom: 0; }
 .blend-table .blend-table__num { text-align: right; }
-.blend-table__name { display: inline-block; max-width: 17ch; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
+.blend-table__name { display: inline-block; max-width: 24ch; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
 .blend-table__tag { margin-left: 4.9px; padding: 1.3px 5.4px; border-radius: 3.6px; color: var(--lx-ink-muted); background: var(--lx-glass-raised); font-size: 10.6px; }
 
 /* What needs you here (drawing: .bl-need): the tier leads, then the words and the pill. */

@@ -345,3 +345,6 @@
 @media (prefers-reduced-motion: reduce) {
   :root[data-look="phosphor"] .ui-button { transition: none; }
 }
+
+/* The version is at the top line's right end on every page, so Ops' facts leave it out. */
+:root[data-look="phosphor"] .cc-kv__version { display: none; }

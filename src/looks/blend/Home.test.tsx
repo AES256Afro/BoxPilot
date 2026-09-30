@@ -35,7 +35,7 @@ describe("Home in Home + Ops", () => {
     expect(vi.mocked(fetch)).toHaveBeenCalledWith("/api/v1/operations/app.action/jobs", expect.objectContaining({ method: "POST" }));
   });
 
-  it("reads the live figures once on arrival and then every fifteen seconds, never in a burst", async () => {
+  it("reads the live figures three times at Ops' pace and then every fifteen seconds, never in a burst", async () => {
     // The read runs docker stats in the root helper, and Home is where everyone lands.
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     try {
@@ -43,10 +43,15 @@ describe("Home in Home + Ops", () => {
       vi.stubGlobal("fetch", fetchStub);
       renderHome(Date.now());
       const reads = () => fetchStub.mock.calls.filter(([url]) => String(url).includes("system.performance.inspect")).length;
-      await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+      await act(async () => { await vi.advanceTimersByTimeAsync(4_500); });
       expect(reads()).toBe(1);
-      await act(async () => { await vi.advanceTimersByTimeAsync(10_500); });
-      expect(reads()).toBe(2);
+      await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+      expect(reads()).toBe(3);
+      // The third read came at 10 s; the next waits fifteen, until 25 s.
+      await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+      expect(reads()).toBe(3);
+      await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
+      expect(reads()).toBe(4);
     } finally {
       vi.useRealTimers();
     }

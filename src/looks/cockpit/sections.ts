@@ -2,6 +2,7 @@ import { judgeProtection } from "../../backupProtection";
 import type { FactValues } from "../../home/facts";
 import { backupOperation, runs, type Need } from "../../home/needs";
 import type { Status } from "../../ui";
+import { findingWords } from "../findingWords";
 
 /*
  * Where a need is said on the cockpit (M41): the memo's section, and the annunciator lamp it lights.
@@ -51,5 +52,7 @@ export function terse(need: Need, facts: Pick<FactValues, "catalog" | "updates" 
   }
   if (need.id === "database") return "Database backup due";
   if (need.kind === "approval") return need.title.replace(/^Waiting for approval: /, "Approve: ");
+  const words = need.finding ? findingWords[need.finding.id] ?? findingWords[need.finding.id.split(":")[0]] : undefined;
+  if (words) return `${words[0]}: ${words[1]}`;
   return need.title;
 }

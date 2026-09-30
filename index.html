@@ -32,7 +32,9 @@
           var looks = ['blend', 'launcher', 'console', 'aqua', 'blueprint', 'phosphor', 'rack', 'swiss', 'toybox', 'cockpit', 'eink', 'quest', 'transit'];
           if (looks.indexOf(stored) >= 0) look = stored;
           var view = new URLSearchParams(location.search).get('view');
-          if (localStorage.getItem('boxpilot-look-scope') === 'not-home' && (!view || view === 'home')) look = 'launcher';
+          var notHome = localStorage.getItem('boxpilot-look-scope') === 'not-home';
+          root.setAttribute('data-look-scope', notHome ? 'not-home' : 'all');
+          if (notHome && (!view || view === 'home')) look = 'launcher';
           // Only the choices Settings offers (ACCENTS and WALLPAPERS in src/looks/looks.ts); the
           // default, sea, sets no attribute.
           var accent = localStorage.getItem('boxpilot-accent');

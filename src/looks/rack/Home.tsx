@@ -10,6 +10,7 @@ import { runWords, useNeedActions } from "../../home/useNeedActions";
 import { Button } from "../../ui";
 import type { RiskTier } from "../../ui/types";
 import "./home.css";
+import { findingWords } from "../findingWords";
 
 /*
  * Home as a rack of equipment (M41; docs/design-directions/05-looks.html, M.rack): the same facts as
@@ -46,29 +47,6 @@ export function keyWords(actions: NeedAction[]): string[] {
   });
 }
 
-/** Words a panel's LCD has room for about a Repair finding, by its kind. */
-const findingWords: Record<string, [string, string]> = {
-  "dns-single-point": ["DNS", "NO 2ND RESOLVER"],
-  "dns-fallback-unproven": ["DNS", "FALLBACK UNTRIED"],
-  "no-notification-target": ["ALERTS", "NOWHERE TO GO"],
-  "windows-discovery": ["WINDOWS", "NOT LISTED"],
-  "drive-order": ["DRIVES", "MOUNT ORDER"],
-  "split-data-folders": ["DATA", "SPLIT FOLDERS"],
-  "exfat-checker-missing": ["EXFAT", "NO CHECKER"],
-  "backup-destination-moved": ["BACKUP DRIVE", "MOVED"],
-  "read-only-remount": ["DRIVE", "READ-ONLY"],
-  "drive-check": ["DRIVE", "NOT CHECKED"],
-  "drive-mark": ["DRIVE", "UNMARKED"],
-  "stale-mount": ["DRIVE", "STALE MOUNT"],
-  "stale-bind": ["FOLDER", "STALE BIND"],
-  "flaky-drive": ["DRIVE", "DROPS OUT"],
-  "permissionless-mount": ["DRIVE", "ROOT ONLY"],
-  "share-unwritable": ["SHARE", "READ-ONLY"],
-  "port-conflict": ["PORT", "IN USE"],
-  "backup-rehearsal": ["BACKUP", "NOT REHEARSED"],
-  "vpn-leak": ["VPN", "LEAKED"],
-  "app-folder": ["FOLDER", "NOT WRITABLE"],
-};
 
 /** Words cut to `limit` at a space, never with an ellipsis: an LCD shows what fits. */
 export function fit(words: string, limit: number): string {

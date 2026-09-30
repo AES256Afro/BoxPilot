@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { openActivity, openNotifications } from "../activityEvents";
 import type { AuthStatus, SignedOutReason } from "../auth";
 import type { ViewName } from "../data";
+import { useDrawnLook } from "../looks/drawnLook";
+import { lookById } from "../looks/looks";
 import { useTheme } from "../useTheme";
 import { signOut } from "./SessionControls";
 import "./account.css";
@@ -22,6 +24,9 @@ export function AccountMenu({ authStatus, csrfToken, onNavigate, onSignedOut }: 
 }) {
   const [open, setOpen] = useState(false);
   const { appearance, setAppearance, appearances } = useTheme();
+  // Light or dark only where the look has both: in a one-mode look the choice would change nothing
+  // on screen, yet be kept for the next look.
+  const bothModes = lookById(useDrawnLook()).modes === "both";
   const root = useRef<HTMLDivElement | null>(null);
   const button = useRef<HTMLButtonElement | null>(null);
   const username = authStatus.owner?.username ?? "";
@@ -59,11 +64,11 @@ export function AccountMenu({ authStatus, csrfToken, onNavigate, onSignedOut }: 
           <p className="account-menu__who">{username}{role !== "owner" ? ` · ${role}` : ""}</p>
           <button type="button" role="menuitem" className="account-menu__item" onClick={choose(() => openActivity())}>Activity</button>
           <button type="button" role="menuitem" className="account-menu__item" onClick={choose(openNotifications)}>Notifications</button>
-          <div role="group" aria-label="Light or dark" className="account-menu__group">
+          {bothModes && <div role="group" aria-label="Light or dark" className="account-menu__group">
             {appearances.map((option) => (
               <button key={option.id} type="button" role="menuitemradio" aria-checked={appearance === option.id} className="account-menu__item account-menu__item--choice" onClick={() => setAppearance(option.id)}>{option.label}</button>
             ))}
-          </div>
+          </div>}
           <button type="button" role="menuitem" className="account-menu__item" onClick={choose(() => onNavigate("settings"))}>Settings</button>
           <button type="button" role="menuitem" className="account-menu__item account-menu__item--out" onClick={choose(() => signOut(csrfToken, onSignedOut))}>Sign out</button>
         </div>
