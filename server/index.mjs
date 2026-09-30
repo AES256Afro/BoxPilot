@@ -25,6 +25,9 @@ import { createOperationsRouter } from "./routes/operations.mjs";
 import { createJobsRouter } from "./routes/jobs.mjs";
 import { createVirtualizationRouter } from "./routes/virtualization.mjs";
 import { createSettingsRouter } from "./routes/settings.mjs";
+import { createPushRouter } from "./routes/push.mjs";
+import { createPushApprovals, defaultMayApprove } from "./push-approvals.mjs";
+import { loadVapidKey } from "./web-push.mjs";
 import { createHostRouter } from "./routes/host.mjs";
 import { createFirewallRouter } from "./routes/firewall.mjs";
 import { createStorageRouter } from "./routes/storage.mjs";
@@ -313,6 +316,21 @@ autoReconnect.start();
 scheduler.start();
 // Once the notifier listens, so a rerun that fails at once is still announced.
 void interruptedReruns.start().catch(() => {});
+// Push approvals (M25.2): a job left waiting for a person is pushed to the phones of whoever may
+// approve it, as a title and a link to the approval - never the approval itself. The app's name in
+// the title comes from the catalog, never from what the job was given.
+let catalogNames = new Map();
+const readCatalogNames = () => catalogService.all().then(({ manifests }) => { catalogNames = new Map(manifests.map((manifest) => [manifest.id, manifest.name])); }).catch(() => {});
+void readCatalogNames();
+setInterval(readCatalogNames, 3600_000).unref?.();
+const pushApprovals = createPushApprovals({
+  store: state, notifications, history: notificationHistory,
+  loadVapid: () => loadVapidKey(process.env.BOXPILOT_PUSH_DIR ?? path.join(process.env.BOXPILOT_STATE_DIRECTORY ?? path.dirname(state.databasePath), "push")),
+  subjectOf: (job) => (String(job?.type).startsWith("op:app.") && typeof job?.parameters?.id === "string" ? catalogNames.get(job.parameters.id) ?? null : null),
+  mayApprove: (store, job) => defaultMayApprove(store, job, { minimumRole: jobs.approvalPolicy(job).minimumRole }),
+  contact: process.env.BOXPILOT_PUSH_CONTACT ?? null,
+});
+pushApprovals.start();
 const setup = createSetupService({ helper, scheduler, installRisk: installRiskLookup(catalogService) });
 createUpdateNotifier({ releaseUpdates, notifications, alerts: healthAlerts, store: state }).start();
 // The weekly self-report (M30.4). "Not covered yet" asks what the Overview's checklist asks, plus
@@ -462,6 +480,7 @@ app.use("/api/v1", createOperationsRouter({ state, helper, jobs, prerequisites, 
 app.use("/api/v1", createJobsRouter({ state, jobs, scheduler, flows, autoReconnect, helper, jobLogReader, auth }));
 app.use("/api/v1", createVirtualizationRouter({ libvirt, libvirtFoundation, vmPlanner, vmMedia, vmCreation, vmExports, vmProtection, vmRetention, vmRecoveries, audit }));
 app.use("/api/v1", createSettingsRouter({ state, notifications, notificationHistory, weeklyReport, auth }));
+app.use("/api/v1", createPushRouter({ push: pushApprovals, auth }));
 app.use("/api/v1", createFirewallRouter({ state, helper, catalogService, webPort: port, webHost: host }));
 app.use("/api/v1", createStorageRouter({ auth, helper, inventory, state }));
 app.use("/api/v1", createPowerRouter());

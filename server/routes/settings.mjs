@@ -68,12 +68,15 @@ export function createSettingsRouter({ state, notifications, notificationHistory
    * apart from "mark seen", which is the caller's own. Every role reads it, with the words cut back
    * as the watch list cuts them (M29.4): another account's job, schedule or sign-in is its kind only.
    */
-  const labelFor = (family) => healthConditions[family] ?? noticeKinds[family] ?? (family === "job.failed" ? "A job failed" : family);
+  const labelFor = (family) => healthConditions[family] ?? noticeKinds[family] ?? (family === "job.failed" ? "A job failed" : family === "approval.waiting" ? "A job waited for approval" : family);
   function historyEntryFor(request, entry, live) {
     const family = String(entry.key).split(":")[0];
     let visible;
-    if (entry.kind === "job") {
-      const job = state.getJob?.(String(entry.key).slice("job.failed:".length));
+    if (entry.kind === "job" || entry.kind === "approval") {
+      // A failed job's push, or an approval's (M25.2): the owner's, and the job's own creator's.
+      // Several approvals said at once name no one job, so they are the owner's alone.
+      const jobId = String(entry.key).includes(":") ? String(entry.key).slice(String(entry.key).indexOf(":") + 1) : null;
+      const job = jobId ? state.getJob?.(jobId) : null;
       const theirs = request.boxpilotSession?.owner?.role === "owner" || (job && job.createdBy === request.boxpilotSession?.owner?.id);
       visible = theirs ? { title: entry.title, key: entry.key } : { title: labelFor(family), key: family };
     } else {
