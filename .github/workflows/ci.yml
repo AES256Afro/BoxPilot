@@ -112,6 +112,55 @@ jobs:
       - name: Shares mount and unmount on the host, not in the task's namespace
         run: sudo bash tests/ubuntu/share-mount-host.sh "$(command -v node)"
 
+  # The UPS end to end (M39.1): NUT as each release ships it, BoxPilot's setup and shutdown code, a
+  # Docker app, and NUT's dummy-ups driver in place of a UPS on USB, taken through on battery, back
+  # on mains, the owner's threshold and a low battery. Only the power-off is a stub. It installs NUT
+  # and stops Docker, so it runs only here.
+  ups-power-events:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-26.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: A low battery logs, stops the apps and powers off; the power coming back is logged
+        run: sudo bash tests/ubuntu/ups-power-events.sh "$(command -v node)"
+
+  # The hardware watchdog and Wake-on-LAN (M39.4, M39.6) on real systemd and udev: softdog stands in
+  # for the board's watchdog (Ubuntu blacklists both the same way), and a stand-in ethtool for a
+  # port that can wake, since a runner has neither. No hang is simulated.
+  watchdog-and-wake:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-26.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: systemd takes the watchdog drop-in, and the driver loads at boot despite the blacklist
+        run: sudo bash tests/ubuntu/watchdog-softdog.sh "$(command -v node)"
+
+      - name: udev applies BoxPilot's Wake-on-LAN link file, or it is refused and undone
+        if: success() || failure()
+        run: sudo bash tests/ubuntu/wake-on-lan-link.sh "$(command -v node)"
+
   # The agents runner's hard caps (M37) on real systemd: deploy/boxpilot-agents.service as shipped,
   # the real runner and a fake model burning three times the unit's processor quota. The service's
   # own cgroup must stay at or under CPUQuota=200% under load and idle near 0% afterwards. Both LTS
