@@ -14,7 +14,7 @@ import "./setup.css";
  * reused. The second tab prepares a new server's unattended install instead.
  */
 
-interface Step { id: string; kind: string; title: string; status: "done" | "ready" | "blocked" | "unknown"; detail: string; job: { operationId: string; parameters: Record<string, unknown> } | null; schedule?: { operationId: string; parameters: Record<string, unknown>; frequency: string; minute: number; hour: number | null; weekday: number | null } }
+interface Step { id: string; kind: string; title: string; status: "done" | "ready" | "blocked" | "unknown"; detail: string; /** The tier its job is approved at when the app's manifest raises it (a DNS server: high). */ risk?: RiskTier; job: { operationId: string; parameters: Record<string, unknown> } | null; schedule?: { operationId: string; parameters: Record<string, unknown>; frequency: string; minute: number; hour: number | null; weekday: number | null } }
 interface Profile { id: string; name: string; icon: string; description: string; steps: Step[]; remaining: number; blocked: number }
 interface SetupState { firstRun: boolean; installedApps: number; profiles: Profile[] }
 type StepProgress = Record<string, { state: "pending" | "running" | "done" | "failed" | "skipped"; error?: string }>;
@@ -36,7 +36,7 @@ const stepWords: Record<string, { status: Status; label: string }> = {
 
 /** The tier a batch of steps needs: its highest. */
 function batchTier(steps: Step[]): RiskTier | undefined {
-  const tiers = steps.map((step) => (step.job ? riskOf(step.job.operationId) : null)).filter((tier): tier is RiskTier => tier !== null);
+  const tiers = steps.map((step) => (step.job ? step.risk ?? riskOf(step.job.operationId) : null)).filter((tier): tier is RiskTier => tier !== null);
   return tiers.length ? tierOrder[Math.max(...tiers.map((tier) => tierOrder.indexOf(tier)))] : undefined;
 }
 
@@ -231,7 +231,7 @@ export default function SetupPage({ csrfToken, role = "owner", onDone }: SetupPa
                 {profile.steps.map((step) => {
                   const live = progress[step.id]?.state;
                   const words = stepWords[live ?? (step.status === "ready" ? "pending" : step.status)] ?? stepWords.pending;
-                  const stepTier = step.job ? riskOf(step.job.operationId) : null;
+                  const stepTier = step.job ? step.risk ?? riskOf(step.job.operationId) : null;
                   return (
                     <li key={step.id} className="setup-step" data-status={words.status}>
                       <StatusChip status={words.status}>{words.label}</StatusChip>
