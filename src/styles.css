@@ -3602,7 +3602,9 @@ body {
 
 /* Home and Ops: the buttons a need offers, and a fix's progress under its words (M35). Last in
    the file, so they win ties with Home's .lx need rules. */
-.need__acts { display: inline-flex; flex: none; flex-wrap: wrap; justify-content: flex-end; gap: 6px; margin-left: auto; }
+/* It may shrink to its row and wrap its buttons there: at flex: none two long fixes in Ops' inbox
+   ("Serve Uptime Kuma only through Tailscale", "Stop serving it on the tailnet") ran off the panel. */
+.need__acts { display: inline-flex; flex: 0 1 auto; flex-wrap: wrap; justify-content: flex-end; gap: 6px; min-width: 0; max-width: 100%; margin-left: auto; }
 .need__acts .need__act { margin-left: 0; }
 .need__run { color: var(--text-muted); font-size: var(--font-size-sm); line-height: 1.4; overflow-wrap: anywhere; }
 .lx-fixed { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 8px 0 0; color: var(--text); font-size: 13.5px; line-height: 1.4; }
@@ -3686,6 +3688,20 @@ main { padding-bottom: env(safe-area-inset-bottom, 0px); }
   .ui-textarea { min-height: 44px; font-size: 16px; }
   .shell-dock .ui-dock__item { min-height: 56px; }
   .areas-sheet__grid .ui-dock__item { min-height: 72px; }
+  /* The rest of the kit's controls, which a sweep of every page at 375 px found at 15-34 px: a tab,
+     a segment, a switch, Show on a password, Copy on a block of text, a disclosure's summary. */
+  .ui-tabs__tab,
+  .ui-segmented__option,
+  .ui-switch__control { min-height: 44px; }
+  .ui-code__copy { min-width: 44px; min-height: 44px; }
+  details > summary { padding-block: 15px; }
+  /* Home's Launcher draws its buttons and its search as pills of its own, at 32 and 36 px. */
+  .lx .ui-button,
+  .app-shell[data-view="home"] .command-trigger { min-height: 44px; }
+  /* Text that is a button in a row (a need's title on Home and Ops, a name in Ops' tables): the
+     target grows around the words by its padding, and the row keeps its height by the margin. */
+  .need__title,
+  .ops-link { padding-block: 14px; margin-block: -14px; }
 }
 @media (pointer: coarse) and (max-width: 620px) {
   :root[data-shell="console"] .command-trigger { flex: 0 0 44px; width: 44px; min-width: 44px; }

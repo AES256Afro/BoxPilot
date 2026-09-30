@@ -5,7 +5,8 @@ export function useDialogFocus(ref: RefObject<HTMLElement | null>, enabled = tru
   useEffect(() => {
     const dialog = ref.current;
     if (!enabled || !dialog) return;
-    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    // The page's body is no opener: it is what focus falls to once the button that opened this is gone.
+    const opener = document.activeElement instanceof HTMLElement && document.activeElement !== document.body ? document.activeElement : null;
     dialog.focus();
     const focusable = () => Array.from(dialog.querySelectorAll<HTMLElement>('button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])')).filter((element) => {
       if (element.tabIndex < 0 || element.closest("[hidden], [inert]")) return false;
@@ -32,7 +33,12 @@ export function useDialogFocus(ref: RefObject<HTMLElement | null>, enabled = tru
     return () => {
       document.removeEventListener("keydown", onKey);
       document.removeEventListener("focusin", onFocus);
-      if (opener?.isConnected) opener.focus();
+      if (opener?.isConnected) { opener.focus(); return; }
+      // What opened it is gone (a tab changed under it, a page opened at an app's sheet, a row that
+      // was acted on): focus fell to the document, and the next Tab started at the top of the page.
+      // The page's own content is the nearest sensible place, unless another dialog has taken over.
+      if (document.querySelector('[aria-modal="true"]')) return;
+      (document.getElementById("content") ?? document.querySelector<HTMLElement>("main"))?.focus({ preventScroll: true });
     };
   }, [ref, enabled]);
 }

@@ -2,12 +2,12 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AgentSummary, Run } from "./api";
 
-const mocked = vi.hoisted(() => ({ runs: [] as unknown[], followed: [] as string[] }));
+const mocked = vi.hoisted(() => ({ runs: [] as unknown[], followed: [] as string[], runsFor: null as null | ((id: string) => Promise<{ runs: unknown[] }>) }));
 vi.mock("./api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./api")>();
   return {
     ...actual,
-    agentsApi: { ...actual.agentsApi, runs: vi.fn(async () => ({ runs: mocked.runs })) },
+    agentsApi: { ...actual.agentsApi, runs: vi.fn(async (id: string) => (mocked.runsFor ? mocked.runsFor(id) : { runs: mocked.runs })) },
     followRun: vi.fn((id: string, onEvent: (event: { event: "snapshot"; data: unknown }) => void) => {
       mocked.followed.push(id);
       const run = mocked.runs.find((entry) => (entry as Run).id === id);
@@ -19,7 +19,7 @@ vi.mock("./api", async (importOriginal) => {
 
 import { Console } from "./Console";
 
-afterEach(() => { cleanup(); mocked.runs = []; mocked.followed = []; vi.restoreAllMocks(); });
+afterEach(() => { cleanup(); mocked.runs = []; mocked.followed = []; mocked.runsFor = null; vi.restoreAllMocks(); });
 
 const now = Date.parse("2026-09-29T16:00:00Z");
 const ago = (minutes: number) => new Date(now - minutes * 60_000).toISOString();
@@ -58,5 +58,50 @@ describe("earlier runs", () => {
     view.rerender(<Console {...props} now={now + 2000} onRunFinished={() => undefined} />);
     expect(mocked.followed.length).toBe(follows);
     expect(within(table).getByRole("button", { name: "Showing this run above" }).closest("tr")?.textContent).toContain("What runs on this server?");
+  });
+});
+
+describe("one request, several runs", () => {
+  it("keeps a delegate's run open, though it is another agent's, when nothing was chosen for the page", async () => {
+    // The Test tab opens with no run chosen, so the console follows the agent's latest. It followed
+    // it again whenever the run on show was another agent's: opening the delegate's run from the
+    // request's tree snapped straight back to the supervisor's.
+    const helperId = "22222222-2222-4222-8222-222222222222";
+    const supervisor = { ...run("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "Why is the backup late?", 1) } as Run;
+    const delegated = { ...run("cccccccc-cccc-4ccc-8ccc-cccccccccccc", "Read the backup job's log", 1), agentId: helperId, agentName: "Log Reader", answer: "The log says the disk was full." } as Run;
+    const tree = [
+      { id: supervisor.id, parentRunId: null, depth: 0, agentId, agentName: "Steve", kind: "ask", state: "completed", question: supervisor.question, finishedAt: supervisor.finishedAt },
+      { id: delegated.id, parentRunId: supervisor.id, depth: 1, agentId: helperId, agentName: "Log Reader", kind: "ask", state: "completed", question: delegated.question, finishedAt: delegated.finishedAt },
+    ] as Run["tree"];
+    mocked.runs = [{ ...supervisor, tree }, { ...delegated, tree }];
+    const props = { agents: [agent], agentId, runId: null, csrfToken: "csrf", role: "owner", now, enabled: true, onSelectAgent: () => undefined, onStage: () => undefined, onRunFinished: () => undefined };
+    render(<Console {...props} />);
+    const requestRuns = await screen.findByRole("navigation", { name: "This request's runs" });
+    expect(mocked.followed).toEqual([supervisor.id]);
+
+    fireEvent.click(within(requestRuns).getByRole("button", { name: "Log Reader" }));
+    await waitFor(() => expect(screen.getAllByText("The log says the disk was full.").length).toBeGreaterThan(0));
+    expect(mocked.followed).toEqual([supervisor.id, delegated.id]);
+  });
+
+  it("opens the latest run of the agent chosen now, not of the one chosen before whose list arrived late", async () => {
+    const otherId = "33333333-3333-4333-8333-333333333333";
+    const other = { id: otherId, name: "Pi-hole Watcher", purpose: "Watches Pi-hole.", canAsk: true, canEdit: true } as unknown as AgentSummary;
+    const steveLatest = run("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "Most important issue right now?", 1);
+    const watcherLatest = { ...run("dddddddd-dddd-4ddd-8ddd-dddddddddddd", "Is Pi-hole blocking?", 2), agentId: otherId, agentName: "Pi-hole Watcher" } as Run;
+    mocked.runs = [steveLatest, watcherLatest];
+    let answerSteve: (value: { runs: unknown[] }) => void = () => undefined;
+    mocked.runsFor = (id) => (id === agentId ? new Promise((resolve) => { answerSteve = resolve; }) : Promise.resolve({ runs: [watcherLatest] }));
+    const props = { agents: [agent, other], runId: null, csrfToken: "csrf", role: "owner", now, enabled: true, onSelectAgent: () => undefined, onStage: () => undefined, onRunFinished: () => undefined };
+    const view = render(<Console {...props} agentId={agentId} />);
+    // Chosen again before Steve's list came back; then Steve's arrives, late.
+    view.rerender(<Console {...props} agentId={otherId} />);
+    await screen.findByRole("table", { name: "Runs of Pi-hole Watcher" });
+    await waitFor(() => expect(mocked.followed).toEqual([watcherLatest.id]));
+    answerSteve({ runs: [steveLatest] });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const table = screen.getByRole("table", { name: "Runs of Pi-hole Watcher" });
+    expect(within(table).getAllByRole("row").map((row) => row.textContent).join(" ")).not.toContain("Most important issue");
+    expect(mocked.followed).toEqual([watcherLatest.id]);
   });
 });

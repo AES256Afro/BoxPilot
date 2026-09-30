@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { relativeTime } from "../../home/format";
 import { Button, EmptyState, Field, KeyValue, Notice, Panel, Select, Sheet, StatusChip, Table, Tag, TextInput, Textarea, type TableColumn } from "../../ui";
 import { agentsApi, type AgentSummary, type Memory as MemoryState, type MemoryNote } from "./api";
@@ -30,10 +30,15 @@ export function Memory({ agents, agentId, csrfToken, role, now, onSelectAgent }:
   const [draft, setDraft] = useState({ title: "", body: "", freshDays: "" });
   const currentId = agent?.id ?? null;
 
+  // The agent on show: what arrives for the one chosen before is not drawn under this one's name.
+  const shown = useRef(currentId);
   const read = useCallback(async (id: string) => {
-    try { setState(await agentsApi.memory(id)); setError(null); } catch (requestError) { setError(errorText(requestError, "What it remembers could not be read")); }
+    try {
+      const next = await agentsApi.memory(id);
+      if (shown.current === id) { setState(next); setError(null); }
+    } catch (requestError) { if (shown.current === id) setError(errorText(requestError, "What it remembers could not be read")); }
   }, []);
-  useEffect(() => { setState(null); if (currentId) void read(currentId); }, [currentId, read]);
+  useEffect(() => { shown.current = currentId; setState(null); if (currentId) void read(currentId); }, [currentId, read]);
 
   if (!agent) return <Panel title="Memory" padded><EmptyState title="No agent to look at">Memory is for the agents you may change.</EmptyState></Panel>;
   if (!state) {

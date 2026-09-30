@@ -1,5 +1,5 @@
 import { useId } from "react";
-import { Button, Checkbox, Sheet, Tag, riskOf } from "../../ui";
+import { Button, Checkbox, Notice, Sheet, Tag, riskOf } from "../../ui";
 import { handleRadioKeys } from "../../ui/radio";
 import { spec, type CurrentProfile, type Profile, type ProtectedRule, type Service } from "./types";
 
@@ -21,10 +21,12 @@ export interface FirewallProfileSheetProps {
   /** Builds the plan and hands it to the approval dialog. */
   onReview: () => void;
   planning: boolean;
+  /** Why the plan could not be built, said here: the page under the sheet is covered by it. */
+  error?: string | null;
   onClose: () => void;
 }
 
-export function FirewallProfileSheet({ profiles, services, protectedRules, current, choice, onChange, onReview, planning, onClose }: FirewallProfileSheetProps) {
+export function FirewallProfileSheet({ profiles, services, protectedRules, current, choice, onChange, onReview, planning, error = null, onClose }: FirewallProfileSheetProps) {
   const baseId = useId();
   const selected = profiles.find((profile) => profile.id === choice.profileId) ?? null;
   const locked = Boolean(selected?.lockServices);
@@ -39,6 +41,7 @@ export function FirewallProfileSheet({ profiles, services, protectedRules, curre
       size="lg"
       onClose={onClose}
       footer={<>
+        {error && <Notice tone="danger" live className="firewall-sheet__error" title="The plan could not be built">{error}</Notice>}
         <Button variant="ghost" onClick={onClose}>Cancel</Button>
         <Button variant="primary" risk={riskOf("firewall.profile.apply")} disabled={!selected} busy={planning} onClick={onReview}>Review and apply</Button>
       </>}
