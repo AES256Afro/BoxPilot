@@ -83,7 +83,14 @@ function sameSchedule(existing, wanted) {
 }
 
 /** Resolve every profile step against live state: done, runnable, or blocked — and the exact job to stage. */
-export function createSetupService({ helper, scheduler }) {
+const tierRank = { low: 0, medium: 1, high: 2 };
+
+/**
+ * `installRisk` answers the tier installing an app is staged at from its manifest (the catalog's
+ * installRiskLookup): Setup tags each app step with it, so a profile that installs a DNS server the
+ * house leans on says high before the run, as its approval will, rather than app.install's medium.
+ */
+export function createSetupService({ helper, scheduler, installRisk = null }) {
   async function liveState() {
     const read = (operation, parameters = {}) => helper.request(operation, parameters, { timeoutMs: 30_000 }).catch(() => null);
     const [apps, docker, restic, smartmontools, virtualization, unattendedState, foundationState] = await Promise.all([
@@ -154,8 +161,13 @@ export function createSetupService({ helper, scheduler }) {
     // used to invite the owner of a dozen running apps to "set up this server".
     const appsKnown = Array.isArray(state.apps?.applications);
     const installedApps = appsKnown ? state.apps.applications.filter((entry) => entry.installed).length : 0;
+    const risks = new Map();
+    if (installRisk) {
+      const ids = [...new Set(setupProfiles.flatMap((profile) => profile.steps.filter((step) => step.kind === "app").map((step) => step.appId)))];
+      await Promise.all(ids.map(async (id) => { const risk = await Promise.resolve(installRisk({ id })).catch(() => null); if (risk && tierRank[risk] > tierRank.medium) risks.set(id, risk); }));
+    }
     const profiles = setupProfiles.map((profile) => {
-      const steps = profile.steps.map((step) => resolveStep(step, state));
+      const steps = profile.steps.map((step) => resolveStep(step, state)).map((step) => (step.job?.operationId === "app.install" && risks.has(step.appId) ? { ...step, risk: risks.get(step.appId) } : step));
       return { id: profile.id, name: profile.name, icon: profile.icon, description: profile.description, steps, remaining: steps.filter((step) => step.status === "ready").length, blocked: steps.filter((step) => step.status === "blocked").length };
     });
     return { firstRun: appsKnown && installedApps === 0 && state.schedules.length === 0, installedApps, appsKnown, profiles };
