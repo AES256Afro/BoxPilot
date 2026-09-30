@@ -6,446 +6,458 @@
  * :root[data-look="swiss"].
  */
 
-:root[data-look="swiss"] {
-  color-scheme: light;
-  --swiss-chrome: 78px;
+/* Every rule of the skin sits in @media (min-width: 0), which a browser matches at every width.
+   jsdom, which the tests draw pages in, evaluates only a bare `all` or `screen` and so skips the
+   block, rather than matching several hundred selectors per element that apply only once this
+   look is chosen (a test that renders the whole shell slowed past its timeouts without it). */
+@media (min-width: 0) {
+  :root[data-look="swiss"] {
+    color-scheme: light;
+    --swiss-chrome: 78px;
 
-  --font-condensed: "Archivo", "Helvetica Neue", Arial, sans-serif;
-  --font-sans: "Archivo", "Helvetica Neue", Arial, sans-serif;
-  --font-mono: "Archivo", "Helvetica Neue", Arial, sans-serif;
-  --font-display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+    --font-condensed: "Archivo", "Helvetica Neue", Arial, sans-serif;
+    --font-sans: "Archivo", "Helvetica Neue", Arial, sans-serif;
+    --font-mono: "Archivo", "Helvetica Neue", Arial, sans-serif;
+    --font-display: "Archivo", "Helvetica Neue", Arial, sans-serif;
 
-  --cc-canvas: #ffffff;
-  --cc-topbar: #ffffff;
-  --cc-rail: #ffffff;
-  --cc-panel: #ffffff;
-  --cc-raised: #f0f0f0;
-  --cc-inset: #ffffff;
-  --cc-line: #cfcfcf;
-  --cc-hairline: #dcdcdc;
-  --cc-line-strong: #111111;
-  --cc-text: #111111;
-  --cc-text-strong: #111111;
-  --cc-muted: #5f5f5f;
-  --cc-icon: #5f5f5f;
-  /* The console's accent is the ink: black buttons, black selection, a black focus ring. */
-  --cc-amber: #111111;
-  --cc-amber-ink: #ffffff;
-  --cc-amber-bg: rgba(17, 17, 17, 0.06);
-  --cc-amber-border: #111111;
-  --cc-cyan: #111111;
-  --cc-cyan-fill: rgba(17, 17, 17, 0.08);
-  --cc-green: #111111;
-  --cc-green-bg: transparent;
-  --cc-green-border: #111111;
-  --cc-red: #e3061b;
-  --cc-red-text: #d10016;
-  --cc-red-bg: transparent;
-  --cc-red-border: #e3061b;
-  --cc-track: #e4e4e4;
+    --cc-canvas: #ffffff;
+    --cc-topbar: #ffffff;
+    --cc-rail: #ffffff;
+    --cc-panel: #ffffff;
+    --cc-raised: #f0f0f0;
+    --cc-inset: #ffffff;
+    --cc-line: #cfcfcf;
+    --cc-hairline: #dcdcdc;
+    --cc-line-strong: #111111;
+    --cc-text: #111111;
+    --cc-text-strong: #111111;
+    --cc-muted: #5f5f5f;
+    --cc-icon: #5f5f5f;
+    /* The console's accent is the ink: black buttons, black selection, a black focus ring. */
+    --cc-amber: #111111;
+    --cc-amber-ink: #ffffff;
+    --cc-amber-bg: rgba(17, 17, 17, 0.06);
+    --cc-amber-border: #111111;
+    --cc-cyan: #111111;
+    --cc-cyan-fill: rgba(17, 17, 17, 0.08);
+    --cc-green: #111111;
+    --cc-green-bg: transparent;
+    --cc-green-border: #111111;
+    --cc-red: #e3061b;
+    --cc-red-text: #d10016;
+    --cc-red-bg: transparent;
+    --cc-red-border: #e3061b;
+    --cc-track: #e4e4e4;
 
-  --radius-sm: 0;
-  --radius-md: 0;
-  --radius-lg: 0;
-  --radius-card: 0;
-  --radius-control: 0;
-  --radius-pill: 0;
-  --elevation-1: none;
-  --elevation-2: none;
-  --elevation-3: none;
-  --shadow-lg: none;
-  --shadow-xl: none;
-  --modal-bg: rgba(255, 255, 255, 0.86);
-  --backdrop-bg: rgba(255, 255, 255, 0.7);
-  --text-on-emphasis: #ffffff;
-  --lx-avatar: #111111;
-  --lx-avatar-ink: #ffffff;
-  --lx-focus: #111111;
-}
-
-/* What needs a look is red; what is fine is black; the rest grey. Set again on Home's shell and on
-   what opens over a page (.look-console), which point these names elsewhere. */
-:root[data-look="swiss"],
-:root[data-look="swiss"] .app-shell[data-view="home"],
-:root[data-look="swiss"] .look-console {
-  --status-good: #111111;
-  --status-good-text: #111111;
-  --status-good-bg: transparent;
-  --status-good-border: #111111;
-  --status-warning: #e3061b;
-  --status-warning-text: #d10016;
-  --status-warning-bg: transparent;
-  --status-warning-border: #e3061b;
-  --status-danger: #e3061b;
-  --status-danger-text: #d10016;
-  --status-danger-bg: transparent;
-  --status-danger-border: #e3061b;
-  --status-neutral: #5f5f5f;
-  --status-neutral-text: #5f5f5f;
-  --status-neutral-bg: transparent;
-  --status-neutral-border: #5f5f5f;
-  --status-unknown: #5f5f5f;
-  --status-unknown-text: #5f5f5f;
-  --status-unknown-border: #5f5f5f;
-  --risk-low: #5f5f5f;
-  --risk-low-text: #5f5f5f;
-  --risk-low-bg: transparent;
-  --risk-low-border: #5f5f5f;
-  --risk-medium: #e3061b;
-  --risk-medium-text: #d10016;
-  --risk-medium-bg: transparent;
-  --risk-medium-border: #e3061b;
-  --risk-high: #e3061b;
-  --risk-high-text: #d10016;
-  --risk-high-bg: transparent;
-  --risk-high-border: #e3061b;
-  --warn: #e3061b;
-  --warn-text: #d10016;
-  --danger: #e3061b;
-  --danger-text: #d10016;
-  --success: #111111;
-}
-
-/* Home in this look is drawn inside the console shell, but the Launcher's rules still point the
-   page's tokens at its glass on .app-shell[data-view="home"]; they are pointed back here. */
-:root[data-look="swiss"] .app-shell[data-view="home"] {
-  --text: inherit;
-  --text-strong: inherit;
-  --text-muted: inherit;
-  --text-secondary: inherit;
-  --accent: inherit;
-  --accent-faint: inherit;
-  --link: inherit;
-  --border: inherit;
-  --border-subtle: inherit;
-  --border-strong: inherit;
-  --meter-track: inherit;
-  color: inherit;
-}
-
-/* ── Every page: white paper, ink, no rounded corners anywhere ── */
-:root[data-look="swiss"] body { background: #ffffff; }
-:root[data-look="swiss"] .app-shell { color: #111111; background: #ffffff; }
-:root[data-look="swiss"] *,
-:root[data-look="swiss"] *::before,
-:root[data-look="swiss"] *::after { border-radius: 0 !important; }
-:root[data-look="swiss"] ::selection { color: #ffffff; background: #e3061b; }
-:root[data-look="swiss"] :is(button, a, input, select, textarea, summary, [tabindex]):focus-visible { outline: 2px solid #111111; outline-offset: 2px; }
-:root[data-look="swiss"] :is(code, kbd, samp, pre, .ui-code__text, .ui-input--mono, .ops-mono, .ops-link--mono) { font-family: "JetBrains Mono", ui-monospace, monospace; }
-:root[data-look="swiss"] :is(.ui-table td, .ui-metric__value, .ui-kv__value, .ui-facts) { font-variant-numeric: tabular-nums; }
-
-/* ── The bar: the drawing's top line, small bold words above a thick black rule ── */
-:root[data-look="swiss"] .topbar {
-  position: sticky;
-  top: 0;
-  align-items: flex-end;
-  gap: 0 31px;
-  height: 50px;
-  min-height: 50px;
-  padding: 0 39px 9px;
-  border-bottom: 0;
-  color: #111111;
-  background: #ffffff;
-  backdrop-filter: none;
-  font-size: 15.5px;
-  font-weight: 700;
-}
-:root[data-look="swiss"] .topbar::after { position: absolute; right: 39px; bottom: 0; left: 39px; height: 3.5px; background: #111111; content: ""; }
-:root[data-look="swiss"] :is(.topbar-left, .topbar-slot) { display: contents; }
-:root[data-look="swiss"] .topbar-slot:empty { display: none; }
-:root[data-look="swiss"] .brand { display: flex; order: -2; font-family: "Archivo", sans-serif; font-size: 15.5px; font-weight: 700; letter-spacing: 0; }
-:root[data-look="swiss"] .brand > span,
-:root[data-look="swiss"] .brand small { display: none; }
-:root[data-look="swiss"] .brand div { display: block; color: #111111; font-size: inherit; }
-:root[data-look="swiss"] .cc-crumb { gap: 31px; font-size: 15.5px; }
-:root[data-look="swiss"] .cc-crumb h1 { order: -1; color: #111111; font-size: 15.5px; font-weight: 700; text-transform: none; }
-:root[data-look="swiss"] .cc-crumb__host { color: #111111; font-size: 15.5px; font-weight: 700; }
-:root[data-look="swiss"] .cc-crumb__sep { display: none; }
-:root[data-look="swiss"] .cc-kv { margin-left: 0; color: #111111; font-family: "Archivo", sans-serif; font-size: 15.5px; font-weight: 700; }
-:root[data-look="swiss"] .cc-kv b { color: #111111; font-weight: 700; }
-
-/* The controls as words in the same line. */
-:root[data-look="swiss"] .command-trigger {
-  flex: 0 1 12rem;
-  min-height: 0;
-  margin-left: auto;
-  padding: 0 0 1px;
-  border: 0;
-  border-bottom: 2px solid #111111;
-  color: #111111;
-  background: none;
-  font-size: 15px;
-  font-weight: 700;
-}
-:root[data-look="swiss"] .command-trigger__label { color: #5f5f5f; font-weight: 400; }
-:root[data-look="swiss"] .command-trigger__keys { padding: 0; border: 0; color: #111111; background: none; font: 700 12px/1.2 "Archivo", sans-serif; }
-:root[data-look="swiss"] .command-trigger:hover .command-trigger__label { color: #111111; }
-:root[data-look="swiss"] .topbar-right { gap: 20px; margin-left: 0; }
-:root[data-look="swiss"] .ui-theme-switch { display: none; }
-:root[data-look="swiss"] .connection-pill { padding: 0; border: 0; color: #5f5f5f; background: none; font: 400 13px "Archivo", sans-serif; }
-:root[data-look="swiss"] .connection-pill::before { display: none; }
-:root[data-look="swiss"] .bar-button { min-height: 0; padding: 0; color: #111111; font-family: "Archivo", sans-serif; font-size: 15px; font-weight: 700; }
-:root[data-look="swiss"] .bar-button:hover { text-decoration: underline; text-decoration-thickness: 2px; }
-:root[data-look="swiss"] .bar-button[data-live] { color: #111111; }
-:root[data-look="swiss"] .bar-badge { min-width: 0; height: auto; padding: 0; color: #e3061b; background: none; font-family: "Archivo", sans-serif; font-size: 15px; font-weight: 700; }
-:root[data-look="swiss"] .bar-label { padding: 0; border: 0; color: #5f5f5f; font-family: "Archivo", sans-serif; font-size: 13px; }
-:root[data-look="swiss"] .bar-lock { color: #e3061b; }
-:root[data-look="swiss"] .signed-in-user { color: #111111; font-family: "Archivo", sans-serif; font-size: 15px; font-weight: 700; }
-:root[data-look="swiss"] .signed-in-user__avatar { display: none; }
-
-/* ── The areas: a line of words under the rule, Home and Ops first ── */
-@media (min-width: 761px) {
-  :root[data-look="swiss"] .view-switch {
-    position: absolute;
-    z-index: 2;
-    top: 50px;
-    left: 39px;
-    display: flex;
-    gap: 18px;
-    height: 28px;
-    align-items: center;
-    padding: 0;
-    border: 0;
-    background: none;
+    --radius-sm: 0;
+    --radius-md: 0;
+    --radius-lg: 0;
+    --radius-card: 0;
+    --radius-control: 0;
+    --radius-pill: 0;
+    --elevation-1: none;
+    --elevation-2: none;
+    --elevation-3: none;
+    --shadow-lg: none;
+    --shadow-xl: none;
+    --modal-bg: rgba(255, 255, 255, 0.86);
+    --backdrop-bg: rgba(255, 255, 255, 0.7);
+    --text-on-emphasis: #ffffff;
+    --lx-avatar: #111111;
+    --lx-avatar-ink: #ffffff;
+    --lx-focus: #111111;
   }
-  :root[data-look="swiss"] .view-switch__option {
-    min-height: 0;
-    padding: 0;
-    border: 0;
-    color: #5f5f5f;
-    background: none;
-    font: 700 13.5px/1 "Archivo", sans-serif;
-    box-shadow: none;
-  }
-  :root[data-look="swiss"] .view-switch__option svg { display: none; }
-  :root[data-look="swiss"] .view-switch__option:hover { color: #111111; }
-  :root[data-look="swiss"] .view-switch__option[aria-current="page"] { background: none; color: #111111; text-decoration: underline; text-decoration-thickness: 3px; text-underline-offset: 6px; }
 
-  :root[data-look="swiss"] .shell-dock.shell-dock--top {
+  /* What needs a look is red; what is fine is black; the rest grey. Set again on Home's shell and on
+     what opens over a page (.look-console), which point these names elsewhere. */
+  :root[data-look="swiss"],
+  :root[data-look="swiss"] .app-shell[data-view="home"],
+  :root[data-look="swiss"] .look-console {
+    --status-good: #111111;
+    --status-good-text: #111111;
+    --status-good-bg: transparent;
+    --status-good-border: #111111;
+    --status-warning: #e3061b;
+    --status-warning-text: #d10016;
+    --status-warning-bg: transparent;
+    --status-warning-border: #e3061b;
+    --status-danger: #e3061b;
+    --status-danger-text: #d10016;
+    --status-danger-bg: transparent;
+    --status-danger-border: #e3061b;
+    --status-neutral: #5f5f5f;
+    --status-neutral-text: #5f5f5f;
+    --status-neutral-bg: transparent;
+    --status-neutral-border: #5f5f5f;
+    --status-unknown: #5f5f5f;
+    --status-unknown-text: #5f5f5f;
+    --status-unknown-border: #5f5f5f;
+    --risk-low: #5f5f5f;
+    --risk-low-text: #5f5f5f;
+    --risk-low-bg: transparent;
+    --risk-low-border: #5f5f5f;
+    --risk-medium: #e3061b;
+    --risk-medium-text: #d10016;
+    --risk-medium-bg: transparent;
+    --risk-medium-border: #e3061b;
+    --risk-high: #e3061b;
+    --risk-high-text: #d10016;
+    --risk-high-bg: transparent;
+    --risk-high-border: #e3061b;
+    --warn: #e3061b;
+    --warn-text: #d10016;
+    --danger: #e3061b;
+    --danger-text: #d10016;
+    --success: #111111;
+  }
+
+  /* Home in this look is drawn inside the console shell, but the Launcher's rules still point the
+     page's tokens at its glass on .app-shell[data-view="home"]; they are pointed back here. */
+  :root[data-look="swiss"] .app-shell[data-view="home"] {
+    --text: inherit;
+    --text-strong: inherit;
+    --text-muted: inherit;
+    --text-secondary: inherit;
+    --accent: inherit;
+    --accent-faint: inherit;
+    --link: inherit;
+    --border: inherit;
+    --border-subtle: inherit;
+    --border-strong: inherit;
+    --meter-track: inherit;
+    color: inherit;
+  }
+
+  /* ── Every page: white paper, ink, no rounded corners anywhere ── */
+  :root[data-look="swiss"] body { background: #ffffff; }
+  :root[data-look="swiss"] .app-shell { color: #111111; background: #ffffff; }
+  :root[data-look="swiss"] *,
+  :root[data-look="swiss"] *::before,
+  :root[data-look="swiss"] *::after { border-radius: 0 !important; }
+  :root[data-look="swiss"] ::selection { color: #ffffff; background: #e3061b; }
+  :root[data-look="swiss"] :is(button, a, input, select, textarea, summary, [tabindex]):focus-visible { outline: 2px solid #111111; outline-offset: 2px; }
+  :root[data-look="swiss"] :is(code, kbd, samp, pre, .ui-code__text, .ui-input--mono, .ops-mono, .ops-link--mono) { font-family: "JetBrains Mono", ui-monospace, monospace; }
+  :root[data-look="swiss"] :is(.ui-table td, .ui-metric__value, .ui-kv__value, .ui-facts) { font-variant-numeric: tabular-nums; }
+
+  /* ── The bar: the drawing's top line, small bold words above a thick black rule ── */
+  :root[data-look="swiss"] .topbar {
     position: sticky;
-    z-index: 9;
-    top: 50px;
-    right: auto;
-    bottom: auto;
-    left: auto;
-    display: block;
-    height: 28px;
-    padding: 0 39px 0 calc(39px + 106px);
+    top: 0;
+    align-items: flex-end;
+    gap: 0 31px;
+    height: 50px;
+    min-height: 50px;
+    padding: 0 39px 9px;
+    border-bottom: 0;
+    color: #111111;
     background: #ffffff;
-    pointer-events: auto;
-  }
-  :root[data-look="swiss"] .ui-dock.shell-dock--top ul {
-    display: flex;
-    flex-wrap: nowrap;
-    align-items: center;
-    gap: 0 16px;
-    height: 28px;
-    padding: 0;
-    overflow: hidden;
-    border: 0;
-    background: none;
-    box-shadow: none;
     backdrop-filter: none;
+    font-size: 15.5px;
+    font-weight: 700;
   }
-  :root[data-look="swiss"] .shell-dock--top .ui-dock__separator { width: 2px; height: 14px; margin: 0 2px; align-self: center; background: #111111; }
-  :root[data-look="swiss"] .shell-dock--top .ui-dock__item { display: flex; align-items: baseline; gap: 3px; width: auto; padding: 4px 0; }
-  :root[data-look="swiss"] .shell-dock--top .ui-dock__icon { display: contents; }
-  :root[data-look="swiss"] .shell-dock--top .ui-dock__icon svg { display: none; }
-  :root[data-look="swiss"] .shell-dock--top .ui-dock__label { order: -1; max-width: none; overflow: visible; color: #5f5f5f; font: 700 13.5px/1 "Archivo", sans-serif; }
-  :root[data-look="swiss"] .shell-dock--top .ui-dock__badge { position: static; min-width: 0; height: auto; padding: 0; color: #e3061b; background: none; box-shadow: none; font: 700 11px/1 "Archivo", sans-serif; }
-  :root[data-look="swiss"] .shell-dock--top .ui-dock__item:hover .ui-dock__label { color: #111111; }
-  :root[data-look="swiss"] .shell-dock--top .ui-dock__item[aria-current="page"] .ui-dock__label { color: #111111; text-decoration: underline; text-decoration-thickness: 3px; text-underline-offset: 6px; }
-  :root[data-look="swiss"] .shell-dock--top .ui-dock__item:focus-visible { outline-offset: 3px; }
-}
+  :root[data-look="swiss"] .topbar::after { position: absolute; right: 39px; bottom: 0; left: 39px; height: 3.5px; background: #111111; content: ""; }
+  :root[data-look="swiss"] :is(.topbar-left, .topbar-slot) { display: contents; }
+  :root[data-look="swiss"] .topbar-slot:empty { display: none; }
+  :root[data-look="swiss"] .brand { display: flex; order: -2; font-family: "Archivo", sans-serif; font-size: 15.5px; font-weight: 700; letter-spacing: 0; }
+  :root[data-look="swiss"] .brand > span,
+  :root[data-look="swiss"] .brand small { display: none; }
+  :root[data-look="swiss"] .brand div { display: block; color: #111111; font-size: inherit; }
+  :root[data-look="swiss"] .cc-crumb { gap: 31px; font-size: 15.5px; }
+  :root[data-look="swiss"] .cc-crumb h1 { order: -1; color: #111111; font-size: 15.5px; font-weight: 700; text-transform: none; }
+  :root[data-look="swiss"] .cc-crumb__host { color: #111111; font-size: 15.5px; font-weight: 700; }
+  :root[data-look="swiss"] .cc-crumb__sep { display: none; }
+  :root[data-look="swiss"] .cc-kv { margin-left: 0; color: #111111; font-family: "Archivo", sans-serif; font-size: 15.5px; font-weight: 700; }
+  :root[data-look="swiss"] .cc-kv b { color: #111111; font-weight: 700; }
 
-/* ── The page: flush left on the drawing's margins ── */
-:root[data-look="swiss"] .content { max-width: none; padding: 20px 39px calc(var(--shell-bottom-inset, 0px) + 40px); }
-:root[data-look="swiss"] .app-shell[data-view="home"] .content { padding-top: 0; padding-bottom: var(--shell-bottom-inset, 0px); }
-:root[data-look="swiss"] .content--console { gap: 18px; }
+  /* The controls as words in the same line. */
+  :root[data-look="swiss"] .command-trigger {
+    flex: 0 1 12rem;
+    min-height: 0;
+    margin-left: auto;
+    padding: 0 0 1px;
+    border: 0;
+    border-bottom: 2px solid #111111;
+    color: #111111;
+    background: none;
+    font-size: 15px;
+    font-weight: 700;
+  }
+  :root[data-look="swiss"] .command-trigger__label { color: #5f5f5f; font-weight: 400; }
+  :root[data-look="swiss"] .command-trigger__keys { padding: 0; border: 0; color: #111111; background: none; font: 700 12px/1.2 "Archivo", sans-serif; }
+  :root[data-look="swiss"] .command-trigger:hover .command-trigger__label { color: #111111; }
+  :root[data-look="swiss"] .topbar-right { gap: 20px; margin-left: 0; }
+  :root[data-look="swiss"] .ui-theme-switch { display: none; }
+  :root[data-look="swiss"] .connection-pill { padding: 0; border: 0; color: #5f5f5f; background: none; font: 400 13px "Archivo", sans-serif; }
+  :root[data-look="swiss"] .connection-pill::before { display: none; }
+  :root[data-look="swiss"] .bar-button { min-height: 0; padding: 0; color: #111111; font-family: "Archivo", sans-serif; font-size: 15px; font-weight: 700; }
+  :root[data-look="swiss"] .bar-button:hover { text-decoration: underline; text-decoration-thickness: 2px; }
+  :root[data-look="swiss"] .bar-button[data-live] { color: #111111; }
+  :root[data-look="swiss"] .bar-badge { min-width: 0; height: auto; padding: 0; color: #e3061b; background: none; font-family: "Archivo", sans-serif; font-size: 15px; font-weight: 700; }
+  :root[data-look="swiss"] .bar-label { padding: 0; border: 0; color: #5f5f5f; font-family: "Archivo", sans-serif; font-size: 13px; }
+  :root[data-look="swiss"] .bar-lock { color: #e3061b; }
+  :root[data-look="swiss"] .signed-in-user { color: #111111; font-family: "Archivo", sans-serif; font-size: 15px; font-weight: 700; }
+  :root[data-look="swiss"] .signed-in-user__avatar { display: none; }
 
-:root[data-look="swiss"] .ui-page-header { gap: 8px 18px; padding-bottom: 4px; }
-:root[data-look="swiss"] .ui-page-header__summary { color: #111111; font-size: 18px; line-height: 1.35; }
-:root[data-look="swiss"] .ui-page-header__verdict { font-size: 13px; }
-:root[data-look="swiss"] .ui-facts { color: #5f5f5f; font-family: "Archivo", sans-serif; font-size: 13.5px; }
-:root[data-look="swiss"] .ui-facts b { color: #111111; font-weight: 700; }
-:root[data-look="swiss"] .ui-info-toggle { border: 2px solid #111111; color: #111111; }
+  /* ── The areas: a line of words under the rule, Home and Ops first ── */
+  @media (min-width: 761px) {
+    :root[data-look="swiss"] .view-switch {
+      position: absolute;
+      z-index: 2;
+      top: 50px;
+      left: 39px;
+      display: flex;
+      gap: 18px;
+      height: 28px;
+      align-items: center;
+      padding: 0;
+      border: 0;
+      background: none;
+    }
+    :root[data-look="swiss"] .view-switch__option {
+      min-height: 0;
+      padding: 0;
+      border: 0;
+      color: #5f5f5f;
+      background: none;
+      font: 700 13.5px/1 "Archivo", sans-serif;
+      box-shadow: none;
+    }
+    :root[data-look="swiss"] .view-switch__option svg { display: none; }
+    :root[data-look="swiss"] .view-switch__option:hover { color: #111111; }
+    :root[data-look="swiss"] .view-switch__option[aria-current="page"] { background: none; color: #111111; text-decoration: underline; text-decoration-thickness: 3px; text-underline-offset: 6px; }
 
-/* Panels are not boxes: a thick rule, a bold heading, the rows under it. */
-:root[data-look="swiss"] .ui-panel { overflow: visible; border: 0; border-top: 3.5px solid #111111; background: none; }
-:root[data-look="swiss"] .ui-panel__head { min-height: 0; padding: 9px 0 8px; border-bottom: 0; }
-:root[data-look="swiss"] .ui-panel__title { color: #111111; font-family: "Archivo", sans-serif; font-size: 16px; font-weight: 800; letter-spacing: -0.005em; text-transform: none; }
-:root[data-look="swiss"] .ui-panel__count { color: #111111; }
-:root[data-look="swiss"] .ui-panel__count[data-status="warning"],
-:root[data-look="swiss"] .ui-panel__count[data-status="danger"] { color: #e3061b; }
-:root[data-look="swiss"] .ui-panel__meta { color: #5f5f5f; font-family: "Archivo", sans-serif; font-size: 13.5px; }
-:root[data-look="swiss"] .ui-panel__meta b { color: #111111; font-weight: 700; }
-:root[data-look="swiss"] .ui-panel--padded > .ui-panel__body { padding: 4px 0 12px; }
-:root[data-look="swiss"] .ui-panel__foot { padding: 8px 0; border-top: 1px solid #111111; color: #5f5f5f; font-family: "Archivo", sans-serif; font-size: 13px; }
-:root[data-look="swiss"] .cc .ops-quiet,
-:root[data-look="swiss"] .ops-quiet { padding: 10px 0; color: #5f5f5f; }
-:root[data-look="swiss"] .ui-card { border: 0; border-top: 2px solid #111111; background: none; box-shadow: none; }
+    :root[data-look="swiss"] .shell-dock.shell-dock--top {
+      position: sticky;
+      z-index: 9;
+      top: 50px;
+      right: auto;
+      bottom: auto;
+      left: auto;
+      display: block;
+      height: 28px;
+      padding: 0 39px 0 calc(39px + 106px);
+      background: #ffffff;
+      pointer-events: auto;
+    }
+    :root[data-look="swiss"] .ui-dock.shell-dock--top ul {
+      display: flex;
+      flex-wrap: nowrap;
+      align-items: center;
+      gap: 0 16px;
+      height: 28px;
+      padding: 0;
+      overflow: hidden;
+      border: 0;
+      background: none;
+      box-shadow: none;
+      backdrop-filter: none;
+    }
+    :root[data-look="swiss"] .shell-dock--top .ui-dock__separator { width: 2px; height: 14px; margin: 0 2px; align-self: center; background: #111111; }
+    :root[data-look="swiss"] .shell-dock--top .ui-dock__item { display: flex; align-items: baseline; gap: 3px; width: auto; padding: 4px 0; }
+    :root[data-look="swiss"] .shell-dock--top .ui-dock__icon { display: contents; }
+    :root[data-look="swiss"] .shell-dock--top .ui-dock__icon svg { display: none; }
+    :root[data-look="swiss"] .shell-dock--top .ui-dock__label { order: -1; max-width: none; overflow: visible; color: #5f5f5f; font: 700 13.5px/1 "Archivo", sans-serif; }
+    :root[data-look="swiss"] .shell-dock--top .ui-dock__badge { position: static; min-width: 0; height: auto; padding: 0; color: #e3061b; background: none; box-shadow: none; font: 700 11px/1 "Archivo", sans-serif; }
+    :root[data-look="swiss"] .shell-dock--top .ui-dock__item:hover .ui-dock__label { color: #111111; }
+    :root[data-look="swiss"] .shell-dock--top .ui-dock__item[aria-current="page"] .ui-dock__label { color: #111111; text-decoration: underline; text-decoration-thickness: 3px; text-underline-offset: 6px; }
+    :root[data-look="swiss"] .shell-dock--top .ui-dock__item:focus-visible { outline-offset: 3px; }
+  }
 
-/* Figures: big and black on a rule; the label under them. */
-:root[data-look="swiss"] .ui-metric,
-:root[data-look="swiss"] .ui-metric[data-status] { min-height: 0; padding: 7px 0 4px; border: 0; border-top: 2px solid #111111; background: none; box-shadow: none; }
-:root[data-look="swiss"] .ui-metric--link:hover { background: none; }
-:root[data-look="swiss"] .ui-metric--link:hover .ui-metric__label { text-decoration: underline; }
-:root[data-look="swiss"] .ui-metric__value { order: -1; margin-top: 0; color: #111111; font: 900 34px/1 "Archivo", sans-serif; letter-spacing: -0.03em; }
-:root[data-look="swiss"] .ui-metric__value small { color: #111111; font-size: 17px; font-weight: 900; }
-:root[data-look="swiss"] .ui-metric[data-status="warning"] .ui-metric__value,
-:root[data-look="swiss"] .ui-metric[data-status="danger"] .ui-metric__value { color: #e3061b; }
-:root[data-look="swiss"] .ui-metric__label { color: #111111; font-family: "Archivo", sans-serif; font-size: 13.5px; font-weight: 700; letter-spacing: 0; text-transform: none; }
-:root[data-look="swiss"] .ui-metric__caption { color: #5f5f5f; font-size: 13px; }
-:root[data-look="swiss"] .ui-metric__bar { height: 4px; background: #e4e4e4; }
-:root[data-look="swiss"] .ui-metric__bar > i,
-:root[data-look="swiss"] .ui-metric[data-status] .ui-metric__bar > i { background: #111111; }
-:root[data-look="swiss"] .ui-metric:is([data-status="warning"], [data-status="danger"]) .ui-metric__bar > i { background: #e3061b; }
-:root[data-look="swiss"] .ui-spark__line { stroke: #111111; }
-:root[data-look="swiss"] .ui-spark__area { fill: rgba(17, 17, 17, 0.06); }
-:root[data-look="swiss"] .ui-kv--strip { border: 0; border-top: 3.5px solid #111111; background: none; }
-:root[data-look="swiss"] .ui-kv--strip .ui-kv__item { padding: 8px 18px 8px 0; border-right: 0; box-shadow: none; }
-:root[data-look="swiss"] .ui-kv--strip .ui-kv__value { font: 900 20px/1.1 "Archivo", sans-serif; }
-:root[data-look="swiss"] .ui-kv__label,
-:root[data-look="swiss"] .ui-kv--columns .ui-kv__label,
-:root[data-look="swiss"] .ui-kv--strip .ui-kv__label { color: #5f5f5f; font-family: "Archivo", sans-serif; font-size: 12px; font-weight: 700; letter-spacing: 0.04em; }
-:root[data-look="swiss"] .ui-kv--rows .ui-kv__item { border-top-color: #d2d2d2; }
+  /* ── The page: flush left on the drawing's margins ── */
+  :root[data-look="swiss"] .content { max-width: none; padding: 20px 39px calc(var(--shell-bottom-inset, 0px) + 40px); }
+  :root[data-look="swiss"] .app-shell[data-view="home"] .content { padding-top: 0; padding-bottom: var(--shell-bottom-inset, 0px); }
+  :root[data-look="swiss"] .content--console { gap: 18px; }
 
-/* Tables: black headings on a black rule, grey rules between rows, flush left. */
-:root[data-look="swiss"] .ui-table { font-size: 14px; }
-:root[data-look="swiss"] .ui-table th { height: 32px; border-bottom: 2px solid #111111; color: #111111; background: none; font-family: "Archivo", sans-serif; font-size: 11.5px; font-weight: 700; letter-spacing: 0.07em; }
-:root[data-look="swiss"] .ui-table td { height: 34px; border-bottom-color: #d2d2d2; color: #111111; font-family: "Archivo", sans-serif; font-size: 14px; }
-:root[data-look="swiss"] .ui-table :is(th, td):first-child { padding-left: 0; }
-:root[data-look="swiss"] .ui-table :is(th, td):last-child { padding-right: 0; }
-:root[data-look="swiss"] .ui-table tbody tr:hover td { background: #f4f4f4; }
-:root[data-look="swiss"] .ui-table .ops-link { color: #111111; font-weight: 700; }
-:root[data-look="swiss"] .ui-table .ui-chip { font-family: "Archivo", sans-serif; font-size: 13.5px; font-weight: 700; }
-:root[data-look="swiss"] .ui-table__caption { padding: 6px 0; color: #5f5f5f; }
-:root[data-look="swiss"] .ui-table__sort { font: inherit; }
-:root[data-look="swiss"] .ui-table th[aria-sort="ascending"],
-:root[data-look="swiss"] .ui-table th[aria-sort="descending"] { color: #111111; text-decoration: underline; }
-:root[data-look="swiss"] .cc-tag,
-:root[data-look="swiss"] .ui-tag { padding: 0 5px; border: 1px solid #111111; color: #111111; background: none; font-family: "Archivo", sans-serif; font-size: 12px; font-weight: 700; }
-:root[data-look="swiss"] :is(.cc-tag[data-reach="LAN"], .ui-tag--accent, .ui-tag--warning, .ui-tag--danger, .ui-tag[data-reach="lan"], .ui-tag[data-reach="public"]) { border-color: #e3061b; color: #d10016; background: none; }
-:root[data-look="swiss"] :is(.ui-tag--good, .ui-tag--info) { color: #111111; background: none; }
-:root[data-look="swiss"] .ops-bar,
-:root[data-look="swiss"] .cc .ops-bar { background: #e4e4e4; }
-:root[data-look="swiss"] :is(.ops-bar, .cc .ops-bar) > i { background: #111111; }
+  :root[data-look="swiss"] .ui-page-header { gap: 8px 18px; padding-bottom: 4px; }
+  :root[data-look="swiss"] .ui-page-header__summary { color: #111111; font-size: 18px; line-height: 1.35; }
+  :root[data-look="swiss"] .ui-page-header__verdict { font-size: 13px; }
+  :root[data-look="swiss"] .ui-facts { color: #5f5f5f; font-family: "Archivo", sans-serif; font-size: 13.5px; }
+  :root[data-look="swiss"] .ui-facts b { color: #111111; font-weight: 700; }
+  :root[data-look="swiss"] .ui-info-toggle { border: 2px solid #111111; color: #111111; }
 
-/* Words for state: bold, red for what needs a look; the mark keeps its shape. */
-:root[data-look="swiss"] .ui-chip { padding: 0; border: 0; background: none; font-family: "Archivo", sans-serif; font-size: 13.5px; font-weight: 700; }
-:root[data-look="swiss"] .ui-chip--unknown { border: 0; }
-:root[data-look="swiss"] .ui-risk { padding: 0; border: 0; background: none; font-family: "Archivo", sans-serif; font-size: 11.5px; font-weight: 700; letter-spacing: 0.08em; }
+  /* Panels are not boxes: a thick rule, a bold heading, the rows under it. */
+  :root[data-look="swiss"] .ui-panel { overflow: visible; border: 0; border-top: 3.5px solid #111111; background: none; }
+  :root[data-look="swiss"] .ui-panel__head { min-height: 0; padding: 9px 0 8px; border-bottom: 0; }
+  :root[data-look="swiss"] .ui-panel__title { color: #111111; font-family: "Archivo", sans-serif; font-size: 16px; font-weight: 800; letter-spacing: -0.005em; text-transform: none; }
+  :root[data-look="swiss"] .ui-panel__count { color: #111111; }
+  :root[data-look="swiss"] .ui-panel__count[data-status="warning"],
+  :root[data-look="swiss"] .ui-panel__count[data-status="danger"] { color: #e3061b; }
+  :root[data-look="swiss"] .ui-panel__meta { color: #5f5f5f; font-family: "Archivo", sans-serif; font-size: 13.5px; }
+  :root[data-look="swiss"] .ui-panel__meta b { color: #111111; font-weight: 700; }
+  :root[data-look="swiss"] .ui-panel--padded > .ui-panel__body { padding: 4px 0 12px; }
+  :root[data-look="swiss"] .ui-panel__foot { padding: 8px 0; border-top: 1px solid #111111; color: #5f5f5f; font-family: "Archivo", sans-serif; font-size: 13px; }
+  :root[data-look="swiss"] .cc .ops-quiet,
+  :root[data-look="swiss"] .ops-quiet { padding: 10px 0; color: #5f5f5f; }
+  :root[data-look="swiss"] .ui-card { border: 0; border-top: 2px solid #111111; background: none; box-shadow: none; }
 
-/* Buttons: black rectangles; a secondary one outlined in black; a ghost is an underlined word. */
-:root[data-look="swiss"] .ui-button { min-height: 32px; padding: 0 13px; border: 2px solid #111111; color: #111111; background: #ffffff; font-family: "Archivo", sans-serif; font-size: 14px; font-weight: 700; }
-:root[data-look="swiss"] .ui-button:hover:not(:disabled) { border-color: #111111; color: #ffffff; background: #111111; }
-:root[data-look="swiss"] .ui-button--primary { border-color: #111111; color: #ffffff; background: #111111; }
-:root[data-look="swiss"] .ui-button--primary:hover:not(:disabled) { border-color: #e3061b; color: #ffffff; background: #e3061b; }
-:root[data-look="swiss"] .ui-button--ghost { border-color: transparent; color: #111111; background: none; text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 4px; }
-:root[data-look="swiss"] .ui-button--ghost:hover:not(:disabled) { border-color: transparent; color: #111111; background: none; text-decoration-color: #e3061b; }
-:root[data-look="swiss"] :is(.ui-button--risk-medium, .ui-button--risk-high) { padding-left: 19px; }
-:root[data-look="swiss"] :is(.ui-button--risk-medium, .ui-button--risk-high)::before { left: 6px; width: 4px; background: #e3061b; }
-:root[data-look="swiss"] .ui-button--primary:is(.ui-button--risk-medium, .ui-button--risk-high)::before { background: #e3061b; }
-:root[data-look="swiss"] .ui-button:hover:not(:disabled):is(.ui-button--risk-medium, .ui-button--risk-high)::before { background: #ffffff; }
-:root[data-look="swiss"] .ui-button__tier,
-:root[data-look="swiss"] .ui-button .ui-button__tier { padding: 0 4px; border: 1px solid currentColor; color: inherit; background: none; font-size: 11px; }
-:root[data-look="swiss"] .ui-button__lock { color: inherit; }
+  /* Figures: big and black on a rule; the label under them. */
+  :root[data-look="swiss"] .ui-metric,
+  :root[data-look="swiss"] .ui-metric[data-status] { min-height: 0; padding: 7px 0 4px; border: 0; border-top: 2px solid #111111; background: none; box-shadow: none; }
+  :root[data-look="swiss"] .ui-metric--link:hover { background: none; }
+  :root[data-look="swiss"] .ui-metric--link:hover .ui-metric__label { text-decoration: underline; }
+  :root[data-look="swiss"] .ui-metric__value { order: -1; margin-top: 0; color: #111111; font: 900 34px/1 "Archivo", sans-serif; letter-spacing: -0.03em; }
+  :root[data-look="swiss"] .ui-metric__value small { color: #111111; font-size: 17px; font-weight: 900; }
+  :root[data-look="swiss"] .ui-metric[data-status="warning"] .ui-metric__value,
+  :root[data-look="swiss"] .ui-metric[data-status="danger"] .ui-metric__value { color: #e3061b; }
+  :root[data-look="swiss"] .ui-metric__label { color: #111111; font-family: "Archivo", sans-serif; font-size: 13.5px; font-weight: 700; letter-spacing: 0; text-transform: none; }
+  :root[data-look="swiss"] .ui-metric__caption { color: #5f5f5f; font-size: 13px; }
+  :root[data-look="swiss"] .ui-metric__bar { height: 4px; background: #e4e4e4; }
+  :root[data-look="swiss"] .ui-metric__bar > i,
+  :root[data-look="swiss"] .ui-metric[data-status] .ui-metric__bar > i { background: #111111; }
+  :root[data-look="swiss"] .ui-metric:is([data-status="warning"], [data-status="danger"]) .ui-metric__bar > i { background: #e3061b; }
+  :root[data-look="swiss"] .ui-spark__line { stroke: #111111; }
+  :root[data-look="swiss"] .ui-spark__area { fill: rgba(17, 17, 17, 0.06); }
+  :root[data-look="swiss"] .ui-kv--strip { border: 0; border-top: 3.5px solid #111111; background: none; }
+  :root[data-look="swiss"] .ui-kv--strip .ui-kv__item { padding: 8px 18px 8px 0; border-right: 0; box-shadow: none; }
+  :root[data-look="swiss"] .ui-kv--strip .ui-kv__value { font: 900 20px/1.1 "Archivo", sans-serif; }
+  :root[data-look="swiss"] .ui-kv__label,
+  :root[data-look="swiss"] .ui-kv--columns .ui-kv__label,
+  :root[data-look="swiss"] .ui-kv--strip .ui-kv__label { color: #5f5f5f; font-family: "Archivo", sans-serif; font-size: 12px; font-weight: 700; letter-spacing: 0.04em; }
+  :root[data-look="swiss"] .ui-kv--rows .ui-kv__item { border-top-color: #d2d2d2; }
 
-/* Tabs: words, the open one black and underlined, a count in red when it needs a look. */
-:root[data-look="swiss"] .ui-tabs__list { gap: 24px; border-bottom: 0; }
-:root[data-look="swiss"] .ui-tabs__tab { min-height: 38px; padding: 0; border-bottom-width: 4px; color: #5f5f5f; font-family: "Archivo", sans-serif; font-size: 15.5px; font-weight: 700; }
-:root[data-look="swiss"] .ui-tabs__tab:hover { color: #111111; }
-:root[data-look="swiss"] .ui-tabs__tab[aria-selected="true"] { border-bottom-color: #111111; color: #111111; }
-:root[data-look="swiss"] .ui-tabs__count,
-:root[data-look="swiss"] .ui-tabs__tab[aria-selected="true"] .ui-tabs__count { color: #111111; font-family: "Archivo", sans-serif; font-size: 12px; font-weight: 700; }
+  /* Tables: black headings on a black rule, grey rules between rows, flush left. */
+  :root[data-look="swiss"] .ui-table { font-size: 14px; }
+  :root[data-look="swiss"] .ui-table th { height: 32px; border-bottom: 2px solid #111111; color: #111111; background: none; font-family: "Archivo", sans-serif; font-size: 11.5px; font-weight: 700; letter-spacing: 0.07em; }
+  :root[data-look="swiss"] .ui-table td { height: 34px; border-bottom-color: #d2d2d2; color: #111111; font-family: "Archivo", sans-serif; font-size: 14px; }
+  :root[data-look="swiss"] .ui-table :is(th, td):first-child { padding-left: 0; }
+  :root[data-look="swiss"] .ui-table :is(th, td):last-child { padding-right: 0; }
+  :root[data-look="swiss"] .ui-table tbody tr:hover td { background: #f4f4f4; }
+  :root[data-look="swiss"] .ui-table .ops-link { color: #111111; font-weight: 700; }
+  :root[data-look="swiss"] .ui-table .ui-chip { font-family: "Archivo", sans-serif; font-size: 13.5px; font-weight: 700; }
+  :root[data-look="swiss"] .ui-table__caption { padding: 6px 0; color: #5f5f5f; }
+  :root[data-look="swiss"] .ui-table__sort { font: inherit; }
+  :root[data-look="swiss"] .ui-table th[aria-sort="ascending"],
+  :root[data-look="swiss"] .ui-table th[aria-sort="descending"] { color: #111111; text-decoration: underline; }
+  :root[data-look="swiss"] .cc-tag,
+  :root[data-look="swiss"] .ui-tag { padding: 0 5px; border: 1px solid #111111; color: #111111; background: none; font-family: "Archivo", sans-serif; font-size: 12px; font-weight: 700; }
+  :root[data-look="swiss"] :is(.cc-tag[data-reach="LAN"], .ui-tag--accent, .ui-tag--warning, .ui-tag--danger, .ui-tag[data-reach="lan"], .ui-tag[data-reach="public"]) { border-color: #e3061b; color: #d10016; background: none; }
+  :root[data-look="swiss"] :is(.ui-tag--good, .ui-tag--info) { color: #111111; background: none; }
+  :root[data-look="swiss"] .ops-bar,
+  :root[data-look="swiss"] .cc .ops-bar { background: #e4e4e4; }
+  :root[data-look="swiss"] :is(.ops-bar, .cc .ops-bar) > i { background: #111111; }
 
-/* Forms: white fields on a black rule, square. */
-:root[data-look="swiss"] :is(.ui-input, .ui-textarea, .ui-select__control) { border: 0; border-bottom: 2px solid #111111; color: #111111; background: #f6f6f6; font-family: "Archivo", sans-serif; }
-:root[data-look="swiss"] :is(.ui-input, .ui-textarea, .ui-select__control):focus-visible { border-color: #111111; outline: 2px solid #111111; }
-:root[data-look="swiss"] .ui-field__label { color: #111111; font-weight: 700; }
-:root[data-look="swiss"] .ui-secret__toggle { border: 0; border-bottom: 2px solid #111111; color: #111111; background: #ececec; }
-:root[data-look="swiss"] .ui-switch__track { border: 2px solid #111111; background: #ffffff; }
-:root[data-look="swiss"] .ui-switch__thumb { top: 2px; left: 2px; width: 10px; height: 10px; background: #111111; }
-:root[data-look="swiss"] .ui-switch__control[aria-checked="true"] .ui-switch__track { border-color: #111111; background: #111111; }
-:root[data-look="swiss"] .ui-switch__control[aria-checked="true"] .ui-switch__thumb { background: #ffffff; }
-:root[data-look="swiss"] .ui-switch__state { color: #111111; font-family: "Archivo", sans-serif; font-weight: 700; }
-:root[data-look="swiss"] .ui-check__mark { border: 2px solid #111111; background: #ffffff; }
-:root[data-look="swiss"] .ui-segmented { gap: 0; padding: 0; border: 2px solid #111111; background: #ffffff; }
-:root[data-look="swiss"] .ui-segmented__option { min-height: 28px; color: #111111; font-family: "Archivo", sans-serif; font-weight: 700; }
-:root[data-look="swiss"] .ui-segmented__option + .ui-segmented__option { border-left: 2px solid #111111; }
-:root[data-look="swiss"] .ui-segmented__option[aria-checked="true"] { color: #ffffff; background: #111111; box-shadow: none; }
-:root[data-look="swiss"] .ui-search__icon { color: #111111; }
+  /* Words for state: bold, red for what needs a look; the mark keeps its shape. */
+  :root[data-look="swiss"] .ui-chip { padding: 0; border: 0; background: none; font-family: "Archivo", sans-serif; font-size: 13.5px; font-weight: 700; }
+  :root[data-look="swiss"] .ui-chip--unknown { border: 0; }
+  :root[data-look="swiss"] .ui-risk { padding: 0; border: 0; background: none; font-family: "Archivo", sans-serif; font-size: 11.5px; font-weight: 700; letter-spacing: 0.08em; }
 
-/* Notices and needs: a rule over each; the mark and its words carry the state. */
-:root[data-look="swiss"] .ui-notice { padding: 10px 0; border: 0; border-top: 2px solid #111111; background: none; box-shadow: none; }
-:root[data-look="swiss"] :is(.ui-notice--warning, .ui-notice--danger) { border-top-color: #e3061b; }
-:root[data-look="swiss"] .ui-notice__title { font-weight: 700; }
-:root[data-look="swiss"] .need,
-:root[data-look="swiss"] .need[data-severity],
-:root[data-look="swiss"] .need.need--lead { padding: 10px 0; border-top: 1px solid #111111; box-shadow: none; }
-:root[data-look="swiss"] .need:first-child { border-top: 0; }
-:root[data-look="swiss"] .need__title { color: #111111; font-weight: 700; }
-:root[data-look="swiss"] .need__title:hover { color: #111111; }
-:root[data-look="swiss"] .ui-empty__icon { border: 2px solid #111111; color: #111111; }
-:root[data-look="swiss"] .ui-code { border: 0; border-top: 2px solid #111111; background: #f6f6f6; }
-:root[data-look="swiss"] .ui-code__bar { border-bottom: 1px solid #d2d2d2; background: #ffffff; }
-:root[data-look="swiss"] .ui-job { border: 0; border-top: 2px solid #111111; background: none; }
-:root[data-look="swiss"] .ui-progress__track { height: 4px; background: #e4e4e4; }
-:root[data-look="swiss"] .ui-progress__fill { background: #111111; }
+  /* Buttons: black rectangles; a secondary one outlined in black; a ghost is an underlined word. */
+  :root[data-look="swiss"] .ui-button { min-height: 32px; padding: 0 13px; border: 2px solid #111111; color: #111111; background: #ffffff; font-family: "Archivo", sans-serif; font-size: 14px; font-weight: 700; }
+  :root[data-look="swiss"] .ui-button:hover:not(:disabled) { border-color: #111111; color: #ffffff; background: #111111; }
+  :root[data-look="swiss"] .ui-button--primary { border-color: #111111; color: #ffffff; background: #111111; }
+  :root[data-look="swiss"] .ui-button--primary:hover:not(:disabled) { border-color: #e3061b; color: #ffffff; background: #e3061b; }
+  :root[data-look="swiss"] .ui-button--ghost { border-color: transparent; color: #111111; background: none; text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 4px; }
+  :root[data-look="swiss"] .ui-button--ghost:hover:not(:disabled) { border-color: transparent; color: #111111; background: none; text-decoration-color: #e3061b; }
+  :root[data-look="swiss"] :is(.ui-button--risk-medium, .ui-button--risk-high) { padding-left: 19px; }
+  :root[data-look="swiss"] :is(.ui-button--risk-medium, .ui-button--risk-high)::before { left: 6px; width: 4px; background: #e3061b; }
+  :root[data-look="swiss"] .ui-button--primary:is(.ui-button--risk-medium, .ui-button--risk-high)::before { background: #e3061b; }
+  :root[data-look="swiss"] .ui-button:hover:not(:disabled):is(.ui-button--risk-medium, .ui-button--risk-high)::before { background: #ffffff; }
+  :root[data-look="swiss"] .ui-button__tier,
+  :root[data-look="swiss"] .ui-button .ui-button__tier { padding: 0 4px; border: 1px solid currentColor; color: inherit; background: none; font-size: 11px; }
+  :root[data-look="swiss"] .ui-button__lock { color: inherit; }
 
-/* Apps as black squares: the palette has no other colours. */
-:root[data-look="swiss"] :is(.ui-app-icon, .ui-tile__icon) { border: 0; background: #111111; box-shadow: none; }
-:root[data-look="swiss"] .ui-tile:hover { border-color: transparent; background: #f4f4f4; }
-:root[data-look="swiss"] .ui-tile__name { color: #111111; font-weight: 700; }
-:root[data-look="swiss"] .ui-tile__mark { box-shadow: 0 0 0 2px #ffffff; }
+  /* Tabs: words, the open one black and underlined, a count in red when it needs a look. */
+  :root[data-look="swiss"] .ui-tabs__list { gap: 24px; border-bottom: 0; }
+  :root[data-look="swiss"] .ui-tabs__tab { min-height: 38px; padding: 0; border-bottom-width: 4px; color: #5f5f5f; font-family: "Archivo", sans-serif; font-size: 15.5px; font-weight: 700; }
+  :root[data-look="swiss"] .ui-tabs__tab:hover { color: #111111; }
+  :root[data-look="swiss"] .ui-tabs__tab[aria-selected="true"] { border-bottom-color: #111111; color: #111111; }
+  :root[data-look="swiss"] .ui-tabs__count,
+  :root[data-look="swiss"] .ui-tabs__tab[aria-selected="true"] .ui-tabs__count { color: #111111; font-family: "Archivo", sans-serif; font-size: 12px; font-weight: 700; }
 
-/* Sheets and dialogs: white paper framed in black with a heavy top rule, over faded paper. */
-:root[data-look="swiss"] :is(.ui-sheet, .approve-dialog, .command-dialog) { border: 2px solid #111111; border-top-width: 7px; background: #ffffff; box-shadow: none; }
-:root[data-look="swiss"] .ui-sheet--right { border-width: 0 0 0 3px; border-top-width: 0; }
-:root[data-look="swiss"] :is(.ui-sheet__head, .approve-head) { border-bottom: 1px solid #111111; }
-:root[data-look="swiss"] :is(.ui-sheet__title, .approve-title) { color: #111111; font-family: "Archivo", sans-serif; font-weight: 900; letter-spacing: -0.02em; }
-:root[data-look="swiss"] :is(.ui-sheet__close, .approve-close) { border: 2px solid #111111; color: #111111; background: #ffffff; }
-:root[data-look="swiss"] .approve-tier,
-:root[data-look="swiss"] .approve-tier[data-tier] { border: 0; border-top: 1px solid #111111; border-bottom: 1px solid #111111; background: none; box-shadow: none; }
-:root[data-look="swiss"] :is(.approve-preview, .approve-staged, .approve-once) { border: 0; border-left: 4px solid #111111; background: #f6f6f6; }
-:root[data-look="swiss"] .approve-foot { border-top: 1px solid #111111; }
-:root[data-look="swiss"] .command-input:focus-within { box-shadow: inset 0 -3px 0 #111111; }
-:root[data-look="swiss"] .command-option[aria-selected="true"] { color: #ffffff; background: #111111; box-shadow: none; }
-:root[data-look="swiss"] .command-option[aria-selected="true"] :is(.command-option__icon, .command-option__hint, .ui-risk) { color: #ffffff; }
-:root[data-look="swiss"] .command-group { color: #111111; }
-:root[data-look="swiss"] .command-close { border: 2px solid #111111; color: #111111; background: #ffffff; }
+  /* Forms: white fields on a black rule, square. */
+  :root[data-look="swiss"] :is(.ui-input, .ui-textarea, .ui-select__control) { border: 0; border-bottom: 2px solid #111111; color: #111111; background: #f6f6f6; font-family: "Archivo", sans-serif; }
+  :root[data-look="swiss"] :is(.ui-input, .ui-textarea, .ui-select__control):focus-visible { border-color: #111111; outline: 2px solid #111111; }
+  :root[data-look="swiss"] .ui-field__label { color: #111111; font-weight: 700; }
+  :root[data-look="swiss"] .ui-secret__toggle { border: 0; border-bottom: 2px solid #111111; color: #111111; background: #ececec; }
+  :root[data-look="swiss"] .ui-switch__track { border: 2px solid #111111; background: #ffffff; }
+  :root[data-look="swiss"] .ui-switch__thumb { top: 2px; left: 2px; width: 10px; height: 10px; background: #111111; }
+  :root[data-look="swiss"] .ui-switch__control[aria-checked="true"] .ui-switch__track { border-color: #111111; background: #111111; }
+  :root[data-look="swiss"] .ui-switch__control[aria-checked="true"] .ui-switch__thumb { background: #ffffff; }
+  :root[data-look="swiss"] .ui-switch__state { color: #111111; font-family: "Archivo", sans-serif; font-weight: 700; }
+  :root[data-look="swiss"] .ui-check__mark { border: 2px solid #111111; background: #ffffff; }
+  :root[data-look="swiss"] .ui-segmented { gap: 0; padding: 0; border: 2px solid #111111; background: #ffffff; }
+  :root[data-look="swiss"] .ui-segmented__option { min-height: 28px; color: #111111; font-family: "Archivo", sans-serif; font-weight: 700; }
+  :root[data-look="swiss"] .ui-segmented__option + .ui-segmented__option { border-left: 2px solid #111111; }
+  :root[data-look="swiss"] .ui-segmented__option[aria-checked="true"] { color: #ffffff; background: #111111; box-shadow: none; }
+  :root[data-look="swiss"] .ui-search__icon { color: #111111; }
 
-/* Settings → Appearance: the page's own frame drops to a rule too. */
-:root[data-look="swiss"] .settings-appearance { padding: 14px 0 0; border: 0; border-top: 3.5px solid #111111; background: none; box-shadow: none; }
-:root[data-look="swiss"] .settings-appearance__title { font-weight: 900; letter-spacing: -0.03em; }
-:root[data-look="swiss"] .settings-appearance__now { border: 0; border-top: 2px solid #111111; border-bottom: 2px solid #111111; background: none; }
+  /* Notices and needs: a rule over each; the mark and its words carry the state. */
+  :root[data-look="swiss"] .ui-notice { padding: 10px 0; border: 0; border-top: 2px solid #111111; background: none; box-shadow: none; }
+  :root[data-look="swiss"] :is(.ui-notice--warning, .ui-notice--danger) { border-top-color: #e3061b; }
+  :root[data-look="swiss"] .ui-notice__title { font-weight: 700; }
+  :root[data-look="swiss"] .need,
+  :root[data-look="swiss"] .need[data-severity],
+  :root[data-look="swiss"] .need.need--lead { padding: 10px 0; border-top: 1px solid #111111; box-shadow: none; }
+  :root[data-look="swiss"] .need:first-child { border-top: 0; }
+  :root[data-look="swiss"] .need__title { color: #111111; font-weight: 700; }
+  :root[data-look="swiss"] .need__title:hover { color: #111111; }
+  :root[data-look="swiss"] .ui-empty__icon { border: 2px solid #111111; color: #111111; }
+  :root[data-look="swiss"] .ui-code { border: 0; border-top: 2px solid #111111; background: #f6f6f6; }
+  :root[data-look="swiss"] .ui-code__bar { border-bottom: 1px solid #d2d2d2; background: #ffffff; }
+  :root[data-look="swiss"] .ui-job { border: 0; border-top: 2px solid #111111; background: none; }
+  :root[data-look="swiss"] .ui-progress__track { height: 4px; background: #e4e4e4; }
+  :root[data-look="swiss"] .ui-progress__fill { background: #111111; }
 
-/* ── A phone: the areas along the bottom, words under small black marks ── */
-@media (max-width: 760px) {
-  :root[data-look="swiss"] { --swiss-chrome: 0px; }
-  :root[data-look="swiss"] .topbar { position: static; flex-wrap: wrap; align-items: center; height: auto; min-height: 0; gap: 8px 14px; padding: 12px 16px 12px; font-size: 14px; }
-  :root[data-look="swiss"] .topbar::after { right: 16px; left: 16px; height: 3px; }
-  :root[data-look="swiss"] .cc-crumb { gap: 12px; font-size: 14px; }
-  :root[data-look="swiss"] :is(.cc-crumb h1, .cc-crumb__host) { font-size: 14px; }
-  :root[data-look="swiss"] .brand { display: none; }
-  :root[data-look="swiss"] .view-switch { gap: 12px; padding: 0; border: 0; background: none; }
-  :root[data-look="swiss"] .view-switch__option { min-height: 0; padding: 0; border: 0; color: #5f5f5f; background: none; font-size: 14px; box-shadow: none; }
-  :root[data-look="swiss"] .view-switch__option svg { display: none; }
-  :root[data-look="swiss"] .view-switch__option[aria-current="page"] { background: none; color: #111111; text-decoration: underline; text-decoration-thickness: 3px; text-underline-offset: 5px; }
-  :root[data-look="swiss"] .command-trigger { flex: 0 0 auto; width: auto; min-width: 0; border-bottom: 0; }
-  :root[data-look="swiss"] .topbar-right { gap: 12px; }
-  :root[data-look="swiss"] .bar-button { font-size: 14px; }
-  :root[data-look="swiss"] .content { padding: 14px 16px calc(var(--shell-bottom-inset, 0px) + 96px); }
-  :root[data-look="swiss"] .app-shell[data-view="home"] .content { padding: 14px 16px calc(var(--shell-bottom-inset, 0px) + 96px); }
-  :root[data-look="swiss"] .shell-dock { right: 0; bottom: var(--shell-bottom-inset, 0px); left: 0; }
-  :root[data-look="swiss"] .ui-dock.shell-dock ul { width: 100%; justify-content: space-around; padding: 6px 4px 8px; border: 0; border-top: 3px solid #111111; background: #ffffff; box-shadow: none; backdrop-filter: none; }
-  :root[data-look="swiss"] .shell-dock .ui-dock__item { width: 60px; }
-  :root[data-look="swiss"] .shell-dock .ui-dock__icon { width: 34px; height: 30px; border: 0; color: #111111; background: none; }
-  :root[data-look="swiss"] .shell-dock .ui-dock__icon svg { width: 19px; height: 19px; }
-  :root[data-look="swiss"] .shell-dock .ui-dock__label { color: #111111; font: 700 11px/1.2 "Archivo", sans-serif; }
-  :root[data-look="swiss"] .shell-dock .ui-dock__item:hover .ui-dock__icon { border-color: transparent; color: #111111; background: none; }
-  :root[data-look="swiss"] .shell-dock .ui-dock__item[aria-current="page"] .ui-dock__icon { color: #ffffff; background: #111111; }
-  :root[data-look="swiss"] .shell-dock .ui-dock__item[aria-current="page"] .ui-dock__label { text-decoration: underline; text-decoration-thickness: 2px; }
-  :root[data-look="swiss"] .shell-dock .ui-dock__badge { top: -4px; right: -8px; min-width: 16px; height: 16px; color: #ffffff; background: #e3061b; box-shadow: 0 0 0 2px #ffffff; }
-  :root[data-look="swiss"] .shell-dock .ui-dock__separator { width: 2px; margin: 6px 0; background: #111111; }
+  /* Apps as black squares: the palette has no other colours. */
+  :root[data-look="swiss"] :is(.ui-app-icon, .ui-tile__icon) { border: 0; background: #111111; box-shadow: none; }
+  :root[data-look="swiss"] .ui-tile:hover { border-color: transparent; background: #f4f4f4; }
+  :root[data-look="swiss"] .ui-tile__name { color: #111111; font-weight: 700; }
+  :root[data-look="swiss"] .ui-tile__mark { box-shadow: 0 0 0 2px #ffffff; }
+
+  /* Sheets and dialogs: white paper framed in black with a heavy top rule, over faded paper. */
+  :root[data-look="swiss"] :is(.ui-sheet, .approve-dialog, .command-dialog) { border: 2px solid #111111; border-top-width: 7px; background: #ffffff; box-shadow: none; }
+  :root[data-look="swiss"] .ui-sheet--right { border-width: 0 0 0 3px; border-top-width: 0; }
+  :root[data-look="swiss"] :is(.ui-sheet__head, .approve-head) { border-bottom: 1px solid #111111; }
+  :root[data-look="swiss"] :is(.ui-sheet__title, .approve-title) { color: #111111; font-family: "Archivo", sans-serif; font-weight: 900; letter-spacing: -0.02em; }
+  :root[data-look="swiss"] :is(.ui-sheet__close, .approve-close) { border: 2px solid #111111; color: #111111; background: #ffffff; }
+  :root[data-look="swiss"] .approve-tier,
+  :root[data-look="swiss"] .approve-tier[data-tier] { border: 0; border-top: 1px solid #111111; border-bottom: 1px solid #111111; background: none; box-shadow: none; }
+  :root[data-look="swiss"] :is(.approve-preview, .approve-staged, .approve-once) { border: 0; border-left: 4px solid #111111; background: #f6f6f6; }
+  :root[data-look="swiss"] .approve-foot { border-top: 1px solid #111111; }
+  :root[data-look="swiss"] .command-input:focus-within { box-shadow: inset 0 -3px 0 #111111; }
+  :root[data-look="swiss"] .command-option[aria-selected="true"] { color: #ffffff; background: #111111; box-shadow: none; }
+  :root[data-look="swiss"] .command-option[aria-selected="true"] :is(.command-option__icon, .command-option__hint, .ui-risk) { color: #ffffff; }
+  :root[data-look="swiss"] .command-group { color: #111111; }
+  :root[data-look="swiss"] .command-close { border: 2px solid #111111; color: #111111; background: #ffffff; }
+
+  /* Settings → Appearance: the page's own frame drops to a rule too. */
+  :root[data-look="swiss"] .settings-appearance { padding: 14px 0 0; border: 0; border-top: 3.5px solid #111111; background: none; box-shadow: none; }
+  :root[data-look="swiss"] .settings-appearance__title { font-weight: 900; letter-spacing: -0.03em; }
+  :root[data-look="swiss"] .settings-appearance__now { border: 0; border-top: 2px solid #111111; border-bottom: 2px solid #111111; background: none; }
+
+  /* ── A narrower window: the search keeps its magnifier and gives its words to the line ── */
+  @media (max-width: 1100px) {
+    :root[data-look="swiss"] .command-trigger { flex: 0 0 auto; }
+    :root[data-look="swiss"] .command-trigger__label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  }
+
+  /* ── A phone: the areas along the bottom, words under small black marks ── */
+  @media (max-width: 760px) {
+    :root[data-look="swiss"] { --swiss-chrome: 0px; }
+    :root[data-look="swiss"] .topbar { position: static; flex-wrap: wrap; align-items: center; height: auto; min-height: 0; gap: 8px 14px; padding: 12px 16px 12px; font-size: 14px; }
+    :root[data-look="swiss"] .topbar::after { right: 16px; left: 16px; height: 3px; }
+    :root[data-look="swiss"] .cc-crumb { gap: 12px; font-size: 14px; }
+    :root[data-look="swiss"] :is(.cc-crumb h1, .cc-crumb__host) { font-size: 14px; }
+    :root[data-look="swiss"] .brand { display: none; }
+    :root[data-look="swiss"] .view-switch { gap: 12px; padding: 0; border: 0; background: none; }
+    :root[data-look="swiss"] .view-switch__option { min-height: 0; padding: 0; border: 0; color: #5f5f5f; background: none; font-size: 14px; box-shadow: none; }
+    :root[data-look="swiss"] .view-switch__option svg { display: none; }
+    :root[data-look="swiss"] .view-switch__option[aria-current="page"] { background: none; color: #111111; text-decoration: underline; text-decoration-thickness: 3px; text-underline-offset: 5px; }
+    :root[data-look="swiss"] .command-trigger { flex: 0 0 auto; width: auto; min-width: 0; border-bottom: 0; }
+    :root[data-look="swiss"] .topbar-right { gap: 12px; }
+    :root[data-look="swiss"] .bar-button { font-size: 14px; }
+    :root[data-look="swiss"] .content { padding: 14px 16px calc(var(--shell-bottom-inset, 0px) + 96px); }
+    :root[data-look="swiss"] .app-shell[data-view="home"] .content { padding: 14px 16px calc(var(--shell-bottom-inset, 0px) + 96px); }
+    :root[data-look="swiss"] .shell-dock { right: 0; bottom: var(--shell-bottom-inset, 0px); left: 0; }
+    :root[data-look="swiss"] .ui-dock.shell-dock ul { width: 100%; justify-content: space-around; padding: 6px 4px 8px; border: 0; border-top: 3px solid #111111; background: #ffffff; box-shadow: none; backdrop-filter: none; }
+    :root[data-look="swiss"] .shell-dock .ui-dock__item { width: 60px; }
+    :root[data-look="swiss"] .shell-dock .ui-dock__icon { width: 34px; height: 30px; border: 0; color: #111111; background: none; }
+    :root[data-look="swiss"] .shell-dock .ui-dock__icon svg { width: 19px; height: 19px; }
+    :root[data-look="swiss"] .shell-dock .ui-dock__label { color: #111111; font: 700 11px/1.2 "Archivo", sans-serif; }
+    :root[data-look="swiss"] .shell-dock .ui-dock__item:hover .ui-dock__icon { border-color: transparent; color: #111111; background: none; }
+    :root[data-look="swiss"] .shell-dock .ui-dock__item[aria-current="page"] .ui-dock__icon { color: #ffffff; background: #111111; }
+    :root[data-look="swiss"] .shell-dock .ui-dock__item[aria-current="page"] .ui-dock__label { text-decoration: underline; text-decoration-thickness: 2px; }
+    :root[data-look="swiss"] .shell-dock .ui-dock__badge { top: -4px; right: -8px; min-width: 16px; height: 16px; color: #ffffff; background: #e3061b; box-shadow: 0 0 0 2px #ffffff; }
+    :root[data-look="swiss"] .shell-dock .ui-dock__separator { width: 2px; margin: 6px 0; background: #111111; }
+  }
 }

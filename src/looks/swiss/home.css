@@ -157,11 +157,16 @@
 
 /* A narrower screen: the figures and the needs one above the other. */
 @media (max-width: 1100px) {
+  .swiss-bar__os { display: none; }
   .swiss-home { grid-template-columns: 16em minmax(0, 1fr); font-size: clamp(12px, calc(100vw / 64), 20px); }
   .swiss-num { font-size: 14em; }
   .swiss-num[data-digits="2"] { font-size: 8.4em; }
   .swiss-num[data-digits="3"] { font-size: 5.8em; }
   .swiss-apps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 900px) {
+  .swiss-bar__date { display: none; }
 }
 
 @media (max-width: 760px) {
