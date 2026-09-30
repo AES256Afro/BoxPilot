@@ -25,6 +25,9 @@ const shortTime = (at: number) => {
 /** How often the figures are read again while Home is open (the facts' quick sources). */
 const refreshEveryMs = 60_000;
 
+/** How many of what needs you are set before "Show all". */
+const shown = 6;
+
 /** "…need a look. Two more can wait." as the paper writes it: "…need a look; two more can wait." */
 const lead = (sentence: string) => spellOut(sentence).replace(/ a look\. (One|Two|Three|Four|Five|Six|Seven|Eight|Nine|Ten|Eleven|Twelve|\d+)( more)/, (_match, count: string, more: string) => ` a look; ${count.toLowerCase()}${more}`);
 
@@ -35,6 +38,9 @@ export default function EinkHome(props: HomeProps) {
   const data = useHomeData(props);
   const { facts, clock, urgent, waiting, verdict, checking, unread, inventory, hostname, rows, glance, act, runOf, open, dialog } = data;
   const needsId = useId();
+  const [all, setAll] = useState(false);
+  const everything = [...urgent, ...waiting];
+  const listed = all ? everything : everything.slice(0, shown);
   const glanceId = useId();
 
   // When the figures were last read: the moment the inventory's answer last arrived.
@@ -99,7 +105,12 @@ export default function EinkHome(props: HomeProps) {
           <h2 className="eink-h" id={needsId}>Needs you</h2>
           {urgent.length === 0 && waiting.length === 0
             ? <p className="eink-quiet">{checking ? "Reading this server." : unread.length ? "Nothing wrong in what could be read." : "Nothing needs you."}</p>
-            : <ul className="eink-needs">{urgent.map((need) => item(need, false))}{waiting.map((need) => item(need, true))}</ul>}
+            : <ul className="eink-needs">{listed.map((need) => item(need, need.severity === "neutral"))}</ul>}
+          {urgent.length + waiting.length > shown && (
+            <button type="button" className="eink-more" aria-expanded={all} onClick={() => setAll((value) => !value)}>
+              {all ? "Show fewer" : `Show all ${urgent.length + waiting.length}`}
+            </button>
+          )}
         </section>
 
         <section aria-labelledby={glanceId}>

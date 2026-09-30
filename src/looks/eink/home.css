@@ -75,6 +75,18 @@
 .eink-home .eink-btn.ui-button::before { display: none; }
 .eink-home .eink-btn .ui-button__tier { border-color: currentColor; color: inherit; background: none; font-style: italic; }
 
+.eink-more {
+  margin: 0.2em 0 0 1.7em;
+  padding: 0;
+  border: 0;
+  color: var(--ei-k);
+  background: none;
+  font-size: 0.86em;
+  font-style: italic;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
 /* At a glance: a word, a dithered bar, the figure in tabular numbers. */
 .eink-rows { display: grid; gap: 0.75em; }
 .eink-row {
