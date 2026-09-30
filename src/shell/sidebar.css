@@ -45,3 +45,6 @@
 @media (max-width: 760px) {
   .sidebar-nav { display: none; }
 }
+
+/* Settings' list (M41): "All areas" leads it, quieter than the sections under it. */
+.sidebar-item--back { color: var(--text-muted); font-size: 13px; }

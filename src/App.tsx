@@ -245,7 +245,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
         </header>
 
         {nav === "sidebar"
-          ? <><ShellSidebar view={showGallery ? null : view} onSelect={setView} /><div className="look-phone-dock"><ShellDock view={showGallery ? null : view} onSelect={setView} variant="dock" /></div></>
+          ? <><ShellSidebar view={showGallery ? null : view} onSelect={setView} role={role} username={authStatus.owner?.username ?? null} /><div className="look-phone-dock"><ShellDock view={showGallery ? null : view} onSelect={setView} variant="dock" /></div></>
           : <ShellDock view={showGallery ? null : view} onSelect={setView} variant={nav as DockVariant} />}
 
         <main id="content" tabIndex={-1}>

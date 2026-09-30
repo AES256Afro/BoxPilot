@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { LookThumb } from "../../looks/LookThumb";
 import { ACCENTS, DENSITIES, LOOKS, LOOK_SCOPES, WALLPAPERS, lookById, type LookId } from "../../looks/looks";
 import { useLook } from "../../looks/useLook";
@@ -28,6 +28,19 @@ function useResolvedDark(): boolean {
 
 const modeWords = { both: "light and dark", light: "light only", dark: "dark only" } as const;
 
+/*
+ * The look before the one on trial, kept outside the panel: a look that goes around differently
+ * redraws Settings (the sidebar lists the sections, or the tabs come back), and Keep this look and
+ * Go back must still be there after it.
+ */
+let onTrialFrom: LookId | null = null;
+const trialListeners = new Set<() => void>();
+const setTrialFrom = (look: LookId | null) => { onTrialFrom = look; for (const listener of trialListeners) listener(); };
+const subscribeTrial = (listener: () => void) => { trialListeners.add(listener); return () => { trialListeners.delete(listener); }; };
+function useTrialFrom(): [LookId | null, (look: LookId | null) => void] {
+  return [useSyncExternalStore(subscribeTrial, () => onTrialFrom, () => null), setTrialFrom];
+}
+
 const wallpaperPictures: Record<(typeof WALLPAPERS)[number]["id"], string> = {
   sea: "radial-gradient(80% 100% at 10% 0%, rgba(30,110,108,.8), transparent 65%), radial-gradient(70% 90% at 100% 0%, rgba(210,108,44,.55), transparent 62%), linear-gradient(160deg, #193240, #161e2c)",
   dusk: "linear-gradient(160deg, #1f2940, #33243f)",
@@ -40,7 +53,7 @@ export default function AppearancePanel() {
   const { appearance, setAppearance, appearances } = useTheme();
   const dark = useResolvedDark();
   // The look before the last one picked here, while the new one is on trial.
-  const [previous, setPrevious] = useState<LookId | null>(null);
+  const [previous, setPrevious] = useTrialFrom();
   const current = lookById(choice.look);
 
   const pick = (look: LookId) => {

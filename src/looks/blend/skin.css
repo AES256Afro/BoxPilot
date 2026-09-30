@@ -662,20 +662,20 @@
   :root[data-look="blend"] .settings-page:has(.settings-appearance) .ui-tabs__list { background: var(--lx-glass-raised); box-shadow: none; }
   :root[data-look="blend"] .settings-page .settings-appearance { padding: 4px 0 0; border: 0; background: none; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
 }
-/* Where there is room, the tabs share the row under the name with its facts, so the looks start
-   near the top of the pane as drawn; the selected tab names the section, and its own heading is
+/* Where there is room and Settings has its tabs (the sidebar lists the sections otherwise), the
+   tabs share the row under the name with its facts, so the looks start near the top of the pane as drawn; the selected tab names the section, and its own heading is
    read out rather than drawn a second time under the page's. */
 @media (min-width: 1180px) {
-  :root[data-look="blend"] .settings-page:has(.settings-appearance) { grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 16px 14px; }
-  :root[data-look="blend"] .settings-page:has(.settings-appearance) > .ui-page-header { grid-row: 1; grid-column: 1; flex-wrap: nowrap; }
-  :root[data-look="blend"] .settings-page:has(.settings-appearance) > .ui-page-header > .ui-page-header__facts { flex: 1 1 auto; flex-wrap: nowrap; }
-  :root[data-look="blend"] .settings-page:has(.settings-appearance) .ui-page-header__meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  :root[data-look="blend"] .settings-page:has(.settings-appearance) > .ui-page-header > .ui-page-header__about { position: absolute; z-index: 5; top: 100%; right: 0; left: 0; margin-top: 6px; background: var(--blend-sheet); }
-  :root[data-look="blend"] .settings-page:has(.settings-appearance) > .ui-page-header { position: relative; }
-  :root[data-look="blend"] .settings-page > .settings-tabs:has(.settings-appearance) { display: contents; }
-  :root[data-look="blend"] .settings-page:has(.settings-appearance) .ui-tabs__list { grid-row: 1; grid-column: 2; justify-self: end; }
-  :root[data-look="blend"] .settings-page:has(.settings-appearance) .ui-tabs__tab { padding: 0 10px; font-size: 12.5px; }
-  :root[data-look="blend"] .settings-page:has(.settings-appearance) .ui-tabs__panel { grid-row: 2; grid-column: 1 / -1; }
+  :root[data-look="blend"] .settings-page[data-sections="tabs"]:has(.settings-appearance) { grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 16px 14px; }
+  :root[data-look="blend"] .settings-page[data-sections="tabs"]:has(.settings-appearance) > .ui-page-header { grid-row: 1; grid-column: 1; flex-wrap: nowrap; }
+  :root[data-look="blend"] .settings-page[data-sections="tabs"]:has(.settings-appearance) > .ui-page-header > .ui-page-header__facts { flex: 1 1 auto; flex-wrap: nowrap; }
+  :root[data-look="blend"] .settings-page[data-sections="tabs"]:has(.settings-appearance) .ui-page-header__meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  :root[data-look="blend"] .settings-page[data-sections="tabs"]:has(.settings-appearance) > .ui-page-header > .ui-page-header__about { position: absolute; z-index: 5; top: 100%; right: 0; left: 0; margin-top: 6px; background: var(--blend-sheet); }
+  :root[data-look="blend"] .settings-page[data-sections="tabs"]:has(.settings-appearance) > .ui-page-header { position: relative; }
+  :root[data-look="blend"] .settings-page[data-sections="tabs"] > .settings-tabs:has(.settings-appearance) { display: contents; }
+  :root[data-look="blend"] .settings-page[data-sections="tabs"]:has(.settings-appearance) .ui-tabs__list { grid-row: 1; grid-column: 2; justify-self: end; }
+  :root[data-look="blend"] .settings-page[data-sections="tabs"]:has(.settings-appearance) .ui-tabs__tab { padding: 0 10px; font-size: 12.5px; }
+  :root[data-look="blend"] .settings-page[data-sections="tabs"]:has(.settings-appearance) .ui-tabs__panel { grid-row: 2; grid-column: 1 / -1; }
   :root[data-look="blend"] .settings-page .settings-appearance__title { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   :root[data-look="blend"] .settings-page .settings-appearance__lead { margin-top: 0; }
 }
