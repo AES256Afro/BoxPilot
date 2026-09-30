@@ -86,7 +86,12 @@ try {
   const indexStats = await knowledge.ensure();
   await settleAndCollect();
   const indexRetainedBytes = process.memoryUsage().heapUsed - beforeIndex;
-  const indexBudget = 4 * 1024 * 1024;
+  // The corpus is this repository's documents, which grow every milestone (752 chunks and 2.8 MiB on
+  // 2026-09-28, 951 chunks and 4.0 MiB a day later, about 6.7 bytes a character indexed), so the
+  // budget is 8 bytes a character: a representation that bloats fails (the postings arrays this
+  // replaced kept 2.6 times as much), more documentation does not, up to 8 MiB, where it is time to
+  // look again. Never under the 4 MiB it started as.
+  const indexBudget = Math.min(8 * 1024 * 1024, Math.max(4 * 1024 * 1024, 8 * (indexStats.characters ?? 0)));
   // Its embedding cache, churned with a 4,096-wide model's vectors under three model names, which
   // is what switching embedding models does: bounded in entries and in bytes whatever the width.
   const embeddings = createEmbeddingCache();

@@ -1,4 +1,5 @@
-import { access, copyFile, lchown, readFile, realpath, rename, stat, writeFile } from "node:fs/promises";
+import { access, copyFile, lchown, readFile, realpath, rename, stat } from "node:fs/promises";
+import { writeFileDurably as writeFile } from "../durable-file.mjs";
 import { fixedRun } from "../exec.mjs";
 import { cleanServedPath } from "./served-folder.mjs";
 

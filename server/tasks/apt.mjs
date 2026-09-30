@@ -3,7 +3,8 @@
  * (which has network access, unlike the helper). Each task validates its own parameters
  * again — the spec file is written by the helper, but defense in depth is cheap.
  */
-import { access, writeFile } from "node:fs/promises";
+import { access } from "node:fs/promises";
+import { writeFileDurably as writeFile } from "../durable-file.mjs";
 import { fixedRun } from "../exec.mjs";
 import { parseNeedrestart } from "../needrestart.mjs";
 import { inspectPackageHealth } from "../package-health.mjs";

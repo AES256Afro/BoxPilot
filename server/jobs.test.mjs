@@ -857,6 +857,15 @@ describe("a result shown once (M38: Zulip's organization link)", () => {
       await jobs.approveAndRun(again.id, owner.id, {});
       now += 16 * 60_000;
       expect(jobs.takeOneTime(again.id, owner.id)).toBeNull();
+
+      // And gone with the minute's sweep, whether or not anyone asks again: it used to stay in
+      // memory, a live single-use link, until someone next took one.
+      const unclaimed = await jobs.createOperationJob("app.zulip.organization.link", { id: "zulip" }, owner.id);
+      await jobs.approveAndRun(unclaimed.id, owner.id, {});
+      expect(jobs.oneTimeHeld()).toBe(1);
+      now += 16 * 60_000;
+      jobs.pruneStagedSecrets();
+      expect(jobs.oneTimeHeld()).toBe(0);
     } finally { store.close(); }
   });
 });
