@@ -4,7 +4,7 @@
 .console-home { display: grid; gap: 12px; min-width: 0; padding-inline: 9px; }
 
 /* The name in the compact bar: "homebox / home", then the host's facts in mono. */
-.console-crumb .cc-crumb__host { font-size: 18px; font-weight: 600; }
+.console-crumb .cc-crumb__host { flex: none; font-size: 18px; font-weight: 600; }
 .console-crumb .cc-crumb__sep { font-size: 18px; }
 .console-crumb__page { flex: none; color: var(--cc-muted); font-size: 18px; font-weight: 400; line-height: 1.2; }
 .console-crumb .cc-kv { margin-left: 14px; font-size: 13.5px; }
