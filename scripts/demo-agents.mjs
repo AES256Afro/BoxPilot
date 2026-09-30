@@ -227,7 +227,7 @@ async function seed({ service, state, store, caller, at, runNext, script, world,
     const tools = withTools(body);
     if (tools === 0) return { toolCalls: [call("server.facts"), call("alerts.active"), call("backups.status")] };
     if (tools === 3) return { toolCalls: [call("plan.propose", { title: "Back up Vaultwarden", reason: "Vaultwarden holds the household's passwords and has never been backed up.", steps: [{ operationId: "app.backup", parameters: { id: "vaultwarden" }, why: "No backup of Vaultwarden exists yet." }] })] };
-    return { content: "Good morning. homebox ran quietly overnight: every app is up, no health alerts are live, and the system disk is 27% full [T1] [T2].\n\nOne thing needs you: Vaultwarden has never been backed up [T3]. A card proposes a backup; nothing runs until you approve it [T4].\n\nEverything else can wait." };
+    return { content: "Good morning. homebox ran quietly overnight: no health alerts are live [T2], and every key service is active [T1].\n\nOne thing needs you: Vaultwarden has never been backed up [T3]. A card proposes a backup; nothing runs until you approve it [T4].\n\nEverything else can wait." };
   });
   for (let index = 0; index < 6 && (await runNext()); index += 1) { /* everything that fell due in the night */ }
 
