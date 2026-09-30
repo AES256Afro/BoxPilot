@@ -90,37 +90,6 @@
   content: "";
   pointer-events: none;
 }
-:root[data-look="phosphor"] .app-shell[data-view="home"] {
-  isolation: auto;
-  color: var(--ph-g);
-  --text: var(--cc-text);
-  --text-strong: var(--cc-text-strong);
-  --text-muted: var(--cc-muted);
-  --text-secondary: var(--cc-text);
-  --accent: var(--cc-amber);
-  --accent-faint: var(--cc-amber-bg);
-  --link: var(--cc-amber);
-  --border: var(--cc-line);
-  --border-subtle: var(--cc-hairline);
-  --border-strong: var(--cc-line-strong);
-  --status-good: var(--ph-g);
-  --status-good-text: var(--ph-g);
-  --status-warning: var(--ph-g);
-  --status-warning-text: var(--ph-g);
-  --status-danger: var(--ph-g);
-  --status-danger-text: var(--ph-g);
-  --status-neutral: var(--ph-dim);
-  --status-neutral-text: var(--ph-g);
-  --status-unknown: var(--ph-dim);
-  --status-unknown-text: var(--ph-dim);
-  --risk-low: var(--ph-g);
-  --risk-low-text: var(--ph-g);
-  --risk-medium: var(--ph-g);
-  --risk-medium-text: var(--ph-g);
-  --risk-high: var(--ph-g);
-  --risk-high-text: var(--ph-g);
-}
-:root[data-look="phosphor"] .app-shell[data-view="home"]::before { display: none; }
 :root[data-look="phosphor"] .app-shell :is(button, a, input, select, textarea, summary, [tabindex]):focus-visible,
 :root[data-look="phosphor"] .look-console :focus-visible:not([tabindex="-1"]),
 :root[data-look="phosphor"] :is(.ui-sheet, .command-dialog) :is(button, a, input, select, textarea, summary):focus-visible {
@@ -140,7 +109,6 @@
 @media (min-width: 761px) {
   :root[data-look="phosphor"] .app-shell[data-shell="console"] { padding-left: var(--ph-rail); }
   :root[data-look="phosphor"] .shell-dock.shell-dock--rail { width: var(--ph-rail); border-right: 1px dashed var(--ph-faint); background: transparent; }
-  :root[data-look="phosphor"] .app-shell[data-view="home"] .ui-dock.shell-dock ul { border: 0; background: none; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
   :root[data-look="phosphor"] .shell-rail__logo { width: 34px; height: 30px; border-radius: 0; color: var(--ph-ink); background: var(--ph-g); font: 400 20px/1 var(--font-mono); text-shadow: none; box-shadow: 0 0 10px var(--ph-glow); }
   :root[data-look="phosphor"] .shell-dock--rail .ui-dock__item { width: 36px; }
   :root[data-look="phosphor"] .shell-dock--rail .ui-dock__icon { width: 36px; height: 30px; border: 0; border-radius: 0; color: var(--ph-g); background: transparent; filter: drop-shadow(0 0 3px var(--ph-glow)); }
@@ -167,21 +135,21 @@
 :root[data-look="phosphor"] .cc-crumb h1 { color: var(--ph-g); font-size: 16px; font-weight: 400; }
 :root[data-look="phosphor"] .cc-kv { color: var(--ph-dim); font-size: 13px; }
 :root[data-look="phosphor"] .cc-kv b { color: var(--ph-g); font-weight: 400; }
-:root[data-look="phosphor"] :is(.view-switch, .app-shell[data-view="home"] .view-switch) { gap: 0.5ch; padding: 0; border: 0; border-radius: 0; background: transparent; backdrop-filter: none; }
-:root[data-look="phosphor"] :is(.view-switch__option, .app-shell[data-view="home"] .view-switch__option) { min-height: 26px; padding: 0 0.6ch; border: 0; border-radius: 0; color: var(--ph-g); font-size: 14px; font-weight: 400; text-transform: lowercase; }
+:root[data-look="phosphor"] .view-switch { gap: 0.5ch; padding: 0; border: 0; border-radius: 0; background: transparent; backdrop-filter: none; }
+:root[data-look="phosphor"] .view-switch__option { min-height: 26px; padding: 0 0.6ch; border: 0; border-radius: 0; color: var(--ph-g); font-size: 14px; font-weight: 400; text-transform: lowercase; }
 :root[data-look="phosphor"] .view-switch__option svg { display: none; }
-:root[data-look="phosphor"] :is(.view-switch__option[aria-current="page"], .app-shell[data-view="home"] .view-switch__option[aria-current="page"]) { color: var(--ph-ink); background: var(--ph-g); text-shadow: none; }
-:root[data-look="phosphor"] :is(.command-trigger, .app-shell[data-view="home"] .command-trigger) { min-height: 28px; border: 1px dashed var(--ph-faint); border-radius: 0; color: var(--ph-dim); background: transparent; backdrop-filter: none; font-size: 14px; text-transform: lowercase; }
+:root[data-look="phosphor"] .view-switch__option[aria-current="page"] { color: var(--ph-ink); background: var(--ph-g); text-shadow: none; }
+:root[data-look="phosphor"] .command-trigger { min-height: 28px; border: 1px dashed var(--ph-faint); border-radius: 0; color: var(--ph-dim); background: transparent; backdrop-filter: none; font-size: 14px; text-transform: lowercase; }
 :root[data-look="phosphor"] .command-trigger:hover { color: var(--ph-g); border-style: solid; }
-:root[data-look="phosphor"] :is(.command-trigger__keys, .app-shell[data-view="home"] .command-trigger__keys) { border: 0; border-radius: 0; color: var(--ph-ink); background: var(--ph-g); font-size: 12px; text-shadow: none; }
-:root[data-look="phosphor"] :is(.connection-pill, .app-shell[data-view="home"] .connection-pill) { border: 0; border-radius: 0; color: var(--ph-dim); background: transparent; font-size: 12px; }
+:root[data-look="phosphor"] .command-trigger__keys { border: 0; border-radius: 0; color: var(--ph-ink); background: var(--ph-g); font-size: 12px; text-shadow: none; }
+:root[data-look="phosphor"] .connection-pill { border: 0; border-radius: 0; color: var(--ph-dim); background: transparent; font-size: 12px; }
 :root[data-look="phosphor"] .connection-pill::before { border-radius: 0; background: var(--ph-g); }
 :root[data-look="phosphor"] .bar-button { color: var(--ph-g); font-size: 14px; text-transform: lowercase; }
 :root[data-look="phosphor"] .bar-button:hover,
 :root[data-look="phosphor"] .bar-button[aria-expanded="true"] { color: var(--ph-ink); background: var(--ph-g); text-shadow: none; }
 :root[data-look="phosphor"] .bar-badge { border-radius: 0; color: var(--ph-ink); background: var(--ph-g); text-shadow: none; }
 :root[data-look="phosphor"] .bar-label { border: 1px dashed var(--ph-faint); border-radius: 0; color: var(--ph-dim); }
-:root[data-look="phosphor"] :is(.signed-in-user, .app-shell[data-view="home"] .signed-in-user) { color: var(--ph-g); font-size: 13px; }
+:root[data-look="phosphor"] .signed-in-user { color: var(--ph-g); font-size: 13px; }
 :root[data-look="phosphor"] .signed-in-user__avatar { border-radius: 0; color: var(--ph-ink); background: var(--ph-g); text-shadow: none; }
 
 /* ── Pages: sections under a dashed rule, words in green, figures in green ── */
@@ -310,8 +278,6 @@
   :root[data-look="phosphor"] .shell-dock .ui-dock__item[aria-current="page"] .ui-dock__icon { border: 0; color: var(--ph-ink); background: var(--ph-g); }
   :root[data-look="phosphor"] .shell-dock .ui-dock__label { color: var(--ph-g); font-size: 13px; text-transform: lowercase; }
   :root[data-look="phosphor"] .ui-dock__badge { border-radius: 0; color: var(--ph-ink); background: var(--ph-g); box-shadow: 0 0 0 2px #031509; text-shadow: none; }
-  :root[data-look="phosphor"] .app-shell[data-view="home"] .ui-dock.shell-dock ul { border: 1px solid var(--ph-g); border-radius: 0; background: #031509; }
-  :root[data-look="phosphor"] .app-shell[data-view="home"] .topbar-slot { display: flex; }
 }
 
 @media (prefers-reduced-motion: reduce) {

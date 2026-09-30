@@ -108,38 +108,6 @@
   background-size: var(--bp-paper-size);
   background-attachment: fixed;
 }
-/* Home keeps the paper: no wallpaper behind it, and the kit's words point back at the drawing's. */
-:root[data-look="blueprint"] .app-shell[data-view="home"] {
-  isolation: auto;
-  color: var(--cc-text);
-  --text: var(--cc-text);
-  --text-strong: var(--cc-text-strong);
-  --text-muted: var(--cc-muted);
-  --text-secondary: var(--cc-text);
-  --accent: var(--cc-amber);
-  --accent-faint: var(--cc-amber-bg);
-  --link: var(--cc-amber);
-  --border: var(--cc-line);
-  --border-subtle: var(--cc-hairline);
-  --border-strong: var(--cc-line-strong);
-  --status-good: var(--cc-green);
-  --status-good-text: var(--cc-green);
-  --status-warning: #ffd76a;
-  --status-warning-text: #ffd76a;
-  --status-danger: var(--cc-red);
-  --status-danger-text: var(--cc-red-text);
-  --status-neutral: var(--cc-muted);
-  --status-neutral-text: var(--cc-text);
-  --status-unknown: var(--cc-muted);
-  --status-unknown-text: var(--cc-muted);
-  --risk-low: var(--cc-green);
-  --risk-low-text: var(--cc-green);
-  --risk-medium: #ffd76a;
-  --risk-medium-text: #ffd76a;
-  --risk-high: var(--cc-red);
-  --risk-high-text: var(--cc-red-text);
-}
-:root[data-look="blueprint"] .app-shell[data-view="home"]::before { display: none; }
 :root[data-look="blueprint"] .app-shell :is(button, a, input, select, textarea, summary, [tabindex]):focus-visible,
 :root[data-look="blueprint"] .look-console :focus-visible:not([tabindex="-1"]),
 :root[data-look="blueprint"] :is(.ui-sheet, .command-dialog) :is(button, a, input, select, textarea, summary):focus-visible {
@@ -257,23 +225,12 @@
 :root[data-look="blueprint"] .signed-in-user__avatar { border: 1.4px solid var(--bp-ink); border-radius: 0; color: var(--bp-ink); background: transparent; }
 /* The top bar's words are the strip's lettering, in capitals like the rest of the drawing's. */
 :root[data-look="blueprint"] .topbar :is(button, a) { text-transform: uppercase; }
-/* On Home the rail keeps the paper: none of the Launcher's glass. */
-:root[data-look="blueprint"] .app-shell[data-view="home"] .ui-dock.shell-dock ul { border: 0; background: none; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
-@media (max-width: 760px) {
-  :root[data-look="blueprint"] .app-shell[data-view="home"] .ui-dock.shell-dock ul { border: 1.6px solid var(--bp-ink); background: var(--bp-paper); box-shadow: 0 0 0 4px var(--bp-paper); }
-}
 
 /* Home's head is the drawing's own title: no rule under it, the title where the page name was. */
 :root[data-look="blueprint"] .app-shell[data-view="home"] .topbar { position: sticky; min-height: 0; align-items: flex-start; padding-top: 18px; padding-bottom: 6px; border-bottom-color: transparent; }
 :root[data-look="blueprint"] .app-shell[data-view="home"] .topbar-right,
 :root[data-look="blueprint"] .app-shell[data-view="home"] .command-trigger,
 :root[data-look="blueprint"] .app-shell[data-view="home"] .view-switch { margin-top: calc(var(--bp-em) * 0.4); }
-:root[data-look="blueprint"] .app-shell[data-view="home"] .command-trigger { min-height: 30px; border-color: var(--bp-ink); color: var(--bp-dim); background: transparent; backdrop-filter: none; }
-:root[data-look="blueprint"] .app-shell[data-view="home"] .view-switch { border-color: var(--bp-ink); background: transparent; backdrop-filter: none; }
-:root[data-look="blueprint"] .app-shell[data-view="home"] .view-switch__option { color: var(--bp-dim); }
-:root[data-look="blueprint"] .app-shell[data-view="home"] .view-switch__option[aria-current="page"] { color: var(--bp-paper); background: var(--bp-ink); }
-:root[data-look="blueprint"] .app-shell[data-view="home"] .connection-pill { border-color: var(--bp-dim); color: var(--bp-dim); background: transparent; }
-:root[data-look="blueprint"] .app-shell[data-view="home"] .signed-in-user { color: var(--bp-dim); }
 
 /* ── Type: Martian Mono throughout; annotations in capitals, sentences and data as written ── */
 :root[data-look="blueprint"] .app-shell,
@@ -446,6 +403,5 @@
   :root[data-look="blueprint"] .shell-dock .ui-dock__item[aria-current="page"] .ui-dock__icon { border: 0; color: var(--bp-paper); background: var(--bp-ink); }
   :root[data-look="blueprint"] .shell-dock .ui-dock__label { color: var(--bp-ink); font-size: 9.5px; text-transform: uppercase; }
   :root[data-look="blueprint"] .ui-dock__badge { border-radius: 0; color: var(--bp-paper); background: var(--bp-ink); box-shadow: 0 0 0 2px var(--bp-paper); }
-  :root[data-look="blueprint"] .app-shell[data-view="home"] .topbar-slot { display: flex; }
   :root[data-look="blueprint"] .app-shell[data-view="home"] .topbar { padding-top: 10px; }
 }
