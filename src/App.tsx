@@ -22,6 +22,7 @@ import { PageLoading } from "./shell/PageLoading";
 import { ShellDock, ViewSwitch, type DockVariant } from "./shell/ShellNav";
 import { ShellSidebar } from "./shell/ShellSidebar";
 import { DrawnLookProvider } from "./looks/drawnLook";
+import { LookBar } from "./looks/LookBar";
 import { LookHome } from "./looks/LookHome";
 import { lookById, type LookId } from "./looks/looks";
 import { applyLook, applyLookChoice, useLook } from "./looks/useLook";
@@ -238,6 +239,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
             <ActivityDrawer csrfToken={csrfToken} role={role} />
             <SessionControls authStatus={authStatus} csrfToken={csrfToken} onRefresh={() => void refreshAuth()} onSignedOut={onSignedOut} />
           </div>
+          <LookBar look={drawnLook} role={role} onNavigate={setView} />
         </header>
 
         {nav === "sidebar"

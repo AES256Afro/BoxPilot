@@ -260,6 +260,7 @@
 :root[data-look="cockpit"] .bar-button svg { width: 1.45em; height: 1.45em; }
 :root[data-look="cockpit"] .bar-badge { min-width: 1.6em; height: 1.6em; padding: 0 0.35em; border-radius: 0.2em; color: #1a1000; background: var(--ck-a); font: 700 1em/1 var(--font-mono); letter-spacing: 0; }
 :root[data-look="cockpit"] .bar-label { align-self: center; border-color: #45484d; border-radius: 0.2em; color: #aeb7bf; font: 700 calc(var(--ck-em) * 0.55)/1.4 var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase; }
+:root[data-look="cockpit"] .command-trigger { align-self: center; }
 :root[data-look="cockpit"] .command-trigger__icon { width: 1.45em; height: 1.45em; }
 :root[data-look="cockpit"] .command-trigger__keys { display: none; }
 /* Its name stays for assistive technology; the key says SEARCH, as a soft key would. */
@@ -269,8 +270,6 @@
 :root[data-look="cockpit"] .connection-pill::before { background: var(--ck-g); box-shadow: 0 0 0.4em var(--ck-g); }
 :root[data-look="cockpit"] .signed-in-user { align-self: center; color: #aeb7bf; font: 700 calc(var(--ck-em) * 0.62)/1 var(--font-mono); text-transform: uppercase; }
 :root[data-look="cockpit"] .signed-in-user__avatar { border-radius: 0.2em; color: #000000; background: var(--ck-g); font-family: var(--font-mono); }
-/* On Home the clock sits at the far right of the bar: the controls keep clear of it. */
-:root[data-look="cockpit"] .app-shell[data-view="home"] .topbar-right { margin-right: calc(var(--ck-em) * 7.4); }
 
 /* ── The soft keys: grey bezel keys along the bottom, the current one lit by a green bar. Home and
    Ops (the bar's view switch) lead the row, then the everyday areas; More opens every area. ── */
@@ -510,23 +509,23 @@
   --accent-bg: rgba(63, 215, 242, 0.1);
   --link: #3fd7f2;
 }
-:root[data-look="cockpit"] :is(.ui-sheet, .command-dialog) {
+:root[data-look="cockpit"] :is(.ui-sheet, .command-dialog, .approve-dialog) {
   border: calc(var(--ck-em) * 0.35) solid #2e3034;
   background: var(--ck-scr);
   box-shadow: inset 0 0 0 calc(var(--ck-em) * 0.15) var(--ck-edge), 0 1.2em 3em rgba(0, 0, 0, 0.6);
 }
 :root[data-look="cockpit"] .ui-sheet--right { border-width: 0 0 0 calc(var(--ck-em) * 0.35); }
 :root[data-look="cockpit"] .ui-sheet__head { border-bottom-color: var(--cc-line); }
-:root[data-look="cockpit"] .ui-sheet__title { color: var(--ck-w); font-family: var(--font-sans); font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+:root[data-look="cockpit"] :is(.ui-sheet__title, .approve-title) { color: var(--ck-w); font-family: var(--font-sans); font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
 :root[data-look="cockpit"] .ui-sheet__kicker { color: var(--ck-g); font-family: var(--font-mono); }
-:root[data-look="cockpit"] .ui-sheet__close { border: 0; color: #e9edf0; background: linear-gradient(#45484d, #2b2d31); box-shadow: 0 2px 0 #0d0e10, inset 0 1px 0 rgba(255, 255, 255, 0.2); }
+:root[data-look="cockpit"] .approve-kicker { font-family: var(--font-mono); }
+:root[data-look="cockpit"] :is(.ui-sheet__close, .approve-close) { border: 0; color: #e9edf0; background: linear-gradient(#45484d, #2b2d31); box-shadow: 0 2px 0 #0d0e10, inset 0 1px 0 rgba(255, 255, 255, 0.2); }
 :root[data-look="cockpit"] .command-input { font-family: var(--font-mono); }
 :root[data-look="cockpit"] .areas-sheet .ui-dock__item[aria-current="page"] .ui-dock__icon { border-color: var(--ck-g); color: #00140a; background: var(--ck-g); }
 
 /* ── A narrower screen: fewer figures in the bar, the soft keys keep their row. ── */
 @media (max-width: 1100px) {
   :root[data-look="cockpit"] .cc-kv { display: none; }
-  :root[data-look="cockpit"] .app-shell[data-view="home"] .topbar-right { margin-right: calc(var(--ck-em) * 7.8); }
 }
 
 /* ── A phone: the lamps and the controls in two rows, six soft keys along the bottom. ── */
@@ -546,10 +545,7 @@
     padding: calc(8px + env(safe-area-inset-top, 0px)) var(--ck-side) 12px;
   }
   :root[data-look="cockpit"] .topbar-left { flex-basis: 100%; }
-  /* The annunciators stay on a phone, where the Launcher would hide its host line. */
-  :root[data-look="cockpit"] .app-shell[data-view="home"] .topbar-slot { display: flex; flex: 1 1 auto; }
   :root[data-look="cockpit"] .topbar-right { flex-wrap: wrap; justify-content: flex-end; margin-left: auto; }
-  :root[data-look="cockpit"] .app-shell[data-view="home"] .topbar-right { margin-right: 0; }
   :root[data-look="cockpit"] :is(.bar-button, .command-trigger) { height: 40px; padding: 0 10px; }
   :root[data-look="cockpit"] .cc-crumb { flex: 1 1 auto; min-height: 36px; }
   :root[data-look="cockpit"] #content { min-height: calc(100vh - 150px - var(--ck-bottom)); }

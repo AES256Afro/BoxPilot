@@ -1,7 +1,7 @@
 /*
  * Home in the Glass Cockpit look (M41): the study's .ck screen (docs/design-directions/05-looks.html),
  * in its em, which is the screen's width / 74 (the skin sets --ck-em). The bezel, the screen and the
- * soft keys are the skin's; here are the gauges, the memo and the annunciators in the bar.
+ * soft keys are the skin's, the annunciators annunciators.css; here are the gauges and the memo.
  */
 
 .cockpit-home {
@@ -103,7 +103,6 @@
 .cockpit-line:is(button):disabled { cursor: default; opacity: 0.55; }
 
 .cockpit-line--dim { color: var(--ck-d); }
-.cockpit-line--detail { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cockpit-line--caution { white-space: normal; }
 .cockpit-line--caution[data-severity="warning"] { color: var(--ck-a); }
 .cockpit-line--caution[data-severity="danger"] { color: var(--ck-r); }
@@ -123,50 +122,6 @@
 .cockpit-verdict[data-status="danger"] { color: var(--ck-r); }
 .cockpit-verdict:is([data-status="unknown"], [data-status="neutral"]) { color: var(--ck-d); }
 
-/* ── The annunciator row, in the shell's bar: lamps, then the clock at the far right. ── */
-.cockpit-ann {
-  display: flex;
-  align-items: stretch;
-  gap: calc(var(--ck-em, 19.46px) * 0.5);
-  height: 100%;
-  font-size: var(--ck-em, 19.46px);
-}
-.cockpit-lamp {
-  display: grid;
-  place-content: center;
-  min-width: 0;
-  padding: 0.6em 0.8em;
-  border: 0;
-  border-radius: 0.2em;
-  color: #a0916f;
-  background: #2a2418;
-  box-shadow: inset 0 0 0 0.15em #111111;
-  font: 700 0.62em/1 "B612", "Arial", sans-serif;
-  letter-spacing: 0.08em;
-  text-align: center;
-  cursor: pointer;
-}
-.cockpit-lamp[data-state="good"] { color: #56a06d; background: #102a18; }
-.cockpit-lamp[data-state="warning"] { color: #1a1000; background: #ffbf1f; box-shadow: inset 0 0 0 0.15em #111111, 0 0 1em rgba(255, 191, 31, 0.6); }
-.cockpit-lamp[data-state="danger"] { color: #1a0000; background: #ff4d4d; box-shadow: inset 0 0 0 0.15em #111111, 0 0 1em rgba(255, 77, 77, 0.6); }
-.cockpit-lamp--master { gap: 0.1em; padding: 0.5em 1.2em; font-size: 0.78em; }
-.cockpit-lamp:hover { filter: brightness(1.12); }
-.cockpit-lamp:focus-visible { outline: 2px solid #3fd7f2; outline-offset: 2px; }
-
-.cockpit-clock {
-  position: absolute;
-  top: 50%;
-  right: calc(var(--ck-em, 19.46px) * 1.1);
-  padding: 0.2em 0.6em;
-  border-radius: 0.2em;
-  color: #39e27d;
-  background: #000000;
-  box-shadow: inset 0 0 0 0.12em #111111;
-  font: 700 1.1em/1.3 "B612 Mono", ui-monospace, monospace;
-  font-variant-numeric: tabular-nums;
-  transform: translateY(-50%);
-}
-
 /* A narrower screen: the memo under the gauges; a phone, the gauges two by two at its width. */
 @media (max-width: 1100px) {
   .cockpit-home { grid-template-columns: minmax(0, 1fr); min-height: 0; font-size: clamp(14px, 1.9vw, 19px); }
@@ -178,8 +133,4 @@
   .cockpit-gauges { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.4em; }
   .cockpit-memo { font-size: 13px; }
   .cockpit-line--act { white-space: pre-wrap; }
-  .cockpit-ann { flex: 1 1 auto; gap: 4px; min-height: 40px; font-size: 14px; }
-  .cockpit-lamp { flex: 1 1 auto; padding: 0.5em 0.3em; }
-  .cockpit-lamp--master { flex-grow: 1.6; padding: 0.35em 0.4em; }
-  .cockpit-clock { display: none; }
 }
