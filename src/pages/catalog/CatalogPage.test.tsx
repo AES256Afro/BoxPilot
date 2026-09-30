@@ -834,6 +834,21 @@ describe("App catalog: configuration", () => {
     expect(within(sheet).getByRole("button", { name: "Apply" }).getAttribute("data-risk")).toBe("high");
   });
 
+  it("offers to read the configuration again when the first read fails", async () => {
+    let reads = 0;
+    withConfig((url) => {
+      if (url.includes("app.config.inspect")) { reads += 1; return reads === 1 ? json({ error: "The helper did not answer" }, 503) : json({ result: { id: "dockge", name: "Dockge", directory: "/opt/boxpilot/apps/dockge", env: [] } }); }
+      return undefined;
+    });
+    render(<CatalogPage csrfToken="csrf-token" />);
+    const sheet = await openApp("Dockge");
+    fireEvent.click(within(sheet).getByRole("tab", { name: "Config" }));
+    expect(await within(sheet).findByText("The helper did not answer")).toBeTruthy();
+    fireEvent.click(within(sheet).getByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(within(sheet).queryByText("The helper did not answer")).toBeNull());
+    expect(reads).toBe(2);
+  });
+
   it("keeps a raw Compose read that starts before the opened tab's effects have run", async () => {
     // React commits the opened tab first and runs its effects in a later task. A cleanup keyed on
     // the app ran in that task and aborted a read clicked in between, leaving the button stuck on

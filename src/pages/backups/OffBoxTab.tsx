@@ -187,7 +187,7 @@ export default function OffBoxTab({ csrfToken, role, tailnetHosts, machine, remo
           {savedCloud && may("backup.cloud.sync") && <Button variant="primary" risk={riskOf("backup.cloud.sync")} onClick={() => start({ operationId: "backup.cloud.sync", title: "Mirror backups to the cloud", parameters: {}, preview: <span><code>rclone copy --checksum</code> of the controller backups, app backups, and machine snapshots to the destination. Files already there are verified, not re-uploaded; nothing is ever deleted at the destination.</span> })}>Mirror now</Button>}
         </>}
       >
-        {cloudError && <Notice tone="danger" live title="The cloud destination could not be read">{cloudError}</Notice>}
+        {cloudError && <Notice tone="danger" live title="The cloud destination could not be read" action={<Button onClick={onChanged}>Try again</Button>}>{cloudError}</Notice>}
         <KeyValue items={[
           { id: "provider", label: "Provider", value: savedCloud ? cloud?.providers?.[savedCloud.provider]?.label ?? savedCloud.provider : "not set" },
           ...(savedCloud?.bucket ? [{ id: "bucket", label: "Bucket", value: savedCloud.bucket, mono: true }] : []),
