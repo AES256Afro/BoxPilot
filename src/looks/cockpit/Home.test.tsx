@@ -28,6 +28,10 @@ describe("Home in the Glass Cockpit look", () => {
     expect(install.getAttribute("data-risk")).toBe("medium");
     expect(document.getElementById(install.getAttribute("aria-describedby") ?? "")?.textContent).toMatch(/^Medium risk/);
     expect(within(memo).getByRole("button", { name: "Update: An update for Jellyfin" }).textContent).toMatch(/MED$/);
+    // Each need in the ECAM's few words, named in full.
+    expect(within(memo).getByRole("button", { name: "Needs a look: 4 updates available" }).textContent).toBe("4 avail · 1 security");
+    expect(within(memo).getByRole("button", { name: "Problem: Vaultwarden is not running" }).textContent).toBe("Vaultwarden down");
+    expect(within(memo).getByRole("button", { name: "Can wait: An update for Jellyfin" }).textContent).toBe("Jellyfin upd ready");
 
     // A caution line opens its page; its fix goes through the approval dialog, never around it.
     fireEvent.click(within(memo).getByRole("button", { name: /^Problem: Vaultwarden is not running/ }));

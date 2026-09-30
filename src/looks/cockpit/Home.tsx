@@ -9,7 +9,7 @@ import { runWords, useNeedActions } from "../../home/useNeedActions";
 import { riskCopy, type RiskTier, type Status } from "../../ui";
 import { driveWord, fullestDrive, hottestSensor, useLivePerformance } from "./livePerformance";
 import { nextBackupRun } from "./nextRun";
-import { sectionOf, sectionTitles, worstOf, type SectionId } from "./sections";
+import { sectionOf, sectionTitles, terse, worstOf, type SectionId } from "./sections";
 import "./home.css";
 
 /*
@@ -92,7 +92,8 @@ export default function CockpitHome({ csrfToken, role, onNavigate, now = Date.no
       <section className="cockpit-memo" aria-label="Memo">
         <h2 className="cockpit-t">{hostname}</h2>
         {inventory && <p className="cockpit-line cockpit-line--dim">{inventory.operatingSystem.replace(/\s+LTS$/, "")} · up {upFor(inventory.uptimeSeconds)}</p>}
-        <p className="cockpit-line cockpit-verdict" data-status={verdict.status}>{verdict.sentence}</p>
+        {/* The verdict is the master lamp's on screen; here it is read out with the memo. */}
+        <p className="ui-visually-hidden">{verdict.sentence}</p>
 
         {order.map((id) => {
           const list = sections.get(id) ?? [];
@@ -100,7 +101,7 @@ export default function CockpitHome({ csrfToken, role, onNavigate, now = Date.no
             <div key={id} className="cockpit-section">
               <h2 className="cockpit-t">{sectionTitles[id]}</h2>
               <ul className="cockpit-lines">
-                {list.map((need) => <MemoNeed key={need.id} need={need} column={column} onOpen={open} onAct={act} run={need.finding ? fixRuns[need.finding.id] : undefined} />)}
+                {list.map((need) => <MemoNeed key={need.id} need={need} words={terse(need, values, clock)} column={column} onOpen={open} onAct={act} run={need.finding ? fixRuns[need.finding.id] : undefined} />)}
                 {id === "backup" && list.length === 0 && (
                   <li><button type="button" className="cockpit-line cockpit-line--open" data-status={glance.apps.status} onClick={() => onNavigate("backups")}>{glance.apps.status === "unknown" ? `Apps backed up: ${glance.apps.caption}` : glance.apps.caption}</button></li>
                 )}
@@ -118,7 +119,7 @@ export default function CockpitHome({ csrfToken, role, onNavigate, now = Date.no
         <div className="cockpit-section">
           <h2 className="cockpit-t">Memo</h2>
           <ul className="cockpit-lines">
-            {waiting.map((need) => <MemoNeed key={need.id} need={need} column={column} onOpen={open} onAct={act} run={need.finding ? fixRuns[need.finding.id] : undefined} />)}
+            {waiting.map((need) => <MemoNeed key={need.id} need={need} words={terse(need, values, clock)} column={column} onOpen={open} onAct={act} run={need.finding ? fixRuns[need.finding.id] : undefined} />)}
             {reach && <li><button type="button" className="cockpit-line cockpit-line--open" data-status={reachStatus} onClick={() => onNavigate("network")}>{reach}</button></li>}
             {!inventory && <li className="cockpit-line cockpit-line--dim">{facts.inventory.state === "failed" ? "The system could not be read" : "Reading the system"}</li>}
           </ul>
@@ -135,21 +136,21 @@ function upFor(seconds: number): string {
   return days > 0 ? `${days}d ${pad(hours)}h` : `${hours}h ${pad(Math.floor((seconds % 3600) / 60))}m`;
 }
 
-/** One need in the memo: its line opens its page; each fix is a cyan line ending in its tier. */
-function MemoNeed({ need, column, onOpen, onAct, run }: { need: Need; column: number; onOpen: (need: Need) => void; onAct: (need: Need, action?: NeedAction | null) => void; run?: ReturnType<typeof useNeedActions>["runs"][string] }) {
+/**
+ * One need in the memo: a line in the ECAM's few words that opens its page, named by the need's own
+ * title, and under it each fix as a cyan line ending in its tier.
+ */
+function MemoNeed({ need, words, column, onOpen, onAct, run }: { need: Need; words: string; column: number; onOpen: (need: Need) => void; onAct: (need: Need, action?: NeedAction | null) => void; run?: ReturnType<typeof useNeedActions>["runs"][string] }) {
   const detailId = useId();
   const busy = run && ["queued", "running", "checking"].includes(run.phase);
-  // As terse as the ECAM: a few words more ride on the line ("4 UPDATES AVAILABLE · 1 SECURITY FIX
-  // AMONG THEM"); a longer detail is the line's description and its tooltip.
-  const short = need.detail && need.detail.length <= 32 ? need.detail : null;
-  const long = need.detail && !short ? need.detail : null;
   return (
     <>
       <li>
-        <button type="button" className="cockpit-line cockpit-line--caution" data-severity={need.severity} title={long ?? undefined} onClick={() => onOpen(need)} aria-describedby={long ? detailId : undefined}>
-          <span className="ui-visually-hidden">{`${severityWords[need.severity]}:`}</span>{` ${need.title}`}{short && <span className="cockpit-line__more">{` · ${short}`}</span>}
+        <button type="button" className="cockpit-line cockpit-line--caution" data-severity={need.severity} title={need.detail ? `${need.title}. ${need.detail}` : need.title}
+          aria-label={`${severityWords[need.severity]}: ${need.title}`} aria-describedby={need.detail ? detailId : undefined} onClick={() => onOpen(need)}>
+          {words}
         </button>
-        {long && <span className="ui-visually-hidden" id={detailId}>{long}</span>}
+        {need.detail && <span className="ui-visually-hidden" id={detailId}>{need.detail}</span>}
       </li>
       {need.risk && !need.action && <li className="cockpit-line cockpit-line--dim">{`Staged at ${tierWord[need.risk]}`}</li>}
       {actionsOf(need).map((action) => <MemoAction key={`${action.kind ?? "operation"}:${action.operationId}:${action.label}`} need={need} action={action} column={column} disabled={Boolean(busy) && action.kind !== "dismiss" && action.kind !== "open"} onAct={onAct} />)}

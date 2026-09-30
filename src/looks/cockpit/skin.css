@@ -163,12 +163,15 @@
   border-radius: calc(var(--ck-em) * 0.5) calc(var(--ck-em) * 0.5) 0 0;
   background: var(--ck-scr);
 }
-:root[data-look="cockpit"] .topbar-left { flex: 1 1 auto; align-items: stretch; gap: calc(var(--ck-em) * 0.5); min-width: 0; }
+:root[data-look="cockpit"] .topbar-left { flex: 1 1 0; align-items: stretch; gap: calc(var(--ck-em) * 0.5); min-width: 0; }
 :root[data-look="cockpit"] .topbar-slot { align-items: stretch; min-width: 0; }
-:root[data-look="cockpit"] .topbar-right { align-items: center; gap: calc(var(--ck-em) * 0.4); }
+/* The controls keep their size; the page's facts in the readout give way, cut short, before them. */
+:root[data-look="cockpit"] .topbar-right { flex: none; align-items: center; gap: calc(var(--ck-em) * 0.4); }
 
 /* The page's name, in a black readout box like the clock's. */
 :root[data-look="cockpit"] .cc-crumb {
+  min-width: 0;
+  overflow: hidden;
   align-items: center;
   align-self: stretch;
   gap: 0.5em;
@@ -182,7 +185,7 @@
 :root[data-look="cockpit"] .cc-crumb__sep { color: var(--ck-d); font-size: 1em; }
 :root[data-look="cockpit"] .cc-crumb h1 { color: var(--ck-w); font: 700 1em/1 var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase; }
 :root[data-look="cockpit"] .cc-crumb .ui-info-toggle { color: var(--ck-d); }
-:root[data-look="cockpit"] .cc-kv { align-self: center; margin-left: 0.4em; color: var(--ck-d); font-family: var(--font-mono); font-size: calc(var(--ck-em) * 0.62); letter-spacing: 0.02em; text-transform: uppercase; }
+:root[data-look="cockpit"] .cc-kv { flex: 1 1 0; align-self: center; min-width: 0; margin-left: 0.4em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ck-d); font-family: var(--font-mono); font-size: calc(var(--ck-em) * 0.62); letter-spacing: 0.02em; text-transform: uppercase; }
 :root[data-look="cockpit"] .cc-kv b { color: var(--ck-g); font-weight: 400; }
 
 /* The bar's controls: grey bezel buttons with bold spaced capitals, as the soft keys are. */
@@ -436,7 +439,9 @@
 :root[data-look="cockpit"] .ui-switch__control[aria-checked="true"] .ui-switch__thumb { background: #00140a; }
 :root[data-look="cockpit"] .ui-switch__control[aria-checked="true"] .ui-switch__state { color: var(--ck-g); }
 :root[data-look="cockpit"] .ui-check__input:checked + .ui-check__mark { border-color: var(--ck-c); background: var(--ck-c); }
-:root[data-look="cockpit"] :is(.ui-input, .ui-textarea, .ui-select__control) { border-color: var(--cc-line-strong); color: var(--ck-c); background: #000000; font-family: var(--font-mono); }
+:root[data-look="cockpit"] :is(.ui-input, .ui-textarea, .ui-select__control) { border-color: var(--cc-line-strong); color: var(--ck-c); background: #000000; font-family: var(--font-mono); text-overflow: ellipsis; }
+/* A tile's caption on one line in B612, cut short rather than broken inside a figure ("6.1% · 1434 MiB"). */
+:root[data-look="cockpit"] .ui-tile__detail { display: block; max-width: 100%; overflow: hidden; font-family: var(--font-sans); font-size: 11px; letter-spacing: 0; text-overflow: ellipsis; white-space: nowrap; }
 :root[data-look="cockpit"] :is(.ui-input, .ui-textarea, .ui-select__control):focus-visible { border-color: var(--ck-c); outline-color: var(--ck-c); }
 :root[data-look="cockpit"] .ui-kv__label { color: var(--ck-d); font-family: var(--font-sans); font-weight: 700; letter-spacing: 0.1em; }
 :root[data-look="cockpit"] .ui-kv__value { color: var(--ck-w); }
@@ -496,7 +501,7 @@
     padding: calc(8px + env(safe-area-inset-top, 0px)) var(--ck-side) 12px;
   }
   :root[data-look="cockpit"] .topbar-left { flex-basis: 100%; }
-  :root[data-look="cockpit"] .topbar-right { flex-wrap: wrap; justify-content: flex-end; margin-left: auto; }
+  :root[data-look="cockpit"] .topbar-right { flex: 0 1 auto; flex-wrap: wrap; justify-content: flex-end; margin-left: auto; }
   :root[data-look="cockpit"] :is(.bar-button, .command-trigger) { height: 40px; padding: 0 10px; }
   :root[data-look="cockpit"] .cc-crumb { flex: 1 1 auto; min-height: 36px; }
   :root[data-look="cockpit"] #content { min-height: calc(100vh - 150px - var(--ck-bottom)); }
