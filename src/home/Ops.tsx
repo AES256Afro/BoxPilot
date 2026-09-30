@@ -45,7 +45,7 @@ type PerformanceAnswer = unknown;
  * Live CPU and memory, read again every few seconds while the page is open and visible, with the
  * reads so far kept for the sparklines (a rolling buffer that lives as long as the page does).
  */
-function usePerformance(pollMs: number, now: () => number): { value: Performance | null; failed: boolean; samples: Sample[] } {
+export function usePerformance(pollMs: number, now: () => number): { value: Performance | null; failed: boolean; samples: Sample[] } {
   const [state, setState] = useState<{ value: Performance | null; failed: boolean; samples: Sample[] }>({ value: null, failed: false, samples: [] });
   // The clock is read when a sample lands, not a reason to start polling over.
   const clock = useRef(now);
@@ -76,7 +76,7 @@ const tierHeading: Record<RiskTier, string> = { high: "Password and typed confir
 const runWords: Record<RunState, string> = { ok: "Completed", failed: "Failed", running: "Running", waiting: "Waiting for approval" };
 
 /** "27.4%" as the figure and its unit, so the unit can be drawn smaller; words stay as they are. */
-function figure(text: string): ReactNode {
+export function figure(text: string): ReactNode {
   const match = /^(-?[\d.,]+)(\s?\S.*)$/.exec(text);
   return match ? <>{match[1]}<small>{match[2]}</small></> : text;
 }
