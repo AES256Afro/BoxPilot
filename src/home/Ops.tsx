@@ -76,7 +76,7 @@ const tierHeading: Record<RiskTier, string> = { high: "Password and typed confir
 const runWords: Record<RunState, string> = { ok: "Completed", failed: "Failed", running: "Running", waiting: "Waiting for approval" };
 
 /** "27.4%" as the figure and its unit, so the unit can be drawn smaller; words stay as they are. */
-function figure(text: string): ReactNode {
+export function figure(text: string): ReactNode {
   const match = /^(-?[\d.,]+)(\s?\S.*)$/.exec(text);
   return match ? <>{match[1]}<small>{match[2]}</small></> : text;
 }
