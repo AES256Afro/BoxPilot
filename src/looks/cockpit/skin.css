@@ -1,1 +1,506 @@
-/* The cockpit look's skin (M41): every selector starts with :root[data-look="cockpit"]. */
+/*
+ * The cockpit look's skin (M41): every selector starts with :root[data-look="cockpit"].
+ *
+ * An aircraft's glass cockpit (docs/design-directions/05-looks.html, .ck): a grey bezel round a
+ * near-black screen with an inset edge. The bar at the top is the annunciator row, the areas are
+ * the soft keys along the bottom (Home and Ops lead them), and every page is drawn on the screen
+ * in B612, the face made for Airbus displays, with its colours: green for normal, cyan for what
+ * can be done, amber for caution, magenta for what is selected, white for titles, grey for labels.
+ * Dark only: it draws the same whatever the device prefers.
+ *
+ * Its measures are the drawing's em, the screen's width / 74 (19.46 px at 1440 px), as --ck-em.
+ */
+
+:root[data-look="cockpit"] {
+  color-scheme: dark;
+
+  --ck-em: clamp(12px, calc(100vw / 74), 22px);
+  /* The bar (padding, the annunciator row, the gap) and the soft keys' strip, for the screen between. */
+  --ck-top: calc(var(--ck-em) * 3.85);
+  --ck-keys-h: calc(var(--ck-em) * 1.78);
+  --ck-strip: calc(var(--ck-em) * 3.28);
+  --ck-bottom: calc(var(--ck-strip) + var(--shell-bottom-inset, 0px) + env(safe-area-inset-bottom, 0px));
+  --ck-side: calc(var(--ck-em) * 1.1);
+  --ck-key-gap: calc(var(--ck-em) * 0.6);
+  /* Home and Ops, then APPS STOR NET BKUP UPD REPAIR SYS SETTINGS MORE. */
+  --ck-keys: 11;
+  --ck-bezel: linear-gradient(#34363a, #1c1e21) fixed;
+  --ck-scr: #04070a;
+  --ck-edge: #0b0d10;
+  --ck-g: #39e27d;
+  --ck-c: #3fd7f2;
+  --ck-a: #ffbf1f;
+  --ck-m: #ff5ce1;
+  --ck-w: #f1f4f6;
+  --ck-d: #7d8894;
+  --ck-r: #ff4d4d;
+
+  --font-condensed: "B612", "Arial", ui-sans-serif, sans-serif;
+  --font-sans: "B612", "Arial", ui-sans-serif, sans-serif;
+  --font-mono: "B612 Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --font-display: "B612", "Arial", ui-sans-serif, sans-serif;
+
+  /* The screen's values for every console component. */
+  --cc-canvas: #04070a;
+  --cc-topbar: #26282c;
+  --cc-rail: #1c1e21;
+  --cc-panel: #060a0e;
+  --cc-raised: #0d141b;
+  --cc-inset: #000000;
+  --cc-line: #1c2530;
+  --cc-hairline: #121a22;
+  --cc-line-strong: #2c3a47;
+  --cc-text: #cfd6dc;
+  --cc-text-strong: #f1f4f6;
+  --cc-muted: #7d8894;
+  --cc-icon: #7d8894;
+  --cc-amber: #ffbf1f;
+  --cc-amber-ink: #1a1000;
+  --cc-amber-bg: rgba(255, 191, 31, 0.1);
+  --cc-amber-border: rgba(255, 191, 31, 0.45);
+  --cc-cyan: #3fd7f2;
+  --cc-cyan-fill: rgba(63, 215, 242, 0.12);
+  --cc-green: #39e27d;
+  --cc-green-bg: rgba(57, 226, 125, 0.08);
+  --cc-green-border: rgba(57, 226, 125, 0.4);
+  --cc-red: #ff4d4d;
+  --cc-red-text: #ff7a7a;
+  --cc-red-bg: rgba(255, 77, 77, 0.1);
+  --cc-red-border: rgba(255, 77, 77, 0.5);
+  --cc-track: #1b242c;
+
+  /* What can be done is cyan in a cockpit; amber stays for caution, magenta for what is selected. */
+  --accent: #3fd7f2;
+  --accent-dim: #3fd7f2;
+  --accent-mid: #3fd7f2;
+  --accent-light: #3fd7f2;
+  --accent-text-on: #00161b;
+  --accent-faint: rgba(63, 215, 242, 0.1);
+  --accent-bg: rgba(63, 215, 242, 0.1);
+  --accent-border: rgba(63, 215, 242, 0.45);
+  --accent-glow: rgba(63, 215, 242, 0.1);
+  --accent-glow-soft: rgba(63, 215, 242, 0.1);
+  --accent-glow-strong: rgba(63, 215, 242, 0.45);
+  --accent-focus: #3fd7f2;
+  --link: #3fd7f2;
+  --border-active: #3fd7f2;
+  --border-selected: rgba(63, 215, 242, 0.45);
+  --focus-ring-soft: rgba(63, 215, 242, 0.12);
+  --shadow-focus: inset 0 0 0 1px #3fd7f2;
+  --shadow-active-inset: inset 2px 0 0 #3fd7f2;
+  --gradient-brand: linear-gradient(#3fd7f2, #3fd7f2);
+  --gradient-button: linear-gradient(#3fd7f2, #3fd7f2);
+  --modal-bg: rgba(0, 0, 0, 0.66);
+  --radius-sm: 3px;
+  --radius-md: 4px;
+  --radius-lg: 6px;
+  --radius-control: 3px;
+  --radius-card: 5px;
+}
+
+/* Dark only: the switch has nothing to choose here. */
+:root[data-look="cockpit"] .ui-theme-switch { display: none; }
+
+/* ── The bezel: the grey frame round the screen, behind the bar, the sides and the soft keys. ── */
+:root[data-look="cockpit"] body { background: #1c1e21 var(--ck-bezel); }
+:root[data-look="cockpit"] .app-shell[data-shell="console"] {
+  color: var(--cc-text);
+  background: var(--ck-bezel);
+  font-family: var(--font-sans);
+}
+:root[data-look="cockpit"] .app-shell[data-shell="console"]::before { background: var(--ck-bezel); }
+:root[data-look="cockpit"] ::selection { color: #00161b; background: var(--ck-c); }
+:root[data-look="cockpit"] :is(button, a, input, select, textarea, summary, [tabindex]):focus-visible { outline: 2px solid var(--ck-c); outline-offset: 1px; }
+:root[data-look="cockpit"] .look-console :focus-visible:not([tabindex="-1"]) { outline-color: var(--ck-c); }
+
+/* ── The screen: the page, black inside the bezel with its inset edge. The bar above and the
+   soft keys below each carry a lip of the screen's rounded edge, so the page scrolls behind a
+   frame that stays put. ── */
+:root[data-look="cockpit"] #content {
+  display: block;
+  min-height: calc(100vh - var(--ck-top) - var(--ck-bottom));
+  margin: 0 var(--ck-side) var(--ck-bottom);
+  background: var(--ck-scr);
+  box-shadow: inset calc(var(--ck-em) * 0.3) 0 0 var(--ck-edge), inset calc(var(--ck-em) * -0.3) 0 0 var(--ck-edge), inset 0 0 calc(var(--ck-em) * 3) rgba(63, 215, 242, 0.06);
+}
+:root[data-look="cockpit"] #content > .content {
+  max-width: none;
+  padding: var(--ck-em) calc(var(--ck-em) * 1.1) calc(var(--ck-em) * 1.1);
+}
+
+/* ── The annunciator row: the bar on the bezel, its controls as bezel buttons. ── */
+:root[data-look="cockpit"] .topbar {
+  position: sticky;
+  z-index: 31;
+  top: 0;
+  box-sizing: border-box;
+  height: calc(var(--ck-top) + env(safe-area-inset-top, 0px));
+  min-height: 0;
+  align-items: stretch;
+  gap: calc(var(--ck-em) * 0.5);
+  padding: calc(var(--ck-em) * 0.9) var(--ck-side) calc(var(--ck-em) * 0.6);
+  border: 0;
+  background: var(--ck-bezel);
+  backdrop-filter: none;
+  font-size: var(--ck-em);
+}
+/* The screen's top edge, rounded, under the bar: bezel behind its corners, the black and its rim. */
+:root[data-look="cockpit"] .topbar::before,
+:root[data-look="cockpit"] .topbar::after {
+  position: absolute;
+  top: 100%;
+  height: calc(var(--ck-em) * 0.55);
+  content: "";
+  pointer-events: none;
+}
+:root[data-look="cockpit"] .topbar::before { right: 0; left: 0; background: var(--ck-bezel); }
+:root[data-look="cockpit"] .topbar::after {
+  right: var(--ck-side);
+  left: var(--ck-side);
+  box-sizing: border-box;
+  border: calc(var(--ck-em) * 0.3) solid var(--ck-edge);
+  border-bottom: 0;
+  border-radius: calc(var(--ck-em) * 0.5) calc(var(--ck-em) * 0.5) 0 0;
+  background: var(--ck-scr);
+}
+:root[data-look="cockpit"] .topbar-left { flex: 1 1 auto; align-items: stretch; gap: calc(var(--ck-em) * 0.5); min-width: 0; }
+:root[data-look="cockpit"] .topbar-slot { align-items: stretch; min-width: 0; }
+:root[data-look="cockpit"] .topbar-right { align-items: center; gap: calc(var(--ck-em) * 0.4); }
+
+/* The page's name, in a black readout box like the clock's. */
+:root[data-look="cockpit"] .cc-crumb {
+  align-items: center;
+  align-self: stretch;
+  gap: 0.5em;
+  padding: 0 0.9em;
+  border-radius: 0.2em;
+  background: #000000;
+  box-shadow: inset 0 0 0 0.12em #111111;
+  font-size: calc(var(--ck-em) * 0.78);
+}
+:root[data-look="cockpit"] .cc-crumb__host { color: var(--ck-d); font: 700 1em/1 var(--font-mono); letter-spacing: 0.04em; text-transform: uppercase; }
+:root[data-look="cockpit"] .cc-crumb__sep { color: var(--ck-d); font-size: 1em; }
+:root[data-look="cockpit"] .cc-crumb h1 { color: var(--ck-w); font: 700 1em/1 var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase; }
+:root[data-look="cockpit"] .cc-crumb .ui-info-toggle { color: var(--ck-d); }
+:root[data-look="cockpit"] .cc-kv { align-self: center; margin-left: 0.4em; color: var(--ck-d); font-family: var(--font-mono); font-size: calc(var(--ck-em) * 0.62); letter-spacing: 0.02em; text-transform: uppercase; }
+:root[data-look="cockpit"] .cc-kv b { color: var(--ck-g); font-weight: 400; }
+
+/* The bar's controls: grey bezel buttons with bold spaced capitals, as the soft keys are. */
+:root[data-look="cockpit"] :is(.bar-button, .command-trigger) {
+  flex: none;
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: none;
+  height: calc(var(--ck-em) * 1.9);
+  min-height: 0;
+  padding: 0 0.95em;
+  gap: 0.5em;
+  border: 0;
+  border-radius: 0.3em;
+  color: #e9edf0;
+  background: linear-gradient(#45484d, #2b2d31);
+  box-shadow: 0 0.2em 0 #0d0e10, inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  font: 700 calc(var(--ck-em) * 0.62)/1 var(--font-sans);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+:root[data-look="cockpit"] :is(.bar-button, .command-trigger):hover { color: #ffffff; background: linear-gradient(#4f5358, #313338); }
+:root[data-look="cockpit"] :is(.bar-button, .command-trigger):active { box-shadow: 0 0.05em 0 #0d0e10, inset 0 1px 0 rgba(255, 255, 255, 0.12); transform: translateY(0.12em); }
+:root[data-look="cockpit"] .bar-button[aria-expanded="true"] { color: var(--ck-c); }
+:root[data-look="cockpit"] .bar-button[data-live] { color: var(--ck-a); }
+:root[data-look="cockpit"] .bar-button svg { width: 1.45em; height: 1.45em; }
+:root[data-look="cockpit"] .bar-badge { min-width: 1.6em; height: 1.6em; padding: 0 0.35em; border-radius: 0.2em; color: #1a1000; background: var(--ck-a); font: 700 1em/1 var(--font-mono); letter-spacing: 0; }
+:root[data-look="cockpit"] .bar-label { align-self: center; border-color: #45484d; border-radius: 0.2em; color: #aeb7bf; font: 700 calc(var(--ck-em) * 0.55)/1.4 var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase; }
+:root[data-look="cockpit"] .command-trigger { align-self: center; }
+:root[data-look="cockpit"] .command-trigger__icon { width: 1.45em; height: 1.45em; }
+:root[data-look="cockpit"] .command-trigger__keys { display: none; }
+/* Its name stays for assistive technology; the key says SEARCH, as a soft key would. */
+:root[data-look="cockpit"] .command-trigger__label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+:root[data-look="cockpit"] .command-trigger::after { content: "SEARCH" / ""; }
+:root[data-look="cockpit"] .connection-pill { align-self: center; border-color: #45484d; border-radius: 0.2em; color: #aeb7bf; background: #000000; font: 700 calc(var(--ck-em) * 0.55)/1.4 var(--font-mono); letter-spacing: 0.04em; }
+:root[data-look="cockpit"] .connection-pill::before { background: var(--ck-g); box-shadow: 0 0 0.4em var(--ck-g); }
+:root[data-look="cockpit"] .signed-in-user { align-self: center; color: #aeb7bf; font: 700 calc(var(--ck-em) * 0.62)/1 var(--font-mono); text-transform: uppercase; }
+:root[data-look="cockpit"] .signed-in-user__avatar { border-radius: 0.2em; color: #000000; background: var(--ck-g); font-family: var(--font-mono); }
+
+/* ── The soft keys: grey bezel keys along the bottom, the current one lit by a green bar. Home and
+   Ops (the bar's view switch) lead the row, then the everyday areas; More opens every area. ── */
+:root[data-look="cockpit"] .shell-dock.shell-dock--keys {
+  right: 0;
+  bottom: calc(var(--shell-bottom-inset, 0px) + env(safe-area-inset-bottom, 0px));
+  left: 0;
+  box-sizing: border-box;
+  display: block;
+  height: var(--ck-strip);
+  padding: var(--ck-key-gap) var(--ck-side) calc(var(--ck-em) * 0.9);
+  background: var(--ck-bezel);
+  font-size: var(--ck-em);
+  pointer-events: auto;
+}
+/* The screen's bottom edge, rounded, over the keys. */
+:root[data-look="cockpit"] .shell-dock--keys::before,
+:root[data-look="cockpit"] .shell-dock--keys::after {
+  position: absolute;
+  bottom: 100%;
+  height: calc(var(--ck-em) * 0.55);
+  content: "";
+  pointer-events: none;
+}
+:root[data-look="cockpit"] .shell-dock--keys::before { right: 0; left: 0; background: var(--ck-bezel); }
+:root[data-look="cockpit"] .shell-dock--keys::after {
+  right: var(--ck-side);
+  left: var(--ck-side);
+  box-sizing: border-box;
+  border: calc(var(--ck-em) * 0.3) solid var(--ck-edge);
+  border-top: 0;
+  border-radius: 0 0 calc(var(--ck-em) * 0.5) calc(var(--ck-em) * 0.5);
+  background: var(--ck-scr);
+}
+:root[data-look="cockpit"] .ui-dock.shell-dock--keys ul {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: var(--ck-key-gap);
+  box-sizing: border-box;
+  width: 100%;
+  max-width: none;
+  height: var(--ck-keys-h);
+  /* Room for Home and Ops, which are the bar's view switch, drawn here as the first two keys. */
+  padding: 0 0 0 calc((100% - (var(--ck-keys) - 1) * var(--ck-key-gap)) * 2 / var(--ck-keys) + 2 * var(--ck-key-gap));
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+:root[data-look="cockpit"] .shell-dock--keys :is(li[data-area], .ui-dock__separator) { display: none; }
+:root[data-look="cockpit"] .shell-dock--keys li:is([data-area="catalog"], [data-area="storage"], [data-area="network"], [data-area="backups"], [data-area="updates"], [data-area="repairs"], [data-area="system"], [data-area="settings"], [data-area="more"]) { display: block; min-width: 0; }
+:root[data-look="cockpit"] .shell-dock--keys li[data-area="catalog"] { order: 1; }
+:root[data-look="cockpit"] .shell-dock--keys li[data-area="storage"] { order: 2; }
+:root[data-look="cockpit"] .shell-dock--keys li[data-area="network"] { order: 3; }
+:root[data-look="cockpit"] .shell-dock--keys li[data-area="backups"] { order: 4; }
+:root[data-look="cockpit"] .shell-dock--keys li[data-area="updates"] { order: 5; }
+:root[data-look="cockpit"] .shell-dock--keys li[data-area="repairs"] { order: 6; }
+:root[data-look="cockpit"] .shell-dock--keys li[data-area="system"] { order: 7; }
+:root[data-look="cockpit"] .shell-dock--keys li[data-area="settings"] { order: 8; }
+:root[data-look="cockpit"] .shell-dock--keys li[data-area="more"] { order: 9; }
+
+:root[data-look="cockpit"] :is(.shell-dock--keys .ui-dock__item, .view-switch__option) {
+  position: relative;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  width: 100%;
+  height: var(--ck-keys-h);
+  min-height: 0;
+  margin: 0;
+  padding: 0 0.3em;
+  border: 0;
+  border-radius: calc(var(--ck-em) * 0.3);
+  color: #e9edf0;
+  background: linear-gradient(#45484d, #2b2d31);
+  box-shadow: 0 calc(var(--ck-em) * 0.2) 0 #0d0e10, inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  font: 700 calc(var(--ck-em) * 0.66)/1 var(--font-sans);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+:root[data-look="cockpit"] :is(.shell-dock--keys .ui-dock__item, .view-switch__option):hover { color: #ffffff; background: linear-gradient(#4f5358, #313338); }
+:root[data-look="cockpit"] :is(.shell-dock--keys .ui-dock__item, .view-switch__option):active { box-shadow: 0 calc(var(--ck-em) * 0.05) 0 #0d0e10, inset 0 1px 0 rgba(255, 255, 255, 0.12); transform: translateY(calc(var(--ck-em) * 0.15)); }
+:root[data-look="cockpit"] :is(.shell-dock--keys .ui-dock__item, .view-switch__option):focus-visible { outline: 2px solid var(--ck-c); outline-offset: 2px; }
+/* The current page's key: a green bar lit above its word. */
+:root[data-look="cockpit"] :is(.shell-dock--keys .ui-dock__item, .view-switch__option)[aria-current="page"] { color: #ffffff; background: linear-gradient(#45484d, #2b2d31); }
+:root[data-look="cockpit"] :is(.shell-dock--keys .ui-dock__item, .view-switch__option)[aria-current="page"]::before {
+  position: absolute;
+  top: calc(var(--ck-em) * 0.2);
+  right: 30%;
+  left: 30%;
+  height: calc(var(--ck-em) * 0.16);
+  border-radius: 1em;
+  background: var(--ck-g);
+  box-shadow: 0 0 calc(var(--ck-em) * 0.5) var(--ck-g);
+  content: "";
+}
+:root[data-look="cockpit"] .view-switch__option svg { display: none; }
+:root[data-look="cockpit"] .shell-dock--keys .ui-dock__label {
+  max-width: 100%;
+  overflow: hidden;
+  color: inherit;
+  font-size: 0;
+  letter-spacing: 0.1em;
+  text-overflow: clip;
+}
+:root[data-look="cockpit"] .shell-dock--keys .ui-dock__label::after { font-size: calc(var(--ck-em) * 0.66); line-height: 1; }
+:root[data-look="cockpit"] .shell-dock--keys li[data-area="catalog"] .ui-dock__label::after { content: "APPS"; }
+:root[data-look="cockpit"] .shell-dock--keys li[data-area="storage"] .ui-dock__label::after { content: "STOR"; }
+:root[data-look="cockpit"] .shell-dock--keys li[data-area="network"] .ui-dock__label::after { content: "NET"; }
+:root[data-look="cockpit"] .shell-dock--keys li[data-area="backups"] .ui-dock__label::after { content: "BKUP"; }
+:root[data-look="cockpit"] .shell-dock--keys li[data-area="updates"] .ui-dock__label::after { content: "UPD"; }
+:root[data-look="cockpit"] .shell-dock--keys li[data-area="repairs"] .ui-dock__label::after { content: "REPAIR"; }
+:root[data-look="cockpit"] .shell-dock--keys li[data-area="system"] .ui-dock__label::after { content: "SYS"; }
+:root[data-look="cockpit"] .shell-dock--keys li[data-area="settings"] .ui-dock__label::after { content: "SETTINGS"; }
+:root[data-look="cockpit"] .shell-dock--keys li[data-area="more"] .ui-dock__label::after { content: "MORE"; }
+/* No icon on a soft key; the count waiting there is a small amber lamp in its corner. */
+:root[data-look="cockpit"] .shell-dock--keys .ui-dock__icon {
+  position: absolute;
+  top: calc(var(--ck-em) * 0.22);
+  right: calc(var(--ck-em) * 0.3);
+  display: block;
+  width: auto;
+  height: auto;
+  border: 0;
+  background: none;
+}
+:root[data-look="cockpit"] .shell-dock--keys .ui-dock__icon svg { display: none; }
+:root[data-look="cockpit"] .shell-dock--keys .ui-dock__badge {
+  position: static;
+  display: block;
+  min-width: 0;
+  height: auto;
+  padding: 0.15em 0.35em;
+  border-radius: 0.15em;
+  color: #1a1000;
+  background: var(--ck-a);
+  box-shadow: 0 0 0.5em rgba(255, 191, 31, 0.5);
+  font: 700 calc(var(--ck-em) * 0.5)/1 var(--font-mono);
+  letter-spacing: 0;
+}
+
+/* Home and Ops: the bar's view switch, stood at the start of the soft keys. */
+:root[data-look="cockpit"] .view-switch {
+  position: fixed;
+  z-index: 31;
+  bottom: calc(var(--shell-bottom-inset, 0px) + env(safe-area-inset-bottom, 0px) + var(--ck-em) * 0.9);
+  left: var(--ck-side);
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--ck-key-gap);
+  box-sizing: border-box;
+  width: calc((100% - 2 * var(--ck-side) - (var(--ck-keys) - 1) * var(--ck-key-gap)) * 2 / var(--ck-keys) + var(--ck-key-gap));
+  height: var(--ck-keys-h);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  font-size: var(--ck-em);
+}
+
+/* ── The page kit on the screen: black panels with hairline rims, white underlined titles,
+   figures in B612 Mono, cyan for everything that acts. ── */
+:root[data-look="cockpit"] .ui-panel { border-color: var(--cc-line); border-radius: 0.3rem; background: var(--cc-panel); }
+:root[data-look="cockpit"] .ui-panel__head { border-bottom-color: var(--cc-line); }
+:root[data-look="cockpit"] .ui-panel__title { color: var(--ck-w); font-family: var(--font-mono); font-size: 12px; font-weight: 700; letter-spacing: 0.04em; text-decoration: underline; text-underline-offset: 0.25em; }
+:root[data-look="cockpit"] .ui-panel__count { color: var(--ck-a); }
+:root[data-look="cockpit"] .ui-panel__meta,
+:root[data-look="cockpit"] .ui-panel__foot { color: var(--ck-d); font-family: var(--font-mono); }
+:root[data-look="cockpit"] .ui-section__title { color: var(--ck-w); font-family: var(--font-mono); letter-spacing: 0.04em; text-transform: uppercase; }
+
+:root[data-look="cockpit"] .ui-button { border-color: rgba(63, 215, 242, 0.5); border-radius: 3px; color: var(--ck-c); background: #000000; font-family: var(--font-sans); font-weight: 700; letter-spacing: 0.02em; }
+:root[data-look="cockpit"] .ui-button:hover:not(:disabled) { border-color: var(--ck-c); background: rgba(63, 215, 242, 0.1); }
+:root[data-look="cockpit"] .ui-button--primary { border-color: var(--ck-c); color: #00161b; background: var(--ck-c); }
+:root[data-look="cockpit"] .ui-button--primary:hover:not(:disabled) { border-color: #7ae6f7; color: #00161b; background: #7ae6f7; }
+:root[data-look="cockpit"] .ui-button--ghost { border-color: transparent; color: var(--ck-c); background: transparent; }
+:root[data-look="cockpit"] .ui-button--ghost:hover:not(:disabled) { border-color: transparent; background: rgba(63, 215, 242, 0.1); }
+:root[data-look="cockpit"] .ui-button--primary .ui-button__tier { border-color: #00161b; color: #00161b; }
+:root[data-look="cockpit"] .ui-risk,
+:root[data-look="cockpit"] .ui-tag--tier { border-radius: 2px; font-family: var(--font-mono); }
+:root[data-look="cockpit"] .ui-chip { border-radius: 2px; font-family: var(--font-mono); font-weight: 400; letter-spacing: 0.02em; text-transform: uppercase; }
+:root[data-look="cockpit"] .ui-tag { border-radius: 2px; font-family: var(--font-mono); }
+
+:root[data-look="cockpit"] .ui-metric { border-color: var(--cc-line); background: var(--cc-panel); }
+:root[data-look="cockpit"] .ui-metric__label { color: var(--ck-d); font-family: var(--font-sans); font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
+:root[data-look="cockpit"] .ui-metric__value { color: var(--ck-g); font-family: var(--font-mono); }
+:root[data-look="cockpit"] .ui-metric__bar > i,
+:root[data-look="cockpit"] .ui-metric[data-status="good"] .ui-metric__bar > i { background: var(--ck-g); }
+:root[data-look="cockpit"] .ui-metric[data-status="warning"] .ui-metric__bar > i { background: var(--ck-a); }
+:root[data-look="cockpit"] .ui-metric[data-status="danger"] .ui-metric__bar > i { background: var(--ck-r); }
+:root[data-look="cockpit"] .ui-metric[data-status="unknown"] .ui-metric__value { color: var(--ck-d); }
+:root[data-look="cockpit"] .ui-spark__line { stroke: var(--ck-g); }
+:root[data-look="cockpit"] .ui-spark__area { fill: rgba(57, 226, 125, 0.1); }
+
+:root[data-look="cockpit"] .ui-table th { color: var(--ck-d); background: var(--cc-panel); font-family: var(--font-sans); font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }
+:root[data-look="cockpit"] .ui-table td { color: var(--cc-text); font-family: var(--font-mono); }
+:root[data-look="cockpit"] .ui-table tbody tr:hover td { background: var(--cc-raised); }
+:root[data-look="cockpit"] .ui-table th[aria-sort="ascending"],
+:root[data-look="cockpit"] .ui-table th[aria-sort="descending"] { color: var(--ck-m); }
+
+/* Tabs: the open one lit like a soft key, a green bar under its word; a count in magenta. */
+:root[data-look="cockpit"] .ui-tabs__list { border-bottom-color: var(--cc-line); }
+:root[data-look="cockpit"] .ui-tabs__tab { color: var(--ck-d); font-family: var(--font-sans); font-size: 13px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+:root[data-look="cockpit"] .ui-tabs__tab:hover { color: var(--ck-w); }
+:root[data-look="cockpit"] .ui-tabs__tab[aria-selected="true"] { border-bottom-color: var(--ck-g); color: var(--ck-w); box-shadow: 0 6px 10px -8px var(--ck-g); }
+:root[data-look="cockpit"] .ui-tabs__tab[aria-selected="true"] .ui-tabs__count { color: var(--ck-m); }
+:root[data-look="cockpit"] .ui-segmented { border-color: var(--cc-line-strong); background: #000000; }
+:root[data-look="cockpit"] .ui-segmented__option { color: var(--ck-d); font-family: var(--font-sans); font-weight: 700; letter-spacing: 0.04em; }
+:root[data-look="cockpit"] .ui-segmented__option[aria-checked="true"] { color: var(--ck-m); background: var(--cc-raised); box-shadow: inset 0 0 0 1px rgba(255, 92, 225, 0.55); }
+:root[data-look="cockpit"] .ui-switch__control[aria-checked="true"] .ui-switch__track { border-color: var(--ck-g); background: var(--ck-g); }
+:root[data-look="cockpit"] .ui-switch__control[aria-checked="true"] .ui-switch__thumb { background: #00140a; }
+:root[data-look="cockpit"] .ui-switch__control[aria-checked="true"] .ui-switch__state { color: var(--ck-g); }
+:root[data-look="cockpit"] .ui-check__input:checked + .ui-check__mark { border-color: var(--ck-c); background: var(--ck-c); }
+:root[data-look="cockpit"] :is(.ui-input, .ui-textarea, .ui-select__control) { border-color: var(--cc-line-strong); color: var(--ck-c); background: #000000; font-family: var(--font-mono); }
+:root[data-look="cockpit"] :is(.ui-input, .ui-textarea, .ui-select__control):focus-visible { border-color: var(--ck-c); outline-color: var(--ck-c); }
+:root[data-look="cockpit"] .ui-kv__label { color: var(--ck-d); font-family: var(--font-sans); font-weight: 700; letter-spacing: 0.1em; }
+:root[data-look="cockpit"] .ui-kv__value { color: var(--ck-w); }
+:root[data-look="cockpit"] .ui-progress__fill { background: var(--ck-c); }
+:root[data-look="cockpit"] .ui-code { background: #000000; }
+:root[data-look="cockpit"] .ui-code__text { color: var(--ck-g); }
+:root[data-look="cockpit"] .ui-notice { background: var(--cc-panel); }
+
+/* What needs you, on any page: the ECAM's colours down each row's edge. */
+:root[data-look="cockpit"] .need__title { color: var(--ck-w); font-family: var(--font-sans); font-weight: 700; }
+:root[data-look="cockpit"] .need[data-severity="warning"] .need__title { color: var(--ck-a); }
+:root[data-look="cockpit"] .need[data-severity="danger"] .need__title { color: var(--ck-r); }
+:root[data-look="cockpit"] .need__detail { color: var(--ck-d); }
+
+/* Sheets and dialogs (the approval dialog, Activity, the notifications, the command bar): a black
+   screen in a bezel rim, with the cockpit's colours rather than the console's amber. */
+:root[data-look="cockpit"] .look-console {
+  --accent: #3fd7f2;
+  --accent-text-on: #00161b;
+  --accent-faint: rgba(63, 215, 242, 0.1);
+  --accent-bg: rgba(63, 215, 242, 0.1);
+  --link: #3fd7f2;
+}
+:root[data-look="cockpit"] :is(.ui-sheet, .command-dialog, .approve-dialog) {
+  border: calc(var(--ck-em) * 0.35) solid #2e3034;
+  background: var(--ck-scr);
+  box-shadow: inset 0 0 0 calc(var(--ck-em) * 0.15) var(--ck-edge), 0 1.2em 3em rgba(0, 0, 0, 0.6);
+}
+:root[data-look="cockpit"] .ui-sheet--right { border-width: 0 0 0 calc(var(--ck-em) * 0.35); }
+:root[data-look="cockpit"] .ui-sheet__head { border-bottom-color: var(--cc-line); }
+:root[data-look="cockpit"] :is(.ui-sheet__title, .approve-title) { color: var(--ck-w); font-family: var(--font-sans); font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+:root[data-look="cockpit"] .ui-sheet__kicker { color: var(--ck-g); font-family: var(--font-mono); }
+:root[data-look="cockpit"] .approve-kicker { font-family: var(--font-mono); }
+:root[data-look="cockpit"] :is(.ui-sheet__close, .approve-close) { border: 0; color: #e9edf0; background: linear-gradient(#45484d, #2b2d31); box-shadow: 0 2px 0 #0d0e10, inset 0 1px 0 rgba(255, 255, 255, 0.2); }
+:root[data-look="cockpit"] .command-input { font-family: var(--font-mono); }
+:root[data-look="cockpit"] .areas-sheet .ui-dock__item[aria-current="page"] .ui-dock__icon { border-color: var(--ck-g); color: #00140a; background: var(--ck-g); }
+
+/* ── A narrower screen: fewer figures in the bar, the soft keys keep their row. ── */
+@media (max-width: 1100px) {
+  :root[data-look="cockpit"] .cc-kv { display: none; }
+}
+
+/* ── A phone: the lamps and the controls in two rows, six soft keys along the bottom. ── */
+@media (max-width: 760px) {
+  :root[data-look="cockpit"] {
+    --ck-em: 14px;
+    --ck-keys: 6;
+    --ck-side: 10px;
+    --ck-key-gap: 6px;
+    --ck-keys-h: 44px;
+    --ck-strip: calc(44px + 6px + 10px);
+  }
+  :root[data-look="cockpit"] .topbar {
+    height: auto;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: calc(8px + env(safe-area-inset-top, 0px)) var(--ck-side) 12px;
+  }
+  :root[data-look="cockpit"] .topbar-left { flex-basis: 100%; }
+  :root[data-look="cockpit"] .topbar-right { flex-wrap: wrap; justify-content: flex-end; margin-left: auto; }
+  :root[data-look="cockpit"] :is(.bar-button, .command-trigger) { height: 40px; padding: 0 10px; }
+  :root[data-look="cockpit"] .cc-crumb { flex: 1 1 auto; min-height: 36px; }
+  :root[data-look="cockpit"] #content { min-height: calc(100vh - 150px - var(--ck-bottom)); }
+  :root[data-look="cockpit"] #content > .content { padding: 14px 12px 18px; }
+  :root[data-look="cockpit"] .shell-dock.shell-dock--keys { padding: 6px var(--ck-side) 10px; }
+  :root[data-look="cockpit"] .shell-dock--keys li:is([data-area="catalog"], [data-area="storage"], [data-area="network"], [data-area="system"], [data-area="settings"]) { display: none; }
+}
