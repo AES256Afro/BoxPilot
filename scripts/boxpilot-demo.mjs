@@ -870,9 +870,11 @@ function resilienceFor(world) {
       ? { handedOut: { source: "dhcp", via: "systemd-networkd", servers: [host.gateway], dhcpServer: host.gateway }, servesDns: true, answers: { [host.gateway]: healthy }, canary: { router: host.gateway, forwards: true } }
       : { handedOut: { source: "dhcp", via: "systemd-networkd", servers: [host.lan], dhcpServer: host.gateway }, servesDns: true, answers: { [host.lan]: healthy } };
   const verdict = judgeResilience({ selfAddresses: [host.lan, host.tailscaleIp], gateway: host.gateway, rehearsal: null, ...facts }, { now: now(), hostname: host.hostname });
+  // After the power cut the unwell world had: Pi-hole came back, this server's own lookups did not
+  // (the 2026-09-29 resolv.conf trap), which is also why its heartbeat is failing.
   const afterOutage = world === "trouble" ? { at: ago(0.3), ok: false, outage: { id: "demo-outage", stoppedAt: ago(4), backAt: ago(0.35) }, checks: [
-    { id: "dns-app-lan", ok: false, label: "Pi-hole is not answering on the LAN", detail: `Nothing answered a lookup on ${host.lan}. Devices that use it have no DNS until it does.` },
-    { id: "host-lookups", ok: true, label: "This server looks names up", detail: "github.com resolved through the system's resolver, as updates and image pulls resolve it." },
+    { id: "dns-app-lan", ok: true, label: "Pi-hole answers on the LAN", detail: `A lookup sent to ${host.lan}, as a device on your network sends it, came back.` },
+    { id: "host-lookups", ok: false, label: "This server cannot look names up", detail: "github.com did not resolve through the system's resolver: no such name, or no DNS server answered." },
   ] } : null;
   return { ...verdict, checkedAt: ago(0.05), lanAddress: host.lan, gateway: host.gateway, canary: facts.canary ?? null, afterOutage };
 }
