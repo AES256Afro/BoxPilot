@@ -767,3 +767,50 @@ and sit throttled.
   cores give two threads what four processors would. What eight threads under 800% gain on the
   owner's eight cores is not measurable on a four-processor runner; the owner's Usage tab keeps
   speeds per thread count, so their first questions at eight will show it.
+
+## ADR-010: thirteen looks, each built to match its drawing
+
+### Context
+
+ADR-004 gave BoxPilot one design with two views, the Launcher on Home and the Command Center
+everywhere else. The owner liked both and asked how one of them could cover the whole site. The
+study `docs/design-directions/05-looks.html` (2026-09-30) drew three ways to make it one look and
+ten more directions; the owner chose to have all thirteen, picked in a new Appearance page, and
+asked that each built look match its drawing, not resemble it.
+
+### Decision
+
+- **A look is a skin and a Home.** The skin is one set of values for the tokens every page already
+  reads (the Command Center's `--cc-*` family, the fonts, the radii) plus the look's own surfaces,
+  textures, top bar and way around, in `src/looks/<id>/skin.css`, every selector under
+  `:root[data-look="<id>"]`. The Home is `src/looks/<id>/Home.tsx`, reading the same facts and the
+  same list of what needs you as every other Home, with every fix going through the approval
+  dialog at its tier. No page carries look code; a page that draws something of its own per look
+  does it through a slot (Storage's lead).
+- **The looks:** Home + Ops (the default: Home's wallpaper and glass as the frame, the console's
+  figures inside), Launcher (Home's world on every page), Command Center (the console on every
+  page, Home included), Aqua, Blueprint, Phosphor, Rack Panel, Swiss Poster, Toybox, Glass
+  Cockpit, E-Ink, Quest and Transit Map. Each says whether it has light and dark or one of them.
+- **The way around is the look's:** a glass sidebar, the Launcher's dock, the console's rail,
+  soft keys along the bottom, or a line of words across the top (`data-nav`). A phone always gets
+  the dock.
+- **Kept per browser**, beside light and dark (`localStorage`, applied before first paint), so a
+  phone and a wall screen can each keep their own. "Where it applies" can keep today's Launcher on
+  Home only; Command Center with "Not Home" is exactly the interface before this decision. The
+  glass looks also take an accent, a wallpaper and solid panels.
+- **Measured against the drawing.** `scripts/look-check.mjs refs` draws the study's reference
+  pictures (`docs/design-directions/05-looks/refs/`); `look-check.mjs look <id>` scores the demo's
+  screenshots against them (colour block by block, edges, palette) and writes side-by-side
+  pictures for a person to judge.
+- **The looks' typefaces** (Archivo, B612, B612 Mono, Barlow Condensed, Fredoka, Literata, Martian
+  Mono, Overpass, PT Sans, Pixelify Sans, Share Tech Mono, VT323; all OFL-1.1) are served by
+  BoxPilot like the first three, fetched only when a look draws them and cached then, not on
+  install.
+
+### Consequences
+
+A page restyled in one look is restyled in all of them, because they share its classes; a change
+to a shared component is checked against every look's screenshots, not one. Status and risk keep
+their meaning in every look, and a look without colour (E-Ink) carries them in shapes and words.
+The skins ride in the first stylesheet so a page never paints in one look and then another; each
+Home is its own chunk.
