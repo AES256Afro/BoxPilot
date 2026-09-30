@@ -1030,6 +1030,14 @@ sidecars:
       expect((await readdir(path.join(backupRoot, "demo"))).sort()).toEqual(["20260929T031500Z.json", "20260929T031500Z.tar.gz"]);
       expect(await later.interruptedBackups()).toEqual([]);
     });
+
+    it("says so when the app did not start again after a backup that failed", async () => {
+      // A full disk fails tar and then the start; the job spoke only of tar, with the app left down.
+      const context = await setup({ networkGone_: true });
+      await context.apps.install({ id: "demo" });
+      const tarFails = async (_binary, args) => { await writeFile(args[args.indexOf("-czf") + 1], ""); return { ok: false, stdout: "", stderr: "tar: write error: No space left on device" }; };
+      await expect(helperOver(context, { runCommand: tarFails }).backup({ id: "demo" })).rejects.toThrow(/^tar failed: tar: write error: No space left on device\. Demo did not start again either: .*network .* not found/);
+    });
   });
 
   // Linux only: needs /usr/bin/tar.
