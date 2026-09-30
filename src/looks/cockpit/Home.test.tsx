@@ -1,12 +1,18 @@
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { FactsProvider } from "../../home/facts";
+import { FactsProvider, useFacts } from "../../home/facts";
 import { stubFetch } from "../../home/testData";
 import Annunciators from "./Annunciators";
 import CockpitHome from "./Home";
 import { nextBackupRun } from "./nextRun";
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+
+/** A view that shows the facts (Home, Ops), keeping the provider reading them. */
+function Demand() {
+  useFacts();
+  return null;
+}
 
 function renderHome() {
   const onNavigate = vi.fn();
@@ -59,7 +65,7 @@ describe("Home in the Glass Cockpit look", () => {
   it("lights the master lamp and the annunciators from the facts, in the shell's bar", async () => {
     vi.stubGlobal("fetch", stubFetch());
     const onNavigate = vi.fn();
-    const { container } = render(<FactsProvider><Annunciators role="owner" onNavigate={onNavigate} /></FactsProvider>);
+    const { container } = render(<FactsProvider><Demand /><Annunciators role="owner" onNavigate={onNavigate} /></FactsProvider>);
     const lamps = screen.getByRole("group", { name: "Annunciators" });
     const master = await within(lamps).findByRole("button", { name: /^Master warning: 1 problem/ });
     expect(master.getAttribute("data-state")).toBe("danger");
@@ -73,6 +79,19 @@ describe("Home in the Glass Cockpit look", () => {
     fireEvent.click(master);
     expect(onNavigate).toHaveBeenLastCalledWith("home");
     expect(container.querySelector(".cockpit-clock")?.textContent).toMatch(/^\d{2}:\d{2}:\d{2}$/);
+  });
+
+  it("only glances at the facts: on its own it reads nothing but the sensors, and leaves unread lamps dark", async () => {
+    vi.stubGlobal("fetch", stubFetch());
+    render(<FactsProvider><Annunciators role="owner" onNavigate={vi.fn()} /></FactsProvider>);
+    const lamps = screen.getByRole("group", { name: "Annunciators" });
+    // Its one read of its own: the sensors, for TEMP.
+    await vi.waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalledWith("/api/v1/operations/system.performance.inspect/inspect"));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const asked = vi.mocked(fetch).mock.calls.map(([input]) => String(input));
+    expect(asked.every((url) => url.includes("system.performance.inspect"))).toBe(true);
+    expect(within(lamps).getByRole("button", { name: "Backups: not known" }).getAttribute("data-state")).toBe("off");
+    expect(within(lamps).getByRole("button", { name: /^Master caution/ }).getAttribute("data-state")).toBe("off");
   });
 
   it("says when the next backup runs, from the schedules' own words", () => {
