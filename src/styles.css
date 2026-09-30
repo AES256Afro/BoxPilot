@@ -2523,7 +2523,7 @@ body {
 [data-hue="graphite"] { --app-a: var(--brand-graphite-a); --app-b: var(--brand-graphite-b); }
 
 /* ── Home: the wallpaper, the glass, the ink ─────────────────────────────── */
-.app-shell[data-view="home"] {
+.app-shell[data-view="home"][data-shell="launcher"] {
   position: relative;
   isolation: isolate;
   color: var(--lx-ink);
@@ -2576,7 +2576,7 @@ body {
 
 /* The wallpaper: fixed behind the page, so scrolling moves nothing but the content, and only on
    Home. Nothing blurs it as a whole; the glass panels blur what is behind them. */
-.app-shell[data-view="home"]::before {
+.app-shell[data-view="home"][data-shell="launcher"]::before {
   position: fixed;
   z-index: -1;
   inset: 0;
@@ -2589,20 +2589,20 @@ body {
   pointer-events: none;
 }
 
-.app-shell[data-view="home"] :is(button, a, input, select, textarea, summary):focus-visible {
+.app-shell[data-view="home"][data-shell="launcher"] :is(button, a, input, select, textarea, summary):focus-visible {
   outline: 2px solid var(--lx-focus);
   outline-offset: 2px;
 }
 
 /* The bar floats over the wallpaper: no fill, no line, no blur. */
-.app-shell[data-view="home"] .topbar {
+.app-shell[data-view="home"][data-shell="launcher"] .topbar {
   position: relative;
   min-height: 60px;
   border-bottom-color: transparent;
   background: transparent;
   backdrop-filter: none;
 }
-.app-shell[data-view="home"] .brand { display: none; }
+.app-shell[data-view="home"][data-shell="launcher"] .brand { display: none; }
 
 .lx-host { display: flex; align-items: center; gap: 8px; min-width: 0; color: var(--lx-ink); font-size: 13px; white-space: nowrap; }
 .lx-host strong { font-size: 14px; font-weight: 700; }
@@ -2610,25 +2610,25 @@ body {
 .lx-host[data-status="good"] .lx-host__mark { box-shadow: 0 0 0 3px color-mix(in srgb, var(--lx-good) 24%, transparent); }
 .lx-host__facts { min-width: 0; overflow: hidden; color: var(--lx-ink-muted); text-overflow: ellipsis; }
 
-.app-shell[data-view="home"] .view-switch,
-.app-shell[data-view="home"] .ui-theme-switch {
+.app-shell[data-view="home"][data-shell="launcher"] .view-switch,
+.app-shell[data-view="home"][data-shell="launcher"] .ui-theme-switch {
   border-color: var(--lx-glass-border);
   background: var(--lx-glass);
   -webkit-backdrop-filter: blur(20px) saturate(140%);
   backdrop-filter: blur(20px) saturate(140%);
 }
-.app-shell[data-view="home"] .view-switch__option,
-.app-shell[data-view="home"] .ui-theme-switch__option { color: var(--lx-ink-muted); }
-.app-shell[data-view="home"] .view-switch__option:hover,
-.app-shell[data-view="home"] .ui-theme-switch__option:hover { color: var(--lx-ink); }
-.app-shell[data-view="home"] .view-switch__option[aria-current="page"],
-.app-shell[data-view="home"] .ui-theme-switch__option[aria-checked="true"] {
+.app-shell[data-view="home"][data-shell="launcher"] .view-switch__option,
+.app-shell[data-view="home"][data-shell="launcher"] .ui-theme-switch__option { color: var(--lx-ink-muted); }
+.app-shell[data-view="home"][data-shell="launcher"] .view-switch__option:hover,
+.app-shell[data-view="home"][data-shell="launcher"] .ui-theme-switch__option:hover { color: var(--lx-ink); }
+.app-shell[data-view="home"][data-shell="launcher"] .view-switch__option[aria-current="page"],
+.app-shell[data-view="home"][data-shell="launcher"] .ui-theme-switch__option[aria-checked="true"] {
   border-color: transparent;
   color: var(--lx-pill-ink);
   background: var(--lx-pill);
   box-shadow: none;
 }
-.app-shell[data-view="home"] .command-trigger {
+.app-shell[data-view="home"][data-shell="launcher"] .command-trigger {
   max-width: 26rem;
   min-height: 36px;
   border-color: var(--lx-glass-border);
@@ -2637,15 +2637,15 @@ body {
   -webkit-backdrop-filter: blur(20px) saturate(140%);
   backdrop-filter: blur(20px) saturate(140%);
 }
-.app-shell[data-view="home"] .command-trigger:hover { color: var(--lx-ink); }
-.app-shell[data-view="home"] .command-trigger__keys { border-color: transparent; color: var(--lx-ink); background: var(--lx-glass-raised); }
-.app-shell[data-view="home"] .connection-pill {
+.app-shell[data-view="home"][data-shell="launcher"] .command-trigger:hover { color: var(--lx-ink); }
+.app-shell[data-view="home"][data-shell="launcher"] .command-trigger__keys { border-color: transparent; color: var(--lx-ink); background: var(--lx-glass-raised); }
+.app-shell[data-view="home"][data-shell="launcher"] .connection-pill {
   border-color: transparent;
   color: var(--lx-ink);
   background: var(--lx-glass-raised);
 }
-.app-shell[data-view="home"] .connection-pill::before { background: var(--lx-good); }
-.app-shell[data-view="home"] .signed-in-user { color: var(--lx-ink); }
+.app-shell[data-view="home"][data-shell="launcher"] .connection-pill::before { background: var(--lx-good); }
+.app-shell[data-view="home"][data-shell="launcher"] .signed-in-user { color: var(--lx-ink); }
 
 /* The page: the glass panels down the left, the greeting and the apps on the right. */
 .lx {
@@ -2815,7 +2815,7 @@ body {
 .lx-wait .need:first-child { padding: 0; border-top: 0; }
 
 /* The dock over the wallpaper: glass, with each area on a tile of its own. */
-.app-shell[data-view="home"] .ui-dock.shell-dock ul {
+.app-shell[data-view="home"][data-shell="launcher"] .ui-dock.shell-dock ul {
   border-color: var(--lx-glass-border);
   border-radius: 24px;
   background: var(--lx-glass);
@@ -2823,26 +2823,26 @@ body {
   -webkit-backdrop-filter: blur(20px) saturate(140%);
   backdrop-filter: blur(20px) saturate(140%);
 }
-.app-shell[data-view="home"] .shell-dock .ui-dock__icon { border-color: transparent; border-radius: 13px; color: var(--lx-ink); background: var(--lx-glass-raised); }
-.app-shell[data-view="home"] .shell-dock .ui-dock__item:hover .ui-dock__icon { border-color: transparent; color: var(--lx-pill-ink); background: var(--lx-pill); }
-.app-shell[data-view="home"] .ui-dock__badge { color: var(--lx-pill-ink); background: var(--lx-pill); box-shadow: 0 0 0 2px var(--lx-badge-ring); }
+.app-shell[data-view="home"][data-shell="launcher"] .shell-dock .ui-dock__icon { border-color: transparent; border-radius: 13px; color: var(--lx-ink); background: var(--lx-glass-raised); }
+.app-shell[data-view="home"][data-shell="launcher"] .shell-dock .ui-dock__item:hover .ui-dock__icon { border-color: transparent; color: var(--lx-pill-ink); background: var(--lx-pill); }
+.app-shell[data-view="home"][data-shell="launcher"] .ui-dock__badge { color: var(--lx-pill-ink); background: var(--lx-pill); box-shadow: 0 0 0 2px var(--lx-badge-ring); }
 
 /* Glass needs a backdrop filter to be glass. Without one, and for anyone who asked for less
    transparency, every glass surface is drawn solid. */
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .lx-panel,
-  .app-shell[data-view="home"] .ui-dock.shell-dock ul,
-  .app-shell[data-view="home"] .view-switch,
-  .app-shell[data-view="home"] .ui-theme-switch,
-  .app-shell[data-view="home"] .command-trigger { background: var(--lx-glass-solid); }
+  .app-shell[data-view="home"][data-shell="launcher"] .ui-dock.shell-dock ul,
+  .app-shell[data-view="home"][data-shell="launcher"] .view-switch,
+  .app-shell[data-view="home"][data-shell="launcher"] .ui-theme-switch,
+  .app-shell[data-view="home"][data-shell="launcher"] .command-trigger { background: var(--lx-glass-solid); }
 }
 
 @media (prefers-reduced-transparency: reduce) {
   .lx-panel,
-  .app-shell[data-view="home"] .ui-dock.shell-dock ul,
-  .app-shell[data-view="home"] .view-switch,
-  .app-shell[data-view="home"] .ui-theme-switch,
-  .app-shell[data-view="home"] .command-trigger {
+  .app-shell[data-view="home"][data-shell="launcher"] .ui-dock.shell-dock ul,
+  .app-shell[data-view="home"][data-shell="launcher"] .view-switch,
+  .app-shell[data-view="home"][data-shell="launcher"] .ui-theme-switch,
+  .app-shell[data-view="home"][data-shell="launcher"] .command-trigger {
     background: var(--lx-glass-solid);
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
@@ -2861,7 +2861,7 @@ body {
 }
 
 @media (max-width: 620px) {
-  .app-shell[data-view="home"] .topbar-slot { display: none; }
+  .app-shell[data-view="home"][data-shell="launcher"] .topbar-slot { display: none; }
   .lx-hello { grid-template-columns: minmax(0, 1fr); }
   .lx-again { grid-column: 1; grid-row: auto; justify-self: start; margin-top: 6px; }
   .lx-tiles { grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap: 14px 4px; }
@@ -3697,7 +3697,7 @@ main { padding-bottom: env(safe-area-inset-bottom, 0px); }
   details > summary { padding-block: 15px; }
   /* Home's Launcher draws its buttons and its search as pills of its own, at 32 and 36 px. */
   .lx .ui-button,
-  .app-shell[data-view="home"] .command-trigger { min-height: 44px; }
+  .app-shell[data-view="home"][data-shell="launcher"] .command-trigger { min-height: 44px; }
   /* Text that is a button in a row (a need's title on Home and Ops, a name in Ops' tables): the
      target grows around the words by its padding, and the row keeps its height by the margin. */
   .need__title,
