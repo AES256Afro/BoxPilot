@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import type { PendingOperation } from "../../shell/ApproveDialog";
 import { relativeTime } from "../../home/format";
-import { Button, KeyValue, Notice, Panel, StatusChip, Table, Tag, mayStart, riskOf, type KeyValueItem, type Status, type TableColumn } from "../../ui";
-import { agentsApi, type ChatPost, type ZulipState } from "./api";
+import { Button, Field, KeyValue, Notice, Panel, Select, StatusChip, Switch, Table, Tag, TextInput, mayStart, riskOf, type KeyValueItem, type Status, type TableColumn } from "../../ui";
+import { agentsApi, type AgentSummary, type ChatPost, type ZulipAsking, type ZulipPerson, type ZulipState } from "./api";
 import { errorText } from "./format";
+import { PasswordSheet } from "./PasswordSheet";
 
 /*
  * The team chat (M38): Zulip, which the owner installs from the App catalog and connects here. Whether
@@ -20,6 +21,75 @@ export interface ZulipPanelProps {
   onStart: (operation: PendingOperation) => void;
   /** Bumped by the page when a job it started has finished, so the panel reads again. */
   refreshKey: number;
+  /** The agents, for the one asked by default in Zulip (M40.5). */
+  agents?: AgentSummary[];
+}
+
+/**
+ * Asking the agents in Zulip (M40.5), the owner's: who in Zulip asks as which BoxPilot account, the
+ * agent asked when a message names none, and whether questions are answered at all. Someone who
+ * asked without being set up is listed, to let them ask with one choice. Saving takes the password:
+ * it lets a chat account ask as a BoxPilot one.
+ */
+function AskingInZulip({ asking, agents, csrfToken, now, onSaved }: { asking: ZulipAsking; agents: AgentSummary[]; csrfToken: string; now: number; onSaved: (next: ZulipState) => void }) {
+  const [people, setPeople] = useState<ZulipPerson[]>(asking.people);
+  const [defaultAgentId, setDefaultAgentId] = useState<string>(asking.defaultAgentId ?? "");
+  const [on, setOn] = useState(asking.on);
+  const [adding, setAdding] = useState({ email: "", account: "" });
+  const [confirm, setConfirm] = useState(false);
+  const [saved, setSaved] = useState<string | null>(null);
+  const accountName = (id: string) => asking.accounts.find((account) => account.id === id);
+  const accountOptions = [{ value: "", label: "Choose an account" }, ...asking.accounts.map((account) => ({ value: account.id, label: `${account.username} (${account.role})` }))];
+  const waiting = asking.askers.filter((asker) => !people.some((person) => (person.zulipId && person.zulipId === asker.zulipId) || person.zulipEmail === asker.zulipEmail));
+  const dirty = JSON.stringify(people) !== JSON.stringify(asking.people) || (defaultAgentId || null) !== asking.defaultAgentId || on !== asking.on;
+  const save = async (password: string) => {
+    const next = await agentsApi.zulipPeople(csrfToken, { password, people, defaultAgentId: defaultAgentId || null, twoWay: on });
+    setSaved("Saved. The next question in Zulip goes by this list.");
+    onSaved(next);
+  };
+  const columns: Array<TableColumn<ZulipPerson>> = [
+    { id: "who", header: "In Zulip", cell: (person) => <span className="agents-name"><span>{person.zulipName ?? person.zulipEmail ?? `user ${person.zulipId}`}</span><span className="agents-name__purpose">{person.zulipEmail ?? ""}</span></span> },
+    { id: "as", header: "Asks as", cell: (person) => { const account = accountName(person.boxpilotId); return <span className="agents-mono">{account ? `${account.username} · ${account.role}` : "an account that is gone"}</span>; } },
+    { id: "remove", header: <span className="ui-visually-hidden">Remove</span>, label: "Actions", className: "agents-actions-cell", cell: (person) => <Button variant="ghost" onClick={() => setPeople(people.filter((entry) => entry !== person))} aria-label={`Stop ${person.zulipName ?? person.zulipEmail ?? "them"} asking`}>Remove</Button> },
+  ];
+  return (
+    <section className="agents-zulip__asking" aria-label="Asking in Zulip">
+      <h3 className="agents-zulip__heading">Asking in Zulip</h3>
+      <p className="agents-dim">Send the bot a direct message, or mention it in a channel it is in, and an agent answers in that thread: read-only, as the BoxPilot account below, as if asked on the Test tab. Cards it proposes link back here; nothing is approved in chat. Anyone not on this list is told they are not set up, and no model sees their words.</p>
+      {saved && <Notice tone="success" live onDismiss={() => setSaved(null)}>{saved}</Notice>}
+      <Switch label="Answer questions asked in Zulip" description={asking.lastPollAt ? `Read ${relativeTime(asking.lastPollAt, now) ?? "just now"}, once a minute while Agents run.` : "Read once a minute while Agents run."} checked={on} onChange={setOn} />
+      {asking.lastError && <p className="agents-dim">The last read did not work: {asking.lastError}</p>}
+      <div className="agents-form__grid">
+        <Field label="Asked when a message names no agent" hint="A message can start with an agent's name, like: Steve, which drives are connected?">
+          <Select value={defaultAgentId} onValueChange={setDefaultAgentId} options={[{ value: "", label: "The Server Keeper, or the first that takes the question" }, ...agents.map((agent) => ({ value: agent.id, label: agent.name }))]} />
+        </Field>
+      </div>
+      <Table caption="Who may ask in Zulip" columns={columns} rows={people} rowKey={(person) => `${person.zulipId ?? ""}|${person.zulipEmail ?? ""}`} empty="Nobody yet: add someone below, or let in someone who asked." />
+      {waiting.length > 0 && (
+        <ul className="agents-zulip__askers" aria-label="Asked, not set up">
+          {waiting.map((asker) => (
+            <li key={`${asker.zulipId}|${asker.zulipEmail}`} className="agents-zulip__asker">
+              <span className="agents-name"><span>{asker.zulipName || asker.zulipEmail} asked {asker.count === 1 ? "once" : `${asker.count} times`}</span><span className="agents-name__purpose">{asker.zulipEmail} · {relativeTime(asker.lastAt, now) ?? ""}</span></span>
+              <Select aria-label={`Let ${asker.zulipName || asker.zulipEmail} ask as`} value="" onValueChange={(value) => value && setPeople([...people, { zulipId: asker.zulipId, zulipEmail: asker.zulipEmail, zulipName: asker.zulipName, boxpilotId: value }])} options={[{ value: "", label: "Let them ask as…" }, ...accountOptions.slice(1)]} />
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="agents-form__grid">
+        <Field label="Their Zulip address"><TextInput value={adding.email} placeholder="name@example.com" onValueChange={(value) => setAdding({ ...adding, email: value })} /></Field>
+        <Field label="Asks as"><Select value={adding.account} onValueChange={(value) => setAdding({ ...adding, account: value })} options={accountOptions} /></Field>
+      </div>
+      <div className="agents-editor__foot">
+        <Button variant="ghost" disabled={!/^[^\s@]+@[^\s@]+$/.test(adding.email.trim()) || !adding.account} onClick={() => { setPeople([...people, { zulipId: null, zulipEmail: adding.email.trim().toLowerCase(), zulipName: null, boxpilotId: adding.account }]); setAdding({ email: "", account: "" }); }}>Add</Button>
+        <Button variant="primary" disabled={!dirty} onClick={() => setConfirm(true)}>Save who may ask</Button>
+      </div>
+      {confirm && (
+        <PasswordSheet title="Save who may ask in Zulip" confirmLabel="Save" onClose={() => setConfirm(false)} onConfirm={save}>
+          <p>Each person on the list asks the agents as the BoxPilot account beside them, read-only. It takes your password.</p>
+        </PasswordSheet>
+      )}
+    </section>
+  );
 }
 
 const channelWords: Record<string, string> = {
@@ -37,7 +107,7 @@ function verdict(state: ZulipState): { status: Status; label: string } {
   return { status: "unknown", label: "Not installed" };
 }
 
-export function ZulipPanel({ csrfToken, role, now, onStart, refreshKey }: ZulipPanelProps) {
+export function ZulipPanel({ csrfToken, role, now, onStart, refreshKey, agents = [] }: ZulipPanelProps) {
   const [state, setState] = useState<ZulipState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -74,7 +144,8 @@ export function ZulipPanel({ csrfToken, role, now, onStart, refreshKey }: ZulipP
     setChecking(true);
     try {
       const read_ = await agentsApi.zulipPoll(csrfToken);
-      setNotice(read_.error ? `#agent-files could not be read: ${read_.error}` : read_.skipped === "off" ? "Agents are off or paused, so #agent-files waits." : `Read ${read_.messages ?? 0} new ${read_.messages === 1 ? "message" : "messages"}; ${read_.added ?? 0} added to Knowledge.`);
+      const asked = read_.asked && !read_.asked.skipped && !read_.asked.error ? ` ${read_.asked.asked ?? 0} ${read_.asked.asked === 1 ? "question" : "questions"} asked of the agents.` : "";
+      setNotice(read_.error ? `#agent-files could not be read: ${read_.error}` : read_.skipped === "off" ? "Agents are off or paused, so #agent-files waits." : `Read ${read_.messages ?? 0} new ${read_.messages === 1 ? "message" : "messages"}; ${read_.added ?? 0} added to Knowledge.${asked}`);
       await read();
     } catch (requestError) { setError(errorText(requestError, "#agent-files could not be read")); } finally { setChecking(false); }
   };
@@ -90,13 +161,13 @@ export function ZulipPanel({ csrfToken, role, now, onStart, refreshKey }: ZulipP
   ] : [];
 
   const postColumns: Array<TableColumn<ChatPost>> = [
-    { id: "post", header: "Post", cell: (post) => <span className="agents-name"><span className="agents-model__title">#{post.channel} › {post.topic}<Tag>{post.kind}</Tag></span><span className="agents-name__purpose">{post.error ?? post.preview}</span></span> },
+    { id: "post", header: "Post", cell: (post) => <span className="agents-name"><span className="agents-model__title">{post.direct ? "a direct message" : `#${post.channel} › ${post.topic}`}<Tag>{post.kind}</Tag></span><span className="agents-name__purpose">{post.error ?? post.preview}</span></span> },
     { id: "state", header: "State", className: "agents-actions-cell", cell: (post) => <span className="agents-last"><StatusChip status={stateTone[post.state]}>{post.state}</StatusChip><span className="agents-dim">{relativeTime(post.sentAt ?? post.createdAt, now) ?? ""}</span></span> },
   ];
 
   const actions = owner ? (
     <>
-      {state.connected && <Button busy={checking} onClick={() => void check()}>Check #{state.channels.files} now</Button>}
+      {state.connected && <Button busy={checking} onClick={() => void check()}>Check Zulip now</Button>}
       {state.app?.installed && mayStart(role, "agents.zulip.connect") && <Button variant={state.connected ? "secondary" : "primary"} risk={riskOf("agents.zulip.connect")} disabled={!state.app.running} onClick={connect}>{state.connected ? "Connect again" : "Connect the agents"}</Button>}
       {state.connected && mayStart(role, "agents.zulip.disconnect") && <Button variant="ghost" risk={riskOf("agents.zulip.disconnect")} onClick={disconnect}>Disconnect</Button>}
     </>
@@ -122,6 +193,7 @@ export function ZulipPanel({ csrfToken, role, now, onStart, refreshKey }: ZulipP
           ))}
         </ul>
         <p className="agents-dim">Every agent posts here unless its Build tab turns an output off. BoxPilot posts from each run's outcome, redacted; the model never posts, and nothing is approved in chat.</p>
+        {owner && state.connected && state.asking && <AskingInZulip key={JSON.stringify(state.asking.people)} asking={state.asking} agents={agents} csrfToken={csrfToken} now={now} onSaved={setState} />}
         {owner && state.recent.length > 0 && <Table caption="The last posts" columns={postColumns} rows={state.recent} rowKey={(post) => post.id} />}
       </div>
     </Panel>

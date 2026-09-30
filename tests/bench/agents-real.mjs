@@ -16,9 +16,13 @@
  * how full the root filesystem is, where Pi-hole runs, which apps are stopped, the OS and version,
  * and the owner's own "List the drives connected to BoxPilot"), on a server laid out like the
  * owner's, and grades each answer. .github/workflows/agents-bench.yml runs it.
+ *
+ * With --image (M40.6) it has the model describe a picture from #agent-files the way quiet hours do
+ * (test/agents-bench.mjs describeBenchImage: a red disc above a blue bar, made on the spot), and
+ * prints what Unsloth said about its vision projector (GET /api/inference/status) and the words.
  */
 import { writeFile } from "node:fs/promises";
-import { createBench, describe, ownerQuestion, typicalQuestion } from "../../test/agents-bench.mjs";
+import { createBench, describe, describeBenchImage, ownerQuestion, typicalQuestion } from "../../test/agents-bench.mjs";
 import { createOpenAiClient } from "../../server/assistant/model-client.mjs";
 import { createRuntime } from "../../server/agents/runtime.mjs";
 
@@ -27,12 +31,52 @@ const runtimeDir = argument("runtime");
 const stateDir = argument("state");
 const threads = Number(argument("threads", "4"));
 const out = argument("out");
-if (!runtimeDir || !stateDir) { console.error("usage: agents-real.mjs --runtime DIR --state DIR [--threads 4] [--out FILE] [--eval]"); process.exit(2); }
+if (!runtimeDir || !stateDir) { console.error("usage: agents-real.mjs --runtime DIR --state DIR [--threads 4] [--out FILE] [--eval | --image]"); process.exit(2); }
 
 const log = (line) => console.error(`[runtime] ${line}`);
 const runtime = createRuntime({ client: createOpenAiClient({ loopbackOnly: true }), runtimeDir, stateDir, log });
 
-if (process.argv.includes("--eval")) {
+if (process.argv.includes("--image")) {
+  let result = null;
+  try {
+    result = await describeBenchImage({ real: { runtime, threads } });
+    const words = String(result.text ?? "").split("What it shows, as the model described it: ")[1] ?? null;
+    // Graded loosely: a model that saw the picture says red, and names the disc, the bar or the blue.
+    const saw = Boolean(words && /\bred\b/i.test(words) && /\b(blue|circle|disc|disk|dot|round|bar|rectangle|line|stripe)\b/i.test(words));
+    console.log([
+      `An image from #agent-files on the real model (${threads} thread${threads === 1 ? "" : "s"}): ${result.state}${result.reason ? ` (${result.reason})` : ""} in ${result.seconds} s`,
+      `The model server said: ${JSON.stringify(result.server)}; kept for Knowledge: ${JSON.stringify(result.vision)}`,
+      `Described: ${result.described ? "yes" : "no"}; ${saw ? "it saw the red disc and the bar" : "it did NOT say what the picture shows"}`,
+      `Words: ${words ?? "(none)"}`,
+      `Usage: ${JSON.stringify(result.usage)}`,
+    ].join("\n"));
+    // Diagnosis, while the server still runs: what Unsloth says about the load, the llama-server it
+    // started (was it handed --mmproj?), and what it printed about a projector.
+    try {
+      const model = await runtime.ensure(result.runtimeSpec);
+      const response = await fetch(`${model.endpoint}/api/inference/status`, { headers: model.apiKey ? { Authorization: `Bearer ${model.apiKey}` } : {} });
+      const status = await response.json().catch(() => null);
+      const telling = Object.fromEntries(Object.entries(status ?? {}).filter(([key]) => /vision|mmproj|gguf|model|audio|disable|loaded|projector/i.test(key)));
+      console.log(`Unsloth's status (HTTP ${response.status}): ${JSON.stringify(telling)}`);
+    } catch (error) {
+      console.log(`Unsloth's status could not be read: ${error.message}`);
+    }
+    try {
+      const { execFileSync } = await import("node:child_process");
+      const servers = execFileSync("ps", ["-eo", "args"], { encoding: "utf8" }).split("\n").filter((line) => /llama-server/.test(line) && !/grep/.test(line));
+      console.log(`llama-server as started: ${servers.map((line) => line.replace(/--api-key\S*\s+\S+/g, "--api-key [redacted]").slice(0, 900)).join("\n  ") || "(none running)"}`);
+    } catch (error) {
+      console.log(`ps failed: ${error.message}`);
+    }
+    const printed = runtime.output().filter((line) => /mmproj|projector|vision|clip|image/i.test(line));
+    console.log(`What the server printed about seeing (${printed.length} lines):\n  ${printed.slice(-12).join("\n  ") || "(nothing)"}`);
+    console.log(`Its last lines:\n  ${runtime.output().slice(-12).join("\n  ")}`);
+    if (!result.described || !saw) process.exitCode = 1;
+  } finally {
+    if (out) await writeFile(out, `${JSON.stringify({ threads, image: result }, null, 1)}\n`);
+    await runtime.stop("bench over");
+  }
+} else if (process.argv.includes("--eval")) {
   const { describeEval, runEvalSet } = await import("../../test/agents-eval.mjs");
   let outcome = null;
   try {

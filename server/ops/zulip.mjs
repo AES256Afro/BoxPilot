@@ -133,6 +133,22 @@ export function zulipOperations() {
       run: (parameters, { runUnit, jobLog }) => runUnit.runTask("agents.zulip.post", { ...parameters, credentialName: zulipCredentialName }, { timeoutMs: minutes(1.5), logPath: jobLog?.path ?? null }),
     }),
     defineOperation({
+      // owner (ADR-003): it reads what people wrote to the bot, with its key, as root. M40.5.
+      id: "agents.zulip.events", title: "Read what was asked of the agents in Zulip", risk: "low", readOnly: true, minimumRole: "owner", timeoutMs: minutes(1),
+      description: "Reads the agents' bot's event queue in Zulip without waiting - direct messages to the bot, and messages that mention it - opening the queue again when Zulip has let it expire, and reading back what was asked since the last message BoxPilot handled. Nothing in Zulip is changed.",
+      parameters: {
+        exact: true,
+        fields: {
+          ...connectionFields,
+          queueId: { type: "string", nullable: true, optional: true, maxLength: 120, pattern: /^[A-Za-z0-9:_.-]{1,120}$/ },
+          lastEventId: { type: "number", nullable: true, optional: true, validate: (value) => (Number.isInteger(value) && value >= -1 ? null : "must be an event id") },
+          after: { type: "number", nullable: true, optional: true, validate: (value) => (Number.isInteger(value) && value >= 0 ? null : "must be a message id") },
+          catchUpMinutes: { type: "number", optional: true, validate: (value) => (Number.isInteger(value) && value >= 1 && value <= 120 ? null : "must be 1 to 120 minutes") },
+        },
+      },
+      run: (parameters, { runUnit }) => runUnit.runTask("agents.zulip.events", { ...parameters, credentialName: zulipCredentialName }, { timeoutMs: 50_000 }),
+    }),
+    defineOperation({
       // owner (ADR-003): it reads what people wrote in #agent-files, with the bot's key, as root.
       id: "agents.zulip.poll", title: "Read #agent-files in Zulip", risk: "low", readOnly: true, minimumRole: "owner", timeoutMs: minutes(3),
       description: "Reads the messages in #agent-files after the last one BoxPilot read, as the agents' bot, and downloads the files they link to - PDFs, Markdown, text and images, 5 MB each at most - for the agents' Knowledge. Nothing in Zulip is changed.",
@@ -155,10 +171,15 @@ function validPosts(posts) {
   if (Buffer.byteLength(JSON.stringify(posts)) > chatLimits.batchBytes + 8_192) return "is too large for one batch";
   for (const post of posts) {
     if (!post || typeof post !== "object" || Array.isArray(post)) return "each post must be an object";
-    if (Object.keys(post).some((key) => !["id", "channel", "topic", "content", "attachment"].includes(key))) return "a post has a field it may not";
+    if (Object.keys(post).some((key) => !["id", "channel", "topic", "content", "attachment", "to"].includes(key))) return "a post has a field it may not";
     if (typeof post.id !== "string" || !/^[0-9a-f-]{36}$/.test(post.id)) return "each post needs its id";
-    if (!readChannelName(post.channel)) return "each post needs a channel name";
-    if (!readTopic(post.topic)) return "each post needs a topic of one line";
+    // A reply to a direct message (M40.5) goes to the people in it, by their Zulip ids; the rest to a channel.
+    if (post.to !== undefined && post.to !== null) {
+      if (!Array.isArray(post.to) || !post.to.length || post.to.length > 8 || !post.to.every((id) => Number.isInteger(id) && id > 0)) return "a direct reply names one to eight people by their Zulip ids";
+    } else {
+      if (!readChannelName(post.channel)) return "each post needs a channel name";
+      if (!readTopic(post.topic)) return "each post needs a topic of one line";
+    }
     if (typeof post.content !== "string" || !post.content.trim() || post.content.length > 9_000) return "each post's text must be 1 to 9,000 characters";
     if (post.attachment !== undefined && post.attachment !== null) {
       if (typeof post.attachment !== "object" || typeof post.attachment.name !== "string" || !/^[A-Za-z0-9._-]{1,80}$/.test(post.attachment.name) || typeof post.attachment.text !== "string" || post.attachment.text.length > chatLimits.attachmentChars) return "an attachment is a named text of at most 48,000 characters";

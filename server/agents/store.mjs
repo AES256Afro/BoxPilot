@@ -223,6 +223,8 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
   ensureColumn("agent_documents", "pinned", "INTEGER NOT NULL DEFAULT 0");
   // M38: an image dropped in #agent-files is kept as it came, for the model to describe in quiet hours.
   ensureColumn("agent_documents", "media_type", "TEXT");
+  // M40.5: a reply to a direct message goes to the people in it, by their Zulip ids.
+  ensureColumn("agent_chat_posts", "recipients_json", "TEXT");
   ensureColumn("agent_documents", "media", "BLOB");
   ensureColumn("agent_documents", "described_at", "TEXT");
   ensureColumn("agent_documents", "describe_attempts", "INTEGER NOT NULL DEFAULT 0");
@@ -637,7 +639,7 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
   // ---- what the agents post to Zulip (M38) ----
 
   const chatPostOf = (row) => row ? ({
-    id: row.id, kind: row.kind, agentId: row.agent_id ?? null, runId: row.run_id ?? null, channel: row.channel, topic: row.topic, content: row.content,
+    id: row.id, kind: row.kind, agentId: row.agent_id ?? null, runId: row.run_id ?? null, channel: row.channel, topic: row.topic, content: row.content, to: parse(row.recipients_json, null),
     attachment: parse(row.attachment_json, null), state: row.state, attempts: Number(row.attempts ?? 0), error: row.error ?? null, messageId: row.message_id ?? null,
     createdAt: row.created_at, sentAt: row.sent_at ?? null,
   }) : null;
@@ -645,10 +647,10 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
    * A post waiting to go. The outbox is bounded: past `max` waiting, the oldest waiting post is
    * dropped (and says so) rather than the queue growing. Returns the post and how many were dropped.
    */
-  function queueChatPost({ kind, agentId = null, runId = null, channel, topic, content, attachment = null }, { max = 200 } = {}) {
+  function queueChatPost({ kind, agentId = null, runId = null, channel = "", topic = "", content, attachment = null, to = null }, { max = 200 } = {}) {
     return transaction(() => {
       const id = randomUUID();
-      prepare("INSERT INTO agent_chat_posts (id, kind, agent_id, run_id, channel, topic, content, attachment_json, state, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?)").run(id, kind, agentId, runId, channel, topic, content, attachment ? json(attachment) : null, iso());
+      prepare("INSERT INTO agent_chat_posts (id, kind, agent_id, run_id, channel, topic, content, attachment_json, recipients_json, state, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?)").run(id, kind, agentId, runId, channel ?? "", topic ?? "", content, attachment ? json(attachment) : null, Array.isArray(to) && to.length ? json(to) : null, iso());
       const dropped = Number(prepare("UPDATE agent_chat_posts SET state = 'dropped', error = 'The outbox was full; this post was dropped.' WHERE state = 'queued' AND id IN (SELECT id FROM agent_chat_posts WHERE state = 'queued' ORDER BY created_at DESC, rowid DESC LIMIT -1 OFFSET ?)").run(max).changes);
       return { post: chatPostOf(prepare("SELECT * FROM agent_chat_posts WHERE id = ?").get(id)), dropped };
     });

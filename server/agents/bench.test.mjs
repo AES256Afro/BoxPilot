@@ -7,7 +7,7 @@
  * to the log, so CI shows the numbers.
  */
 import { describe, expect, it } from "vitest";
-import { describe as table, ownerQuestion, runOwnerQuestion } from "../../test/agents-bench.mjs";
+import { benchPicture, describeBenchImage, describe as table, ownerQuestion, runOwnerQuestion } from "../../test/agents-bench.mjs";
 import { budgetCeilings } from "./spec.mjs";
 
 describe("the owner's first question, at 20 tokens a second read and 4 written", () => {
@@ -35,5 +35,18 @@ describe("the owner's first question, at 20 tokens a second read and 4 written",
       expect(call.cachedTokens, call.call).toBeGreaterThan(first.promptTokens);
     }
     expect(result.run.usage.cachedTokens).toBeGreaterThan(result.run.usage.readTokens);
+  });
+});
+
+describe("an image from #agent-files, the way agents-bench describes one on the real model (M40.6)", () => {
+  it("is a real PNG, queued in quiet hours, sent to the model, and its description kept", async () => {
+    const png = benchPicture();
+    expect(png.subarray(0, 8)).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+    expect(png.readUInt32BE(16)).toBe(160);
+    const result = await describeBenchImage({ png });
+    expect(result.state).toBe("completed");
+    expect(result.described).toBe(true);
+    expect(result.text).toContain(`What it shows, as the model described it: A picture (image/png, ${png.length} bytes).`);
+    expect(result.vision).toMatchObject({ vision: true, reason: "it described an image" });
   });
 });

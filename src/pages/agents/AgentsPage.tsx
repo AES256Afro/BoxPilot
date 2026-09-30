@@ -243,7 +243,7 @@ export default function AgentsPage({ csrfToken, role = "owner", now = Date.now }
               onResume={(agent) => void agentAction(() => agentsApi.resume(csrfToken, agent.id), `${agent.name} is running again.`)}
               onStage={start} onProposalDecided={() => void refresh()} onTurnOn={owner ? () => setTurningOn(true) : null} />
             {/* The team chat (M38): Zulip, where agents report and the owner drops files for them. */}
-            {staff && <ZulipPanel csrfToken={csrfToken} role={role} now={now()} onStart={start} refreshKey={jobsFinished} />}
+            {staff && <ZulipPanel csrfToken={csrfToken} role={role} now={now()} onStart={start} refreshKey={jobsFinished} agents={overview.agents} />}
           </>;
         }}
       </Tabs>

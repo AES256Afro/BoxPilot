@@ -149,6 +149,22 @@ describe("connecting the agents to Zulip (M38)", () => {
     expect(laneFor("agents.zulip.post", {})).toEqual(["chat:zulip"]);
     expect(laneFor("agents.zulip.connect", {})).toEqual(["chat:zulip", "app:zulip"]);
     expect(laneFor("app.zulip.organization.link", { id: "zulip" })).toEqual(["app:zulip"]);
+    // M40.5: a reply to a direct message goes to one to eight people, by their Zulip ids, and nowhere else.
+    const reply = { id: "00000000-0000-4000-8000-000000000002", to: [11], content: "The answer." };
+    expect(registry.validate("agents.zulip.post", { ...at, posts: [reply] })).toBeNull();
+    expect(registry.validate("agents.zulip.post", { ...at, posts: [{ ...reply, to: [] }] })).toMatch(/one to eight people/);
+    expect(registry.validate("agents.zulip.post", { ...at, posts: [{ ...reply, to: ["alex@example.com"] }] })).toMatch(/one to eight people/);
+    expect(registry.validate("agents.zulip.post", { ...at, posts: [{ ...reply, to: Array.from({ length: 9 }, (_value, index) => index + 1) }] })).toMatch(/one to eight people/);
+  });
+
+  it("reads what was asked of the bot as the owner's read, with bounded parameters (M40.5)", () => {
+    const at = { base: "http://127.0.0.1:8543", host: "homebox.tail1234.ts.net:8543", botEmail: "boxpilot-agents-bot@homebox.tail1234.ts.net" };
+    expect(registry.get("agents.zulip.events")).toMatchObject({ risk: "low", minimumRole: "owner", readOnly: true });
+    expect(registry.validate("agents.zulip.events", { ...at, queueId: "1727-abc:2", lastEventId: 4, after: 1000, catchUpMinutes: 15 })).toBeNull();
+    expect(registry.validate("agents.zulip.events", { ...at, queueId: null, lastEventId: null, after: null })).toBeNull();
+    expect(registry.validate("agents.zulip.events", { ...at, queueId: "../../etc" })).toMatch(/queueId/);
+    expect(registry.validate("agents.zulip.events", { ...at, catchUpMinutes: 600 })).toMatch(/1 to 120/);
+    expect(registry.validate("agents.zulip.events", { ...at, base: "http://10.0.0.1:8543" })).toMatch(/base/);
   });
 
   // The script runs inside Zulip's own Python; here it is only parsed. zulip-host.yml runs it for real.

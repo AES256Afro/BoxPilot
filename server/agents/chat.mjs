@@ -11,21 +11,30 @@
  * posts wait in the outbox, files wait in Zulip.
  */
 import { ConnectorError, cleanDocumentText, textOfUpload } from "./connectors.mjs";
-import { ackMessage, boxpilotLink, cardMessage, chatLimits, destinationFor, findingMessage, imageMediaType, messageWords, noteMessage, traceMessage, zulipChannels } from "./zulip.mjs";
+import { ackMessage, boxpilotLink, cardMessage, chatLimits, chatText, destinationFor, findingMessage, imageMediaType, messageWords, notSetUpMessage, noteMessage, replyMessage, traceMessage, zulipChannels } from "./zulip.mjs";
 
 export const zulipSettingKey = "agentsZulip";
+
+/**
+ * Two-way chat (M40.5): the bot's event queue is read once a minute; a person the owner has mapped
+ * to a BoxPilot account asks as that account, and the answer comes back in the thread they asked in.
+ * Someone not mapped is told so, at most once an hour, and never reaches a model.
+ */
+export const askLimits = Object.freeze({ pollEveryMs: 60_000, refuseEveryMs: 3_600_000, askers: 20, people: 50, catchUpMinutes: 15 });
 
 const clip = (text, max) => { const value = String(text ?? ""); return value.length > max ? `${value.slice(0, max - 1)}…` : value; };
 const originPattern = /^https?:\/\/[A-Za-z0-9.-]{1,180}(?::\d{1,5})?$/;
 const findingKinds = new Set(["ask", "manual", "schedule", "event", "webhook", "continue"]);
 const answered = new Set(["completed", "degraded"]);
 
-export function createAgentChat({ state, store, helper = null, now = () => new Date(), redact = (text) => text, audit = () => {}, active = () => true, limits: overrides = {}, schedule = (task, ms) => { const timer = setTimeout(task, ms); timer.unref?.(); return timer; } } = {}) {
-  const limits = { ...chatLimits, pollEveryMs: 3 * 60_000, drainDelayMs: 1_500, ...overrides };
+export function createAgentChat({ state, store, helper = null, now = () => new Date(), redact = (text) => text, audit = () => {}, active = () => true, ask = null, limits: overrides = {}, schedule = (task, ms) => { const timer = setTimeout(task, ms); timer.unref?.(); return timer; } } = {}) {
+  const limits = { ...chatLimits, pollEveryMs: 3 * 60_000, drainDelayMs: 1_500, askPollEveryMs: askLimits.pollEveryMs, ...overrides };
   let draining = null;
   let polling = null;
+  let asking = null;
   let drainTimer = null;
   let lastPoll = 0;
+  let lastAskPoll = 0;
 
   const saved = () => state.getSetting?.(zulipSettingKey, null) ?? null;
   /** The connection when the owner has connected Zulip; null otherwise. */
@@ -76,7 +85,7 @@ export function createAgentChat({ state, store, helper = null, now = () => new D
     const queued = [];
     const queue = (kind, destination, content, attachment = null) => {
       if (!destination || !String(content ?? "").trim()) return;
-      const { post, dropped } = store.queueChatPost({ kind, agentId: agent.id, runId: run.id, channel: destination.channel, topic: destination.topic, content, attachment }, { max: limits.queued });
+      const { post, dropped } = store.queueChatPost({ kind, agentId: agent.id, runId: run.id, channel: destination.channel ?? "", topic: destination.topic ?? "", to: destination.to ?? null, content, attachment }, { max: limits.queued });
       if (dropped) audit("agents.zulip.dropped", { details: { dropped, reason: "outbox full" } });
       queued.push(post);
     };
@@ -86,11 +95,18 @@ export function createAgentChat({ state, store, helper = null, now = () => new D
       // A supervisor that handed work on answers in its follow-up run; that one is posted, once.
       const handedOn = run.kind !== "continue" && store.listChildren(run.id).some((entry) => entry.kind === "handoff");
       const proposals = store.listProposalsForRun(run.id).slice(0, limits.cardsPerRun);
-      const findings = destinationFor(spec, "findings", link);
-      if (findings && findingKinds.has(run.kind) && answered.has(run.state) && run.answer && !handedOn && !run.flags?.clarify) {
+      // Asked in Zulip (M40.5): the answer, and its cards, go back to the thread it was asked in -
+      // the root question's thread for a supervisor's follow-up - and not to #agent-findings as well.
+      const asked = chatOrigin(run);
+      const findings = asked ?? destinationFor(spec, "findings", link);
+      if (asked && !handedOn && ["completed", "degraded", "failed", "timeout", "interrupted"].includes(run.state)) {
+        queue("reply", asked, replyMessage({ agentName: name, run, link: runLink, redact }));
+      } else if (!asked && findings && findingKinds.has(run.kind) && answered.has(run.state) && run.answer && !handedOn && !run.flags?.clarify) {
         queue("findings", findings, findingMessage({ agentName: name, run, digest: run.kind === "schedule" && Boolean(spec?.outputs?.digest), link: runLink, redact }));
       }
       for (const proposal of proposals) {
+        // A question asked back is in the reply itself; answered here, in the thread.
+        if (asked && proposal.kind === "question") continue;
         queue("findings", findings, cardMessage({ agentName: name, proposal, link: linkTo(link, `view=agents&agent=${agent.id}`, "the card on the Agents page"), redact }));
       }
       const logs = destinationFor(spec, "logs", link);
@@ -127,7 +143,8 @@ export function createAgentChat({ state, store, helper = null, now = () => new D
       const batch = [];
       let bytes = 0;
       for (const post of store.listChatPosts({ state: "queued", limit: limits.batchPosts })) {
-        const entry = { id: post.id, channel: post.channel, topic: post.topic, content: post.content, ...(post.attachment ? { attachment: post.attachment } : {}) };
+        // A reply to a direct message goes to its people (M40.5); everything else to its channel and topic.
+        const entry = { id: post.id, ...(post.to?.length ? { to: post.to } : { channel: post.channel, topic: post.topic }), content: post.content, ...(post.attachment ? { attachment: post.attachment } : {}) };
         const size = Buffer.byteLength(JSON.stringify(entry));
         if (batch.length && bytes + size > limits.batchBytes) break;
         if (batch.length >= Math.min(limits.batchPosts, allowance)) break;
@@ -256,13 +273,109 @@ export function createAgentChat({ state, store, helper = null, now = () => new D
     return polling;
   }
 
+  // ---- two-way chat (M40.5) ----
+
+  /** Where a run asked in Zulip is answered: its own question's thread, or its root's for a follow-up. */
+  function chatOrigin(run) {
+    const origin = run?.trigger?.chat ?? (run?.rootRunId && run.rootRunId !== run.id ? store.getRun(run.rootRunId)?.trigger?.chat : null) ?? null;
+    if (!origin) return null;
+    if (Array.isArray(origin.to) && origin.to.length) return { to: origin.to };
+    return origin.channel && origin.topic ? { channel: origin.channel, topic: origin.topic } : null;
+  }
+  const whereAsked = (message) => (message.kind === "direct" ? { to: message.to?.length ? message.to : [message.senderId].filter(Number.isInteger) } : { channel: message.channel, topic: message.topic || "BoxPilot" });
+
+  /** The owner's list: who in Zulip asks as which BoxPilot account, and the agent asked by default. */
+  function setPeople({ people = [], defaultAgentId = null, twoWay = true } = {}, { actorId = null, accounts = [], agents = [] } = {}) {
+    if (!Array.isArray(people) || people.length > askLimits.people) throw new ConnectorError(`At most ${askLimits.people} people`);
+    const known = new Set(accounts.map((account) => account.id));
+    const clean = [];
+    for (const entry of people) {
+      const zulipId = Number.isInteger(entry?.zulipId) && entry.zulipId > 0 ? entry.zulipId : null;
+      const zulipEmail = typeof entry?.zulipEmail === "string" && /^[^\s@]{1,100}@[^\s@]{1,200}$/.test(entry.zulipEmail.trim()) ? entry.zulipEmail.trim().toLowerCase() : null;
+      if (!zulipId && !zulipEmail) throw new ConnectorError("Each person needs their Zulip address");
+      if (!known.has(entry?.boxpilotId)) throw new ConnectorError("Each person asks as a BoxPilot account that exists");
+      if (clean.some((other) => (zulipId && other.zulipId === zulipId) || (zulipEmail && other.zulipEmail === zulipEmail))) throw new ConnectorError("A Zulip person is on the list once");
+      clean.push({ zulipId, zulipEmail, zulipName: typeof entry.zulipName === "string" ? clip(entry.zulipName.replace(/[\u0000-\u001f\u007f]/g, " ").trim(), 80) : null, boxpilotId: entry.boxpilotId });
+    }
+    if (defaultAgentId !== null && !agents.some((agent) => agent.id === defaultAgentId)) throw new ConnectorError("The default agent is one of the agents");
+    const current = saved() ?? {};
+    // Whoever is now on the list is no longer waiting to be set up.
+    const askers = (current.askers ?? []).filter((asker) => !clean.some((person) => (person.zulipId && person.zulipId === asker.zulipId) || (person.zulipEmail && person.zulipEmail === asker.zulipEmail)));
+    remember({ people: clean, defaultAgentId, twoWay: twoWay !== false, askers });
+    audit("agents.zulip.people", { actorId, details: { people: clean.length, twoWay: twoWay !== false, defaultAgentId } });
+    return clean;
+  }
+
+  const personFor = (message, people) => people.find((person) => (person.zulipId && person.zulipId === message.senderId) || (person.zulipEmail && person.zulipEmail === String(message.senderEmail ?? "").toLowerCase())) ?? null;
+
+  /** Queue a reply in the thread a message was asked in. */
+  function replyTo(message, content) {
+    const { dropped } = store.queueChatPost({ kind: "reply", ...whereAsked(message), content }, { max: limits.queued });
+    if (dropped) audit("agents.zulip.dropped", { details: { dropped, reason: "outbox full" } });
+  }
+
+  /**
+   * Once a minute (and on "Check now"): the bot's event queue, read without waiting. Each message is
+   * handled once, in order: a mapped person's question starts a run as their account, exactly as
+   * the Test tab's Ask would (their role's tools, their rate limit, their conversation); anyone else
+   * is told politely they are not set up, at most once an hour, and listed for the owner.
+   */
+  function pollAsks({ force = false } = {}) {
+    if (asking) return asking;
+    asking = (async () => {
+      const link = connection();
+      const value = saved() ?? {};
+      if (!link || !helper || !active() || value.twoWay === false || !ask) return { skipped: "off" };
+      if (!force && now().getTime() - lastAskPoll < limits.askPollEveryMs) return { skipped: "recent" };
+      lastAskPoll = now().getTime();
+      const events = value.events ?? {};
+      let answer;
+      try {
+        answer = await helper.request("agents.zulip.events", { ...where(link), queueId: events.queueId ?? null, lastEventId: Number.isInteger(events.lastEventId) ? events.lastEventId : null, after: Number.isInteger(events.after) ? events.after : null, catchUpMinutes: askLimits.catchUpMinutes }, { timeoutMs: 60_000 });
+      } catch (error) {
+        remember({ events: { ...events, lastPollAt: now().toISOString(), lastError: clip(error.message, 300) } });
+        return { error: error.message };
+      }
+      let after = Number.isInteger(events.after) ? events.after : 0;
+      let asked = 0;
+      let refused = 0;
+      let lastAsk = events.lastAsk ?? null;
+      const askers = [...(saved()?.askers ?? [])];
+      for (const message of (answer?.messages ?? []).filter((entry) => Number.isInteger(entry?.id) && entry.id > after).sort((a, b) => a.id - b.id)) {
+        after = Math.max(after, message.id);
+        const person = personFor(message, saved()?.people ?? []);
+        if (!person) {
+          const known = askers.find((entry) => (message.senderId && entry.zulipId === message.senderId) || entry.zulipEmail === String(message.senderEmail).toLowerCase());
+          const at = now().toISOString();
+          if (known && known.lastRefusedAt && now().getTime() - Date.parse(known.lastRefusedAt) < askLimits.refuseEveryMs) { known.lastAt = at; known.count += 1; continue; }
+          if (known) Object.assign(known, { lastAt: at, lastRefusedAt: at, count: known.count + 1 });
+          else askers.unshift({ zulipId: message.senderId ?? null, zulipEmail: String(message.senderEmail ?? "").toLowerCase(), zulipName: clip(message.senderName ?? "", 80), lastAt: at, lastRefusedAt: at, count: 1 });
+          replyTo(message, notSetUpMessage);
+          refused += 1;
+          continue;
+        }
+        const outcome = await Promise.resolve(ask({ message, person, where: whereAsked(message) })).catch((error) => ({ refused: clip(error?.message ?? "It could not be asked", 300) }));
+        // A refusal names agents and limits: BoxPilot's words, still posted as chat text is (links as code, no mentions).
+        if (outcome?.refused) { replyTo(message, chatText(clip(outcome.refused, 600), { redact, maxChars: 800 })); refused += 1; continue; }
+        asked += 1;
+        lastAsk = { at: now().toISOString(), agentName: outcome?.agentName ?? null, kind: message.kind };
+      }
+      remember({ askers: askers.slice(0, askLimits.askers), events: { queueId: answer?.queueId ?? null, lastEventId: Number.isInteger(answer?.lastEventId) ? answer.lastEventId : null, after: after || null, lastPollAt: now().toISOString(), lastError: null, lastAsk, reopenedAt: answer?.reopened ? now().toISOString() : events.reopenedAt ?? null } });
+      if (asked || refused) { audit("agents.zulip.asked", { details: { asked, refused } }); soon(); }
+      // More waiting: the next tick reads on, rather than a loop now.
+      if (answer?.more) lastAskPoll = 0;
+      return { asked, refused };
+    })().finally(() => { asking = null; });
+    return asking;
+  }
+
   // ---- for the page ----
 
-  function present(person, { app = null } = {}) {
+  function present(person, { app = null, accounts = [] } = {}) {
     const value = saved() ?? {};
     const owner = person.role === "owner";
     const recent = owner ? store.listChatPosts({ limit: 8 }).map((post) => ({
-      id: post.id, kind: post.kind, channel: post.channel, topic: post.topic, state: post.state, error: post.error, createdAt: post.createdAt, sentAt: post.sentAt,
+      id: post.id, kind: post.kind, channel: post.channel, topic: post.topic, direct: Boolean(post.to?.length), state: post.state, error: post.error, createdAt: post.createdAt, sentAt: post.sentAt,
       agentName: post.agentId ? store.getAgent(post.agentId, { includeDeleted: true })?.name ?? null : null,
       // As it reads in Zulip, roughly: links as their words, no bold or code marks.
       preview: clip(post.content.replace(/\[([^\]\n]*)\]\([^)\s]*\)/g, "$1").replace(/\*\*|`/g, "").replace(/\s+/g, " ").trim(), 160),
@@ -278,18 +391,28 @@ export function createAgentChat({ state, store, helper = null, now = () => new D
       counts: store.countChatPosts(), recent,
       active: active(), app,
       canChange: owner,
+      // M40.5: asking in Zulip. Who may ask, as which account, is the owner's to see and change.
+      asking: {
+        on: value.twoWay !== false,
+        lastPollAt: value.events?.lastPollAt ?? null, lastError: value.events?.lastError ?? null, lastAsk: value.events?.lastAsk ?? null,
+        defaultAgentId: value.defaultAgentId ?? null,
+        people: owner ? (value.people ?? []) : [],
+        askers: owner ? (value.askers ?? []).map(({ zulipId, zulipEmail, zulipName, lastAt, count }) => ({ zulipId, zulipEmail, zulipName, lastAt, count })) : [],
+        accounts: owner ? accounts : [],
+      },
     };
   }
 
   /** The connection as an agent's prompt names it (prompt.mjs), or null. */
   const promptConnection = () => { const link = connection(); return link ? { channels: link.channels } : null; };
 
-  /** Every minute from the service's tick: send what waits, and read #agent-files every few minutes. */
+  /** Every minute from the service's tick: send what waits, read what was asked (M40.5), and read #agent-files every few minutes. */
   async function tick() {
     if (!connection()) return;
+    await pollAsks().catch(() => null);
     if ((store.countChatPosts().queued ?? 0) > 0) await drain().catch(() => null);
     await poll().catch(() => null);
   }
 
-  return { connection, connected, disconnected, afterRun, drain, poll, present, promptConnection, tick, ingestMessage };
+  return { connection, connected, disconnected, afterRun, drain, poll, pollAsks, setPeople, present, promptConnection, tick, ingestMessage };
 }
