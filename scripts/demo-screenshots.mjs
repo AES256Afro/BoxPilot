@@ -25,6 +25,9 @@
  *   VIEWPORT     the window, as WIDTHxHEIGHT, default 1440x960. Under 768 px wide the page is
  *                emulated as a phone (VIEWPORT=375x812 is an iPhone's portrait width).
  *   SCENARIO     the demo world for every page: default, fresh or trouble. Files get a suffix.
+ *   LOOK         the look every page is drawn in (src/looks/looks.ts), as if chosen in Settings →
+ *                Appearance: blend, launcher, console, aqua, … Files get the look as a prefix.
+ *   LOOK_SCOPE   with LOOK: "not-home" keeps today's Launcher on Home, as the setting does.
  *   STATES       extra captures of states a page only reaches by clicking, separated by ";":
  *                name=query>click>click, for example
  *                "home-trouble=?scenario=trouble;activity=?scenario=trouble>Activity".
@@ -35,8 +38,9 @@
  * It fails only when Chrome or the demo cannot run. A page that does not load is reported and
  * skipped, so one broken page still leaves every other screenshot to look at.
  */
-import { spawn, execFileSync } from "node:child_process";
-import { accessSync, constants, mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { Devtools, findChrome, launchChrome } from "./chrome-devtools.mjs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -53,6 +57,11 @@ if (!(viewportWidth >= 320 && viewportHeight >= 320)) throw new Error(`VIEWPORT 
 const viewport = { width: viewportWidth, height: viewportHeight, deviceScaleFactor: scale, mobile: viewportWidth < 768 };
 const scenario = (process.env.SCENARIO ?? "").trim();
 if (scenario && !["default", "fresh", "trouble"].includes(scenario)) throw new Error(`SCENARIO takes default, fresh or trouble, not ${scenario}`);
+const look = (process.env.LOOK ?? "").trim();
+const lookIds = ["blend", "launcher", "console", "aqua", "blueprint", "phosphor", "rack", "swiss", "toybox", "cockpit", "eink", "quest", "transit"];
+if (look && !lookIds.includes(look)) throw new Error(`LOOK takes one of ${lookIds.join(", ")}, not ${look}`);
+const lookScope = (process.env.LOOK_SCOPE ?? "").trim();
+if (lookScope && lookScope !== "not-home") throw new Error(`LOOK_SCOPE takes not-home, not ${lookScope}`);
 const settleMs = 2500;
 // Ops draws a sparkline from its own reads, one every five seconds from when it opens (M33.7);
 // three reads are the first picture with a line worth looking at.
@@ -106,19 +115,6 @@ function chooseSchemes() {
   return [...new Set(asked)];
 }
 
-function findChrome() {
-  const candidates = [
-    process.env.CHROME,
-    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-    "/Applications/Chromium.app/Contents/MacOS/Chromium",
-    "/usr/bin/google-chrome", "/usr/bin/google-chrome-stable", "/usr/bin/chromium", "/usr/bin/chromium-browser",
-  ].filter(Boolean);
-  for (const candidate of candidates) {
-    try { accessSync(candidate, constants.X_OK); return candidate; } catch { /* next */ }
-  }
-  throw new Error("No Chrome/Chromium binary found; set CHROME=/path/to/chrome");
-}
-
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
@@ -137,72 +133,6 @@ const clickScript = (target) => `(() => {
   hit.click();
   return true;
 })()`;
-
-class Devtools {
-  constructor(socket) {
-    this.socket = socket;
-    this.nextId = 1;
-    this.pending = new Map();
-    this.listeners = new Set();
-    socket.addEventListener("message", (event) => {
-      const message = JSON.parse(event.data);
-      if (message.id && this.pending.has(message.id)) {
-        const { resolve, reject } = this.pending.get(message.id);
-        this.pending.delete(message.id);
-        if (message.error) reject(new Error(`${message.error.message} (${message.error.code})`));
-        else resolve(message.result);
-      } else if (message.method) {
-        for (const listener of this.listeners) listener(message);
-      }
-    });
-    // A browser that dies mid-run must fail loudly rather than leave every request hanging.
-    socket.addEventListener("close", () => {
-      for (const [, { reject }] of this.pending) reject(new Error("The browser connection closed"));
-      this.pending.clear();
-    });
-  }
-  send(method, params = {}) {
-    const id = this.nextId++;
-    this.socket.send(JSON.stringify({ id, method, params }));
-    return new Promise((resolve, reject) => this.pending.set(id, { resolve, reject }));
-  }
-  once(method, timeoutMs = 15_000) {
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => { this.listeners.delete(listener); reject(new Error(`Timed out waiting for ${method}`)); }, timeoutMs);
-      const listener = (message) => {
-        if (message.method !== method) return;
-        clearTimeout(timer);
-        this.listeners.delete(listener);
-        resolve(message.params);
-      };
-      this.listeners.add(listener);
-    });
-  }
-  async evaluate(expression) {
-    const { result } = await this.send("Runtime.evaluate", { expression, returnByValue: true });
-    return result.value;
-  }
-}
-
-async function launch(chrome, profile) {
-  const extra = (process.env.CHROME_ARGS ?? "").split(/\s+/).filter(Boolean);
-  const child = spawn(chrome, [
-    "--headless", "--disable-gpu", "--hide-scrollbars", "--no-first-run", "--no-default-browser-check", ...extra,
-    `--user-data-dir=${profile}`, "--remote-debugging-port=0", `--window-size=${viewport.width},${viewport.height}`, "about:blank",
-  ], { stdio: ["ignore", "ignore", "pipe"] });
-  const endpoint = await new Promise((resolve, reject) => {
-    let buffer = "";
-    const timer = setTimeout(() => reject(new Error("Chrome did not announce its DevTools endpoint")), 20_000);
-    child.stderr.on("data", (chunk) => {
-      buffer += chunk.toString();
-      const match = buffer.match(/DevTools listening on (ws:\/\/[^\s]+)/);
-      if (match) { clearTimeout(timer); resolve(match[1]); }
-    });
-    child.on("exit", (code) => { clearTimeout(timer); reject(new Error(`Chrome exited early (${code}): ${buffer.trim().split("\n").slice(-3).join(" | ")}`)); });
-  });
-  const { host } = new URL(endpoint);
-  return { child, host };
-}
 
 /** Write one capture, as PNG, or as a 1600 px JPEG on macOS (a fifth of the size, still crisp). */
 function store(name, data) {
@@ -240,7 +170,7 @@ async function main() {
   const chrome = findChrome();
   const profile = mkdtempSync(path.join(os.tmpdir(), "boxpilot-shots-"));
   mkdirSync(outDir, { recursive: true });
-  const { child, host } = await launch(chrome, profile);
+  const { child, host } = await launchChrome(chrome, profile, viewport);
   const skipped = [];
   let written = 0;
   try {
@@ -252,12 +182,20 @@ async function main() {
     const devtools = new Devtools(socket);
     await devtools.send("Page.enable");
     await devtools.send("Emulation.setDeviceMetricsOverride", viewport);
+    // The look, stored before any page script runs, as Settings → Appearance keeps it (M41).
+    if (look) {
+      const stored = { "boxpilot-look": look, ...(lookScope ? { "boxpilot-look-scope": lookScope } : {}) };
+      await devtools.send("Page.addScriptToEvaluateOnNewDocument", { source: `try { for (const [key, value] of Object.entries(${JSON.stringify(stored)})) localStorage.setItem(key, value); } catch {}` });
+      // Compared with a drawing that has no demo bar (scripts/look-check.mjs), so the bar is left out.
+      await devtools.send("Page.addScriptToEvaluateOnNewDocument", { source: "document.addEventListener('DOMContentLoaded', () => { const style = document.createElement('style'); style.textContent = '#demo-worlds { display: none !important; }'; document.head.append(style); });" });
+    }
     // A phone is a touch screen (M25): the page's (pointer: coarse) rules - 44 px targets - apply.
     if (viewport.mobile) await devtools.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 5 });
     // Pages in the chosen world, then the states, each reached from its page by its clicks.
     const inWorld = (query) => (scenario && scenario !== "default" ? `${query}${query.includes("?") ? "&" : "?"}scenario=${scenario}` : query);
     const suffix = scenario && scenario !== "default" ? `-${scenario}` : "";
-    const captures = [...pages.map(([name, query]) => [`${name}${suffix}`, inWorld(query), []]), ...states];
+    const prefix = look ? `${look}-` : "";
+    const captures = [...pages.map(([name, query]) => [`${prefix}${name}${suffix}`, inWorld(query), []]), ...states.map(([name, query, clicks]) => [`${prefix}${name}`, query, clicks])];
     for (const [name, query, clicks] of captures) {
       try {
         await devtools.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: schemes[0] }] });
