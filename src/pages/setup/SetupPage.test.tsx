@@ -104,6 +104,22 @@ describe("Setup", () => {
     expect(screen.getByRole("button", { name: "Skip and continue" })).toBeTruthy();
   });
 
+  it("lets a viewer read the profiles and run nothing", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => json(setupState)));
+    render(<SetupPage csrfToken="csrf" role="viewer" onDone={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: /Home server/ }));
+    expect(screen.getByText("Install Jellyfin")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Install everything/ })).toBeNull();
+  });
+
+  it("keeps the new-server tab in the address", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => json(setupState)));
+    render(<SetupPage csrfToken="csrf" onDone={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("tab", { name: "Prepare a new server" }));
+    expect(window.location.search).toBe("?mode=new");
+    expect(screen.getByText("For another machine")).toBeTruthy();
+  });
+
   it("starts nothing more once the page is left, though the step already running goes on", async () => {
     // The run is the page's own loop. Left running after the owner went to another page, it went
     // on staging and approving each later step with the password it held, where nobody could see
@@ -130,22 +146,6 @@ describe("Setup", () => {
     // One of the loop's two-second waits, and a little more.
     await new Promise((resolve) => setTimeout(resolve, 2_500));
     expect(calls.slice(before)).toEqual([]);
-  });
-
-  it("lets a viewer read the profiles and run nothing", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => json(setupState)));
-    render(<SetupPage csrfToken="csrf" role="viewer" onDone={vi.fn()} />);
-    fireEvent.click(await screen.findByRole("button", { name: /Home server/ }));
-    expect(screen.getByText("Install Jellyfin")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /Install everything/ })).toBeNull();
-  });
-
-  it("keeps the new-server tab in the address", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => json(setupState)));
-    render(<SetupPage csrfToken="csrf" onDone={vi.fn()} />);
-    fireEvent.click(await screen.findByRole("tab", { name: "Prepare a new server" }));
-    expect(window.location.search).toBe("?mode=new");
-    expect(screen.getByText("For another machine")).toBeTruthy();
   });
 });
 
