@@ -2178,15 +2178,15 @@ nothing leaves the server unless the owner says so, and no account is made with 
   read `is:dm` and `is:mentioned` after the last seen id; the reply is an ordinary queued post.
   Cards it proposes still link back to BoxPilot; nothing is approved in chat.
 
-## M39 — Keep the house running when bigbox doesn't
+## M39 — Keep the house running when the server doesn't
 
 On 2026-09-29 the owner's server lost power at 18:41 UTC. The journal simply stops; the next boot's
 reset reason was an ACPI power-state transition. The firmware leaves the board off after AC loss,
 so it stayed off for 3 h 37 min until someone pressed the button, and there was no UPS. Pi-hole on
 it is the LAN's DNS, so the whole house lost its network, which is how anyone noticed. Approved by
-the owner: "Keep the house running when bigbox doesn't". Two halves: the hardware (a UPS, a
-watchdog, powering back on) and the network (DNS that survives the server, being told when it is
-down), then a report of what an outage did.
+the owner the same day. Two halves: the hardware (a UPS, a watchdog, powering back on) and the
+network (DNS that survives the server, being told when it is down), then a report of what an
+outage did.
 
 - ✅ **M39.1 The UPS, finished** (unreleased, `feat/m39-power`). BoxPilot read a UPS and had a
   one-shot setup that had never met a real NUT. Measured on NUT 2.8.1 (Ubuntu 24.04) and 2.8.4
