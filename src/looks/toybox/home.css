@@ -27,6 +27,9 @@
   box-shadow: 0 6.8px 0 var(--toybox-ink);
 }
 .toybox-card__title { margin: 0 0 6.2px; color: var(--toybox-soft); font: 600 15.6px/1.2 "Fredoka", ui-rounded, sans-serif; letter-spacing: 0.04em; text-transform: uppercase; }
+/* The title, and on its right the pill that shows the rest of a list longer than the drawing's two rows. */
+.toybox-card__head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 6.2px; }
+.toybox-card__head .toybox-card__title { margin: 0; }
 
 /* The robot: a blue box with two dot eyes, a smile and an antenna with a yellow ball. */
 .toybox-hero { display: grid; grid-template-columns: 120.7px minmax(0, 1fr); align-items: center; gap: 19.5px; }
@@ -43,9 +46,9 @@
 .toybox-bot::after { position: absolute; top: 52.5px; left: 38.9px; width: 35px; height: 17.5px; border: 4.3px solid var(--toybox-ink); border-top: 0; border-radius: 0 0 19.5px 19.5px; content: ""; }
 .toybox-bot i { position: absolute; top: -21.4px; left: calc(50% - 2.1px); width: 4.3px; height: 17.5px; background: var(--toybox-ink); }
 .toybox-bot i::after { position: absolute; top: -10.7px; left: -5.8px; width: 15.6px; height: 15.6px; box-sizing: border-box; border: 3.5px solid var(--toybox-ink); border-radius: 50%; background: #ffd84d; content: ""; }
-.toybox-say { display: grid; gap: 5px; }
+.toybox-say { display: grid; gap: 5px; padding-right: 15px; padding-left: 17px; }
 .toybox-say__line { margin: 0; font: 600 26.3px/1.1 "Fredoka", ui-rounded, sans-serif; }
-.toybox-say__verdict { margin: 0; font-size: 16.5px; line-height: 1.3; }
+.toybox-say__verdict { margin: 0; font-size: 15px; line-height: 1.35; }
 
 /* What needs you: a round dot with a glyph, the words, the pill buttons and the tier. */
 .toybox-needs__list { margin: 0; padding: 0; list-style: none; }
@@ -73,7 +76,7 @@
 .toybox-home .toybox-need__acts .ui-button.ui-button--risk-medium::before { display: none; }
 .toybox-tier { color: var(--toybox-soft); font-size: 12.5px; font-weight: 500; }
 .toybox-need__run { flex-basis: 100%; color: #1f6b3d; font-size: 13.5px; }
-.toybox-more { justify-self: start; margin-top: 6px; padding: 5px 14px; border: 2.2px solid var(--toybox-ink); border-radius: 999px; color: var(--toybox-ink); background: #ffffff; box-shadow: 0 3px 0 var(--toybox-ink); font: 600 13.5px/1.2 "Fredoka", ui-rounded, sans-serif; cursor: pointer; }
+.toybox-more { flex: none; margin: -6px 0; padding: 4px 12px; border: 2.2px solid var(--toybox-ink); border-radius: 999px; color: var(--toybox-ink); background: #ffffff; box-shadow: 0 3px 0 var(--toybox-ink); font: 600 13.5px/1.2 "Fredoka", ui-rounded, sans-serif; cursor: pointer; }
 .toybox-more:active { box-shadow: 0 1px 0 var(--toybox-ink); transform: translateY(2px); }
 .toybox-quiet { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 6px 0 0; font-size: 16px; font-weight: 500; }
 .toybox-quiet .toybox-dot { width: 44px; height: 44px; font-size: 18px; }
@@ -103,7 +106,12 @@
 .toybox-bar__value { font-weight: 600; text-align: right; }
 
 /* Your apps: pastel bubbles with an ink edge, the name, how each is doing, a "!" sticker. */
-.toybox-apps { min-height: calc(100vh - 46px); }
+/* It runs down to the foot of the screen, as the drawing has it; the tray floats over its empty end. */
+.toybox-apps { min-height: calc(100vh - 68px - var(--shell-bottom-inset, 0px)); }
+@media (min-width: 761px) {
+  /* The robot pokes its antenna up into the top bar, as it stands over the page in the drawing. */
+  .toybox-hero { position: relative; z-index: 41; }
+}
 .toybox-apps__grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 29.2px 9.7px; margin: 15.6px 0 0; padding: 0; list-style: none; }
 .toybox-app {
   position: relative;
@@ -136,7 +144,7 @@
 .toybox-app__bubble > span { font-size: 38.9px; font-weight: 700; line-height: 1; }
 .toybox-app:hover .toybox-app__bubble { transform: translateY(-3px); }
 .toybox-app:active .toybox-app__bubble { box-shadow: 0 1px 0 var(--toybox-ink); transform: translateY(3px); }
-.toybox-app__name { max-width: 100%; font-size: 16px; font-weight: 600; line-height: 1.2; overflow-wrap: anywhere; }
+.toybox-app__name { max-width: 100%; overflow: hidden; font-size: 16px; font-weight: 600; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
 .toybox-app__mood { color: var(--toybox-soft); font-size: 12.8px; }
 .toybox-app__sticker {
   position: absolute;
@@ -176,7 +184,7 @@
   .toybox-apps__grid { grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 22px 6px; }
   .toybox-app__bubble { width: 72px; height: 72px; }
   .toybox-app__bubble > span { font-size: 31px; }
-  .toybox-app__name { font-size: 14.5px; }
+  .toybox-app__name { font-size: 14.5px; white-space: normal; overflow-wrap: anywhere; }
   .toybox-app__sticker { left: calc(50% + 30px); }
 }
 
