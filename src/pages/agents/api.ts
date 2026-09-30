@@ -180,7 +180,7 @@ export interface OwnerDocument { id: string; title: string; enabled: boolean; cr
 export type ChatKind = "findings" | "logs" | "knowledge";
 export interface ChatOutput { enabled: boolean; channel: string | null; topic: string | null }
 export type ChatOutputs = Record<ChatKind, ChatOutput>;
-export interface ChatPost { id: string; kind: ChatKind | "ack"; channel: string; topic: string; state: "queued" | "sent" | "failed" | "dropped"; error: string | null; createdAt: string; sentAt: string | null; agentName: string | null; preview: string }
+export interface ChatPost { id: string; kind: ChatKind | "ack" | "reply"; channel: string; topic: string; direct?: boolean; state: "queued" | "sent" | "failed" | "dropped"; error: string | null; createdAt: string; sentAt: string | null; agentName: string | null; preview: string }
 export interface ZulipState {
   connected: boolean; site: string | null; realm: string | null; botEmail: string | null;
   channels: Record<ChatKind | "files", string>; notPrivate: string[]; connectedAt: string | null; boxpilotUrl: string | null;
@@ -188,6 +188,14 @@ export interface ZulipState {
   files: { lastPollAt: string | null; lastIngest: { at: string; title: string } | null; lastError: string | null };
   counts: Partial<Record<ChatPost["state"], number>>; recent: ChatPost[]; active: boolean;
   app: { installed: boolean; running: boolean; port: number | null } | null; canChange: boolean;
+  /** M40.5: asking the agents in Zulip. The lists are the owner's only. */
+  asking?: ZulipAsking;
+}
+export interface ZulipPerson { zulipId: number | null; zulipEmail: string | null; zulipName: string | null; boxpilotId: string }
+export interface ZulipAsker { zulipId: number | null; zulipEmail: string; zulipName: string; lastAt: string; count: number }
+export interface ZulipAsking {
+  on: boolean; lastPollAt: string | null; lastError: string | null; lastAsk: { at: string; agentName: string | null; kind: string } | null;
+  defaultAgentId: string | null; people: ZulipPerson[]; askers: ZulipAsker[]; accounts: Array<{ id: string; username: string; role: string }>;
 }
 export interface Knowledge {
   sources: KnowledgeSource[]; documents: OwnerDocument[];
@@ -195,6 +203,8 @@ export interface Knowledge {
   learning: { quietHours: { start: string; end: string }; agents: Array<{ agentId: string; name: string; state: RunState | null; at: string | null }> };
   canChange: boolean;
   connectors?: Connectors; folder?: { enabled: boolean; path: string | null }; webSearch?: { enabled: boolean; endpoint: string | null };
+  /** M40.6: whether the model can see images, as the model server last said. */
+  vision?: { vision: boolean; reason: string | null; at: string } | null;
 }
 export interface MemoryNote { id: string; title: string; body: string; source: Note["source"]; createdAt: string; updatedAt: string; freshUntil: string | null; stale: boolean; pinned: boolean; shared: boolean; readRole: string; indexed: boolean }
 export interface Memory {
@@ -242,7 +252,9 @@ export const agentsApi = {
   proposals: () => get<{ proposals: Proposal[] }>("/proposals"),
   knowledge: () => get<Knowledge>("/knowledge"),
   zulip: () => get<ZulipState>("/zulip"),
-  zulipPoll: (csrf: string) => send<{ messages?: number; added?: number; skipped?: string; error?: string }>("POST", "/zulip/poll", csrf),
+  zulipPoll: (csrf: string) => send<{ messages?: number; added?: number; skipped?: string; error?: string; asked?: { asked?: number; refused?: number; skipped?: string; error?: string } }>("POST", "/zulip/poll", csrf),
+  /** M40.5: who in Zulip may ask, as which account; with the owner's password. */
+  zulipPeople: (csrf: string, body: { password: string; people: ZulipPerson[]; defaultAgentId: string | null; twoWay: boolean }) => send<ZulipState>("PUT", "/zulip/people", csrf, body),
   agent: (id: string) => get<AgentDetail>(`/${encodeURIComponent(id)}`),
   version: (id: string, version: number) => get<VersionDetail>(`/${encodeURIComponent(id)}/versions/${version}`),
   runs: (id: string) => get<{ runs: Run[] }>(`/${encodeURIComponent(id)}/runs?limit=30`),

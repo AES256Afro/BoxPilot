@@ -15,6 +15,7 @@
  *
  * server/agents/bench.test.mjs runs the stand-in in CI and holds it to the run's limits.
  */
+import zlib from "node:zlib";
 import { createAgentsHarness } from "./agents-harness.mjs";
 import { createOpenAiClient } from "../server/assistant/model-client.mjs";
 import { createRunner, directRunnerApi } from "../server/agents/runner.mjs";
@@ -178,6 +179,77 @@ export async function runOwnerQuestion(options = {}) {
     return { ...result, promptPerSecond: options.promptPerSecond ?? 20, generatePerSecond: options.generatePerSecond ?? 4, usage: bench.usage() };
   } finally {
     await bench.close();
+  }
+}
+
+/**
+ * A picture a vision model can say something definite about (M40.6): a red disc above a blue bar on
+ * white, 160 by 120, as a PNG made here (no file in the repository, nothing from anyone's server).
+ */
+export function benchPicture() {
+  const width = 160;
+  const height = 120;
+  const rows = [];
+  for (let y = 0; y < height; y += 1) {
+    const row = [0];   // each row starts with its filter byte: none
+    for (let x = 0; x < width; x += 1) {
+      const inDisc = (x - 80) ** 2 + (y - 50) ** 2 <= 32 ** 2;
+      const inBar = y >= 96 && y < 108 && x >= 24 && x < 136;
+      row.push(...(inDisc ? [220, 30, 30] : inBar ? [30, 60, 210] : [255, 255, 255]));
+    }
+    rows.push(Buffer.from(row));
+  }
+  const chunk = (type, data) => {
+    const length = Buffer.alloc(4);
+    length.writeUInt32BE(data.length);
+    const crc = Buffer.alloc(4);
+    crc.writeUInt32BE(zlib.crc32(Buffer.concat([Buffer.from(type, "ascii"), data])));
+    return Buffer.concat([length, Buffer.from(type, "ascii"), data, crc]);
+  };
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(width, 0);
+  header.writeUInt32BE(height, 4);
+  header.set([8, 2, 0, 0, 0], 8);   // 8 bits, truecolour, no interlace
+  return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk("IHDR", header), chunk("IDAT", zlib.deflateSync(Buffer.concat(rows))), chunk("IEND", Buffer.alloc(0))]);
+}
+
+/**
+ * An image from #agent-files described the way the owner's server describes one (M40.6): the
+ * service queues the describe run in quiet hours (here, the hours around now), the runner starts
+ * the model server, asks it whether it can see, and sends it the image; the description, redacted,
+ * becomes the document's text. On the stand-in model unless `real` ({ runtime, threads }) is given.
+ */
+export async function describeBenchImage({ real = null, png = benchPicture(), name = "bench-picture.png" } = {}) {
+  const h = await createAgentsHarness(real ? { start: new Date() } : {});
+  try {
+    h.enable();
+    // Unsloth with the default model, as on the owner's server; the stand-in is the harness's own.
+    if (real) { h.state.setSetting(agentsRuntimeKey, defaultRuntimeSettings()); h.setTime(new Date()); }
+    const hour = (offset) => `${String((h.now().getHours() + offset) % 24).padStart(2, "0")}:00`;
+    // Only the describe run: no index run for meaning search, and no agents to evaluate.
+    h.service.saveModule(h.caller("owner"), { embeddings: false, quietHours: { start: hour(0), end: hour(2) } });
+    const title = `Image: ${name.replace(/\.png$/i, "")}`;
+    h.store.upsertDocument({ source: "zulip", externalId: `bench:${name}`, title, text: `Image "${name}", dropped in #agent-files by the bench. Not described yet: the model describes images in quiet hours.`, mediaType: "image/png", media: png });
+    const runtime = real ? real.runtime : h.runtime;
+    const runner = real ? createRunner({ api: directRunnerApi(h.service, h.runnerId), runtime, client: createOpenAiClient({ loopbackOnly: true }), now: () => Date.now() }) : h.runner;
+    await h.service.tick();
+    const claim = await h.service.runnerNext(h.runnerId, { waitMs: 0 });
+    if (claim?.run.kind !== "describe") throw new Error(`Quiet hours queued ${claim ? `a ${claim.run.kind} run` : "nothing"}, not the describe run`);
+    if (real?.threads) claim.runtime = { ...claim.runtime, threads: real.threads };
+    const started = Date.now();
+    await runner.execute(claim);
+    const run = h.service.getRun(h.caller("owner"), claim.run.id);
+    const document = h.store.listDocuments().find((entry) => entry.title === title);
+    return {
+      state: run.state, reason: run.reason ?? null, seconds: Math.round((Date.now() - started) / 100) / 10, usage: run.usage,
+      // What the model server said about seeing (Unsloth's /api/inference/status), and what was kept.
+      server: await runtime.vision?.() ?? null, vision: (await h.service.knowledgeState(h.caller("owner"))).vision,
+      described: Boolean(document?.describedAt), text: document?.text ?? null,
+      // What the runner asked the runtime for, so a caller can reach the same running server.
+      runtimeSpec: claim.runtime,
+    };
+  } finally {
+    await h.close();
   }
 }
 

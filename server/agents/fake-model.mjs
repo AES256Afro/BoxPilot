@@ -29,6 +29,11 @@
  *   and reports llama-server's `timings` and the cached tokens on its last chunk.
  * - A request whose connection closes, or that Unsloth's POST /api/inference/cancel names by its
  *   `cancel_id`, stops at once; `state.log` says how far it got.
+ *
+ * Seeing (M40.6): with `state.vision` false (`--vision off`) it is a model server started without
+ * its vision projector. It says so where Unsloth does (GET /api/inference/status: `is_vision`) and
+ * where llama-server does (GET /props: `modalities.vision`), and refuses a request with an image
+ * as llama-server does. Otherwise it describes an image it is sent, in a sentence of its own.
  */
 import { randomBytes } from "node:crypto";
 import http from "node:http";
@@ -141,6 +146,25 @@ export function structuredReply(body) {
 const textOf = (content) => (typeof content === "string" ? content : Array.isArray(content) ? content.map((part) => part?.text ?? "").join(" ") : "");
 
 /** The deterministic model: tool calls first, then an answer drawn from what the tools said. */
+/** The images a chat request carries (data: URLs in `image_url` parts), as { mediaType, bytes }. */
+export function imagesIn(body) {
+  const found = [];
+  for (const message of Array.isArray(body?.messages) ? body.messages : []) {
+    for (const part of Array.isArray(message?.content) ? message.content : []) {
+      if (part?.type !== "image_url") continue;
+      const url = String(part.image_url?.url ?? "");
+      const match = /^data:([a-z0-9.+/-]+);base64,(.*)$/i.exec(url);
+      found.push({ mediaType: match?.[1] ?? null, bytes: match ? Buffer.from(match[2], "base64").length : 0 });
+    }
+  }
+  return found;
+}
+
+/** What the fake "sees" in an image: only what it can know without eyes, said like a description. */
+function pictureWords(image) {
+  return `A picture (${image.mediaType ?? "an image"}, ${image.bytes} bytes). It shows a server rack with three drives; the middle drive's light is red.`;
+}
+
 export function policyReply(body) {
   const messages = Array.isArray(body?.messages) ? body.messages : [];
   // Offered as functions (server_facts); chosen by the catalog's names (server.facts).
@@ -265,7 +289,7 @@ export async function startFakeModel({
   const requests = [];
   // speed: { promptPerSecond, generatePerSecond } makes it take as long as a CPU would; clock(ms)
   // spends that time on a simulated clock instead of the real one; log keeps each call's timing.
-  const state = { chat: "policy", script: null, chunkSize: 24, delayMs: 0, busyThreads, busyMs, status: 500, speed: null, timeScale: 1, clock: null, log: [], cancels: [], ...options };
+  const state = { chat: "policy", script: null, chunkSize: 24, delayMs: 0, busyThreads, busyMs, status: 500, speed: null, timeScale: 1, clock: null, log: [], cancels: [], vision: true, mmprojFallback: null, statusLoaded: true, ...options };
   const slot = createSlot();
   const running = new Map();   // cancel_id -> the call it names, while it runs
   const json = (response, status, value) => {
@@ -300,9 +324,19 @@ export async function startFakeModel({
       call?.stop("cancelled");
       return json(response, 200, { cancelled: call ? 1 : 0 });
     }
+    // What the model server says about seeing (M40.6): Unsloth Studio's status, and llama-server's props.
+    // Shaped as Studio's: a model still loading is not listed, and is_vision is then false for nothing.
+    if (path === "/api/inference/status") {
+      return json(response, 200, state.statusLoaded === false
+        ? { is_vision: false, mmproj_fallback_reason: null, active_model: null, model_identifier: null, is_gguf: false, loaded: [] }
+        : { is_vision: state.vision !== false, mmproj_fallback_reason: state.mmprojFallback, active_model: model, model_identifier: model, is_gguf: true, loaded: [model] });
+    }
+    if (path === "/props") return json(response, 200, { model_alias: model, modalities: { vision: state.vision !== false, audio: false } });
     if (path !== "/v1/chat/completions") return json(response, 404, { error: { message: "not found" } });
     if (state.chat === "error") return json(response, state.status, { error: { message: "the model crashed" } });
     if (state.chat === "missing") return json(response, 404, { error: { message: `model ${body?.model} not found` } });
+    const images = imagesIn(body);
+    if (images.length && state.vision === false) return json(response, 500, { error: { code: 500, message: "image input is not supported - hint: if this is unexpected, you may need to provide the mmproj", type: "server_error" } });
     if (state.busyThreads > 0 && state.busyMs > 0) await burn({ threads: state.busyThreads, ms: state.busyMs });
     if (state.chat === "hang") { response.writeHead(200, { "Content-Type": "text/event-stream" }); return undefined; }
     const scripted = typeof state.script === "function" ? state.script(body) : null;
@@ -311,7 +345,7 @@ export async function startFakeModel({
     // unless the script returns { understanding } (or plain content) for it.
     const reply = understanding
       ? (scripted?.understanding ? { content: JSON.stringify(scripted.understanding) } : scripted?.raw ? { content: scripted.raw } : structuredReply(body))
-      : scripted ?? structuredReply(body) ?? policyReply(body);
+      : scripted ?? (images.length ? { content: pictureWords(images[0]) } : null) ?? structuredReply(body) ?? policyReply(body);
     const toolCalls = (reply.toolCalls ?? []).map((call, index) => ({ id: `call_${state.log.length}_${index}`, name: call.name, arguments: typeof call.arguments === "string" ? call.arguments : JSON.stringify(call.arguments ?? {}) }));
 
     // What reading this prompt and writing this answer costs, against what the slot holds.
@@ -433,6 +467,7 @@ if (import.meta.main) {
     model: argument("model", "fake/qwen-agent"),
     busyThreads: Number(argument("busy-threads", "0")),
     busyMs: Number(argument("busy-ms", "0")),
+    vision: argument("vision", "on") !== "off",
   });
   process.stdout.write(`API Key: ${apiKey}\nListening on ${fake.url}\n`);
   const stop = () => { void fake.close().finally(() => process.exit(0)); };

@@ -112,6 +112,49 @@ describe("starting and stopping", () => {
     expect(started.map((env) => Boolean(env.UNSLOTH_STUDIO_PASSWORD))).toEqual([true, false, false]);
   }, 30_000);
 
+  it("asks the model server it started whether it can see, with the start's key, once a start (M40.6)", async () => {
+    // A stand-in for `unsloth run` that answers Studio's status as Unsloth does: is_vision, and why
+    // it started without its projector when that failed.
+    const stateDir = await mkdtemp(path.join(scratch, "studio-vision-"));
+    const studio = path.join(stateDir, "studio.mjs");
+    await writeFile(studio, [
+      `import { startFakeModel } from ${JSON.stringify(pathToFileURL(fakeModelPath).href)};`,
+      "const args = process.argv.slice(2);",
+      "const blind = process.env.STUDIO_BLIND === '1';",
+      "const fake = await startFakeModel({ port: Number(args[args.indexOf('-p') + 1]), apiKey: 'sk-unsloth-' + 'v'.repeat(24), vision: !blind, mmprojFallback: blind ? 'mmproj_load_failed' : null, statusLoaded: process.env.STUDIO_LOADING !== '1' });",
+      "console.log('API Key: ' + fake.apiKey);",
+      "if (!blind) console.log(JSON.stringify({ level: 'info', event: 'Using mmproj for vision: /var/lib/boxpilot-agents/hf/hub/mmproj-F16.gguf' }));",
+    ].join("\n"));
+    let blind = "0";
+    let loading = "0";
+    const spawn = (_command, args, options) => spawnProcess(process.execPath, [studio, ...args], { ...options, env: { ...options.env, STUDIO_BLIND: blind, STUDIO_LOADING: loading } });
+    const runtime = make({ spawn, stateDir, runtimeDir: path.join(stateDir, "unsloth") });
+    const unsloth = { driver: "unsloth", model: "unsloth/Qwen3.5-4B-GGUF:UD-Q4_K_XL", threads: 4 };
+    expect(await runtime.vision()).toBeNull();
+    // What the real Studio did on agents-bench: status answered while the model was still loading
+    // (no model listed) with is_vision false, although it had started llama-server with --mmproj.
+    // That is no answer: nothing is kept, and the image is tried.
+    loading = "1";
+    await runtime.ensure(unsloth);
+    expect(await runtime.vision()).toEqual({ vision: null, reason: "the model server's status named no loaded model yet" });
+    expect(runtime.status().vision).toBeNull();
+    await runtime.stop("test");
+    loading = "0";
+    await runtime.ensure(unsloth);
+    // A 401 would be "did not say": this answer came with the key the start printed.
+    expect(await runtime.vision()).toEqual({ vision: true, reason: null });
+    expect(runtime.status().vision).toEqual({ vision: true, reason: null });
+    await runtime.stop("test");
+    blind = "1";
+    await runtime.ensure(unsloth);
+    expect(await runtime.vision()).toEqual({ vision: false, reason: "it started without its vision projector (mmproj load failed)" });
+
+    // The fake driver, started blind, says so the same way.
+    const fake = make({ fake: { vision: false } });
+    await fake.ensure({ driver: "fake", model: null });
+    expect(await fake.vision()).toEqual({ vision: false, reason: "the model was loaded without its vision projector" });
+  }, 30_000);
+
   it("only checks a model server someone else runs, and never starts one", async () => {
     const runtime = make();
     await expect(runtime.ensure({ driver: "external", endpoint: null })).rejects.toMatchObject({ reason: "no-model" });

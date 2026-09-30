@@ -531,6 +531,15 @@ may open a port to the internet or send data out without the owner saying so.
 - Two-way chat - asking an agent from a DM or an @mention - needs each Zulip user mapped to a
   BoxPilot account and runs as that person; it is specified as M38.3 and not built yet.
 
+**Update, 2026-09-29 (M40.5):** two-way chat is built within this decision, not beside it. Still no
+inbound exposure: a third root task, `agents.zulip.events` (read-only, owner), reads the bot's own
+event queue without waiting (`dont_block`), once a minute while Agents are on and two-way chat is,
+narrowed to direct messages and mentions; an expired queue is registered again and the last 15
+minutes read back from history. A question runs as the BoxPilot account the owner mapped its sender
+to, exactly as that person's Ask in the Test tab (tools, reads, rate limit); anyone unmapped is
+refused once an hour. Point 6 holds: the model's words are posted through the same redaction and
+code-wrapping as findings, and a card is a link to BoxPilot, where it is decided.
+
 ## ADR-008: the router is the house's DNS and asks this server first; a heartbeat elsewhere says when it is down
 
 **Date:** 2026-09-29 · **Status:** Accepted (M39.2, M39.3, unreleased) · **Builds on:** ADR-001 (the

@@ -719,6 +719,24 @@ describe("the learning library", () => {
     // A connector's sync is a registered operation, shown with its tier.
     expect(within(outside).getByRole("button", { name: "Sync Notion" }).getAttribute("data-risk")).toBe("low");
   });
+
+  it("says when images wait because the model server cannot see (M40.6)", async () => {
+    window.history.replaceState(null, "", "/?view=agents&tab=knowledge");
+    serve(base({
+      "GET /api/v1/agents/knowledge": {
+        sources: [{ id: "documents", title: "Your documents", enabled: true, items: 1, size: 120, unit: "characters", indexedAt: null }],
+        documents: [{ id: "99999999-9999-4999-8999-999999999999", title: "Image: rack", enabled: true, createdAt: ago(300), characters: 120, source: "zulip", externalId: "302:/user_uploads/rack.png", pinned: false, mediaType: "image/png", describedAt: null }],
+        search: { kind: "words (BM25)", embeddings: "off", pending: 0, vectors: 0, enabled: false },
+        learning: { quietHours: { start: "02:00", end: "06:00" }, agents: [] },
+        canChange: true,
+        vision: { vision: false, reason: "it started without its vision projector (mmproj load failed)", at: ago(60) },
+      },
+    }));
+    render(<AgentsPage csrfToken="csrf" now={() => now} />);
+    expect(await screen.findByText("An image waits for a model that can see")).toBeTruthy();
+    expect(screen.getByText(/The model server said it cannot see images: it started without its vision projector \(mmproj load failed\)\. Nothing is sent to it/)).toBeTruthy();
+    expect(screen.getByRole("region", { name: "How agents search" }).textContent).toContain("waiting: the model cannot see them (it started without its vision projector (mmproj load failed))");
+  });
 });
 
 describe("memory", () => {

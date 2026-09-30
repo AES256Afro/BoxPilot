@@ -154,5 +154,20 @@ export function createAgentsRouter({ agents, state, auth }) {
     }
   });
 
+  // M40.5: who in Zulip may ask the agents, as which BoxPilot account. It lets a chat account ask as
+  // a BoxPilot one, so it takes the owner's password like the settings above.
+  router.put("/agents/zulip/people", auth.requireCsrf, auth.requireRole("owner"), async (request, response) => {
+    const owner = state.findOwnerById(request.boxpilotSession.owner.id);
+    const verdict = await auth.checkPassword(request, owner, request.body?.password);
+    if (verdict.blocked) return auth.rejectThrottled(response, verdict);
+    if (!verdict.ok) return response.status(401).json({ error: "Owner password required to say who may ask in Zulip", code: "reauthentication_required" });
+    try {
+      const { people, defaultAgentId = null, twoWay = true } = request.body ?? {};
+      return response.json(await agents.setZulipPeople(callerOf(request), { people, defaultAgentId, twoWay }));
+    } catch (error) {
+      return refuse(response, error);
+    }
+  });
+
   return router;
 }

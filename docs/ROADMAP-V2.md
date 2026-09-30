@@ -2376,8 +2376,55 @@ twice. The hard caps and "agents propose, never act" stay as they are.
   question 436 s against 257 s), which is why threads follow the processors; four under 400% gained
   little over two on that runner's two cores. The gain at eight on the owner's eight cores shows in
   their Usage tab, which keeps speeds per thread count.
-- **M40.5 Talk to agents in Zulip** (M38.3; in the pull request stacked on the M40.4 one).
-- **M40.6 Pictures** (with M40.5).
+- ✅ **M40.5 Talk to agents in Zulip** (M38.3; unreleased, `feat/m40-zulip`, stacked on M40.4). A
+  direct message to the bot, or an @-mention of it in any channel it is in, is a question; the answer
+  comes back in the same thread (the DM, or the channel and topic), with "open the run in BoxPilot"
+  under it. **Nothing listens**: once a minute (and on "Check Zulip now") the registered read
+  `agents.zulip.events` (owner, a root task beside `agents.zulip.poll`, since only a task may reach
+  the tailnet) reads the bot's own event queue without waiting (`dont_block`), narrowed to DMs and
+  mentions; a queue Zulip let expire is registered again and the last 15 minutes are read from the
+  message history, so nothing asked while BoxPilot was down is lost or answered twice (at most ten
+  a read, the rest at the next). **Who asks is who they are in BoxPilot**: the owner maps Zulip people
+  to BoxPilot accounts in the Team chat panel ("Asking in Zulip", with the password, at most 50) and
+  picks the agent asked when a message names none ("Steve, which drives …" names one). A run starts
+  exactly as the Test tab's Ask does, as that account: its role's tools and reads, its rate limit,
+  its conversation, the eight processors of M40.4 while they wait. Anyone not on the list is told
+  politely, at most once an hour, that they are not set up, and listed for the owner to add.
+  **Chat never approves**: a plan or question card an answer made is posted in the thread as a card
+  linking to BoxPilot's Agents page, where it is staged at its tier as always; a question asked back
+  is in the reply. Every word the model wrote goes through the same `chatText` as findings (#344:
+  links and images as code, no mentions, redacted); BoxPilot's own link is added after. Replies go
+  through the outbox and its limits; a direct reply is `type: direct` to the asker's id (1 to 8
+  ids, validated in `agents.zulip.post`). Tests: the events task against `test/fake-zulip.mjs` (the
+  queue read once, DMs and mentions and nothing else, bots and the bot itself skipped, an expired
+  queue opened again with what was asked since read back, what is too old left out), the service
+  end to end with the real runner (`chat-ask.test.mjs`: someone not set up told once an hour and
+  never reaching a model; a mapped person asking as their account and answered in the DM; a named
+  agent answered in the channel's thread; a card sent back as a link; nothing asked while paused),
+  the panel; and **on a real Zulip** (`zulip-host.yml`, docker-zulip as BoxPilot installs it) a
+  person DMs the bot and the answer comes back in the DM.
+- ✅ **M40.6 Pictures** (with M40.5). **Checked on the real model** (`agents-bench.yml`, `mode:
+  image`: Unsloth 2026.9.12 started by BoxPilot's runtime, offline, four threads under
+  `CPUQuota=400%`): `unsloth run` finds `mmproj-F16.gguf` beside the model in the Hugging Face cache
+  (BoxPilot downloads it with the model, checksummed) and starts llama-server with `--mmproj`
+  ("Using mmproj for vision"); Qwen 3.5 4B described a picture made on the spot as "a red circle on
+  a white background, with a blue horizontal bar below it", in 27 s (20 s of model time) through
+  the real describe run (run 36661268748). **What was wrong**: nothing checked that the projector
+  loaded. A server without one refuses every image, each refusal spent one of the image's three
+  tries, and three minutes into quiet hours the image was never described again. Now the runner
+  asks the server it started whether it can see - Unsloth's `GET /api/inference/status`
+  (`is_vision`, `mmproj_fallback_reason`), llama-server's `GET /props` (`modalities.vision`) - and
+  sends no image to one that says it cannot; an image refused with "image input is not supported"
+  counts the same. That costs the image no try, and describing waits a day (or until the model or
+  runtime changes) instead of starting the model every minute to fail. **Found by the benchmark**:
+  Studio answers its status before the model it is loading is listed, with `is_vision: false` for
+  no model at all; only a status that names a loaded model counts, else the image is tried. The
+  reason kept carries the server's own last line about a projector. The Knowledge tab says whether
+  the model can see images, and which wait and why. llama-server, skipped for images since M38,
+  describes when the model has a projector. Tests: a stand-in `unsloth run` (the start's key, the
+  fallback reason, the status before the model is listed), the fake model answering both endpoints
+  and refusing an image with `--vision off` as llama-server does, the service waiting a day and
+  then describing (`chat.test.mjs`), the bench's image path on the stand-in, the tab's notice.
 
 ## App catalogue candidates
 
