@@ -380,6 +380,28 @@ describe("Repair that fixes (M35)", () => {
     expect(screen.getByRole("button", { name: /^Try again: Let apps write to the drive: / })).toBeTruthy();
   });
 
+  it("offers the place a failed try names, not Try again, when the same fix would stop the same way", async () => {
+    const tried = { ...exfat, lastAttempt: { jobId: "job-0", state: "failed", error: "tar failed: No space left on device", at: "2026-09-29T10:00:00.000Z", title: "Let apps write to a drive", operationId: "storage.writable", label: "Let apps write to the drive" } };
+    server({ scans: [scan([tried])], finished: () => ({ state: "failed" }) });
+    const onNavigate = vi.fn();
+    render(<RepairCenter csrfToken="csrf-token" onNavigate={onNavigate} />);
+    expect(await screen.findByText(/Trying again would stop the same way/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Try again: / })).toBeNull();
+    // The fix itself stays, under its own name; the way to what comes first leads.
+    expect(screen.getByRole("button", { name: /^Let apps write to the drive: / })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /^Free up space: / }));
+    expect(onNavigate).toHaveBeenCalledWith("system", { tab: "housekeeping" });
+  });
+
+  it("says the fix is on this page when a failed try names Repair itself, rather than a button that goes nowhere", async () => {
+    const tried = { ...exfat, lastAttempt: { jobId: "job-0", state: "failed", error: "fsck.exfat is not installed, so nothing was stopped or unmounted. Install the drive check tools from Repair first.", at: "2026-09-29T10:00:00.000Z", title: "Let apps write to a drive", operationId: "storage.writable", label: "Let apps write to the drive" } };
+    server({ scans: [scan([tried])], finished: () => ({ state: "failed" }) });
+    render(<RepairCenter csrfToken="csrf-token" onNavigate={vi.fn()} />);
+    expect(await screen.findByText(/the fix it names is on this page/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Open Repair/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Try again: / })).toBeNull();
+  });
+
   it("runs every low-risk fix after one confirmation that lists them, and leaves the rest to their own buttons", async () => {
     const restart = (id: string) => ({ id: `stale-bind:bp-${id}`, severity: "warning", title: `${id} is still using the old copy of its folder`, detail: "", evidence: [], fix: { operationId: "app.action", parameters: { id, action: "restart" }, label: `Restart ${id}`, preview: `Restarts ${id}.`, risk: "low" }, fixes: [{ operationId: "app.action", parameters: { id, action: "restart" }, label: `Restart ${id}`, preview: `Restarts ${id}.`, risk: "low" }], manual: null, fingerprint: "0123456789abcdef" });
     const { requests } = server({ scans: [scan([restart("plex"), restart("jellyfin"), exfat]), scan([exfat])], finished: () => ({ state: "completed", error: null, result: { id: "x", status: "running" } }) });
