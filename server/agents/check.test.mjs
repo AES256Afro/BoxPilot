@@ -85,6 +85,16 @@ describe("the check before answering", () => {
     expect(run.steps.find((step) => step.name === "check")).toMatchObject({ state: "failed" });
   });
 
+  it("keeps the answer, and says what it is not sure of, when the correction says nothing at all", async () => {
+    // Seen in the demo: a correction with no facts has no mismatch either, and replaced a whole
+    // morning digest with "I have no tool output to go on". Better has to still be an answer.
+    const { agent } = await setUp({ correction: "I have no tool output to go on, so I cannot say anything about this server yet." });
+    const { run } = await ask(agent);
+    expect(run.answer.startsWith(ownersWrongAnswer)).toBe(true);
+    expect(run.answer).toMatch(/so I am not sure of it:/);
+    expect(run.flags.check).toMatchObject({ corrected: false, unsure: true });
+  });
+
   it("does not ask for a correction that cannot fit, and does not end the run degraded for it", async () => {
     // At 52 and 10 tokens a second the run takes about 65 s before the check and the correction
     // about 15 s; a 90 s run keeps 15 s back for its finish, which leaves no room for it.

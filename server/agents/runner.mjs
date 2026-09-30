@@ -402,7 +402,14 @@ export function createRunner({ api, runtime, client, usage = null, now = () => D
           await api.steps(run.id, lease, [stepOf(model, asked, asked.result.content)]);
           const candidate = stripToolMarkup(asked.result.content);
           const again = timed(() => verifyAnswer(candidate, sources));
-          if (candidate && again.issues.length < first.issues.length) { answer = candidate; remaining = again.issues; check.corrected = true; }
+          // Better means fewer mismatches while still an answer: as many statements that checked out,
+          // at least half as long, and citing the tools if the draft did. "I cannot say anything"
+          // has no mismatch either.
+          const matched = (result) => result.checked - new Set(result.issues.map((issue) => issue.claim)).size;
+          const cites = (text) => /\[T\d+\]/.test(text);
+          const better = again.issues.length < first.issues.length && matched(again) >= matched(first)
+            && candidate.length * 2 >= draft.length && (!cites(draft) || cites(candidate));
+          if (candidate && better) { answer = candidate; remaining = again.issues; check.corrected = true; }
         }
       }
       check.left = remaining.length;
