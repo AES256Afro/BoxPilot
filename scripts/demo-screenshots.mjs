@@ -22,6 +22,7 @@
  *   FULL_PAGE    1 to capture each page's full height instead of the first screen
  *   SCALE        device pixel ratio, default 2
  *   WIDTH        the stored JPEG width on macOS, default 1600
+ *   FORMAT       jpg to store JPEGs straight from Chrome elsewhere (macOS always stores JPEGs)
  *   VIEWPORT     the window, as WIDTHxHEIGHT, default 1440x960. Under 768 px wide the page is
  *                emulated as a phone (VIEWPORT=375x812 is an iPhone's portrait width).
  *   SCENARIO     the demo world for every page: default, fresh or trouble. Files get a suffix.
@@ -138,6 +139,11 @@ const clickScript = (target) => `(() => {
 
 /** Write one capture, as PNG, or as a 1600 px JPEG on macOS (a fifth of the size, still crisp). */
 function store(name, data) {
+  if (jpegFromChrome) {
+    const file = path.join(outDir, `${name}.jpg`);
+    writeFileSync(file, Buffer.from(data, "base64"));
+    return file;
+  }
   const capture = path.join(outDir, `${name}.png`);
   writeFileSync(capture, Buffer.from(data, "base64"));
   if (process.platform !== "darwin") return capture;
@@ -147,13 +153,17 @@ function store(name, data) {
   return file;
 }
 
+// FORMAT=jpg off macOS: Chrome encodes the JPEG itself, as sips does on a Mac.
+const jpegFromChrome = process.env.FORMAT === "jpg" && process.platform !== "darwin";
+const shotFormat = jpegFromChrome ? { format: "jpeg", quality: 85 } : { format: "png" };
+
 async function capture(devtools) {
-  if (!fullPage) return (await devtools.send("Page.captureScreenshot", { format: "png" })).data;
+  if (!fullPage) return (await devtools.send("Page.captureScreenshot", shotFormat)).data;
   // Grow the window to the page, so 100vh layouts (the sidebar) stretch with it, then put it back.
   const height = Math.min(tallest, Math.max(viewport.height, Number(await devtools.evaluate("Math.ceil(document.documentElement.scrollHeight)")) || viewport.height));
   await devtools.send("Emulation.setDeviceMetricsOverride", { ...viewport, height });
   await sleep(400);
-  const { data } = await devtools.send("Page.captureScreenshot", { format: "png" });
+  const { data } = await devtools.send("Page.captureScreenshot", shotFormat);
   await devtools.send("Emulation.setDeviceMetricsOverride", viewport);
   return data;
 }
