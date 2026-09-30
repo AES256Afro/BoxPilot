@@ -2438,11 +2438,17 @@ owner chose all thirteen, each built to match its drawing (ADR-010).
   slot, the typefaces, and Settings → Appearance with a card per look, "Where it applies", accent,
   density, wallpaper and solid panels. `scripts/look-check.mjs` draws the reference pictures and
   scores screenshots against them.
-- **M41.2 The thirteen looks**, each with its skin on every page, its way around and its Home,
-  matched to its drawing and checked light and dark where it has both.
-- **M41.3 Checked by eye as well as by score**: every look's Home (and Home + Ops' and the
-  Launcher's Storage, and Appearance) side by side with its drawing, differences fixed until a
-  person would call them the same design; every other page readable in every look.
+- ✅ **M41.2 The thirteen looks** (unreleased, `feature/looks`), each with its skin on every page,
+  its way around and its Home, matched to its drawing and checked light and dark where it has both.
+  An account menu stands in for the bar's controls where a drawing keeps its bar bare; the shell
+  says Home's verdict on every page. The README shows each look's Home.
+- ✅ **M41.3 Checked by eye as well as by score** (unreleased, `feature/looks`): two rounds of two
+  checkers put every look's Home (and Home + Ops' and the Launcher's Storage, and Appearance) side
+  by side with its drawing and read every other page in every look, on a phone too; what they
+  found was fixed. Every reference now scores 80 or more. Left as drawn differently on purpose:
+  Command Center's rail has no Home stop, Phosphor and Quest keep their rail beside the screen,
+  Glass Cockpit's unlit lamps are brighter than drawn so their names can be read, and the
+  Launcher's Storage keeps status chips where a switch would promise what it cannot do.
 
 ## App catalogue candidates
 
