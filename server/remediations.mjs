@@ -632,8 +632,11 @@ export function nothingCanReachYou({ notifications = null, apps = [], ntfy = nul
 export function dnsLeansOnThisServer({ dnsResilience = null, apps = [] } = {}) {
   const verdict = dnsResilience;
   if (!verdict || !["single-point", "unproven"].includes(verdict.state)) return [];
+  const counted = (verdict.servers ?? []).filter((server) => server.verdict !== "skipped");
   const evidence = [
-    ...(verdict.servers ?? []).filter((server) => server.verdict !== "skipped").map((server) => `${server.address} is ${server.label}: ${server.note}`),
+    // The first line is the one Home shows under the title: what the devices are given.
+    ...(counted.length ? [`devices are given ${counted.map((server) => `${server.address} (${server.label})`).join(" and ")}`] : []),
+    ...counted.map((server) => `${server.address}: ${server.note}`),
     ...(verdict.via ? [`what the router hands out, read from ${verdict.via}`] : []),
   ];
   const app = apps.find((entry) => dnsAppIds.includes(entry.id) && entry.container?.running);

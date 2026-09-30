@@ -250,7 +250,7 @@ export function judgeResilience(facts, { now = new Date(), hostname = "This serv
   const unknown = counted.filter((server) => server.verdict === "unknown");
   const dependsHere = counted.some((server) => server.role === "this-server" || server.leansHere === true);
   // A server handed out next to the blocker that answers without blocking: devices use either at any time.
-  const skipsBlocking = independent.some((server) => server.role !== "router" && server.blocking === false) && counted.some((server) => server.role === "this-server");
+  const skipsBlocking = independent.some((server) => !server.leansHere && server.blocking === false) && counted.some((server) => server.role === "this-server");
   const router = counted.find((server) => server.role === "router")?.address ?? null;
   const list = (entries) => entries.map((server) => server.address).join(" and ");
   const base = { source: handedOut.source, via: handedOut.via ?? null, dhcpServer: handedOut.dhcpServer ?? null, servers, router, skipsBlocking, rehearsal: fresh ?? rehearsal ?? null, rehearsalStale: Boolean(rehearsal && !fresh), servesDns: Boolean(servesDns) };
@@ -275,7 +275,7 @@ export function judgeResilience(facts, { now = new Date(), hostname = "This serv
     return {
       ...base, state: "resilient", status: "good",
       headline: `Your network keeps working when ${hostname} is off`,
-      detail: fallback.role === "router"
+      detail: fallback.role === "router" && fallback.leansHere
         ? `Devices ask your router at ${fallback.address}, and it kept answering when the DNS server here was stopped.`
         : `${fallback.address} (${fallback.label}) answers lookups on its own, so devices still resolve names while this server is off.${skipsBlocking ? " Devices can use it at any time, though, so they sometimes skip the blocking here." : ""}`,
     };

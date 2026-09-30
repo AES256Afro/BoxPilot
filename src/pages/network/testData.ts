@@ -44,8 +44,41 @@ export const tailnet = {
   ],
 };
 
+/** Whether the house keeps its DNS with this server off (M39.2): by default, it does. */
+export const resilience = {
+  state: "resilient", status: "good",
+  headline: "Your network keeps working when homebox is off",
+  detail: "192.168.1.30 (another device on your network) answers lookups on its own, so devices still resolve names while this server is off.",
+  source: "dhcp", via: "systemd-networkd", dhcpServer: "192.168.1.1",
+  servers: [
+    { address: "192.168.1.10", role: "this-server", label: "this server", verdict: "depends", answering: true, resolving: true, blocking: true, error: null, note: "Goes when homebox goes." },
+    { address: "192.168.1.30", role: "lan", label: "another device on your network", verdict: "independent", answering: true, resolving: true, blocking: true, error: null, note: "Answers on its own, and blocks too." },
+  ],
+  router: null, skipsBlocking: false, rehearsal: null, rehearsalStale: false, servesDns: true,
+  checkedAt: "2026-08-16T11:58:00.000Z", lanAddress: "192.168.1.10", gateway: "192.168.1.1", afterOutage: null,
+};
+
+/** The router passing lookups here, nobody having rehearsed it: what the rehearsal is for. */
+export const unproven = {
+  ...resilience, state: "unproven", status: "warning",
+  headline: "Not known yet whether your network keeps working when homebox is off",
+  detail: "Devices ask your router at 192.168.1.1, and the router passes their lookups to the DNS server here. Whether it falls back to another resolver when this server is off can only be seen by trying: rehearse it.",
+  servers: [{ address: "192.168.1.1", role: "router", label: "your router", verdict: "unknown", leansHere: true, forwards: true, answering: true, resolving: true, blocking: true, error: null, note: "Passes lookups to the DNS server here." }],
+  router: "192.168.1.1",
+};
+
+/** The house going down with this server: the lease names nothing else. */
+export const singlePoint = {
+  ...resilience, state: "single-point", status: "danger",
+  headline: "If homebox goes down, every device on your network loses the internet",
+  detail: "Your router hands out 192.168.1.10 (this server) as the only DNS server, so every lookup in the house goes to the DNS server here.",
+  servers: [resilience.servers[0]],
+};
+
+export const catalogSummary = { applications: [{ manifest: { id: "pi-hole", name: "Pi-hole" }, live: { installed: true, container: { running: true }, urls: [{ host: 8084 }] } }], host: { lanAddress: "192.168.1.10", tailscaleDnsName: "homebox.example.ts.net" } };
+
 const job = (id: string, risk: string) => ({ job: { id: `job-${id}`, type: `op:${id}`, title: id, state: "awaiting_approval", risk, error: null, result: null, steps: [], approvals: [] }, approval: { tier: risk, passwordRequired: risk === "high", elevated: false, mode: "tiered", reason: `${risk} risk` } });
-const tiers: Record<string, string> = { "network.wake": "low" };
+const tiers: Record<string, string> = { "network.wake": "low", "dns.fallback.rehearse": "medium" };
 
 /** An answer for a route: a body, a Response, or a function of the request's body. */
 export type Answer = unknown | Response | ((body: unknown) => Response);
@@ -60,6 +93,9 @@ export function mockFetch(routes: Record<string, Answer> = {}, staged: Record<st
     "/api/v1/capabilities": capabilities,
     "/api/v1/network/reachability": reachability,
     "/api/v1/network/tailnet": tailnet,
+    "/api/v1/network/dns-resilience": resilience,
+    "/api/v1/network/dns-resilience?fresh=1": resilience,
+    "/api/v1/catalog?view=summary": catalogSummary,
     ...routes,
   };
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {

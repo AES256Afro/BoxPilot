@@ -131,6 +131,17 @@ describe("the verdict", () => {
     expect(judge({ handedOut: { source: "none", servers: [] } }).state).toBe("unknown");
   });
 
+  it("counts a router handed out beside this server that resolves on its own, and says it skips the blocking", () => {
+    const verdict = judge({ handedOut: lease([self, router]), answers: { [self]: healthy(true), [router]: healthy(false) }, canary: { router, forwards: false } });
+    expect(verdict).toMatchObject({ state: "resilient", skipsBlocking: true });
+    expect(verdict.detail).toContain(`${router} (your router) answers lookups on its own`);
+  });
+
+  it("claims nothing when no server it is given answers at all", () => {
+    const verdict = judge({ handedOut: lease([router]), answers: { [router]: silent } });
+    expect(verdict).toMatchObject({ state: "unknown", headline: "No DNS server your devices are given answered from here" });
+  });
+
   it("leaves Tailscale's resolver out of the count", () => {
     const verdict = judge({ handedOut: lease([self, "100.100.100.100"]), answers: { [self]: healthy(true) } });
     expect(verdict.state).toBe("single-point");
