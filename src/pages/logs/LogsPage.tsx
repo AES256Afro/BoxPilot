@@ -123,6 +123,10 @@ export default function LogsPage({ csrfToken = "", role = "owner" }: LogsPagePro
 
   const unitOptions = useMemo(() => (sources?.units ?? []).filter((unit) => !pick || unit.unit.toLowerCase().includes(pick.toLowerCase())).slice(0, 200), [sources, pick]);
   const select = (nextKind: Kind, nextTarget: string) => { setKind(nextKind); setTarget(nextTarget); };
+  // What Open unit (and Enter) opens: the unit named exactly, or else the first whose name has what
+  // was typed. The button used to stay disabled until the name matched exactly, with no reason
+  // given, while Enter opened the first match anyway.
+  const chosenUnit = pick.trim() ? unitOptions.find((unit) => unit.unit === pick.trim()) ?? unitOptions[0] ?? null : null;
   const groups = sources?.groups ?? [{ id: "boxpilot", label: "BoxPilot" }];
   const shownName = kind === "group" ? (groups.find((group) => group.id === target)?.label ?? target) : target;
   const sinceWords = sinceChoices.find((choice) => choice.value === since)?.label.toLowerCase() ?? since;
@@ -171,11 +175,12 @@ export default function LogsPage({ csrfToken = "", role = "owner" }: LogsPagePro
           <Panel padded className="logs-source" title="Source" meta={sources ? `${countOf(sources.units.length, "unit")} · ${sources.dockerAvailable ? countOf(sources.containers.length, "container") : "Docker not answering"}` : undefined}>
             <div className="logs-source__rows">
               <Segmented label="Journal group" value={kind === "group" ? target : null} onChange={(id) => select("group", id)} options={groups.map((group) => ({ value: group.id, label: group.label }))} />
-              <form className="logs-source__unit" onSubmit={(event) => { event.preventDefault(); const chosen = unitOptions.find((unit) => unit.unit === pick) ?? unitOptions[0]; if (chosen) select("unit", chosen.unit); }}>
-                <TextInput aria-label="Find a unit" placeholder="Find a unit…" mono value={pick} onValueChange={setPick} list="logs-units" />
+              <form className="logs-source__unit" onSubmit={(event) => { event.preventDefault(); if (chosenUnit) select("unit", chosenUnit.unit); }}>
+                <TextInput aria-label="Find a unit" placeholder="Find a unit…" mono value={pick} onValueChange={setPick} list="logs-units" aria-describedby={pick.trim() && !chosenUnit ? "logs-unit-none" : undefined} />
                 <datalist id="logs-units">{unitOptions.map((unit) => <option key={unit.unit} value={unit.unit}>{unit.description}</option>)}</datalist>
-                <Button type="submit" disabled={!unitOptions.some((unit) => unit.unit === pick)}>Open unit</Button>
+                <Button type="submit" disabled={!chosenUnit}>{chosenUnit && chosenUnit.unit !== pick.trim() ? `Open ${chosenUnit.unit}` : "Open unit"}</Button>
               </form>
+              {pick.trim() && !chosenUnit && <p id="logs-unit-none" className="logs-source__none" role="status">No unit has “{pick.trim()}” in its name.</p>}
               {sources?.dockerAvailable && (
                 <Select aria-label="Container" mono className="logs-source__container" value={kind === "container" ? target : ""} placeholder="A container…"
                   onValueChange={(name) => { if (name) select("container", name); }}
