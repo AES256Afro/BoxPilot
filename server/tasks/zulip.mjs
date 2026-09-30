@@ -74,6 +74,31 @@ export async function zulipClient({ base, host, botEmail, credentialName }, { cr
   return {
     me: () => call("GET", "users/me", { what: "Reading the bot" }),
     send: ({ channel, topic, content }) => call("POST", "messages", { fields: { type: "stream", to: channel, topic, content }, what: `Posting to #${channel}` }),
+    /** A direct message to these people, by their Zulip user ids (M40.5: a reply to a DM). */
+    sendDirect: ({ to, content }) => call("POST", "messages", { fields: { type: "direct", to: JSON.stringify(to), content }, what: "Sending a direct message" }),
+    /**
+     * An event queue for the messages the bot receives (M40.5): direct messages to it and messages in
+     * its channels, with their flags ("mentioned"). No inbound exposure: BoxPilot asks, Zulip answers.
+     */
+    register: () => call("POST", "register", { fields: { event_types: JSON.stringify(["message"]), apply_markdown: "false", client_gravatar: "true", all_public_streams: "false" }, what: "Opening the bot's event queue" }),
+    /** What arrived on the queue after `lastEventId`; `dontBlock` answers at once with what there is. */
+    async events({ queueId, lastEventId, dontBlock = true, timeoutMs = 20_000 }) {
+      const response = await transport({
+        port, host, method: "GET", timeoutMs, maxBytes: 4 * 1024 * 1024,
+        path: `/api/v1/events?${new URLSearchParams({ queue_id: queueId, last_event_id: String(lastEventId), dont_block: dontBlock ? "true" : "false" }).toString()}`,
+        headers: { Authorization: authorization, Accept: "application/json" },
+      });
+      let body = null;
+      try { body = JSON.parse(response.buffer.toString("utf8")); } catch { body = null; }
+      // An expired queue is Zulip's ordinary answer after ten quiet minutes: a new one is opened.
+      if (body?.code === "BAD_EVENT_QUEUE_ID") return { expired: true, events: [] };
+      return { expired: false, events: readJson(response, "Reading the bot's event queue").events ?? [] };
+    },
+    /** Direct messages to the bot, or messages mentioning it, after a message id: what a new queue missed. */
+    since: ({ narrow, after, count }) => call("GET", "messages", {
+      what: "Reading what was asked of the bot", maxBytes: 4 * 1024 * 1024,
+      query: { anchor: after ? String(after) : "newest", include_anchor: "false", num_before: after ? "0" : String(count), num_after: after ? String(count) : "0", apply_markdown: "false", narrow: JSON.stringify(narrow) },
+    }),
     /** A text file uploaded as the bot; the path Zulip gives it back. */
     async upload({ name, text, type = "text/markdown" }) {
       const boundary = `boxpilot${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`;
@@ -134,7 +159,10 @@ export async function zulipPost(parameters = {}, { log = () => {}, credentials, 
         const url = await client.upload({ name: post.attachment.name, text: String(post.attachment.text).slice(0, chatLimits.attachmentChars) });
         content = `${content}\n\nThe whole trace: [${String(post.attachment.name).replace(/[[\]]/g, "")}](${url})`;
       }
-      const sent = await client.send({ channel: post.channel, topic: post.topic, content: content.slice(0, 9_800) });
+      // A reply to a direct message goes back to the people in it (M40.5); everything else to its channel.
+      const sent = Array.isArray(post.to) && post.to.length
+        ? await client.sendDirect({ to: post.to, content: content.slice(0, 9_800) })
+        : await client.send({ channel: post.channel, topic: post.topic, content: content.slice(0, 9_800) });
       results.push({ id: post.id, ok: true, messageId: sent.id ?? null });
     } catch (error) {
       const message = error instanceof ZulipError ? error.message : "Zulip could not be reached";
@@ -145,6 +173,80 @@ export async function zulipPost(parameters = {}, { log = () => {}, credentials, 
   const sent = results.filter((result) => result.ok).length;
   log(`${sent} of ${results.length} posted to Zulip`, "stdout");
   return { results };
+}
+
+/**
+ * What was asked of the bot, from Zulip's own message (M40.5): a direct message to it, or a message
+ * in a channel that mentions it. Its own messages and other bots' are not questions. The words are
+ * data; who sent it is what the service maps to a BoxPilot account.
+ */
+export function askedOf(message, { botEmail, flags = [] } = {}) {
+  if (!message || !Number.isInteger(message.id)) return null;
+  const sender = String(message.sender_email ?? "").toLowerCase();
+  if (!sender || sender === String(botEmail ?? "").toLowerCase() || /-bot@/.test(sender)) return null;
+  const direct = message.type === "private" || message.type === "direct";
+  const mentioned = flags.includes("mentioned") || (Array.isArray(message.flags) && message.flags.includes("mentioned"));
+  if (!direct && !mentioned) return null;
+  const recipients = direct && Array.isArray(message.display_recipient) ? message.display_recipient : [];
+  // A direct message the bot is not in is not for it (a group without it cannot reach its queue anyway).
+  if (direct && recipients.length && !recipients.some((entry) => String(entry?.email ?? "").toLowerCase() === String(botEmail ?? "").toLowerCase())) return null;
+  return {
+    id: message.id, kind: direct ? "direct" : "mention",
+    senderId: Number.isInteger(message.sender_id) ? message.sender_id : null, senderEmail: String(message.sender_email ?? "").slice(0, 200), senderName: String(message.sender_full_name ?? "").slice(0, 80),
+    // Everyone else in a group direct message is answered too, as Zulip itself would.
+    to: direct ? recipients.filter((entry) => String(entry?.email ?? "").toLowerCase() !== String(botEmail ?? "").toLowerCase()).map((entry) => entry?.id).filter(Number.isInteger).slice(0, 8) : [],
+    channel: direct ? null : String(message.display_recipient ?? "").slice(0, 60), topic: direct ? null : String(message.subject ?? message.topic ?? "").slice(0, 60),
+    content: String(message.content ?? "").slice(0, 4_000),
+    at: Number.isInteger(message.timestamp) ? new Date(message.timestamp * 1000).toISOString() : null,
+  };
+}
+
+/**
+ * agents.zulip.events (M40.5): the bot's event queue, read without waiting, once a minute from the
+ * service's tick. A queue that is missing or expired (Zulip drops one after ten quiet minutes) is
+ * opened again, and what was asked since the last message handled is read back from the message
+ * history, so nothing asked while it was gone is lost; only what was asked within `catchUpMinutes`
+ * is taken, since an answer hours late helps nobody.
+ */
+export async function zulipEvents(parameters = {}, { log = () => {}, credentials, transport, now = () => new Date() } = {}) {
+  const client = await zulipClient(parameters, { credentials, transport });
+  let queueId = typeof parameters.queueId === "string" && /^[A-Za-z0-9:_.-]{1,120}$/.test(parameters.queueId) ? parameters.queueId : null;
+  let lastEventId = Number.isInteger(parameters.lastEventId) ? parameters.lastEventId : -1;
+  const asked = [];
+  let reopened = false;
+  if (queueId) {
+    const read = await client.events({ queueId, lastEventId, dontBlock: true });
+    if (read.expired) queueId = null;
+    for (const event of read.events) {
+      if (Number.isInteger(event?.id)) lastEventId = Math.max(lastEventId, event.id);
+      if (event?.type !== "message") continue;
+      const found = askedOf(event.message, { botEmail: parameters.botEmail, flags: event.flags ?? [] });
+      if (found) asked.push(found);
+    }
+  }
+  if (!queueId) {
+    const opened = await client.register();
+    if (typeof opened.queue_id !== "string") throw new ZulipError("Zulip opened no event queue for the bot");
+    queueId = opened.queue_id;
+    lastEventId = Number.isInteger(opened.last_event_id) ? opened.last_event_id : -1;
+    reopened = true;
+    // What was asked while there was no queue: direct messages and mentions after the last one handled.
+    const after = Number.isInteger(parameters.after) && parameters.after > 0 ? parameters.after : null;
+    const cutoff = now().getTime() - (Number.isInteger(parameters.catchUpMinutes) ? parameters.catchUpMinutes : 15) * 60_000;
+    if (after) {
+      for (const narrow of [[{ operator: "is", operand: "dm" }], [{ operator: "is", operand: "mentioned" }]]) {
+        const listed = await client.since({ narrow, after, count: 10 });
+        for (const message of listed.messages ?? []) {
+          const found = askedOf(message, { botEmail: parameters.botEmail, flags: message.flags ?? [] });
+          if (found && !asked.some((entry) => entry.id === found.id) && (!found.at || Date.parse(found.at) >= cutoff)) asked.push(found);
+        }
+      }
+    }
+  }
+  asked.sort((a, b) => a.id - b.id);
+  const kept = asked.slice(0, 10);
+  log(`${reopened ? "Opened the bot's event queue; " : ""}${kept.length} ${kept.length === 1 ? "message" : "messages"} asked of the bot`, "stdout");
+  return { queueId, lastEventId, reopened, messages: kept, more: asked.length > kept.length };
 }
 
 /**

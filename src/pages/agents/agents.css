@@ -217,6 +217,12 @@
 .agents-zulip__channels { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
 .agents-zulip__channel { display: grid; grid-template-columns: minmax(9rem, max-content) minmax(0, 1fr); align-items: baseline; gap: 2px 12px; min-width: 0; }
 .agents-zulip__channel code { color: var(--text-strong); font-size: 12.5px; overflow-wrap: anywhere; }
+/* Asking in Zulip (M40.5): who asks as which account, and who asked without being set up. */
+.agents-zulip__asking { display: grid; gap: 8px; min-width: 0; padding-top: 10px; border-top: 1px solid var(--border-subtle); }
+.agents-zulip__heading { margin: 0; color: var(--text-strong); font-size: 14px; font-weight: 600; }
+.agents-zulip__askers { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.agents-zulip__asker { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; min-width: 0; padding: 6px 8px; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); background: var(--surface-muted); }
+.agents-zulip__asker .agents-name { flex: 1 1 14rem; }
 .agents-chat { display: grid; gap: 6px; min-width: 0; }
 .agents-chat__row { display: grid; grid-template-columns: minmax(8rem, 12rem) auto minmax(0, 1fr) minmax(0, 1fr); align-items: end; gap: 6px 10px; padding: 6px 0; border-top: 1px solid var(--border-subtle); }
 .agents-chat__row:first-child { border-top: 0; }

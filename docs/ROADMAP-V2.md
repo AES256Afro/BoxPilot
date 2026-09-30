@@ -2338,7 +2338,33 @@ twice. The hard caps and "agents propose, never act" stay as they are.
   checked in the web service and again in the helper. Idle priority, idle I/O, the memory cap and
   "no process when idle" are untouched. `agents-caps` raises and lowers the quota with the helper's
   own code on real systemd, with the fake model busy, and watches the timer take it back.
-- **M40.5 Talk to agents in Zulip** (M38.3; in the pull request stacked on the M40.4 one).
+- ✅ **M40.5 Talk to agents in Zulip** (M38.3; unreleased, `feat/m40-zulip`, stacked on M40.4). A
+  direct message to the bot, or an @-mention of it in any channel it is in, is a question; the answer
+  comes back in the same thread (the DM, or the channel and topic), with "open the run in BoxPilot"
+  under it. **Nothing listens**: once a minute (and on "Check Zulip now") the registered read
+  `agents.zulip.events` (owner, a root task beside `agents.zulip.poll`, since only a task may reach
+  the tailnet) reads the bot's own event queue without waiting (`dont_block`), narrowed to DMs and
+  mentions; a queue Zulip let expire is registered again and the last 15 minutes are read from the
+  message history, so nothing asked while BoxPilot was down is lost or answered twice (at most ten
+  a read, the rest at the next). **Who asks is who they are in BoxPilot**: the owner maps Zulip people
+  to BoxPilot accounts in the Team chat panel ("Asking in Zulip", with the password, at most 50) and
+  picks the agent asked when a message names none ("Steve, which drives …" names one). A run starts
+  exactly as the Test tab's Ask does, as that account: its role's tools and reads, its rate limit,
+  its conversation, the eight processors of M40.4 while they wait. Anyone not on the list is told
+  politely, at most once an hour, that they are not set up, and listed for the owner to add.
+  **Chat never approves**: a plan or question card an answer made is posted in the thread as a card
+  linking to BoxPilot's Agents page, where it is staged at its tier as always; a question asked back
+  is in the reply. Every word the model wrote goes through the same `chatText` as findings (#344:
+  links and images as code, no mentions, redacted); BoxPilot's own link is added after. Replies go
+  through the outbox and its limits; a direct reply is `type: direct` to the asker's id (1 to 8
+  ids, validated in `agents.zulip.post`). Tests: the events task against `test/fake-zulip.mjs` (the
+  queue read once, DMs and mentions and nothing else, bots and the bot itself skipped, an expired
+  queue opened again with what was asked since read back, what is too old left out), the service
+  end to end with the real runner (`chat-ask.test.mjs`: someone not set up told once an hour and
+  never reaching a model; a mapped person asking as their account and answered in the DM; a named
+  agent answered in the channel's thread; a card sent back as a link; nothing asked while paused),
+  the panel; and **on a real Zulip** (`zulip-host.yml`, docker-zulip as BoxPilot installs it) a
+  person DMs the bot and the answer comes back in the DM.
 - **M40.6 Pictures** (with M40.5).
 
 ## App catalogue candidates

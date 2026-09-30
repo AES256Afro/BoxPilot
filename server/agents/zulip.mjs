@@ -221,6 +221,46 @@ export function traceMessage({ agentName, run, steps, link = null, redact }) {
   };
 }
 
+// ---- two-way chat (M40.5) ----
+
+/**
+ * The question in a message someone sent the bot: its mentions of the bot taken out, and the agent it
+ * names when it starts with one ("Steve: ...", "ask the Pi-hole Watcher, ...") among `agents` (the
+ * names the person may ask). { text, agentName } - agentName null for the default agent.
+ */
+export function questionFrom(content, { agents = [] } = {}) {
+  let text = String(content ?? "").replace(/@_?\*\*[^*\n]{1,100}\*\*/g, " ").replace(control, " ").replace(/\s+/g, " ").trim();
+  text = text.replace(/^[,:;.!\s-]+/, "");
+  let agentName = null;
+  const names = [...agents].sort((a, b) => b.length - a.length);
+  for (const name of names) {
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const match = new RegExp(`^(?:(?:please\\s+)?ask\\s+)?(?:the\\s+)?${escaped}\\s*[:,\\-–]\\s*`, "i").exec(text) ?? new RegExp(`^(?:please\\s+)?ask\\s+(?:the\\s+)?${escaped}\\s+`, "i").exec(text);
+    if (match) { agentName = name; text = text.slice(match[0].length).trim(); break; }
+  }
+  return { text: text.slice(0, 2_000), agentName };
+}
+
+/** The answer to a message someone sent the bot, in the thread they asked in (M40.5). */
+export function replyMessage({ agentName, run, link = null, redact }) {
+  const name = clipLine(agentName, 60);
+  const lines = [];
+  if (run.flags?.clarify) {
+    lines.push(`${chatText(`**${name}** asks back: ${clipLine(run.answer ?? "", 400)}`, { redact, maxChars: 800 })}`, "Ask again here with more detail.");
+  } else if (["completed", "degraded"].includes(run.state) && run.answer) {
+    if (run.state === "degraded") lines.push("_The model did not finish, so these are the tools' facts._", "");
+    lines.push(chatText(run.answer, { redact, maxChars: chatLimits.messageChars - 1_200 }));
+  } else {
+    lines.push(chatText(`**${name}** could not answer: ${clipLine(run.reason ?? run.state, 300)}`, { redact, maxChars: 600 }));
+  }
+  // BoxPilot's own link, after redaction, which would take its query away.
+  if (link) lines.push("", `${name} · ${link}`);
+  return lines.join("\n");
+}
+
+/** The polite answer to someone the owner has not set up to ask: no model ever sees their words. */
+export const notSetUpMessage = "You are not set up to ask BoxPilot's agents here. The owner can let you ask, as your BoxPilot account, from BoxPilot's Agents page (Team chat).";
+
 /** The reply in #agent-files when a file was taken, or why not. */
 export function ackMessage(outcomes) {
   const lines = outcomes.slice(0, 12).map((outcome) => (outcome.added

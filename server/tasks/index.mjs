@@ -33,7 +33,7 @@ import { probeAddresses } from "./reachability.mjs";
 import { httpRequest } from "./http-request.mjs";
 import { agentsConnectorSync, agentsDisable, agentsEnable, agentsInstall, agentsModelDownload, agentsModelRemove } from "./agents.mjs";
 import { hostListeners } from "./listeners.mjs";
-import { zulipCheck, zulipPoll, zulipPost } from "./zulip.mjs";
+import { zulipCheck, zulipEvents, zulipPoll, zulipPost } from "./zulip.mjs";
 import { dnsFallbackRehearse } from "./dns-rehearsal.mjs";
 import { heartbeatConfigure, heartbeatPing } from "./heartbeat.mjs";
 
@@ -120,6 +120,7 @@ export const tasks = Object.freeze({
   "agents.zulip.check": (parameters, context) => zulipCheck(parameters, context),
   "agents.zulip.post": (parameters, context) => zulipPost(parameters, context),
   "agents.zulip.poll": (parameters, context) => zulipPoll(parameters, context),
+  "agents.zulip.events": (parameters, context) => zulipEvents(parameters, context),
   // M39: whether the router falls back when the DNS app here is away, and the heartbeat's timer.
   "dns.fallback.rehearse": (parameters, context) => dnsFallbackRehearse(parameters, context),
   "heartbeat.configure": (parameters, context) => heartbeatConfigure(parameters, context),
