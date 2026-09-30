@@ -1,5 +1,38 @@
+import express from "express";
 import { describe, expect, it } from "vitest";
-import { outputTailFrom } from "./jobs.mjs";
+import { createStreamBudget } from "../event-stream.mjs";
+import { createJobsRouter, outputTailFrom } from "./jobs.mjs";
+
+describe("a job's output stream while the job prints nothing", () => {
+  it("writes a comment line now and then, so a client that went away is noticed and its slot freed", async () => {
+    // A job awaiting approval prints nothing. The stream used to write nothing either, for up to
+    // three hours, so a laptop put to sleep with Activity open held one of its account's eight
+    // streams until then.
+    const job = { id: "11111111-1111-4111-8111-111111111111", state: "awaiting_approval", createdBy: "owner-1" };
+    const state = { getJob: () => job, getJobOutput: () => null };
+    const budget = createStreamBudget({ perAccount: 8, total: 32 });
+    const app = express();
+    app.use((request, _response, next) => { request.boxpilotSession = { owner: { id: "owner-1", role: "owner" } }; next(); });
+    app.use("/api/v1", createJobsRouter({ state, jobs: {}, scheduler: {}, jobLogReader: { read: async (_id, offset) => ({ text: "", offset, exists: false }) }, auth: { requireCsrf: (_request, _response, next) => next() }, streamBudget: budget, streamPingMs: 50 }));
+    const server = app.listen(0, "127.0.0.1");
+    await new Promise((resolve) => server.once("listening", resolve));
+    const controller = new AbortController();
+    try {
+      const response = await fetch(`http://127.0.0.1:${server.address().port}/api/v1/jobs/${job.id}/stream`, { signal: controller.signal });
+      const reader = response.body.getReader();
+      let text = "";
+      while (!text.includes(": ping")) text += new TextDecoder().decode((await reader.read()).value);
+      expect(text).toContain(": connected");
+      expect(budget.stats().active).toBe(1);
+      controller.abort();
+      await expect.poll(() => budget.stats().active, { timeout: 4_000 }).toBe(0);
+    } finally {
+      controller.abort();
+      server.closeAllConnections?.();
+      await new Promise((resolve) => server.close(resolve));
+    }
+  });
+});
 
 describe("the last of a job's output, after the live log is gone", () => {
   it("cuts by bytes, so a log with non-ASCII in it keeps its tail", () => {
