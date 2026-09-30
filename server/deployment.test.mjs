@@ -88,6 +88,9 @@ describe("native systemd network boundaries", () => {
       expect(dockerfile.indexOf(`COPY ${step}`)).toBeLessThan(dockerfile.indexOf("RUN npm run build"));
     }
     expect(build.indexOf("precompress-assets")).toBeLessThan(build.indexOf("boxpilot-web-dist-permissions"));
+    // The build copies public/ (the manifest and the home-screen icons, M25.1) into dist.
+    expect(dockerfile.indexOf("COPY public ./public")).toBeGreaterThan(-1);
+    expect(dockerfile.indexOf("COPY public ./public")).toBeLessThan(dockerfile.indexOf("RUN npm run build"));
     expect(normalizer).toContain("process.argv.length !== 2");
     expect(normalizer).toContain("metadata.isSymbolicLink()");
     expect(normalizer).toContain("metadata.nlink !== 1");
