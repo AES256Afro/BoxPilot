@@ -23,6 +23,7 @@ import { shareOperations } from "./shares.mjs";
 import { sambaOperations } from "./samba.mjs";
 import { nfsOperations } from "./nfs.mjs";
 import { upsOperations } from "./ups.mjs";
+import { powerOperations } from "./power.mjs";
 import { fail2banOperations } from "./fail2ban.mjs";
 import { backupCloudOperations } from "./backup-cloud.mjs";
 import { tailscaleOperations } from "./tailscale.mjs";
@@ -35,7 +36,7 @@ import { dnsResilienceOperations } from "./dns-resilience.mjs";
 import { heartbeatOperations } from "./heartbeat.mjs";
 
 /** The default registry used by the helper and the web service. Add new operation modules here. */
-export const operationModules = [prerequisiteOperations, aptOperations, systemOperations, appOperations, serviceOperations, userOperations, firewallOperations, storageOperations, controllerOperations, vmOperations, hostBackupOperations, logOperations, updateOperations, networkOperations, shareOperations, sambaOperations, nfsOperations, upsOperations, fail2banOperations, backupCloudOperations, tailscaleOperations, housekeepingOperations, spaceOperations, performanceOperations, localDnsOperations, routerOperations, connectorOperations, vpnOperations, notificationOperations, agentsOperations, zulipOperations,
+export const operationModules = [prerequisiteOperations, aptOperations, systemOperations, appOperations, serviceOperations, userOperations, firewallOperations, storageOperations, controllerOperations, vmOperations, hostBackupOperations, logOperations, updateOperations, networkOperations, shareOperations, sambaOperations, nfsOperations, upsOperations, powerOperations, fail2banOperations, backupCloudOperations, tailscaleOperations, housekeepingOperations, spaceOperations, performanceOperations, localDnsOperations, routerOperations, connectorOperations, vpnOperations, notificationOperations, agentsOperations, zulipOperations,
   // M39: DNS that survives this server being off, and the heartbeat that says it is up.
   dnsResilienceOperations, heartbeatOperations];
 export const registry = createRegistry(operationModules);
