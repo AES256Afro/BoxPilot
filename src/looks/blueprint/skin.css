@@ -474,3 +474,6 @@
   :root[data-look="blueprint"] .ui-dock__badge { border-radius: 0; color: var(--bp-paper); background: var(--bp-ink); box-shadow: 0 0 0 2px var(--bp-paper); }
   :root[data-look="blueprint"] .app-shell[data-view="home"] .topbar { padding-top: 10px; }
 }
+
+/* Settings > Appearance: the line that says what is chosen is a boxed callout like the rest. */
+:root[data-look="blueprint"] .settings-appearance__now { border: 1.4px solid var(--bp-ink); border-radius: 0; background: transparent; }
