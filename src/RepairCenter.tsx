@@ -217,15 +217,18 @@ export default function RepairCenter({ csrfToken, role = "owner", onNavigate = (
 
   const awaitingApproval = useMemo(() => jobs.find((job) => job.state === "awaiting_approval"), [jobs]);
 
+  // Read once per job waiting, not on every ten-second poll (each brings a new object for the same
+  // job): a poll whose read failed swapped the typed confirmation for a password field mid-entry.
+  const awaitingId = awaitingApproval?.id ?? null;
   useEffect(() => {
-    if (!awaitingApproval) { setApprovalPolicy(null); return; }
+    if (!awaitingId) { setApprovalPolicy(null); return; }
     let cancelled = false;
-    fetch(`/api/v1/jobs/${awaitingApproval.id}/approval`)
+    fetch(`/api/v1/jobs/${awaitingId}/approval`)
       .then((response) => (response.ok ? response.json() : null))
       .then((policy: ApprovalPolicy | null) => { if (!cancelled) setApprovalPolicy(policy); })
       .catch(() => { if (!cancelled) setApprovalPolicy(null); });
     return () => { cancelled = true; };
-  }, [awaitingApproval]);
+  }, [awaitingId]);
 
   // A reconnect done here by hand lifts an automatic reconnect's hold, so both are read again after it.
   const autoReconnect = useAutoReconnect(csrfToken);
