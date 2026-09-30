@@ -187,9 +187,8 @@ async function main() {
       const stored = { "boxpilot-look": look, ...(lookScope ? { "boxpilot-look-scope": lookScope } : {}) };
       await devtools.send("Page.addScriptToEvaluateOnNewDocument", { source: `try { for (const [key, value] of Object.entries(${JSON.stringify(stored)})) localStorage.setItem(key, value); } catch {}` });
       // Compared with a drawing that has no demo bar (scripts/look-check.mjs), so the bar is left out.
-      // Through the element's own style, which the demo's Content-Security-Policy allows where it
-      // refuses a new <style> element; the room the page keeps for the bar goes with it.
-      await devtools.send("Page.addScriptToEvaluateOnNewDocument", { source: "document.addEventListener('DOMContentLoaded', () => { document.getElementById('demo-worlds')?.style.setProperty('display', 'none', 'important'); document.documentElement.style.setProperty('--shell-bottom-inset', '0px'); });" });
+      // Removed rather than hidden by a style: the demo's policy refuses an injected stylesheet.
+      await devtools.send("Page.addScriptToEvaluateOnNewDocument", { source: "document.addEventListener('DOMContentLoaded', () => { document.getElementById('demo-worlds')?.remove(); document.documentElement.style.setProperty('--shell-bottom-inset', '0px'); });" });
     }
     // A phone is a touch screen (M25): the page's (pointer: coarse) rules - 44 px targets - apply.
     if (viewport.mobile) await devtools.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 5 });

@@ -2426,6 +2426,24 @@ twice. The hard caps and "agents propose, never act" stay as they are.
   and refusing an image with `--vision off` as llama-server does, the service waiting a day and
   then describing (`chat.test.mjs`), the bench's image path on the stand-in, the tab's notice.
 
+## M41 — Looks
+
+Asked for 2026-09-30: the owner liked both of ADR-004's views and wanted to see either cover the
+whole site; the study (`docs/design-directions/05-looks.html`) drew three ways and ten more, and the
+owner chose all thirteen, each built to match its drawing (ADR-010).
+
+- ✅ **M41.1 The ground the looks stand on** (unreleased, `feature/looks`). The registry
+  (`src/looks/looks.ts`), the choice kept per browser and applied before first paint, `data-look`
+  on the root, a Home per look, the sidebar and the soft-key and top-line docks, Storage's lead
+  slot, the typefaces, and Settings → Appearance with a card per look, "Where it applies", accent,
+  density, wallpaper and solid panels. `scripts/look-check.mjs` draws the reference pictures and
+  scores screenshots against them.
+- **M41.2 The thirteen looks**, each with its skin on every page, its way around and its Home,
+  matched to its drawing and checked light and dark where it has both.
+- **M41.3 Checked by eye as well as by score**: every look's Home (and Home + Ops' and the
+  Launcher's Storage, and Appearance) side by side with its drawing, differences fixed until a
+  person would call them the same design; every other page readable in every look.
+
 ## App catalogue candidates
 
 Checked against the 164 manifests already in `catalog/`, so nothing here duplicates an existing

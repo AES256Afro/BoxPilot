@@ -1,1 +1,107 @@
-/* The console look's skin (M41): every selector starts with :root[data-look="console"]. */
+/*
+ * The Command Center everywhere (M41): every page is already the console (src/styles.css), so this
+ * skin only draws what the console look adds, Home (src/looks/console/Home.tsx), and keys every rule
+ * to Home in it: with "Not Home", Home is the Launcher and the other pages are exactly today's
+ * console. Every selector starts with :root[data-look="console"].
+ */
+
+/*
+ * The Launcher's rules in src/styles.css are keyed to Home (.app-shell[data-view="home"]), which in
+ * this look is a console page: its tokens, its glass switches and its glass dock are set back to the
+ * console's here, so Home is drawn like every other page around it.
+ */
+:root[data-look="console"] .app-shell[data-view="home"][data-shell="console"] {
+  --text: inherit;
+  --text-strong: inherit;
+  --text-muted: inherit;
+  --text-secondary: inherit;
+  --accent: inherit;
+  --accent-faint: inherit;
+  --link: inherit;
+  --border: inherit;
+  --border-subtle: inherit;
+  --border-strong: inherit;
+  --meter-track: inherit;
+  --status-good: inherit;
+  --status-good-text: inherit;
+  --status-good-bg: inherit;
+  --status-good-border: inherit;
+  --status-warning: inherit;
+  --status-warning-text: inherit;
+  --status-warning-bg: inherit;
+  --status-warning-border: inherit;
+  --status-danger: inherit;
+  --status-danger-text: inherit;
+  --status-danger-bg: inherit;
+  --status-danger-border: inherit;
+  --status-neutral: inherit;
+  --status-neutral-text: inherit;
+  --status-neutral-bg: inherit;
+  --status-neutral-border: inherit;
+  --status-unknown: inherit;
+  --status-unknown-text: inherit;
+  --status-unknown-bg: inherit;
+  --status-unknown-border: inherit;
+  --risk-low: inherit;
+  --risk-low-text: inherit;
+  --risk-low-bg: inherit;
+  --risk-low-border: inherit;
+  --risk-medium: inherit;
+  --risk-medium-text: inherit;
+  --risk-medium-bg: inherit;
+  --risk-medium-border: inherit;
+  --risk-high: inherit;
+  --risk-high-text: inherit;
+  --risk-high-bg: inherit;
+  --risk-high-border: inherit;
+}
+:root[data-look="console"] .app-shell[data-view="home"][data-shell="console"] :is(button, a, input, select, textarea, summary):focus-visible { outline-color: var(--cc-amber); }
+
+/* The compact bar stays at the top as on every console page; Home's is a little taller, as drawn. */
+:root[data-look="console"] .app-shell[data-view="home"][data-shell="console"] .topbar { position: sticky; min-height: 60px; }
+/* Beside the rail the bar starts where the page under it does, as drawn. */
+@media (min-width: 761px) {
+  :root[data-look="console"] .app-shell[data-view="home"][data-shell="console"] .topbar { padding-inline: 37px 23px; }
+}
+/* Its controls keep their size: the host's facts give way first, then the search, never the name. */
+@media (min-width: 621px) {
+  :root[data-look="console"] .app-shell[data-view="home"][data-shell="console"] .topbar-right { flex-shrink: 0; }
+  :root[data-look="console"] .app-shell[data-view="home"][data-shell="console"] .command-trigger { min-width: 34px; }
+}
+@media (min-width: 621px) and (max-width: 1280px) {
+  :root[data-look="console"] .app-shell[data-view="home"][data-shell="console"] .topbar-left { flex-shrink: 0; }
+}
+@media (min-width: 621px) and (max-width: 900px) {
+  :root[data-look="console"] .app-shell[data-view="home"][data-shell="console"] .topbar { flex-wrap: wrap; row-gap: 8px; padding-block: 8px; }
+  :root[data-look="console"] .app-shell[data-view="home"][data-shell="console"] .topbar-left { flex: 1 1 100%; }
+  :root[data-look="console"] .app-shell[data-view="home"][data-shell="console"] .command-trigger { flex: 1 1 12rem; }
+}
+:root[data-look="console"] .app-shell[data-view="home"][data-shell="console"] :is(.view-switch, .ui-theme-switch, .command-trigger) {
+  border-color: var(--cc-line-strong);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+:root[data-look="console"] .app-shell[data-view="home"][data-shell="console"] .view-switch__option:not([aria-current="page"]),
+:root[data-look="console"] .app-shell[data-view="home"][data-shell="console"] .ui-theme-switch__option:not([aria-checked="true"]) { color: var(--cc-muted); }
+:root[data-look="console"] .app-shell[data-view="home"][data-shell="console"] .ui-theme-switch__option[aria-checked="true"] { border-color: var(--cc-line-strong); color: var(--cc-text-strong); background: var(--cc-panel); }
+:root[data-look="console"] .app-shell[data-view="home"][data-shell="console"] .command-trigger__keys { border-color: var(--cc-line-strong); color: var(--cc-muted); background: transparent; }
+
+/* The rail, as on every other page: no glass, no tiles. */
+@media (min-width: 761px) {
+  :root[data-look="console"] .app-shell[data-view="home"] .ui-dock.shell-dock--rail ul {
+    border: 0;
+    border-radius: 0;
+    background: none;
+    box-shadow: none;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  :root[data-look="console"] .app-shell[data-view="home"] .shell-dock--rail .ui-dock__icon { border-radius: 5px; color: var(--cc-icon); background: none; }
+  :root[data-look="console"] .app-shell[data-view="home"] .shell-dock--rail .ui-dock__item:hover .ui-dock__icon { color: var(--cc-text-strong); background: var(--cc-raised); }
+  :root[data-look="console"] .app-shell[data-view="home"] .shell-dock--rail .ui-dock__badge { color: transparent; background: var(--cc-amber); box-shadow: 0 0 0 2px var(--cc-rail); }
+}
+
+/* A phone keeps the page's name in the bar, as every console page does. */
+@media (max-width: 620px) {
+  :root[data-look="console"] .app-shell[data-view="home"][data-shell="console"] .topbar-slot { display: flex; }
+}
