@@ -1,0 +1,67 @@
+/*
+ * The disk map at the top of Storage in Home + Ops (src/looks/blend/StorageLead.tsx), sized from the
+ * drawing (blendStorage: .bl-map, .bl-disk, .bl-bar, .bl-legend; 1em = 19.46 px at 1440 wide).
+ * Every selector starts with .blend- (src/looks/looksCss.test.ts).
+ */
+
+.blend-map {
+  display: grid;
+  gap: 11.7px;
+  min-width: 0;
+  padding: 17.5px 19.5px;
+  border: 1px solid var(--lx-glass-border);
+  border-radius: 21px;
+  color: var(--lx-ink);
+  background: var(--lx-glass);
+  box-shadow: var(--blend-shadow);
+  -webkit-backdrop-filter: var(--blend-glass-filter);
+  backdrop-filter: var(--blend-glass-filter);
+  font-family: var(--font-sans);
+}
+.blend-map__head { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.blend-map__title { display: flex; align-items: center; gap: 6.2px; margin: 0; color: var(--lx-ink-muted); font: 700 12.45px/1.2 var(--font-sans); letter-spacing: 0.1em; text-transform: uppercase; white-space: nowrap; }
+.blend-map__title svg { width: 16.8px; height: 16.8px; flex: none; }
+.blend-map__meta { margin-left: auto; overflow: hidden; color: var(--lx-ink); font: 700 12.45px/1.2 var(--font-sans); text-overflow: ellipsis; white-space: nowrap; }
+.blend-map__quiet { margin: 0; color: var(--lx-ink-muted); font-size: 13.5px; }
+
+.blend-map__disks { display: grid; gap: 13.6px; margin: 0; padding: 0; list-style: none; }
+.blend-map__disk { display: grid; grid-template-columns: 185px minmax(0, 1fr); align-items: center; gap: 15.6px; min-width: 0; }
+.blend-map__name { display: grid; gap: 1px; min-width: 0; }
+.blend-map__name b { overflow: hidden; color: var(--lx-ink); font: 600 14px/1.25 var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }
+.blend-map__name small { overflow: hidden; color: var(--lx-ink-muted); font-size: 11.7px; line-height: 1.3; text-overflow: ellipsis; white-space: nowrap; }
+.blend-map__track { min-width: 0; }
+
+/* The bar: the disk's whole size, each segment to scale, 1 px between them. */
+.blend-map__bar { display: flex; gap: 1px; height: 38.9px; overflow: hidden; border-radius: 9.7px; background: var(--lx-track); }
+.blend-map__seg {
+  display: flex;
+  flex-basis: 0;
+  align-items: center;
+  min-width: 0;
+  padding: 0 6px;
+  overflow: hidden;
+  color: var(--lx-ink);
+  font: 600 10.9px/1 var(--font-mono);
+  white-space: nowrap;
+}
+.blend-map__seg[data-kind="used"] { color: var(--look-accent-ink); background: var(--look-accent); }
+.blend-map__seg[data-kind="snap"] { color: var(--lx-warning-ink); background: var(--lx-warning); }
+.blend-map__seg[data-kind="boot"] { color: var(--lx-badge-ring); background: var(--lx-ink-muted); }
+.blend-map__seg[data-kind="room"] { background: transparent; }
+.blend-map__seg:is([data-kind="free"], [data-kind="off"]) { background: repeating-linear-gradient(135deg, var(--blend-hatch) 0 4.4px, transparent 4.4px 8.8px); }
+.blend-map { --blend-hatch: var(--lx-hairline); }
+
+/* The key. */
+.blend-map__legend { display: flex; flex-wrap: wrap; gap: 4px 15.2px; margin: 0; padding: 0; color: var(--lx-ink-muted); font-size: 11.7px; list-style: none; }
+.blend-map__legend li { display: inline-flex; align-items: center; gap: 4px; }
+.blend-map__legend i { display: inline-block; width: 10.5px; height: 10.5px; border-radius: 2.3px; }
+.blend-map__legend i[data-kind="used"] { background: var(--look-accent); }
+.blend-map__legend i[data-kind="snap"] { background: var(--lx-warning); }
+.blend-map__legend i[data-kind="free"] { background: repeating-linear-gradient(135deg, var(--lx-ink-muted) 0 2px, transparent 2px 4px); }
+.blend-map__legend i[data-kind="boot"] { background: var(--lx-ink-muted); }
+
+@media (max-width: 760px) {
+  .blend-map { padding: 14px 16px; }
+  .blend-map__disk { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+  .blend-map__bar { height: 32px; }
+}
