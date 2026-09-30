@@ -1,5 +1,6 @@
 import express from "express";
 import { randomUUID } from "node:crypto";
+import os from "node:os";
 import { createReadStream, readFileSync } from "node:fs";
 import { stat } from "node:fs/promises";
 import { createDeviceResolver, deviceResolvingOperations } from "./catalog/devices.mjs";
@@ -57,6 +58,7 @@ import { createReleaseUpdateService } from "./release-updates.mjs";
 import { createSetupService } from "./setup-profiles.mjs";
 import { createUpdateNotifier } from "./update-notifier.mjs";
 import { createHealthAlerts, jobNoticeKey, tellInterrupted } from "./health-alerts.mjs";
+import { createPowerLossWatch, dnsAppIds } from "./power-loss.mjs";
 import { createWeeklyReport } from "./weekly-report.mjs";
 import { buildChecklist, gatherChecklistEvidence } from "./setup-checklist.mjs";
 import { createTlsRenewal } from "./tls-renewal.mjs";
@@ -189,6 +191,9 @@ const jobs = createJobService(state, helper, {
     // markedDirty: an exFAT drive still carrying the kernel's "not properly unmounted" mark, which
     // the kernel repeats at every mount until a repairing check clears it (M26).
     "storage.check": (job, result) => state.updateSetting("driveChecks", {}, (entries) => ({ value: { ...(entries ?? {}), [result.name]: { checkedAt: result.checkedAt, clean: result.clean, checker: result.checker, summary: result.summary, markedDirty: result.markedDirty ?? null } } })),
+    // The boot partition's check (2026-09-29): the kernel's "not properly unmounted" line stays in
+    // this boot's log after the mark is cleared, so Repair needs to know it has been seen to since.
+    "storage.boot-mark.clear": (job, result) => state.updateSetting("bootPartitionChecks", {}, (entries) => ({ value: { ...(entries ?? {}), [result.device]: { checkedAt: result.checkedAt, clean: result.clean === true, cleared: result.cleared === true, target: result.target } } })),
     "app.vpn.killswitch.drill": (job, result) => state.updateSetting("killSwitchDrills", {}, (entries) => ({ value: { ...(entries ?? {}), [result.id]: { held: result.held, leaked: result.leaked, downForMs: result.downForMs, exitAfter: result.exitAfter ?? null, at: new Date().toISOString(), by: job.createdBy } } }), job.createdBy),
     // "The backups restore" has to be a record, not a hope: keep the last rehearsal verdict per app
     // so a schedule turns it into a history, and a failure is still visible after the job is pruned.
@@ -316,6 +321,17 @@ const weeklyReport = createWeeklyReport({
 });
 weeklyReport.start();
 healthAlerts.start();
+// How the boot before this one ended (2026-09-29): a power cut that took Pi-hole, and the house's
+// DNS, down with the server for 3.6 hours left nothing on the server saying so. Said once, on Home
+// and through the health ledger, until someone says "Got it".
+createPowerLossWatch({
+  helper, store: state, alerts: healthAlerts, hostname: os.hostname(),
+  dnsApps: async () => {
+    const [live, catalog] = await Promise.all([helper.request("app.inspect", {}, { timeoutMs: 60_000 }), catalogService.all().catch(() => ({ manifests: [] }))]);
+    return (live?.applications ?? []).filter((app) => app.installed && dnsAppIds.includes(app.id)).map((app) => catalog.manifests.find((manifest) => manifest.id === app.id)?.name ?? app.id);
+  },
+  ups: async () => (await inventory.inspect())?.power?.ups?.available === true,
+}).start();
 // Reissue the LAN certificate before it expires, reusing its CA so trusted devices stay trusted (M18.2).
 createTlsRenewal({ helper, store: state }).start();
 // Sample free space daily so the disk-fill forecast (M23.1) has a trend to project.
@@ -441,7 +457,7 @@ app.use("/api/v1", createVirtualizationRouter({ libvirt, libvirtFoundation, vmPl
 app.use("/api/v1", createSettingsRouter({ state, notifications, notificationHistory, weeklyReport, auth }));
 app.use("/api/v1", createFirewallRouter({ state, helper, catalogService, webPort: port, webHost: host }));
 app.use("/api/v1", createStorageRouter({ auth, helper, inventory, state }));
-app.use("/api/v1", createPowerRouter());
+app.use("/api/v1", createPowerRouter({ state, alerts: healthAlerts, auth }));
 app.use("/api/v1", createChecklistRouter({ state, helper, notifications, inventory, network, storage: storageRead }));
 app.use("/api/v1", createHostRouter({ state, helper, catalogService, inventory, network, notifications, controllerProtection, controllerRetention, githubProvenance, releaseUpdates, setup, supportBundle, audit, auth, identity, webHost: host, webPort: port }));
 app.use("/api/v1", createOidcAdminRouter({ oidc, auth }));

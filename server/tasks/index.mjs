@@ -16,6 +16,8 @@ import { housekeepingRemoveTrees } from "./housekeeping.mjs";
 import { aptClean, journalVacuum } from "./space.mjs";
 import { routerConnect, routerInspect, routerLeases } from "./router.mjs";
 import { dnsBlockerVerify } from "./dns-check.mjs";
+import { restoreNameLookups } from "./name-lookups.mjs";
+import { clearBootPartitionMark } from "./boot-partition.mjs";
 import { sambaApply, sambaDiscoverySet, sambaRecycleEmpty, sambaShareWritable, sambaUserRemove, sambaUserSet } from "./samba.mjs";
 import { fsSnapshotCreate, fsSnapshotDelete } from "./fs-snapshots.mjs";
 import { nfsApply } from "./nfs.mjs";
@@ -78,6 +80,8 @@ export const tasks = Object.freeze({
   "router.connect": routerConnect,
   "router.inspect": routerInspect,
   "dns.blocker.verify": (parameters) => dnsBlockerVerify(parameters),
+  "dns.lookups-restore": (parameters, context) => restoreNameLookups(parameters, context),
+  "storage.boot-mark-clear": (parameters, context) => clearBootPartitionMark(parameters, context),
   "app.reachability.probe": (parameters) => probeAddresses(parameters),
   "host.listeners": (parameters, context) => hostListeners(parameters, context),
   "http.request": (parameters) => httpRequest(parameters),

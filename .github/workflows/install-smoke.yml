@@ -131,6 +131,32 @@ jobs:
           path: ${{ runner.temp }}/drive-reboot-vm-console.log
           if-no-files-found: ignore
 
+  # A real power cut of an Ubuntu VM (KVM on the runner), and real reboots either side of it
+  # (2026-09-29): the reading the helper makes of how the previous boot ended must call every reboot
+  # clean and the cut unclean, with the times Home says. Too slow for every pull request.
+  power-loss-vm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Reboot a VM, cut its power, and read how each boot ended
+        run: sudo env "PATH=${PATH}" BOXPILOT_DISPOSABLE_TEST=1 BOXPILOT_TEST_ARTIFACTS="${RUNNER_TEMP}" bash tests/ubuntu/power-loss-vm.sh
+
+      - name: Keep the VM's serial console
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: power-loss-vm-console
+          path: ${{ runner.temp }}/power-loss-vm-console.log
+          if-no-files-found: ignore
+
   # The root helper must start with the backup NAS unreachable and still write to the share once it
   # is reachable (M30). Real systemd, a real CIFS automount written the way share.mount writes it, a
   # real Samba server on the runner. Both LTS releases: systemd 259 fails the old sandbox outright,
