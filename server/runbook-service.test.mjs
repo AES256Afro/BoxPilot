@@ -14,7 +14,12 @@ import { createRunbookService, diskFor, mountFor, runbookSettingKey } from "./ru
 
 const sentinel = "SENTINEL-4d1e-never-print";
 const directories = [];
-afterEach(async () => { await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true }))); });
+const stores = [];
+afterEach(async () => {
+  // Close each database before its directory goes: Windows will not unlink an open SQLite file.
+  for (const store of stores.splice(0)) store.close();
+  await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
+});
 
 const jellyfin = {
   id: "jellyfin", name: "Jellyfin", category: "Media", description: "Stream your films and music to any screen",
@@ -77,6 +82,7 @@ async function setup({ version = "9.9.9-test", answers = answersFor(), failing =
   const clock = { at: new Date("2026-09-28T10:00:00.000Z") };
   const now = () => clock.at;
   const state = createStateStore({ stateDirectory: directory, now });
+  stores.push(state);
   const owner = state.consumeBootstrapToken(state.createBootstrapToken().token, { username: "owner", passwordHash: "not-a-real-hash" });
   const operator = state.createOwnerAccount({ username: "operator", passwordHash: "not-a-real-hash", role: "operator", createdBy: owner.id });
   const calls = [];

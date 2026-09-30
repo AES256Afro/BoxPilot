@@ -127,7 +127,7 @@ const uncleanMessages = [
 ];
 export function parseUncleanMounts(text) {
   const latest = new Map();
-  for (const line of String(text ?? "").split("\n")) {
+  for (const line of String(text ?? "").split(/\r?\n/)) {
     // "exFAT-fs (sda2): ...", "EXT4-fs (sdb1): ...", and ntfs3's "ntfs3: sdc1: ..." / "ntfs3(sdc1): ...".
     const match = line.match(/^(\S+)\s+\S+\s+kernel:\s+(?:(exFAT-fs|FAT-fs|EXT[234]-fs) \(([A-Za-z0-9_-]+)\)|(ntfs3)(?:\(([A-Za-z0-9_-]+)\)|: ([A-Za-z0-9_-]+))):\s+(.*)$/);
     if (!match) continue;
