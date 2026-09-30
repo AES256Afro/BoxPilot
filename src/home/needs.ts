@@ -199,7 +199,7 @@ export function buildNeeds(facts: FactValues, { now, role }: { now: number; role
       title: finding.title,
       // A row holds a line or two; the whole error is on Repair's card, with the job's log.
       detail: failedBefore ? brief(`Last try failed: ${finding.lastAttempt?.error ?? "no error was recorded"}`) : finding.evidence?.[0] ?? null,
-      view: "repairs", action: actions[0] ?? null, ...(actions.length > 1 ? { actions } : {}),
+      view: finding.view ?? "repairs", action: actions[0] ?? null, ...(actions.length > 1 ? { actions } : {}),
     });
   }
 

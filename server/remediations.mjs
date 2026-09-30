@@ -19,6 +19,7 @@
 import { createHash } from "node:crypto";
 import { backupMountpoint, legacyBackupMountpoint, mountpointFor } from "./backup-mount.mjs";
 import { coversEveryAddress, findPortConflicts, freePortNear, holderWords, portHolders, serveTargetPort, serveUrl } from "./ports.mjs";
+import { dnsAppIds } from "./dns-resilience.mjs";
 
 export const severities = Object.freeze(["critical", "warning", "info"]);
 
@@ -33,9 +34,10 @@ const ownerless = ["exfat", "vfat", "ntfs", "ntfs3", "msdos"];
  * schedule to create rather than a job to run (Back up nightly). `manual` is the one thing the owner
  * does when nothing here can do it, or says what a fix cannot.
  */
-function finding({ id, severity, title, detail, evidence = [], fixes = [], manual = null }) {
+function finding({ id, severity, title, detail, evidence = [], fixes = [], manual = null, view = null }) {
   const offered = fixes.filter(Boolean);
-  return { id, severity, title, detail, evidence, fix: offered[0] ?? null, fixes: offered, manual };
+  // `view`: the page that holds what the owner does about it, when that is not Repair (M39.2).
+  return { id, severity, title, detail, evidence, fix: offered[0] ?? null, fixes: offered, manual, ...(view ? { view } : {}) };
 }
 
 /** "A", "A and B", "A, B and C". */
@@ -620,6 +622,35 @@ export function nothingCanReachYou({ notifications = null, apps = [], ntfy = nul
 }
 
 /**
+ * The house's DNS leaning on this server alone (M39.2, ADR-007). On 2026-09-29 the server lost power
+ * and every device lost its lookups with it, because the router handed out nothing but this server.
+ * Said only on evidence (server/dns-resilience.mjs): a DHCP lease naming nothing else, a router whose
+ * rehearsal failed, or second servers that do not answer. A router passing lookups here whose fallback
+ * nobody has tried is said as not known, with the rehearsal as its fix. The steps are on the router,
+ * which BoxPilot does not sign in to, so they live on the Network page.
+ */
+export function dnsLeansOnThisServer({ dnsResilience = null, apps = [] } = {}) {
+  const verdict = dnsResilience;
+  if (!verdict || !["single-point", "unproven"].includes(verdict.state)) return [];
+  const evidence = [
+    ...(verdict.servers ?? []).filter((server) => server.verdict !== "skipped").map((server) => `${server.address} is ${server.label}: ${server.note}`),
+    ...(verdict.via ? [`what the router hands out, read from ${verdict.via}`] : []),
+  ];
+  const app = apps.find((entry) => dnsAppIds.includes(entry.id) && entry.container?.running);
+  const rehearse = app && verdict.router && verdict.lanAddress ? {
+    operationId: "dns.fallback.rehearse",
+    parameters: { router: verdict.router, lanAddress: verdict.lanAddress, app: app.id },
+    label: verdict.state === "unproven" ? "Rehearse it" : "Rehearse again",
+    preview: `Stops ${app.name} for about half a minute and asks your router at ${verdict.router} for names it cannot have cached. If the router has a fallback, devices notice a slower lookup at most; if it has none, nothing on your network can look names up until ${app.name} is back, up to a minute. ${app.name} is started again and BoxPilot waits until it answers.`,
+  } : null;
+  const manual = "Give your router a second resolver it falls back to: Network, Names & DNS has the steps for GL.iNet, for OpenWrt, and for any other router. BoxPilot does not sign in to your router; check again there once it is done.";
+  if (verdict.state === "single-point") {
+    return [finding({ id: "dns-single-point", severity: "warning", title: verdict.headline, detail: verdict.detail, evidence, fixes: [rehearse], manual, view: "network" })];
+  }
+  return [finding({ id: "dns-fallback-unproven", severity: "info", title: verdict.headline, detail: verdict.detail, evidence, fixes: [rehearse], manual, view: "network" })];
+}
+
+/**
  * A backup destination still mounted where it used to be. The helper looks for it at
  * /mnt/boxpilot/backup, the one place its sandbox can be given a network share without the NAS
  * having to be on for the helper to start (server/backup-mount.mjs). The upgrade moves it; this is
@@ -966,6 +997,7 @@ export function detectRemediations(facts = {}) {
     ...unwritableShares(facts),
     ...permissionlessMounts(facts),
     ...nothingCanReachYou(facts),
+    ...dnsLeansOnThisServer(facts),
     ...windowsCannotDiscover(facts),
     ...backupDestinationToMove(facts),
   ];

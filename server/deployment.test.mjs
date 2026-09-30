@@ -163,6 +163,27 @@ describe("native systemd network boundaries", () => {
     expect(protocol).not.toContain("storage.smart.scan");
   });
 
+  // M39.3: the heartbeat. Off until the owner turns it on, so nothing that installs or upgrades
+  // BoxPilot may enable it; a oneshot with no capabilities, no retries and a short budget.
+  it("ships the heartbeat as a hardened oneshot and a timer nothing enables but the owner", async () => {
+    const service = (await readFile("deploy/boxpilot-heartbeat.service", "utf8")).replaceAll("\r\n", "\n");
+    const timer = (await readFile("deploy/boxpilot-heartbeat.timer", "utf8")).replaceAll("\r\n", "\n");
+    const install = await readFile("scripts/boxpilot-install.sh", "utf8");
+    const upgrade = await readFile("scripts/boxpilot-upgrade.sh", "utf8");
+    expect(service).toMatch(/^Type=oneshot$/m);
+    expect(service).toMatch(/^ExecStart=\/usr\/local\/bin\/node \/opt\/boxpilot\/scripts\/boxpilot-heartbeat\.mjs$/m);
+    expect(service).toMatch(/^CapabilityBoundingSet=$/m);
+    expect(service).toMatch(/^ProtectSystem=strict$/m);
+    expect(service).toMatch(/^StateDirectory=boxpilot-heartbeat$/m);
+    expect(service).toMatch(/^TimeoutStartSec=30s$/m);
+    expect(service).not.toMatch(/^Restart=/m);
+    expect(service).not.toMatch(/^PrivateNetwork=true$/m);
+    expect(timer).toMatch(/^OnUnitActiveSec=5min$/m);
+    expect(timer).toMatch(/^Unit=boxpilot-heartbeat\.service$/m);
+    expect(install).not.toContain("boxpilot-heartbeat");
+    expect(upgrade).not.toMatch(/enable[^\n]*boxpilot-heartbeat/);
+  });
+
   it("ships a hardened generic root-runner template unit gated on a per-run approval spec", async () => {
     const unit = await readFile("deploy/boxpilot-run@.service", "utf8");
     expect(unit).toContain("ConditionPathExists=/run/boxpilot/run/%i.json");
