@@ -76,7 +76,6 @@
   text-transform: uppercase;
 }
 .rack-lamp[data-lit] { color: #2a1a00; background: radial-gradient(circle, #ffe08a, #ffb20f 70%); box-shadow: 0 0 1em rgba(255, 178, 15, 0.7), inset 0 0 0 0.15em #7a4b00; }
-.rack-message { flex: 1 1 8em; min-width: 0; max-width: 18em; color: #3b3e43; font: 700 0.62em/1.35 "Barlow Condensed", sans-serif; letter-spacing: 0.12em; text-shadow: 0 1px 0 rgba(255, 255, 255, 0.8); text-transform: uppercase; }
 .rack-segs { display: flex; flex: none; gap: 0.7em; margin-left: auto; }
 .rack-seg { display: grid; justify-items: center; gap: 0.3em; }
 .rack-seg b {
@@ -127,10 +126,10 @@
   text-transform: uppercase;
 }
 .rack-lcd ol { max-height: 5.4em; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #4a5a2a transparent; }
-.rack-lcd__line { display: grid; grid-template-columns: 2ch minmax(0, 44ch) 5ch; column-gap: 1.5ch; width: 100%; padding: 0 0.2em; font-size: 0.86em; line-height: 1.25; text-align: left; }
-.rack-lcd__line:hover .rack-lcd__words { text-decoration: underline; }
-.rack-lcd__words { max-width: 62ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.rack-lcd__run { display: block; padding-left: 3.5ch; font-size: 0.7em; text-transform: none; }
+/* A line a need, as the drawing's LCD prints it: fixed columns, one space after the number, no ellipsis. */
+.rack-lcd__line { display: block; width: 100%; padding: 0; overflow: hidden; font-size: 0.86em; line-height: 1.25; text-align: left; white-space: pre; }
+.rack-lcd__line:hover .rack-lcd__text { text-decoration: underline; }
+.rack-lcd__run { display: block; padding-left: 2ch; font-size: 0.7em; text-transform: none; }
 .rack-keys { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0.6em; max-width: 30em; }
 .rack-home .rack-key.ui-button {
   display: grid;
@@ -191,14 +190,11 @@
   .rack-u::before { left: 0.7em; }
   .rack-u::after { right: 0.7em; }
   .rack-name b { font-size: 1.6em; }
-  .rack-message { flex-basis: 100%; max-width: none; }
   .rack-segs { flex-wrap: wrap; gap: 0.5em; }
   .rack-seg b { font-size: 1.4em; }
   .rack-mods { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .rack-row { grid-template-columns: minmax(0, 1fr); }
   .rack-side { writing-mode: horizontal-tb; transform: none; }
-  .rack-lcd__line { grid-template-columns: 2ch minmax(0, 1fr) 5ch; }
-  .rack-lcd__words { white-space: normal; }
   .rack-keys { justify-content: flex-start; max-width: none; }
   .rack-key i { width: 5em; height: 3em; }
   .rack-ups { flex-wrap: wrap; gap: 0.8em 1.4em; }

@@ -1,7 +1,7 @@
 import { useMemo, type ReactNode } from "react";
 import { openActivity, openNotifications } from "../../activityEvents";
 import type { HomeProps } from "../../home/Home";
-import { useFacts, valuesOf, type MountFact } from "../../home/facts";
+import { useFacts, valuesOf, type AppFact, type MountFact } from "../../home/facts";
 import { greeting, uptime } from "../../home/format";
 import { upsSummary } from "../../home/hostFacts";
 import { actionsOf, appHealth, buildNeeds, runs, verdictFor, verdictSources, type Need, type NeedAction } from "../../home/needs";
@@ -44,6 +44,103 @@ export function keyWords(actions: NeedAction[]): string[] {
     }
     return words.replace(/\s+now$/i, "");
   });
+}
+
+/** Words a panel's LCD has room for about a Repair finding, by its kind. */
+const findingWords: Record<string, [string, string]> = {
+  "dns-single-point": ["DNS", "NO 2ND RESOLVER"],
+  "dns-fallback-unproven": ["DNS", "FALLBACK UNTRIED"],
+  "no-notification-target": ["ALERTS", "NOWHERE TO GO"],
+  "windows-discovery": ["WINDOWS", "NOT LISTED"],
+  "drive-order": ["DRIVES", "MOUNT ORDER"],
+  "split-data-folders": ["DATA", "SPLIT FOLDERS"],
+  "exfat-checker-missing": ["EXFAT", "NO CHECKER"],
+  "backup-destination-moved": ["BACKUP DRIVE", "MOVED"],
+  "read-only-remount": ["DRIVE", "READ-ONLY"],
+  "drive-check": ["DRIVE", "NOT CHECKED"],
+  "drive-mark": ["DRIVE", "UNMARKED"],
+  "stale-mount": ["DRIVE", "STALE MOUNT"],
+  "stale-bind": ["FOLDER", "STALE BIND"],
+  "flaky-drive": ["DRIVE", "DROPS OUT"],
+  "permissionless-mount": ["DRIVE", "ROOT ONLY"],
+  "share-unwritable": ["SHARE", "READ-ONLY"],
+  "port-conflict": ["PORT", "IN USE"],
+  "backup-rehearsal": ["BACKUP", "NOT REHEARSED"],
+  "vpn-leak": ["VPN", "LEAKED"],
+  "app-folder": ["FOLDER", "NOT WRITABLE"],
+};
+
+/** Words cut to `limit` at a space, never with an ellipsis: an LCD shows what fits. */
+export function fit(words: string, limit: number): string {
+  const upper = words.toUpperCase().replace(/[.,;:]+$/, "");
+  if (upper.length <= limit) return upper;
+  const cut = upper.slice(0, limit + 1).replace(/\s+\S*$/, "");
+  return cut || upper.slice(0, limit);
+}
+
+/**
+ * A need as a panel's LCD writes it, as the drawing does ("VAULTWARDEN+3  NO BACKUP  MED"): what it
+ * is about and what is wrong, in capitals. The whole sentence is read out with it and is on the
+ * need's own page.
+ */
+export function lcdLine(need: Need, apps: Array<Pick<AppFact, "id" | "name">>): [string, string] {
+  const name = (id: string | undefined) => {
+    const app = apps.find((entry) => entry.id === id);
+    return fit((app?.name ?? id ?? "").replace(/\s*\(.*\)\s*$/, "").replace(/\s*\+.*$/, ""), 13);
+  };
+  const [kind, subject] = need.id.split(/:(.*)/s);
+  const count = /^(\d+)/.exec(need.title)?.[1];
+  const security = /^(\d+) security/i.exec(need.detail ?? "")?.[1];
+  switch (kind) {
+    case "updates": return [`UPDATES ${count ?? ""}`.trim(), security ? `${security} SECURITY` : "NO SECURITY"];
+    case "reboot": return ["REBOOT", "PENDING"];
+    case "unattended": return ["AUTO UPDATES", "OFF"];
+    case "app-paused": return [name(subject), "PAUSED"];
+    case "app-update": return [name(subject), "UPDATE READY"];
+    case "app-down": return [name(subject), "DOWN"];
+    case "app-stopped": return [name(subject), "STOPPED"];
+    case "app-unwell": return [name(subject), "UNHEALTHY"];
+    case "app-vpn": return [name(subject), "LEFT ITS VPN"];
+    case "app-folder": return [name(subject), "CANNOT WRITE"];
+    case "apps-missing": return ["APPS", "NO CONTAINER"];
+    case "services": return [`SERVICES ${count ?? ""}`.trim(), "FAILED"];
+    case "unannounced": return ["ALERTS", "NOT SENT"];
+    case "approval": return ["JOB", "TO APPROVE"];
+    case "backup-failed": return [name(subject), "BACKUP FAILED"];
+    case "schedule": return ["SCHEDULE", need.title.startsWith("Scheduled backup failed") ? "BACKUP FAILED" : "DID NOT RUN"];
+    case "schedules-behind": return ["SCHEDULES", "STOPPED"];
+    case "unprotected": return ["APPS", "NO BACKUP"];
+    case "off-box": return ["BACKUPS", "ONLY HERE"];
+    case "database": return ["DATABASE", "NO BACKUP"];
+    case "job": return ["JOB", need.title.startsWith("Ran out") ? "OUT OF TIME" : "FAILED"];
+    case "rebuild": return ["SNAPSHOTS", "FOUND"];
+    case "setup": return ["SERVER", "NOT SET UP"];
+    default: break;
+  }
+  if (kind === "repair" && need.finding) {
+    const id = need.finding.id;
+    if (id === "backups-due") {
+      const ids = new Set<string>();
+      for (const fix of [need.finding.fix, ...(need.finding.fixes ?? [])]) {
+        const parameters = (fix?.parameters ?? {}) as { id?: unknown; ids?: unknown };
+        if (typeof parameters.id === "string") ids.add(parameters.id);
+        if (Array.isArray(parameters.ids)) parameters.ids.forEach((entry) => { if (typeof entry === "string") ids.add(entry); });
+      }
+      const list = [...ids];
+      return list.length ? [`${name(list[0])}${list.length > 1 ? `+${list.length - 1}` : ""}`, "NO BACKUP"] : ["APPS", "NO BACKUP"];
+    }
+    const words = findingWords[id] ?? findingWords[id.split(":")[0]];
+    if (words) return words;
+  }
+  return [fit(need.title, 25), ""];
+}
+
+/** "1 VAULTWARDEN+3  NO BACKUP  MED": the number (none in what can wait), what, what is wrong and the tier, in columns. */
+export function lcdText(need: Need, apps: Array<Pick<AppFact, "id" | "name">>, n: number | null, tier: RiskTier | null): string {
+  const [what, wrong] = lcdLine(need, apps);
+  // What needs you in two columns; what can wait, and anything too long for them, as one phrase.
+  const body = n !== null && what.length < 15 && wrong.length < 11 ? `${what.padEnd(15)}${wrong.padEnd(11)}` : fit(`${what} ${wrong}`.trim(), 25).padEnd(26);
+  return `${n === null ? "" : `${n} `}${body}${tier ? tierWord[tier] : "LOOK"}`;
 }
 
 const dataDrive = (mounts: MountFact[]) => mounts.filter((mount) => mount.target !== "/" && !mount.target.startsWith("/boot") && mount.total !== null && mount.percent !== null)
@@ -102,7 +199,7 @@ export default function RackHome({ csrfToken, role, onNavigate, now = Date.now }
   const upsLed: "green" | "amber" | "red" | "off" = !ups?.configured ? "off" : power.status === "good" ? "green" : power.status === "danger" ? "red" : "amber";
 
   /** One unit of fixes: its engraved name down the side, the LCD with a line a need, a key a fix. */
-  const needsUnit = (title: string, list: Need[], first: number) => {
+  const needsUnit = (title: string, list: Need[], first: number, waiting = false) => {
     const keys: ReactNode[] = [];
     list.forEach((need, index) => {
       const run = need.finding ? fixRuns[need.finding.id] : undefined;
@@ -110,16 +207,19 @@ export default function RackHome({ csrfToken, role, onNavigate, now = Date.now }
       const actions = actionsOf(need);
       const words = keyWords(actions);
       actions.forEach((action, at) => {
-        const tone = action.kind === "dismiss" || action.kind === "open" || at > 0 ? "grey" : action.risk === "low" ? "green" : action.risk === "high" ? "red" : "amber";
+        // The fix to press is amber, as the drawing has it; in what can wait a medium one is grey and
+        // a low one green (Update, Resume). A second choice, or one that only opens a page, is grey.
+        const tone = action.kind === "dismiss" || action.kind === "open" || at > 0 ? "grey"
+          : action.risk === "low" ? "green" : action.risk === "high" ? "red" : waiting ? "grey" : "amber";
         const label = `${action.label}: ${need.title}`;
         keys.push(action.kind === "dismiss" || action.kind === "open"
-          ? <Button key={`${need.id}:${action.kind}:${action.label}`} className="rack-key" data-tone={tone} aria-label={label} onClick={() => act(need, action)}><i aria-hidden="true">{first + index}</i><span className="rack-eng">{words[at]}</span></Button>
-          : <Button key={`${need.id}:${action.operationId}:${action.label}`} className="rack-key" data-tone={tone} risk={action.risk} disabled={Boolean(busy)} aria-label={label} onClick={() => act(need, action)}><i aria-hidden="true">{first + index}</i><span className="rack-eng">{words[at]}</span></Button>);
+          ? <Button key={`${need.id}:${action.kind}:${action.label}`} className="rack-key" data-tone={tone} aria-label={label} onClick={() => act(need, action)}><i aria-hidden="true" /><span className="rack-eng">{words[at]}</span></Button>
+          : <Button key={`${need.id}:${action.operationId}:${action.label}`} className="rack-key" data-tone={tone} risk={action.risk} disabled={Boolean(busy)} aria-label={label} onClick={() => act(need, action)}><i aria-hidden="true" /><span className="rack-eng">{words[at]}</span></Button>);
       });
     });
     // The keys the unit has room for; past that, one grey key to Ops, where every fix is.
     const shownKeys = keys.length > maxKeys ? [...keys.slice(0, maxKeys - 1),
-      <Button key="more" className="rack-key" data-tone="grey" aria-label={`${keys.length - maxKeys + 1} more fixes on Ops`} onClick={() => onNavigate("ops")}><i aria-hidden="true">+{keys.length - maxKeys + 1}</i><span className="rack-eng">More</span></Button>] : keys;
+      <Button key="more" className="rack-key" data-tone="grey" aria-label={`${keys.length - maxKeys + 1} more fixes on Ops`} onClick={() => onNavigate("ops")}><i aria-hidden="true" /><span className="rack-eng">{keys.length - maxKeys + 1} more</span></Button>] : keys;
     return (
       <section className="rack-u rack-row" aria-label={title}>
         <h2 className="rack-eng rack-side">{title}</h2>
@@ -132,11 +232,9 @@ export default function RackHome({ csrfToken, role, onNavigate, now = Date.now }
               const run = need.finding ? fixRuns[need.finding.id] : undefined;
               return (
                 <li key={need.id}>
-                  <button type="button" className="rack-lcd__line" onClick={() => open(need)} title={need.detail ?? undefined}>
-                    <span className="rack-lcd__n">{first + index}</span>
-                    <span className="rack-lcd__words">{need.title}</span>
-                    <span className="rack-lcd__tier">{tier ? tierWord[tier] : "LOOK"}</span>
-                    {need.detail && <span className="ui-visually-hidden">. {need.detail}</span>}
+                  <button type="button" className="rack-lcd__line" onClick={() => open(need)} title={need.title}>
+                    <span className="rack-lcd__text" aria-hidden="true">{lcdText(need, apps, waiting ? null : first + index, tier)}</span>
+                    <span className="ui-visually-hidden">{need.title}{need.detail ? `. ${need.detail}` : ""}{tier ? `. ${tier} risk` : ""}</span>
                   </button>
                   {run && <span className="rack-lcd__run" role="status">{runWords(run)}</span>}
                 </li>
@@ -163,10 +261,10 @@ export default function RackHome({ csrfToken, role, onNavigate, now = Date.now }
           <span className="rack-eng"><Led state={inventory ? "green" : "off"} />Power</span>
           <span className="rack-eng"><Led state={inventory ? "green" : "off"} />{inventory ? `Up ${uptime(inventory.uptimeSeconds).replace(/(\d+)h$/, (_, h: string) => `${h.padStart(2, "0")}h`)}` : "Up --"}</span>
         </div>
-        <span className="rack-lamp" data-lit={urgent.length > 0 || undefined} role="status">
+        <span className="rack-lamp" data-lit={urgent.length > 0 || undefined} role="status" title={verdict.sentence}>
           {urgent.length > 0 ? <>{urgent.length} to<br />look at</> : checking ? "Checking" : "All clear"}
         </span>
-        <p className="rack-message">{verdict.sentence}</p>
+        <p className="ui-visually-hidden">{verdict.sentence}</p>
         <div className="rack-segs">
           <Segment value={segments(cpu)} label="CPU %" spoken={`Processor ${cpu === null ? "not read" : `${Math.round(cpu)}%`}`} onOpen={() => onNavigate("performance")} />
           <Segment value={segments(memGb, true)} label="MEM GB" spoken={`Memory ${memGb === null ? "not read" : `${memGb.toFixed(1)} GB`}`} onOpen={() => onNavigate("performance")} />
@@ -178,7 +276,7 @@ export default function RackHome({ csrfToken, role, onNavigate, now = Date.now }
       <section className="rack-u" aria-label="Apps">
         {facts.catalog.state === "failed" && <p className="rack-quiet">Which apps are installed could not be read.</p>}
         {values.catalog && apps.length === 0 && (
-          <p className="rack-quiet">No apps are installed yet. <Button className="rack-key" data-tone="grey" onClick={() => onNavigate(values.setup?.firstRun ? "setup" : "catalog")}><i aria-hidden="true">+</i><span className="rack-eng">{values.setup?.firstRun ? "Choose a setup profile" : "Add an app"}</span></Button></p>
+          <p className="rack-quiet">No apps are installed yet. <Button className="rack-key" data-tone="grey" onClick={() => onNavigate(values.setup?.firstRun ? "setup" : "catalog")}><i aria-hidden="true" /><span className="rack-eng">{values.setup?.firstRun ? "Choose a setup profile" : "Add an app"}</span></Button></p>
         )}
         <ul className="rack-mods">
           {apps.map((app) => {
@@ -204,7 +302,7 @@ export default function RackHome({ csrfToken, role, onNavigate, now = Date.now }
       </section>
 
       {needsUnit("Needs you", urgent, 1)}
-      {needsUnit("Can wait", waiting, urgent.length + 1)}
+      {needsUnit("Can wait", waiting, urgent.length + 1, true)}
 
       <section className="rack-u rack-ups" aria-label="UPS">
         <span className="rack-eng">UPS</span>

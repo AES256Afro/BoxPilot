@@ -17,6 +17,7 @@ export interface LookBarProps {
 
 const bars: Partial<Record<LookId, LazyExoticComponent<ComponentType<LookBarProps>>>> = {
   cockpit: lazy(() => import("./cockpit/Annunciators")),
+  phosphor: lazy(() => import("./phosphor/Bar")),
 };
 
 export function LookBar({ look, ...props }: LookBarProps & { look: LookId }) {
