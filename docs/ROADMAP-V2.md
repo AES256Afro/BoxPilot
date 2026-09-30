@@ -2348,8 +2348,14 @@ twice. The hard caps and "agents propose, never act" stay as they are.
   change the agent, makes the question one of its golden questions. **Measured on the stand-in**
   (`test/agents-eval.mjs`: the five built-in questions and the owner's own "List the drives
   connected to BoxPilot", each asked of a fresh Server Keeper on a server laid out like the owner's):
-  2 of 6 before M40, 6 of 6 after; CI holds it (`evaluation.test.mjs`). The real model's before and
-  after is `agents-bench.yml` with `mode: eval` and `baseline: main`.
+  2 of 6 before M40, 6 of 6 after; CI holds it (`evaluation.test.mjs`). **Measured on the real
+  model** (`agents-bench.yml`, `mode: eval`, `baseline: main`: Qwen 3.5 4B UD-Q4_K_XL under Unsloth
+  2026.9.12, four threads under `CPUQuota=400%` on a GitHub runner's Xeon Platinum 8370C, the same
+  questions and graders for both): **2 of 6 before M40 (33%), 6 of 6 after (100%)**. Before, it
+  answered the drives question as the owner's server did ("/dev/sda: 528 GB total, 31% used", no
+  NVMe), and for Pi-hole and the stopped apps it never called where.runs or apps.list and said it
+  could not know. After, each question used the tool made for it, and the check found no mismatch;
+  each answer took 100 to 230 s there (run 36656892146).
 - **M40.4 Faster while someone waits** (in the pull request stacked on this one).
 - **M40.5 Talk to agents in Zulip** (M38.3; in the pull request stacked on the M40.4 one).
 - **M40.6 Pictures** (with M40.5).
