@@ -72,14 +72,26 @@ const at = (job) => job?.updatedAt ?? job?.createdAt ?? null;
 const newestFirst = (a, b) => String(at(b)).localeCompare(String(at(a)));
 
 /**
+ * The managed mount (its fstab name) a reconnecting fix was about: Reconnect a drive and Let apps
+ * write name the drive, Reconnect a network share names the share without its `share-` prefix.
+ */
+function reconnectedMount(job) {
+  const name = job?.parameters?.name;
+  if (typeof name !== "string" || !name) return null;
+  if (job.type === "op:storage.remount" || job.type === "op:storage.writable") return name;
+  if (job.type === "op:share.reconnect") return `share-${name}`;
+  return null;
+}
+
+/**
  * The findings as the owner should see them: each with its fingerprint, the last job that tried to
  * fix it, and whether it came back after a dismissal; the ones set aside, separately; and which
  * failed jobs the page must not show as failures of their own.
  *
  * `jobs` are the jobs the caller may see (newest first or not), `attempts` and `dismissals` the two
- * settings.
+ * settings. `mounts`, when the scan read them, are what is mounted now with each one's fstab name.
  */
-export function applyLedger(findings = [], { dismissals = {}, attempts = {}, jobs = [] } = {}) {
+export function applyLedger(findings = [], { dismissals = {}, attempts = {}, jobs = [], mounts = null } = {}) {
   const byId = new Map(jobs.map((job) => [job.id, job]));
   const recent = [...jobs].sort(newestFirst);
   const active = [];
@@ -109,6 +121,17 @@ export function applyLedger(findings = [], { dismissals = {}, attempts = {}, job
   const present = new Set(findings.map((entry) => entry.id));
   // A failed job started from a finding that is gone now: what it was fixing is fixed, one way or another.
   const resolved = Object.entries(attempts ?? {}).filter(([jobId, attempt]) => byId.get(jobId)?.state === "failed" && !present.has(attempt?.findingId)).map(([jobId]) => jobId);
+  // A failed reconnect started anywhere else (Storage, Activity, Home's Try again) whose drive or share
+  // is mounted now, read-write as fstab asks, with no finding left about it: fixed since. The owner's
+  // backup share was mounted and readable while Home still said "Failed: Reconnect a drive".
+  if (Array.isArray(mounts)) {
+    const troubled = new Set(findings.map((entry) => String(entry.id).split(":").slice(1).join(":")));
+    const healthy = new Set(mounts.filter((mount) => mount?.managedName && !(mount.readOnly === true && !String(mount.options ?? "").split(",").includes("ro"))).map((mount) => mount.managedName));
+    for (const job of jobs) {
+      const name = job.state === "failed" && !attached.has(job.id) ? reconnectedMount(job) : null;
+      if (name && healthy.has(name) && !troubled.has(name) && !resolved.includes(job.id)) resolved.push(job.id);
+    }
+  }
   // Failures let go of with M36's mark on the job itself.
   const dismissedJobs = jobs.filter((job) => job.state === "failed" && (job.steps ?? []).some((step) => step.name === "dismissed" && step.state === "completed")).map((job) => job.id);
   return { findings: active, dismissed, jobs: { attached: [...attached], resolved, dismissed: dismissedJobs } };

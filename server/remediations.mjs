@@ -589,11 +589,39 @@ export function vpnLeaks({ apps = [] } = {}) {
     }));
 }
 
-/** A backup whose last restore rehearsal failed: it would not restore if it were needed. */
-export function failedRehearsals({ apps = [] } = {}) {
+/**
+ * A backup whose last restore rehearsal failed: it would not restore if it were needed. Once a newer
+ * backup exists (its fix, "Take a fresh backup", worked), the problem is no longer that the backup
+ * is bad but that the new one has not been rehearsed: the finding used to stay critical, offering
+ * the backup that had just succeeded, until someone rehearsed it by hand from the app's card.
+ */
+export function failedRehearsals({ apps = [], protection = null } = {}) {
+  const newestOf = (id) => {
+    const entry = protection?.available && Array.isArray(protection.apps) ? protection.apps.find((app) => app.id === id) : null;
+    const at = entry?.newestAt ? Date.parse(entry.newestAt) : Number.NaN;
+    return Number.isFinite(at) ? at : null;
+  };
   return apps
     .filter((app) => app.backupVerification && app.backupVerification.verified === false)
-    .map((app) => finding({
+    .map((app) => {
+      const newest = newestOf(app.id);
+      const checked = Date.parse(app.backupVerification.checkedAt ?? "");
+      if (newest !== null && Number.isFinite(checked) && newest > checked) {
+        return finding({
+          id: `backup-rehearsal:${app.id}`,
+          severity: "warning",
+          title: `${app.name}'s new backup has not been rehearsed yet`,
+          detail: `The last rehearsal could not unpack an older backup (${app.backupVerification.reason}), and a fresh one has been taken since. Rehearse it to know it would restore.`,
+          evidence: [`${app.backupVerification.backup} failed on ${app.backupVerification.checkedAt}`, `a newer backup was taken on ${new Date(newest).toISOString()}`],
+          fixes: [{
+            operationId: "app.backup.verify",
+            parameters: { id: app.id },
+            label: "Rehearse the new backup",
+            preview: `Checks ${app.name}'s newest backup against its checksum and unpacks the whole archive into scratch space, then deletes the scratch copy. ${app.name} keeps running and nothing it holds is changed.`,
+          }],
+        });
+      }
+      return finding({
       id: `backup-rehearsal:${app.id}`,
       severity: "critical",
       title: `${app.name}'s backup would not restore`,
@@ -605,7 +633,8 @@ export function failedRehearsals({ apps = [] } = {}) {
         label: "Take a fresh backup",
         preview: `Stops ${app.name} briefly, archives its data and configuration, and starts it again. Rehearse the new copy afterwards to confirm it opens.`,
       }],
-    }));
+      });
+    });
 }
 
 /**

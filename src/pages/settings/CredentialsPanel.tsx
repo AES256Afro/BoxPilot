@@ -20,7 +20,12 @@ export default function CredentialsPanel({ csrfToken }: { csrfToken: string }) {
     .then((body: { result?: { credentials: Credential[] } }) => setCredentials(body.result?.credentials ?? []))
     .catch(() => setError("Could not read the credential names")), []);
   useEffect(() => { void refresh(); }, [refresh]);
-  const { start, dialog } = useOperation(csrfToken, () => { setName(""); setValue(""); void refresh(); });
+  // Saving clears the form once it has worked; removing another credential, or a save that failed,
+  // used to clear the name and value being typed.
+  const { start, dialog } = useOperation(csrfToken, (job) => {
+    if (job.state === "completed" && job.type === "op:credentials.set") { setName(""); setValue(""); }
+    void refresh();
+  });
 
   const removeCredential = (credential: Credential) => start({
     operationId: "credentials.remove",
@@ -42,7 +47,7 @@ export default function CredentialsPanel({ csrfToken }: { csrfToken: string }) {
     <Panel title="Credentials" count={credentials ? credentials.length : undefined} meta="used by the Send-an-HTTP-request step, by name" className="settings-panel settings-panel--wide"
       footer="Values live in a root-owned file on this server and are never shown again.">
       {dialog}
-      {error && <div className="settings-body"><Notice tone="danger" live>{error}</Notice></div>}
+      {error && <div className="settings-body"><Notice tone="danger" live action={<Button onClick={() => { setError(null); void refresh(); }}>Try again</Button>}>{error}</Notice></div>}
       <Table
         caption="Saved credentials"
         columns={columns}

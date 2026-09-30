@@ -45,18 +45,30 @@ export function jobSubject(job: Pick<Job, "parameters">): string {
 }
 
 /**
+ * The work a job did, as one key: its operation and subject. "Reconnect a drive" given a network share
+ * (share-<name>) reconnects it as the share (since 1.149.0), so it is the same work as "Reconnect a
+ * network share" for that share, and either one working settles a failure of the other: the owner's
+ * backup share was mounted again from Storage while Home still said "Failed: Reconnect a drive".
+ */
+export function jobWork(job: Pick<Job, "type" | "parameters">): string {
+  const name = job.parameters?.name;
+  if (job.type === "op:storage.remount" && typeof name === "string" && name.startsWith("share-")) return `op:share.reconnect|name:${name.slice("share-".length)}`;
+  return `${job.type}|${jobSubject(job)}`;
+}
+
+/**
  * Whether a failure has been dealt with, so it no longer needs the owner (M36): dismissed, run again
- * by BoxPilot after a restart, or tried again since - with more time, or the same operation on the
- * same subject that is now done, running or waiting for approval. A later failure is its own entry.
+ * by BoxPilot after a restart, or tried again since - with more time, or the same work on the same
+ * subject that is now done, running or waiting for approval. A later failure is its own entry.
  */
 export function failureSettled(job: Job, jobs: Job[]): boolean {
   if (job.state !== "failed") return true;
   if (dismissedFailure(job) || ranAgain(job)) return true;
   const at = Date.parse(job.createdAt ?? "");
-  const subject = jobSubject(job);
+  const work = jobWork(job);
   return jobs.some((other) => other.id !== job.id && (
     other.recovery?.retryOf === job.id || other.recovery?.rerunOf === job.id
-    || (other.type === job.type && jobSubject(other) === subject && Date.parse(other.createdAt ?? "") > at && other.state !== "failed" && other.state !== "cancelled")
+    || (jobWork(other) === work && Date.parse(other.createdAt ?? "") > at && other.state !== "failed" && other.state !== "cancelled")
   ));
 }
 

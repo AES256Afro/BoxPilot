@@ -13,6 +13,7 @@ import { greeting, loadStatus, mountName, mountStatus, relativeTime, shortCpu, s
 import { smartSummary, upsSummary } from "./hostFacts";
 import { NeedRow } from "./NeedRow";
 import { AgentsGlance } from "../pages/agents/AgentsGlance";
+import { useCheckAgain } from "./useCheckAgain";
 import { useNeedActions } from "./useNeedActions";
 import { appHealth, buildNeeds, needsLabel, verdictFor, verdictSources, type Need } from "./needs";
 
@@ -31,7 +32,7 @@ import { appHealth, buildNeeds, needsLabel, verdictFor, verdictSources, type Nee
 export interface HomeProps {
   csrfToken: string;
   role: string;
-  onNavigate: (view: ViewName, options?: { app?: string }) => void;
+  onNavigate: (view: ViewName, options?: { app?: string; tab?: string }) => void;
   now?: () => number;
 }
 
@@ -46,7 +47,8 @@ export default function Home({ csrfToken, role, onNavigate, now = Date.now }: Ho
   const needs = buildNeeds(values, { now: clock, role });
   // The app sheet's own buttons; every button in the needs goes through useNeedActions (M35).
   const { start, dialog } = useOperation(csrfToken, () => refresh());
-  const { act, runs, remembered, dialog: needDialog } = useNeedActions({ csrfToken, refresh, accept });
+  const { act, runs, remembered, dialog: needDialog } = useNeedActions({ csrfToken, refresh, accept, navigate: onNavigate });
+  const again = useCheckAgain(refresh);
   const [sheetFor, setSheetFor] = useState<string | null>(null);
   const [allUrgent, setAllUrgent] = useState(false);
   const [allWaiting, setAllWaiting] = useState(false);
@@ -115,7 +117,8 @@ export default function Home({ csrfToken, role, onNavigate, now = Date.now }: Ho
       <header className="lx-hello">
         <h1>{greeting(clock)}</h1>
         <p className="lx-verdict"><StatusChip status={verdict.status}>{verdict.label}</StatusChip><span>{verdict.sentence}</span></p>
-        <Button variant="ghost" className="lx-again" onClick={() => refresh()}>Check again</Button>
+        <Button variant="ghost" className="lx-again" busy={again.checking} onClick={again.run}>{again.checking ? "Checking…" : "Check again"}</Button>
+        {again.said}
       </header>
 
       <div className="lx-side">

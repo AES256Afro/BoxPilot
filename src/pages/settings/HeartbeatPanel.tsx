@@ -47,7 +47,9 @@ export default function HeartbeatPanel({ csrfToken, now = Date.now }: { csrfToke
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [url, setUrl] = useState("");
-  const [every, setEvery] = useState(5);
+  // The interval chosen here, over the one in force: a read (every job ends with one) used to put the
+  // saved interval back over a choice not yet saved.
+  const [everyDraft, setEvery] = useState<number | null>(null);
   const [forget, setForget] = useState(false);
   const [own, setOwn] = useState<string[]>([]);
 
@@ -56,7 +58,6 @@ export default function HeartbeatPanel({ csrfToken, now = Date.now }: { csrfToke
       const { result } = await inspectOperation<HeartbeatState>("heartbeat.inspect");
       setState(result);
       setError(null);
-      if (result.intervalMinutes) setEvery(result.intervalMinutes);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "The heartbeat could not be read");
     }
@@ -69,7 +70,12 @@ export default function HeartbeatPanel({ csrfToken, now = Date.now }: { csrfToke
       setOwn([...(topology?.addresses ?? []).map((entry) => entry.address), ...(dnsName ? [dnsName, dnsName.split(".")[0]] : [])]);
     }).catch(() => {});
   }, [refresh]);
-  const { start, dialog } = useOperation(csrfToken, () => { setEditing(false); setUrl(""); setForget(false); void refresh(); });
+  // Only a change that took clears the form: a failed Turn on used to wipe the address just typed.
+  const { start, dialog } = useOperation(csrfToken, (job) => {
+    if (job.state === "completed" && job.type === "op:heartbeat.set") { setEditing(false); setUrl(""); setForget(false); setEvery(null); }
+    void refresh();
+  });
+  const every = everyDraft ?? state?.intervalMinutes ?? 5;
 
   const problem = addressProblem(url);
   const local = Boolean(url && !problem && onThisServer(url, own));
@@ -139,7 +145,7 @@ export default function HeartbeatPanel({ csrfToken, now = Date.now }: { csrfToke
           {local && <Notice tone="warning" title="That address is this server">A dead man&apos;s switch here goes down with the server it is meant to watch. Use one on another machine, or healthchecks.io.</Notice>}
           <div className="settings-actions">
             <Button type="submit" variant="primary" risk={riskOf("heartbeat.set")} disabled={!canSave}>{on ? "Save" : "Turn on"}</Button>
-            {editing && <Button variant="ghost" onClick={() => { setEditing(false); setUrl(""); }}>Cancel</Button>}
+            {editing && <Button variant="ghost" onClick={() => { setEditing(false); setUrl(""); setEvery(null); }}>Cancel</Button>}
           </div>
         </form>
       )}
