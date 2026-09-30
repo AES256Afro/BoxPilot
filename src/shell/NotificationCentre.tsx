@@ -5,6 +5,7 @@ import { relativeTime } from "../home/format";
 import { readJson } from "../http";
 import { Button, EmptyState, Facts, Notice, Sheet, StatusChip, Tag, type Status } from "../ui";
 import { BellIcon } from "./areaIcons";
+import { PushPanel } from "./PushPanel";
 import "./look.css";
 import "./bar.css";
 import "./notifications.css";
@@ -20,7 +21,7 @@ import "./notifications.css";
 
 export interface NotificationEntry {
   id: string;
-  kind: "alert" | "notice" | "job";
+  kind: "alert" | "notice" | "job" | "approval";
   key: string;
   family: string;
   title: string;
@@ -39,6 +40,8 @@ export interface NotificationList { entries: NotificationEntry[]; seenAt: string
 export function destinationOf(entry: NotificationEntry): { kind: "activity"; jobId: string | null; label: string } | { kind: "view"; view: ViewName; label: string; tab?: string } {
   const [, subject] = entry.key.split(/:(.*)/s);
   if (entry.family === "job.failed" || entry.family === "approval.lapsed") return { kind: "activity", jobId: subject && entry.key !== entry.family ? subject : null, label: "Open in Activity" };
+  // An approval pushed to a phone (M25.2): the job, where it can be reviewed; several at once, Today.
+  if (entry.family === "approval.waiting") return subject && entry.key !== entry.family ? { kind: "activity", jobId: subject, label: "Open in Activity" } : { kind: "view", view: "today", label: "Open Today" };
   if (entry.family === "job.interrupted" || entry.family === "record.failed" || entry.family === "joblog.unreadable") return { kind: "activity", jobId: null, label: "Open Activity" };
   if (entry.family.startsWith("storage.") || entry.family.startsWith("smart.")) return { kind: "view", view: "storage", label: "Open Storage" };
   if (entry.family.startsWith("docker.")) return { kind: "view", view: "catalog", label: "Open the App catalog" };
@@ -65,7 +68,7 @@ export function deliveryOf(entry: NotificationEntry): { status: Status; words: s
 
 const pollMs = 60_000;
 
-export function NotificationCentre({ csrfToken, onNavigate }: { csrfToken: string; onNavigate: (view: ViewName, options?: { tab?: string }) => void }) {
+export function NotificationCentre({ csrfToken, role = "owner", onNavigate }: { csrfToken: string; role?: string; onNavigate: (view: ViewName, options?: { tab?: string }) => void }) {
   const [list, setList] = useState<NotificationList | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
@@ -123,6 +126,8 @@ export function NotificationCentre({ csrfToken, onNavigate }: { csrfToken: strin
       </button>
       {open && (
         <Sheet title="Notifications" kicker={unseen ? `${unseen} new` : "The last thirty days"} side="right" className="look-console notifications-sheet" onClose={() => setOpen(false)}>
+          {/* Approvals pushed to a phone (M25.2): on for this device, the devices, the owner's choices. */}
+          {role !== "viewer" && <PushPanel csrfToken={csrfToken} role={role} />}
           {(list || unseen > 0) && (
             <div className="notifications-head">
               {list && <Facts><b>{list.entries.length}</b> {list.entries.length === 1 ? "entry" : "entries"} · <b>{unseen}</b> new · target <b>{list.targetConfigured ? "set" : "not set"}</b></Facts>}
