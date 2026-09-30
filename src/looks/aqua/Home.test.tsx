@@ -41,6 +41,18 @@ describe("Home in the Aqua look", () => {
     expect(vi.mocked(fetch)).toHaveBeenCalledWith("/api/v1/operations/app.action/jobs", expect.objectContaining({ method: "POST" }));
   });
 
+  it("shows what can be fixed from here in its two rows before a note with nothing to press", async () => {
+    const note = { key: "dns.single", active: true, details: [{ title: "If homebox goes down, every device on your network loses the internet" }] };
+    vi.stubGlobal("fetch", stubFetch({ "/api/v1/settings/watch": { targetConfigured: true, conditions: [note], notices: [] } }));
+    renderHome();
+    const needs = await screen.findByRole("region", { name: "What needs you" });
+    await within(needs).findByRole("button", { name: "Install: 4 updates available" });
+    const titles = within(needs).getAllByRole("button").filter((button) => button.className.includes("aqua-need__title")).map((button) => button.textContent?.trim());
+    expect(titles).toEqual(["Problem: Vaultwarden is not running.", "Needs a look: 4 updates available."]);
+    fireEvent.click(within(needs).getByRole("button", { name: "1 more needs you, 1 can wait" }));
+    expect(within(needs).getByRole("button", { name: "Needs a look: If homebox goes down, every device on your network loses the internet." })).toBeTruthy();
+  });
+
   it("shows the server's figures, each opening its page, and the apps as icons that open their sheet", async () => {
     vi.stubGlobal("fetch", stubFetch());
     const onNavigate = renderHome();

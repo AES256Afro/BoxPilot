@@ -783,3 +783,16 @@
   :root[data-look="aqua"] .shell-dock .ui-dock__icon { width: 48px; height: 48px; border-radius: 12px; box-shadow: 0 3px 6px rgba(0, 0, 0, 0.35), inset 0 18px 13px -9px rgba(255, 255, 255, 0.55); }
   :root[data-look="aqua"] .shell-dock .ui-dock__icon svg { width: 23px; height: 23px; }
 }
+
+/* Ops: the six figures in one row of group boxes, each sparkline under its words rather than
+   beside them, so none is left alone on a second row and the captions keep their width. */
+@media (min-width: 1200px) {
+  :root[data-look="aqua"] .cc .ops-strip { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+}
+@media (min-width: 761px) and (max-width: 1199px) {
+  :root[data-look="aqua"] .cc .ops-strip { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (min-width: 761px) {
+  :root[data-look="aqua"] .cc .ops-strip .ui-metric__caption { padding-right: 0; }
+  :root[data-look="aqua"] .cc .ops-strip .ui-metric__graphic { position: static; width: 100%; height: 22px; margin-top: 6px; }
+}
