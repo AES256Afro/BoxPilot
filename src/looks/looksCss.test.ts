@@ -36,6 +36,31 @@ function selectors(css: string): string[] {
   return found;
 }
 
+/** Every rule's selectors and declarations, into @media, @supports and @container, comments removed. */
+function rules(css: string): { selectors: string[]; body: string }[] {
+  const text = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  const found: { selectors: string[]; body: string }[] = [];
+  const walk = (source: string) => {
+    let at = 0;
+    while (at < source.length) {
+      const open = source.indexOf("{", at);
+      if (open < 0) break;
+      let depth = 1;
+      let close = open + 1;
+      for (; close < source.length && depth; close += 1) {
+        if (source[close] === "{") depth += 1;
+        else if (source[close] === "}") depth -= 1;
+      }
+      const prelude = source.slice(at, open).trim();
+      if (/^@(media|supports|container)/.test(prelude)) walk(source.slice(open + 1, close - 1));
+      else if (!prelude.startsWith("@")) found.push({ selectors: splitSelectors(prelude), body: source.slice(open + 1, close - 1) });
+      at = close;
+    }
+  };
+  walk(text);
+  return found;
+}
+
 /** Split a selector list on its top-level commas, leaving :is(a, b) whole. */
 function splitSelectors(prelude: string): string[] {
   const parts: string[] = [];
@@ -68,6 +93,17 @@ describe("the looks' stylesheets", () => {
       const prefix = file === "skin" ? `:root[data-look="${id}"]` : `.${id}-`;
       const stray = selectors(css).filter((selector) => !selector.startsWith(prefix));
       expect(stray, path).toEqual([]);
+    }
+  });
+
+  // The account menu has no Lock: the elevated session's button stays in the bar in every look, so
+  // whoever raised it can always see until when, and drop it.
+  it("never hide the elevated session's Lock, or the bar it sits in", () => {
+    const holders = /(?:\.bar-lock|\.topbar-right|\.topbar|\.cc-topbar)(?::[a-z-]+(?:\([^)]*\))?)*$/;
+    const hides = /(?:^|;)\s*(?:display\s*:\s*none|visibility\s*:\s*hidden|content-visibility\s*:\s*hidden)/;
+    for (const [path, css] of Object.entries(sheets)) {
+      const hiding = rules(css).filter((rule) => hides.test(rule.body)).flatMap((rule) => rule.selectors).filter((selector) => holders.test(selector));
+      expect(hiding, path).toEqual([]);
     }
   });
 
