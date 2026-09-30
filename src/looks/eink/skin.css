@@ -2,10 +2,10 @@
  * The E-Ink look (M41): black on e-paper grey (#e6e6e1), Literata, and not one colour on any page
  * (docs/design-directions/05-looks.html, .ei*). Every status and tier token is ink or grey, so state
  * is carried by shapes and words: a filled square for what needs you, an open square for what can
- * wait, an open circle for what is fine. Bars are dithered like an e-paper panel draws grey. As a
- * last guarantee the whole page is drawn in greyscale, emoji and app squares included (a filter on
- * the root element keeps fixed sheets and the dock where they are). Light only. Every selector
- * starts with :root[data-look="eink"].
+ * wait, an open circle for what is fine. Bars are dithered like an e-paper panel draws grey. What
+ * carries its own colour (emoji, app squares, pictures, the Appearance swatches) is drawn through a
+ * greyscale filter; the page itself is not, so the paper keeps its warm grey. Light only. Every
+ * selector starts with :root[data-look="eink"].
  */
 
 /* Literata's italic, for the tier ("Medium.") and the states, which the paper sets in italics. */
@@ -25,7 +25,6 @@
 @media (min-width: 0) {
   :root[data-look="eink"] {
     color-scheme: light;
-    filter: grayscale(1);
     --eink-chrome: 78px;
     --eink-dither: repeating-conic-gradient(#151515 0 25%, transparent 0 50%) 0 0 / 5px 5px;
 
@@ -148,7 +147,7 @@
   :root[data-look="eink"] .topbar {
     position: sticky;
     top: 0;
-    align-items: flex-end;
+    align-items: last baseline;
     gap: 0 26px;
     height: 50px;
     min-height: 50px;
@@ -321,10 +320,15 @@
   :root[data-look="eink"] .ui-code__bar { border-bottom: 1px dotted #9a9a94; background: #e6e6e1; }
   :root[data-look="eink"] .ui-job { border: 0; border-top: 1.5px solid #151515; border-radius: 0; background: none; }
 
-  /* App squares: ink squares; the greyscale page takes the colour out of their emoji. */
+  /* What carries its own colour is drawn in greys: emoji, app squares, pictures and swatches. */
+  :root[data-look="eink"] :is(.ui-app-icon, .ui-tile__icon, .catalog-tile__emoji, .lx-square__emoji, .setup-profile__square, .settings-look__picture, .settings-swatch, .settings-wallpaper, .ui-gallery__swatch, img, video, canvas, iframe) { filter: grayscale(1); }
+
+  /* App squares: ink squares. */
   :root[data-look="eink"] :is(.ui-app-icon, .ui-tile__icon) { border: 1.5px solid #151515; background: #d2d2cc; box-shadow: none; color: #151515; }
   :root[data-look="eink"] .ui-tile:hover { border-color: #9a9a94; background: #dcdcd6; }
   :root[data-look="eink"] .ui-tile__mark { box-shadow: 0 0 0 2px #e6e6e1; }
+  /* An open mark on an app's square is filled with the paper, so the square's edge does not cross it. */
+  :root[data-look="eink"] .ui-tile:is([data-status="good"], [data-status="neutral"], [data-status="unknown"]) .ui-tile__mark { background: #e6e6e1; }
   :root[data-look="eink"] :is(.ui-tile[data-status="warning"], .ui-tile[data-status="danger"]) .ui-tile__detail { color: #151515; font-weight: 600; }
 
   /* Sheets and dialogs: a sheet of the same paper with an ink edge. */
@@ -345,6 +349,9 @@
   :root[data-look="eink"] .settings-appearance { padding: 14px 0 0; border: 0; border-top: 2px solid #151515; border-radius: 0; background: none; box-shadow: none; }
   :root[data-look="eink"] .settings-appearance__title { font-weight: 600; }
   :root[data-look="eink"] .settings-appearance__now { border: 1.5px solid #151515; background: none; }
+  /* In grey, a swatch the colour of the paper would vanish: each one is edged in ink. */
+  :root[data-look="eink"] :is(.settings-swatch, .settings-wallpaper) { box-shadow: inset 0 0 0 1.5px #151515; }
+  :root[data-look="eink"] :is(.settings-swatch, .settings-wallpaper)[aria-checked="true"] { box-shadow: inset 0 0 0 1.5px #151515, 0 0 0 2px #e6e6e1, 0 0 0 4px #151515; }
 
   /* ── A narrower window: the search keeps its magnifier and gives its words to the line ── */
   @media (max-width: 1100px) {
