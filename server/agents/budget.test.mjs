@@ -54,6 +54,26 @@ describe("schedules", () => {
     expect(nextScheduledRun({ every: "weekly", weekday: 1, hour: 3, minute: 0 }, at(29, 12))).toEqual(new Date(2026, 9, 5, 3, 0));
     expect(nextScheduledRun(null, at(29, 1))).toBeNull();
   });
+
+  // Pinned to a zone with daylight saving, as server/scheduler.test.mjs does: 2026's clocks go
+  // forward on 8 March and back on 1 November there.
+  const inNewYork = (test) => () => {
+    const previous = process.env.TZ;
+    process.env.TZ = "America/New_York";
+    try { return test(); } finally { if (previous === undefined) delete process.env.TZ; else process.env.TZ = previous; }
+  };
+
+  it("keep their own time the day and the week after the clocks go forward", inNewYork(() => {
+    // 02:30 does not exist on 8 March; the run that day is at 03:30, and the next one was too.
+    const ranAt = new Date("2026-03-08T07:30:00.000Z"); // 03:30 EDT, the day of the change
+    expect(nextScheduledRun({ every: "daily", hour: 2, minute: 30 }, ranAt).toISOString()).toBe("2026-03-09T06:30:00.000Z"); // 02:30 EDT
+    expect(nextScheduledRun({ every: "weekly", weekday: 0, hour: 2, minute: 30 }, ranAt).toISOString()).toBe("2026-03-15T06:30:00.000Z"); // Sunday 02:30 EDT
+  }));
+
+  it("run hourly in the hour the clocks repeat when they go back", inNewYork(() => {
+    const from = new Date("2026-11-01T05:50:00.000Z"); // 01:50 EDT, before the clocks go back
+    expect(nextScheduledRun({ every: "hourly", minute: 15 }, from).toISOString()).toBe("2026-11-01T06:15:00.000Z"); // 01:15 EST
+  }));
 });
 
 describe("budgets", () => {

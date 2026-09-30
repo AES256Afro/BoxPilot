@@ -1,4 +1,5 @@
-import { access, mkdir, open, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { access, mkdir, open, readFile, readdir, stat } from "node:fs/promises";
+import { writeFileDurably as writeFile } from "../durable-file.mjs";
 import path from "node:path";
 import { fixedRun } from "../exec.mjs";
 import { parseSmbConf, smbConfPath } from "./samba.mjs";
@@ -263,6 +264,11 @@ export async function storageUnmount({ name } = {}, { run = fixedRun, log = null
   const mountpoint = mountpointFor(name);
   const mounted = await run(binaries.findmnt, ["-n", mountpoint], { timeout: 15_000 });
   if (mounted.ok && mounted.stdout.trim()) {
+    // A container bound to the folder keeps the filesystem mounted in its own namespace, so the
+    // host's umount succeeds with the app still writing to it. The drive then read as unmounted,
+    // safe to unplug, and after the next boot the app wrote to the empty folder on the system disk.
+    const apps = await containersBoundTo(run, mountpoint);
+    if (apps.length) throw new Error(`${mountpoint} is in use by ${listOf(apps)}, so it was left mounted and in fstab. Stop ${apps.length === 1 ? "that app" : "those apps"} or take the folder out of ${apps.length === 1 ? "it" : "them"}, then try again.`);
     log?.(`$ umount ${mountpoint}`, "stdout");
     const result = await run(binaries.umount, mountArgs(mountpoint), { timeout: 60_000 });
     if (!result.ok) throw new Error(`umount failed (is something using it?): ${result.stderr.split("\n").slice(-2).join(" ")}`);
@@ -290,13 +296,24 @@ export async function storageFormat({ device, label = null } = {}, { run = fixed
   return { formatted: true, device, fstype: "ext4", label, uuid: blkid.ok ? blkid.stdout.trim() : null };
 }
 
+/** The files and partitions the kernel is swapping to now, from /proc/swaps; empty when it cannot be read. */
+async function activeSwap(files) {
+  const text = await files.readFile("/proc/swaps", "utf8").catch(() => "");
+  return String(text).split("\n").slice(1).map((line) => line.trim().split(/\s+/)[0]).filter(Boolean);
+}
+
 /** Create (or remove) a managed swap file at /swap.boxpilot with a nofail fstab entry. */
 export async function swapFileSet({ sizeGiB = null, remove = false } = {}, { run = fixedRun, log = null, files = { readFile, writeFile } } = {}) {
   const swapPath = "/swap.boxpilot";
   if (remove) {
     const content = await files.readFile(fstabPath, "utf8");
     const without = removeManagedEntry(content, "swap");
-    await run(binaries.swapoff, [swapPath], { timeout: 5 * 60_000 });
+    const off = await run(binaries.swapoff, [swapPath], { timeout: 5 * 60_000 });
+    // swapoff fails with ENOMEM when what is swapped out does not fit in memory, which is when swap
+    // is in use. Removing the entry and the file then left swap running on a deleted file, said removed.
+    if (!off.ok && (await activeSwap(files)).includes(swapPath)) {
+      throw new Error(`swapoff failed, so ${swapPath} is still in use and was left as it is: ${tail(off.stderr) || `exit ${off.code ?? "?"}`}. Free some memory (stop an app or two) and try again.`);
+    }
     if (without !== null) { await files.writeFile(fstabPath, without); await run(binaries.systemctl, ["daemon-reload"], { timeout: 30_000 }); }
     await run(binaries.rm, ["-f", swapPath], { timeout: 30_000 });
     log?.(`Removed ${swapPath} and its fstab entry`, "stdout");
@@ -308,14 +325,21 @@ export async function swapFileSet({ sizeGiB = null, remove = false } = {}, { run
   log?.(`$ fallocate -l ${sizeGiB}G ${swapPath}`, "stdout");
   const allocate = await run(binaries.fallocate, ["-l", `${sizeGiB}G`, swapPath], { timeout: 5 * 60_000 });
   if (!allocate.ok) throw new Error(`Could not allocate the swap file: ${allocate.stderr.split("\n").slice(-2).join(" ")}`);
+  let fstabBefore = null;
   try {
     await run(binaries.chmod, ["600", swapPath], { timeout: 15_000 });
     const mkswap = await run(binaries.mkswap, [swapPath], { timeout: 60_000 });
     if (!mkswap.ok) throw new Error(`mkswap failed: ${mkswap.stderr.split("\n").slice(-2).join(" ")}`);
-    await appendFstabEntry({ run, files, log }, "swap", `${swapPath} none swap sw,nofail 0 0`);
+    fstabBefore = await appendFstabEntry({ run, files, log }, "swap", `${swapPath} none swap sw,nofail 0 0`);
     const swapon = await run(binaries.swapon, [swapPath], { timeout: 60_000 });
     if (!swapon.ok) throw new Error(`swapon failed: ${swapon.stderr.split("\n").slice(-2).join(" ")}`);
   } catch (error) {
+    // The entry goes with the file. Left behind, it named a file that was gone, and every later try
+    // was refused as "already exists": a retry that could never succeed.
+    if (fstabBefore !== null) {
+      await files.writeFile(fstabPath, fstabBefore).catch(() => {});
+      await run(binaries.systemctl, ["daemon-reload"], { timeout: 30_000 }).catch(() => {});
+    }
     await run(binaries.rm, ["-f", swapPath], { timeout: 30_000 }).catch(() => {});
     throw error;
   }
@@ -612,6 +636,8 @@ export async function storageRemount({ name } = {}, { run = fixedRun, log = null
 
 const defaultCheckFiles ={ readFile, readable: (target) => readdir(target).then(() => true, () => false), exists: (file) => access(file).then(() => true, () => false) };
 const readOnlyCheckers = (device) => ({ exfat: [binaries.fsckExfat, ["-n", device]], ext4: [binaries.e2fsck, ["-fn", device]], ext3: [binaries.e2fsck, ["-fn", device]], ext2: [binaries.e2fsck, ["-fn", device]], vfat: [binaries.fsckFat, ["-n", device]] });
+/** The filesystems storage.check has a read-only checker for; Repair offers the check for no other. */
+export const checkableFilesystems = Object.freeze(Object.keys(readOnlyCheckers("")));
 
 /**
  * Mount a drive again from its fstab entry in PID 1's namespace, and prove it is there from the
@@ -660,7 +686,11 @@ async function withDriveUnmounted(name, { verb, purpose, prepare, work }, { run,
   const prepared = await prepare(drive);
 
   const bound = await containersBoundTo(run, mountpoint);
-  for (const container of bound) { log?.(`$ docker stop ${container}`, "stdout"); await run(binaries.docker, ["stop", container], { timeout: 120_000 }); }
+  for (const container of bound) {
+    log?.(`$ docker stop ${container}`, "stdout");
+    const stopped = await run(binaries.docker, ["stop", container], { timeout: 120_000 });
+    if (!stopped.ok) log?.(`could not stop ${container}: ${tail(stopped.stderr) || `exit ${stopped.code ?? "?"}`}`, "stderr");
+  }
   const started = []; const restartFailed = [];
   const restart = async () => {
     for (const container of bound) {
@@ -669,6 +699,22 @@ async function withDriveUnmounted(name, { verb, purpose, prepare, work }, { run,
       if (result.ok) started.push(container); else { restartFailed.push(container); log?.(`could not start ${container}: ${tail(result.stderr)}`, "stderr"); }
     }
   };
+  // An app that did not stop - one stuck on I/O from the drive that dropped is the usual one - keeps
+  // the filesystem mounted in its own namespace after the host's umount succeeds. A check then reads
+  // a live filesystem, and clearing the mark writes to one. Asked of Docker, not of the stop's exit.
+  // Docker's own list can say "running" for a moment after a stop returns, so it is asked again for
+  // up to ten seconds before a container counts as not stopped.
+  if (bound.length) {
+    let stillRunning = await containersBoundTo(run, mountpoint);
+    for (let tries = 0; stillRunning.length && tries < 20; tries += 1) {
+      await sleep(500);
+      stillRunning = await containersBoundTo(run, mountpoint);
+    }
+    if (stillRunning.length) {
+      await restart();
+      throw new Error(`${listOf(stillRunning)} did not stop, so ${mountpoint} was not unmounted and nothing was done to it. An app stuck on the drive may need its container stopped by hand, or a reboot.`);
+    }
+  }
   const unmounted = await unmountFromHost(mountpoint, { run, log, files, sleep });
   if (!unmounted.ok) {
     const holders = majMin ? await processesUsing(majMin, processes) : [];
