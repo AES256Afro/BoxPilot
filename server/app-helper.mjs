@@ -1733,7 +1733,10 @@ export function createAppHelper({
         if (!archive.ok) throw new Error(`tar failed: ${archive.stderr.split("\n").slice(-2).join(" ")}`);
       } catch (error) {
         await rm(partial, { force: true }).catch(() => {});
-        if (wasRunning) await compose(id, ["start"], { timeout: 180_000, progress }).catch(() => {});
+        // Said with the failure: a start that did not work left the app down while the job spoke
+        // only of tar (a full disk fails both).
+        const back = wasRunning ? await compose(id, ["start"], { timeout: 180_000, progress }).catch((failure) => ({ ok: false, stderr: failure.message })) : { ok: true };
+        if (!back.ok) throw new Error(`${String(error.message).replace(/[.\s]+$/, "")}. ${manifest.name} did not start again either: ${redact(back.stderr ?? "").split("\n").slice(-3).join(" ") || "docker compose start failed"}`);
         throw error;
       } finally {
         if (wasRunning) downtimeMs = clock().getTime() - started;
