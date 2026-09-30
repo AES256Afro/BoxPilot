@@ -1,1 +1,785 @@
-/* The aqua look's skin (M41): every selector starts with :root[data-look="aqua"]. */
+/*
+ * The Aqua look's skin (M41): Mac OS X, 2001, as docs/design-directions/05-looks.html draws it
+ * (M.aqua and the .aq* rules). Light only, whatever the device prefers. Every page is drawn inside
+ * one window over a blue desktop: a white-to-grey menu bar across the top (the top bar: a blue gel
+ * mark for the apple, BoxPilot, the server and Home / Ops as menu words, then search, the bell,
+ * Activity, Sign out and the clock), a metallic pinstriped title bar with the three gel lights, the
+ * page's name centred and its actions as gel buttons under it, the source list (the sidebar) down
+ * the window's left edge, the page in pinstripes with white group boxes, and the dock of areas on
+ * the desktop under the window. Lucida Grande first, PT Sans as the bundled face.
+ * Every selector starts with :root[data-look="aqua"].
+ */
+
+/* ── The palette, the faces and the window's measurements (the drawing at 1440 px wide) ── */
+:root[data-look="aqua"] {
+  color-scheme: light;
+  --font-aqua: "Lucida Grande", "Lucida Sans Unicode", "PT Sans", ui-sans-serif, system-ui, sans-serif;
+  --aq-code: Monaco, Menlo, "JetBrains Mono", ui-monospace, monospace;
+  --font-condensed: var(--font-aqua);
+  --font-sans: var(--font-aqua);
+  --font-mono: var(--font-aqua);
+  --font-display: var(--font-aqua);
+
+  --aq-desktop: radial-gradient(120% 95% at 28% 18%, #7cb8ff 0%, #2f70d6 45%, #0a3584 100%);
+  --aq-stripes: repeating-linear-gradient(0deg, #f5f5f5 0 2.3px, #e8e8e8 2.3px 4.7px);
+  --aq-metal: repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.35) 0 2.3px, rgba(0, 0, 0, 0.03) 2.3px 4.7px), linear-gradient(#ececec, #c9c9c9);
+  --aq-menu: linear-gradient(#fdfdfd, #e3e3e3);
+  --aq-gel: linear-gradient(#ffffff 0%, #f2f2f2 48%, #dcdcdc 50%, #f4f4f4 100%);
+  --aq-gel-hover: linear-gradient(#ffffff 0%, #ebebeb 48%, #d2d2d2 50%, #ededed 100%);
+  --aq-gel-down: linear-gradient(#d4d4d4 0%, #e2e2e2 48%, #c8c8c8 50%, #dedede 100%);
+  --aq-gel-blue: linear-gradient(#d6e9ff 0%, #8cc0ff 48%, #3d88ea 50%, #9ed0ff 100%);
+  --aq-gel-blue-hover: linear-gradient(#c9e2ff 0%, #7cb6ff 48%, #2f7de4 50%, #90c8ff 100%);
+  --aq-gel-blue-down: linear-gradient(#a9cdf7 0%, #6aa6f2 48%, #2168cf 50%, #7cb8f5 100%);
+  --aq-select: linear-gradient(#78aef2, #3574d6);
+  --aq-highlight: linear-gradient(#5d97ef, #2566d6);
+  --aq-pole: linear-gradient(rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0) 50%, rgba(0, 0, 0, 0.08)), repeating-linear-gradient(-45deg, #3b82e8 0 8.8px, #7ab4ff 8.8px 17.5px);
+  --aq-pole-warn: linear-gradient(rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0) 50%, rgba(0, 0, 0, 0.08)), repeating-linear-gradient(-45deg, #e8781c 0 8.8px, #ffb168 8.8px 17.5px);
+  --aq-pole-danger: linear-gradient(rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0) 50%, rgba(0, 0, 0, 0.08)), repeating-linear-gradient(-45deg, #d1261a 0 8.8px, #ff8a7e 8.8px 17.5px);
+  --aq-focus: 0 0 0 3px rgba(59, 130, 232, 0.6);
+
+  --aq-menu-h: 28px;
+  --aq-win-top: 62px;
+  --aq-win-x: clamp(12px, 5.14vw, 74px);
+  --aq-win-bottom: calc(var(--shell-bottom-inset, 0px) + 136px);
+  --aq-bar-h: 77px;
+  --aq-src-w: 204px;
+  --aq-body-top: calc(var(--aq-win-top) + var(--aq-bar-h) + 1px);
+  --sidebar-width: var(--aq-src-w);
+
+  /* The console's family, pointed at the window: pinstripes, white boxes, Aqua blue. */
+  --cc-canvas: #ececec;
+  --cc-topbar: #f2f2f2;
+  --cc-rail: #e6ecf5;
+  --cc-panel: #ffffff;
+  --cc-raised: #eef2f8;
+  --cc-inset: #ffffff;
+  --cc-line: #a3acb9;
+  --cc-hairline: #dadde3;
+  --cc-line-strong: #8e96a3;
+  --cc-text: #1c1c1c;
+  --cc-text-strong: #000000;
+  --cc-muted: #4d535c;
+  --cc-icon: #56637a;
+  --cc-amber: #1c5fc9;
+  --cc-amber-ink: #ffffff;
+  --cc-amber-bg: rgba(56, 117, 215, 0.12);
+  --cc-amber-border: rgba(40, 90, 180, 0.45);
+  --cc-cyan: #3b82e8;
+  --cc-cyan-fill: rgba(59, 130, 232, 0.14);
+  --cc-green: #2c7a1c;
+  --cc-green-bg: rgba(63, 174, 44, 0.12);
+  --cc-green-border: rgba(44, 122, 28, 0.45);
+  --cc-red: #c8261a;
+  --cc-red-text: #b01e12;
+  --cc-red-bg: rgba(209, 38, 26, 0.08);
+  --cc-red-border: rgba(176, 30, 18, 0.45);
+  --cc-track: #e4e4e4;
+
+  /* What the console leaves to the scheme, held still so dark devices draw the same. */
+  --modal-bg: rgba(12, 36, 84, 0.32);
+  --backdrop-bg: rgba(12, 36, 84, 0.22);
+  --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.38);
+  --shadow-xl: 0 24px 60px rgba(0, 0, 0, 0.5);
+  --text-on-emphasis: #ffffff;
+
+  /* Warnings are Aqua's orange; the console's amber is the look's blue. */
+  --status-warning: #e07b12;
+  --status-warning-text: #a63c09;
+  --status-warning-bg: rgba(232, 120, 20, 0.12);
+  --status-warning-border: rgba(184, 67, 10, 0.45);
+  --risk-medium: #e07b12;
+  --risk-medium-text: #a63c09;
+  --risk-medium-bg: rgba(232, 120, 20, 0.12);
+  --risk-medium-border: rgba(184, 67, 10, 0.45);
+  --warn: #e07b12;
+  --warn-dim: rgba(184, 67, 10, 0.45);
+  --warn-bg: rgba(232, 120, 20, 0.12);
+  --warn-light: #e07b12;
+  --warn-text: #a63c09;
+  --warn-text-light: #a63c09;
+  --warn-text-dim: #a63c09;
+  --warn-faint: rgba(232, 120, 20, 0.1);
+  --surface-warn: rgba(232, 120, 20, 0.1);
+  --gradient-warn: linear-gradient(rgba(232, 120, 20, 0.12), rgba(232, 120, 20, 0.12));
+  --gradient-warn-panel: linear-gradient(rgba(232, 120, 20, 0.12), rgba(232, 120, 20, 0.12));
+  --gradient-warn-bar: linear-gradient(#e07b12, #e07b12);
+  --accent-focus: #3b82e8;
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 7px;
+}
+
+/* What opens over a page keeps the look's blue and orange (look.css points them at the console's). */
+:root[data-look="aqua"] .look-console {
+  --accent: #1c5fc9;
+  --link: #1c5fc9;
+  --status-warning: #e07b12;
+  --status-warning-text: #a63c09;
+  --status-warning-bg: rgba(232, 120, 20, 0.12);
+  --status-warning-border: rgba(184, 67, 10, 0.45);
+  --risk-medium: #e07b12;
+  --risk-medium-text: #a63c09;
+  --risk-medium-bg: rgba(232, 120, 20, 0.12);
+  --risk-medium-border: rgba(184, 67, 10, 0.45);
+  font-family: var(--font-aqua);
+}
+
+:root[data-look="aqua"] body { background: var(--aq-stripes); }
+:root[data-look="aqua"] .app-shell { color: var(--cc-text); background: transparent; font-family: var(--font-aqua); }
+:root[data-look="aqua"] :is(pre, code, kbd, samp, .ui-code__text, .ui-input--mono) { font-family: var(--aq-code); }
+:root[data-look="aqua"] ::selection { color: #000000; background: #b5d5ff; }
+:root[data-look="aqua"] :is(button, a, input, select, textarea, summary, [tabindex]):focus-visible { outline: 3px solid rgba(59, 130, 232, 0.65); outline-offset: 0; }
+:root[data-look="aqua"] .look-console :focus-visible:not([tabindex="-1"]) { outline: 3px solid rgba(59, 130, 232, 0.65); outline-offset: 0; }
+/* Light only: the switch has nothing to offer here. */
+:root[data-look="aqua"] .ui-theme-switch { display: none; }
+
+/* ── The menu bar: the top bar, white to grey, words in the menu face ── */
+:root[data-look="aqua"] .topbar {
+  z-index: 40;
+  min-height: var(--aq-menu-h);
+  height: var(--aq-menu-h);
+  padding: 0 16px;
+  gap: 0;
+  border-bottom: 1px solid #9c9c9c;
+  color: #111111;
+  background: var(--aq-menu);
+  box-shadow: none;
+  backdrop-filter: none;
+  font-family: var(--font-aqua);
+  font-size: 15px;
+}
+:root[data-look="aqua"] .topbar-left { flex: 0 1 auto; gap: 0; min-width: 0; }
+:root[data-look="aqua"] .brand { display: flex; gap: 22px; margin-right: 11px; color: #111111; font-family: var(--font-aqua); letter-spacing: 0; }
+:root[data-look="aqua"] .brand > span {
+  width: 15.5px;
+  height: 15.5px;
+  border-radius: 50% 50% 45% 45%;
+  color: transparent;
+  background: radial-gradient(circle at 50% 28%, #cfe6ff 0, #6aa8f5 34%, #2a73d8 62%, #1b56b4 100%);
+  box-shadow: inset 0 -1px 2px rgba(0, 0, 0, 0.25), 0 0 0 0.5px rgba(10, 40, 100, 0.45);
+  font-size: 0;
+}
+:root[data-look="aqua"] .brand div { color: #111111; font-size: 15.5px; font-weight: 700; }
+:root[data-look="aqua"] .brand small { display: none; }
+:root[data-look="aqua"] .topbar-slot { display: flex; min-width: 0; }
+:root[data-look="aqua"] .cc-crumb { align-items: center; gap: 0; }
+:root[data-look="aqua"] .cc-crumb__host { min-width: 0; padding: 0 11px; color: #111111; font-size: 15px; font-weight: 400; }
+:root[data-look="aqua"] .cc-crumb__sep,
+:root[data-look="aqua"] .cc-kv { display: none; }
+:root[data-look="aqua"] .view-switch { gap: 0; padding: 0; border: 0; border-radius: 0; background: none; }
+:root[data-look="aqua"] .view-switch__option {
+  height: var(--aq-menu-h);
+  min-height: 0;
+  padding: 0 11px;
+  border: 0;
+  border-radius: 0;
+  color: #111111;
+  background: none;
+  font-size: 15px;
+  font-weight: 400;
+}
+:root[data-look="aqua"] .view-switch__option svg { display: none; }
+:root[data-look="aqua"] .view-switch__option[aria-current="page"] { color: #111111; background: none; box-shadow: none; }
+:root[data-look="aqua"] :is(.view-switch__option, .topbar .bar-button):is(:hover, [aria-expanded="true"]) { color: #ffffff; background: var(--aq-highlight); }
+:root[data-look="aqua"] .topbar :is(.view-switch__option, .bar-button):focus-visible { outline: 0; color: #ffffff; background: var(--aq-highlight); }
+
+/* Search: an Aqua search field, a white capsule with the glass in it. */
+:root[data-look="aqua"] .command-trigger {
+  flex: 0 1 200px;
+  gap: 5px;
+  min-width: 34px;
+  max-width: 200px;
+  height: 20px;
+  min-height: 0;
+  margin-left: auto;
+  margin-right: 10px;
+  padding: 0 8px;
+  border: 1px solid #8a8a8a;
+  border-radius: 10px;
+  color: #555b63;
+  background: #ffffff;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.28);
+  font-size: 12px;
+}
+:root[data-look="aqua"] .command-trigger:hover { border-color: #6d6d6d; color: #222222; }
+:root[data-look="aqua"] .command-trigger:focus-visible { outline: 0; box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.28), var(--aq-focus); }
+:root[data-look="aqua"] .command-trigger__icon { width: 12px; height: 12px; }
+:root[data-look="aqua"] .command-trigger__keys { display: none; }
+:root[data-look="aqua"] .topbar-right { flex: none; gap: 2px; margin-left: 0; }
+:root[data-look="aqua"] .topbar .bar-button {
+  height: var(--aq-menu-h);
+  min-height: 0;
+  padding: 0 9px;
+  border-radius: 0;
+  color: #111111;
+  font-family: var(--font-aqua);
+  font-size: 15px;
+  font-weight: 400;
+}
+:root[data-look="aqua"] .topbar .bar-button[data-live] { color: #111111; }
+:root[data-look="aqua"] .topbar .bar-button svg { width: 16px; height: 16px; }
+:root[data-look="aqua"] .bar-badge { min-width: 17px; height: 17px; padding: 0 5px; border-radius: 9px; color: #ffffff; background: linear-gradient(#ff7a6b, #d1261a); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 0 0 1px rgba(120, 10, 0, 0.35); font-family: var(--font-aqua); font-size: 11px; }
+:root[data-look="aqua"] :is(.connection-pill, .signed-in-user, .bar-tiers) { display: none; }
+:root[data-look="aqua"] .bar-label { border: 0; color: #4d535c; font-family: var(--font-aqua); font-size: 13px; }
+:root[data-look="aqua"] .topbar-clock { display: inline-flex; flex: none; align-items: center; height: var(--aq-menu-h); padding: 0 0 0 9px; color: #111111; font-size: 15px; white-space: nowrap; }
+
+/* ── The window, the desktop and the dock: wide screens ── */
+@media (min-width: 761px) {
+  :root[data-look="aqua"] body { background: var(--aq-desktop) fixed, #2f70d6; overflow: hidden; }
+  :root[data-look="aqua"] .app-shell { padding: 0; }
+  :root[data-look="aqua"] .topbar { position: fixed; top: 0; right: 0; left: 0; }
+
+  /* The window: rounded top corners, the shadow, the metal title bar over the pinstripes. */
+  :root[data-look="aqua"] .app-shell::before {
+    position: fixed;
+    z-index: 0;
+    top: var(--aq-win-top);
+    right: var(--aq-win-x);
+    bottom: var(--aq-win-bottom);
+    left: var(--aq-win-x);
+    height: auto;
+    border-radius: 10.7px 10.7px 6.8px 6.8px;
+    background:
+      linear-gradient(#8f8f8f, #8f8f8f) 0 var(--aq-bar-h) / 100% 1px no-repeat,
+      repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.35) 0 2.3px, rgba(0, 0, 0, 0.03) 2.3px 4.7px) 0 0 / 100% var(--aq-bar-h) no-repeat,
+      linear-gradient(#ececec, #c9c9c9) 0 0 / 100% var(--aq-bar-h) no-repeat,
+      var(--aq-stripes);
+    box-shadow: 0 27px 55px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(0, 0, 0, 0.35);
+    content: "";
+    pointer-events: none;
+  }
+
+  /* The three gel lights, decoration: close, minimise and zoom as the drawing has them. */
+  :root[data-look="aqua"] .topbar::before,
+  :root[data-look="aqua"] .topbar::after,
+  :root[data-look="aqua"] .topbar-left::before {
+    position: fixed;
+    top: calc(var(--aq-win-top) + 9px);
+    left: calc(var(--aq-win-x) + 15.6px);
+    width: 19.5px;
+    height: 19.5px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 50% 70%, #ff9d8f, #d1261a 70%);
+    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.35), inset 0 6.8px 5.8px rgba(255, 255, 255, 0.6);
+    content: "";
+    pointer-events: none;
+  }
+  :root[data-look="aqua"] .topbar::after { left: calc(var(--aq-win-x) + 43.9px); background: radial-gradient(circle at 50% 70%, #ffe27a, #d69a00 70%); }
+  :root[data-look="aqua"] .topbar-left::before { left: calc(var(--aq-win-x) + 72.2px); background: radial-gradient(circle at 50% 70%, #a6ef85, #2f9b21 70%); }
+
+  /* The page's name, centred in the title bar. */
+  :root[data-look="aqua"] .cc-crumb > h1 {
+    position: fixed;
+    top: calc(var(--aq-win-top) + 9px);
+    right: calc(var(--aq-win-x) + 120px);
+    left: calc(var(--aq-win-x) + 120px);
+    overflow: hidden;
+    margin: 0;
+    color: #1c1c1c;
+    font-size: 16.5px;
+    font-weight: 700;
+    line-height: 21.5px;
+    text-align: center;
+    text-overflow: ellipsis;
+    text-shadow: 0 1px 0 #ffffff;
+    text-transform: none;
+    white-space: nowrap;
+    pointer-events: none;
+  }
+
+  /* The page's own actions: gel buttons in the toolbar under the title. */
+  :root[data-look="aqua"] .ui-page-header__actions {
+    position: fixed;
+    z-index: 2;
+    top: calc(var(--aq-win-top) + 39px);
+    right: calc(var(--aq-win-x) + 120px);
+    left: calc(var(--aq-win-x) + 120px);
+    justify-content: center;
+    gap: 13.6px;
+    height: 26px;
+    margin: 0;
+    pointer-events: none;
+  }
+  :root[data-look="aqua"] .ui-page-header__actions > * { pointer-events: auto; }
+  :root[data-look="aqua"] .cc-crumb > .ui-info-toggle {
+    position: fixed;
+    top: calc(var(--aq-win-top) + 39px);
+    left: 50%;
+    margin: 0;
+    transform: translateX(-50%);
+  }
+  :root[data-look="aqua"] .ui-page-header__actions .ui-button--ghost { min-height: 24px; padding: 0 15px; border-color: #6d6d6d; color: #111111; background: var(--aq-gel); box-shadow: 0 1px 1px rgba(0, 0, 0, 0.2); text-decoration: none; }
+  :root[data-look="aqua"] .ui-page-header__actions .ui-button--ghost:hover:not(:disabled) { border-color: #4d4d4d; background: var(--aq-gel-hover); }
+
+  /* The source list, inside the window on its left. */
+  :root[data-look="aqua"] .sidebar-nav {
+    z-index: 5;
+    top: var(--aq-body-top);
+    bottom: var(--aq-win-bottom);
+    left: var(--aq-win-x);
+    width: var(--aq-src-w);
+    gap: 0;
+    padding: 9px 0 6px;
+    border-right: 1px solid #9eaabd;
+    border-radius: 0 0 0 6.8px;
+  }
+
+  /* The page: the window's content, which scrolls on its own. */
+  :root[data-look="aqua"] main {
+    position: fixed;
+    z-index: 1;
+    top: var(--aq-body-top);
+    right: var(--aq-win-x);
+    bottom: var(--aq-win-bottom);
+    left: calc(var(--aq-win-x) + var(--aq-src-w));
+    overflow: auto;
+    border-radius: 0 0 6.8px 0;
+    scrollbar-color: #9aa6b8 transparent;
+    scrollbar-width: thin;
+  }
+  :root[data-look="aqua"] .content { max-width: none; padding: 17.5px 21.4px 24px; }
+
+  /* The dock of areas, on the desktop under the window (Home puts its apps there instead). */
+  :root[data-look="aqua"] .look-phone-dock { display: block; }
+  :root[data-look="aqua"] .app-shell[data-view="home"] .look-phone-dock { display: none; }
+  :root[data-look="aqua"] .shell-dock [data-priority="3"] { display: none; }
+  :root[data-look="aqua"] .shell-dock [data-priority="overflow"] { display: block; }
+}
+
+/* ── The source list: pale blue, capital group titles, the current row in a blue gradient ── */
+:root[data-look="aqua"] .sidebar-nav { color: #111111; background: #e6ecf5; font-family: var(--font-aqua); scrollbar-color: #9aa6b8 transparent; }
+:root[data-look="aqua"] .sidebar-host { display: none; }
+:root[data-look="aqua"] .sidebar-group { gap: 0; }
+:root[data-look="aqua"] .sidebar-group__title { margin: 6px 12px 2px; color: #56637a; font: 700 11.8px/1.3 var(--font-aqua); letter-spacing: 0.05em; }
+:root[data-look="aqua"] .sidebar-group__list,
+:root[data-look="aqua"] .sidebar-foot { gap: 0; }
+:root[data-look="aqua"] .sidebar-foot { padding-top: 6px; }
+:root[data-look="aqua"] .sidebar-item {
+  gap: 7.6px;
+  min-height: 0;
+  padding: 3px 16.7px;
+  border-radius: 0;
+  color: #111111;
+  font: 400 15.2px/1.3 var(--font-aqua);
+}
+:root[data-look="aqua"] .sidebar-item__icon {
+  width: 13.7px;
+  height: 13.7px;
+  border-radius: 3px;
+  color: transparent;
+  background: linear-gradient(#a9c8f5, #5b8fdc);
+  opacity: 1;
+}
+:root[data-look="aqua"] .sidebar-item__icon * { visibility: hidden; }
+:root[data-look="aqua"] .sidebar-item:hover { color: #111111; background: rgba(56, 117, 215, 0.14); }
+:root[data-look="aqua"] .sidebar-item[aria-current="page"] { color: #ffffff; background: var(--aq-select); box-shadow: none; font-weight: 400; text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.25); }
+:root[data-look="aqua"] .sidebar-item[aria-current="page"] .sidebar-item__icon { background: #ffffff; }
+:root[data-look="aqua"] .sidebar-item:focus-visible { outline: 2px solid #3b82e8; outline-offset: -2px; }
+/* A count reads as the drawing's "Updates (4)". */
+:root[data-look="aqua"] .sidebar-item__badge { margin-left: -3px; padding: 0; border-radius: 0; color: inherit; background: none; font: inherit; }
+:root[data-look="aqua"] .sidebar-item__badge::before { content: "("; }
+:root[data-look="aqua"] .sidebar-item__badge::after { content: ")"; }
+
+/* ── The dock: a translucent shelf, glossy squares with a reflection, the name above on hover ── */
+:root[data-look="aqua"] .shell-dock { bottom: calc(var(--shell-bottom-inset, 0px) + 17.5px); --tile-icon: 62px; }
+:root[data-look="aqua"] .ui-dock.shell-dock ul {
+  gap: 9.7px;
+  padding: 9.7px 17.5px 11.7px;
+  border: 1px solid rgba(255, 255, 255, 0.65);
+  border-radius: 11.7px 11.7px 2.9px 2.9px;
+  background: linear-gradient(rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0.18));
+  box-shadow: none;
+  backdrop-filter: none;
+}
+:root[data-look="aqua"] .shell-dock .ui-dock__item { position: relative; width: 62px; gap: 0; border-radius: 15.6px; }
+:root[data-look="aqua"] .shell-dock .ui-dock__icon {
+  --aq-a: #6b7c93;
+  --aq-b: #3a4658;
+  width: 62px;
+  height: 62px;
+  border: 0;
+  border-radius: 15.6px;
+  color: #ffffff;
+  background: linear-gradient(160deg, var(--aq-a), var(--aq-b));
+  box-shadow: 0 3.9px 7.8px rgba(0, 0, 0, 0.35), inset 0 23.4px 17.5px -11.7px rgba(255, 255, 255, 0.55);
+  -webkit-box-reflect: below 2.9px linear-gradient(transparent 55%, rgba(255, 255, 255, 0.35));
+}
+:root[data-look="aqua"] .shell-dock .ui-dock__icon svg { width: 28px; height: 28px; filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.35)); }
+:root[data-look="aqua"] .shell-dock .ui-dock__item:hover .ui-dock__icon { border: 0; background: linear-gradient(160deg, var(--aq-a), var(--aq-b)); filter: brightness(1.08); }
+:root[data-look="aqua"] .shell-dock .ui-dock__item[aria-current="page"] .ui-dock__icon { border: 0; color: #ffffff; background: linear-gradient(160deg, var(--aq-a), var(--aq-b)); }
+/* The area in front of you: the small black triangle under its icon. */
+:root[data-look="aqua"] .shell-dock .ui-dock__item[aria-current="page"]::after {
+  position: absolute;
+  bottom: -11px;
+  left: calc(50% - 4px);
+  border: 4px solid transparent;
+  border-bottom: 5px solid #111111;
+  content: "";
+}
+:root[data-look="aqua"] .shell-dock li[data-area="today"] .ui-dock__icon { --aq-a: #4f93f5; --aq-b: #1846b0; }
+:root[data-look="aqua"] .shell-dock li[data-area="updates"] .ui-dock__icon { --aq-a: #4bb24a; --aq-b: #17552f; }
+:root[data-look="aqua"] .shell-dock li[data-area="storage"] .ui-dock__icon { --aq-a: #7c8ba3; --aq-b: #2a3444; }
+:root[data-look="aqua"] .shell-dock li[data-area="firewall"] .ui-dock__icon { --aq-a: #e5535b; --aq-b: #8e1520; }
+:root[data-look="aqua"] .shell-dock li[data-area="network"] .ui-dock__icon { --aq-a: #33a0e6; --aq-b: #0b5b97; }
+:root[data-look="aqua"] .shell-dock li[data-area="backups"] .ui-dock__icon { --aq-a: #1fae99; --aq-b: #0a5c51; }
+:root[data-look="aqua"] .shell-dock li[data-area="virtualization"] .ui-dock__icon { --aq-a: #6d78e6; --aq-b: #2e3799; }
+:root[data-look="aqua"] .shell-dock li[data-area="repairs"] .ui-dock__icon { --aq-a: #f07a3c; --aq-b: #a3301a; }
+:root[data-look="aqua"] .shell-dock li[data-area="logs"] .ui-dock__icon { --aq-a: #5b6475; --aq-b: #1c2029; }
+:root[data-look="aqua"] .shell-dock li[data-area="catalog"] .ui-dock__icon { --aq-a: #9b6ee6; --aq-b: #4c35a8; }
+:root[data-look="aqua"] .shell-dock li[data-area="settings"] .ui-dock__icon { --aq-a: #9aa3b0; --aq-b: #4a5160; }
+:root[data-look="aqua"] .shell-dock li[data-area="more"] .ui-dock__icon { --aq-a: #c9ced6; --aq-b: #7d8594; }
+:root[data-look="aqua"] .shell-dock .ui-dock__label {
+  position: absolute;
+  z-index: 1;
+  bottom: calc(100% + 10px);
+  left: 50%;
+  max-width: none;
+  padding: 2px 10px;
+  border-radius: 10px;
+  color: #ffffff;
+  background: rgba(30, 30, 30, 0.72);
+  font: 400 13px/1.4 var(--font-aqua);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-50%);
+  transition: opacity 120ms ease;
+}
+:root[data-look="aqua"] .shell-dock .ui-dock__item:is(:hover, :focus-visible) .ui-dock__label { opacity: 1; }
+:root[data-look="aqua"] .shell-dock .ui-dock__item:focus-visible { outline: 3px solid rgba(255, 255, 255, 0.85); outline-offset: 2px; }
+:root[data-look="aqua"] .shell-dock .ui-dock__separator { width: 1px; margin: 4px 2px; background: rgba(255, 255, 255, 0.6); }
+:root[data-look="aqua"] .ui-dock__badge,
+:root[data-look="aqua"] [data-density="compact"] .ui-dock__badge {
+  top: -7px;
+  right: -7px;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border: 2px solid #ffffff;
+  border-radius: 11px;
+  color: #ffffff;
+  background: linear-gradient(#ff7a6b, #d1261a);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  font: 700 12px/1 var(--font-aqua);
+}
+
+/* ── The page ── */
+:root[data-look="aqua"] .content--console { gap: 14px; }
+:root[data-look="aqua"] .ui-page-header__summary { color: #1c1c1c; font-size: 14px; }
+:root[data-look="aqua"] .ui-page-header__about { border-left: 0; border-radius: 7px; background: rgba(255, 255, 255, 0.7); box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.12), 0 0 0 1px #a3acb9; color: #333333; }
+:root[data-look="aqua"] .ui-facts { color: #4d535c; font-size: 12.5px; }
+:root[data-look="aqua"] .ui-facts b { color: #111111; font-weight: 700; }
+:root[data-look="aqua"] .ui-info-toggle {
+  width: 24px;
+  height: 24px;
+  border: 1px solid #6d6d6d;
+  border-radius: 50%;
+  color: #1c1c1c;
+  background: var(--aq-gel);
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.2);
+}
+:root[data-look="aqua"] .ui-info-toggle:hover,
+:root[data-look="aqua"] .ui-info-toggle[aria-expanded="true"] { color: #000000; background: var(--aq-gel-blue); }
+:root[data-look="aqua"] .ui-info-toggle svg { width: 14px; height: 14px; }
+
+/* Group boxes: white, a grey hairline, the inner shadow. */
+:root[data-look="aqua"] .ui-panel,
+:root[data-look="aqua"] .ui-job,
+:root[data-look="aqua"] .ui-card {
+  border: 1px solid #a3acb9;
+  border-radius: 6.8px;
+  background: #ffffff;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+:root[data-look="aqua"] .ui-panel__head { min-height: 38px; padding: 8px 14px 4px; border-bottom: 0; }
+:root[data-look="aqua"] .ui-panel__title { gap: 8px; color: #333333; font: 700 14.4px/1.3 var(--font-aqua); letter-spacing: 0; text-transform: none; }
+:root[data-look="aqua"] .ui-panel__count { color: #1c5fc9; font-weight: 400; }
+:root[data-look="aqua"] .ui-panel__meta { color: #4d535c; font-size: 12.5px; }
+:root[data-look="aqua"] .ui-panel__meta b { color: #111111; font-weight: 700; }
+:root[data-look="aqua"] .ui-panel__foot { border-top: 1px solid #dadde3; color: #4d535c; background: #f7f8fa; font-size: 12.5px; }
+:root[data-look="aqua"] .ui-panel--padded > .ui-panel__body { padding: 8px 14px 14px; }
+
+/* Figures: a label, the value, a barber-pole bar. */
+:root[data-look="aqua"] .ui-metric { min-height: 0; padding: 12px 14px; border: 1px solid #a3acb9; border-radius: 6.8px; background: #ffffff; box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.12); }
+:root[data-look="aqua"] .ui-metric--link:hover { background: #f4f8ff; box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.12); }
+:root[data-look="aqua"] .ui-metric__label { color: #333333; font: 700 13px/1.3 var(--font-aqua); letter-spacing: 0; text-transform: none; }
+:root[data-look="aqua"] .ui-metric__value { margin-top: 2px; color: #111111; font: 700 22px/1.15 var(--font-aqua); letter-spacing: 0; }
+:root[data-look="aqua"] .ui-metric__value small { color: #4d535c; font-size: 13px; font-weight: 400; }
+:root[data-look="aqua"] .ui-metric[data-status="warning"] .ui-metric__value { color: #a63c09; }
+:root[data-look="aqua"] .ui-metric__caption { color: #4d535c; font-size: 12.5px; }
+:root[data-look="aqua"] :is(.ui-metric__bar, .ui-progress__track) {
+  height: 12.6px;
+  margin-top: 6px;
+  overflow: hidden;
+  border: 1px solid #7a8aa3;
+  border-radius: 6.3px;
+  background: linear-gradient(#e8e8e8, #ffffff);
+}
+:root[data-look="aqua"] .ui-progress__track { margin-top: 0; }
+:root[data-look="aqua"] :is(.ui-metric__bar > i, .ui-metric[data-status="good"] .ui-metric__bar > i, .ui-progress__fill) { border-radius: 0; background: var(--aq-pole); }
+:root[data-look="aqua"] :is(.ui-metric[data-status="warning"] .ui-metric__bar > i, .ui-progress[data-status="warning"] .ui-progress__fill) { background: var(--aq-pole-warn); }
+:root[data-look="aqua"] :is(.ui-metric[data-status="danger"] .ui-metric__bar > i, .ui-progress[data-status="danger"] .ui-progress__fill) { background: var(--aq-pole-danger); }
+:root[data-look="aqua"] .ui-progress--indeterminate .ui-progress__fill { width: 100%; animation: aqua-pole 900ms linear infinite; background-size: 100% 100%, 24.8px 24.8px; }
+@keyframes aqua-pole {
+  from { background-position: 0 0, 0 0; }
+  to { background-position: 0 0, 24.8px 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  :root[data-look="aqua"] .ui-progress--indeterminate .ui-progress__fill { animation: none; opacity: 0.6; }
+}
+:root[data-look="aqua"] .ui-progress__detail,
+:root[data-look="aqua"] .ui-job__time,
+:root[data-look="aqua"] .ui-job__line { color: #4d535c; font-size: 12.5px; }
+
+/* What needs you, on Ops and wherever the list is drawn: rows under hairlines, bold words. */
+:root[data-look="aqua"] .need { padding: 10px 14px; border-top: 1px solid #dadde3; box-shadow: none; }
+:root[data-look="aqua"] .need[data-severity="neutral"] { box-shadow: none; }
+:root[data-look="aqua"] .need__mark { width: 9px; height: 9px; border-radius: 50%; box-shadow: inset 0 -1px 1px rgba(0, 0, 0, 0.3), inset 0 1px 1px rgba(255, 255, 255, 0.6); }
+:root[data-look="aqua"] .need__title { color: #111111; font-size: 14.4px; font-weight: 700; }
+:root[data-look="aqua"] .need__detail { color: #444444; font-size: 13.2px; }
+
+/* Gel buttons: white by default, blue for the main one, the tier as a dot inside. */
+:root[data-look="aqua"] .ui-button {
+  min-height: 24px;
+  padding: 0 15px;
+  border: 1px solid #6d6d6d;
+  border-radius: 999px;
+  color: #111111;
+  background: var(--aq-gel);
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.2);
+  font: 400 13px/1.2 var(--font-aqua);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.55);
+}
+:root[data-look="aqua"] .ui-button:hover:not(:disabled) { border-color: #4d4d4d; background: var(--aq-gel-hover); }
+:root[data-look="aqua"] .ui-button:active:not(:disabled) { background: var(--aq-gel-down); }
+:root[data-look="aqua"] .ui-button--primary { border-color: #2958a3; color: #0b0b0b; background: var(--aq-gel-blue); }
+:root[data-look="aqua"] .ui-button--primary:hover:not(:disabled) { border-color: #1d4a92; background: var(--aq-gel-blue-hover); }
+:root[data-look="aqua"] .ui-button--primary:active:not(:disabled) { background: var(--aq-gel-blue-down); }
+:root[data-look="aqua"] .ui-button--ghost { padding: 0 6px; border-color: transparent; color: #1c5fc9; background: none; box-shadow: none; text-shadow: none; }
+:root[data-look="aqua"] .ui-button--ghost:hover:not(:disabled) { border-color: transparent; background: rgba(56, 117, 215, 0.1); text-decoration: underline; }
+:root[data-look="aqua"] .ui-button--risk-medium,
+:root[data-look="aqua"] .ui-button--risk-high { padding-left: 24px; }
+:root[data-look="aqua"] .ui-button--risk-medium::before,
+:root[data-look="aqua"] .ui-button--risk-high::before,
+:root[data-look="aqua"] .ui-button--primary.ui-button--risk-medium::before,
+:root[data-look="aqua"] .ui-button--primary.ui-button--risk-high::before {
+  top: calc(50% - 4px);
+  bottom: auto;
+  left: 9px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 35%, #ffc27a, #e07b12 70%);
+  box-shadow: 0 0 0 1px rgba(120, 50, 0, 0.45);
+}
+:root[data-look="aqua"] .ui-button--risk-high::before,
+:root[data-look="aqua"] .ui-button--primary.ui-button--risk-high::before { background: radial-gradient(circle at 50% 35%, #ff9d8f, #d1261a 70%); box-shadow: 0 0 0 1px rgba(110, 10, 0, 0.45); }
+:root[data-look="aqua"] .ui-button__lock { color: #b01e12; }
+:root[data-look="aqua"] .ui-button .ui-button__tier,
+:root[data-look="aqua"] .ui-button--primary .ui-button__tier { padding: 0 6px; border: 1px solid rgba(176, 30, 18, 0.45); border-radius: 999px; color: #b01e12; background: #fff4f2; font-family: var(--font-aqua); font-size: 11px; letter-spacing: 0; }
+:root[data-look="aqua"] .ui-button:disabled { opacity: 0.5; }
+
+/* Tabs and segments: one gel capsule of joined buttons, centred, the open one blue. */
+:root[data-look="aqua"] .ui-tabs__list { justify-content: safe center; gap: 0; padding: 2px 4px 6px; border-bottom: 0; }
+:root[data-look="aqua"] .ui-tabs__tab,
+:root[data-look="aqua"] .ui-segmented__option {
+  min-height: 24px;
+  margin: 0;
+  padding: 0 16px;
+  border: 1px solid #6d6d6d;
+  border-left-width: 0;
+  border-radius: 0;
+  color: #111111;
+  background: var(--aq-gel);
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.18);
+  font: 400 13px/1.2 var(--font-aqua);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.55);
+}
+:root[data-look="aqua"] :is(.ui-tabs__tab, .ui-segmented__option):first-child { border-left-width: 1px; border-radius: 12px 0 0 12px; }
+:root[data-look="aqua"] :is(.ui-tabs__tab, .ui-segmented__option):last-child { border-radius: 0 12px 12px 0; }
+:root[data-look="aqua"] :is(.ui-tabs__tab, .ui-segmented__option):only-child { border-radius: 12px; }
+:root[data-look="aqua"] :is(.ui-tabs__tab, .ui-segmented__option):hover:not(:disabled) { color: #000000; background: var(--aq-gel-hover); }
+:root[data-look="aqua"] .ui-tabs__tab[aria-selected="true"],
+:root[data-look="aqua"] .ui-segmented__option[aria-checked="true"] { border-color: #2958a3; color: #000000; background: var(--aq-gel-blue); box-shadow: 0 1px 1px rgba(0, 0, 0, 0.18); }
+:root[data-look="aqua"] :is(.ui-tabs__tab, .ui-segmented__option):focus-visible { position: relative; z-index: 1; }
+:root[data-look="aqua"] :is(.ui-tabs__count, .ui-segmented__count) { color: #4d535c; font-family: var(--font-aqua); font-size: 12px; }
+:root[data-look="aqua"] .ui-tabs__tab[aria-selected="true"] .ui-tabs__count { color: #0b2f6b; }
+:root[data-look="aqua"] .ui-segmented { gap: 0; padding: 0; border: 0; border-radius: 12px; background: none; }
+
+/* Fields: white, an inset edge, the blue glow on focus. */
+:root[data-look="aqua"] :is(.ui-input, .ui-textarea) {
+  min-height: 24px;
+  border: 1px solid #8e8e8e;
+  border-top-color: #6d6d6d;
+  border-radius: 2px;
+  color: #000000;
+  background: #ffffff;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.22);
+  font-size: 13px;
+}
+:root[data-look="aqua"] .ui-select__control { min-height: 24px; padding-left: 14px; border: 1px solid #6d6d6d; border-radius: 12px; color: #111111; background: var(--aq-gel); box-shadow: 0 1px 1px rgba(0, 0, 0, 0.2); font-size: 13px; }
+:root[data-look="aqua"] .ui-select__chevron { right: 4px; width: 18px; height: 18px; padding: 3px; border-radius: 50%; color: #ffffff; background: var(--aq-gel-blue); }
+:root[data-look="aqua"] :is(.ui-input, .ui-textarea, .ui-select__control):focus-visible { border-color: #3b82e8; outline: 0; box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.22), var(--aq-focus); }
+:root[data-look="aqua"] .ui-field__label { color: #111111; font-size: 13px; font-weight: 700; }
+:root[data-look="aqua"] :is(.ui-field__hint, .ui-field__flag) { color: #4d535c; font-family: var(--font-aqua); }
+:root[data-look="aqua"] .ui-secret__toggle { border-color: #6d6d6d; border-radius: 0 12px 12px 0; color: #111111; background: var(--aq-gel); }
+
+/* A switch: a gel capsule that turns blue, the knob a white gel. */
+:root[data-look="aqua"] .ui-switch__track { width: 36px; height: 20px; border: 1px solid #6d6d6d; background: var(--aq-gel); box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.15); }
+:root[data-look="aqua"] .ui-switch__thumb { top: 1px; left: 1px; width: 16px; height: 16px; background: radial-gradient(circle at 50% 30%, #ffffff, #d8d8d8 70%); box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35), 0 1px 2px rgba(0, 0, 0, 0.3); }
+:root[data-look="aqua"] .ui-switch__control[aria-checked="true"] .ui-switch__track { border-color: #2958a3; background: var(--aq-gel-blue); }
+:root[data-look="aqua"] .ui-switch__control[aria-checked="true"] .ui-switch__thumb { background: radial-gradient(circle at 50% 30%, #ffffff, #e2e2e2 70%); transform: translateX(16px); }
+:root[data-look="aqua"] .ui-switch__state { color: #4d535c; font-family: var(--font-aqua); font-size: 11px; letter-spacing: 0.04em; }
+:root[data-look="aqua"] .ui-switch__label,
+:root[data-look="aqua"] .ui-check__label { color: #111111; font-size: 13.5px; }
+:root[data-look="aqua"] .ui-check__mark { border: 1px solid #6d6d6d; border-radius: 3px; background: var(--aq-gel); box-shadow: 0 1px 1px rgba(0, 0, 0, 0.18); }
+:root[data-look="aqua"] :is(.ui-check__input:checked, .ui-check__input:indeterminate) + .ui-check__mark { border-color: #2958a3; background: var(--aq-gel-blue); }
+:root[data-look="aqua"] .ui-check__mark::after { border-color: #0b0b0b; }
+
+/* Tables: a list view, the metal header, the rows striped in Aqua's pale blue. */
+:root[data-look="aqua"] .ui-table { font-size: 13px; font-variant-numeric: tabular-nums; }
+:root[data-look="aqua"] .ui-table th {
+  height: 22px;
+  padding: 0 8px;
+  border-top: 1px solid #c4c9d1;
+  border-bottom: 1px solid #a3acb9;
+  color: #111111;
+  background: var(--aq-menu);
+  font: 400 12px/1.2 var(--font-aqua);
+  letter-spacing: 0;
+  text-transform: none;
+}
+:root[data-look="aqua"] .ui-table th + th { box-shadow: inset 1px 0 0 #d0d4da; }
+:root[data-look="aqua"] .ui-table td { height: 26px; padding: 0 8px; border-bottom: 0; color: #111111; font-family: var(--font-aqua); font-size: 13px; }
+:root[data-look="aqua"] .ui-table tbody tr:nth-child(even) td { background: #edf3fe; }
+:root[data-look="aqua"] .ui-table tbody tr:hover td { background: #dbe8fc; }
+:root[data-look="aqua"] .ui-table .ui-chip { font-family: var(--font-aqua); font-size: 12.5px; }
+:root[data-look="aqua"] .ui-table th[aria-sort="ascending"],
+:root[data-look="aqua"] .ui-table th[aria-sort="descending"] { color: #ffffff; background: var(--aq-select); }
+
+/* Chips, tiers and tags: small glossy capsules, the words in the menu face. */
+:root[data-look="aqua"] :is(.ui-chip, .ui-risk) {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background-image: linear-gradient(rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0) 55%);
+  font-family: var(--font-aqua);
+  font-size: 12px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+:root[data-look="aqua"] .ui-tag { border-radius: 999px; background-color: #e7ecf4; font-family: var(--font-aqua); font-size: 12px; }
+:root[data-look="aqua"] .ui-tag--tier { letter-spacing: 0; text-transform: none; }
+
+/* Facts as label and value; notices and empty lists as boxes. */
+:root[data-look="aqua"] .ui-kv__label,
+:root[data-look="aqua"] :is(.ui-kv--columns, .ui-kv--strip) .ui-kv__label { color: #4d535c; font-family: var(--font-aqua); font-size: 12.5px; font-weight: 400; letter-spacing: 0; text-transform: none; }
+:root[data-look="aqua"] .ui-kv__value { color: #111111; }
+:root[data-look="aqua"] .ui-kv--strip { border: 1px solid #a3acb9; border-radius: 6.8px; box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.12); }
+:root[data-look="aqua"] .ui-kv--strip .ui-kv__item { border-right-color: #dadde3; box-shadow: none; }
+:root[data-look="aqua"] .ui-notice { border-radius: 6.8px; box-shadow: inset 3px 0 0 var(--mark), inset 0 1px 2px rgba(0, 0, 0, 0.08); }
+:root[data-look="aqua"] .ui-empty__icon { border-radius: 6px; }
+:root[data-look="aqua"] :is(.ui-code, .ui-code__bar) { border-color: #a3acb9; }
+:root[data-look="aqua"] .ui-code { border-radius: 6.8px; }
+:root[data-look="aqua"] .ui-code__bar { background: var(--aq-menu); }
+:root[data-look="aqua"] .ui-code__label { color: #333333; font-size: 12px; letter-spacing: 0; text-transform: none; }
+:root[data-look="aqua"] .ui-code__copy { border-color: #6d6d6d; border-radius: 999px; background: var(--aq-gel); }
+
+/* App squares: glossy, as the dock's. */
+:root[data-look="aqua"] .ui-app-icon { box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), inset 0 0.45em 0.35em -0.2em rgba(255, 255, 255, 0.5); }
+
+/* ── Sheets and dialogs: an Aqua window, the metal head, the red light to close ── */
+:root[data-look="aqua"] :is(.ui-sheet, .approve-dialog) { border: 1px solid #7d7d7d; color: #1c1c1c; background: var(--aq-stripes); box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5); }
+:root[data-look="aqua"] .ui-sheet--center,
+:root[data-look="aqua"] .approve-dialog { border-radius: 10.7px 10.7px 6.8px 6.8px; }
+:root[data-look="aqua"] :is(.ui-sheet__head, .approve-head) { align-items: center; justify-content: flex-start; border-bottom: 1px solid #8f8f8f; background: var(--aq-metal); }
+/* The title centred over the window, as a title bar has it; the red light keeps the left. */
+:root[data-look="aqua"] :is(.ui-sheet__heading, .approve-heading) { flex: 1 1 auto; justify-items: center; margin-right: 20px; text-align: center; }
+:root[data-look="aqua"] :is(.ui-sheet__title, .approve-title) { color: #1c1c1c; font: 700 16px/1.25 var(--font-aqua); text-shadow: 0 1px 0 #ffffff; }
+:root[data-look="aqua"] :is(.ui-sheet__kicker, .approve-kicker) { color: #4d535c; font-family: var(--font-aqua); font-size: 11.5px; font-weight: 400; letter-spacing: 0.04em; }
+:root[data-look="aqua"] :is(.ui-sheet__close, .approve-close) {
+  order: -1;
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: 50%;
+  color: transparent;
+  background: radial-gradient(circle at 50% 70%, #ff9d8f, #d1261a 70%);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.35), inset 0 7px 6px rgba(255, 255, 255, 0.6);
+}
+:root[data-look="aqua"] :is(.ui-sheet__close, .approve-close):is(:hover, :focus-visible) { color: #5a0a02; }
+:root[data-look="aqua"] :is(.ui-sheet__close, .approve-close) svg { width: 11px; height: 11px; }
+:root[data-look="aqua"] :is(.ui-sheet__foot) { border-top: 1px solid #c4c9d1; background: rgba(255, 255, 255, 0.35); }
+:root[data-look="aqua"] .ui-sheet__body > :is(p, ul) { color: #1c1c1c; }
+
+/* The command bar's dialog: the search field and its list, in a window. */
+:root[data-look="aqua"] .command-dialog { border: 1px solid #7d7d7d; border-radius: 10.7px 10.7px 6.8px 6.8px; background: var(--aq-stripes); box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5); }
+
+/* ── A phone: no window; the menu bar at the top, the pinstripes, the dock along the bottom ── */
+@media (max-width: 760px) {
+  :root[data-look="aqua"] body { background: var(--aq-stripes); }
+  :root[data-look="aqua"] .topbar { height: auto; min-height: 44px; padding: 6px 12px; gap: 6px 8px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2); }
+  :root[data-look="aqua"] .brand div { display: none; }
+  :root[data-look="aqua"] .brand { margin-right: 4px; }
+  :root[data-look="aqua"] .cc-crumb__host { display: none; }
+  :root[data-look="aqua"] .cc-crumb > h1 { padding: 0 6px; color: #111111; font-size: 16px; font-weight: 700; text-transform: none; }
+  :root[data-look="aqua"] .view-switch__option { height: 34px; }
+  :root[data-look="aqua"] .command-trigger { flex: 0 0 34px; width: 34px; height: 30px; margin-left: auto; margin-right: 0; padding: 0; border-radius: 15px; justify-content: center; }
+  :root[data-look="aqua"] .command-trigger__label { display: none; }
+  :root[data-look="aqua"] .topbar .bar-button { height: 34px; font-size: 14px; }
+  :root[data-look="aqua"] .topbar-clock { display: none; }
+  :root[data-look="aqua"] .content { padding: 12px 12px calc(var(--shell-bottom-inset, 0px) + 116px); }
+  :root[data-look="aqua"] .shell-dock { bottom: calc(var(--shell-bottom-inset, 0px) + 8px + env(safe-area-inset-bottom, 0px)); }
+  :root[data-look="aqua"] .ui-dock.shell-dock ul {
+    gap: 6px;
+    padding: 8px 10px 6px;
+    border-color: rgba(255, 255, 255, 0.8);
+    background: linear-gradient(rgba(120, 170, 240, 0.55), rgba(40, 100, 200, 0.55));
+    box-shadow: 0 4px 14px rgba(10, 40, 100, 0.3);
+    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(10px);
+  }
+  :root[data-look="aqua"] .shell-dock .ui-dock__item { width: 58px; gap: 3px; }
+  :root[data-look="aqua"] .shell-dock .ui-dock__icon { width: 44px; height: 44px; border-radius: 11px; -webkit-box-reflect: unset; box-shadow: 0 2px 5px rgba(0, 0, 0, 0.35), inset 0 16px 12px -8px rgba(255, 255, 255, 0.55); }
+  :root[data-look="aqua"] .shell-dock .ui-dock__icon svg { width: 22px; height: 22px; }
+  :root[data-look="aqua"] .shell-dock .ui-dock__label { position: static; padding: 0; border-radius: 0; color: #ffffff; background: none; font-size: 11px; opacity: 1; transform: none; text-shadow: 0 1px 1px rgba(0, 0, 0, 0.5); }
+  :root[data-look="aqua"] .shell-dock .ui-dock__item[aria-current="page"]::after { display: none; }
+  :root[data-look="aqua"] .shell-dock .ui-dock__item[aria-current="page"] .ui-dock__label { font-weight: 700; }
+  :root[data-look="aqua"] .ui-tabs__list { justify-content: flex-start; }
+}
+
+/* A finger, not a pointer: the gel controls grow to 44 px to tap, as every look's do, and so does
+   the menu bar, with the window lowered under it. */
+@media (pointer: coarse) {
+  :root[data-look="aqua"] { --aq-menu-h: 44px; --aq-win-top: 76px; }
+  :root[data-look="aqua"] :is(.ui-button, .ui-tabs__tab, .ui-segmented__option, .ui-select__control, .ui-input, .ui-textarea, .ui-switch__control, .ui-secret__toggle) { min-height: 44px; }
+  :root[data-look="aqua"] :is(.topbar .bar-button, .view-switch__option) { min-width: 44px; min-height: 44px; }
+  :root[data-look="aqua"] .command-trigger { height: 34px; border-radius: 17px; }
+  :root[data-look="aqua"] .ui-info-toggle { width: 44px; height: 44px; }
+  :root[data-look="aqua"] :is(.ui-sheet__close, .approve-close) { width: 44px; height: 44px; background-size: 20px 20px; background-position: center; background-repeat: no-repeat; box-shadow: none; }
+}
+@media (pointer: coarse) and (max-width: 760px) {
+  :root[data-look="aqua"] .command-trigger { flex-basis: 44px; width: 44px; height: 44px; border-radius: 22px; }
+}
+
+/* Settings → Appearance: a group box, the looks' pictures in thin frames, the chosen one ringed in blue. */
+:root[data-look="aqua"] .settings-appearance { border: 1px solid #a3acb9; border-radius: 6.8px; box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.12); }
+:root[data-look="aqua"] .settings-look__picture { border-color: #8e96a3; border-radius: 6px; }
+:root[data-look="aqua"] .settings-look[aria-checked="true"] .settings-look__picture { box-shadow: 0 0 0 3px #3b82e8; }
+
+/* The pages' own boxes (the catalog's filters and cards, automations, agents) as group boxes. */
+:root[data-look="aqua"] :is(.setup-hero, .setup-profile, .catalog-toolbar, .catalog-card, .automations-card, .automations-step, .agents-card, .agents-template, .settings-device, .settings-report, .vms-live, .vms-fieldset, .storage-choose) {
+  border: 1px solid #a3acb9;
+  border-radius: 6.8px;
+  background: #ffffff;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+
+/* A short screen: the window rises closer to the menu bar and the dock's icons shrink, so the page keeps its room. */
+@media (min-width: 761px) and (max-height: 760px) {
+  :root[data-look="aqua"] { --aq-win-top: 42px; --aq-win-bottom: calc(var(--shell-bottom-inset, 0px) + 98px); }
+  :root[data-look="aqua"] .shell-dock { bottom: calc(var(--shell-bottom-inset, 0px) + 12px); }
+  :root[data-look="aqua"] .ui-dock.shell-dock ul { gap: 8px; padding: 7px 14px 9px; }
+  :root[data-look="aqua"] .shell-dock .ui-dock__item { width: 48px; border-radius: 12px; }
+  :root[data-look="aqua"] .shell-dock .ui-dock__icon { width: 48px; height: 48px; border-radius: 12px; box-shadow: 0 3px 6px rgba(0, 0, 0, 0.35), inset 0 18px 13px -9px rgba(255, 255, 255, 0.55); }
+  :root[data-look="aqua"] .shell-dock .ui-dock__icon svg { width: 23px; height: 23px; }
+}
