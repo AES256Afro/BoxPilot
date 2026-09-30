@@ -595,8 +595,17 @@ verification**, and the verification is what BoxPilot owns:
 
 - **What the router hands out** is read from this server's own DHCP lease (`networkctl status --json`,
   networkd's lease file, NetworkManager's options, dhclient's lease): the router gives every device
-  the same options. A server with a hand-set address has no lease, and its own DNS setting says
-  nothing about the devices, so then the answer is "not known", never a guess.
+  the same options. A server with a hand-set address, like the owner's, has no lease, and its own DNS
+  setting says nothing about the devices. Then Pi-hole's own query database is asked who asks it
+  (`dns.blocker.askers`: `pihole-FTL sqlite3 -readonly` on `/etc/pihole/pihole-FTL.db` inside its
+  container, as the catalog already runs it for gravity; no admin password). Three or more devices on
+  the LAN asking it directly in the last hour (the last day if the hour was quiet) means the router
+  hands this server out to them; only the router (and this server) asking means the router passes
+  lookups on, and it is judged as below. Only counts leave the helper, never a device's address or a
+  domain. Anything else, or a log that cannot be read (Pi-hole not BoxPilot's, not running, behind
+  Docker's bridge, a privacy level that hides clients), is "not known", never a guess. A DHCPINFORM
+  or DISCOVER probe was weighed and left out: it needs a raw socket or port 68 beside networkd,
+  `udhcpc` is not on every Ubuntu 24.04 and 26.04 server, and routers answer INFORM unevenly.
 - **Every server on that list that is not this one is asked directly**, as a device asks when this
   server is off, with node's resolver and explicit servers (no `dig`, `ping` or `tcpdump`).
 - **Whether the router passes lookups here** is a canary: a made-up name asked of the router, looked
@@ -607,8 +616,8 @@ verification**, and the verification is what BoxPilot owns:
   no cache holds, starts the app, and waits until it answers on the LAN. Its verdict stands ninety
   days.
 - **The finding** "If <server> goes down, every device on your network loses the internet" is raised
-  only on evidence: a lease naming nothing but this server, a failed rehearsal, or second servers
-  that do not answer. A router passing lookups here that nobody has rehearsed is "not known yet"
+  only on evidence: a lease naming nothing but this server, devices asking Pi-hole directly on a
+  server with no lease, a failed rehearsal, or second servers that do not answer. A router passing lookups here that nobody has rehearsed is "not known yet"
   (info), with the rehearsal as its fix. It shows on Network (a notice, the strip, the panel with
   the steps) and on Home and Ops through Repair's scan.
 - **After a boot that followed an unclean end** (feat/repair-dns-power's detection, asked by its
@@ -653,7 +662,8 @@ tick, ten seconds at most, never retried in a loop.
   anyone approves it.
 - `tests/ubuntu/dns-fallback.sh` runs the check and the rehearsal against real dnsmasq routers with
   and without a fallback, and the lease reader against the runner's own lease;
-  `tests/ubuntu/heartbeat.sh` runs the units as shipped on real systemd. Both LTS releases.
+  `tests/ubuntu/pihole-askers.sh` runs the catalog's Pi-hole image, asked by eight devices from
+  their own addresses, and reads its database as the helper does; `tests/ubuntu/heartbeat.sh` runs
+  the units as shipped on real systemd.
 - Left for later: syncing a second Pi-hole (b) once there is a second box; reading the router's DNS
-  settings over GL.iNet's API through the existing router connection; a DHCPINFORM probe, so a server
-  with a hand-set address can still see what the router hands out.
+  settings over GL.iNet's API through the existing router connection.

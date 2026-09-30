@@ -633,9 +633,14 @@ export function dnsLeansOnThisServer({ dnsResilience = null, apps = [] } = {}) {
   const verdict = dnsResilience;
   if (!verdict || !["single-point", "unproven"].includes(verdict.state)) return [];
   const counted = (verdict.servers ?? []).filter((server) => server.verdict !== "skipped");
+  // With no lease to read, Pi-hole's own log said it: counts only.
+  const askers = verdict.source === "pihole-log" && verdict.askers ? verdict.askers : null;
+  const heard = askers
+    ? (askers.lanClients > 0 ? `${askers.lanClients} ${askers.lanClients === 1 ? "device" : "devices"} on your network asked Pi-hole here directly in the last ${askers.window}` : `only the router asked Pi-hole here in the last ${askers.window}`)
+    : null;
   const evidence = [
     // The first line is the one Home shows under the title: what the devices are given.
-    ...(counted.length ? [`devices are given ${counted.map((server) => `${server.address} (${server.label})`).join(" and ")}`] : []),
+    ...(heard ? [heard] : counted.length ? [`devices are given ${counted.map((server) => `${server.address} (${server.label})`).join(" and ")}`] : []),
     ...counted.map((server) => `${server.address}: ${server.note}`),
     ...(verdict.via ? [`what the router hands out, read from ${verdict.via}`] : []),
   ];

@@ -870,7 +870,9 @@ function resilienceFor(world) {
     ? { handedOut: { source: "dhcp", via: "systemd-networkd", servers: [host.gateway], dhcpServer: host.gateway }, servesDns: false, answers: { [host.gateway]: { ...healthy, blocking: false } } }
     : world === "trouble"
       ? { handedOut: { source: "dhcp", via: "systemd-networkd", servers: [host.gateway], dhcpServer: host.gateway }, servesDns: true, answers: { [host.gateway]: healthy }, canary: { router: host.gateway, forwards: true } }
-      : { handedOut: { source: "dhcp", via: "systemd-networkd", servers: [host.lan], dhcpServer: host.gateway }, servesDns: true, answers: { [host.lan]: healthy } };
+      // homebox's address is set by hand, so no lease: Pi-hole's own log says eight devices ask it directly.
+      : { handedOut: { source: "pihole-log", via: "Pi-hole's query log", servers: [host.lan], dhcpServer: host.gateway }, servesDns: true, answers: { [host.lan]: healthy },
+        askers: { available: true, window: "hour", queries: 1840, lanClients: 8, routerQueries: 0, routerAsks: false } };
   const verdict = judgeResilience({ selfAddresses: [host.lan, host.tailscaleIp], gateway: host.gateway, rehearsal: null, ...facts }, { now: now(), hostname: host.hostname });
   // After the power cut the unwell world had: Pi-hole came back, this server's own lookups did not
   // (the 2026-09-29 resolv.conf trap), which is also why its heartbeat is failing.

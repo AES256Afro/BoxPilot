@@ -2189,7 +2189,9 @@ same server. Decided in ADR-008. The network half is `feat/m39-network`.
   not answer (ADR-008 weighs a second DHCP server and a synced second Pi-hole). BoxPilot does not sign in
   to the router; it shows the steps and proves the result. `server/dns-resilience.mjs` reads what the
   router hands out from this server's own DHCP lease (networkd's JSON or lease file, NetworkManager,
-  dhclient), asks every other server on the list directly with node's resolver (no dig, ping or
+  dhclient), or, on a server with a hand-set address like the owner's, from who asks Pi-hole
+  (`dns.blocker.askers`: its own query database read-only, counts only), asks every other server on
+  the list directly with node's resolver (no dig, ping or
   tcpdump), sends a canary through the router and looks for it in Pi-hole's query log
   (`dns.blocker.canary`), and reads the last rehearsal. **Rehearse** (`dns.fallback.rehearse`, medium)
   stops the DNS app for about half a minute behind a three-minute safety timer, asks the router three
@@ -2202,7 +2204,8 @@ same server. Decided in ADR-008. The network half is `feat/m39-network`.
   LAN and the host through NSS, and both lines go on the outage's record
   (`server/outage-dns.mjs`, plugged into feat/repair-dns-power's `previousBootEndedUncleanly()`).
   `tests/ubuntu/dns-fallback.sh` runs it all against real dnsmasq routers with and without a
-  fallback and the runner's own lease, on both LTS releases.
+  fallback and the runner's own lease, on both LTS releases; `tests/ubuntu/pihole-askers.sh` runs
+  the catalog's Pi-hole image asked by eight devices and reads its database as the helper does.
 - ✅ **M39.3 Told when the server is down** (unreleased, `feat/m39-network`). An opt-in heartbeat
   (Settings, Notifications): a bare `GET` every few minutes (five unless changed) to a dead man's switch the
   owner picks (healthchecks.io's free plan, or Healthchecks or Uptime Kuma push on another machine),
@@ -2214,8 +2217,7 @@ same server. Decided in ADR-008. The network half is `feat/m39-network`.
   have no such event); a router cron script is documented, not built. `tests/ubuntu/heartbeat.sh`
   runs the units as shipped on real systemd.
 - **Later**: sync a second Pi-hole over Pi-hole v6's teleporter API once there is a second always-on
-  box; read the router's DNS settings through the existing GL.iNet connection; a DHCPINFORM probe so a
-  server with a hand-set address can still see what the router hands out.
+  box; read the router's DNS settings through the existing GL.iNet connection.
 
 ## App catalogue candidates
 
