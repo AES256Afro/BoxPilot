@@ -25,6 +25,11 @@
 .github-commit code, .github-release-name code { font-size: 12.5px; }
 .github-release-name { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-width: 0; }
 .github-link { font-size: 13px; font-weight: 600; }
+@media (pointer: coarse) {
+  .github-commit a,
+  .github-release-name a,
+  .github-link { display: inline-block; padding-block: 14px; margin-block: -14px; }
+}
 .github-dim { color: var(--text-muted); font-family: var(--font-mono); font-size: 12px; }
 
 /* An asset's digest is long: it breaks anywhere rather than widening the table. */

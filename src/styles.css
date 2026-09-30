@@ -3686,6 +3686,20 @@ main { padding-bottom: env(safe-area-inset-bottom, 0px); }
   .ui-textarea { min-height: 44px; font-size: 16px; }
   .shell-dock .ui-dock__item { min-height: 56px; }
   .areas-sheet__grid .ui-dock__item { min-height: 72px; }
+  /* The rest of the kit's controls, which a sweep of every page at 375 px found at 15-34 px: a tab,
+     a segment, a switch, Show on a password, Copy on a block of text, a disclosure's summary. */
+  .ui-tabs__tab,
+  .ui-segmented__option,
+  .ui-switch__control { min-height: 44px; }
+  .ui-code__copy { min-width: 44px; min-height: 44px; }
+  details > summary { padding-block: 15px; }
+  /* Home's Launcher draws its buttons and its search as pills of its own, at 32 and 36 px. */
+  .lx .ui-button,
+  .app-shell[data-view="home"] .command-trigger { min-height: 44px; }
+  /* Text that is a button in a row (a need's title on Home and Ops, a name in Ops' tables): the
+     target grows around the words by its padding, and the row keeps its height by the margin. */
+  .need__title,
+  .ops-link { padding-block: 14px; margin-block: -14px; }
 }
 @media (pointer: coarse) and (max-width: 620px) {
   :root[data-shell="console"] .command-trigger { flex: 0 0 44px; width: 44px; min-width: 44px; }
