@@ -121,14 +121,25 @@ describe("starting and stopping", () => {
       `import { startFakeModel } from ${JSON.stringify(pathToFileURL(fakeModelPath).href)};`,
       "const args = process.argv.slice(2);",
       "const blind = process.env.STUDIO_BLIND === '1';",
-      "const fake = await startFakeModel({ port: Number(args[args.indexOf('-p') + 1]), apiKey: 'sk-unsloth-' + 'v'.repeat(24), vision: !blind, mmprojFallback: blind ? 'mmproj_load_failed' : null });",
+      "const fake = await startFakeModel({ port: Number(args[args.indexOf('-p') + 1]), apiKey: 'sk-unsloth-' + 'v'.repeat(24), vision: !blind, mmprojFallback: blind ? 'mmproj_load_failed' : null, statusLoaded: process.env.STUDIO_LOADING !== '1' });",
       "console.log('API Key: ' + fake.apiKey);",
+      "if (!blind) console.log(JSON.stringify({ level: 'info', event: 'Using mmproj for vision: /var/lib/boxpilot-agents/hf/hub/mmproj-F16.gguf' }));",
     ].join("\n"));
     let blind = "0";
-    const spawn = (_command, args, options) => spawnProcess(process.execPath, [studio, ...args], { ...options, env: { ...options.env, STUDIO_BLIND: blind } });
+    let loading = "0";
+    const spawn = (_command, args, options) => spawnProcess(process.execPath, [studio, ...args], { ...options, env: { ...options.env, STUDIO_BLIND: blind, STUDIO_LOADING: loading } });
     const runtime = make({ spawn, stateDir, runtimeDir: path.join(stateDir, "unsloth") });
     const unsloth = { driver: "unsloth", model: "unsloth/Qwen3.5-4B-GGUF:UD-Q4_K_XL", threads: 4 };
     expect(await runtime.vision()).toBeNull();
+    // What the real Studio did on agents-bench: status answered while the model was still loading
+    // (no model listed) with is_vision false, although it had started llama-server with --mmproj.
+    // That is no answer: nothing is kept, and the image is tried.
+    loading = "1";
+    await runtime.ensure(unsloth);
+    expect(await runtime.vision()).toEqual({ vision: null, reason: "the model server's status named no loaded model yet" });
+    expect(runtime.status().vision).toBeNull();
+    await runtime.stop("test");
+    loading = "0";
     await runtime.ensure(unsloth);
     // A 401 would be "did not say": this answer came with the key the start printed.
     expect(await runtime.vision()).toEqual({ vision: true, reason: null });
