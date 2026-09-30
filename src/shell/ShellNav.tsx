@@ -3,6 +3,7 @@ import { viewLabel, type ViewName } from "../data";
 import { useOptionalFacts } from "../home/facts";
 import { Dock, Sheet, type DockItem } from "../ui";
 import { AreaIcon, MoreIcon } from "./areaIcons";
+import { useApprovalsWaiting } from "./approvalsWaiting";
 import "./look.css";
 
 /*
@@ -32,7 +33,9 @@ export function ViewSwitch({ view, onSelect }: { view: ViewName | null; onSelect
  * in M33.8, when Home and Ops came to show everything it did.
  */
 export const dockAreas: Array<{ id: ViewName; short?: string; priority: 1 | 2 | 3; separatorBefore?: boolean }> = [
-  { id: "updates", short: "Updates", priority: 1 }, { id: "storage", priority: 1 }, { id: "firewall", priority: 2 }, { id: "network", priority: 2 },
+  // Today leads (M25.3): the phone's start page, with the approvals waiting counted on it.
+  { id: "today", priority: 1 },
+  { id: "updates", short: "Updates", priority: 1 }, { id: "storage", priority: 2 }, { id: "firewall", priority: 2 }, { id: "network", priority: 2 },
   { id: "backups", priority: 1 }, { id: "virtualization", short: "VMs", priority: 2 }, { id: "repairs", short: "Repair", priority: 1 }, { id: "logs", priority: 2 },
   { id: "catalog", short: "Apps", priority: 3, separatorBefore: true }, { id: "automations", short: "Automate", priority: 3 }, { id: "agents", priority: 3 }, { id: "services", priority: 3 }, { id: "system", priority: 3 },
   { id: "performance", short: "Metrics", priority: 3 }, { id: "users", short: "Users", priority: 3 }, { id: "github", priority: 3 },
@@ -50,12 +53,15 @@ export function ShellDock({ view, onSelect, variant = "dock" }: { view: ViewName
   const [allOpen, setAllOpen] = useState(false);
   const updates = facts?.updates.value?.count ?? 0;
   const findings = (facts?.repairs.value?.findings ?? []).filter((finding) => finding.severity !== "info").length;
+  // Activity's live count, not the facts': it is there on every page, so the badge always is (M25).
+  const approvals = useApprovalsWaiting();
   const rail = variant === "rail";
+  const badgeOf = (id: ViewName) => (id === "today" && approvals > 0 ? approvals : id === "updates" && updates > 0 ? updates : id === "repairs" && findings > 0 ? findings : undefined);
   const areas: DockItem[] = dockAreas.map(({ id, short, priority, separatorBefore }, index) => ({
     // On the rail a rule sets the areas apart from Ops, which leads them.
     id, short, priority, separatorBefore: separatorBefore || (rail && index === 0), label: viewLabel(id), icon: <AreaIcon view={id} />, current: view === id,
-    badge: id === "updates" && updates > 0 ? updates : id === "repairs" && findings > 0 ? findings : undefined,
-    badgeLabel: id === "repairs" ? "to fix" : "waiting",
+    badge: badgeOf(id),
+    badgeLabel: id === "repairs" ? "to fix" : id === "today" ? "to approve" : "waiting",
   }));
   const more: DockItem = { id: "more", label: "All areas", short: "More", icon: <MoreIcon />, priority: "overflow" };
   const lead: DockItem[] = rail ? [{ id: "ops", label: viewLabel("ops"), icon: <AreaIcon view="ops" />, current: view === "ops", priority: 3 }] : [];
