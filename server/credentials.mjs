@@ -8,8 +8,9 @@
  * root task that performs the request, and everything the interface can list is names and dates.
  */
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename } from "node:fs/promises";
 import path from "node:path";
+import { writeFileDurably } from "./durable-file.mjs";
 
 export const credentialNamePattern = /^[a-z][a-z0-9-]{0,31}$/;
 export const defaultCredentialFile = process.env.BOXPILOT_CREDENTIAL_FILE ?? "/var/lib/boxpilot-managed/credentials.json";
@@ -56,9 +57,10 @@ export function createCredentialStore({ file = defaultCredentialFile, now = () =
     await mkdir(path.dirname(file), { recursive: true, mode: 0o755 });
     // Write-then-rename so a crash mid-write can never leave a truncated store behind. The temp
     // name is unique per write, so two concurrent writers cannot share one temp file and rename
-    // a half-written blend of both over the store.
+    // a half-written blend of both over the store. Synced before the rename, or a power cut can
+    // leave the rename on disk without the data, and an empty store.
     const temp = `${file}.${randomUUID()}.tmp`;
-    await writeFile(temp, JSON.stringify(entries, null, 2), { mode: 0o600 });
+    await writeFileDurably(temp, JSON.stringify(entries, null, 2), { mode: 0o600 });
     await rename(temp, file);
   }
 

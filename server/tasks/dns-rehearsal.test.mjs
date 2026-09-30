@@ -75,16 +75,18 @@ describe("rehearsing this server going down", () => {
 });
 
 describe("the rehearsal task", () => {
-  function runner({ running = "true", fail = {} } = {}) {
+  function runner({ running = "true", fail = {}, stopTimesOut = false } = {}) {
     const calls = [];
-    const box = { up: true };
+    const box = { up: running === "true" };
     const run = async (binary, args) => {
       calls.push([binary.split("/").pop(), ...args].join(" "));
       const verb = `${binary.split("/").pop()} ${args[0]}`;
+      // `docker stop` whose client gave up after the container had stopped: exit 1, app down.
+      if (verb === "docker stop" && stopTimesOut) { box.up = false; return { ok: false, code: 1, stdout: "", stderr: "context deadline exceeded" }; }
       if (fail[verb]) return { ok: false, code: 1, stdout: "", stderr: fail[verb] };
       if (verb === "docker stop") box.up = false;
       if (verb === "docker start") box.up = true;
-      return { ok: true, code: 0, stdout: verb === "docker inspect" ? running : "", stderr: "" };
+      return { ok: true, code: 0, stdout: verb === "docker inspect" ? String(box.up) : "", stderr: "" };
     };
     // The router has a fallback; the app's own address answers only while it runs.
     const ask = async (server) => (server === lanAddress && !box.up ? { answered: false, error: "ECONNREFUSED", ms: 1 } : { answered: true, ms: 5 });
@@ -103,6 +105,18 @@ describe("the rehearsal task", () => {
     expect(calls[armed]).toMatch(/docker start bp-pi-hole$/);
     expect(calls).toContain("docker start bp-pi-hole");
     expect(calls.at(-1)).toMatch(/^systemctl stop boxpilot-dns-rehearsal-[0-9a-f]{8}\.timer$/);
+  });
+
+  it("leaves the safety timer armed when the app is not running at the end, as its error promises", async () => {
+    // The app will not start again: the error says the timer tries once more, so it must still be armed.
+    const wontStart = runner({ fail: { "docker start": "Error response from daemon: driver failed programming external connectivity" } });
+    await expect(dnsFallbackRehearse({ router, lanAddress, app: "pi-hole" }, { run: wontStart.run, ask: wontStart.ask, sleep: async () => {} })).rejects.toThrow(/did not start again. The safety timer tries once more/);
+    expect(wontStart.calls.some((call) => /^systemctl stop .*\.timer$/.test(call))).toBe(false);
+
+    // `docker stop` gave up after the container had stopped: nothing started it, so the timer must.
+    const stopTimedOut = runner({ stopTimesOut: true });
+    await expect(dnsFallbackRehearse({ router, lanAddress, app: "pi-hole" }, { run: stopTimedOut.run, ask: stopTimedOut.ask, sleep: async () => {} })).rejects.toThrow(/Could not stop Pi-hole/);
+    expect(stopTimedOut.calls.some((call) => /^systemctl stop .*\.timer$/.test(call))).toBe(false);
   });
 
   it("refuses, having stopped nothing, when the app is not running or the timer cannot be set", async () => {
