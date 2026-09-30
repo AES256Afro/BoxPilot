@@ -149,6 +149,9 @@ export function createPushApprovals({
   fetcher = fetch,
   subjectOf = () => null,
   mayApprove = defaultMayApprove,
+  // Who runs this server, for the push services (VAPID's `sub`): BoxPilot's own https address unless
+  // a mailto: or https: contact is given (BOXPILOT_PUSH_CONTACT), for a push service that refuses it.
+  contact = null,
   now = () => new Date(),
   limits = pushLimits,
   timers = { setInterval: globalThis.setInterval, clearInterval: globalThis.clearInterval, setTimeout: globalThis.setTimeout },
@@ -225,10 +228,13 @@ export function createPushApprovals({
       // A device subscribed under a key since replaced (a restore) cannot be reached with this one.
       if (entry.vapidKey && entry.vapidKey !== vapidKeys.publicKey) { status = 410; reason = "subscribed with an older key"; }
       else {
-        const { url, options } = pushRequest({ subscription: entry, payload: webPushPayload({ ...message, url: message.url ?? null }), vapid: vapidKeys, subject: entry.origin ?? openAt() ?? "mailto:boxpilot@example.com", topic, now: now().getTime() });
+        const subject = (typeof contact === "string" && /^(mailto:[^\s@]+@[^\s@]+\.[^\s@]+|https:\/\/\S+)$/.test(contact) ? contact : null) ?? entry.origin ?? openAt() ?? "mailto:boxpilot@example.com";
+        const { url, options } = pushRequest({ subscription: entry, payload: webPushPayload({ ...message, url: message.url ?? null }), vapid: vapidKeys, subject, topic, now: now().getTime() });
         const response = await fetcher(url, { ...options, redirect: "error", signal: AbortSignal.timeout(15_000) });
         status = response.status;
         if (!response.ok) reason = (await response.text().catch(() => "")).slice(0, 120);
+        // Apple refuses a contact it will not accept (a name with no real domain, for one) this way.
+        if (/BadJwtToken/.test(reason)) reason = `BadJwtToken: the push service refused the contact ${subject}; set BOXPILOT_PUSH_CONTACT to a mailto: address`;
       }
     } catch (error) {
       reason = error?.message ?? "could not reach the push service";
@@ -237,7 +243,7 @@ export function createPushApprovals({
     const gone = status === 404 || status === 410 || (status === 403 && /VapidPkHashMismatch/i.test(reason));
     const entries = subscriptions();
     const next = gone ? entries.filter((candidate) => candidate.id !== entry.id)
-      : entries.map((candidate) => (candidate.id === entry.id ? { ...candidate, ...(ok ? { lastSentAt: now().toISOString(), lastError: null } : { lastError: `${status || "no answer"}${reason ? `: ${reason}` : ""}`.slice(0, 160) }) } : candidate));
+      : entries.map((candidate) => (candidate.id === entry.id ? { ...candidate, ...(ok ? { lastSentAt: now().toISOString(), lastError: null } : { lastError: `${status || "no answer"}${reason ? `: ${reason}` : ""}`.slice(0, 240) }) } : candidate));
     saveSubscriptions(next);
     return { ok, gone, status };
   }

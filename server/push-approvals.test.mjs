@@ -44,16 +44,16 @@ function memoryStore({ people = [{ id: "owner-1", username: "alex", role: "owner
 }
 
 /** The service with a stand-in network: every request it makes, and the answer each push service gives. */
-function harness({ store = memoryStore(), answer = () => 201, target = null, settings = null } = {}) {
+function harness({ store = memoryStore(), answer = () => 201, body = () => null, target = null, settings = null, contact = null } = {}) {
   let time = start;
   const requests = [];
   const notifications = {
     getTarget: () => target,
     send: async (message) => { const { url, options } = buildRequest(target, message); requests.push({ kind: "target", url, options }); return { sent: true }; },
   };
-  const fetcher = async (url, options) => { requests.push({ kind: "push", url, options }); return new Response(null, { status: answer(url) }); };
+  const fetcher = async (url, options) => { requests.push({ kind: "push", url, options }); return new Response(body(url), { status: answer(url) }); };
   const history = createNotificationHistory({ store, now: () => new Date(time) });
-  const push = createPushApprovals({ store, notifications, history, loadVapid: () => vapid, fetcher, now: () => new Date(time), subjectOf: (job) => (job.parameters?.id === "jellyfin" ? "Jellyfin" : null) });
+  const push = createPushApprovals({ store, notifications, history, loadVapid: () => vapid, fetcher, now: () => new Date(time), contact, subjectOf: (job) => (job.parameters?.id === "jellyfin" ? "Jellyfin" : null) });
   if (settings) push.saveSettings(settings, { actorId: "owner-1", origin });
   const phones = {};
   const addPhone = (accountId = "owner-1", role = "owner") => {
@@ -293,6 +293,26 @@ describe("which channel", () => {
     const outcome = await test.push.sweep();
     expect(outcome.target).toBe("sent");
     expect(test.push.devicesOf("owner-1")).toEqual([]);
+  });
+
+  it("signs as BoxPilot's own address, or the contact it is given, and says so when Apple refuses it", async () => {
+    const claimsOf = (request) => JSON.parse(Buffer.from(/t=[^.]+\.([^.]+)\./.exec(request.options.headers.Authorization)[1], "base64url"));
+    const own = harness();
+    own.addPhone();
+    own.store.stage();
+    own.at(3 * minute);
+    await own.push.sweep();
+    expect(claimsOf(own.requests[0])).toMatchObject({ aud: "https://web.push.apple.com", sub: origin });
+
+    const refused = harness({ contact: "mailto:owner@example.com", answer: () => 403, body: () => JSON.stringify({ reason: "BadJwtToken" }) });
+    refused.addPhone();
+    refused.store.stage();
+    refused.at(3 * minute);
+    await refused.push.sweep();
+    expect(claimsOf(refused.requests[0]).sub).toBe("mailto:owner@example.com");
+    const [device] = refused.push.devicesOf("owner-1");
+    expect(device.lastError).toContain("refused the contact mailto:owner@example.com");
+    expect(device.lastError).toContain("BOXPILOT_PUSH_CONTACT");
   });
 
   it("uses no channel at all with ntfy turned off and no phone, and records that nothing arrived", async () => {
