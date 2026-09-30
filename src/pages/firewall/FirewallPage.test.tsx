@@ -125,6 +125,20 @@ describe("Firewall page", () => {
     await waitFor(() => expect(staged["firewall.profile.apply"]).toEqual({ parameters: { profile: "home-server", services: ["dns"], replace: false, sshRateLimit: true } }));
   });
 
+  it("says why the plan could not be built in the sheet, where the owner is, not on the page under it", async () => {
+    const fetchMock = mockFetch(overview());
+    const answer = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => (input.toString().startsWith("/api/v1/firewall/plan?") ? json({ error: "ufw is not installed" }, 409) : answer(input, init)));
+    render(<FirewallPage csrfToken="csrf" now={now} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Choose a profile…" }));
+    const sheet = await screen.findByRole("dialog", { name: "Choose a firewall profile" });
+    fireEvent.click(within(sheet).getByRole("button", { name: "Review and apply" }));
+    expect(await within(sheet).findByText("ufw is not installed")).toBeTruthy();
+    expect(within(sheet).getByRole("alert")).toBeTruthy();
+    // Said once: not again on the page the sheet covers.
+    expect(screen.getAllByText("ufw is not installed")).toHaveLength(1);
+  });
+
   it("drops the services for a profile that opens nothing, and moves between profiles with the arrow keys", async () => {
     const staged: Record<string, unknown> = {};
     mockFetch(overview({ current: { id: "home-server", services: ["web"], sshRateLimit: false, appliedAt: "2026-08-21T15:00:00.000Z" } }), staged);
