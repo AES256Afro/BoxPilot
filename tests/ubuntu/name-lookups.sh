@@ -41,6 +41,7 @@ check() { # check <what> <command...>
 }
 contains() { case "$1" in *"$2"*) return 0 ;; *) return 1 ;; esac; }
 field() { "$NODE" -p "const value = JSON.parse(process.argv[1]); String(value.${1})" "$2"; }
+json() { "$NODE" -p "JSON.stringify(JSON.parse(process.argv[1]).${1})" "$2"; }
 # Repair's reading, made as the web service makes it: as an unprivileged user.
 inspect() { OUT="$(runuser -u nobody -- "$NODE" /opt/boxpilot/tests/name-lookups.mjs inspect /opt/boxpilot/server 2>&1 | tail -n 1)"; }
 restore() { OUT="$("$NODE" /opt/boxpilot/tests/name-lookups.mjs restore /opt/boxpilot/server 2>&1 | tail -n 1)"; }
@@ -96,7 +97,7 @@ note "$(grep nameserver /etc/resolv.conf)"
 check "getent hosts github.com fails, as curl and Docker did" bash -c '! timeout 20 getent hosts github.com >/dev/null'
 check "while resolvectl query still answers" resolvectl query github.com
 inspect
-note "verdict: $(field 'JSON.stringify(verdict)' "$OUT")"
+note "verdict: $(json verdict "$OUT")"
 check "Repair calls it the owner's case" [ "$(field verdict.kind "$OUT")" = repoint ]
 check "and says Tailscale wrote the file" [ "$(field verdict.tailscaleWrote "$OUT")" = true ]
 check "with the finding the owner needed" [ "$(field finding.title "$OUT")" = "homebox cannot look up website names, so updates and app downloads fail" ]
@@ -138,7 +139,7 @@ note "result: ${OUT}"
 check "the task refuses" contains "$(field error "$OUT")" "systemd-resolved is not running"
 check "and changes nothing" bash -c '[ ! -L /etc/resolv.conf ] && cmp -s /etc/resolv.conf "$1"' _ "${WORK}/tailscale.conf"
 inspect
-note "verdict: $(field 'JSON.stringify(verdict)' "$OUT")"
+note "verdict: $(json verdict "$OUT")"
 check "Repair still says names fail" [ "$(field finding.id "$OUT")" = name-lookups ]
 check "because there is no systemd-resolved to point at" [ "$(field verdict.kind "$OUT")" = no-resolved ]
 check "without offering the fix" [ "$(field 'finding.fixes.length' "$OUT")" = 0 ]

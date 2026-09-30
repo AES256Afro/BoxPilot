@@ -37,10 +37,10 @@ if (step === "detect") {
   out({ source: partition?.source ?? null, events: (unclean.events ?? []).filter((event) => event.device === partition?.source), finding: found });
 } else if (step === "fsck") {
   const [serverDir, device] = [first, second];
-  const { parseFsckFat } = await import(`${serverDir}/tasks/boot-partition.mjs`);
+  const { fsckOutput, parseFsckFat } = await import(`${serverDir}/tasks/boot-partition.mjs`);
   const { fixedRun } = await import(`${serverDir}/exec.mjs`);
   const result = await fixedRun("/usr/sbin/fsck.fat", ["-n", device], { timeout: 120_000 });
-  const text = `${result.stdout}\n${result.stderr}`;
+  const text = fsckOutput(result);
   process.stderr.write(`${text}\n`);
   out({ code: result.code, ...parseFsckFat(text) });
 } else if (step === "clear") {

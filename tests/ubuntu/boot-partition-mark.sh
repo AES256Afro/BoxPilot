@@ -62,8 +62,8 @@ cleanup() {
 }
 trap cleanup EXIT
 
-section "Prepare: $(uname -r), $(fsck.fat --version 2>&1 | head -n 1)"
 command -v mkfs.fat >/dev/null || { apt-get update -qq && apt-get install -y -qq dosfstools >/dev/null; }
+section "Prepare: $(uname -r), dosfstools $(dpkg-query -W -f='${Version}' dosfstools 2>/dev/null)"
 truncate -s 128M "${WORK}/esp.img"
 mkfs.fat -F 32 -s 1 -n ESP "${WORK}/esp.img" >/dev/null
 DEV="$(losetup --find --show "${WORK}/esp.img")"

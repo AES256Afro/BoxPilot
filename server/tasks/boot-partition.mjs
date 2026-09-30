@@ -41,6 +41,8 @@ const binaries = {
 /** Programs that write to the boot partition in the course of their work. */
 export const bootWriters = Object.freeze(["dpkg", "apt", "apt-get", "aptitude", "unattended-upgr", "grub-install", "update-grub", "bootctl", "kernel-install", "fwupdmgr", "fwupdtool", "shim-install"]);
 const tail = (text) => String(text ?? "").split("\n").map((line) => line.trim()).filter(Boolean).slice(-4).join(" / ");
+/** What fsck.fat printed: its stdout and stderr, without the "Command failed" fixedRun puts in an empty stderr. */
+export const fsckOutput = (result) => [result?.stdout, /^Command failed: /.test(String(result?.stderr ?? "").trim()) ? "" : result?.stderr].filter(Boolean).join("\n");
 
 /**
  * What `fsck.fat -n` said, and whether the not-properly-unmounted mark is all of it.
@@ -51,7 +53,9 @@ const tail = (text) => String(text ?? "").split("\n").map((line) => line.trim())
  * - a free-space count that is off, a lost cluster, a bad directory entry - is more than the mark.
  */
 export function parseFsckFat(output) {
-  const lines = String(output ?? "").split("\n").map((line) => line.trim()).filter(Boolean);
+  // fixedRun puts Node's own "Command failed: <command>" where stderr was empty, and fsck.fat -n
+  // exits 1 whenever it would change something: that is not fsck.fat speaking.
+  const lines = String(output ?? "").split("\n").map((line) => line.trim()).filter((line) => line && !/^Command failed: /.test(line));
   let dirty = false;
   let backupDiffers = false;
   let inDifferences = false;
@@ -70,7 +74,8 @@ export function parseFsckFat(output) {
       continue;
     }
     inDifferences = false;
-    if (/^(Automatically removing dirty bit|Not automatically fixing this|Leaving filesystem unchanged|Performing changes|Checking we can access the last sector of the filesystem)\.?$/i.test(line)) continue;
+    // What it would do about each thing it found, not a finding of its own.
+    if (/^(Automatically removing dirty bit|Not automatically fixing this|Auto-correcting|Leaving filesystem unchanged|Performing changes|Checking we can access the last sector of the filesystem)\.?$/i.test(line)) continue;
     other.push(line);
   }
   const backupIsTheMark = backupDiffers && differences.length > 0 && differences.every((entry) => entry.offset === 65 && (entry.original & 1) === 1 && (entry.original ^ entry.backup) === 1);
@@ -136,8 +141,8 @@ export async function clearBootPartitionMark(_parameters = {}, { run = fixedRun,
     // 3. Read it, writing nothing.
     say(`$ fsck.fat -n ${device}`);
     const first = await run(binaries.fsckFat, ["-n", device], { timeout: 5 * 60_000 });
-    const before = parseFsckFat(`${first.stdout}\n${first.stderr}`);
-    for (const line of `${first.stdout}\n${first.stderr}`.split("\n").filter((entry) => entry.trim())) say(`  ${line.trim()}`);
+    const before = parseFsckFat(fsckOutput(first));
+    for (const line of fsckOutput(first).split("\n").filter((entry) => entry.trim())) say(`  ${line.trim()}`);
     if (first.code !== 0 && first.code !== 1) throw new Error(`fsck.fat could not read ${device} (exit ${first.code ?? "?"}): ${tail(`${first.stdout}\n${first.stderr}`)}`);
     if (before.clean) {
       say(`${device} is clean: the mark is not set, so there is nothing to clear`);
@@ -149,12 +154,12 @@ export async function clearBootPartitionMark(_parameters = {}, { run = fixedRun,
       // 4. Clear it, and read it again: nothing may be left.
       say(`$ fsck.fat -a ${device}`);
       const repaired = await run(binaries.fsckFat, ["-a", device], { timeout: 5 * 60_000 });
-      for (const line of `${repaired.stdout}\n${repaired.stderr}`.split("\n").filter((entry) => entry.trim())) say(`  ${line.trim()}`);
+      for (const line of fsckOutput(repaired).split("\n").filter((entry) => entry.trim())) say(`  ${line.trim()}`);
       if (repaired.code !== 0 && repaired.code !== 1) throw new Error(`fsck.fat -a failed on ${device} (exit ${repaired.code ?? "?"}): ${tail(`${repaired.stdout}\n${repaired.stderr}`)}`);
       say(`$ fsck.fat -n ${device}`);
       const second = await run(binaries.fsckFat, ["-n", device], { timeout: 5 * 60_000 });
-      const after = parseFsckFat(`${second.stdout}\n${second.stderr}`);
-      if (second.code !== 0 || !after.clean) throw new Error(`The mark is still there after fsck.fat -a (exit ${second.code ?? "?"}): ${tail(`${second.stdout}\n${second.stderr}`)}`);
+      const after = parseFsckFat(fsckOutput(second));
+      if (second.code !== 0 || !after.clean) throw new Error(`The mark is still there after fsck.fat -a (exit ${second.code ?? "?"}): ${tail(fsckOutput(second))}`);
       say(`Cleared the mark on ${device}; the check found nothing else`);
       outcome = { cleared: true, alreadyClean: false, clean: true, summary: after.summary ?? before.summary };
     }
