@@ -227,6 +227,36 @@ describe("App catalog: installing", () => {
     expect(JSON.parse(stagedBody ?? "{}")).toEqual({ parameters: { id: "jellyfin", values: { ports: { web: 8097 }, env: {}, volumes: { media: "/mnt/media" } } } });
   });
 
+  it("opens the app on the Installed tab once its install has finished, rather than leaving it to vanish from the list", async () => {
+    let installed = false;
+    serve(catalogOf([{ manifest, live: absent("jellyfin") }]), (url) => {
+      if (url.endsWith("/catalog/jellyfin/precheck")) return json({ ok: true, errors: [], conflicts: [] });
+      if (url.endsWith("/operations/app.install/jobs")) return stagedJob("app.install");
+      if (url.endsWith("/jobs/job-app.install/approve")) return json({ job: { id: "job-app.install", state: "applying" }, elevatedUntil: null }, 202);
+      if (url.endsWith("/jobs/job-app.install")) { installed = true; return json({ job: { id: "job-app.install", type: "op:app.install", title: "Install Jellyfin", state: "completed", risk: "medium", error: null, result: {}, steps: [], approvals: [] } }); }
+      if (url === "/api/v1/catalog" && installed) return json(catalogOf([{ manifest, live: running("jellyfin") }]));
+      return undefined;
+    });
+    render(<CatalogPage csrfToken="csrf-token" />);
+    const sheet = await openInstall("Jellyfin");
+    fireEvent.click(within(sheet).getByRole("button", { name: "Continue to install" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm and run" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Close" }, { timeout: 4000 }));
+    expect(await screen.findByRole("dialog", { name: "Jellyfin" })).toBeTruthy();
+    expect(new URLSearchParams(window.location.search).get("tab")).not.toBe("browse");
+    expect(screen.getByRole("tab", { name: /Installed|On this server/ }).getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("goes back to the app's sheet when an action started there is approved or cancelled", async () => {
+    serve(catalogOf([{ manifest, live: running("jellyfin") }]), (url) => (url.includes("/jobs") ? stagedJob("app.action") : undefined));
+    render(<CatalogPage csrfToken="csrf-token" />);
+    const sheet = await openApp("Jellyfin");
+    fireEvent.click(within(sheet).getByRole("button", { name: /^Restart/ }));
+    expect(screen.queryByRole("dialog", { name: "Jellyfin" })).toBeNull();
+    fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
+    expect(await screen.findByRole("dialog", { name: "Jellyfin" })).toBeTruthy();
+  });
+
   it("says what the precheck found, and stages nothing", async () => {
     const staged = vi.fn();
     serve(catalogOf([{ manifest, live: absent("jellyfin") }]), (url) => {
