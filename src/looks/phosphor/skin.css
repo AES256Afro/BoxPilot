@@ -68,7 +68,6 @@
 :root[data-look="phosphor"] .ui-theme-switch { display: none; }
 /* The bar's own controls keep their room; the search and the page's name give way first. */
 :root[data-look="phosphor"] .topbar-right { flex-shrink: 0; }
-:root[data-look="phosphor"] .command-trigger { min-width: 36px; }
 
 /* ── The glass: the green-black screen, the glow on every letter, the scanlines over it all ── */
 :root[data-look="phosphor"] body,
@@ -119,38 +118,99 @@
   :root[data-look="phosphor"] .shell-dock--rail .ui-dock__label { border: 1px solid var(--ph-g); border-radius: 0; color: var(--ph-ink); background: var(--ph-g); font: 400 19px/1.1 var(--font-mono); text-shadow: none; text-transform: lowercase; }
 }
 
-/* ── The top bar: the terminal's first line ── */
+/* ── The top bar: the terminal's first line ──
+   "[HOMEBOX] Ubuntu 24.04.3 LTS :: up 19d 04h" at its start, "boxpilot 1.154.0 :: 13:05" at its end
+   (the look's bar, src/looks/phosphor/Bar.tsx), and between them the bar's controls written as the
+   keys that press them, "(/)search" and "(a)ctivity", as Home writes its fixes. The account menu
+   holds the rest: notifications, Settings, Sign out. One size for the whole line, Home's. */
 :root[data-look="phosphor"] .topbar {
   min-height: 46px;
+  gap: 2ch;
   padding-right: 28px;
   padding-left: 24px;
   border-bottom: 1px dashed var(--ph-faint);
   background: #031509;
   backdrop-filter: none;
+  font-size: clamp(17px, 1.62vw, 26px);
+  font-size-adjust: none;
+  line-height: 1.12;
 }
 :root[data-look="phosphor"] .app-shell[data-view="home"] .topbar { min-height: 50px; border-bottom-color: transparent; background: transparent; }
-:root[data-look="phosphor"] .cc-crumb { align-items: center; }
-:root[data-look="phosphor"] .cc-crumb__host { padding: 0 0.4ch; color: var(--ph-ink); background: var(--ph-g); font-size: 16px; font-weight: 400; text-shadow: none; text-transform: uppercase; }
-:root[data-look="phosphor"] .cc-crumb__sep { color: var(--ph-dim); font-size: 16px; }
-:root[data-look="phosphor"] .cc-crumb h1 { color: var(--ph-g); font-size: 16px; font-weight: 400; }
-:root[data-look="phosphor"] .cc-kv { color: var(--ph-dim); font-size: 13px; }
+:root[data-look="phosphor"] .topbar :is(button, a, span, h1, b, time) { font-size-adjust: none; }
+:root[data-look="phosphor"] .topbar-left { gap: 2ch; }
+:root[data-look="phosphor"] .cc-crumb { align-items: center; gap: 1ch; }
+:root[data-look="phosphor"] .cc-crumb__host { padding: 0 0.4ch; color: var(--ph-ink); background: var(--ph-g); font-size: 1em; font-weight: 400; text-shadow: none; text-transform: uppercase; }
+:root[data-look="phosphor"] .cc-crumb__sep { color: var(--ph-dim); font-size: 1em; }
+:root[data-look="phosphor"] .cc-crumb h1 { color: var(--ph-g); font-size: 1em; font-weight: 400; }
+:root[data-look="phosphor"] .cc-kv { color: var(--ph-dim); font-size: 0.8em; }
 :root[data-look="phosphor"] .cc-kv b { color: var(--ph-g); font-weight: 400; }
-:root[data-look="phosphor"] .view-switch { gap: 0.5ch; padding: 0; border: 0; border-radius: 0; background: transparent; backdrop-filter: none; }
-:root[data-look="phosphor"] .view-switch__option { min-height: 26px; padding: 0 0.6ch; border: 0; border-radius: 0; color: var(--ph-g); font-size: 14px; font-weight: 400; text-transform: lowercase; }
+:root[data-look="phosphor"] .view-switch { gap: 1ch; padding: 0; border: 0; border-radius: 0; background: transparent; backdrop-filter: none; }
+:root[data-look="phosphor"] .view-switch__option { min-height: 0; padding: 0 0.4ch; border: 0; border-radius: 0; color: var(--ph-g); font-size: 1em; font-weight: 400; line-height: 1.12; text-transform: lowercase; }
 :root[data-look="phosphor"] .view-switch__option svg { display: none; }
 :root[data-look="phosphor"] .view-switch__option[aria-current="page"] { color: var(--ph-ink); background: var(--ph-g); text-shadow: none; }
-:root[data-look="phosphor"] .command-trigger { min-height: 28px; border: 1px dashed var(--ph-faint); border-radius: 0; color: var(--ph-dim); background: transparent; backdrop-filter: none; font-size: 14px; text-transform: lowercase; }
-:root[data-look="phosphor"] .command-trigger:hover { color: var(--ph-g); border-style: solid; }
-:root[data-look="phosphor"] .command-trigger__keys { border: 0; border-radius: 0; color: var(--ph-ink); background: var(--ph-g); font-size: 12px; text-shadow: none; }
-:root[data-look="phosphor"] .connection-pill { border: 0; border-radius: 0; color: var(--ph-dim); background: transparent; font-size: 12px; }
+
+/* A key written as the drawing writes one: "(/)search", the key in brackets and underlined. The words
+   each control is read by stay in it, out of sight, at their size; the key is drawn in their place. */
+:root[data-look="phosphor"] :is(.command-trigger, .bar-activity) {
+  position: relative;
+  flex: none;
+  width: auto;
+  min-width: 0;
+  max-width: none;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  backdrop-filter: none;
+  font-size: 1em;
+  line-height: 1.12;
+  text-shadow: none;
+  cursor: pointer;
+}
+:root[data-look="phosphor"] .command-trigger :is(.command-trigger__icon, .command-trigger__keys) { display: none; }
+:root[data-look="phosphor"] .command-trigger__label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+:root[data-look="phosphor"] :is(.command-trigger, .bar-activity)::before {
+  display: inline-block;
+  color: var(--ph-g);
+  /* The key's underline, under the second character of a monospace word. */
+  background: linear-gradient(currentColor, currentColor) 1ch calc(100% - 0.05em) / 1ch 0.1em no-repeat;
+  font-size: 1em;
+  line-height: 1.12;
+  text-shadow: 0 0 0.35em var(--ph-glow);
+  white-space: pre;
+}
+:root[data-look="phosphor"] .command-trigger::before { content: "(/)search"; }
+/* Activity's word, "activity", sits under its key, "(a)ctivity", which is two letters longer. */
+:root[data-look="phosphor"] .bar-button.bar-activity { padding: 0 0 0 2ch; color: transparent; background: none; font-size: 1em; }
+:root[data-look="phosphor"] .bar-activity::before { position: absolute; top: 0; left: 0; content: "(a)ctivity"; }
+:root[data-look="phosphor"] :is(.command-trigger, .bar-activity):hover::before,
+:root[data-look="phosphor"] .bar-activity[aria-expanded="true"]::before { color: var(--ph-ink); background-color: var(--ph-g); text-shadow: none; }
+:root[data-look="phosphor"] .bar-activity .bar-badge { margin-left: 0.5ch; font-size: 14px; }
+:root[data-look="phosphor"] .connection-pill { border: 0; border-radius: 0; color: var(--ph-dim); background: transparent; font-size: 0.6em; }
 :root[data-look="phosphor"] .connection-pill::before { border-radius: 0; background: var(--ph-g); }
-:root[data-look="phosphor"] .bar-button { color: var(--ph-g); font-size: 14px; text-transform: lowercase; }
+:root[data-look="phosphor"] .topbar-right { gap: 2ch; }
+:root[data-look="phosphor"] .bar-button { min-height: 0; padding: 0 0.2ch; color: var(--ph-g); font-size: 1em; text-transform: lowercase; }
 :root[data-look="phosphor"] .bar-button:hover,
 :root[data-look="phosphor"] .bar-button[aria-expanded="true"] { color: var(--ph-ink); background: var(--ph-g); text-shadow: none; }
 :root[data-look="phosphor"] .bar-badge { border-radius: 0; color: var(--ph-ink); background: var(--ph-g); text-shadow: none; }
-:root[data-look="phosphor"] .bar-label { border: 1px dashed var(--ph-faint); border-radius: 0; color: var(--ph-dim); }
-:root[data-look="phosphor"] .signed-in-user { color: var(--ph-g); font-size: 13px; }
-:root[data-look="phosphor"] .signed-in-user__avatar { border-radius: 0; color: var(--ph-ink); background: var(--ph-g); text-shadow: none; }
+:root[data-look="phosphor"] .bar-button.bar-activity:is(:hover, [aria-expanded="true"]) { color: transparent; background: none; }
+:root[data-look="phosphor"] .bar-label { border: 1px dashed var(--ph-faint); border-radius: 0; color: var(--ph-dim); font-size: 0.6em; }
+/* The account menu stands in for the person, their role, the tiers note and Sign out; the elevated
+   session's lock stays, since it says something is unlocked. */
+:root[data-look="phosphor"] :is(.signed-in-user, .bar-sign-out, .bar-tiers, .bar-role) { display: none; }
+:root[data-look="phosphor"] .account-menu { display: flex; }
+:root[data-look="phosphor"] .account-menu__button { width: auto; height: auto; border-radius: 0; }
+:root[data-look="phosphor"] .account-menu__avatar { width: auto; height: auto; padding: 0 0.5ch; border-radius: 0; color: var(--ph-ink); background: var(--ph-g); font: 400 1em/1.12 var(--font-mono); font-size-adjust: none; text-shadow: none; }
+:root[data-look="phosphor"] .account-menu__button[aria-expanded="true"] .account-menu__avatar { box-shadow: 0 0 0 2px #031509, 0 0 0 3px var(--ph-g); }
+:root[data-look="phosphor"] .account-menu__list { border: 1px solid var(--ph-g); border-radius: 0; background: #031509; box-shadow: 0 0 0 4px #031509, 0 0 20px rgba(98, 255, 150, 0.18); font-size: 20px; }
+:root[data-look="phosphor"] .account-menu__who { border-bottom: 1px dashed var(--ph-faint); color: var(--ph-dim); font-size: 0.8em; }
+:root[data-look="phosphor"] .account-menu__group { border-color: var(--ph-faint); border-style: dashed; }
+:root[data-look="phosphor"] .account-menu__item { border-radius: 0; color: var(--ph-g); font-size: 1em; text-transform: lowercase; }
+:root[data-look="phosphor"] :is(.account-menu__item:hover, .account-menu__item:focus-visible, .account-menu__item--choice[aria-checked="true"]) { color: var(--ph-ink); background: var(--ph-g); text-shadow: none; }
+:root[data-look="phosphor"] .account-menu__item--out { color: var(--ph-g); }
+/* The version and the time, at the far end of the line. */
+:root[data-look="phosphor"] .phosphor-topline { flex: none; order: 9; color: var(--ph-dim); font-size: 1em; white-space: pre; }
 
 /* ── Pages: sections under a dashed rule, words in green, figures in green ── */
 :root[data-look="phosphor"] .content { padding-left: 24px; padding-right: 28px; }
@@ -272,7 +332,9 @@
 /* ── A phone: the dock is a row of keys along the foot of the glass ── */
 @media (max-width: 760px) {
   :root[data-look="phosphor"] .content { padding: 10px 14px calc(var(--shell-bottom-inset, 0px) + 104px); }
-  :root[data-look="phosphor"] .topbar { padding: 8px 12px; }
+  :root[data-look="phosphor"] .topbar { gap: 6px 2ch; padding: 8px 12px; font-size: 19px; }
+  :root[data-look="phosphor"] .topbar-right { gap: 1.5ch; }
+  :root[data-look="phosphor"] .phosphor-topline { display: none; }
   :root[data-look="phosphor"] .ui-dock.shell-dock ul { border: 1px solid var(--ph-g); border-radius: 0; background: #031509; box-shadow: 0 0 20px rgba(98, 255, 150, 0.15); backdrop-filter: none; }
   :root[data-look="phosphor"] .shell-dock .ui-dock__icon { border: 0; border-radius: 0; color: var(--ph-g); background: transparent; }
   :root[data-look="phosphor"] .shell-dock .ui-dock__item[aria-current="page"] .ui-dock__icon { border: 0; color: var(--ph-ink); background: var(--ph-g); }
