@@ -3172,7 +3172,7 @@ body {
 /* Tables: mono figures and names, small-capital headings, a coloured word for each state. */
 :root[data-shell="console"] .ui-table { font-size: 13px; }
 :root[data-shell="console"] .ui-table th { height: 30px; padding: 0 7px; border-bottom-color: var(--cc-line); color: var(--cc-muted); background: var(--cc-panel); font-family: var(--font-mono); font-size: 10.5px; font-weight: 600; letter-spacing: 0.07em; }
-:root[data-shell="console"] .ui-table td { height: 30px; padding: 0 7px; border-bottom-color: var(--cc-hairline); color: var(--cc-text); font-family: var(--font-mono); font-size: 12.5px; }
+:root[data-shell="console"] .ui-table td { height: 30px; padding: 4px 7px; border-bottom-color: var(--cc-hairline); color: var(--cc-text); font-family: var(--font-mono); font-size: 12.5px; }
 :root[data-shell="console"] .ui-table :is(th, td):first-child { padding-left: 11px; }
 :root[data-shell="console"] .ui-table :is(th, td):last-child { padding-right: 11px; }
 :root[data-shell="console"] .ui-table tbody tr:hover td { background: var(--cc-raised); }

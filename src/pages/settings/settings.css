@@ -113,7 +113,9 @@
 .settings-swatches { display: flex; gap: 8px; }
 .settings-swatch { width: 24px; height: 24px; padding: 0; border: 0; border-radius: 50%; cursor: pointer; }
 .settings-wallpaper { width: 46px; height: 28px; padding: 0; border: 0; border-radius: 6px; cursor: pointer; }
-.settings-swatch[aria-checked="true"], .settings-wallpaper[aria-checked="true"] { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--text-strong); }
+/* A hairline edge, so a swatch the colour of the panel behind it (E-Ink's paper, Quest's night) still shows. */
+.settings-swatch, .settings-wallpaper { box-shadow: inset 0 0 0 1px rgba(127, 127, 127, 0.5); }
+.settings-swatch[aria-checked="true"], .settings-wallpaper[aria-checked="true"] { box-shadow: inset 0 0 0 1px rgba(127, 127, 127, 0.5), 0 0 0 2px var(--surface), 0 0 0 4px var(--text-strong); }
 .settings-swatch:focus-visible, .settings-wallpaper:focus-visible { outline: 2px solid var(--accent); outline-offset: 5px; }
 
 @media (max-width: 1100px) {
