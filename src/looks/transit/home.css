@@ -1,0 +1,126 @@
+/*
+ * Home as a transit map (M41): the study's M.transit, sized in its em (a 74th of the screen's
+ * width, 19.46 px at 1440). Off-white paper and Overpass for the map; the navy line status board
+ * at the right. Every selector starts with .transit-.
+ */
+
+.transit-home {
+  --tm-p: #f7f7f3;
+  --tm-k: #1d1d1f;
+  --tm-board: #13233f;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 21em;
+  min-height: calc(100vh - var(--transit-chrome, 46px) - var(--shell-bottom-inset, 0px));
+  color: var(--tm-k);
+  background: var(--tm-p);
+  font-family: "Overpass", "Helvetica Neue", Arial, sans-serif;
+  font-size: clamp(12px, calc(100vw / 74), 22px);
+  line-height: 1.3;
+}
+
+.transit-home :is(h2, h3, p) { margin: 0; }
+.transit-home button { font-family: inherit; }
+
+/* ── The map ── */
+.transit-map { display: grid; grid-template-rows: auto minmax(0, 1fr); min-width: 0; padding: 1.3em 1.2em 0.6em 1.6em; }
+.transit-map__title { font: 800 1.9em/1 "Overpass", sans-serif; letter-spacing: -0.01em; }
+.transit-map__lead { margin-top: 0.3em; color: #4a4a4f; font-size: 0.8em; }
+.transit-map__svg { display: block; width: 100%; height: 100%; min-height: 20em; overflow: visible; font-family: "Overpass", Arial, sans-serif; }
+.transit-map__svg text { fill: var(--tm-k); font-size: 10.5px; font-weight: 600; }
+.transit-hub { font-weight: 800; letter-spacing: 2px; }
+.transit-map__svg .transit-hub { font-weight: 800; }
+.transit-legend text { font-size: 10px; font-weight: 400; }
+.transit-map__svg .transit-legend text { font-size: 10px; font-weight: 400; }
+.transit-stop { cursor: pointer; outline: none; }
+.transit-stop__ring { fill: none; stroke: var(--tm-k); stroke-width: 2px; opacity: 0; }
+.transit-stop:hover text { text-decoration: underline; }
+.transit-stop:focus-visible .transit-stop__ring { opacity: 1; }
+.transit-stop:focus-visible text { text-decoration: underline; }
+
+/* ── The line status board ── */
+/* On a wide screen the board stands the full height of the window at its right edge, as a sign
+   does; the bar leaves it the room (src/looks/transit/skin.css). */
+@media (min-width: 1101px) {
+  .transit-board { position: fixed; z-index: 11; top: 0; right: 0; bottom: var(--shell-bottom-inset, 0px); width: 21em; }
+}
+.transit-board {
+  display: grid;
+  align-content: start;
+  gap: 0.5em;
+  min-width: 0;
+  padding: 1.3em 1.2em;
+  overflow-y: auto;
+  color: #ffffff;
+  background: var(--tm-board);
+}
+.transit-board__head {
+  display: flex;
+  justify-content: space-between;
+  padding-bottom: 0.5em;
+  border-bottom: 0.1em solid rgba(255, 255, 255, 0.3);
+  font: 800 0.95em "Overpass", sans-serif;
+}
+.transit-board__head span { font-weight: 600; opacity: 0.8; font-variant-numeric: tabular-nums; }
+
+.transit-line {
+  display: grid;
+  grid-template-columns: 0.55em minmax(0, 1fr);
+  gap: 0.15em 0.7em;
+  padding: 0.35em 0 0.55em;
+  border-bottom: 0.06em solid rgba(255, 255, 255, 0.15);
+}
+.transit-line > :not(.transit-line__bar) { grid-column: 2; }
+.transit-line__bar { grid-row: 1 / span 3; min-height: 2.4em; border-radius: 0.1em; background: var(--line); }
+.transit-line__bar--dashed { background: repeating-linear-gradient(var(--line) 0 0.5em, transparent 0.5em 0.8em); }
+.transit-line__name { font-size: 0.8em; font-weight: 800; }
+.transit-status { justify-self: start; padding: 0.2em 0.45em; border-radius: 0.2em; color: var(--tm-board); background: #ffffff; font-size: 0.66em; font-weight: 600; }
+.transit-status[data-tone="warn"] { color: #1d1600; background: #ffcf33; }
+.transit-status[data-tone="closed"] { background: #d3d7df; }
+.transit-status[data-tone="bad"] { color: #ffffff; background: #d52b1e; }
+.transit-line p { font-size: 0.64em; opacity: 0.9; }
+.transit-need { display: grid; gap: 0.25em; }
+.transit-need + .transit-need { margin-top: 0.4em; }
+.transit-need__title {
+  display: inline;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: none;
+  font: inherit;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+}
+.transit-need__title:hover { text-decoration: underline; }
+.transit-acts { display: flex; flex-wrap: wrap; gap: 0.4em; margin-top: 0.25em; }
+.transit-home :is(button, [tabindex]):focus-visible { outline: 2px solid #ffcf33; outline-offset: 2px; }
+.transit-map :is(button, [tabindex]):focus-visible { outline: none; }
+
+.transit-home .transit-btn.ui-button {
+  min-height: 0;
+  padding: 0.4em 0.7em;
+  border: 0.12em solid #ffffff;
+  border-radius: 0.2em;
+  color: #ffffff;
+  background: transparent;
+  font: 800 0.62em/1 "Overpass", sans-serif;
+  white-space: nowrap;
+}
+.transit-home .transit-btn.ui-button--primary { color: var(--tm-board); background: #ffffff; }
+.transit-home .transit-btn.ui-button:hover:not(:disabled) { border-color: #ffcf33; }
+.transit-home .transit-btn.ui-button::before { display: none; }
+.transit-home .transit-btn .ui-button__tier { border-color: currentColor; color: inherit; background: none; }
+
+.transit-bar { display: inline-flex; align-items: baseline; gap: 6px; white-space: nowrap; }
+.transit-bar b { font-weight: 800; }
+
+@media (max-width: 1100px) {
+  .transit-home { grid-template-columns: minmax(0, 1fr); font-size: clamp(13px, calc(100vw / 56), 20px); }
+  .transit-map__svg { height: auto; }
+}
+
+@media (max-width: 760px) {
+  .transit-home { min-height: 0; font-size: 16px; }
+  .transit-map { padding: 1em 0.4em 0.6em; }
+  .transit-map__svg { min-height: 0; }
+}
