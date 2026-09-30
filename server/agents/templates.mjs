@@ -158,6 +158,27 @@ export const agentTemplates = Object.freeze([
 
 export const templateById = (id) => agentTemplates.find((template) => template.id === id) ?? null;
 
+/** The facts a golden question can expect, each read from this server when the evaluation runs. */
+export const evaluationFacts = Object.freeze(["hostname", "operatingSystem", "installedApps", "rootDiskPercent", "piholePlacement", "piholeBlocking", "drives", "stoppedApps"]);
+
+/**
+ * The built-in evaluation (M40): real questions with answers BoxPilot can check, each asked only of
+ * an agent whose own tools can answer it. They are the owner's own first questions to their agent
+ * - which drives, where Pi-hole runs - and the plainest facts about the server.
+ */
+export const builtInEvaluation = Object.freeze([
+  { id: "builtin-drives", tool: "storage.health", question: "Which drives are connected to this server?", expect: { fact: "drives" } },
+  { id: "builtin-root", tool: "storage.health", question: "How full is the root filesystem, as a percentage?", expect: { fact: "rootDiskPercent" } },
+  { id: "builtin-pihole", tool: "where.runs", question: "Where does Pi-hole run on this server?", expect: { fact: "piholePlacement" } },
+  { id: "builtin-stopped", tool: "apps.list", question: "Which BoxPilot apps are stopped?", expect: { fact: "stoppedApps" } },
+  { id: "builtin-os", tool: "server.facts", question: "Which operating system and version does this server run?", expect: { fact: "operatingSystem" } },
+].map((entry) => Object.freeze(entry)));
+
+/** The built-in questions an agent's tools can answer: any tool it may use when a person asks. */
+export function builtInQuestions(spec) {
+  return builtInEvaluation.filter((entry) => ["auto", "ask"].includes(spec?.tools?.[entry.tool])).map(({ id, question, expect, tool }) => ({ id, question, expect: { ...expect }, tool, builtIn: true }));
+}
+
 /**
  * Golden questions each template starts with (the Evaluation tab). `expect.fact` is read from this
  * server when the evaluation runs, so a question checks that the agent knows *this* server rather
