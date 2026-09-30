@@ -96,54 +96,6 @@
   --radius-card: 0;
 }
 
-/* Home keeps the Launcher's names for its own shell (.app-shell[data-view="home"] in styles.css):
-   in this look Home is on the night sky like every page, so they point back at the console's. */
-:root[data-look="quest"] .app-shell[data-view="home"] {
-  --text: var(--cc-text);
-  --text-strong: var(--cc-text-strong);
-  --text-muted: var(--cc-muted);
-  --text-secondary: var(--cc-text);
-  --accent: #ffd166;
-  --accent-faint: rgba(255, 209, 102, 0.12);
-  --link: #ffd166;
-  --border: var(--cc-line);
-  --border-subtle: var(--cc-hairline);
-  --border-strong: var(--cc-line-strong);
-  --meter-track: var(--cc-track);
-  --status-good: var(--cc-green);
-  --status-good-text: var(--cc-green);
-  --status-good-bg: var(--cc-green-bg);
-  --status-good-border: var(--cc-green-border);
-  --status-warning: var(--cc-amber);
-  --status-warning-text: var(--cc-amber);
-  --status-warning-bg: var(--cc-amber-bg);
-  --status-warning-border: var(--cc-amber-border);
-  --status-danger: var(--cc-red);
-  --status-danger-text: var(--cc-red-text);
-  --status-danger-bg: var(--cc-red-bg);
-  --status-danger-border: var(--cc-red-border);
-  --status-neutral: var(--cc-muted);
-  --status-neutral-text: var(--cc-text);
-  --status-neutral-bg: var(--cc-raised);
-  --status-neutral-border: var(--cc-line-strong);
-  --status-unknown: var(--cc-muted);
-  --status-unknown-text: var(--cc-muted);
-  --status-unknown-bg: transparent;
-  --status-unknown-border: var(--cc-muted);
-  --risk-low: var(--cc-green);
-  --risk-low-text: var(--cc-green);
-  --risk-low-bg: var(--cc-green-bg);
-  --risk-low-border: var(--cc-green-border);
-  --risk-medium: var(--cc-amber);
-  --risk-medium-text: var(--cc-amber);
-  --risk-medium-bg: var(--cc-amber-bg);
-  --risk-medium-border: var(--cc-amber-border);
-  --risk-high: var(--cc-red);
-  --risk-high-text: var(--cc-red-text);
-  --risk-high-bg: var(--cc-red-bg);
-  --risk-high-border: var(--cc-red-border);
-}
-
 /* Dark only: the switch has nothing to choose here. */
 :root[data-look="quest"] .ui-theme-switch { display: none; }
 
@@ -157,9 +109,6 @@
   font-family: var(--font-sans);
 }
 :root[data-look="quest"] .app-shell[data-shell="console"]::before { background: var(--qs-pn); }
-/* On Home that layer is the Launcher's wallpaper, the whole screen: here it is the night sky. */
-:root[data-look="quest"] .app-shell[data-view="home"]::before { background-color: var(--qs-bg); background-image: var(--qs-stars); }
-:root[data-look="quest"] :is(.view-switch, .command-trigger) { -webkit-backdrop-filter: none; backdrop-filter: none; }
 :root[data-look="quest"] ::selection { color: var(--qs-deep); background: var(--qs-gold); }
 :root[data-look="quest"] :is(button, a, input, select, textarea, summary, [tabindex]):focus-visible { outline: 2px solid var(--qs-gold); outline-offset: 2px; }
 :root[data-look="quest"] .look-console :focus-visible:not([tabindex="-1"]) { outline-color: var(--qs-gold); }
@@ -215,10 +164,9 @@
     background: var(--qs-pn);
     box-shadow: var(--qs-frame) 0 0 var(--qs-deep);
   }
-  :root[data-look="quest"] .ui-dock.shell-dock--rail ul { border: 0; border-radius: 0; background: none; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
   :root[data-look="quest"] .shell-dock--rail .ui-dock__separator { height: 2px; background: rgba(243, 230, 196, 0.35); }
   :root[data-look="quest"] .shell-dock--rail .ui-dock__item { width: 34px; margin-left: 5px; }
-  :root[data-look="quest"] .shell-dock--rail .ui-dock__icon { width: 34px; border-color: transparent; border-radius: 0; color: var(--qs-dim); background: none; }
+  :root[data-look="quest"] .shell-dock--rail .ui-dock__icon { width: 34px; border-radius: 0; color: var(--qs-dim); }
   :root[data-look="quest"] .shell-dock--rail .ui-dock__item:hover .ui-dock__icon { color: var(--qs-gold); background: rgba(255, 209, 102, 0.1); }
   :root[data-look="quest"] .shell-dock--rail .ui-dock__item[aria-current="page"] .ui-dock__icon { color: var(--qs-gold); background: rgba(255, 209, 102, 0.12); box-shadow: none; }
   :root[data-look="quest"] .shell-dock--rail .ui-dock__item[aria-current="page"]::before {
