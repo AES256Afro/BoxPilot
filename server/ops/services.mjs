@@ -28,6 +28,22 @@ export function isCriticalUnit(unit) {
   return criticalUnitPatterns.some((pattern) => pattern.test(unit));
 }
 
+/**
+ * Units that change the state of the whole machine rather than one service. Starting
+ * poweroff.target or systemd-reboot.service is system.reboot, which is high risk; stopping
+ * sysinit.target, or starting shutdown.target, stops SSH, BoxPilot and Tailscale with everything
+ * else, which the protected-unit guard refuses one unit at a time. debug-shell, emergency and rescue
+ * put a root shell on the console with no password, and modprobe@ loads a kernel module. No page
+ * controls any of them, so none is accepted here, whatever the action.
+ */
+const machineStateUnit = /\.target$|^systemd-(poweroff|reboot|halt|kexec|soft-reboot|suspend|hibernate|hybrid-sleep|suspend-then-hibernate)\.service$|^(debug-shell|emergency|rescue)\.service$|^modprobe@/;
+
+export function changesWholeMachine(unit) {
+  return typeof unit === "string" && machineStateUnit.test(unit);
+}
+
+const machineStateRefusal = (unit) => (changesWholeMachine(unit) ? "changes the whole machine (its power, every service at once, a root console or the kernel), so it is not controlled from here; reboot from Updates" : null);
+
 /** Parse `systemctl list-units --output=json` and `list-unit-files --output=json`. */
 export function mergeUnitLists(unitsJson, filesJson) {
   let units = []; let files = [];
@@ -78,9 +94,10 @@ export function serviceOperations() {
     defineOperation({
       id: "service.action", title: "Control a system service", risk: "medium", timeoutMs: 5 * 60_000,
       description: "Start, stop, restart, reload, enable, or disable a systemd unit. BoxPilot, SSH, systemd, D-Bus, and Tailscale units cannot be stopped or disabled from here.",
-      parameters: { fields: { unit: { type: "string", pattern: unitPattern }, action: { type: "string", enum: [...serviceActions] } } },
+      parameters: { fields: { unit: { type: "string", pattern: unitPattern, validate: machineStateRefusal }, action: { type: "string", enum: [...serviceActions] } } },
       run: async (parameters, { run, progress }) => {
         const { unit, action } = parameters;
+        if (changesWholeMachine(unit)) throw new Error(`${unit} ${machineStateRefusal(unit)}`);
         if (isCriticalUnit(unit) && ["stop", "disable"].includes(action)) throw new Error(`${unit} is protected: stopping or disabling it would cut off access to this server or to BoxPilot`);
         if (guardedUnits[unit] && ["stop", "disable"].includes(action)) throw new Error(`${unit} is not turned off from here. ${guardedUnits[unit]}`);
         // BoxPilot's drives and shares live under /mnt, and their own operations stop the apps using

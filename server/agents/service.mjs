@@ -495,6 +495,15 @@ export function createAgentService({
   const stale = (item) => Boolean(item.freshUntil && Date.parse(item.freshUntil) < now().getTime());
 
   /**
+   * An agent's own notes that a run reading as `readRole` may see. A note carries the role of the
+   * run that wrote it - the Server Keeper's owner runs read every account's jobs - so an operator's
+   * question to the same agent is not answered from what only the owner may read.
+   */
+  function ownNotes(agentId, readRole, { limit }) {
+    return store.listNotes(agentId, { limit }).filter((note) => roleAtLeast(readRole, note.readRole));
+  }
+
+  /**
    * What an agent may remember in a run reading as `readRole`: its own facts, other agents' shared
    * facts learned by runs that read no more than this one may, its episodes, and pinned knowledge.
    */
@@ -502,7 +511,7 @@ export function createAgentService({
     const items = [];
     const agentNames = new Map(store.listAgents().map((entry) => [entry.id, entry.name]));
     if (spec.memory?.enabled) {
-      for (const note of store.listNotes(agent.id, { limit: 200 })) items.push({ key: `note:${note.id}`, tier: note.pinned ? "pinned" : "fact", title: note.title, text: note.body, from: agent.name, at: note.updatedAt, freshUntil: note.freshUntil, weight: note.pinned ? 1.3 : 1 });
+      for (const note of ownNotes(agent.id, readRole, { limit: 200 })) items.push({ key: `note:${note.id}`, tier: note.pinned ? "pinned" : "fact", title: note.title, text: note.body, from: agent.name, at: note.updatedAt, freshUntil: note.freshUntil, weight: note.pinned ? 1.3 : 1 });
       for (const note of store.listSharedNotes({ exceptAgentId: agent.id })) {
         if (roleAtLeast(readRole, note.readRole)) items.push({ key: `note:${note.id}`, tier: note.pinned ? "pinned" : "fact", title: note.title, text: note.body, from: agentNames.get(note.agentId) ?? "another agent", at: note.updatedAt, freshUntil: note.freshUntil, weight: 0.9 });
       }
@@ -561,12 +570,12 @@ export function createAgentService({
     const spec = version.spec;
     const offered = offeredTools(run, spec, agent);
     const notes = spec.memory?.enabled && spec.knowledge?.notes !== false && knowledgeSettings().notes !== false
-      ? store.listNotes(agent.id, { limit: limits.notesInPrompt }).map((note) => wrapNote({ ...note, stale: stale(note) }, { redact }))
+      ? ownNotes(agent.id, run.readRole, { limit: limits.notesInPrompt }).map((note) => wrapNote({ ...note, stale: stale(note) }, { redact }))
       : [];
     // What it remembers that bears on this request, by words (the query's vector comes later, from
     // the runner, when the model searches memory itself). Recorded in the trace as a memory read.
     const query = [run.question, run.trigger?.title, spec.job].filter(Boolean).join(" ");
-    const noteKeys = new Set(store.listNotes(agent.id, { limit: limits.notesInPrompt }).map((note) => `note:${note.id}`));
+    const noteKeys = new Set(ownNotes(agent.id, run.readRole, { limit: limits.notesInPrompt }).map((note) => `note:${note.id}`));
     const recalled = spec.memory?.enabled ? hybridSearch(memoryItems(agent, spec, run.readRole).filter((item) => !noteKeys.has(item.key)), { query, limit: limits.memoryInPrompt }) : [];
     if (recalled.length) {
       const step = store.addStep(run.id, { kind: "recall", name: "recall", input: { query: clip(query, 200) }, output: recalled.map((item) => `${item.tier}: ${item.title} (${item.from}, ${String(item.at ?? "").slice(0, 10)}${stale(item) ? ", may be out of date" : ""})`).join("\n"), flags: { read: recalled.length } });
@@ -900,7 +909,7 @@ export function createAgentService({
   function readNotes(run, spec, { query = null }) {
     if (!spec.memory?.enabled) return "This agent keeps no notes.";
     const words = query ? new Set(query.toLowerCase().split(/\W+/).filter((word) => word.length > 2)) : null;
-    const notes = store.listNotes(run.agentId, { limit: 50 }).filter((note) => !words || [...words].some((word) => `${note.title} ${note.body}`.toLowerCase().includes(word))).slice(0, 10);
+    const notes = ownNotes(run.agentId, run.readRole, { limit: 50 }).filter((note) => !words || [...words].some((word) => `${note.title} ${note.body}`.toLowerCase().includes(word))).slice(0, 10);
     if (!notes.length) return query ? `No notes about "${clip(query, 60)}".` : "No notes yet.";
     return notes.map((note) => {
       const stale = note.freshUntil && Date.parse(note.freshUntil) < now().getTime();
@@ -1471,7 +1480,7 @@ export function createAgentService({
     const person = personOf(caller);
     const agent = agentFor(person, agentId);
     if (!canEdit(person, agent) && person.role !== "owner") refuse(403, "An agent's notes are for the owner and the person who made it", "forbidden");
-    return store.listNotes(agent.id).map((note) => ({ ...note, stale: note.freshUntil ? Date.parse(note.freshUntil) < now().getTime() : false }));
+    return ownNotes(agent.id, person.role, { limit: 100 }).map((note) => ({ ...note, stale: note.freshUntil ? Date.parse(note.freshUntil) < now().getTime() : false }));
   }
 
   function deleteNote(caller, agentId, noteId) {
@@ -1499,7 +1508,7 @@ export function createAgentService({
     const indexed = (key) => vectors.get(key)?.model === model;
     const thread = store.getThread(agent.id, person.id);
     return {
-      facts: store.listNotes(agent.id, { limit: 200 }).map((note) => ({ ...note, stale: stale(note), indexed: indexed(`note:${note.id}`) })),
+      facts: ownNotes(agent.id, person.role, { limit: 200 }).map((note) => ({ ...note, stale: stale(note), indexed: indexed(`note:${note.id}`) })),
       shared: store.listSharedNotes({ exceptAgentId: agent.id }).filter((note) => roleAtLeast(person.role, note.readRole)).map((note) => ({ id: note.id, title: note.title, body: note.body, from: agentNames.get(note.agentId) ?? "another agent", updatedAt: note.updatedAt, stale: stale(note) })),
       episodes: store.listEpisodes(agent.id, { limit: 100 }).filter((episode) => roleAtLeast(person.role, episode.readRole)).map((episode) => ({ ...episode, indexed: indexed(`episode:${episode.id}`) })),
       thread: thread ? { summary: thread.summary, turns: thread.turns, updatedAt: thread.updatedAt } : null,

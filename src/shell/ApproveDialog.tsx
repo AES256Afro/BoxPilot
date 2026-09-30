@@ -69,6 +69,12 @@ export interface PendingOperation {
    * person presses it, and it opens in its own dialog, approved at its own tier like any other.
    */
   next?: PendingOperation;
+  /**
+   * Who suggested this step when it was not the person approving it: an agent's name, or the
+   * assistant. Its `preview` is then the model's own words, which text the model read can steer, so
+   * the dialog says whose words they are and shows everything the operation is given, unfolded.
+   */
+  proposedBy?: string;
 }
 
 interface Props extends PendingOperation {
@@ -94,7 +100,7 @@ function ParameterList({ parameters }: { parameters: Record<string, unknown> }) 
   );
 }
 
-export function ApproveDialog({ operationId, title, parameters, preview, confirmText, csrfToken, onClose, onFinished, onStaged, handoff, moreTimeFor, existingJobId, next, onNext }: Props) {
+export function ApproveDialog({ operationId, title, parameters, preview, confirmText, csrfToken, onClose, onFinished, onStaged, handoff, moreTimeFor, existingJobId, next, onNext, proposedBy }: Props) {
   const [phase, setPhase] = useState<Phase>("staging");
   const [job, setJob] = useState<Job | null>(null);
   const [finished, setFinished] = useState<Job | null>(null);
@@ -283,6 +289,7 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
           {explained && (
             <section className="approve-section" aria-labelledby={`${titleId}-what`}>
               <h3 id={`${titleId}-what`} className="approve-section__title">What it will do</h3>
+              {preview && proposedBy && <p className="approve-note">{proposedBy}'s reason, in its own words. BoxPilot has not checked it; what runs is what it is given, below.</p>}
               {preview && <div className="approve-preview">{preview}</div>}
               {reason && <p className="approve-preview">{reason}</p>}
               {/* What "more time" changes, before it is approved: the same job, with a larger budget. */}
@@ -294,7 +301,13 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
                   {stagedCount > 0 ? <ParameterList parameters={staged!} /> : <span> with no settings.</span>}
                 </div>
               )}
-              {showParameters && (
+              {showParameters && proposedBy && (
+                <div className="approve-staged">
+                  <strong>Exactly what it is given ({stagedCount})</strong>
+                  <ParameterList parameters={staged!} />
+                </div>
+              )}
+              {showParameters && !proposedBy && (
                 <details className="approve-more">
                   <summary>Exactly what it is given ({stagedCount})</summary>
                   <ParameterList parameters={staged!} />
