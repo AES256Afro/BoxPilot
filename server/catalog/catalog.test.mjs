@@ -70,6 +70,10 @@ describe("manifest schema", () => {
     expect(resolveValues(manifest, { env: { NEEDED: "y", TZ: "not a tz!" } }).errors).toContainEqual(expect.stringContaining("Region/City"));
     expect(resolveValues(manifest, { env: { NEEDED: "y" }, volumes: { media: "/etc/ssl" } }).errors).toContainEqual(expect.stringContaining("protected"));
     expect(resolveValues(manifest, { env: { NEEDED: "y" }, volumes: { media: "/srv/../etc" } }).errors).toContainEqual(expect.stringContaining("clean"));
+    // A folder above a protected one hands the app everything under it: /var holds BoxPilot's own
+    // database and every app's secrets, /opt the code root runs.
+    for (const above of ["/var", "/var/lib", "/opt"]) expect(resolveValues(manifest, { env: { NEEDED: "y" }, volumes: { media: above } }).errors).toContainEqual(expect.stringContaining("protected"));
+    expect(resolveValues(manifest, { env: { NEEDED: "y" }, volumes: { media: "/opt/stacks" } }).errors).toEqual([]);
     expect(resolveValues(manifest, { env: { NEEDED: "y", EXTRA: "1" } }).errors).toContainEqual(expect.stringContaining("EXTRA"));
     // Compose's short volume syntax splits on ":", so "/mnt/media:old" became "/mnt/media:old:/media"
     // - a mount of /mnt/media at "old" with "/media" as its options - and the deploy failed.
