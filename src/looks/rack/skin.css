@@ -242,6 +242,44 @@
 :root[data-look="rack"] .ui-info-toggle { border: 0; border-radius: 3px; color: #26282c; background: linear-gradient(#f2f3f4, #b8bcc1); box-shadow: 0 2px 0 #55595e, inset 0 1px 0 #ffffff; }
 :root[data-look="rack"] .cc-crumb .ui-info-toggle { width: 22px; height: 22px; }
 
+/* Settings > Appearance: a unit like every panel, its name engraved on the metal, the looks and
+   the choices in dark modules under it. */
+:root[data-look="rack"] .settings-appearance {
+  position: relative;
+  padding: 16px 34px 18px;
+  border: 0;
+  border-radius: 3px;
+  background: var(--rk-face);
+  box-shadow: var(--rk-unit-shadow);
+}
+:root[data-look="rack"] .settings-appearance::before,
+:root[data-look="rack"] .settings-appearance::after {
+  position: absolute;
+  top: 22px;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--rk-screw);
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.25);
+  content: "";
+}
+:root[data-look="rack"] .settings-appearance::before { left: 10px; }
+:root[data-look="rack"] .settings-appearance::after { right: 10px; }
+:root[data-look="rack"] .settings-appearance__title { color: var(--rk-engraved); font: 700 30px/1 var(--font-condensed); letter-spacing: 0.14em; text-shadow: 0 1px 0 rgba(255, 255, 255, 0.8); text-transform: uppercase; }
+:root[data-look="rack"] :is(.settings-appearance__lead, .settings-appearance__label) { color: #3f4247; font-weight: 700; text-shadow: 0 1px 0 rgba(255, 255, 255, 0.7); }
+:root[data-look="rack"] .settings-appearance__label { font-family: var(--font-condensed); font-size: 12.5px; letter-spacing: 0.18em; }
+:root[data-look="rack"] :is(.settings-looks, .settings-appearance__now, .settings-appearance__rows) {
+  padding: 12px 14px;
+  border: 0;
+  border-radius: 3px;
+  color: var(--cc-text);
+  background: var(--rk-module);
+  box-shadow: var(--rk-module-shadow);
+}
+:root[data-look="rack"] .settings-appearance__rows { padding-block: 2px; }
+:root[data-look="rack"] .settings-appearance__row { border-top-color: #000000; box-shadow: 0 -1px 0 rgba(255, 255, 255, 0.04); }
+:root[data-look="rack"] .settings-appearance__row:nth-child(-n + 2) { border-top: 0; box-shadow: none; }
+
 /* Figures: a label engraved on a unit, the figure glowing red in a black window. */
 :root[data-look="rack"] .ui-metric {
   padding: 12px 14px;
