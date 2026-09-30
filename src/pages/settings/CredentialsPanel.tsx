@@ -20,7 +20,12 @@ export default function CredentialsPanel({ csrfToken }: { csrfToken: string }) {
     .then((body: { result?: { credentials: Credential[] } }) => setCredentials(body.result?.credentials ?? []))
     .catch(() => setError("Could not read the credential names")), []);
   useEffect(() => { void refresh(); }, [refresh]);
-  const { start, dialog } = useOperation(csrfToken, () => { setName(""); setValue(""); void refresh(); });
+  // Saving clears the form once it has worked; removing another credential, or a save that failed,
+  // used to clear the name and value being typed.
+  const { start, dialog } = useOperation(csrfToken, (job) => {
+    if (job.state === "completed" && job.type === "op:credentials.set") { setName(""); setValue(""); }
+    void refresh();
+  });
 
   const removeCredential = (credential: Credential) => start({
     operationId: "credentials.remove",

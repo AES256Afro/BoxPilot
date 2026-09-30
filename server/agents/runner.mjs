@@ -132,9 +132,12 @@ function thinkingOff(extra = {}) {
 
 export function createRunner({ api, runtime, client, usage = null, now = () => Date.now(), log = () => {}, version = null, options = {} }) {
   const settings = { ...runnerDefaults, ...options };
+  // The runner's shutdown signal lives as long as the process, so a listener left on it is kept
+  // forever, with everything its closure holds: each sleep and each run takes its own off again.
   const sleep = (ms, signal) => new Promise((resolve) => {
-    const timer = setTimeout(resolve, ms);
-    signal?.addEventListener?.("abort", () => { clearTimeout(timer); resolve(); }, { once: true });
+    const done = () => { clearTimeout(timer); signal?.removeEventListener?.("abort", done); resolve(); };
+    const timer = setTimeout(done, ms);
+    signal?.addEventListener?.("abort", done, { once: true });
   });
   const readUsage = async () => {
     const measured = usage ? await usage.read().catch(() => null) : null;
@@ -221,7 +224,10 @@ export function createRunner({ api, runtime, client, usage = null, now = () => D
     const { run, lease, limits } = claim;
     const controller = new AbortController();
     const stop = (reason) => { if (!controller.signal.aborted) controller.abort(new Error(reason)); };
-    signal?.addEventListener?.("abort", () => stop("shutting down"), { once: true });
+    // Removed when the run ends: it holds the claim (messages, tool schemas, a describe's images) and
+    // every output, and three hundred runs a day on the process's own signal kept every one of them.
+    const onShutdown = () => stop("shutting down");
+    signal?.addEventListener?.("abort", onShutdown, { once: true });
     const deadline = Date.parse(run.deadlineAt);
     const deadlineTimer = setTimeout(() => stop("timeout"), Math.max(1_000, deadline - now()));
     deadlineTimer.unref?.();
@@ -451,6 +457,7 @@ export function createRunner({ api, runtime, client, usage = null, now = () => D
     } finally {
       clearInterval(heartbeat);
       clearTimeout(deadlineTimer);
+      signal?.removeEventListener?.("abort", onShutdown);
     }
 
     /** The run's usage for BoxPilot, with this server's speed when a call measured it. */

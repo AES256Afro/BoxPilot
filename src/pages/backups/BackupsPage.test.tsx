@@ -123,7 +123,9 @@ describe("Backups page", () => {
       const { bodies } = mockFetch({ apps: [{ id: "vaultwarden", name: "Vaultwarden", protectable: true, backups: 0, newestAt: null }], schedules: [] });
       render(<BackupsPage csrfToken="csrf-token" />);
       expect(await screen.findByText("1 app never backed up")).toBeTruthy();
-      const button = screen.getByRole("button", { name: "Back up Vaultwarden now" });
+      // Named by its visible words first, so saying "Back up now" to voice control finds it (WCAG 2.5.3).
+      const button = screen.getByRole("button", { name: "Back up now: Vaultwarden" });
+      expect(screen.getByRole("button", { name: "Schedule it: back up Vaultwarden nightly" })).toBeTruthy();
       expect(button.getAttribute("data-risk")).toBe("medium");
       fireEvent.click(button);
       expect(await screen.findByText("Medium risk")).toBeTruthy();

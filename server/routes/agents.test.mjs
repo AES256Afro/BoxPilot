@@ -8,7 +8,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import express from "express";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createAgentsHarness } from "../../test/agents-harness.mjs";
 import { createRunner, createRunnerApi } from "../agents/runner.mjs";
 import { createAgentRunnerRouter } from "./agent-runner.mjs";
@@ -60,8 +60,9 @@ describe("turning Agents on", () => {
     expect(await request("PUT", "/api/v1/settings/agents", { body: { runtime: { driver: "external", endpoint: "http://192.168.1.20:8080" }, password: "right" } })).toMatchObject({ status: 400, body: { code: "invalid_setting" } });
     const saved = await request("PUT", "/api/v1/settings/agents", { body: { enabled: true, quietHours: { start: "01:00", end: "05:00" }, runtime: { driver: "external", endpoint: h.fake.url }, password: "right" } });
     expect(saved).toMatchObject({ status: 200, body: { module: { enabled: true, quietHours: { start: "01:00", end: "05:00" } }, runtime: { driver: "external", endpoint: h.fake.url } } });
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    token = (await readFile(path.join(h.directory, "agents", "runner.token"), "utf8")).trim();
+    // The key is written in the background once Agents are on: waited for, not given 50 ms, which a
+    // loaded CI runner need not keep to.
+    token = await vi.waitFor(async () => (await readFile(path.join(h.directory, "agents", "runner.token"), "utf8")).trim(), { timeout: 5_000, interval: 20 });
     expect(token.length).toBeGreaterThanOrEqual(40);
     expect(JSON.stringify(h.state.listAudit(20))).not.toContain("right");
   });
@@ -76,12 +77,13 @@ describe("a run, from the question to the answer, over HTTP", () => {
 
     // The page follows the run...
     const events = [];
-    const stream = fetch(`${base}/api/v1/agents/runs/${asked.body.id}/stream`, { headers: { "x-test-role": "viewer" } }).then(async (response) => {
-      expect(response.headers.get("content-type")).toContain("text/event-stream");
-      const text = await response.text();
+    // The route subscribes in the same turn it sends the headers, so once they are here the page
+    // hears every step; a fixed 100 ms wait left that to how busy the machine was.
+    const following = await fetch(`${base}/api/v1/agents/runs/${asked.body.id}/stream`, { headers: { "x-test-role": "viewer" } });
+    expect(following.headers.get("content-type")).toContain("text/event-stream");
+    const stream = following.text().then((text) => {
       for (const match of text.matchAll(/event: (\w+)\ndata: ([^\n]*)\n\n/g)) events.push([match[1], JSON.parse(match[2])]);
     });
-    await new Promise((resolve) => setTimeout(resolve, 100));
 
     // ...while the runner, as runner-main starts it, takes the run over HTTP and carries it out.
     const api = createRunnerApi({ base, token, runnerId: h.runnerId });

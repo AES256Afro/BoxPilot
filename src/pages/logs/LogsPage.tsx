@@ -62,6 +62,8 @@ export default function LogsPage({ csrfToken = "", role = "owner" }: LogsPagePro
   const [bundling, setBundling] = useState(false);
   const [pick, setPick] = useState("");
   const readSequence = useRef(0);
+  /** Reads not yet answered. Following waits for them instead of stacking another beside them. */
+  const inFlight = useRef(0);
   /** Newest log timestamp on screen, so following asks only for what came after it. */
   const lastTimestamp = useRef<string | null>(null);
   useEffect(() => {
@@ -82,6 +84,7 @@ export default function LogsPage({ csrfToken = "", role = "owner" }: LogsPagePro
   const read = useCallback(async (mode: "replace" | "append" = "replace") => {
     if (!target || !canRead) return;
     const sequence = (readSequence.current += 1);
+    inFlight.current += 1;
     setLoading(true);
     try {
       const parameters: Record<string, unknown> = { kind, target, lines };
@@ -109,6 +112,7 @@ export default function LogsPage({ csrfToken = "", role = "owner" }: LogsPagePro
     } catch (requestError) {
       if (sequence === readSequence.current) setError(requestError instanceof Error ? requestError.message : "The logs could not be read");
     } finally {
+      inFlight.current -= 1;
       if (sequence === readSequence.current) setLoading(false);
     }
   }, [csrfToken, kind, target, lines, since, appliedFilter, canRead]);
@@ -117,7 +121,14 @@ export default function LogsPage({ csrfToken = "", role = "owner" }: LogsPagePro
   useEffect(() => { lastTimestamp.current = null; void read("replace"); }, [read]);
   useEffect(() => {
     if (!follow) return undefined;
-    const timer = window.setInterval(() => { void read(lastTimestamp.current ? "append" : "replace"); }, 5000);
+    // A tick while the last read is still out is skipped. A filter that matches nothing leaves no
+    // newest line to follow from, so every read is a full scan; slower than five seconds, the ticks
+    // used to stack journal scans on the server, and each newer one discarded the answer before it,
+    // so nothing ever arrived. A hidden tab follows nothing.
+    const timer = window.setInterval(() => {
+      if (inFlight.current > 0 || document.visibilityState === "hidden") return;
+      void read(lastTimestamp.current ? "append" : "replace");
+    }, 5000);
     return () => window.clearInterval(timer);
   }, [follow, read]);
 

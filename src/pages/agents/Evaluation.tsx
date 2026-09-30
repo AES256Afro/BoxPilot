@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { relativeTime } from "../../home/format";
 import { Button, EmptyState, Field, Notice, Panel, Progress, Select, StatusChip, Table, TextInput, type TableColumn } from "../../ui";
 import { agentsApi, type AgentSummary, type EvalResult, type EvalRun, type Evaluation as EvaluationState, type Question } from "./api";
@@ -46,18 +46,23 @@ export function Evaluation({ agents, agentId, csrfToken, now, enabled, onSelectA
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState<"save" | "run" | null>(null);
   const currentId = agent?.id ?? null;
+  // The agent on show. A read for the one chosen before, still in flight when another was chosen
+  // (the poll below keeps one in flight while an evaluation runs), used to land after the switch:
+  // its questions became this agent's drafts, and Save wrote them over this agent's own.
+  const shown = useRef(currentId);
 
   const read = useCallback(async (id: string) => {
     try {
       const next = await agentsApi.evaluation(id);
+      if (shown.current !== id) return;
       setState(next);
       setDrafts((current) => current ?? next.questions.map(toDraft));
       setError(null);
     } catch (requestError) {
-      setError(errorText(requestError, "The evaluation could not be read"));
+      if (shown.current === id) setError(errorText(requestError, "The evaluation could not be read"));
     }
   }, []);
-  useEffect(() => { setState(null); setDrafts(null); if (currentId) void read(currentId); }, [currentId, read]);
+  useEffect(() => { shown.current = currentId; setState(null); setDrafts(null); if (currentId) void read(currentId); }, [currentId, read]);
   // While an evaluation runs, read it again every few seconds until every answer is scored.
   const latest = state?.runs[0] ?? null;
   useEffect(() => {
