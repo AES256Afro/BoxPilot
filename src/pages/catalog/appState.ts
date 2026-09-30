@@ -35,6 +35,9 @@ export function appStatus(live: LiveState | null | undefined): { status: Status;
   const troubled = troubledSidecar(live);
   if (live.container.running && troubled) return { status: "warning", label: `Running · ${troubled.id} ${troubled.status === "restarting" ? "is restarting" : "is down"}` };
   if (live.container.running) return live.container.health === "unhealthy" ? { status: "warning", label: "Running · unhealthy" } : { status: "good", label: "Running" };
+  // Home calls an installed app with no container "No container" (the nightly clean-up removed it);
+  // the catalog said "Stopped" of the same app, which Start does not look like it would fix.
+  if (live.container.exists === false) return { status: "warning", label: "No container" };
   return { status: "warning", label: "Stopped" };
 }
 
