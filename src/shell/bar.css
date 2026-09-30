@@ -72,3 +72,15 @@
   .bar-lock__short { display: inline; }
   .bar-button { padding: 0 4px; }
 }
+
+/* Refresh (M25): only where there is no browser button for it - a touch screen, a phone-sized
+   window, the app opened from the home screen. */
+.bar-refresh { display: none; }
+@media (pointer: coarse), (max-width: 760px), (display-mode: standalone) {
+  .bar-refresh { display: inline-flex; }
+}
+
+/* A finger, not a pointer (M25): every control in the bar at least 44 px square to tap. */
+@media (pointer: coarse) {
+  .bar-button { justify-content: center; min-width: 44px; min-height: 44px; }
+}

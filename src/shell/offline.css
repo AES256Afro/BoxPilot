@@ -1,0 +1,7 @@
+/*
+ * The offline banner (src/shell/OfflineBanner.tsx, M25.1): the kit's Notice, held under the bar at
+ * the top of the page so it stays in view while the page scrolls. Tokens only; every selector starts
+ * with .offline-.
+ */
+
+.offline-banner { position: sticky; z-index: 9; top: calc(env(safe-area-inset-top, 0px) + 4px); margin: 0 0 10px; box-shadow: var(--elevation-2); }

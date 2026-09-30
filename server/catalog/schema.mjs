@@ -457,10 +457,13 @@ export function validateManifest(raw) {
 
 const hostPathDenyPrefixes = ["/etc", "/proc", "/sys", "/dev", "/boot", "/root", "/run", "/var/run", "/var/lib/boxpilot", "/var/lib/boxpilot-managed", "/usr", "/bin", "/sbin", "/lib", "/lib64", "/var/lib/docker", "/var/lib/libvirt", "/opt/boxpilot", "/snap", "/var/lib/snapd"];
 
-/** True when a (resolved) host path is one the deployer must never bind-mount. */
+/**
+ * True when a (resolved) host path is one the deployer must never bind-mount: a protected location,
+ * something inside one, or a folder that holds one - /var hands the app /var/lib/boxpilot with it.
+ */
 export function isDeniedHostPath(candidate) {
   const normalized = String(candidate ?? "").replace(/\/+$/, "") || "/";
-  return normalized === "/" || hostPathDenyPrefixes.some((prefix) => normalized === prefix || normalized.startsWith(`${prefix}/`));
+  return normalized === "/" || hostPathDenyPrefixes.some((prefix) => normalized === prefix || normalized.startsWith(`${prefix}/`) || prefix.startsWith(`${normalized}/`));
 }
 
 /**
