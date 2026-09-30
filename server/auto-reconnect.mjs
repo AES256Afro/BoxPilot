@@ -26,7 +26,7 @@ export const autoReconnectLimits = Object.freeze({ cooldownMs: 30 * 60_000, maxA
 const settingKey = "driveReconnects";
 const conditions = Object.freeze({ "storage.mount.detached": "lost its drive", "storage.mount.readonly": "went read-only" });
 // Anything else working on the drive right now. The reconnect waits for it rather than racing it.
-const driveJobs = Object.freeze(["op:storage.check", "op:storage.dirty-mark.clear", "op:storage.remount", "op:storage.unmount"]);
+const driveJobs = Object.freeze(["op:storage.check", "op:storage.dirty-mark.clear", "op:storage.remount", "op:storage.unmount", "op:storage.writable"]);
 
 const reconnectable = (name) => typeof name === "string" && mountNamePattern.test(name) && !name.startsWith("share-") && name !== "swap";
 
