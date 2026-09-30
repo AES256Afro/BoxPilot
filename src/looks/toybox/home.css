@@ -141,7 +141,7 @@
 .toybox-app__sticker {
   position: absolute;
   top: -4.3px;
-  right: 5.4px;
+  left: calc(50% + 64px);
   padding: 2.7px 5px;
   border: 1.5px solid var(--toybox-ink);
   border-radius: 4.3px;
@@ -177,6 +177,7 @@
   .toybox-app__bubble { width: 72px; height: 72px; }
   .toybox-app__bubble > span { font-size: 31px; }
   .toybox-app__name { font-size: 14.5px; }
+  .toybox-app__sticker { left: calc(50% + 30px); }
 }
 
 @media (pointer: coarse) {

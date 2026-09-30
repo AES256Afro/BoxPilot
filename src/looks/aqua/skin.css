@@ -30,8 +30,8 @@
   --aq-gel-blue: linear-gradient(#d6e9ff 0%, #8cc0ff 48%, #3d88ea 50%, #9ed0ff 100%);
   --aq-gel-blue-hover: linear-gradient(#c9e2ff 0%, #7cb6ff 48%, #2f7de4 50%, #90c8ff 100%);
   --aq-gel-blue-down: linear-gradient(#a9cdf7 0%, #6aa6f2 48%, #2168cf 50%, #7cb8f5 100%);
-  --aq-select: linear-gradient(#78aef2, #3574d6);
-  --aq-highlight: linear-gradient(#5d97ef, #2566d6);
+  --aq-select: linear-gradient(#4f86dc, #164fb0);
+  --aq-highlight: linear-gradient(#4f86dc, #164fb0);
   --aq-pole: linear-gradient(rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0) 50%, rgba(0, 0, 0, 0.08)), repeating-linear-gradient(-45deg, #3b82e8 0 8.8px, #7ab4ff 8.8px 17.5px);
   --aq-pole-warn: linear-gradient(rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0) 50%, rgba(0, 0, 0, 0.08)), repeating-linear-gradient(-45deg, #e8781c 0 8.8px, #ffb168 8.8px 17.5px);
   --aq-pole-danger: linear-gradient(rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0) 50%, rgba(0, 0, 0, 0.08)), repeating-linear-gradient(-45deg, #d1261a 0 8.8px, #ff8a7e 8.8px 17.5px);
@@ -219,7 +219,7 @@
 }
 :root[data-look="aqua"] .topbar .bar-button[data-live] { color: #111111; }
 :root[data-look="aqua"] .topbar .bar-button svg { width: 16px; height: 16px; }
-:root[data-look="aqua"] .bar-badge { min-width: 17px; height: 17px; padding: 0 5px; border-radius: 9px; color: #ffffff; background: linear-gradient(#ff7a6b, #d1261a); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 0 0 1px rgba(120, 10, 0, 0.35); font-family: var(--font-aqua); font-size: 11px; }
+:root[data-look="aqua"] .bar-badge { min-width: 17px; height: 17px; padding: 0 5px; border-radius: 9px; color: #ffffff; background: linear-gradient(#f0503f, #b81d12); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 0 0 1px rgba(120, 10, 0, 0.35); font-family: var(--font-aqua); font-size: 11px; }
 :root[data-look="aqua"] :is(.connection-pill, .signed-in-user, .bar-tiers) { display: none; }
 :root[data-look="aqua"] .bar-label { border: 0; color: #4d535c; font-family: var(--font-aqua); font-size: 13px; }
 :root[data-look="aqua"] .topbar-clock { display: inline-flex; flex: none; align-items: center; height: var(--aq-menu-h); padding: 0 0 0 9px; color: #111111; font-size: 15px; white-space: nowrap; }
@@ -458,7 +458,7 @@
   border: 2px solid #ffffff;
   border-radius: 11px;
   color: #ffffff;
-  background: linear-gradient(#ff7a6b, #d1261a);
+  background: linear-gradient(#f0503f, #b81d12);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
   font: 700 12px/1 var(--font-aqua);
 }
