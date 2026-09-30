@@ -324,7 +324,7 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
       return { ...entry, fix: fixes[0] ?? null, fixes };
     });
     // What the owner set aside, and the last try at each fix (M35).
-    const ledger = applyLedger(tiered, { dismissals: state.getSetting(dismissalsKey, {}) ?? {}, attempts: state.getSetting(attemptsKey, {}) ?? {}, jobs: visibleJobs });
+    const ledger = applyLedger(tiered, { dismissals: state.getSetting(dismissalsKey, {}) ?? {}, attempts: state.getSetting(attemptsKey, {}) ?? {}, jobs: visibleJobs, mounts: storage && storage.availability?.mounts !== false ? facts.mounts : null });
     const count = (severity) => ledger.findings.filter((entry) => entry.severity === severity).length;
     response.json(withOwnActors(request, {
       findings: ledger.findings, dismissed: ledger.dismissed, jobs: ledger.jobs,
