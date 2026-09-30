@@ -80,6 +80,48 @@ describe("System page", () => {
     expect(staged["system.timezone.set"]).toEqual({ parameters: { timezone: "Europe/Berlin" } });
   });
 
+  it("keeps a typed value through a read that changes nothing, and shows a new value in force once it changes", async () => {
+    let current = { ...settings };
+    serve({ "/operations/system.settings.inspect/inspect": () => json({ operation: "system.settings.inspect", result: current }) });
+    window.history.replaceState(null, "", "/?tab=hardware");
+    render(<SystemPage csrfToken="csrf-token" />);
+    const field = () => screen.getByLabelText("Swappiness") as HTMLInputElement;
+    await waitFor(() => expect(field().value).toBe("60"));
+    fireEvent.change(field(), { target: { value: "15" } });
+    const readAgain = async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Read again" }));
+      await waitFor(() => expect((screen.getByRole("button", { name: "Read again" }) as HTMLButtonElement).disabled).toBe(false));
+    };
+    await readAgain();
+    expect(field().value).toBe("15");
+    // Set to 10 elsewhere (another tab, the command line): the form starts over from what is in force,
+    // rather than keeping an old draft whose Apply would undo that change.
+    current = { ...settings, swappiness: 10 };
+    await readAgain();
+    await waitFor(() => expect(field().value).toBe("10"));
+  });
+
+  it("keeps a half-typed hostname through a time zone change, and shows a rename done elsewhere", async () => {
+    let current = { ...settings };
+    serve({ "/operations/system.settings.inspect/inspect": () => json({ operation: "system.settings.inspect", result: current }) });
+    window.history.replaceState(null, "", "/?tab=time");
+    render(<SystemPage csrfToken="csrf-token" />);
+    const name = () => screen.getByLabelText("Rename this server") as HTMLInputElement;
+    await waitFor(() => expect(name().value).toBe("shiny-box"));
+    fireEvent.change(name(), { target: { value: "new-na" } });
+    const readAgain = async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Read again" }));
+      await waitFor(() => expect((screen.getByRole("button", { name: "Read again" }) as HTMLButtonElement).disabled).toBe(false));
+    };
+    current = { ...settings, timezone: "Europe/Berlin" };
+    await readAgain();
+    await waitFor(() => expect((screen.getByLabelText("Set the time zone") as HTMLSelectElement).value).toBe("Europe/Berlin"));
+    expect(name().value).toBe("new-na");
+    current = { ...current, hostname: { static: "renamed-box", live: "renamed-box" } };
+    await readAgain();
+    await waitFor(() => expect(name().value).toBe("renamed-box"));
+  });
+
   it("offers the newer GitHub release and stages the high-risk update with only the tag, the tag typed out", async () => {
     const staged = serve({
       "/api/v1/system/update": () => json(release),
