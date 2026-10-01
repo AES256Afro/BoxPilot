@@ -20,6 +20,8 @@ describe("native systemd network boundaries", () => {
     expect(helperUnit).toContain("Environment=BOXPILOT_VM_EXPORT_ROOT=/var/lib/boxpilot-managed/vm-exports");
     expect(helperUnit).toContain("Environment=BOXPILOT_VM_MEDIA_INBOX=/var/lib/boxpilot-managed/vm-media-inbox");
     expect(helperUnit).toContain("ExecStartPre=/usr/bin/install -d -o boxpilot -g boxpilot -m 0700 /var/lib/boxpilot-managed/vm-media-inbox");
+    // The web service reaches its upload inbox through boxpilot-managed: pass through, never list.
+    expect(helperUnit).toContain("ExecStartPre=/usr/bin/chmod 0710 /var/lib/boxpilot-managed\n");
     expect(helperUnit).toContain("Environment=BOXPILOT_MIGRATION_INBOX=/var/lib/boxpilot-migration/inbox");
     expect(helperUnit).toContain("Environment=BOXPILOT_MIGRATION_STAGING_ROOT=/var/lib/boxpilot-managed/migration-staging");
     expect(helperUnit).toContain("Environment=BOXPILOT_CONTROLLER_DATABASE=/var/lib/boxpilot/boxpilot.sqlite3");

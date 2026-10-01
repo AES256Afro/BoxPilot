@@ -69,6 +69,21 @@ jobs:
           echo "$canary" | grep -q '"verified":true' || { echo "helper canary did not verify" >&2; exit 1; }
           curl -fsS -b "$jar" http://127.0.0.1:8787/api/v1/operations/controller.database.inspect/inspect | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{const r=JSON.parse(d).result;if(r.status!=="ready"){console.error(r);process.exit(1)}})'
           curl -fsS -b "$jar" http://127.0.0.1:8787/api/v1/setup | grep -q '"profiles"' || { echo "setup profiles unavailable" >&2; exit 1; }
+          # An ISO upload through the real units: the web service writes its inbox inside the helper's
+          # boxpilot-managed, which at 0700 refused every upload with EACCES and no test noticed.
+          csrf="$(echo "$status" | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>console.log(JSON.parse(d).csrfToken))')"
+          iso="$(mktemp)"
+          head -c 65536 /dev/urandom > "$iso"
+          uploaded="$(curl -sS -b "$jar" -w '\n%{http_code}' -X POST http://127.0.0.1:8787/api/v1/virtualization/media/uploads \
+            -H "X-BoxPilot-CSRF: $csrf" -H 'Content-Type: application/octet-stream' \
+            -H 'X-BoxPilot-Filename: boxpilot-smoke.iso' -H "X-BoxPilot-Size: $(stat -c %s "$iso")" --data-binary "@$iso")"
+          echo "$uploaded"
+          [ "$(echo "$uploaded" | tail -n 1)" = "201" ] || { echo "the ISO upload was refused" >&2; exit 1; }
+          echo "$uploaded" | grep -q "\"sha256\":\"$(sha256sum "$iso" | cut -d' ' -f1)\"" || { echo "the staged ISO's hash does not match what was sent" >&2; exit 1; }
+          sudo test -f /var/lib/boxpilot-managed/vm-media-inbox/boxpilot-smoke.iso
+          sudo stat -c '%a %U:%G %n' /var/lib/boxpilot-managed /var/lib/boxpilot-managed/vm-media-inbox
+          [ "$(sudo stat -c %a /var/lib/boxpilot-managed)" = "710" ] || { echo "boxpilot-managed should be 0710" >&2; exit 1; }
+          if sudo -u boxpilot ls /var/lib/boxpilot-managed >/dev/null 2>&1; then echo "the web service can list boxpilot-managed" >&2; exit 1; fi
 
       - name: Independent doctor works with the web service stopped
         if: ${{ !cancelled() }}

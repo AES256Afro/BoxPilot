@@ -61,6 +61,11 @@ StateDirectory=boxpilot-managed boxpilot-migration
 StateDirectoryMode=0700
 CacheDirectory=boxpilot-restic boxpilot-controller-restic boxpilot-application-restic
 CacheDirectoryMode=0700
+# The web service stages ISO uploads in vm-media-inbox, so its group may pass through
+# boxpilot-managed, never list or read it; everything else in there stays root's own. At 0700 every
+# upload failed with EACCES. StateDirectoryMode= applies only when systemd creates the directory, so
+# the mode is set on every start, which mends installs that already have it.
+ExecStartPre=/usr/bin/chmod 0710 /var/lib/boxpilot-managed
 ExecStartPre=/usr/bin/install -d -o boxpilot -g boxpilot -m 0700 /var/lib/boxpilot-managed/vm-media-inbox
 ExecStart=/usr/local/bin/node /opt/boxpilot/server/helper-server.mjs
 Restart=on-failure
