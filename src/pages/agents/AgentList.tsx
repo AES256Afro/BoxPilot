@@ -43,7 +43,7 @@ export function AgentList({ overview, proposals, glance, csrfToken, role, now, o
 
   const columns: Array<TableColumn<AgentSummary>> = [
     {
-      id: "agent", header: "Agent", sortValue: (agent) => agent.name, cell: (agent) => (
+      id: "agent", header: "Agent", className: "agents-agent-cell", sortValue: (agent) => agent.name, cell: (agent) => (
         <span className="agents-name">
           <button type="button" className="agents-link" onClick={() => onOpen(agent.id, agent.canEdit ? "build" : "test")}>{agent.name}</button>
           <span className="agents-name__purpose">{agent.purpose}</span>
@@ -62,7 +62,7 @@ export function AgentList({ overview, proposals, glance, csrfToken, role, now, o
         );
       },
     },
-    { id: "starts", header: "Starts", hideOnPhone: true, cell: (agent) => <span className="agents-dim">{triggerWords(agent)}{agent.waitsForQuietHours ? " · quiet hours" : ""}</span> },
+    { id: "starts", header: "Starts", hideOnPhone: true, className: "agents-starts-cell", cell: (agent) => <span className="agents-dim">{triggerWords(agent)}{agent.waitsForQuietHours ? " · quiet hours" : ""}</span> },
     {
       id: "last", header: "Last run", sortValue: (agent) => agent.lastRun?.finishedAt ?? "", cell: (agent) => (agent.lastRun
         ? <span className="agents-last"><StatusChip status={runState(agent.lastRun.state).status}>{runState(agent.lastRun.state).label}</StatusChip><span className="agents-dim">{relativeTime(agent.lastRun.finishedAt, now) ?? ""}</span></span>
