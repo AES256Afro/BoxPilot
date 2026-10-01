@@ -30,6 +30,7 @@
  *                Appearance: blend, launcher, console, aqua, … Files get the look as a prefix.
  *   LOOK_SCOPE   with LOOK: "not-home" keeps today's Launcher on Home, as the setting does.
  *   SETTLE_MS    how long each page settles before its picture, default 2500.
+ *   QUALITY      JPEG quality, default 85.
  *   STATES       extra captures of states a page only reaches by clicking, separated by ";":
  *                name=query>click>click, for example
  *                "home-trouble=?scenario=trouble;activity=?scenario=trouble>Activity".
@@ -156,7 +157,9 @@ function store(name, data) {
 
 // FORMAT=jpg off macOS: Chrome encodes the JPEG itself, as sips does on a Mac.
 const jpegFromChrome = process.env.FORMAT === "jpg" && process.platform !== "darwin";
-const shotFormat = jpegFromChrome ? { format: "jpeg", quality: 85 } : { format: "png" };
+// QUALITY: the JPEG quality, 85 unless asked; the every-look galleries take 72, thirteen times over.
+const jpegQuality = Number.parseInt(process.env.QUALITY ?? "85", 10) || 85;
+const shotFormat = jpegFromChrome ? { format: "jpeg", quality: jpegQuality } : { format: "png" };
 
 async function capture(devtools) {
   if (!fullPage) return (await devtools.send("Page.captureScreenshot", shotFormat)).data;

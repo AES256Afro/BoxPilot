@@ -4,6 +4,8 @@ BoxPilot runs a home server from a web page. You install apps, keep them updated
 
 ![Home: what needs you, the system, backups and disks, and your apps with their health](docs/screenshots/overview.jpg)
 
+*See any page in all thirteen looks: open "in every look" under its picture. Home in every look is under [Looks](#looks).*
+
 ## What it is for
 
 One computer at home can run your own versions of things you pay for or hand your data to: movies and TV, photo backup from your phone, file sync, a password manager, ad blocking for every device in the house, home automation, game servers. Setting those up and keeping them running is the hard part. BoxPilot does that part.
@@ -68,11 +70,37 @@ Sign in with a password, a passkey, your Tailscale account, or GitHub.
 <td width="30%" valign="top"><img src="docs/screenshots/phone-today.jpg" alt="Today on a phone, with the bottom tab bar"></td></tr>
 </table>
 
+<!-- every-look:today -->
+<details><summary>Today in every look</summary>
+
+<table>
+<tr><td width="33%" valign="top"><img src="docs/screenshots/every-look/blend-today.jpg" alt="Today in Home + Ops"><br>Home + Ops</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/launcher-today.jpg" alt="Today in Launcher"><br>Launcher</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/console-today.jpg" alt="Today in Command Center"><br>Command Center</td></tr>
+<tr><td width="33%" valign="top"><img src="docs/screenshots/every-look/aqua-today.jpg" alt="Today in Aqua"><br>Aqua</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/blueprint-today.jpg" alt="Today in Blueprint"><br>Blueprint</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/phosphor-today.jpg" alt="Today in Phosphor"><br>Phosphor</td></tr>
+<tr><td width="33%" valign="top"><img src="docs/screenshots/every-look/rack-today.jpg" alt="Today in Rack Panel"><br>Rack Panel</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/swiss-today.jpg" alt="Today in Swiss Poster"><br>Swiss Poster</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/toybox-today.jpg" alt="Today in Toybox"><br>Toybox</td></tr>
+<tr><td width="33%" valign="top"><img src="docs/screenshots/every-look/cockpit-today.jpg" alt="Today in Glass Cockpit"><br>Glass Cockpit</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/eink-today.jpg" alt="Today in E-Ink"><br>E-Ink</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/quest-today.jpg" alt="Today in Quest"><br>Quest</td></tr>
+<tr><td width="33%" valign="top"><img src="docs/screenshots/every-look/transit-today.jpg" alt="Today in Transit Map"><br>Transit Map</td></tr>
+</table>
+</details>
+<!-- /every-look -->
+
 Add BoxPilot to your phone's home screen and it opens like an app. Turn on notifications and a job waiting for approval reaches your phone. Tapping it opens the normal approval, with its password step: a notification never approves anything by itself.
 
 ### Agents
 
 ![Agents: the latest digest, four agents with their schedules and budgets, and cards waiting for approval](docs/screenshots/agents.jpg)
+
+<!-- every-look:agents -->
+<details><summary>Agents in every look</summary>
+
+<table>
+<tr><td width="33%" valign="top"><img src="docs/screenshots/every-look/blend-agents.jpg" alt="Agents in Home + Ops"><br>Home + Ops</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/launcher-agents.jpg" alt="Agents in Launcher"><br>Launcher</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/console-agents.jpg" alt="Agents in Command Center"><br>Command Center</td></tr>
+<tr><td width="33%" valign="top"><img src="docs/screenshots/every-look/aqua-agents.jpg" alt="Agents in Aqua"><br>Aqua</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/blueprint-agents.jpg" alt="Agents in Blueprint"><br>Blueprint</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/phosphor-agents.jpg" alt="Agents in Phosphor"><br>Phosphor</td></tr>
+<tr><td width="33%" valign="top"><img src="docs/screenshots/every-look/rack-agents.jpg" alt="Agents in Rack Panel"><br>Rack Panel</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/swiss-agents.jpg" alt="Agents in Swiss Poster"><br>Swiss Poster</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/toybox-agents.jpg" alt="Agents in Toybox"><br>Toybox</td></tr>
+<tr><td width="33%" valign="top"><img src="docs/screenshots/every-look/cockpit-agents.jpg" alt="Agents in Glass Cockpit"><br>Glass Cockpit</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/eink-agents.jpg" alt="Agents in E-Ink"><br>E-Ink</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/quest-agents.jpg" alt="Agents in Quest"><br>Quest</td></tr>
+<tr><td width="33%" valign="top"><img src="docs/screenshots/every-look/transit-agents.jpg" alt="Agents in Transit Map"><br>Transit Map</td></tr>
+</table>
+</details>
+<!-- /every-look -->
 
 An agent is a small language model running on this server, with a job to do: keep an eye on the server, check that ad blocking is working, audit the backups, or answer questions. Agents only read. When one thinks something should change, it writes a card, and the change runs as a normal job only after you approve it. They run at the lowest priority with hard limits (four processors in the background, up to eight while you wait for an answer, 8 GB of memory, no network beyond this machine). They can be paused, paused until tomorrow, or all stopped at once. A nightly check scores their answers against questions you set. With the Zulip app installed, you can message an agent or @mention it in a chat room.
 
@@ -80,13 +108,52 @@ An agent is a small language model running on this server, with a job to do: kee
 
 ![Ops: the machine's numbers, alerts, the action inbox, and every container and VM](docs/screenshots/ops.jpg)
 
+<!-- every-look:ops -->
+<details><summary>Ops in every look</summary>
+
+<table>
+<tr><td width="33%" valign="top"><img src="docs/screenshots/every-look/blend-ops.jpg" alt="Ops in Home + Ops"><br>Home + Ops</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/launcher-ops.jpg" alt="Ops in Launcher"><br>Launcher</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/console-ops.jpg" alt="Ops in Command Center"><br>Command Center</td></tr>
+<tr><td width="33%" valign="top"><img src="docs/screenshots/every-look/aqua-ops.jpg" alt="Ops in Aqua"><br>Aqua</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/blueprint-ops.jpg" alt="Ops in Blueprint"><br>Blueprint</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/phosphor-ops.jpg" alt="Ops in Phosphor"><br>Phosphor</td></tr>
+<tr><td width="33%" valign="top"><img src="docs/screenshots/every-look/rack-ops.jpg" alt="Ops in Rack Panel"><br>Rack Panel</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/swiss-ops.jpg" alt="Ops in Swiss Poster"><br>Swiss Poster</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/toybox-ops.jpg" alt="Ops in Toybox"><br>Toybox</td></tr>
+<tr><td width="33%" valign="top"><img src="docs/screenshots/every-look/cockpit-ops.jpg" alt="Ops in Glass Cockpit"><br>Glass Cockpit</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/eink-ops.jpg" alt="Ops in E-Ink"><br>E-Ink</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/quest-ops.jpg" alt="Ops in Quest"><br>Quest</td></tr>
+<tr><td width="33%" valign="top"><img src="docs/screenshots/every-look/transit-ops.jpg" alt="Ops in Transit Map"><br>Transit Map</td></tr>
+</table>
+</details>
+<!-- /every-look -->
+
 ### Metrics
 
 ![Metrics: CPU, memory, swap, load, disks and temperature, then every app with its CPU and memory](docs/screenshots/performance.jpg)
 
+<!-- every-look:performance -->
+<details><summary>Metrics in every look</summary>
+
+<table>
+<tr><td width="33%" valign="top"><img src="docs/screenshots/every-look/blend-performance.jpg" alt="Metrics in Home + Ops"><br>Home + Ops</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/launcher-performance.jpg" alt="Metrics in Launcher"><br>Launcher</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/console-performance.jpg" alt="Metrics in Command Center"><br>Command Center</td></tr>
+<tr><td width="33%" valign="top"><img src="docs/screenshots/every-look/aqua-performance.jpg" alt="Metrics in Aqua"><br>Aqua</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/blueprint-performance.jpg" alt="Metrics in Blueprint"><br>Blueprint</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/phosphor-performance.jpg" alt="Metrics in Phosphor"><br>Phosphor</td></tr>
+<tr><td width="33%" valign="top"><img src="docs/screenshots/every-look/rack-performance.jpg" alt="Metrics in Rack Panel"><br>Rack Panel</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/swiss-performance.jpg" alt="Metrics in Swiss Poster"><br>Swiss Poster</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/toybox-performance.jpg" alt="Metrics in Toybox"><br>Toybox</td></tr>
+<tr><td width="33%" valign="top"><img src="docs/screenshots/every-look/cockpit-performance.jpg" alt="Metrics in Glass Cockpit"><br>Glass Cockpit</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/eink-performance.jpg" alt="Metrics in E-Ink"><br>E-Ink</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/quest-performance.jpg" alt="Metrics in Quest"><br>Quest</td></tr>
+<tr><td width="33%" valign="top"><img src="docs/screenshots/every-look/transit-performance.jpg" alt="Metrics in Transit Map"><br>Transit Map</td></tr>
+</table>
+</details>
+<!-- /every-look -->
+
 ### Automations
 
 ![Automations](docs/screenshots/automations.jpg)
+
+<!-- every-look:automations -->
+<details><summary>Automations in every look</summary>
+
+<table>
+<tr><td width="33%" valign="top"><img src="docs/screenshots/every-look/blend-automations.jpg" alt="Automations in Home + Ops"><br>Home + Ops</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/launcher-automations.jpg" alt="Automations in Launcher"><br>Launcher</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/console-automations.jpg" alt="Automations in Command Center"><br>Command Center</td></tr>
+<tr><td width="33%" valign="top"><img src="docs/screenshots/every-look/aqua-automations.jpg" alt="Automations in Aqua"><br>Aqua</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/blueprint-automations.jpg" alt="Automations in Blueprint"><br>Blueprint</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/phosphor-automations.jpg" alt="Automations in Phosphor"><br>Phosphor</td></tr>
+<tr><td width="33%" valign="top"><img src="docs/screenshots/every-look/rack-automations.jpg" alt="Automations in Rack Panel"><br>Rack Panel</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/swiss-automations.jpg" alt="Automations in Swiss Poster"><br>Swiss Poster</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/toybox-automations.jpg" alt="Automations in Toybox"><br>Toybox</td></tr>
+<tr><td width="33%" valign="top"><img src="docs/screenshots/every-look/cockpit-automations.jpg" alt="Automations in Glass Cockpit"><br>Glass Cockpit</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/eink-automations.jpg" alt="Automations in E-Ink"><br>E-Ink</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/quest-automations.jpg" alt="Automations in Quest"><br>Quest</td></tr>
+<tr><td width="33%" valign="top"><img src="docs/screenshots/every-look/transit-automations.jpg" alt="Automations in Transit Map"><br>Transit Map</td></tr>
+</table>
+</details>
+<!-- /every-look -->
 
 Chains of the jobs you already trust, run in order, each one recorded. A ready-made shelf (Update night, Belt and braces) that you can edit, and a builder over every job that needs no settings. A chain runs on a schedule or after another one finishes. A step can retry when something fails for a moment, keep going on failure, or run only if an earlier step's result says so. Every run shows each step's output. A run cut off by a restart says so, instead of claiming it is still running.
 
@@ -94,11 +161,37 @@ Chains of the jobs you already trust, run in order, each one recorded. A ready-m
 
 ![Firewall](docs/screenshots/firewall.jpg)
 
+<!-- every-look:firewall -->
+<details><summary>Firewall in every look</summary>
+
+<table>
+<tr><td width="33%" valign="top"><img src="docs/screenshots/every-look/blend-firewall.jpg" alt="Firewall in Home + Ops"><br>Home + Ops</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/launcher-firewall.jpg" alt="Firewall in Launcher"><br>Launcher</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/console-firewall.jpg" alt="Firewall in Command Center"><br>Command Center</td></tr>
+<tr><td width="33%" valign="top"><img src="docs/screenshots/every-look/aqua-firewall.jpg" alt="Firewall in Aqua"><br>Aqua</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/blueprint-firewall.jpg" alt="Firewall in Blueprint"><br>Blueprint</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/phosphor-firewall.jpg" alt="Firewall in Phosphor"><br>Phosphor</td></tr>
+<tr><td width="33%" valign="top"><img src="docs/screenshots/every-look/rack-firewall.jpg" alt="Firewall in Rack Panel"><br>Rack Panel</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/swiss-firewall.jpg" alt="Firewall in Swiss Poster"><br>Swiss Poster</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/toybox-firewall.jpg" alt="Firewall in Toybox"><br>Toybox</td></tr>
+<tr><td width="33%" valign="top"><img src="docs/screenshots/every-look/cockpit-firewall.jpg" alt="Firewall in Glass Cockpit"><br>Glass Cockpit</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/eink-firewall.jpg" alt="Firewall in E-Ink"><br>E-Ink</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/quest-firewall.jpg" alt="Firewall in Quest"><br>Quest</td></tr>
+<tr><td width="33%" valign="top"><img src="docs/screenshots/every-look/transit-firewall.jpg" alt="Firewall in Transit Map"><br>Transit Map</td></tr>
+</table>
+</details>
+<!-- /every-look -->
+
 Pick a profile, tick the services other devices should reach, apply. Suggestions come from what is listening right now: a database open to the whole network, an app nobody can reach, SSH with no limit on login attempts.
 
 ### Storage
 
 ![Storage](docs/screenshots/storage.jpg)
+
+<!-- every-look:storage -->
+<details><summary>Storage in every look</summary>
+
+<table>
+<tr><td width="33%" valign="top"><img src="docs/screenshots/every-look/blend-storage.jpg" alt="Storage in Home + Ops"><br>Home + Ops</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/launcher-storage.jpg" alt="Storage in Launcher"><br>Launcher</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/console-storage.jpg" alt="Storage in Command Center"><br>Command Center</td></tr>
+<tr><td width="33%" valign="top"><img src="docs/screenshots/every-look/aqua-storage.jpg" alt="Storage in Aqua"><br>Aqua</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/blueprint-storage.jpg" alt="Storage in Blueprint"><br>Blueprint</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/phosphor-storage.jpg" alt="Storage in Phosphor"><br>Phosphor</td></tr>
+<tr><td width="33%" valign="top"><img src="docs/screenshots/every-look/rack-storage.jpg" alt="Storage in Rack Panel"><br>Rack Panel</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/swiss-storage.jpg" alt="Storage in Swiss Poster"><br>Swiss Poster</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/toybox-storage.jpg" alt="Storage in Toybox"><br>Toybox</td></tr>
+<tr><td width="33%" valign="top"><img src="docs/screenshots/every-look/cockpit-storage.jpg" alt="Storage in Glass Cockpit"><br>Glass Cockpit</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/eink-storage.jpg" alt="Storage in E-Ink"><br>E-Ink</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/quest-storage.jpg" alt="Storage in Quest"><br>Quest</td></tr>
+<tr><td width="33%" valign="top"><img src="docs/screenshots/every-look/transit-storage.jpg" alt="Storage in Transit Map"><br>Transit Map</td></tr>
+</table>
+</details>
+<!-- /every-look -->
 
 Claim the space the Ubuntu installer left unused, take a snapshot before a big update and roll back if it goes wrong, mount disks and network shares permanently, and share folders with Samba or NFS. Passwords for network shares are never stored in BoxPilot's database.
 
@@ -106,19 +199,71 @@ Claim the space the Ubuntu installer left unused, take a snapshot before a big u
 
 ![Backups](docs/screenshots/backups.jpg)
 
+<!-- every-look:backups -->
+<details><summary>Backups in every look</summary>
+
+<table>
+<tr><td width="33%" valign="top"><img src="docs/screenshots/every-look/blend-backups.jpg" alt="Backups in Home + Ops"><br>Home + Ops</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/launcher-backups.jpg" alt="Backups in Launcher"><br>Launcher</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/console-backups.jpg" alt="Backups in Command Center"><br>Command Center</td></tr>
+<tr><td width="33%" valign="top"><img src="docs/screenshots/every-look/aqua-backups.jpg" alt="Backups in Aqua"><br>Aqua</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/blueprint-backups.jpg" alt="Backups in Blueprint"><br>Blueprint</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/phosphor-backups.jpg" alt="Backups in Phosphor"><br>Phosphor</td></tr>
+<tr><td width="33%" valign="top"><img src="docs/screenshots/every-look/rack-backups.jpg" alt="Backups in Rack Panel"><br>Rack Panel</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/swiss-backups.jpg" alt="Backups in Swiss Poster"><br>Swiss Poster</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/toybox-backups.jpg" alt="Backups in Toybox"><br>Toybox</td></tr>
+<tr><td width="33%" valign="top"><img src="docs/screenshots/every-look/cockpit-backups.jpg" alt="Backups in Glass Cockpit"><br>Glass Cockpit</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/eink-backups.jpg" alt="Backups in E-Ink"><br>E-Ink</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/quest-backups.jpg" alt="Backups in Quest"><br>Quest</td></tr>
+<tr><td width="33%" valign="top"><img src="docs/screenshots/every-look/transit-backups.jpg" alt="Backups in Transit Map"><br>Transit Map</td></tr>
+</table>
+</details>
+<!-- /every-look -->
+
 A backup counts only after a restore test passes. A machine snapshot holds everything needed to rebuild the server: BoxPilot's database, every app's settings and secrets, network and firewall settings, and VM definitions.
 
 ### Network
 
 ![Network and DNS](docs/screenshots/network.jpg)
 
+<!-- every-look:network -->
+<details><summary>Network in every look</summary>
+
+<table>
+<tr><td width="33%" valign="top"><img src="docs/screenshots/every-look/blend-network.jpg" alt="Network in Home + Ops"><br>Home + Ops</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/launcher-network.jpg" alt="Network in Launcher"><br>Launcher</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/console-network.jpg" alt="Network in Command Center"><br>Command Center</td></tr>
+<tr><td width="33%" valign="top"><img src="docs/screenshots/every-look/aqua-network.jpg" alt="Network in Aqua"><br>Aqua</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/blueprint-network.jpg" alt="Network in Blueprint"><br>Blueprint</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/phosphor-network.jpg" alt="Network in Phosphor"><br>Phosphor</td></tr>
+<tr><td width="33%" valign="top"><img src="docs/screenshots/every-look/rack-network.jpg" alt="Network in Rack Panel"><br>Rack Panel</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/swiss-network.jpg" alt="Network in Swiss Poster"><br>Swiss Poster</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/toybox-network.jpg" alt="Network in Toybox"><br>Toybox</td></tr>
+<tr><td width="33%" valign="top"><img src="docs/screenshots/every-look/cockpit-network.jpg" alt="Network in Glass Cockpit"><br>Glass Cockpit</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/eink-network.jpg" alt="Network in E-Ink"><br>E-Ink</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/quest-network.jpg" alt="Network in Quest"><br>Quest</td></tr>
+<tr><td width="33%" valign="top"><img src="docs/screenshots/every-look/transit-network.jpg" alt="Network in Transit Map"><br>Transit Map</td></tr>
+</table>
+</details>
+<!-- /every-look -->
+
 ### Updates
 
 ![Updates and packages](docs/screenshots/updates.jpg)
 
+<!-- every-look:updates -->
+<details><summary>Updates in every look</summary>
+
+<table>
+<tr><td width="33%" valign="top"><img src="docs/screenshots/every-look/blend-updates.jpg" alt="Updates in Home + Ops"><br>Home + Ops</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/launcher-updates.jpg" alt="Updates in Launcher"><br>Launcher</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/console-updates.jpg" alt="Updates in Command Center"><br>Command Center</td></tr>
+<tr><td width="33%" valign="top"><img src="docs/screenshots/every-look/aqua-updates.jpg" alt="Updates in Aqua"><br>Aqua</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/blueprint-updates.jpg" alt="Updates in Blueprint"><br>Blueprint</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/phosphor-updates.jpg" alt="Updates in Phosphor"><br>Phosphor</td></tr>
+<tr><td width="33%" valign="top"><img src="docs/screenshots/every-look/rack-updates.jpg" alt="Updates in Rack Panel"><br>Rack Panel</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/swiss-updates.jpg" alt="Updates in Swiss Poster"><br>Swiss Poster</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/toybox-updates.jpg" alt="Updates in Toybox"><br>Toybox</td></tr>
+<tr><td width="33%" valign="top"><img src="docs/screenshots/every-look/cockpit-updates.jpg" alt="Updates in Glass Cockpit"><br>Glass Cockpit</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/eink-updates.jpg" alt="Updates in E-Ink"><br>E-Ink</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/quest-updates.jpg" alt="Updates in Quest"><br>Quest</td></tr>
+<tr><td width="33%" valign="top"><img src="docs/screenshots/every-look/transit-updates.jpg" alt="Updates in Transit Map"><br>Transit Map</td></tr>
+</table>
+</details>
+<!-- /every-look -->
+
 ### System
 
 ![System](docs/screenshots/system.jpg)
+
+<!-- every-look:system -->
+<details><summary>System in every look</summary>
+
+<table>
+<tr><td width="33%" valign="top"><img src="docs/screenshots/every-look/blend-system.jpg" alt="System in Home + Ops"><br>Home + Ops</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/launcher-system.jpg" alt="System in Launcher"><br>Launcher</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/console-system.jpg" alt="System in Command Center"><br>Command Center</td></tr>
+<tr><td width="33%" valign="top"><img src="docs/screenshots/every-look/aqua-system.jpg" alt="System in Aqua"><br>Aqua</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/blueprint-system.jpg" alt="System in Blueprint"><br>Blueprint</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/phosphor-system.jpg" alt="System in Phosphor"><br>Phosphor</td></tr>
+<tr><td width="33%" valign="top"><img src="docs/screenshots/every-look/rack-system.jpg" alt="System in Rack Panel"><br>Rack Panel</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/swiss-system.jpg" alt="System in Swiss Poster"><br>Swiss Poster</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/toybox-system.jpg" alt="System in Toybox"><br>Toybox</td></tr>
+<tr><td width="33%" valign="top"><img src="docs/screenshots/every-look/cockpit-system.jpg" alt="System in Glass Cockpit"><br>Glass Cockpit</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/eink-system.jpg" alt="System in E-Ink"><br>E-Ink</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/quest-system.jpg" alt="System in Quest"><br>Quest</td></tr>
+<tr><td width="33%" valign="top"><img src="docs/screenshots/every-look/transit-system.jpg" alt="System in Transit Map"><br>Transit Map</td></tr>
+</table>
+</details>
+<!-- /every-look -->
 
 ### Repair
 
@@ -126,9 +271,35 @@ Finds what is wrong and offers the fix for each one: a drive that dropped off an
 
 ![Repair](docs/screenshots/repairs.jpg)
 
+<!-- every-look:repairs -->
+<details><summary>Repair in every look</summary>
+
+<table>
+<tr><td width="33%" valign="top"><img src="docs/screenshots/every-look/blend-repairs.jpg" alt="Repair in Home + Ops"><br>Home + Ops</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/launcher-repairs.jpg" alt="Repair in Launcher"><br>Launcher</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/console-repairs.jpg" alt="Repair in Command Center"><br>Command Center</td></tr>
+<tr><td width="33%" valign="top"><img src="docs/screenshots/every-look/aqua-repairs.jpg" alt="Repair in Aqua"><br>Aqua</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/blueprint-repairs.jpg" alt="Repair in Blueprint"><br>Blueprint</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/phosphor-repairs.jpg" alt="Repair in Phosphor"><br>Phosphor</td></tr>
+<tr><td width="33%" valign="top"><img src="docs/screenshots/every-look/rack-repairs.jpg" alt="Repair in Rack Panel"><br>Rack Panel</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/swiss-repairs.jpg" alt="Repair in Swiss Poster"><br>Swiss Poster</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/toybox-repairs.jpg" alt="Repair in Toybox"><br>Toybox</td></tr>
+<tr><td width="33%" valign="top"><img src="docs/screenshots/every-look/cockpit-repairs.jpg" alt="Repair in Glass Cockpit"><br>Glass Cockpit</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/eink-repairs.jpg" alt="Repair in E-Ink"><br>E-Ink</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/quest-repairs.jpg" alt="Repair in Quest"><br>Quest</td></tr>
+<tr><td width="33%" valign="top"><img src="docs/screenshots/every-look/transit-repairs.jpg" alt="Repair in Transit Map"><br>Transit Map</td></tr>
+</table>
+</details>
+<!-- /every-look -->
+
 ## Apps
 
 ![App catalog](docs/screenshots/catalog.jpg)
+
+<!-- every-look:catalog -->
+<details><summary>Apps in every look</summary>
+
+<table>
+<tr><td width="33%" valign="top"><img src="docs/screenshots/every-look/blend-catalog.jpg" alt="Apps in Home + Ops"><br>Home + Ops</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/launcher-catalog.jpg" alt="Apps in Launcher"><br>Launcher</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/console-catalog.jpg" alt="Apps in Command Center"><br>Command Center</td></tr>
+<tr><td width="33%" valign="top"><img src="docs/screenshots/every-look/aqua-catalog.jpg" alt="Apps in Aqua"><br>Aqua</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/blueprint-catalog.jpg" alt="Apps in Blueprint"><br>Blueprint</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/phosphor-catalog.jpg" alt="Apps in Phosphor"><br>Phosphor</td></tr>
+<tr><td width="33%" valign="top"><img src="docs/screenshots/every-look/rack-catalog.jpg" alt="Apps in Rack Panel"><br>Rack Panel</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/swiss-catalog.jpg" alt="Apps in Swiss Poster"><br>Swiss Poster</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/toybox-catalog.jpg" alt="Apps in Toybox"><br>Toybox</td></tr>
+<tr><td width="33%" valign="top"><img src="docs/screenshots/every-look/cockpit-catalog.jpg" alt="Apps in Glass Cockpit"><br>Glass Cockpit</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/eink-catalog.jpg" alt="Apps in E-Ink"><br>E-Ink</td><td width="33%" valign="top"><img src="docs/screenshots/every-look/quest-catalog.jpg" alt="Apps in Quest"><br>Quest</td></tr>
+<tr><td width="33%" valign="top"><img src="docs/screenshots/every-look/transit-catalog.jpg" alt="Apps in Transit Map"><br>Transit Map</td></tr>
+</table>
+</details>
+<!-- /every-look -->
 
 169 apps and game servers, each installed and managed the same way:
 
@@ -217,6 +388,7 @@ npm run dev               # UI at http://127.0.0.1:5173
 npm run check             # build + tests + syntax checks
 npm run demo              # the built UI on made-up data at http://127.0.0.1:8799
 npm run demo:screenshots  # retake docs/screenshots from it (needs Chrome)
+npm run demo:every-look   # retake each page in every look and the README's galleries
 node scripts/look-check.mjs look aqua  # score a look against its drawing (needs Chrome)
 ```
 

@@ -23,6 +23,7 @@
     "check:syntax": "node scripts/check-sources.mjs syntax",
     "demo": "node scripts/boxpilot-demo.mjs",
     "demo:screenshots": "node scripts/demo-screenshots.mjs",
+    "demo:every-look": "node scripts/readme-every-look.mjs",
     "version": "node scripts/sync-version.mjs && git add docker-compose.yml README.md",
     "demo:sweep": "node scripts/demo-sweep.mjs",
     "demo:publish": "npm run build && node scripts/demo-assets.mjs && node scripts/demo-bundle.mjs && cp demo-site/demo-data.json demo-site/public/demo-data.json"
