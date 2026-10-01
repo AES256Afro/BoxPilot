@@ -60,6 +60,14 @@ describe("System page", () => {
     expect(screen.getByRole("tab", { name: "Time & name" }).getAttribute("aria-selected")).toBe("true");
   });
 
+  it("says the look is in Settings, and opens Appearance from here", async () => {
+    serve();
+    const onOpenAppearance = vi.fn();
+    render(<SystemPage csrfToken="csrf-token" onOpenAppearance={onOpenAppearance} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Open Appearance" }));
+    expect(onOpenAppearance).toHaveBeenCalledTimes(1);
+  });
+
   it("stages a time zone change through the dialog, and keeps what was typed when the page reads again", async () => {
     const staged = serve();
     window.history.replaceState(null, "", "/?tab=time");
