@@ -41,6 +41,19 @@ describe("the account menu (M41)", () => {
     void screen;
   });
 
+  it("opens Settings at Appearance, and stands under the person's name in the looks that show the name", () => {
+    const onNavigate = vi.fn();
+    render(<AccountMenu variant="name" authStatus={authStatus} csrfToken="csrf" onNavigate={onNavigate} onSignedOut={vi.fn()} />);
+    // The name the bar showed as plain text is now the menu's button, with the same classes for each look.
+    const button = screen.getByRole("button", { name: "Account: alex" });
+    expect(button.classList.contains("signed-in-user")).toBe(true);
+    expect(button.querySelector(".signed-in-user__name")?.textContent).toBe("alex");
+    fireEvent.click(button);
+    fireEvent.click(within(screen.getByRole("menu")).getByText("Appearance"));
+    expect(onNavigate).toHaveBeenCalledWith("settings", { tab: "appearance" });
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
   it("offers light or dark only in a look that has both", () => {
     const open = (look: "blend" | "blueprint") => {
       render(<DrawnLookProvider value={look}><AccountMenu authStatus={authStatus} csrfToken="csrf" onNavigate={vi.fn()} onSignedOut={vi.fn()} /></DrawnLookProvider>);

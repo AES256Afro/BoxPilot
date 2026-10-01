@@ -31,7 +31,7 @@ type Option = { kind: "command"; command: Command } | { kind: "ask"; question: s
 
 export interface CommandBarProps {
   csrfToken: string;
-  onNavigate: (view: ViewName, options?: { app?: string }) => void;
+  onNavigate: (view: ViewName, options?: { app?: string; tab?: string }) => void;
   /** Opens the approval dialog for a step the assistant suggested, or an action chosen here (M36). */
   onStart: (operation: PendingOperation) => void;
   /** Who is asking: actions are offered only where this role could start them. None, no actions. */
@@ -156,7 +156,7 @@ function CommandDialog({ csrfToken, onClose, onNavigate, onStart, role }: Comman
     // An action goes through the ordinary approval dialog, at its own tier; nothing runs from here.
     if (command.action) { onStart({ operationId: command.action.operationId, title: command.action.title, parameters: command.action.parameters, preview: <span>{command.action.preview}</span> }); return; }
     if (command.href) window.open(command.href, "_blank", "noopener,noreferrer");
-    else if (command.view) onNavigate(command.view, command.app ? { app: command.app } : undefined);
+    else if (command.view) onNavigate(command.view, command.app || command.tab ? { app: command.app, tab: command.tab } : undefined);
   };
 
   const onInputKey = (event: ReactKeyboardEvent<HTMLInputElement>) => {

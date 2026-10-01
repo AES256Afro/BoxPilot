@@ -26,9 +26,11 @@ export interface SystemPageProps {
   csrfToken: string;
   /** Who is signed in: a viewer reads the settings and changes nothing; housekeeping is an operator's. */
   role?: string;
+  /** Opens Settings at Appearance: System is where people look for the look first. */
+  onOpenAppearance?: () => void;
 }
 
-export default function SystemPage({ csrfToken, role = "owner" }: SystemPageProps) {
+export default function SystemPage({ csrfToken, role = "owner", onOpenAppearance }: SystemPageProps) {
   const [settings, setSettings] = useState<SystemSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -215,6 +217,11 @@ export default function SystemPage({ csrfToken, role = "owner" }: SystemPageProp
                 { id: "copy", label: "Last database copy", value: lastUpdate.databaseCopy ? lastUpdate.databaseCopy.split("/").at(-1) : "none recorded", mono: Boolean(lastUpdate.databaseCopy) },
               ]} />
             </Panel>
+            {onOpenAppearance && (
+              <p className="system-note system-elsewhere">
+                The look, light or dark, and the wallpaper are in Settings, under Appearance. <Button variant="ghost" onClick={onOpenAppearance}>Open Appearance</Button>
+              </p>
+            )}
           </>
         ) : current === "updates" ? (
           <SystemUpdates release={release} releaseError={releaseError} checking={checkingRelease} onCheck={() => void loadRelease(true)} status={updateStatus} updating={updating} outcome={updateOutcome} role={role} onUpdate={update} />
