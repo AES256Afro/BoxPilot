@@ -20,7 +20,7 @@
 /* The Agents list: every other cell stays on one line, so the name and purpose were the only thing
    that could give, down to a word a line. They keep room to be read, and what starts an agent wraps. */
 .agents-agent-cell .agents-name { min-width: 14rem; }
-.ui-table td.agents-starts-cell { white-space: normal; }
+.agents-page td.agents-starts-cell { white-space: normal; }
 .agents-starts-cell .agents-dim { display: inline-block; min-width: 9rem; }
 /* A table that scrolls sideways keeps its visually hidden headers inside it, not past the page's edge. */
 .agents-page .ui-table-wrap { position: relative; }
