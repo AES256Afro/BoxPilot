@@ -73,7 +73,8 @@ const tallest = 12_000;
 
 /** page file name → query string. The README's pages, in its order ("overview" is its first picture, now Home). */
 const readmePages = [
-  ["overview", "?view=home"], ["catalog", "?view=catalog"], ["automations", "?view=automations"], ["firewall", "?view=firewall"],
+  ["overview", "?view=home"], ["today", "?view=today"], ["agents", "?view=agents"], ["ops", "?view=ops"], ["performance", "?view=performance"],
+  ["catalog", "?view=catalog"], ["automations", "?view=automations"], ["firewall", "?view=firewall"],
   ["storage", "?view=storage"], ["backups", "?view=backups"], ["network", "?view=network"], ["updates", "?view=updates"], ["system", "?view=system"],
   ["repairs", "?view=repairs"],
 ];
