@@ -16,11 +16,17 @@ import "./account.css";
  * it on is a stylesheet's choice. The controls it stands in for stay mounted (hidden), so Activity
  * and the bell still open from anywhere.
  */
-export function AccountMenu({ authStatus, csrfToken, onNavigate, onSignedOut }: {
+export function AccountMenu({ authStatus, csrfToken, onNavigate, onSignedOut, variant = "initial" }: {
   authStatus: AuthStatus;
   csrfToken: string;
-  onNavigate: (view: ViewName) => void;
+  onNavigate: (view: ViewName, options?: { tab?: string }) => void;
   onSignedOut: (reason: SignedOutReason | null) => void;
+  /**
+   * "initial" is the round initial a look's skin shows in place of the bar's controls. "name" is the
+   * name the other looks show in the bar (SessionControls), made the button that opens the same
+   * list, so Settings and Appearance are under the person's name in every look.
+   */
+  variant?: "initial" | "name";
 }) {
   const [open, setOpen] = useState(false);
   const { appearance, setAppearance, appearances } = useTheme();
@@ -55,10 +61,17 @@ export function AccountMenu({ authStatus, csrfToken, onNavigate, onSignedOut }: 
   };
 
   return (
-    <div className="account-menu" ref={root} onKeyDown={open ? onKeyDown : undefined}>
-      <button ref={button} type="button" className="account-menu__button" aria-haspopup="menu" aria-expanded={open} aria-label={username ? `Account: ${username}` : "Account"} title={username} onClick={() => setOpen((value) => !value)}>
-        <span className="account-menu__avatar" aria-hidden="true">{(username || "?").slice(0, 1).toUpperCase()}</span>
-      </button>
+    <div className={variant === "name" ? "account-name" : "account-menu"} ref={root} onKeyDown={open ? onKeyDown : undefined}>
+      {variant === "name" ? (
+        <button ref={button} type="button" className="signed-in-user account-name__button" aria-haspopup="menu" aria-expanded={open} aria-label={username ? `Account: ${username}` : "Account"} title={username} onClick={() => setOpen((value) => !value)}>
+          {username && <span className="signed-in-user__avatar" aria-hidden="true">{username.slice(0, 1).toUpperCase()}</span>}
+          <span className="signed-in-user__name">{username}</span>
+        </button>
+      ) : (
+        <button ref={button} type="button" className="account-menu__button" aria-haspopup="menu" aria-expanded={open} aria-label={username ? `Account: ${username}` : "Account"} title={username} onClick={() => setOpen((value) => !value)}>
+          <span className="account-menu__avatar" aria-hidden="true">{(username || "?").slice(0, 1).toUpperCase()}</span>
+        </button>
+      )}
       {open && (
         <div className="account-menu__list" role="menu" aria-label="Account">
           <p className="account-menu__who">{username}{role !== "owner" ? ` · ${role}` : ""}</p>
@@ -70,6 +83,7 @@ export function AccountMenu({ authStatus, csrfToken, onNavigate, onSignedOut }: 
             ))}
           </div>}
           <button type="button" role="menuitem" className="account-menu__item" onClick={choose(() => onNavigate("settings"))}>Settings</button>
+          <button type="button" role="menuitem" className="account-menu__item" onClick={choose(() => onNavigate("settings", { tab: "appearance" }))}>Appearance</button>
           <button type="button" role="menuitem" className="account-menu__item account-menu__item--out" onClick={choose(() => signOut(csrfToken, onSignedOut))}>Sign out</button>
         </div>
       )}
