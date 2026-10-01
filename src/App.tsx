@@ -22,6 +22,7 @@ import { NotificationCentre } from "./shell/NotificationCentre";
 import { PageLoading } from "./shell/PageLoading";
 import { ShellDock, ViewSwitch, type DockVariant } from "./shell/ShellNav";
 import { ShellSidebar } from "./shell/ShellSidebar";
+import { openSection, type SettingsSection } from "./pages/settings/sections";
 import { TopBarClock } from "./shell/TopBarClock";
 import { DrawnLookProvider } from "./looks/drawnLook";
 import { LookBar } from "./looks/LookBar";
@@ -117,6 +118,8 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
     if (options.app) url.searchParams.set("app", options.app);
     if (options.tab) url.searchParams.set("tab", options.tab); // a tabbed page opens at this tab
     window.history.replaceState(null, "", url);
+    // Settings already open hears of it too, and turns to the section ("Appearance" from the menu).
+    if (next === "settings" && options.tab) openSection(options.tab as SettingsSection);
   }, []);
   // A push tapped while the app is open: the service worker says which approval, and it opens here.
   useEffect(() => {
@@ -198,7 +201,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
     if (view === "updates") return <UpdatesPage csrfToken={csrfToken} role={role} />;
     if (view === "catalog") return <CatalogPage key={focusApp ?? ""} csrfToken={csrfToken} focusApp={focusApp ?? undefined} role={role} />;
     if (view === "services") return <ServicesPage csrfToken={csrfToken} role={role} />;
-    if (view === "system") return <SystemPage csrfToken={csrfToken} role={role} />;
+    if (view === "system") return <SystemPage csrfToken={csrfToken} role={role} onOpenAppearance={() => setView("settings", { tab: "appearance" })} />;
     if (view === "automations") return <AutomationsPage csrfToken={csrfToken} role={role} />;
     if (view === "performance") return <PerformancePage csrfToken={csrfToken} role={role} />;
     if (view === "users") return <UsersPage csrfToken={csrfToken} role={role} />;
@@ -240,7 +243,8 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
             <ThemeSwitch compact />
             <NotificationCentre csrfToken={csrfToken} role={role} onNavigate={setView} />
             <ActivityDrawer csrfToken={csrfToken} role={role} />
-            <SessionControls authStatus={authStatus} csrfToken={csrfToken} onRefresh={() => void refreshAuth()} onSignedOut={onSignedOut} />
+            <SessionControls authStatus={authStatus} csrfToken={csrfToken} onRefresh={() => void refreshAuth()} onSignedOut={onSignedOut}
+              user={<AccountMenu variant="name" authStatus={authStatus} csrfToken={csrfToken} onNavigate={setView} onSignedOut={onSignedOut} />} />
             <AccountMenu authStatus={authStatus} csrfToken={csrfToken} onNavigate={setView} onSignedOut={onSignedOut} />
             <TopBarClock />
           </div>
