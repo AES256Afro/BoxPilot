@@ -2450,6 +2450,38 @@ owner chose all thirteen, each built to match its drawing (ADR-010).
   Glass Cockpit's unlit lamps are brighter than drawn so their names can be read, and the
   Launcher's Storage keeps status chips where a switch would promise what it cannot do.
 
+## M42 — Publish an app to the internet
+
+Asked for 2026-10-03: the owner wants to share files with people outside the tailnet through Pingvin
+Share, without the Cloudflare dashboard and without opening a port on the router. Decided in ADR-011.
+
+- ✅ **M42.1 Cloudflare Tunnel from BoxPilot** (unreleased, `feat/cloudflare-tunnel-manager`). A
+  **Tunnel** tab on the Cloudflare Tunnel app's sheet in the App catalog, owner only, installed or
+  not. **Connect** (`cloudflare.connect`, high): paste an API token with Account · Cloudflare Tunnel
+  · Edit, Zone · DNS · Edit and Zone · Zone · Read; BoxPilot checks it, finds or makes the tunnel
+  `boxpilot-<server>` (routes kept at Cloudflare), saves the tunnel's key and installs the Cloudflare
+  Tunnel app with it, or gives an installed one the new key. **Publish** (`cloudflare.publish`, high,
+  the full name typed): an installed app, its port, a domain and a name, previewed as
+  `https://<name>.<domain>`, with an "it speaks HTTPS" box; the route and the CNAME are added, every
+  route BoxPilot did not make is kept, and a name that already points elsewhere is refused. The
+  preview says plainly that anyone can open it and the app's own sign-in is the only lock, and, for
+  Pingvin Share, which two settings to change. **Published apps** lists each with its link and
+  **Unpublish** (`cloudflare.unpublish`, medium), which removes only what BoxPilot made. **Check
+  with Cloudflare** (`cloudflare.tunnel.check`) shows the tunnel's health and connectors, a name
+  missing at Cloudflare and one added in the dashboard. **Disconnect** (`cloudflare.disconnect`,
+  medium) forgets the API token and leaves everything running. The API calls are root tasks
+  (`server/tasks/cloudflare.mjs`, `server/cloudflare-api.mjs`); the two tokens live in the credential
+  store; BoxPilot's record is `/var/lib/boxpilot-managed/cloudflare-tunnel.json`. The Cloudflare
+  Tunnel app now shares the host's network, so every app is `http://127.0.0.1:<port>` to it. The
+  runbook lists what BoxPilot published. The demo shows Pingvin Share at `share.example.com`, and a
+  new server not connected. Steps for the owner in `docs/NETWORK.md`.
+- **Next: a login in front.** Cloudflare Access on a published name (one-time PIN to an email
+  address, or a Google or GitHub login), chosen per app on the same form, so an app without a good
+  sign-in of its own can still be shared.
+- **Next: say what is public where it is looked for.** A public app marked on Home and on the
+  Network page, and its public address on that app's Reach tab beside the home network and tailnet
+  ones, with Unpublish there too.
+
 ## App catalogue candidates
 
 Checked against the 164 manifests already in `catalog/`, so nothing here duplicates an existing

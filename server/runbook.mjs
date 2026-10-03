@@ -182,6 +182,8 @@ const stableSections = {
       firewall: firewall.available === false ? { unknown: true } : { installed: firewall.installed ?? null, enabled: firewall.enabled ?? null, defaults: firewall.defaults ?? null, rules: (firewall.rules ?? []).map((rule) => [rule.action, rule.port, rule.protocol, rule.app, rule.direction, rule.interface, rule.family]), profile: firewall.profile ? [firewall.profile.id, firewall.profile.edited === true] : null },
       serves: network.serves?.available === false ? { unknown: true } : (network.serves?.items ?? []).map((serve) => serve.url),
       tunnel: network.tunnel?.installed ?? null,
+      // Only once something is published, so a runbook from before M42 is not marked out of date for nothing.
+      ...((network.tunnel?.published?.items ?? []).length ? { published: network.tunnel.published.items.map((item) => item.url) } : {}),
       routes: network.tailscale?.advertisedRoutes ?? [],
     };
   },
@@ -425,9 +427,23 @@ function renderNetwork(facts, lines) {
   }
   lines.push("", "### Public exposure", "");
   const tunnel = network.tunnel ?? {};
+  // What BoxPilot published through the tunnel (M42), from its own record; null when that could not be read.
+  const published = tunnel.published?.available === true ? tunnel.published.items ?? [] : null;
+  const elsewhere = "A name added to the tunnel in the Cloudflare dashboard would be public too; BoxPilot lists only what it published itself.";
   if (tunnel.installed === null || tunnel.installed === undefined) lines.push(`- Public tunnel: ${unknown(tunnel.reason ?? "the app inventory could not be read")}.`);
-  else if (tunnel.installed) lines.push(`- ${clean(tunnel.name ?? "Cloudflare Tunnel")} is installed${tunnel.running === true ? " and running" : tunnel.running === false ? " but not running" : ""}. Which hostnames it publishes, and so which apps are public, is set in the Cloudflare dashboard: ${unknown("BoxPilot cannot see the tunnel's routes")}.`);
-  else lines.push("- No public tunnel is installed, and BoxPilot publishes on the tailnet only. A port forward on the router would make something public; BoxPilot cannot see the router's forwards.");
+  else if (tunnel.installed) {
+    const head = `- ${clean(tunnel.name ?? "Cloudflare Tunnel")} is installed${tunnel.running === true ? " and running" : tunnel.running === false ? " but not running" : ""}.`;
+    if (published === null) lines.push(`${head} Which hostnames it publishes, and so which apps are public, is set in the Cloudflare dashboard: ${unknown("BoxPilot cannot see the tunnel's routes")}.`);
+    else if (!published.length) lines.push(`${head} BoxPilot has published nothing through it. ${elsewhere}`);
+    else {
+      lines.push(`${head} Public on the internet, published by BoxPilot${tunnel.published.tunnelName ? ` through the tunnel ${code(tunnel.published.tunnelName)}` : ""}; anyone with the address can open these, and each app's own sign-in is the only lock:`);
+      for (const item of published) lines.push(`  - ${clean(item.url)}${item.app ? ` to ${clean(item.app)}` : ""}${Number.isInteger(item.port) ? ` (port ${item.port} on this server)` : ""}`);
+      lines.push(`  - ${elsewhere}`);
+    }
+  } else {
+    lines.push("- No public tunnel is installed, and BoxPilot publishes on the tailnet only. A port forward on the router would make something public; BoxPilot cannot see the router's forwards.");
+    if (published?.length) lines.push(`- BoxPilot published ${published.map((item) => clean(item.url)).join(", ")} through Cloudflare, but without the Cloudflare Tunnel app ${published.length === 1 ? "it shows" : "they show"} an error page.`);
+  }
   lines.push("");
 }
 

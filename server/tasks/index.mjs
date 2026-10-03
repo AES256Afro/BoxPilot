@@ -36,6 +36,7 @@ import { hostListeners } from "./listeners.mjs";
 import { zulipCheck, zulipEvents, zulipPoll, zulipPost } from "./zulip.mjs";
 import { dnsFallbackRehearse } from "./dns-rehearsal.mjs";
 import { heartbeatConfigure, heartbeatPing } from "./heartbeat.mjs";
+import { cloudflareCheck, cloudflareConnect, cloudflarePublish, cloudflareUnpublish } from "./cloudflare.mjs";
 
 export const tasks = Object.freeze({
   "apt.update": aptUpdate,
@@ -125,6 +126,11 @@ export const tasks = Object.freeze({
   "dns.fallback.rehearse": (parameters, context) => dnsFallbackRehearse(parameters, context),
   "heartbeat.configure": (parameters, context) => heartbeatConfigure(parameters, context),
   "heartbeat.ping": (parameters, context) => heartbeatPing(parameters, context),
+  // M42: Cloudflare's API, for publishing an app through the tunnel. Each reads the API token itself.
+  "cloudflare.connect": (parameters, context) => cloudflareConnect(parameters, { log: context?.log }),
+  "cloudflare.publish": (parameters, context) => cloudflarePublish(parameters, { log: context?.log }),
+  "cloudflare.unpublish": (parameters, context) => cloudflareUnpublish(parameters, { log: context?.log }),
+  "cloudflare.check": (parameters, context) => cloudflareCheck(parameters, { log: context?.log }),
 });
 
 export function taskIds() {

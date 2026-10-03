@@ -32,7 +32,7 @@ export interface CatalogPageProps {
   role?: string;
 }
 
-const sheetTabs: readonly SheetTab[] = ["overview", "reach", "backups", "vpn", "logs", "config", "models", "signin", "secrets"];
+const sheetTabs: readonly SheetTab[] = ["overview", "tunnel", "reach", "backups", "vpn", "logs", "config", "models", "signin", "secrets"];
 
 /**
  * Puts `app` (and the sheet's tab, `sheet`) in the address while its sheet is open, so a reload or
@@ -406,7 +406,7 @@ export default function CatalogPage({ csrfToken, focusApp, role = "owner" }: Cat
         )}
       </Tabs>
 
-      {sheetEntry && ctx && <AppSheet key={sheetEntry.manifest.id} entry={sheetEntry} ctx={ctx} tab={sheet?.tab} onTab={(next) => rememberApp(sheetEntry.manifest.id, next)} onClose={closeSheet} />}
+      {sheetEntry && ctx && <AppSheet key={sheetEntry.manifest.id} entry={sheetEntry} ctx={ctx} tab={sheet?.tab} onTab={(next) => { rememberApp(sheetEntry.manifest.id, next); setSheet((current) => (current ? { ...current, tab: next } : current)); }} onClose={closeSheet} />}
 
       {config && (
         <ConfigSheet

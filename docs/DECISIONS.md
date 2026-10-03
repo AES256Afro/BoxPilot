@@ -814,3 +814,80 @@ to a shared component is checked against every look's screenshots, not one. Stat
 their meaning in every look, and a look without colour (E-Ink) carries them in shapes and words.
 The skins ride in the first stylesheet so a page never paints in one look and then another; each
 Home is its own chunk.
+
+## ADR-011: apps reach the internet through a Cloudflare tunnel BoxPilot manages with an API token
+
+**Date:** 2026-10-03 · **Status:** Accepted (M42, unreleased) · **Builds on:** ADR-001 (one
+registry, risk tiers), ADR-003 (owner reads), M13.7's credential store.
+
+### Context
+
+The owner wants to share things with people who are not on the tailnet, first Pingvin Share for
+sending large files. Everything BoxPilot publishes today is on the home network or the tailnet.
+Opening a port on the router would put the server's address on the internet and is not something
+BoxPilot can see or change (ADR-008: the router stays the owner's). The catalog has had Cloudflare
+Tunnel (`cloudflared`) for a while, but using it meant the Cloudflare Zero Trust dashboard: make a
+tunnel, copy its token into the app's settings, then add each public hostname by hand with this
+server's address and the app's port. BoxPilot could not see any of it (the runbook said so).
+
+Cloudflare's API can do every one of those steps with one API token: list the owner's domains,
+make a tunnel whose routes Cloudflare keeps ("remotely managed", `config_src: cloudflare`), read
+its run token, set its routes (`ingress`), and add the DNS name. The helper has no network
+(`PrivateNetwork=true`); the root task runner (`boxpilot-run@`) does.
+
+### Decision
+
+1. **One tunnel per server, made and managed by BoxPilot.** The owner pastes an API token with
+   exactly *Account · Cloudflare Tunnel · Edit*, *Zone · DNS · Edit* and *Zone · Zone · Read*.
+   Connect (`cloudflare.connect`, high, owner) checks it by listing the active domains, takes the
+   account they belong to, finds the tunnel `boxpilot-<this server's name>` or makes it (remotely
+   managed), saves its run token, and installs the catalog's Cloudflare Tunnel app with it (or gives
+   an installed one the new key: the preview says it replaces the token it runs with). Nothing is
+   published by connecting. A token Cloudflare refuses is not kept; the one saved before stays.
+2. **Secrets stay in the credential store.** `cloudflare-api-token` and `cloudflare-tunnel-token`
+   live in the root-only store. The API token rides the ordinary secret-parameter path once (staged
+   in memory, `[secret]` in every record) and is read afterwards only by the root tasks, which put
+   it in one `Authorization` header, never follow a redirect with it, and scrub it from any error.
+   Neither token is in a log line, a job result, an answer to the page, or the state file.
+3. **The network calls are tasks; the helper does the rest.** `server/tasks/cloudflare.mjs`
+   (connect, publish, unpublish, check) talks to Cloudflare through `server/cloudflare-api.mjs`.
+   The helper reads the record, works out which port an app listens on, and installs or starts the
+   tunnel app. BoxPilot's record of what it made is `/var/lib/boxpilot-managed/cloudflare-tunnel.json`
+   (0600): the account, the tunnel, the domains, and each published name with its DNS record id.
+4. **Publish one name per app, at a tier that matches what it does.** `cloudflare.publish` (high,
+   owner, the full name typed to confirm) takes an installed app, one of its TCP ports, a domain
+   and one DNS label (never the bare domain). The tunnel app shares the host's network
+   (`network: host` in its manifest), so every app is `http://127.0.0.1:<port>` (or `https://`, its
+   own certificate unchecked, when the owner says the port speaks HTTPS), whether it listens on the
+   home network or on this server only; a port bound only to the tailnet address is refused with the
+   way to change it. The route goes in first, every route BoxPilot did not make is kept in its
+   order, and the catch-all stays last; then the CNAME (`<tunnel id>.cfargotunnel.com`, proxied,
+   commented `BoxPilot: <app>`) is added, or BoxPilot's own is kept.
+5. **Never touch what BoxPilot did not make.** A name that already has any DNS record other than a
+   CNAME to this tunnel is refused ("already points somewhere else; BoxPilot will not replace it").
+   Unpublishing (`cloudflare.unpublish`, medium) removes only BoxPilot's rule for that name and
+   deletes the DNS record only when it is the one BoxPilot recorded and it still points at the
+   tunnel. Disconnecting (`cloudflare.disconnect`, medium) forgets the API token only: the tunnel and
+   what is published keep working, because the tunnel app runs with the tunnel's own key.
+6. **Reads.** `cloudflare.tunnel.inspect` (owner) answers from the record and the credential names
+   with no network; `cloudflare.tunnel.check` (owner) asks Cloudflare for the tunnel's health, its
+   connectors and the names it routes, so the Tunnel tab shows a name missing there or one added in
+   the dashboard.
+7. **Login walls are not part of this.** Cloudflare Access (a sign-in in front of a published app)
+   is the next step. Until then the preview, the tab and the runbook say plainly that anyone with the
+   address can open a published app, and that the app's own sign-in is the only lock.
+
+### Consequences
+
+- The owner never opens the Cloudflare dashboard or the router to share an app; the runbook lists
+  what BoxPilot published, and says that names added in the dashboard are not in its record.
+- The API token can change the owner's DNS for the zones it covers, so it is owner-only, high to
+  save, and can be forgotten in one click without taking anything down.
+- The Cloudflare Tunnel app moves to the host's network. An installed copy picks it up when it is
+  next reconfigured, which Connect does. A tunnel the owner made by hand in the dashboard keeps
+  working: hostnames sent to this server's LAN address still reach it, and `http://127.0.0.1:<port>`
+  now reaches every app, including one that listens on this server only.
+- One tunnel and one account per server: a token covering several accounts uses the account of the
+  first domain listed, and domains in the others are not offered.
+- BoxPilot's record can drift from Cloudflare when the owner edits the tunnel in the dashboard;
+  Check with Cloudflare shows it, and publishing again repairs a missing route.
