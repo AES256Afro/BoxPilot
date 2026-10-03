@@ -223,6 +223,19 @@ describe("the runbook", () => {
     expect(markdown).toContain("- `media` at `/mnt/media`: ext4 from `UUID=00000000-0000-4000-8000-000000000001`, on `/dev/sdb` (Example Disk 4TB, usb). Mounted read-write, 4.0 TB, 1.2 TB free when generated. SMART: unknown (no reading; USB enclosures often do not pass SMART through). Auto-reconnect: armed.\n  - Holds: Jellyfin: Media library (`/mnt/media/library`)");
   });
 
+  it("lists what BoxPilot published to the internet through Cloudflare, and says what it cannot see (M42)", () => {
+    const facts = richFacts();
+    facts.network.tunnel = { installed: true, name: "Cloudflare Tunnel", running: true, published: { available: true, tunnelName: "boxpilot-homeserver", items: [{ url: "https://share.example.com", app: "Pingvin Share", port: 3022 }] } };
+    const markdown = render(facts);
+    expect(markdown).toContain("- Cloudflare Tunnel is installed and running. Public on the internet, published by BoxPilot through the tunnel `boxpilot-homeserver`; anyone with the address can open these, and each app's own sign-in is the only lock:\n  - https://share.example.com to Pingvin Share (port 3022 on this server)\n  - A name added to the tunnel in the Cloudflare dashboard would be public too; BoxPilot lists only what it published itself.");
+    facts.network.tunnel.published.items = [];
+    expect(render(facts)).toContain("- Cloudflare Tunnel is installed and running. BoxPilot has published nothing through it. A name added");
+    // What is published is part of the network section's fingerprint, so a runbook goes out of date when it changes.
+    const before = runbookFingerprint(facts).sections.network;
+    facts.network.tunnel.published.items = [{ url: "https://share.example.com", app: "Pingvin Share", port: 3022 }];
+    expect(runbookFingerprint(facts).sections.network).not.toBe(before);
+  });
+
   it("says where every second copy is, and how the server and each app come back", () => {
     const markdown = render(richFacts());
     expect(markdown).toContain("- Another machine over SSH: at `backup.example:/srv/backups/homeserver`; last copy 2026-09-28 04:30 UTC. A plain mirror of the local backups, copied with rsync; not encrypted. The SSH key is /etc/boxpilot/secrets/backup-mirror-key on this server (root only); its public half is authorized on the destination.");
