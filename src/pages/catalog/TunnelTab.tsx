@@ -164,7 +164,7 @@ export function TunnelTab({ entry, ctx }: { entry: Entry; ctx: CatalogContext })
       preview: (
         <span>
           Makes {appName} reachable by <strong>anyone on the internet</strong> at <code>https://{fqdn}</code>. Cloudflare adds the name to {chosenDomain} and sends visitors through your tunnel to port {chosenPort.hostPort} on this server; no port is opened on your router. There is no login in front of it: <strong>{appName}&apos;s own sign-in is the only lock</strong>, so make sure it has one. If {fqdn} already points somewhere else, nothing is changed.
-          {choice.entry.manifest.id === "pingvin-share" && <> For Pingvin Share: set <strong>Behind a reverse proxy</strong> to Yes in its Settings here, and its <strong>App URL</strong> to <code>https://{fqdn}</code> in Pingvin Share&apos;s own configuration, so the links it hands out use the new address.</>}
+          {choice.entry.manifest.id === "pingvin-share" && <> For {appName}: set <strong>Behind a reverse proxy</strong> to Yes in its Settings here, and its <strong>App URL</strong> to <code>https://{fqdn}</code> in {appName}&apos;s own configuration, so the links it hands out use the new address.</>}
         </span>
       ),
     });
@@ -288,7 +288,7 @@ export function TunnelTab({ entry, ctx }: { entry: Entry; ctx: CatalogContext })
                 {choice && <Checkbox label="This port speaks HTTPS" description="Only for an app that serves HTTPS itself on this port; its own certificate is not checked." checked={https} onChange={setHttps} />}
                 {offServer && <Notice tone="warning" title={`${choice!.entry.manifest.name} cannot be reached on that port from the tunnel`}>It listens only at {chosenPort!.bind}. On its Reach tab, publish it on your home network first.</Notice>}
                 {fqdn && <p className="catalog-tunnel__preview">Anyone on the internet will be able to open <code>https://{fqdn}</code>. {choice ? `${choice.entry.manifest.name}'s own sign-in is the only lock.` : ""}</p>}
-                {choice?.entry.manifest.id === "pingvin-share" && fqdn && <Notice tone="info" title="Two settings in Pingvin Share">Set Behind a reverse proxy to Yes in its Settings here, and its App URL to https://{fqdn} in Pingvin Share&apos;s own configuration, so its share links use the new address.</Notice>}
+                {choice?.entry.manifest.id === "pingvin-share" && fqdn && <Notice tone="info" title={`Two settings in ${choice.entry.manifest.name}`}>Set Behind a reverse proxy to Yes in its Settings here, and its App URL to https://{fqdn} in {choice.entry.manifest.name}&apos;s own configuration, so its share links use the new address.</Notice>}
                 <div className="catalog-sheet__actions">
                   <Button type="submit" variant="primary" risk={riskOf("cloudflare.publish")} disabled={!canPublish}>Publish</Button>
                 </div>
