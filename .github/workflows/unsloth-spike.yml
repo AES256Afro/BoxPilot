@@ -1,0 +1,223 @@
+name: Unsloth spike
+
+# Manual only. Measures whether Unsloth can serve a small Qwen 3.5 with vision headless on CPU under
+# a hard cap, for M37's resident agent. Findings: docs/spikes/2026-09-unsloth-headless.md.
+# Script: tests/spikes/unsloth-headless.sh. Nothing here gates a merge or a release.
+on:
+  workflow_dispatch:
+    inputs:
+      jobs:
+        description: "Comma-separated jobs to run: perf, capability, recommended, official, nine-b (9B and 2B comparison)"
+        default: "perf,capability,recommended,official,nine-b"
+        type: string
+      recommended_steps:
+        description: "Steps of the recommended job: recommended, lifecycle"
+        default: "recommended,lifecycle"
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  HF_CACHE_KEY: unsloth-spike-hf-qwen35-4b-embed06b-v1
+
+jobs:
+  models:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - name: Restore the model cache
+        id: cache
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ runner.temp }}/hf
+          key: ${{ env.HF_CACHE_KEY }}
+      - name: Download the GGUFs
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: bash tests/spikes/unsloth-headless.sh models
+      - name: Save the model cache
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ runner.temp }}/hf
+          key: ${{ env.HF_CACHE_KEY }}
+
+  perf:
+    needs: models
+    if: contains(format(',{0},', inputs.jobs), ',perf,')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - uses: actions/cache/restore@v6
+        with:
+          path: ${{ runner.temp }}/hf
+          key: ${{ env.HF_CACHE_KEY }}
+          fail-on-cache-miss: true
+      - name: Build the slim image with Unsloth's installer
+        run: bash tests/spikes/unsloth-headless.sh build
+      - name: Caps, speed and idle, 0.5 and 1.0 CPU at 1 and 2 threads
+        run: bash tests/spikes/unsloth-headless.sh perf
+      - name: Summary
+        if: always()
+        run: node tests/spikes/unsloth-probe.mjs summarize --in "$RUNNER_TEMP/unsloth-spike/results.jsonl" --title "perf (Qwen3.5-4B)" >> "$GITHUB_STEP_SUMMARY" || true
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: unsloth-spike-perf
+          path: ${{ runner.temp }}/unsloth-spike
+          retention-days: 30
+
+  capability:
+    needs: models
+    if: contains(format(',{0},', inputs.jobs), ',capability,')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - uses: actions/cache/restore@v6
+        with:
+          path: ${{ runner.temp }}/hf
+          key: ${{ env.HF_CACHE_KEY }}
+          fail-on-cache-miss: true
+      - name: Python venv for the chart image
+        run: python3 -m venv "$RUNNER_TEMP/spike-venv" && "$RUNNER_TEMP/spike-venv/bin/pip" install -q pillow
+      - name: Build the slim image with Unsloth's installer
+        run: bash tests/spikes/unsloth-headless.sh build
+      - name: Tool calling, vision, JSON, thinking, security
+        if: always()
+        run: bash tests/spikes/unsloth-headless.sh capability
+      - name: Idle unload, pause, cold start
+        if: always()
+        run: bash tests/spikes/unsloth-headless.sh lifecycle
+      - name: Embeddings without Ollama
+        if: always()
+        run: bash tests/spikes/unsloth-headless.sh embeddings
+      - name: Summary
+        if: always()
+        run: node tests/spikes/unsloth-probe.mjs summarize --in "$RUNNER_TEMP/unsloth-spike/results.jsonl" --title "capability (Qwen3.5-4B)" >> "$GITHUB_STEP_SUMMARY" || true
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: unsloth-spike-capability
+          path: ${{ runner.temp }}/unsloth-spike
+          retention-days: 30
+
+  # The configuration the findings recommend, then idle unload, pause and cold start with its flags.
+  recommended:
+    needs: models
+    if: contains(format(',{0},', inputs.jobs), ',recommended,')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - uses: actions/cache/restore@v6
+        with:
+          path: ${{ runner.temp }}/hf
+          key: ${{ env.HF_CACHE_KEY }}
+          fail-on-cache-miss: true
+      - name: Build the slim image with Unsloth's installer
+        run: bash tests/spikes/unsloth-headless.sh build
+      - name: Recommended flags, five minutes idle, embeddings beside chat
+        if: contains(format(',{0},', inputs.recommended_steps), ',recommended,')
+        run: bash tests/spikes/unsloth-headless.sh recommended
+      - name: Idle unload with the context pinned, pause, cold start
+        if: ${{ !cancelled() && contains(format(',{0},', inputs.recommended_steps), ',lifecycle,') }}
+        run: bash tests/spikes/unsloth-headless.sh lifecycle
+      - name: Summary
+        if: always()
+        run: node tests/spikes/unsloth-probe.mjs summarize --in "$RUNNER_TEMP/unsloth-spike/results.jsonl" --title "recommended (Qwen3.5-4B)" >> "$GITHUB_STEP_SUMMARY" || true
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: unsloth-spike-recommended
+          path: ${{ runner.temp }}/unsloth-spike
+          retention-days: 30
+
+  official:
+    needs: models
+    if: contains(format(',{0},', inputs.jobs), ',official,')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Free disk for a 10 GB image
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL /usr/share/swift
+          docker image prune -af >/dev/null
+          df -h /
+      - uses: actions/cache/restore@v6
+        with:
+          path: ${{ runner.temp }}/hf
+          key: ${{ env.HF_CACHE_KEY }}
+          fail-on-cache-miss: true
+      - name: Official image, default command and unsloth run --api-only
+        run: bash tests/spikes/unsloth-headless.sh official
+      - name: Summary
+        if: always()
+        run: node tests/spikes/unsloth-probe.mjs summarize --in "$RUNNER_TEMP/unsloth-spike/results.jsonl" --title "official image" >> "$GITHUB_STEP_SUMMARY" || true
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: unsloth-spike-official
+          path: ${{ runner.temp }}/unsloth-spike
+          retention-days: 30
+
+  # The same measurements for the next size up (the brief's comparison) and the next size down
+  # (the fallback if 4B is too slow under the cap). Not cached: downloaded fresh each run.
+  compare:
+    if: contains(format(',{0},', inputs.jobs), ',nine-b,')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - size: 9B
+            mem: 10g
+            perf: "1.0:2"
+          - size: 2B
+            mem: 4g
+            perf: "1.0:2 0.5:1"
+    env:
+      SPIKE_MODEL: unsloth/Qwen3.5-${{ matrix.size }}-GGUF:UD-Q4_K_XL
+      SPIKE_DOWNLOADS: unsloth/Qwen3.5-${{ matrix.size }}-GGUF=Qwen3.5-${{ matrix.size }}-UD-Q4_K_XL.gguf,mmproj-F16.gguf
+      SPIKE_MEM: ${{ matrix.mem }}
+      SPIKE_PERF_MATRIX: ${{ matrix.perf }}
+      SPIKE_CAP_PARTS: tools,vision
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Download the GGUF
+        run: bash tests/spikes/unsloth-headless.sh models
+      - name: Build the slim image with Unsloth's installer
+        run: bash tests/spikes/unsloth-headless.sh build
+      - name: Speed and idle under the cap
+        run: bash tests/spikes/unsloth-headless.sh perf
+      - name: Tool calling and vision
+        if: always()
+        run: bash tests/spikes/unsloth-headless.sh capability
+      - name: Summary
+        if: always()
+        run: node tests/spikes/unsloth-probe.mjs summarize --in "$RUNNER_TEMP/unsloth-spike/results.jsonl" --title "Qwen3.5-${{ matrix.size }}" >> "$GITHUB_STEP_SUMMARY" || true
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: unsloth-spike-qwen35-${{ matrix.size }}
+          path: ${{ runner.temp }}/unsloth-spike
+          retention-days: 30
