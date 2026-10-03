@@ -42,7 +42,9 @@ const digest = (seed) => createHash("sha256").update(`demo:${seed}`).digest("hex
 
 // ---------- the fictional server ----------
 const host = { hostname: "homebox", lan: "192.168.50.20", gateway: "192.168.50.1", tailnet: "homebox.tail0a1b.ts.net", tailscaleIp: "100.101.102.103", owner: "alex" };
-const installed = { "open-webui": 8088, jellyfin: 8096, "pi-hole": 8084, immich: 2283, vaultwarden: 8222, "uptime-kuma": 3001, homepage: 3000, nextcloud: 8087, scrutiny: 8086, qbittorrent: 8095, ntfy: 8093, zulip: 8543 };
+const installed = { "open-webui": 8088, jellyfin: 8096, "pi-hole": 8084, immich: 2283, vaultwarden: 8222, "uptime-kuma": 3001, homepage: 3000, nextcloud: 8087, scrutiny: 8086, qbittorrent: 8095, ntfy: 8093, zulip: 8543, "pingvin-share": 3022 };
+// Installed apps with no port of their own: the Cloudflare Tunnel app shares the host's network (M42).
+const installedWithoutPorts = new Set(["cloudflared"]);
 // Apps set to "Tailnet only": their web port is on 127.0.0.1 and Tailscale Serve publishes it at the
 // same port. Only these are served (app.serve.inspect below): an app on the home network publishes
 // on every address, and Serve beside it at the same port is the trap Dockge fell into on 2026-09-29, which
@@ -422,6 +424,14 @@ export const inspections = {
     probe: { domain: "doubleclick.net", addresses: ["0.0.0.0"], error: null }, reason: null },
   // M39.3: the heartbeat on, pinging a dead man's switch every five minutes; the last one taken.
   "heartbeat.inspect": { configured: true, host: "hc-ping.com", installed: true, enabled: true, intervalMinutes: 5, last: { at: ago(0.04), ok: true, status: 200, ms: 142, error: null }, intervals: [1, 2, 5, 10, 15, 30, 60] },
+  // M42: Cloudflare connected, and Pingvin Share published at a name on the owner's (fictional) domain.
+  "cloudflare.tunnel.inspect": {
+    connected: true, account: { id: "0f1e2d3c4b5a69788796a5b4c3d2e1f0", name: "Example household" }, tunnel: { id: "6f0c2e9a-4b1d-4c7e-9a3f-2d5b8e1c0a47", name: `boxpilot-${host.hostname}` },
+    plannedTunnelName: `boxpilot-${host.hostname}`, zones: [{ id: "4d3c2b1a0f9e8d7c6b5a49382716f5e4", name: "example.com" }],
+    routes: [{ hostname: "share.example.com", url: "https://share.example.com", appId: "pingvin-share", portId: "web", hostPort: 3022, service: "http://127.0.0.1:3022", publishedAt: ago(30) }],
+    connectedAt: ago(31), problem: null,
+  },
+  "cloudflare.tunnel.check": { status: "healthy", connectors: 1, routesAtCloudflare: ["share.example.com"], checkedAt: now().toISOString() },
   "router.inspect": { configured: true, reachable: true, host: "192.168.1.1", username: "root", model: "GL-MT6000", firmware: "4.7.0", reason: null },
   "router.leases": { host: "192.168.1.1", leases: [
     { name: "homebox", address: host.lan, mac: "aa:bb:cc:dd:ee:02", online: true, reserved: true },
@@ -927,10 +937,11 @@ api.post("/remediations/attempts", (request, response) => response.status(201).j
 api.post("/schedules", (request, response) => response.status(201).json({ schedule: { id: "demo-schedule", ...request.body, enabled: true, createdBy: "owner-demo", createdAt: now().toISOString() } }));
 api.get("/catalog", async (request, response) => {
   const { manifests, problems } = await loadCatalog();
-  const present = installedFor(scenarioOf(request.get("referer")));
+  const scenario = scenarioOf(request.get("referer"));
+  const present = installedFor(scenario);
   json(response, {
     applications: manifests.map((manifest) => {
-      const port = present[manifest.id];
+      const port = present[manifest.id] ?? (scenario !== "fresh" && installedWithoutPorts.has(manifest.id) ? "no ports" : undefined);
       // As describe() says it (the Dockge port trap, 2026-09-29): each published port and the address it binds.
       const published = port && manifest.network !== "host" ? manifest.ports.map((entry) => ({ id: entry.id, host: entry.host, protocol: entry.protocol, bind: entry.exposure === "loopback" || (tailnetOnly.has(manifest.id) && entry.protocol === "tcp" && (entry.tailnet ?? "serve") === "serve") ? "127.0.0.1" : "0.0.0.0", fixed: Boolean(entry.fixed), web: entry.protocol === "tcp" && (entry.tailnet ?? "serve") === "serve" })) : [];
       const live = { id: manifest.id, name: manifest.name, published, installed: Boolean(port), dataPresent: Boolean(port), state: port ? { installedAt: ago(19 * 24), updatedAt: ago(50), manifestSha256: manifest.sha256, image: { reference: manifest.image.reference, id: "sha256:demo" }, values: { ports: {}, env: {}, volumes: {}, setup: [], ...(tailnetOnly.has(manifest.id) ? { exposure: "tailnet" } : {}) }, pinnedRollback: false, uninstalledAt: null } : null, container: port ? { exists: true, running: true, status: manifest.id === "open-webui" ? "paused" : "running", health: manifest.health.kind === "healthcheck" ? "healthy" : "none", restarts: 0, image: "sha256:demo" } : { exists: false, running: false, status: "absent", health: "none", restarts: 0, image: null }, sidecars: port ? (manifest.sidecars ?? []).map((entry) => ({ id: entry.id, running: true, status: "running", restarts: 0 })) : [], urls: port ? manifest.ports.filter((entry) => entry.protocol === "tcp").map((entry) => ({ id: entry.id, label: entry.label, host: entry.host, exposure: entry.exposure })) : [], updateAvailable: manifest.id === "jellyfin", installedImage: port ? manifest.image.reference : null, updateHistory: port && manifest.id === "pi-hole" ? [{ at: ago(30), from: { "pi-hole": "pihole/pihole:2025.07.1" }, to: { "pi-hole": manifest.image.reference } }, { at: ago(30 * 24), from: { "pi-hole": "pihole/pihole:2025.05.0" }, to: { "pi-hole": "pihole/pihole:2025.07.1" } }] : [], backupVerification: port && manifest.id === "jellyfin" ? { verified: true, backup: "20260825T031400Z.tar.gz", reason: null, checkedAt: ago(11), history: [{ verified: true, backup: "20260825T031400Z.tar.gz", reason: null, checkedAt: ago(11) }, { verified: true, backup: "20260818T031400Z.tar.gz", reason: null, checkedAt: ago(11 + 168) }, { verified: false, backup: "20260811T031400Z.tar.gz", reason: "The archive could not be unpacked: unexpected end of file", checkedAt: ago(11 + 336) }] } : null };
@@ -991,6 +1002,9 @@ const freshWords = {
   "router.leases": { host: null, leases: [] },
   // Off until the owner turns it on (M39.3).
   "heartbeat.inspect": { configured: false, host: null, installed: true, enabled: false, intervalMinutes: null, last: null, intervals: [1, 2, 5, 10, 15, 30, 60] },
+  // Not connected to Cloudflare yet (M42).
+  "cloudflare.tunnel.inspect": { connected: false, account: null, tunnel: null, plannedTunnelName: `boxpilot-${host.hostname}`, zones: [], routes: [], connectedAt: null, problem: null },
+  "cloudflare.tunnel.check": { status: "inactive", connectors: 0, routesAtCloudflare: [], checkedAt: now().toISOString() },
   // A new server can read its backup folder; it just has no apps in it yet.
   "app.backup.protection": { available: true, apps: [] },
   // The machine itself is there on a new server (M33.12): its name, clock, memory and swap. Only
@@ -1022,6 +1036,8 @@ const troubleWords = {
   "dns.names.inspect": { available: true, reason: null, platform: { id: "pi-hole", label: "Pi-hole", running: false }, records: [] },
   // The heartbeat is on, and the last ping did not get through: DNS was down on this server too.
   "heartbeat.inspect": { configured: true, host: "hc-ping.com", installed: true, enabled: true, intervalMinutes: 5, last: { at: ago(0.07), ok: false, status: null, ms: 38, error: "its name did not resolve (DNS is not answering)" }, intervals: [1, 2, 5, 10, 15, 30, 60] },
+  // The Cloudflare Tunnel app is not holding the tunnel up: what is published shows an error page (M42).
+  "cloudflare.tunnel.check": { status: "down", connectors: 0, routesAtCloudflare: ["share.example.com"], checkedAt: now().toISOString() },
   "dns.blocker.clients": { available: true, reason: null, platform: { id: "pi-hole", label: "Pi-hole", running: true }, clients: [], self: 9 },
   "app.serve.inspect": { available: false, serves: [] },
   "dns.blocker.verify": { address: "192.168.1.10", answering: true, resolving: false, blocking: true, intercepted: true, interceptorBlocking: false,

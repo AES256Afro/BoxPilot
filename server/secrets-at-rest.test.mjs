@@ -53,6 +53,8 @@ const fixtures = {
   "credentials.set": (s) => ({ name: "sentinel", value: s("value") }),
   // M39.3: the secret is an address, so the sentinel rides inside one.
   "heartbeat.set": (s) => ({ enabled: true, url: `https://hc-ping.example/${s("url")}`, intervalMinutes: 5 }),
+  // M42: the owner's Cloudflare API token.
+  "cloudflare.connect": (s) => ({ token: s("token") }),
   "vpn.profile.set": (s) => ({ provider: vpnFields.provider.enum[0], type: vpnFields.type.enum[0], wireguardPrivateKey: s("wireguardPrivateKey"), openvpnPassword: s("openvpnPassword") }),
 };
 
