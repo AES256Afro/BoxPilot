@@ -150,7 +150,7 @@ Each app is a short description file plus a Docker Compose template, so installi
 | Media automation (14) | autobrr, Bazarr, Deluge, FlareSolverr, Lidarr, NZBGet, Prowlarr, qBittorrent (through a VPN), Radarr, SABnzbd, slskd, Sonarr, Tdarr, Transmission |
 | Media (13) | Audiobookshelf, Emby, Jellyfin, Jellyseerr, Maintainerr, MeTube, Navidrome, Overseerr, Pinchflat, Plex Media Server, Stremio (through a VPN), Tautulli, Wizarr |
 | Communication (9) | Apprise API, Element web, Gotify, Mailpit, Matrix server (Tuwunel), Mattermost, Mumble server, ntfy, Zulip |
-| Files (8) | File Browser, Nextcloud, PairDrop, Paperless-ngx, Pingvin Share, Resilio Sync, Stirling PDF, Syncthing |
+| Files (8) | File Browser, Nextcloud, PairDrop, Paperless-ngx, Pingvin Share X, Resilio Sync, Stirling PDF, Syncthing |
 | Home automation (8) | ESPHome, Frigate, Home Assistant, Mosquitto (MQTT broker), Node-RED, OctoPrint, Z-Wave JS UI, Zigbee2MQTT |
 | Network (8) | Apache Guacamole, Cloudflare DDNS, Cloudflare Tunnel, NetAlertX, Nginx Proxy Manager, SmokePing, UniFi Network Application, WireGuard (wg-easy) |
 | AI (6) | AnythingLLM, LibreTranslate, LLMCoach, Ollama, Open WebUI + Ollama, Whisper (speech to text) |
