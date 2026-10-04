@@ -7,12 +7,13 @@
  * Built the first time a world's Agents section is asked for, not when the demo module is imported,
  * so the fixture tests that import it never start anything:
  *
- * - default: Agents on, four agents from the templates, a digest written this morning in quiet
+ * - default: Agents on, five agents from the templates, a digest written this morning in quiet
  *   hours, questions answered (one thumbed up, one down), notes kept and shared, an evaluation
- *   scored, a request the Server Keeper handed to two specialists and answered from what they
- *   found, five cards waiting (two backups the agents proposed, a newer Qwen, a question the IT
- *   helper asked back and a low-confidence answer for the owner to look at), and a live runner,
- *   so the test console really runs.
+ *   scored, the Environment Scout's survey of where to focus (M43), a request the Server Keeper
+ *   handed to two specialists and answered from what they found, seven cards waiting (three backups
+ *   and an update the agents proposed, a newer Qwen, a question the IT helper asked back and a
+ *   low-confidence answer for the owner to look at), and a live runner, so the test console
+ *   really runs. The catalog offers every template, the five M43 added among them.
  * - fresh: Agents never turned on, nothing installed.
  * - trouble: Agents on, Unsloth installed and the model downloaded, but the runner's unit stopped
  *   (inactive and disabled, as on a server where nobody pressed Start the runner), so a question
@@ -35,7 +36,7 @@ import { createRunner, directRunnerApi } from "../server/agents/runner.mjs";
 import { ModelUnavailable, createRuntime } from "../server/agents/runtime.mjs";
 import { agentsRuntimeKey, createAgentService, defaultRuntimeSettings } from "../server/agents/service.mjs";
 import { createAgentStore } from "../server/agents/store.mjs";
-import { drivesOf } from "../server/agents/tool-text.mjs";
+import { appUpdatesOf, drivesOf, failedServicesOf, stoppedAppsOf, unhealthyAppsOf } from "../server/agents/tool-text.mjs";
 import { registry } from "../server/ops/index.mjs";
 import { createRedactor } from "../server/redaction.mjs";
 import { createAgentsRouter } from "../server/routes/agents.mjs";
@@ -63,7 +64,8 @@ function helperFor(world, { apps, services }) {
       models: [{ repo: model.repo, file: model.file, bytes: 2_910_000_000, complete: true, projector: false }], diskFreeBytes: 12 * 1024 ** 3 },
   }[world];
   const answers = {
-    "app.inspect": () => ({ applications: Object.keys(apps).map((id) => ({ id, name: id, installed: true, container: { running: true, status: "running", health: world === "trouble" && id === "jellyfin" ? "unhealthy" : "healthy", restarts: world === "trouble" && id === "jellyfin" ? 4 : 0 }, urls: id === "zulip" ? [{ id: "web", host: 8543, exposure: "loopback" }] : [] })) }),
+    // Jellyfin's image is behind the catalog's, as on the demo's Apps page.
+    "app.inspect": () => ({ applications: Object.keys(apps).map((id) => ({ id, name: id, installed: true, container: { running: true, status: "running", health: world === "trouble" && id === "jellyfin" ? "unhealthy" : "healthy", restarts: world === "trouble" && id === "jellyfin" ? 4 : 0 }, urls: id === "zulip" ? [{ id: "web", host: 8543, exposure: "loopback" }] : [], updateAvailable: id === "jellyfin" })) }),
     "service.list": () => services,
     "logs.read": (parameters) => ({ kind: parameters.kind, target: parameters.target, lines: ["demo: nothing is read from this machine"] }),
     "app.pihole.inspect": () => ({
@@ -137,7 +139,7 @@ async function buildWorld(world, fixtures) {
   };
   const script = (fn) => { fake.state.script = fn; };
 
-  if (world !== "fresh") await seed({ service, state, store, caller, at, runNext, script, world, fixtures });
+  if (world !== "fresh") await seed({ service, state, store, caller, at, runNext, script, world, fixtures, host: helper });
   offset = 0;
   script(null);
 
@@ -180,7 +182,7 @@ function seedNights({ service, store, caller, at, agents, facts, nights }) {
 }
 
 /** What happened before the demo opened: made with the real service, the runner and the stand-in model. */
-async function seed({ service, state, store, caller, at, runNext, script, world, fixtures }) {
+async function seed({ service, state, store, caller, at, runNext, script, world, fixtures, host }) {
   const today = new Date();
   const morning = (hour, minute = 0) => { const date = new Date(today); date.setHours(hour, minute, 0, 0); if (date > today) date.setDate(date.getDate() - 1); return date; };
   const nightsAgo = (count) => { const date = morning(2, 40); date.setDate(date.getDate() - count); return date; };
@@ -206,14 +208,25 @@ async function seed({ service, state, store, caller, at, runNext, script, world,
 
   // Five nights of evaluations (M40): the Server Keeper got which apps are stopped wrong on one.
   const inventory = fixtures.inventory();
+  const { applications } = await host.request("app.inspect");
+  const { units } = await host.request("service.list");
   seedNights({
     service, store, caller, at, agents: [keeper, pihole, auditor, helper].map((agent) => service.getAgent(caller, agent.id)),
     facts: {
       hostname: inventory.host.hostname, operatingSystem: inventory.host.operatingSystem, installedApps: Object.keys(fixtures.apps).length, rootDiskPercent: inventory.storage.root.usedPercent,
-      piholePlacement: "boxpilot-app", piholeBlocking: "on", drives: drivesOf(inventory), stoppedApps: [],
+      piholePlacement: "boxpilot-app", piholeBlocking: "on", drives: drivesOf(inventory), stoppedApps: stoppedAppsOf(applications),
+      unhealthyApps: unhealthyAppsOf(applications), appUpdates: appUpdatesOf(applications), failedServices: failedServicesOf(units),
     },
     nights: [{ night: nightsAgo(4) }, { night: nightsAgo(3) }, { night: nightsAgo(2), wrong: { [keeper.id]: ["builtin-stopped"] } }, { night: nightsAgo(1) }, { night: nightsAgo(0) }],
   });
+
+  // What BoxPilot keeps about backups, as a real server does: its own database, backed up last night
+  // (the only backups it records itself), the copy in the cloud, and Jellyfin's restore rehearsal.
+  at(new Date(nightsAgo(0).getTime() + 20 * 60_000));
+  state.recordBackup({ id: randomUUID(), applicationId: "boxpilot-controller", destination: "local-managed", artifactPath: "/var/lib/boxpilot-managed/backups/controller/boxpilot.sqlite3", checksumSha256: "c0".repeat(32), sizeBytes: 182_000_000, downtimeMs: 0, restoreDrill: { passed: true }, createdBy: caller.id });
+  const copied = new Date(nightsAgo(0).getTime() - hours(20)).toISOString();
+  state.setSetting("cloudDestinationLastSync", { completedAt: copied, filesTransferred: 3, errors: 0 }, { updatedBy: caller.id });
+  state.setSetting("appBackupVerifications", { jellyfin: { verified: true, backup: "20260825T031400Z.tar.gz", reason: null, checkedAt: new Date(nightsAgo(0).getTime() - hours(16)).toISOString() } }, { updatedBy: caller.id });
 
   if (world === "trouble") {
     at(new Date(Date.now() - hours(1)));
@@ -265,6 +278,46 @@ async function seed({ service, state, store, caller, at, runNext, script, world,
     return { content: "Three apps hold data and have never been backed up: Vaultwarden, Nextcloud and Homepage [T1]. Nextcloud matters most after Vaultwarden, which already has a card, so I proposed a backup for it [T2]. Database backups and their restore drills are current [T1]." };
   });
   service.startRun(caller, auditor.id, { kind: "manual", question: null });
+  await runNext();
+
+  // The Environment Scout (M43): made this morning and run once from the Test tab before its first
+  // Sunday. Its survey plans five reads, ranks where to focus from what they said, proposes two
+  // cards, and says what it could not check.
+  at(new Date(Date.now() - hours(1.3)));
+  const scout = service.createAgent(caller, { template: "environment-scout" });
+  const scoutReads = ["alerts.active", "storage.health", "apps.list", "backups.status", "server.facts"];
+  const lastCloudCopy = copied.slice(0, 10);
+  script((body) => {
+    // The planner's request names the agent it plans for rather than speaking as it.
+    if (understanding(body)) {
+      if (!String(body.messages?.[0]?.content ?? "").includes("a request to Environment Scout")) return null;
+      return { understanding: { goal: "Survey this server and rank where to focus", subject: "this server", constraints: [], confidence: 0.9, clarify: null, plan: scoutReads.map((tool) => ({ step: `Read ${tool}`, tool: tool.replace(/\./g, "_") })) } };
+    }
+    if (!from(body, "Environment Scout")) return null;
+    const tools = withTools(body);
+    if (tools === 0) return { toolCalls: scoutReads.slice(0, 3).map((tool) => call(tool)) };
+    if (tools === 3) return { toolCalls: scoutReads.slice(3).map((tool) => call(tool)) };
+    if (tools === 5) {
+      return { toolCalls: [
+        call("plan.propose", { title: "Back up Vaultwarden, Immich and Nextcloud", reason: "They keep the household's passwords, photos and files [T3], and only Jellyfin's backup has been test-restored [T4].", steps: [{ operationId: "app.backup.many", parameters: { ids: ["vaultwarden", "immich", "nextcloud"] }, why: "A fresh backup of each, to rehearse a restore from next." }] }),
+        call("plan.propose", { title: "Update Jellyfin", reason: "Jellyfin has an update available [T3], and its backup restored cleanly in its last rehearsal [T4].", steps: [{ operationId: "app.update", parameters: { id: "jellyfin" }, why: "Brings Jellyfin to the version this BoxPilot release pins." }] }),
+      ] };
+    }
+    return {
+      content: [
+        "Where to focus",
+        "",
+        "1. Vaultwarden, Immich and Nextcloud are installed [T3] and keep the household's passwords, photos and files, but none has a test-restored backup: only Jellyfin's was rehearsed [T4]. If the system disk failed, what they hold could be lost. Next: a card backs up all three [T6]; then rehearse a restore of each on the Backups page.",
+        "2. Jellyfin has an update waiting [T3]. Its backup restored cleanly [T4], so it is safe to update. Next: a card updates it [T7]; approve it when nobody is watching.",
+        "3. The Cloudflare Tunnel app is installed [T3], so some apps may be open to the internet. Next: see which on its Tunnel tab, and that each has a sign-in of its own.",
+        "",
+        `Fine: No health alerts are live [T1]. The root filesystem is 27% full [T2]. /mnt/media is 68% full [T2]. /dev/nvme0n1 and /dev/sda are healthy; /dev/sdb is asleep [T2]. Every app is running, and none is unhealthy [T3]. The last cloud copy was on ${lastCloudCopy} [T4]. The processor's load is 11% [T5]. Memory is 34% used [T5].`,
+        "",
+        "Not checked: the firewall, open ports, SSH settings, waiting system package updates and Repair's findings. See the Firewall, Updates and Repair pages.",
+      ].join("\n"),
+    };
+  });
+  service.startRun(caller, scout.id, { kind: "manual", question: null });
   await runNext();
 
   at(new Date(Date.now() - hours(1)));
