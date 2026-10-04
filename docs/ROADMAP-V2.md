@@ -1907,7 +1907,7 @@ the content). The engine is `feat/m37-agents-engine`; the section is `feat/m37-a
   `normalizeSpec` refuses anything it does not know rather than guessing. Stored in BoxPilot's own
   database (`server/agents/store.mjs`), so a controller backup carries it; every edit that changes
   something is a new version with a field-by-field diff (the instructions line by line), and a roll
-  back is a new version too. Five templates (`templates.mjs`): **Server Keeper** (the resident agent
+  back is a new version too. Five templates (`templates.mjs`; M43 brought them to ten): **Server Keeper** (the resident agent
   that learns the server, answers questions and writes a digest at 05:30 in quiet hours), **Pi-hole
   Watcher**, **Backup Auditor**, **IT Support helper** (viewer-level tools only, no notes, no plans,
   anyone signed in may ask it) and a blank one, each with golden questions for its evaluation.
@@ -2481,6 +2481,98 @@ Share, without the Cloudflare dashboard and without opening a port on the router
 - **Next: say what is public where it is looked for.** A public app marked on Home and on the
   Network page, and its public address on that app's Reach tab beside the home network and tailnet
   ones, with Unpublish there too.
+
+## M43 — Agent templates
+
+Asked for 2026-10-04: an agent that surveys the whole server and says where to focus, and more
+ready-made agents that use the read tools agents already have. Nothing here adds a tool: a template
+that would need one is under Next, not faked.
+
+- ✅ **M43.1 Environment Scout** (unreleased, `feat/agent-templates`). The owner's ask. Its job:
+  "Survey this server and rank its problem areas, most important first, each with its evidence and
+  a next step." Once a week (Sunday 04:20, in quiet hours) and whenever someone asks, it reads five
+  tools - live alerts (failed services and schedules, unhealthy or crash-looping apps, a reboot
+  waiting, disks filling), the drives and their SMART health, the apps and their updates, the
+  backups (BoxPilot's own, the copies off the server, which apps' backups were test-restored) and
+  the machine (load, memory, uptime) - and writes a numbered "Where to focus" list ranked by harm:
+  data that could be lost, then what is down, then what will go wrong soon, then tidying. Each item
+  says what it is, why it matters, the tool output it came from, and the next step; for the top two,
+  a card proposing the matching operation (it may propose app.action, app.backup, app.backup.many,
+  app.backup.verify, app.update, backup.sync, service.action, storage.check, storage.remount).
+  Then "Fine:" and "Not checked:": the firewall, open ports, SSH settings, waiting system package
+  updates and Repair's findings, which its tools cannot see, with the page to open; and when the
+  Cloudflare Tunnel app is installed, that some apps may be open to the internet and its Tunnel tab
+  lists them. Asked about one area it also reads services.status and jobs.recent. It keeps no notes:
+  each survey is remembered as it ran, and the next recalls it to say what changed. Budget: 4 runs
+  and 1,800 s of model time a day, 8 steps, 16,000 tokens and 15 minutes a run; it never notifies.
+  Its golden questions: which apps are unhealthy, which services failed, how full / is, and which
+  parts of the server its tools cannot check (a right answer names the firewall), with the built-in
+  drives, stopped apps and OS ones.
+- ✅ **M43.2 Four more templates** (unreleased, `feat/agent-templates`), each in plain words, each
+  propose-only, each with golden questions its own tools answer:
+  - **App Doctor**: finds apps that are stopped, unhealthy or restarting, reads their last log lines
+    (a day back) for the reason, and proposes the simplest fix: a restart, the previous version, a
+    rebuilt container, an update when the log points at a fault; any card that changes the app's
+    version or container starts with a backup. Daily at 04:10 in quiet hours, on a health alert and
+    on a failed job. 8 runs and 1,800 s a day.
+  - **Storage Watch**: each night at 02:50, how full each filesystem is and how fast it grows (one
+    "Readings" note it compares with and rewrites, the sums with calc and time.calc), drive health
+    and wear, a sleeping drive's last reading, and a dropped drive at once. Tells the owner about a
+    filesystem full within 14 days or a drive warning, critical or read-only. 4 runs, 1,200 s.
+  - **Update Planner**: Fridays at 03:30, which apps have an update, whether the live alerts call for
+    a reboot or tell of a BoxPilot release, what already installs updates (schedules and automations) and which
+    update jobs failed; one card with a backup of the apps that hold data and then their updates, to
+    approve when nobody is using them; system packages only when nothing installs them already, and
+    a reboot only when an alert says one is required, as its own card. 4 runs, 1,200 s.
+  - **House Guide**: for the people the owner adds. Says what this server runs, what each app is for
+    (from the catalog) and where to open it; anyone signed in may ask; viewer tools only, no notes,
+    no cards. 60 runs, 1,800 s.
+- ✅ **M43.3 What the templates had to fit.** A plan holds five steps and a call that acts carries
+  only the plan's tools and the always-on ones, so each new template's routine work names at most
+  five tools in its steps; its own notes come with every request, so none spends a step on
+  notes.read. A nightly evaluation runs only when it leaves half the day's model time free (240 s a
+  question), so every budget now holds its own: the **Backup Auditor** goes from 600 to 1,200 s and
+  the **IT Support helper** from 1,200 to 1,800 s, whose nightly evaluations were always skipped.
+  The Backup Auditor also gets apps.list: without it, it could not see which apps are installed,
+  nor answer its own golden question. Three new evaluation facts, read as apps.list and
+  services.status read them and graded like the stopped apps: **which apps are unhealthy**, **which
+  apps have an update** and **which services failed**; the Evaluation tab offers them.
+- **Demo**: every world's catalog offers the ten templates; the default world has an Environment
+  Scout made this morning, its survey (Vaultwarden, Immich and Nextcloud with no test-restored
+  backup; Jellyfin's update; the Cloudflare Tunnel app installed; then what is fine and what was not
+  checked) checked against its tools with no mismatch, and its two cards. The agents' world now has
+  Jellyfin's update and the Cloudflare Tunnel app as the Apps page does, and BoxPilot's database
+  backup, the cloud copy and Jellyfin's restore rehearsal.
+- **Tests**: every template is a spec BoxPilot accepts as it is, uses only tools the runtime runs,
+  names in its prompt only tools it has on and operations it may propose, keeps its budget under the
+  ceilings with room for its own nightly evaluation, schedules quiet-hours work inside the default
+  quiet hours, may propose only registered operations that change something and none that deletes,
+  and a viewer-borrowable one has viewer tools only; the golden questions are well formed and ask
+  facts the template's own tools read (`templates.test.mjs`); the catalog route serves them and each
+  makes its agent; the Scout's evaluation reads the new facts and its weekly survey runs end to end
+  on the stand-in model, five reads and two cards, the step it may not propose dropped, nothing
+  run; the Build tab lists every template and fills the form from each (`templates.test.tsx`); the
+  demo's survey (`demo-agents.test.mjs`).
+- **Next: templates that need a read tool first.** Each read exists as a registered operation; what
+  is missing is the agent tool that reads it, with its words in `tool-text.mjs`:
+  - **Security Reviewer**: firewall rules and default policy, listening ports, SSH password and root
+    sign-in, fail2ban's bans, admin accounts, apps reachable from the internet. A `security.posture`
+    read over `firewall.inspect`, `fail2ban.inspect`, `users.inspect` (operator),
+    `app.reachability.inspect` and `cloudflare.tunnel.inspect` (owner). Today an agent sees none of
+    it, so a security review would be a guess; the Scout says so under Not checked.
+  - **Resource Tuner**: which apps use the most processor and memory, swap pressure, what to pause.
+    An `apps.usage` read over `app.stats.inspect` and `system.performance.inspect`; server.facts has
+    only the whole machine's load and memory.
+  - **System updates waiting**, for the Update Planner and the Scout: an `updates.pending` read over
+    `apt.upgradable.inspect` and `apt.unattended.inspect`.
+  - **Backup coverage per app**, for the Backup Auditor and the Scout to say "never backed up": a
+    `backups.coverage` read over `app.backup.protection` and `app.backups.counts`. backups.status
+    lists only BoxPilot's own database backups, the copies off the server and the rehearsals.
+  - **Reclaimable space and snapshot age**, for Storage Watch: over `housekeeping.inspect`,
+    `docker.disk.inspect` and `storage.fs-snapshots.inspect`.
+  - **Repair's findings**, for the Scout: a read of what the Repair Center detects.
+  - **A longer survey**: a plan of more than five steps for an agent that asks for one, so the
+    Scout can read services and failed jobs in the same weekly run instead of through alerts.
 
 ## App catalogue candidates
 
