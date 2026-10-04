@@ -13,6 +13,9 @@
  * carries only the plan's tools and the always-on ones (intent.mjs, actToolIds); its own notes come
  * with every request, so none spends a step reading them. Each one's budget holds its own nightly
  * evaluation, which runs only when it leaves half the day's model time free (240 s a question).
+ *
+ * M44: every template shares its findings with the other agents and uses theirs, except the IT
+ * Support helper and the House Guide, which answer people and use what others found without sharing.
  */
 import { toolIds } from "./tool-catalog.mjs";
 import { normalizeSpec } from "./spec.mjs";
@@ -55,9 +58,15 @@ export const agentTemplates = Object.freeze([
       triggers: { ask: true, schedule: { every: "daily", hour: 5, minute: 30, quietHours: true }, events: ["health.alert", "drive.dropped"] },
       // An hour of model time a day: its 24 runs (questions, the digest, alerts, learning) take a few
       // minutes each on a CPU, and half an hour ran out after three questions on a small machine.
-      budget: { runsPerDay: 24, modelSecondsPerDay: 3_600, stepsPerRun: 6, tokensPerRun: 12_000, runSeconds: 900 },
+      // 20 minutes and 20,000 tokens a run (M44): its morning digest runs in the background on four
+      // threads, about half the speed of a question someone waits on, and reads more than any other
+      // agent - its notes, what it recalls, the others' findings, four tools - so 15 minutes and
+      // 12,000 tokens cut it short ("It ran out of time before it finished"). An agent made before
+      // keeps its own budget: raise it on the agent's Build tab, under Guardrails.
+      budget: { runsPerDay: 24, modelSecondsPerDay: 3_600, stepsPerRun: 6, tokensPerRun: 20_000, runSeconds: 1_200 },
       outputs: { notes: true, digest: true, notify: "important", proposals: true },
       memory: { enabled: true, freshDays: 14, maxNotes: 80, share: true, threads: true, turns: 6 },
+      sharing: { shareFindings: true, useFindings: true },
       orchestration: { supervisor: true, delegates: "*", maxDepth: 2 },
     },
   },
@@ -77,19 +86,20 @@ export const agentTemplates = Object.freeze([
       ],
       prompt: {
         rules: [
-          "Rank by harm: data that could be lost first (no copy off this server, data with no tested backup, a drive failing or full), then what is down now (failed services or schedules, stopped or unhealthy apps), then what will go wrong soon (a disk filling, a reboot or updates waiting), then tidying.",
+          "Rank by harm: data at risk first (no copy off this server, no tested backup, a drive failing or full), then what is down now (failed services or schedules, unhealthy apps, apps down with no stop recorded), then what will go wrong soon (a disk filling, a reboot or updates waiting), then tidying.",
+          "An app apps.list says the owner stopped on purpose, or that was never started, is not a problem: list it under Fine as stopped on purpose, with its date, and propose nothing for it.",
           "Report only what a tool showed. When an area is fine, say so in a few words; never invent a problem to fill the list.",
           "Use the numbers and dates the tools give, as they give them. Do not work out new ones.",
           "backups.status lists BoxPilot's own database backups, the copies off this server and which apps' backups were test-restored, not every app's backups. Name the apps that hold data with no test restore; for which have a backup at all, point to the Backups page.",
           "Your tools cannot see the firewall, open ports, SSH settings, waiting system package updates or Repair's findings. List them under Not checked with the page to open: Firewall, Updates, Repair.",
           "If apps.list shows the Cloudflare Tunnel app (cloudflared), some apps may be open to the internet: say so, and that its Tunnel tab lists them.",
-          "Propose at most two cards a run, for the two most important items a registered operation fixes. For the rest, name the operation or the page.",
+          "Read every tool in your plan before you propose anything. Then propose at most two cards, for the two most important items a registered operation fixes; for the rest, name the operation or the page.",
           "Asked about one area, read the tool for it: services.status for which services failed, jobs.recent for jobs that failed.",
         ],
         // Five reads: the most a plan holds (intent.mjs), so the weekly survey reads all of them.
         steps: [
           "Read what is wrong now with alerts.active: failed services and schedules, unhealthy apps, a reboot waiting, disks filling.",
-          "Read the drives with storage.health, and the apps with apps.list: stopped, unhealthy or with an update waiting.",
+          "Read the drives with storage.health, and the apps with apps.list: unhealthy, restarting, stopped (on purpose or not) or with an update waiting.",
           "Read backups.status for the copies off this server and which apps' backups were test-restored.",
           "Read server.facts for processor load, memory and how long it has been up.",
           "Rank what you found, say what changed since your last survey (in what you remember), and propose cards for the top two with plan.propose.",
@@ -104,10 +114,19 @@ export const agentTemplates = Object.freeze([
       // A survey reads five tools, several minutes of model time on a CPU: once a week, early on
       // Sunday in quiet hours, and whenever the owner asks.
       triggers: { ask: true, schedule: { every: "weekly", weekday: 0, hour: 4, minute: 20, quietHours: true }, events: [] },
-      budget: { runsPerDay: 4, modelSecondsPerDay: 1_800, stepsPerRun: 8, tokensPerRun: 16_000, runSeconds: 900 },
-      // It keeps no notes: each survey is remembered as it ran, and the next one recalls it.
+      // Its first survey on a real server (M44) used all eight of its steps - the eighth only to
+      // answer - after reading three of the five tools its plan named; its tokens stood at about
+      // 12,300 of the 13,600 that end a run early. A survey that reads one tool a step needs five
+      // steps to read, two to propose its cards and one to answer: ten steps leave two to spare,
+      // 24,000 tokens hold all five outputs, and 20 minutes hold it at the background's four threads,
+      // about half the speed of the eight it had then (200 s of model time). 2,400 s a day hold a
+      // survey, its nightly evaluation (seven questions) and a question or two.
+      budget: { runsPerDay: 4, modelSecondsPerDay: 2_400, stepsPerRun: 10, tokensPerRun: 24_000, runSeconds: 1_200 },
+      // It keeps no notes: each survey is remembered as it ran, the next one recalls it, and the
+      // other agents read it as its finding (M44).
       outputs: { notes: false, digest: false, notify: "never", proposals: true },
       memory: { enabled: true, freshDays: 21, maxNotes: 10 },
+      sharing: { shareFindings: true, useFindings: true },
       allow: { apps: "*", operations: ["app.action", "app.backup", "app.backup.many", "app.backup.verify", "app.update", "backup.sync", "service.action", "storage.check", "storage.remount"] },
     },
   },
@@ -181,18 +200,18 @@ export const agentTemplates = Object.freeze([
       purpose: "Keeps the installed apps running: spots the ones in trouble, finds out why from their logs and suggests the fix.",
       job: "Find the apps that are stopped, unhealthy or restarting, say why from their logs, and propose a fix for each.",
       successCriteria: [
-        "Names every app that is stopped, unhealthy or restarting, or says they are all running.",
+        "Names every app that is stopped, unhealthy or restarting, or says they are all running; apps stopped on purpose are named apart, not as trouble.",
         "Quotes the log lines that show why, with their [T] citation.",
         "Proposes one fix per app, with a backup first when the fix changes the app's version or container.",
         "Never proposes uninstalling an app or deleting its data.",
       ],
       prompt: {
         rules: [
-          "An app is in trouble when apps.list says it is stopped, unhealthy or restarting, a helper container is not running, or it has a data folder it cannot write to.",
+          "An app is in trouble when apps.list says it is unhealthy or restarting, stopped with no stop recorded, a helper container is not running, or it has a data folder it cannot write to.",
           "Read an app's log before saying why: logs.query with kind container, target bp-<app id>, since 1d.",
           "Fixes, simplest first: restart it (app.action, action restart); go back to the previous version (app.rollback) when it broke after an update; rebuild its container (app.reinstall) when the container is missing.",
           "Propose app.update only when apps.list says an update is available and the log points at a fault an update may fix.",
-          "A stopped app may have been stopped on purpose: say so, and propose starting it only when a health alert or the person asking says it should be running.",
+          "An app apps.list says the owner stopped on purpose, or that was never started, is not in trouble: name it in one line as stopped on purpose, with its date, and propose starting it only when the person asking says it should be running.",
           "When a log line needs explaining, docs.search with the app's name finds its catalog notes.",
         ],
         steps: [
@@ -322,6 +341,9 @@ export const agentTemplates = Object.freeze([
       budget: { runsPerDay: 60, modelSecondsPerDay: 1_800, stepsPerRun: 4, tokensPerRun: 8_000, runSeconds: 300 },
       outputs: { notes: false, digest: false, notify: "never", proposals: false },
       memory: { enabled: false, freshDays: 14, maxNotes: 1, threads: true },
+      // It answers people: it uses what the other agents found, as far as the person asking may read,
+      // and shares nothing of its own (M44).
+      sharing: { shareFindings: false, useFindings: true },
       escalation: { lowConfidence: false, limits: false, actions: false, risk: true },
     },
   },
@@ -363,6 +385,7 @@ export const agentTemplates = Object.freeze([
       budget: { runsPerDay: 60, modelSecondsPerDay: 1_800, stepsPerRun: 4, tokensPerRun: 8_000, runSeconds: 300 },
       outputs: { notes: false, digest: false, notify: "never", proposals: false },
       memory: { enabled: false, freshDays: 14, maxNotes: 1, threads: true },
+      sharing: { shareFindings: false, useFindings: true },
       escalation: { lowConfidence: false, limits: false, actions: false, risk: true },
     },
   },

@@ -14,7 +14,8 @@ import { errorText, scheduleWords, triggerWords } from "./format";
  * 3. Data and tools: who may ask it, what it reads, each tool from the registry with its category,
  *    cost and permission, and the apps and operations it may touch.
  * 4. When it runs, 5. its guardrails (budget, outputs, escalation, thinking), 6. its memory, and
- *    7. its team (a supervisor that hands subtasks to specialists).
+ *    7. its team: whether it shares its findings with the other agents and uses theirs (M44), and
+ *    a supervisor that hands subtasks to specialists.
  * Then test it in the console. Saving makes a new version; every version compares field by field
  * and can be rolled back to. An agent exports as JSON and imports back.
  */
@@ -132,6 +133,16 @@ interface FormProps {
   catalog: Catalog;
   disabled: boolean;
   others: AgentSummary[];
+  /** The template it was made from: an agent saved before M44 shares findings as its template would. */
+  template?: string | null;
+}
+
+/** Its two findings switches (M44), as the server reads them for an agent saved before they existed. */
+function sharingOf(spec: AgentSpec, template: string | null = null): { shareFindings: boolean; useFindings: boolean } {
+  return {
+    shareFindings: typeof spec.sharing?.shareFindings === "boolean" ? spec.sharing.shareFindings : !["it-support", "house-guide"].includes(template ?? ""),
+    useFindings: typeof spec.sharing?.useFindings === "boolean" ? spec.sharing.useFindings : true,
+  };
 }
 
 function numberOf(text: string, fallback: number): number {
@@ -246,8 +257,10 @@ function OutputFields({ draft, setDraft, disabled }: Omit<FormProps, "catalog" |
   );
 }
 
-function SpecForm({ draft, setDraft, catalog, disabled, others }: FormProps) {
+function SpecForm({ draft, setDraft, catalog, disabled, others, template = null }: FormProps) {
   const limits = catalog.limits.budget;
+  const sharing = sharingOf(draft, template);
+  const setSharing = (change: Partial<ReturnType<typeof sharingOf>>) => setDraft((current) => ({ ...current, sharing: { ...sharingOf(current, template), ...change } }));
   const setPrompt = (key: "rules" | "steps" | "escalate", value: string) => setDraft((current) => ({ ...current, prompt: { ...current.prompt, [key]: linesOf(value) } }));
   const allow = draft.allow;
   const delegates = draft.orchestration.delegates;
@@ -328,6 +341,7 @@ function SpecForm({ draft, setDraft, catalog, disabled, others }: FormProps) {
             </Field>
           ))}
         </div>
+        <p className="agents-form__note">A run on its schedule goes at about half the speed of a question you wait on. If its runs end with a card saying it ran out of time or reached a limit, raise the longest run, its steps or its tokens here.</p>
         <div className="agents-form__checks">
           {(Object.keys(outputWords) as Array<keyof typeof outputWords>).map((key) => (
             <Checkbox key={key} label={`Writes ${outputWords[key].toLowerCase()}`} checked={draft.outputs[key]} onChange={(checked) => setDraft((current) => ({ ...current, outputs: { ...current.outputs, [key]: checked } }))} />
@@ -385,6 +399,10 @@ function SpecForm({ draft, setDraft, catalog, disabled, others }: FormProps) {
       </FormSection>
 
       <FormSection id="team" title="Team" step={7}>
+        <Switch label="Shares its findings with the other agents" description="What it finds on its schedule, and in answers it checked against its tools, is kept for a while, so the other agents need not look again." checked={sharing.shareFindings} disabled={disabled}
+          onChange={(checked) => setSharing({ shareFindings: checked })} />
+        <Switch label="Uses the other agents' findings" description="Before it starts, it reads what the others found recently and answers from that when it can. It still looks for itself before it suggests a fix, or when you ask it to check now." checked={sharing.useFindings} disabled={disabled}
+          onChange={(checked) => setSharing({ useFindings: checked })} />
         <Switch label="A supervisor" description="Hands subtasks to specialists and answers from what they find, on the one queue, as the person who asked." checked={draft.orchestration.supervisor} disabled={disabled}
           onChange={(checked) => setDraft((current) => ({ ...current, orchestration: { ...current.orchestration, supervisor: checked }, tools: { ...current.tools, "agents.handoff": checked ? "auto" : "off" } }))} />
         {draft.orchestration.supervisor && (
@@ -583,7 +601,7 @@ export function Builder({ agentId, agents, catalog, canCreate, csrfToken, now, o
         {agent.warnings?.length > 0 && <Notice tone="warning" title="About its scope">{agent.warnings.join(" ")}</Notice>}
         {error && <Notice tone="danger" live title="Not saved">{error}</Notice>}
         {saved && <Notice tone={saved.tone} live>{saved.text}</Notice>}
-        <SpecForm draft={draft} setDraft={setDraft} catalog={catalog} disabled={!agent.canEdit} others={others} />
+        <SpecForm draft={draft} setDraft={setDraft} catalog={catalog} disabled={!agent.canEdit} others={others} template={agent.template} />
       </Panel>
 
       <div className="agents-builder__side">

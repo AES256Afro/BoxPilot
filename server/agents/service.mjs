@@ -29,7 +29,8 @@ import { budgetState, createRateLimit, defaultQuietHours, inQuietHours, nextSche
 import { coreLimits, defaultCores, effectiveCores, physicalCores, runnerCaps, runnerUnit, threadsFor } from "./caps.mjs";
 import { createAgentChat, zulipSettingKey } from "./chat.mjs";
 import { ConnectorError, boundSync, cleanDocumentText, connectors, readFolderSetting, scanFolder, textOfUpload } from "./connectors.mjs";
-import { sanitizeUntrusted, wrapNote, wrapToolOutput } from "./guard.mjs";
+import { ageWords, compactFinding, findingAnswers, findingFreshMs, findingKind, findingReaderKinds, findingScore, sharingOf, wantsFresh } from "./findings.mjs";
+import { sanitizeUntrusted, wrapFinding, wrapNote, wrapToolOutput } from "./guard.mjs";
 import { readUnderstanding, understandingSummary } from "./intent.mjs";
 import { decodeVector, encodeVector, episodeOf, foldThread, hybridSearch, memoryTiers, readVector } from "./memory.mjs";
 import { defaultModelId, downloadPreview, findNewerQwen, modelById, modelLibrary, testedUnslothVersion, unslothModelSpec } from "./models.mjs";
@@ -75,7 +76,9 @@ export const serviceLimits = Object.freeze({
   notifyCooldownMs: 6 * 3600_000,
   notifyPerDay: 4,
   toolCallsPerStep: 3,
-  maxToolCallsPerRun: 24,
+  // Twelve steps (the most a spec may give) of three calls each (M44): at 24, the Environment
+  // Scout's ten steps would run out of calls before steps whenever it read three tools at once.
+  maxToolCallsPerRun: 36,
   proposalsPerRun: 2,
   noteWritesPerRun: 5,
   answerChars: 12_000,
@@ -101,6 +104,12 @@ export const serviceLimits = Object.freeze({
   nightlyEvalEveryMs: 20 * 3600_000,
   evalHistory: 60,
   evalSecondsPerQuestion: 120,
+  // Findings (M44): at most this many offered to a run, each cut to this much in the prompt (about
+  // 225 tokens: read twice, by the planner and by the calls that act), and a finding kept at most
+  // this long, a note's size.
+  findingsInPrompt: 3,
+  findingPromptChars: 900,
+  findingChars: 2_000,
 });
 
 /**
@@ -658,6 +667,135 @@ export function createAgentService({
     return `<memory kind="${item.tier}" from="${String(item.from).replace(/"/g, "'")}" written="${String(item.at ?? "").slice(0, 10)}"${stale(item) ? " stale=\"true\"" : ""} trust="untrusted">\n${item.title}: ${sanitizeUntrusted(item.text, { maxChars: 600, redact }).text}\n</memory>`;
   }
 
+  // ---- findings (M44, ADR-012) ----
+
+  /** An agent's two switches: its spec's, or - saved before M44 - its template's defaults. */
+  const sharingFor = (agent, spec = agent?.spec) => sharingOf(spec, agent?.template ?? null);
+
+  /**
+   * Findings a run reading as `readRole` may use: fresh, learned by a run that read no more than it
+   * may, from an agent that still exists and still shares. One agent's (`agentId`) or every other
+   * agent's (`exceptAgentId`).
+   */
+  function usableFindings(readRole, { agentId = null, exceptAgentId = null } = {}) {
+    const at = now().getTime();
+    const agents = new Map(store.listAgents().map((entry) => [entry.id, entry]));
+    return store.listFindings({ agentId, exceptAgentId }).filter((finding) => {
+      const writer = agents.get(finding.agentId);
+      return Boolean(writer) && sharingFor(writer).shareFindings && Boolean(finding.freshUntil) && Date.parse(finding.freshUntil) > at && roleAtLeast(readRole, finding.readRole);
+    });
+  }
+
+  const findingAge = (finding) => ageWords(now().getTime() - Date.parse(finding.updatedAt));
+
+  /**
+   * The findings a run is offered before it plans: the other agents' fresh ones it may read that
+   * bear on what it was asked (or, for its routine work, on its job), at most three, each a step of
+   * the trace numbered F1, F2 as the model sees it. None when the agent does not use findings, for
+   * an evaluation (it measures the agent) or a supervisor's follow-up, or when the person asked for
+   * a fresh check - which the trace says.
+   */
+  function offerFindings(run, spec, agent) {
+    if (!sharingFor(agent, spec).useFindings || !findingReaderKinds.includes(run.kind)) return [];
+    const root = run.rootRunId && run.rootRunId !== run.id ? store.getRun(run.rootRunId) : null;
+    if (wantsFresh(run.question, root?.question)) {
+      const step = store.addStep(run.id, { kind: "system", name: "findings", flags: { detail: "Asked for a fresh check, so the other agents' findings were not offered." } });
+      if (step) emit(run.id, "step", step);
+      return [];
+    }
+    const candidates = usableFindings(run.readRole, { exceptAgentId: agent.id });
+    if (!candidates.length) return [];
+    const query = run.question ?? [run.trigger?.title, spec.job, spec.purpose, ...(spec.prompt?.steps ?? [])].filter(Boolean).join(" ");
+    const ranked = candidates.map((finding) => ({ finding, ...findingScore(query, finding) })).filter((entry) => entry.shared > 0)
+      .sort((a, b) => b.score - a.score || b.shared - a.shared || b.finding.updatedAt.localeCompare(a.finding.updatedAt))
+      .slice(0, limits.findingsInPrompt);
+    const names = new Map(store.listAgents().map((entry) => [entry.id, entry.name]));
+    return ranked.map(({ finding }, position) => {
+      const index = position + 1;
+      const from = names.get(finding.agentId) ?? "another agent";
+      const cleaned = sanitizeUntrusted(`${finding.title}\n${finding.body}`, { maxChars: limits.findingPromptChars, redact });
+      const doubts = { unsure: Boolean(finding.source?.unsure), partial: Boolean(finding.source?.partial) };
+      if (cleaned.flags.injection) store.mergeRunFlags(run.id, { injection: true });
+      const step = store.addStep(run.id, {
+        kind: "finding", name: from, output: cleaned.text,
+        input: { id: `F${index}`, noteId: finding.id, agentId: finding.agentId, agent: from, writtenAt: finding.updatedAt, freshUntil: finding.freshUntil, ...doubts },
+        flags: { finding: `F${index}`, ...(cleaned.flags.injection ? { injection: true } : {}) },
+      });
+      if (step) emit(run.id, "step", step);
+      return {
+        id: `F${index}`, title: `${from}'s finding`, text: cleaned.text,
+        wrapped: wrapFinding({ index, from, writtenAt: finding.updatedAt.slice(0, 16), age: findingAge(finding), text: cleaned.text, ...doubts, flags: cleaned.flags }),
+      };
+    });
+  }
+
+  /** The findings a run was offered, as the check holds claims to them: { id: "F1", title, text }. */
+  const offeredFindings = (runId) => store.listSteps(runId).filter((step) => step.kind === "finding" && typeof step.flags?.finding === "string").map((step) => ({ id: step.flags.finding, title: `${step.name}'s finding`, text: step.output ?? "" }));
+
+  /**
+   * The specialist's own fresh finding that answers a subtask, when the supervisor uses findings,
+   * the specialist shares them, and nobody asked for a fresh check: never one its check was unsure
+   * of, or one cut short by a limit.
+   */
+  function findingForHandoff(run, spec, agent, target, task) {
+    if (!sharingFor(agent, spec).useFindings || !sharingFor(target).shareFindings) return null;
+    const root = run.rootRunId && run.rootRunId !== run.id ? store.getRun(run.rootRunId) : null;
+    if (wantsFresh(task, run.question, root?.question)) return null;
+    return usableFindings(run.readRole, { agentId: target.id })
+      .filter((finding) => !finding.source?.unsure && !finding.source?.partial && findingAnswers(task, finding))
+      .map((finding) => ({ finding, ...findingScore(task, finding) }))
+      .sort((a, b) => b.score - a.score || b.finding.updatedAt.localeCompare(a.finding.updatedAt))[0]?.finding ?? null;
+  }
+
+  /**
+   * What a finished run leaves for the other agents: its routine result, or an answer it checked
+   * against its tools, as its finding of that kind - the last one replaced. Never one whose tools
+   * read something that looked like an instruction; one its check was not sure of says so, and so
+   * does one cut short by a limit.
+   */
+  function rememberFinding(agent, spec, run) {
+    try {
+      const kind = findingKind(run);
+      if (!kind || !sharingFor(agent, spec).shareFindings) return null;
+      if (run.state !== "completed" || !run.answer || run.flags?.clarify || run.flags?.injection) return null;
+      // A supervisor that handed work on answers in its follow-up run: that answer is the finding.
+      if (run.kind !== "continue" && store.listChildren(run.id).some((entry) => entry.kind === "handoff")) return null;
+      const check = run.flags?.check ?? null;
+      if (kind === "answer" && !check) return null;
+      if (sanitizeUntrusted(run.answer).flags.injection) return null;
+      const root = run.kind === "continue" ? store.getRun(run.rootRunId ?? run.parentRunId) : null;
+      const question = kind === "answer" ? clip(String(root?.question ?? run.question ?? "").replace(/\s+/g, " ").trim(), 300) : null;
+      const unsure = Boolean(check?.unsure);
+      const partial = Boolean(run.flags?.limitReached);
+      const statements = (count) => `${count} ${count === 1 ? "statement" : "statements"}`;
+      const doubts = [
+        unsure ? `Not sure of all of it: ${statements(check.mismatches)} did not match what ${spec.name}'s tools said.` : null,
+        partial ? "It reached a limit before it finished, so this may be incomplete." : null,
+      ].filter(Boolean).join(" ");
+      // The question is its title (and in its source, for matching): the body is what it found.
+      const body = `${doubts ? `${doubts}\n\n` : ""}${compactFinding(redact(run.answer), limits.findingChars - doubts.length - 2)}`;
+      const title = clip(kind === "routine" ? spec.job : `Asked: ${question}`, 120);
+      const finding = store.writeFinding(agent.id, {
+        kind, title, body: clip(body, limits.findingChars), readRole: run.readRole,
+        freshUntil: new Date(now().getTime() + findingFreshMs(spec, kind)).toISOString(),
+        source: {
+          agentId: agent.id, agentName: spec.name, runId: run.id, runKind: run.kind, finishedAt: run.finishedAt, kind, question,
+          confidence: typeof run.flags?.confidence === "number" ? run.flags.confidence : null,
+          checked: check?.checked ?? 0, mismatches: check?.mismatches ?? 0, unsure, partial,
+        },
+      });
+      audit("agents.finding.shared", { actorId: run.requestedBy, subjectId: agent.id, details: { runId: run.id, kind, unsure, partial, readRole: run.readRole } });
+      return finding;
+    } catch { return null; /* a finding is a help, never a reason for a run to fail */ }
+  }
+
+  /** A finding as the Memory tab shows it. */
+  const presentFinding = (finding, names) => ({
+    id: finding.id, kind: finding.finding, title: finding.title, body: finding.body, from: names.get(finding.agentId) ?? finding.source?.agentName ?? "another agent", agentId: finding.agentId,
+    updatedAt: finding.updatedAt, freshUntil: finding.freshUntil, stale: stale(finding), readRole: finding.readRole, runId: finding.source?.runId ?? null,
+    unsure: Boolean(finding.source?.unsure), partial: Boolean(finding.source?.partial),
+  });
+
   /** The claim for an index run: the texts whose embeddings are missing or out of date. */
   function indexPayload(run, lease, { cpu: cpuInfo = null } = {}) {
     const items = pendingEmbeddings().slice(0, limits.indexBatch);
@@ -689,17 +827,30 @@ export function createAgentService({
       const step = store.addStep(run.id, { kind: "recall", name: "recall", input: { query: clip(query, 200) }, output: recalled.map((item) => `${item.tier}: ${item.title} (${item.from}, ${String(item.at ?? "").slice(0, 10)}${stale(item) ? ", may be out of date" : ""})`).join("\n"), flags: { read: recalled.length } });
       if (step) emit(run.id, "step", step);
     }
+    // What the other agents found that bears on it (M44): before it plans, so it need not look again.
+    const usesFindings = sharingFor(agent, spec).useFindings;
+    const findings = offerFindings(run, spec, agent);
     // The conversation with this person, when the agent keeps one.
     const thread = spec.memory?.threads && run.requestedBy && ["ask", "manual"].includes(run.kind) ? store.getThread(agent.id, run.requestedBy) : null;
     const context = thread ? foldThread(thread, { keep: spec.memory.turns ?? 6 }) : null;
-    // A supervisor's follow-up: what each specialist answered, as tool output it can cite.
+    // A supervisor's follow-up: what each specialist answered, as tool output it can cite, in the
+    // order it handed them over - a hand-off a specialist's fresh finding answered (M44) as well as
+    // one it ran for.
     if (run.kind === "continue") {
-      for (const child of store.listChildren(run.parentRunId).filter((entry) => entry.kind === "handoff")) {
+      const children = store.listChildren(run.parentRunId).filter((entry) => entry.kind === "handoff");
+      const answered = (child) => {
         const name = store.getAgent(child.agentId, { includeDeleted: true })?.name ?? "A specialist";
         const text = child.answer ? `${name} was asked: ${child.question}\n${name} answered: ${child.answer}` : `${name} was asked: ${child.question}\nIt did not answer (${child.state}).`;
         const cleaned = sanitizeUntrusted(text, { maxChars: limits.toolOutputChars, redact });
         store.addStep(run.id, { kind: "tool", name: "agents.handoff", input: { agent: name, runId: child.id }, output: cleaned.text, flags: cleaned.flags.injection ? { injection: true } : {} });
+      };
+      const shown = new Set();
+      for (const step of store.listSteps(run.parentRunId).filter((entry) => entry.kind === "handoff" && entry.state === "done")) {
+        if (step.flags?.reused) { store.addStep(run.id, { kind: "tool", name: "agents.handoff", input: step.input, output: step.output, flags: { reused: true, finding: step.flags.finding ?? null } }); continue; }
+        const child = children.find((entry) => entry.id === step.flags?.childRunId);
+        if (child && !shown.has(child.id)) { shown.add(child.id); answered(child); }
       }
+      for (const child of children.filter((entry) => !shown.has(entry.id))) answered(child);
     }
     const handoffOutputs = run.kind === "continue" ? store.listSteps(run.id).filter((step) => step.kind === "tool" && step.name === "agents.handoff").map((step, index) => wrapToolOutput({ index: index + 1, tool: "agents_handoff", text: step.output ?? "", flags: step.flags })) : [];
     const budget = budgetOf({ ...agent, spec });
@@ -711,11 +862,13 @@ export function createAgentService({
       run: { id: run.id, kind: run.kind, question: run.question, trigger: run.trigger, readRole: run.readRole, startedAt: run.startedAt, deadlineAt },
       lease,
       // Its purpose, job and steps are what the planner reads (intent.mjs), before the long prompt.
-      agent: { id: agent.id, name: spec.name, version: run.version, outputs: spec.outputs, purpose: spec.purpose ?? "", job: spec.job ?? "", steps: spec.prompt?.steps ?? [] },
+      agent: { id: agent.id, name: spec.name, version: run.version, outputs: spec.outputs, purpose: spec.purpose ?? "", job: spec.job ?? "", steps: spec.prompt?.steps ?? [], useFindings: usesFindings },
       messages: [
-        { role: "system", content: systemMessage(spec, { specialists: offered.some((tool) => tool.id === "agents.handoff") ? specialistsFor(spec, store.listAgents(), agent.id) : [], chat: chat.promptConnection() }) },
-        { role: "user", content: [taskMessage({ kind: run.kind, question: run.question, trigger: run.trigger, notes, memories: recalled.map(memoryLine), thread: context, now: now() }), ...handoffOutputs].join("\n\n") },
+        { role: "system", content: systemMessage(spec, { specialists: offered.some((tool) => tool.id === "agents.handoff") ? specialistsFor(spec, store.listAgents(), agent.id) : [], chat: chat.promptConnection(), useFindings: usesFindings }) },
+        { role: "user", content: [taskMessage({ kind: run.kind, question: run.question, trigger: run.trigger, notes, memories: recalled.map(memoryLine), findings: findings.map((finding) => finding.wrapped), thread: context, now: now() }), ...handoffOutputs].join("\n\n") },
       ],
+      // The findings it was offered, F1, F2 ...: what the runner's check holds a claim citing one to.
+      findings: findings.map(({ id, title, text }) => ({ id, title, text })),
       tools: offered.map((tool) => ({ id: tool.id, ...toModelTool(tool) })),
       // Intent, then plan, then act: the runner asks for the structured understanding first.
       understand: understand ? { tools: offered.map((tool) => ({ fn: tool.fn, title: tool.title, ...(tool.use ? { use: tool.use } : {}) })) } : null,
@@ -1083,9 +1236,21 @@ export function createAgentService({
     const handed = store.listChildren(run.id).filter((entry) => entry.kind === "handoff").length;
     const check = checkHandoff({ agent, spec, run, target, chain: chainOf(run, (id) => store.getRun(id)), handedSoFar: handed });
     if (check.problem) return answer("handoff", { state: "refused", text: `${check.problem}.`, input: { agent: clip(name, 60) }, flags: { refused: true } });
+    const cleanTask = sanitizeUntrusted(task, { maxChars: 1_000, redact }).text;
+    // M44: a specialist that already found this, recently, is not run again: its finding is its
+    // answer, here and now, unless the person asked for a fresh check.
+    const finding = findingForHandoff(run, spec, agent, target, cleanTask);
+    if (finding) {
+      const age = findingAge(finding);
+      audit("agents.handoff.reused", { actorId: run.requestedBy, subjectId: run.id, details: { from: agent.id, to: target.id, finding: finding.id, findingAt: finding.updatedAt } });
+      return answer("handoff", {
+        text: `${target.name} was asked: ${cleanTask}\nIt was not run again: its finding from ${age} answers this.\n${target.name} found (${finding.title}):\n${finding.body}`,
+        input: { agent: target.name, task: cleanTask, finding: finding.id, findingAt: finding.updatedAt },
+        flags: { reused: true, finding: finding.id, from: target.id, age },
+      });
+    }
     const targetBudget = budgetOf(target);
     if (targetBudget.refusal) return answer("handoff", { state: "refused", text: `${target.name} cannot run again today: ${targetBudget.refusal.toLowerCase()}.`, input: { agent: target.name }, flags: { refused: true } });
-    const cleanTask = sanitizeUntrusted(task, { maxChars: 1_000, redact }).text;
     const child = store.enqueueRun({
       agentId: target.id, version: target.version, kind: "handoff", question: cleanTask, trigger: { title: `Handed over by ${agent.name}` },
       requestedBy: run.requestedBy, readRole: run.readRole, readAs: run.readAs, parentRunId: run.id, rootRunId: run.rootRunId ?? run.id, depth: check.depth,
@@ -1113,7 +1278,8 @@ export function createAgentService({
   async function proposeFor(run, spec, { title, reason, steps }, answer) {
     if (!spec.outputs?.proposals) return answer("proposal", { state: "refused", text: "This agent does not propose plans.", flags: { refused: true } });
     if (!["owner", "operator"].includes(run.readRole)) return answer("proposal", { state: "refused", text: "Plans are proposed only for someone who could approve them.", flags: { refused: true } });
-    if (store.countSteps(run.id, "proposal") >= limits.proposalsPerRun) return answer("proposal", { state: "refused", text: `A run proposes at most ${limits.proposalsPerRun} plans.`, flags: { refused: true } });
+    // Said so a small model stops trying (M44): every step spent proposing is one not spent reading.
+    if (store.countSteps(run.id, "proposal") >= limits.proposalsPerRun) return answer("proposal", { state: "refused", text: `A run proposes at most ${limits.proposalsPerRun} plans, and this one has. Propose nothing more: read what your plan still needs, then answer.`, flags: { refused: true } });
     // The agent's allowlist first: a step for an operation it may not propose never reaches a card.
     const allowed = spec.allow?.operations ?? "*";
     const outside = allowed === "*" ? [] : (Array.isArray(steps) ? steps : []).map((step, index) => ({ index, operationId: step?.operationId ?? null })).filter((entry) => !allowed.includes(entry.operationId));
@@ -1167,10 +1333,11 @@ export function createAgentService({
       if (read.value) answer = JSON.stringify(read.value, null, 1);
     }
     const toolOutputs = outputsSoFar(run.id);
-    const citations = checkCitations(answer, toolOutputs);
+    const findings = offeredFindings(run.id);
+    const citations = checkCitations(answer, toolOutputs, { findings: findings.length });
     // The check before answering (M40), done again here on what was kept: the runner's report says
     // whether the model corrected anything; what still does not match is counted from the answer.
-    const checked = answer && outcomeIsAnswer(outcome) && !clarify ? checkKept(run.id, answer, result.usage?.check) : null;
+    const checked = answer && outcomeIsAnswer(outcome) && !clarify ? checkKept(run.id, answer, result.usage?.check, findings) : null;
     const usage = {
       modelMs: Math.round(finite(result.usage?.modelMs, 3_600_000)),
       loadMs: Math.round(finite(result.usage?.loadMs, 3_600_000)),
@@ -1185,11 +1352,18 @@ export function createAgentService({
       // What the check before answering cost: the text check itself, and the model's correction.
       ...(checked ? { checkMs: Math.round(finite(result.usage?.check?.checkMs, 60_000) * 100) / 100, correctionMs: Math.round(finite(result.usage?.check?.correctionMs, 3_600_000)) } : {}),
     };
+    // M44: hand-offs answered from a specialist's finding rather than a run of it, and findings cited.
+    const runsSaved = store.listSteps(run.id).filter((step) => step.kind === "handoff" && step.state === "done" && step.flags?.reused).length;
+    const findingsCited = citations.cited.filter((id) => id.startsWith("F")).length;
+    if (runsSaved) usage.runsSaved = runsSaved;
+    if (findingsCited) usage.findingsCited = findingsCited;
     const measured = noteModelSpeed(result.usage?.speed);
     if (measured) usage.speed = { promptPerSecond: measured.promptPerSecond, generatePerSecond: measured.generatePerSecond, threads: measured.threads };
     const outputKind = clarify ? "question" : run.kind === "eval" ? "eval" : run.kind === "learn" ? "notes" : run.kind === "schedule" && spec.outputs?.digest ? "digest" : "answer";
     const degradedReason = typeof result.degradedReason === "string" ? result.degradedReason.slice(0, 40) : null;
     const limitReached = Boolean(degradedReason === "budget" || degradedReason === "timeout" || result.limitReached);
+    // Which: its steps, its tool calls or its tokens (M44), so the card can say what to raise.
+    const limitKind = limitReached && ["steps", "toolCalls", "tokens"].includes(result.limit) ? result.limit : null;
     const finished = store.finishRun(run.id, {
       state: outcome,
       reason: outcome === "failed" ? clip(redact(String(result.error ?? "The run failed")), 300) : degradedReason ? `degraded: ${degradedReason}` : null,
@@ -1197,7 +1371,7 @@ export function createAgentService({
       flags: {
         citations: { cited: citations.cited.length, unknown: citations.unknown }, ...(degradedReason ? { degraded: degradedReason } : {}),
         ...(checked ? { check: checked } : {}),
-        ...(clarify ? { clarify: true } : {}), ...(structured ? { structured } : {}), ...(limitReached ? { limitReached: true } : {}),
+        ...(clarify ? { clarify: true } : {}), ...(structured ? { structured } : {}), ...(limitReached ? { limitReached: true } : {}), ...(limitKind ? { limit: limitKind } : {}),
         model: embedModelName(),
       },
     });
@@ -1206,11 +1380,13 @@ export function createAgentService({
     emit(run.id, "state", { state: finished.state });
     audit("agents.run.finished", {
       actorId: run.requestedBy, subjectId: run.id,
-      details: { agentId: run.agentId, version: run.version, kind: run.kind, outcome: finished.state, readRole: run.readRole, toolCalls: usage.toolCalls, modelMs: usage.modelMs, loadMs: usage.loadMs, tokens: usage.promptTokens + usage.completionTokens, durationMs: usage.wallMs, injectionSuspected: Boolean(finished.flags?.injection), degraded: degradedReason, parentRunId: run.parentRunId, clarify: Boolean(clarify) },
+      details: { agentId: run.agentId, version: run.version, kind: run.kind, outcome: finished.state, readRole: run.readRole, toolCalls: usage.toolCalls, modelMs: usage.modelMs, loadMs: usage.loadMs, tokens: usage.promptTokens + usage.completionTokens, durationMs: usage.wallMs, injectionSuspected: Boolean(finished.flags?.injection), degraded: degradedReason, parentRunId: run.parentRunId, clarify: Boolean(clarify), runsSaved, findingsCited },
     });
     if (finished.flags?.notify && finished.state !== "failed") await deliverNotice(agent, finished);
     if (run.kind === "eval" && run.eval?.evalId) await gradeEvalRun(finished);
     rememberRun(agent, spec, finished);
+    // What it found, for the other agents (M44).
+    rememberFinding(agent, spec, finished);
     await escalate(agent, spec, finished, { clarify });
     // Its answer, cards, trace and notes, to the team chat when Zulip is connected (M38).
     chat.afterRun(agent, spec, store.getRun(finished.id) ?? finished);
@@ -1228,8 +1404,8 @@ export function createAgentService({
    * the answer without the runner's own "not sure" note. `reported` is the runner's account, of
    * which only whether the model corrected something is taken.
    */
-  function checkKept(runId, answer, reported) {
-    const sources = store.listSteps(runId).filter((step) => outputKinds.includes(step.kind) && step.state === "done").map((step, index) => ({ id: `T${index + 1}`, title: step.name, text: step.output ?? "" }));
+  function checkKept(runId, answer, reported, findings = []) {
+    const sources = [...store.listSteps(runId).filter((step) => outputKinds.includes(step.kind) && step.state === "done").map((step, index) => ({ id: `T${index + 1}`, title: step.name, text: step.output ?? "" })), ...findings];
     if (!sources.length) return null;
     const [body, note] = String(answer).split(/\n\nChecked against the tools, some of this does not match/);
     const found = verifyAnswer(body, sources);
@@ -1294,7 +1470,7 @@ export function createAgentService({
       const reasons = [];
       const confidence = run.flags?.confidence;
       if (rules.lowConfidence && typeof confidence === "number" && confidence < limits.lowConfidence && ["ask", "manual", "event", "schedule", "webhook"].includes(run.kind)) reasons.push(`It was only ${Math.round(confidence * 100)}% sure it understood the request.`);
-      if (rules.limits && run.flags?.limitReached) reasons.push(run.flags.degraded === "budget" ? "It ran out of its model time for today before it finished." : run.flags.degraded === "timeout" ? "It ran out of time before it finished." : "It reached a limit before it finished.");
+      if (rules.limits && run.flags?.limitReached) reasons.push(limitWords(run.flags, spec));
       const risky = rules.risk && run.flags?.injection;
       if (risky) reasons.push("Something it read looked like an instruction to it. It treated it as data; check what it read.");
       if (!reasons.length) return;
@@ -1302,6 +1478,21 @@ export function createAgentService({
       audit("agents.escalated", { actorId: run.requestedBy, subjectId: run.id, details: { agentId: agent.id, lowConfidence: reasons.length && typeof confidence === "number" && confidence < limits.lowConfidence, limit: Boolean(run.flags?.limitReached), risk: Boolean(risky) } });
       if (risky && moduleSettings().notify !== false) await healthAlerts?.tell?.({ key: `agent.important:${agent.id}:risk`, title: `${agent.name}: check what it read`, message: "An agent read something that looked like an instruction. It did not act on it; the run's trace shows where.", priority: "high" });
     } catch { /* a card that could not be made is not worth failing the run over */ }
+  }
+
+  /**
+   * Which limit a run reached, in the card's words, and what to raise if it keeps happening (M44):
+   * the owner's Server Keeper twice said only "It ran out of time before it finished".
+   */
+  function limitWords(flags, spec) {
+    const raise = (field) => ` If that keeps happening, raise "${field}" on its Build tab, under Guardrails.`;
+    const budget = spec?.budget ?? {};
+    if (flags.degraded === "budget") return "It ran out of its model time for today before it finished.";
+    if (flags.degraded === "timeout") return `It ran out of time before it finished${budget.runSeconds ? ` (its longest run is ${Math.round(budget.runSeconds / 60)} minutes)` : ""}.${raise("Longest run")}`;
+    if (flags.limit === "steps") return `It reached its limit of ${budget.stepsPerRun === 1 ? "one step" : `${budget.stepsPerRun ?? "its"} steps`} a run before it finished.${raise("Steps a run")}`;
+    if (flags.limit === "tokens") return `It reached its limit of ${budget.tokensPerRun ?? "its"} tokens a run and had to answer early.${raise("Tokens a run")}`;
+    if (flags.limit === "toolCalls") return `It reached the most tool calls a run may make before it finished.${raise("Steps a run")}`;
+    return "It reached a limit before it finished.";
   }
 
   /**
@@ -1509,7 +1700,13 @@ export function createAgentService({
     if (specText(normalized) === specText(agent.spec)) return { ...presentAgent(person, agent, { detail: true }), unchanged: true };
     const version = store.addVersion(agent.id, { spec: normalized, note: typeof note === "string" ? clip(note.replace(/[\u0000-\u001f\u007f]/g, " ").trim(), 200) || null : null, createdBy: person.id, nextRunAt: nextRunFor(normalized) });
     audit("agents.updated", { actorId: person.id, subjectId: agent.id, details: { version, fields: diffSpecs(agent.spec, normalized).map((change) => change.field) } });
+    forgetFindingsIfUnshared(agent, normalized);
     return presentAgent(person, store.getAgent(agent.id), { detail: true });
+  }
+
+  /** Sharing turned off (M44): what it shared is forgotten, so nobody reads it after the owner said no. */
+  function forgetFindingsIfUnshared(agent, spec) {
+    if (sharingFor(agent).shareFindings && !sharingFor(agent, spec).shareFindings) store.deleteFindings(agent.id);
   }
 
   function rollbackAgent(caller, agentId, { version } = {}) {
@@ -1520,6 +1717,7 @@ export function createAgentService({
     if (target.version === agent.version) refuse(409, "That is already the current version", "version_current");
     const next = store.addVersion(agent.id, { spec: target.spec, note: `Rolled back to version ${target.version}`, createdBy: person.id, nextRunAt: nextRunFor(target.spec) });
     audit("agents.rolled-back", { actorId: person.id, subjectId: agent.id, details: { to: target.version, version: next } });
+    forgetFindingsIfUnshared(agent, target.spec);
     return presentAgent(person, store.getAgent(agent.id), { detail: true });
   }
 
@@ -1698,12 +1896,19 @@ export function createAgentService({
     const model = embedModelName();
     const indexed = (key) => vectors.get(key)?.model === model;
     const thread = store.getThread(agent.id, person.id);
+    const sharing = sharingFor(agent);
     return {
+      // M44: what it shared (fresh or not), and the other agents' fresh findings it can use, each as
+      // far as the person looking may read.
+      findings: {
+        shared: store.listFindings({ agentId: agent.id }).filter((finding) => roleAtLeast(person.role, finding.readRole)).map((finding) => presentFinding(finding, agentNames)),
+        usable: sharing.useFindings ? usableFindings(person.role, { exceptAgentId: agent.id }).map((finding) => presentFinding(finding, agentNames)) : [],
+      },
       facts: ownNotes(agent.id, person.role, { limit: 200 }).map((note) => ({ ...note, stale: stale(note), indexed: indexed(`note:${note.id}`) })),
       shared: store.listSharedNotes({ exceptAgentId: agent.id }).filter((note) => roleAtLeast(person.role, note.readRole)).map((note) => ({ id: note.id, title: note.title, body: note.body, from: agentNames.get(note.agentId) ?? "another agent", updatedAt: note.updatedAt, stale: stale(note) })),
       episodes: store.listEpisodes(agent.id, { limit: 100 }).filter((episode) => roleAtLeast(person.role, episode.readRole)).map((episode) => ({ ...episode, indexed: indexed(`episode:${episode.id}`) })),
       thread: thread ? { summary: thread.summary, turns: thread.turns, updatedAt: thread.updatedAt } : null,
-      settings: { enabled: agent.spec.memory.enabled, share: agent.spec.memory.share, threads: agent.spec.memory.threads, turns: agent.spec.memory.turns, freshDays: agent.spec.memory.freshDays, maxNotes: agent.spec.memory.maxNotes },
+      settings: { enabled: agent.spec.memory.enabled, share: agent.spec.memory.share, threads: agent.spec.memory.threads, turns: agent.spec.memory.turns, freshDays: agent.spec.memory.freshDays, maxNotes: agent.spec.memory.maxNotes, shareFindings: sharing.shareFindings, useFindings: sharing.useFindings },
       search: { byMeaning: moduleSettings().embeddings !== false && runtimeSettings().driver !== "llama-server", model, pending: pendingEmbeddings().length, vectors: store.countVectors() },
     };
   }
@@ -1965,6 +2170,9 @@ export function createAgentService({
       // The model's measured speed on this server: { promptPerSecond, generatePerSecond, model, threads, measuredAt }, or null.
       modelSpeed: modelSpeed(),
       today: { runs: perAgent.reduce((sum, entry) => sum + entry.runs, 0), modelSeconds: perAgent.reduce((sum, entry) => sum + entry.modelSeconds, 0), tokens: perAgent.reduce((sum, entry) => sum + entry.tokens, 0), perAgent },
+      // M44: this week, the runs a supervisor did not start because a specialist's finding answered,
+      // and the answers that cited another agent's finding.
+      findings: { days: 7, ...store.findingsUseSince(new Date(now().getTime() - 7 * 86_400_000).toISOString()) },
       queue: { queued, running, dropped: droppedRuns },
       module: presentModule(),
     };
@@ -2532,25 +2740,49 @@ export function createAgentService({
   // ---- background ----
 
   /**
-   * Once, at startup: an agent saved with the old default longest run (10 minutes) gets the new
-   * 15-minute default, as a version of its own that says BoxPilot made it. An agent the owner set to
-   * anything else keeps it, and so does one they set back to 10 minutes after this ran.
+   * Once each, at startup, each a version of its own that says BoxPilot made it:
+   * - an agent saved with the old default longest run (10 minutes) gets the new 15-minute default.
+   *   An agent the owner set to anything else keeps it, and so does one they set back to 10 minutes
+   *   after this ran.
+   * - (M44) an agent saved before findings gets its two switches as its template would give them:
+   *   it shares and uses findings, except the IT Support helper and the House Guide, which only use
+   *   them. Its budget and everything else stay as the owner saved them.
    */
   function migrateDefaults() {
     const done = state.getSetting?.(agentsMigrationsKey, null) ?? {};
-    if (done.runSeconds) return 0;
-    let raised = 0;
-    for (const agent of store.listAgents()) {
-      if (agent.spec?.budget?.runSeconds !== previousRunSecondsDefault) continue;
-      let spec;
-      try { spec = normalizeSpec({ ...agent.spec, budget: { ...agent.spec.budget, runSeconds: budgetCeilings.runSeconds.default } }); } catch { continue; }
-      const version = store.addVersion(agent.id, { spec, note: "BoxPilot raised the time limit to the new 15-minute default", createdBy: null, nextRunAt: agent.nextRunAt ?? nextRunFor(spec) });
-      if (!version) continue;
-      audit("agents.updated", { subjectId: agent.id, details: { version, fields: ["budget.runSeconds"], by: "boxpilot" } });
-      raised += 1;
+    const next = { ...done };
+    let changed = 0;
+    const save = (agent, spec, note, fields) => {
+      const version = store.addVersion(agent.id, { spec, note, createdBy: null, nextRunAt: agent.nextRunAt ?? nextRunFor(spec) });
+      if (!version) return false;
+      audit("agents.updated", { subjectId: agent.id, details: { version, fields, by: "boxpilot" } });
+      return true;
+    };
+    if (!done.runSeconds) {
+      let raised = 0;
+      for (const agent of store.listAgents()) {
+        if (agent.spec?.budget?.runSeconds !== previousRunSecondsDefault) continue;
+        let spec;
+        try { spec = normalizeSpec({ ...agent.spec, budget: { ...agent.spec.budget, runSeconds: budgetCeilings.runSeconds.default }, sharing: sharingFor(agent) }); } catch { continue; }
+        if (save(agent, spec, "BoxPilot raised the time limit to the new 15-minute default", ["budget.runSeconds"])) raised += 1;
+      }
+      next.runSeconds = { at: now().toISOString(), raised };
+      changed += raised;
     }
-    state.setSetting?.(agentsMigrationsKey, { ...done, runSeconds: { at: now().toISOString(), raised } }, { updatedBy: null });
-    return raised;
+    if (!done.sharing) {
+      let added = 0;
+      for (const agent of store.listAgents()) {
+        if (agent.spec?.sharing) continue;
+        const sharing = sharingFor(agent);
+        let spec;
+        try { spec = normalizeSpec({ ...agent.spec, sharing }); } catch { continue; }
+        if (save(agent, spec, sharing.shareFindings ? "BoxPilot turned on findings: it shares what it finds with the other agents and uses theirs" : "BoxPilot turned on findings: it uses what the other agents find, and shares nothing", ["sharing"])) added += 1;
+      }
+      next.sharing = { at: now().toISOString(), added };
+      changed += added;
+    }
+    if (next.runSeconds !== done.runSeconds || next.sharing !== done.sharing) state.setSetting?.(agentsMigrationsKey, next, { updatedBy: null });
+    return changed;
   }
 
   /** At startup: a run that was going when BoxPilot stopped is marked, not retried. */

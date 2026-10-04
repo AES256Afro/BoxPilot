@@ -216,6 +216,8 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
   ensureColumn("agent_notes", "pinned", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn("agent_notes", "shared", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn("agent_notes", "read_role", "TEXT NOT NULL DEFAULT 'owner'");
+  // M44: a finding is a shared note of its own kind ("routine" or "answer"), one per agent and kind.
+  ensureColumn("agent_notes", "finding", "TEXT");
   ensureColumn("agent_proposals", "kind", "TEXT NOT NULL DEFAULT 'plan'");
   ensureColumn("agent_proposals", "question", "TEXT");
   ensureColumn("agent_documents", "source", "TEXT NOT NULL DEFAULT 'upload'");
@@ -434,6 +436,20 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
     return { runs: rows.length, modelMs, tokens };
   }
 
+  /**
+   * What other agents' findings did since `since` (M44): the hand-offs answered from a specialist's
+   * finding instead of a run, and the answers that cited a finding.
+   */
+  function findingsUseSince(since) {
+    let runsSaved = 0; let answers = 0;
+    for (const row of prepare("SELECT usage_json FROM agent_runs WHERE started_at >= ?").all(since)) {
+      const usage = parse(row.usage_json, {});
+      runsSaved += Number(usage.runsSaved) || 0;
+      if (Number(usage.findingsCited) > 0) answers += 1;
+    }
+    return { runsSaved, answers };
+  }
+
   // ---- steps ----
 
   const stepOf = (row) => ({
@@ -458,41 +474,64 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
 
   const noteOf = (row) => ({
     id: row.id, agentId: row.agent_id, title: row.title, body: row.body, source: parse(row.source_json, {}), createdAt: row.created_at, updatedAt: row.updated_at, freshUntil: row.fresh_until ?? null,
-    pinned: Boolean(row.pinned), shared: Boolean(row.shared), readRole: row.read_role ?? "owner",
+    pinned: Boolean(row.pinned), shared: Boolean(row.shared), readRole: row.read_role ?? "owner", finding: row.finding ?? null,
   });
 
   /**
    * Keep a note: one with the same title is replaced, and the oldest unpinned ones go past
    * `maxNotes`. `readRole` is what the run that learned it could read: another agent sees a shared
-   * note only if its own run may read as much.
+   * note only if its own run may read as much. Findings (M44) are kept apart: never replaced by a
+   * note of the same title, never counted against `maxNotes`.
    */
   function writeNote(agentId, { title, body, source = {}, freshUntil = null, maxNotes = 50, readRole = "owner", shared = false }) {
     return transaction(() => {
       const at = iso();
-      const existing = prepare("SELECT id FROM agent_notes WHERE agent_id = ? AND lower(title) = lower(?)").get(agentId, title);
+      const existing = prepare("SELECT id FROM agent_notes WHERE agent_id = ? AND finding IS NULL AND lower(title) = lower(?)").get(agentId, title);
       const id = existing?.id ?? randomUUID();
       if (existing) prepare("UPDATE agent_notes SET body = ?, source_json = ?, updated_at = ?, fresh_until = ?, read_role = ?, shared = ? WHERE id = ?").run(body, json(source), at, freshUntil, readRole, shared ? 1 : 0, id);
       else prepare("INSERT INTO agent_notes (id, agent_id, title, body, source_json, created_at, updated_at, fresh_until, read_role, shared) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(id, agentId, title, body, json(source), at, at, freshUntil, readRole, shared ? 1 : 0);
-      const dropped = prepare("SELECT id FROM agent_notes WHERE agent_id = ? AND pinned = 0 AND id NOT IN (SELECT id FROM agent_notes WHERE agent_id = ? ORDER BY pinned DESC, updated_at DESC, rowid DESC LIMIT ?)").all(agentId, agentId, maxNotes).map((entry) => entry.id);
+      const dropped = prepare("SELECT id FROM agent_notes WHERE agent_id = ? AND pinned = 0 AND finding IS NULL AND id NOT IN (SELECT id FROM agent_notes WHERE agent_id = ? AND finding IS NULL ORDER BY pinned DESC, updated_at DESC, rowid DESC LIMIT ?)").all(agentId, agentId, maxNotes).map((entry) => entry.id);
       for (const gone of dropped) { prepare("DELETE FROM agent_notes WHERE id = ?").run(gone); prepare("DELETE FROM agent_vectors WHERE kind = 'note' AND item_id = ?").run(gone); }
       return noteOf(prepare("SELECT * FROM agent_notes WHERE id = ?").get(id));
     });
   }
 
-  const listNotes = (agentId, { limit = 100 } = {}) => prepare("SELECT * FROM agent_notes WHERE agent_id = ? ORDER BY pinned DESC, updated_at DESC, rowid DESC LIMIT ?").all(agentId, Math.min(Math.max(limit, 1), 200)).map(noteOf);
+  const listNotes = (agentId, { limit = 100 } = {}) => prepare("SELECT * FROM agent_notes WHERE agent_id = ? AND finding IS NULL ORDER BY pinned DESC, updated_at DESC, rowid DESC LIMIT ?").all(agentId, Math.min(Math.max(limit, 1), 200)).map(noteOf);
   const getNote = (agentId, noteId) => { const row = prepare("SELECT * FROM agent_notes WHERE agent_id = ? AND id = ?").get(agentId, noteId); return row ? noteOf(row) : null; };
-  /** Notes other agents shared, from agents that still exist. */
-  const listSharedNotes = ({ exceptAgentId = null, limit = 200 } = {}) => prepare("SELECT n.* FROM agent_notes n JOIN agents a ON a.id = n.agent_id WHERE n.shared = 1 AND a.deleted_at IS NULL AND n.agent_id IS NOT ? ORDER BY n.updated_at DESC LIMIT ?").all(exceptAgentId, limit).map(noteOf);
+  /** Notes other agents shared, from agents that still exist. Findings are offered on their own (M44). */
+  const listSharedNotes = ({ exceptAgentId = null, limit = 200 } = {}) => prepare("SELECT n.* FROM agent_notes n JOIN agents a ON a.id = n.agent_id WHERE n.shared = 1 AND n.finding IS NULL AND a.deleted_at IS NULL AND n.agent_id IS NOT ? ORDER BY n.updated_at DESC LIMIT ?").all(exceptAgentId, limit).map(noteOf);
+
+  /**
+   * An agent's finding (M44): one per agent and kind ("routine" or "answer"), replaced each time,
+   * shared, never pinned. `readRole` is what the run that found it could read.
+   */
+  function writeFinding(agentId, { kind, title, body, source = {}, freshUntil, readRole = "owner" }) {
+    return transaction(() => {
+      const at = iso();
+      const existing = prepare("SELECT id FROM agent_notes WHERE agent_id = ? AND finding = ?").get(agentId, kind);
+      const id = existing?.id ?? randomUUID();
+      if (existing) prepare("UPDATE agent_notes SET title = ?, body = ?, source_json = ?, updated_at = ?, fresh_until = ?, read_role = ?, shared = 1, pinned = 0 WHERE id = ?").run(title, body, json(source), at, freshUntil, readRole, id);
+      else prepare("INSERT INTO agent_notes (id, agent_id, title, body, source_json, created_at, updated_at, fresh_until, read_role, shared, finding) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)").run(id, agentId, title, body, json(source), at, at, freshUntil, readRole, kind);
+      prepare("DELETE FROM agent_vectors WHERE kind = 'note' AND item_id = ?").run(id);
+      return noteOf(prepare("SELECT * FROM agent_notes WHERE id = ?").get(id));
+    });
+  }
+  /** Findings, newest first: one agent's (`agentId`), or every other agent's that still exists (`exceptAgentId`). */
+  const listFindings = ({ agentId = null, exceptAgentId = null, limit = 100 } = {}) => (agentId
+    ? prepare("SELECT * FROM agent_notes WHERE agent_id = ? AND finding IS NOT NULL ORDER BY updated_at DESC, rowid DESC LIMIT ?").all(agentId, limit)
+    : prepare("SELECT n.* FROM agent_notes n JOIN agents a ON a.id = n.agent_id WHERE n.finding IS NOT NULL AND a.deleted_at IS NULL AND n.agent_id IS NOT ? ORDER BY n.updated_at DESC, n.rowid DESC LIMIT ?").all(exceptAgentId, limit)).map(noteOf);
+  /** What an agent shared, forgotten: the owner turned its sharing off. */
+  const deleteFindings = (agentId) => Number(prepare("DELETE FROM agent_notes WHERE agent_id = ? AND finding IS NOT NULL").run(agentId).changes);
   /** Forget: the note and its embedding go, overwritten on disk (secure_delete). */
   const deleteNote = (agentId, noteId) => transaction(() => {
     const changed = Number(prepare("DELETE FROM agent_notes WHERE agent_id = ? AND id = ?").run(agentId, noteId).changes) > 0;
     if (changed) prepare("DELETE FROM agent_vectors WHERE kind = 'note' AND item_id = ?").run(noteId);
     return changed;
   });
-  /** The owner's edit of a note: its words, how long it stays fresh, pinned, shared. */
+  /** The owner's edit of a note: its words, how long it stays fresh, pinned, shared. A finding is forgotten, not edited. */
   function updateNote(agentId, noteId, { title, body, freshUntil, pinned, shared }) {
     return transaction(() => {
-      const current = prepare("SELECT * FROM agent_notes WHERE agent_id = ? AND id = ?").get(agentId, noteId);
+      const current = prepare("SELECT * FROM agent_notes WHERE agent_id = ? AND id = ? AND finding IS NULL").get(agentId, noteId);
       if (!current) return null;
       prepare("UPDATE agent_notes SET title = ?, body = ?, fresh_until = ?, pinned = ?, shared = ?, updated_at = ? WHERE id = ?")
         .run(title ?? current.title, body ?? current.body, freshUntil === undefined ? current.fresh_until : freshUntil, pinned === undefined ? current.pinned : pinned ? 1 : 0, shared === undefined ? current.shared : shared ? 1 : 0, iso(), noteId);
@@ -752,9 +791,10 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
   return {
     databasePath, transaction,
     createAgent, getAgent, listAgents, getVersion, listVersions, addVersion, setPaused, setNextRun, noteEvent, deleteAgent, setWebhook,
-    enqueueRun, getRun, listRuns, listChildren, listTree, activeRuns, claimNext, holdsLease, extendLease, finishRun, mergeRunFlags, setEvalInfo, markAgentRan, usageSince,
+    enqueueRun, getRun, listRuns, listChildren, listTree, activeRuns, claimNext, holdsLease, extendLease, finishRun, mergeRunFlags, setEvalInfo, markAgentRan, usageSince, findingsUseSince,
     addStep, listSteps, countSteps,
     writeNote, listNotes, getNote, listSharedNotes, deleteNote, updateNote,
+    writeFinding, listFindings, deleteFindings,
     getThread, saveThread, deleteThread,
     addEpisode, listEpisodes, deleteEpisode,
     setVector, vectorsOf, deleteVector, deleteVectorsLike, countVectors,

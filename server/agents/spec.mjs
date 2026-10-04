@@ -18,6 +18,8 @@
  *                        its team chat (M38): findings, logs and knowledge, each to a Zulip channel
  *   memory               notes kept, how long they stay fresh and how many, whether other agents
  *                        may read them, and a conversation per person
+ *   sharing              findings (M44): whether what its routine runs and checked answers found
+ *                        is kept for the other agents, and whether it reads theirs before it works
  *   escalation           when it hands the matter to the owner as a card: low confidence, a limit
  *                        reached, an action needed, something that looks risky
  *   allow                the apps its tools may look at and the operations it may propose
@@ -209,6 +211,11 @@ export function normalizeSpec(input) {
     turns: integer(rawMemory.turns, { min: 1, max: 20, default: 6 }, "Turns kept word for word"),
   };
 
+  // Findings (M44): a permission each way, on unless the owner turns it off. Sharing keeps what its
+  // routine runs and checked answers found for the other agents; using reads theirs before it works.
+  const rawSharing = section(input.sharing, "Sharing must be a set of choices");
+  const sharing = { shareFindings: bool(rawSharing.shareFindings, true), useFindings: bool(rawSharing.useFindings, true) };
+
   const rawEscalation = section(input.escalation, "Escalation must be a set of choices");
   const escalation = {
     lowConfidence: bool(rawEscalation.lowConfidence, true),
@@ -237,7 +244,7 @@ export function normalizeSpec(input) {
   if (outputs.notify === "never") tools["notify.owner"] = "off";
   if (!orchestration.supervisor) tools["agents.handoff"] = "off";
   if (!triggers.ask && !triggers.schedule && !triggers.events.length && !triggers.webhook) throw new SpecError("An agent needs at least one way to start: asked, a schedule, an event or a webhook");
-  return { name, purpose, job, successCriteria, prompt, instructions, audience: audiences.filter((role) => audience.includes(role)), knowledge, tools, triggers, budget, outputs, memory, escalation, allow, model, orchestration };
+  return { name, purpose, job, successCriteria, prompt, instructions, audience: audiences.filter((role) => audience.includes(role)), knowledge, tools, triggers, budget, outputs, memory, sharing, escalation, allow, model, orchestration };
 }
 
 /**

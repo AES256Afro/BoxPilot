@@ -10,7 +10,8 @@
  * - default: Agents on, five agents from the templates, a digest written this morning in quiet
  *   hours, questions answered (one thumbed up, one down), notes kept and shared, an evaluation
  *   scored, the Environment Scout's survey of where to focus (M43), a request the Server Keeper
- *   handed to two specialists and answered from what they found, seven cards waiting (three backups
+ *   handed to two specialists and answered from what they found - one of them from its finding,
+ *   without running it again (M44) - and the findings each agent shared, seven cards waiting (three backups
  *   and an update the agents proposed, a newer Qwen, a question the IT helper asked back and a
  *   low-confidence answer for the owner to look at), and a live runner, so the test console
  *   really runs. The catalog offers every template, the five M43 added among them.
@@ -366,7 +367,9 @@ async function seed({ service, state, store, caller, at, runNext, script, world,
   }
 
   // One request, handed by the Server Keeper (the supervisor) to two specialists, then answered
-  // from what they found: one trace tree on the one queue, as the person who asked.
+  // from what they found: one trace tree on the one queue, as the person who asked. The Backup
+  // Auditor's finding from its run this morning answers its part, so it is not run again (M44);
+  // the Pi-hole Watcher's last answer was about something else, so it runs.
   at(new Date(Date.now() - hours(0.25)));
   script((body) => {
     if (understanding(body)) {
@@ -378,7 +381,7 @@ async function seed({ service, state, store, caller, at, runNext, script, world,
       if (continuing(body)) return { content: "Not all backups are current: Vaultwarden, Nextcloud and Homepage have never been backed up, and cards already propose the first two [T1]. Pi-hole is healthy: blocking, its lists a day old, both upstreams answering in about 20 ms [T2]." };
       return withTools(body) === 0
         ? { toolCalls: [call("agents.handoff", { agent: "Backup Auditor", task: "Say which apps with data have no recent backup." }), call("agents.handoff", { agent: "Pi-hole Watcher", task: "Say whether Pi-hole is blocking and its lists are fresh." })] }
-        : { content: "I asked the Backup Auditor and the Pi-hole Watcher [T1] [T2]; their answers come back to me, and I put them together." };
+        : { content: "The Backup Auditor already found what the backups need [T1], so it was not run again. I asked the Pi-hole Watcher [T2]; its answer comes back to me, and I put the two together." };
     }
     if (from(body, "Backup Auditor")) return withTools(body) === 0 ? { toolCalls: [call("backups.status")] } : { content: "Vaultwarden, Nextcloud and Homepage hold data and have never been backed up; database backups and their restore drills are current [T1]." };
     if (from(body, "Pi-hole Watcher")) return withTools(body) === 0 ? { toolCalls: [call("pihole.stats")] } : { content: "Blocking: 18.9% of 48,210 queries in the last day; lists a day old; upstreams about 20 ms [T1]." };

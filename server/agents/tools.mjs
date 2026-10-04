@@ -79,7 +79,10 @@ export function createToolRunner({ state, store, registry, helper = null, invent
       const [apps, snapshot] = await Promise.all([readApps().catch(() => null), inventory?.inspect().catch(() => null)]);
       const applications = Array.isArray(apps?.applications) ? apps.applications.filter((app) => appAllowed(context?.spec, app?.id)) : null;
       const others = (snapshot?.docker?.containers ?? []).filter((container) => !container.app && !String(container.name ?? "").startsWith("bp-"));
-      return describeApps(applications, others);
+      // The apps the owner stopped from BoxPilot (M44): stopped on purpose, not a fault to report.
+      let stops = {};
+      try { stops = state.getSetting?.("appStops", {}) ?? {}; } catch { stops = {}; }
+      return describeApps(applications, others, { stops });
     },
 
     async "services.status"({ unit = null }, context) {
