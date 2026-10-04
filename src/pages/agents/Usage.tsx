@@ -208,6 +208,13 @@ export function Usage({ module, csrfToken, role, now, onStart, onModuleChanged, 
               ))}
             </ul>
           )}
+          {/* M44: what the agents' shared findings spared this week. */}
+          {usage.findings && (
+            <KeyValue layout="columns" className="agents-findings-use" items={[
+              { id: "saved", label: "Runs saved by using findings this week", value: String(usage.findings.runsSaved), mono: true, status: usage.findings.runsSaved ? "good" : "neutral" },
+              { id: "answers", label: "Answers that used another agent's findings", value: String(usage.findings.answers), mono: true },
+            ]} />
+          )}
         </Panel>
       </div>
 

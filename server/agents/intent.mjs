@@ -69,6 +69,8 @@ export function plannerSystem(agent = {}, tools = []) {
     JSON.stringify({ goal: "What is wanted, in one sentence", subject: "What it is about", constraints: [], confidence: 0.8, clarify: null, plan: [...(example ? [{ step: "Read what the answer needs", tool: example }] : []), { step: "Answer with citations", tool: null }] }),
     "goal: what the person or the trigger wants. subject: an app, a service, a drive, the server. constraints: limits stated or implied. confidence: 0 to 1. clarify: one question to ask back if the request is too unclear to act on, else null.",
     "plan: at most five steps in order, each a few words naming the one tool it uses from the list below, or null for writing the answer. Name only the tools the request needs.",
+    // M44: what other agents found may already answer it. The same words for every run of the agent.
+    ...(agent.useFindings ? ["Plan no tool for what another agent's finding (F1, F2) answers, unless asked for a fresh check or a fix."] : []),
     "",
     "Tools:",
     ...(tools.length ? tools.map((tool) => `- ${tool.fn}: ${tool.title}${tool.use ? `. For: ${tool.use}` : ""}`) : ["- none"]),

@@ -2574,6 +2574,105 @@ that would need one is under Next, not faked.
   - **A longer survey**: a plan of more than five steps for an agent that asks for one, so the
     Scout can read services and failed jobs in the same weekly run instead of through alerts.
 
+## M44 — Agents share what they learn
+
+Asked for 2026-10-04: "When Steve (or any agent) needs certain data, check with the other agents
+first. We shouldn't have agents wasting compute to reach out if we already have an agent that
+already gathered that information." Decided in ADR-012: a permission on each agent, on by default.
+With it, the fixes from the Environment Scout's first survey on the owner's server, the digest's
+markdown, and the Server Keeper's budget.
+
+- ✅ **M44.1 Findings** (unreleased, `feat/agents-share-findings`). When an agent that shares
+  finishes its routine run (its schedule, or the console's run without a question), or an answer it
+  checked against its tools, its answer is kept as its finding: one shared note per agent and kind
+  ("routine" or "answer"), replaced each time; its words without the run's [T] citations, shortened
+  past a note's 2,000 characters and said to be. Fresh for about as long as the agent takes to look
+  again, in one helper (`findingFreshMs`): weekly a week, daily 26 hours, every six hours 7, hourly 2,
+  an agent only asked 24 hours, an answer never more than a day. It carries the role of the run that
+  found it, and where it came from: agent, run, when, its confidence and its check's mismatches.
+  Never one from a run that read something that looked like an instruction, ended degraded or asked
+  back; one its check was not sure of is kept and marked unsure, one cut short by a limit partial.
+  No evaluation, learning run, event or webhook leaves one. They are not notes: they do not count
+  against an agent's notes, nor are they recalled with them.
+- ✅ **M44.2 Using findings before working.** An agent that uses findings is offered, before it
+  plans, the other agents' fresh findings its run may read that share words with the request (or
+  its job, for routine work): at most three, 900 characters each, boxed and marked untrusted like
+  tool output (`<finding id="F1" from="Environment Scout" age="3 hours ago" trust="untrusted">`),
+  each a step of the trace. It cites them as [F1]; the check before answering holds such a claim to
+  the finding's words, and an [F] it was never given is counted as unknown. The planner and the
+  system message say, the same words every run: if a finding answers, answer from it, say how old it
+  is, and do not read the same facts again or hand the question on; read live facts with a tool only
+  before proposing a card, when asked for a fresh check, or when no finding answers. "Check now",
+  "check again", "a fresh look", "right now" and the like are offered no findings, and the trace says so.
+- ✅ **M44.3 Hand-offs answered from a finding.** When the Server Keeper (any supervisor) hands a
+  subtask to a specialist that shares, and that specialist's fresh finding answers it (never an
+  unsure or partial one), the finding is its answer at once - "Used Backup Auditor's finding from 3
+  hours ago instead of running it again" - with no specialist run and no follow-up run. A follow-up,
+  when some other specialist did run, gets the finding beside that one's answer, in the order they
+  were handed over. Each run counts the runs it saved; the Usage tab says how many this week, and how
+  many answers used another agent's findings.
+- ✅ **M44.4 The switches.** "Shares its findings with the other agents" and "Uses the other agents'
+  findings" on each agent's Build tab (Team), each with a line of what it does; both on for every
+  template but the IT Support helper and the House Guide, which answer people and only use them (as
+  far as the person asking may read). Turning sharing off forgets what the agent shared. Agents saved
+  before get the switches once, as their template would give them, as a version BoxPilot made. The
+  Memory tab lists "Findings this agent shared" and "Findings it can use", with their age and how
+  long they stay fresh, and forgets one.
+- ✅ **M44.5 The Environment Scout's first real survey.** On the owner's server it took 204 s at
+  eight threads (10 model calls, 3 tool calls, 38,734 prompt and 2,242 written tokens), read three
+  of the five tools its plan named - not the drives, the backups or the jobs - and left "It reached a
+  limit before it finished". The limit was its **8 steps**: one plan, eight calls that act (the
+  eighth may only answer) and a correction make the ten calls; every step before the last called a
+  tool, and with three reads among them the other four can only have gone on proposing cards, its
+  one other tool. Its tokens stood at about 12,300 of the 13,600 that end a run early (from its
+  speeds: some 114 s reading at 88 tokens a second, 90 s writing 2,242 at 25). A survey
+  that reads one tool a step needs five steps to read, two to propose and one to answer, so its
+  template now has **10 steps, 24,000 tokens, 20 minutes and 2,400 s a day** (the background's four
+  threads go at about half the speed of eight), its rules say to read every planned tool before
+  proposing anything, and a third card is refused with words that say to read and answer instead. A
+  run's tool calls may now reach twelve steps' worth (36, from 24). A limit's card says which limit
+  and what to raise: "It reached its limit of 8 steps a run before it finished. If that keeps
+  happening, raise "Steps a run" on its Build tab, under Guardrails." Tokens running out is a limit
+  reached too, and said so.
+- ✅ **M44.6 Stopped on purpose.** The survey called the apps the owner had stopped problems.
+  apps.list now reads BoxPilot's own record of the owner's stops (`appStops`, M33.2: the app's Stop
+  button, app.action stop; kept per app because jobs are pruned) and says, apart from the apps down
+  for no recorded reason, which were "Stopped on purpose: the owner stopped it from BoxPilot on
+  2026-09-28; not a fault", or never started since their container was made. The Scout lists those
+  under Fine and proposes nothing for them; the App Doctor names them apart and proposes starting one
+  only when the person asking says it should run. An app that keeps restarting is never on purpose.
+- ✅ **M44.7 Markdown in answers.** The Agents tab's latest digest showed `**Daily digest complete.**`
+  with its stars. Every place an agent's words are shown as prose - the digest on the Agents tab,
+  the glance on Home, Ops and Today, a run's answer, a finding, the agent's side of a conversation -
+  draws the part of markdown a small model writes (bold, italics, bullet and numbered lists, line
+  breaks, `code`; a heading as a bold line, a link as its words alone) with a renderer of its own,
+  no dependency. HTML and `<script>` stay text and never run; [T1] and [F1] are drawn as marks.
+- ✅ **M44.8 The Server Keeper's budget.** It left two "It ran out of time before it finished" cards
+  on the owner's server. Its morning digest runs in the background on four threads, about half the
+  speed of a question someone waits on (ADR-009 measured 52 tokens a second read and 10 written), and
+  reads more than any agent - its notes, what it recalls, the others' findings, four tools, about
+  14,000 tokens - which 15 minutes and 12,000 tokens did not hold. The template now has **20 minutes
+  and 20,000 tokens a run**. An agent made before keeps its own budget: raise "Longest run" and
+  "Tokens a run" on its Build tab, under Guardrails, which now says so.
+- **Tests**: a finding written, replaced, fresh for its schedule, at its run's role, never a note;
+  an answer kept only once checked, marked unsure, never after an instruction-like read or a
+  degraded run; findings offered boxed and untrusted, cited and checked as [F1], not to a run that
+  reads less, not once stale; a supervisor taking a fresh finding instead of a run and counting it,
+  and running the specialist when the finding is stale or the owner says "check now"; a follow-up
+  with a taken finding beside a ran specialist's answer; each switch off; the Memory tab's lists;
+  the migration; the Scout's survey reading all five tools one a step within its budget, and
+  reaching its limit on the M43 budget as on the owner's server; the owner-stopped apps
+  (`findings.test.mjs`, `tool-text.test.mjs`); the renderer, with `<script>` and HTML inert
+  (`Prose.test.tsx`); the Build tab's switches, the Memory tab's findings, Usage's runs saved and the
+  digest as prose (`AgentsPage.test.tsx`, `AgentsGlance.test.tsx`); the demo's Keeper taking the
+  Backup Auditor's finding (`demo-agents.test.mjs`).
+- **Next: learning from what the owner approves.** Collect the runs the owner approved (a card
+  staged, a thumbs up, an answer kept as a finding and reused) as examples: the request, the
+  findings and tool output it was given, and the answer and plan it gave. Then, only if it beats the
+  base model on the agents' evaluations, a GPU fine-tune of a small "BoxPilot skills" adapter for the
+  model agents run; on a CPU-only server agents keep the base model. Also: matching findings by
+  meaning (the memory's embeddings) when words fall short, and findings from event runs.
+
 ## App catalogue candidates
 
 Checked against the 164 manifests already in `catalog/`, so nothing here duplicates an existing

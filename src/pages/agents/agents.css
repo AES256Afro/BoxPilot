@@ -62,8 +62,14 @@
 .agents-run__reason { margin: 0; color: var(--text-muted); font-size: 13px; }
 /* The check before answering (M40): one line under the answer. */
 .agents-run__check { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 0; color: var(--text-muted); font-size: 13px; line-height: 1.4; }
-.agents-answer { padding: 10px 12px; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); background: var(--surface-muted); color: var(--text); font-size: 14px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+.agents-answer { padding: 10px 12px; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); background: var(--surface-muted); color: var(--text); font-size: 14px; line-height: 1.55; white-space: normal; overflow-wrap: anywhere; }
 .agents-answer__cite { padding: 0 3px; border-radius: 2px; color: var(--accent); background: var(--accent-faint); font-family: var(--font-mono); font-size: 11.5px; }
+/* An agent's words as prose (M44, Prose.tsx): paragraphs, lists, bold and italics, nothing more. */
+.agents-prose { display: grid; gap: 6px; min-width: 0; overflow-wrap: anywhere; }
+.agents-prose > p, .agents-prose > ul, .agents-prose > ol { margin: 0; }
+.agents-prose > ul, .agents-prose > ol { display: grid; gap: 2px; padding-left: 20px; }
+.agents-prose strong { color: var(--text-strong); font-weight: 600; }
+.agents-prose code:not(.agents-answer__cite) { padding: 0 3px; border-radius: 2px; background: var(--surface-muted); font-family: var(--font-mono); font-size: 0.9em; }
 .agents-trace { display: grid; margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--border-subtle); }
 .agents-step { display: flex; align-items: flex-start; gap: 8px; min-width: 0; padding: 6px 0; border-bottom: 1px solid var(--border-subtle); }
 .agents-step > .ui-mark { flex: none; width: 8px; height: 8px; margin-top: 7px; }
@@ -157,7 +163,8 @@
 .agents-glance--ops { grid-column: span 12; }
 .agents-glance__body { display: grid; gap: 6px; min-width: 0; }
 .agents-glance__meta { margin: 0; color: var(--text-muted); font-family: var(--font-mono); font-size: 11.5px; }
-.agents-glance__digest { display: -webkit-box; margin: 0; overflow: hidden; color: var(--text); font-size: 13.5px; line-height: 1.45; white-space: pre-line; -webkit-line-clamp: 5; -webkit-box-orient: vertical; }
+/* About five lines of the digest, whatever its paragraphs and lists. */
+.agents-glance__digest { gap: 3px; max-height: calc(1.45em * 5); margin: 0; overflow: hidden; color: var(--text); font-size: 13.5px; line-height: 1.45; }
 .agents-glance__cards, .agents-glance__runner { margin: 0; color: var(--text); font-size: 13px; }
 .agents-glance__cards b, .agents-glance__runner b { color: var(--accent); font-family: var(--font-mono); }
 .agents-glance__runner { font-weight: 600; }
@@ -201,6 +208,7 @@
 .agents-turn[data-role="user"] { border-left: 2px solid var(--accent); }
 .agents-turn__who { color: var(--text-muted); font-family: var(--font-mono); font-size: 11px; }
 .agents-turn__text { color: var(--text); font-size: 13px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
+.agents-prose.agents-turn__text, .agents-prose.agents-note__body { gap: 3px; white-space: normal; }
 .agents-connector { display: grid; gap: 8px; padding: 10px 0; border-top: 1px solid var(--border-subtle); }
 .agents-connector:first-child { padding-top: 0; border-top: 0; }
 .agents-criteria__list { display: grid; gap: 4px; margin: 0; padding-left: 18px; color: var(--text); font-size: 13.5px; }

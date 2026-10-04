@@ -24,7 +24,8 @@ const pathPattern = /(?<![\w/.:<>-])(\/(?:[A-Za-z0-9._-]+\/?)+)(?![\w/])/g;
 const rootWords = /\broot (?:filesystem|file system|disk|partition|volume|drive)\b|`\/`|\b(?:mounted (?:at|on)|holds?|on|at|of)\s+\/(?=[\s,.;:()]|$)|\(\/\)|(?:^|\s)\/ \(the root filesystem\)/i;
 const sizePattern = /(\d+(?:[.,]\d+)?)\s?(TiB|TB|GiB|GB|MiB|MB|KiB|kB|KB)\b/g;
 const percentPattern = /(\d+(?:\.\d+)?)\s?%/g;
-const citationPattern = /\[(T\d{1,3}(?:\s*[,;]\s*T\d{1,3})*)\]/g;
+// [T1] a tool's output; [F1] another agent's finding (M44), held to its words the same way.
+const citationPattern = /\[([TF]\d{1,3}(?:\s*[,;]\s*[TF]\d{1,3})*)\]/g;
 
 const unitBytes = { tb: 1e12, gb: 1e9, mb: 1e6, kb: 1e3, tib: 1024 ** 4, gib: 1024 ** 3, mib: 1024 ** 2, kib: 1024 };
 // A model writes GB for GiB and the other way round: a size is read either way.
@@ -262,7 +263,7 @@ export function evidenceFor(issues, outputs, { maxLines = 14 } = {}) {
 }
 
 /** What the model is asked when a check fails: a short conversation of its own, the same system words every time. */
-export const correctionSystem = "You correct an answer written by an agent on a home server so that every fact in it matches the tool output it cites. Keep what is right and keep its [T] citations. Change only what the checks say is wrong, using the tool output's own facts. If the tool output does not say, write that you are not sure. Reply with the corrected answer only, as short as the original.";
+export const correctionSystem = "You correct an answer written by an agent on a home server so that every fact in it matches the tool output it cites. Keep what is right and keep its [T] and [F] citations. Change only what the checks say is wrong, using the tool output's own facts. If the tool output does not say, write that you are not sure. Reply with the corrected answer only, as short as the original.";
 
 export function correctionMessages(answer, issues, outputs) {
   const evidence = evidenceFor(issues, outputs);

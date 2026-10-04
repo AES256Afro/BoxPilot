@@ -2,6 +2,7 @@ import { Fragment, useState } from "react";
 import { Button, Facts, KeyValue, Notice, StatusChip, Tag } from "../../ui";
 import type { Run, RunCheck, RunStep } from "./api";
 import { kindWords, runState, seconds } from "./format";
+import { Prose, inline } from "./Prose";
 
 /*
  * A run's trace (M37): every step as it happened - how the request was understood (the intent)
@@ -13,8 +14,9 @@ import { kindWords, runState, seconds } from "./format";
  */
 
 const stepKindWords: Record<RunStep["kind"], string> = {
-  intent: "intent", plan: "plan", recall: "memory", memory: "memory", model: "model", tool: "tool", handoff: "hand-off", proposal: "card", note: "note", notify: "notice", system: "runner",
+  intent: "intent", plan: "plan", recall: "memory", memory: "memory", model: "model", tool: "tool", handoff: "hand-off", proposal: "card", note: "note", notify: "notice", system: "runner", finding: "finding",
 };
+const ago = (value: unknown) => (typeof value === "string" && value ? value : null);
 const citable = new Set<RunStep["kind"]>(["tool", "memory", "handoff", "proposal", "note", "notify"]);
 
 interface Intent { goal?: string; subject?: string; constraints?: string[]; tools?: string[]; confidence?: number | null; clarify?: string | null }
@@ -29,8 +31,11 @@ function stepTitle(step: RunStep): string {
   if (step.kind === "plan") return `Planned ${Array.isArray(step.input) ? step.input.length : 0} ${Array.isArray(step.input) && step.input.length === 1 ? "step" : "steps"}`;
   if (step.kind === "recall") return `Recalled ${Number(step.flags?.read ?? 0)} ${Number(step.flags?.read ?? 0) === 1 ? "memory" : "memories"}`;
   if (step.kind === "memory") return `Searched memory for “${String((step.input as { query?: string } | null)?.query ?? "")}”`;
+  // M44: another agent's finding offered before planning, and a hand-off answered from one.
+  if (step.kind === "finding") return `Offered ${step.name ?? "another agent"}'s finding`;
+  if (step.kind === "handoff" && step.flags?.reused) return `Used ${String((step.input as { agent?: string } | null)?.agent ?? "a specialist")}'s finding from ${ago(step.flags.age) ?? "earlier"} instead of running it again`;
   if (step.kind === "handoff") return `Handed to ${String((step.input as { agent?: string } | null)?.agent ?? "a specialist")}`;
-  if (step.kind === "tool" && step.name === "agents.handoff") return `${String((step.input as { agent?: string } | null)?.agent ?? "A specialist")} answered`;
+  if (step.kind === "tool" && step.name === "agents.handoff") return `${String((step.input as { agent?: string } | null)?.agent ?? "A specialist")}${step.flags?.reused ? "'s finding" : " answered"}`;
   return step.name ?? stepKindWords[step.kind];
 }
 
@@ -47,8 +52,27 @@ function IntentDetail({ step }: { step: RunStep }) {
   );
 }
 
+/** Another agent's finding, as it was offered (M44): who found it, when, until when it is fresh, and its words. */
+function FindingDetail({ step }: { step: RunStep }) {
+  const input = (step.input ?? {}) as { agent?: string; writtenAt?: string; freshUntil?: string; unsure?: boolean; partial?: boolean };
+  const when = (iso: string | undefined) => (iso ? new Date(iso).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : "—");
+  return (
+    <div className="agents-step__detail">
+      <KeyValue layout="rows" className="agents-step__intent" items={[
+        { id: "from", label: "Found by", value: input.agent ?? step.name ?? "another agent" },
+        { id: "written", label: "Written", value: when(input.writtenAt) },
+        { id: "fresh", label: "Fresh until", value: when(input.freshUntil) },
+        ...(input.unsure ? [{ id: "unsure", label: "Its check", value: "not sure of all of it", status: "warning" as const }] : []),
+        ...(input.partial ? [{ id: "partial", label: "Its run", value: "reached a limit, so it may be incomplete", status: "warning" as const }] : []),
+      ]} />
+      {step.output && <><span className="agents-step__label">What it found</span><pre className="agents-step__text">{step.output}</pre></>}
+    </div>
+  );
+}
+
 function StepDetail({ step }: { step: RunStep }) {
   if (step.kind === "intent" && step.state === "done") return <IntentDetail step={step} />;
+  if (step.kind === "finding") return <FindingDetail step={step} />;
   if (step.kind === "plan") {
     const plan = Array.isArray(step.input) ? step.input as Array<{ step: string; tool: string | null }> : [];
     return <ol className="agents-step__plan">{plan.map((entry, index) => <li key={index}>{entry.step}{entry.tool ? <code> {entry.tool.replace(/_/g, ".")}</code> : null}</li>)}</ol>;
@@ -73,6 +97,8 @@ export function TraceView({ steps }: { steps: RunStep[] }) {
       {steps.map((step) => {
         const numbered = citable.has(step.kind) && step.state === "done";
         if (numbered) toolIndex += 1;
+        // Another agent's finding is numbered F1, F2 in the order it was offered (M44).
+        const findingId = step.kind === "finding" && typeof step.flags?.finding === "string" ? step.flags.finding : null;
         const expandable = ["intent", "plan"].includes(step.kind) || (step.input !== null && step.input !== undefined && JSON.stringify(step.input) !== "{}") || (Boolean(step.output) && step.kind !== "system");
         const status = step.state === "failed" ? "danger" : step.state === "refused" ? "warning" : "good";
         return (
@@ -80,8 +106,9 @@ export function TraceView({ steps }: { steps: RunStep[] }) {
             <span className="ui-mark" aria-hidden="true" />
             <span className="agents-step__main">
               <span className="agents-step__head">
-                <Tag tone={step.kind === "intent" || step.kind === "plan" ? "accent" : step.kind === "recall" || step.kind === "memory" ? "info" : "neutral"}>{stepKindWords[step.kind]}</Tag>
+                <Tag tone={step.kind === "intent" || step.kind === "plan" ? "accent" : step.kind === "recall" || step.kind === "memory" || step.kind === "finding" ? "info" : "neutral"}>{stepKindWords[step.kind]}</Tag>
                 {numbered && <code className="agents-step__cite">T{toolIndex}</code>}
+                {findingId && <code className="agents-step__cite">{findingId}</code>}
                 <span className="agents-step__title">{stepTitle(step)}</span>
                 {step.state !== "done" && <StatusChip status={status}>{step.state}</StatusChip>}
                 {Boolean(step.flags?.injection) && <StatusChip status="warning">looked like an instruction</StatusChip>}
@@ -100,21 +127,21 @@ export function TraceView({ steps }: { steps: RunStep[] }) {
   );
 }
 
-/** The answer, with [T1]-style citations drawn as marks; a JSON answer as its fields. */
+/**
+ * The answer: its markdown drawn as safe prose (M44, Prose.tsx), [T1] and [F1] citations as marks;
+ * a JSON answer as its fields.
+ */
 export function AnswerText({ text }: { text: string }) {
   let fields: Record<string, unknown> | null = null;
   if (/^\s*\{/.test(text)) { try { const parsed = JSON.parse(text); if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) fields = parsed; } catch { fields = null; } }
-  const cited = (value: string) => value.split(/(\[T\d+\])/g).map((part, index) => (/^\[T\d+\]$/.test(part)
-    ? <code key={index} className="agents-answer__cite" title="The tool output this comes from, numbered as in the trace">{part.slice(1, -1)}</code>
-    : <Fragment key={index}>{part}</Fragment>));
   if (fields) {
     return (
       <dl className="agents-answer agents-answer--fields">
-        {Object.entries(fields).map(([name, value]) => <Fragment key={name}><dt>{name}</dt><dd>{cited(String(value))}</dd></Fragment>)}
+        {Object.entries(fields).map(([name, value]) => <Fragment key={name}><dt>{name}</dt><dd>{inline(String(value), name)}</dd></Fragment>)}
       </dl>
     );
   }
-  return <div className="agents-answer">{cited(text)}</div>;
+  return <Prose text={text} className="agents-answer" />;
 }
 
 /**

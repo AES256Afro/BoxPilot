@@ -3,6 +3,7 @@ import { relativeTime } from "../../home/format";
 import { Button, Panel, Section } from "../../ui";
 import { agentsApi, type Glance } from "./api";
 import { moduleVerdict } from "./format";
+import { Prose } from "./Prose";
 import "./agents.css";
 
 /*
@@ -45,7 +46,8 @@ export function AgentsGlance({ role, variant, onOpen, now = Date.now }: AgentsGl
       {glance.digest
         ? <>
             <p className="agents-glance__meta">{glance.digest.agentName} · {relativeTime(glance.digest.at, now()) ?? "recently"}</p>
-            <p className="agents-glance__digest">{glance.digest.excerpt}</p>
+            {/* Its markdown drawn, never shown as stars or run as HTML (M44). */}
+            <Prose text={glance.digest.excerpt} className="agents-glance__digest" />
           </>
         : <p className="agents-glance__meta">No digest yet: the Server Keeper writes one each morning in quiet hours.</p>}
       <p className="agents-glance__cards">{cards ? <><b>{cards}</b> {cards === 1 ? "card waits" : "cards wait"} for you</> : "No cards waiting"}</p>

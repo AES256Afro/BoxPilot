@@ -285,6 +285,24 @@ export function appRunState(app) {
   return `stopped (${container.status ?? "not running"})`;
 }
 
+/**
+ * Why an app that is not running is stopped (M44), from BoxPilot's own record of the owner's stops
+ * (the `appStops` setting, server/app-stops.mjs: kept per app because jobs are pruned within weeks):
+ * - "owner": the owner stopped it from BoxPilot (the app's Stop button, app.action stop) on `at`;
+ * - "never-started": its container was made and never started (Repair's "Recreate (stays stopped)");
+ * - "unknown": no stop is recorded - it crashed, or something outside BoxPilot stopped it.
+ * A running app has none, and one that keeps restarting is never stopped on purpose.
+ */
+export function stopReasonOf(app, stops = {}) {
+  const state = appRunState(app);
+  if (state === "running" || state === "restarting") return null;
+  const stop = stops?.[app?.id];
+  if (stop) return { kind: "owner", at: typeof stop.at === "string" ? stop.at : null };
+  if (app?.container?.status === "created") return { kind: "never-started", at: null };
+  return { kind: "unknown", at: null };
+}
+const onPurpose = (reason) => reason?.kind === "owner" || reason?.kind === "never-started";
+
 /** The installed apps whose container is not running, by id: what "which apps are stopped" means. */
 export function stoppedAppsOf(applications) {
   if (!Array.isArray(applications)) return null;
@@ -312,17 +330,32 @@ export function failedServicesOf(units) {
   return units.filter((entry) => entry?.active === "failed" && entry.unit).map((entry) => entry.unit);
 }
 
-/** apps.list: the counts and the stopped ones first, then one line an app. */
-export function describeApps(applications, others = []) {
+/**
+ * apps.list: the counts and the stopped ones first, then one line an app. `stops` is BoxPilot's
+ * record of the apps the owner stopped (M44): such an app, or one never started, is said to be
+ * stopped on purpose, apart from the ones down for no recorded reason, so a survey does not call
+ * the owner's choice a problem.
+ */
+export function describeApps(applications, others = [], { stops = {} } = {}) {
   const lines = [];
   if (Array.isArray(applications)) {
     const installed = applications.filter((app) => app?.installed);
     const stopped = installed.filter((app) => appRunState(app) !== "running");
     const sick = installed.filter(unhealthy);
-    lines.push(`BoxPilot apps installed: ${installed.length}. Running: ${installed.length - stopped.length}. Stopped or not running: ${stopped.length ? `${stopped.length} (${stopped.map((app) => app.id).join(", ")})` : "none"}. Unhealthy: ${sick.length ? sick.map((app) => app.id).join(", ") : "none"}.`);
-    const ordered = [...stopped, ...sick.filter((app) => !stopped.includes(app)), ...installed.filter((app) => !stopped.includes(app) && !sick.includes(app))];
+    const reasons = new Map(stopped.map((app) => [app.id, stopReasonOf(app, stops)]));
+    const purposeful = stopped.filter((app) => onPurpose(reasons.get(app.id)));
+    const down = stopped.filter((app) => !onPurpose(reasons.get(app.id)));
+    const split = stopped.length ? ` Of those, stopped on purpose (by the owner, or never started): ${purposeful.length ? purposeful.map((app) => app.id).join(", ") : "none"}; not running for another reason: ${down.length ? down.map((app) => app.id).join(", ") : "none"}.` : "";
+    lines.push(`BoxPilot apps installed: ${installed.length}. Running: ${installed.length - stopped.length}. Stopped or not running: ${stopped.length ? `${stopped.length} (${stopped.map((app) => app.id).join(", ")})` : "none"}.${split} Unhealthy: ${sick.length ? sick.map((app) => app.id).join(", ") : "none"}.`);
+    // The ones to look at first: down for no recorded reason, then unhealthy, then stopped on purpose, then the rest.
+    const ordered = [...down, ...sick.filter((app) => !stopped.includes(app)), ...purposeful, ...installed.filter((app) => !stopped.includes(app) && !sick.includes(app))];
     for (const app of ordered.slice(0, 40)) {
       const container = app.container ?? {};
+      const reason = reasons.get(app.id) ?? null;
+      // Said after the facts, as a sentence of its own, so the line still starts with what it is.
+      const why = reason?.kind === "owner" ? ` Stopped on purpose: the owner stopped it from BoxPilot${reason.at ? ` on ${reason.at.slice(0, 10)}` : ""}; not a fault.`
+        : reason?.kind === "never-started" ? " Stopped on purpose: never started since its container was made; not a fault."
+          : reason?.kind === "unknown" ? " No stop is recorded in BoxPilot: it may have crashed, or been stopped outside BoxPilot." : "";
       const parts = [appRunState(app)];
       if (container.health && container.health !== "none") parts.push(`health ${container.health}`);
       parts.push(`${Number(container.restarts) || 0} restarts`);
@@ -332,7 +365,7 @@ export function describeApps(applications, others = []) {
       if (ports.length) parts.push(`web port ${ports.join(", ")}`);
       if (app.updateAvailable) parts.push("update available");
       if ((app.folderProblems ?? []).length) parts.push(`${app.folderProblems.length} data folder(s) it cannot write to`);
-      lines.push(`- ${app.id}${app.name && app.name.toLowerCase() !== app.id ? ` (${app.name})` : ""}: ${parts.join(", ")}; container bp-${app.id}.`);
+      lines.push(`- ${app.id}${app.name && app.name.toLowerCase() !== app.id ? ` (${app.name})` : ""}: ${parts.join(", ")}; container bp-${app.id}.${why}`);
     }
     if (installed.length > 40) lines.push(`(${installed.length - 40} more not shown.)`);
   } else {

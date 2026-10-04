@@ -11,7 +11,7 @@ import { ownerLikeStorage } from "../../test/fixtures/agents-storage.mjs";
 import { plannerMessages, planMessage } from "./intent.mjs";
 import { actToolIds, plannerLine, toolById, toolCatalog, toolsForQuestion } from "./tool-catalog.mjs";
 import { createToolRunner } from "./tools.mjs";
-import { describeApps, describeServer, describeStorage, drivesOf, locate, osVersion, sizeWords, stoppedAppsOf, storageModel } from "./tool-text.mjs";
+import { describeApps, describeServer, describeStorage, drivesOf, locate, osVersion, sizeWords, stopReasonOf, stoppedAppsOf, storageModel } from "./tool-text.mjs";
 
 const snapshot = {
   host: { hostname: "example-box", operatingSystem: "Ubuntu 24.04.3 LTS", kernel: "6.8.0-64-generic", architecture: "x64", uptimeSeconds: 19 * 86_400 + 4 * 3_600 },
@@ -96,13 +96,42 @@ describe("the other reads say their facts outright", () => {
       { id: "gitea", name: "Gitea", installed: false, container: { running: false } },
     ];
     const text = describeApps(applications, [{ name: "portainer", image: "portainer/portainer-ce", state: "running", health: "none" }]);
-    expect(text.split("\n")[0]).toBe("BoxPilot apps installed: 4. Running: 2. Stopped or not running: 2 (nextcloud, immich). Unhealthy: jellyfin.");
-    expect(text).toMatch(/- nextcloud: stopped \(exited\), 2 restarts; container bp-nextcloud\./);
+    expect(text.split("\n")[0]).toBe("BoxPilot apps installed: 4. Running: 2. Stopped or not running: 2 (nextcloud, immich). Of those, stopped on purpose (by the owner, or never started): none; not running for another reason: nextcloud, immich. Unhealthy: jellyfin.");
+    expect(text).toMatch(/- nextcloud: stopped \(exited\), 2 restarts; container bp-nextcloud\. No stop is recorded in BoxPilot: it may have crashed, or been stopped outside BoxPilot\./);
     expect(text).toMatch(/- immich: stopped \(no container\), 0 restarts; container bp-immich\./);
     expect(text).toMatch(/- pi-hole: running, health healthy, 0 restarts, web port 8080; container bp-pi-hole\./);
     expect(describeApps([{ id: "home-assistant", name: "Home Assistant", installed: true, container: { running: true, status: "running" } }])).toMatch(/- home-assistant \(Home Assistant\): running/);
     expect(text).toMatch(/Other Docker containers, not installed by BoxPilot: portainer \(image portainer\/portainer-ce, running\)\./);
     expect(stoppedAppsOf(applications)).toEqual(["nextcloud", "immich"]);
+  });
+
+  it("apps.list tells an app the owner stopped, or one never started, from one that is down (M44)", () => {
+    const applications = [
+      { id: "plex", name: "Plex", installed: true, container: { running: false, status: "exited", restarts: 0 } },
+      { id: "qbittorrent", name: "qBittorrent", installed: true, container: { running: false, status: "created", restarts: 0 } },
+      { id: "nextcloud", name: "Nextcloud", installed: true, container: { running: false, status: "exited", restarts: 4 } },
+      // A stop on record does not make an app that keeps restarting fine.
+      { id: "immich", name: "Immich", installed: true, container: { running: false, status: "restarting", restarts: 9 } },
+      { id: "pi-hole", name: "Pi-hole", installed: true, container: { running: true, status: "running", health: "healthy" } },
+    ];
+    const stops = { plex: { at: "2026-09-28T22:10:20.000Z", by: "owner-1" }, immich: { at: "2026-09-01T00:00:00.000Z", by: "owner-1" }, "pi-hole": { at: "2026-08-01T00:00:00.000Z" } };
+    expect(stopReasonOf(applications[0], stops)).toEqual({ kind: "owner", at: "2026-09-28T22:10:20.000Z" });
+    expect(stopReasonOf(applications[1], stops)).toEqual({ kind: "never-started", at: null });
+    expect(stopReasonOf(applications[2], stops)).toEqual({ kind: "unknown", at: null });
+    expect([stopReasonOf(applications[3], stops), stopReasonOf(applications[4], stops)]).toEqual([null, null]);
+
+    const text = describeApps(applications, [], { stops });
+    const [summary, ...lines] = text.split("\n");
+    expect(summary).toBe("BoxPilot apps installed: 5. Running: 1. Stopped or not running: 4 (plex, qbittorrent, nextcloud, immich). Of those, stopped on purpose (by the owner, or never started): plex, qbittorrent; not running for another reason: nextcloud, immich. Unhealthy: none.");
+    // Down for no recorded reason first, then the ones stopped on purpose, then the rest.
+    expect(lines.map((line) => /^- ([a-z-]+)/.exec(line)?.[1])).toEqual(["nextcloud", "immich", "plex", "qbittorrent", "pi-hole"]);
+    expect(text).toMatch(/- plex: stopped \(exited\), 0 restarts; container bp-plex\. Stopped on purpose: the owner stopped it from BoxPilot on 2026-09-28; not a fault\./);
+    expect(text).toMatch(/- qbittorrent: stopped \(created\), 0 restarts; container bp-qbittorrent\. Stopped on purpose: never started since its container was made; not a fault\./);
+    expect(text).toMatch(/- immich: restarting, 9 restarts; container bp-immich\.$/m);
+    // The evaluation's stopped apps are every app not running, on purpose or not.
+    expect(stoppedAppsOf(applications)).toEqual(["plex", "qbittorrent", "nextcloud", "immich"]);
+    // Without a record (an older server), nothing is called on purpose but a container never started.
+    expect(describeApps(applications).split("\n")[0]).toMatch(/stopped on purpose \(by the owner, or never started\): qbittorrent; not running for another reason: plex, nextcloud, immich\./);
   });
 
   it("where.runs says where, in its first line, and that a BoxPilot app is not on the host", async () => {
