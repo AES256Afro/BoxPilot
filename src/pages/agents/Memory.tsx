@@ -1,14 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { relativeTime } from "../../home/format";
 import { Button, EmptyState, Field, KeyValue, Notice, Panel, Select, Sheet, StatusChip, Table, Tag, TextInput, Textarea, type TableColumn } from "../../ui";
-import { agentsApi, type AgentSummary, type Memory as MemoryState, type MemoryNote } from "./api";
+import { agentsApi, type AgentSummary, type Finding, type Memory as MemoryState, type MemoryNote } from "./api";
 import { errorText } from "./format";
+import { Prose } from "./Prose";
 
 /*
  * What an agent remembers (M37), by tier: the facts it learned (pinned first), what other agents
  * share with it, what its past runs found, and the conversation with the person looking. The owner
  * (or whoever made the agent) edits a fact - its words, how long it stays fresh, pinned, shared - and
  * makes it forget a fact, a run or the conversation. Forgetting deletes it and its embedding.
+ *
+ * M44: the findings it shared with the other agents, and theirs it can use, each with its age and
+ * how long it stays fresh. A finding it shared can be forgotten; the switches are on the Build tab.
  */
 
 export interface MemoryProps {
@@ -74,6 +78,38 @@ export function Memory({ agents, agentId, csrfToken, role, now, onSelectAgent }:
       ),
     },
   ];
+  const findings = state.findings ?? { shared: [], usable: [] };
+  // How long it stays fresh, short enough to leave the finding's words the room: "for 23 hours more".
+  const freshWords = (finding: Finding) => {
+    const when = relativeTime(finding.freshUntil, now);
+    if (!when) return null;
+    return finding.stale ? `went stale ${when}` : `for ${when.replace(/^in /, "")} more`;
+  };
+  const findingColumns = (own: boolean): Array<TableColumn<Finding>> => [
+    {
+      id: "finding", header: "Finding", cell: (finding) => (
+        <span className="agents-note">
+          <span className="agents-note__title">{finding.title}{finding.kind === "routine" ? <Tag tone="info">routine run</Tag> : <Tag tone="neutral">answer</Tag>}{finding.unsure && <Tag tone="warning">not sure</Tag>}{finding.partial && <Tag tone="warning">cut short</Tag>}</span>
+          <Prose text={finding.body} className="agents-note__body" />
+          {!own && <span className="agents-name__purpose">from {finding.from}</span>}
+        </span>
+      ),
+    },
+    { id: "age", header: "Found", hideOnPhone: true, cell: (finding) => <span className="agents-dim">{relativeTime(finding.updatedAt, now) ?? ""}</span> },
+    {
+      id: "fresh", header: "Fresh", cell: (finding) => (
+        <span className="agents-last">
+          <StatusChip status={finding.stale ? "warning" : "good"}>{finding.stale ? "stale" : "fresh"}</StatusChip>
+          {freshWords(finding) && <span className="agents-dim">{freshWords(finding)}</span>}
+        </span>
+      ),
+    },
+    ...(own ? [{
+      id: "forget", header: <span className="ui-visually-hidden">Forget</span>, label: "Actions", className: "agents-actions-cell", cell: (finding: Finding) => (
+        <Button variant="ghost" onClick={() => void act(() => agentsApi.forget(csrfToken, agent.id, "notes", finding.id), "Forgot that finding; the other agents no longer see it.")} aria-label={`Forget the finding ${finding.title}`}>Forget</Button>
+      ),
+    }] : []),
+  ];
   const episodeColumns: Array<TableColumn<MemoryState["episodes"][number]>> = [
     { id: "text", header: "What the run found", cell: (episode) => <span className="agents-note"><span className="agents-note__body">{episode.text}</span></span> },
     { id: "when", header: "When", hideOnPhone: true, cell: (episode) => <span className="agents-dim">{relativeTime(episode.createdAt, now) ?? ""}</span> },
@@ -94,6 +130,8 @@ export function Memory({ agents, agentId, csrfToken, role, now, onSelectAgent }:
           { id: "indexed", label: "Indexed", value: String(state.search.vectors), mono: true },
           { id: "pending", label: "Waiting for quiet hours", value: String(state.search.pending), mono: true, status: state.search.pending ? "neutral" : "good" },
           { id: "shared", label: "Its facts shared", value: state.settings.share ? "yes" : "no", mono: true },
+          { id: "shares-findings", label: "Shares its findings", value: state.settings.shareFindings === false ? "no" : "yes", mono: true },
+          { id: "uses-findings", label: "Uses others' findings", value: state.settings.useFindings === false ? "no" : "yes", mono: true },
           { id: "threads", label: "Conversations", value: state.settings.threads ? `${state.settings.turns} turns, then a summary` : "not kept", mono: true },
         ]} />
         {role === "owner" && state.search.byMeaning && state.search.pending > 0 && <Button onClick={() => void act(() => agentsApi.reindex(csrfToken), "Indexing is queued; it runs when the runner is free.")}>Index now</Button>}
@@ -103,6 +141,21 @@ export function Memory({ agents, agentId, csrfToken, role, now, onSelectAgent }:
         <Table caption={`Facts ${agent.name} learned`} columns={factColumns} rows={state.facts} rowKey={(note) => note.id}
           rowStatus={(note) => (note.source?.injection ? "warning" : undefined)}
           empty={<EmptyState title="No facts yet">It writes them as it learns: in quiet hours, or when you ask it to.</EmptyState>} />
+      </Panel>
+
+      <Panel className="agents-findings" title="Findings this agent shared" count={findings.shared.length} meta="what its routine runs and checked answers found, for the other agents">
+        <Table caption={`Findings ${agent.name} shared`} columns={findingColumns(true)} rows={findings.shared} rowKey={(finding) => finding.id}
+          rowStatus={(finding) => (finding.unsure || finding.partial ? "warning" : undefined)}
+          empty={<EmptyState title="Nothing shared yet">{state.settings.shareFindings === false
+            ? "It does not share its findings. Turn that on in its Build tab, under Team."
+            : "After its next routine run, or an answer it checks against its tools, what it found is kept here for the other agents."}</EmptyState>} />
+      </Panel>
+
+      <Panel className="agents-findings-usable" title="Findings it can use" count={findings.usable.length} meta="the other agents' fresh ones, as far as you may read">
+        <Table caption={`Other agents' findings ${agent.name} can use`} columns={findingColumns(false)} rows={findings.usable} rowKey={(finding) => finding.id}
+          empty={<EmptyState title="None to use now">{state.settings.useFindings === false
+            ? "It does not use the other agents' findings. Turn that on in its Build tab, under Team."
+            : "When another agent shares a finding, it shows here until it goes stale."}</EmptyState>} />
       </Panel>
 
       {state.shared.length > 0 && (
@@ -127,7 +180,7 @@ export function Memory({ agents, agentId, csrfToken, role, now, onSelectAgent }:
           <>
             {state.thread.summary && <p className="agents-dim"><b>Earlier, in short:</b> {state.thread.summary}</p>}
             <ol className="agents-turns">
-              {state.thread.turns.map((turn, index) => <li key={index} className="agents-turn" data-role={turn.role}><span className="agents-turn__who">{turn.role === "user" ? "You" : agent.name}</span><span className="agents-turn__text">{turn.text}</span></li>)}
+              {state.thread.turns.map((turn, index) => <li key={index} className="agents-turn" data-role={turn.role}><span className="agents-turn__who">{turn.role === "user" ? "You" : agent.name}</span>{turn.role === "user" ? <span className="agents-turn__text">{turn.text}</span> : <Prose text={turn.text} className="agents-turn__text" />}</li>)}
             </ol>
           </>
         )}

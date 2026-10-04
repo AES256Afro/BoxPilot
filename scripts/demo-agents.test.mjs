@@ -2,9 +2,10 @@
 /**
  * The demo's Agents section (M43): every world offers every template, and the default world's
  * Environment Scout shows a survey a person can trust - five reads, a ranked list whose every
- * number its own check found in the tool output, two cards, and what it could not check. Built
- * from the real service, runner and stand-in model, as the demo serves it; dates are the demo's
- * own, relative to whenever it runs.
+ * number its own check found in the tool output, two cards, and what it could not check, shared as
+ * its finding; and the Server Keeper takes another agent's finding instead of running it (M44).
+ * Built from the real service, runner and stand-in model, as the demo serves it; dates are the
+ * demo's own, relative to whenever it runs.
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { agentTemplates } from "../server/agents/templates.mjs";
@@ -50,8 +51,24 @@ describe("the demo's agents", { timeout: 60_000 }, () => {
     expect(run.answer).toMatch(/\nNot checked: the firewall, open ports, SSH settings/);
     const { body: proposals } = await get("/agents/proposals");
     expect(proposals.proposals.filter((card) => card.agentId === scout.id).map((card) => card.steps.map((step) => step.operationId))).toEqual([["app.update"], ["app.backup.many"]]);
+    // Its survey is shared with the other agents as its finding, fresh for the week (M44).
+    const { body: memory } = await get(`/agents/${scout.id}/memory`);
+    expect(memory.findings.shared).toEqual([expect.objectContaining({ kind: "routine", from: "Environment Scout", runId: run.id, stale: false })]);
     // The trouble world keeps its four agents: the Scout is the default world's.
     const { body: trouble } = await get("/agents", "trouble");
     expect(trouble.agents.some((agent) => agent.template === "environment-scout")).toBe(false);
+  });
+
+  it("show the Server Keeper taking the Backup Auditor's finding instead of running it, and running the Pi-hole Watcher (M44)", async () => {
+    const { body: overview } = await get("/agents");
+    const keeper = overview.agents.find((agent) => agent.template === "server-keeper");
+    const { body: listed } = await get(`/agents/${keeper.id}/runs`);
+    const asked = listed.runs.find((entry) => entry.question === "Are the backups current, and is Pi-hole healthy?" && entry.kind === "ask");
+    const { body: run } = await get(`/agents/runs/${asked.id}`);
+    expect(run.steps.filter((step) => step.kind === "handoff").map((step) => [step.input.agent, Boolean(step.flags.reused)])).toEqual([["Backup Auditor", true], ["Pi-hole Watcher", false]]);
+    expect(run.usage.runsSaved).toBe(1);
+    expect(run.tree.map((entry) => [entry.agentName, entry.kind])).toEqual([["Server Keeper", "ask"], ["Pi-hole Watcher", "handoff"], ["Server Keeper", "continue"]]);
+    const { body: usage } = await get("/agents/usage");
+    expect(usage.findings.runsSaved).toBeGreaterThanOrEqual(1);
   });
 });

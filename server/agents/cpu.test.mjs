@@ -92,8 +92,10 @@ describe("the service", () => {
     const keeper = h.service.createAgent(h.caller("owner"), { template: "server-keeper" });
     h.service.startRun(h.caller("owner"), keeper.id, { kind: "ask", question: "Is anything failing?" });
     const claim = await h.service.runnerNext(h.runnerId, { waitMs: 0 });
-    // The quota was raised before the runner was handed the run, with a timer for its longest time.
-    expect(cpuCalls()).toEqual([{ processors: 8, background: 4, resetAfterSeconds: 900 + 60 + 60 }]);
+    // The quota was raised before the runner was handed the run, with a timer for its longest time
+    // (the Server Keeper's 20 minutes since M44) and two minutes' grace.
+    expect(keeper.spec.budget.runSeconds).toBe(1_200);
+    expect(cpuCalls()).toEqual([{ processors: 8, background: 4, resetAfterSeconds: 1_200 + 60 + 60 }]);
     expect(claim.runtime).toMatchObject({ threads: 8, cpu: { processors: 8, threads: 8, waiting: true } });
     await h.runner.execute(claim);
     const run = h.service.getRun(h.caller("owner"), claim.run.id);
@@ -113,7 +115,7 @@ describe("the service", () => {
     const claim = await h.service.runnerNext(h.runnerId, { waitMs: 0 });
     expect(claim.run.kind).toBe("learn");
     expect(claim.runtime).toMatchObject({ threads: 4, cpu: { processors: 4, threads: 4, waiting: false } });
-    expect(cpuCalls()).toEqual([{ processors: 4, background: 4, resetAfterSeconds: 1_020 }]);
+    expect(cpuCalls()).toEqual([{ processors: 4, background: 4, resetAfterSeconds: 1_320 }]);
     await h.runner.execute(claim);
     h.service.relearn(h.caller("owner"), keeper.id);
     const next = await h.service.runnerNext(h.runnerId, { waitMs: 0 });
