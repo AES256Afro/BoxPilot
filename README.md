@@ -102,7 +102,7 @@ Add BoxPilot to your phone's home screen and it opens like an app. Turn on notif
 </details>
 <!-- /every-look -->
 
-An agent is a small language model running on this server, with a job to do: keep an eye on the server, check that ad blocking is working, audit the backups, or answer questions. Agents only read. When one thinks something should change, it writes a card, and the change runs as a normal job only after you approve it. They run at the lowest priority with hard limits (four processors in the background, up to eight while you wait for an answer, 8 GB of memory, no network beyond this machine). They can be paused, paused until tomorrow, or all stopped at once. A nightly check scores their answers against questions you set. With the Zulip app installed, you can message an agent or @mention it in a chat room.
+An agent is a small language model running on this server, with a job to do: keep an eye on the server, survey it once a week and say where to focus, look after the apps, watch the drives fill, plan updates, check that ad blocking is working, audit the backups, answer questions, or show new people around. Each starts from a template you can change. Agents only read. When one thinks something should change, it writes a card, and the change runs as a normal job only after you approve it. They run at the lowest priority with hard limits (four processors in the background, up to eight while you wait for an answer, 8 GB of memory, no network beyond this machine). They can be paused, paused until tomorrow, or all stopped at once. A nightly check scores their answers against questions you set. With the Zulip app installed, you can message an agent or @mention it in a chat room.
 
 ### Ops
 

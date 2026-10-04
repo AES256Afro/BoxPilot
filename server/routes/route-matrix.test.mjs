@@ -496,7 +496,7 @@ const dataRoutes = {
       expect(body.cardsWaiting, role).toBe(role === "owner" ? 1 : 0);
     },
   }],
-  "GET /api/v1/agents/catalog": [{ ...open, check: ({ role, body }) => expect(body.templates.length, role).toBe(5) }],
+  "GET /api/v1/agents/catalog": [{ ...open, check: ({ role, body }) => expect(body.templates.length, role).toBe(10) }],
   "GET /api/v1/agents/usage": [{ ...open, check: ({ role, body }) => expect(body.caps.cpuQuotaPercent, role).toBe(400) }],
   "GET /api/v1/agents/runtime": [{
     ...open,
