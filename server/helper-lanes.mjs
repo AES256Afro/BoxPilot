@@ -25,6 +25,9 @@ export const hostLane = "host";
 /** The agents' Zulip connection (M38): its posts, its key. */
 export const chatLane = "chat:zulip";
 
+/** BoxPilot's Cloudflare tunnel (M42): what it published, and the record of it. */
+export const cloudflareLane = "cloudflare:tunnel";
+
 /** Operations that read or write the shared backup tree; they hold the host lane as well as their own. */
 const backupTreeOperations = new Set(["app.backup", "app.backup.many", "app.backup.restore", "app.backup.verify", "backup.sync", "backup.remote.sync", "backup.cloud.sync"]);
 
@@ -39,6 +42,11 @@ export function laneFor(operation, parameters = {}) {
   // M40: the runner's processors are set at each run; a question never waits behind an upgrade for them.
   if (id === "agents.runtime.cpu") return ["agents:cpu"];
   if (id === "agents.zulip.connect") return [chatLane, "app:zulip"];
+  // M42: BoxPilot's Cloudflare record is read, changed and written back by one change at a time.
+  // Connecting and publishing may install or start the Cloudflare Tunnel app (and an install
+  // rewrites the dashboard); unpublishing and disconnecting touch only Cloudflare and the record.
+  if (id === "cloudflare.connect" || id === "cloudflare.publish") return [cloudflareLane, "app:cloudflared", homepageLane];
+  if (id.startsWith("cloudflare.")) return [cloudflareLane];
   const subject = (value) => (typeof value === "string" && value.length && value.length <= 64 ? value : null);
   const lanes = [];
   if (id.startsWith("app.")) {

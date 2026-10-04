@@ -173,7 +173,7 @@ export function createRunbookService({
   }
 
   async function facts() {
-    const [inventoryRead, topologyRead, storageRead, liveRead, catalogRead, protectionRead, servesRead, firewallRead, snapshotsRead, sambaRead, tlsRead, publishedRead, automation] = await Promise.all([
+    const [inventoryRead, topologyRead, storageRead, liveRead, catalogRead, protectionRead, servesRead, firewallRead, snapshotsRead, sambaRead, tlsRead, publishedRead, automation, cloudflareRead] = await Promise.all([
       attempt(() => inventory.inspect()),
       attempt(() => network.inspect()),
       attempt(() => collect()),
@@ -187,6 +187,8 @@ export function createRunbookService({
       attempt(() => readTls({ dir: tlsDir })),
       attempt(() => (identity?.servePublishesControlPlane ? identity.servePublishesControlPlane() : false)),
       attempt(() => schedulesAndFlows()),
+      // M42: the names BoxPilot published through Cloudflare, from its own record (no network).
+      attempt(() => ask("cloudflare.tunnel.inspect", {}, 30_000)),
     ]);
     const value = (read) => (read.ok && isObject(read.value) ? read.value : null);
     const inventoryValue = value(inventoryRead);
@@ -307,8 +309,13 @@ export function createRunbookService({
     }
     const apps = liveApps ? { available: true, items: appItems } : { available: false, reason: liveRead.ok ? "the app inventory came back incomplete" : "the app inventory could not be read; is the BoxPilot helper running?" };
     const tunnelApp = installed.find((app) => app.id === "cloudflared");
+    const cloudflare = value(cloudflareRead);
+    // What BoxPilot published through the tunnel (M42). Names added in the Cloudflare dashboard are not in its record.
+    const published = Array.isArray(cloudflare?.routes)
+      ? { available: true, tunnelName: typeof cloudflare.tunnel?.name === "string" ? cloudflare.tunnel.name : null, items: cloudflare.routes.filter((route) => typeof route?.hostname === "string").map((route) => ({ url: `https://${route.hostname}`, app: manifests.find((entry) => entry.id === route.appId)?.name ?? route.appId ?? null, port: Number.isInteger(route.hostPort) ? route.hostPort : null })) }
+      : { available: false };
     const tunnel = liveApps
-      ? { installed: Boolean(tunnelApp), name: manifests.find((entry) => entry.id === "cloudflared")?.name ?? "Cloudflare Tunnel", running: tunnelApp ? tunnelApp.container?.running === true : null }
+      ? { installed: Boolean(tunnelApp), name: manifests.find((entry) => entry.id === "cloudflared")?.name ?? "Cloudflare Tunnel", running: tunnelApp ? tunnelApp.container?.running === true : null, published }
       : { installed: null, reason: "the app inventory could not be read" };
 
     // ---- backups ----
