@@ -291,15 +291,36 @@ export function stoppedAppsOf(applications) {
   return applications.filter((app) => app?.installed && appRunState(app) !== "running").map((app) => app.id);
 }
 
+/** Whether apps.list calls an app unhealthy: its container's health check says unhealthy, or not yet healthy. */
+const unhealthy = (app) => ["unhealthy", "starting"].includes(app?.container?.health);
+
+/** The installed apps apps.list lists as unhealthy, by id: what "which apps are unhealthy" means (M43). */
+export function unhealthyAppsOf(applications) {
+  if (!Array.isArray(applications)) return null;
+  return applications.filter((app) => app?.installed && unhealthy(app)).map((app) => app.id);
+}
+
+/** The installed apps with an update available, by id (M43). */
+export function appUpdatesOf(applications) {
+  if (!Array.isArray(applications)) return null;
+  return applications.filter((app) => app?.installed && app.updateAvailable).map((app) => app.id);
+}
+
+/** The systemd units that have failed, as services.status names them (M43). */
+export function failedServicesOf(units) {
+  if (!Array.isArray(units)) return null;
+  return units.filter((entry) => entry?.active === "failed" && entry.unit).map((entry) => entry.unit);
+}
+
 /** apps.list: the counts and the stopped ones first, then one line an app. */
 export function describeApps(applications, others = []) {
   const lines = [];
   if (Array.isArray(applications)) {
     const installed = applications.filter((app) => app?.installed);
     const stopped = installed.filter((app) => appRunState(app) !== "running");
-    const unhealthy = installed.filter((app) => ["unhealthy", "starting"].includes(app.container?.health));
-    lines.push(`BoxPilot apps installed: ${installed.length}. Running: ${installed.length - stopped.length}. Stopped or not running: ${stopped.length ? `${stopped.length} (${stopped.map((app) => app.id).join(", ")})` : "none"}. Unhealthy: ${unhealthy.length ? unhealthy.map((app) => app.id).join(", ") : "none"}.`);
-    const ordered = [...stopped, ...unhealthy.filter((app) => !stopped.includes(app)), ...installed.filter((app) => !stopped.includes(app) && !unhealthy.includes(app))];
+    const sick = installed.filter(unhealthy);
+    lines.push(`BoxPilot apps installed: ${installed.length}. Running: ${installed.length - stopped.length}. Stopped or not running: ${stopped.length ? `${stopped.length} (${stopped.map((app) => app.id).join(", ")})` : "none"}. Unhealthy: ${sick.length ? sick.map((app) => app.id).join(", ") : "none"}.`);
+    const ordered = [...stopped, ...sick.filter((app) => !stopped.includes(app)), ...installed.filter((app) => !stopped.includes(app) && !sick.includes(app))];
     for (const app of ordered.slice(0, 40)) {
       const container = app.container ?? {};
       const parts = [appRunState(app)];

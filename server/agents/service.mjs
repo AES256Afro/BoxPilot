@@ -39,7 +39,7 @@ import { checkCitations, readStructuredAnswer, systemMessage, taskMessage } from
 import { SpecError, agentEvents, budgetCeilings, diffSpecs, normalizeSpec, outputFormats, previousRunSecondsDefault, scopeWarnings, specText } from "./spec.mjs";
 import { digestToken, finishedStates } from "./store.mjs";
 import { agentTemplates, builtInQuestions, evaluationFacts, templateById, templateQuestions } from "./templates.mjs";
-import { drivesOf, placementOf, stoppedAppsOf } from "./tool-text.mjs";
+import { appUpdatesOf, drivesOf, failedServicesOf, placementOf, stoppedAppsOf, unhealthyAppsOf } from "./tool-text.mjs";
 import { describeTools, readToolInput, roleAtLeast, toModelTool, toolAllowed, toolById, toolCatalog, toolCategories } from "./tool-catalog.mjs";
 import { ToolError, createToolRunner } from "./tools.mjs";
 import { gradeFact } from "./grade.mjs";
@@ -2261,12 +2261,14 @@ export function createAgentService({
 
   /** What a golden question's fact is on this server right now, read as `role` reads. */
   async function resolveFacts({ role }) {
-    const [snapshot, apps, pihole, placed] = await Promise.all([
+    const [snapshot, apps, pihole, placed, services] = await Promise.all([
       inventory?.inspect().catch(() => null),
       tools.readApps().catch(() => null),
       // An operator read (ADR-003); an evaluation is started by the owner or an operator anyway.
       helper && ["owner", "operator"].includes(role) ? helper.request("app.pihole.inspect", {}, { timeoutMs: 30_000 }).catch(() => null) : null,
       tools.whereRuns("pihole").catch(() => null),
+      // The read services.status makes, open to every role.
+      helper ? helper.request("service.list", {}, { timeoutMs: 30_000 }).catch(() => null) : null,
     ]);
     const applications = Array.isArray(apps?.applications) ? apps.applications : null;
     return {
@@ -2279,6 +2281,10 @@ export function createAgentService({
       piholeBlocking: pihole?.available ? (pihole.blocking === true ? "on" : pihole.blocking === false ? "off" : null) : null,
       drives: snapshot ? drivesOf(snapshot) : null,
       stoppedApps: stoppedAppsOf(applications),
+      // M43: what the Environment Scout, the App Doctor and the Update Planner report.
+      unhealthyApps: unhealthyAppsOf(applications),
+      appUpdates: appUpdatesOf(applications),
+      failedServices: failedServicesOf(services?.units ?? null),
     };
   }
 

@@ -1341,7 +1341,8 @@ api.post("/assistant/ask", (_request, response) => json(response, {
  * stand-in model instead of Unsloth (scripts/demo-agents.mjs). The list routes are named here so the
  * static bundle carries them; everything else under /agents reaches the same world.
  */
-export const agentsDemo = createAgentsDemo({ inventory, apps: installed, services: Object.fromEntries(scenarioNames.map((name) => [name, fixturesFor(name)["service.list"]])), scenarioOf });
+// The agents see every installed app, the Cloudflare Tunnel app with no port of its own among them.
+export const agentsDemo = createAgentsDemo({ inventory, apps: { ...installed, ...Object.fromEntries([...installedWithoutPorts].map((id) => [id, null])) }, services:Object.fromEntries(scenarioNames.map((name) => [name, fixturesFor(name)["service.list"]])), scenarioOf });
 api.get("/agents", agentsDemo.handle);
 api.get("/agents/catalog", agentsDemo.handle);
 api.get("/agents/usage", agentsDemo.handle);

@@ -65,16 +65,30 @@ export function gradeFact(fact, value, answer) {
     return { passed, found: passed ? `Says ${value}` : `Expected ${value}` };
   }
   if (fact === "drives") return gradeDrives(value, answer);
-  if (fact === "stoppedApps") {
-    const stopped = Array.isArray(value) ? value : [];
-    const loose = (words) => String(words).toLowerCase().replace(/[\s_-]+/g, "");
-    if (!stopped.length) {
-      const passed = /\b(none|no (boxpilot )?apps?|nothing|all (of them |the apps |apps )?(are )?running|every app is running)\b/.test(text) || /\bstopped( or not running)?: none\b/.test(text);
-      return { passed, found: passed ? "Says none is stopped" : "Expected: none is stopped" };
-    }
-    const missing = stopped.filter((id) => !loose(text).includes(loose(id)));
-    return { passed: !missing.length, found: missing.length ? `Missing: ${missing.join(", ")}` : `Names ${stopped.join(", ")}` };
-  }
+  if (Object.hasOwn(namedFacts, fact)) return gradeNames(namedFacts[fact], value, text);
   const passed = text.includes(String(value).toLowerCase());
   return { passed, found: passed ? `Says ${value}` : `Expected ${value}` };
+}
+
+/**
+ * The facts that are lists of names - which apps are stopped, unhealthy or have an update (M43),
+ * which services failed - and how an answer says the list is empty. A unit is named with or
+ * without ".service", as a person would.
+ */
+const namedFacts = {
+  stoppedApps: { what: "stopped", none: [/\b(none|no (boxpilot )?apps?|nothing|all (of them |the apps |apps )?(are )?running|every app is running)\b/, /\bstopped( or not running)?: none\b/] },
+  unhealthyApps: { what: "unhealthy", none: [/\b(none|no (boxpilot )?apps?|nothing|all (of them |the apps |apps )?(are )?(healthy|running)|every app is (healthy|running))\b/, /\bunhealthy: none\b/] },
+  appUpdates: { what: "waiting for an update", none: [/\b(none|nothing|no (app )?updates?|no apps?|all (of them |the apps |apps )?(are )?up to date|every app is up to date)\b/] },
+  failedServices: { what: "failed", none: [/\b(none|nothing has failed|no (systemd )?(services?|units?)( have| has)? failed|no failed|0 failed)\b/], name: (unit) => String(unit).replace(/\.service$/, "") },
+};
+
+function gradeNames({ what, none, name = (entry) => entry }, value, text) {
+  const names = Array.isArray(value) ? value : [];
+  const loose = (words) => String(words).toLowerCase().replace(/[\s_-]+/g, "");
+  if (!names.length) {
+    const passed = none.some((pattern) => pattern.test(text));
+    return { passed, found: passed ? `Says none is ${what}` : `Expected: none is ${what}` };
+  }
+  const missing = names.filter((entry) => !loose(text).includes(loose(name(entry))));
+  return { passed: !missing.length, found: missing.length ? `Missing: ${missing.join(", ")}` : `Names ${names.join(", ")}` };
 }

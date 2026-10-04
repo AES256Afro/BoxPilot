@@ -8,7 +8,8 @@ import { errorText } from "./format";
  * Evaluation (M37, M40): questions an agent should answer right, each with what right means - a
  * fact BoxPilot reads from this server at the time (which drives, how full the root filesystem is,
  * where Pi-hole runs, which apps are stopped, the OS and its version, its name, how many apps, whether
- * Pi-hole blocks) or words the answer must contain. The built-in ones come from the agent's own
+ * Pi-hole blocks, and since M43 which apps are unhealthy or have an update and which services
+ * failed) or words the answer must contain. The built-in ones come from the agent's own
  * tools; the owner adds their own, and a "wrong" on an answer can become one. BoxPilot asks them
  * every night in quiet hours, within the budgets, as the person who made the agent; "Run the
  * evaluation" asks them now, as you. Accuracy is followed over time, and a drop is flagged.
@@ -33,6 +34,9 @@ const facts: Array<{ value: string; label: string }> = [
   { value: "hostname", label: "Its name" },
   { value: "installedApps", label: "How many apps are installed" },
   { value: "piholeBlocking", label: "Whether Pi-hole blocks" },
+  { value: "unhealthyApps", label: "Which apps are unhealthy" },
+  { value: "appUpdates", label: "Which apps have an update" },
+  { value: "failedServices", label: "Which system services have failed" },
 ];
 const factLabel = (fact: string | undefined) => facts.find((entry) => entry.value === fact)?.label ?? fact ?? "";
 /** A fact's value as a person reads it: the drives by device, the apps by name. */
