@@ -891,3 +891,86 @@ its run token, set its routes (`ingress`), and add the DNS name. The helper has 
   first domain listed, and domains in the others are not offered.
 - BoxPilot's record can drift from Cloudflare when the owner edits the tunnel in the dashboard;
   Check with Cloudflare shows it, and publishing again repairs a missing route.
+
+## ADR-012: agents share their findings, by a permission each, and re-read live facts before any card
+
+**Date:** 2026-10-04 · **Status:** Accepted (M44, unreleased) · **Builds on:** ADR-005 (agents read
+through the web service and only propose), ADR-006 (prompts built for the cache), ADR-009 (four
+processors in the background).
+
+### Context
+
+The owner asked: when an agent needs some data, check with the other agents first; no agent
+should spend a CPU's minutes gathering what another gathered an hour ago. On the owner's server a
+question costs minutes (the Environment Scout's survey needed about 200 s of model time at eight
+threads, twice that in the background), and the Server Keeper, the default supervisor, started a
+specialist's run for every subtask it handed over, whatever that specialist had found since. Agents
+could already share notes (`memory.share`), but only notes an agent chose to write, offered by
+word-matching recall alongside everything else it remembered, with no freshness the reader could
+rely on and no way for a supervisor to take one instead of a run. The owner left open whether this
+is one switch or a permission.
+
+### Options weighed
+
+- **(a) One switch for every agent.** Simple, but the IT Support helper and the House Guide answer
+  people who may read less than the owner, and an owner may want one agent's conclusions kept to
+  itself (one being tuned, say). Rejected.
+- **(b) A permission each way, per agent, on by default.** Chosen: "Shares its findings with the
+  other agents" and "Uses the other agents' findings" on each agent's Build tab.
+- **(c) Cache the tools' outputs, not the agents' conclusions.** Reads are cheap (milliseconds);
+  what costs minutes is the model reading them and writing a conclusion. A cache of tool output
+  saves nothing that matters, and stale facts would look current. Rejected.
+- **(d) Let the model ask another agent with a new tool.** One more tool for a small model to choose
+  between, and a call per question. Rejected: the findings come with the request instead.
+
+### Decision
+
+1. **A finding is a conclusion, kept as one shared note per agent and kind.** When an agent that
+   shares finishes its routine run (its schedule, or the console's run without a question), or an
+   answer it checked against its tools (M40's check ran) to a question, a hand-off or a supervisor's
+   follow-up, its answer is kept as its "routine" or "answer" finding, replacing the last one: never
+   a pile. Its words without the run's [T] citations, whole up to a note's 2,000 characters, else its
+   lead and the first sentence of each item, said to be shortened. Never from a run whose tools read
+   something that looked like an instruction, a run that ended degraded, or one that asked back; one
+   whose check was not sure says so ("unsure"), as does one cut short by a limit ("partial"). An
+   evaluation, a learning run, an event or a webhook leaves none.
+2. **Freshness is the agent's own cadence, in one helper** (`findingFreshMs`): weekly 7 days, daily
+   26 hours, every six hours 7, hourly 2, an agent that only answers 24; an answer never more than a
+   day. A stale finding is offered to nobody.
+3. **The run's role goes with it.** A finding carries the role of the run that found it; another
+   agent's run is offered it only if it reads at least as much (`roleAtLeast`), the same rule as
+   shared notes. A viewer asking the House Guide is never offered what the Scout's owner run found.
+4. **Offered before planning, as data.** An agent that uses findings gets the other agents' fresh
+   ones it may read that share words with what it was asked (or with its job, for routine work), at
+   most three, each cut to 900 characters, in the request as `<finding id="F1" from=... age=...
+   trust="untrusted">`, sanitized and boxed like tool output. It cites them as [F1]; the check
+   before answering holds such a claim to the finding's words. The planner and the system message
+   say, in the same words every run (ADR-006): if a finding answers it, answer from it, say how old
+   it is, and do not read the same facts again or hand the question to that agent.
+5. **Live facts are re-read before any card.** A finding is a conclusion, not evidence for a
+   change: the rules say to read live facts with a tool before proposing a plan, when the request
+   asks for a fresh check ("check now", "check again", "a fresh look", "right now"), or when no
+   finding answers it. A request that asks for a fresh check is offered no findings at all, and the
+   trace says so.
+6. **A supervisor takes a fresh finding instead of a run.** When it hands a subtask to a specialist
+   that shares, and that specialist's fresh finding answers it (two of the subtask's words, or half
+   of a short one; never an unsure or partial one), the finding is the specialist's answer, at once,
+   cited like any tool output; no specialist run, no follow-up run. The trace says "Used X's finding
+   from 3 hours ago instead of running it again"; the run's usage counts it (`runsSaved`), and the
+   Usage tab shows the runs saved this week. A fresh-check request runs the specialist as before.
+7. **Turning sharing off forgets** what the agent shared. Agents saved before keep their budgets and
+   everything else, and get the two switches as their template would give them, once, as a version
+   BoxPilot made and said so.
+
+### Consequences
+
+- A finding costs no model time to keep: it is the answer the run already wrote. Offering costs at
+  most three findings' worth of prompt (about 700 tokens, read by the planner and the first call to
+  act) only when something bears on the request; a stale or unrelated finding costs nothing.
+- Word-matching decides relevance, so a finding can be offered that does not quite answer; the
+  model is told to read with a tool when it does not, and the check holds what it took from one.
+  Matching by meaning (the embeddings memory already has) is the next step if words fall short.
+- The owner sees both lists on each agent's Memory tab - what it shared and what it can use, with
+  age and freshness - and can forget a finding there.
+- A finding is the specialist's conclusion at its own role and time: a supervisor's answer built on
+  it is as fresh as the finding, and says how old it is.

@@ -87,7 +87,7 @@ const clip = (text, max) => {
   const value = String(text ?? "").replace(/\s+/g, " ").trim();
   return value.length > max ? `${value.slice(0, max - 1)}…` : value;
 };
-const firstSentence = (text) => clip(String(text ?? "").replace(/\[T\d+(?:\s*[,;]\s*T\d+)*\]/g, "").split(/(?<=[.!?])\s/)[0], 160);
+const firstSentence = (text) => clip(String(text ?? "").replace(/\[[TF]\d+(?:\s*[,;]\s*[TF]\d+)*\]/g, "").split(/(?<=[.!?])\s/)[0], 160);
 
 /** How much conversation reaches the model: about 1,100 tokens of turns and 300 of summary. */
 export const threadBudget = Object.freeze({ turnChars: 4_400, summaryChars: 1_200, perTurnChars: 900 });
@@ -135,6 +135,6 @@ export const memoryTiers = Object.freeze({
 /** An episode: what a run found, in a line or two, for later runs to recall. */
 export function episodeOf(run, { maxChars = 400 } = {}) {
   const asked = run.question ? `Asked "${clip(run.question, 120)}". ` : run.trigger?.title ? `${clip(run.trigger.title, 120)}. ` : "";
-  const found = run.answer ? clip(String(run.answer).replace(/[ \t]*\[T\d+(?:\s*[,;]\s*T\d+)*\]/g, ""), maxChars) : "";
+  const found = run.answer ? clip(String(run.answer).replace(/[ \t]*\[[TF]\d+(?:\s*[,;]\s*[TF]\d+)*\]/g, ""), maxChars) : "";
   return found ? `${asked}${found}` : null;
 }

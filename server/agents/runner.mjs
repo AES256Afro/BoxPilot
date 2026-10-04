@@ -267,6 +267,10 @@ export function createRunner({ api, runtime, client, usage = null, now = () => D
     let clarify = null;
     let understanding = null;
     let limitReached = false;
+    // Which limit it reached first: its steps, its tool calls or its tokens (said on the card, M44).
+    let limitKind = null;
+    // Other agents' findings it was offered before planning (M44): sources the check holds claims to.
+    const findingSources = (claim.findings ?? []).map((finding) => ({ id: finding.id, title: finding.title, text: finding.text }));
     // The run's work in tokens: what the model read (not what it had cached) and what it wrote.
     const tokensUsed = () => used.readTokens + used.completionTokens;
     const system = (name, detail, state = "done") => api.steps(run.id, lease, [{ kind: "system", name, detail, state }]).catch(() => {});
@@ -287,7 +291,7 @@ export function createRunner({ api, runtime, client, usage = null, now = () => D
       }
       const result = await api.tool(run.id, lease, name, typeof input === "string" ? input : JSON.stringify(input ?? {}), extras);
       if (result.ok) outputs.push({ id: `T${result.index}`, title: result.title, summary: stripWrapper(result.content) });
-      if (result.flags?.limit) limitReached = true;
+      if (result.flags?.limit) { limitReached = true; limitKind ??= "toolCalls"; }
       return result;
     };
 
@@ -380,7 +384,7 @@ export function createRunner({ api, runtime, client, usage = null, now = () => D
      */
     const check = { claims: 0, checked: 0, found: 0, left: 0, corrected: false, unsure: false, checkMs: 0, correctionMs: 0 };
     const checkAnswer = async (model, draft, { structured }) => {
-      const sources = outputs.map((output) => ({ id: output.id, title: output.title, text: output.summary }));
+      const sources = [...outputs.map((output) => ({ id: output.id, title: output.title, text: output.summary })), ...findingSources];
       const timed = (work) => { const started = performance.now(); const value = work(); check.checkMs += Math.round((performance.now() - started) * 100) / 100; return value; };
       const first = timed(() => verifyAnswer(draft, sources));
       Object.assign(check, { claims: first.claims, checked: first.checked, found: first.issues.length, left: first.issues.length });
@@ -406,7 +410,7 @@ export function createRunner({ api, runtime, client, usage = null, now = () => D
           // at least half as long, and citing the tools if the draft did. "I cannot say anything"
           // has no mismatch either.
           const matched = (result) => result.checked - new Set(result.issues.map((issue) => issue.claim)).size;
-          const cites = (text) => /\[T\d+\]/.test(text);
+          const cites = (text) => /\[[TF]\d+\]/.test(text);
           const better = again.issues.length < first.issues.length && matched(again) >= matched(first)
             && candidate.length * 2 >= draft.length && (!cites(draft) || cites(candidate));
           if (candidate && better) { answer = candidate; remaining = again.issues; check.corrected = true; }
@@ -471,8 +475,11 @@ export function createRunner({ api, runtime, client, usage = null, now = () => D
         const answerExtra = structured ? { ...(claim.runtime.extra ?? {}), response_format: answerFormat(claim.output.fields) } : claim.runtime.extra ?? {};
         for (let step = 0; step < limits.steps && !answer; step += 1) {
           if (controller.signal.aborted) break;
-          const lastStep = step === limits.steps - 1 || tokensUsed() >= limits.tokens * 0.85 || toolCalls >= limits.maxToolCalls;
-          if (lastStep) limitReached = limitReached || step === limits.steps - 1 || toolCalls >= limits.maxToolCalls;
+          const byTokens = tokensUsed() >= limits.tokens * 0.85;
+          const lastStep = step === limits.steps - 1 || byTokens || toolCalls >= limits.maxToolCalls;
+          // The last step it may take: told to answer with what it has, which is a limit reached -
+          // its steps, its tool calls, or its tokens nearly spent (M44: tokens were not said).
+          if (lastStep) { limitReached = true; limitKind ??= step === limits.steps - 1 ? "steps" : toolCalls >= limits.maxToolCalls ? "toolCalls" : "tokens"; }
           const final = lastStep && step > 0 && Boolean(act.tools);
           if (final) {
             // Told at the end of the last tool round, so nothing before it changes.
@@ -507,8 +514,8 @@ export function createRunner({ api, runtime, client, usage = null, now = () => D
             answer = stripToolMarkup(asked.result.content);
           }
         }
-        // 4. The check before answering (M40): each claim against the output it cites.
-        if (answer && !degraded && !controller.signal.aborted && outputs.length) answer = await checkAnswer(model, answer, { structured });
+        // 4. The check before answering (M40): each claim against the output or finding it cites.
+        if (answer && !degraded && !controller.signal.aborted && (outputs.length || findingSources.length)) answer = await checkAnswer(model, answer, { structured });
         if (!answer && !degraded && !controller.signal.aborted) degraded = "model-error";
       }
 
@@ -523,7 +530,7 @@ export function createRunner({ api, runtime, client, usage = null, now = () => D
         answer = answer ? `${answer}\n\n(${degraded === "timeout" ? "The model took too long, so this may stop short." : "The model did not finish."})` : fallbackAnswer({ reason: degraded ?? "model-error", outputs });
         outcome = "degraded";
       }
-      await api.finish(run.id, lease, { outcome, answer, usage: usageOf(), degradedReason: outcome === "degraded" ? degraded ?? "model-error" : null, limitReached });
+      await api.finish(run.id, lease, { outcome, answer, usage: usageOf(), degradedReason: outcome === "degraded" ? degraded ?? "model-error" : null, limitReached, ...(limitKind ? { limit: limitKind } : {}) });
       return { outcome };
     } catch (error) {
       // Stopped by BoxPilot (cancelled, paused, killed, timed out): the web service already ended

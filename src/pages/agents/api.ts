@@ -44,6 +44,8 @@ export interface AgentSpec {
   /** chat (M38): each kind of output to its Zulip channel, on by default; saved before M38, absent. */
   outputs: { notes: boolean; digest: boolean; notify: "important" | "never"; proposals: boolean; chat?: ChatOutputs };
   memory: { enabled: boolean; freshDays: number; maxNotes: number; share: boolean; threads: boolean; turns: number };
+  /** M44: whether it shares its findings with the other agents, and uses theirs. Saved before M44, absent. */
+  sharing?: { shareFindings: boolean; useFindings: boolean };
   escalation: { lowConfidence: boolean; limits: boolean; actions: boolean; risk: boolean };
   allow: { apps: "*" | string[]; operations: "*" | string[] };
   model: { thinking: boolean };
@@ -97,7 +99,7 @@ export interface Catalog {
   categories: Record<string, string>; outputFormats: Array<"text" | "json">; memoryTiers: Record<string, string>;
 }
 
-export interface RunStep { seq: number; kind: "model" | "tool" | "proposal" | "note" | "notify" | "system" | "intent" | "plan" | "recall" | "memory" | "handoff"; name: string | null; state: "done" | "failed" | "refused"; input: unknown; output: string | null; flags: Record<string, unknown>; startedAt: string; durationMs: number | null; tokensIn: number | null; tokensOut: number | null }
+export interface RunStep { seq: number; kind: "model" | "tool" | "proposal" | "note" | "notify" | "system" | "intent" | "plan" | "recall" | "memory" | "handoff" | "finding"; name: string | null; state: "done" | "failed" | "refused"; input: unknown; output: string | null; flags: Record<string, unknown>; startedAt: string; durationMs: number | null; tokensIn: number | null; tokensOut: number | null }
 export interface PlanStep { operationId: string; title: string; risk: RiskTier; readOnly: boolean; approval: string; typedConfirmation: boolean; parameters: Record<string, unknown>; why: string }
 export interface Proposal {
   id: string;
@@ -118,7 +120,7 @@ export interface Proposal {
   expiresAt: string;
   jobIds: string[];
 }
-export interface RunUsage { modelMs?: number; loadMs?: number; promptTokens?: number; completionTokens?: number; modelCalls?: number; toolCalls?: number; wallMs?: number; checkMs?: number; correctionMs?: number }
+export interface RunUsage { modelMs?: number; loadMs?: number; promptTokens?: number; completionTokens?: number; modelCalls?: number; toolCalls?: number; wallMs?: number; checkMs?: number; correctionMs?: number; runsSaved?: number; findingsCited?: number }
 /** M40: the check before answering - statements held to the tool output they cite. */
 export interface RunCheck { claims: number; checked: number; mismatches: number; corrected: boolean; found: number; unsure: boolean }
 export interface Run {
@@ -155,6 +157,8 @@ export interface Usage {
   runner: RunnerStatus;
   caps: Caps;
   today: { runs: number; modelSeconds: number; tokens: number; perAgent: Array<{ agentId: string; name: string; runs: number; runsPerDay: number; modelSeconds: number; modelSecondsPerDay: number; tokens: number }> };
+  /** M44: over the last `days`, runs not started because a specialist's finding answered, and answers that cited a finding. */
+  findings?: { days: number; runsSaved: number; answers: number };
   queue: { queued: number; running: number; dropped: number };
   module: ModuleState;
 }
@@ -207,12 +211,16 @@ export interface Knowledge {
   vision?: { vision: boolean; reason: string | null; at: string } | null;
 }
 export interface MemoryNote { id: string; title: string; body: string; source: Note["source"]; createdAt: string; updatedAt: string; freshUntil: string | null; stale: boolean; pinned: boolean; shared: boolean; readRole: string; indexed: boolean }
+/** M44: a finding, as the Memory tab lists it. */
+export interface Finding { id: string; kind: "routine" | "answer"; title: string; body: string; from: string; agentId: string; updatedAt: string; freshUntil: string | null; stale: boolean; readRole: string; runId: string | null; unsure: boolean; partial: boolean }
 export interface Memory {
+  /** M44: what it shared, and the other agents' fresh findings it can use. Absent from an older server. */
+  findings?: { shared: Finding[]; usable: Finding[] };
   facts: MemoryNote[];
   shared: Array<{ id: string; title: string; body: string; from: string; updatedAt: string; stale: boolean }>;
   episodes: Array<{ id: string; runId: string | null; text: string; createdAt: string; indexed: boolean }>;
   thread: { summary: string; turns: Array<{ role: "user" | "agent"; text: string; at?: string }>; updatedAt: string } | null;
-  settings: { enabled: boolean; share: boolean; threads: boolean; turns: number; freshDays: number; maxNotes: number };
+  settings: { enabled: boolean; share: boolean; threads: boolean; turns: number; freshDays: number; maxNotes: number; shareFindings?: boolean; useFindings?: boolean };
   search: { byMeaning: boolean; model: string; pending: number; vectors: number };
 }
 export interface Accuracy { version: number; model: string | null; evaluations: number; score: number | null; up: number; down: number; since: string | null }

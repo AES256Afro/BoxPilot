@@ -774,6 +774,90 @@ describe("memory", () => {
   });
 });
 
+describe("findings (M44)", () => {
+  it("shows both switches on the Build tab, on for an agent saved before them, and saves the owner's choice", async () => {
+    window.history.replaceState(null, "", `/?view=agents&tab=build&agent=${keeperId}`);
+    const calls = serve(base({
+      [`GET /api/v1/agents/${keeperId}`]: detail(2),
+      [`PUT /api/v1/agents/${keeperId}`]: (init: RequestInit | undefined) => json({ ...detail(3), spec: JSON.parse(String(init?.body)).spec }),
+    }));
+    render(<AgentsPage csrfToken="csrf" now={() => now} />);
+    const share = await screen.findByRole("switch", { name: "Shares its findings with the other agents" });
+    const use = screen.getByRole("switch", { name: "Uses the other agents' findings" });
+    expect([share.getAttribute("aria-checked"), use.getAttribute("aria-checked")]).toEqual(["true", "true"]);
+    // Each with a line of what it does, in the Team step.
+    const team = screen.getByRole("heading", { name: /Team/ }).closest("section") as HTMLElement;
+    expect(team.textContent).toContain("so the other agents need not look again");
+    expect(team.textContent).toContain("when you ask it to check now");
+    // Where to raise a run that keeps running out of time.
+    expect(screen.getByText(/If its runs end with a card saying it ran out of time or reached a limit, raise the longest run, its steps or its tokens here\./)).toBeTruthy();
+    fireEvent.click(use);
+    fireEvent.click(screen.getByRole("button", { name: "Save as version 3" }));
+    await waitFor(() => expect((calls.find((call) => call.method === "PUT")?.body as { spec: AgentSpec } | undefined)?.spec.sharing).toEqual({ shareFindings: true, useFindings: false }));
+  });
+
+  it("has an IT Support helper saved before them use findings and share none", async () => {
+    window.history.replaceState(null, "", `/?view=agents&tab=build&agent=${keeperId}`);
+    serve(base({ [`GET /api/v1/agents/${keeperId}`]: { ...detail(2, "IT Support helper"), template: "it-support" } }));
+    render(<AgentsPage csrfToken="csrf" now={() => now} />);
+    expect((await screen.findByRole("switch", { name: "Shares its findings with the other agents" })).getAttribute("aria-checked")).toBe("false");
+    expect(screen.getByRole("switch", { name: "Uses the other agents' findings" }).getAttribute("aria-checked")).toBe("true");
+  });
+
+  it("lists on the Memory tab what it shared and what it can use, with their age and freshness, and forgets one it shared", async () => {
+    window.history.replaceState(null, "", `/?view=agents&tab=memory&agent=${keeperId}`);
+    const finding = (id: string, extra: Record<string, unknown>) => ({ id, kind: "routine", title: "Keep a picture of this server.", body: "**All well**: no alerts.", from: "Server Keeper", agentId: keeperId, updatedAt: ago(180), freshUntil: ago(-60 * 23), stale: false, readRole: "owner", runId: "run-1", unsure: false, partial: false, ...extra });
+    const shared = finding("f-1", {});
+    const usable = finding("f-2", { title: "Survey this server", body: "Where to focus\n1. sdb is failing.", from: "Environment Scout", agentId: helperId, updatedAt: ago(60 * 26), freshUntil: ago(-60 * 24 * 6), unsure: true });
+    const calls = serve(base({
+      [`GET /api/v1/agents/${keeperId}/memory`]: {
+        findings: { shared: [shared, { ...finding("f-3", { kind: "answer", title: "Asked: Is it fine?", stale: true, freshUntil: ago(10) }) }], usable: [usable] },
+        facts: [], shared: [], episodes: [], thread: null,
+        settings: { enabled: true, share: true, threads: true, turns: 6, freshDays: 14, maxNotes: 80, shareFindings: true, useFindings: true },
+        search: { byMeaning: false, model: "fake", pending: 0, vectors: 0 },
+      },
+      [`DELETE /api/v1/agents/${keeperId}/memory/notes/f-1`]: { forgotten: true },
+    }));
+    render(<AgentsPage csrfToken="csrf" now={() => now} />);
+    const mine = await screen.findByRole("table", { name: "Findings Server Keeper shared" });
+    const rows = within(mine).getAllByRole("row").slice(1);
+    expect(rows[0].textContent).toContain("3 hours ago");
+    expect(rows[0].textContent).toContain("for 23 hours more");
+    // Its words drawn as prose, never as stars.
+    expect(rows[0].querySelector("strong")?.textContent).toBe("All well");
+    expect(rows[0].textContent).not.toContain("**");
+    expect(rows[1].textContent).toContain("went stale 10 minutes ago");
+    const theirs = screen.getByRole("table", { name: "Other agents' findings Server Keeper can use" });
+    expect(theirs.textContent).toContain("from Environment Scout");
+    expect(theirs.textContent).toContain("26 hours ago");
+    expect(theirs.textContent).toContain("not sure");
+    expect(screen.getByRole("region", { name: "How it recalls" }).textContent).toContain("Shares its findings");
+    fireEvent.click(within(mine).getByRole("button", { name: "Forget the finding Keep a picture of this server." }));
+    await waitFor(() => expect(calls.some((call) => call.method === "DELETE" && call.path.endsWith("/memory/notes/f-1"))).toBe(true));
+  });
+
+  it("says on Usage how many runs findings saved this week", async () => {
+    window.history.replaceState(null, "", "/?view=agents&tab=usage");
+    serve(base({ "GET /api/v1/agents/usage": { ...usage, findings: { days: 7, runsSaved: 3, answers: 5 } }, "GET /api/v1/agents/runtime": runtime }));
+    render(<AgentsPage csrfToken="csrf" now={() => now} />);
+    const today = await screen.findByRole("region", { name: "Today" });
+    expect(today.textContent).toContain("Runs saved by using findings this week");
+    expect(today.textContent).toMatch(/Runs saved by using findings this week\s*3/);
+    expect(today.textContent).toMatch(/Answers that used another agent's findings\s*5/);
+  });
+
+  it("draws the latest digest's markdown as prose on the Agents tab, with its script kept as text", async () => {
+    serve(base({ "GET /api/v1/agents/glance": { enabled: true, paused: false, runnerOnline: true, digest: { agentId: keeperId, agentName: "Server Keeper", runId: finishedRun.id, at: ago(240), excerpt: "**Daily digest complete.**\n- No alerts [T1].\n- <script>alert(1)</script>", state: "completed" }, cardsWaiting: 1 } }));
+    render(<AgentsPage csrfToken="csrf" now={() => now} />);
+    const digest = await screen.findByRole("region", { name: "Latest digest" });
+    await waitFor(() => expect(digest.querySelector("strong")?.textContent).toBe("Daily digest complete."));
+    expect(digest.textContent).not.toContain("**");
+    expect(digest.querySelectorAll("li")).toHaveLength(2);
+    expect(digest.querySelector("script")).toBeNull();
+    expect(digest.textContent).toContain("<script>alert(1)</script>");
+  });
+});
+
 describe("the evaluation", () => {
   it("shows how the last evaluation scored, each answer against what right means, and runs it again", async () => {
     window.history.replaceState(null, "", `/?view=agents&tab=evaluation&agent=${keeperId}`);
