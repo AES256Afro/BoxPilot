@@ -93,6 +93,16 @@
 .catalog-form__problems { display: grid; gap: 4px; margin: 0; padding-left: 18px; }
 .catalog-form .ui-check__description a { color: var(--accent); }
 
+/* The Cloudflare Tunnel app's Tunnel tab (M42): connecting Cloudflare, and publishing an app. */
+.catalog-tunnel__lead { margin: 0 0 8px; color: var(--text); font-size: 13.5px; line-height: 1.45; }
+.catalog-tunnel__lead code, .catalog-tunnel__preview code { overflow-wrap: anywhere; }
+.catalog-tunnel__permissions { display: grid; gap: 2px; margin: 0; padding-left: 18px; color: var(--text-strong); font-family: var(--font-mono); font-size: 12.5px; line-height: 1.45; }
+.catalog-tunnel__form { display: grid; gap: 10px; min-width: 0; margin-top: 10px; }
+.catalog-tunnel__fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr)); align-items: start; gap: 10px; min-width: 0; }
+.catalog-tunnel__preview { margin: 0; color: var(--text); font-size: 13px; line-height: 1.45; }
+.catalog-tunnel__disconnect { align-items: center; justify-content: space-between; }
+.catalog-tunnel__disconnect .catalog-quiet { flex: 1 1 18rem; padding: 0; }
+
 @media (max-width: 640px) {
   .catalog-tiles { grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); padding: 8px; }
   .catalog-cards { padding: 8px; }

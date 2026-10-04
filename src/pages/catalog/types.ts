@@ -35,6 +35,8 @@ export interface LiveState {
   container: { exists: boolean; running: boolean; status: string; health: string; restarts: number; image: string | null };
   sidecars?: Array<{ id: string; running: boolean; status: string; restarts: number }>;
   urls: LiveUrl[];
+  /** Each host port it publishes and the address it binds ("*" on the host's own network), from its deployed compose file. */
+  published?: Array<{ id: string | null; host: number; protocol: string; bind: string; fixed: boolean; web: boolean; hostNetwork?: boolean }>;
   updateAvailable?: boolean;
   updateHistory?: Array<{ at: string; from: Record<string, string>; to: Record<string, string>; rolledBack?: boolean }>;
   installedImage?: string | null;

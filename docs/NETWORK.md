@@ -51,6 +51,58 @@ front a web interface:
 The confirmation names which ports fall into the last two rows before you commit, so switching
 Pi-hole to tailnet-only moves its admin page and leaves the house's DNS answering.
 
+## Publishing an app to the internet
+
+Home network and Tailnet only both keep an app among your own devices. To let someone outside
+open it, say a friend picking up a file from Pingvin Share, BoxPilot can publish it through
+**Cloudflare Tunnel**: the tunnel connects out from this server to Cloudflare, Cloudflare serves the
+app over HTTPS at a name on your own domain, and no port is opened on your router. Your domain has
+to be on Cloudflare (its free plan is enough).
+
+Everything happens on the **Tunnel** tab of the Cloudflare Tunnel app, in the App catalog. Only the
+owner sees it.
+
+1. **Make an API token.** On Cloudflare's [API tokens page](https://dash.cloudflare.com/profile/api-tokens),
+   choose Create Token, then Create Custom Token, and give it these three permissions, for your
+   account and the domain you want to use:
+   - Account · Cloudflare Tunnel · Edit
+   - Zone · DNS · Edit
+   - Zone · Zone · Read
+2. **Connect.** Paste the token and choose **Connect Cloudflare** (high risk: your password). BoxPilot
+   checks the token, makes a tunnel called `boxpilot-<this server's name>` in your account (or uses
+   the one it made before), and installs the Cloudflare Tunnel app with that tunnel's key. If the
+   app was already installed with a token of your own, it now runs BoxPilot's tunnel instead.
+   Nothing is published yet.
+3. **Publish an app.** Choose the app (and its port, if it has more than one), one of your domains,
+   and a name such as `share`; the form shows the address it will have, `https://share.<your
+   domain>`. Tick "This port speaks HTTPS" only for an app that serves HTTPS itself. **Publish** is
+   high risk and asks you to type the full name. Cloudflare adds the name to your domain and sends
+   visitors through the tunnel to the app's port on this server.
+4. **Check it.** The app is listed under Published apps with its link. **Check with Cloudflare**
+   says whether the tunnel is healthy and how many connectors hold it up, and marks a name that was
+   removed in the Cloudflare dashboard.
+
+Things to know:
+
+- **Anyone with the address can open a published app.** There is no extra login in front of it yet,
+  so the app's own sign-in is the only lock: publish only apps that have one, and turn it on.
+  Cloudflare Access (a login in front) is the next step.
+- **Pingvin Share** needs two settings so the links it hands out use the new address: set **Behind a
+  reverse proxy** to Yes in its Settings in BoxPilot, and its **App URL** to the new address in
+  Pingvin Share's own configuration, as its administrator.
+- **BoxPilot never replaces a name that already points somewhere else.** If `share.<your domain>`
+  already has a DNS record, Publish refuses; choose another name or remove that record yourself.
+  Routes and names you add in the Cloudflare dashboard are left alone, and **Unpublish** removes only
+  what BoxPilot made.
+- **An app on this server only can be published too.** The Cloudflare Tunnel app shares the
+  server's own network, so it reaches every app at `127.0.0.1`, whether the app is on the home
+  network or Tailnet only. A port that listens only on the tailnet address cannot be reached; switch
+  the app's Reach first.
+- **Disconnect** forgets the API token and nothing else: the tunnel and the published apps keep
+  working. Unpublish first if you want an app off the internet; connect again to change anything.
+- The token and the tunnel's key are kept in BoxPilot's root-only credential store and never shown
+  again; what BoxPilot published is recorded in `/var/lib/boxpilot-managed/cloudflare-tunnel.json`.
+
 ## Wake-on-LAN
 
 Each device in the neighbour list has a **Wake** button, which sends a magic packet. The device
