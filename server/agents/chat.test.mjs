@@ -144,6 +144,24 @@ describe("the outbox", () => {
     expect(await h.service.chat.drain()).toMatchObject({ sent: 1 });
   });
 
+  it("sends nothing once stopped, not even the send it had already put off", async () => {
+    await h.close();
+    const waiting = [];
+    h = await createAgentsHarness({ serviceOptions: { chatOptions: { schedule: (task) => { waiting.push(task); return null; } } } });
+    h.helperAnswers["agents.zulip.post"] = (parameters) => { posted.push(parameters); return { results: parameters.posts.map((post) => ({ id: post.id, ok: true, messageId: 1 })) }; };
+    h.enable();
+    connect();
+    scriptNoteAndAnswer();
+    await askAndRun(make());
+    expect(waiting.length).toBeGreaterThan(0);
+    h.service.chat.stop();
+    // The put-off send fires after the stop, as it did after a demo world closed its database.
+    for (const task of waiting) task();
+    expect(await h.service.chat.drain()).toMatchObject({ sent: 0, stopped: true });
+    expect(posted).toEqual([]);
+    expect(h.store.listChatPosts({ state: "queued" }).length).toBeGreaterThan(0);
+  });
+
   it("tries a post Zulip would not take three times, then says it failed", async () => {
     connect();
     refuse.add("agent-logs");

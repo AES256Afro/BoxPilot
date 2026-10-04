@@ -156,7 +156,7 @@ async function buildWorld(world, fixtures) {
   });
   return {
     handle: (request, response, next) => { request.boxpilotSession = { owner: { id: owner.id, role: "owner" } }; router(request, response, next); },
-    close: async () => { stop.abort(); await fake.close(); await base.stop("demo over"); store.close(); state.close(); await rm(directory, { recursive: true, force: true }); },
+    close: async () => { stop.abort(); service.chat.stop(); await fake.close(); await base.stop("demo over"); store.close(); state.close(); await rm(directory, { recursive: true, force: true }); },
   };
 }
 
