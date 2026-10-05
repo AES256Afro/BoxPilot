@@ -342,20 +342,21 @@ describe("the services together", { timeout: 30_000 }, () => {
   it("trying a job again with more time after a restart does not push its old failure again", async () => {
     const databasePath = await databaseFile();
     const { now } = clock("2026-09-28T09:00:00Z");
-    // Before the restart: an update ran out of its 40 minutes, and its failure was pushed then.
+    // Before the restart: an update ran out of its own budget, and its failure was pushed then.
+    const budget = registry.get("app.update").timeoutMs;
     const before = createStateStore({ databasePath, now });
     const owner = ownerOf(before);
     webhookTarget(before);
     const ranOut = before.createJob({ type: "op:app.update", title: "Update application", risk: "medium", parameters: { id: "jellyfin" }, createdBy: owner.id, initialSteps: [] });
     before.transitionJob(ranOut.id, "awaiting_approval", "applying");
-    before.transitionJob(ranOut.id, "applying", "failed", { error: "Update application did not finish within 40 minutes.", timeout: { scope: "operation", budgetMs: 2_400_000, elapsedMs: 2_400_000, phase: "running", step: null, lastOutput: null, moreTimeMs: 4_800_000 } });
+    before.transitionJob(ranOut.id, "applying", "failed", { error: "Update application did not finish in time.", timeout: { scope: "operation", budgetMs: budget, elapsedMs: budget, phase: "running", step: null, lastOutput: null, moreTimeMs: 2 * budget } });
     before.close();
 
     const store = openStore(databasePath, now);
     const { jobs, pushes, settled } = await startServices(store, { now });
     const retry = await jobs.retryWithMoreTime(ranOut.id, owner.id);
     await settled();
-    expect(retry).toMatchObject({ state: "awaiting_approval", recovery: expect.objectContaining({ retryOf: ranOut.id, budgetMs: 4_800_000 }) });
+    expect(retry).toMatchObject({ state: "awaiting_approval", recovery: expect.objectContaining({ retryOf: ranOut.id, budgetMs: 2 * budget }) });
     expect(store.getJob(ranOut.id).steps.at(-1)).toMatchObject({ name: "retry", state: "staged" });
     expect(pushes).toEqual([]);
   });

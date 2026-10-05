@@ -32,6 +32,14 @@ import { formatDuration, keepTimeout, timedOut } from "./timeouts.mjs";
  */
 const scaled = (ms, timeScale = 1) => Math.round(ms * (Number.isFinite(timeScale) && timeScale > 1 ? Math.min(timeScale, 16) : 1));
 
+/**
+ * The limits one app backup runs within, and so a checkpoint's: stopping the app, writing the
+ * archive, starting it again. An operation that takes a checkpoint before its change budgets the
+ * ceiling on top of its own steps (ops/apps.mjs), or the checkpoint alone could outlast the job.
+ */
+const backupLimitsMs = Object.freeze({ stop: 2 * 60_000, archive: 60 * 60_000, start: 3 * 60_000 });
+export const checkpointCeilingMs = backupLimitsMs.stop + backupLimitsMs.archive + backupLimitsMs.start;
+
 /** A compose or exec step that hit its own limit is a timeout, not a Docker error. Null otherwise. */
 const stepTimedOut = (result, step, budgetMs) => (result?.timedOut ? timedOut(`${step} did not finish within ${formatDuration(budgetMs)}`, { budgetMs, step }) : null);
 
@@ -1762,26 +1770,26 @@ export function createAppHelper({
     try {
       if (wasRunning) {
         progress?.(`Stopping ${manifest.name} for a consistent backup...`, "stdout");
-        const stop = await compose(id, ["stop"], { timeout: 120_000, progress });
+        const stop = await compose(id, ["stop"], { timeout: backupLimitsMs.stop, progress });
         if (!stop.ok) throw new Error(`docker compose stop failed: ${redact(stop.stderr).split("\n").slice(-3).join(" ")}`);
       }
       try {
         await mkdir(backupDirectory, { recursive: true, mode: 0o700 });
         progress?.(`$ tar -czf ${stamp}.tar.gz ${contents.join(" ")}`, "stdout");
-        const archive = await runCommand(tarBinary, ["-czf", partial, "-C", directory, ...contents], { timeout: 60 * 60_000, maxBuffer: 4 * 1024 * 1024 });
+        const archive = await runCommand(tarBinary, ["-czf", partial, "-C", directory, ...contents], { timeout: backupLimitsMs.archive, maxBuffer: 4 * 1024 * 1024 });
         if (!archive.ok) throw new Error(`tar failed: ${archive.stderr.split("\n").slice(-2).join(" ")}`);
       } catch (error) {
         await rm(partial, { force: true }).catch(() => {});
         // Said with the failure: a start that did not work left the app down while the job spoke
         // only of tar (a full disk fails both).
-        const back = wasRunning ? await compose(id, ["start"], { timeout: 180_000, progress }).catch((failure) => ({ ok: false, stderr: failure.message })) : { ok: true };
+        const back = wasRunning ? await compose(id, ["start"], { timeout: backupLimitsMs.start, progress }).catch((failure) => ({ ok: false, stderr: failure.message })) : { ok: true };
         if (!back.ok) throw new Error(`${String(error.message).replace(/[.\s]+$/, "")}. ${manifest.name} did not start again either: ${redact(back.stderr ?? "").split("\n").slice(-3).join(" ") || "docker compose start failed"}`);
         throw error;
       } finally {
         if (wasRunning) downtimeMs = clock().getTime() - started;
       }
       if (wasRunning) {
-        const start = await compose(id, ["start"], { timeout: 180_000, progress });
+        const start = await compose(id, ["start"], { timeout: backupLimitsMs.start, progress });
         if (!start.ok) restartError = redact(start.stderr).split("\n").slice(-3).join(" ");
       }
       await syncFile(partial);
