@@ -195,3 +195,79 @@ describe("the catalog summary view", () => {
     } finally { server.close(); }
   });
 });
+
+describe("the install and settings precheck", () => {
+  const serve = async ({ live = [], listeners = [] } = {}) => {
+    const [{ default: express }, { createHostRouter }, { createCatalogService }] = await Promise.all([import("express"), import("./host.mjs"), import("../catalog/index.mjs")]);
+    const app = express();
+    app.use(express.json());
+    app.use("/api/v1", createHostRouter({
+      state: { getSetting: (_key, fallback) => fallback },
+      helper: { request: async (operation) => (operation === "app.inspect" ? { applications: live } : { containers: [] }) },
+      catalogService: createCatalogService(), inventory: { inspect: async () => ({}) },
+      network: {}, controllerProtection: {}, controllerRetention: {}, githubProvenance: {}, releaseUpdates: {},
+      setup: {}, supportBundle: {}, audit: {}, auth: { requireCsrf: (_q, _s, next) => next(), requireRole: () => (_q, _s, next) => next() },
+      readListeners: async () => listeners,
+    }));
+    const server = app.listen(0);
+    await new Promise((resolve) => server.once("listening", resolve));
+    const base = `http://127.0.0.1:${server.address().port}`;
+    const precheck = async (id, values) => {
+      const response = await fetch(`${base}/api/v1/catalog/${id}/precheck`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ values }) });
+      return { status: response.status, body: await response.json() };
+    };
+    return { precheck, close: () => { server.closeAllConnections?.(); server.close(); } };
+  };
+  const installedApp = (id, values = { ports: {}, env: {}, volumes: {} }, extra = {}) => ({ id, installed: true, state: { values }, published: [], ...extra });
+
+  // R2B3-3: saved settings never hold a secret, so the Settings form sends the Cloudflare Tunnel's
+  // token blank, and the precheck refused what the change itself takes from the app's .env.
+  it("takes a required secret of an installed app as the one it already has", async () => {
+    const { precheck, close } = await serve({ live: [installedApp("cloudflared"), installedApp("cloudflare-ddns", { ports: {}, env: { DOMAINS: "home.example.com" }, volumes: {} })] });
+    try {
+      expect(await precheck("cloudflared", {})).toEqual({ status: 200, body: { ok: true, errors: [], conflicts: [] } });
+      expect(await precheck("cloudflare-ddns", { env: { DOMAINS: "home.example.com", CLOUDFLARE_API_TOKEN: "" } })).toEqual({ status: 200, body: { ok: true, errors: [], conflicts: [] } });
+      // A setting that is not a secret is still required.
+      expect((await precheck("cloudflare-ddns", { env: {} })).body.errors).toEqual(["values.env.DOMAINS: is required"]);
+    } finally { close(); }
+  });
+
+  it("still asks for it when the app is not installed", async () => {
+    const { precheck, close } = await serve();
+    try {
+      expect(await precheck("cloudflared", {})).toEqual({ status: 400, body: { ok: false, errors: ["values.env.TUNNEL_TOKEN: is required"], conflicts: [] } });
+      expect((await precheck("cloudflare-ddns", { env: { DOMAINS: "home.example.com" } })).body.errors).toEqual(["values.env.CLOUDFLARE_API_TOKEN: is required"]);
+    } finally { close(); }
+  });
+
+  // R2B3-4: on the host's own network an app binds its container ports, not the ones it would publish.
+  it("checks Pi-hole on the host network at the ports it binds there, not the ones it publishes on its own", async () => {
+    const program = (port, address = "0.0.0.0") => ({ protocol: "tcp", address, port, scope: address === "0.0.0.0" ? "wildcard" : "loopback" });
+    const { precheck, close } = await serve({ listeners: [program(53, "127.0.0.53"), program(80), program(8084)] });
+    try {
+      const host = await precheck("pi-hole", { networkMode: "host" });
+      // Port 80 is its admin page's, which Pi-hole starts without: the install says so, it does not refuse.
+      expect(host.body.conflicts.map((conflict) => `${conflict.port}/${conflict.protocol}`)).toEqual(["53/tcp"]);
+      // On its own network it publishes 8084 for the admin page, and binds nothing on 80.
+      const bridge = await precheck("pi-hole", { networkMode: "bridge" });
+      expect(bridge.body.conflicts.map((conflict) => `${conflict.port}/${conflict.protocol}`)).toEqual(["53/tcp", "8084/tcp"]);
+    } finally { close(); }
+  });
+
+  it("does not report Pi-hole on the host network as conflicting with itself", async () => {
+    const own = installedApp("pi-hole", { ports: {}, env: {}, volumes: {}, networkMode: "host" }, {
+      published: [{ id: "dns-tcp", host: 53, protocol: "tcp", bind: "*", hostNetwork: true }, { id: "dns-udp", host: 53, protocol: "udp", bind: "*", hostNetwork: true }, { id: "web", host: 80, protocol: "tcp", bind: "*", hostNetwork: true }],
+    });
+    const { precheck, close } = await serve({ live: [own], listeners: [{ protocol: "tcp", address: "0.0.0.0", port: 53, scope: "wildcard" }] });
+    try {
+      expect((await precheck("pi-hole", { networkMode: "host" })).body).toEqual({ ok: true, errors: [], conflicts: [] });
+    } finally { close(); }
+  });
+});
+
+describe("the ports an app on the host network already holds", () => {
+  it("are the ones it binds there, as the app's own record lists them", () => {
+    const own = { installed: true, state: { values: { ports: {} } }, published: [{ id: "web", host: 80, protocol: "tcp", bind: "*", hostNetwork: true }] };
+    expect(portsHeldByApp(piHole, own).has("80/tcp")).toBe(true);
+  });
+});
