@@ -46,6 +46,24 @@ export function timedOut(message, { budgetMs, step = null, scope = "step", phase
 /** Whether what ran out of time may still be running: the whole operation given up on, or a step left running. */
 export const mayStillBeRunning = (timeout) => Boolean(timeout) && timeout.phase !== "queued" && (timeout.scope === "operation" || timeout.stillRunning === true);
 
+/**
+ * How long after it ran out a job may still be running on the server (sweep 5): 12 hours, the most any
+ * operation runs, or as long again as its own budget when that was longer. Nothing records what was
+ * left running stopping, and one timeout used to hide a finding's fix for weeks. The page says the same.
+ */
+export const stillRunningForMs = 12 * 60 * 60_000;
+
+/**
+ * Whether a job that ran out of time at `endedAt` (its last change, an ISO time) may still be running
+ * at `now`: mayStillBeRunning, for no longer than stillRunningForMs or its budget past its end.
+ */
+export function mayStillBeRunningAt(timeout, endedAt, now = Date.now()) {
+  if (!mayStillBeRunning(timeout)) return false;
+  const ended = Date.parse(endedAt ?? "");
+  if (!Number.isFinite(ended)) return true;
+  return now < ended + Math.max(stillRunningForMs, Number(timeout.budgetMs) || 0);
+}
+
 /** Carry a cause's timeout onto the error that wraps it ("the update failed and was rolled back. ..."). */
 export function keepTimeout(cause, error) {
   const timeout = timeoutOf(cause);

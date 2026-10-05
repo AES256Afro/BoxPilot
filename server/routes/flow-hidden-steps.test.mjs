@@ -164,6 +164,35 @@ describe("an owner-only step in a flow an operator edits", () => {
     expect(state.getFlow(flowId).steps).toEqual([{ operationId: "apt.refresh", parameters: {}, name: "refresh" }, { operationId: "http.request", parameters: request, ownerAdded: true }]);
     expect((await shown("owner")).ownerToKeep).toEqual([]);
   });
+
+  it("is not kept by an owner's edit elsewhere that moves it to another place (sweep 5)", async () => {
+    // The step was matched by position: an owner removing the step before it shifted it to a place
+    // where nothing was stored, and it was marked as the owner's own and ran.
+    const plain = { operationId: "http.request", parameters: { url: "https://ntfy.example/topic", method: "POST" } };
+    state.deleteFlow(flowId, { actorId: owner.id });
+    flowId = state.createFlow({ name: "Tidy", steps: [{ operationId: "apt.refresh", parameters: {} }, { operationId: "apt.refresh", parameters: {}, retry: 1 }, plain], createdBy: operator.id }).id;
+    expect((await shown("owner")).ownerToKeep).toEqual([{ step: 3, title: "Send an HTTP request", reads: [] }]);
+    const removed = await call("PUT", `/api/v1/flows/${flowId}`, sessions.owner, { steps: (await shown("owner")).steps.slice(1) });
+    expect(removed.status).toBe(200);
+    expect(state.getFlow(flowId).steps).toEqual([{ operationId: "apt.refresh", parameters: {}, retry: 1 }, plain]);
+    expect((await shown("owner")).ownerToKeep).toEqual([{ step: 2, title: "Send an HTTP request", reads: [] }]);
+    expect((await call("POST", `/api/v1/flows/${flowId}/run`, sessions.owner)).status).toBe(409);
+    // Nor by one that puts a step in front of it.
+    const inserted = await call("PUT", `/api/v1/flows/${flowId}`, sessions.owner, { steps: [{ operationId: "apt.refresh", parameters: {} }, ...(await shown("owner")).steps] });
+    expect(inserted.status).toBe(200);
+    expect(state.getFlow(flowId).steps[2]).toEqual(plain);
+    expect((await shown("owner")).ownerToKeep).toEqual([{ step: 3, title: "Send an HTTP request", reads: [] }]);
+    // Kept, it stays kept wherever the owner's edits move it.
+    expect((await call("PUT", `/api/v1/flows/${flowId}`, sessions.owner, { keepStep: 3 })).status).toBe(200);
+    expect((await call("PUT", `/api/v1/flows/${flowId}`, sessions.owner, { steps: (await shown("owner")).steps.slice(1) })).status).toBe(200);
+    expect(state.getFlow(flowId).steps[1]).toEqual({ ...plain, ownerAdded: true });
+    expect((await shown("owner")).ownerToKeep).toEqual([]);
+    // Changed by the owner, it is the owner's own.
+    state.updateFlow(flowId, { steps: [{ operationId: "apt.refresh", parameters: {} }, plain] }, { actorId: owner.id });
+    const changed = await call("PUT", `/api/v1/flows/${flowId}`, sessions.owner, { steps: [{ operationId: "apt.refresh", parameters: {} }, { ...plain, parameters: { ...plain.parameters, url: "https://ntfy.example/other" } }] });
+    expect(changed.status).toBe(200);
+    expect(state.getFlow(flowId).steps[1].ownerAdded).toBe(true);
+  });
 });
 
 describe("a step an owner-only step reads (sweep 3)", () => {

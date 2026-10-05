@@ -149,7 +149,11 @@ export function defineOperation(definition) {
   // another job runs would interrupt that job. The job service refuses the approval when so.
   // "drained": it may restart BoxPilot when what it did calls for it (a package change that replaced
   // libc, KVM installed), through the helper's drained restart (self-restart.mjs), which waits for
-  // every job running beside it to finish first. Nothing is cut off, so it is not refused beside them.
+  // the helper's work running beside it to finish first, so it is not refused beside other jobs. That
+  // is only work the helper holds: a change sent while the restart is under way (an automation's next
+  // step) is turned away unstarted, and the job layer sends it again once BoxPilot is back, and an
+  // automation the web side's own restart stopped between two steps goes on from the step that had not
+  // begun (flows.mjs recover).
   // supersededWhen(parameters, { version }): why a job of this operation, staged and still waiting,
   // no longer has anything to do (an update to a version already running), or null. The job service
   // cancels such a job with that reason rather than let it wait for an approval that would do harm

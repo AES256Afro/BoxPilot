@@ -27,14 +27,25 @@ export function moreTimeOffered(job: Pick<Job, "state" | "timeout"> | null | und
 }
 
 /**
- * Whether what ran out of time may still be running on the server: the whole operation given up on,
- * or a step left running (a root task past its own limit). The same rule as the server's. Such a job
- * is not run again from a page - that would start a second copy beside the first - unless the server
- * itself offered it more time (moreTimeOffered), which it does only where the helper keeps the two apart.
+ * How long after it ran out a job may still be running on the server: 12 hours, the most any
+ * operation runs, or as long again as its own budget when that was longer. The server's rule
+ * (timeouts.mjs stillRunningForMs); one timeout used to hide a finding's fix for weeks.
  */
-export function mayStillBeRunning(job: { state?: string | null; timeout?: JobTimeout | null } | null | undefined): boolean {
+export const stillRunningForMs = 12 * 3_600_000;
+
+/**
+ * Whether what ran out of time may still be running on the server: the whole operation given up on,
+ * or a step left running (a root task past its own limit), and not yet stillRunningForMs past its end
+ * (a finding's last try carries `at`, a job `updatedAt`) nor settled by the server. The same rule as
+ * the server's. Such a job is not run again from a page - that would start a second copy beside the
+ * first - unless the server itself offered it more time (moreTimeOffered), which it does only where
+ * the helper keeps the two apart.
+ */
+export function mayStillBeRunning(job: { state?: string | null; timeout?: JobTimeout | null; at?: string | null; updatedAt?: string | null; createdAt?: string | null } | null | undefined, now: number = Date.now()): boolean {
   const timeout = job?.state === "failed" ? job.timeout ?? null : null;
-  return timeout !== null && timeout.phase !== "queued" && (timeout.scope === "operation" || timeout.stillRunning === true);
+  if (timeout === null || timeout.phase === "queued" || !(timeout.scope === "operation" || timeout.stillRunning === true) || timeout.settled === true) return false;
+  const ended = Date.parse(job?.at ?? job?.updatedAt ?? job?.createdAt ?? "");
+  return !Number.isFinite(ended) || now < ended + Math.max(stillRunningForMs, Number(timeout.budgetMs) || 0);
 }
 
 /**

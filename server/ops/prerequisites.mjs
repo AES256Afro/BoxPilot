@@ -73,7 +73,7 @@ export function prerequisiteOperations() {
         const scheduled = selfRestart?.request(["boxpilot-helper.service"], { reason: "KVM was installed, and the helper must restart to write to /var/lib/libvirt" }) === true;
         progress?.(scheduled
           ? "BoxPilot's helper restarts once this job and any work running beside it have finished, so virtual machine work can write to /var/lib/libvirt."
-          : "BoxPilot's helper needs a restart before virtual machines can be created, and none could be arranged. Restart BoxPilot from the System page.", scheduled ? "stdout" : "stderr");
+          : "BoxPilot's helper needs a restart before virtual machines can be created, and none could be arranged. Restart boxpilot-helper.service from the Services page.", scheduled ? "stdout" : "stderr");
         return { ...result, helperRestartScheduled: scheduled };
       },
     }),

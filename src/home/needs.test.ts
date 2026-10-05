@@ -56,6 +56,9 @@ describe("what needs you", () => {
     expect(repair.view).toBe("repairs");
     expect(needs.find((need) => need.id === "approval:s1")).toMatchObject({ risk: "medium", view: "repairs", action: { operationId: "storage.remount", label: "Review", risk: "medium", existingJobId: "s1", parameters: {} } });
     expect(needs.find((need) => need.id === "alert:flow.failed:0")).toMatchObject({ view: "automations", detail: "Since 30 hours ago" });
+    // BoxPilot's own restart that gave up or failed is made from Services (sweep 5).
+    const [restart] = buildNeeds(facts({ watch: { targetConfigured: true, alerts: [{ family: "boxpilot.restart", title: "BoxPilot needs a restart", since: hoursAgo(2), announced: true }], notices: [] } }), { now, role: "owner" });
+    expect(restart).toMatchObject({ id: "alert:boxpilot.restart:0", view: "services" });
     expect(needs.find((need) => need.id === "updates")).toMatchObject({ title: "4 updates available", detail: "1 security fix among them", action: { operationId: "apt.upgrade", risk: "medium" } });
   });
 
@@ -282,7 +285,25 @@ describe("Repair's fixes on Home and Ops (M35)", () => {
     const running = { ...finding, lastAttempt: { ...finding.lastAttempt, timeout: { scope: "step" as const, budgetMs: 1, elapsedMs: 1, phase: "running" as const, step: "Root task storage.remount", lastOutput: null, moreTimeMs: null, stillRunning: true } } };
     const [left] = buildNeeds(facts({ repairs: { findings: [running], unavailableChecks: [], jobs: { attached: ["r4"], resolved: [], dismissed: [] } }, jobs: [refused] }), { now, role: "owner" });
     expect(left.action).toBeNull();
-    expect(left.actions).toBeUndefined();
+    // Only letting that try go, which opens the fix again (sweep 5); its title opens the job.
+    expect(left).toMatchObject({ jobId: "r4", actions: [{ kind: "dismiss", label: "Dismiss this try" }] });
+    expect(buildNeeds(facts({ repairs: { findings: [running], unavailableChecks: [] } }), { now, role: "viewer" })[0].actions).toBeUndefined();
+  });
+
+  it("offers a finding's fix again once its try can no longer be running: 12 hours on, or let go (sweep 5)", () => {
+    // One timeout hid the drive's Reconnect for weeks.
+    const remount = { operationId: "storage.remount", parameters: { name: "media" }, label: "Reconnect the drive", preview: "", risk: "medium" as const };
+    const timeout = { scope: "step" as const, budgetMs: 540_000, elapsedMs: 600_000, phase: "running" as const, step: "Root task storage.remount", lastOutput: null, moreTimeMs: null, stillRunning: true };
+    const tried = (at: string, extra: Record<string, unknown> = {}) => ({ id: "stale-mount:media", severity: "critical" as const, title: "/mnt/media is mounted from a drive that is gone", detail: "", evidence: [], fix: remount, fixes: [remount], manual: null,
+      lastAttempt: { jobId: "r4", state: "failed", error: "Reconnect a drive stopped waiting: Root task storage.remount did not finish within 9 minutes.", at, title: "Reconnect a drive", operationId: "storage.remount", label: "Reconnect the drive", timeout: { ...timeout, ...extra } } });
+    const actionOf = (finding: ReturnType<typeof tried>) => buildNeeds(facts({ repairs: { findings: [finding], unavailableChecks: [] } }), { now, role: "owner" })[0].action;
+    expect(actionOf(tried(hoursAgo(30 * 24)))).toMatchObject({ label: "Try again", operationId: "storage.remount" });
+    expect(actionOf(tried(hoursAgo(13)))).toMatchObject({ label: "Try again", operationId: "storage.remount" });
+    expect(actionOf(tried(hoursAgo(11)))).toBeNull();
+    expect(actionOf(tried(hoursAgo(1), { settled: true }))).toMatchObject({ label: "Try again" });
+    // A failed job of its own the same: run again once it can no longer be running.
+    const failed = job({ id: "x1", type: "op:storage.check", title: "Check a drive", state: "failed", error: "Check a drive stopped waiting.", parameters: { name: "media" }, createdAt: hoursAgo(40), updatedAt: hoursAgo(39), timeout: { ...timeout, step: "Root task storage.check" } });
+    expect(buildNeeds(facts({ jobs: [failed] }), { now, role: "owner" })[0].action).toMatchObject({ label: "Try again", operationId: "storage.check" });
   });
 
   it("offers the fix's own place, not Try again, when its last failure names one, and keeps what the error says to do", () => {
@@ -307,6 +328,25 @@ describe("Repair's fixes on Home and Ops (M35)", () => {
     expect(need.actions?.map((action) => [action.kind, action.label])).toEqual([["open", "Open Repair"], ["dismiss", "Dismiss"]]);
     expect(groupByTier([need]).look).toHaveLength(1);
     expect(buildNeeds(facts({ jobs: [refused] }), { now, role: "viewer" })[0].actions).toBeUndefined();
+  });
+
+  it.each([
+    ["op:app.backup.restore", "Restore application data from a backup", { id: "immich", backup: "20260901T030000Z.tar.gz" },
+      "Immich was not restored; nothing was changed. In this backup .env.tmp is a link, or not a plain file, where BoxPilot writes Immich's own files as root, which a backup BoxPilot made never holds: restored, the next change to Immich would have written through it to somewhere else on this server."],
+    ["op:host.snapshot.restore", "Restore from a machine snapshot", { name: "boxpilot-machine-20260901-030000.tar.zst" },
+      "The snapshot holds srv/data/link, links or special files, which a snapshot BoxPilot made never does. Nothing was changed."],
+    ["op:housekeeping.unreadable-snapshot.remove", "Remove an unreadable machine snapshot", { name: "boxpilot-machine-20260901-030000.tar.zst" },
+      "boxpilot-machine-20260901-030000.tar.zst can be read now, so it was not removed."],
+    ["op:housekeeping.unreadable-snapshot.remove", "Remove an unreadable machine snapshot", { name: "boxpilot-machine-20260901-030000.tar.zst" },
+      "boxpilot-machine-20260901-030000.tar.zst is no longer there"],
+    ["op:app.backup.restore", "Restore application data from a backup", { id: "immich", backup: "20260901T030000Z.tar.gz" },
+      "Backup 20260901T030000Z.tar.gz failed its checksum; it may be damaged. Nothing was changed."],
+  ])("offers only Dismiss on %s refused for what its file holds or whether it is there (sweep 5)", (type, title, parameters, error) => {
+    // Try again on the high-risk restore asked for the password, then refused the same way.
+    const refused = job({ id: "x1", type, title, state: "failed", error, parameters });
+    const [need] = buildNeeds(facts({ jobs: [refused] }), { now, role: "owner" });
+    expect(need).toMatchObject({ id: "job:x1", action: null });
+    expect(need.actions?.map((action) => [action.kind, action.label])).toEqual([["dismiss", "Dismiss"]]);
   });
 
   it("lets a failed job go once its finding is gone, it was dismissed, or the same thing later worked", () => {

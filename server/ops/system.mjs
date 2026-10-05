@@ -53,7 +53,9 @@ export function systemOperations() {
     defineOperation({
       id: "system.runtime.inspect", title: "Check BoxPilot helper resource use", risk: "low", readOnly: true, timeoutMs: 10_000,
       description: "Reads the helper process memory, CPU and Linux pressure counters. Starts no disk scans or child processes.",
-      run: () => runtimeDiagnostics.inspect(),
+      // And where BoxPilot's own drained restart stands (self-restart.mjs): the health check raises
+      // "BoxPilot needs a restart" from one that gave up or failed (sweep 5).
+      run: async (_parameters, { selfRestart } = {}) => ({ ...await runtimeDiagnostics.inspect(), selfRestart: selfRestart?.status?.() ?? null }),
     }),
     defineOperation({
       id: "system.web.lan.set", title: "Reach BoxPilot on your local network", risk: "medium", timeoutMs: 2 * 60_000, minimumRole: "owner", restartsService: true,

@@ -12,7 +12,7 @@ import { createHostInspectHelper } from "./host-inspect-helper.mjs";
 import { executeHelperOperation } from "./helper-protocol.mjs";
 import { helperErrorReply, helperQueuedFrame, helperStartedFrame } from "./helper-response.mjs";
 import { createConcurrencyGate, createLaneQueues, laneFor } from "./helper-lanes.mjs";
-import { createDrainedRestart } from "./self-restart.mjs";
+import { createDrainedRestart, restartRefusalError } from "./self-restart.mjs";
 import { resumeInterruptedBackups } from "./interrupted-backups.mjs";
 import { createVmRecoveryHelper } from "./vm-recovery-helper.mjs";
 import { createVmRestoreDrillHelper } from "./vm-restore-drill-helper.mjs";
@@ -41,12 +41,14 @@ const lanes = createLaneQueues();
 // holding any, then holding the exclusive lane so nothing new starts before it. From the moment it
 // begins, what waits in a lane and what arrives is answered at once, with nothing done, while the web
 // side is still there to record it: stopped first, it used to mark those jobs as cut off mid-run.
+// The refusal carries its own code (helper_restarting), so the web side's job layer waits for
+// BoxPilot to come back and sends it again once: an automation's next step, sent in the moment
+// between its last step and the restart, is not lost to it (sweep 5).
 let restarting = false;
-const restartRefusal = "BoxPilot is restarting to pick up what an update changed, so this did not start and nothing was changed. Run it again once BoxPilot is back, in a minute.";
 const selfRestart = createDrainedRestart({ lanes, run: fixedRun, onRestarting: (active) => {
   restarting = active;
   if (!active) return;
-  for (const queued of waiting) queued.refuse(restartRefusal);
+  for (const queued of waiting) queued.refuse(restartRefusalError());
   waiting.clear();
 } });
 // Inspections do not queue per subject, so this is what stops a page in a reload loop from
@@ -152,7 +154,7 @@ const server = net.createServer({ allowHalfOpen: true }, (connection) => {
       if (readOnlyOperations.has(request.operation)) {
         result = await reads.run(() => executeHelperOperation(request, helperDependencies), { signal: abandoned.signal });
       } else {
-        if (restarting) throw new Error(restartRefusal);
+        if (restarting) throw restartRefusalError();
         const held = laneFor(request.operation, request.parameters);
         // Waiting behind another operation must not look like a hung request: a heartbeat line keeps
         // both idle timers alive; the client reads those lines as progress, not as the reply.
@@ -169,7 +171,7 @@ const server = net.createServer({ allowHalfOpen: true }, (connection) => {
         }
         // While it waits, a stop of the helper (a drained self-restart holds every lane until then)
         // answers it at once with nothing done, rather than holding the stop until systemd kills it.
-        const queued = { refused: false, refuse: (why = "BoxPilot's helper restarted before this began, so nothing was changed. Run it again.") => { queued.refused = true; if (heartbeat) { clearInterval(heartbeat); heartbeat = null; } reply(helperErrorReply(request?.id ?? null, new Error(why))); } };
+        const queued = { refused: false, refuse: (refusal = restartRefusalError("BoxPilot's helper restarted before this began, so nothing was changed. Run it again.")) => { queued.refused = true; if (heartbeat) { clearInterval(heartbeat); heartbeat = null; } reply(helperErrorReply(request?.id ?? null, refusal)); } };
         waiting.add(queued);
         try {
           result = await lanes.run(held, async (holdUntil) => {
