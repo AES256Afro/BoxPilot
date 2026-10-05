@@ -30,6 +30,8 @@
 #   5. The host doctor, run with sudo, asks the web service where the env file says it listens.
 #   6. An installer re-run stopped by HUP (the SSH session dropped), during the build or once the
 #      upgrade has stopped the service, puts the env file back and restarts BoxPilot on it.
+#   7. An upgrade stopped during its build (HUP, TERM) removes its staging tree, and the next upgrade
+#      removes one an earlier run left.
 set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -479,6 +481,42 @@ hup_install_case() {
 }
 hup_install_case "HUP during the build" build
 hup_install_case "HUP once the upgrade has stopped the service" swap
+
+echo "7. An upgrade stopped during its build leaves no staging tree behind"
+staging_left() { ls -d "${FAKE}"/opt/boxpilot.staging.* >/dev/null 2>&1; }
+# build_signal_case <what> <signal>: the upgrade's process group gets the signal at `npm ci`, as an
+# SSH session dropping (HUP) or systemd stopping the update unit (TERM) would send it. The staging
+# tree was only ever removed when the build failed on its own, so each of these left a copy of
+# BoxPilot in /opt that nothing came back for.
+build_signal_case() {
+  local what="$1" signal="$2" pid
+  fresh_box 'BOXPILOT_PORT=8787'
+  set -m
+  (cd "$WORK" && exec env "${common_env[@]}" STUB_TARBALL="${WORK}/release.tar.gz" STUB_LISTEN=http://127.0.0.1:8787/api/v1/health STUB_NPM_HOLD=1 "$SH" "${WORK}/upgrade.sh" v2.0.0 > "${WORK}/out" 2>&1) &
+  pid=$!
+  set +m
+  if wait_for "${STUB_LOG}/npm-held"; then kill "-${signal}" -- "-${pid}"; else echo "    (never reached the build)"; fi
+  : > "${STUB_LOG}/npm-release"
+  wait "$pid" 2>/dev/null; status=$?
+  out="$(cat "${WORK}/out")"
+  show "$out
+(the upgrade exited ${status})"
+  check "${what}: the upgrade exited non-zero" '[ "$status" -ne 0 ]'
+  check "${what}: no staging tree is left" '! staging_left'
+  check "${what}: the old tree is in place and the service was never stopped" '[ "$(version_at "${FAKE}/opt/boxpilot")" = 1.0.0 ] && ! grep -q "^stop" "${STUB_LOG}/systemctl"'
+}
+build_signal_case "HUP during the build" HUP
+build_signal_case "TERM during the build" TERM
+
+# What a run stopped outright left (SIGKILL, a power cut): the next upgrade, once it holds the lock,
+# clears it. Housekeeping offers it too (server/housekeeping.mjs).
+fresh_box 'BOXPILOT_PORT=8787'
+mkdir -p "${FAKE}/opt/boxpilot.staging.20260101T000000Z/node_modules"
+printf '{"name":"boxpilot","version":"1.5.0"}\n' > "${FAKE}/opt/boxpilot.staging.20260101T000000Z/package.json"
+run_upgrade STUB_LISTEN=http://127.0.0.1:8787/api/v1/health
+show "$out"
+check "a staging tree an earlier run left: the upgrade went live" '[ "$status" -eq 0 ] && [ "$(version_at "${FAKE}/opt/boxpilot")" = 2.0.0 ]'
+check "a staging tree an earlier run left: it is gone, and the upgrade said so" '! staging_left && grep -q "removed .*/opt/boxpilot.staging.20260101T000000Z" <<<"$out"'
 
 if [ "$failures" -gt 0 ]; then echo "${failures} check(s) failed"; exit 1; fi
 echo "all checks passed"
