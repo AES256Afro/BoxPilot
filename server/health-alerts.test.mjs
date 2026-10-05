@@ -524,4 +524,15 @@ describe("jobs a restart cut off (M27.2)", () => {
     expect(state["job.interrupted:app.backup:immich"].title).toBe("Back up application data (immich) was interrupted");
     expect(jobNoticeKey("job.interrupted", jobsById.backup)).toBe("job.interrupted:app.backup:immich");
   });
+
+  it("says a job BoxPilot restarted before it began changed nothing (sweep 4)", async () => {
+    const settings = new Map();
+    const store = { getSetting: (key, fallback) => settings.get(key) ?? fallback, setSetting: (key, value) => settings.set(key, value), recordAudit: vi.fn(), getJob: () => ({ id: "queued", type: "op:apt.upgrade", title: "Install package updates", parameters: {} }), listFlows: () => [] };
+    const alerts = createHealthAlerts({ inventory: { inspect: async () => ({}) }, notifications: { getTarget: () => null, send: vi.fn() }, store, now: () => new Date("2026-09-27T03:00:00Z") });
+    await tellInterrupted({ alerts, store, interrupted: [{ id: "queued", title: "Install package updates", neverStarted: true }] });
+    expect(settings.get("healthAlertsState")["job.interrupted:apt.upgrade"]).toMatchObject({
+      title: "Install package updates did not start",
+      message: "BoxPilot restarted before it began, so nothing was changed. Run it again when you are ready.",
+    });
+  });
 });

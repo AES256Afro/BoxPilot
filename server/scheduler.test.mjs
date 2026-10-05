@@ -466,6 +466,22 @@ describe("what the Schedules panel says about the last run (M27.2)", () => {
     expect(outcomeOf(scheduler, schedule.id)).toMatchObject({ lastOutcome: "failed", lastReason: "interrupted by a BoxPilot restart" });
     store.close();
   });
+
+  it("says a run BoxPilot restarted before it began did not run, and told the owner nothing changed (sweep 4)", async () => {
+    let clock = new Date("2026-08-20T02:59:00");
+    const { store, jobs, owner, registry } = await setup();
+    const messages = [];
+    const alerts = { raise: async (alert) => { messages.push(alert); }, clear: async () => {} };
+    const scheduler = createSchedulerService({ store, jobs, registry, now: () => clock, alerts });
+    const schedule = await scheduler.create({ operationId: "app.backup", parameters: { id: "jellyfin" }, frequency: "daily", minute: 0, hour: 3, createdBy: owner.id });
+    clock = new Date("2026-08-20T03:00:30");
+    await scheduler.tick();
+    const jobId = store.getSchedule(schedule.id).lastJobId;
+    createSchedulerService({ store, jobs, registry, now: () => clock, alerts }).recover([{ id: jobId, title: "Back up application data", neverStarted: true }]);
+    expect(outcomeOf(scheduler, schedule.id)).toMatchObject({ lastOutcome: "did-not-run", lastReason: "BoxPilot restarted before it began" });
+    await vi.waitFor(() => expect(messages.at(-1)?.message).toBe("BoxPilot restarted before it began, so nothing ran or changed. It runs again at its next time."));
+    store.close();
+  });
 });
 
 describe("a scheduled run whose result was not saved (M27.2)", () => {

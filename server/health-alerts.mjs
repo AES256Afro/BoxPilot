@@ -104,8 +104,11 @@ export function tellInterrupted({ alerts, store, interrupted = [], owned = new S
     const subject = job.parameters?.id ?? job.parameters?.name ?? null;
     return alerts.tell({
       key: jobNoticeKey("job.interrupted", job),
-      title: `${job.title ?? "A job"}${typeof subject === "string" && subject ? ` (${subject.slice(0, 64)})` : ""} was interrupted`,
-      message: "BoxPilot restarted while it was running, so it is marked failed. The operation may still have finished on its own; check what it changed before retrying.",
+      // One BoxPilot restarted before it began (still queued in the helper) changed nothing.
+      title: `${job.title ?? "A job"}${typeof subject === "string" && subject ? ` (${subject.slice(0, 64)})` : ""} ${interruptedJob.neverStarted ? "did not start" : "was interrupted"}`,
+      message: interruptedJob.neverStarted
+        ? "BoxPilot restarted before it began, so nothing was changed. Run it again when you are ready."
+        : "BoxPilot restarted while it was running, so it is marked failed. The operation may still have finished on its own; check what it changed before retrying.",
       priority: "high",
     }).catch(() => ({ notified: false }));
   });

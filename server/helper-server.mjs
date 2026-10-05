@@ -37,9 +37,18 @@ const maxRequestBytes = 128 * 1024; // compose edits and key imports declare 64 
 const legacyReadOnlyOperations = new Set(["container.docker.inspect", "container.docker.inventory", "controller.database.backup.inspect", "controller.database.protection.inspect", "controller.database.protection.retention.inspect", "virtualization.foundation.inspect", "virtualization.media.inspect", "virtualization.inventory.inspect", "virtualization.console.inspect", "virtualization.domain.export.inspect", "virtualization.export.backup.inspect", "virtualization.export.backup.retention.inspect", "virtualization.export.backup.restore-drill.inspect", "virtualization.backup.recovery.inspect"]);
 const readOnlyOperations = new Set([...registry.readOnlyIds(), ...legacyReadOnlyOperations]);
 const lanes = createLaneQueues();
-// BoxPilot restarting itself after an upgrade or a KVM install: once every lane has drained, and
-// holding the exclusive lane so nothing new starts before it.
-const selfRestart = createDrainedRestart({ lanes, run: fixedRun });
+// BoxPilot restarting itself after an upgrade or a KVM install: once no lane is held, waiting without
+// holding any, then holding the exclusive lane so nothing new starts before it. From the moment it
+// begins, what waits in a lane and what arrives is answered at once, with nothing done, while the web
+// side is still there to record it: stopped first, it used to mark those jobs as cut off mid-run.
+let restarting = false;
+const restartRefusal = "BoxPilot is restarting to pick up what an update changed, so this did not start and nothing was changed. Run it again once BoxPilot is back, in a minute.";
+const selfRestart = createDrainedRestart({ lanes, run: fixedRun, onRestarting: (active) => {
+  restarting = active;
+  if (!active) return;
+  for (const queued of waiting) queued.refuse(restartRefusal);
+  waiting.clear();
+} });
 // Inspections do not queue per subject, so this is what stops a page in a reload loop from
 // starting dozens of root child processes at once.
 const reads = createConcurrencyGate(8);
@@ -142,6 +151,7 @@ const server = net.createServer({ allowHalfOpen: true }, (connection) => {
       if (readOnlyOperations.has(request.operation)) {
         result = await reads.run(() => executeHelperOperation(request, helperDependencies), { signal: abandoned.signal });
       } else {
+        if (restarting) throw new Error(restartRefusal);
         const held = laneFor(request.operation, request.parameters);
         // Waiting behind another operation must not look like a hung request: a heartbeat line keeps
         // both idle timers alive; the client reads those lines as progress, not as the reply.
@@ -158,7 +168,7 @@ const server = net.createServer({ allowHalfOpen: true }, (connection) => {
         }
         // While it waits, a stop of the helper (a drained self-restart holds every lane until then)
         // answers it at once with nothing done, rather than holding the stop until systemd kills it.
-        const queued = { refused: false, refuse: () => { queued.refused = true; if (heartbeat) { clearInterval(heartbeat); heartbeat = null; } reply(helperErrorReply(request?.id ?? null, new Error("BoxPilot's helper restarted before this began, so nothing was changed. Run it again."))); } };
+        const queued = { refused: false, refuse: (why = "BoxPilot's helper restarted before this began, so nothing was changed. Run it again.") => { queued.refused = true; if (heartbeat) { clearInterval(heartbeat); heartbeat = null; } reply(helperErrorReply(request?.id ?? null, new Error(why))); } };
         waiting.add(queued);
         try {
           result = await lanes.run(held, async (holdUntil) => {
