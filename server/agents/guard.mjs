@@ -16,8 +16,10 @@
 // Tokens chat templates use to start a turn or a role. Written into data, they would look to the
 // model like the conversation itself.
 const templateTokens = /<\|(?:im_start|im_end|endoftext|system|user|assistant|eot_id|start_header_id|end_header_id|begin_of_text)\|>|\[\/?INST\]|<<\/?SYS>>|<\/?(?:think|tool_call|tool_response|function_call)>/gi;
-// Our own wrapper tags, escaped so data cannot close its box or open another.
-const wrapperTags = /<(\/?)(tool_output|agent_note|owner_instructions|question|finding)\b/gi;
+// Our own wrapper tags, escaped so data cannot close its box or open another: every box a prompt
+// puts data in, the conversation and what is remembered too (2026-10 sweep 2).
+export const wrapperTagNames = Object.freeze(["tool_output", "agent_note", "owner_instructions", "question", "finding", "conversation", "memory"]);
+const wrapperTags = new RegExp(`<(\\/?)(${wrapperTagNames.join("|")})\\b`, "gi");
 // Control characters, and the Unicode line separators and direction overrides that can hide text.
 const invisible = new RegExp("[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\u2028\u2029\u202a-\u202e\u2066-\u2069]", "g");
 

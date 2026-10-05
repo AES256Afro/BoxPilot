@@ -7,6 +7,7 @@
  *
  * Shared by the web process (the Builder shows it) and the runner (which sends it).
  */
+import { sanitizeUntrusted } from "./guard.mjs";
 import { destinationFor } from "./zulip.mjs";
 
 export const agentRules = `You are an agent on a home server managed by BoxPilot. You run on a small local model.
@@ -110,9 +111,12 @@ export function taskMessage({ kind, question = null, trigger = null, notes = [],
   const lines = [`Now: ${now.toISOString()}`, kindLines[kind] ?? kindLines.manual];
   if (trigger?.title) lines.push(`What happened: ${String(trigger.title).slice(0, 300)}`);
   if (thread && (thread.summary || thread.turns?.length)) {
+    // Boxed like any other data (2026-10 sweep 2): an earlier answer is the model's own words about
+    // what it read, and one holding "</conversation>" or a chat template's token closed the box.
+    const safe = (text) => sanitizeUntrusted(text, { maxChars: 4_000 }).text;
     lines.push("", "<conversation trust=\"untrusted\">");
-    if (thread.summary) lines.push(`Earlier, in short: ${thread.summary}`);
-    for (const turn of thread.turns ?? []) lines.push(`${turn.role === "user" ? "They asked" : "You answered"}: ${turn.text}`);
+    if (thread.summary) lines.push(`Earlier, in short: ${safe(thread.summary)}`);
+    for (const turn of thread.turns ?? []) lines.push(`${turn.role === "user" ? "They asked" : "You answered"}: ${safe(turn.text)}`);
     lines.push("</conversation>");
   }
   if (question) lines.push("", "<question>", String(question).slice(0, 2_000), "</question>");
