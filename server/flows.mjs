@@ -189,16 +189,18 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
    * The steps to store, as saved by someone with `role` (sweep 2). A flow runs as whoever starts it,
    * so a step only the owner may run is the owner's to put in one: an operator's flow holding an HTTP
    * request to their own address ran with the owner's authority when the owner clicked Run now.
-   * Saved by the owner, such a step is marked ownerAdded; saved by anyone else, it must be one
-   * already stored at the same place, unchanged (the owner's step in an operator's flow, put back by
-   * the routes as stored), and keeps its mark. Anything else is refused.
+   * Saved by the owner, a new or changed such step is marked ownerAdded; one already stored at the
+   * same place, unchanged, keeps the mark it had, whoever saves it, so sending the steps back keeps
+   * nothing the owner has not kept (keepStep below). Saved by anyone else, it must be one already
+   * stored at the same place, unchanged (the owner's step in an operator's flow, put back by the
+   * routes as stored). Anything else is refused.
    */
   function authorSteps(steps, role, stored = []) {
     const authored = normalizeSteps(steps).map((step, index) => {
       if (!ownerOnly(step)) return step;
-      if (role === "owner") return { ...step, ownerAdded: true };
       const kept = stored[index];
       if (sameStep(kept, step)) return { ...step, ...(kept.ownerAdded === true ? { ownerAdded: true } : {}) };
+      if (role === "owner") return { ...step, ownerAdded: true };
       throw Object.assign(new Error(`Only the owner can put step ${index + 1} (${registry.get(step.operationId).title}) in a flow: only the owner may run it, and a flow runs as whoever starts it`), { code: "flow_step_owner_only" });
     });
     if (role !== "owner") keepStepsOwnerStepsRead(authored, stored);
@@ -239,16 +241,18 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
   /**
    * A step only the owner may run, in a flow someone else created, that the owner has not kept since
    * it was put there: saved before steps were checked (above), or carried over from then. Not run
-   * until the owner keeps it: "Keep this step" on the Automations page saves the steps as they are,
-   * which marks the step as theirs. `{ step, title }` (step counted from 1), or null if none.
+   * until the owner keeps it: "Keep this step" on the Automations page keeps that one step, and only
+   * it (keepStep in update). Each as `{ step, title, reads }` (step counted from 1; `reads`, the
+   * names of the steps whose results it uses), in order; none, an empty list.
    */
-  function stepToKeep(flow) {
-    if ((store.findOwnerById?.(flow.createdBy)?.role ?? null) === "owner") return null;
-    const index = (flow.steps ?? []).findIndex((step) => ownerOnly(step) && step.ownerAdded !== true);
-    return index < 0 ? null : { step: index + 1, title: registry.get(flow.steps[index].operationId).title };
+  function stepsToKeep(flow) {
+    if ((store.findOwnerById?.(flow.createdBy)?.role ?? null) === "owner") return [];
+    return (flow.steps ?? []).flatMap((step, index) => (ownerOnly(step) && step.ownerAdded !== true
+      ? [{ step: index + 1, title: registry.get(step.operationId).title, reads: [...new Set(namesRead(step))] }]
+      : []));
   }
   function unvouchedStep(flow) {
-    const unkept = stepToKeep(flow);
+    const [unkept] = stepsToKeep(flow);
     if (!unkept) return null;
     return `step ${unkept.step} (${unkept.title}) is one only the owner may run, and the owner has not kept it since someone else put it there. The owner can keep it with "Keep this step" on this automation in Automations`;
   }
@@ -326,12 +330,13 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
       if (!operation || !step.parameters || typeof step.parameters !== "object") return step;
       return { ...step, parameters: maskSecrets(step.parameters, await secretPaths(operation, step.parameters, { secretEnvNamesFor })) };
     };
-    return Promise.all(store.listFlows().map(async (flow) => ({ ...withoutHash(flow), steps: await Promise.all((flow.steps ?? []).map(masked)), risk: flowRisk(flow.steps, registry), running: running.has(flow.id), ownerToKeep: stepToKeep(flow) })));
+    return Promise.all(store.listFlows().map(async (flow) => ({ ...withoutHash(flow), steps: await Promise.all((flow.steps ?? []).map(masked)), risk: flowRisk(flow.steps, registry), running: running.has(flow.id), ownerToKeep: stepsToKeep(flow) })));
   }
 
-  async function update(id, { name, steps, cadence, enabled, triggerFlowId }, actorId, { role = "owner" } = {}) {
+  async function update(id, { name, steps, cadence, enabled, triggerFlowId, keepStep }, actorId, { role = "owner" } = {}) {
     const flow = store.getFlow(id);
     assertMayManage(flow, actorId, role);
+    if (keepStep !== undefined) return keepOwnersStep(flow, keepStep, { actorId, role, alone: [name, steps, cadence, enabled, triggerFlowId].every((value) => value === undefined) });
     // A drive-armed flow runs unattended the moment its drive drops, so what it runs was fixed when the
     // drive was armed (M26.5): it can be renamed, paused or resumed, and anything else means disarming
     // and arming again. The same steps sent back by an edit form are not a change.
@@ -357,6 +362,19 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
       changes.nextDueAt = computeNextRun(flow, now()).toISOString();
     }
     return withoutHash(store.updateFlow(id, changes, { actorId }));
+  }
+
+  /**
+   * "Keep this step" (sweep 4): the owner keeps the one owner-only step the notice showed them,
+   * counted from 1, as it is stored; every other step keeps the mark it had. On its own: a request
+   * that changes anything else is refused, so nothing rides along with the keep.
+   */
+  function keepOwnersStep(flow, keepStep, { actorId, role, alone }) {
+    if (role !== "owner") throw Object.assign(new Error("Only the owner can keep a step only the owner may run"), { code: "flow_step_owner_only" });
+    if (!alone) throw new Error("A step is kept on its own, with nothing else about the flow changed");
+    if (!stepsToKeep(flow).some((entry) => entry.step === keepStep)) throw new Error(`Step ${keepStep} has nothing to keep: it is not a step only the owner may run that waits for the owner`);
+    const steps = flow.steps.map((step, index) => (index === keepStep - 1 ? { ...step, ownerAdded: true } : step));
+    return withoutHash(store.updateFlow(flow.id, { steps }, { actorId }));
   }
 
   function remove(id, actorId, { role = "owner" } = {}) {

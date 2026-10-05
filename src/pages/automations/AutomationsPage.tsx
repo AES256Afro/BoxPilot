@@ -7,7 +7,7 @@ import { Button, CodeBlock, EmptyState, KeyValue, Notice, PageHeader, Panel, She
 import type { RiskTier } from "../../ui/types";
 import { FlowBuilder } from "./FlowBuilder";
 import SchedulesPanel, { lastRunOf, useSchedules } from "./SchedulesPanel";
-import { cadenceLabel, flowFailed, flowTierWords, type Flow, type PaletteStep, type ShelfItem } from "./flows";
+import { cadenceLabel, flowFailed, flowTierWords, humanize, settingText, type Flow, type OwnerStepToKeep, type PaletteStep, type ShelfItem } from "./flows";
 import "./automations.css";
 
 /*
@@ -136,13 +136,14 @@ export default function AutomationsPage({ csrfToken, role = "owner" }: Automatio
     catch (requestError) { setError(requestError instanceof Error ? requestError.message : failure); }
   };
 
-  // The owner keeps a step only they may run that someone else put in the flow: the steps go back as
-  // they are, saved by the owner, which marks it as theirs. The page cannot edit an existing flow's
-  // steps, so this is the way to do what the run's refusal asks.
-  const keepStep = async (flow: Flow, unkept: { step: number; title: string }) => {
+  // The owner keeps a step only they may run that someone else put in the flow: that one step, by its
+  // number, as it is stored. Sending every step back used to keep every owner-only step in it, shown
+  // or not (sweep 4). The page cannot edit an existing flow's steps, so this is the way to do what the
+  // run's refusal asks.
+  const keepStep = async (flow: Flow, unkept: OwnerStepToKeep) => {
     setAbout(flow.id); setError(null); setNotice(null);
     try {
-      await post(`/api/v1/flows/${encodeURIComponent(flow.id)}`, { steps: flow.steps }, "PUT");
+      await post(`/api/v1/flows/${encodeURIComponent(flow.id)}`, { keepStep: unkept.step }, "PUT");
       setNotice(`Step ${unkept.step} is kept: ${flow.name} runs it as it is.`);
       await refresh();
     } catch (requestError) { setError(requestError instanceof Error ? requestError.message : "Could not keep the step"); }
@@ -267,11 +268,22 @@ export default function AutomationsPage({ csrfToken, role = "owner" }: Automatio
                     {mayManage && flow.webhookEnabled && <Button variant="ghost" onClick={() => void removeWebhook(flow)}>Remove the webhook</Button>}
                     {mayManage && <Button variant="ghost" disabled={flow.running} onClick={() => setConfirming({ flowId: flow.id, action: "remove" })}>Remove</Button>}
                   </div>
-                  {role === "owner" && flow.ownerToKeep && (
-                    <Notice tone="warning" title="Not run until you keep a step" action={<Button variant="primary" disabled={flow.running} onClick={() => void keepStep(flow, flow.ownerToKeep!)}>Keep this step</Button>}>
-                      Step {flow.ownerToKeep.step} ({flow.ownerToKeep.title}) is one only you may run, and someone else put it in this automation. It runs as whoever starts the automation, so it waits for you to keep it as it is.
-                    </Notice>
-                  )}
+                  {role === "owner" && (flow.ownerToKeep ?? []).map((unkept) => {
+                    // What keeping it agrees to: the step's own settings (secrets masked, as everywhere
+                    // on this page), when it runs, and whose results it uses.
+                    const step = flow.steps[unkept.step - 1];
+                    const settings: KeyValueItem[] = Object.entries(step?.parameters ?? {}).map(([name, value]) => ({ id: name, label: humanize(name), value: settingText(value), mono: true }));
+                    if (step?.when) settings.push({ id: "when", label: "Runs only when", value: `${step.when.value}${step.when.equals !== undefined ? ` is ${settingText(step.when.equals)}` : ""}`, mono: true });
+                    return (
+                      <div key={unkept.step} role="group" aria-label={`Step ${unkept.step}, waiting for you to keep it`}>
+                        <Notice tone="warning" title="Not run until you keep a step" action={<Button variant="primary" disabled={flow.running} onClick={() => void keepStep(flow, unkept)}>Keep step {unkept.step}</Button>}>
+                          <p>Step {unkept.step} ({unkept.title}) is one only you may run, and someone else put it in this automation. It runs as whoever starts the automation, so it waits for you to keep it as it is:</p>
+                          {settings.length ? <KeyValue items={settings} /> : <p>It has no settings.</p>}
+                          {unkept.reads?.length ? <p>It uses what {unkept.reads.join(", ")} found.</p> : null}
+                        </Notice>
+                      </div>
+                    );
+                  })}
                   {about === flow.id && error && <Notice tone="danger" live title="That did not work" onDismiss={() => setError(null)}>{error}</Notice>}
                   {about === flow.id && notice && !error && <Notice tone="success" live onDismiss={() => setNotice(null)}>{notice}</Notice>}
                   {webhook?.flowId === flow.id && (
