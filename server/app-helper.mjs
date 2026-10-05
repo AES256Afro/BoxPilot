@@ -2647,6 +2647,8 @@ export function createAppHelper({
     // use", and the .replaced folder it left refused every retry.
     let ports;
     let deployed = { rendered: null };
+    // The compose file `up` will start, as the port checks see it.
+    let starting = "";
     const warnings = [];
     try {
       // Names BoxPilot only writes under and renames away, and the marker of a backup in progress:
@@ -2688,6 +2690,7 @@ export function createAppHelper({
           if (allowed) { warnings.push(allowed); progress?.(allowed, "stderr"); }
         }
       }
+      starting = project;
       ports = await assertPortsFree(manifest, project, { progress, refused: `${manifest.name} was not restored; nothing was changed.` });
     } catch (error) {
       await rm(staged, { recursive: true, force: true });
@@ -2697,13 +2700,24 @@ export function createAppHelper({
     // newest few an app keeps, so one taken before a refusal that says "nothing was changed" was a
     // change, and a few retries pushed the very archive being restored out at the next prune.
     let safetyBackupSaved = false;
+    let safetyArtifact = null;
     try {
       progress?.("Taking a safety backup of the current state first...", "stdout");
       const safety = await backup({ id, keep: null }, { progress });
       safetyBackupSaved = true;
+      safetyArtifact = safety.artifact;
       progress?.(`Current state saved as ${safety.artifact}`, "stdout");
     } catch (error) {
       progress?.(`Safety backup failed (${error.message}); the original directory will be retained after the restore`, "stderr");
+    }
+    // Asked again (R5B3-3): the safety copy had the app stopped for a while, and a program waiting
+    // for one of its ports (Serve retrying, a restart elsewhere) could take it then. Found by `up`
+    // after the swap instead, the app was left down and the .replaced folder refused every retry.
+    try {
+      ports = await assertPortsFree(manifest, starting, { progress, refused: safetyArtifact ? `${manifest.name} was not restored; its current state was saved as ${safetyArtifact} first, and nothing else was changed.` : `${manifest.name} was not restored.` });
+    } catch (error) {
+      await rm(staged, { recursive: true, force: true });
+      throw error;
     }
     const status = await containerStatus(id);
     if (status.running) {
