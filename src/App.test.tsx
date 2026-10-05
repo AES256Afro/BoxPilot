@@ -237,6 +237,32 @@ describe("BoxPilot console", () => {
     window.history.replaceState(null, "", "/");
   });
 
+  it("opens an app's sheet from the command bar again, when the catalog was first opened at that same app", async () => {
+    // The page is keyed by the app it opens at: asked for the same app again, nothing remounted and
+    // the sheet, once closed, never came back.
+    const jellyfin = {
+      id: "jellyfin", name: "Jellyfin", category: "Media", description: "Media server", website: null, icon: null, risk: "medium", notes: null,
+      image: { reference: "jellyfin/jellyfin:10.10.7", version: "10.10.7", digestPinned: false },
+      ports: [{ id: "web", label: "Web UI", container: 8096, host: 8096, protocol: "tcp", exposure: "lan", fixed: false }], volumes: [], env: [],
+      health: { kind: "healthcheck", stableSeconds: 10, timeoutSeconds: 240 }, sha256: "abc",
+    };
+    const catalog = { applications: [{ manifest: jellyfin, live: { id: "jellyfin", installed: false, dataPresent: false, state: null, container: { exists: false, running: false, status: "absent", health: "none", restarts: 0, image: null }, urls: [] } }], problems: [], liveError: null, host: { lanAddress: "192.168.1.10", tailscaleDnsName: null } };
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => (input.toString().startsWith("/api/v1/catalog")
+      ? Promise.resolve(new Response(JSON.stringify(catalog), { status: 200, headers: { "Content-Type": "application/json" } }))
+      : authenticatedFetch(input))));
+    window.history.replaceState(null, "", "/?view=catalog&app=jellyfin");
+    render(<App />);
+    const sheet = await screen.findByRole("dialog", { name: "Jellyfin" });
+    fireEvent.click(within(sheet).getByRole("button", { name: /^Close/ }));
+    await vi.waitFor(() => expect(screen.queryByRole("dialog", { name: "Jellyfin" })).toBeNull());
+    fireEvent.keyDown(window, { key: "k", ctrlKey: true });
+    const input = within(screen.getByRole("dialog", { name: "Search BoxPilot" })).getByRole("combobox");
+    fireEvent.change(input, { target: { value: "Install Jellyfin" } });
+    await screen.findByRole("option", { name: /Install Jellyfin/ });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(await screen.findByRole("dialog", { name: "Jellyfin" })).toBeTruthy();
+  });
+
   it("opens the design system gallery only when the server is the demo", async () => {
     // The gallery (M33.1) is for reviewing components; a real BoxPilot ignores ?gallery.
     const demoFetch = (input: RequestInfo | URL) => input.toString().endsWith("/api/v1/health")
