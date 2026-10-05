@@ -50,6 +50,8 @@ jobs:
           **Update from the server:**
 
               curl -fsSL https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${GITHUB_REF_NAME}/scripts/boxpilot-upgrade.sh | sudo sh -s -- ${GITHUB_REF_NAME}
+
+          It checks the new version on the port /etc/boxpilot/boxpilot.env gives BoxPilot. Older versions always checked port 8787, so on a server where BoxPilot listens on another port their update from the System page rolls back: run this command once instead.
           NOTES
           )"
           # A release may already have been published by hand with notes describing what changed.

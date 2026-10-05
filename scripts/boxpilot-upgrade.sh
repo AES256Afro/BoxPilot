@@ -17,8 +17,10 @@
 #   6. Moves a backup destination still mounted at /mnt/boxpilot-backup to /mnt/boxpilot/backup
 #      (one fstab entry, saved first as /etc/fstab.boxpilot-<stamp>; see scripts/boxpilot-backup-mount-move.mjs)
 #   7. daemon-reload, restarts boxpilot-helper and boxpilot, and checks /api/v1/health reports the new version
+#      (on the port /etc/boxpilot/boxpilot.env gives the service; BOXPILOT_HEALTH_URL overrides it)
 #   8. Rolls the directory swap, the units and that move back and restarts the old tree if the health check
-#      fails, and names the database copy that matches the old tree
+#      fails (or a signal stops the run once the service is down), and names the database copy that
+#      matches the old tree
 #
 # It does not touch /etc/boxpilot, systemd drop-ins, or the owner account. In /var/lib/boxpilot it only
 # adds the database copy: it never changes the database itself, and never deletes a copy (the System
@@ -30,7 +32,6 @@ umask 022
 REPO="${BOXPILOT_REPO:-AES256Afro/BoxPilot}"
 REF="${1:-main}"
 INSTALL_DIR="${BOXPILOT_INSTALL_DIR:-/opt/boxpilot}"
-HEALTH_URL="${BOXPILOT_HEALTH_URL:-http://127.0.0.1:8787/api/v1/health}"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 STAGING="${INSTALL_DIR}.staging.${STAMP}"
 PREVIOUS="${INSTALL_DIR}.prev.${STAMP}"
@@ -39,13 +40,33 @@ KEEP_PREVIOUS="${BOXPILOT_KEEP_PREVIOUS:-2}"
 log() { printf '[boxpilot-upgrade] %s\n' "$*"; }
 fail() { printf '[boxpilot-upgrade] ERROR: %s\n' "$*" >&2; exit 1; }
 
+# The service's environment file. Neither sudo nor the System page's update hands this script the
+# service's environment, so what the service was given - where its database is, where it listens -
+# is read from here.
+ENV_FILE=/etc/boxpilot/boxpilot.env
+# env_value KEY: the value of the file's last KEY= line, quotes dropped; empty when it has none.
+env_value() {
+  [ -f "$ENV_FILE" ] || return 0
+  sed -n "s/^$1=//p" "$ENV_FILE" | tail -n 1 | sed "s/^[\"']//; s/[\"']\$//"
+}
+
+# The health check asks the web service where it listens: the env file's port, on loopback unless
+# it listens on one other address. It always asked 127.0.0.1:8787, so on a box installed with
+# --port every update rolled back - after the new version had already started on the database.
+# BOXPILOT_HEALTH_URL overrides it.
+WEB_PORT="$(env_value BOXPILOT_PORT)"
+WEB_HOST="$(env_value BOXPILOT_HOST)"
+case "$WEB_HOST" in
+  ''|0.0.0.0|::) WEB_HOST=127.0.0.1 ;;
+  *:*) WEB_HOST="[${WEB_HOST}]" ;;
+esac
+HEALTH_URL="${BOXPILOT_HEALTH_URL:-http://${WEB_HOST}:${WEB_PORT:-8787}/api/v1/health}"
+
 # The database the running BoxPilot keeps its state in: where the service's environment file says,
 # otherwise the default. BOXPILOT_DATABASE and BOXPILOT_DB_COPY_DIR override both for a test or an
 # unusual layout; the copy goes beside the database unless told otherwise.
 STATE_DIR="${BOXPILOT_STATE_DIRECTORY:-}"
-if [ -z "$STATE_DIR" ] && [ -f /etc/boxpilot/boxpilot.env ]; then
-  STATE_DIR="$(sed -n 's/^BOXPILOT_STATE_DIRECTORY=//p' /etc/boxpilot/boxpilot.env | tail -n 1 | sed "s/^[\"']//; s/[\"']\$//")"
-fi
+[ -n "$STATE_DIR" ] || STATE_DIR="$(env_value BOXPILOT_STATE_DIRECTORY)"
 STATE_DIR="${STATE_DIR:-/var/lib/boxpilot}"
 DATABASE="${BOXPILOT_DATABASE:-${STATE_DIR}/boxpilot.sqlite3}"
 DB_COPY_DIR="${BOXPILOT_DB_COPY_DIR:-$(dirname "$DATABASE")}"
@@ -202,6 +223,9 @@ BACKUP_MOUNT_UNDO=""
 # evidence and the old one restored.
 rollback() {
   trap - EXIT
+  # A second signal (the session dropping while the first is handled, systemd stopping the update
+  # unit) must not cut the way back short and leave the box with neither tree running.
+  trap '' HUP INT TERM
   log "rolling back to previous tree"
   systemctl stop boxpilot.service 2>/dev/null || true
   # The old helper looks for the backup destination where it used to be. Undone while the new tree,
@@ -254,6 +278,10 @@ if [ -d "$INSTALL_DIR" ]; then
   # and nothing to put it back. From here until the health check passes, any failure must restore
   # the old BoxPilot rather than leave the box without one.
   trap 'rollback' EXIT
+  # A signal too: an SSH session dropping during `curl | sudo sh` (HUP), Ctrl-C, or systemd stopping
+  # the update unit or shutting down (TERM). dash, Ubuntu's sh, runs no EXIT trap for a signal that
+  # kills it, so without these the upgrade died with both services stopped on the new, unchecked tree.
+  trap 'exit 1' HUP INT TERM
   systemctl stop boxpilot.service 2>/dev/null || true
   mv "$INSTALL_DIR" "$PREVIOUS"
 else
@@ -335,6 +363,7 @@ if [ "$steady" -lt 3 ]; then
   if [ "$HAD_PREVIOUS" -eq 1 ]; then rollback; else fail "helper unhealthy"; fi
 fi
 trap - EXIT
+trap - HUP INT TERM
 
 # The agents runner (M37) runs the new code too, but only if the owner turned it on: its unit is
 # installed above with the rest and stays disabled until then, and try-restart leaves it so. Its

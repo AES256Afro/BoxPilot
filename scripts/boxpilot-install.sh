@@ -13,6 +13,9 @@
 #   --node-version <v24.x.y>  pin the Node.js release to install (default: latest v24 LTS)
 #   --no-token                do not print a first-owner bootstrap token at the end
 #
+# Re-running it upgrades in place. An option not given again keeps what /etc/boxpilot/boxpilot.env
+# already says: the port and access the box was installed with, and a LAN choice made in Settings.
+#
 # What it does: installs curl/tar/xz, Node.js 24 under /opt/node-v<ver> (+ /usr/local/bin symlinks),
 # creates the boxpilot system user and /etc/boxpilot, builds the chosen ref into /opt/boxpilot with
 # scripts/boxpilot-upgrade.sh, installs and enables the systemd units, configures access, checks
@@ -22,7 +25,7 @@ set -eu
 umask 022
 
 REPO="${BOXPILOT_REPO:-AES256Afro/BoxPilot}"
-REF="main"; ACCESS=""; PORT="8787"; NODE_PIN=""; PRINT_TOKEN=1
+REF="main"; ACCESS=""; PORT=""; PORT_GIVEN=0; NODE_PIN=""; PRINT_TOKEN=1
 
 # Reading help out of "$0" fails under `curl | sh`, where $0 is "sh".
 usage() {
@@ -31,8 +34,10 @@ Install BoxPilot on a fresh Ubuntu Server.
 
   --ref <tag|branch>     release tag or branch to install (default: main)
   --access <lan|tailscale|local>
-                         how the web UI is reachable (default: ask)
-  --port <number>        port for the web UI (default: 8787)
+                         how the web UI is reachable (default: tailscale when it
+                         is running, otherwise lan; a re-run keeps the current one)
+  --port <number>        port for the web UI (default: 8787; a re-run keeps the
+                         current one)
   --node-version <ver>   pin a Node.js 24 release instead of the newest
   --no-token             do not print the one-time owner token
   -h, --help             show this message
@@ -48,7 +53,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --ref) need_value "$@"; REF="$2"; shift 2 ;;
     --access) need_value "$@"; ACCESS="$2"; shift 2 ;;
-    --port) need_value "$@"; PORT="$2"; shift 2 ;;
+    --port) need_value "$@"; PORT="$2"; PORT_GIVEN=1; shift 2 ;;
     --node-version) need_value "$@"; NODE_PIN="$2"; shift 2 ;;
     --no-token) PRINT_TOKEN=0; shift ;;
     -h|--help) usage; exit 0 ;;
@@ -62,7 +67,7 @@ fail() { printf '[boxpilot-install] ERROR: %s\n' "$*" >&2; exit 1; }
 [ "$(id -u)" -eq 0 ] || fail "run with sudo"
 [ -f /etc/debian_version ] || fail "this installer targets Ubuntu/Debian"
 command -v systemctl >/dev/null 2>&1 || fail "systemd is required"
-case "$PORT" in ''|*[!0-9]*) fail "--port must be a number" ;; esac
+[ "$PORT_GIVEN" -eq 0 ] || case "$PORT" in ''|*[!0-9]*) fail "--port must be a number" ;; esac
 
 # 1. Base packages
 export DEBIAN_FRONTEND=noninteractive
@@ -117,45 +122,80 @@ if ! id boxpilot >/dev/null 2>&1; then
 fi
 install -d -m 0700 -o boxpilot -g boxpilot /var/lib/boxpilot
 # The helper's sandbox is given /mnt/boxpilot at start and skips it when it is missing; the backup
-# destination (a NAS share or a drive) is mounted below it, at /mnt/boxpilot/backup.
-install -d -o root -g root -m 0755 /mnt/boxpilot /mnt/boxpilot/backup
+# destination (a NAS share or a drive) is mounted below it, at /mnt/boxpilot/backup. That mount point
+# is made only when it is missing: on a re-run it is the destination itself, and `install -d` on it
+# opened it - waking its automount (thirty seconds, then "No such device" with the NAS off, which
+# stopped the installer), failing on a root-squashed NFS share, or handing the NAS's folder to root.
+# `[ -e ]` is a stat, which does not wake an automount.
+install -d -o root -g root -m 0755 /mnt/boxpilot
+[ -e /mnt/boxpilot/backup ] || install -d -o root -g root -m 0755 /mnt/boxpilot/backup
 
 install -d -m 0755 /etc/boxpilot
+# A re-run finds the env file it wrote, saying how this box is reached now: the --port and --access
+# it was installed with, and a LAN choice made in Settings since. An option not given again keeps them.
+# Only after an install that finished (it enables the service last): a first run that stopped before
+# that left the example's settings, which are not a choice anyone made.
+ENV_FILE=/etc/boxpilot/boxpilot.env
+if [ -f "$ENV_FILE" ] && systemctl is-enabled boxpilot.service >/dev/null 2>&1; then REINSTALL=1; else REINSTALL=0; fi
+env_value() { # env_value KEY: the value of the env file's last KEY= line, quotes dropped
+  sed -n "s/^$1=//p" "$ENV_FILE" | tail -n 1 | sed "s/^[\"']//; s/[\"']\$//"
+}
+health_url() { # health_url HOST PORT: the web service's health check, as this machine reaches it
+  case "$1" in ''|0.0.0.0|::) set -- 127.0.0.1 "$2" ;; *:*) set -- "[$1]" "$2" ;; esac
+  printf 'http://%s:%s/api/v1/health' "$1" "${2:-8787}"
+}
 
 # 4. Build and install the code (delegates to the upgrade script from the same ref)
 WORK="$(mktemp -d)"
 log "fetching ${REPO}@${REF}"
 curl -fsSL "https://codeload.github.com/${REPO}/tar.gz/${REF}" | tar -xz -C "$WORK" --strip-components=1 || fail "could not download ${REPO}@${REF}"
 [ -f "$WORK/scripts/boxpilot-upgrade.sh" ] || fail "ref ${REF} has no scripts/boxpilot-upgrade.sh"
-[ -f /etc/boxpilot/boxpilot.env ] || install -m 0600 "$WORK/deploy/boxpilot.env.example" /etc/boxpilot/boxpilot.env
+[ -f "$ENV_FILE" ] || install -m 0600 "$WORK/deploy/boxpilot.env.example" "$ENV_FILE"
 [ -f /etc/boxpilot/redaction.json ] || install -m 0640 -o root -g boxpilot "$WORK/deploy/redaction.example.json" /etc/boxpilot/redaction.json
-# Re-running the installer is the documented upgrade path, so the health check must use this box's port.
-BOXPILOT_REPO="$REPO" BOXPILOT_NODE_BIN=/usr/local/bin/node BOXPILOT_HEALTH_URL="http://127.0.0.1:${PORT}/api/v1/health" sh "$WORK/scripts/boxpilot-upgrade.sh" "$REF"
+LIVE_PORT="$(env_value BOXPILOT_PORT)"; LIVE_PORT="${LIVE_PORT:-8787}"
+LIVE_HOST="$(env_value BOXPILOT_HOST)"
+[ "$PORT_GIVEN" -eq 1 ] || PORT="$LIVE_PORT"
+# Re-running the installer is the documented upgrade path, so the health check must use this box's
+# port. The upgrade restarts the service on the env file as it is now - a new --port is written after
+# it - so that is the port and address it checks.
+BOXPILOT_REPO="$REPO" BOXPILOT_NODE_BIN=/usr/local/bin/node BOXPILOT_HEALTH_URL="$(health_url "$LIVE_HOST" "$LIVE_PORT")" sh "$WORK/scripts/boxpilot-upgrade.sh" "$REF"
 rm -rf "$WORK"
 
 # 5. Access mode → env file
-if [ -z "$ACCESS" ]; then
-  if command -v tailscale >/dev/null 2>&1 && tailscale status >/dev/null 2>&1; then ACCESS=tailscale; else ACCESS=lan; fi
-fi
 set_env() { # set_env KEY VALUE
-  if grep -q "^$1=" /etc/boxpilot/boxpilot.env; then sed -i "s|^$1=.*|$1=$2|" /etc/boxpilot/boxpilot.env; else printf '%s=%s\n' "$1" "$2" >> /etc/boxpilot/boxpilot.env; fi
+  if grep -q "^$1=" "$ENV_FILE"; then sed -i "s|^$1=.*|$1=$2|" "$ENV_FILE"; else printf '%s=%s\n' "$1" "$2" >> "$ENV_FILE"; fi
 }
 set_env BOXPILOT_PORT "$PORT"
-case "$ACCESS" in
-  tailscale) set_env BOXPILOT_HOST 127.0.0.1; set_env BOXPILOT_COOKIE_SECURE true ;;
-  lan)       set_env BOXPILOT_HOST 0.0.0.0;   set_env BOXPILOT_COOKIE_SECURE false ;;
-  local)     set_env BOXPILOT_HOST 127.0.0.1; set_env BOXPILOT_COOKIE_SECURE false ;;
-  *) fail "--access must be tailscale, lan, or local" ;;
-esac
+if [ -z "$ACCESS" ] && [ "$REINSTALL" -eq 1 ]; then
+  # A re-run without --access: BOXPILOT_HOST and BOXPILOT_COOKIE_SECURE stay as the env file has them.
+  # It used to put the default back, turning a local install into a LAN one and undoing a LAN choice
+  # made in Settings. The name is only for the address printed below.
+  case "$LIVE_HOST" in
+    ''|127.0.0.1|localhost|::1) if [ "$(env_value BOXPILOT_COOKIE_SECURE)" = true ]; then ACCESS=tailscale; else ACCESS=local; fi ;;
+    *) ACCESS=lan ;;
+  esac
+  log "keeping how BoxPilot is reached (listening on ${LIVE_HOST:-127.0.0.1}); pass --access to change it"
+else
+  if [ -z "$ACCESS" ]; then
+    if command -v tailscale >/dev/null 2>&1 && tailscale status >/dev/null 2>&1; then ACCESS=tailscale; else ACCESS=lan; fi
+  fi
+  case "$ACCESS" in
+    tailscale) set_env BOXPILOT_HOST 127.0.0.1; set_env BOXPILOT_COOKIE_SECURE true ;;
+    lan)       set_env BOXPILOT_HOST 0.0.0.0;   set_env BOXPILOT_COOKIE_SECURE false ;;
+    local)     set_env BOXPILOT_HOST 127.0.0.1; set_env BOXPILOT_COOKIE_SECURE false ;;
+    *) fail "--access must be tailscale, lan, or local" ;;
+  esac
+fi
 
 # 6. Enable and start
 systemctl daemon-reload
 systemctl enable --now boxpilot-helper.service boxpilot.service boxpilot-storage-scan.timer >/dev/null 2>&1 || true
 systemctl restart boxpilot.service
+HEALTH_URL="$(health_url "$(env_value BOXPILOT_HOST)" "$PORT")"
 attempt=0; HEALTHY=0
 while [ "$attempt" -lt 30 ]; do
   attempt=$((attempt + 1))
-  if curl -fsS --max-time 3 "http://127.0.0.1:${PORT}/api/v1/health" >/dev/null 2>&1; then HEALTHY=1; break; fi
+  if curl -fsS --max-time 3 "$HEALTH_URL" >/dev/null 2>&1; then HEALTHY=1; break; fi
   sleep 1
 done
 [ "$HEALTHY" -eq 1 ] || { journalctl -u boxpilot.service -n 20 --no-pager || true; fail "BoxPilot did not answer on port ${PORT}"; }

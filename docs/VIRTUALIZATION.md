@@ -81,7 +81,7 @@ On a fresh Ubuntu Server (24.04 or newer) with `sudo`:
 curl -fsSL https://raw.githubusercontent.com/AES256Afro/BoxPilot/main/scripts/boxpilot-install.sh | sudo sh
 ```
 
-The installer adds Node.js 24 (checksum-verified, under `/opt/node-v24.x`), creates the `boxpilot` user and `/etc/boxpilot`, builds BoxPilot into `/opt/boxpilot`, installs and enables the systemd units, and prints the URL plus a one-time owner bootstrap token. Access defaults to Tailscale Serve when `tailscaled` is running, otherwise plain HTTP on the LAN; pass `--access tailscale|lan|local`, `--ref <branch>`, or `--port <n>` to change that. Re-running it upgrades in place.
+The installer adds Node.js 24 (checksum-verified, under `/opt/node-v24.x`), creates the `boxpilot` user and `/etc/boxpilot`, builds BoxPilot into `/opt/boxpilot`, installs and enables the systemd units, and prints the URL plus a one-time owner bootstrap token. Access defaults to Tailscale Serve when `tailscaled` is running, otherwise plain HTTP on the LAN; pass `--access tailscale|lan|local`, `--ref <branch>`, or `--port <n>` to change that. Re-running it upgrades in place, and keeps the port and access the box already has (including a LAN choice made in Settings) unless `--port` or `--access` is given again.
 
 ### Upgrading an existing native install
 
