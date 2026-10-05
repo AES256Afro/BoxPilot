@@ -38,6 +38,7 @@
  * server's /v1/embeddings, for memory search by meaning.
  */
 import { randomUUID } from "node:crypto";
+import { stripWrapperBlocks } from "./guard.mjs";
 import { planMessage, plannerMessages, readUnderstanding, understandingFormatFor } from "./intent.mjs";
 import { answerFormat, answerNowNote, fallbackAnswer, readStructuredAnswer } from "./prompt.mjs";
 import { ModelUnavailable } from "./runtime.mjs";
@@ -277,6 +278,10 @@ export function createRunner({ api, runtime, client, usage = null, now = () => D
     let limitReached = false;
     // Which limit it reached first: its steps, its tool calls or its tokens (said on the card, M44).
     let limitKind = null;
+    // The boxes only BoxPilot writes that the model wrote into its answer (A-1): taken out before the
+    // check, so what it made up is never checked as if it were the answer, and told to BoxPilot.
+    const boxes = [];
+    const unboxed = (text) => { const stripped = stripWrapperBlocks(text); boxes.push(...stripped.removed); return stripped.text; };
     // Other agents' findings it was offered before planning (M44): sources the check holds claims to.
     const findingSources = (claim.findings ?? []).map((finding) => ({ id: finding.id, title: finding.title, text: finding.text }));
     // The run's work in tokens: what the model read (not what it had cached) and what it wrote.
@@ -412,7 +417,8 @@ export function createRunner({ api, runtime, client, usage = null, now = () => D
         if (asked?.result?.content) {
           check.correctionMs = asked.took;
           await api.steps(run.id, lease, [stepOf(model, asked, asked.result.content)]);
-          const candidate = stripToolMarkup(asked.result.content);
+          const corrected = stripWrapperBlocks(stripToolMarkup(asked.result.content));
+          const candidate = corrected.text;
           const again = timed(() => verifyAnswer(candidate, sources));
           // Better means fewer mismatches while still an answer: as many statements that checked out,
           // at least half as long, and citing the tools if the draft did. "I cannot say anything"
@@ -421,7 +427,7 @@ export function createRunner({ api, runtime, client, usage = null, now = () => D
           const cites = (text) => /\[[TF]\d+\]/.test(text);
           const better = again.issues.length < first.issues.length && matched(again) >= matched(first)
             && candidate.length * 2 >= draft.length && (!cites(draft) || cites(candidate));
-          if (candidate && better) { answer = candidate; remaining = again.issues; check.corrected = true; }
+          if (candidate && better) { answer = candidate; remaining = again.issues; check.corrected = true; boxes.push(...corrected.removed); }
         }
       }
       check.left = remaining.length;
@@ -522,6 +528,8 @@ export function createRunner({ api, runtime, client, usage = null, now = () => D
             answer = stripToolMarkup(asked.result.content);
           }
         }
+        // Its scratch notes and any tool output it wrote itself are not its answer (A-1).
+        if (answer) answer = unboxed(answer) || null;
         // 4. The check before answering (M40): each claim against the output or finding it cites.
         if (answer && !degraded && !controller.signal.aborted && (outputs.length || findingSources.length)) answer = await checkAnswer(model, answer, { structured });
         if (!answer && !degraded && !controller.signal.aborted) degraded = "model-error";
@@ -538,7 +546,7 @@ export function createRunner({ api, runtime, client, usage = null, now = () => D
         answer = answer ? `${answer}\n\n(${degraded === "timeout" ? "The model took too long, so this may stop short." : "The model did not finish."})` : fallbackAnswer({ reason: degraded ?? "model-error", outputs });
         outcome = "degraded";
       }
-      await api.finish(run.id, lease, { outcome, answer, usage: usageOf(), degradedReason: outcome === "degraded" ? degraded ?? "model-error" : null, limitReached, ...(limitKind ? { limit: limitKind } : {}) });
+      await api.finish(run.id, lease, { outcome, answer, usage: usageOf(), degradedReason: outcome === "degraded" ? degraded ?? "model-error" : null, limitReached, ...(limitKind ? { limit: limitKind } : {}), ...(boxes.length ? { boxes: boxes.slice(0, 10) } : {}) });
       return { outcome };
     } catch (error) {
       // Stopped by BoxPilot (cancelled, paused, killed, timed out): the web service already ended
