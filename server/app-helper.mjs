@@ -5,7 +5,7 @@
  */
 import { createHash, randomUUID } from "node:crypto";
 import { constants as fsConstants, createReadStream } from "node:fs";
-import { lchown, lstat, mkdir, open, readFile, readdir, rename, rm, stat, writeFile, realpath } from "node:fs/promises";
+import { chmod, lchown, lstat, mkdir, open, readFile, readdir, rename, rm, stat, writeFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import YAML from "yaml";
 import { writeFileDurably } from "./durable-file.mjs";
@@ -13,7 +13,7 @@ import { fixedRun } from "./exec.mjs";
 import { parseServeStatus } from "./tailscale-serve.mjs";
 import { createCatalogService } from "./catalog/index.mjs";
 import { parseExit, parseForwardedPort } from "./vpn-exit.mjs";
-import { bindingFor, deployedImages, deviceMatchesPattern, publishedPorts, renderCompose, projectNameFor, resolveDevices, usesTailnetHost, wantsGpu } from "./catalog/compose.mjs";
+import { bindingFor, deployedImages, deviceMatchesPattern, hostNetworkPorts, publishedPorts, renderCompose, projectNameFor, resolveDevices, usesTailnetHost, wantsGpu } from "./catalog/compose.mjs";
 import { coversEveryAddress, findPortConflicts, holderWords, normalizeBind, portHolders, serveTargetPort, serveUrl } from "./ports.mjs";
 import { createNvidiaInspector } from "./nvidia.mjs";
 import { isDeniedHostPath } from "./catalog/schema.mjs";
@@ -43,6 +43,8 @@ export { keepsBackupData };
 export const updateHistoryLimit = 10;
 /** Pre-change checkpoints kept per app, counted separately from the owner's own backups. */
 const checkpointKeep = 5;
+/** Where Homepage sync remembers the address its links are written for, in Homepage's own folder. */
+const homepageSyncFile = "boxpilot-homepage-sync.json";
 
 /**
  * Canonicalise a path for the deny-list check even when its leaf does not exist yet: resolve every
@@ -330,6 +332,20 @@ export function createAppHelper({
     });
   }
 
+  /**
+   * Whether the app's own container is running on the host's network right now. Its own processes
+   * then hold the ports it binds, and `ss` names them as themselves (pihole-FTL, python3), not as
+   * Docker's, so they cannot be told apart from another program's: those ports are not checked then.
+   */
+  async function runningOnHostNetwork(id) {
+    const result = await docker(["inspect", "--format", '{"running":{{.State.Running}},"networkMode":"{{.HostConfig.NetworkMode}}"}', projectNameFor(id)], { timeout: 10_000 }).catch(() => null);
+    if (!result?.ok) return false;
+    try {
+      const parsed = JSON.parse(String(result.stdout ?? "").split("\n")[0]);
+      return parsed.running === true && parsed.networkMode === "host";
+    } catch { return false; }
+  }
+
   /** What Tailscale Serve publishes right now; empty when Tailscale is absent. */
   async function serveEntries() {
     const result = await runCommand(tailscaleBinary, ["serve", "status", "--json"], { timeout: 15_000, maxBuffer: 2 * 1024 * 1024 }).catch(() => ({ ok: false, stdout: "" }));
@@ -349,12 +365,22 @@ export function createAppHelper({
    * conflict even when tailscaled is not holding it at this moment: tailscaled keeps retrying, and
    * whichever of the two binds first after a restart or a reboot wins.
    *
-   * Returns `{ checked, conflicts }`; `checked` is false when the listeners could not be read (the
-   * Serve half still ran). Each conflict is `{ port, protocol, bind, holders }` (ports.mjs portHolders).
+   * An app on the host's own network publishes nothing and binds its ports itself, on every address
+   * (hostNetworkPorts): those are checked too, unless its own container is running there now and
+   * holds them itself. A port the app's own settings say it can start without (Pi-hole's admin page)
+   * is marked `optional`, and assertPortsFree warns about it instead of refusing.
+   *
+   * Returns `{ checked, conflicts, requested }`; `checked` is false when the listeners could not be
+   * read (the Serve half still ran). Each conflict is `{ port, protocol, bind, holders }` (ports.mjs
+   * portHolders), with `hostNetwork`, `optional` and the port's `label` where they apply.
    */
   async function portCheck(manifest, composeText, { progress = null } = {}) {
     const requested = publishedPorts(composeText).map((entry) => ({ id: entry.service, host: entry.host, protocol: entry.protocol, bind: entry.bind }));
-    if (!requested.length) return { checked: true, conflicts: [] };
+    const hostBound = hostNetworkPorts(manifest, composeText);
+    if (hostBound.length && !(await runningOnHostNetwork(manifest.id))) {
+      requested.push(...hostBound.map((entry) => ({ id: entry.service, host: entry.host, protocol: entry.protocol, bind: entry.bind, hostNetwork: true, optional: entry.optional, label: entry.label })));
+    }
+    if (!requested.length) return { checked: true, conflicts: [], requested };
     let listeners = null;
     if (hostListeners) {
       try { listeners = await hostListeners(); } catch (error) { progress?.(`Could not read which ports are in use (${error.message}); going ahead without that check.`, "stderr"); }
@@ -386,26 +412,53 @@ export function createAppHelper({
       containers ??= await runningContainers();
       for (const holder of others) holder.targetApp = (containers ?? []).find((container) => container.app && String(container.ports).includes(`:${holder.targetPort}->`))?.app ?? null;
     }
-    return { checked: Array.isArray(listeners), conflicts };
+    for (const conflict of conflicts) {
+      const wanted = requested.filter((entry) => entry.host === conflict.port && entry.protocol === conflict.protocol);
+      if (wanted.some((entry) => entry.hostNetwork)) conflict.hostNetwork = true;
+      if (wanted.length && wanted.every((entry) => entry.optional)) Object.assign(conflict, { optional: true, label: wanted[0].label ?? null });
+    }
+    return { checked: Array.isArray(listeners), conflicts, requested };
+  }
+
+  /** "Port 5001 is taken on the tailnet address by ...": who holds one port, as a sentence without its full stop. */
+  function heldWords(manifest, conflict, nameOf) {
+    const verb = conflict.holders.every((holder) => holder.armed) ? "is also claimed" : "is taken";
+    return `Port ${conflict.port}${conflict.protocol === "udp" ? "/udp" : ""} ${verb} ${conflict.holders.map((holder) => holderWords(holder, { appName: manifest.name, nameOf })).join(", and ")}`;
+  }
+
+  async function appNames() {
+    const names = new Map(((await catalog.all().catch(() => null))?.manifests ?? []).map((entry) => [entry.id, entry.name]));
+    return (id) => names.get(id) ?? null;
   }
 
   /** The conflicts in words: who holds each port, and what the owner can do about it. */
   async function portConflictWords(manifest, conflicts) {
-    const names = new Map(((await catalog.all().catch(() => null))?.manifests ?? []).map((entry) => [entry.id, entry.name]));
-    const nameOf = (id) => names.get(id) ?? null;
-    const sentences = conflicts.map((conflict) => {
-      const verb = conflict.holders.every((holder) => holder.armed) ? "is also claimed" : "is taken";
-      return `Port ${conflict.port}${conflict.protocol === "udp" ? "/udp" : ""} ${verb} ${conflict.holders.map((holder) => holderWords(holder, { appName: manifest.name, nameOf })).join(", and ")}.`;
-    });
+    const nameOf = await appNames();
+    const sentences = conflicts.map((conflict) => `${heldWords(manifest, conflict, nameOf)}.`);
     const everyAddress = conflicts.some((conflict) => coversEveryAddress(conflict.bind));
     const serveSelf = conflicts.some((conflict) => conflict.holders.some((holder) => holder.kind === "serve" && holder.self));
-    const why = everyAddress
-      ? ` ${manifest.name} publishes ${conflicts.length === 1 ? "it" : "them"} on every address, and Linux will not let that share a port with a program holding it on one address${serveSelf ? ": whichever of the two starts first keeps it" : ""}.`
-      : "";
-    const next = serveSelf
-      ? ` Serve ${manifest.name} only through Tailscale (its port moves to 127.0.0.1, where Serve reaches it), or stop serving it on the tailnet: Repair offers both in one click.`
-      : ` Move ${manifest.name} to a free port in its Settings (Repair offers one), or stop what holds ${conflicts.length === 1 ? "the port" : "those ports"} if it should not be running.`;
+    // On the host's own network its ports are its container ports, which no setting moves; on its
+    // own network (bridge), where the owner can choose, they can.
+    const hostNetwork = conflicts.some((conflict) => conflict.hostNetwork);
+    const canBridge = (manifest.networkModes ?? []).includes("bridge");
+    const them = conflicts.length === 1 ? "it" : "them";
+    const why = !everyAddress ? ""
+      : hostNetwork ? ` ${manifest.name} shares this server's own network and listens on ${them} on every address itself, and Linux will not let that share a port with a program holding it on one address${serveSelf ? ": whichever of the two starts first keeps it" : ""}.`
+      : ` ${manifest.name} publishes ${them} on every address, and Linux will not let that share a port with a program holding it on one address${serveSelf ? ": whichever of the two starts first keeps it" : ""}.`;
+    const next = hostNetwork
+      ? serveSelf
+        ? ` Stop serving ${manifest.name} on the tailnet (Repair offers it in one click): on this server's own network it already answers on the tailnet address itself.`
+        : ` Stop what holds ${conflicts.length === 1 ? "the port" : "those ports"} if it should not be running${canBridge ? `, or switch ${manifest.name} to bridge networking in its Settings, where its ports can move` : ""}.`
+      : serveSelf
+        ? ` Serve ${manifest.name} only through Tailscale (its port moves to 127.0.0.1, where Serve reaches it), or stop serving it on the tailnet: Repair offers both in one click.`
+        : ` Move ${manifest.name} to a free port in its Settings (Repair offers one), or stop what holds ${conflicts.length === 1 ? "the port" : "those ports"} if it should not be running.`;
     return `${sentences.join(" ")}${why}${next}`;
+  }
+
+  /** An optional port something holds, in words: the app starts without what it serves there. */
+  async function optionalPortWords(manifest, conflict) {
+    const canBridge = (manifest.networkModes ?? []).includes("bridge");
+    return `${heldWords(manifest, conflict, await appNames())}, so ${manifest.name} goes ahead without ${conflict.label ? `its ${conflict.label}` : `what it serves on port ${conflict.port}`}: its own settings let it start without that port. Stop what holds it and restart ${manifest.name} to have it${canBridge ? `, or switch ${manifest.name} to bridge networking in its Settings` : ""}.`;
   }
 
   /**
@@ -414,21 +467,33 @@ export function createAppHelper({
    * and the conflicts themselves. A Serve port being withdrawn (app.exposure.set does that first)
    * is let go of a moment after Tailscale is told, so tailscaled alone, with no Serve entry left,
    * is given a few seconds.
+   *
+   * A held port the app can start without (portCheck's `optional`) is not a reason to refuse: it is
+   * said in the log and returned in `warnings`, for the job's result to carry.
    */
   async function assertPortsFree(manifest, composeText, { progress = null, refused } = {}) {
+    const blocking = (check) => check.conflicts.filter((conflict) => !conflict.optional);
     let result = await portCheck(manifest, composeText, { progress });
-    for (let attempt = 0; attempt < 5 && result.conflicts.length && result.conflicts.every((conflict) => conflict.holders.every((holder) => holder.kind === "tailscale")); attempt += 1) {
+    for (let attempt = 0; attempt < 5 && blocking(result).length && blocking(result).every((conflict) => conflict.holders.every((holder) => holder.kind === "tailscale")); attempt += 1) {
       await wait(1000);
       result = await portCheck(manifest, composeText, { progress });
     }
-    if (!result.conflicts.length) {
-      if (result.checked) progress?.(`Ports ${[...new Set(publishedPorts(composeText).map((entry) => `${entry.host}/${entry.protocol}`))].join(", ")} are free.`, "stdout");
-      return result;
+    const warnings = [];
+    for (const conflict of result.conflicts.filter((entry) => entry.optional)) warnings.push(await optionalPortWords(manifest, conflict));
+    for (const warning of warnings) progress?.(warning, "stderr");
+    const conflicts = blocking(result);
+    if (!conflicts.length) {
+      const optional = new Set(result.conflicts.map((conflict) => `${conflict.port}/${conflict.protocol}`));
+      const free = [...new Set(result.requested.map((entry) => `${entry.host}/${entry.protocol}`))].filter((port) => !optional.has(port));
+      if (result.checked && free.length) progress?.(`Ports ${free.join(", ")} are free.`, "stdout");
+      return { ...result, warnings };
     }
-    const words = await portConflictWords(manifest, result.conflicts);
+    const words = await portConflictWords(manifest, conflicts);
     progress?.(words, "stderr");
-    throw Object.assign(new Error(`${refused} ${words}`), { code: "port_conflict", conflicts: result.conflicts });
+    throw Object.assign(new Error(`${refused} ${words}`), { code: "port_conflict", conflicts });
   }
+  /** `{ warnings }` for a result when a port check left any, else nothing. */
+  const withPortWarnings = (checked) => (checked?.warnings?.length ? { warnings: checked.warnings } : {});
 
   /**
    * Docker's own "address already in use" or "port is already allocated", said the way the check
@@ -438,8 +503,8 @@ export function createAppHelper({
   async function bindFailure(manifest, stderr, composeText, refused) {
     const text = String(stderr ?? "");
     if (!/address already in use|port is already allocated/i.test(text)) return null;
-    const result = await portCheck(manifest, composeText).catch(() => null);
-    if (result?.conflicts.length) return Object.assign(new Error(`${refused} ${await portConflictWords(manifest, result.conflicts)}`), { code: "port_conflict", conflicts: result.conflicts });
+    const conflicts = (await portCheck(manifest, composeText).catch(() => null))?.conflicts.filter((conflict) => !conflict.optional) ?? [];
+    if (conflicts.length) return Object.assign(new Error(`${refused} ${await portConflictWords(manifest, conflicts)}`), { code: "port_conflict", conflicts });
     const port = /(?:bind host port|Bind for|listen (?:tcp|udp)\d?)\s+\[?[^\s\]]*\]?:(\d{1,5})/i.exec(text)?.[1] ?? null;
     const said = redact(text).split("\n").map((line) => line.trim()).filter(Boolean).at(-1)?.replace(/^Error response from daemon:\s*/i, "").slice(0, 200) ?? "";
     return Object.assign(new Error(`${refused} ${port ? `Port ${port}` : "One of its ports"} is already in use on this server, so Docker could not publish it for ${manifest.name} (Docker said: "${said}"). \`sudo ss -ltnup 'sport = :${port ?? "<port>"}'\` names what holds it. Move ${manifest.name} to a free port in its Settings, or stop what holds it if it should not be running.`), { code: "port_conflict" });
@@ -484,6 +549,21 @@ export function createAppHelper({
       if (typeof existingEnv?.[entry.name] === "string" && existingEnv[entry.name] !== "") env[entry.name] = existingEnv[entry.name];
     }
     return { ...raw, env };
+  }
+
+  /**
+   * Why these settings cannot go out together, or null: tailnet only on the host's own network.
+   * Tailnet only binds an app's ports to this server for Tailscale Serve to front; on the host's
+   * network the app binds every address itself and nothing is bound for it. Saved together, the
+   * Reach tab said Tailscale-only about an app answering the whole house, beside a Serve link to a
+   * port nothing listened on. Refused rather than changed for the owner: which of the two to give up
+   * is theirs to choose, and Home network also withdraws the Serve address (app.exposure.set).
+   * `switchingNetwork`: the change is the move onto the host network, not the move to tailnet only.
+   */
+  function hostNetworkTailnetRefusal(manifest, values, { switchingNetwork }) {
+    if ((values.networkMode ?? manifest.network) !== "host" || values.exposure !== "tailnet") return null;
+    if (switchingNetwork) return `${manifest.name} is reachable only through Tailscale (Tailnet only, on its Reach tab). On this server's own network it would answer on every address, so change who can reach it to Home network first, which also stops publishing it on the tailnet, then switch it to host networking. Nothing was changed.`;
+    return `${manifest.name} shares this server's own network, where it answers on every address itself, so it cannot be reachable only through Tailscale.${(manifest.networkModes ?? []).includes("bridge") ? " Switch it to bridge networking in its Settings first." : ""} Nothing was changed.`;
   }
 
   /**
@@ -865,10 +945,13 @@ export function createAppHelper({
     const given = storedValues ? withSavedSecrets(manifest, sanitizeStoredValues(manifest, rawValues ?? {}), await readEnv(id)) : rawValues;
     // An install that does not say who can reach the app takes the manifest's default: tailnet only
     // for an app that must not face the home network (Zulip). Only here: a reconfigure keeps what
-    // was stored, so a manifest gaining a default never moves an app already installed.
-    const withExposure = given?.exposure === undefined && manifest.defaultExposure === "tailnet" ? { ...given, exposure: "tailnet" } : given;
+    // was stored, so a manifest gaining a default never moves an app already installed. Never on the
+    // host's own network, where there is nothing to bind to this server alone.
+    const withExposure = given?.exposure === undefined && manifest.defaultExposure === "tailnet" && (given?.networkMode ?? manifest.network) !== "host" ? { ...given, exposure: "tailnet" } : given;
     const { values, errors } = resolveValues(manifest, withExposure);
     if (errors.length) throw new Error(`Invalid settings: ${errors.join("; ")}`);
+    const refusal = storedValues ? null : hostNetworkTailnetRefusal(manifest, values, { switchingNetwork: false });
+    if (refusal) throw new Error(refusal);
     const probe = await docker(["version", "--format", "{{.Server.Version}}"], { timeout: 10_000 });
     if (!probe.ok) throw new Error("Docker Engine is not available; install it from Repair Center first");
     let directoryExisted = true;
@@ -877,8 +960,9 @@ export function createAppHelper({
     const rendered = await writeProject(manifest, values, { existingEnv: await readEnv(id), devices });
     // Before anything is pulled or started: a port something else holds would fail `up` after the
     // download, with Docker's sentence instead of who holds it.
+    let ports;
     try {
-      await assertPortsFree(manifest, rendered.composeYaml, { progress, refused: `${manifest.name} was not installed; nothing was started.` });
+      ports = await assertPortsFree(manifest, rendered.composeYaml, { progress, refused: `${manifest.name} was not installed; nothing was started.` });
     } catch (error) {
       if (!directoryExisted) await rm(dirFor(id), { recursive: true, force: true }).catch(() => {});
       throw error;
@@ -893,7 +977,7 @@ export function createAppHelper({
       await writeState(id, { id, installed: true, installedAt: clock().toISOString(), updatedAt: clock().toISOString(), manifestSha256: manifest.sha256 ?? null, image: { reference: manifest.image.reference, id: status.image }, values: storableValues(manifest, values, rendered.env), pinnedRollback: false });
       const setup = await applySetup(manifest, values, progress);
       await refreshHomepage(id, progress);
-      return { installed: true, id, name: manifest.name, image: status.image, hostPorts: rendered.hostPorts, exposure: values.exposure ?? "lan", health: status.health, secretsGenerated: manifest.env.filter((entry) => entry.generate).map((entry) => entry.name), setup };
+      return { installed: true, id, name: manifest.name, image: status.image, hostPorts: rendered.hostPorts, exposure: values.exposure ?? "lan", health: status.health, secretsGenerated: manifest.env.filter((entry) => entry.generate).map((entry) => entry.name), setup, ...withPortWarnings(ports) };
     } catch (error) {
       progress?.(`Install failed: ${error.message}. Rolling back...`, "stderr");
       await compose(id, ["down", "--remove-orphans"], { timeout: 120_000, progress }).catch(() => {});
@@ -958,7 +1042,7 @@ export function createAppHelper({
     }
     // Ports are bound when a container starts, not when it is created, so only a start is checked.
     const project = rewritten ? await readFile(path.join(dirFor(id), "compose.yaml"), "utf8").catch(() => "") : saved.compose;
-    if (start) await assertPortsFree(manifest, project, { progress, refused: `${manifest.name} was not started again; nothing was built. Its data folder and saved settings are as they were.` });
+    const ports = start ? await assertPortsFree(manifest, project, { progress, refused: `${manifest.name} was not started again; nothing was built. Its data folder and saved settings are as they were.` }) : null;
     // `up` pulls the image first when a prune took it along with the container.
     const upBudgetMs = scaled(15 * 60_000, timeScale);
     const up = await compose(id, start ? ["up", "--detach", "--remove-orphans"] : ["up", "--no-start", "--remove-orphans"], { timeout: upBudgetMs, progress });
@@ -975,7 +1059,7 @@ export function createAppHelper({
       progress?.(`${manifest.name} is up again`, "stdout");
       await writeState(id, { ...state, updatedAt: clock().toISOString() });
       await refreshHomepage(id, progress);
-      return { reinstalled: true, started: true, id, name: manifest.name, projectRewritten: rewritten, image: status.image, health: status.health };
+      return { reinstalled: true, started: true, id, name: manifest.name, projectRewritten: rewritten, image: status.image, health: status.health, ...withPortWarnings(ports) };
     } catch (error) {
       progress?.(`${manifest.name} did not come up: ${error.message}. Taking down what started...`, "stderr");
       await compose(id, ["down", "--remove-orphans"], { timeout: 120_000, progress }).catch(() => {});
@@ -1191,8 +1275,10 @@ export function createAppHelper({
     // What is not being changed stays as it is. A caller that only flips one thing (the exposure
     // toggle) used to reset everything else to catalog defaults: the owner's VPN provider, their
     // folders, their ports, all silently gone. The stored values are the baseline; the request
-    // overrides only what it names.
-    const stored = state.values ?? {};
+    // overrides only what it names. Saved settings a catalog release has since dropped are dropped
+    // here too, as update does: merged back in raw, every Settings, Reach or password change of
+    // such an app failed with "is not a setting of this application".
+    const stored = sanitizeStoredValues(manifest, state.values ?? {});
     const merged = {
       ports: { ...stored.ports, ...rawValues.ports },
       env: { ...stored.env, ...rawValues.env },
@@ -1206,6 +1292,11 @@ export function createAppHelper({
     const previousEnv = await readFile(path.join(dirFor(id), ".env"), "utf8").catch(() => "");
     const { values, errors } = resolveValues(manifest, withSavedSecrets(manifest, merged, parseEnvFile(previousEnv)));
     if (errors.length) throw new Error(`Invalid settings: ${errors.join("; ")}`);
+    // An app already saved that way (before this was refused) keeps its other settings changeable;
+    // Reach's Home network is how it leaves that state.
+    const storedOnHost = (stored.networkMode ?? manifest.network) === "host";
+    const refusal = storedOnHost && stored.exposure === "tailnet" ? null : hostNetworkTailnetRefusal(manifest, values, { switchingNetwork: !storedOnHost });
+    if (refusal) throw new Error(refusal);
     const saved = takeCheckpoint ? await checkpoint({ id, reason: "settings change" }, { progress }) : null;
     const previousCompose = await readFile(path.join(dirFor(id), "compose.yaml"), "utf8").catch(() => null);
     const rendered = await writeProject(manifest, values, { existingEnv: parseEnvFile(previousEnv), devices });
@@ -1213,8 +1304,9 @@ export function createAppHelper({
     // home network (every address) while Serve still holds its port on the tailnet address is the
     // Dockge trap: refused here, with the old files back, rather than found by a failed `up` whose
     // rollback then fails the same way.
+    let ports;
     try {
-      await assertPortsFree(manifest, rendered.composeYaml, { progress, refused: `${manifest.name}'s settings were not changed; nothing was restarted.` });
+      ports = await assertPortsFree(manifest, rendered.composeYaml, { progress, refused: `${manifest.name}'s settings were not changed; nothing was restarted.` });
     } catch (error) {
       if (previousCompose !== null) await restoreProjectFiles(id, { compose: previousCompose, env: previousEnv }).catch(() => {});
       throw error;
@@ -1225,7 +1317,7 @@ export function createAppHelper({
       await waitHealthy(manifest, progress);
       await writeState(id, { ...state, updatedAt: clock().toISOString(), values: storableValues(manifest, values, rendered.env) });
       const setup = await applySetup(manifest, values, progress);
-      return { reconfigured: true, id, hostPorts: rendered.hostPorts, checkpoint: saved, setup };
+      return { reconfigured: true, id, hostPorts: rendered.hostPorts, checkpoint: saved, setup, ...withPortWarnings(ports) };
     } catch (error) {
       let rolledBack = false;
       if (previousCompose !== null) {
@@ -1284,6 +1376,7 @@ export function createAppHelper({
     // and `compose start` then has nothing to start. Start and restart build it again from the saved
     // compose project, which is what they mean; the data is in volumes and folders a prune leaves.
     let project = null;
+    let ports = null;
     if (verb === "start" || verb === "restart") {
       const before = await containerStatus(id);
       project = (await readProjectFiles(id)).compose;
@@ -1291,15 +1384,15 @@ export function createAppHelper({
       if (!before.exists) {
         if (project === null) throw new Error(`${manifest.name} has no container and its compose project is gone too; use Reinstall in Repair, which writes it again from the saved settings`);
         progress?.(`${manifest.name} has no container (removed while it was stopped); building it again from its saved compose project.`, "stdout");
-        await assertPortsFree(manifest, project, { progress, refused });
+        ports = await assertPortsFree(manifest, project, { progress, refused });
         const up = await compose(id, ["up", "--detach", "--remove-orphans"], { timeout: 15 * 60_000, progress });
         if (!up.ok) throw await bindFailure(manifest, up.stderr, project, refused) ?? new Error(`docker compose up failed: ${redact(up.stderr).split("\n").slice(-3).join(" ")}`);
         const status = await containerStatus(id);
-        return { id, action: verb, running: status.running, status: status.status, recreated: true };
+        return { id, action: verb, running: status.running, status: status.status, recreated: true, ...withPortWarnings(ports) };
       }
       // Starting what already runs binds nothing. A restart lets go of every port and binds it again,
       // which is when something waiting for one takes it.
-      if (project !== null && (verb === "restart" || !before.running)) await assertPortsFree(manifest, project, { progress, refused });
+      if (project !== null && (verb === "restart" || !before.running)) ports = await assertPortsFree(manifest, project, { progress, refused });
     }
     let result = await compose(id, [verb], { timeout: 180_000, progress });
     // A stopped container is pinned to the network it was created on, and anything that prunes
@@ -1313,7 +1406,7 @@ export function createAppHelper({
     }
     if (!result.ok) throw (project !== null ? await bindFailure(manifest, result.stderr, project, `${manifest.name} was not ${verb === "start" ? "started" : "restarted"}.`) : null) ?? new Error(`docker compose ${verb} failed: ${redact(result.stderr).split("\n").slice(-3).join(" ")}`);
     const status = await containerStatus(id);
-    return { id, action: verb, running: status.running, status: status.status };
+    return { id, action: verb, running: status.running, status: status.status, ...withPortWarnings(ports) };
   }
 
   /**
@@ -1645,7 +1738,7 @@ export function createAppHelper({
     if (!homepage) throw new Error("Homepage is not in the catalog");
     const homepageState = await readState("homepage");
     if (!homepageState?.installed) throw new Error("Homepage is not installed");
-    const rememberedPath = path.join(dirFor("homepage"), "boxpilot-homepage-sync.json");
+    const rememberedPath = path.join(dirFor("homepage"), homepageSyncFile);
     const remembered = await readFile(rememberedPath, "utf8").then(JSON.parse).catch(() => null);
     const linkHost = host ?? remembered?.host ?? null;
     if (typeof linkHost !== "string" || !homepageHostPattern.test(linkHost)) throw new Error("A host name or address for the dashboard links is required");
@@ -1820,11 +1913,50 @@ export function createAppHelper({
    * replaces: the folders marked `backup: false` of the app and its sidecars (downloaded models, a
    * cache, an export folder, a mailbox) and the config files the manifest ships (a prometheus.yml),
    * which the deployer writes and the compose file mounts. Relative to the app folder, shortest first.
+   * `all` also names what BoxPilot itself keeps beside an app's project and no backup holds (the
+   * address Homepage's links are written for): a restore deleted it with the folder it replaced.
    */
   function keptOutOfBackup(manifest) {
     const folders = [...manifest.volumes, ...(manifest.sidecars ?? []).flatMap((sidecar) => sidecar.volumes ?? [])].filter((volume) => volume.path && !volume.backup).map((volume) => volume.path);
     const files = (manifest.files ?? []).map((file) => path.posix.normalize(file.path)).filter((relative) => !relative.startsWith("..") && !path.posix.isAbsolute(relative));
-    return { files, all: [...new Set([...folders, ...files])].sort((a, b) => a.length - b.length) };
+    return { files, all: [...new Set([...folders, ...files, homepageSyncFile])].sort((a, b) => a.length - b.length) };
+  }
+
+  /**
+   * Take set-user-id and set-group-id off every regular file under `root`, an archive just unpacked.
+   *
+   * tar as root reproduces whatever mode an archive names, and an app backup is only as trustworthy
+   * as whoever last held the file: a set-user-id binary in it would come back root's, in a folder a
+   * container mounts. `--no-same-owner` is not the answer here, as it is for a machine snapshot: it
+   * hands every file to root, and an app whose data must belong to its container user (a Postgres
+   * data directory, a PUID 1000 app's files) cannot start or write after the restore. Nor is
+   * `--no-same-permissions`, which applies the helper's umask (0077) and takes group and other
+   * access from files a container reads as another user. So owners and permissions stay as archived,
+   * and only these two bits go. Links are never followed; folders keep set-group-id, which grants
+   * nothing. Returns what was changed, relative to `root`.
+   */
+  async function clearSetIdBits(root) {
+    const cleared = [];
+    const walk = async (directory) => {
+      for (const entry of await readdir(directory, { withFileTypes: true })) {
+        const full = path.join(directory, entry.name);
+        if (entry.isDirectory()) { await walk(full); continue; }
+        if (!entry.isFile()) continue;
+        const info = await lstat(full);
+        if (!info.isFile() || !(info.mode & 0o6000)) continue;
+        await chmod(full, info.mode & 0o1777);
+        cleared.push(path.relative(root, full).split(path.sep).join("/"));
+      }
+    };
+    await walk(root);
+    return cleared.sort();
+  }
+
+  /** Clear set-id bits under a freshly unpacked `root` (clearSetIdBits), saying so when there were any. */
+  async function withoutSetIdBits(root, progress) {
+    const cleared = await clearSetIdBits(root);
+    if (cleared.length) progress?.(`Cleared set-user-id and set-group-id from ${cleared.length} file${cleared.length === 1 ? "" : "s"} the backup marked so: ${cleared.slice(0, 10).join(", ")}${cleared.length > 10 ? ", ..." : ""}`, "stderr");
+    return cleared;
   }
 
   /** Whether `relative` is under `base` through real folders only: "present", "absent", or "unsafe" (a link or a file on the way). */
@@ -2049,6 +2181,20 @@ export function createAppHelper({
       await rm(staged, { recursive: true, force: true });
       throw new Error(`tar extraction failed: ${extract.stderr.split("\n").slice(-2).join(" ")}. The live application directory was not replaced.`);
     }
+    // The backup's compose file is what `up` binds, and the app may have moved since it was written
+    // (to tailnet only, with Serve now holding its old port on the tailnet address). Asked before
+    // anything is stopped: found by `up` instead, the app was left down with "address already in
+    // use", and the .replaced folder it left refused every retry.
+    let ports;
+    try {
+      await withoutSetIdBits(staged, progress);
+      const stagedCompose = path.join(staged, "compose.yaml");
+      const project = (await lstat(stagedCompose).catch(() => null))?.isFile() ? await readFile(stagedCompose, "utf8") : "";
+      ports = await assertPortsFree(manifest, project, { progress, refused: `${manifest.name} was not restored; nothing was changed.` });
+    } catch (error) {
+      await rm(staged, { recursive: true, force: true });
+      throw error;
+    }
     const status = await containerStatus(id);
     if (status.running) {
       const stop = await compose(id, ["stop"], { timeout: 120_000, progress });
@@ -2109,7 +2255,7 @@ export function createAppHelper({
     if (safetyBackupSaved) await rm(displaced, { recursive: true, force: true });
     const retainedOriginal = !safetyBackupSaved && await lstat(displaced).then(() => true, () => false);
     if (retainedOriginal) progress?.(`Restore passed its health check. ${path.basename(displaced)} was retained because no safety backup was saved.`, "stderr");
-    return { restored: true, id, backup: backupName, image: healthy.image, health: healthy.health, retainedOriginal };
+    return { restored: true, id, backup: backupName, image: healthy.image, health: healthy.health, retainedOriginal, ...withPortWarnings(ports) };
   }
 
   function backupArtifactFor(id, backupName) {
@@ -2197,6 +2343,7 @@ export function createAppHelper({
       progress?.(`$ tar -xzf ${backupName} ${relativePath}`, "stdout");
       const extract = await runCommand(tarBinary, ["-xzf", artifact, "-C", staged, relativePath], { timeout: 60 * 60_000, maxBuffer: 4 * 1024 * 1024 });
       if (!extract.ok) throw new Error(`tar extraction failed: ${extract.stderr.split("\n").slice(-2).join(" ")}. The checkpoint ${saved.artifact} holds the pre-restore state.`);
+      await withoutSetIdBits(staged, progress);
       await placeWithoutFollowing(path.join(staged, relativePath), live, relativePath, path.join(staged, ".previous"));
     } finally {
       await rm(staged, { recursive: true, force: true }).catch(() => {});
