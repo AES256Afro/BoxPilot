@@ -769,6 +769,30 @@ describe("an app's data archive copied in for a restore", () => {
     expect(apps.seen).toEqual([{ backup: name, store: [name], bytes: "app-backup-bytes" }]);
   });
 
+  // Linux only: creates file symlinks, which need a privilege on Windows.
+  it.skipIf(onWindows)("never copies through a link, at the copy's name or as the archive on the mirror", async () => {
+    const outside = path.join(os.tmpdir(), `boxpilot-outside-${process.pid}-${Date.now()}`);
+    directories.push(outside);
+    await mkdir(outside);
+    await writeFile(path.join(outside, "victim"), "untouched");
+
+    // A link left where the copy is written goes; what it points at is never written.
+    const first = await onlyOnTheMirror();
+    await symlink(path.join(outside, "victim"), path.join(first.store, `${name}.partial`));
+    const restored = await first.helper.restore({ source: "local", artifact: first.created.artifact }, { apps: watchingDeployer(first.paths, first.store) });
+    expect(restored.apps[0]).toMatchObject({ dataRestored: true, error: null });
+    expect(await readFile(path.join(outside, "victim"), "utf8")).toBe("untouched");
+    expect((await lstat(path.join(first.store, name))).isFile()).toBe(true);
+
+    // An archive on the mirror that is a link to a file elsewhere is not copied in.
+    const second = await onlyOnTheMirror();
+    await rm(path.join(second.mirror, name));
+    await symlink(path.join(outside, "victim"), path.join(second.mirror, name));
+    const refused = await second.helper.restore({ source: "local", artifact: second.created.artifact }, { apps: watchingDeployer(second.paths, second.store) });
+    expect(refused.apps[0]).toMatchObject({ dataRestored: false, error: expect.stringContaining("is a symbolic link") });
+    expect(await readdir(second.store)).toEqual([]);
+  });
+
   it("is swept away when the helper starts after a restart cut the copy off", async () => {
     const { helper, paths } = await fixture();
     const store = path.join(paths.applicationBackupRoot, "uptime-kuma");
