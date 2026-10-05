@@ -337,6 +337,26 @@ describe("failures BoxPilot reports on its own work (M27.2)", () => {
     expect((await alerts.check()).sent).toEqual([]); // announced now; the next round is quiet
   });
 
+  it("keeps who ran the run its words describe, through a later delivery, here and in the notification centre (sweep 3)", async () => {
+    const recorded = [];
+    const settings = new Map();
+    const store = { getSetting: (key, fallback) => settings.get(key) ?? fallback, setSetting: (key, value) => settings.set(key, value), recordAudit: vi.fn() };
+    let target = null;
+    const alerts = createHealthAlerts({ inventory: { inspect: async () => ({}) }, notifications: { getTarget: () => target, send: vi.fn(async () => ({ sent: true })) }, store, now: at, history: { record: (entry) => recorded.push(entry), resolve: () => {} } });
+    const automation = { key: "flow.failed:f1", title: "Automation stopped: Tidy", message: "Tidy stopped at step 2: the owner's error", actorId: "owner-1" };
+    await alerts.raise(automation);
+    expect(settings.get("healthAlertsState")[automation.key]).toMatchObject({ notified: false, actorId: "owner-1" });
+    target = { kind: "ntfy" };
+    await alerts.check();
+    expect(settings.get("healthAlertsState")[automation.key]).toEqual({ since: "2026-09-27T03:00:00.000Z", title: automation.title, notified: true, actorId: "owner-1" });
+    expect(recorded.map((entry) => [entry.delivered, entry.actorId])).toEqual([[false, "owner-1"], [true, "owner-1"]]);
+    // A failure raised with nobody to name keeps that too; one raised without saying keeps nothing.
+    await alerts.raise({ ...automation, key: "flow.failed:f2", actorId: null });
+    await alerts.raise({ ...failure });
+    expect(settings.get("healthAlertsState")["flow.failed:f2"]).toMatchObject({ actorId: null });
+    expect(settings.get("healthAlertsState")[failure.key]).not.toHaveProperty("actorId");
+  });
+
   it("keeps a failure whose delivery failed as not announced, and tries again", async () => {
     const send = vi.fn().mockRejectedValueOnce(new Error("The notification target answered 502")).mockResolvedValue({ sent: true });
     const { alerts, state, store } = ledger({ send });
