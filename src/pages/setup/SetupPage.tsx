@@ -58,6 +58,7 @@ export default function SetupPage({ csrfToken, role = "owner", onDone }: SetupPa
   const [progress, setProgress] = useState<StepProgress>({});
   const [password, setPassword] = useState("");
   const [needPassword, setNeedPassword] = useState(false);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
   const passwordRef = useRef("");
   const skipped = useRef<Set<string>>(new Set());
   const canRun = mayStart(role, "app.install");
@@ -112,8 +113,21 @@ export default function SetupPage({ csrfToken, role = "owner", onDone }: SetupPa
     // Staged but not approved: it waits in Activity for whoever comes back, rather than running unseen.
     if (!open.current) return "left";
     const approve = await fetch(`/api/v1/jobs/${stagedBody.job.id}/approve`, { method: "POST", headers, body: JSON.stringify(passwordRef.current ? { password: passwordRef.current } : {}) });
-    if (approve.status === 401) return "password";
-    if (!approve.ok) { const body = (await approve.json().catch(() => ({}))) as { error?: string }; mark(step.id, { state: "failed", error: body.error ?? `Approval failed (${approve.status})` }); return "failed"; }
+    if (!approve.ok) {
+      const body = (await approve.json().catch(() => ({}))) as { error?: string };
+      // Not approved: withdraw it. The next try stages its own, and this one only waited in Activity.
+      await fetch(`/api/v1/jobs/${stagedBody.job.id}`, { method: "DELETE", headers }).catch(() => undefined);
+      // A missing password is a 409 in the server's words (as in ApproveDialog); 401 asks to sign in
+      // again. A wrong one is asked for again, not held for every retry.
+      const wrong = /wrong password/i.test(body.error ?? "");
+      if (approve.status === 401 || (approve.status === 409 && (wrong || /owner password/i.test(body.error ?? "")))) {
+        passwordRef.current = "";
+        setPasswordError(wrong ? body.error ?? "Wrong password" : null);
+        return "password";
+      }
+      mark(step.id, { state: "failed", error: body.error ?? `Approval failed (${approve.status})` });
+      return "failed";
+    }
     const started = Date.now();
     let unreadable = 0;
     for (;;) {
@@ -289,7 +303,7 @@ export default function SetupPage({ csrfToken, role = "owner", onDone }: SetupPa
             {phase === "paused" && needPassword && (
               <Panel padded title="Approval">
                 <form className="setup-password" onSubmit={(event) => { event.preventDefault(); resume(); }}>
-                  <Field label="Owner password" hint="Your approval mode asks for it. Enter it once to approve the remaining steps.">
+                  <Field label="Owner password" hint="Your approval mode asks for it. Enter it once to approve the remaining steps." error={passwordError ?? undefined}>
                     <SecretInput value={password} onValueChange={setPassword} autoComplete="current-password" required />
                   </Field>
                   <Button type="submit" variant="primary">Continue</Button>
