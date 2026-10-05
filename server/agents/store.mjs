@@ -537,13 +537,20 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
     if (changed) prepare("DELETE FROM agent_vectors WHERE kind = 'note' AND item_id = ?").run(noteId);
     return changed;
   });
-  /** The owner's edit of a note: its words, how long it stays fresh, pinned, shared. A finding is forgotten, not edited. */
-  function updateNote(agentId, noteId, { title, body, freshUntil, pinned, shared }) {
+  /**
+   * The owner's edit of a note: its words, how long it stays fresh, pinned, shared. A finding is
+   * forgotten, not edited. Words the owner rewrote are the owner's, and `trusted` is the owner's
+   * word that it is fine as it is: either way it no longer carries the flag of the run that kept it
+   * (2026-10 sweep 3).
+   */
+  function updateNote(agentId, noteId, { title, body, freshUntil, pinned, shared, trusted = false }) {
     return transaction(() => {
       const current = prepare("SELECT * FROM agent_notes WHERE agent_id = ? AND id = ? AND finding IS NULL").get(agentId, noteId);
       if (!current) return null;
-      prepare("UPDATE agent_notes SET title = ?, body = ?, fresh_until = ?, pinned = ?, shared = ?, updated_at = ? WHERE id = ?")
-        .run(title ?? current.title, body ?? current.body, freshUntil === undefined ? current.fresh_until : freshUntil, pinned === undefined ? current.pinned : pinned ? 1 : 0, shared === undefined ? current.shared : shared ? 1 : 0, iso(), noteId);
+      const { injectionHop: _hop, ...source } = parse(current.source_json, {});
+      const cleared = body !== undefined || trusted ? json({ ...source, injection: false }) : current.source_json;
+      prepare("UPDATE agent_notes SET title = ?, body = ?, fresh_until = ?, pinned = ?, shared = ?, source_json = ?, updated_at = ? WHERE id = ?")
+        .run(title ?? current.title, body ?? current.body, freshUntil === undefined ? current.fresh_until : freshUntil, pinned === undefined ? current.pinned : pinned ? 1 : 0, shared === undefined ? current.shared : shared ? 1 : 0, cleared, iso(), noteId);
       if (body !== undefined || title !== undefined) prepare("DELETE FROM agent_vectors WHERE kind = 'note' AND item_id = ?").run(noteId);
       return noteOf(prepare("SELECT * FROM agent_notes WHERE id = ?").get(noteId));
     });
@@ -767,28 +774,38 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
    * refused as "ran in the last hour". Such a question is graded here, as its run ended, whenever
    * the evaluation is listed; so is one whose run was never queued (BoxPilot stopped part-way through
    * setting the evaluation up). A completed run is left to the runner's finish, which grades its
-   * answer a moment after marking it completed; any other ending grades the same either way.
+   * answer a moment after marking it completed; any other ending grades the same either way. A
+   * nightly question refused at hand-out (the night's model time could not pay for it) is not
+   * graded at all, and left out of the score: it was never asked (2026-10 sweep 3).
    */
   function settleEvalRun(evaluation) {
     if (!evaluation || evaluation.state !== "running") return evaluation;
     let settled = evaluation;
     for (const result of evaluation.results) {
-      if (result.passed !== null) continue;
+      if (result.passed !== null || result.skipped) continue;
       const run = result.runId ? getRun(result.runId) : null;
       if (run && (!finishedStates.has(run.state) || run.state === "completed")) continue;
-      settled = gradeEval(evaluation.id, result.questionId, { passed: false, found: run ? `The run ended ${run.state}` : "The run was never queued" }) ?? settled;
+      const grade = run?.state === "refused" && !evaluation.createdBy
+        ? { passed: null, skipped: true, found: `Not asked: ${run.reason ?? "there was no model time left for it"}` }
+        : { passed: false, found: run ? `The run ended ${run.state}` : "The run was never queued" };
+      settled = gradeEval(evaluation.id, result.questionId, grade) ?? settled;
     }
     return settled;
   }
 
-  /** Record one question's grade; when none is left pending, the evaluation is done and scored. */
+  /**
+   * Record one question's grade; when none is left pending, the evaluation is done and scored - on
+   * the questions graded, none when every one was skipped (`skipped`: never asked, or cut short,
+   * for want of the night's model time).
+   */
   function gradeEval(evalId, questionId, grade) {
     return transaction(() => {
       const current = getEvalRun(evalId);
       if (!current) return null;
       const results = current.results.map((entry) => (entry.questionId === questionId ? { ...entry, ...grade } : entry));
-      const pending = results.some((entry) => entry.passed === null);
-      const score = pending ? null : results.length ? results.filter((entry) => entry.passed).length / results.length : 0;
+      const pending = results.some((entry) => entry.passed === null && !entry.skipped);
+      const graded = results.filter((entry) => !entry.skipped);
+      const score = pending ? null : graded.length ? graded.filter((entry) => entry.passed).length / graded.length : results.length ? null : 0;
       prepare("UPDATE agent_eval_runs SET results_json = ?, state = ?, score = ?, finished_at = ? WHERE id = ?").run(json(results), pending ? "running" : "done", score, pending ? null : iso(), evalId);
       return getEvalRun(evalId);
     });

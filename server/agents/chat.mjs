@@ -104,8 +104,11 @@ export function createAgentChat({ state, store, helper = null, now = () => new D
       const asked = chatOrigin(run);
       const findings = asked ?? destinationFor(spec, "findings", link);
       // However it ended: a question BoxPilot cancelled (it waited too long), refused (no runs left
-      // today) or stopped is answered with why, not left unanswered (2026-10 sweep).
-      if (asked && !handedOn && !forSupervisor && ["completed", "degraded", "failed", "timeout", "interrupted", "cancelled", "refused", "killed"].includes(run.state)) {
+      // today) or stopped is answered with why, not left unanswered (2026-10 sweep). A run that
+      // handed on and ended with an answer is answered by its follow-up; one that ended any other
+      // way gets none, so it says why itself (sweep 3: nobody answered).
+      const followUpComes = handedOn && ["completed", "degraded"].includes(run.state);
+      if (asked && !followUpComes && !forSupervisor && ["completed", "degraded", "failed", "timeout", "interrupted", "cancelled", "refused", "killed"].includes(run.state)) {
         queue("reply", asked, replyMessage({ agentName: name, run, link: runLink, redact }));
       } else if (!asked && findings && findingKinds.has(run.kind) && answered.has(run.state) && run.answer && !handedOn && !forSupervisor && !run.flags?.clarify) {
         queue("findings", findings, findingMessage({ agentName: name, run, digest: run.kind === "schedule" && Boolean(spec?.outputs?.digest), link: runLink, redact }));
@@ -113,7 +116,7 @@ export function createAgentChat({ state, store, helper = null, now = () => new D
       for (const proposal of proposals) {
         // A question asked back is in the reply itself; answered here, in the thread.
         if (asked && proposal.kind === "question") continue;
-        queue("findings", findings, cardMessage({ agentName: name, proposal, link: linkTo(link, `view=agents&agent=${agent.id}`, "the card on the Agents page"), redact }));
+        queue("findings", findings, cardMessage({ agentName: name, proposal, link: linkTo(link, `view=agents&agent=${agent.id}`, "the card on the Agents page"), flagged: Boolean(run.flags?.injection), redact }));
       }
       const logs = destinationFor(spec, "logs", link);
       if (logs) {

@@ -270,7 +270,9 @@ export function createRunner({ api, runtime, client, usage = null, now = () => D
     heartbeat.unref?.();
 
     const used = { modelMs: 0, loadMs: 0, promptTokens: 0, completionTokens: 0, cachedTokens: 0, readTokens: 0, modelCalls: 0 };
-    const outputs = [];
+    // A supervisor's follow-up starts with its specialists' answers as T1, T2 ... (sweep 3): what the
+    // check holds a claim citing one to, and what a degraded answer is made of, rather than other reads.
+    const outputs = (Array.isArray(claim.handoffs) ? claim.handoffs : []).map((entry) => ({ id: String(entry.id), title: String(entry.title ?? "A specialist's answer"), summary: String(entry.text ?? "") }));
     let degraded = null;
     let answer = null;
     let clarify = null;
