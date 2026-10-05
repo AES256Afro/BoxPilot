@@ -30,7 +30,7 @@ describe("log operations", () => {
     await expect(registry.execute("logs.read", { kind: "group", target: "kernel" }, { run })).resolves.toMatchObject({ kind: "group" });
     expect(calls.at(-1)).toContain(" -k");
     await expect(registry.execute("logs.read", { kind: "unit", target: "docker.service", filter: "error" }, { run })).resolves.toMatchObject({ target: "docker.service" });
-    expect(calls.at(-1)).toBe("journalctl --no-pager -o short-iso -n 300 -u docker.service -g (?:error)|(?i:-{4,5} ?(?:begin|end) (?:[a-z0-9]+ ){0,3}private key(?: block)? ?-{4,5})");
+    expect(calls.at(-1)).toBe("journalctl --no-pager -o short-iso -n 5000 -u docker.service");
     await expect(registry.execute("logs.read", { kind: "container", target: "bp-jellyfin", filter: "hello" }, { run })).resolves.toEqual({ kind: "container", target: "bp-jellyfin", lines: ["2026-08-21T01:00:00Z hello token=[REDACTED]"], truncated: false });
     await expect(registry.execute("logs.read", { kind: "container", target: "missing" }, { run })).rejects.toThrow("not found");
     await expect(registry.execute("logs.read", { kind: "unit", target: "../etc" }, { run })).rejects.toThrow("invalid");
@@ -79,14 +79,22 @@ const survivors = (output, body) => body.filter((line) => output.includes(line) 
 /**
  * journalctl as far as these tests need it: `-g` matches the message (not the timestamp, host and unit
  * before it) as a regular expression, case-blind when the pattern has no capital letter; `-n` keeps
- * the newest matches.
+ * the newest matches. The pattern is read the way PCRE2 reads the two things the sweep-5 review used:
+ * `\Q` quotes the rest up to `\E`, and `(?x)` makes `#` start a comment to the end.
  */
+function asPcre2(raw) {
+  let source = raw.replace(/\\Q([\s\S]*?)(?:\\E|$)/g, (_all, literal) => literal.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  const extended = source.indexOf("(?x)");
+  if (extended >= 0) source = `${source.slice(0, extended)}${source.slice(extended + 4).replace(/#.*$/, "").replace(/\s+/g, "")}`;
+  return new RegExp(source, /[A-Z]/.test(raw) ? "" : "i");
+}
+
 function fakeJournal(entries) {
   return vi.fn(async (_binary, args) => {
     let shown = entries;
     const grep = args.indexOf("-g");
     if (grep >= 0) {
-      const pattern = new RegExp(args[grep + 1], /[A-Z]/.test(args[grep + 1]) ? "" : "i");
+      const pattern = asPcre2(args[grep + 1]);
       shown = entries.filter((entry) => pattern.test(entry.message));
     }
     const newest = Number(args[args.indexOf("-n") + 1]);
@@ -117,18 +125,6 @@ describe("a private key in a log read with a filter (sweep 4)", () => {
     expect(matching.lines).not.toContain("2026-10-05T09:00:00+0000 box certgen[311]: writing a fresh key for the dashboard");
   });
 
-  it("asks journalctl for the key markers alongside the filter, without making the filter case-sensitive", async () => {
-    const calls = [];
-    const run = vi.fn(async (binary, args) => { calls.push(args); return { ok: true, stdout: "", stderr: "" }; });
-    await registry.execute("logs.read", { kind: "unit", target: "docker.service", filter: "error" }, { run });
-    const pattern = calls.at(-1)[calls.at(-1).indexOf("-g") + 1];
-    // journalctl matches case-blind only while the whole pattern has no capital letter in it.
-    expect(pattern).not.toMatch(/[A-Z]/);
-    const matches = new RegExp(pattern, "i");
-    for (const line of ["error: disk full", "-----BEGIN PRIVATE KEY-----", "-----END OPENSSH PRIVATE KEY-----", "-----BEGIN PGP PRIVATE KEY BLOCK-----"]) expect(matches.test(line), line).toBe(true);
-    for (const line of ["all quiet", "-----BEGIN CERTIFICATE-----", "loaded the private key"]) expect(matches.test(line), line).toBe(false);
-  });
-
   it("takes a key out of a container's log before the filter picks lines", async () => {
     const key = fakeKey("PRIVATE KEY");
     const stdout = [
@@ -144,5 +140,52 @@ describe("a private key in a log read with a filter (sweep 4)", () => {
     }
     const matching = await registry.execute("logs.read", { kind: "container", target: "bp-certs", filter: "fake" }, { run });
     expect(matching.lines).toEqual(["2026-10-05T09:00:01.000000001Z [REDACTED_PRIVATE_KEY]", "2026-10-05T09:00:02.000000001Z fake listener up on :8443"]);
+  });
+});
+
+describe("a journal filter that journalctl would read as more than text (sweep 5)", () => {
+  const toModel = (result) => finalRedaction(`${result.lines.length} lines:\n${result.lines.join("\n")}`, createRedactor());
+  const journalWithKey = () => {
+    const key = fakeKey();
+    const entries = [
+      { at: "2026-10-05T09:00:00+0000", unit: "certgen[311]", message: "writing a fresh key for the dashboard" },
+      ...key.lines.map((message) => ({ at: "2026-10-05T09:00:01+0000", unit: "certgen[311]", message })),
+      { at: "2026-10-05T09:00:02+0000", unit: "certgen[311]", message: "fake dashboard certificate is ready" },
+    ];
+    return { key, entries };
+  };
+
+  it("takes the key out whatever the filter says, and never hands the filter to journalctl", async () => {
+    const { key, entries } = journalWithKey();
+    // Each picks the key's first two body lines. Paired with the key markers as one -g pattern, the
+    // first quoted the marker alternative away (\Q) and the second commented it out ((?x)#), so two
+    // body lines came back with no BEGIN or END - one short of the run redactKeyBodies takes out.
+    for (const filter of [String.raw`FAKE0[01])|zzz\Q`, "FAKE0[01])(?x)#", "FAKE00", "fake"]) {
+      const run = fakeJournal(entries);
+      const result = await registry.execute("logs.read", { kind: "unit", target: "certgen.service", filter }, { run });
+      expect(run.mock.calls.at(-1)[1], filter).not.toContain("-g");
+      expect(run.mock.calls.at(-1)[1].join(" "), filter).not.toContain(filter);
+      expect(survivors(result.lines.join("\n"), key.body), filter).toEqual([]);
+      expect(survivors(toModel(result), key.body), filter).toEqual([]);
+    }
+  });
+
+  it("matches the filter as text, case-blind, over a bounded window, newest matches last", async () => {
+    const { entries } = journalWithKey();
+    const run = fakeJournal(entries);
+    const result = await registry.execute("logs.read", { kind: "unit", target: "certgen.service", filter: "DASHBOARD", lines: 10 }, { run });
+    expect(result.lines).toEqual([
+      "2026-10-05T09:00:00+0000 box certgen[311]: writing a fresh key for the dashboard",
+      "2026-10-05T09:00:01+0000 box certgen[311]: [REDACTED_PRIVATE_KEY]",
+      "2026-10-05T09:00:02+0000 box certgen[311]: fake dashboard certificate is ready",
+    ]);
+    const args = run.mock.calls.at(-1)[1];
+    expect(Number(args[args.indexOf("-n") + 1])).toBe(5_000);
+    // A pattern is text: "a.b" is not a regular expression that matches "axb".
+    const literal = await registry.execute("logs.read", { kind: "unit", target: "certgen.service", filter: "fresh.key" }, { run: fakeJournal([{ at: "2026-10-05T09:00:00+0000", unit: "certgen[311]", message: "fresh key" }]) });
+    expect(literal.lines).toEqual([]);
+    const many = Array.from({ length: 40 }, (_, index) => ({ at: `2026-10-05T09:00:${String(index).padStart(2, "0")}+0000`, unit: "app[1]", message: `error ${index}` }));
+    const newest = await registry.execute("logs.read", { kind: "unit", target: "app.service", filter: "error", lines: 10 }, { run: fakeJournal(many) });
+    expect(newest.lines).toEqual(many.slice(-10).map((entry) => `${entry.at} box app[1]: ${entry.message}`));
   });
 });
