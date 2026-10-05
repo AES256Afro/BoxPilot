@@ -1875,7 +1875,7 @@ export function createAgentService({
     // A new background number applies at once when nothing waits on the runner (M40).
     if (input.cores !== undefined || (input.enabled !== undefined && !next.enabled)) void settleCpu({ force: true }).catch(() => null);
     wake();
-    return { module: presentModule(), runtime };
+    return { module: presentModule(person), runtime };
   }
 
   function pauseModule(caller, { until = null } = {}) {
@@ -1885,7 +1885,7 @@ export function createAgentService({
     if (resumeAt && (Number.isNaN(resumeAt.getTime()) || resumeAt <= now() || resumeAt.getTime() - now().getTime() > 30 * 86_400_000)) refuse(400, "Pause until a time within the next thirty days", "invalid_pause");
     state.setSetting(agentsSettingKey, { ...moduleSettings(), paused: true, pausedUntil: resumeAt ? resumeAt.toISOString() : null, pausedBy: person.id }, { updatedBy: person.id });
     audit("agents.module.paused", { actorId: person.id, details: { until: resumeAt?.toISOString() ?? null } });
-    return presentModule();
+    return presentModule(person);
   }
 
   function resumeModule(caller) {
@@ -1896,7 +1896,7 @@ export function createAgentService({
     state.setSetting(agentsSettingKey, { ...settings, paused: false, pausedUntil: null, pausedBy: null, killedAt: null }, { updatedBy: person.id });
     audit("agents.module.resumed", { actorId: person.id });
     wake();
-    return presentModule();
+    return presentModule(person);
   }
 
   /** Stop everything now: cancel what waits, stop what runs, tell the runner to stop its model. */
@@ -1917,7 +1917,7 @@ export function createAgentService({
     audit("agents.module.killed", { actorId: person.id, details: { cancelled, stopped } });
     void settleCpu({ force: true }).catch(() => null);
     wake();
-    return { module: presentModule(), cancelled, stopped };
+    return { module: presentModule(person), cancelled, stopped };
   }
 
   function pauseAgent(caller, agentId, { until = null } = {}) {
@@ -2010,20 +2010,29 @@ export function createAgentService({
 
   // ---- what the pages read ----
 
-  function presentModule() {
+  /**
+   * The module's settings as `person` may see them. Where the agents learn from - the owner's folder,
+   * the SearXNG address, the connectors' credential names and Slack channels - is for the owner and
+   * operators, who set and use them; a viewer, who sees the Agents page to ask, is not shown them
+   * (2026-10 sweep 2).
+   */
+  function presentModule(person) {
     const settings = moduleSettings();
-    return {
-      enabled: settings.enabled, paused: modulePaused(settings), pausedUntil: modulePaused(settings) ? settings.pausedUntil : null,
-      killedAt: settings.killedAt, quietHours: settings.quietHours, inQuietHours: inQuietHours(now(), settings.quietHours), notify: settings.notify !== false,
-      budget: moduleBudget(), embeddings: settings.embeddings !== false,
-      // M40: processors while someone waits and in the background, this machine's ceiling, and what is set now.
-      cores: { ...effectiveCores(settings.cores, { processors }), processors, physical: physical ?? null, limits: coreLimits, now: cpuNow() },
+    const sources = roleAtLeast(person?.role, "operator") ? {
       webSearch: { enabled: settings.webSearch?.enabled === true, endpoint: settings.webSearch?.endpoint ?? null },
       folder: { enabled: settings.folder?.enabled === true, path: settings.folder?.path ?? null },
       connectors: {
         notion: { enabled: settings.connectors?.notion?.enabled === true, credential: settings.connectors?.notion?.credential ?? null },
         slack: { enabled: settings.connectors?.slack?.enabled === true, credential: settings.connectors?.slack?.credential ?? null, channels: settings.connectors?.slack?.channels ?? [] },
       },
+    } : {};
+    return {
+      enabled: settings.enabled, paused: modulePaused(settings), pausedUntil: modulePaused(settings) ? settings.pausedUntil : null,
+      killedAt: settings.killedAt, quietHours: settings.quietHours, inQuietHours: inQuietHours(now(), settings.quietHours), notify: settings.notify !== false,
+      budget: moduleBudget(), embeddings: settings.embeddings !== false,
+      // M40: processors while someone waits and in the background, this machine's ceiling, and what is set now.
+      cores: { ...effectiveCores(settings.cores, { processors }), processors, physical: physical ?? null, limits: coreLimits, now: cpuNow() },
+      ...sources,
     };
   }
 
@@ -2091,7 +2100,7 @@ export function createAgentService({
     const agents = store.listAgents().filter((agent) => person.role !== "viewer" || canAsk(person, agent)).map((agent) => presentAgent(person, agent));
     const { queued, running } = queueCounts();
     return {
-      module: presentModule(),
+      module: presentModule(person),
       runner: runnerStatus(),
       agents,
       queue: { queued, running, dropped: droppedRuns },
@@ -2432,8 +2441,9 @@ export function createAgentService({
   }
 
   function usage(caller) {
-    personOf(caller);
-    const perAgent = store.listAgents().map((agent) => {
+    const person = personOf(caller);
+    // A viewer sees the agents they may ask, as the overview lists them (2026-10 sweep 2).
+    const perAgent = store.listAgents().filter((agent) => person.role !== "viewer" || canAsk(person, agent)).map((agent) => {
       const used = usedToday(agent.id);
       return { agentId: agent.id, name: agent.name, runs: used.runs, runsPerDay: agent.spec.budget.runsPerDay, modelSeconds: Math.round(used.modelMs / 1000), modelSecondsPerDay: agent.spec.budget.modelSecondsPerDay, tokens: used.tokens };
     });
@@ -2448,7 +2458,7 @@ export function createAgentService({
       // and the answers that cited another agent's finding.
       findings: { days: 7, ...store.findingsUseSince(new Date(now().getTime() - 7 * 86_400_000).toISOString()) },
       queue: { queued, running, dropped: droppedRuns },
-      module: presentModule(),
+      module: presentModule(person),
     };
   }
 
@@ -2489,7 +2499,7 @@ export function createAgentService({
         embeddings: moduleSettings().embeddings === false ? "Off: search is by words only." : runtimeSettings().driver === "llama-server" ? "Not with llama.cpp's server alone: search is by words only." : `${store.countVectors()} pieces indexed by the model server's embedder; ${pendingEmbeddings().length} wait for the next quiet hours.`,
         pending: pendingEmbeddings().length, vectors: store.countVectors(), enabled: moduleSettings().embeddings !== false,
       },
-      connectors: presentModule().connectors, folder: presentModule().folder, webSearch: presentModule().webSearch,
+      connectors: presentModule(person).connectors, folder: presentModule(person).folder, webSearch: presentModule(person).webSearch,
       learning: { quietHours: moduleSettings().quietHours, agents: lastLearn },
       canChange: person.role === "owner",
       // M40.6: whether the model can see the images waiting to be described, as it last said.
