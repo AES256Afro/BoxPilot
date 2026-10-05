@@ -852,6 +852,35 @@ describe("starting a flow without waiting for it", () => {
 });
 
 
+describe("a step whose subject makes it high risk", () => {
+  // app.install is medium, and the job layer stages it as high for an app whose manifest says so
+  // (the house's DNS, the VPN): such a flow saved, then stopped at that step on every run, asking
+  // for a password no flow can give.
+  const withTiers = (jobs) => Object.assign(jobs, { effectiveRisk: async (operationId, parameters) => (operationId === "app.install" && parameters?.id === "pi-hole" ? "high" : "medium") });
+  const install = (id) => ({ operationId: "app.install", parameters: { id } });
+
+  it("cannot be saved, or edited in", async () => {
+    const store = fakeStore();
+    const service = createFlowService({ store, jobs: withTiers(fakeJobs(store)), pollMs: 2 });
+    await expect(service.create({ name: "DNS", steps: [install("pi-hole")], createdBy: "owner-1" })).rejects.toThrow("step 1: Install application is high risk here and cannot be part of a flow");
+    const flow = await service.create({ name: "Apps", steps: [goodSteps[0], install("jellyfin")], createdBy: "owner-1" });
+    await expect(service.update(flow.id, { steps: [goodSteps[0], install("pi-hole")] }, "owner-1")).rejects.toThrow("step 2: Install application is high risk here");
+    expect(store.getFlow(flow.id).steps[1].parameters.id).toBe("jellyfin");
+  });
+
+  it("saved before this was checked, does not run, by hand or on its clock", async () => {
+    const store = fakeStore();
+    const jobs = withTiers(fakeJobs(store));
+    const service = createFlowService({ store, jobs, pollMs: 2, now: () => new Date("2026-09-15T10:00:00.000Z") });
+    const flow = store.createFlow({ name: "DNS", steps: [install("pi-hole")], createdBy: "owner-1", frequency: "daily", minute: 0, hour: 3, nextDueAt: "2026-09-15T03:00:00.000Z" });
+    await expect(service.launch(flow.id, "owner-1", { role: "owner" })).rejects.toThrow(/^This flow is no longer valid: step 1: Install application is high risk here/);
+    await expect(service.run(flow.id, "owner-1", { role: "owner" })).rejects.toThrow(/no longer valid/);
+    await service.tick();
+    expect(store.getFlow(flow.id).lastResult).toMatch(/^skipped: This flow is no longer valid: step 1: Install application is high risk here/);
+    expect(jobs.calls).toEqual([]);
+  });
+});
+
 describe("a flow step that would store an app's secret", () => {
   it("is refused, like a step carrying a top-level password", async () => {
     // values.env is where an app's token lives; a stored flow would keep it in the database and in

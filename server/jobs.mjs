@@ -397,7 +397,7 @@ export function createJobService(store, helper, {
     if (operationPrepareHooks[operationId]) parameters = await operationPrepareHooks[operationId](parameters ?? {});
     const parameterError = registry.validate(operationId, parameters ?? {});
     if (parameterError) throw new Error(parameterError);
-    const tier = operationRiskHooks[operationId] ? higherTier(operation.risk, await operationRiskHooks[operationId](parameters ?? {})) : operation.risk;
+    const tier = await effectiveRisk(operationId, parameters);
     if (tier === "high" && role !== "owner") throw new Error(`Only the owner can stage this: ${operation.title} is high risk here`);
     // Every secret, top-level or an app's own inside values.env, is staged in memory and the record
     // keeps a placeholder, so the controller database - and every backup of it - never holds one.
@@ -449,6 +449,17 @@ export function createJobService(store, helper, {
     store.addJobStep(job.id, "retry", "staged", `Staged again with ${formatDuration(budgetMs)} as job ${retry.id}`);
     store.recordAudit("job.more-time", { actorId: ownerId, subjectId: retry.id, details: { type: job.type, retryOf: job.id, budgetMs } });
     return retry;
+  }
+
+  /**
+   * The tier a job for this operation and these (prepared) parameters is staged at: the operation's
+   * own, or higher where its risk hook says what it acts on is riskier. Null for an unknown operation.
+   * Schedules and flows ask before they store a step, since an unattended run cannot be high.
+   */
+  async function effectiveRisk(operationId, parameters = {}) {
+    const operation = registry.get(operationId);
+    if (!operation) return null;
+    return operationRiskHooks[operationId] ? higherTier(operation.risk, await operationRiskHooks[operationId](parameters ?? {})) : operation.risk;
   }
 
   /** Apply the operation's prepare hook without staging — the scheduler validates with it. */
@@ -556,5 +567,5 @@ export function createJobService(store, helper, {
     return dropped;
   }
 
-  return { pruneStagedSecrets, holdsStagedSecrets, createOperationJob, retryWithMoreTime, approveAndRun, approveAndStart, describeApproval, approvalPolicy, cancelJob, prepareParameters, sweepStaleApprovals, dismissFailure, supersededReason, takeOneTime, oneTimeHeld: () => oneTimeResults.size };
+  return { pruneStagedSecrets, holdsStagedSecrets, createOperationJob, retryWithMoreTime, approveAndRun, approveAndStart, describeApproval, approvalPolicy, cancelJob, prepareParameters, effectiveRisk, sweepStaleApprovals, dismissFailure, supersededReason, takeOneTime, oneTimeHeld: () => oneTimeResults.size };
 }
