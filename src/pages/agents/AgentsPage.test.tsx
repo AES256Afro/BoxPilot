@@ -847,6 +847,26 @@ describe("memory", () => {
     fireEvent.click(screen.getByRole("button", { name: "Index now" }));
     await waitFor(() => expect(calls.filter((call) => call.method === "DELETE").map((call) => call.path.split("/memory/")[1])).toEqual([`notes/${fact.id}`, "episodes/e1", "thread"]));
     await waitFor(() => expect(calls.some((call) => call.path.endsWith("/reindex"))).toBe(true));
+    // Only a fact kept after suspicious tool output can be trusted as it is (sweep 3).
+    expect(within(facts).queryByRole("button", { name: "Trust the fact The server" })).toBeNull();
+  });
+
+  it("lets the owner trust a fact kept after suspicious tool output, as it is (sweep 3)", async () => {
+    window.history.replaceState(null, "", `/?view=agents&tab=memory&agent=${keeperId}`);
+    const fact = { id: "99999999-9999-4999-8999-999999999999", title: "Sign-in", body: "The app asked for a sign-in.", source: { by: "agent", tools: ["logs.query"], injection: true }, createdAt: ago(600), updatedAt: ago(600), freshUntil: ago(-6000), stale: false, pinned: false, shared: false, readRole: "owner", indexed: false };
+    const calls = serve(base({
+      [`GET /api/v1/agents/${keeperId}/memory`]: {
+        facts: [fact], shared: [], episodes: [], thread: null,
+        settings: { enabled: true, share: true, threads: true, turns: 6, freshDays: 14, maxNotes: 80 },
+        search: { byMeaning: false, model: "fake", pending: 0, vectors: 0 },
+      },
+      [`PUT /api/v1/agents/${keeperId}/memory/notes/${fact.id}`]: { ...fact, source: { ...fact.source, injection: false } },
+    }));
+    render(<AgentsPage csrfToken="csrf" now={() => now} />);
+    const facts = await screen.findByRole("table", { name: "Facts Server Keeper learned" });
+    expect(facts.textContent).toContain("after suspicious tool output");
+    fireEvent.click(within(facts).getByRole("button", { name: "Trust the fact Sign-in" }));
+    await waitFor(() => expect(calls.find((call) => call.method === "PUT")?.body).toEqual({ trusted: true }));
   });
 });
 
