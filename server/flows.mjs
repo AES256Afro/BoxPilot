@@ -127,10 +127,20 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
   };
   const owns = (jobId) => stepJobs.has(jobId);
   const alertKey = (flow) => `flow.failed:${flow.id}`;
-  /** Through the health-alert ledger: sent once, or kept as not announced when nothing can be sent. */
-  function announce(flow, headline, message) {
+  /**
+   * Through the health-alert ledger: sent once, or kept as not announced when nothing can be sent.
+   * `actorId` is who ran the run the words describe; its step errors are that account's and the
+   * owner's to read (sweep 3), whoever runs the flow next. Null when nobody can be named.
+   */
+  function announce(flow, headline, message, actorId) {
     if (!alerts) return;
-    try { Promise.resolve(alerts.raise({ key: alertKey(flow), title: `${headline}: ${flow.name}`, message: String(message).slice(0, 500), priority: "high" })).catch(() => {}); } catch { /* the flow's own record stands */ }
+    try { Promise.resolve(alerts.raise({ key: alertKey(flow), title: `${headline}: ${flow.name}`, message: String(message).slice(0, 500), priority: "high", actorId: typeof actorId === "string" ? actorId : null })).catch(() => {}); } catch { /* the flow's own record stands */ }
+  }
+  /** Who ran a run, from its jobs: each of one run's jobs is its runner's. Null when they do not say. */
+  function runnerOf(jobIds) {
+    const runners = new Set((jobIds ?? []).filter(Boolean).map((jobId) => store.getJob?.(jobId)?.createdBy ?? null));
+    const [only] = runners;
+    return runners.size === 1 && typeof only === "string" ? only : null;
   }
   function settle(flow, options) {
     if (!alerts) return;
@@ -376,8 +386,8 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
 
   async function run(id, actorId, { role = "owner", chainDepth = 0, silent = false } = {}) {
     const flow = preflight(id, role);
-    // A drive's trigger words its own outcome (runForDrive); every other run is told from here.
-    const tell = silent ? () => {} : announce;
+    // A drive's trigger words its own outcome (runForDrive); every other run is told from here, as this run's.
+    const tell = silent ? () => {} : (target, headline, message) => announce(target, headline, message, actorId);
 
     running.add(id);
     let completedRun = false;
@@ -580,7 +590,7 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
       if (!recordedRunFailure.test(error.message)) {
         store.markFlowRun(flow.id, { result: `skipped: ${error.message}`.slice(0, 300), jobIds: [] });
         store.recordAudit("flow.skipped", { actorId: flow.createdBy, subjectId: flow.id, details: { reason: error.message.slice(0, 200) } });
-        announce(flow, "Automation did not run", `${flow.name} ${refusalPhrase}: ${error.message}`.slice(0, 300));
+        announce(flow, "Automation did not run", `${flow.name} ${refusalPhrase}: ${error.message}`.slice(0, 300), flow.createdBy);
       }
     }
   }
@@ -658,7 +668,7 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
       if (!recordedRunFailure.test(error.message)) {
         store.markFlowRun(flow.id, { result: `skipped: ${error.message}`.slice(0, 300), jobIds: [] });
         store.recordAudit("flow.skipped", { actorId: flow.createdBy, subjectId: flow.id, details: { reason: error.message.slice(0, 200) } });
-        announce(flow, "Automation did not run", `${flow.name} was due to run after another flow but did not: ${error.message}`.slice(0, 300));
+        announce(flow, "Automation did not run", `${flow.name} was due to run after another flow but did not: ${error.message}`.slice(0, 300), flow.createdBy);
       }
     }
   }
@@ -712,7 +722,7 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
       const summary = `interrupted by a BoxPilot restart while ${flow.lastResult}; the step's job record says how far it got, and later steps did not run`.slice(0, 300);
       store.markFlowRun(flow.id, { result: summary, jobIds: flow.lastJobIds ?? [] });
       store.recordAudit("flow.interrupted", { actorId: flow.createdBy, subjectId: flow.id, details: { was: flow.lastResult.slice(0, 200) } });
-      announce(flow, "Automation was interrupted", `${flow.name} was ${summary}`);
+      announce(flow, "Automation was interrupted", `${flow.name} was ${summary}`, runnerOf(flow.lastJobIds));
       recovered += 1;
     }
     return recovered;
