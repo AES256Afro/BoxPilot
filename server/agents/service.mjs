@@ -30,7 +30,7 @@ import { coreLimits, defaultCores, effectiveCores, physicalCores, runnerCaps, ru
 import { createAgentChat, zulipSettingKey } from "./chat.mjs";
 import { ConnectorError, boundSync, cleanDocumentText, connectors, readFolderSetting, scanFolder, textOfUpload } from "./connectors.mjs";
 import { ageWords, compactFinding, findingAnswers, findingFreshMs, findingKind, findingReaderKinds, findingScore, sharingOf, wantsFresh } from "./findings.mjs";
-import { sanitizeUntrusted, wrapFinding, wrapNote, wrapToolOutput } from "./guard.mjs";
+import { sanitizeUntrusted, stripWrapperBlocks, wrapFinding, wrapNote, wrapToolOutput } from "./guard.mjs";
 import { readUnderstanding, understandingSummary } from "./intent.mjs";
 import { decodeVector, encodeVector, episodeOf, foldThread, hybridSearch, memoryTiers, readVector } from "./memory.mjs";
 import { defaultModelId, downloadPreview, findNewerQwen, modelById, modelLibrary, testedUnslothVersion, unslothModelSpec } from "./models.mjs";
@@ -1540,7 +1540,11 @@ export function createAgentService({
     const outcome = ["completed", "degraded", "failed"].includes(result.outcome) ? result.outcome : "failed";
     // The agent asked before guessing: its question is the answer, and a card for the person.
     const clarify = outcome === "completed" && typeof result.clarify === "string" && result.clarify.trim() ? sanitizeUntrusted(result.clarify, { maxChars: 300, redact }).text : null;
-    let answer = clarify ?? (result.answer ? redact(clip(String(result.answer), limits.answerChars)) : null);
+    // Its scratch notes and any tool output it wrote itself are not its answer (A-1): taken out here
+    // too, whatever the runner did, before the answer is kept, shown, shared or posted.
+    const unboxed = !clarify && result.answer ? stripWrapperBlocks(String(result.answer)) : { text: null, removed: [] };
+    const madeUpOnly = "The model's answer held only text written as if a tool or BoxPilot had written it, so it was left out.";
+    let answer = clarify ?? (result.answer ? (unboxed.text ? redact(clip(unboxed.text, limits.answerChars)) : madeUpOnly) : null);
     // A structured answer is checked against the fields the owner named, and kept as their JSON.
     const format = spec.prompt?.output?.format ?? "text";
     let structured = null;
@@ -1554,7 +1558,21 @@ export function createAgentService({
     const citations = checkCitations(answer, toolOutputs, { findings: findings.length });
     // The check before answering (M40), done again here on what was kept: the runner's report says
     // whether the model corrected anything; what still does not match is counted from the answer.
-    const checked = answer && outcomeIsAnswer(outcome) && !clarify ? checkKept(run.id, answer, result.usage?.check, findings) : null;
+    let checked = answer && outcomeIsAnswer(outcome) && !clarify ? checkKept(run.id, answer, result.usage?.check, findings) : null;
+    // A tool output or finding it wrote itself, and a citation of one the run never read (A-1): each
+    // counts as a statement that does not match, and the check says it is not sure of the answer.
+    const madeUp = madeUpBoxes(run.id, [...unboxed.removed, ...readBoxes(result.boxes)], findings);
+    const fabricated = [...new Set([...madeUp, ...citations.unknown])];
+    if (fabricated.length && answer && outcomeIsAnswer(outcome) && !clarify) {
+      const base = checked ?? { claims: 0, checked: 0, mismatches: 0, corrected: false, found: 0, unsure: false };
+      checked = { ...base, mismatches: base.mismatches + madeUp.length + (checked ? 0 : citations.unknown.length), unsure: true };
+    }
+    if (fabricated.length) {
+      const words = madeUp.length ? `The answer held ${madeUp.length === 1 ? "a tool output" : "tool outputs"} the model wrote itself (${madeUp.join(", ")}), not ${madeUp.length === 1 ? "one" : "ones"} a tool returned: taken out, and counted as not matching.` : "";
+      const cites = citations.unknown.length ? `It cites ${citations.unknown.join(", ")}, which this run never read: not evidence.` : "";
+      const step = store.addStep(run.id, { kind: "system", name: "answer", state: "failed", output: [words, cites].filter(Boolean).join(" "), flags: { detail: clip([words, cites].filter(Boolean).join(" "), 300), fabricated } });
+      if (step) emit(run.id, "step", step);
+    }
     const usage = {
       modelMs: Math.round(finite(result.usage?.modelMs, 3_600_000)),
       loadMs: Math.round(finite(result.usage?.loadMs, 3_600_000)),
@@ -1587,7 +1605,7 @@ export function createAgentService({
       answer, outputKind, usage,
       flags: {
         citations: { cited: citations.cited.length, unknown: citations.unknown }, ...(degradedReason ? { degraded: degradedReason } : {}),
-        ...(checked ? { check: checked } : {}),
+        ...(checked ? { check: checked } : {}), ...(fabricated.length ? { fabricated } : {}),
         ...(clarify ? { clarify: true } : {}), ...(structured ? { structured } : {}), ...(limitReached ? { limitReached: true } : {}), ...(limitKind ? { limit: limitKind } : {}),
         model: embedModelName(),
       },
@@ -1633,6 +1651,30 @@ export function createAgentService({
       claims: found.claims, checked: found.checked, mismatches: found.issues.length,
       corrected: reported?.corrected === true, found: Math.round(finite(reported?.found, 50)), unsure: note !== undefined,
     };
+  }
+
+  /** The boxes the runner took out of the answer (A-1), as it reported them: bounded, and only their names. */
+  function readBoxes(list) {
+    if (!Array.isArray(list)) return [];
+    const word = (value, max) => (typeof value === "string" && value.trim() ? value.trim().slice(0, max) : null);
+    return list.slice(0, 10).filter((entry) => entry && typeof entry === "object").map((entry) => ({ tag: String(entry.tag ?? "").toLowerCase().slice(0, 40), id: word(entry.id, 20), tool: word(entry.tool, 80) }));
+  }
+
+  /**
+   * Of the boxes the model wrote into its answer, the tool outputs and findings it made up: an id
+   * this run never gave it, or a real output's id with another tool's name. A real one copied back
+   * whole is taken out of the answer but is not made up. Their ids, "?" for one with none.
+   */
+  function madeUpBoxes(runId, removed, findings) {
+    const fn = (name) => String(name ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "_");
+    const real = new Map(store.listSteps(runId).filter((step) => outputKinds.includes(step.kind) && step.state === "done").map((step, index) => [`T${index + 1}`, step.name]));
+    for (const finding of findings) real.set(finding.id, null);
+    const ids = removed.filter((box) => ["tool_output", "finding"].includes(box.tag)).flatMap((box) => {
+      const id = /^[TF]\d{1,3}$/.test(box.id ?? "") ? box.id : "?";
+      const copied = real.has(id) && (box.tag !== "tool_output" || !box.tool || !real.get(id) || fn(box.tool) === fn(real.get(id)));
+      return copied ? [] : [id];
+    });
+    return [...new Set(ids)];
   }
 
   /** An index run's end: its usage counts toward the day's budget like any run's. */
