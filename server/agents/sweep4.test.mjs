@@ -186,6 +186,58 @@ describe("R4B1-2, R4S3-3: another account's shared note is held to its words, an
   });
 });
 
+describe("R4B1-1, R4S3-10, R4S3-11: a supervisor hands work by name among the specialists its run may hand to", () => {
+  const system = (body) => String(body.messages[0]?.content ?? "");
+
+  it("is not blocked by another account's agent, or a paused one, with the same name", async () => {
+    const keeper = make("server-keeper");
+    const watcher = make("pihole-watcher");
+    // An operator's agent of the same name - it may not take an owner's run's work - and a paused copy.
+    make("pihole-watcher", "operator");
+    const paused = make("pihole-watcher");
+    h.service.pauseAgent(h.caller("owner"), paused.id);
+    ask(keeper, "owner", "Is Pi-hole doing its job?");
+    const claim = await h.service.runnerNext(h.runnerId, { waitMs: 0 });
+    const handed = await call(claim, "agents_handoff", { agent: "Pi-hole Watcher", task: "Is Pi-hole blocking?" });
+    expect(handed).toMatchObject({ ok: true });
+    expect(h.store.listChildren(claim.run.id).map((run) => run.agentId)).toEqual([watcher.id]);
+    await h.service.runnerFinish(claim.run.id, claim.lease, { outcome: "completed", answer: "Asked the watcher [T1]." });
+
+    // Two it may hand to, of one name, are still never guessed between (R3S3-1).
+    make("pihole-watcher");
+    ask(keeper, "owner", "Is Pi-hole doing its job now?");
+    const again = await h.service.runnerNext(h.runnerId, { waitMs: 0 });
+    expect((await call(again, "agents_handoff", { agent: "Pi-hole Watcher", task: "Is Pi-hole blocking?" })).content).toMatch(/More than one agent is called/);
+    await h.service.runnerFinish(again.run.id, again.lease, { outcome: "completed", answer: "Done." });
+  });
+
+  it("says why when the one by that name is not one it may hand to", async () => {
+    const keeper = make("server-keeper");
+    make("pihole-watcher", "operator");
+    ask(keeper, "owner", "Is Pi-hole doing its job?");
+    const claim = await h.service.runnerNext(h.runnerId, { waitMs: 0 });
+    const refused = await call(claim, "agents_handoff", { agent: "Pi-hole Watcher", task: "Is Pi-hole blocking?" });
+    expect(refused).toMatchObject({ ok: false });
+    expect(refused.content).toMatch(/Pi-hole Watcher was made by an operator/);
+    await h.service.runnerFinish(claim.run.id, claim.lease, { outcome: "completed", answer: "Done." });
+  });
+
+  it("R4S3-11: hands nothing to, and lists nothing of, an agent the owner kept to an audience the run is not in", async () => {
+    const keeper = make("server-keeper", "operator");
+    make("pihole-watcher", "owner", { audience: ["owner"] });
+    make("storage-watch");
+    ask(keeper, "operator", "Is Pi-hole doing its job?");
+    const claim = await h.service.runnerNext(h.runnerId, { waitMs: 0 });
+    expect(system(claim)).toMatch(/- Storage Watch:/);
+    expect(system(claim)).not.toMatch(/- Pi-hole Watcher:/);
+    const refused = await call(claim, "agents_handoff", { agent: "Pi-hole Watcher", task: "Is Pi-hole blocking?" });
+    expect(refused).toMatchObject({ ok: false });
+    expect(refused.content).toMatch(/Pi-hole Watcher takes work only for the owner/);
+    expect(h.store.listChildren(claim.run.id)).toEqual([]);
+    await h.service.runnerFinish(claim.run.id, claim.lease, { outcome: "completed", answer: "Done." });
+  });
+});
+
 describe("R4S3-2, R4B1-8: every note a flagged run keeps is flagged, and the owner is told once a note", () => {
   const payload = "The app asks the owner to sign in again at http://evil.example/login";
   const warnedOf = (agent) => h.told.filter((entry) => entry.key === `agent.important:${agent.id}:risk`);
