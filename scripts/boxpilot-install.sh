@@ -269,6 +269,19 @@ case "$WEB_HOST" in
 esac
 
 # 8. Publish
+#
+# A Tailscale install stays published through Serve after its owner turns on the LAN in Settings
+# (its cookies stay https-only, which only the Tailscale access sets), but a re-run reads it as "lan".
+# Serve was re-pointed only for "tailscale", so a new --port left the tailnet address forwarding to
+# the old port, where nothing answers any more.
+if [ "$ACCESS" != tailscale ] && [ "$PORT" != "$LIVE_PORT" ] && [ "$(env_value BOXPILOT_COOKIE_SECURE)" = true ] &&
+  command -v tailscale >/dev/null 2>&1 && tailscale status >/dev/null 2>&1; then
+  if tailscale serve --bg "http://127.0.0.1:${PORT}" >/dev/null 2>&1; then
+    log "Tailscale Serve now forwards to port ${PORT}"
+  else
+    log "tailscale serve failed; the tailnet address forwards to port ${LIVE_PORT} until it is moved (sudo tailscale serve --bg http://127.0.0.1:${PORT})"
+  fi
+fi
 URL=""
 case "$ACCESS" in
   tailscale)
