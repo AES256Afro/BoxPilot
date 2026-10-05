@@ -1,4 +1,5 @@
 import type { ViewName } from "../data";
+import type { JobTimeout } from "../operations";
 import type { RiskTier } from "../ui/types";
 
 /*
@@ -38,6 +39,8 @@ export interface LastAttempt {
   title: string;
   operationId: string;
   label: string | null;
+  /** Its timeout, when it ran out of time: one that may still be running is not offered again. */
+  timeout?: JobTimeout | null;
 }
 
 export interface Finding {

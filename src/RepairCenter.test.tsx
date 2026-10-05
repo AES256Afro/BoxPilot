@@ -399,6 +399,19 @@ describe("Repair that fixes (M35)", () => {
     expect(screen.getByRole("button", { name: /^Try again: Let apps write to the drive: / })).toBeTruthy();
   });
 
+  it("offers no fix while the last try may still be running on the server, and shows its log (sweep 4)", async () => {
+    // Try again staged it afresh, and the helper started a second root task beside the first.
+    const timeout = { scope: "step", budgetMs: 540_000, elapsedMs: 600_000, phase: "running", step: "Root task storage.writable", lastOutput: null, moreTimeMs: null, stillRunning: true };
+    const tried = { ...exfat, lastAttempt: { jobId: "job-0", state: "failed", error: "Let apps write to a drive stopped waiting: Root task storage.writable did not finish within 9 minutes. It may still be running on the server; Activity shows how far it got.", at: "2026-09-29T10:00:00.000Z", title: "Let apps write to a drive", operationId: "storage.writable", label: "Let apps write to the drive", timeout } };
+    server({ scans: [scan([tried])], finished: () => ({ state: "failed" }) });
+    render(<RepairCenter csrfToken="csrf-token" />);
+    expect(await screen.findByText(/It may still be running on the server, so it is not offered again until it has finished/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Try again: / })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Let apps write to the drive: / })).toBeNull();
+    expect(screen.getByRole("button", { name: /^Dismiss: / })).toBeTruthy();
+    expect(screen.getByText("Job log")).toBeTruthy();
+  });
+
   it("offers the place a failed try names, not Try again, when the same fix would stop the same way", async () => {
     const tried = { ...exfat, lastAttempt: { jobId: "job-0", state: "failed", error: "tar failed: No space left on device", at: "2026-09-29T10:00:00.000Z", title: "Let apps write to a drive", operationId: "storage.writable", label: "Let apps write to the drive" } };
     server({ scans: [scan([tried])], finished: () => ({ state: "failed" }) });
