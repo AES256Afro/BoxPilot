@@ -33,7 +33,7 @@ export function moreTimeOffered(job: Pick<Job, "state" | "timeout"> | null | und
  */
 export function errorIsTheTimeout(job: Pick<Job, "state" | "timeout"> | null | undefined): boolean {
   const timeout = jobTimeout(job);
-  return timeout !== null && (timeout.scope === "operation" || timeout.phase === "queued");
+  return timeout !== null && (timeout.scope === "operation" || timeout.phase === "queued" || timeout.stillRunning === true);
 }
 
 const tiers: readonly string[] = ["low", "medium", "high"];
@@ -50,7 +50,7 @@ export function JobTimeoutNotice({ job, onMoreTime, busy = false }: { job: Job; 
     ? `It waited ${formatDuration(timeout.elapsedMs)} behind other work on the server and never started.`
     : timeout.scope === "operation"
       ? `It had ${formatDuration(timeout.budgetMs)} and used all of it. It may still be running on the server.`
-      : `${timeout.step ?? "One step"} had ${formatDuration(timeout.budgetMs)} and did not finish. The job ran for ${formatDuration(timeout.elapsedMs)}.`;
+      : `${timeout.step ?? "One step"} had ${formatDuration(timeout.budgetMs)} and did not finish. ${timeout.stillRunning ? "It may still be running on the server." : `The job ran for ${formatDuration(timeout.elapsedMs)}.`}`;
   const offered = Boolean(onMoreTime && moreTime !== null);
   return (
     <Notice

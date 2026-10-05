@@ -18,6 +18,7 @@ import { asSentence } from "./health-alerts.mjs";
 import { mountNamePattern } from "./tasks/storage.mjs";
 import { mountpointFor } from "./backup-mount.mjs";
 import { queuedCeilingMs } from "./helper-client.mjs";
+import { mayStillBeRunning } from "./timeouts.mjs";
 
 const nameLimit = 80;
 const stepLimit = 10;
@@ -469,7 +470,8 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
           // A job that used its whole budget after it started was given up on, not stopped: its own
           // record says it may still be running. That is losing sight of the step by another name,
           // so neither a retry (a second copy beside the first) nor a keep-going policy applies.
-          if (finished.state === "failed" && finished.timeout?.scope === "operation" && finished.timeout.phase !== "queued") {
+          // A root task past its own limit is the same: the runner writes it down and lets it run on.
+          if (finished.state === "failed" && mayStillBeRunning(finished.timeout)) {
             const summary = `lost sight of step ${index + 1} (${title}): it did not finish inside its time budget and may still be running on the server, so later steps did not start`.slice(0, 300);
             store.markFlowRun(id, { result: summary, jobIds });
             store.recordAudit("flow.failed", { actorId, subjectId: id, details: { step: index + 1, operationId: step.operationId, jobId: job.id, attempt, reason: "ran out of its whole time budget" } });

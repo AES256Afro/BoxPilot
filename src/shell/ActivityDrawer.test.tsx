@@ -194,6 +194,19 @@ describe("a job that ran out of time, in Activity (M30.3)", () => {
     expect(screen.getByRole("button", { name: "Try again with more time" }).dataset.risk).toBe("medium");
   });
 
+  it("says a root task left running past its limit may still be running, once, and offers no second copy", () => {
+    vi.stubGlobal("EventSource", FakeEventSource);
+    api();
+    const leftRunning = { ...timedOutJob, title: "Check a drive", error: "Check a drive stopped waiting: Root task storage.check did not finish within 33 minutes. It may still be running on the server; Activity shows how far it got.", timeout: { ...timedOutJob.timeout!, budgetMs: 33 * 60_000, step: "Root task storage.check", moreTimeMs: null, stillRunning: true } };
+    render(<ActivityDrawer csrfToken="csrf" />);
+    act(() => FakeEventSource.instances.at(-1)?.emit("snapshot", { jobs: [leftRunning] }));
+    fireEvent.click(screen.getByRole("button", { name: /Activity/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Check a drive/ }));
+    expect(screen.getByText("Root task storage.check had 33 minutes and did not finish. It may still be running on the server.")).toBeTruthy();
+    expect(screen.queryByText(/Activity shows how far it got/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Try again with more time" })).toBeNull();
+  });
+
   it("offers nothing for an ordinary failure, or where no approval can be sent", () => {
     vi.stubGlobal("EventSource", FakeEventSource);
     api();

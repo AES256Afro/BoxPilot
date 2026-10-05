@@ -5,7 +5,7 @@ import { registry } from "./ops/index.mjs";
 import { budgetFor, nextBudgetMs, placeholderPaths, restoreSecrets, secretPaths, secretPlaceholder, splitSecrets } from "./ops/registry.mjs";
 import { restartsBoxPilot } from "./ops/services.mjs";
 import { asSentence } from "./health-alerts.mjs";
-import { formatDuration, jobTimeoutRecord, timeoutMessage, timeoutOf } from "./timeouts.mjs";
+import { formatDuration, jobTimeoutRecord, mayStillBeRunning, timeoutMessage, timeoutOf } from "./timeouts.mjs";
 import { productVersion } from "./version.mjs";
 
 /** What a secret parameter looks like in the database and the job API. */
@@ -25,7 +25,7 @@ export const recordFailed = (job) => (job?.steps ?? []).some((step) => step.name
 function timeoutStep(timeout) {
   if (timeout.phase === "queued") return `Waited ${formatDuration(timeout.elapsedMs)} behind other work and never started`;
   if (timeout.scope === "operation") return `Used its whole ${formatDuration(timeout.budgetMs)}; BoxPilot stopped waiting after ${formatDuration(timeout.elapsedMs)}`;
-  return `${timeout.step ?? "One step"} ran out of its ${formatDuration(timeout.budgetMs)}; the job had run for ${formatDuration(timeout.elapsedMs)}`;
+  return `${timeout.step ?? "One step"} ran out of its ${formatDuration(timeout.budgetMs)}${timeout.stillRunning ? " and may still be running" : ""}; the job had run for ${formatDuration(timeout.elapsedMs)}`;
 }
 
 /**
@@ -300,7 +300,9 @@ export function createJobService(store, helper, {
     const timeout = timeoutOf(error);
     if (!timeout) return null;
     const operation = registry.get(job.type.slice(3));
-    const moreTimeMs = timeout.phase === "queued" || placeholderPaths(job.parameters ?? {}).length ? null : nextBudgetMs(operation, execution.timeoutMs);
+    // A step left running (a root task past its own budget) is not offered more time: the retry
+    // would start a second copy beside the first, with no lane between them.
+    const moreTimeMs = timeout.phase === "queued" || timeout.stillRunning || placeholderPaths(job.parameters ?? {}).length ? null : nextBudgetMs(operation, execution.timeoutMs);
     let log = "";
     try { log = jobLog ? (await jobLog.read(job.id, 0))?.text ?? "" : ""; } catch { /* the record stands without it */ }
     return jobTimeoutRecord(timeout, { elapsedMs: now() - startedAt, log, moreTimeMs });
@@ -349,7 +351,7 @@ export function createJobService(store, helper, {
         const timeout = current.state === "applying" && job.type.startsWith("op:") ? await timeoutRecordFor(job, execution, error, startedAt) : null;
         // A step's own limit comes with the operation's sentence (what it undid); the whole budget
         // running out has no such sentence, so it gets one saying what is known.
-        const message = timeout && (timeout.scope === "operation" || timeout.phase === "queued") ? timeoutMessage(job.title, timeout) : error.message;
+        const message = timeout && (mayStillBeRunning(timeout) || timeout.phase === "queued") ? timeoutMessage(job.title, timeout) : error.message;
         if (timeout) store.addJobStep(jobId, "timeout", "reached", timeoutStep(timeout).slice(0, 500));
         // The step that failed is the one that was running. A failure while applying used to be
         // written as "verify failed" beside an "apply running" nothing ever closed, so the job's
@@ -445,6 +447,8 @@ export function createJobService(store, helper, {
     const refuse = (message) => Object.assign(new Error(message), { code: "more_time_refused" });
     if (!operation || job.state !== "failed" || !job.timeout) throw refuse("Only a job that ran out of time can be tried again with more time");
     if (job.timeout.phase === "queued") throw refuse("This job never started: it waited behind other work. Run it again once that work has finished.");
+    // The step that ran out was left running on the server; a second copy would run beside it.
+    if (job.timeout.stillRunning) throw refuse(`${job.timeout.step ?? "Its last step"} may still be running on the server, so it was not started a second time beside itself. Run it again once that has finished.`);
     if (placeholderPaths(job.parameters ?? {}).length) throw refuse("This job was given passwords, and BoxPilot does not keep them after a job runs. Start it again from where you started it.");
     const budgetMs = nextBudgetMs(operation, budgetFor(operation, job.recovery?.budgetMs ?? null));
     if (!budgetMs) throw refuse(operation.maxTimeoutMs ? `${operation.title} already had the most time it can have, ${formatDuration(operation.maxTimeoutMs)}.` : `${operation.title} cannot be given more time.`);
