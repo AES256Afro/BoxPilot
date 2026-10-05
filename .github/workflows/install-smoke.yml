@@ -21,8 +21,15 @@ permissions:
   contents: read
 
 jobs:
+  # Both LTS releases. The owner's server runs 26.04 (systemd 259, the Rust coreutils and sudo-rs),
+  # and the install only ran on 24.04 (ubuntu-latest): nothing installed or upgraded BoxPilot for
+  # real on the release production uses. The release workflow waits for this run to pass.
   install:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-26.04]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     steps:
       - name: Check out repository

@@ -81,11 +81,11 @@ On a fresh Ubuntu Server (24.04 or newer) with `sudo`:
 curl -fsSL https://raw.githubusercontent.com/AES256Afro/BoxPilot/main/scripts/boxpilot-install.sh | sudo sh
 ```
 
-The installer adds Node.js 24 (checksum-verified, under `/opt/node-v24.x`), creates the `boxpilot` user and `/etc/boxpilot`, builds BoxPilot into `/opt/boxpilot`, installs and enables the systemd units, and prints the URL plus a one-time owner bootstrap token. Access defaults to Tailscale Serve when `tailscaled` is running, otherwise plain HTTP on the LAN; pass `--access tailscale|lan|local`, `--ref <branch>`, or `--port <n>` to change that. Re-running it upgrades in place, and keeps the port and access the box already has (including a LAN choice made in Settings) unless `--port` or `--access` is given again.
+The installer adds Node.js 24 (checksum-verified, under `/opt/node-v24.x`), creates the `boxpilot` user and `/etc/boxpilot`, builds BoxPilot into `/opt/boxpilot`, installs and enables the systemd units, and prints the URL plus a one-time owner bootstrap token. Access defaults to Tailscale Serve when `tailscaled` is running, otherwise plain HTTP on the LAN; pass `--access tailscale|lan|local`, `--ref <branch>`, or `--port <n>` (1024-65535; the service runs unprivileged) to change that. On the LAN with ufw active, it allows the port in ufw, as Settings does. Re-running it upgrades in place, and keeps the port and access the box already has (including a LAN choice made in Settings) unless `--port` or `--access` is given again. A new `--port` or `--access` is written before the upgrade restarts the service and is health-checked there; if BoxPilot does not come up on it, `/etc/boxpilot/boxpilot.env` is put back as it was and the service restarted on it.
 
 ### Upgrading an existing native install
 
-Once BoxPilot is installed under `/opt/boxpilot`, later releases or branches can be deployed with one command. The script downloads the ref from GitHub, builds it in a staging directory, swaps `/opt/boxpilot` atomically, installs changed unit files, restarts the services, verifies `/api/v1/health`, and rolls back automatically if the new tree is unhealthy:
+Once BoxPilot is installed under `/opt/boxpilot`, later releases or branches can be deployed with one command. The script downloads the ref from GitHub, builds it in a staging directory, swaps `/opt/boxpilot` atomically, installs changed unit files, restarts the services, verifies `/api/v1/health`, and rolls back automatically if the new tree is unhealthy, or if the run is stopped (Ctrl-C, a dropped SSH session, the terminal or pipe it writes to going away) once the service is down:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/AES256Afro/BoxPilot/main/scripts/boxpilot-upgrade.sh | sudo sh -s -- main

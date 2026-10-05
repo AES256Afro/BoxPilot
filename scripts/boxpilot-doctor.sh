@@ -29,9 +29,11 @@ boxpilot_failures=0
 # Run with sudo, this shell has none of the service's environment: what the service was given is in
 # its env file (readable by root). This shell's own environment still wins.
 boxpilot_env_file=/etc/boxpilot/boxpilot.env
+# Read as systemd reads it: a CR ends the line; blanks before the key, around "=" and after the
+# value are not part of it.
 boxpilot_env_value() {
   [ -r "$boxpilot_env_file" ] || return 0
-  sed -n "s/^$1=//p" "$boxpilot_env_file" | tail -n 1 | sed "s/^[\"']//; s/[\"']\$//"
+  tr -d '\r' < "$boxpilot_env_file" | sed -n "s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*//p" | tail -n 1 | sed "s/[[:space:]]*\$//; s/^[\"']//; s/[\"']\$//"
 }
 boxpilot_uri="${BOXPILOT_LIBVIRT_URI:-$(boxpilot_env_value BOXPILOT_LIBVIRT_URI)}"
 boxpilot_uri="${boxpilot_uri:-qemu:///system}"
