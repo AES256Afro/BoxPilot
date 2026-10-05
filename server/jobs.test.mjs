@@ -459,6 +459,30 @@ describe("durable job executor", () => {
     store.close();
   });
 
+  it("records a rollback as completed only when the operation's own rollback worked", async () => {
+    // Any error mentioning "rollback" used to be recorded as "undid its partial changes", and the
+    // errors that mention it are mostly the ones whose rollback FAILED; the ones that worked
+    // ("the previous image was restored") recorded nothing.
+    const rollbackSteps = async (error) => {
+      const helper = { request: vi.fn(async () => { throw error; }) };
+      const { store, owner, jobs } = await setup(helper);
+      try {
+        const job = await jobs.createOperationJob("app.update", { id: "jellyfin" }, owner.id);
+        await expect(jobs.approveAndRun(job.id, owner.id, {})).rejects.toThrow();
+        return store.getJob(job.id).steps.filter((step) => step.name === "rollback").map((step) => step.state);
+      } finally { store.close(); }
+    };
+    // The helper says which, as rolledBack on the error.
+    expect(await rollbackSteps(Object.assign(new Error("Jellyfin update failed and automatic rollback also failed. docker compose up failed"), { rolledBack: false }))).toEqual(["failed"]);
+    expect(await rollbackSteps(Object.assign(new Error("Jellyfin update failed; the previous image was restored. docker compose up failed"), { rolledBack: true }))).toEqual(["completed"]);
+    // Without it, only the words for a rollback that worked count; the bare word never does.
+    expect(await rollbackSteps(new Error("Jellyfin update failed and automatic rollback also failed. docker compose up failed"))).toEqual([]);
+    expect(await rollbackSteps(new Error("The incomplete recovery domain failed exact rollback validation"))).toEqual([]);
+    expect(await rollbackSteps(new Error("Jellyfin update failed; the previous image was restored. docker compose up failed"))).toEqual(["completed"]);
+    expect(await rollbackSteps(new Error("Jellyfin rejected the edited compose file; the previous one was restored. docker compose up failed"))).toEqual(["completed"]);
+    expect(await rollbackSteps(new Error("Jellyfin installation failed and was rolled back. docker compose up failed"))).toEqual(["completed"]);
+  });
+
   it("lets operators run low and medium work but reserves high-risk staging and approval for owners", async () => {
     const helper = { request: vi.fn(async () => ({ ok: true })) };
     const { store, owner, jobs } = await setup(helper);
