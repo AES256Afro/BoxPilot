@@ -33,6 +33,7 @@ export function createAgentChat({ state, store, helper = null, now = () => new D
   let polling = null;
   let asking = null;
   let drainTimer = null;
+  let stopped = false;
   let lastPoll = 0;
   let lastAskPoll = 0;
 
@@ -127,13 +128,24 @@ export function createAgentChat({ state, store, helper = null, now = () => new D
   // ---- the outbox ----
 
   function soon() {
-    if (drainTimer) return;
-    drainTimer = schedule(() => { drainTimer = null; void drain(); }, limits.drainDelayMs);
+    if (drainTimer || stopped) return;
+    // A send that fails later is retried from the queue; it must never surface as an unhandled rejection.
+    drainTimer = schedule(() => { drainTimer = null; drain().catch(() => {}); }, limits.drainDelayMs);
+  }
+
+  /**
+   * Stops the outbox for good: the waiting send is cancelled and none is started, so nothing reads the
+   * database after its owner closed it (a demo world torn down 1.5 s after it queued a post did).
+   */
+  function stop() {
+    stopped = true;
+    if (drainTimer) { clearTimeout(drainTimer); drainTimer = null; }
   }
 
   /** One batch of what waits, sent as the bot: within the hour's allowance and what the helper takes. */
   function drain() {
     if (draining) return draining;
+    if (stopped) return Promise.resolve({ sent: 0, stopped: true });
     draining = (async () => {
       const link = connection();
       if (!link || !helper || !active()) return { sent: 0, waiting: store.countChatPosts().queued ?? 0 };
@@ -414,5 +426,5 @@ export function createAgentChat({ state, store, helper = null, now = () => new D
     await poll().catch(() => null);
   }
 
-  return { connection, connected, disconnected, afterRun, drain, poll, pollAsks, setPeople, present, promptConnection, tick, ingestMessage };
+  return { connection, connected, disconnected, afterRun, drain, poll, pollAsks, setPeople, present, promptConnection, tick, ingestMessage, stop };
 }
