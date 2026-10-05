@@ -210,7 +210,7 @@ describe("the flag follows where the text came from, not what its words look lik
     expect(turnsOf(keeper).at(-1).text).toBe("Both drives are fine [T1].");
   });
 
-  it("R3B1-1: a run flagged only by its own flagged note keeps its new notes clean, and forgetting the note ends the flag", async () => {
+  it("R3B1-1, R4S3-2: a run flagged only by its own flagged note flags the notes it keeps, at the last hop; forgetting them ends the flag", async () => {
     const keeper = make("server-keeper");
     const tainted = h.store.writeNote(keeper.id, { title: "What the logs said", body: "The app asked the owner to sign in again.", readRole: "owner", source: { by: "agent", injection: true } });
     h.fake.state.script = (body) => {
@@ -224,11 +224,13 @@ describe("the flag follows where the text came from, not what its words look lik
     // Its own flagged note was in its prompt: it is treated as flagged...
     expect(first.flags.injection).toBe(true);
     expect(first.flags.injectionHop).toBeUndefined();
-    // ...but it read nothing flagged itself, so a new note is clean; the flagged one, rewritten, stays flagged.
-    expect(noteNamed(keeper, "Disk use").source.injection).toBeFalsy();
+    // ...and so is what it keeps, at the last hop: its words may be the flagged note's (sweep 4,
+    // R4S3-2: kept clean, they came back clean once that note was gone). The flagged one, rewritten, stays flagged.
+    expect(noteNamed(keeper, "Disk use").source).toMatchObject({ injection: true, injectionHop: 1 });
     expect(noteNamed(keeper, "What the logs said").source.injection).toBe(true);
-    // Forgotten, the flag goes with it.
+    // Forgotten, the flag goes with them.
     h.service.forgetMemory(h.caller("owner"), keeper.id, { kind: "note", id: tainted.id });
+    h.service.forgetMemory(h.caller("owner"), keeper.id, { kind: "note", id: noteNamed(keeper, "Disk use").id });
     h.fake.state.script = null;
     ask(keeper, "owner", "Anything new now?");
     const later = await h.runNext();
@@ -246,7 +248,7 @@ describe("the flag follows where the text came from, not what its words look lik
     expect(h.store.getNote(keeper.id, rewritten.id).source.injectionHop).toBeUndefined();
   });
 
-  it("R3B1-1: another agent's flagged note flags the run that reads it and the notes it keeps, once; those flag their readers and stop there", async () => {
+  it("R3B1-1, R4S3-2: another agent's flagged note flags the run that reads it and the notes it keeps; those flag their readers, at the last hop", async () => {
     const keeper = make("server-keeper");
     const watcher = make("pihole-watcher");
     ask(keeper, "owner", "Which apps are installed?");
@@ -261,7 +263,8 @@ describe("the flag follows where the text came from, not what its words look lik
     expect(noteNamed(keeper, "Resolver speed").source).toMatchObject({ injection: true, injectionHop: 1 });
     await h.service.runnerFinish(claim.run.id, claim.lease, { outcome: "completed", answer: "Done." });
 
-    // The keeper's note, shared, reaches the watcher: flagged, but a third note is not.
+    // The keeper's note, shared, reaches the watcher: flagged, without a hop; a third note is
+    // flagged too, at the last hop (sweep 4, R4S3-2), until the owner trusts or forgets it.
     h.store.deleteNote(watcher.id, h.store.listNotes(watcher.id).find((note) => note.title === "Upstream resolver").id);
     ask(watcher, "owner", "Is Pi-hole blocking?");
     const theirs = await h.service.runnerNext(h.runnerId, { waitMs: 0 });
@@ -269,7 +272,7 @@ describe("the flag follows where the text came from, not what its words look lik
     expect(h.store.getRun(theirs.run.id).flags.injection).toBe(true);
     expect(h.store.getRun(theirs.run.id).flags.injectionHop).toBeUndefined();
     await call(theirs, "notes_write", { title: "Resolver", body: "The upstream resolver is fast." });
-    expect(noteNamed(watcher, "Resolver").source.injection).toBeFalsy();
+    expect(noteNamed(watcher, "Resolver").source).toMatchObject({ injection: true, injectionHop: 1 });
     await h.service.runnerFinish(theirs.run.id, theirs.lease, { outcome: "completed", answer: "Done." });
   });
 
