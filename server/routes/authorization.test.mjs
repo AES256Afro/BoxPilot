@@ -173,6 +173,18 @@ describe("role boundaries", () => {
     const noCsrf = { cookie: owner.cookie, csrfToken: "" };
     expect((await api("POST", "/api/v1/operations/apt.refresh/jobs", { session: noCsrf, body: { parameters: {} } })).status).toBe(403);
   });
+
+  it("runs none of BoxPilot's own plumbing for anyone, the owner included (sweep 3)", async () => {
+    const owner = await signIn("owner");
+    const staged = await api("POST", "/api/v1/operations/agents.runtime.cpu/jobs", { session: owner, body: { parameters: { processors: 8, background: 8, resetAfterSeconds: 7_200 } } });
+    expect(staged.status).toBe(403);
+    expect(staged.body).toMatchObject({ code: "operation_internal", error: expect.stringMatching(/BoxPilot's own/) });
+    const read = await api("POST", "/api/v1/operations/agents.zulip.events/run", { session: owner, body: { parameters: { host: "127.0.0.1", botEmail: "bot@example.test" } } });
+    expect(read.status).toBe(403);
+    expect(read.body.code).toBe("operation_internal");
+    expect((await api("GET", "/api/v1/operations/agents.zulip.poll/inspect", { session: owner })).status).toBe(403);
+    expect(state.listJobs(50).some((job) => job.type.startsWith("op:agents."))).toBe(false);
+  });
 });
 
 describe("identity linking", () => {

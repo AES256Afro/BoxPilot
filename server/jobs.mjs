@@ -2,7 +2,7 @@ import { verifyPassword } from "./security.mjs";
 import { defaultThrottle as throttle } from "./login-throttle.mjs";
 import { approvalRequirement, defaultApprovalMode, elevationTtlMs, higherTier, normalizeApprovalMode } from "./ops/risk.mjs";
 import { registry } from "./ops/index.mjs";
-import { budgetFor, nextBudgetMs, placeholderPaths, restoreSecrets, secretPaths, secretPlaceholder, splitSecrets } from "./ops/registry.mjs";
+import { budgetFor, internalRefusal, nextBudgetMs, placeholderPaths, restoreSecrets, secretPaths, secretPlaceholder, splitSecrets } from "./ops/registry.mjs";
 import { restartsBoxPilot } from "./ops/services.mjs";
 import { asSentence } from "./health-alerts.mjs";
 import { formatDuration, jobTimeoutRecord, timeoutMessage, timeoutOf } from "./timeouts.mjs";
@@ -390,6 +390,9 @@ export function createJobService(store, helper, {
   async function createOperationJob(operationId, parameters, ownerId, { role = "owner", budgetMs = null, rerunOf = null, retryOf = null } = {}) {
     const operation = registry.get(operationId);
     if (!operation) throw new Error("Operation not found");
+    // BoxPilot's own plumbing runs through the helper when BoxPilot calls it, never as a job: not
+    // from a card, a flow, a schedule or the operations route, whoever asks (sweep 3).
+    if (operation.internal) throw Object.assign(new Error(internalRefusal(operation)), { code: "operation_internal" });
     if (role === "viewer" || role === "disabled") throw new Error("Viewers cannot stage operations");
     if (operation.risk === "high" && role !== "owner") throw new Error("Only the owner can stage high-risk operations");
     if (operation.minimumRole === "owner" && role !== "owner") throw new Error("Only the owner can stage this operation");
