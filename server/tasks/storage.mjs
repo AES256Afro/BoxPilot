@@ -924,12 +924,27 @@ export function exfatVolumeFlags(bootSector) {
   return { dirty: (flags & 0x2) !== 0, mediaFailure: (flags & 0x4) !== 0 };
 }
 
-/** Running containers with a bind at or under the mountpoint. A prefix is not a parent: /mnt/x-backup is not under /mnt/x. */
+/**
+ * Whether a container that binds `source` holds the filesystem mounted at `mountpoint`: a bind at
+ * or under it, and just as much a bind of a folder above it. Docker's binds are recursive, so File
+ * Browser, Kopia, Duplicati and Backrest with /mnt, or node-exporter and cAdvisor with /, carry every
+ * drive and share mounted below into their own namespace and keep it alive there after the host
+ * lets go. A prefix is neither: /mnt/x-backup is not under /mnt/x, and /mnt/x is not under it.
+ */
+export function bindHolds(source, mountpoint) {
+  const clean = (value) => (String(value ?? "").startsWith("/") ? String(value).replace(/\/+$/, "") || "/" : null);
+  const bind = clean(source);
+  const target = clean(mountpoint);
+  if (!bind || !target) return false;
+  if (bind === target || bind === "/") return true;
+  return bind.startsWith(`${target}/`) || target.startsWith(`${bind}/`);
+}
+
+/** Running containers with a bind that holds the mountpoint (bindHolds): at, under, or above it. */
 export async function containersBoundTo(run, mountpoint) {
   const ids = await run(binaries.docker, ["ps", "-q"], { timeout: 15_000 });
   if (!ids.ok || !ids.stdout.trim()) return [];
   const listed = await run(binaries.docker, ["inspect", "--format", "{{.Name}}\t{{range .Mounts}}{{.Source}}\t{{end}}", ...ids.stdout.trim().split(/\s+/)], { timeout: 30_000 });
   if (!listed.ok) return [];
-  const under = (source) => source === mountpoint || source.startsWith(`${mountpoint}/`);
-  return listed.stdout.split("\n").filter(Boolean).map((line) => line.split("\t")).filter(([, ...sources]) => sources.some(under)).map(([name]) => name.replace(/^\//, ""));
+  return listed.stdout.split("\n").filter(Boolean).map((line) => line.split("\t")).filter(([, ...sources]) => sources.some((source) => bindHolds(source, mountpoint))).map(([name]) => name.replace(/^\//, ""));
 }

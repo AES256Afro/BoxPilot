@@ -184,10 +184,14 @@ export function renderCompose(manifest, values, { existingEnv = {}, lanAddress =
   const files = (manifest.files ?? []).map((file) => ({ path: file.path, content: fileSubstitute(file.content) }));
   for (const file of manifest.files ?? []) volumeMounts.push(`${composeLiteral(`./${file.path}`)}:${file.container}${file.readOnly === false ? "" : ":ro"}`);
   if (volumeMounts.length) service.volumes = volumeMounts;
+  // A fixed setting is the manifest's own text, never the owner's (resolveValues always takes the
+  // default), and its ${NAME} is meant: six apps build their database URL around ${..._DB_PASSWORD}
+  // for Compose to fill in from .env. Escaped with the owner's values, each app was handed those
+  // words as its password and could not log in to its own database.
   const environment = {};
   for (const entry of manifest.env) {
     if (!(entry.name in env)) continue;
-    environment[entry.name] = entry.secret ? `\${${entry.name}}` : composeLiteral(withPortVariables(env[entry.name]));
+    environment[entry.name] = entry.secret ? `\${${entry.name}}` : entry.fixed ? withPortVariables(env[entry.name]) : composeLiteral(withPortVariables(env[entry.name]));
   }
   if (Object.keys(environment).length) service.environment = environment;
   if (manifest.capabilities.length) { service.cap_drop = ["ALL"]; service.cap_add = [...manifest.capabilities]; }
@@ -211,7 +215,8 @@ export function renderCompose(manifest, values, { existingEnv = {}, lanAddress =
     // Sidecar env may reference the app's settings as ${NAME}: secrets stay references (resolved
     // from .env at compose time); plain settings are substituted here since they never reach .env.
     const secretNames = new Set(manifest.env.filter((entry) => entry.secret).map((entry) => entry.name));
-    const substitute = (value) => String(value).replace(/\$\{([A-Z][A-Za-z0-9_]*)\}/g, (match, name) => (secretNames.has(name) ? match : name in serverVariables ? serverVariables[name] : name in env ? composeLiteral(withPortVariables(env[name])) : ""));
+    const fixedNames = new Set(manifest.env.filter((entry) => entry.fixed).map((entry) => entry.name));
+    const substitute = (value) => String(value).replace(/\$\{([A-Z][A-Za-z0-9_]*)\}/g, (match, name) => (secretNames.has(name) ? match : name in serverVariables ? serverVariables[name] : name in env ? (fixedNames.has(name) ? withPortVariables(env[name]) : composeLiteral(withPortVariables(env[name]))) : ""));
     if (Object.keys(sidecar.env ?? {}).length) sidecarService.environment = Object.fromEntries(Object.entries(sidecar.env).map(([name, value]) => [name, substitute(value)]));
     // A caller (the app helper, for an app routed through the shared VPN profile) can add or override
     // this sidecar's env with already-resolved plain values: the profile's security options land on
