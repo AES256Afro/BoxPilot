@@ -25,7 +25,7 @@ import { validatePlan } from "../assistant/plan.mjs";
 import { finalRedaction } from "../assistant/prompt.mjs";
 import { normalizeEndpoint, isLocalAddress, isLoopbackAddress } from "../assistant/local-endpoint.mjs";
 import { createRedactor, loadRedactionPolicy } from "../redaction.mjs";
-import { budgetState, createRateLimit, defaultQuietHours, inQuietHours, nextScheduledRun, normalizeQuietHours, startOfLocalDay, tomorrowMorning } from "./budget.mjs";
+import { budgetState, createRateLimit, defaultQuietHours, inQuietHours, nextQuietStart, nextScheduledRun, normalizeQuietHours, quietHoursStart, startOfLocalDay, tomorrowMorning } from "./budget.mjs";
 import { coreLimits, defaultCores, effectiveCores, physicalCores, runnerCaps, runnerUnit, threadsFor } from "./caps.mjs";
 import { createAgentChat, zulipSettingKey } from "./chat.mjs";
 import { ConnectorError, boundSync, cleanDocumentText, connectors, readFolderSetting, scanFolder, textOfUpload } from "./connectors.mjs";
@@ -42,10 +42,10 @@ import { digestToken, finishedStates } from "./store.mjs";
 import { agentTemplates, builtInQuestions, evaluationFacts, templateById, templateQuestions } from "./templates.mjs";
 import { appUpdatesOf, drivesOf, failedServicesOf, placementOf, stoppedAppsOf, unhealthyAppsOf } from "./tool-text.mjs";
 import { describeTools, readToolInput, roleAtLeast, toModelTool, toolAllowed, toolById, toolCatalog, toolCategories } from "./tool-catalog.mjs";
-import { ToolError, createToolRunner } from "./tools.mjs";
+import { ToolError, createToolRunner, readableSources } from "./tools.mjs";
 import { gradeFact } from "./grade.mjs";
 import { verifyAnswer } from "./verify.mjs";
-import { questionFrom } from "./zulip.mjs";
+import { neutralizeLinks, questionFrom } from "./zulip.mjs";
 
 export { gradeDrives, gradeFact } from "./grade.mjs";
 
@@ -65,6 +65,9 @@ export const visionKey = "agentsVision";
 export const serviceLimits = Object.freeze({
   leaseMs: 60_000,
   pollWaitMs: 25_000,
+  // The longest a run's processors are waited on once it is claimed. The runner waits 15 s past its
+  // long poll for the answer; a lowering still in hand before a raise is two of these, and fits.
+  cpuChangeTimeoutMs: 6_000,
   heartbeatMs: 10_000,
   runnerOnlineMs: 90_000,
   queueMax: 20,
@@ -242,6 +245,7 @@ export function createAgentService({
   let previousAlerts = null;
   let droppedRuns = 0;
   let stopModelRequested = false;
+  let ticking = null;   // the tick going now, which another tick asked for meanwhile shares
   // The night an agent's evaluation was last skipped for want of budget, so it is said once a night.
   const nightlySkipped = new Map();
   let issuing = null;   // the runner's key being issued, so two callers never make two keys
@@ -326,7 +330,7 @@ export function createAgentService({
       if (!force && !burst && cpu.applied === target) return true;
       if (!helper) { cpu.error = { at: now().toISOString(), message: "The helper is not available" }; return false; }
       try {
-        const result = await helper.request("agents.runtime.cpu", { processors: target, background, resetAfterSeconds: Math.min(7_200, Math.max(60, Math.round(resetAfterSeconds))) }, { timeoutMs: 20_000 });
+        const result = await helper.request("agents.runtime.cpu", { processors: target, background, resetAfterSeconds: Math.min(7_200, Math.max(60, Math.round(resetAfterSeconds))) }, { timeoutMs: limits.cpuChangeTimeoutMs });
         Object.assign(cpu, { applied: target, burst, at: now().toISOString(), resetAt: result?.resetAt ?? null, error: null });
         audit("agents.runtime.cpu", { details: { processors: target, background, burst } });
         return true;
@@ -399,8 +403,15 @@ export function createAgentService({
 
   // ---- budgets ----
 
+  /**
+   * An agent's use today. The nightly evaluation's questions take none of its runs: they measure
+   * the agent rather than do its work, and the Environment Scout's seven took its four, so its
+   * Sunday routine was refused every week (2026-10 sweep). Their model time still counts, and every
+   * agent's runs together still count them.
+   */
   function usedToday(agentId) {
-    return store.usageSince(agentId, startOfLocalDay(now()).toISOString());
+    const used = store.usageSince(agentId, startOfLocalDay(now()).toISOString());
+    return { ...used, runs: used.runs - used.nightlyEvals };
   }
   function budgetOf(agent) {
     const own = budgetState(agent.spec.budget, usedToday(agent.id));
@@ -487,24 +498,64 @@ export function createAgentService({
     if (person.role === "viewer" && run.requestedBy !== person.id) refuse(403, "Viewers cancel only their own questions", "forbidden");
     const finished = store.finishRun(run.id, { state: "cancelled", reason: "Cancelled by a person" });
     if (!finished) refuse(409, "That run has already finished", "run_finished");
-    emit(run.id, "state", { state: "cancelled" });
+    runEnded(finished);
     return presentRun(person, finished);
+  }
+
+  /**
+   * Everything that follows a run's end, however it ended: the runner's finish, a person's cancel,
+   * a pause, the kill switch, a deadline, a lost lease, a restart, a deleted agent, a budget at
+   * hand-out. Before the 2026-10 sweep only the runner's finish did this, so a hand-off the server
+   * ended left its supervisor waiting for good, a question asked in Zulip went unanswered there, and
+   * a live trace showed the run going forever. Whoever watches the run sees how it ended; the team
+   * chat gets what it would from the runner's finish; and a supervisor whose hand-offs have all
+   * ended gets its follow-up - unless `tree` is false: after the kill switch nothing new is queued.
+   */
+  function runEnded(run, { tree = true } = {}) {
+    if (!run) return;
+    emit(run.id, "state", { state: run.state });
+    if (["index", "describe"].includes(run.kind)) return;
+    try {
+      const agent = store.getAgent(run.agentId, { includeDeleted: true });
+      chat.afterRun(agent, store.getVersion(run.agentId, run.version)?.spec ?? agent?.spec, store.getRun(run.id) ?? run);
+      if (tree) continueTree(run);
+    } catch { /* what follows a run's end is never a reason to fail the call that ended it */ }
   }
 
   // ---- the claim ----
 
-  function chooseRun(queued, { hostBusy = false } = {}) {
+  /**
+   * Why a run may not start now for want of budget, or null. Checked again as it is handed out
+   * (2026-10 sweep: two waiting questions both ran on one run a day), since the room a run was queued
+   * with may be gone by then. A supervisor's follow-up is spared - the question it finishes was
+   * counted - and so is a person's evaluation, started whole: a question refused here would be
+   * graded wrong for want of budget rather than for its answer.
+   */
+  function handOutRefusal(run) {
+    if (run.kind === "continue" || (run.kind === "eval" && run.requestedBy)) return null;
+    if (["index", "describe"].includes(run.kind)) return moduleBudget().refusal;
+    const agent = store.getAgent(run.agentId);
+    return agent ? budgetOf(agent).refusal : null;
+  }
+
+  /** The run to hand out next, or null. Runs it ends on the way (cancelled, refused) go in `ended`. */
+  function chooseRun(queued, { hostBusy = false, ended = [] } = {}) {
     const at = now();
-    const quiet = inQuietHours(at, moduleSettings().quietHours);
+    const quietHours = moduleSettings().quietHours;
+    const quiet = inQuietHours(at, quietHours);
+    const finish = (run, state, reason) => { const finished = store.finishRun(run.id, { state, reason }); if (finished) ended.push(finished); };
     const eligible = [];
     for (const run of queued) {
       if (!["index", "describe"].includes(run.kind)) {
         const agent = store.getAgent(run.agentId);
-        if (!agent) { store.finishRun(run.id, { state: "cancelled", reason: "The agent was deleted" }); continue; }
+        if (!agent) { finish(run, "cancelled", "The agent was deleted"); continue; }
         if (agentPaused(agent)) continue;
       }
+      // A run that waits for quiet hours waits from when they begin: counted from when it was
+      // queued, one queued just after they ended was cancelled before the next began (2026-10 sweep).
       const ttl = personWaiting(run) ? limits.askTtlMs : limits.systemTtlMs;
-      if (at.getTime() - Date.parse(run.queuedAt) > ttl) { store.finishRun(run.id, { state: "cancelled", reason: "It waited too long to start" }); continue; }
+      const waitingSince = run.trigger?.quietHours ? nextQuietStart(new Date(run.queuedAt), quietHours).getTime() : Date.parse(run.queuedAt);
+      if (at.getTime() - waitingSince > ttl) { finish(run, "cancelled", "It waited too long to start"); continue; }
       if (run.trigger?.quietHours && !quiet) continue;
       // The server is busy: people's questions still go, everything else waits.
       if ((hostBusy || hostLoad() > 0.85) && !personWaiting(run)) continue;
@@ -513,16 +564,30 @@ export function createAgentService({
     // A nightly evaluation, which nobody waits on, goes after everything else (M40).
     const rank = (run) => (run.kind === "eval" && !run.requestedBy ? 6 : kindRank[run.kind] ?? 9);
     eligible.sort((a, b) => rank(a) - rank(b) || a.queuedAt.localeCompare(b.queuedAt));
-    return eligible[0] ?? null;
+    for (const run of eligible) {
+      const refusal = handOutRefusal(run);
+      if (!refusal) return run;
+      finish(run, "refused", refusal);
+    }
+    return null;
   }
+
+  /**
+   * The knowledge a run may read: each source only when the agent's spec and the owner's switch for
+   * every agent both allow it, and the owner's documents only for the owner or an operator, as the
+   * library's own page (2026-10 sweep: both were read regardless).
+   */
+  const sourcesFor = (spec, readRole) => readableSources({ spec, sources: knowledgeSettings(), readRole });
 
   /** The tools a run is offered: the agent's permissions, the run's role, and what is switched on. */
   function offeredTools(run, spec, agent) {
     const settings = moduleSettings();
     const specialists = specialistsFor(spec, store.listAgents(), agent.id);
+    const sources = sourcesFor(spec, run.readRole);
     return toolCatalog.filter((tool) => {
       if (!toolAllowed(tool, spec.tools?.[tool.id], { kind: run.kind, readRole: run.readRole })) return false;
-      if (tool.id === "docs.search") return Object.values(spec.knowledge ?? {}).some(Boolean);
+      if (tool.id === "docs.search") return sources.docs || sources.registry || sources.catalog || sources.documents;
+      if (tool.id === "document.read") return sources.documents;
       if (tool.id === "web.search") return settings.webSearch?.enabled === true && Boolean(settings.webSearch?.endpoint);
       if (tool.id === "memory.search") return spec.memory?.enabled === true;
       // A follow-up run writes the answer; it hands nothing further.
@@ -636,7 +701,7 @@ export function createAgentService({
         if (roleAtLeast(readRole, episode.readRole)) items.push({ key: `episode:${episode.id}`, tier: "episode", title: `A run on ${episode.createdAt.slice(0, 10)}`, text: episode.text, from: agent.name, at: episode.createdAt, freshUntil: null, weight: 0.8 });
       }
     }
-    if (spec.knowledge?.documents !== false && knowledgeSettings().documents !== false) {
+    if (sourcesFor(spec, readRole).documents) {
       for (const document of store.listDocuments().filter((entry) => entry.enabled && entry.pinned)) {
         chunksOf(document).forEach((text, index) => items.push({ key: `doc:${document.id}#${index}`, tier: "pinned", title: document.title, text, from: "the owner", at: document.createdAt, freshUntil: null, weight: 1.2 }));
       }
@@ -878,7 +943,9 @@ export function createAgentService({
         steps: spec.budget.stepsPerRun,
         tokens: spec.budget.tokensPerRun,
         runSeconds: spec.budget.runSeconds,
-        remainingModelMs: run.kind === "eval" ? Math.min(spec.budget.modelSecondsPerDay * 1000, moduleBudget().modelMsLeft || spec.budget.modelSecondsPerDay * 1000) : budget.modelMsLeft,
+        // An evaluation is given the agent's whole day, within what every agent together has left:
+        // none left is none (2026-10 sweep), not the agent's whole day.
+        remainingModelMs: run.kind === "eval" ? Math.min(spec.budget.modelSecondsPerDay * 1000, moduleBudget().modelMsLeft) : budget.modelMsLeft,
         toolCallsPerStep: limits.toolCallsPerStep,
         maxToolCalls: Math.min(limits.maxToolCallsPerRun, spec.budget.stepsPerRun * limits.toolCallsPerStep),
         heartbeatMs: limits.heartbeatMs,
@@ -922,11 +989,27 @@ export function createAgentService({
     return { saved };
   }
 
-  /** In quiet hours, when something waits to be embedded and nothing is indexing: one index run. */
+  /**
+   * Whether the memory index's or the image describer's last run failed in these quiet hours: it is
+   * not queued again until the next ones, rather than starting the model every minute of the night
+   * to fail the same way (2026-10 sweep).
+   */
+  function failedTonight(agentId) {
+    const began = quietHoursStart(now(), moduleSettings().quietHours);
+    const [last] = began ? store.listRuns({ agentId, limit: 1 }) : [];
+    return Boolean(last && ["degraded", "failed", "timeout", "interrupted"].includes(last.state) && Date.parse(last.finishedAt ?? last.queuedAt) >= began.getTime());
+  }
+
+  /**
+   * In quiet hours, when something waits to be embedded and nothing is indexing: one index run,
+   * within every agent's budget for the day, and none after one failed tonight. `force` is the
+   * owner's "index now", which goes whenever the budget allows.
+   */
   function queueIndexing({ force = false } = {}) {
     const settings = moduleSettings();
     if (!settings.enabled || modulePaused(settings) || settings.embeddings === false || runtimeSettings().driver === "llama-server") return null;
     if (store.activeRuns().some((run) => run.kind === "index")) return null;
+    if (moduleBudget().refusal || (!force && failedTonight(memoryIndexAgentId))) return null;
     if (!pendingEmbeddings().length) return null;
     const owner = state.listOwners?.().find((entry) => entry.role === "owner") ?? null;
     const run = store.enqueueRun({ agentId: memoryIndexAgentId, version: 0, kind: "index", trigger: { title: "Index memory for meaning search", quietHours: !force }, readRole: "owner", readAs: owner?.id ?? null });
@@ -943,8 +1026,9 @@ export function createAgentService({
     const settings = moduleSettings();
     // llama-server sees only when it is handed the model's projector (--mmproj); Unsloth finds it itself.
     if (!settings.enabled || modulePaused(settings) || settings.killedAt || (runtimeSettings().driver === "llama-server" && !runtimeSettings().projector)) return null;
-    if (store.activeRuns().some((run) => run.kind === "describe")) return null;
-    if (!store.listUndescribed({ limit: 1 }).length || moduleBudget().modelMsLeft < 60_000) return null;
+    if (store.activeRuns().some((run) => run.kind === "describe") || failedTonight(imageDescribeAgentId)) return null;
+    const budget = moduleBudget();
+    if (!store.listUndescribed({ limit: 1 }).length || budget.refusal || budget.modelMsLeft < 60_000) return null;
     // A model server that said it cannot see is asked again a day later, or after the model or the runtime changed (M40.6).
     const sight = visionNow();
     if (sight?.vision === false && now().getTime() - Date.parse(sight.at) < 86_400_000) return null;
@@ -988,7 +1072,7 @@ export function createAgentService({
     const outcome = ["completed", "degraded", "failed"].includes(result.outcome) ? result.outcome : "failed";
     const finished = store.finishRun(run.id, { state: outcome, reason: outcome === "failed" ? clip(String(result.error ?? "Describing failed"), 300) : null, usage, outputKind: "describe", answer: `Described ${described} ${described === 1 ? "image" : "images"} from #agent-files.` });
     if (!finished) refuse(409, "The run has already finished", "run_finished");
-    emit(run.id, "state", { state: finished.state });
+    runEnded(finished);
     audit("agents.images.described", { details: { runId: run.id, outcome: finished.state, described, modelMs: usage.modelMs } });
     wake();
     return { state: finished.state };
@@ -1016,7 +1100,9 @@ export function createAgentService({
 
   /**
    * The runner's long poll: the next run, or null after `waitMs` with nothing to do. Nothing is
-   * handed out while Agents are off or paused, or while another run holds a live lease.
+   * handed out while Agents are off or paused, while another run holds a live lease, or to a runner
+   * that has hung up (`signal`): a run claimed for it would never reach it, and be marked
+   * interrupted a minute later.
    */
   async function runnerNext(runnerId, { usage = null, hostBusy = false, waitMs = limits.pollWaitMs, signal = null } = {}) {
     noteRunner(runnerId, usage, hostBusy);
@@ -1024,11 +1110,15 @@ export function createAgentService({
     while (true) {
       expireLeases();
       const settings = moduleSettings();
-      if (settings.enabled && !modulePaused(settings)) {
-        const claimed = store.claimNext({ runnerId, leaseMs: limits.leaseMs, choose: (queued) => chooseRun(queued, { hostBusy }) });
+      if (settings.enabled && !modulePaused(settings) && !signal?.aborted) {
+        const ended = [];
+        const claimed = store.claimNext({ runnerId, leaseMs: limits.leaseMs, choose: (queued) => chooseRun(queued, { hostBusy, ended }) });
+        for (const run of ended) runEnded(run);
         if (claimed) {
           // Its processors first (M40): raised while a person waits, the background number otherwise.
           const cpuInfo = await cpuForRun(claimed.run);
+          // It hung up while they were set: the run goes back in the queue, as it was, for its next poll.
+          if (signal?.aborted) { store.releaseRun(claimed.run.id); return null; }
           store.addStep(claimed.run.id, { kind: "system", name: "claimed", output: "The runner took this run.", flags: { detail: cpuInfo.words } });
           emit(claimed.run.id, "state", { state: "running" });
           return claimPayload(claimed.run, claimed.lease, { cpu: cpuInfo });
@@ -1052,8 +1142,8 @@ export function createAgentService({
     // A run another runner held is one this runner will never finish: say so, and never retry it.
     let interrupted = 0;
     for (const run of store.activeRuns().filter((entry) => entry.state === "running" && entry.runnerId !== runnerId)) {
-      if (store.finishRun(run.id, { state: "interrupted", reason: "The agents runner restarted while this run was going. It was not tried again." })) interrupted += 1;
-      emit(run.id, "state", { state: "interrupted" });
+      const ended = store.finishRun(run.id, { state: "interrupted", reason: "The agents runner restarted while this run was going. It was not tried again." });
+      if (ended) { interrupted += 1; runEnded(ended); }
     }
     return { interrupted, pollWaitMs: limits.pollWaitMs, heartbeatMs: limits.heartbeatMs };
   }
@@ -1065,9 +1155,9 @@ export function createAgentService({
       const spec = store.getVersion(run.agentId, run.version)?.spec;
       const deadline = Date.parse(run.startedAt) + (spec?.budget?.runSeconds ?? budgetCeilings.runSeconds.default) * 1000 + limits.runGraceMs;
       if (at > deadline) {
-        if (store.finishRun(run.id, { state: "timeout", reason: "It ran past its time limit and was stopped." })) emit(run.id, "state", { state: "timeout" });
+        runEnded(store.finishRun(run.id, { state: "timeout", reason: "It ran past its time limit and was stopped." }));
       } else if (run.leaseExpiresAt && Date.parse(run.leaseExpiresAt) < at) {
-        if (store.finishRun(run.id, { state: "interrupted", reason: "The agents runner stopped answering during this run. It was not tried again." })) emit(run.id, "state", { state: "interrupted" });
+        runEnded(store.finishRun(run.id, { state: "interrupted", reason: "The agents runner stopped answering during this run. It was not tried again." }));
       }
     }
   }
@@ -1080,6 +1170,21 @@ export function createAgentService({
     return run;
   }
 
+  /**
+   * Why a running run must stop because of a pause, or null: Agents turned off or paused (the model
+   * stops too, as it does once nothing runs), or its own agent paused (the model stays for the
+   * others; the call it was making is closed). The owner's rule is that everything pauses, not
+   * only what waits (2026-10 sweep).
+   */
+  function pausedWhile(run) {
+    const settings = moduleSettings();
+    if (!settings.enabled) return { reason: "Agents were turned off while it ran", stopModel: true };
+    if (modulePaused(settings)) return { reason: "Agents were paused while it ran", stopModel: true };
+    if (["index", "describe"].includes(run.kind)) return null;
+    const agent = store.getAgent(run.agentId);
+    return agent && agentPaused(agent) ? { reason: `${agent.name} was paused while it ran`, stopModel: false } : null;
+  }
+
   function runnerHeartbeat(runId, lease, { usage = null, runnerId = null } = {}) {
     if (runnerId) noteRunner(runnerId, usage);
     const run = store.getRun(runId);
@@ -1087,9 +1192,13 @@ export function createAgentService({
     if (run.state !== "running") return { continue: false, reason: run.state, stopModel: run.state === "killed" };
     const spec = store.getVersion(run.agentId, run.version)?.spec;
     if (now().getTime() > Date.parse(run.startedAt) + (spec?.budget?.runSeconds ?? budgetCeilings.runSeconds.default) * 1000 + limits.runGraceMs) {
-      store.finishRun(run.id, { state: "timeout", reason: "It ran past its time limit and was stopped." });
-      emit(run.id, "state", { state: "timeout" });
+      runEnded(store.finishRun(run.id, { state: "timeout", reason: "It ran past its time limit and was stopped." }));
       return { continue: false, reason: "timeout", stopModel: false };
+    }
+    const paused = pausedWhile(run);
+    if (paused) {
+      runEnded(store.finishRun(run.id, { state: "cancelled", reason: paused.reason }));
+      return { continue: false, reason: "paused", stopModel: paused.stopModel };
     }
     store.extendLease(runId, limits.leaseMs);
     return { continue: true };
@@ -1180,7 +1289,8 @@ export function createAgentService({
     if (toolCount >= Math.min(limits.maxToolCallsPerRun, (spec?.budget?.stepsPerRun ?? 6) * limits.toolCallsPerStep)) return answer("tool", { state: "refused", text: "This run has used all its tool calls. Answer with what you have.", flags: { refused: true, limit: true } });
     const { value, problem } = readToolInput(tool, rawInput);
     if (problem) return answer("tool", { state: "refused", text: problem, input: { raw: redact(clip(typeof rawInput === "string" ? rawInput : JSON.stringify(rawInput ?? {}), 400)) }, flags: { refused: true } });
-    const context = { readRole: run.readRole, readAs: run.readAs, spec, run };
+    // `sources`: the owner's knowledge switches for every agent, which the tools hold the agent's own to.
+    const context = { readRole: run.readRole, readAs: run.readAs, spec, run, sources: knowledgeSettings() };
     if (tool.id === "web.search" && !(moduleSettings().webSearch?.enabled && moduleSettings().webSearch?.endpoint)) return answer("tool", { state: "refused", text: "Web search is off on this server.", flags: { refused: true } });
     try {
       if (tool.id === "memory.search") return answer("memory", { text: searchMemory(run, spec, value, extras.vector), input: { query: value.query, tier: value.tier ?? "any", byMeaning: Boolean(readVector(extras.vector)) } });
@@ -1377,20 +1487,22 @@ export function createAgentService({
     });
     if (!finished) refuse(409, "The run has already finished", "run_finished");
     store.markAgentRan(run.agentId, finished.finishedAt);
-    emit(run.id, "state", { state: finished.state });
     audit("agents.run.finished", {
       actorId: run.requestedBy, subjectId: run.id,
       details: { agentId: run.agentId, version: run.version, kind: run.kind, outcome: finished.state, readRole: run.readRole, toolCalls: usage.toolCalls, modelMs: usage.modelMs, loadMs: usage.loadMs, tokens: usage.promptTokens + usage.completionTokens, durationMs: usage.wallMs, injectionSuspected: Boolean(finished.flags?.injection), degraded: degradedReason, parentRunId: run.parentRunId, clarify: Boolean(clarify), runsSaved, findingsCited },
     });
-    if (finished.flags?.notify && finished.state !== "failed") await deliverNotice(agent, finished);
+    // A notice asked for by a run that read something that looked like an instruction may be that
+    // instruction's own words: it is held back, and the owner warned of it instead (escalate).
+    const heldNotice = Boolean(finished.flags?.notify && finished.flags?.injection);
+    if (finished.flags?.notify && !heldNotice && finished.state !== "failed") await deliverNotice(agent, finished);
     if (run.kind === "eval" && run.eval?.evalId) await gradeEvalRun(finished);
     rememberRun(agent, spec, finished);
     // What it found, for the other agents (M44).
     rememberFinding(agent, spec, finished);
-    await escalate(agent, spec, finished, { clarify });
-    // Its answer, cards, trace and notes, to the team chat when Zulip is connected (M38).
-    chat.afterRun(agent, spec, store.getRun(finished.id) ?? finished);
-    continueTree(finished);
+    await escalate(agent, spec, finished, { clarify, heldNotice });
+    // Its end to whoever watches, its answer, cards, trace and notes to the team chat when Zulip is
+    // connected (M38), and a supervisor's follow-up once every hand-off has ended.
+    runEnded(finished);
     // Nobody waits any more (no follow-up, no other question): back to the background number (M40).
     void settleCpu().catch(() => null);
     wake();
@@ -1422,7 +1534,7 @@ export function createAgentService({
     const outcome = ["completed", "degraded", "failed"].includes(result.outcome) ? result.outcome : "failed";
     const finished = store.finishRun(run.id, { state: outcome, reason: outcome === "failed" ? clip(String(result.error ?? "Indexing failed"), 300) : null, usage, outputKind: "index", answer: `Indexed ${Math.round(finite(result.indexed, 10_000))} pieces of memory for meaning search.` });
     if (!finished) refuse(409, "The run has already finished", "run_finished");
-    emit(run.id, "state", { state: finished.state });
+    runEnded(finished);
     audit("agents.memory.indexed", { details: { runId: run.id, outcome: finished.state, indexed: Math.round(finite(result.indexed, 10_000)), modelMs: usage.modelMs } });
     wake();
     return { state: finished.state };
@@ -1456,9 +1568,10 @@ export function createAgentService({
   /**
    * Escalation: the agent hands a matter to a person rather than acting or guessing. A clarifying
    * question, low confidence, a limit reached, or tool output that looked like an instruction
-   * becomes a card; the risky ones also tell the owner. Never an action.
+   * becomes a card; the risky ones also tell the owner, and so does a notice held back because the
+   * run read such output (`heldNotice`), whatever the agent's own rules. Never an action.
    */
-  async function escalate(agent, spec, run, { clarify }) {
+  async function escalate(agent, spec, run, { clarify, heldNotice = false }) {
     const rules = spec.escalation ?? {};
     const forRole = ["owner", "operator"].includes(run.readRole) ? run.readRole : "owner";
     const card = (kind, title, reason, extra = {}) => store.createProposal({
@@ -1472,11 +1585,17 @@ export function createAgentService({
       if (rules.lowConfidence && typeof confidence === "number" && confidence < limits.lowConfidence && ["ask", "manual", "event", "schedule", "webhook"].includes(run.kind)) reasons.push(`It was only ${Math.round(confidence * 100)}% sure it understood the request.`);
       if (rules.limits && run.flags?.limitReached) reasons.push(limitWords(run.flags, spec));
       const risky = rules.risk && run.flags?.injection;
-      if (risky) reasons.push("Something it read looked like an instruction to it. It treated it as data; check what it read.");
-      if (!reasons.length) return;
-      card("escalation", `${agent.name} needs you to look`, reasons.join(" "));
-      audit("agents.escalated", { actorId: run.requestedBy, subjectId: run.id, details: { agentId: agent.id, lowConfidence: reasons.length && typeof confidence === "number" && confidence < limits.lowConfidence, limit: Boolean(run.flags?.limitReached), risk: Boolean(risky) } });
-      if (risky && moduleSettings().notify !== false) await healthAlerts?.tell?.({ key: `agent.important:${agent.id}:risk`, title: `${agent.name}: check what it read`, message: "An agent read something that looked like an instruction. It did not act on it; the run's trace shows where.", priority: "high" });
+      if (risky) reasons.push("Something it read looked like an instruction to it. It was told to treat it as data; check what it read and what it did.");
+      if (reasons.length) {
+        card("escalation", `${agent.name} needs you to look`, reasons.join(" "));
+        audit("agents.escalated", { actorId: run.requestedBy, subjectId: run.id, details: { agentId: agent.id, lowConfidence: reasons.length && typeof confidence === "number" && confidence < limits.lowConfidence, limit: Boolean(run.flags?.limitReached), risk: Boolean(risky) } });
+      }
+      // Nothing proves the agent did not act on what it read (it may have proposed a plan or kept a
+      // note), so the warning does not say it did not (2026-10 sweep).
+      if ((risky || heldNotice) && moduleSettings().notify !== false) {
+        const message = `An agent read something that looked like an instruction. It was told to treat it as data; check what it did in the run's trace.${heldNotice ? " It also asked to tell you something, which BoxPilot held back: those words may have come from what it read." : ""}`;
+        await healthAlerts?.tell?.({ key: `agent.important:${agent.id}:risk`, title: neutralizeLinks(`${agent.name}: check what it read`), message: neutralizeLinks(message), priority: "high" });
+      }
     } catch { /* a card that could not be made is not worth failing the run over */ }
   }
 
@@ -1500,11 +1619,17 @@ export function createAgentService({
    * supervisor gets one follow-up run with their answers, as the same person.
    */
   function continueTree(run) {
-    if (run.kind !== "handoff" || !run.parentRunId) return;
-    const parent = store.getRun(run.parentRunId);
+    if (run.kind === "handoff" && run.parentRunId) continueSupervisor(run.parentRunId);
+    // A supervisor whose hand-offs all ended while it still ran (one was cancelled, or its agent
+    // paused) is continued as it ends: no hand-off is left to end after it (2026-10 sweep).
+    if (run.kind !== "continue") continueSupervisor(run.id);
+  }
+
+  function continueSupervisor(parentId) {
+    const parent = store.getRun(parentId);
     if (!parent || parent.flags?.continued) return;
     const children = store.listChildren(parent.id).filter((entry) => entry.kind === "handoff");
-    if (children.some((entry) => !finishedStates.has(entry.state))) return;
+    if (!children.length || children.some((entry) => !finishedStates.has(entry.state))) return;
     if (!["completed", "degraded"].includes(parent.state)) return;
     const agent = store.getAgent(parent.agentId);
     if (!agent) return;
@@ -1513,6 +1638,7 @@ export function createAgentService({
       agentId: agent.id, version: agent.version, kind: "continue", question: parent.question, trigger: { title: "The specialists answered" },
       requestedBy: parent.requestedBy, readRole: parent.readRole, readAs: parent.readAs, parentRunId: parent.id, rootRunId: parent.rootRunId ?? parent.id, depth: parent.depth ?? 0,
     });
+    wake();
   }
 
   async function deliverNotice(agent, run) {
@@ -1522,7 +1648,8 @@ export function createAgentService({
         const kept = Object.fromEntries(Object.entries(history ?? {}).map(([key, list]) => [key, (list ?? []).filter((entry) => now().getTime() - Date.parse(entry) < 86_400_000)]));
         return { value: { ...kept, [agent.id]: [...(kept[agent.id] ?? []), at] }, result: null };
       }, null);
-      await healthAlerts?.tell?.({ key: `agent.important:${agent.id}`, title: `${agent.name}: ${run.flags.notify.title}`, message: run.flags.notify.message, priority: "high" });
+      // A link in a notice is shown, never linked: what the model wrote can be steered by what it read.
+      await healthAlerts?.tell?.({ key: `agent.important:${agent.id}`, title: neutralizeLinks(`${agent.name}: ${run.flags.notify.title}`), message: neutralizeLinks(run.flags.notify.message), priority: "high" });
     } catch { /* an undelivered notice is kept by the ledger or shown on the page; never fatal */ }
   }
 
@@ -1646,8 +1773,11 @@ export function createAgentService({
     state.setSetting(agentsSettingKey, { ...settings, paused: true, pausedUntil: null, pausedBy: person.id, killedAt: now().toISOString() }, { updatedBy: person.id });
     let cancelled = 0; let stopped = 0;
     for (const run of store.activeRuns()) {
-      if (run.state === "queued" && store.finishRun(run.id, { state: "cancelled", reason: "Stopped by the kill switch" })) cancelled += 1;
-      if (run.state === "running" && store.finishRun(run.id, { state: "killed", reason: "Stopped by the kill switch" })) { stopped += 1; emit(run.id, "state", { state: "killed" }); }
+      const ended = store.finishRun(run.id, run.state === "queued" ? { state: "cancelled", reason: "Stopped by the kill switch" } : { state: "killed", reason: "Stopped by the kill switch" });
+      if (!ended) continue;
+      if (ended.state === "cancelled") cancelled += 1; else stopped += 1;
+      // Nothing new is queued after the kill switch, a supervisor's follow-up included.
+      runEnded(ended, { tree: false });
     }
     stopModelRequested = true;
     audit("agents.module.killed", { actorId: person.id, details: { cancelled, stopped } });
@@ -1663,7 +1793,8 @@ export function createAgentService({
     const resumeAt = until === "tomorrow" ? tomorrowMorning(now()) : until ? new Date(until) : null;
     if (resumeAt && (Number.isNaN(resumeAt.getTime()) || resumeAt <= now())) refuse(400, "Pause until a time that has not passed", "invalid_pause");
     store.setPaused(agent.id, true, { until: resumeAt?.toISOString() ?? null });
-    for (const run of store.activeRuns().filter((entry) => entry.agentId === agent.id && entry.state === "queued")) store.finishRun(run.id, { state: "cancelled", reason: "The agent was paused" });
+    // What waits is cancelled now; what runs stops at its runner's next heartbeat (runnerHeartbeat).
+    for (const run of store.activeRuns().filter((entry) => entry.agentId === agent.id && entry.state === "queued")) runEnded(store.finishRun(run.id, { state: "cancelled", reason: "The agent was paused" }));
     audit("agents.paused", { actorId: person.id, subjectId: agent.id, details: { until: resumeAt?.toISOString() ?? null } });
     return presentAgent(person, store.getAgent(agent.id));
   }
@@ -1724,7 +1855,7 @@ export function createAgentService({
   function deleteAgent(caller, agentId) {
     const person = personOf(caller);
     const agent = agentFor(person, agentId, { edit: true });
-    for (const run of store.activeRuns().filter((entry) => entry.agentId === agent.id)) store.finishRun(run.id, { state: run.state === "running" ? "killed" : "cancelled", reason: "The agent was deleted" });
+    for (const run of store.activeRuns().filter((entry) => entry.agentId === agent.id)) runEnded(store.finishRun(run.id, { state: run.state === "running" ? "killed" : "cancelled", reason: "The agent was deleted" }));
     store.deleteAgent(agent.id);
     audit("agents.deleted", { actorId: person.id, subjectId: agent.id, details: { name: agent.name } });
     return { deleted: true };
@@ -2158,9 +2289,8 @@ export function createAgentService({
 
   function usage(caller) {
     personOf(caller);
-    const since = startOfLocalDay(now()).toISOString();
     const perAgent = store.listAgents().map((agent) => {
-      const used = store.usageSince(agent.id, since);
+      const used = usedToday(agent.id);
       return { agentId: agent.id, name: agent.name, runs: used.runs, runsPerDay: agent.spec.budget.runsPerDay, modelSeconds: Math.round(used.modelMs / 1000), modelSecondsPerDay: agent.spec.budget.modelSecondsPerDay, tokens: used.tokens };
     });
     const { queued, running } = queueCounts();
@@ -2542,6 +2672,8 @@ export function createAgentService({
    * The nightly evaluation (M40), from the service's tick in quiet hours: one agent at a time, each
    * at most once a day, as the person who made it, only when its own budget and every agent's
    * together have room for its questions and still keep half of the day's model time for people.
+   * Its questions take none of the agent's own runs (usedToday), but every agent's runs together
+   * count them, so half of those are kept for people too (2026-10 sweep).
    */
   async function queueNightlyEvaluation() {
     const settings = moduleSettings();
@@ -2558,7 +2690,7 @@ export function createAgentService({
       const own = budgetOf(agent);
       const all = moduleBudget();
       const keep = Math.min(agent.spec.budget.modelSecondsPerDay * 1000, all.modelSecondsPerDay * 1000) / 2;
-      if (own.refusal || own.modelMsLeft - needed < keep || all.modelMsLeft - needed < all.modelSecondsPerDay * 500) {
+      if (own.refusal || own.modelMsLeft - needed < keep || all.modelMsLeft - needed < all.modelSecondsPerDay * 500 || all.runsPerDay - all.runsUsed - questions.length < all.runsPerDay / 2) {
         // Said once a night, not every minute of quiet hours.
         const night = startOfLocalDay(now()).toISOString();
         if (nightlySkipped.get(agent.id) !== night) { nightlySkipped.set(agent.id, night); audit("agents.evaluation.skipped", { subjectId: agent.id, details: { reason: "budget", questions: questions.length } }); }
@@ -2789,12 +2921,22 @@ export function createAgentService({
   function recoverAtStartup() {
     let count = 0;
     for (const run of store.activeRuns().filter((entry) => entry.state === "running")) {
-      if (store.finishRun(run.id, { state: "interrupted", reason: "BoxPilot restarted while this run was going. It was not tried again." })) count += 1;
+      const ended = store.finishRun(run.id, { state: "interrupted", reason: "BoxPilot restarted while this run was going. It was not tried again." });
+      if (ended) { count += 1; runEnded(ended); }
     }
     return count;
   }
 
-  async function tick() {
+  /**
+   * One tick at a time: a tick asked for while one is going shares it rather than running beside
+   * it. Two at once could each find no evaluation queued and both start one (2026-10 sweep).
+   */
+  function tick() {
+    ticking ??= tickOnce().finally(() => { ticking = null; });
+    return ticking;
+  }
+
+  async function tickOnce() {
     const at = now();
     const settings = moduleSettings();
     if (settings.paused && settings.pausedUntil && Date.parse(settings.pausedUntil) <= at.getTime()) {

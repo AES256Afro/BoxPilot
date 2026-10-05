@@ -100,7 +100,9 @@ export function createAgentChat({ state, store, helper = null, now = () => new D
       // the root question's thread for a supervisor's follow-up - and not to #agent-findings as well.
       const asked = chatOrigin(run);
       const findings = asked ?? destinationFor(spec, "findings", link);
-      if (asked && !handedOn && ["completed", "degraded", "failed", "timeout", "interrupted"].includes(run.state)) {
+      // However it ended: a question BoxPilot cancelled (it waited too long), refused (no runs left
+      // today) or stopped is answered with why, not left unanswered (2026-10 sweep).
+      if (asked && !handedOn && ["completed", "degraded", "failed", "timeout", "interrupted", "cancelled", "refused", "killed"].includes(run.state)) {
         queue("reply", asked, replyMessage({ agentName: name, run, link: runLink, redact }));
       } else if (!asked && findings && findingKinds.has(run.kind) && answered.has(run.state) && run.answer && !handedOn && !run.flags?.clarify) {
         queue("findings", findings, findingMessage({ agentName: name, run, digest: run.kind === "schedule" && Boolean(spec?.outputs?.digest), link: runLink, redact }));
