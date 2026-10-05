@@ -394,7 +394,7 @@ async function loadProtection(): Promise<AppProtection[]> {
   return result.apps;
 }
 
-type MachineAnswer = { sync?: { mount?: { mounted?: boolean }; lastSync?: { completedAt?: string } | null } };
+type MachineAnswer = { sync?: { mount?: { mounted?: boolean }; lastSync?: { completedAt?: string; skippedCount?: number } | null } };
 type DestinationAnswer = { destination?: unknown; lastSync?: unknown };
 async function loadOffBox(): Promise<OffBoxFacts> {
   // A destination that cannot be read is unknown, not absent: if none of the three answers, the
@@ -411,7 +411,7 @@ async function loadOffBox(): Promise<OffBoxFacts> {
   const inputs: OffBoxInputs = {
     cloud: { configured: Boolean(cloud.body?.destination), lastSyncAt: at(cloud.body?.lastSync) },
     ssh: { configured: Boolean(ssh.body?.destination), lastSyncAt: at(ssh.body?.lastSync) },
-    drive: { configured: Boolean(machine?.sync?.mount?.mounted), lastSyncAt: machine?.sync?.lastSync?.completedAt ?? null },
+    drive: { configured: Boolean(machine?.sync?.mount?.mounted), lastSyncAt: machine?.sync?.lastSync?.completedAt ?? null, skipped: machine?.sync?.lastSync?.skippedCount ?? 0 },
   };
   const newestLocalBackupAt = backups.reduce<string | null>((newest, backup) => (backup.createdAt && (newest === null || backup.createdAt > newest) ? backup.createdAt : newest), null);
   return { verdict: offBoxVerdict(inputs, { newestLocalBackupAt }), inputs };

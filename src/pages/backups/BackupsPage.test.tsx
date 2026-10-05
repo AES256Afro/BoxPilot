@@ -220,6 +220,19 @@ describe("Backups page", () => {
       expect(staged).toEqual(["backup.sync"]);
     });
 
+    // R5B4-7: the drive's sync record kept only counts, so a sync that left a damaged archive behind
+    // showed "Last synced ... 4 files" with nothing amiss, here and on Home.
+    it("says what the last sync to the drive left out", async () => {
+      const said = "application-backups/immich/20260816T030000Z.tar.gz was not copied: it does not match the checksum recorded when it was written, so it may be damaged.";
+      mockFetch({ machine: { ...machineState, sync: { ...machineState.sync, lastSync: { completedAt: daysAgo(0.1), copiedCount: 4, skippedCount: 1, skipped: [said] } } } });
+      render(<BackupsPage csrfToken="csrf-token" />);
+      expect(await screen.findByText("Off-box copy incomplete")).toBeTruthy();
+      openTab(/^Off-box/);
+      const last = screen.getByText(/1 not copied/);
+      expect(last.closest("[data-status]")?.getAttribute("data-status")).toBe("warning");
+      expect(screen.getByText(said)).toBeTruthy();
+    });
+
     it("says backups are only on this server when there is nowhere else, and points at Storage", async () => {
       const onNavigate = vi.fn();
       mockFetch({ machine: { ...machineState, sync: { ...machineState.sync, mount: { mounted: false, blocker: null }, lastSync: null } }, schedules: [{ operationId: "app.backup", parameters: { subject: "vaultwarden" }, enabled: true }] });

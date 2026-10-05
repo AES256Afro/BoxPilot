@@ -543,7 +543,10 @@ export function createMachineSnapshotHelper({
     }
     const completedAt = now().toISOString();
     await mkdirWithoutFollowing(resolvedMountRoot, path.relative(resolvedMountRoot, mirrorRoot), { mode: 0o700 });
-    await replaceFileWithoutFollowing(path.join(mirrorRoot, ".boxpilot-sync.json"), `${JSON.stringify({ completedAt, fileCount, copiedCount, copiedBytes }, null, 2)}\n`, { mode: 0o600 });
+    // What was left out goes in the record too (R5B4-7): said only in the job, the Off-box tab and
+    // Home showed "Last synced ... N files" as if every backup had reached the drive.
+    const record = { completedAt, fileCount, copiedCount, copiedBytes, skippedCount: warnings.length, skipped: warnings.slice(0, 20) };
+    await replaceFileWithoutFollowing(path.join(mirrorRoot, ".boxpilot-sync.json"), `${JSON.stringify(record, null, 2)}\n`, { mode: 0o600 });
     return { synced: true, destination: mirrorRoot, completedAt, fileCount, copiedCount, copiedBytes, verified: true, ...(warnings.length ? { warnings } : {}), boundary: { deletesPerformed: false, networkUsed: false } };
   }
 

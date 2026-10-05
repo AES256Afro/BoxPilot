@@ -836,6 +836,23 @@ describe("an app's data archive copied in for a restore", () => {
     expect(third.warnings).toEqual([`application-backups/uptime-kuma/${name} was not copied: it has no record to check it against, and the copy on the backup drive differs from it.`]);
   });
 
+  // R5B4-7: what a sync left out was said only in its job, and the drive's sync record kept just the
+  // counts, so the Off-box tab and Home showed "Last synced ... N files" with nothing amiss.
+  it("keeps what a sync left out in the drive's sync record, and clears it once all is copied", async () => {
+    const { helper, paths } = await fixture();
+    const store = path.join(paths.applicationBackupRoot, "uptime-kuma");
+    await helper.sync();
+    await writeFile(path.join(store, name), "app-backup");
+    await writeFile(path.join(store, record), JSON.stringify({ artifact: name, checksumSha256: sha("app-backup-bytes") }));
+    const skipped = await helper.sync();
+    const said = `application-backups/uptime-kuma/${name} was not copied: it does not match the checksum recorded when it was written, so it may be damaged.`;
+    expect(skipped.warnings).toEqual([said]);
+    expect((await helper.inspect()).sync.lastSync).toMatchObject({ completedAt: skipped.completedAt, skippedCount: 1, skipped: [said] });
+    await writeFile(path.join(store, name), "app-backup-bytes");
+    await helper.sync();
+    expect((await helper.inspect()).sync.lastSync).toMatchObject({ skippedCount: 0, skipped: [] });
+  });
+
   it("still copies one that matches its record over a mirror copy that differs", async () => {
     const { helper, paths } = await fixture();
     const store = path.join(paths.applicationBackupRoot, "uptime-kuma");
