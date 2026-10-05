@@ -325,8 +325,11 @@ describe("the nightly evaluation's model time (R2B1-7)", { timeout: 30_000 }, ()
     const second = await h.service.runnerNext(h.runnerId, { waitMs: 0 });
     expect(second.limits.remainingModelMs).toBe(300_000);
     await h.service.runnerFinish(second.run.id, second.lease, { outcome: "completed", answer: "ok", usage: { modelMs: 400_000 } });
-    // The half kept for people is not touched: none is left for the rest of the questions.
-    const third = await h.service.runnerNext(h.runnerId, { waitMs: 0 });
-    expect(third.limits.remainingModelMs).toBe(0);
+    // The half kept for people is not touched: none is left for the rest of the questions, which
+    // are not handed out to fail for want of it (sweep 3, R3B1-6) but refused, and not graded.
+    expect(await h.service.runnerNext(h.runnerId, { waitMs: 0 })).toBeNull();
+    expect(h.store.listRuns({ agentId: keeper.id, limit: 20 }).filter((run) => run.kind === "eval" && run.state === "refused")).toHaveLength(5);
+    const [evaluation] = h.service.getEvaluation(h.caller("owner"), keeper.id).runs;
+    expect(evaluation.results.filter((result) => result.skipped)).toHaveLength(5);
   });
 });
