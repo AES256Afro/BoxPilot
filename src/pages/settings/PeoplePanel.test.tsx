@@ -76,4 +76,24 @@ describe("people settings", () => {
     fireEvent.click(screen.getByRole("button", { name: "Disable sam" }));
     await waitFor(() => expect(calls.some((call) => call.method === "DELETE" && (call.body as { password?: string })?.password === "owner-secret")).toBe(true));
   });
+
+  // Disabling said the account could be re-enabled, and nothing on the page could do it.
+  it("re-enables a disabled account in the role chosen, with the owner's password", async () => {
+    const people = [{ id: "o1", username: "admin", role: "owner", createdAt: "2026-08-01T00:00:00Z" }, { id: "p2", username: "sam", role: "disabled", createdAt: "2026-08-01T00:00:00Z" }];
+    let put: { url: string; body: unknown } | null = null;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url.endsWith("/api/v1/people/p2") && init?.method === "PUT") { put = { url, body: JSON.parse(String(init.body)) }; people[1] = { ...people[1], role: "operator" }; return json({ account: people[1] }); }
+      if (url.endsWith("/api/v1/people")) return json({ people });
+      return json({ error: `unexpected ${url}` }, 500);
+    }));
+    render(<PeopleSettings csrfToken="csrf" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Re-enable sam" }));
+    expect(screen.getByText(/Re-enable/, { selector: ".settings-confirm__what" })).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Role when re-enabled"), { target: { value: "operator" } });
+    fireEvent.change(screen.getByLabelText("Your password, to confirm this change"), { target: { value: "owner-secret" } });
+    fireEvent.click(screen.getByRole("button", { name: "Re-enable sam as an operator" }));
+    await waitFor(() => expect(put).toEqual({ url: "/api/v1/people/p2", body: { role: "operator", password: "owner-secret" } }));
+    expect(await screen.findByRole("combobox", { name: "Role for sam" })).toBeTruthy();
+  });
 });
