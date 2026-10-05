@@ -57,6 +57,41 @@ describe("the orchestrator", () => {
     expect(h.store.getThread(keeper.id, h.caller("operator").id).turns.map((turn) => [turn.role, turn.text])).toEqual([["user", "Is Pi-hole doing its job?"], ["agent", "Pi-hole is blocking, the watcher says [T1]."]]);
   });
 
+  it("with two supervisors, follows up at the root only once the second has followed up, with its answer (R2B1-5)", async () => {
+    const keeper = make("server-keeper");
+    const relay = make("server-keeper");
+    edit(relay, { name: "Relay" });
+    const watcher = make("pihole-watcher");
+    const named = (body, name) => system(body).includes(`Your name is ${name}`);
+    const followUp = (body) => /The specialists you handed work to/.test(JSON.stringify(body.messages));
+    h.fake.state.script = (body) => {
+      if (named(body, "Server Keeper")) {
+        if (followUp(body)) return { content: "Pi-hole is blocking, Relay says [T1]." };
+        return withTools(body) === 0 ? { toolCalls: [{ name: "agents_handoff", arguments: { agent: "Relay", task: "Check Pi-hole for me" } }] } : { content: "I asked Relay [T1]." };
+      }
+      if (named(body, "Relay")) {
+        if (followUp(body)) return { content: "RELAY-FINAL: the watcher says blocking is on [T1]." };
+        return withTools(body) === 0 ? { toolCalls: [{ name: "agents_handoff", arguments: { agent: "Pi-hole Watcher", task: "Is Pi-hole blocking?" } }] } : { content: "RELAY-INTERIM: I asked the watcher [T1]." };
+      }
+      return withTools(body) === 0 ? { toolCalls: [{ name: "pihole_stats", arguments: {} }] } : { content: "Blocking is on [T1]." };
+    };
+    ask(keeper, "owner", "Is Pi-hole doing its job?");
+    const ran = [];
+    for (let run = await h.runNext(); run; run = await h.runNext()) ran.push(run);
+    // The root's follow-up waits for the second supervisor's own follow-up, two levels down.
+    expect(ran.map((run) => [h.store.getAgent(run.agentId).name, run.kind, run.depth])).toEqual([
+      ["Server Keeper", "ask", 0], ["Relay", "handoff", 1], ["Pi-hole Watcher", "handoff", 2], ["Relay", "continue", 1], ["Server Keeper", "continue", 0],
+    ]);
+    const [root, , specialist, relayed, final] = ran;
+    expect(specialist).toMatchObject({ agentId: watcher.id, parentRunId: ran[1].id, rootRunId: root.id });
+    expect(relayed).toMatchObject({ agentId: relay.id, parentRunId: ran[1].id, state: "completed" });
+    expect(final).toMatchObject({ agentId: keeper.id, parentRunId: root.id, state: "completed" });
+    // What the root's follow-up was handed is Relay's answer from its follow-up, not its interim one.
+    const handed = final.steps.find((step) => step.kind === "tool" && step.name === "agents.handoff").output;
+    expect(handed).toMatch(/Relay answered: RELAY-FINAL/);
+    expect(handed).not.toMatch(/RELAY-INTERIM/);
+  });
+
   it("never loops, never hands work to itself or past its depth, and hands off only as a supervisor", async () => {
     const keeper = make("server-keeper");
     make("pihole-watcher");

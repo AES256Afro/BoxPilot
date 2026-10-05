@@ -6,9 +6,15 @@
  * began; a failed memory index or image description was queued again every minute of the night,
  * past the day's budget; an evaluation was given the agent's whole day when every agent's model
  * time was spent; and two ticks at once could start two evaluations.
+ *
+ * Sweep 2: the evaluation's questions counted as the agent's two runs in the queue, so a routine
+ * due while they waited was dropped for the day; one read that never answered (the inventory, a
+ * folder on a NAS) held up every later tick for good; a description stopped by its own deadline
+ * spent none of its image's tries; and an evaluation's run could use the half of the day kept for
+ * people.
  */
 import http from "node:http";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createAgentsHarness } from "../../test/agents-harness.mjs";
 import { agentsRuntimeKey, defaultRuntimeSettings } from "./service.mjs";
 
@@ -173,12 +179,154 @@ describe("indexing and describing in quiet hours (B1-3)", { timeout: 30_000 }, (
 });
 
 describe("the service's tick (B1-11)", () => {
-  it("runs one at a time, so two at once start one evaluation", async () => {
+  it("starts one evaluation when two ticks go at once", async () => {
     await setup();
     const keeper = make("server-keeper");
     h.setTime(new Date(2026, 8, 30, 2, 30, 0));
     await Promise.all([h.service.tick(), h.service.tick()]);
     expect(h.store.listEvalRuns(keeper.id, 5)).toHaveLength(1);
     expect(active("eval")).toHaveLength(7);
+  });
+});
+
+/** Whether `promise` settles within `ms`. */
+const settles = (promise, ms = 3_000) => Promise.race([
+  Promise.resolve(promise).then(() => true, () => true),
+  new Promise((resolve) => { setTimeout(() => resolve(false), ms).unref?.(); }),
+]);
+
+describe("a routine that falls due while its agent's evaluation waits (R2B1-1)", { timeout: 30_000 }, () => {
+  it("is queued, not dropped as a full queue, and so is an event", async () => {
+    await setup();
+    const keeper = make("server-keeper");
+    // 02:30: the Server Keeper's seven questions are queued; none has run yet.
+    h.setTime(new Date(2026, 8, 30, 2, 30, 0));
+    await h.service.tick();
+    expect(active("eval")).toHaveLength(7);
+    // 05:31: its morning digest is due. Before, the seven counted as its two runs in the queue.
+    h.setTime(new Date(2026, 8, 30, 5, 31, 0));
+    await h.service.tick();
+    expect(active("schedule")).toEqual([expect.objectContaining({ agentId: keeper.id })]);
+    expect(Date.parse(h.store.getAgent(keeper.id).nextRunAt)).toBe(new Date(2026, 9, 1, 5, 30).getTime());
+    // A health alert while they still wait starts its run too.
+    h.service.onHealthRound({ active: [] });
+    h.service.onHealthRound({ active: ["storage.root.full:root"] });
+    expect(active("event")).toEqual([expect.objectContaining({ agentId: keeper.id })]);
+  });
+
+  it("stays due while the agent's queue is full, and is queued at the next tick with room", async () => {
+    await setup();
+    const keeper = make("server-keeper");
+    const due = h.store.getAgent(keeper.id).nextRunAt;
+    h.setTime(new Date(2026, 8, 30, 5, 29, 0));
+    const asked = [ask(keeper, "owner"), ask(keeper, "operator")];
+    h.setTime(new Date(2026, 8, 30, 5, 31, 0));
+    await h.service.tick();
+    expect(active("schedule")).toHaveLength(0);
+    // Not moved on to tomorrow: the morning's digest is still owed.
+    expect(h.store.getAgent(keeper.id).nextRunAt).toBe(due);
+    for (const run of asked) h.service.cancelRun(h.caller("owner"), run.id);
+    h.setTime(new Date(2026, 8, 30, 5, 32, 0));
+    await h.service.tick();
+    expect(active("schedule")).toEqual([expect.objectContaining({ agentId: keeper.id })]);
+    expect(Date.parse(h.store.getAgent(keeper.id).nextRunAt)).toBe(new Date(2026, 9, 1, 5, 30).getTime());
+  });
+});
+
+describe("a tick that waits on something that never answers (R2B1-2)", { timeout: 30_000 }, () => {
+  it("holds up no later tick: the 05:31 digest is queued while the 02:10 evaluation still waits on the inventory", async () => {
+    await setup({ limits: { factsTimeoutMs: 1_500 } });
+    const keeper = make("server-keeper");
+    // df or docker stuck in D-state: the inventory never answers.
+    let inspected = 0;
+    h.inventory.inspect = () => { inspected += 1; return new Promise(() => {}); };
+    h.setTime(new Date(2026, 8, 30, 2, 10, 0));
+    const stuck = h.service.tick();
+    await vi.waitFor(() => expect(inspected).toBeGreaterThan(0));
+    const asked = inspected;
+    h.setTime(new Date(2026, 8, 30, 5, 31, 0));
+    expect(await settles(h.service.tick(), 1_000)).toBe(true);
+    expect(active("schedule")).toEqual([expect.objectContaining({ agentId: keeper.id })]);
+    // The evaluation still waiting on its facts is not started a second time beside it.
+    expect(inspected).toBe(asked);
+    expect(active("eval")).toHaveLength(0);
+    // Its time up, it goes on without what the inventory would have said.
+    expect(await settles(stuck, 5_000)).toBe(true);
+    expect(active("eval")).toHaveLength(7);
+  });
+
+  it("gives up on facts that do not come in time, so the night's evaluation still starts", async () => {
+    await setup({ limits: { factsTimeoutMs: 50 } });
+    const keeper = make("server-keeper");
+    h.inventory.inspect = () => new Promise(() => {});
+    h.setTime(new Date(2026, 8, 30, 2, 10, 0));
+    expect(await settles(h.service.tick())).toBe(true);
+    expect(active("eval")).toHaveLength(7);
+    // What the inventory would have said is unknown; what the other reads said is there.
+    const [evaluation] = h.store.listEvalRuns(keeper.id, 1);
+    const expected = (fact) => evaluation.results.find((result) => result.expected?.fact === fact)?.expected.value;
+    expect(expected("hostname")).toBeNull();
+    expect(expected("stoppedApps")).toEqual([]);
+  });
+
+  it("gives up on a folder scan that hangs, and starts no second scan while it still hangs", async () => {
+    let scans = 0;
+    await setup({ limits: { folderScanTimeoutMs: 50 }, serviceOptions: { folderScan: () => { scans += 1; return new Promise(() => {}); } } });
+    h.service.saveModule(h.caller("owner"), { folder: { enabled: true, path: "/srv/notes" } });
+    make("server-keeper");
+    h.setTime(new Date(2026, 8, 30, 2, 10, 0));
+    expect(await settles(h.service.tick())).toBe(true);
+    expect(active("eval")).toHaveLength(7);
+    // An hour on, the scan is still hanging: the next is not started beside it, and the owner is told why.
+    h.setTime(new Date(2026, 8, 30, 3, 20, 0));
+    expect(await settles(h.service.tick())).toBe(true);
+    expect(await h.service.syncFolderNow(h.caller("owner"))).toEqual({ error: expect.stringMatching(/still being read/) });
+    expect(scans).toBe(1);
+  });
+});
+
+describe("a description that runs into its own ten minutes (R2B1-6)", { timeout: 30_000 }, () => {
+  it("counts a try for the image, as one that failed any other way", async () => {
+    await setup();
+    h.service.saveModule(h.caller("owner"), { embeddings: false });
+    const image = h.store.addDocument({ title: "Image: rack", text: "An image from #agent-files. Not described yet.", createdBy: h.accounts.owner.id, source: "zulip", mediaType: "image/png", media: Buffer.from([0x89, 0x50, 0x4e, 0x47]) });
+    h.setTime(new Date(2026, 8, 30, 2, 30, 0));
+    await h.service.tick();
+    const claim = await h.service.runnerNext(h.runnerId, { waitMs: 0 });
+    expect(claim.run.kind).toBe("describe");
+    // The model reads slowly, and the run's ten minutes are all but gone: the runner's own deadline stops it.
+    h.fake.state.delayMs = 2_000;
+    h.advance(600_000);
+    await h.runner.execute(claim);
+    expect(h.store.getRun(claim.run.id).state).toBe("failed");
+    expect(h.store.getDocument(image.id).describeAttempts).toBe(1);
+  });
+});
+
+describe("the nightly evaluation's model time (R2B1-7)", { timeout: 30_000 }, () => {
+  it("gives each question what the agent has left today less the half kept for people", async () => {
+    await setup();
+    // No index run to go before the questions.
+    h.service.saveModule(h.caller("owner"), { embeddings: false });
+    const keeper = make("server-keeper");
+    // 01:30: a person's question takes 500 of its 3,600 seconds today.
+    h.setTime(new Date(2026, 8, 30, 1, 30, 0));
+    ask(keeper, "owner");
+    const asked = await h.service.runnerNext(h.runnerId, { waitMs: 0 });
+    await h.service.runnerFinish(asked.run.id, asked.lease, { outcome: "completed", answer: "ok", usage: { modelMs: 500_000 } });
+    h.setTime(new Date(2026, 8, 30, 2, 30, 0));
+    await h.service.tick();
+    expect(active("eval")).toHaveLength(7);
+    // 3,100 s left, 1,800 kept for people.
+    const first = await h.service.runnerNext(h.runnerId, { waitMs: 0 });
+    expect(first.run.kind).toBe("eval");
+    expect(first.limits.remainingModelMs).toBe(1_300_000);
+    await h.service.runnerFinish(first.run.id, first.lease, { outcome: "completed", answer: "ok", usage: { modelMs: 1_000_000 } });
+    const second = await h.service.runnerNext(h.runnerId, { waitMs: 0 });
+    expect(second.limits.remainingModelMs).toBe(300_000);
+    await h.service.runnerFinish(second.run.id, second.lease, { outcome: "completed", answer: "ok", usage: { modelMs: 400_000 } });
+    // The half kept for people is not touched: none is left for the rest of the questions.
+    const third = await h.service.runnerNext(h.runnerId, { waitMs: 0 });
+    expect(third.limits.remainingModelMs).toBe(0);
   });
 });

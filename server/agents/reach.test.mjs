@@ -5,6 +5,8 @@
  * helper read the owner's whole document library, which the library's own page refuses viewers;
  * and a notice an agent asked to send after it read something that looked like an instruction went
  * to the owner word for word, at high priority, with a warning that said it had not acted on it.
+ * Sweep 2: the notes switch, the owner's or the agent's, kept notes out of the prompt only;
+ * notes.read, memory search and what memory recalled still read them.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createAgentsHarness } from "../../test/agents-harness.mjs";
@@ -48,6 +50,42 @@ describe("the owner's knowledge switches (B1-7)", () => {
     const searched = await call(claim, "docs_search", { query: "restore a backup router" });
     expect(searched.content).toMatch(/BACKUPS\.md/);
     expect(searched.content).not.toContain("SENTINEL-HOUSE-7");
+  });
+});
+
+describe("the notes switch, the owner's and the agent's (R2B1-3)", () => {
+  const garage = "What is in the garage?";
+  const asked = async (agent) => {
+    ask(agent, "owner", garage);
+    const claim = await h.service.runnerNext(h.runnerId, { waitMs: 0 });
+    const read = { offered: offered(claim), prompt: JSON.stringify(claim.messages), notes: (await call(claim, "notes_read", {})).content, memory: (await call(claim, "memory_search", { query: "garage" })).content };
+    await h.service.runnerFinish(claim.run.id, claim.lease, { outcome: "completed", answer: "ok" });
+    return read;
+  };
+
+  it("keeps notes out of notes.read, memory search and what is recalled, its own and other agents' shared ones", async () => {
+    const keeper = make("server-keeper");
+    const watcher = make("pihole-watcher");
+    h.store.writeNote(keeper.id, { title: "Vault", body: "The vault is in the garage. SENTINEL-NOTE-OWN.", readRole: "owner" });
+    h.store.writeNote(watcher.id, { title: "Where Pi-hole is", body: "Pi-hole runs on the box in the garage. SENTINEL-NOTE-SHARED.", readRole: "owner", shared: true });
+    // On: its own note in notes.read, the watcher's shared one recalled into the prompt.
+    const on = await asked(keeper);
+    expect(on.offered).toContain("notes.read");
+    expect(on.prompt).toContain("SENTINEL-NOTE-SHARED");
+    expect(on.notes).toContain("SENTINEL-NOTE-OWN");
+    expect(on.memory).toMatch(/SENTINEL-NOTE-(OWN|SHARED)/);
+    // The owner turns notes off for every agent.
+    h.service.saveModule(h.caller("owner"), { knowledge: { notes: false } });
+    const off = await asked(keeper);
+    expect(off.offered).not.toContain("notes.read");
+    for (const text of [off.prompt, off.notes, off.memory]) expect(text).not.toMatch(/SENTINEL-NOTE/);
+    // On for every agent again, off for this one.
+    h.service.saveModule(h.caller("owner"), { knowledge: { notes: true } });
+    const spec = h.service.getAgent(h.caller("owner"), keeper.id).spec;
+    h.service.updateAgent(h.caller("owner"), keeper.id, { spec: { ...spec, knowledge: { ...spec.knowledge, notes: false } } });
+    const own = await asked(keeper);
+    expect(own.offered).not.toContain("notes.read");
+    for (const text of [own.prompt, own.notes, own.memory]) expect(text).not.toMatch(/SENTINEL-NOTE/);
   });
 });
 
