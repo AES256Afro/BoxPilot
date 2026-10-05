@@ -3315,3 +3315,70 @@ describe.skipIf(onWindows)("a crafted backup that hard-links the app's own files
     expect((await stat(path.join(harness.live, "data", "b"))).nlink).toBe(2);
   });
 });
+
+// R5B3-1: an owner who moved an app's data folder to another disk and left a link in its place got
+// backups that held only the link: tar archives a link as a link. The rehearsal passed them, and the
+// restore refused them saying BoxPilot never makes such a backup. A backup now looks at what it would
+// archive first, never through a link, and refuses before anything stops; the rehearsal fails one
+// that holds a folder as a link; the restore's refusal says how such a backup came to be.
+describe("a folder a backup archives that has become a link", () => {
+  async function movedAway() {
+    const harness = await setup({ runCommand: withRealTar });
+    await harness.apps.install({ id: "demo", values: { setup: [] } });
+    const live = path.join(harness.catalogRoot, "demo");
+    const disk = await mkdtemp(path.join(os.tmpdir(), "boxpilot-otherdisk-")); directories.push(disk);
+    await writeFile(path.join(disk, "notes.txt"), "moved to another disk");
+    await rm(path.join(live, "data"), { recursive: true, force: true });
+    await symlink(disk, path.join(live, "data"), "junction"); // a junction on Windows, which needs no privilege; ignored elsewhere
+    return { ...harness, live, disk };
+  }
+
+  it("refuses the backup before anything stops, and says what to do", async () => {
+    const { apps, calls, containers, backupRoot, live, disk } = await movedAway();
+    calls.length = 0;
+    const failure = await apps.backup({ id: "demo", keep: 5 }).then(() => null, (error) => error);
+    expect(failure?.message).toMatch(/^Demo was not backed up; nothing was stopped\. In its folder data is a link to /);
+    expect(failure?.message).toContain(disk);
+    expect(failure?.message).toMatch(/a backup would hold only the link/);
+    expect(calls.filter((call) => / (stop|start|up)(?: |$)/.test(call))).toEqual([]);
+    expect(containers.get("bp-demo")).toMatchObject({ running: true });
+    expect((await readdir(path.join(backupRoot, "demo")).catch(() => [])).filter((name) => name.includes(".tar.gz"))).toEqual([]);
+    expect(await readdir(live)).not.toContain(".boxpilot-backup-in-progress.json");
+    // A checkpoint is a backup: the change it guards is not made without it.
+    await expect(apps.update({ id: "demo" })).rejects.toThrow(/^Demo was not backed up; nothing was stopped\./);
+  });
+
+  it("fails the rehearsal of a backup that holds a folder as a link", async () => {
+    const { apps, backupRoot, live } = await movedAway();
+    const backup = "20260101T000000Z.tar.gz";
+    await mkdir(path.join(backupRoot, "demo"), { recursive: true });
+    await writeFile(path.join(backupRoot, "demo", backup), craftedTarGz([
+      { name: "boxpilot.json", body: await readFile(path.join(live, "boxpilot.json"), "utf8") },
+      { name: "compose.yaml", body: await readFile(path.join(live, "compose.yaml"), "utf8") },
+      { name: ".env", body: await readFile(path.join(live, ".env"), "utf8") },
+      { name: "data", type: "symlink", linkname: "/mnt/disk2/demo" },
+    ]));
+    await writeFile(path.join(backupRoot, "demo", "20260101T000000Z.json"), JSON.stringify({ contents: ["boxpilot.json", "compose.yaml", ".env", "data"] }));
+    const verdict = await apps.verifyAppBackup({ id: "demo", backup });
+    expect(verdict).toMatchObject({ verified: false });
+    expect(verdict.reason).toMatch(/^The archive holds data as a link, not the folder and what is in it/);
+  });
+
+  // Linux only: unpacking a symbolic link needs a privilege on Windows.
+  it.skipIf(onWindows)("refuses to restore one, saying how such a backup came to be", async () => {
+    const { apps, backupRoot, live } = await movedAway();
+    const backup = "20260101T000000Z.tar.gz";
+    await rm(path.join(live, "data")); await mkdir(path.join(live, "data"));
+    await mkdir(path.join(backupRoot, "demo"), { recursive: true });
+    await writeFile(path.join(backupRoot, "demo", backup), craftedTarGz([
+      { name: "boxpilot.json", body: await readFile(path.join(live, "boxpilot.json"), "utf8") },
+      { name: "compose.yaml", body: await readFile(path.join(live, "compose.yaml"), "utf8") },
+      { name: ".env", body: await readFile(path.join(live, ".env"), "utf8") },
+      { name: "data", type: "symlink", linkname: "/mnt/disk2/demo" },
+    ]));
+    const failure = await apps.restoreAppBackup({ id: "demo", backup }).then(() => null, (error) => error);
+    expect(failure?.message).toMatch(/^Demo was not restored; nothing was changed\. In this backup data is a link/);
+    expect(failure?.message).not.toMatch(/never holds/);
+    expect(failure?.message).toMatch(/holds only that link and none of what it pointed at/);
+  });
+});
