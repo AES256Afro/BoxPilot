@@ -190,6 +190,31 @@ describe("a question asked in Zulip that the supervisor hands on (R2B1-4, R2B1-5
     expect(toAlex()).toEqual([expect.stringMatching(/^KEEPER-FINAL/)]);
   });
 
+  it("says why when the supervisor's own run ended without an answer after it handed on: no follow-up comes (R3B1-4)", async () => {
+    const keeper = h.service.createAgent(h.caller("owner"), { template: "server-keeper" });
+    h.service.createAgent(h.caller("owner"), { template: "pihole-watcher" });
+    h.fake.state.script = (body) => (named(body, "Server Keeper") ? { content: "should not be asked" } : withTools(body) === 0 ? { toolCalls: [{ name: "pihole_stats", arguments: {} }] } : { content: "WATCHER: blocking is on [T1]." });
+    // It handed on, then failed.
+    await askAlex(keeper);
+    const claim = await h.service.runnerNext(h.runnerId, { waitMs: 0 });
+    await h.service.runnerTool(claim.run.id, claim.lease, "agents_handoff", JSON.stringify({ agent: "Pi-hole Watcher", task: "Is Pi-hole blocking?" }));
+    await h.service.runnerFinish(claim.run.id, claim.lease, { outcome: "failed", error: "The model stopped with an error" });
+    await runAll();
+    expect(toAlex()).toEqual([expect.stringMatching(/Server Keeper\*\* could not answer: The model stopped with an error/)]);
+    expect(toAlex().join("\n")).not.toMatch(/WATCHER/);
+
+    // It handed on, then the runner restarted under it.
+    posted = [];
+    direct(alex, "And is it blocking now?");
+    await check();
+    posted = [];
+    const again = await h.service.runnerNext(h.runnerId, { waitMs: 0 });
+    await h.service.runnerTool(again.run.id, again.lease, "agents_handoff", JSON.stringify({ agent: "Pi-hole Watcher", task: "Is Pi-hole blocking now?" }));
+    h.service.runnerHello("another-runner");
+    await runAll();
+    expect(toAlex()).toEqual([expect.stringMatching(/could not answer: The agents runner restarted/)]);
+  });
+
   it("with two supervisors, answers once, from the root's follow-up, which has the second supervisor's own answer", async () => {
     const keeper = h.service.createAgent(h.caller("owner"), { template: "server-keeper" });
     const relay = h.service.createAgent(h.caller("owner"), { template: "server-keeper" });
