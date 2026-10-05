@@ -3470,6 +3470,8 @@ body {
 .ui-notice--danger .ui-notice__title { color: var(--status-danger-text); }
 .ui-notice__text { color: var(--text); font-size: 13.5px; line-height: 1.45; overflow-wrap: anywhere; }
 .ui-notice__text p { margin: 0; }
+.ui-notice__text ul { margin: 4px 0; padding-left: 18px; }
+.ui-notice__text li + li { margin-top: 3px; }
 .ui-notice__action { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-left: auto; }
 .ui-notice__dismiss { display: grid; flex: none; width: 26px; height: 26px; place-items: center; padding: 0; border: 0; border-radius: 3px; color: var(--text-muted); background: none; cursor: pointer; }
 .ui-notice__dismiss:hover { color: var(--text-strong); background: var(--surface-raised); }

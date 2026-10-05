@@ -10,6 +10,7 @@ const registry = createRegistry([[
   defineOperation({ id: "app.restart", title: "Restart an application", risk: "low", parameters: { fields: { id: idField } }, run }),
   defineOperation({ id: "app.update", title: "Update an application", risk: "medium", parameters: { fields: { id: idField } }, run }),
   defineOperation({ id: "app.purge", title: "Uninstall application and delete its data", risk: "high", confirm: (parameters) => parameters.id, parameters: { fields: { id: idField } }, run }),
+  defineOperation({ id: "app.backup.restore", title: "Restore application data from a backup", risk: "high", confirm: (parameters) => (parameters.allowCompose ? `allow ${parameters.id}` : null), confirmWhen: "it starts a backup's own compose file as it was archived", parameters: { fields: { id: idField, backup: { type: "string" }, allowCompose: { type: "string", optional: true } } }, run }),
   defineOperation({ id: "credentials.remove", title: "Remove a credential", risk: "medium", minimumRole: "owner", parameters: { fields: { name: { type: "string" } } }, run }),
   defineOperation({ id: "credentials.set", title: "Save a credential", risk: "medium", minimumRole: "owner", parameters: { fields: { name: { type: "string" }, value: { type: "string", secret: true } } }, run }),
   defineOperation({ id: "app.install", title: "Install an application", risk: "medium", parameters: { fields: { id: idField, values: { type: "object", optional: true, secretEnvOf: "id" } } }, run }),
@@ -94,6 +95,14 @@ describe("validatePlan", () => {
   it("shows a high-risk step as high, with what approving it takes", async () => {
     const { steps } = await validatePlan([{ operationId: "app.purge", parameters: { id: "jellyfin" } }], { registry, role: "owner" });
     expect(steps[0]).toMatchObject({ risk: "high", approval: "The owner's password and a typed confirmation", typedConfirmation: true });
+  });
+
+  // Sweep 4: a restore asks for typed text only when it allows a backup's own compose file.
+  it("says a typed confirmation only for a step that will ask for one", async () => {
+    const plain = await validatePlan([{ operationId: "app.backup.restore", parameters: { id: "jellyfin", backup: "20260101T000000Z.tar.gz" } }], { registry, role: "owner" });
+    expect(plain.steps[0]).toMatchObject({ risk: "high", approval: "The owner's password", typedConfirmation: false });
+    const allowing = await validatePlan([{ operationId: "app.backup.restore", parameters: { id: "jellyfin", backup: "20260101T000000Z.tar.gz", allowCompose: "e".repeat(64) } }], { registry, role: "owner" });
+    expect(allowing.steps[0]).toMatchObject({ risk: "high", approval: "The owner's password and a typed confirmation", typedConfirmation: true });
   });
 
   it("never carries a secret, top-level or inside an app's settings", async () => {

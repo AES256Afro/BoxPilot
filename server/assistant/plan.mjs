@@ -4,7 +4,7 @@
  * step that survives carries the request that would stage it (or run it, for a read) through the
  * ordinary job path, where it is approved at its own tier like any other.
  */
-import { riskTiers, secretPaths, validateParameters } from "../ops/registry.mjs";
+import { confirmTextFor, riskTiers, secretPaths, validateParameters } from "../ops/registry.mjs";
 
 export const maxPlanSteps = 8;
 
@@ -68,8 +68,8 @@ export function refusalFor(operation, role) {
 
 const plainText = (value, max) => (typeof value === "string" ? value.replace(/[\u0000-\u001f\u007f]+/g, " ").trim().slice(0, max) : "");
 
-/** What approving a step takes, as the job layer will ask it: a typed confirmation only where the operation has one. */
-const approvalFor = (tier, operation) => (tier === "high" && typeof operation.confirm !== "function" ? "The owner's password" : approvalByTier[tier]);
+/** What approving a step takes, as the job layer will ask it: a typed confirmation only where this step has one. */
+const approvalFor = (tier, operation, parameters) => (tier === "high" && !confirmTextFor(operation, parameters) ? "The owner's password" : approvalByTier[tier]);
 
 /**
  * Check each step as written: the operation exists, its parameters pass the registry's own check,
@@ -118,8 +118,8 @@ export async function validatePlan(rawSteps, { registry, role, secretEnvNamesFor
       title: operation.title,
       risk,
       readOnly: operation.readOnly,
-      approval: operation.readOnly ? "Runs at once; it only reads" : approvalFor(risk, operation),
-      typedConfirmation: typeof operation.confirm === "function",
+      approval: operation.readOnly ? "Runs at once; it only reads" : approvalFor(risk, operation, parameters),
+      typedConfirmation: Boolean(confirmTextFor(operation, parameters)),
       parameters,
       why: plainText(raw.why, 300),
       // What the page sends to take this step: a read runs directly, anything else is staged as a

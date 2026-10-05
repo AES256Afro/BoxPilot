@@ -18,6 +18,7 @@ import { copyFileExclusively, mkdirWithoutFollowing, readFileWithoutFollowing, r
 import { fixedRun } from "./exec.mjs";
 import { createControllerBackupHelper } from "./controller-backup-helper.mjs";
 import { backupMountpoint } from "./backup-mount.mjs";
+import { composeFindingsText } from "./catalog/compose-review.mjs";
 
 export const snapshotNamePattern = /^machine-snapshot-\d{8}T\d{6}Z-[a-f0-9]{8}\.tar\.gz$/;
 /**
@@ -788,7 +789,21 @@ export function createMachineSnapshotHelper({
     return source === "discovered" ? resolveDiscovered(root, artifact) : resolveArtifact(source, artifact);
   }
 
-  async function describe({ source, artifact, root = null }) {
+  /**
+   * What restoring each app's data archive would start (sweep 4): the deployer's review of the
+   * archive where it lies (app-helper reviewArchive), without unpacking it. Null where there is no
+   * archive to restore or no deployer to ask; `{ error }` where the archive could not be read.
+   */
+  async function composeReviewFor(appHelper, id, located) {
+    if (!located || typeof appHelper?.reviewArchive !== "function") return null;
+    try {
+      return await appHelper.reviewArchive({ id, archive: path.join(located.directory, located.name) });
+    } catch (error) {
+      return { error: String(error?.message ?? error).slice(0, 300) };
+    }
+  }
+
+  async function describe({ source, artifact, root = null }, { apps: appHelper = null } = {}) {
     const { artifactPath, metaPath, root: snapshotDirectory, mount = null } = await locate(source, artifact, root);
     const place = { source, root: snapshotDirectory, mount, takenAt: takenAt(artifact) };
     await stat(artifactPath).catch(() => { throw new Error(`Snapshot ${artifact} was not found in the ${source} source`); });
@@ -804,7 +819,9 @@ export function createMachineSnapshotHelper({
       const newest = listed[0] ?? null;
       const located = listed.length ? await dataArchiveFor(app.id, listed, place) : null;
       // `dataArchive` is the one a restore would use: the snapshot's own, or an older one it lists.
-      apps.push({ id: app.id, installed: app.installed, projectFiles: app.projectFiles, newestBackup: newest, dataAvailable: Boolean(located), dataLocation: located?.location ?? null, dataArchive: located?.name ?? null });
+      // `compose` is what restoring it would start, when its compose file is started as archived.
+      const compose = await composeReviewFor(appHelper, app.id, located);
+      apps.push({ id: app.id, installed: app.installed, projectFiles: app.projectFiles, newestBackup: newest, dataAvailable: Boolean(located), dataLocation: located?.location ?? null, dataArchive: located?.name ?? null, ...(compose ? { compose } : {}) });
     }
     // A snapshot carries VM definitions, never their disks: those live in the encrypted VM
     // repository, so say whether it is reachable rather than implying the VMs are inside.
@@ -823,8 +840,10 @@ export function createMachineSnapshotHelper({
    * `serve(deployed)` publishes a tailnet-only app's web ports with Tailscale Serve, as the
    * app.install operation does (ops/apps.mjs serveTailnetOnly); without it such an app is restored
    * with a warning that nothing can open it yet.
+   * `allowCompose` is, per app id, the sha256 of a data archive's compose file the owner allowed to
+   * be started exactly as archived although it gives the app more than the catalog does (sweep 4).
    */
-  async function restore({ source, artifact, root = null, apps: selected = "all", restoreData = true, devicesByApp = null }, { apps: appHelper, progress = null, serve = null } = {}) {
+  async function restore({ source, artifact, root = null, apps: selected = "all", restoreData = true, devicesByApp = null, allowCompose = null }, { apps: appHelper, progress = null, serve = null } = {}) {
     if (!appHelper) throw new Error("Application deployer is unavailable");
     const { artifactPath, metaPath, root: snapshotDirectory, mount = null } = await locate(source, artifact, root);
     const place = { source, root: snapshotDirectory, mount, takenAt: takenAt(artifact) };
@@ -861,6 +880,29 @@ export function createMachineSnapshotHelper({
         const valid = typeof app?.id === "string" && appIdPattern.test(app.id) && path.dirname(path.resolve(catalogRoot, app.id)) === path.resolve(catalogRoot);
         if (!valid) throw new Error(`The snapshot names ${JSON.stringify(String(app?.id).slice(0, 80))}, which is not a valid application id. Nothing was changed.`);
       }
+      // Before anything is changed (sweep 4): the data folders each app's settings point it at must
+      // pass what an install checks, and a data archive whose compose file would be started exactly
+      // as archived, giving the app more than the catalog does, needs the owner to have allowed that
+      // very file. The data restore checks again what it actually unpacks.
+      const blocked = [];
+      for (const app of wanted) {
+        const live = await Promise.resolve().then(() => appHelper.internals.readState(app.id)).catch(() => null);
+        if (live?.installed && live.restoredFrom !== artifact) continue;   // refused on its own below, untouched
+        if (!live?.installed && typeof appHelper.dataFoldersRefused === "function") {
+          let archivedState = null;
+          try { archivedState = JSON.parse(await readFileWithoutFollowing(path.join(staging, "apps", app.id, "boxpilot.json"))); } catch { archivedState = null; }
+          const problems = await appHelper.dataFoldersRefused({ id: app.id, values: archivedState?.values ?? {} });
+          if (problems.length) blocked.push(`${app.id}: its settings point it at data folders an install would refuse: ${problems.join("; ")}`);
+        }
+        if (!restoreData || live?.restoredDataFrom) continue;
+        const listing = await readFileWithoutFollowing(path.join(staging, "apps", app.id, "backups.json")).then(JSON.parse).catch(() => null);
+        const listed = listedArchives(listing);
+        const review = await composeReviewFor(appHelper, app.id, listed.length ? await dataArchiveFor(app.id, listed, place) : null);
+        if (!review || review.error) continue;
+        if (review.refusals?.length) blocked.push(`${app.id}: ${review.refusals.join("; ")}`);
+        else if (review.needsAllow && allowCompose?.[app.id] !== review.sha256) blocked.push(`${app.id}: its data archive's compose file would be started exactly as it was backed up, and gives it more than the catalog does: ${composeFindingsText(review.findings)} (compose sha256 ${review.sha256}). Allow these settings in the restore dialog, which lists them, or leave ${app.id} out`);
+      }
+      if (blocked.length) throw new Error(`The snapshot was not restored; nothing was changed. ${blocked.join(". ")}.`);
       for (const app of wanted) {
         const entry = { id: app.id, installed: false, dataRestored: false, alreadyRestored: false, error: null, warnings: [] };
         summary.apps.push(entry);
@@ -921,7 +963,8 @@ export function createMachineSnapshotHelper({
                 await copyArchiveIn(located.directory, path.resolve(applicationBackupRoot), app.id, located.name);
               }
               progress?.(`[${app.id}] restoring data from ${located.name}`, "stdout");
-              const restored = await appHelper.restoreAppBackup({ id: app.id, backup: located.name }, { progress });
+              const allowed = typeof allowCompose?.[app.id] === "string" ? { allowCompose: allowCompose[app.id] } : {};
+              const restored = await appHelper.restoreAppBackup({ id: app.id, backup: located.name, ...allowed }, { progress });
               if (restored?.hostPorts) deployed = restored;
               for (const warning of restored?.warnings ?? []) entry.warnings.push(warning);
               await stamp(target, { restoredFrom: artifact, restoredDataFrom: located.name });

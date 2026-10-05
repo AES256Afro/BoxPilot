@@ -1,3 +1,5 @@
+import type { ComposeReview } from "./ComposeReview";
+
 /*
  * What the Backups page reads (M33.9), typed once for the page and its tabs, and the two small
  * rules it keeps: how much of a machine snapshot would come back with its data, and when each app's
@@ -32,7 +34,8 @@ export interface SnapshotSources { sources: Array<{ source: "local" | "mirror"; 
 export interface DiscoveredSnapshots { locations: Array<{ root: string; mount: { target: string; source: string; filesystem: string }; snapshots: SnapshotEntry[] }>; unanswered?: Array<{ target: string; source: string; error: string }> }
 export interface DescribedSnapshot {
   source: string; artifact: string; createdAt: string | null;
-  apps: Array<{ id: string; installed: boolean; newestBackup: string | null; dataAvailable: boolean; dataLocation: string | null }>;
+  /** `compose`: what restoring the app's data archive would start (sweep 4), when there is one to restore. */
+  apps: Array<{ id: string; installed: boolean; newestBackup: string | null; dataAvailable: boolean; dataLocation: string | null; compose?: ComposeReview }>;
   system: { netplanFiles?: number; ufwFiles?: number; fstab?: boolean } | null;
   vms: { domains: string[]; disksIncluded?: boolean; diskRepositoryReachable?: boolean } | null;
 }

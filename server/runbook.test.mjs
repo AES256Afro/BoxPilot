@@ -17,7 +17,7 @@ const now = () => new Date("2026-09-28T10:00:00.000Z");
 const restoreIds = ["storage.mount", "host.snapshot.discover", "host.snapshot.restore", "host.snapshot.restores", "controller.backup.create", "app.install", "app.backup", "app.backup.restore", "app.backup.restore-path"];
 const operations = Object.fromEntries(restoreIds.map((id) => {
   const operation = registry.get(id);
-  return [id, { title: operation.title, risk: operation.risk, readOnly: operation.readOnly, minimumRole: operation.minimumRole, confirm: Boolean(operation.confirm) }];
+  return [id, { title: operation.title, risk: operation.risk, readOnly: operation.readOnly, minimumRole: operation.minimumRole, confirm: Boolean(operation.confirm), confirmWhen: operation.confirmWhen ?? null }];
 }));
 
 function richFacts() {
@@ -243,7 +243,7 @@ describe("the runbook", () => {
     expect(markdown).toContain("3. Plug in the backup drive and mount it at `/mnt/boxpilot-backup` on the Storage page: **Mount a filesystem** (`storage.mount`; medium risk, one confirmation), drive `boxpilot-backup` from `UUID=00000000-0000-4000-8000-000000000002`. It holds the mirror of every local backup in `/mnt/boxpilot-backup/boxpilot-local-mirror`.");
     expect(markdown).toContain(`4. Restore BoxPilot's own database from the encrypted copy, snapshot \`${"1".repeat(64)}\` from 2026-09-27 02:30 UTC in \`/mnt/boxpilot-backup/restic-controller\`, with the recovery password you kept off this server.`);
     expect(markdown).toContain("6. **Restore from a machine snapshot** (`host.snapshot.restore`; high risk, the owner's password and a typed confirmation).");
-    expect(markdown).toContain("3. **Restore application data from a backup** (`app.backup.restore`; high risk, the owner's password). It needs the backup's name: the newest recorded is `20260928T030000Z.tar.gz` from 2026-09-28 03:00 UTC in `/var/lib/boxpilot-managed/backups/catalog/jellyfin`.");
+    expect(markdown).toContain("3. **Restore application data from a backup** (`app.backup.restore`; high risk, the owner's password and, when it starts a backup's own compose file as it was archived, a typed confirmation). It needs the backup's name: the newest recorded is `20260928T030000Z.tar.gz` from 2026-09-28 03:00 UTC in `/var/lib/boxpilot-managed/backups/catalog/jellyfin`.");
     expect(markdown).toContain("copy the app's folder back from the backup drive first: `/mnt/boxpilot-backup/boxpilot-local-mirror/application-backups/jellyfin` into `/var/lib/boxpilot-managed/backups/catalog/jellyfin`.");
     expect(markdown).toContain("No backup of Vaultwarden is recorded, so BoxPilot cannot bring its data back. Once it runs again, take one: **Back up application data** (`app.backup`; medium risk, one confirmation).");
     expect(markdown).toContain("Nothing of Cloudflare Tunnel's is backed up, on purpose");
@@ -394,7 +394,7 @@ describe("out of date since", () => {
 
 describe("words", () => {
   it("says what approving each operation takes", () => {
-    expect(approvalFor(registry.get("app.backup.restore"))).toBe("high risk, the owner's password");
+    expect(approvalFor(registry.get("app.backup.restore"))).toBe("high risk, the owner's password and, when it starts a backup's own compose file as it was archived, a typed confirmation");
     expect(approvalFor(registry.get("host.snapshot.restore"))).toBe("high risk, the owner's password and a typed confirmation");
     expect(approvalFor(registry.get("controller.backup.create"))).toBe("low risk, one click");
     expect(approvalFor(registry.get("storage.mount"))).toBe("medium risk, one confirmation");
