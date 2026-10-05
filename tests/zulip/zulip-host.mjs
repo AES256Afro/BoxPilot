@@ -144,11 +144,13 @@ if (again.botCreated || again.made.length) fail("connecting again made something
 const key = await credentials.read("zulip-agents-bot");
 if (JSON.stringify([first, again, summary]).includes(key)) fail("the bot's key reached a result or the summary");
 const where = { base: `http://127.0.0.1:${first.port}`, host: first.host, botEmail: first.botEmail };
+// What the service hands the operations: who Zulip is, never where (R2S3-4); they read its port from the app.
+const connection = { host: first.host, botEmail: first.botEmail };
 
 // A run's outcome, as the service posts it: a finding with a mention it must not make, and a trace as a file.
 const run = { id: "c1c1c1c1-0000-4000-8000-000000000001", kind: "ask", state: "completed", question: "How full is the disk?", answer: "The disk is 42% full [T1]. @**all** password=hunter2", usage: { wallMs: 90_000, toolCalls: 1 } };
 const trace = traceMessage({ agentName: "Server Keeper", run, steps: Array.from({ length: 40 }, (_value, index) => ({ seq: index + 1, kind: "tool", name: "storage.health", state: "done", output: `line ${index}` })), redact });
-const posted = await operations["agents.zulip.post"].run({ ...where, posts: [
+const posted = await operations["agents.zulip.post"].run({ ...connection, posts: [
   { id: "c1c1c1c1-0000-4000-8000-000000000011", channel: "agent-findings", topic: "Server Keeper", content: findingMessage({ agentName: "Server Keeper", run, redact }) },
   { id: "c1c1c1c1-0000-4000-8000-000000000012", channel: "agent-logs", topic: "Server Keeper", content: trace.content, attachment: trace.attachment },
 ] }, context);
@@ -165,7 +167,7 @@ say(`The owner reads #agent-findings: ${finding ? "the finding is there" : "no f
 if (!finding || /@\*\*all\*\*|hunter2/.test(finding.content)) fail("the finding did not arrive as BoxPilot wrote it");
 const uploaded = await owner.upload({ name: "router notes.md", text: "# Router\nThe router is upstairs in the office." });
 await owner.send({ channel: "agent-files", topic: "network", content: `The router [router notes.md](${uploaded})` });
-const read = await operations["agents.zulip.poll"].run({ ...where, channel: "agent-files", after: null }, context);
+const read = await operations["agents.zulip.poll"].run({ ...connection, channel: "agent-files", after: null }, context);
 const file = read.messages.flatMap((message) => message.files).find((entry) => entry.name === "router notes.md");
 say(`Reading #agent-files: ${read.messages.length} messages; "router notes.md" ${file?.bytes ? `came back (${Buffer.from(file.bytes, "base64").length} bytes)` : "did not come back"}.`);
 if (!file?.bytes || !Buffer.from(file.bytes, "base64").toString("utf8").includes("upstairs")) fail("the dropped file did not come back as it was written");
@@ -178,7 +180,8 @@ say("### Asking an agent in Zulip");
 say();
 const h = await createAgentsHarness({ start: new Date(), serviceOptions: { chatOptions: { schedule: () => null } } });
 try {
-  const withKey = (parameters) => ({ ...parameters, credentialName: "zulip-agents-bot" });
+  // As the helper's operations do: Zulip's own port, which the web process never sends (R2S3-4).
+  const withKey = (parameters) => ({ ...parameters, base: where.base, credentialName: "zulip-agents-bot" });
   h.helperAnswers["agents.zulip.events"] = (parameters) => zulipEvents(withKey(parameters), { credentials, log: progress });
   h.helperAnswers["agents.zulip.post"] = (parameters) => zulipPost(withKey(parameters), { credentials, log: progress });
   h.helperAnswers["agents.zulip.poll"] = (parameters) => zulipPoll(withKey(parameters), { credentials, log: progress });

@@ -92,7 +92,7 @@ export function validateParameters(spec, parameters, title = "Operation") {
 }
 
 export function defineOperation(definition) {
-  const { id, title, risk, readOnly = false, elevatedOnly = false, timeoutMs = defaultTimeoutMs, maxTimeoutMs = null, rerunAfterInterrupt = false, parameters = { fields: {} }, run, description = "", minimumRole = null, confirm = null, restartsService = false, supersededWhen = null, oneTimeFields = [] } = definition ?? {};
+  const { id, title, risk, readOnly = false, elevatedOnly = false, internal = false, timeoutMs = defaultTimeoutMs, maxTimeoutMs = null, rerunAfterInterrupt = false, parameters = { fields: {} }, run, description = "", minimumRole = null, confirm = null, restartsService = false, supersededWhen = null, oneTimeFields = [] } = definition ?? {};
   if (typeof id !== "string" || !idPattern.test(id)) throw new Error(`Operation id "${id}" must be lower-case dotted segments`);
   if (typeof title !== "string" || !title.trim()) throw new Error(`Operation ${id} needs a title`);
   if (!riskTiers.includes(risk)) throw new Error(`Operation ${id} risk must be one of ${riskTiers.join(", ")}`);
@@ -134,7 +134,9 @@ export function defineOperation(definition) {
   // no longer has anything to do (an update to a version already running), or null. The job service
   // cancels such a job with that reason rather than let it wait for an approval that would do harm
   // or nothing (M36).
-  return Object.freeze({ id, title, description, risk, readOnly: Boolean(readOnly), elevatedOnly: Boolean(elevatedOnly), timeoutMs, maxTimeoutMs, rerunAfterInterrupt: Boolean(rerunAfterInterrupt), parameters, run, minimumRole, confirm, restartsService: Boolean(restartsService), supersededWhen, oneTimeFields: Object.freeze([...oneTimeFields]) });
+  // internal: BoxPilot's own plumbing, run by BoxPilot itself (the agents' Zulip posts and reads):
+  // never a step an agent or the assistant may propose (validatePlan drops it).
+  return Object.freeze({ id, title, description, risk, readOnly: Boolean(readOnly), elevatedOnly: Boolean(elevatedOnly), internal: Boolean(internal), timeoutMs, maxTimeoutMs, rerunAfterInterrupt: Boolean(rerunAfterInterrupt), parameters, run, minimumRole, confirm, restartsService: Boolean(restartsService), supersededWhen, oneTimeFields: Object.freeze([...oneTimeFields]) });
 }
 
 export class OperationRegistry {

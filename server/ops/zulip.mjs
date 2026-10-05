@@ -126,15 +126,16 @@ export function zulipOperations() {
     }),
     defineOperation({
       // Run by BoxPilot itself once the owner connected Zulip, as the TLS renewal runs its operation:
-      // the model never posts. Its own lane, so a post never waits behind an app backup or an upgrade.
-      id: "agents.zulip.post", title: "Post the agents' outcomes to Zulip", risk: "low", minimumRole: "owner", timeoutMs: minutes(2),
+      // the model never posts, and no agent proposes it (internal). Its own lane, so a post never
+      // waits behind an app backup or an upgrade.
+      id: "agents.zulip.post", title: "Post the agents' outcomes to Zulip", risk: "low", minimumRole: "owner", timeoutMs: minutes(2), internal: true,
       description: "Sends what BoxPilot's agents finished - answers, digests, cards, run traces and notes, already redacted - to the Zulip channels Connect made, as the agents' bot, on this server's loopback address. Nothing leaves the server.",
       parameters: { exact: true, fields: { ...connectionFields, posts: { type: "array", validate: validPosts } } },
-      run: (parameters, { runUnit, jobLog }) => runUnit.runTask("agents.zulip.post", { ...parameters, credentialName: zulipCredentialName }, { timeoutMs: minutes(1.5), logPath: jobLog?.path ?? null }),
+      run: async (parameters, { apps, runUnit, jobLog }) => runUnit.runTask("agents.zulip.post", { ...parameters, base: await zulipBase(apps), credentialName: zulipCredentialName }, { timeoutMs: minutes(1.5), logPath: jobLog?.path ?? null }),
     }),
     defineOperation({
       // owner (ADR-003): it reads what people wrote to the bot, with its key, as root. M40.5.
-      id: "agents.zulip.events", title: "Read what was asked of the agents in Zulip", risk: "low", readOnly: true, minimumRole: "owner", timeoutMs: minutes(1),
+      id: "agents.zulip.events", title: "Read what was asked of the agents in Zulip", risk: "low", readOnly: true, minimumRole: "owner", timeoutMs: minutes(1), internal: true,
       description: "Reads the agents' bot's event queue in Zulip without waiting - direct messages to the bot, and messages that mention it - opening the queue again when Zulip has let it expire, and reading back what was asked since the last message BoxPilot handled. Nothing in Zulip is changed.",
       parameters: {
         exact: true,
@@ -146,24 +147,38 @@ export function zulipOperations() {
           catchUpMinutes: { type: "number", optional: true, validate: (value) => (Number.isInteger(value) && value >= 1 && value <= 120 ? null : "must be 1 to 120 minutes") },
         },
       },
-      run: (parameters, { runUnit }) => runUnit.runTask("agents.zulip.events", { ...parameters, credentialName: zulipCredentialName }, { timeoutMs: 50_000 }),
+      run: async (parameters, { apps, runUnit }) => runUnit.runTask("agents.zulip.events", { ...parameters, base: await zulipBase(apps), credentialName: zulipCredentialName }, { timeoutMs: 50_000 }),
     }),
     defineOperation({
       // owner (ADR-003): it reads what people wrote in #agent-files, with the bot's key, as root.
-      id: "agents.zulip.poll", title: "Read #agent-files in Zulip", risk: "low", readOnly: true, minimumRole: "owner", timeoutMs: minutes(3),
+      id: "agents.zulip.poll", title: "Read #agent-files in Zulip", risk: "low", readOnly: true, minimumRole: "owner", timeoutMs: minutes(3), internal: true,
       description: "Reads the messages in #agent-files after the last one BoxPilot read, as the agents' bot, and downloads the files they link to - PDFs, Markdown, text and images, 5 MB each at most - for the agents' Knowledge. Nothing in Zulip is changed.",
       parameters: { exact: true, fields: { ...connectionFields, channel: { type: "string", validate: (value) => (readChannelName(value) ? null : "must be a channel name") }, after: { type: "number", nullable: true, validate: (value) => (Number.isInteger(value) && value >= 0 ? null : "must be a message id") } } },
-      run: (parameters, { runUnit }) => runUnit.runTask("agents.zulip.poll", { ...parameters, credentialName: zulipCredentialName }, { timeoutMs: minutes(2.5) }),
+      run: async (parameters, { apps, runUnit }) => runUnit.runTask("agents.zulip.poll", { ...parameters, base: await zulipBase(apps), credentialName: zulipCredentialName }, { timeoutMs: minutes(2.5) }),
     }),
   ];
 }
 
-/** Where Zulip is, as Connect found it: its loopback port, its own name, and the bot. */
+/**
+ * Who Zulip is to the bot: its own name and the bot's address, as Connect found them. Where it is,
+ * is not a parameter (2026-10 sweep 2): any http://127.0.0.1:<port> was accepted, and the bot's key
+ * goes out with every request (Basic auth), so a card naming another container's port sent it
+ * there. Each task is given the port the Zulip app itself publishes (zulipBase).
+ */
 const connectionFields = {
-  base: { type: "string", maxLength: 40, pattern: /^http:\/\/127\.0\.0\.1:\d{1,5}$/ },
   host: { type: "string", maxLength: 260, pattern: /^[A-Za-z0-9.-]{1,253}(?::\d{1,5})?$/ },
   botEmail: { type: "string", maxLength: 300, pattern: /^[^\s@]{1,100}@[^\s@]{1,200}$/ },
 };
+
+/** Zulip's own address on this server: the loopback port its app publishes, as Connect reads it. */
+async function zulipBase(apps) {
+  const { applications = [] } = await apps.inspect({ id: zulipAppId });
+  const app = applications.find((entry) => entry.id === zulipAppId);
+  if (!app?.installed) throw new Error("Zulip is not installed; nothing was sent to it");
+  const port = app.urls?.[0]?.host;
+  if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("Zulip has no web port BoxPilot can reach; nothing was sent to it");
+  return `http://127.0.0.1:${port}`;
+}
 
 /** A batch of posts as the service queues them: bounded in number, size and shape. */
 function validPosts(posts) {
