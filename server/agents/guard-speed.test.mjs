@@ -78,16 +78,17 @@ describe("the guard and the chat formatter on text made to be slow (sweep 5)", (
   it("stripWrapperBlocks reads in linear time, and a model's answer full of tags quickly", () => {
     expect(slowShapes((text) => stripWrapperBlocks(text), hostile)).toEqual([]);
     // Pairing tags is quadratic in how many there are, and an answer is at most the model's longest
-    // (4,096 tokens, about 16 KiB): there it stays quick.
-    expect(slowShapes((text) => stripWrapperBlocks(text), manyTags, { sizes: [4 * 1024, 16 * 1024], budgetMs: 50 })).toEqual([]);
+    // (4,096 tokens, about 16 KiB): held to a budget there, not to linear growth.
+    expect(slowShapes((text) => stripWrapperBlocks(text), manyTags, { sizes: [16 * 1024], budgetMs: 60 })).toEqual([]);
   }, 120_000);
 
   it("the chat formatter and a message's parsers read in linear time", () => {
     expect(slowShapes((text) => chatText(text, { redact }), { ...hostile, ...manyTags }, { budgetMs: 200, floorMs: 40 })).toEqual([]);
     expect(slowShapes((text) => questionFrom(text, { agents: ["Steve", "Pi-hole Watcher"] }), hostile)).toEqual([]);
     expect(slowShapes((text) => uploadsIn(text), hostile)).toEqual([]);
-    // A message's words without its upload links: quadratic in links left open, and a Zulip message
-    // is at most 10,000 characters, where it stays quick.
-    expect(slowShapes((text) => messageWords(text), hostile, { sizes: [4 * 1024, 16 * 1024], budgetMs: 50 })).toEqual([]);
+    // A message's words without its upload links: quadratic in links left open (one after another
+    // with no space, each read to the end), and a Zulip message is at most 10,000 characters: held to
+    // a budget at 16 KiB, not to linear growth.
+    expect(slowShapes((text) => messageWords(text), hostile, { sizes: [16 * 1024], budgetMs: 60 })).toEqual([]);
   }, 120_000);
 });

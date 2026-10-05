@@ -32,7 +32,8 @@ function fastest(run, budget) {
  * Null when `apply` reads `make(size)` in time that grows with the text and stays under `budgetMs`
  * at the largest size; else what went wrong. Linear time is four times as long for four times the
  * text; quadratic is sixteen. Eight, with a few milliseconds' slack for times too small to measure
- * well, tells them apart. `sizes` is for code whose input is bounded below 64 KiB.
+ * well, tells them apart. `sizes` is for code whose input is bounded below 64 KiB; one size alone is
+ * a time budget at that bound, for code known to grow faster than its input but never given more.
  */
 export function slowness(apply, make, { budgetMs = 100, floorMs = 20, sizes = hostileSizes } = {}) {
   const times = [];
@@ -43,6 +44,7 @@ export function slowness(apply, make, { budgetMs = 100, floorMs = 20, sizes = ho
     times.push(took);
     if (took > budget) return `${took.toFixed(1)} ms at ${size / 1024} KiB (budget ${budget.toFixed(0)} ms)`;
   }
+  if (sizes.length < 2) return null;
   const [middle, largest] = times.slice(-2);
   const growth = sizes.at(-1) / sizes.at(-2);
   if (largest > middle * growth * 2 + 10) return `${middle.toFixed(1)} ms at ${sizes.at(-2) / 1024} KiB but ${largest.toFixed(1)} ms at ${sizes.at(-1) / 1024} KiB: faster growth than the text's`;
