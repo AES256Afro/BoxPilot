@@ -288,8 +288,9 @@ describe("two agents of one name, and an agent another account set up (sweep 4, 
     await check();
     expect(h.store.activeRuns()).toEqual([]);
     expect(posted.map((post) => post.content)).toEqual([expect.stringMatching(/^More than one agent is called Backup Auditor: /)]);
-    expect(posted[0].content).toContain("one made by owner");
-    expect(posted[0].content).toContain("one made by operator (operator)");
+    // By role, never by username (sweep 5, R5S1-3): Alex asks as the owner.
+    expect(posted[0].content).toContain("one you made");
+    expect(posted[0].content).toContain("one made by an operator");
   });
 
   it("posts the work of a run that reads more than its agent's maker may only to the connection's own channels", async () => {

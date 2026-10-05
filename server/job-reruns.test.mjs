@@ -189,6 +189,16 @@ describe("a job BoxPilot restarted before it began (sweep 4)", () => {
     expect(rerunRefusal(job("op:storage.fs-snapshot.delete"), { creator, neverStarted: true })).toBe("it asks for a typed confirmation, which is given each time");
     expect(rerunRefusal(job("op:apt.upgrade"), { creator, neverStarted: true })).toBe("it can restart BoxPilot, so a person starts it again");
   });
+
+  it("is not run on its own when it restarts BoxPilot's own unit from Services (sweep 5)", () => {
+    // A queued Services restart of boxpilot.service, never started when a crash restarted BoxPilot,
+    // ran itself again at startup: a restart that restarts BoxPilot.
+    const creator = { role: "owner" };
+    const restart = (unit) => ({ type: "op:service.action", parameters: { unit, action: "restart" }, recovery: {} });
+    expect(rerunRefusal(restart("boxpilot.service"), { creator, neverStarted: true })).toBe("it can restart BoxPilot, so a person starts it again");
+    expect(rerunRefusal(restart("boxpilot-helper.service"), { creator, neverStarted: true })).toBe("it can restart BoxPilot, so a person starts it again");
+    expect(rerunRefusal(restart("jellyfin.service"), { creator, neverStarted: true })).toBeNull();
+  });
 });
 
 describe("what makes a job safe to run again", () => {

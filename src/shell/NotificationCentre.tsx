@@ -45,7 +45,7 @@ export function destinationOf(entry: NotificationEntry): { kind: "activity"; job
   if (entry.family === "job.interrupted" || entry.family === "record.failed" || entry.family === "joblog.unreadable") return { kind: "activity", jobId: null, label: "Open Activity" };
   if (entry.family.startsWith("storage.") || entry.family.startsWith("smart.")) return { kind: "view", view: "storage", label: "Open Storage" };
   if (entry.family.startsWith("docker.")) return { kind: "view", view: "catalog", label: "Open the App catalog" };
-  if (entry.family === "system.services") return { kind: "view", view: "services", label: "Open Services" };
+  if (entry.family === "system.services" || entry.family === "boxpilot.restart") return { kind: "view", view: "services", label: "Open Services" };
   if (entry.family === "system.reboot") return { kind: "view", view: "updates", label: "Open Updates" };
   if (entry.family === "power.ups") return { kind: "view", view: "system", label: "Open System" };
   if (entry.family === "schedule.overdue") return { kind: "view", view: "backups", label: "Open Backups" };

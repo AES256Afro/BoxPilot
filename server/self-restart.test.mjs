@@ -95,7 +95,7 @@ describe("BoxPilot restarting itself after a job", () => {
     fire.callback();
     await expect(restart.settled()).resolves.toMatchObject({ restarted: false, gaveUp: true });
     expect(restart.pending()).toEqual([]);
-    expect(log).toHaveBeenCalledWith(expect.stringMatching(/BoxPilot still needs a restart.*never idle.*6 hours.*nothing was stopped.*System page/));
+    expect(log).toHaveBeenCalledWith(expect.stringMatching(/BoxPilot still needs a restart.*never idle.*6 hours.*nothing was stopped.*Restart it from the Services page/));
     // The work that kept it busy finishes, and still nothing restarts.
     release();
     await sync;
@@ -152,6 +152,40 @@ describe("BoxPilot restarting itself after a job", () => {
     expect(restart.request(null, { reason: "x" })).toBe(false);
     await restart.settled();
     expect(calls).toHaveLength(0);
+  });
+
+  it("says what it still owes, for the health check to raise: waiting, given up, or failed (sweep 5)", async () => {
+    // A restart that gave up after six hours, or failed, was only written to the journal.
+    const lanes = createLaneQueues();
+    let at = Date.parse("2026-10-05T03:00:00.000Z");
+    let ok = false;
+    let fire = null;
+    const restarted = [];
+    const run = async (_binary, args) => { restarted.push(args.slice(args.indexOf("restart") + 1)); return ok ? { ok: true } : { ok: false, stderr: "Failed to restart boxpilot.service: Access denied" }; };
+    const restart = createDrainedRestart({ lanes, run, sleep: async () => {}, log: () => {}, now: () => new Date(at), setTimer: (callback) => { fire = callback; return 1; }, clearTimer: () => {} });
+    expect(restart.status()).toEqual({ waiting: null, restarting: false, unfinished: null });
+    let release;
+    const busy = lanes.run(["host"], () => new Promise((resolve) => { release = resolve; }));
+    await tick();
+    restart.request(["boxpilot.service", "boxpilot-helper.service"], { reason: "upgraded libraries" });
+    expect(restart.status()).toEqual({ waiting: { units: ["boxpilot.service", "boxpilot-helper.service"], reason: "upgraded libraries", since: "2026-10-05T03:00:00.000Z" }, restarting: false, unfinished: null });
+    at += 6 * 60 * 60_000;
+    fire();
+    await restart.settled();
+    expect(restart.status()).toEqual({ waiting: null, restarting: false, unfinished: { outcome: "gave-up", units: ["boxpilot.service", "boxpilot-helper.service"], reason: "upgraded libraries", at: "2026-10-05T09:00:00.000Z", error: null } });
+    release();
+    await busy;
+    // The next restart asked for takes what is still owed with it; it fails, and says so in systemd's words.
+    restart.request(["boxpilot-helper.service"], { reason: "KVM installed" });
+    await restart.settled();
+    expect(restarted.at(-1).sort()).toEqual(["boxpilot-helper.service", "boxpilot.service"]);
+    expect(restart.status().unfinished).toEqual({ outcome: "failed", units: ["boxpilot.service", "boxpilot-helper.service"], reason: "KVM installed", at: "2026-10-05T09:00:00.000Z", error: "Failed to restart boxpilot.service: Access denied" });
+    // One that works owes nothing.
+    ok = true;
+    restart.request(["boxpilot.service"], { reason: "upgraded libraries" });
+    await restart.settled();
+    expect(restarted.at(-1).sort()).toEqual(["boxpilot-helper.service", "boxpilot.service"]);
+    expect(restart.status()).toEqual({ waiting: null, restarting: false, unfinished: null });
   });
 
   it("gives the job that asked a moment to be recorded, and says so when the restart cannot be made", async () => {

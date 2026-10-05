@@ -328,7 +328,8 @@ const flows = createFlowService({ store: state, jobs, secretEnvNamesFor, library
 // through its own flow and within a cooldown, a daily cap and a hold after any failure.
 const autoReconnect = createAutoReconnect({ store: state, flows, alerts: healthAlerts });
 notifications.start();
-flows.start();
+// A run the restart stopped between two steps goes on from the step that had not begun (sweep 5).
+flows.start({ interrupted: interruptedJobs });
 autoReconnect.start();
 scheduler.start();
 // Once the notifier listens, so a rerun that fails at once is still announced.

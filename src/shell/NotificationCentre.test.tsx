@@ -100,6 +100,8 @@ describe("the notification centre (M36)", () => {
     expect(destinationOf(entry({ family: "approval.lapsed", key: "approval.lapsed:j9" }))).toMatchObject({ kind: "activity", jobId: "j9" });
     expect(destinationOf(entry({ family: "schedule.failed", key: "schedule.failed:s1" }))).toMatchObject({ kind: "view", view: "system" });
     expect(destinationOf(entry({ family: "signin.new", key: "signin.new" }))).toMatchObject({ kind: "view", view: "settings" });
+    // BoxPilot's own restart that gave up or failed is made from Services (sweep 5).
+    expect(destinationOf(entry({ family: "boxpilot.restart", key: "boxpilot.restart" }))).toEqual({ kind: "view", view: "services", label: "Open Services" });
     expect(deliveryOf(entry({ delivered: true }))).toEqual({ status: "good", words: "Sent" });
   });
 });

@@ -279,4 +279,15 @@ describe("a request that runs out of time (M30.3)", () => {
     await client.request("app.install", { id: "demo" }, { timeoutMs: 5000 });
     expect(seen).toEqual([{ jobId }, { jobId, budgetMs: 3_000_000 }, null]);
   });
+
+  it("says a request that never reached a helper did not start, and one cut off after it was sent may have (sweep 5)", async () => {
+    // Between a helper restart's stop and start there is no socket: nothing was sent, so nothing ran.
+    const missing = process.platform === "win32" ? "\\\\?\\pipe\\boxpilot-no-helper-here" : path.join(tmpdir(), "boxpilot-no-helper-here.sock");
+    const refused = await createHelperClient({ socketPath: missing }).request("backup.sync", {}, { timeoutMs: 5000 }).catch((caught) => caught);
+    expect(refused).toMatchObject({ code: "helper_unavailable", message: expect.stringMatching(/^Helper unavailable: /) });
+    // One the helper had read and then lost is not said to be safe to send again.
+    const socketPath = await helperSocket(async (_request, connection) => { connection.destroy(); return {}; });
+    const lost = await createHelperClient({ socketPath }).request("backup.sync", {}, { timeoutMs: 5000 }).catch((caught) => caught);
+    expect(lost.code).toBeUndefined();
+  });
 });
