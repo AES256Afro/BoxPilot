@@ -197,8 +197,8 @@ describe("running an interrupted job again (M30.2)", () => {
     expect(() => defineOperation({ id: "a.b", title: "x", risk: "high", rerunAfterInterrupt: true, run() {} })).toThrow("high risk");
     expect(() => defineOperation({ id: "a.b", title: "x", risk: "medium", confirm: () => "yes", rerunAfterInterrupt: true, run() {} })).toThrow("typed confirmation");
     expect(() => defineOperation({ id: "a.b", title: "x", risk: "medium", restartsService: true, rerunAfterInterrupt: true, run() {} })).toThrow("restarts BoxPilot");
-    expect(() => defineOperation({ id: "a.b", title: "x", risk: "medium", restartsService: "maybe", rerunAfterInterrupt: true, run() {} })).toThrow("restarts BoxPilot");
-    expect(() => defineOperation({ id: "a.b", title: "x", risk: "medium", restartsService: "sometimes", run() {} })).toThrow('true, false or "maybe"');
+    expect(() => defineOperation({ id: "a.b", title: "x", risk: "medium", restartsService: "drained", rerunAfterInterrupt: true, run() {} })).toThrow("restarts BoxPilot");
+    expect(() => defineOperation({ id: "a.b", title: "x", risk: "medium", restartsService: "sometimes", run() {} })).toThrow('true, false or "drained"');
     expect(() => defineOperation({ id: "a.b", title: "x", risk: "medium", rerunAfterInterrupt: true, parameters: { fields: { password: { type: "string", secret: true } } }, run() {} })).toThrow("secrets");
     expect(() => defineOperation({ id: "a.b", title: "x", risk: "medium", rerunAfterInterrupt: true, parameters: { fields: { id: { type: "string" }, values: { type: "object", secretEnvOf: "id" } } }, run() {} })).toThrow("secrets");
   });

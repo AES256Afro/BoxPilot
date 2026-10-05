@@ -203,7 +203,7 @@ describe("fixed prerequisite helper", () => {
     // apt-get may take 20 minutes, the installer unit 21, and the helper waits 21 for it: a
     // 15-minute budget failed the job while the install was still running.
     expect(operation.timeoutMs).toBeGreaterThanOrEqual(22 * 60_000);
-    expect(operation.restartsService).toBe(true);
+    expect(operation.restartsService).toBe("drained");
     const expectedPackages = { "libvirt-clients": "1.0", "libvirt-daemon-system": "1.0", ovmf: "1.0", "qemu-system-x86": "1.0", virtinst: "1.0" };
     const prerequisites = { installVirtualization: vi.fn(async () => ({ installed: true, helperRestartNeeded: true })) };
     const selfRestart = { request: vi.fn(() => true) };

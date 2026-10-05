@@ -21,6 +21,14 @@ export const dismissed = (job) => (job?.steps ?? []).some((step) => step.name ==
 /** A job that ran but whose result BoxPilot could not save; it carries a failed "record" step. */
 export const recordFailed = (job) => (job?.steps ?? []).some((step) => step.name === "record" && step.state === "failed");
 
+/**
+ * Whether what ran out may have left a second copy's worth of work running on the server: a step left
+ * running (a root task past its own limit), or the whole budget of an operation whose work is a root
+ * task, which the helper may still be waiting on. Nothing records that unit stopping, so neither is
+ * given more time beside it.
+ */
+const leftRunning = (timeout, operation) => timeout.phase !== "queued" && (timeout.stillRunning === true || (timeout.scope === "operation" && operation?.runsRootTask === true));
+
 /** The job-log step for a timeout: which limit ran out, and how long the job had run by then. */
 function timeoutStep(timeout) {
   if (timeout.phase === "queued") return `Waited ${formatDuration(timeout.elapsedMs)} behind other work and never started`;
@@ -199,6 +207,11 @@ export function createJobService(store, helper, {
     const approvalMethod = passwordProvided ? "password" : policy.elevated && policy.tier === "high" ? "elevated" : "confirm";
     const registeredOperation = job.type.startsWith("op:") ? registry.get(job.type.slice(3)) : null;
     if (!registeredOperation) throw new Error("Job type is not supported by this executor");
+    // BoxPilot's own plumbing is refused at staging (sweep 3); one staged before then is withdrawn here.
+    if (registeredOperation.internal) {
+      withdraw(job, `${internalRefusal(registeredOperation)}, never as a job.`, "job.internal.withdrawn");
+      throw Object.assign(new Error(`${internalRefusal(registeredOperation)}, so this job was cancelled. Nothing ran.`), { code: "operation_internal" });
+    }
     // Staged for a server that has moved on (an update to a version already running): approving it
     // would do nothing or harm, so it is cancelled with the reason instead of run (M36).
     const superseded = supersededReason(job, registeredOperation);
@@ -218,13 +231,14 @@ export function createJobService(store, helper, {
     // update job is still awaiting_approval here, so it is not yet in the active list itself. This is
     // a best-effort guard against the common case (approving an update while a job is visibly
     // running), not a lock against a job that starts in the same instant. Restarting BoxPilot's own
-    // unit from Services is the same restart by another door.
-    if ((registeredOperation.restartsService || restartsBoxPilot(registeredOperation.id, parameters)) && typeof store.listActiveJobs === "function") {
+    // unit from Services is the same restart by another door. An operation whose restart is drained
+    // (package updates, KVM) is not guarded: its restart waits for every job beside it to finish,
+    // and refusing it sent the nightly 03:00 updates away behind the 03:00 backup, every night.
+    if ((registeredOperation.restartsService === true || restartsBoxPilot(registeredOperation.id, parameters)) && typeof store.listActiveJobs === "function") {
       const running = store.listActiveJobs().filter((other) => other.id !== jobId);
       if (running.length) {
         const names = running.map((other) => other.title).join(", ");
-        const restarts = registeredOperation.restartsService === "maybe" ? "can restart BoxPilot when it finishes, which" : "restarts BoxPilot and";
-        throw new Error(`Wait for ${running.length === 1 ? "a running job" : `${running.length} running jobs`} to finish first: ${names}. "${registeredOperation.title}" ${restarts} would interrupt ${running.length === 1 ? "it" : "them"}.`);
+        throw new Error(`Wait for ${running.length === 1 ? "a running job" : `${running.length} running jobs`} to finish first: ${names}. "${registeredOperation.title}" restarts BoxPilot and would interrupt ${running.length === 1 ? "it" : "them"}.`);
       }
     }
     // The budget this job runs under: the operation's own, or the larger one it was staged with by
@@ -302,7 +316,7 @@ export function createJobService(store, helper, {
     const operation = registry.get(job.type.slice(3));
     // A step left running (a root task past its own budget) is not offered more time: the retry
     // would start a second copy beside the first, with no lane between them.
-    const moreTimeMs = timeout.phase === "queued" || timeout.stillRunning || placeholderPaths(job.parameters ?? {}).length ? null : nextBudgetMs(operation, execution.timeoutMs);
+    const moreTimeMs = timeout.phase === "queued" || leftRunning(timeout, operation) || placeholderPaths(job.parameters ?? {}).length ? null : nextBudgetMs(operation, execution.timeoutMs);
     let log = "";
     try { log = jobLog ? (await jobLog.read(job.id, 0))?.text ?? "" : ""; } catch { /* the record stands without it */ }
     return jobTimeoutRecord(timeout, { elapsedMs: now() - startedAt, log, moreTimeMs });
@@ -390,7 +404,7 @@ export function createJobService(store, helper, {
    * and `rerunOf` / `retryOf` name the job this one runs again: after a restart cut it off (M30.2),
    * or after it ran out of time. They are kept on the record so each run links to the one before.
    */
-  async function createOperationJob(operationId, parameters, ownerId, { role = "owner", budgetMs = null, rerunOf = null, retryOf = null } = {}) {
+  async function createOperationJob(operationId, parameters, ownerId, { role = "owner", budgetMs = null, rerunOf = null, rerunNeverStarted = false, retryOf = null } = {}) {
     const operation = registry.get(operationId);
     if (!operation) throw new Error("Operation not found");
     // BoxPilot's own plumbing runs through the helper when BoxPilot calls it, never as a job: not
@@ -429,7 +443,7 @@ export function createJobService(store, helper, {
       initialSteps: [
         { name: "preflight", state: "completed", detail: `${operation.title}: parameters validated against the operation registry` },
         { name: "checkpoint", state: "completed", detail: `${tier} risk ·${operation.readOnly ? "read-only" : "changes host state"} · runs through the root task runner` },
-        ...(typeof rerunOf === "string" && rerunOf ? [{ name: "rerun", state: "completed", detail: `Ran again after BoxPilot restarted. The first run, job ${rerunOf}, was cut off.` }] : []),
+        ...(typeof rerunOf === "string" && rerunOf ? [{ name: "rerun", state: "completed", detail: `Ran again after BoxPilot restarted. The first run, job ${rerunOf}, ${rerunNeverStarted ? "never started" : "was cut off"}.` }] : []),
         ...(typeof retryOf === "string" && retryOf ? [{ name: "retry", state: "completed", detail: `Trying again with more time. The last run, job ${retryOf}, ran out of time.` }] : []),
         ...(budget !== operation.timeoutMs ? [{ name: "budget", state: "completed", detail: `Allowed ${formatDuration(budget)} instead of the usual ${formatDuration(operation.timeoutMs)}` }] : []),
       ],
@@ -451,7 +465,7 @@ export function createJobService(store, helper, {
     if (!operation || job.state !== "failed" || !job.timeout) throw refuse("Only a job that ran out of time can be tried again with more time");
     if (job.timeout.phase === "queued") throw refuse("This job never started: it waited behind other work. Run it again once that work has finished.");
     // The step that ran out was left running on the server; a second copy would run beside it.
-    if (job.timeout.stillRunning) throw refuse(`${job.timeout.step ?? "Its last step"} may still be running on the server, so it was not started a second time beside itself. Run it again once that has finished.`);
+    if (leftRunning(job.timeout, operation)) throw refuse(`${job.timeout.step ?? job.title} may still be running on the server, so it was not started a second time beside itself. Run it again once that has finished.`);
     if (placeholderPaths(job.parameters ?? {}).length) throw refuse("This job was given passwords, and BoxPilot does not keep them after a job runs. Start it again from where you started it.");
     const budgetMs = nextBudgetMs(operation, budgetFor(operation, job.recovery?.budgetMs ?? null));
     if (!budgetMs) throw refuse(operation.maxTimeoutMs ? `${operation.title} already had the most time it can have, ${formatDuration(operation.maxTimeoutMs)}.` : `${operation.title} cannot be given more time.`);
@@ -514,6 +528,12 @@ export function createJobService(store, helper, {
   function sweepStaleApprovals() {
     const swept = [];
     for (const job of store.listAwaitingApproval?.() ?? []) {
+      // Staged before BoxPilot's own plumbing was refused as a job (sweep 3): it could still be approved.
+      const operation = job.type?.startsWith("op:") ? registry.get(job.type.slice(3)) : null;
+      if (operation?.internal) {
+        if (withdraw(job, `${internalRefusal(operation)}, never as a job.`, "job.internal.withdrawn")) swept.push({ id: job.id, why: "internal" });
+        continue;
+      }
       const superseded = supersededReason(job);
       if (superseded) {
         if (withdraw(job, `Superseded: ${superseded}.`, "job.superseded")) swept.push({ id: job.id, why: "superseded", reason: superseded });

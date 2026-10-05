@@ -60,8 +60,14 @@ describe("the last try at a fix (M35)", () => {
     // The owner's "Failed: Reconnect a drive" stayed on Home after four refused attempts.
     const refused = job("j1");
     const { findings, jobs } = applyLedger([readOnly], { jobs: [refused] });
-    expect(findings[0].lastAttempt).toMatchObject({ jobId: "j1", state: "failed", error: "target is busy", label: "Reconnect the drive" });
+    expect(findings[0].lastAttempt).toMatchObject({ jobId: "j1", state: "failed", error: "target is busy", label: "Reconnect the drive", timeout: null });
     expect(jobs.attached).toEqual(["j1"]);
+  });
+
+  it("carries a try's timeout, so Repair does not offer it again while it may still be running (sweep 4)", () => {
+    const timeout = { scope: "step", budgetMs: 540_000, elapsedMs: 600_000, phase: "running", step: "Root task storage.remount", lastOutput: null, moreTimeMs: null, stillRunning: true };
+    const { findings } = applyLedger([readOnly], { jobs: [job("j1", { timeout })] });
+    expect(findings[0].lastAttempt).toMatchObject({ jobId: "j1", state: "failed", timeout });
   });
 
   it("prefers the newest try, whether it was recorded against the finding or only ran the same fix", () => {

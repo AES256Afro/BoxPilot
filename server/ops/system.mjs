@@ -106,7 +106,7 @@ export function systemOperations() {
       },
     }),
     defineOperation({
-      id: "system.locale.set", title: "Change the system language", risk: "medium", timeoutMs: 60_000,
+      id: "system.locale.set", title: "Change the system language", risk: "medium", timeoutMs: 105_000,
       description: "Sets LANG to an already-generated locale with update-locale. New sessions and restarted services pick it up.",
       parameters: { fields: { locale: { type: "string", maxLength: 32, pattern: /^[A-Za-z][A-Za-z0-9_.@-]{1,31}$/ } } },
       run: (parameters, { runUnit, jobLog }) => runUnit.runTask("system.locale", { locale: parameters.locale }, { timeoutMs: 45_000, logPath: jobLog?.path ?? null }),

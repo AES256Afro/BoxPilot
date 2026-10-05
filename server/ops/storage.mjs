@@ -266,10 +266,12 @@ export function storageOperations() {
     }),
     defineOperation({
       // Its own operation and its own confirmation, not a step of the check: it writes to the drive.
-      id: "storage.dirty-mark.clear", title: "Clear a drive's not-properly-unmounted mark", risk: "medium", timeoutMs: minutes(35),
+      // Two checker passes of up to 25 minutes each, the read-only one and fsck.exfat -y, and the stop,
+      // unmount, mount and start around them: a 33-minute limit could run out mid-repair.
+      id: "storage.dirty-mark.clear", title: "Clear a drive's not-properly-unmounted mark", risk: "medium", timeoutMs: minutes(60),
       description: "For an exFAT drive whose check came back clean but which still carries the mark Linux keeps until a repairing check clears it. With the drive unmounted as for a check, runs the read-only check again and, only if it still finds nothing wrong, fsck.exfat -y, which on a consistent drive changes the mark and nothing else. A drive with real damage is refused and left as it is.",
       parameters: { fields: { name: { type: "string", maxLength: 32, pattern: mountNamePattern } } },
-      run: (parameters, { runUnit, jobLog }) => runUnit.runTask("storage.clear-mark", { name: parameters.name }, { timeoutMs: minutes(33), logPath: jobLog?.path ?? null }),
+      run: (parameters, { runUnit, jobLog }) => runUnit.runTask("storage.clear-mark", { name: parameters.name }, { timeoutMs: minutes(58), logPath: jobLog?.path ?? null }),
     }),
     defineOperation({
       id: "storage.remount", title: "Reconnect a drive", risk: "medium", timeoutMs: minutes(10),

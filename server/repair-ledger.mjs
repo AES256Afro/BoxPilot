@@ -107,6 +107,8 @@ export function applyLedger(findings = [], { dismissals = {}, attempts = {}, job
     const lastAttempt = last ? {
       jobId: last.id, state: last.state, error: last.error ?? null, at: at(last), title: last.title,
       operationId: last.type.replace(/^op:/, ""), label: fixes.find((fix) => ranFix(last, fix))?.label ?? null,
+      // Whether it ran out of time, and may still be running: then it is not offered again (sweep 4).
+      timeout: last.timeout ?? null,
     } : null;
     if (last && last.state === "failed") attached.add(last.id);
     const dismissal = dismissals?.[entry.id];

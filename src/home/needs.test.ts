@@ -278,6 +278,11 @@ describe("Repair's fixes on Home and Ops (M35)", () => {
     const needs = buildNeeds(facts({ repairs: { findings: [finding], unavailableChecks: [], jobs: { attached: ["r4"], resolved: [], dismissed: [] } }, jobs: [refused] }), { now, role: "owner" });
     expect(ids(needs)).toEqual(["repair:read-only-remount:media"]);
     expect(needs[0]).toMatchObject({ detail: "Last try failed: target is busy", action: { label: "Try again", operationId: "storage.remount" } });
+    // A last try that may still be running is offered nothing that would start beside it (sweep 4).
+    const running = { ...finding, lastAttempt: { ...finding.lastAttempt, timeout: { scope: "step" as const, budgetMs: 1, elapsedMs: 1, phase: "running" as const, step: "Root task storage.remount", lastOutput: null, moreTimeMs: null, stillRunning: true } } };
+    const [left] = buildNeeds(facts({ repairs: { findings: [running], unavailableChecks: [], jobs: { attached: ["r4"], resolved: [], dismissed: [] } }, jobs: [refused] }), { now, role: "owner" });
+    expect(left.action).toBeNull();
+    expect(left.actions).toBeUndefined();
   });
 
   it("offers the fix's own place, not Try again, when its last failure names one, and keeps what the error says to do", () => {
@@ -335,6 +340,22 @@ describe("Repair's fixes on Home and Ops (M35)", () => {
     const [viewed] = buildNeeds(facts({ jobs: [failed] }), { now, role: "viewer" });
     expect(viewed.action).toBeNull();
     expect(viewed.actions).toBeUndefined();
+  });
+
+  it("offers no run again of a job that may still be running on the server, only Dismiss (sweep 4)", () => {
+    // The server refused it more time; "Try again" then staged it afresh, and a second check of the
+    // drive started beside the first, still running. The row itself opens the job in Activity.
+    const check = job({ id: "x1", type: "op:storage.check", title: "Check a drive", state: "failed", error: "Check a drive stopped waiting: Root task storage.check did not finish within 33 minutes. It may still be running on the server; Activity shows how far it got.", parameters: { name: "media" } });
+    const stepLeft = { ...check, timeout: { scope: "step" as const, budgetMs: 1, elapsedMs: 1, phase: "running" as const, step: "Root task storage.check", lastOutput: null, moreTimeMs: null, stillRunning: true } };
+    const wholeLeft = { ...check, timeout: { scope: "operation" as const, budgetMs: 1, elapsedMs: 1, phase: "running" as const, step: null, lastOutput: null, moreTimeMs: null } };
+    for (const failed of [stepLeft, wholeLeft]) {
+      const [need] = buildNeeds(facts({ jobs: [failed] }), { now, role: "owner" });
+      expect(need).toMatchObject({ id: "job:x1", jobId: "x1", action: null });
+      expect(need.actions?.map((action) => [action.kind ?? "operation", action.operationId])).toEqual([["dismiss", ""]]);
+    }
+    // One that only waited in the queue never started: running it again is safe.
+    const queued = { ...check, timeout: { ...wholeLeft.timeout, phase: "queued" as const } };
+    expect(buildNeeds(facts({ jobs: [queued] }), { now, role: "owner" })[0].action).toMatchObject({ operationId: "storage.check", label: "Try again" });
   });
 });
 
