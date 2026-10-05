@@ -1545,7 +1545,7 @@ describe.skipIf(onWindows)("restoring an application backup", () => {
 // named ../escape. Each restore either fails cleanly with the app as it was, or keeps to the app.
 // Linux only: needs GNU tar, whose own refusals are what is being checked.
 describe.skipIf(onWindows)("a crafted app backup unpacked by root's tar", () => {
-  async function withCrafted(members) {
+  async function withCrafted(members, { omit = [] } = {}) {
     const harness = await setup();
     await harness.apps.install({ id: "demo", values: { setup: [] } });
     const live = path.join(harness.catalogRoot, "demo");
@@ -1561,8 +1561,7 @@ describe.skipIf(onWindows)("a crafted app backup unpacked by root's tar", () => 
       { name: "compose.yaml", body: await readFile(path.join(live, "compose.yaml"), "utf8") },
       { name: ".env", body: await readFile(path.join(live, ".env"), "utf8") },
       { name: "data/", type: "dir" },
-      ...members({ outside, victim, climb }),
-    ]));
+    ].filter((entry) => !omit.includes(entry.name)).concat(members({ outside, victim, climb }))));
     return { ...harness, live, outside, victim, backup, compose: await readFile(path.join(live, "compose.yaml"), "utf8") };
   }
 
@@ -1633,6 +1632,77 @@ describe.skipIf(onWindows)("a crafted app backup unpacked by root's tar", () => 
     await linkOnly.apps.restoreAppBackupPath({ id: "demo", backup: linkOnly.backup, path: "data/link" }).catch(() => null);
     expect(await readdir(linkOnly.outside)).toEqual(["victim"]);
     expect(await readFile(linkOnly.victim, "utf8")).toBe("untouched");
+  });
+
+  // R4S2-1: the restore writes the project again for this server into the unpacked archive. With
+  // `.env.tmp` or `compose.yaml.tmp` in it as a link to a file outside, writeFileDurably wrote the
+  // new .env or compose file over that file, as root: /etc/cron.d/x, a systemd unit, BoxPilot's code.
+  it("never writes the project through a link at the names it is written under", async () => {
+    for (const target of ["absolute", "climbing"]) {
+      const harness = await withCrafted(({ victim, climb }) => [".env.tmp", "compose.yaml.tmp", "boxpilot.json.tmp", ".boxpilot-backup-in-progress.json"]
+        .map((name) => ({ name, type: "symlink", linkname: target === "absolute" ? victim : `${climb}/victim` })));
+      const failure = await expectContained(harness, harness.apps.restoreAppBackup({ id: "demo", backup: harness.backup }));
+      // Restored, with the project written again as real files and none of those names left.
+      expect(failure).toBeNull();
+      for (const name of [".env", "compose.yaml", "boxpilot.json"]) expect((await lstat(path.join(harness.live, name))).isFile(), name).toBe(true);
+      expect(await readFile(path.join(harness.live, "compose.yaml"), "utf8")).toContain("services:");
+      expect((await readdir(harness.live)).filter((name) => name.endsWith(".tmp") || name.startsWith(".boxpilot-backup"))).toEqual([]);
+      // And what runs after a restore (a backup's marker, a settings change) has nothing to follow.
+      await harness.apps.backup({ id: "demo", keep: 5 });
+      await harness.apps.reconfigure({ id: "demo", values: {} }, { checkpoint: false });
+      expect(await readFile(harness.victim, "utf8")).toBe("untouched");
+    }
+  });
+
+  it("refuses a backup whose project files are links, and leaves the app as it was", async () => {
+    for (const name of [".env", "compose.yaml", "boxpilot.json"]) {
+      const harness = await withCrafted(({ victim }) => [{ name, type: "symlink", linkname: victim }], { omit: [name] });
+      const failure = await expectContained(harness, harness.apps.restoreAppBackup({ id: "demo", backup: harness.backup }));
+      expect(failure?.message, name).toMatch(new RegExp(`^Demo was not restored; nothing was changed\\. In this backup ${name.replace(".", "\\.")} is a link`));
+      expect((await lstat(path.join(harness.live, name))).isFile(), name).toBe(true);
+    }
+  });
+
+  it("refuses a backup whose data folder is a link, which every deploy and Docker would follow", async () => {
+    const harness = await withCrafted(({ outside }) => [{ name: "data", type: "symlink", linkname: outside }], { omit: ["data/"] });
+    const failure = await expectContained(harness, harness.apps.restoreAppBackup({ id: "demo", backup: harness.backup }));
+    expect(failure?.message).toMatch(/In this backup data is a link/);
+    expect((await lstat(path.join(harness.live, "data"))).isDirectory()).toBe(true);
+  });
+
+  it("restores none of those links on their own either", async () => {
+    for (const name of [".env", ".env.tmp"]) {
+      const harness = await withCrafted(({ victim }) => [{ name, type: "symlink", linkname: victim }], { omit: [name] });
+      const failure = await expectContained(harness, harness.apps.restoreAppBackupPath({ id: "demo", backup: harness.backup, path: name }));
+      expect(failure?.message, name).toMatch(new RegExp(`^${name.replace(".", "\\.")} was not restored; nothing was changed\\.`));
+      expect((await lstat(path.join(harness.live, ".env"))).isFile()).toBe(true);
+      await harness.apps.reconfigure({ id: "demo", values: {} }, { checkpoint: false });
+      expect(await readFile(harness.victim, "utf8")).toBe("untouched");
+    }
+  });
+
+  // A folder restored before this was refused can still hold such links: nothing written later follows them.
+  it("never writes through a link an earlier restore left in the app's folder", async () => {
+    const harness = await withCrafted(() => []);
+    const { apps, live, victim } = harness;
+    for (const name of [".env.tmp", "compose.yaml.tmp", "boxpilot.json.tmp", ".boxpilot-backup-in-progress.json", ".boxpilot-backup-in-progress.json.tmp", ".env", "compose.yaml"]) {
+      await rm(path.join(live, name), { force: true });
+      await symlink(victim, path.join(live, name));
+    }
+    await apps.reconfigure({ id: "demo", values: {} }, { checkpoint: false });
+    await apps.backup({ id: "demo", keep: 5 });
+    await apps.editCompose({ id: "demo", compose: "services:\n  demo:\n    image: nginx:1.27\n" }, { checkpoint: false }).catch(() => null);
+    expect(await readFile(victim, "utf8")).toBe("untouched");
+    for (const name of [".env", "compose.yaml", "boxpilot.json"]) expect((await lstat(path.join(live, name))).isFile(), name).toBe(true);
+  });
+
+  it("does not carry such a link into the restored folder with what backups leave out", async () => {
+    const harness = await withCrafted(() => []);
+    await symlink(harness.victim, path.join(harness.live, "boxpilot-homepage-sync.json"));
+    const result = await harness.apps.restoreAppBackup({ id: "demo", backup: harness.backup });
+    expect(result.warnings).toEqual([expect.stringMatching(/^Not kept from the app folder: boxpilot-homepage-sync\.json is a link there/)]);
+    await expect(lstat(path.join(harness.live, "boxpilot-homepage-sync.json"))).rejects.toMatchObject({ code: "ENOENT" });
+    expect(await readFile(harness.victim, "utf8")).toBe("untouched");
   });
 });
 
