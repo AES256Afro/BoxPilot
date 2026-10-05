@@ -543,14 +543,16 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
    * The owner's edit of a note: its words, how long it stays fresh, pinned, shared. A finding is
    * forgotten, not edited. Words the owner rewrote are the owner's, and `trusted` is the owner's
    * word that it is fine as it is: either way it no longer carries the flag of the run that kept it
-   * (2026-10 sweep 3).
+   * (2026-10 sweep 3). Only new words count: the same words sent back with a new freshness or title
+   * are still the run's (sweep 4: the edit sheet sent them every time, and so trusted the fact).
    */
   function updateNote(agentId, noteId, { title, body, freshUntil, pinned, shared, trusted = false }) {
     return transaction(() => {
       const current = prepare("SELECT * FROM agent_notes WHERE agent_id = ? AND id = ? AND finding IS NULL").get(agentId, noteId);
       if (!current) return null;
       const { injectionHop: _hop, ...source } = parse(current.source_json, {});
-      const cleared = body !== undefined || trusted ? json({ ...source, injection: false }) : current.source_json;
+      const newWords = body !== undefined && body !== current.body;
+      const cleared = newWords || trusted ? json({ ...source, injection: false }) : current.source_json;
       prepare("UPDATE agent_notes SET title = ?, body = ?, fresh_until = ?, pinned = ?, shared = ?, source_json = ?, updated_at = ? WHERE id = ?")
         .run(title ?? current.title, body ?? current.body, freshUntil === undefined ? current.fresh_until : freshUntil, pinned === undefined ? current.pinned : pinned ? 1 : 0, shared === undefined ? current.shared : shared ? 1 : 0, cleared, iso(), noteId);
       if (body !== undefined || title !== undefined) prepare("DELETE FROM agent_vectors WHERE kind = 'note' AND item_id = ?").run(noteId);

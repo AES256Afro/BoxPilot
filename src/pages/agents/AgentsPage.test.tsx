@@ -868,6 +868,33 @@ describe("memory", () => {
     fireEvent.click(within(facts).getByRole("button", { name: "Trust the fact Sign-in" }));
     await waitFor(() => expect(calls.find((call) => call.method === "PUT")?.body).toEqual({ trusted: true }));
   });
+
+  it("saves only what was changed in an edit, so a new freshness never trusts a flagged fact (sweep 4, R4B4-1)", async () => {
+    window.history.replaceState(null, "", `/?view=agents&tab=memory&agent=${keeperId}`);
+    const fact = { id: "99999999-9999-4999-8999-999999999998", title: "Sign-in", body: "The app asked for a sign-in.", source: { by: "agent", tools: ["logs.query"], injection: true }, createdAt: ago(600), updatedAt: ago(600), freshUntil: ago(-6000), stale: false, pinned: false, shared: false, readRole: "owner", indexed: false };
+    const calls = serve(base({
+      [`GET /api/v1/agents/${keeperId}/memory`]: {
+        facts: [fact], shared: [], episodes: [], thread: null,
+        settings: { enabled: true, share: true, threads: true, turns: 6, freshDays: 14, maxNotes: 80 },
+        search: { byMeaning: false, model: "fake", pending: 0, vectors: 0 },
+      },
+      [`PUT /api/v1/agents/${keeperId}/memory/notes/${fact.id}`]: fact,
+    }));
+    render(<AgentsPage csrfToken="csrf" now={() => now} />);
+    const facts = await screen.findByRole("table", { name: "Facts Server Keeper learned" });
+    const edit = async (change: () => void) => {
+      fireEvent.click(within(facts).getByRole("button", { name: "Edit the fact Sign-in" }));
+      await screen.findByRole("combobox", { name: /Stays fresh/ });
+      change();
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    };
+    await edit(() => fireEvent.change(screen.getByRole("combobox", { name: /Stays fresh/ }), { target: { value: "7" } }));
+    await waitFor(() => expect(calls.filter((call) => call.method === "PUT").map((call) => call.body)).toEqual([{ freshDays: 7 }]));
+    await edit(() => fireEvent.change(screen.getByRole("textbox", { name: "Title" }), { target: { value: "Sign-in prompts" } }));
+    await waitFor(() => expect(calls.filter((call) => call.method === "PUT").map((call) => call.body).at(-1)).toEqual({ title: "Sign-in prompts" }));
+    await edit(() => fireEvent.change(screen.getByRole("textbox", { name: "What it remembers" }), { target: { value: "Nothing needs a sign-in." } }));
+    await waitFor(() => expect(calls.filter((call) => call.method === "PUT").map((call) => call.body).at(-1)).toEqual({ body: "Nothing needs a sign-in." }));
+  });
 });
 
 describe("findings (M44)", () => {

@@ -67,3 +67,15 @@ describe("R4S1-1: a note is read, trusted and forgotten only as far as the perso
     expect(h.service.forgetMemory(h.caller("owner"), watch.id, { kind: "episode", id: episode.id })).toEqual({ forgotten: true });
   });
 });
+
+describe("R4B4-1: an edit clears a fact's flag only with new words, or a word that it is fine", () => {
+  it("keeps the flag when the same words come back with a new freshness or title", () => {
+    const keeper = make("server-keeper");
+    const note = h.store.writeNote(keeper.id, { title: "Sign-in", body: "The app asked for a sign-in.", readRole: "owner", source: { by: "agent", injection: true, injectionHop: 0 } });
+    const owner = h.caller("owner");
+    // The edit sheet sent what it was shown: the same title and words, and a new freshness.
+    expect(h.service.editMemory(owner, keeper.id, note.id, { title: "Sign-in", body: "The app asked for a sign-in.", freshDays: 7 }).source).toMatchObject({ injection: true, injectionHop: 0 });
+    expect(h.service.editMemory(owner, keeper.id, note.id, { title: "Sign-in prompts", body: "The app asked for a sign-in." }).source.injection).toBe(true);
+    expect(h.service.editMemory(owner, keeper.id, note.id, { body: "Nothing needs a sign-in." }).source.injection).toBe(false);
+  });
+});
