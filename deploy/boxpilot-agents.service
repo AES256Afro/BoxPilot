@@ -38,6 +38,10 @@ UMask=0077
 # owner's "while you wait" number (eight unless changed, never more than all processors but two)
 # with `systemctl set-property --runtime`, and a timer set with it puts this one back (ADR-009).
 CPUQuota=400%
+# "idle" is systemd 252's. Ubuntu 22.04's systemd 249 rejects it ("Invalid weight, ignoring") and
+# keeps the line before, so there the runner gets the lowest weight instead; newer systemd takes the
+# later line.
+CPUWeight=1
 CPUWeight=idle
 Nice=19
 IOSchedulingClass=idle
