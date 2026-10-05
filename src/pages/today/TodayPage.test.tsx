@@ -54,6 +54,16 @@ describe("Today (M25.3)", () => {
     expect(within(what).queryByText("Reconnect a drive")).toBeNull();
   });
 
+  it("opens the page a need's fix is on, as Home and Ops do", async () => {
+    // Today never handed the needs a way to navigate: Free up space, Open Repair and the rest did nothing.
+    const full = { id: "full", type: "op:app.update", title: "Update an app", state: "failed", risk: "medium", error: "pull failed: no space left on device", result: null, steps: [], approvals: [], parameters: { id: "immich" }, createdAt: ago(0.3), updatedAt: ago(0.2) };
+    vi.stubGlobal("fetch", stubFetch({ "/api/v1/jobs?limit=50": { jobs: [full] }, "/api/v1/jobs?limit=100": { jobs: [full] } }));
+    const onNavigate = renderToday();
+    const attention = await screen.findByRole("region", { name: /Needs a look/ });
+    fireEvent.click(await within(attention).findByRole("button", { name: /^Free up space:/ }));
+    expect(onNavigate).toHaveBeenCalledWith("system", { tab: "housekeeping" });
+  });
+
   it("draws the backups the way Home does", async () => {
     vi.stubGlobal("fetch", stubFetch({ ...ran }));
     const onNavigate = renderToday();

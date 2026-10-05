@@ -31,7 +31,8 @@ export function PushPanel({ csrfToken, role, now = Date.now }: { csrfToken: stri
     try {
       const body = await pushApi.status();
       setStatus(body);
-      setDraft({ tiers: body.settings.tiers, quietHours: body.settings.quietHours, ntfy: body.settings.ntfy });
+      // Seeded once: every action reads the status again, and resetting here wiped unsaved choices.
+      setDraft((current) => current ?? { tiers: body.settings.tiers, quietHours: body.settings.quietHours, ntfy: body.settings.ntfy });
       setProblem(body.problem);
     } catch (error) {
       setProblem(error instanceof Error ? error.message : "Pushes could not be read");
@@ -56,7 +57,12 @@ export function PushPanel({ csrfToken, role, now = Date.now }: { csrfToken: stri
   const turnOff = () => act(async () => { await turnOffThisDevice(csrfToken); return "Pushes are off for this device."; });
   const test = () => act(async () => { const result = await pushApi.test(csrfToken); return result.delivered ? `Sent to ${result.delivered} of ${result.devices} ${result.devices === 1 ? "device" : "devices"}.` : "No device took it; see each one below."; });
   const remove = (id: string) => act(async () => { if (id === mine) await turnOffThisDevice(csrfToken); else await pushApi.remove(csrfToken, id); return "Removed."; });
-  const save = () => act(async () => { if (draft) await pushApi.saveSettings(csrfToken, draft); return "Saved."; });
+  const save = () => act(async () => {
+    if (!draft) return null;
+    const saved = await pushApi.saveSettings(csrfToken, draft);
+    setDraft({ tiers: saved.tiers, quietHours: saved.quietHours, ntfy: saved.ntfy });
+    return "Saved.";
+  });
 
   if (!status) return <section className="push-panel" aria-label="Approvals on your phone">{problem ? <Notice tone="danger" title="Pushes could not be read">{problem}</Notice> : <p className="push-quiet">Reading…</p>}</section>;
   if (!status.canSubscribe) return null; // a viewer approves nothing, so is pushed nothing

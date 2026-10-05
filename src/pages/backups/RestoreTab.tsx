@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useOperation } from "../../shell/ApproveDialog";
 import { countOf } from "../../data";
 import { formatBytes } from "../../formatBytes";
@@ -84,16 +84,22 @@ export default function RestoreTab({ csrfToken, role, restores, onChanged }: Res
     ...(discovered?.locations ?? []).flatMap((location) => location.snapshots.map((snapshot) => ({ source: "discovered" as const, root: location.root, where: `${location.mount.source} (${location.mount.filesystem})`, snapshot }))),
   ].map((option, index) => ({ ...option, key: String(index) }));
 
+  // Which opening of the sheet an answer belongs to: a slow answer for a snapshot opened earlier
+  // filled the sheet of the one opened since, and its restore staged that artifact with these apps.
+  const opening = useRef(0);
   const open = async (option: Option) => {
+    const ticket = ++opening.current;
     setChosen(option); setDescribed(null); setDescribeError(null); setSelected(new Set()); setRestoreData(true);
     try {
       const parameters = { source: option.source, artifact: option.snapshot.artifact, ...(option.root ? { root: option.root } : {}) };
       const response = await fetch("/api/v1/operations/host.snapshot.describe/run", { method: "POST", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ parameters }) });
       const body = (await response.json()) as { result?: DescribedSnapshot; error?: string };
+      if (ticket !== opening.current) return;
       if (!response.ok || !body.result) throw new Error(body.error ?? "The snapshot could not be read");
       setDescribed(body.result);
       setSelected(new Set(body.result.apps.filter((app) => app.installed).map((app) => app.id)));
     } catch (requestError) {
+      if (ticket !== opening.current) return;
       setDescribeError(requestError instanceof Error ? requestError.message : "The snapshot could not be read");
     }
   };

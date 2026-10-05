@@ -105,12 +105,16 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
   const [view, setViewState] = useState<ViewName>(viewFromLocation);
   // The app the catalog opens at (?app=jellyfin), when a tile or the command bar sent us there.
   const [focusApp, setFocusApp] = useState<string | null>(() => new URLSearchParams(window.location.search).get("app"));
+  // Each request to open an app, counted: asked for the app the catalog was opened at already, the
+  // page did not remount and its sheet, once closed, never came back.
+  const [focusRequest, setFocusRequest] = useState(0);
   const [galleryAsked, setGalleryAsked] = useState(() => new URLSearchParams(window.location.search).has("gallery"));
   const setView = useCallback((asked: ViewName, options: { app?: string; tab?: string } = {}) => {
     // A link to a page that is gone (an older server's "Open Overview") lands on Home.
     const next: ViewName = Object.hasOwn(viewCopy, asked) ? asked : "home";
     setViewState(next);
     setFocusApp(options.app ?? null);
+    if (options.app) setFocusRequest((count) => count + 1);
     setGalleryAsked(false);
     const url = new URL(window.location.href);
     for (const name of [...url.searchParams.keys()]) if (!keptParams.has(name)) url.searchParams.delete(name);
@@ -199,7 +203,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
     if (view === "today") return <TodayPage csrfToken={csrfToken} role={role} accountId={accountId} onNavigate={setView} />;
     if (view === "setup") return <SetupPage csrfToken={csrfToken} role={role} onDone={() => setView("home")} />;
     if (view === "updates") return <UpdatesPage csrfToken={csrfToken} role={role} />;
-    if (view === "catalog") return <CatalogPage key={focusApp ?? ""} csrfToken={csrfToken} focusApp={focusApp ?? undefined} role={role} />;
+    if (view === "catalog") return <CatalogPage key={`${focusApp ?? ""}:${focusRequest}`} csrfToken={csrfToken} focusApp={focusApp ?? undefined} role={role} />;
     if (view === "services") return <ServicesPage csrfToken={csrfToken} role={role} />;
     if (view === "system") return <SystemPage csrfToken={csrfToken} role={role} onOpenAppearance={() => setView("settings", { tab: "appearance" })} />;
     if (view === "automations") return <AutomationsPage csrfToken={csrfToken} role={role} />;
@@ -215,7 +219,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
     if (view === "logs") return <LogsPage csrfToken={csrfToken} role={role} />;
     if (view === "agents") return <AgentsPage csrfToken={csrfToken} role={role} />;
     return <Settings csrfToken={csrfToken} role={role} />;
-  }, [accountId, csrfToken, drawnLook, focusApp, role, setView, view]);
+  }, [accountId, csrfToken, drawnLook, focusApp, focusRequest, role, setView, view]);
 
   // Where Home and every console page draw the start of the top bar (src/shell/TopBarSlot.tsx).
   const [topBarSlot, setTopBarSlot] = useState<HTMLDivElement | null>(null);

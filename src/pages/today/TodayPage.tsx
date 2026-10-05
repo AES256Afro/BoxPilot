@@ -48,7 +48,7 @@ export default function TodayPage({ csrfToken, role, accountId, onNavigate, now 
   const jobs = useMergedJobs(history, facts.jobs.value ?? []);
   const clock = now();
   const live = todayModel(facts, jobs, { now: clock, role });
-  const { act, runs, dialog } = useNeedActions({ csrfToken, refresh, accept });
+  const { act, runs, dialog } = useNeedActions({ csrfToken, refresh, accept, navigate: onNavigate });
   const [allAttention, setAllAttention] = useState(false);
 
   // Kept for offline reads once everything has been read, and only while BoxPilot is answering.

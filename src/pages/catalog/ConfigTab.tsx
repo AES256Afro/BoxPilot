@@ -14,11 +14,16 @@ interface Effective { directory: string; env: Array<{ name: string; value: strin
 
 export function ConfigTab({ entry, ctx }: { entry: Entry; ctx: CatalogContext }) {
   const { manifest } = entry;
-  const { csrfToken, act, role } = ctx;
+  const { csrfToken, act, role, takeComposeDraft } = ctx;
   const [effective, setEffective] = useState<Effective | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [compose, setCompose] = useState<string | null>(null);
   const [draft, setDraft] = useState<string | null>(null);
+  // An edit whose Apply was cancelled or failed comes back here rather than being lost with the sheet.
+  useEffect(() => {
+    const kept = takeComposeDraft(manifest.id);
+    if (kept !== null) setDraft(kept);
+  }, [takeComposeDraft, manifest.id]);
   const [access, setAccess] = useState({ needsPassword: false, password: "", busy: false, error: null as string | null });
   const composeRead = useRef<AbortController | null>(null);
   const owner = role === "owner";
@@ -114,7 +119,7 @@ export function ConfigTab({ entry, ctx }: { entry: Entry; ctx: CatalogContext })
             </Field>
             <div className="catalog-inline">
               <Button onClick={() => setDraft(null)}>Cancel</Button>
-              <Button variant="primary" risk={riskOf("app.compose.edit")} disabled={!draft.trim() || draft === compose} onClick={() => act({ operationId: "app.compose.edit", title: `Apply edited compose file to ${manifest.name}`, parameters: { id: manifest.id, compose: draft }, preview: <span>Replaces <code>compose.yaml</code> verbatim and recreates the containers. Rolled back if {manifest.name} does not come up.</span> })}>Apply</Button>
+              <Button variant="primary" risk={riskOf("app.compose.edit")} disabled={!draft.trim() || draft === compose} onClick={() => act({ operationId: "app.compose.edit", title: `Apply edited compose file to ${manifest.name}`, parameters: { id: manifest.id, compose: draft }, preview: <span>Replaces <code>compose.yaml</code> verbatim and recreates the containers. Rolled back if {manifest.name} does not come up.</span> }, { composeDraft: draft })}>Apply</Button>
             </div>
           </>
         )}
