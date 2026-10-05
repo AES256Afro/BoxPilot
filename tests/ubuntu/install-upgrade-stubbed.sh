@@ -32,6 +32,8 @@
 #      upgrade has stopped the service, puts the env file back and restarts BoxPilot on it.
 #   7. An upgrade stopped during its build (HUP, TERM) removes its staging tree, and the next upgrade
 #      removes one an earlier run left.
+#   8. A new --port re-points Tailscale Serve wherever BoxPilot is published through it, even on a
+#      Tailscale install whose owner has since turned on the LAN.
 set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -81,8 +83,8 @@ stub ip 'exit 0'
 stub useradd 'printf "%s\n" "$*" >> "$STUB_LOG/useradd"'
 stub apt-get 'echo "apt-get must not run here" >&2; exit 1'
 stub sudo 'exit 1'
-# Tailscale is "not running" unless a case says otherwise. Never the real one: it would publish.
-stub tailscale 'printf "%s\n" "$*" >> "$STUB_LOG/tailscale"; exit 1'
+# Tailscale is "not running" unless $STUB_TAILSCALE says "running". Never the real one: it would publish.
+stub tailscale 'printf "%s\n" "$*" >> "$STUB_LOG/tailscale"; [ "${STUB_TAILSCALE:-}" = running ]'
 # ufw: logged, and inactive unless $STUB_UFW says "active". Never the real one: it would open ports.
 stub ufw 'printf "%s\n" "$*" >> "$STUB_LOG/ufw"
 case "${1:-}" in status) echo "Status: ${STUB_UFW:-inactive}" ;; esac
@@ -517,6 +519,33 @@ run_upgrade STUB_LISTEN=http://127.0.0.1:8787/api/v1/health
 show "$out"
 check "a staging tree an earlier run left: the upgrade went live" '[ "$status" -eq 0 ] && [ "$(version_at "${FAKE}/opt/boxpilot")" = 2.0.0 ]'
 check "a staging tree an earlier run left: it is gone, and the upgrade said so" '! staging_left && grep -q "removed .*/opt/boxpilot.staging.20260101T000000Z" <<<"$out"'
+
+echo "8. A new --port moves Tailscale Serve with it wherever Serve is in use"
+served() { grep -x "serve --bg $1" "${STUB_LOG}/tailscale" 2>/dev/null | wc -l | tr -d ' '; }
+# A Tailscale install on port 9000 (cookies https-only, which only the Tailscale access sets) whose
+# owner then turned on the LAN in Settings: a re-run reads that as "lan", and Serve was re-pointed
+# only for "tailscale", so --port 9100 left the tailnet address on 9000, where nothing answers.
+installed_box 9000
+sed -i -e 's/^BOXPILOT_HOST=.*/BOXPILOT_HOST=0.0.0.0/' "${FAKE}/etc/boxpilot/boxpilot.env"
+STUB_TAILSCALE=running run_install http://127.0.0.1:9100/api/v1/health --port 9100
+show "$out"
+check "Tailscale install with the LAN on, re-run with --port 9100: it finished" '[ "$status" -eq 0 ]'
+check "Tailscale install with the LAN on, re-run with --port 9100: Serve now forwards to 9100" '[ "$(served http://127.0.0.1:9100)" -eq 1 ]'
+check "Tailscale install with the LAN on, re-run with --port 9100: the LAN and https-only cookies stay" '[ "$(env_line BOXPILOT_HOST)" = BOXPILOT_HOST=0.0.0.0 ] && [ "$(env_line BOXPILOT_COOKIE_SECURE)" = BOXPILOT_COOKIE_SECURE=true ]'
+# The same box re-run without a new port: Serve already points where the service listens.
+installed_box 9000
+sed -i -e 's/^BOXPILOT_HOST=.*/BOXPILOT_HOST=0.0.0.0/' "${FAKE}/etc/boxpilot/boxpilot.env"
+STUB_TAILSCALE=running run_install http://127.0.0.1:9000/api/v1/health
+check "Tailscale install with the LAN on, re-run on the same port: Serve left alone" '[ "$status" -eq 0 ] && ! grep -q "^serve" "${STUB_LOG}/tailscale" 2>/dev/null'
+# A LAN install (cookies not https-only) on a box that also runs Tailscale: Serve was never BoxPilot's.
+installed_box 9000 false
+sed -i -e 's/^BOXPILOT_HOST=.*/BOXPILOT_HOST=0.0.0.0/' "${FAKE}/etc/boxpilot/boxpilot.env"
+STUB_TAILSCALE=running run_install http://127.0.0.1:9100/api/v1/health --port 9100
+check "LAN install on a box running Tailscale, --port 9100: nothing published" '[ "$status" -eq 0 ] && ! grep -q "^serve" "${STUB_LOG}/tailscale" 2>/dev/null'
+# A Tailscale install as such: Serve is pointed at the new port once.
+installed_box 9000
+STUB_TAILSCALE=running run_install http://127.0.0.1:9100/api/v1/health --port 9100
+check "Tailscale install, re-run with --port 9100: Serve forwards to 9100, set once" '[ "$status" -eq 0 ] && [ "$(served http://127.0.0.1:9100)" -eq 1 ] && [ "$(grep -c "^serve" "${STUB_LOG}/tailscale")" -eq 1 ]'
 
 if [ "$failures" -gt 0 ]; then echo "${failures} check(s) failed"; exit 1; fi
 echo "all checks passed"
