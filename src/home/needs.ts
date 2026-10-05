@@ -79,6 +79,8 @@ export function watchView(family: string): ViewName {
   if (family === "flow.failed") return "automations";
   if (family === "release.available") return "system";
   if (family === "drive.reconnected") return "storage";
+  // BoxPilot's own restart that gave up or failed is made from Services (sweep 5).
+  if (family === "boxpilot.restart") return "services";
   if (family === "signin.new" || family === "report.weekly") return "settings";
   return "repairs";
 }
