@@ -34,6 +34,9 @@ describe("doctor outside Express", () => {
     expect(await asked("BOXPILOT_HOST=127.0.0.1\nBOXPILOT_PORT=9000\n")).toBe("http://127.0.0.1:9000/api/v1/health");
     expect(await asked('BOXPILOT_HOST="0.0.0.0"\nBOXPILOT_PORT="9001"\n')).toBe("http://127.0.0.1:9001/api/v1/health");
     expect(await asked("BOXPILOT_HOST=192.0.2.10\nBOXPILOT_PORT=9002\n")).toBe("http://192.0.2.10:9002/api/v1/health");
+    // As systemd reads the file: blanks around "=", CRLF, and the last line for a key wins.
+    expect(await asked("BOXPILOT_PORT = 9003\r\n")).toBe("http://127.0.0.1:9003/api/v1/health");
+    expect(await asked("BOXPILOT_PORT=8787\nBOXPILOT_HOST=127.0.0.1\nBOXPILOT_PORT=9004\n")).toBe("http://127.0.0.1:9004/api/v1/health");
     // Its own environment still wins, as it always did.
     expect(await asked("BOXPILOT_PORT=9000\n", { BOXPILOT_PORT: "9100", BOXPILOT_HOST: "127.0.0.1" })).toBe("http://127.0.0.1:9100/api/v1/health");
   });

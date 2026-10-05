@@ -12,7 +12,8 @@
 #   1. The upgrade health-checks the port and address /etc/boxpilot/boxpilot.env gives the web
 #      service. It always asked 127.0.0.1:8787, so on a box installed with --port every update
 #      rolled back - after the new version had already started on the database. The file is read
-#      the way systemd reads it: CRLF, blanks around "=" and trailing blanks are not part of a value.
+#      the way systemd reads it: CRLF, blanks around "=" and trailing blanks are not part of a value,
+#      and the last line for a key wins.
 #   2. An upgrade stopped by TERM or HUP once the service is down (an SSH drop during curl | sh, the
 #      update unit stopped, a shutdown) rolls back and restarts the old tree, and a second TERM
 #      during the rollback does not cut it short. dash runs no EXIT trap for a signal, so the old
@@ -217,6 +218,8 @@ upgrade_case "BOXPILOT_HEALTH_URL given" 'BOXPILOT_PORT=9000' http://127.0.0.1:9
 # unquoted value are dropped.
 upgrade_case "CRLF, blanks around = and after the value" 'BOXPILOT_HOST = 192.0.2.10 \r\n  BOXPILOT_PORT= 9003\t\r' http://192.0.2.10:9003/api/v1/health
 upgrade_case "CRLF, quoted after a blank" 'BOXPILOT_HOST = "0.0.0.0"\r\nBOXPILOT_PORT = "9004" \r' http://127.0.0.1:9004/api/v1/health
+# The last line for a key is the one systemd gives the service (server/env-file.mjs reads it the same).
+upgrade_case "a leading blank line, a port overridden further down" '\nBOXPILOT_PORT=8787\n# moved\n  BOXPILOT_PORT = 9006' http://127.0.0.1:9006/api/v1/health
 
 echo "2. An upgrade stopped by a signal once the service is down rolls back and restarts the old tree"
 signal_case() { # signal_case <what> <signal> <TERM again during the rollback: yes|no>
