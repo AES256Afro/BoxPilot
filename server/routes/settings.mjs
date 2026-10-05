@@ -7,7 +7,7 @@ import { approvalModes, defaultApprovalMode, elevationTtlMs, normalizeApprovalMo
 import { normalizeDestination } from "../backup-destination.mjs";
 import { healthConditions, isNotice, noticeKinds } from "../health-alerts.mjs";
 import { vpnProviders, vpnProtocols } from "../vpn-profile.mjs";
-import { flowRunnerFrom, watchEntryFor } from "./access.mjs";
+import { watchEntryFor } from "./access.mjs";
 import { createNotificationHistory } from "../notification-history.mjs";
 
 export function createSettingsRouter({ state, notifications, notificationHistory = createNotificationHistory({ store: state }), weeklyReport = null, auth }) {
@@ -38,8 +38,7 @@ export function createSettingsRouter({ state, notifications, notificationHistory
 
   /** An entry's words as this caller may read them (M29.4); access.mjs holds the rule, which the assistant shares. */
   const scheduleOwner = (id) => state.getSchedule?.(id)?.createdBy ?? null;
-  const flowRunner = flowRunnerFrom(state);
-  const titleFor = (request, key, entry, label) => watchEntryFor(request, key, entry, label, scheduleOwner, flowRunner).title;
+  const titleFor = (request, key, entry, label) => watchEntryFor(request, key, entry, label, scheduleOwner).title;
 
   // What BoxPilot watches for on its own, and which conditions are live right now. The active set is
   // the health-alert watcher's own persisted state, grouped back to its condition families.
@@ -80,11 +79,13 @@ export function createSettingsRouter({ state, notifications, notificationHistory
       const jobId = String(entry.key).includes(":") ? String(entry.key).slice(String(entry.key).indexOf(":") + 1) : null;
       const job = jobId ? state.getJob?.(jobId) : null;
       const theirs = request.boxpilotSession?.owner?.role === "owner" || (job && job.createdBy === request.boxpilotSession?.owner?.id);
-      visible = theirs ? { title: entry.title, key: entry.key } : { title: labelFor(family), key: family };
+      visible = theirs ? { title: entry.title, key: entry.key, full: true } : { title: labelFor(family), key: family, full: false };
     } else {
-      visible = watchEntryFor(request, entry.key, entry, labelFor(family), scheduleOwner, flowRunner);
+      visible = watchEntryFor(request, entry.key, entry, labelFor(family), scheduleOwner);
     }
-    const masked = visible.key !== entry.key;
+    // Cut by whether the caller may read it, not by whether the key got shorter: the weekly report's
+    // key has no subject to cut, and its words were handed to every role (sweep 3).
+    const masked = !visible.full;
     return {
       id: entry.id, kind: entry.kind, key: visible.key, family, title: visible.title, message: masked ? null : entry.message ?? null,
       at: entry.at, delivered: entry.delivered === true, reason: entry.reason ?? null, deliveredAt: entry.deliveredAt ?? null,

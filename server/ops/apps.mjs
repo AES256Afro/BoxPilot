@@ -38,6 +38,31 @@ export function servedOnEveryAddress(name, port, { hostNetwork = false } = {}) {
   return `${where}, and Tailscale Serve would hold the same port on the tailnet address. Linux does not let the two share it: whichever starts first keeps it and the other stops working, which is how an app ends up refusing to start after a restart or a reboot. ${instead}`;
 }
 
+/**
+ * Publish a tailnet-only app's web ports with Tailscale Serve, from what the deployer said it wrote
+ * (`exposure`, `hostPorts`, `name`). Tailnet only puts those ports on 127.0.0.1, so without Serve
+ * there is no way in at all. The app is in place either way, so a Serve that fails is a warning with
+ * the way to fix it. app.install does this after the deployer, and so does a machine snapshot
+ * restore for each app it brings back. `{ served, urls, warnings? }`.
+ */
+export async function serveTailnetOnly(deployed, { run, progress = null }) {
+  if (deployed?.exposure !== "tailnet" || !run) return { served: false, urls: [] };
+  const webPorts = (deployed.hostPorts ?? []).filter((entry) => entry.protocol !== "udp" && entry.exposure === "loopback" && (entry.tailnet ?? "serve") === "serve").map((entry) => entry.host);
+  const failures = [];
+  for (const port of webPorts) {
+    const args = ["serve", "--bg", "--yes", `--https=${port}`, `http://127.0.0.1:${port}`];
+    progress?.(`$ tailscale ${args.join(" ")}`, "stdout");
+    const result = await Promise.resolve().then(() => run(tailscaleBinary(), args, { timeout: 60_000 })).catch((error) => ({ ok: false, stderr: error.message }));
+    if (!result.ok) failures.push(`${port}: ${String(result.stderr ?? "").split("\n").slice(-2).join(" ").trim() || "is Tailscale running?"}`);
+  }
+  const serves = webPorts.length ? await serveStatus(run) : [];
+  const urls = webPorts.map((port) => serves.find((serve) => serve.port === port)).filter(Boolean).map(urlOf);
+  return {
+    served: urls.length > 0, urls,
+    ...(failures.length ? { warnings: [`${deployed.name ?? deployed.id ?? "The app"} is installed for your tailnet only, but publishing it with Tailscale Serve failed (${failures.join("; ")}). Until it is published nothing can open it: on its Reach tab, choose Publish on the tailnet.`] } : {}),
+  };
+}
+
 const idField = { type: "string", pattern: /^[a-z0-9][a-z0-9-]{1,62}$/ };
 // An app's install values. secretEnvOf: env entries its manifest (named by `id`) calls a password or
 // secret are secrets, which jobs stage in memory and schedules and flows refuse to store (M29.1).
@@ -321,22 +346,10 @@ export function appOperations() {
       run: async (parameters, { apps, run, progress, timeScale }) => {
         const installed = await apps.install({ id: parameters.id, values: parameters.values ?? {}, devices: parameters.devices ?? null }, { progress, timeScale });
         if (installed?.exposure !== "tailnet" || !run) return installed;
-        // Tailnet only: its web ports are on 127.0.0.1, and without Serve there is no way in at all.
-        // The app is installed either way, so a Serve that fails is a warning with the way to fix it.
-        const webPorts = (installed.hostPorts ?? []).filter((entry) => entry.protocol !== "udp" && entry.exposure === "loopback" && (entry.tailnet ?? "serve") === "serve").map((entry) => entry.host);
-        const failures = [];
-        for (const port of webPorts) {
-          const args = ["serve", "--bg", "--yes", `--https=${port}`, `http://127.0.0.1:${port}`];
-          progress?.(`$ tailscale ${args.join(" ")}`, "stdout");
-          const result = await Promise.resolve().then(() => run(tailscaleBinary(), args, { timeout: 60_000 })).catch((error) => ({ ok: false, stderr: error.message }));
-          if (!result.ok) failures.push(`${port}: ${String(result.stderr ?? "").split("\n").slice(-2).join(" ").trim() || "is Tailscale running?"}`);
-        }
-        const serves = webPorts.length ? await serveStatus(run) : [];
-        const urls = webPorts.map((port) => serves.find((serve) => serve.port === port)).filter(Boolean).map(urlOf);
-        return {
-          ...installed, served: urls.length > 0, urls,
-          ...(failures.length ? { warnings: [`${installed.name ?? parameters.id} is installed for your tailnet only, but publishing it with Tailscale Serve failed (${failures.join("; ")}). Until it is published nothing can open it: on its Reach tab, choose Publish on the tailnet.`] } : {}),
-        };
+        const published = await serveTailnetOnly({ ...installed, name: installed.name ?? parameters.id }, { run, progress });
+        // The install's own warnings (an optional port something holds) are kept beside Serve's.
+        const warnings = [...(installed.warnings ?? []), ...(published.warnings ?? [])];
+        return { ...installed, served: published.served, urls: published.urls, ...(warnings.length ? { warnings } : {}) };
       },
     }),
     defineOperation({

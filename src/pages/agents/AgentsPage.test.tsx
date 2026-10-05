@@ -316,13 +316,17 @@ describe("the test console", () => {
   it("runs an agent once, follows its trace to the answer, and stages a card's step through the approval dialog", async () => {
     window.history.replaceState(null, "", `/?view=agents&tab=test&agent=${keeperId}`);
     let reads = 0;
+    let approved = false;
     const calls = serve(base({
       [`GET /api/v1/agents/${keeperId}/runs`]: { runs: [] },
       [`POST /api/v1/agents/${keeperId}/runs`]: () => json({ ...finishedRun, state: "queued", steps: [], answer: null, proposals: [] }, 202),
       [`GET /api/v1/agents/runs/${finishedRun.id}`]: () => { reads += 1; return json(reads > 1 ? finishedRun : { ...finishedRun, state: "running", answer: null, proposals: [], steps: finishedRun.steps?.slice(0, 2) }); },
       "POST /api/v1/operations/app.backup/jobs": () => json({ job: { id: "55555555-5555-4555-8555-555555555555", type: "op:app.backup", title: "Back up application data", state: "awaiting_approval", risk: "medium", error: null, result: null, steps: [], approvals: [] }, approval: { tier: "medium", passwordRequired: false, elevated: false, mode: "tiered", reason: "medium risk" } }, 201),
-      [`POST /api/v1/agents/proposals/${proposal.id}/decide`]: { ...proposal, state: "staged", jobIds: ["55555555-5555-4555-8555-555555555555"] },
-      "POST /api/v1/jobs/55555555-5555-4555-8555-555555555555/approve": () => json({ job: { id: "55555555-5555-4555-8555-555555555555", state: "applying" }, elevatedUntil: null }, 202),
+      // The server keeps which job the step was staged as, and decides the card once it is approved.
+      [`POST /api/v1/agents/proposals/${proposal.id}/steps/0/job`]: () => json(approved
+        ? { ...proposal, state: "staged", jobIds: ["55555555-5555-4555-8555-555555555555"], steps: proposal.steps.map((step) => ({ ...step, jobId: "55555555-5555-4555-8555-555555555555", jobState: "applying", status: "approved" })) }
+        : { ...proposal, steps: proposal.steps.map((step) => ({ ...step, jobId: "55555555-5555-4555-8555-555555555555", jobState: "awaiting_approval", status: "waiting" })) }),
+      "POST /api/v1/jobs/55555555-5555-4555-8555-555555555555/approve": () => { approved = true; return json({ job: { id: "55555555-5555-4555-8555-555555555555", state: "applying" }, elevatedUntil: null }, 202); },
       "GET /api/v1/jobs/55555555-5555-4555-8555-555555555555": { job: { id: "55555555-5555-4555-8555-555555555555", type: "op:app.backup", title: "Back up application data", state: "completed", risk: "medium", error: null, result: {}, steps: [], approvals: [] } },
       "GET /api/v1/jobs/55555555-5555-4555-8555-555555555555/output": { jobId: "55555555-5555-4555-8555-555555555555", state: "completed", output: "", live: false },
     }));
@@ -341,10 +345,14 @@ describe("the test console", () => {
     fireEvent.click(within(card).getByRole("button", { name: "Stage Back up application data" }));
     expect(await screen.findByText("Medium risk")).toBeTruthy();
     expect(calls.find((call) => call.path === "/api/v1/operations/app.backup/jobs")?.body).toEqual({ parameters: { id: "vaultwarden" } });
-    // Staged is not decided: the card is decided once the step is approved.
-    expect(calls.find((call) => call.path.endsWith("/decide"))).toBeUndefined();
+    // Staged: the server is told which job the step is, so the card knows wherever it is drawn.
+    await waitFor(() => expect(calls.filter((call) => call.path.endsWith("/steps/0/job")).map((call) => call.body)).toEqual([{ jobId: "55555555-5555-4555-8555-555555555555" }]));
+    expect(within(card).queryByRole("button", { name: "Stage Back up application data" })).toBeNull();
     fireEvent.click(await screen.findByRole("button", { name: "Confirm and run" }));
-    await waitFor(() => expect(calls.find((call) => call.path.endsWith("/decide"))?.body).toEqual({ decision: "staged", jobIds: ["55555555-5555-4555-8555-555555555555"] }));
+    // Approved: told again, and the server, not the page, decides the card.
+    await waitFor(() => expect(calls.filter((call) => call.path.endsWith("/steps/0/job"))).toHaveLength(2));
+    await waitFor(() => expect(card.getAttribute("data-state")).toBe("staged"));
+    expect(calls.find((call) => call.path.endsWith("/decide"))).toBeUndefined();
   }, 15_000);
 });
 

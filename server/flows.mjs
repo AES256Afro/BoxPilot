@@ -128,10 +128,20 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
   };
   const owns = (jobId) => stepJobs.has(jobId);
   const alertKey = (flow) => `flow.failed:${flow.id}`;
-  /** Through the health-alert ledger: sent once, or kept as not announced when nothing can be sent. */
-  function announce(flow, headline, message) {
+  /**
+   * Through the health-alert ledger: sent once, or kept as not announced when nothing can be sent.
+   * `actorId` is who ran the run the words describe; its step errors are that account's and the
+   * owner's to read (sweep 3), whoever runs the flow next. Null when nobody can be named.
+   */
+  function announce(flow, headline, message, actorId) {
     if (!alerts) return;
-    try { Promise.resolve(alerts.raise({ key: alertKey(flow), title: `${headline}: ${flow.name}`, message: String(message).slice(0, 500), priority: "high" })).catch(() => {}); } catch { /* the flow's own record stands */ }
+    try { Promise.resolve(alerts.raise({ key: alertKey(flow), title: `${headline}: ${flow.name}`, message: String(message).slice(0, 500), priority: "high", actorId: typeof actorId === "string" ? actorId : null })).catch(() => {}); } catch { /* the flow's own record stands */ }
+  }
+  /** Who ran a run, from its jobs: each of one run's jobs is its runner's. Null when they do not say. */
+  function runnerOf(jobIds) {
+    const runners = new Set((jobIds ?? []).filter(Boolean).map((jobId) => store.getJob?.(jobId)?.createdBy ?? null));
+    const [only] = runners;
+    return runners.size === 1 && typeof only === "string" ? only : null;
   }
   function settle(flow, options) {
     if (!alerts) return;
@@ -183,13 +193,46 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
    * the routes as stored), and keeps its mark. Anything else is refused.
    */
   function authorSteps(steps, role, stored = []) {
-    return normalizeSteps(steps).map((step, index) => {
+    const authored = normalizeSteps(steps).map((step, index) => {
       if (!ownerOnly(step)) return step;
       if (role === "owner") return { ...step, ownerAdded: true };
       const kept = stored[index];
       if (sameStep(kept, step)) return { ...step, ...(kept.ownerAdded === true ? { ownerAdded: true } : {}) };
       throw Object.assign(new Error(`Only the owner can put step ${index + 1} (${registry.get(step.operationId).title}) in a flow: only the owner may run it, and a flow runs as whoever starts it`), { code: "flow_step_owner_only" });
     });
+    if (role !== "owner") keepStepsOwnerStepsRead(authored, stored);
+    return authored;
+  }
+
+  const titleOf = (step) => registry.get?.(step?.operationId)?.title ?? step?.operationId;
+  /** The step names a step reads: its parameters' placeholders and its condition's. */
+  const namesRead = (step) => [...referencesIn(step?.parameters ?? {}), ...(step?.when ? referencesIn({ value: step.when.value }) : [])].map((reference) => reference.step);
+
+  /**
+   * A step only the owner may run reads earlier steps' results through {{ steps.x.y }} and `when`
+   * (sweep 3). Whoever can change one of those steps chooses what the owner's step sends, and where,
+   * and whether it runs at all, the next time the owner presses Run now: keeping the owner's step
+   * unchanged was not enough. So a save by anyone but the owner leaves every step an owner-only step
+   * reads, directly or through the steps it reads in turn, where it is and as it is. An owner-only
+   * step moved or removed is refused already (authorSteps above, and the routes' hidden-step guard).
+   */
+  function keepStepsOwnerStepsRead(submitted, stored) {
+    for (const [index, ownersStep] of stored.entries()) {
+      if (!ownerOnly(ownersStep) || !sameStep(ownersStep, submitted[index])) continue;
+      const read = new Set();
+      const pending = namesRead(ownersStep);
+      while (pending.length) {
+        const name = pending.pop();
+        if (read.has(name)) continue;
+        read.add(name);
+        const source = stored.find((step, position) => position < index && step.name === name);
+        if (source) pending.push(...namesRead(source));
+      }
+      for (const [position, step] of stored.entries()) {
+        if (position >= index || typeof step.name !== "string" || !read.has(step.name) || sameStep(step, submitted[position])) continue;
+        throw Object.assign(new Error(`Only the owner can change, move or remove step ${position + 1} (${titleOf(step)}): step ${index + 1} (${titleOf(ownersStep)}), which only the owner may run, reads its result. Leave it where it is, as it is, to save your other changes.`), { code: "flow_step_owner_only" });
+      }
+    }
   }
 
   /**
@@ -382,8 +425,8 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
 
   async function run(id, actorId, { role = "owner", chainDepth = 0, silent = false } = {}) {
     const flow = preflight(id, role);
-    // A drive's trigger words its own outcome (runForDrive); every other run is told from here.
-    const tell = silent ? () => {} : announce;
+    // A drive's trigger words its own outcome (runForDrive); every other run is told from here, as this run's.
+    const tell = silent ? () => {} : (target, headline, message) => announce(target, headline, message, actorId);
 
     running.add(id);
     let completedRun = false;
@@ -587,7 +630,7 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
       if (!recordedRunFailure.test(error.message)) {
         store.markFlowRun(flow.id, { result: `skipped: ${error.message}`.slice(0, 300), jobIds: [] });
         store.recordAudit("flow.skipped", { actorId: flow.createdBy, subjectId: flow.id, details: { reason: error.message.slice(0, 200) } });
-        announce(flow, "Automation did not run", `${flow.name} ${refusalPhrase}: ${error.message}`.slice(0, 300));
+        announce(flow, "Automation did not run", `${flow.name} ${refusalPhrase}: ${error.message}`.slice(0, 300), flow.createdBy);
       }
     }
   }
@@ -665,7 +708,7 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
       if (!recordedRunFailure.test(error.message)) {
         store.markFlowRun(flow.id, { result: `skipped: ${error.message}`.slice(0, 300), jobIds: [] });
         store.recordAudit("flow.skipped", { actorId: flow.createdBy, subjectId: flow.id, details: { reason: error.message.slice(0, 200) } });
-        announce(flow, "Automation did not run", `${flow.name} was due to run after another flow but did not: ${error.message}`.slice(0, 300));
+        announce(flow, "Automation did not run", `${flow.name} was due to run after another flow but did not: ${error.message}`.slice(0, 300), flow.createdBy);
       }
     }
   }
@@ -719,7 +762,7 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
       const summary = `interrupted by a BoxPilot restart while ${flow.lastResult}; the step's job record says how far it got, and later steps did not run`.slice(0, 300);
       store.markFlowRun(flow.id, { result: summary, jobIds: flow.lastJobIds ?? [] });
       store.recordAudit("flow.interrupted", { actorId: flow.createdBy, subjectId: flow.id, details: { was: flow.lastResult.slice(0, 200) } });
-      announce(flow, "Automation was interrupted", `${flow.name} was ${summary}`);
+      announce(flow, "Automation was interrupted", `${flow.name} was ${summary}`, runnerOf(flow.lastJobIds));
       recovered += 1;
     }
     return recovered;

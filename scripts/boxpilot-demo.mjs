@@ -1351,6 +1351,13 @@ api.get("/agents/glance", agentsDemo.handle);
 api.get("/agents/proposals", agentsDemo.handle);
 api.get("/agents/knowledge", agentsDemo.handle);
 api.get("/agents/zulip", agentsDemo.handle);
+// A card's step named as the job it was staged as: the demo stages nothing (its job is "demo-job"),
+// so the card is answered as it stands, the way reading it again would.
+api.post("/agents/proposals/:proposalId/steps/:step/job", (request, response, next) => {
+  request.method = "GET";
+  request.url = `/agents/proposals/${encodeURIComponent(request.params.proposalId)}`;
+  agentsDemo.handle(request, response, next);
+});
 api.use(agentsDemo.handle);
 
 api.all("/{*rest}", (_request, response) => response.status(404).json({ error: "Not part of the demo", code: "demo_missing" }));

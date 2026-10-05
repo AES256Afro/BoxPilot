@@ -147,8 +147,10 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000, r
     void Promise.resolve(notify({
       key: `signin.new:${owner.id}:${address}`,
       title: `New sign-in from ${address}`,
-      // The time is in the words: a push kept until a target answers can arrive hours later.
-      message: `${owner.username} signed in from ${address} via ${method} at ${new Date().toLocaleString()}. If this wasn't you, change your password and review Settings, Where you're signed in.`,
+      // The time is in the words: a push kept until a target answers can arrive hours later. A passkey
+      // or recovery codes made from that session survive a new password and the session ending, so
+      // the advice names them too (sweep 3).
+      message: `${owner.username} signed in from ${address} via ${method} at ${new Date().toLocaleString()}. If this wasn't you, change your password, then in Settings, Account & sign-in, review Where you're signed in and Passkeys, and make new recovery codes: a passkey or recovery code made from a stolen session still works after the password changes.`,
       priority: "high",
     })).catch(() => {});
   }
