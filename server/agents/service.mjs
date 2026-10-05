@@ -917,8 +917,10 @@ export function createAgentService({
       const check = run.flags?.check ?? null;
       if (kind === "answer" && !check) return null;
       if (sanitizeUntrusted(run.answer).flags.injection) return null;
-      const root = run.kind === "continue" ? store.getRun(run.rootRunId ?? run.parentRunId) : null;
-      const question = kind === "answer" ? clip(String(root?.question ?? run.question ?? "").replace(/\s+/g, " ").trim(), 300) : null;
+      // A follow-up answers what its own supervisor's run was asked: the person's question at the
+      // root, the hand-off's task one level down (sweep 3: that one was filed under the root's question).
+      const asked = run.kind === "continue" ? store.getRun(run.parentRunId) : null;
+      const question = kind === "answer" ? clip(String(asked?.question ?? run.question ?? "").replace(/\s+/g, " ").trim(), 300) : null;
       const unsure = Boolean(check?.unsure);
       const partial = Boolean(run.flags?.limitReached);
       const statements = (count) => `${count} ${count === 1 ? "statement" : "statements"}`;
@@ -1768,7 +1770,10 @@ export function createAgentService({
         if (text) store.addEpisode({ agentId: agent.id, runId: run.id, text, readRole: run.readRole });
       }
       // The person's conversation: their question and the final answer. A supervisor's answer to a
-      // hand-off comes in its follow-up run, so that is the turn kept, against the root's question.
+      // hand-off comes in its follow-up run, so that is the turn kept, against the root's question -
+      // at the root only: a second supervisor's follow-up answers the supervisor that asked it, not
+      // the person (sweep 3: it kept the root's question in its own conversation with them).
+      if (run.kind === "continue" && (run.depth ?? 0) > 0) return;
       const root = run.kind === "continue" ? store.getRun(run.rootRunId ?? run.parentRunId) : run;
       if (spec.memory?.threads && run.requestedBy && ["ask", "manual", "continue"].includes(run.kind) && root?.question && run.answer) {
         const thread = store.getThread(agent.id, run.requestedBy) ?? { summary: "", turns: [] };

@@ -90,6 +90,13 @@ describe("the orchestrator", () => {
     const handed = final.steps.find((step) => step.kind === "tool" && step.name === "agents.handoff").output;
     expect(handed).toMatch(/Relay answered: RELAY-FINAL/);
     expect(handed).not.toMatch(/RELAY-INTERIM/);
+    // Relay's follow-up answered the Server Keeper, not the person (sweep 3, R3B1-9): no turn of the
+    // root's question in its own conversation, and its finding is what it was asked, the task.
+    expect(h.store.getThread(relay.id, h.accounts.owner.id)?.turns ?? []).toEqual([]);
+    const relayFinding = h.store.listFindings({ agentId: relay.id }).find((finding) => finding.finding === "answer");
+    expect(relayFinding).toMatchObject({ title: "Asked: Check Pi-hole for me", source: { runId: relayed.id, question: "Check Pi-hole for me" } });
+    // The root's follow-up keeps the person's question, once.
+    expect(h.store.getThread(keeper.id, h.accounts.owner.id).turns.map((turn) => turn.text)).toEqual(["Is Pi-hole doing its job?", "Pi-hole is blocking, Relay says [T1]."]);
   });
 
   it("hands an operator's specialist no more than its maker may read, and that operator never opens an owner's run (R2S3-1)", async () => {
