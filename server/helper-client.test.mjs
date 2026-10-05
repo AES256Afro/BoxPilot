@@ -81,6 +81,21 @@ describe("sharing helper reads", () => {
     await expect(client.request("app.password.set", { id: "demo" }, { timeoutMs: 150 })).resolves.toEqual({ ran: true });
   });
 
+  it("takes the reply when it has arrived whole, without waiting for the socket to end", async () => {
+    // The reply is complete on 'data'; the FIN can come later under load. A deadline between the two
+    // reported a finished operation as a timeout (the flake in the test below, on a busy runner).
+    const frame = (request, value) => `${JSON.stringify({ version: 1, id: request.id, ...value })}\n`;
+    const socketPath = await helperSocket(async (request, connection) => {
+      connection.write(frame(request, { ok: true, result: { ran: true } }));
+      // The end comes well past the 150 ms budget, or never: the client hangs up once it has the reply.
+      await new Promise((resolve) => { const timer = setTimeout(resolve, 600); connection.once("close", () => { clearTimeout(timer); resolve(); }); });
+      return { ran: "twice" };
+    });
+    const client = createHelperClient({ socketPath });
+    await expect(client.request("app.password.set", { id: "demo" }, { timeoutMs: 150 })).resolves.toEqual({ ran: true });
+    expect(client.diagnostics()).toMatchObject({ active: 0, completed: 1, failed: 0 });
+  });
+
   it("tells its caller once when the request queues and once when it starts", async () => {
     const frame = (request, value) => `${JSON.stringify({ version: 1, id: request.id, ...value })}\n`;
     const socketPath = await helperSocket(async (request, connection) => {
