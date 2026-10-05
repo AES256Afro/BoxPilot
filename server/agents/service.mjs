@@ -561,6 +561,18 @@ export function createAgentService({
     return agent ? budgetOf(agent).refusal : null;
   }
 
+  /**
+   * Whether a queued run has waited longer than it may: a person's two hours, background work's
+   * eighteen. A run that waits for quiet hours waits from when they begin: counted from when it was
+   * queued, one queued just after they ended was cancelled before the next began (2026-10 sweep).
+   */
+  function waitedTooLong(run, at = now(), quietHours = moduleSettings().quietHours) {
+    const ttl = personWaiting(run) ? limits.askTtlMs : limits.systemTtlMs;
+    const waitingSince = run.trigger?.quietHours ? nextQuietStart(new Date(run.queuedAt), quietHours).getTime() : Date.parse(run.queuedAt);
+    return at.getTime() - waitingSince > ttl;
+  }
+  const tooLongReason = "It waited too long to start";
+
   /** The run to hand out next, or null. Runs it ends on the way (cancelled, refused) go in `ended`. */
   function chooseRun(queued, { hostBusy = false, ended = [] } = {}) {
     const at = now();
@@ -574,11 +586,7 @@ export function createAgentService({
         if (!agent) { finish(run, "cancelled", "The agent was deleted"); continue; }
         if (agentPaused(agent)) continue;
       }
-      // A run that waits for quiet hours waits from when they begin: counted from when it was
-      // queued, one queued just after they ended was cancelled before the next began (2026-10 sweep).
-      const ttl = personWaiting(run) ? limits.askTtlMs : limits.systemTtlMs;
-      const waitingSince = run.trigger?.quietHours ? nextQuietStart(new Date(run.queuedAt), quietHours).getTime() : Date.parse(run.queuedAt);
-      if (at.getTime() - waitingSince > ttl) { finish(run, "cancelled", "It waited too long to start"); continue; }
+      if (waitedTooLong(run, at, quietHours)) { finish(run, "cancelled", tooLongReason); continue; }
       if (run.trigger?.quietHours && !quiet) continue;
       // The server is busy: people's questions still go, everything else waits.
       if ((hostBusy || hostLoad() > 0.85) && !personWaiting(run)) continue;
@@ -3328,6 +3336,12 @@ export function createAgentService({
       if (queued.skipped !== "queue-full") store.setNextRun(agent.id, nextScheduledRun(schedule, at)?.toISOString() ?? null);
     }
     expireLeases();
+    // What waited too long ends here too, not only when a runner asks for work (sweep 3): with the
+    // runner down, a question waited for good, and its person was told "already waiting" by every
+    // agent - and one asked in Zulip could not cancel it. Each ends as a cancel does, said in chat.
+    for (const run of store.activeRuns().filter((entry) => entry.state === "queued" && waitedTooLong(entry, at, settings.quietHours))) {
+      runEnded(store.finishRun(run.id, { state: "cancelled", reason: tooLongReason }));
+    }
     store.expireProposals(at);
     if (at.getTime() - lastPrune > 86_400_000) { lastPrune = at.getTime(); try { store.prune({ at }); } catch { /* next day */ } }
     if (settings.enabled && at.getTime() - lastModelCheck > 86_400_000) { lastModelCheck = at.getTime(); await checkForNewerModel().catch(() => null); }
