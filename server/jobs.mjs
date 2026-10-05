@@ -404,7 +404,7 @@ export function createJobService(store, helper, {
    * and `rerunOf` / `retryOf` name the job this one runs again: after a restart cut it off (M30.2),
    * or after it ran out of time. They are kept on the record so each run links to the one before.
    */
-  async function createOperationJob(operationId, parameters, ownerId, { role = "owner", budgetMs = null, rerunOf = null, retryOf = null } = {}) {
+  async function createOperationJob(operationId, parameters, ownerId, { role = "owner", budgetMs = null, rerunOf = null, rerunNeverStarted = false, retryOf = null } = {}) {
     const operation = registry.get(operationId);
     if (!operation) throw new Error("Operation not found");
     // BoxPilot's own plumbing runs through the helper when BoxPilot calls it, never as a job: not
@@ -443,7 +443,7 @@ export function createJobService(store, helper, {
       initialSteps: [
         { name: "preflight", state: "completed", detail: `${operation.title}: parameters validated against the operation registry` },
         { name: "checkpoint", state: "completed", detail: `${tier} risk ·${operation.readOnly ? "read-only" : "changes host state"} · runs through the root task runner` },
-        ...(typeof rerunOf === "string" && rerunOf ? [{ name: "rerun", state: "completed", detail: `Ran again after BoxPilot restarted. The first run, job ${rerunOf}, was cut off.` }] : []),
+        ...(typeof rerunOf === "string" && rerunOf ? [{ name: "rerun", state: "completed", detail: `Ran again after BoxPilot restarted. The first run, job ${rerunOf}, ${rerunNeverStarted ? "never started" : "was cut off"}.` }] : []),
         ...(typeof retryOf === "string" && retryOf ? [{ name: "retry", state: "completed", detail: `Trying again with more time. The last run, job ${retryOf}, ran out of time.` }] : []),
         ...(budget !== operation.timeoutMs ? [{ name: "budget", state: "completed", detail: `Allowed ${formatDuration(budget)} instead of the usual ${formatDuration(operation.timeoutMs)}` }] : []),
       ],
