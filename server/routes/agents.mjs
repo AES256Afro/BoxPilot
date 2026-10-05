@@ -70,7 +70,10 @@ export function createAgentsRouter({ agents, state, auth }) {
   router.post("/agents/import", auth.requireCsrf, handle((request, response) => { response.status(201); return agents.importAgent(callerOf(request), request.body ?? {}); }));
 
   // ---- cards ----
+  router.get("/agents/proposals/:proposalId", handle((request) => agents.getProposal(callerOf(request), request.params.proposalId)));
   router.post("/agents/proposals/:proposalId/decide", auth.requireCsrf, handle((request) => agents.decideProposal(callerOf(request), request.params.proposalId, request.body ?? {})));
+  // Which job a step was staged as: kept on the card, which is decided once every step's job is approved.
+  router.post("/agents/proposals/:proposalId/steps/:step/job", auth.requireCsrf, handle((request) => agents.stageProposalStep(callerOf(request), request.params.proposalId, request.params.step, request.body ?? {})));
 
   // ---- runs ----
   router.get("/agents/runs/:runId", handle((request) => agents.getRun(callerOf(request), request.params.runId)));

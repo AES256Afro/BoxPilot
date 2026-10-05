@@ -100,7 +100,13 @@ export interface Catalog {
 }
 
 export interface RunStep { seq: number; kind: "model" | "tool" | "proposal" | "note" | "notify" | "system" | "intent" | "plan" | "recall" | "memory" | "handoff" | "finding"; name: string | null; state: "done" | "failed" | "refused"; input: unknown; output: string | null; flags: Record<string, unknown>; startedAt: string; durationMs: number | null; tokensIn: number | null; tokensOut: number | null }
-export interface PlanStep { operationId: string; title: string; risk: RiskTier; readOnly: boolean; approval: string; typedConfirmation: boolean; parameters: Record<string, unknown>; why: string }
+/**
+ * How a card's step stands, from the job it was staged as, as the server keeps it (sweep 3): ready to
+ * stage (no job yet, or one cancelled or never started), waiting for approval, approved, or failed
+ * after it started. `jobId` is given to the owner and whoever staged it.
+ */
+export type StepStatus = "ready" | "waiting" | "approved" | "failed";
+export interface PlanStep { operationId: string; title: string; risk: RiskTier; readOnly: boolean; approval: string; typedConfirmation: boolean; parameters: Record<string, unknown>; why: string; jobId?: string | null; jobState?: string | null; status?: StepStatus }
 export interface Proposal {
   id: string;
   kind: "plan" | "question" | "escalation";
@@ -258,6 +264,7 @@ export const agentsApi = {
   runtime: () => get<RuntimeState>("/runtime"),
   glance: () => get<Glance>("/glance"),
   proposals: () => get<{ proposals: Proposal[] }>("/proposals"),
+  proposal: (proposalId: string) => get<Proposal>(`/proposals/${encodeURIComponent(proposalId)}`),
   knowledge: () => get<Knowledge>("/knowledge"),
   zulip: () => get<ZulipState>("/zulip"),
   zulipPoll: (csrf: string) => send<{ messages?: number; added?: number; skipped?: string; error?: string; asked?: { asked?: number; refused?: number; skipped?: string; error?: string } }>("POST", "/zulip/poll", csrf),
@@ -283,6 +290,8 @@ export const agentsApi = {
   saveEvaluation: (csrf: string, id: string, questions: Question[]) => send<Evaluation>("PUT", `/${encodeURIComponent(id)}/evaluation`, csrf, { questions }),
   runEvaluation: (csrf: string, id: string) => send<EvalRun>("POST", `/${encodeURIComponent(id)}/evaluation/run`, csrf),
   decide: (csrf: string, proposalId: string, decision: "dismissed" | "staged", jobIds: string[] = []) => send<Proposal>("POST", `/proposals/${encodeURIComponent(proposalId)}/decide`, csrf, { decision, jobIds }),
+  /** Which job a card's step was staged as; the server decides the card once every step's job is approved. */
+  stageStep: (csrf: string, proposalId: string, step: number, jobId: string) => send<Proposal>("POST", `/proposals/${encodeURIComponent(proposalId)}/steps/${step}/job`, csrf, { jobId }),
   memory: (id: string) => get<Memory>(`/${encodeURIComponent(id)}/memory`),
   editMemory: (csrf: string, id: string, noteId: string, patch: { title?: string; body?: string; freshDays?: number | null; pinned?: boolean; shared?: boolean }) => send<MemoryNote>("PUT", `/${encodeURIComponent(id)}/memory/notes/${encodeURIComponent(noteId)}`, csrf, patch),
   forget: (csrf: string, id: string, kind: "notes" | "episodes", itemId: string) => send<{ forgotten: boolean }>("DELETE", `/${encodeURIComponent(id)}/memory/${kind}/${encodeURIComponent(itemId)}`, csrf),
