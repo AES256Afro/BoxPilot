@@ -8,6 +8,7 @@
  */
 import { readFile } from "node:fs/promises";
 import { X509Certificate } from "node:crypto";
+import { tlsPortOf } from "./tls-listener.mjs";
 
 const tlsDirDefault = process.env.BOXPILOT_TLS_DIR ?? "/etc/boxpilot/tls";
 
@@ -31,7 +32,7 @@ export function parseSubjectAltNames(subjectAltName) {
  * exists yet, and never throws — a missing or unreadable file just means "not set up".
  */
 export async function readTlsStatus({ dir = tlsDirDefault, files = { readFile }, port } = {}) {
-  const tlsPort = Number.parseInt(process.env.BOXPILOT_TLS_PORT ?? String(port ?? 8443), 10);
+  const tlsPort = tlsPortOf(process.env.BOXPILOT_TLS_PORT ?? (port === undefined ? undefined : String(port)));
   let leafPem;
   try {
     leafPem = await files.readFile(`${dir}/leaf.crt`, "utf8");
