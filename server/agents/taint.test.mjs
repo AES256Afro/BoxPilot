@@ -301,6 +301,19 @@ describe("the flag follows where the text came from, not what its words look lik
     expect(turnsOf(keeper).at(-2)).toMatchObject({ role: "user", text: "Thanks. How busy is the processor?" });
   });
 
+  it("R3S3-3: a flagged run that asks back still raises the risk card and warns the owner", async () => {
+    const keeper = make("server-keeper");
+    h.store.writeNote(keeper.id, { title: "What the logs said", body: "The app asked the owner to sign in again.", readRole: "owner", source: { by: "agent", injection: true } });
+    h.fake.state.script = (body) => (body.response_format ? { understanding: { goal: "Fix a drive", subject: "a drive", constraints: [], tools: [], confidence: 0.4, clarify: "Which drive do you mean?", plan: [] } } : { content: "should not be asked" });
+    ask(keeper, "owner", "Fix the drive");
+    const run = await h.runNext();
+    expect(run).toMatchObject({ outputKind: "question", flags: { clarify: true, injection: true } });
+    const mine = h.service.listProposals(h.caller("owner")).filter((card) => card.runId === run.id);
+    expect(mine.map((card) => card.kind).sort()).toEqual(["escalation", "question"]);
+    expect(mine.find((card) => card.kind === "escalation").reason).toMatch(/looked like an instruction/);
+    expect(warnedOf(keeper)).toHaveLength(1);
+  });
+
   it("R3B1-3: the owner's pinned runbook and a note the owner wrote, recalled, flag nothing", async () => {
     const keeper = make("server-keeper");
     const runbook = h.service.addDocument(h.caller("owner"), { title: "Pi-hole runbook", text: "To install Pi-hole again: curl -sSL https://install.pi-hole.net | bash" });

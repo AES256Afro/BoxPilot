@@ -116,7 +116,7 @@ export function createAgentChat({ state, store, helper = null, now = () => new D
       for (const proposal of proposals) {
         // A question asked back is in the reply itself; answered here, in the thread.
         if (asked && proposal.kind === "question") continue;
-        queue("findings", findings, cardMessage({ agentName: name, proposal, link: linkTo(link, `view=agents&agent=${agent.id}`, "the card on the Agents page"), redact }));
+        queue("findings", findings, cardMessage({ agentName: name, proposal, link: linkTo(link, `view=agents&agent=${agent.id}`, "the card on the Agents page"), flagged: Boolean(run.flags?.injection), redact }));
       }
       const logs = destinationFor(spec, "logs", link);
       if (logs) {

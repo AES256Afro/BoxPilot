@@ -1847,16 +1847,21 @@ export function createAgentService({
       expiresAt: new Date(now().getTime() + limits.proposalTtlMs).toISOString(), ...extra,
     });
     try {
-      if (clarify) { card("question", `${agent.name} has a question`, "It asked rather than guess what was meant. Answer it in the console.", { question: clarify }); return; }
-      const reasons = [];
-      const confidence = run.flags?.confidence;
-      if (rules.lowConfidence && typeof confidence === "number" && confidence < limits.lowConfidence && ["ask", "manual", "event", "schedule", "webhook"].includes(run.kind)) reasons.push(`It was only ${Math.round(confidence * 100)}% sure it understood the request.`);
-      if (rules.limits && run.flags?.limitReached) reasons.push(limitWords(run.flags, spec));
       const risky = rules.risk && run.flags?.injection;
+      const confidence = run.flags?.confidence;
+      const reasons = [];
+      if (clarify) {
+        card("question", `${agent.name} has a question`, "It asked rather than guess what was meant. Answer it in the console.", { question: clarify });
+      } else {
+        if (rules.lowConfidence && typeof confidence === "number" && confidence < limits.lowConfidence && ["ask", "manual", "event", "schedule", "webhook"].includes(run.kind)) reasons.push(`It was only ${Math.round(confidence * 100)}% sure it understood the request.`);
+        if (rules.limits && run.flags?.limitReached) reasons.push(limitWords(run.flags, spec));
+      }
+      // A run that asked back is no less one that read something like an instruction: its question
+      // may be those words (sweep 3: the card and the warning were skipped for it).
       if (risky) reasons.push("Something it read looked like an instruction to it. It was told to treat it as data; check what it read and what it did.");
       if (reasons.length) {
         card("escalation", `${agent.name} needs you to look`, reasons.join(" "));
-        audit("agents.escalated", { actorId: run.requestedBy, subjectId: run.id, details: { agentId: agent.id, lowConfidence: reasons.length && typeof confidence === "number" && confidence < limits.lowConfidence, limit: Boolean(run.flags?.limitReached), risk: Boolean(risky) } });
+        audit("agents.escalated", { actorId: run.requestedBy, subjectId: run.id, details: { agentId: agent.id, lowConfidence: !clarify && typeof confidence === "number" && confidence < limits.lowConfidence, limit: Boolean(run.flags?.limitReached), risk: Boolean(risky) } });
       }
       // Nothing proves the agent did not act on what it read (it may have proposed a plan or kept a
       // note), so the warning does not say it did not (2026-10 sweep).
