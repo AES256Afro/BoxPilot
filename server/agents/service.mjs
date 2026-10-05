@@ -30,11 +30,11 @@ import { coreLimits, defaultCores, effectiveCores, physicalCores, runnerCaps, ru
 import { createAgentChat, zulipSettingKey } from "./chat.mjs";
 import { ConnectorError, boundSync, cleanDocumentText, connectors, readFolderSetting, scanFolder, textOfUpload } from "./connectors.mjs";
 import { ageWords, compactFinding, findingAnswers, findingFreshMs, findingKind, findingReaderKinds, findingScore, sharingOf, wantsFresh } from "./findings.mjs";
-import { sanitizeUntrusted, stripWrapperBlocks, wrapFinding, wrapNote, wrapToolOutput } from "./guard.mjs";
+import { detectInjection, sanitizeUntrusted, stripWrapperBlocks, wrapFinding, wrapNote, wrapToolOutput } from "./guard.mjs";
 import { readUnderstanding, understandingSummary } from "./intent.mjs";
 import { decodeVector, encodeVector, episodeOf, foldThread, hybridSearch, memoryTiers, readVector } from "./memory.mjs";
 import { defaultModelId, downloadPreview, findNewerQwen, modelById, modelLibrary, testedUnslothVersion, unslothModelSpec } from "./models.mjs";
-import { chainOf, checkHandoff, findSpecialist, specialistsFor, treeOf } from "./orchestrator.mjs";
+import { agentsNamed, chainOf, checkHandoff, specialistsFor, treeOf } from "./orchestrator.mjs";
 import { exportDefinition, readDefinition } from "./portable.mjs";
 import { checkCitations, readStructuredAnswer, systemMessage, taskMessage } from "./prompt.mjs";
 import { SpecError, agentEvents, budgetCeilings, diffSpecs, normalizeSpec, outputFormats, previousRunSecondsDefault, scopeWarnings, specText } from "./spec.mjs";
@@ -615,10 +615,32 @@ export function createAgentService({
    */
   const sourcesFor = (spec, readRole) => readableSources({ spec, sources: knowledgeSettings(), readRole });
 
+  /** The account that made an agent, while it has a role that reads anything. */
+  const makerOf = (agent) => {
+    const maker = agent?.createdBy ? state.findOwnerById?.(agent.createdBy) : null;
+    return maker && ["owner", "operator", "viewer"].includes(maker.role) ? maker : null;
+  };
+
+  /**
+   * The specialists a supervisor's run may hand work to: only those whose maker may read at least
+   * what the run reads (2026-10 sweep 3). Work is never handed down: an owner's run's task - its
+   * words, the notes and the finding the specialist keeps from it - would land where an operator
+   * reads it. Each with whether its words are trusted: the owner's, or the supervisor's own maker's;
+   * any other account's name and job are data, held to their words (claimPayload).
+   */
+  function specialistsForRun(spec, agent, readRole) {
+    const eligible = store.listAgents().filter((entry) => { const maker = makerOf(entry); return Boolean(maker) && roleAtLeast(maker.role, readRole); });
+    const byId = new Map(eligible.map((entry) => [entry.id, entry]));
+    return specialistsFor(spec, eligible, agent.id).map((entry) => {
+      const maker = makerOf(byId.get(entry.id));
+      return { ...entry, trusted: maker?.role === "owner" || (Boolean(agent.createdBy) && maker?.id === agent.createdBy) };
+    });
+  }
+
   /** The tools a run is offered: the agent's permissions, the run's role, and what is switched on. */
   function offeredTools(run, spec, agent) {
     const settings = moduleSettings();
-    const specialists = specialistsFor(spec, store.listAgents(), agent.id);
+    const specialists = specialistsForRun(spec, agent, run.readRole);
     const sources = sourcesFor(spec, run.readRole);
     return toolCatalog.filter((tool) => {
       if (!toolAllowed(tool, spec.tools?.[tool.id], { kind: run.kind, readRole: run.readRole })) return false;
@@ -984,6 +1006,12 @@ export function createAgentService({
     const version = store.getVersion(run.agentId, run.version) ?? { spec: agent.spec };
     const spec = version.spec;
     const offered = offeredTools(run, spec, agent);
+    // The specialists it is told of, when it may hand work on. Another account's words about one
+    // that read like an instruction are read here, by this run itself (sweep 3).
+    const specialists = offered.some((tool) => tool.id === "agents.handoff") ? specialistsForRun(spec, agent, run.readRole) : [];
+    if (specialists.some((entry) => !entry.trusted && detectInjection(`${entry.name}\n${entry.job}`).suspected)) {
+      flagInjection(run.id, { hop: 0, detail: "A specialist's name or job, written by another account, reads like an instruction." });
+    }
     // A specialist's task came from its supervisor's run: one that had read something looking like
     // an instruction by the time it ended taints the task it handed over (2026-10 sweep 2).
     const supervisor = run.kind === "handoff" && run.parentRunId ? store.getRun(run.parentRunId) : null;
@@ -1061,7 +1089,7 @@ export function createAgentService({
       // Its purpose, job and steps are what the planner reads (intent.mjs), before the long prompt.
       agent: { id: agent.id, name: spec.name, version: run.version, outputs: spec.outputs, purpose: spec.purpose ?? "", job: spec.job ?? "", steps: spec.prompt?.steps ?? [], useFindings: usesFindings },
       messages: [
-        { role: "system", content: systemMessage(spec, { specialists: offered.some((tool) => tool.id === "agents.handoff") ? specialistsFor(spec, store.listAgents(), agent.id) : [], chat: chat.promptConnection(), useFindings: usesFindings }) },
+        { role: "system", content: systemMessage(spec, { specialists, chat: chat.promptConnection(), useFindings: usesFindings }) },
         { role: "user", content: [taskMessage({ kind: run.kind, question: run.question, trigger: run.trigger, notes, memories: recalled.map(memoryLine), findings: findings.map((finding) => finding.wrapped), thread: context, now: now() }), ...handoffOutputs].join("\n\n") },
       ],
       // The findings it was offered, F1, F2 ...: what the runner's check holds a claim citing one to.
@@ -1492,30 +1520,34 @@ export function createAgentService({
   }
 
   /**
-   * Whom a specialist's run reads as: the supervisor's run's person, but never more than the person
-   * who made the specialist may read (2026-10 sweep 2). The Server Keeper's owner runs handed work
-   * to an operator's agent as the owner, and that operator then read the run's trace: the owner's
-   * jobs, other agents' owner findings, what it recalled. Capped, it reads as its maker, whose run
-   * it is to see. Null when its maker's account is gone: there is nobody to read as.
+   * Why a specialist may not take work from this run, or null: its maker's account is gone (there
+   * is nobody whose run it is), or reads less than this run does (2026-10 sweeps 2 and 3). Sweep 2
+   * ran it as its maker instead, but the task the owner's run wrote still became its question, its
+   * notes and its finding's title, all where that operator reads them: work is never handed down.
    */
-  function handoffReader(run, target) {
-    const maker = target.createdBy ? state.findOwnerById?.(target.createdBy) : null;
-    if (!maker) return null;
-    const makerRole = ["owner", "operator", "viewer"].includes(maker.role) ? maker.role : "viewer";
-    return roleAtLeast(makerRole, run.readRole) ? { readRole: run.readRole, readAs: run.readAs } : { readRole: makerRole, readAs: maker.id };
+  function handoffRefusal(run, target) {
+    const maker = makerOf(target);
+    if (!maker) return `${target.name}'s maker no longer has an account here, so it does not take work from other agents`;
+    if (!roleAtLeast(maker.role, run.readRole)) return `${target.name} was made by ${maker.role === "operator" ? "an operator" : "a viewer"}, and this run reads what only ${run.readRole === "owner" ? "the owner" : "an operator"} may, so it hands it nothing`;
+    return null;
   }
 
   /**
    * A supervisor hands a subtask to a specialist: the specialist's run is queued as the same person,
-   * one level deeper under this run - reading no more than the specialist's maker may - and its
-   * answer comes back in the supervisor's follow-up run.
+   * one level deeper under this run - only to a specialist whose maker may read what this run reads
+   * - and its answer comes back in the supervisor's follow-up run.
    */
   function handoffFor(run, spec, { agent: name, task }, answer) {
     const agent = store.getAgent(run.agentId, { includeDeleted: true });
-    const target = findSpecialist(store.listAgents(), name);
+    const named = agentsNamed(store.listAgents(), name);
+    // Two with that name: neither is guessed at (sweep 3).
+    if (named.length > 1) return answer("handoff", { state: "refused", text: `More than one agent is called ${clip(name, 60)}, so none was handed it. Ask the owner to give them different names.`, input: { agent: clip(name, 60) }, flags: { refused: true } });
+    const target = named[0] ?? null;
     const handed = store.listChildren(run.id).filter((entry) => entry.kind === "handoff").length;
     const check = checkHandoff({ agent, spec, run, target, chain: chainOf(run, (id) => store.getRun(id)), handedSoFar: handed });
     if (check.problem) return answer("handoff", { state: "refused", text: `${check.problem}.`, input: { agent: clip(name, 60) }, flags: { refused: true } });
+    const refusal = handoffRefusal(run, target);
+    if (refusal) return answer("handoff", { state: "refused", text: `${refusal}.`, input: { agent: target.name }, flags: { refused: true } });
     const sanitizedTask = sanitizeUntrusted(task, { maxChars: 1_000, redact });
     const cleanTask = sanitizedTask.text;
     // M44: a specialist that already found this, recently, is not run again: its finding is its
@@ -1532,11 +1564,9 @@ export function createAgentService({
     }
     const targetBudget = budgetOf(target);
     if (targetBudget.refusal) return answer("handoff", { state: "refused", text: `${target.name} cannot run again today: ${targetBudget.refusal.toLowerCase()}.`, input: { agent: target.name }, flags: { refused: true } });
-    const reader = handoffReader(run, target);
-    if (!reader) return answer("handoff", { state: "refused", text: `${target.name}'s maker no longer has an account here, so it does not take work from other agents.`, input: { agent: target.name }, flags: { refused: true } });
     const child = store.enqueueRun({
       agentId: target.id, version: target.version, kind: "handoff", question: cleanTask, trigger: { title: `Handed over by ${agent.name}` },
-      requestedBy: run.requestedBy, readRole: reader.readRole, readAs: reader.readAs, parentRunId: run.id, rootRunId: run.rootRunId ?? run.id, depth: check.depth,
+      requestedBy: run.requestedBy, readRole: run.readRole, readAs: run.readAs, parentRunId: run.id, rootRunId: run.rootRunId ?? run.id, depth: check.depth,
     });
     // The task carries the flag: its words read like an instruction, or the run that wrote it had read
     // something that did (2026-10 sweep 2). What the supervisor reads after this is checked at claim.

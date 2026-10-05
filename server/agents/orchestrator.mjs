@@ -29,13 +29,24 @@ export function checkHandoff({ agent, spec, run, target, chain, handedSoFar }) {
   return { depth };
 }
 
-/** Find an agent by what the model called it: its name, or its id. */
+const nameKey = (name) => String(name ?? "").trim().toLowerCase().replace(/^the\s+/, "").replace(/\s+/g, " ");
+
+/**
+ * The agents the model may mean by what it called one: the one with that id, else every one with
+ * exactly that name (any case, "the" before it or not). Never a part of a name (2026-10 sweep 3:
+ * "Pi-hole" was taken for whichever agent's name held it). More than one is not guessed between.
+ */
+export function agentsNamed(agents, name) {
+  const wanted = nameKey(name);
+  if (!wanted) return [];
+  const byId = agents.find((agent) => agent.id === String(name ?? "").trim());
+  return byId ? [byId] : agents.filter((agent) => nameKey(agent.name) === wanted);
+}
+
+/** Find an agent by what the model called it: its id, or its exact name; null for none, or two. */
 export function findSpecialist(agents, name) {
-  const wanted = String(name ?? "").trim().toLowerCase();
-  if (!wanted) return null;
-  return agents.find((agent) => agent.id === wanted || agent.name.toLowerCase() === wanted)
-    ?? agents.find((agent) => agent.name.toLowerCase().includes(wanted) || wanted.includes(agent.name.toLowerCase()))
-    ?? null;
+  const found = agentsNamed(agents, name);
+  return found.length === 1 ? found[0] : null;
 }
 
 /** The agents a supervisor may hand work to, as its prompt lists them. */
