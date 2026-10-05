@@ -10,6 +10,7 @@ import { registry, riskTiers } from "../ops/index.mjs";
 import { approvalModes, elevationTtlMs } from "../ops/risk.mjs";
 import { findPortConflicts, listListeners } from "../ports.mjs";
 import { keepsBackupData, resolveValues } from "../catalog/schema.mjs";
+import { optionalPortsIn } from "../catalog/compose.mjs";
 import { hashPassword, renderAutoinstall, validateAutoinstallInput } from "../autoinstall.mjs";
 import { readTlsStatus } from "../tls-status.mjs";
 import { collectStorage } from "../storage-inventory.mjs";
@@ -33,10 +34,28 @@ import path from "node:path";
 export function portsHeldByApp(manifest, own) {
   if (!own?.installed) return new Set();
   const stored = own.state?.values?.ports ?? {};
-  return new Set((manifest.ports ?? [])
-    .map((port) => ({ host: stored[port.id] ?? port.host, protocol: port.protocol }))
+  // On the host's own network an app holds its container ports, which its record lists as published.
+  return new Set([...(manifest.ports ?? []).map((port) => ({ host: stored[port.id] ?? port.host, protocol: port.protocol })), ...(own.published ?? [])]
     .filter((port) => Number.isInteger(port.host))
-    .map((port) => `${port.host}/${port.protocol}`));
+    .map((port) => `${port.host}/${port.protocol === "udp" ? "udp" : "tcp"}`));
+}
+
+/**
+ * The values to precheck an installed app's settings with: each required secret the form left blank
+ * stands in as given. Saved settings never hold a secret (only the app's .env does), so the Settings
+ * form for the Cloudflare Tunnel or Cloudflare DDNS sends its token blank; the change itself takes it
+ * from .env (app-helper withSavedSecrets), and the precheck refused it with "is required". For the
+ * check only: these values go nowhere else.
+ */
+export function withSavedSecretsAssumed(manifest, raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return raw;
+  if (raw.env !== undefined && (!raw.env || typeof raw.env !== "object" || Array.isArray(raw.env))) return raw;
+  const env = { ...(raw.env ?? {}) };
+  for (const entry of manifest.env ?? []) {
+    if (!entry.secret || !entry.required || entry.fixed || entry.generate || (entry.default !== null && entry.default !== undefined)) continue;
+    if (env[entry.name] === undefined || env[entry.name] === null || env[entry.name] === "") env[entry.name] = entry.options?.[0] ?? "saved";
+  }
+  return { ...raw, env };
 }
 
 /**
@@ -125,21 +144,29 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
   router.post("/catalog/:id/precheck", auth.requireCsrf, async (request, response) => {
     const manifest = await catalogService.get(request.params.id);
     if (!manifest) return response.status(404).json({ error: "Application not found", code: "application_not_found" });
-    const { values, errors } = resolveValues(manifest, request.body?.values ?? {});
+    // Whether the app is installed decides what its blank secrets mean, so it is asked first.
+    const [listeners, live, docker] = await Promise.all([
+      Promise.resolve().then(() => readListeners()).catch(() => null),
+      helper.request("app.inspect", {}, { timeoutMs: 15_000 }).catch(() => null),
+      // Names the container behind a docker-proxy listener; optional, so a failure just omits it.
+      helper.request("container.docker.inventory", {}, { timeoutMs: 15_000 }).catch(() => null),
+    ]);
+    const own = live?.applications?.find((entry) => entry.id === manifest.id) ?? null;
+    const given = request.body?.values ?? {};
+    const { values, errors } = resolveValues(manifest, own?.installed ? withSavedSecretsAssumed(manifest, given) : given);
     if (errors.length) return response.status(400).json({ ok: false, errors, conflicts: [] });
-    const requested = manifest.ports.map((port) => ({ id: port.id, label: port.label, host: values.ports[port.id], protocol: port.protocol, exposure: port.exposure }));
+    // On the host's own network the app binds its container ports itself, and one its own settings
+    // let it start without (Pi-hole's admin page, `80o`) is warned about by the install, not refused.
+    const hostNetwork = (values.networkMode ?? manifest.network) === "host";
+    const optional = hostNetwork ? optionalPortsIn(Object.values(values.env ?? {})) : new Set();
+    const requested = manifest.ports
+      .filter((port) => !(hostNetwork && optional.has(port.container)))
+      .map((port) => ({ id: port.id, label: port.label, host: hostNetwork ? port.container : values.ports[port.id], protocol: port.protocol, exposure: port.exposure }));
     let conflicts = [];
     try {
-      const [listeners, live, docker] = await Promise.all([
-        listListeners(),
-        helper.request("app.inspect", {}, { timeoutMs: 15_000 }).catch(() => null),
-        // Names the container behind a docker-proxy listener; optional, so a failure just omits it.
-        helper.request("container.docker.inventory", {}, { timeoutMs: 15_000 }).catch(() => null),
-      ]);
-      const own = live?.applications?.find((entry) => entry.id === manifest.id);
       // The ports this app is already holding are not conflicts with itself.
       const ownPorts = portsHeldByApp(manifest, own);
-      conflicts = findPortConflicts(requested, listeners, docker?.containers ?? null).filter((conflict) => !ownPorts.has(`${conflict.port}/${conflict.protocol}`));
+      conflicts = findPortConflicts(requested, listeners ?? [], docker?.containers ?? null).filter((conflict) => !ownPorts.has(`${conflict.port}/${conflict.protocol}`));
     } catch { /* conflicts are advisory */ }
     return response.json({ ok: conflicts.length === 0, errors: [], conflicts: conflicts.map((conflict) => ({ ...conflict, label: requested.find((port) => port.id === conflict.id)?.label ?? conflict.id })) });
   });
