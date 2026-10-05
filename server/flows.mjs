@@ -167,6 +167,42 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
     }));
   }
 
+  /** An operation only the owner may run (minimumRole "owner"). */
+  const ownerOnly = (step) => registry.get?.(step?.operationId)?.minimumRole === "owner";
+  /** JSON with object keys in one order, so two steps compare by what they hold. */
+  const canonical = (value) => JSON.stringify(value ?? null, (_key, entry) => (entry && typeof entry === "object" && !Array.isArray(entry) ? Object.fromEntries(Object.entries(entry).sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))) : entry));
+  const sameStep = (left, right) => Boolean(left && right) && canonical(normalizeSteps([left])[0]) === canonical(normalizeSteps([right])[0]);
+
+  /**
+   * The steps to store, as saved by someone with `role` (sweep 2). A flow runs as whoever starts it,
+   * so a step only the owner may run is the owner's to put in one: an operator's flow holding an HTTP
+   * request to their own address ran with the owner's authority when the owner clicked Run now.
+   * Saved by the owner, such a step is marked ownerAdded; saved by anyone else, it must be one
+   * already stored at the same place, unchanged (the owner's step in an operator's flow, put back by
+   * the routes as stored), and keeps its mark. Anything else is refused.
+   */
+  function authorSteps(steps, role, stored = []) {
+    return normalizeSteps(steps).map((step, index) => {
+      if (!ownerOnly(step)) return step;
+      if (role === "owner") return { ...step, ownerAdded: true };
+      const kept = stored[index];
+      if (sameStep(kept, step)) return { ...step, ...(kept.ownerAdded === true ? { ownerAdded: true } : {}) };
+      throw Object.assign(new Error(`Only the owner can put step ${index + 1} (${registry.get(step.operationId).title}) in a flow: only the owner may run it, and a flow runs as whoever starts it`), { code: "flow_step_owner_only" });
+    });
+  }
+
+  /**
+   * A step only the owner may run, in a flow someone else created, that the owner has not saved since
+   * it was put there: saved before steps were checked (above), or carried over from then. Not run
+   * until the owner has read the flow and saved it, which marks the step as theirs. Null if none.
+   */
+  function unvouchedStep(flow) {
+    if ((store.findOwnerById?.(flow.createdBy)?.role ?? null) === "owner") return null;
+    const index = (flow.steps ?? []).findIndex((step) => ownerOnly(step) && step.ownerAdded !== true);
+    if (index < 0) return null;
+    return `step ${index + 1} (${registry.get(flow.steps[index].operationId).title}) is one only the owner may run, and the owner has not saved this flow since it was put there. The owner can open it and save the flow to keep the step`;
+  }
+
   /**
    * A flow may run after another completes (ADR-002 addendum, v1.45.0). The link must point at a
    * real flow, never itself, and never close a loop: A after B after A would run forever on the
@@ -203,19 +239,30 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
   // The stored hash is never the browser's business; strip it from anything a route returns.
   const withoutHash = ({ webhookHash: _webhookHash, ...flow }) => flow;
 
-  /** A flow's steps, refused if one carries a secret; `prefix` says why for a flow already saved. */
-  async function refuseStoredSecrets(steps, prefix = "") {
+  /**
+   * A flow's steps, refused if one carries a secret or is high risk for what it acts on; `prefix`
+   * says why for a flow already saved. validateFlow refuses an operation that is high risk itself;
+   * one the job layer raises to high for its subject (installing an app whose manifest says so)
+   * needs the job layer's answer, and would otherwise stop the flow at that step on every run.
+   */
+  async function refuseStoredSteps(steps, prefix = "") {
     const problem = await flowSecretProblem(steps, { registry, secretEnvNamesFor });
     if (problem) throw new Error(`${prefix}${problem}`);
+    if (typeof jobs?.effectiveRisk !== "function") return;
+    for (const [index, step] of steps.entries()) {
+      const operation = registry.get?.(step?.operationId);
+      if (operation && await jobs.effectiveRisk(step.operationId, step.parameters ?? {}) === "high") throw new Error(`${prefix}step ${index + 1}: ${operation.title} is high risk here and cannot be part of a flow (ADR-002)`);
+    }
   }
 
-  async function create({ name, steps, createdBy, cadence = null, triggerFlowId = null, triggerDrive = null }) {
+  async function create({ name, steps, createdBy, role = "owner", cadence = null, triggerFlowId = null, triggerDrive = null }) {
     const problem = validateFlow({ name, steps }, registry);
     if (problem) throw new Error(problem);
-    await refuseStoredSecrets(steps);
+    const authored = authorSteps(steps, role);
+    await refuseStoredSteps(steps);
     const triggerProblem = checkTrigger(triggerFlowId) ?? checkDriveTrigger(triggerDrive);
     if (triggerProblem) throw new Error(triggerProblem);
-    return withoutHash(store.createFlow({ name: name.trim(), steps: normalizeSteps(steps), createdBy, triggerFlowId, ...(triggerDrive ? { triggerDrive } : {}), ...cadenceFields(cadence) }));
+    return withoutHash(store.createFlow({ name: name.trim(), steps: authored, createdBy, triggerFlowId, ...(triggerDrive ? { triggerDrive } : {}), ...cadenceFields(cadence) }));
   }
 
   /**
@@ -239,18 +286,20 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
     // drive was armed (M26.5): it can be renamed, paused or resumed, and anything else means disarming
     // and arming again. The same steps sent back by an edit form are not a change.
     if (flow.triggerDrive) {
-      const stepsChanged = steps !== undefined && JSON.stringify(normalizeSteps(steps)) !== JSON.stringify(flow.steps);
+      const stepsChanged = steps !== undefined && JSON.stringify(normalizeSteps(steps)) !== JSON.stringify(normalizeSteps(flow.steps));
       if (stepsChanged || cadence !== undefined || triggerFlowId !== undefined) throw new Error(`${flow.name} reconnects ${mountpointFor(flow.triggerDrive)} when it drops; to change what it does, stop reconnecting automatically and arm the drive again`);
     }
     const problem = validateFlow({ name: name ?? flow.name, steps: steps ?? flow.steps }, registry);
     if (problem) throw new Error(problem);
+    // Only new or changed owner-only steps are the editor's; those already there stay as they were.
+    const authored = steps ? authorSteps(steps, role, flow.steps) : undefined;
     // The steps as they will be after this edit, new or kept: editing was once the way round the check.
-    await refuseStoredSecrets(steps ?? flow.steps);
+    await refuseStoredSteps(steps ?? flow.steps);
     if (triggerFlowId !== undefined) {
       const triggerProblem = checkTrigger(triggerFlowId, id);
       if (triggerProblem) throw new Error(triggerProblem);
     }
-    const changes = { name: name?.trim(), steps: steps ? normalizeSteps(steps) : undefined, enabled, triggerFlowId };
+    const changes = { name: name?.trim(), steps: authored, enabled, triggerFlowId };
     if (cadence !== undefined) Object.assign(changes, cadenceFields(cadence));
     // Re-enabling a scheduled flow computes the next due time afresh, so a flow paused for a
     // month does not fire the moment it is switched back on to make up for missed Sundays.
@@ -297,7 +346,7 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
     if (!flow) throw new Error("Flow not found");
     if (["viewer", "disabled"].includes(role)) throw new Error("Viewers cannot run flows");
     if (running.has(id)) throw new Error(`${flow.name} is already running`);
-    const problem = validateFlow(flow, registry);
+    const problem = validateFlow(flow, registry) ?? unvouchedStep(flow);
     if (problem) throw new Error(`This flow is no longer valid: ${problem}`);
     if (store.getSetting?.("approvalMode", null) === "always-password") {
       throw new Error("Approval mode is set to always ask, so flows cannot run: each step would need its own password. Change the approval mode to run flows.");
@@ -315,7 +364,7 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
    * can do that is reported, so nothing is lost by not being awaited.
    */
   async function launch(id, actorId, { role = "owner" } = {}) {
-    await refuseStoredSecrets(preflight(id, role).steps, "This flow is no longer valid: ");
+    await refuseStoredSteps(preflight(id, role).steps, "This flow is no longer valid: ");
     // Checked again after waiting on the catalog, and with nothing between this and run() taking
     // the flow: a second start in that gap must be refused to its own caller, not merely logged.
     const flow = preflight(id, role);
@@ -340,10 +389,10 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
     let skippedByCondition = 0;
     const namedResults = {};
     try {
-      // A flow saved before its secret was refused still carries it: it does not run, like any
-      // other flow validateFlow no longer accepts. Checked after the flow is marked running, so the
+      // A flow saved before its secret (or its step's raised tier) was refused still carries it: it
+      // does not run, like any other flow validateFlow no longer accepts. Checked after the flow is marked running, so the
       // wait on the catalog cannot let a second start slip past preflight.
-      await refuseStoredSecrets(flow.steps, "This flow is no longer valid: ");
+      await refuseStoredSteps(flow.steps, "This flow is no longer valid: ");
       for (const [index, step] of flow.steps.entries()) {
         const operation = registry.get(step.operationId);
         const title = operation?.title ?? step.operationId;
@@ -416,6 +465,16 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
           if (finished.state === "completed") {
             if (attempt > 1) notes.push(`step ${index + 1} (${title}) succeeded on attempt ${attempt} of ${attemptsAllowed}`);
             break;
+          }
+          // A job that used its whole budget after it started was given up on, not stopped: its own
+          // record says it may still be running. That is losing sight of the step by another name,
+          // so neither a retry (a second copy beside the first) nor a keep-going policy applies.
+          if (finished.state === "failed" && finished.timeout?.scope === "operation" && finished.timeout.phase !== "queued") {
+            const summary = `lost sight of step ${index + 1} (${title}): it did not finish inside its time budget and may still be running on the server, so later steps did not start`.slice(0, 300);
+            store.markFlowRun(id, { result: summary, jobIds });
+            store.recordAudit("flow.failed", { actorId, subjectId: id, details: { step: index + 1, operationId: step.operationId, jobId: job.id, attempt, reason: "ran out of its whole time budget" } });
+            tell(flow, "Automation stopped", `${flow.name} ${summary}`);
+            throw new Error(`${flow.name} ${summary}`);
           }
           store.recordAudit("flow.failed", { actorId, subjectId: id, details: { step: index + 1, operationId: step.operationId, jobId: job.id, attempt } });
           if (finished.state === "failed" && attempt < attemptsAllowed) {
@@ -506,8 +565,8 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
     return "accepted";
   }
 
-  /** One flow run under its creator's stored authority, with refusals recorded and notified. */
-  async function runUnderCreator(flow, refusalPhrase) {
+  /** One flow run under its creator's stored authority, with refusals recorded and notified. `afterRun` follows a run that completed. */
+  async function runUnderCreator(flow, refusalPhrase, { afterRun = null } = {}) {
     if (running.has(flow.id)) return;
     const creator = store.findOwnerById?.(flow.createdBy) ?? null;
     try {
@@ -516,6 +575,7 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
       if (!creator) throw new Error("the flow's creator no longer exists");
       if (["viewer", "disabled"].includes(creator.role)) throw new Error(`${creator.username} can no longer approve jobs`);
       await run(flow.id, flow.createdBy, { role: creator.role });
+      afterRun?.();
     } catch (error) {
       if (!recordedRunFailure.test(error.message)) {
         store.markFlowRun(flow.id, { result: `skipped: ${error.message}`.slice(0, 300), jobIds: [] });
@@ -609,43 +669,33 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
    * scheduler already carries: the creator consented by writing the cadence, the consent is
    * visible on the page, and disabling the flow revokes it. Everything else about unattended
    * running is inherited too, including refusing to run under always-ask approval mode.
+   *
+   * Every due flow is started and left to run: the clocks are all advanced and the runs all fired
+   * before any of them is waited on. tick() used to await each run in turn and turn away the ticks
+   * that came meanwhile, so one slow flow - a step queued for hours behind other work - kept every
+   * other schedule, and every follower, from starting. `running` still stops a flow lapping itself.
+   * The promise returned settles once the runs this tick started have, for a caller that waits.
    */
-  let ticking = false;
   async function tick() {
-    if (ticking) return 0;
-    ticking = true;
-    try {
-      const due = store.listDueFlows(now().toISOString());
-      for (const flow of due) {
-        // Advance the clock before running, so a slow flow cannot fire twice.
-        const nextDueAt = computeNextRun(flow, now()).toISOString();
-        if (running.has(flow.id)) { store.updateFlow(flow.id, { nextDueAt }, { actorId: flow.createdBy }); continue; }
-        // Advanced BEFORE the refusals below, not after. When the creator had been demoted, the
-        // refusal threw first and the clock never moved, so the flow was due again on the very next
-        // tick: a "did not run" push to the owner's phone every sixty seconds, and 1,440 skipped
-        // rows a day into an audit log capped at 20,000 - which evicts every other record in a
-        // fortnight. The scheduler had always advanced first; this now does the same.
-        store.updateFlow(flow.id, { nextDueAt }, { actorId: flow.createdBy });
-        const creator = store.findOwnerById?.(flow.createdBy) ?? null;
-        try {
-          if (!creator) throw new Error("the flow's creator no longer exists");
-          if (["viewer", "disabled"].includes(creator.role)) throw new Error(`${creator.username} can no longer approve jobs`);
-          await run(flow.id, flow.createdBy, { role: creator.role });
-          store.recordAudit("flow.scheduled-run", { actorId: flow.createdBy, subjectId: flow.id, details: { nextDueAt } });
-        } catch (error) {
-          // run() already recorded the failure on the flow; a refusal before it started needs recording here.
-          if (!recordedRunFailure.test(error.message)) {
-            store.markFlowRun(flow.id, { result: `skipped: ${error.message}`.slice(0, 300), jobIds: [] });
-            store.recordAudit("flow.skipped", { actorId: flow.createdBy, subjectId: flow.id, details: { reason: error.message.slice(0, 200) } });
-            // A refusal produces no job, so nothing else would tell the owner their schedule did not run.
-            announce(flow, "Automation did not run", `${flow.name} was due but did not run: ${error.message}`.slice(0, 300));
-          }
-        }
-      }
-      return due.length;
-    } finally {
-      ticking = false;
+    const due = store.listDueFlows(now().toISOString());
+    const started = [];
+    for (const flow of due) {
+      // Advance the clock before running, so a slow flow cannot fire twice. Advanced BEFORE the
+      // refusals in runUnderCreator, not after: when the creator had been demoted, the refusal threw
+      // first and the clock never moved, so the flow was due again on the very next tick: a "did not
+      // run" push to the owner's phone every sixty seconds, and 1,440 skipped rows a day into an audit
+      // log capped at 20,000 - which evicts every other record in a fortnight.
+      const nextDueAt = computeNextRun(flow, now()).toISOString();
+      store.updateFlow(flow.id, { nextDueAt }, { actorId: flow.createdBy });
+      if (running.has(flow.id)) continue;
+      // A refusal before the run starts produces no job, so runUnderCreator records it and tells the
+      // owner their schedule did not run; run() records its own failures.
+      const recordRan = () => store.recordAudit("flow.scheduled-run", { actorId: flow.createdBy, subjectId: flow.id, details: { nextDueAt } });
+      started.push(runUnderCreator(flow, "was due but did not run", { afterRun: recordRan })
+        .catch((error) => report(`[boxpilot] scheduled flow ${flow.name} could not be run: ${error.message}`)));
     }
+    await Promise.all(started);
+    return due.length;
   }
 
   /**

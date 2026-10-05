@@ -15,7 +15,7 @@
  */
 import { healthConditions, isNotice, noticeKinds } from "../health-alerts.mjs";
 import { maskSecrets, secretPaths } from "../ops/registry.mjs";
-import { readsThroughHelper, seesEveryAccount, watchEntryFor } from "../routes/access.mjs";
+import { flowRunnerFrom, readsThroughHelper, seesEveryAccount, watchEntryFor } from "../routes/access.mjs";
 
 /** The caller as the access rules read it, so the assistant asks the same questions the routes do. */
 export const asRequest = (caller) => ({ boxpilotSession: { owner: { id: caller?.id ?? null, role: caller?.role ?? "viewer" } } });
@@ -60,13 +60,14 @@ export function alertSources({ caller, state, focusKey, limit }) {
   const request = asRequest(caller);
   const ledger = state.getSetting?.("healthAlertsState", {}) ?? {};
   const scheduleOwner = (id) => state.getSchedule?.(id)?.createdBy ?? null;
+  const flowRunner = flowRunnerFrom(state);
   const sources = [];
   for (const [key, entry] of Object.entries(ledger)) {
     if (!entry) continue;
     const family = key.split(":")[0];
     const notice = isNotice(key);
     const label = notice ? noticeKinds[family] : healthConditions[family] ?? family;
-    const visible = watchEntryFor(request, key, entry, label, scheduleOwner);
+    const visible = watchEntryFor(request, key, entry, label, scheduleOwner, flowRunner);
     const heard = !notice && entry.notified !== false;
     const focus = Boolean(focusKey) && (focusKey === visible.key || focusKey === family);
     sources.push({

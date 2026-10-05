@@ -45,6 +45,14 @@ const valuesField = { type: "object", optional: true, secretEnvOf: "id", validat
 // Concrete device paths resolved by the web process (the helper's sandbox has no real /dev); the deployer keeps only those matching the manifest.
 const devicesField = { type: "array", optional: true, nullable: true, validate: (value) => (value.length > 32 || value.some((entry) => typeof entry !== "string" || !/^\/dev\/[A-Za-z0-9._/-]{1,64}$/.test(entry)) ? "must be up to 32 /dev paths" : null) };
 const minutes = (value) => value * 60_000;
+/**
+ * A checkpoint is a whole app backup taken before the change (app-helper.mjs checkpointCeilingMs:
+ * stopping the app, up to an hour of archive, starting it again), with room for its checksum. The
+ * operations that take one budget this on top of their own steps: on their old budgets the archive
+ * alone could outlast the job, which was recorded failed while the helper carried on unwatched.
+ * apps.test.mjs keeps it at or above the helper's ceiling.
+ */
+const checkpointMs = minutes(70);
 const tailscaleBinary = () => process.env.BOXPILOT_TAILSCALE_BINARY ?? "/usr/bin/tailscale";
 
 /** Parse one-JSON-per-line `docker stats --no-stream --format json` output. */
@@ -215,7 +223,7 @@ export function appOperations() {
     }),
     defineOperation({
       // Pulls the previous images again, so a slow line can be given more time (M30.3): up to 4x.
-      id: "app.rollback", title: "Go back to the previous version", risk: "medium", timeoutMs: minutes(40), maxTimeoutMs: minutes(160),
+      id: "app.rollback", title: "Go back to the previous version", risk: "medium", timeoutMs: checkpointMs + minutes(40), maxTimeoutMs: 4 * (checkpointMs + minutes(40)),
       description: "Takes a data checkpoint, then puts the application back on the versions it was running before its last update - the app and any sidecar that moved with it. The version to restore comes from this application's own recorded history, not from the request, so nothing else can be deployed this way. Data and settings are untouched; only the images change.",
       parameters: { fields: { id: idField, at: { type: "string", optional: true, maxLength: 32, pattern: /^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/ }, checkpoint: { type: "boolean", optional: true }, devices: devicesField } },
       run: (parameters, { apps, progress, timeScale }) => apps.rollbackApp({ id: parameters.id, at: parameters.at ?? null, devices: parameters.devices ?? null }, { progress, checkpoint: parameters.checkpoint ?? true, timeScale }),
@@ -253,7 +261,8 @@ export function appOperations() {
       run: (parameters, { apps, progress }) => apps.verifyAppBackup({ id: parameters.id, backup: parameters.backup ?? null }, { progress }),
     }),
     defineOperation({
-      id: "app.backup.restore", title: "Restore application data from a backup", risk: "high", timeoutMs: minutes(90),
+      // Its safety copy of the current state is a whole backup, like a checkpoint.
+      id: "app.backup.restore", title: "Restore application data from a backup", risk: "high", timeoutMs: checkpointMs + minutes(90),
       description: "Checksums the backup, saves the current state as a safety copy, then replaces the app's data and configuration with the backup and starts it.",
       parameters: { fields: { id: idField, backup: { type: "string", maxLength: 40, pattern: /^\d{8}T\d{6}Z\.tar\.gz$/ } } },
       run: (parameters, { apps, progress }) => apps.restoreAppBackup(parameters, { progress }),
@@ -269,7 +278,7 @@ export function appOperations() {
       run: (parameters, { apps }) => apps.listAppBackupFiles({ id: parameters.id, backup: parameters.backup }),
     }),
     defineOperation({
-      id: "app.backup.restore-path", title: "Restore one file or folder from a backup", risk: "medium", timeoutMs: minutes(60),
+      id: "app.backup.restore-path", title: "Restore one file or folder from a backup", risk: "medium", timeoutMs: checkpointMs + minutes(60),
       description: "Checksums the backup, takes a data checkpoint, stops the app briefly, restores only the chosen path over the current one, and starts the app again. Everything else is untouched.",
       parameters: { fields: { id: idField, backup: { type: "string", maxLength: 40, pattern: /^\d{8}T\d{6}Z\.tar\.gz$/ }, path: { type: "string", maxLength: 512, validate: (value) => (value && !value.startsWith("/") && !value.split("/").some((part) => part === "" || part === "." || part === "..") ? null : "must be a relative path inside the backup") } } },
       run: (parameters, { apps, progress }) => apps.restoreAppBackupPath({ id: parameters.id, backup: parameters.backup, path: parameters.path }, { progress }),
@@ -281,7 +290,7 @@ export function appOperations() {
       run: (parameters, { apps }) => apps.deleteAppBackup(parameters),
     }),
     defineOperation({
-      id: "app.compose.edit", title: "Edit application compose file", risk: "high", timeoutMs: minutes(20),
+      id: "app.compose.edit", title: "Edit application compose file", risk: "high", timeoutMs: checkpointMs + minutes(20),
       description: "Takes a data checkpoint, then replaces the app's compose.yaml verbatim, giving you full control and full responsibility. Validated by docker compose, applied with rollback; the next Settings change or Update regenerates the file from the manifest.",
       parameters: { fields: { id: idField, compose: { type: "string", secret: true, maxLength: 65536 }, checkpoint: { type: "boolean", optional: true } } },
       run: (parameters, { apps, progress }) => apps.editCompose({ id: parameters.id, compose: parameters.compose }, { progress, checkpoint: parameters.checkpoint ?? true }),
@@ -368,7 +377,7 @@ export function appOperations() {
     }),
     defineOperation({
       // Pulls the new images; a slow line or a large image can be given more time (M30.3): up to 4x.
-      id: "app.update", title: "Update application", risk: "medium", timeoutMs: minutes(40), maxTimeoutMs: minutes(160),
+      id: "app.update", title: "Update application", risk: "medium", timeoutMs: checkpointMs + minutes(40), maxTimeoutMs: 4 * (checkpointMs + minutes(40)),
       description: "Takes a data checkpoint, pulls the catalog's current image, and recreates the container; restores the previous image if it fails to become healthy.",
       parameters: { fields: { id: idField, checkpoint: { type: "boolean", optional: true }, devices: devicesField } },
       run: (parameters, { apps, progress, timeScale }) => apps.update({ id: parameters.id, devices: parameters.devices ?? null }, { progress, checkpoint: parameters.checkpoint ?? true, timeScale }),
@@ -465,7 +474,7 @@ export function appOperations() {
       run: (parameters, { apps, progress }) => apps.removeModel({ id: parameters.id, model: parameters.model }, { progress }),
     }),
     defineOperation({
-      id: "app.reconfigure", title: "Change application settings", risk: "medium", timeoutMs: minutes(15),
+      id: "app.reconfigure", title: "Change application settings", risk: "medium", timeoutMs: checkpointMs + minutes(15),
       description: "Takes a data checkpoint, rewrites ports, settings, and volume paths, and recreates the container; restores the previous configuration on failure.",
       parameters: { fields: { id: idField, values: valuesField, checkpoint: { type: "boolean", optional: true }, devices: devicesField } },
       run: (parameters, { apps, progress }) => apps.reconfigure({ id: parameters.id, values: parameters.values ?? {}, devices: parameters.devices ?? null }, { progress, checkpoint: parameters.checkpoint ?? true }),

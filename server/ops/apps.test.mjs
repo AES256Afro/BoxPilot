@@ -1,7 +1,25 @@
 import { describe, expect, it, vi } from "vitest";
+import { checkpointCeilingMs } from "../app-helper.mjs";
 import { aggregateAppStats, appOperations, parseDockerStats, parseServeStatus } from "./apps.mjs";
 
 const operations = Object.fromEntries(appOperations().map((operation) => [operation.id, operation]));
+
+describe("operations that take a checkpoint first", () => {
+  // A checkpoint is a whole app backup. With a 15- or 40-minute budget, a 60-minute archive alone
+  // outlasted the job: it was recorded failed ("may still be running") while the helper finished
+  // the backup, and then the change, with nobody watching.
+  const minutes = (value) => value * 60_000;
+  const ownSteps = { "app.update": minutes(40), "app.rollback": minutes(40), "app.reconfigure": minutes(15), "app.compose.edit": minutes(20), "app.backup.restore-path": minutes(60), "app.backup.restore": minutes(90) };
+
+  it("budget the checkpoint's whole ceiling on top of their own steps", () => {
+    expect(checkpointCeilingMs).toBeGreaterThanOrEqual(minutes(60));
+    for (const [id, own] of Object.entries(ownSteps)) expect(operations[id].timeoutMs, id).toBeGreaterThanOrEqual(checkpointCeilingMs + own);
+  });
+
+  it("still offer more time where they did, as several times the larger budget", () => {
+    for (const id of ["app.update", "app.rollback"]) expect(operations[id].maxTimeoutMs, id).toBe(4 * operations[id].timeoutMs);
+  });
+});
 
 const serveJson = JSON.stringify({
   TCP: { 8093: { HTTPS: true } },

@@ -29,6 +29,15 @@ export function isCriticalUnit(unit) {
 }
 
 /**
+ * Whether a service.action job restarts BoxPilot itself (its web or helper unit). The job layer
+ * guards it as it guards an operation marked restartsService: not while another job is running,
+ * which the restart would cut off and leave marked interrupted.
+ */
+export function restartsBoxPilot(operationId, parameters) {
+  return operationId === "service.action" && parameters?.action === "restart" && /^boxpilot(-helper)?\.service$/.test(String(parameters?.unit ?? ""));
+}
+
+/**
  * Units that change the state of the whole machine rather than one service. Starting
  * poweroff.target or systemd-reboot.service is system.reboot, which is high risk; stopping
  * sysinit.target, or starting shutdown.target, stops SSH, BoxPilot and Tailscale with everything
