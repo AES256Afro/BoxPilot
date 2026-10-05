@@ -568,6 +568,28 @@ describe("guarding restarts against running jobs (M4.5 / self-update safety)", (
     } finally { store.close(); }
   });
 
+  it("guards the operations that can restart BoxPilot when they finish: upgrades, installs and KVM", async () => {
+    // An upgrade that moves libc or openssl restarts BoxPilot to pick them up; installing KVM restarts
+    // the helper so VM work can write to /var/lib/libvirt. Neither was marked, so neither was guarded.
+    const helper = { request: vi.fn(async () => ({ ok: true })) };
+    const { store, owner, jobs } = await setup(helper);
+    try {
+      const backup = await jobs.createOperationJob("app.backup", { id: "jellyfin" }, owner.id);
+      store.transitionJob(backup.id, "awaiting_approval", "applying");
+      const packages = { "libvirt-clients": "1.0", "libvirt-daemon-system": "1.0", ovmf: "1.0", "qemu-system-x86": "1.0", virtinst: "1.0" };
+      const staged = [
+        await jobs.createOperationJob("apt.upgrade", {}, owner.id),
+        await jobs.createOperationJob("apt.install", { packages: ["htop"] }, owner.id),
+        await jobs.createOperationJob("prerequisite.virtualization.install", { expectedPackages: packages }, owner.id),
+      ];
+      for (const job of staged) {
+        await expect(jobs.approveAndRun(job.id, owner.id, { session: store.getSession(store.createSession(owner.id).token) })).rejects.toThrow(/^Wait for a running job to finish first: Back up application data\. ".+" (can restart|restarts) BoxPilot/);
+        expect(store.getJob(job.id).state).toBe("awaiting_approval");
+      }
+      expect(helper.request).not.toHaveBeenCalled();
+    } finally { store.close(); }
+  });
+
   it("does not block ordinary operations while a job runs", async () => {
     const helper = { request: vi.fn(async () => ({ ok: true })) };
     const { store, owner, jobs } = await setup(helper);

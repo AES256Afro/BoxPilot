@@ -223,7 +223,8 @@ export function createJobService(store, helper, {
       const running = store.listActiveJobs().filter((other) => other.id !== jobId);
       if (running.length) {
         const names = running.map((other) => other.title).join(", ");
-        throw new Error(`Wait for ${running.length === 1 ? "a running job" : `${running.length} running jobs`} to finish first: ${names}. "${registeredOperation.title}" restarts BoxPilot and would interrupt ${running.length === 1 ? "it" : "them"}.`);
+        const restarts = registeredOperation.restartsService === "maybe" ? "can restart BoxPilot when it finishes, which" : "restarts BoxPilot and";
+        throw new Error(`Wait for ${running.length === 1 ? "a running job" : `${running.length} running jobs`} to finish first: ${names}. "${registeredOperation.title}" ${restarts} would interrupt ${running.length === 1 ? "it" : "them"}.`);
       }
     }
     // The budget this job runs under: the operation's own, or the larger one it was staged with by

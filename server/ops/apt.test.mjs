@@ -77,3 +77,39 @@ describe("apt operations", () => {
     expect(registry.get("apt.upgradable.inspect").readOnly).toBe(true);
   });
 });
+
+/**
+ * An upgrade that moved libc or openssl leaves BoxPilot itself on the old libraries. The task used
+ * to restart it on a 30-second timer, which killed whatever had started behind the upgrade. It now
+ * names the units, and the helper restarts them once its work has drained (self-restart.mjs).
+ */
+describe("BoxPilot restarting after a package change", () => {
+  const stale = { upgraded: true, servicesNeedingRestart: ["boxpilot.service", "boxpilot-helper.service"], servicesRestarted: [], selfRestartNeeded: ["boxpilot.service", "boxpilot-helper.service"] };
+
+  it.each([["apt.upgrade", {}], ["apt.install", { packages: ["htop"] }]])("%s can restart BoxPilot, and asks the helper for a drained restart", async (id, parameters) => {
+    expect(registry.get(id).restartsService).toBe("maybe");
+    const runUnit = { runTask: vi.fn(async () => ({ ...stale })) };
+    const selfRestart = { request: vi.fn(() => true) };
+    const progress = vi.fn();
+    const result = await registry.execute(id, parameters, { runUnit, selfRestart, progress });
+    expect(selfRestart.request).toHaveBeenCalledWith(["boxpilot.service", "boxpilot-helper.service"], expect.objectContaining({ reason: expect.any(String) }));
+    expect(result.selfRestartScheduled).toBe(true);
+    expect(progress.mock.calls.some(([line]) => /restarts once/.test(line))).toBe(true);
+  });
+
+  it("asks for nothing when BoxPilot is not stale", async () => {
+    const runUnit = { runTask: vi.fn(async () => ({ upgraded: true, selfRestartNeeded: [] })) };
+    const selfRestart = { request: vi.fn(() => true) };
+    const result = await registry.execute("apt.upgrade", {}, { runUnit, selfRestart });
+    expect(selfRestart.request).not.toHaveBeenCalled();
+    expect(result.selfRestartScheduled).toBeFalsy();
+  });
+
+  it("says where to restart by hand when no restart can be arranged", async () => {
+    const runUnit = { runTask: vi.fn(async () => ({ ...stale })) };
+    const progress = vi.fn();
+    const result = await registry.execute("apt.upgrade", {}, { runUnit, progress });
+    expect(result.selfRestartScheduled).toBe(false);
+    expect(progress.mock.calls.some(([line]) => /System page/.test(line))).toBe(true);
+  });
+});
