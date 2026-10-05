@@ -631,10 +631,7 @@ export function createAgentService({
   function specialistsForRun(spec, agent, readRole) {
     const eligible = store.listAgents().filter((entry) => { const maker = makerOf(entry); return Boolean(maker) && roleAtLeast(maker.role, readRole); });
     const byId = new Map(eligible.map((entry) => [entry.id, entry]));
-    return specialistsFor(spec, eligible, agent.id).map((entry) => {
-      const maker = makerOf(byId.get(entry.id));
-      return { ...entry, trusted: maker?.role === "owner" || (Boolean(agent.createdBy) && maker?.id === agent.createdBy) };
-    });
+    return specialistsFor(spec, eligible, agent.id).map((entry) => ({ ...entry, trusted: writerTrusted(byId.get(entry.id), agent) }));
   }
 
   /** The tools a run is offered: the agent's permissions, the run's role, and what is switched on. */
@@ -753,17 +750,18 @@ export function createAgentService({
    */
   function memoryItems(agent, spec, readRole) {
     const items = [];
-    const agentNames = new Map(store.listAgents().map((entry) => [entry.id, entry.name]));
+    const agents = new Map(store.listAgents().map((entry) => [entry.id, entry]));
     const sources = sourcesFor(spec, readRole);
     if (spec.memory?.enabled) {
       // `injectionHop`: a note kept by a run that had read something that looked like an instruction,
-      // and how far from it (null for one that was not); `runId`: the run an episode came from,
-      // looked up when one is used; `own`: this agent's own memory (rememberedFlag). The owner's
-      // documents carry neither: they are the owner's (sweep 3).
+      // and how far from it, for this run (null for one that was not, or that someone whose word
+      // holds for it trusted); `held`: words another account wrote, held to them (wordsHeld); `runId`:
+      // the run an episode came from, looked up when one is used; `own`: this agent's own memory
+      // (rememberedFlag). The owner's documents carry none of these: they are the owner's (sweep 3).
       if (sources.notes) {
-        for (const note of ownNotes(agent.id, readRole, { limit: 200 })) items.push({ key: `note:${note.id}`, tier: note.pinned ? "pinned" : "fact", title: note.title, text: note.body, from: agent.name, at: note.updatedAt, freshUntil: note.freshUntil, weight: note.pinned ? 1.3 : 1, own: true, injectionHop: noteHop(note.source) });
+        for (const note of ownNotes(agent.id, readRole, { limit: 200 })) items.push({ key: `note:${note.id}`, tier: note.pinned ? "pinned" : "fact", title: note.title, text: note.body, from: agent.name, at: note.updatedAt, freshUntil: note.freshUntil, weight: note.pinned ? 1.3 : 1, own: true, injectionHop: noteHopFor(note.source, readRole), held: wordsHeld(note, agent, readRole, agents) });
         for (const note of store.listSharedNotes({ exceptAgentId: agent.id })) {
-          if (roleAtLeast(readRole, note.readRole)) items.push({ key: `note:${note.id}`, tier: note.pinned ? "pinned" : "fact", title: note.title, text: note.body, from: agentNames.get(note.agentId) ?? "another agent", at: note.updatedAt, freshUntil: note.freshUntil, weight: 0.9, injectionHop: noteHop(note.source) });
+          if (roleAtLeast(readRole, note.readRole)) items.push({ key: `note:${note.id}`, tier: note.pinned ? "pinned" : "fact", title: note.title, text: note.body, from: agents.get(note.agentId)?.name ?? "another agent", at: note.updatedAt, freshUntil: note.freshUntil, weight: 0.9, injectionHop: noteHopFor(note.source, readRole), held: wordsHeld(note, agent, readRole, agents) });
         }
       }
       for (const episode of store.listEpisodes(agent.id, { limit: 100 })) {
@@ -821,6 +819,33 @@ export function createAgentService({
   const injectionHops = 1;
   /** A kept note's hop: null when it is not flagged; 0 for one flagged before hops were kept. */
   const noteHop = (source) => (source?.injection ? (Number.isInteger(source.injectionHop) ? source.injectionHop : 0) : null);
+  /**
+   * Whether a person's word - their Trust, or words they wrote (`by`, { id, role }) - holds for a
+   * run reading as `readRole`: the owner's for every run, anyone else's only for runs that read no
+   * more than they may (2026-10 sweep 4: an operator's Trust cleared a note for the owner's runs).
+   */
+  const vouchedFor = (by, readRole) => Boolean(by?.role) && roleAtLeast(by.role, readRole);
+  /** A note's hop for a run reading as `readRole`: noteHop, unless someone whose word holds for it trusted it. */
+  const noteHopFor = (source, readRole) => (vouchedFor(source?.trustedBy, readRole) ? null : noteHop(source));
+  /** Whether what another agent wrote is its maker's word to `reader`: the owner's, or the reading agent's own maker's. */
+  const writerTrusted = (writer, reader) => { const maker = makerOf(writer); return maker?.role === "owner" || (Boolean(reader?.createdBy) && maker?.id === reader.createdBy); };
+  /**
+   * Whether a note's own words are held to them - an instruction in them flags the run that reads
+   * them, as one in a tool's output does - in a run of `reader` reading as `readRole`. Words a person
+   * wrote or trusted (`wordsBy`) are theirs: the owner's hold for every run, anyone else's for runs
+   * reading no more than they may. Another agent's words are its maker's: the owner's and the
+   * reading agent's own maker's are trusted, any other account's are data (sweep 4: an operator's
+   * agent's shared note reached the owner's runs unflagged, since sweep 3 stopped holding remembered
+   * words to them - the owner's own words stay trusted). `agents` maps ids to agents, when at hand.
+   */
+  function wordsHeld(note, reader, readRole, agents = null) {
+    const by = note.source?.wordsBy;
+    if (by?.role) return !vouchedFor(by, readRole);
+    if (note.agentId === reader?.id) return false;
+    return !writerTrusted(agents?.get(note.agentId) ?? store.getAgent(note.agentId, { includeDeleted: true }), reader);
+  }
+  /** Words held to them (wordsHeld) that read like an instruction. */
+  const heldWordsSteer = (title, text) => detectInjection(`${title ?? ""}\n${text ?? ""}`).suspected;
   /** A run's hop: null when it is not flagged or only its own memory flagged it. */
   const runHop = (run) => (run?.flags?.injection && Number.isInteger(run.flags.injectionHop) ? run.flags.injectionHop : null);
   const nearest = (...hops) => { const known = hops.filter(Number.isInteger); return known.length ? Math.min(...known) : null; };
@@ -834,6 +859,8 @@ export function createAgentService({
     let flagged = false;
     let hop = null;
     for (const item of items) {
+      // Words held to them (`held`: another account's) that read like an instruction: read by this run itself (sweep 4).
+      if (item.held && heldWordsSteer(item.title, item.text)) { flagged = true; hop = 0; continue; }
       const itemHop = Number.isInteger(item.injectionHop) ? item.injectionHop : null;
       if (itemHop === null && !(item.runId && store.getRun(item.runId)?.flags?.injection)) continue;
       flagged = true;
@@ -1037,8 +1064,11 @@ export function createAgentService({
     if (supervisor?.flags?.injection) flagInjection(run.id, { hop: runHop(supervisor), detail: "The agent that handed it this task had read something that looked like an instruction, so this run is treated as if it had read it too." });
     const promptNotes = spec.memory?.enabled && spec.knowledge?.notes !== false && knowledgeSettings().notes !== false ? ownNotes(agent.id, run.readRole, { limit: limits.notesInPrompt }) : [];
     const notes = promptNotes.map((note) => wrapNote({ ...note, stale: stale(note) }, { redact }));
-    // Its own note kept by a flagged run: flagged, by where the note came from and never by its words (sweep 3).
-    const flaggedNote = promptNotes.find((note) => noteHop(note.source) !== null);
+    // Its own note kept by a flagged run: flagged, by where the note came from and never by its own
+    // words (sweep 3) - unless they are another account's, which are held to them (sweep 4).
+    const steeredNote = promptNotes.find((note) => wordsHeld(note, agent, run.readRole) && heldWordsSteer(note.title, note.body));
+    if (steeredNote) flagInjection(run.id, { hop: 0, detail: `Its note "${clip(steeredNote.title, 80)}" holds words another account wrote that read like an instruction. Forget the note, or trust it on the Memory tab, if it is fine.` });
+    const flaggedNote = promptNotes.find((note) => noteHopFor(note.source, run.readRole) !== null);
     if (flaggedNote) flagInjection(run.id, { detail: `Its note "${clip(flaggedNote.title, 80)}" was kept by a run that read something that looked like an instruction. Forget the note, or trust it on the Memory tab, if it is fine.` });
     // What it remembers that bears on this request, by words (the query's vector comes later, from
     // the runner, when the model searches memory itself). Recorded in the trace as a memory read.
@@ -1491,7 +1521,7 @@ export function createAgentService({
       if (tool.id === "agents.handoff") return handoffFor(run, spec, value, answer);
       if (tool.id === "notes.read") {
         const read = readNotes(run, spec, value);
-        return answer("tool", { text: read.text, input: value, words: false, flags: read.injection ? { injection: true } : {} });
+        return answer("tool", { text: read.text, input: value, words: false, flags: read.flagged ? { injection: true } : {}, hop: read.hop });
       }
       if (tool.id === "notes.write") return writeNoteFor(run, spec, value, answer);
       if (tool.id === "plan.propose") return await proposeFor(run, spec, value, answer);
@@ -1506,18 +1536,22 @@ export function createAgentService({
     }
   }
 
-  /** notes.read: { text, injection } - whether a note it read (its own) was kept by a run flagged for injection. */
+  /**
+   * notes.read: { text, flagged, hop } - the flag the notes it read (its own) bring the run: by
+   * where they came from, or by their words when another account wrote them (rememberedFlag).
+   */
   function readNotes(run, spec, { query = null }) {
-    if (!spec.memory?.enabled) return { text: "This agent keeps no notes." };
-    if (!sourcesFor(spec, run.readRole).notes) return { text: "Notes are switched off as knowledge for this agent." };
+    if (!spec.memory?.enabled) return { text: "This agent keeps no notes.", flagged: false, hop: null };
+    if (!sourcesFor(spec, run.readRole).notes) return { text: "Notes are switched off as knowledge for this agent.", flagged: false, hop: null };
     const words = query ? new Set(query.toLowerCase().split(/\W+/).filter((word) => word.length > 2)) : null;
     const notes = ownNotes(run.agentId, run.readRole, { limit: 50 }).filter((note) => !words || [...words].some((word) => `${note.title} ${note.body}`.toLowerCase().includes(word))).slice(0, 10);
-    if (!notes.length) return { text: query ? `No notes about "${clip(query, 60)}".` : "No notes yet." };
+    if (!notes.length) return { text: query ? `No notes about "${clip(query, 60)}".` : "No notes yet.", flagged: false, hop: null };
     const text = notes.map((note) => {
       const stale = note.freshUntil && Date.parse(note.freshUntil) < now().getTime();
       return `## ${note.title}${stale ? " (may be out of date)" : ""}\nWritten ${note.updatedAt.slice(0, 10)}${note.source?.tools?.length ? ` from ${note.source.tools.join(", ")}` : ""}.\n${note.body}`;
     }).join("\n\n");
-    return { text, injection: notes.some((note) => noteHop(note.source) !== null) };
+    const agent = store.getAgent(run.agentId, { includeDeleted: true });
+    return { text, ...rememberedFlag(notes.map((note) => ({ key: `note:${note.id}`, title: note.title, text: note.body, own: true, injectionHop: noteHopFor(note.source, run.readRole), held: wordsHeld(note, agent, run.readRole) }))) };
   }
 
   /**
@@ -2375,7 +2409,7 @@ export function createAgentService({
         shared: store.listFindings({ agentId: agent.id }).filter((finding) => roleAtLeast(person.role, finding.readRole)).map((finding) => presentFinding(finding, agentNames)),
         usable: sharing.useFindings ? usableFindings(person.role, { exceptAgentId: agent.id }).map((finding) => presentFinding(finding, agentNames)) : [],
       },
-      facts: ownNotes(agent.id, person.role, { limit: 200 }).map((note) => ({ ...note, stale: stale(note), indexed: indexed(`note:${note.id}`) })),
+      facts: ownNotes(agent.id, person.role, { limit: 200 }).map((note) => ({ ...presentNote(note, agent, person.role), indexed: indexed(`note:${note.id}`) })),
       shared: store.listSharedNotes({ exceptAgentId: agent.id }).filter((note) => roleAtLeast(person.role, note.readRole)).map((note) => ({ id: note.id, title: note.title, body: note.body, from: agentNames.get(note.agentId) ?? "another agent", updatedAt: note.updatedAt, stale: stale(note) })),
       episodes: store.listEpisodes(agent.id, { limit: 100 }).filter((episode) => roleAtLeast(person.role, episode.readRole)).map((episode) => ({ ...episode, indexed: indexed(`episode:${episode.id}`) })),
       thread: thread ? { summary: thread.summary, turns: thread.turns, updatedAt: thread.updatedAt } : null,
@@ -2403,11 +2437,21 @@ export function createAgentService({
       if (patch.freshDays !== null && (!Number.isInteger(patch.freshDays) || patch.freshDays < 1 || patch.freshDays > 365)) refuse(400, "A note stays fresh 1 to 365 days, or always", "invalid_note");
       freshUntil = patch.freshDays === null ? null : new Date(now().getTime() + patch.freshDays * 86_400_000).toISOString();
     }
-    const note = store.updateNote(agent.id, noteId, { title, body, freshUntil, pinned: typeof patch.pinned === "boolean" ? patch.pinned : undefined, shared: typeof patch.shared === "boolean" ? patch.shared : undefined, trusted: patch.trusted === true });
+    const note = store.updateNote(agent.id, noteId, { title, body, freshUntil, pinned: typeof patch.pinned === "boolean" ? patch.pinned : undefined, shared: typeof patch.shared === "boolean" ? patch.shared : undefined, trusted: patch.trusted === true, by: { id: person.id, role: person.role } });
     if (!note) refuse(404, "There is no such note", "note_not_found");
     audit("agents.memory.edited", { actorId: person.id, subjectId: agent.id, details: { note: note.id, pinned: note.pinned, shared: note.shared, ...(patch.trusted === true ? { trusted: true } : {}) } });
-    return { ...note, stale: stale(note) };
+    return presentNote(note, agent, person.role);
   }
+
+  /**
+   * A fact as the Memory tab shows it to someone reading as `role`: flagged as far as their runs
+   * would be (sweep 4: an operator's Trust clears it for their runs, not the owner's), and whether
+   * its words are another account's, held to them in those runs (`othersWords`) - either is theirs to
+   * trust, when they may change the agent.
+   */
+  const presentNote = (note, agent, role) => ({
+    ...note, source: { ...note.source, injection: noteHopFor(note.source, role) !== null }, othersWords: wordsHeld(note, agent, role), stale: stale(note),
+  });
 
   /** Forget: a fact, a past run's episode, or the whole conversation. Really deleted, embedding and all. */
   function forgetMemory(caller, agentId, { kind, id = null } = {}) {

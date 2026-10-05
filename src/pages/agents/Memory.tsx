@@ -62,7 +62,7 @@ export function Memory({ agents, agentId, csrfToken, role, now, onSelectAgent }:
         <span className="agents-note">
           <span className="agents-note__title">{note.title}{note.pinned && <Tag tone="accent">pinned</Tag>}{note.shared && <Tag tone="info">shared</Tag>}</span>
           <span className="agents-note__body">{note.body}</span>
-          <span className="agents-name__purpose">{note.source?.tools?.length ? `from ${note.source.tools.join(", ")}` : note.source?.by === "agent" ? "written by the agent" : ""}{note.source?.injection ? " · after suspicious tool output" : ""}{note.indexed ? " · indexed" : ""}</span>
+          <span className="agents-name__purpose">{note.source?.tools?.length ? `from ${note.source.tools.join(", ")}` : note.source?.by === "agent" ? "written by the agent" : ""}{note.source?.injection ? " · after suspicious tool output" : ""}{note.othersWords ? " · another account's words" : ""}{note.indexed ? " · indexed" : ""}</span>
         </span>
       ),
     },
@@ -72,7 +72,7 @@ export function Memory({ agents, agentId, csrfToken, role, now, onSelectAgent }:
       id: "actions", header: <span className="ui-visually-hidden">Actions</span>, label: "Actions", className: "agents-actions-cell", cell: (note) => (
         <span className="agents-actions">
           <Button variant="ghost" onClick={() => openEdit(note)} aria-label={`Edit the fact ${note.title}`}>Edit</Button>
-          {note.source?.injection && <Button variant="ghost" onClick={() => void act(() => agentsApi.editMemory(csrfToken, agent.id, note.id, { trusted: true }), `“${note.title}” is trusted: runs that read it are no longer flagged.`)} aria-label={`Trust the fact ${note.title}`}>Trust</Button>}
+          {(note.source?.injection || note.othersWords) && <Button variant="ghost" onClick={() => void act(() => agentsApi.editMemory(csrfToken, agent.id, note.id, { trusted: true }), `“${note.title}” is trusted: runs that read it are no longer flagged.`)} aria-label={`Trust the fact ${note.title}`}>Trust</Button>}
           <Button variant="ghost" onClick={() => void act(() => agentsApi.editMemory(csrfToken, agent.id, note.id, { pinned: !note.pinned }), note.pinned ? `“${note.title}” is no longer pinned.` : `“${note.title}” is pinned: recalled first, never dropped.`)} aria-label={`${note.pinned ? "Unpin" : "Pin"} ${note.title}`}>{note.pinned ? "Unpin" : "Pin"}</Button>
           <Button variant="ghost" onClick={() => void act(() => agentsApi.forget(csrfToken, agent.id, "notes", note.id), `Forgot “${note.title}”.`)} aria-label={`Forget the fact ${note.title}`}>Forget</Button>
         </span>
