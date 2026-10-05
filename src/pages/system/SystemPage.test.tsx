@@ -246,6 +246,25 @@ describe("System page", () => {
     expect(screen.queryByRole("button", { name: `Remove ${damaged}` })).toBeNull();
   });
 
+  // R5B4-3: Housekeeping read itself again only after a reclaim; a snapshot removed by name stayed
+  // listed, with its Remove button, until the page was read again by hand.
+  it("reads Housekeeping again once an unreadable snapshot has been removed", async () => {
+    const damaged = "machine-snapshot-20260811T000000Z-abcdef01.tar.gz";
+    const unreadable = { id: "unreadable-snapshots", title: "Unreadable machine snapshots", summary: "Machine snapshots BoxPilot cannot open.", items: 1, bytes: 8, humanBytes: "8 B", detail: [damaged], keeping: [], safe: false, unavailable: "The owner removes these one at a time." };
+    let removed = false;
+    const jobId = "job-housekeeping.unreadable-snapshot.remove";
+    serve({
+      "/operations/housekeeping.inspect/inspect": () => json({ operation: "housekeeping.inspect", result: removed ? housekeeping : { ...housekeeping, categories: [...housekeeping.categories, unreadable] } }),
+      [`/jobs/${jobId}/approve`]: () => json({ job: { id: jobId, state: "applying" }, elevatedUntil: null }, 202),
+      [`/jobs/${jobId}`]: () => { removed = true; return json({ job: { id: jobId, type: "op:housekeeping.unreadable-snapshot.remove", title: "Remove", state: "completed", risk: "medium", error: null, result: { removed: damaged }, steps: [], approvals: [] } }); },
+    });
+    window.history.replaceState(null, "", "/?tab=housekeeping");
+    render(<SystemPage csrfToken="csrf-token" />);
+    fireEvent.click(await screen.findByRole("button", { name: `Remove ${damaged}` }));
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm and run" }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: `Remove ${damaged}` })).toBeNull(), { timeout: 4000 });
+  });
+
   it("switches the weekly trim through its own tiered switch", async () => {
     const staged = serve({ "/operations/system.settings.inspect/inspect": () => json({ operation: "system.settings.inspect", result: { ...settings, fstrim: { active: "inactive", enabled: "disabled", nextRun: null } } }) });
     window.history.replaceState(null, "", "/?tab=hardware");
