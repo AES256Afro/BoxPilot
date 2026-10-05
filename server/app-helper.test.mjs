@@ -2809,7 +2809,8 @@ describe("pruning the backups a machine snapshot restores from", () => {
     const lines = [];
     const second = await apps.backup({ id: "demo", keep: 1 }, { progress: (line, stream) => lines.push([line, stream]) });
     expect(second.pruned).toEqual([]);
-    expect(lines).toContainEqual(["Kept every older backup of Demo: Machine snapshot machine-snapshot-20260819T120100Z-22222222.tar.gz could not be read, and one it restores from may be among them.", "stderr"]);
+    // R4B3-5: named, with where to remove it if it is damaged: until then no app's older copies go.
+    expect(lines).toContainEqual(["Kept every older backup of Demo: Machine snapshot machine-snapshot-20260819T120100Z-22222222.tar.gz could not be read, and one it restores from may be among them. If it is damaged, remove it from Housekeeping on the System page; until then no app's older backups are removed.", "stderr"]);
   });
 });
 

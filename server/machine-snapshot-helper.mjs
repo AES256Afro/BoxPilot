@@ -210,16 +210,18 @@ async function readSnapshotReferences(artifactPath, { run, tarBinary }) {
  * taken, which is usually older than the newest few an app keeps, so whatever prunes app backups
  * (the app's own keep-N, housekeeping) asks this first. `names` limits it to those archives.
  *
- * Throws when a snapshot cannot be read: a caller about to delete backups then deletes none. Each
- * snapshot is read once while its size and time stay the same, as a nightly run of app backups asks
- * once per app.
+ * Throws when a snapshot cannot be read: a caller about to delete backups then deletes none. The
+ * error names every snapshot that could not be (`unreadable`), so the owner can find each one and,
+ * if it is damaged, remove it (housekeeping): until then nothing is pruned. Each snapshot is read
+ * once while its size and time stay the same, as a nightly run of app backups asks once per app.
  */
 export async function snapshotBackupReferences({ snapshotRoot, names = null, run = fixedRun, tarBinary = process.env.BOXPILOT_TAR_BINARY ?? "/usr/bin/tar" } = {}) {
   const root = path.resolve(snapshotRoot);
   const listed = names ?? await readdir(root).catch((error) => { if (error.code === "ENOENT") return []; throw error; });
   const references = new Map();
   const seen = new Set();
-  for (const name of listed.filter((entry) => snapshotNamePattern.test(entry))) {
+  const unreadable = [];
+  for (const name of listed.filter((entry) => snapshotNamePattern.test(entry)).sort()) {
     const artifactPath = path.join(root, name);
     const info = await stat(artifactPath).catch((error) => { if (error.code === "ENOENT") return null; throw error; });
     if (!info) continue;   // retention removed it since the listing
@@ -227,7 +229,7 @@ export async function snapshotBackupReferences({ snapshotRoot, names = null, run
     const key = `${info.size}:${info.mtimeMs}`;
     let named = referenceCache.get(artifactPath)?.key === key ? referenceCache.get(artifactPath).named : null;
     if (!named) {
-      named = await readSnapshotReferences(artifactPath, { run, tarBinary });
+      try { named = await readSnapshotReferences(artifactPath, { run, tarBinary }); } catch { unreadable.push(name); continue; }
       referenceCache.set(artifactPath, { key, named });
     }
     for (const [id, archive] of named) {
@@ -236,6 +238,10 @@ export async function snapshotBackupReferences({ snapshotRoot, names = null, run
     }
   }
   for (const cached of referenceCache.keys()) if (path.dirname(cached) === root && !seen.has(cached) && !names) referenceCache.delete(cached);
+  if (unreadable.length) {
+    const list = unreadable.length === 1 ? unreadable[0] : `${unreadable.slice(0, -1).join(", ")} and ${unreadable.at(-1)}`;
+    throw Object.assign(new Error(`Machine snapshot${unreadable.length === 1 ? "" : "s"} ${list} could not be read`), { unreadable });
+  }
   return references;
 }
 
