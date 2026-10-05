@@ -29,7 +29,24 @@ export function checkHandoff({ agent, spec, run, target, chain, handedSoFar }) {
   return { depth };
 }
 
-const nameKey = (name) => String(name ?? "").trim().toLowerCase().replace(/^the\s+/, "").replace(/\s+/g, " ");
+/** An agent's name as it is matched: any case, "the" before it or not, spaces as one (Zulip's names too, service.mjs). */
+export const nameKey = (name) => String(name ?? "").trim().toLowerCase().replace(/^the\s+/, "").replace(/\s+/g, " ");
+
+/** Words a message to the bot starts with anyway, and BoxPilot's own names: never an agent's (2026-10 sweep 5). */
+const greetings = new Set(["hey", "hi", "hello", "ok", "okay", "thanks", "thank you", "please", "ask"]);
+const boxpilotNames = new Set(["boxpilot", "boxpilot agents"]);
+
+/**
+ * Why `name` cannot be an agent's, or null. A message in Zulip that starts with an agent's name is
+ * asked of that agent: one called "Hey" took every "Hey, ..." - the owner's included, run as the
+ * owner under its maker's words - and one called "BoxPilot" would post as "BoxPilot: ...".
+ */
+export function reservedNameProblem(name) {
+  const key = nameKey(name).replace(/[.!,:;]+$/, "");
+  if (boxpilotNames.has(key)) return `"${String(name).trim()}" is BoxPilot's own name: its posts and warnings start with it. Give the agent another name.`;
+  if (greetings.has(key)) return `"${String(name).trim()}" is a word people use to start a message, so their messages in the team chat would go to this agent. Give it another name.`;
+  return null;
+}
 
 /**
  * The agents the model may mean by what it called one: the one with that id, else every one with
