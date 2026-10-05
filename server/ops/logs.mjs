@@ -1,6 +1,7 @@
 import { defineOperation } from "./registry.mjs";
 import { releaseSavedJobLog } from "../job-log-cleanup.mjs";
 import { jobIdPattern } from "../job-log.mjs";
+import { redactSecretBlocks } from "../redaction.mjs";
 
 const journalctl = process.env.BOXPILOT_JOURNALCTL_BINARY ?? "/usr/bin/journalctl";
 const systemctl = process.env.BOXPILOT_SYSTEMCTL_BINARY ?? "/usr/bin/systemctl";
@@ -28,6 +29,18 @@ export const logGroups = Object.freeze({
 function redact(value) {
   return String(value ?? "").replace(/\b(token|password|secret|api[_-]?key|authorization)\b\s*[:=]\s*[^\s,;]+/gi, "$1=[REDACTED]");
 }
+
+/**
+ * A filter picks lines before anything here reads them, and a private key is found by its BEGIN and
+ * END lines: a filter that matched the body and neither of those sent the body on whole (sweep 4).
+ * So keys come out of the whole text first, and a filtered line that was a key's comes back as the
+ * one line saying a key was taken out, whatever the filter. journalctl filters itself, so its -g
+ * pattern asks for every BEGIN and END line of a private key as well as the filter's lines. It is
+ * written in lower case under (?i): journalctl matches case-blind only while the whole pattern has no
+ * capital letter in it, and that stays the owner's filter's to decide.
+ */
+const keyMarkerGrep = "(?i:-{4,5} ?(?:begin|end) (?:[a-z0-9]+ ){0,3}private key(?: block)? ?-{4,5})";
+const keyTakenOut = /\[REDACTED_(?:PRIVATE_KEY|KEY_BODY)\]/;
 
 /** A zoned timestamp as UTC `YYYY-MM-DDTHH:MM:SS`; null when it has no zone or is not a real time. */
 export function zonedToUtc(since) {
@@ -100,8 +113,8 @@ export function logOperations() {
           }
           result = await run(dockerBinary, ["logs", "--timestamps", "--tail", String(lines), ...(since ? ["--since", since.match(/^\d+[mhd]$/) ? since : zonedToUtc(since) ? `${zonedToUtc(since)}Z` : since.replace(" ", "T")] : []), target], { timeout: 30_000, maxBuffer: 16 * 1024 * 1024 });
           if (!result.ok && !result.stdout && !result.stderr) throw new Error("docker logs failed");
-          let entries = `${result.stdout}\n${result.stderr}`.split("\n").filter(Boolean);
-          if (filter) entries = entries.filter((line) => line.toLowerCase().includes(filter.toLowerCase()));
+          let entries = redactSecretBlocks(`${result.stdout}\n${result.stderr}`).split("\n").filter(Boolean);
+          if (filter) entries = entries.filter((line) => keyTakenOut.test(line) || line.toLowerCase().includes(filter.toLowerCase()));
           return { kind, target, lines: entries.slice(-lines).map(redact), truncated: entries.length > lines };
         }
         const args = ["--no-pager", "-o", "short-iso", "-n", String(lines), ...sinceArgument(since)];
@@ -114,10 +127,10 @@ export function logOperations() {
           if (!unitPattern.test(target)) throw new Error("Unit name is invalid");
           args.push("-u", target);
         }
-        if (filter) args.push("-g", filter);
+        if (filter) args.push("-g", `(?:${filter})|${keyMarkerGrep}`);
         result = await run(journalctl, args, { timeout: 30_000, maxBuffer: 16 * 1024 * 1024 });
         if (!result.ok && !result.stdout) throw new Error(`journalctl failed: ${result.stderr.split("\n").slice(-2).join(" ")}`);
-        const entries = result.stdout.split("\n").filter((line) => line && !line.startsWith("-- "));
+        const entries = redactSecretBlocks(result.stdout).split("\n").filter((line) => line && !line.startsWith("-- "));
         return { kind, target, lines: entries.slice(-lines).map(redact), truncated: false };
       },
     }),
