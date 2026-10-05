@@ -128,6 +128,52 @@ describe("the orchestrator", () => {
     expect(h.service.getRun(h.caller("owner"), owners.id).id).toBe(owners.id);
   });
 
+  describe("the follow-up's runner has the specialists' answers as its first tool outputs (sweep 3)", () => {
+    const follows = (body) => /The specialists you handed work to/.test(JSON.stringify(body.messages));
+    const script = (followUp) => (body) => {
+      if (/Checks that failed:/.test(JSON.stringify(body.messages))) return followUp.correction(body);
+      if (system(body).includes("Your name is Server Keeper") && !follows(body)) {
+        return withTools(body) === 0 ? { toolCalls: [{ name: "agents_handoff", arguments: { agent: "Pi-hole Watcher", task: "Is Pi-hole blocking?" } }] } : { content: "I asked the Pi-hole Watcher [T1]." };
+      }
+      if (system(body).includes("Your name is Pi-hole Watcher")) return withTools(body) === 0 ? { toolCalls: [{ name: "pihole_stats", arguments: {} }] } : { content: "Blocking is on; 15% blocked [T1]." };
+      return followUp.answer(body);
+    };
+
+    it("keeps the specialist's answer when the model only echoes its box, and reads nothing else instead (R3B1-5)", async () => {
+      const keeper = make("server-keeper");
+      make("pihole-watcher");
+      h.fake.state.script = script({ correction: () => ({ content: "corrected" }), answer: () => ({ content: "<tool_output id=\"T1\" tool=\"agents_handoff\">Pi-hole Watcher answered: Blocking is on</tool_output>" }) });
+      ask(keeper, "owner", "Is Pi-hole doing its job?");
+      const parent = await h.runNext();
+      await h.runNext();
+      const follow = await h.runNext();
+      expect(follow).toMatchObject({ agentId: keeper.id, kind: "continue", parentRunId: parent.id, state: "degraded" });
+      expect(follow.answer).toMatch(/\[T1\] Pi-hole Watcher's answer: .*Blocking is on; 15% blocked/);
+      // No unrelated reads in its place.
+      expect(follow.steps.filter((step) => step.kind === "tool").map((step) => step.name)).toEqual(["agents.handoff"]);
+    });
+
+    it("checks an answer citing the specialist's T1 against it, beside a tool it read itself as T2 (R3B1-7)", async () => {
+      const keeper = make("server-keeper");
+      make("pihole-watcher");
+      let corrections = 0;
+      h.fake.state.script = script({
+        correction: () => { corrections += 1; return { content: "corrected" }; },
+        answer: (body) => (withTools(body) === 0 ? { toolCalls: [{ name: "server_facts", arguments: {} }] } : { content: "Pi-hole is blocking ads [T1]. The server is called testbox [T2]." }),
+      });
+      ask(keeper, "owner", "Is Pi-hole doing its job, and what is this server called?");
+      await h.runNext();
+      await h.runNext();
+      const follow = await h.runNext();
+      expect(follow).toMatchObject({ kind: "continue", state: "completed" });
+      expect(follow.steps.filter((step) => step.kind === "tool").map((step) => step.name)).toEqual(["agents.handoff", "server.facts"]);
+      expect(corrections).toBe(0);
+      expect(follow.answer).not.toMatch(/not sure|no tool output/);
+      expect(follow.flags.check?.unsure ?? false).toBe(false);
+      expect(follow.flags.citations).toEqual({ cited: 2, unknown: [] });
+    });
+  });
+
   it("never loops, never hands work to itself or past its depth, and hands off only as a supervisor", async () => {
     const keeper = make("server-keeper");
     make("pihole-watcher");
