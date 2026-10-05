@@ -53,6 +53,15 @@ const hostBackupOperations = new Set(["app.backup", "app.backup.many", "app.back
 export const dockerLane = "docker";
 const dockerRestartOperations = new Set(["docker.logging.set", "apt.upgrade", "apt.install", "apt.remove", "apt.purge", "apt.autoremove", "apt.repair", "apt.unattended.set", "prerequisite.docker.install"]);
 const dockerUnit = /^(docker|containerd)\.(service|socket)$/;
+/**
+ * Operations that take a drive or a share out from under the apps hold the Docker lane too. A check,
+ * clearing the dirty mark, a reconnect and letting apps write stop every container bound to the
+ * drive, unmount it, and start them again; unmounting a drive or a share decides from the running
+ * containers that none holds it. On the host lane alone an app start ran beside them: started
+ * mid-check, Jellyfin bound the empty folder on the system disk, the check's own `docker start`
+ * afterwards left that container as it was, and it wrote to the system disk hidden under the drive.
+ */
+const driveUnderAppsOperations = new Set(["storage.check", "storage.dirty-mark.clear", "storage.remount", "storage.writable", "storage.unmount", "share.reconnect", "share.unmount"]);
 const isAppLane = (lane) => lane.startsWith("app:");
 
 /** The lanes an operation must hold, as an array. Read-only operations never queue, so never get here. */
@@ -72,7 +81,10 @@ export function laneFor(operation, parameters = {}) {
   if (id === "cloudflare.connect" || id === "cloudflare.publish") return [cloudflareLane, "app:cloudflared", homepageLane];
   if (id.startsWith("cloudflare.")) return [cloudflareLane];
   if (dockerRestartOperations.has(id) || (id === "service.action" && dockerUnit.test(String(parameters?.unit ?? "")))) return [hostLane, dockerLane];
+  if (driveUnderAppsOperations.has(id)) return [hostLane, dockerLane];
   const subject = (value) => (typeof value === "string" && value.length && value.length <= 64 ? value : null);
+  // A DNS rehearsal stops and starts that DNS app's container, so an update of it waits.
+  if (id === "dns.fallback.rehearse") { const app = subject(parameters?.app); return app ? [hostLane, `app:${app}`] : [hostLane, dockerLane]; }
   const lanes = [];
   if (id.startsWith("app.")) {
     const app = subject(parameters?.id);
