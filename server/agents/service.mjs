@@ -812,20 +812,27 @@ export function createAgentService({
    * A run is flagged when it read something that looked like an instruction, and so is one given
    * text that came from such a run - a specialist's answer, a supervisor's task, a kept note,
    * something remembered: its notice is held back, its cards are marked, the owner is warned, and it
-   * shares no finding and keeps no episode. The flag follows where text came from, never what
-   * remembered words look like: the owner's runbook says "curl ... | bash", and a note can say "use
-   * the tool storage_health first" (sweep 3: each flagged every run that read it, for good).
+   * shares no finding and keeps no episode. The flag follows where text came from, never what the
+   * owner's own remembered words look like: the owner's runbook says "curl ... | bash", and a note
+   * can say "use the tool storage_health first" (sweep 3: each flagged every run that read it, for
+   * good). Another account's words are held to them (wordsHeld, sweep 4).
    *
    * Its hop says how far it is from that text: 0 when it read it itself - a tool's output, another
-   * agent's finding, the task it was handed or a specialist's answer in its own request - and 1 when
-   * it came by way of another agent's note kept by such a run. A run flagged only by its own memory
-   * (its notes, its runs' episodes), or by a note already one hop away, has none: it is treated as
-   * flagged, but the notes it keeps are not. Before, every note a flagged run kept was flagged, so a
-   * flag renewed itself through each run's notes, and back and forth through shared ones (sweep 3).
+   * agent's finding, the task it was handed, a specialist's answer, another account's words - and 1
+   * when it came by way of another agent's note kept by such a run. A run flagged only by memory
+   * (its own notes, its runs' episodes, a note already one hop away) has none. Every note a flagged
+   * run keeps is flagged, at the run's hop or, without one, at the last (sweep 4: sweep 3 kept them
+   * clean, so words copied from a flagged note came back clean once that note was forgotten or
+   * dropped past `maxNotes`). A flag goes on through the notes that carry those words, as it should;
+   * the owner is told once for each note that flags runs (escalate), not at every run (sweep 3's
+   * storm), and Trust or Forget on the Memory tab ends it.
    */
   const injectionHops = 1;
-  /** A kept note's hop: null when it is not flagged; 0 for one flagged before hops were kept. */
-  const noteHop = (source) => (source?.injection ? (Number.isInteger(source.injectionHop) ? source.injectionHop : 0) : null);
+  /**
+   * A kept note's hop: null when it is not flagged. One flagged before hops were kept is at the last
+   * hop (sweep 4: taken as hop 0, its readers spread it a hop further than a note of today would).
+   */
+  const noteHop = (source) => (source?.injection ? (Number.isInteger(source.injectionHop) ? source.injectionHop : injectionHops) : null);
   /**
    * Whether a person's word - their Trust, or words they wrote (`by`, { id, role }) - holds for a
    * run reading as `readRole`: the owner's for every run, anyone else's only for runs that read no
@@ -858,36 +865,75 @@ export function createAgentService({
   const nearest = (...hops) => { const known = hops.filter(Number.isInteger); return known.length ? Math.min(...known) : null; };
 
   /**
-   * What remembered items bring a run, by where they came from: `{ flagged, hop }`. A flagged note
-   * of another agent brings its hop plus one, within `injectionHops`; the agent's own flagged notes,
-   * its flagged runs' episodes, and a note already as far as a flag goes, flag the run but bring no hop.
+   * What remembered items bring a run: `{ flagged, hop, read, items }`. Another account's words that
+   * read like an instruction (`held`) were read by this run itself (`read`, hop 0). Otherwise, by
+   * where they came from: a flagged note of another agent brings its hop plus one, within
+   * `injectionHops`; the agent's own flagged notes, its flagged runs' episodes, and a note already
+   * as far as a flag goes, flag the run but bring no hop. `items`: those flagged by where they came
+   * from, { key, title, from }, which the trace and the owner's warning name.
    */
   function rememberedFlag(items) {
     let flagged = false;
     let hop = null;
+    let read = false;
+    const carried = [];
     for (const item of items) {
       // Words held to them (`held`: another account's) that read like an instruction: read by this run itself (sweep 4).
-      if (item.held && heldWordsSteer(item.title, item.text)) { flagged = true; hop = 0; continue; }
+      if (item.held && heldWordsSteer(item.title, item.text)) { flagged = true; read = true; hop = 0; continue; }
       const itemHop = Number.isInteger(item.injectionHop) ? item.injectionHop : null;
       if (itemHop === null && !(item.runId && store.getRun(item.runId)?.flags?.injection)) continue;
       flagged = true;
+      carried.push({ key: item.key, title: clip(String(item.title ?? ""), 80), from: clip(String(item.from ?? ""), 60) });
       if (itemHop !== null && !item.own && itemHop + 1 <= injectionHops) hop = nearest(hop, itemHop + 1);
     }
-    return { flagged, hop };
+    return { flagged, hop, read, items: carried };
   }
+
+  /** The remembered items that alone flagged a run, as kept on it; null when it read such text itself, or was flagged before these were kept. */
+  const flaggedBy = (run) => (run?.flags?.injection && !run.flags.injectionRead && run.flags.injectionItems?.length ? run.flags.injectionItems : null);
+  /** Remembered items, named for a person: "Readings" (Storage Watch), "Fans" (Server Keeper). */
+  const itemNames = (items) => items.slice(0, 4).map((item) => `"${clip(item.title, 60)}"${item.from ? ` (${item.from})` : ""}`).join(", ") + (items.length > 4 ? ` and ${items.length - 4} more` : "");
 
   /**
    * Flag a run (above), with its hop when it has one: the nearest it came to such text is kept. The
-   * trace says where the flag came from, the first time.
+   * trace says where the flag came from, the first time. `from`: the remembered items that brought
+   * it, when only they did ({ key, title, from }); without it, the run read such text itself
+   * (`injectionRead`). The owner is warned of a run flagged only by items they were told of before
+   * once, not at every run (escalate, sweep 4).
    */
-  function flagInjection(runId, { hop = null, detail = null } = {}) {
+  function flagInjection(runId, { hop = null, detail = null, from = null } = {}) {
     const flags = store.getRun(runId)?.flags ?? {};
     const next = nearest(flags.injection ? flags.injectionHop : null, hop);
-    if (flags.injection && (flags.injectionHop ?? null) === next) return;
-    store.mergeRunFlags(runId, { injection: true, ...(next === null ? {} : { injectionHop: next }) });
+    const known = flags.injectionItems ?? [];
+    const added = (from ?? []).filter((item) => !known.some((entry) => entry.key === item.key));
+    const read = Boolean(flags.injectionRead) || !from;
+    if (flags.injection && (flags.injectionHop ?? null) === next && Boolean(flags.injectionRead) === read && !added.length) return;
+    store.mergeRunFlags(runId, { injection: true, ...(next === null ? {} : { injectionHop: next }), ...(read ? { injectionRead: true } : {}), ...(added.length ? { injectionItems: [...known, ...added].slice(0, 12) } : {}) });
     if (!detail || flags.injection) return;
     const step = store.addStep(runId, { kind: "system", name: "injection", output: detail, flags: { detail, injection: true } });
     if (step) emit(runId, "step", step);
+  }
+
+  /** What one remembered-item flag says in the trace: which they are, and what to do. */
+  const rememberedDetail = (items) => `${items.length === 1 ? "What it remembered" : "Things it remembered"}, ${itemNames(items)}, came from a run that read something that looked like an instruction. Trust or forget ${items.length === 1 ? "it" : "them"} on the Memory tab if ${items.length === 1 ? "it is" : "they are"} fine.`;
+
+  // ---- which flagged notes the owner was told of: once each (sweep 4) ----
+
+  const warnedItemsKey = "agents.warnedItems";
+  const warnedItems = () => state.getSetting?.(warnedItemsKey, null) ?? {};
+  /** Told of these, now; the newest 500 are kept. */
+  function noteWarned(items) {
+    const kept = { ...warnedItems() };
+    for (const item of items) kept[item.key] = now().toISOString();
+    const newest = Object.entries(kept).sort(([, a], [, b]) => String(b).localeCompare(String(a))).slice(0, 500);
+    state.setSetting?.(warnedItemsKey, Object.fromEntries(newest), { updatedBy: null });
+  }
+  /** The owner trusted or forgot it: flagged again some day, it is news again. */
+  function unwarn(key) {
+    const kept = warnedItems();
+    if (!(key in kept)) return;
+    const { [key]: _gone, ...rest } = kept;
+    state.setSetting?.(warnedItemsKey, rest, { updatedBy: null });
   }
 
   // ---- findings (M44, ADR-012) ----
@@ -1068,15 +1114,15 @@ export function createAgentService({
     // A specialist's task came from its supervisor's run: one that had read something looking like
     // an instruction by the time it ended taints the task it handed over (2026-10 sweep 2).
     const supervisor = run.kind === "handoff" && run.parentRunId ? store.getRun(run.parentRunId) : null;
-    if (supervisor?.flags?.injection) flagInjection(run.id, { hop: runHop(supervisor), detail: "The agent that handed it this task had read something that looked like an instruction, so this run is treated as if it had read it too." });
+    if (supervisor?.flags?.injection) flagInjection(run.id, { hop: runHop(supervisor), from: flaggedBy(supervisor), detail: "The agent that handed it this task had read something that looked like an instruction, so this run is treated as if it had read it too." });
     const promptNotes = spec.memory?.enabled && spec.knowledge?.notes !== false && knowledgeSettings().notes !== false ? ownNotes(agent.id, run.readRole, { limit: limits.notesInPrompt }) : [];
     const notes = promptNotes.map((note) => wrapNote({ ...note, stale: stale(note) }, { redact }));
     // Its own note kept by a flagged run: flagged, by where the note came from and never by its own
     // words (sweep 3) - unless they are another account's, which are held to them (sweep 4).
     const steeredNote = promptNotes.find((note) => wordsHeld(note, agent, run.readRole) && heldWordsSteer(note.title, note.body));
     if (steeredNote) flagInjection(run.id, { hop: 0, detail: `Its note "${clip(steeredNote.title, 80)}" holds words another account wrote that read like an instruction. Forget the note, or trust it on the Memory tab, if it is fine.` });
-    const flaggedNote = promptNotes.find((note) => noteHopFor(note.source, run.readRole) !== null);
-    if (flaggedNote) flagInjection(run.id, { detail: `Its note "${clip(flaggedNote.title, 80)}" was kept by a run that read something that looked like an instruction. Forget the note, or trust it on the Memory tab, if it is fine.` });
+    const flaggedNotes = promptNotes.filter((note) => noteHopFor(note.source, run.readRole) !== null).map((note) => ({ key: `note:${note.id}`, title: clip(note.title, 80), from: clip(agent.name, 60) }));
+    if (flaggedNotes.length) flagInjection(run.id, { from: flaggedNotes, detail: `${flaggedNotes.length === 1 ? "Its note" : "Its notes"} ${itemNames(flaggedNotes)} ${flaggedNotes.length === 1 ? "was" : "were"} kept by a run that read something that looked like an instruction. Forget ${flaggedNotes.length === 1 ? "it" : "them"}, or trust ${flaggedNotes.length === 1 ? "it" : "them"} on the Memory tab, if ${flaggedNotes.length === 1 ? "it is" : "they are"} fine.` });
     // What it remembers that bears on this request, by words (the query's vector comes later, from
     // the runner, when the model searches memory itself). Recorded in the trace as a memory read.
     const query = [run.question, run.trigger?.title, spec.job].filter(Boolean).join(" ");
@@ -1086,7 +1132,8 @@ export function createAgentService({
       const carried = rememberedFlag(recalled);
       const step = store.addStep(run.id, { kind: "recall", name: "recall", input: { query: clip(query, 200) }, output: recalled.map((item) => `${item.tier}: ${item.title} (${item.from}, ${String(item.at ?? "").slice(0, 10)}${stale(item) ? ", may be out of date" : ""})`).join("\n"), flags: { read: recalled.length, ...(carried.flagged ? { injection: true } : {}) } });
       if (step) emit(run.id, "step", step);
-      if (carried.flagged) flagInjection(run.id, { hop: carried.hop, detail: "Something it remembered came from a run that read something that looked like an instruction." });
+      if (carried.read) flagInjection(run.id, { hop: 0, detail: "Something it remembered holds another account's words that read like an instruction." });
+      if (carried.items.length) flagInjection(run.id, { hop: carried.hop, from: carried.items, detail: rememberedDetail(carried.items) });
     }
     // What the other agents found that bears on it (M44): before it plans, so it need not look again.
     const usesFindings = sharingFor(agent, spec).useFindings;
@@ -1103,6 +1150,8 @@ export function createAgentService({
       const children = store.listChildren(run.parentRunId).filter((entry) => entry.kind === "handoff");
       let tainted = false;
       let taintHop = null;
+      // Only remembered items flagged every flagged specialist: those, so the owner hears of each once (sweep 4).
+      let taintFrom = [];
       const answered = (child) => {
         const name = store.getAgent(child.agentId, { includeDeleted: true })?.name ?? "A specialist";
         // A specialist that handed work on answered in its own follow-up (2026-10 sweep 2).
@@ -1112,13 +1161,15 @@ export function createAgentService({
         const flagged = Boolean(cleaned.flags.injection || child.flags?.injection || final.flags?.injection);
         tainted ||= flagged;
         taintHop = nearest(taintHop, cleaned.flags.injection ? 0 : null, runHop(child), runHop(final));
+        for (const ran of [child, final].filter((entry) => entry.flags?.injection)) taintFrom = taintFrom && flaggedBy(ran) ? [...taintFrom, ...flaggedBy(ran)] : null;
+        if (cleaned.flags.injection) taintFrom = null;
         store.addStep(run.id, { kind: "tool", name: "agents.handoff", input: { agent: name, runId: child.id }, output: cleaned.text, flags: flagged ? { injection: true } : {} });
       };
       const shown = new Set();
       for (const step of store.listSteps(run.parentRunId).filter((entry) => entry.kind === "handoff" && entry.state === "done")) {
         if (step.flags?.reused) {
           // A finding's words, read by the supervisor itself.
-          if (step.flags.injection) { tainted = true; taintHop = 0; }
+          if (step.flags.injection) { tainted = true; taintHop = 0; taintFrom = null; }
           store.addStep(run.id, { kind: "tool", name: "agents.handoff", input: step.input, output: step.output, flags: { reused: true, finding: step.flags.finding ?? null, ...(step.flags.injection ? { injection: true } : {}) } });
           continue;
         }
@@ -1126,7 +1177,7 @@ export function createAgentService({
         if (child && !shown.has(child.id)) { shown.add(child.id); answered(child); }
       }
       for (const child of children.filter((entry) => !shown.has(entry.id))) answered(child);
-      if (tainted) flagInjection(run.id, { hop: taintHop, detail: "A specialist's answer it was given came from a run that read something that looked like an instruction." });
+      if (tainted) flagInjection(run.id, { hop: taintHop, from: taintFrom?.length ? taintFrom : null, detail: "A specialist's answer it was given came from a run that read something that looked like an instruction." });
     }
     // The specialists' answers, T1, T2 ...: in the prompt, and to the runner, which numbers its tool
     // outputs after them, checks the answer against them and falls back on them (sweep 3: it had
@@ -1495,13 +1546,14 @@ export function createAgentService({
     const given = outputsSoFar(run.id);
     // `words`: whether what came back is held to its words - not what it remembers (its notes, the
     // owner's documents), which carries a flag by where it came from (`flags.injection`, `hop`) (sweep 3).
-    const answer = (stepKind, { state: stepState = "done", text, input = null, flags = {}, title = tool?.title ?? String(name), words = true, hop = null }) => {
+    // `from`: the remembered items that alone brought the flag ({ key, title, from }), named in the trace (sweep 4).
+    const answer = (stepKind, { state: stepState = "done", text, input = null, flags = {}, title = tool?.title ?? String(name), words = true, hop = null, from = null }) => {
       const cleaned = sanitizeUntrusted(text, { maxChars: limits.toolOutputChars, redact });
       const byWords = words && cleaned.flags.injection;
       const allFlags = { ...flags, ...(byWords ? { injection: true, matches: cleaned.flags.matches } : {}), ...(cleaned.flags.truncated ? { truncated: true } : {}) };
       const step = store.addStep(run.id, { kind: stepKind, name: tool?.id ?? clip(String(name), 80), state: stepState, input, output: cleaned.text, flags: allFlags, startedAt: started.toISOString(), durationMs: now().getTime() - started.getTime() });
       // What it read looked like an instruction (it read that itself), or came from a run that read such a thing.
-      if (allFlags.injection) flagInjection(run.id, { hop: byWords ? 0 : hop });
+      if (allFlags.injection) flagInjection(run.id, byWords || !from?.length ? { hop: byWords ? 0 : hop } : { hop, from, detail: rememberedDetail(from) });
       if (step) emit(run.id, "step", step);
       const index = stepState === "done" ? given + 1 : null;
       const content = stepState === "done"
@@ -1523,12 +1575,12 @@ export function createAgentService({
     try {
       if (tool.id === "memory.search") {
         const found = searchMemory(run, spec, value, extras.vector);
-        return answer("memory", { text: found.text, input: { query: value.query, tier: value.tier ?? "any", byMeaning: Boolean(readVector(extras.vector)) }, words: false, flags: found.flagged ? { injection: true } : {}, hop: found.hop });
+        return answer("memory", { text: found.text, input: { query: value.query, tier: value.tier ?? "any", byMeaning: Boolean(readVector(extras.vector)) }, words: false, flags: found.flagged ? { injection: true } : {}, hop: found.hop, from: found.read ? null : found.items });
       }
       if (tool.id === "agents.handoff") return handoffFor(run, spec, value, answer);
       if (tool.id === "notes.read") {
         const read = readNotes(run, spec, value);
-        return answer("tool", { text: read.text, input: value, words: false, flags: read.flagged ? { injection: true } : {}, hop: read.hop });
+        return answer("tool", { text: read.text, input: value, words: false, flags: read.flagged ? { injection: true } : {}, hop: read.hop, from: read.read ? null : read.items });
       }
       if (tool.id === "notes.write") return writeNoteFor(run, spec, value, answer);
       if (tool.id === "plan.propose") return await proposeFor(run, spec, value, answer);
@@ -1558,7 +1610,7 @@ export function createAgentService({
       return `## ${note.title}${stale ? " (may be out of date)" : ""}\nWritten ${note.updatedAt.slice(0, 10)}${note.source?.tools?.length ? ` from ${note.source.tools.join(", ")}` : ""}.\n${note.body}`;
     }).join("\n\n");
     const agent = store.getAgent(run.agentId, { includeDeleted: true });
-    return { text, ...rememberedFlag(notes.map((note) => ({ key: `note:${note.id}`, title: note.title, text: note.body, own: true, injectionHop: noteHopFor(note.source, run.readRole), held: wordsHeld(note, agent, run.readRole) }))) };
+    return { text, ...rememberedFlag(notes.map((note) => ({ key: `note:${note.id}`, title: note.title, text: note.body, from: agent?.name, own: true, injectionHop: noteHopFor(note.source, run.readRole), held: wordsHeld(note, agent, run.readRole) }))) };
   }
 
   /**
@@ -1634,7 +1686,7 @@ export function createAgentService({
     // something that did (2026-10 sweep 2). What the supervisor reads after this is checked at claim.
     const handing = store.getRun(run.id);
     if (sanitizedTask.flags.injection) flagInjection(child.id, { hop: 0, detail: "The task it was handed reads like an instruction." });
-    else if (handing?.flags?.injection) flagInjection(child.id, { hop: runHop(handing), detail: "The agent that handed it this task had read something that looked like an instruction, so this run is treated as if it had read it too." });
+    else if (handing?.flags?.injection) flagInjection(child.id, { hop: runHop(handing), from: flaggedBy(handing), detail: "The agent that handed it this task had read something that looked like an instruction, so this run is treated as if it had read it too." });
     audit("agents.handoff",{ actorId: run.requestedBy, subjectId: child.id, details: { from: agent.id, to: target.id, parentRunId: run.id, depth: check.depth } });
     wake();
     return answer("handoff", { text: `Handed to ${target.name}. It runs after this run, and its answer comes back to you in a follow-up; finish this run with what you have.`, input: { agent: target.name, task: cleanTask }, flags: { childRunId: child.id } });
@@ -1647,12 +1699,13 @@ export function createAgentService({
     const cleanBody = sanitizeUntrusted(body, { maxChars: 2_000, redact });
     const toolsUsed = [...new Set(store.listSteps(run.id).filter((step) => step.kind === "tool" && step.state === "done").map((step) => step.name))];
     const days = freshDays ?? spec.memory.freshDays;
-    // Flagged when this run read such text itself, or came within a hop of it - never by the note's
-    // own words, nor because only its own memory flagged the run (sweep 3: the flag renewed itself
-    // through every note a flagged run kept). A flagged note it rewrites stays flagged: rewriting
-    // is not the owner trusting it.
+    // Flagged when this run is - at its hop, or the last one when it has none - never by the note's
+    // own words (sweep 4: sweep 3 kept the notes of a run flagged only by its memory clean, and the
+    // words it copied from a flagged note came back clean once that note was gone). A flagged note it
+    // rewrites stays flagged: rewriting is not the owner trusting it.
     const earlier = store.listNotes(run.agentId, { limit: 200 }).find((note) => note.title.toLowerCase() === cleanTitle.toLowerCase() && note.readRole === run.readRole);
-    const hop = nearest(runHop(store.getRun(run.id)), noteHop(earlier?.source));
+    const writing = store.getRun(run.id);
+    const hop = nearest(writing?.flags?.injection ? runHop(writing) ?? injectionHops : null, noteHopFor(earlier?.source, run.readRole));
     const note = store.writeNote(run.agentId, {
       title: cleanTitle, body: cleanBody.text,
       source: { runId: run.id, by: "agent", tools: toolsUsed, injection: hop !== null, ...(hop === null ? {} : { injectionHop: hop }) },
@@ -1909,7 +1962,14 @@ export function createAgentService({
       expiresAt: new Date(now().getTime() + limits.proposalTtlMs).toISOString(), ...extra,
     });
     try {
-      const risky = rules.risk && run.flags?.injection;
+      // A run flagged only by remembered items is news to the owner once for each of them (sweep 4):
+      // every run a flagged note reaches is still flagged and its notice held, but a card and a
+      // high-priority alert at every run (sweep 3's storm) told the owner nothing new.
+      const remembered = flaggedBy(run);
+      const warned = remembered ? warnedItems() : {};
+      const news = remembered ? remembered.filter((item) => !(item.key in warned)) : null;
+      const toldBefore = Boolean(remembered) && !news.length;
+      const risky = rules.risk && run.flags?.injection && !toldBefore;
       const confidence = run.flags?.confidence;
       const reasons = [];
       if (clarify) {
@@ -1920,17 +1980,20 @@ export function createAgentService({
       }
       // A run that asked back is no less one that read something like an instruction: its question
       // may be those words (sweep 3: the card and the warning were skipped for it).
-      if (risky) reasons.push("Something it read looked like an instruction to it. It was told to treat it as data; check what it read and what it did.");
+      const ofNotes = news?.length ? `read ${itemNames(news)}, kept by a run that read something that looked like an instruction. Until you trust or forget ${news.length === 1 ? "it" : "them"} on the Memory tab, every run that reads ${news.length === 1 ? "it" : "them"} is flagged and what it asks to tell you is held back; you are told this once for each.` : null;
+      if (risky) reasons.push(ofNotes ? `It ${ofNotes}` : "Something it read looked like an instruction to it. It was told to treat it as data; check what it read and what it did.");
       if (reasons.length) {
         card("escalation", `${agent.name} needs you to look`, reasons.join(" "));
         audit("agents.escalated", { actorId: run.requestedBy, subjectId: run.id, details: { agentId: agent.id, lowConfidence: !clarify && typeof confidence === "number" && confidence < limits.lowConfidence, limit: Boolean(run.flags?.limitReached), risk: Boolean(risky) } });
       }
       // Nothing proves the agent did not act on what it read (it may have proposed a plan or kept a
       // note), so the warning does not say it did not (2026-10 sweep).
-      if ((risky || heldNotice) && moduleSettings().notify !== false) {
-        const message = `An agent read something that looked like an instruction. It was told to treat it as data; check what it did in the run's trace.${heldNotice ? " It also asked to tell you something, which BoxPilot held back: those words may have come from what it read." : ""}`;
+      const told = (risky || (heldNotice && !toldBefore)) && moduleSettings().notify !== false;
+      if (told) {
+        const message = `${ofNotes ? `An agent ${ofNotes}` : "An agent read something that looked like an instruction. It was told to treat it as data; check what it did in the run's trace."}${heldNotice ? " It also asked to tell you something, which BoxPilot held back: those words may have come from what it read." : ""}`;
         await healthAlerts?.tell?.({ key: `agent.important:${agent.id}:risk`, title: neutralizeLinks(`${agent.name}: check what it read`), message: neutralizeLinks(message), priority: "high" });
       }
+      if (news?.length && (risky || told)) noteWarned(news);
     } catch { /* a card that could not be made is not worth failing the run over */ }
   }
 
@@ -2446,6 +2509,8 @@ export function createAgentService({
     }
     const note = store.updateNote(agent.id, noteId, { title, body, freshUntil, pinned: typeof patch.pinned === "boolean" ? patch.pinned : undefined, shared: typeof patch.shared === "boolean" ? patch.shared : undefined, trusted: patch.trusted === true, by: { id: person.id, role: person.role } });
     if (!note) refuse(404, "There is no such note", "note_not_found");
+    // The owner cleared its flag: flagged again some day, it is news again.
+    if (!note.source?.injection) unwarn(`note:${note.id}`);
     audit("agents.memory.edited", { actorId: person.id, subjectId: agent.id, details: { note: note.id, pinned: note.pinned, shared: note.shared, ...(patch.trusted === true ? { trusted: true } : {}) } });
     return presentNote(note, agent, person.role);
   }
@@ -2473,6 +2538,7 @@ export function createAgentService({
         return kind === "note" ? store.deleteNote(agent.id, String(id ?? "")) : store.deleteEpisode(agent.id, String(id ?? ""));
       })();
     if (!forgotten) refuse(404, "There is nothing like that to forget", "memory_not_found");
+    if (kind !== "thread") unwarn(`${kind}:${id}`);
     audit("agents.memory.forgotten", { actorId: person.id, subjectId: agent.id, details: { kind } });
     return { forgotten: true };
   }
