@@ -37,7 +37,8 @@
 #   8. A new --port re-points Tailscale Serve wherever BoxPilot is published through it, even on a
 #      Tailscale install whose owner has since turned on the LAN.
 #   9. A rollback checks the old tree went back and asks the restarted service, and says what it
-#      found: back and answering, back and silent, or not back (and where both trees are).
+#      found: back and answering, back and silent, or not back (and where both trees are). It asks
+#      the helper as the upgrade does (active, with its socket) and says when it is not up.
 set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -122,8 +123,9 @@ stub mv "if [ \"\${STUB_MV_FAIL:-}\" = prev ]; then
 fi
 exec \"${MV_REAL}\" \"\$@\""
 # systemctl: logged; "<command>:<n>" in $STUB_HOLDS holds the nth such call until the harness lets
-# it go, so a signal can arrive at a known point. Every unit is enabled unless $STUB_NOT_ENABLED.
-# Each restart of the web service also logs the port the env file gives it then.
+# it go, so a signal can arrive at a known point. Every unit is enabled unless $STUB_NOT_ENABLED,
+# and active unless $STUB_HELPER_INACTIVE. Each restart of the web service also logs the port the
+# env file gives it then.
 stub systemctl 'printf "%s\n" "$*" >> "$STUB_LOG/systemctl"
 if [ "$*" = "restart boxpilot.service" ]; then
   { grep "BOXPILOT_PORT" "$STUB_ENV_FILE" 2>/dev/null | tail -n 1; } >> "$STUB_LOG/web-restarts"
@@ -137,6 +139,7 @@ for hold in ${STUB_HOLDS:-}; do
   while [ ! -e "$STUB_LOG/release-$i" ]; do "$STUB_SLEEP" 0.1; done
 done
 if [ "$1" = is-enabled ] && [ -n "${STUB_NOT_ENABLED:-}" ]; then exit 1; fi
+if [ "$1" = is-active ] && [ -n "${STUB_HELPER_INACTIVE:-}" ]; then exit 3; fi
 exit 0'
 
 # The scripts as they are, with the machine's paths moved under $FAKE (and CRLF dropped, for a
@@ -600,12 +603,25 @@ echo "9. A rollback says whether the old version is really back"
 # never asked the restarted service anything: its restarts' errors were silenced.
 last_line() { printf '%s\n' "$out" | tail -n 1; }
 # The new helper never comes up (its socket is not there), so the upgrade rolls back; the old
-# version, back in place, answers as 1.0.0.
+# version, back in place, answers as 1.0.0. The web service only Wants= the helper, so it answers
+# with the helper down: the rollback asks the helper as the upgrade did, and its socket is still
+# not there.
 fresh_box 'BOXPILOT_PORT=8787'
 run_upgrade STUB_LISTEN=http://127.0.0.1:8787/api/v1/health STUB_TREE="${FAKE}/opt/boxpilot" BOXPILOT_HELPER_SOCKET=missing.sock
 show "$out"
 check "rolled back, the old version answers: it failed, and its last line says 1.0.0 answers again" '[ "$status" -ne 0 ] && last_line | grep -q "ERROR: upgrade failed; previous tree restored, and BoxPilot 1.0.0 answers at http://127.0.0.1:8787/api/v1/health"'
 check "rolled back, the old version answers: it asked once for 2.0.0 and once more after the rollback's restart" '[ "$(grep -cx http://127.0.0.1:8787/api/v1/health "${STUB_LOG}/curl")" -eq 2 ] && [ "$(version_at "${FAKE}/opt/boxpilot")" = 1.0.0 ]'
+check "rolled back, the old helper's socket missing: its last line says boxpilot-helper is not up" 'last_line | grep -q "answers at http://127.0.0.1:8787/api/v1/health, but boxpilot-helper is not up with its socket at missing.sock"'
+# The helper's unit is not active (its socket left behind): not up either.
+fresh_box 'BOXPILOT_PORT=8787'
+run_upgrade STUB_LISTEN=http://127.0.0.1:8787/api/v1/health STUB_TREE="${FAKE}/opt/boxpilot" STUB_HELPER_INACTIVE=1
+show "$out"
+check "rolled back, the old helper's unit not active: it says boxpilot-helper is not up" '[ "$status" -ne 0 ] && last_line | grep -q "1.0.0 answers at http://127.0.0.1:8787/api/v1/health, but boxpilot-helper is not up"'
+# The new web service never reports 2.0.0; after the rollback 1.0.0 answers and the helper is up.
+fresh_box 'BOXPILOT_PORT=8787'
+run_upgrade STUB_LISTEN=http://127.0.0.1:8787/api/v1/health STUB_VERSION=1.0.0
+show "$out"
+check "rolled back, the old version and its helper up: it says 1.0.0 answers, and nothing about the helper" '[ "$status" -ne 0 ] && last_line | grep -q "previous tree restored, and BoxPilot 1.0.0 answers at http://127.0.0.1:8787/api/v1/health (failed tree kept at" && ! last_line | grep -q "boxpilot-helper"'
 # Nothing answers, before or after.
 fresh_box 'BOXPILOT_PORT=8787'
 run_upgrade STUB_LISTEN=
