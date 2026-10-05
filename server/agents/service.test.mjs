@@ -71,6 +71,34 @@ describe("making agents", () => {
   });
 });
 
+describe("what a viewer sees of the module (R2S3-5)", () => {
+  it("leaves out the folder, web search and connectors, and the agents they cannot ask", () => {
+    h.enable();
+    h.service.saveModule(h.caller("owner"), {
+      folder: { enabled: true, path: "/srv/family-notes" }, webSearch: { enabled: true, endpoint: "http://192.168.1.20:8089" },
+      connectors: { notion: { enabled: true, credential: "notion-token" }, slack: { enabled: true, credential: "slack-token", channels: ["C0123456789"] } },
+    });
+    const keeper = make("server-keeper");
+    const guide = make("house-guide");
+    const secrets = /family-notes|192\.168\.1\.20|notion-token|slack-token|C0123456789/;
+    for (const role of ["owner", "operator"]) {
+      expect(h.service.overview(h.caller(role)).module).toMatchObject({ folder: { enabled: true, path: "/srv/family-notes" }, webSearch: { endpoint: "http://192.168.1.20:8089" }, connectors: { slack: { channels: ["C0123456789"] } } });
+      expect(h.service.usage(h.caller(role)).today.perAgent.map((entry) => entry.agentId).sort()).toEqual([keeper.id, guide.id].sort());
+    }
+    const overview = h.service.overview(h.caller("viewer"));
+    expect(overview.agents.map((agent) => agent.id)).toEqual([guide.id]);
+    expect(overview.module).not.toHaveProperty("folder");
+    expect(overview.module).not.toHaveProperty("webSearch");
+    expect(overview.module).not.toHaveProperty("connectors");
+    expect(JSON.stringify(overview)).not.toMatch(secrets);
+    const usage = h.service.usage(h.caller("viewer"));
+    expect(usage.today.perAgent.map((entry) => entry.agentId)).toEqual([guide.id]);
+    expect(usage.module).not.toHaveProperty("folder");
+    expect(JSON.stringify(usage)).not.toMatch(secrets);
+    expect(JSON.stringify(usage)).not.toContain(keeper.id);
+  });
+});
+
 describe("asking an agent", () => {
   it("is refused while Agents are off", () => {
     const agent = make("server-keeper");
