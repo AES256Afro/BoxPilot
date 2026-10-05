@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { runningUpgrade, systemUpdate } from "./update.mjs";
+import { localHealthUrl, runningUpgrade, systemUpdate } from "./update.mjs";
 
 const directories = [];
 const sha = "a".repeat(40);
@@ -12,9 +12,10 @@ async function fixture() {
   directories.push(root);
   await mkdir(path.join(root, "install", "scripts"), { recursive: true });
   await writeFile(path.join(root, "install", "scripts", "boxpilot-upgrade.sh"), "#!/bin/sh\necho upgrade \"$1\"\n");
+  await writeFile(path.join(root, "boxpilot.env"), "BOXPILOT_HOST=127.0.0.1\nBOXPILOT_PORT=8787\n");
   const run = vi.fn(async () => ({ ok: true, stdout: "", stderr: "" }));
   const fetchImpl = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ sha }) }));
-  const options = { run, fetchImpl, installDir: path.join(root, "install"), stagingDirectory: path.join(root, "run"), nodeBinary: "/usr/local/bin/node", now: () => new Date("2026-08-21T15:00:00.000Z"), lockPath: path.join(root, "boxpilot-upgrade.lock") };
+  const options = { run, fetchImpl, installDir: path.join(root, "install"), stagingDirectory: path.join(root, "run"), nodeBinary: "/usr/local/bin/node", now: () => new Date("2026-08-21T15:00:00.000Z"), lockPath: path.join(root, "boxpilot-upgrade.lock"), envPath: path.join(root, "boxpilot.env") };
   return { root, run, fetchImpl, options };
 }
 
@@ -31,10 +32,40 @@ describe("system.update root task", () => {
     expect(fetchImpl).toHaveBeenCalledWith("https://api.github.com/repos/AES256Afro/BoxPilot/commits/v0.62.0", expect.anything());
     const scriptCopy = path.join(root, "run", "update-20260821T150000Z.sh");
     expect(await readFile(scriptCopy, "utf8")).toContain("echo upgrade");
-    expect(run).toHaveBeenCalledWith("/usr/bin/systemd-run", ["--quiet", "--unit", "boxpilot-update-20260821T150000Z", "--description", "BoxPilot update to v0.62.0", "--setenv=BOXPILOT_NODE_BIN=/usr/local/bin/node", "--setenv=BOXPILOT_UPDATE_UNIT=boxpilot-update-20260821T150000Z", "/bin/sh", scriptCopy, sha], expect.anything());
+    expect(run).toHaveBeenCalledWith("/usr/bin/systemd-run", ["--quiet", "--unit", "boxpilot-update-20260821T150000Z", "--description", "BoxPilot update to v0.62.0", "--setenv=BOXPILOT_NODE_BIN=/usr/local/bin/node", "--setenv=BOXPILOT_UPDATE_UNIT=boxpilot-update-20260821T150000Z", "--setenv=BOXPILOT_HEALTH_URL=http://127.0.0.1:8787/api/v1/health", "/bin/sh", scriptCopy, sha], expect.anything());
     // It looked at the upgrade lock first, and found it free.
     expect(run.mock.calls[0]).toEqual(["/usr/bin/flock", ["-n", options.lockPath, "/bin/true"], expect.anything()]);
     expect(log).toHaveBeenCalledWith(expect.stringContaining("rolls back"), "stdout");
+  });
+
+  // A box installed with --port 9000: the script's health check asked 8787, failed, and rolled
+  // every update back - after the new version had already started on the database.
+  it("tells the update where the web service listens, from its env file", async () => {
+    const { root, run, options } = await fixture();
+    const healthUrl = async (env) => {
+      await writeFile(options.envPath, env);
+      run.mockClear();
+      await systemUpdate({ tag: "v0.62.0", expectedCommit: sha }, options);
+      return run.mock.calls.find(([binary]) => binary === "/usr/bin/systemd-run")[1].find((arg) => arg.startsWith("--setenv=BOXPILOT_HEALTH_URL="));
+    };
+    expect(await healthUrl("BOXPILOT_HOST=127.0.0.1\nBOXPILOT_PORT=9000\n")).toBe("--setenv=BOXPILOT_HEALTH_URL=http://127.0.0.1:9000/api/v1/health");
+    // On the LAN (Settings, or --access lan): loopback still answers.
+    expect(await healthUrl('BOXPILOT_HOST="0.0.0.0"\nBOXPILOT_PORT="9001"\n')).toBe("--setenv=BOXPILOT_HEALTH_URL=http://127.0.0.1:9001/api/v1/health");
+    // Bound to one address: loopback does not answer there, that address does.
+    expect(await healthUrl("BOXPILOT_HOST=192.0.2.10\nBOXPILOT_PORT=9002\n")).toBe("--setenv=BOXPILOT_HEALTH_URL=http://192.0.2.10:9002/api/v1/health");
+    expect(await healthUrl("BOXPILOT_HOST=fd00::10\nBOXPILOT_PORT=9003\n")).toBe("--setenv=BOXPILOT_HEALTH_URL=http://[fd00::10]:9003/api/v1/health");
+    // No env file: the service's own defaults.
+    await rm(options.envPath);
+    run.mockClear();
+    await systemUpdate({ tag: "v0.62.0", expectedCommit: sha }, { ...options, envPath: path.join(root, "missing.env") });
+    expect(run.mock.calls.at(-1)[1]).toContain("--setenv=BOXPILOT_HEALTH_URL=http://127.0.0.1:8787/api/v1/health");
+  });
+
+  it("builds the health address the way the web service binds", () => {
+    expect(localHealthUrl({ webHost: "127.0.0.1", webPort: 8787 })).toBe("http://127.0.0.1:8787/api/v1/health");
+    expect(localHealthUrl({ webHost: "::", webPort: 9000 })).toBe("http://127.0.0.1:9000/api/v1/health");
+    expect(localHealthUrl({ webHost: "", webPort: 9000 })).toBe("http://127.0.0.1:9000/api/v1/health");
+    expect(localHealthUrl({ webHost: "::1", webPort: 9000 })).toBe("http://[::1]:9000/api/v1/health");
   });
 
   it("refuses when the tag moved, when GitHub cannot resolve it, or when input is malformed", async () => {

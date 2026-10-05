@@ -407,7 +407,10 @@ describe("surviving a reboot with the backup drive still waking up", () => {
   it("creates that folder on install and moves an existing destination into it on upgrade", async () => {
     const install = (await readFile("scripts/boxpilot-install.sh", "utf8")).replaceAll("\r\n", "\n");
     const upgrade = (await readFile("scripts/boxpilot-upgrade.sh", "utf8")).replaceAll("\r\n", "\n");
-    expect(install).toContain("install -d -o root -g root -m 0755 /mnt/boxpilot /mnt/boxpilot/backup");
+    expect(install).toContain("install -d -o root -g root -m 0755 /mnt/boxpilot\n");
+    // The mount point only when it is missing: on a re-run it is the destination, and `install -d`
+    // on it woke its automount (and failed with the NAS off) or handed the NAS's folder to root.
+    expect(install).toContain("[ -e /mnt/boxpilot/backup ] || install -d -o root -g root -m 0755 /mnt/boxpilot/backup\n");
     expect(install).not.toContain("/mnt/boxpilot-backup");
     // After the new units are in place and before the helper restarts; undone by a rollback, since
     // the old helper looks for the destination where it used to be.
