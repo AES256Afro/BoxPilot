@@ -309,6 +309,25 @@ describe("Repair's fixes on Home and Ops (M35)", () => {
     expect(buildNeeds(facts({ jobs: [refused] }), { now, role: "viewer" })[0].actions).toBeUndefined();
   });
 
+  it.each([
+    ["op:app.backup.restore", "Restore application data from a backup", { id: "immich", backup: "20260901T030000Z.tar.gz" },
+      "Immich was not restored; nothing was changed. In this backup .env.tmp is a link, or not a plain file, where BoxPilot writes Immich's own files as root, which a backup BoxPilot made never holds: restored, the next change to Immich would have written through it to somewhere else on this server."],
+    ["op:host.snapshot.restore", "Restore from a machine snapshot", { name: "boxpilot-machine-20260901-030000.tar.zst" },
+      "The snapshot holds srv/data/link, links or special files, which a snapshot BoxPilot made never does. Nothing was changed."],
+    ["op:housekeeping.unreadable-snapshot.remove", "Remove an unreadable machine snapshot", { name: "boxpilot-machine-20260901-030000.tar.zst" },
+      "boxpilot-machine-20260901-030000.tar.zst can be read now, so it was not removed."],
+    ["op:housekeeping.unreadable-snapshot.remove", "Remove an unreadable machine snapshot", { name: "boxpilot-machine-20260901-030000.tar.zst" },
+      "boxpilot-machine-20260901-030000.tar.zst is no longer there"],
+    ["op:app.backup.restore", "Restore application data from a backup", { id: "immich", backup: "20260901T030000Z.tar.gz" },
+      "Backup 20260901T030000Z.tar.gz failed its checksum; it may be damaged. Nothing was changed."],
+  ])("offers only Dismiss on %s refused for what its file holds or whether it is there (sweep 5)", (type, title, parameters, error) => {
+    // Try again on the high-risk restore asked for the password, then refused the same way.
+    const refused = job({ id: "x1", type, title, state: "failed", error, parameters });
+    const [need] = buildNeeds(facts({ jobs: [refused] }), { now, role: "owner" });
+    expect(need).toMatchObject({ id: "job:x1", action: null });
+    expect(need.actions?.map((action) => [action.kind, action.label])).toEqual([["dismiss", "Dismiss"]]);
+  });
+
   it("lets a failed job go once its finding is gone, it was dismissed, or the same thing later worked", () => {
     const failed = job({ id: "x1", type: "op:storage.remount", title: "Reconnect a drive", state: "failed", error: "target is busy", parameters: { name: "media" }, createdAt: hoursAgo(3), updatedAt: hoursAgo(3) });
     const withJobs = (jobs: Job[], settled: { resolved?: string[] } = {}) => ids(buildNeeds(facts({ jobs, repairs: { findings: [], unavailableChecks: [], jobs: { attached: [], resolved: settled.resolved ?? [], dismissed: [] } } }), { now, role: "owner" }));
