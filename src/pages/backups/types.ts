@@ -16,7 +16,8 @@ export interface MachineSnapshot { artifact: string; sizeBytes: number | null; c
 export interface MachineSnapshotState {
   snapshots: MachineSnapshot[];
   keep: number;
-  sync: { destination: string; mount: { mounted: boolean; blocker?: string | null; freeBytes?: number | null }; lastSync: { completedAt: string; copiedCount: number } | null };
+  /** `skippedCount`/`skipped`: what the last sync left out, and why (the first few); absent from a record written before it said so. */
+  sync: { destination: string; mount: { mounted: boolean; blocker?: string | null; freeBytes?: number | null }; lastSync: { completedAt: string; copiedCount: number; skippedCount?: number; skipped?: string[] } | null };
 }
 
 export interface RemoteMirrorState { keyReady: boolean; publicKey: string | null; fingerprint: string | null; hostKeysPinned: number; rsyncInstalled: boolean }

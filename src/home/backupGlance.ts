@@ -47,8 +47,9 @@ export function backupGlance(
     },
     offBox: {
       value: !offBox ? "—" : offBox.state === "none" ? "Nowhere" : offBox.state === "never" ? "Never copied" : offBox.state === "behind" ? "Behind" : offBox.state === "stale" ? `${offBox.ageDays} days old` : relativeTime(offBox.lastSyncAt, clock) ?? "Copied",
-      caption: !offBox ? notRead(states.offBox) : offBox.where.length ? sentenceList(offBox.where) : "No second copy is set up",
-      status: !offBox ? "unknown" : offBox.state === "ok" ? "good" : "warning",
+      // A recent copy that left files out (R5B4-7) is not a whole one.
+      caption: !offBox ? notRead(states.offBox) : offBox.state === "ok" && offBox.skipped ? `${offBox.skipped} file${offBox.skipped === 1 ? "" : "s"} not copied` : offBox.where.length ? sentenceList(offBox.where) : "No second copy is set up",
+      status: !offBox ? "unknown" : offBox.state === "ok" && !offBox.skipped ? "good" : "warning",
     },
     database: {
       value: !database ? "—" : database.lastBackupAt ? relativeTime(database.lastBackupAt, clock) ?? "—" : "Never",
