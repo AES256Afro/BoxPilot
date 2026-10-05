@@ -22,6 +22,9 @@
 #   6. On a port other than 8787 (as --port leaves the env file) the upgrade checks that port with
 #      nothing telling it so, and re-running the installer with no options keeps the port, the
 #      access mode, and the backup mount point's owner.
+#   7. With the env file on a port something else holds (the service cannot start), re-running the
+#      installer with a free --port moves it there; asking for the held port fails and puts the env
+#      file back as it was, with BoxPilot answering where it did.
 set -uo pipefail
 
 [ "$(id -u)" -eq 0 ] || { echo "run as root, on a disposable machine" >&2; exit 2; }
@@ -165,6 +168,33 @@ chown root:root /mnt/boxpilot/backup
 systemctl restart boxpilot.service
 HEALTH=http://127.0.0.1:8787/api/v1/health
 check "BoxPilot answers on 8787 again" 'answers "$VERSION"'
+
+echo "7. A re-run with a new --port is checked on that port; one the service cannot listen on is put back"
+# The installer used to write a new --port only after the upgrade, which restarted the service on the
+# port the env file already named and checked that: a box stuck on a held port rolled back and
+# stopped before the good port was ever written.
+"$NODE" -e 'require("net").createServer().listen(9088, "127.0.0.1")' &
+holder=$!
+for _ in $(seq 1 50); do (exec 3<>/dev/tcp/127.0.0.1/9088) 2>/dev/null && break; sleep 0.1; done
+cp -p "$ENV_FILE" "${ENV_FILE}.before-port-test"
+sed -i 's/^BOXPILOT_PORT=.*/BOXPILOT_PORT=9088/' "$ENV_FILE"
+systemctl restart boxpilot.service || true
+out="$(sh "${ROOT}/scripts/boxpilot-install.sh" --ref "$REF" --port 8787 --no-token 2>&1)"; status=$?
+show "$out"
+check "env file on a held port; the installer re-run with --port 8787 finished" '[ "$status" -eq 0 ] && grep -q "BoxPilot is installed and running" <<<"$out"'
+check "the env file says 8787" '[ "$(env_line BOXPILOT_PORT)" = BOXPILOT_PORT=8787 ]'
+check "BoxPilot answers on 8787" 'answers "$VERSION"'
+cp -p "$ENV_FILE" "${ENV_FILE}.before-held-port"
+out="$(sh "${ROOT}/scripts/boxpilot-install.sh" --ref "$REF" --port 9088 --no-token 2>&1)"; status=$?
+show "$out"
+check "the installer re-run with the held --port 9088 failed" '[ "$status" -ne 0 ]'
+check "it put the env file back as it was" 'cmp -s "${ENV_FILE}.before-held-port" "$ENV_FILE" && grep -q "back as it was" <<<"$out"'
+check "BoxPilot answers on 8787 again" 'answers "$VERSION"'
+kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null
+mv "${ENV_FILE}.before-port-test" "$ENV_FILE"
+rm -f "${ENV_FILE}.before-held-port"
+systemctl restart boxpilot.service
+check "BoxPilot answers on 8787 at the end" 'answers "$VERSION"'
 
 if [ "$failures" -gt 0 ]; then echo "${failures} check(s) failed"; exit 1; fi
 echo "all checks passed"

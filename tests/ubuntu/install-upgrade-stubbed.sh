@@ -11,16 +11,22 @@
 #
 #   1. The upgrade health-checks the port and address /etc/boxpilot/boxpilot.env gives the web
 #      service. It always asked 127.0.0.1:8787, so on a box installed with --port every update
-#      rolled back - after the new version had already started on the database.
+#      rolled back - after the new version had already started on the database. The file is read
+#      the way systemd reads it: CRLF, blanks around "=" and trailing blanks are not part of a value.
 #   2. An upgrade stopped by TERM or HUP once the service is down (an SSH drop during curl | sh, the
 #      update unit stopped, a shutdown) rolls back and restarts the old tree, and a second TERM
 #      during the rollback does not cut it short. dash runs no EXIT trap for a signal, so the old
 #      script left both services stopped on the new, unchecked tree.
-#   3. Re-running the installer (the documented upgrade path) with no --port or --access keeps the
+#   3. The same when nobody reads its output any more (the terminal or the pipe it wrote to gone):
+#      the rollback's first line used to kill it (SIGPIPE, or a failed printf under set -e), and the
+#      line relaying the backup-destination move started a rollback that died the same way.
+#   4. Re-running the installer (the documented upgrade path) with no --port or --access keeps the
 #      port and access the env file holds, health-checks that port, and leaves an existing backup
 #      mount point alone. It used to put 8787 and the default access back, and `install -d` on the
-#      mount point woke its automount.
-#   4. The host doctor, run with sudo, asks the web service where the env file says it listens.
+#      mount point woke its automount. A --port outside 1024-65535 is refused before anything
+#      changes; a new --port or --access is written before the upgrade and checked there, and the
+#      env file is put back if the box does not come up on it; a LAN address opens the port in ufw.
+#   5. The host doctor, run with sudo, asks the web service where the env file says it listens.
 set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -32,6 +38,7 @@ DOCTOR="${DOCTOR_SCRIPT:-${REPO}/scripts/boxpilot-doctor.sh}"
 NODE_REAL="${NODE_BIN:-$(command -v node)}"
 [ -n "$NODE_REAL" ] || { echo "node is required" >&2; exit 2; }
 command -v perl >/dev/null 2>&1 || { echo "perl is required (it holds the stand-in helper socket)" >&2; exit 2; }
+command -v mkfifo >/dev/null 2>&1 || { echo "mkfifo is required (it stands in for a terminal that goes away)" >&2; exit 2; }
 
 WORK="$(mktemp -d)"
 FAKE="${WORK}/root"
@@ -66,6 +73,10 @@ stub apt-get 'echo "apt-get must not run here" >&2; exit 1'
 stub sudo 'exit 1'
 # Tailscale is "not running" unless a case says otherwise. Never the real one: it would publish.
 stub tailscale 'printf "%s\n" "$*" >> "$STUB_LOG/tailscale"; exit 1'
+# ufw: logged, and inactive unless $STUB_UFW says "active". Never the real one: it would open ports.
+stub ufw 'printf "%s\n" "$*" >> "$STUB_LOG/ufw"
+case "${1:-}" in status) echo "Status: ${STUB_UFW:-inactive}" ;; esac
+exit 0'
 # install: what it was asked to do, done without owners.
 stub install 'printf "%s\n" "$*" >> "$STUB_LOG/install"
 dir=0
@@ -82,7 +93,11 @@ done
 exit 7'
 # systemctl: logged; "<command>:<n>" in $STUB_HOLDS holds the nth such call until the harness lets
 # it go, so a signal can arrive at a known point. Every unit is enabled unless $STUB_NOT_ENABLED.
+# Each restart of the web service also logs the port the env file gives it then.
 stub systemctl 'printf "%s\n" "$*" >> "$STUB_LOG/systemctl"
+if [ "$*" = "restart boxpilot.service" ]; then
+  { grep "BOXPILOT_PORT" "$STUB_ENV_FILE" 2>/dev/null | tail -n 1; } >> "$STUB_LOG/web-restarts"
+fi
 i=0
 for hold in ${STUB_HOLDS:-}; do
   i=$((i + 1))
@@ -111,9 +126,36 @@ printf '{"name":"boxpilot","version":"2.0.0"}\n' > "${WORK}/release/BoxPilot-2.0
 : > "${WORK}/release/BoxPilot-2.0.0/dist/index.html"
 tar -czf "${WORK}/release.tar.gz" -C "${WORK}/release" BoxPilot-2.0.0
 
-# The tree the installer downloads: its upgrade script is a stand-in that says what it was handed.
+# The same release with the script that moves the backup destination (step 6 of the upgrade). It
+# says what it did, as the real one does, and records each move and undo; /etc/fstab is never read.
+mkdir -p "${WORK}/release-move"
+cp -R "${WORK}/release/BoxPilot-2.0.0" "${WORK}/release-move/"
+mkdir -p "${WORK}/release-move/BoxPilot-2.0.0/scripts"
+cat > "${WORK}/release-move/BoxPilot-2.0.0/scripts/boxpilot-backup-mount-move.mjs" <<'MJS'
+import { appendFileSync } from "node:fs";
+const record = (line) => appendFileSync(`${process.env.STUB_LOG}/mount-move`, `${line}\n`);
+if (process.argv[2] === "undo") {
+  record(`undo ${process.argv[3]}`);
+  console.log(`put the backup destination back from ${process.argv[3]}`);
+} else {
+  record("move");
+  console.log("moved the backup destination from /mnt/boxpilot-backup to /mnt/boxpilot/backup");
+  console.log("fstab-copy=/etc/fstab.boxpilot-stub");
+}
+MJS
+tar -czf "${WORK}/release-move.tar.gz" -C "${WORK}/release-move" BoxPilot-2.0.0
+
+# The tree the installer downloads: its upgrade script is a stand-in that says what it was handed
+# and, like the real one, fails when the service it restarts does not answer there once enabled.
 mkdir -p "${WORK}/installer/BoxPilot-2.0.0/scripts" "${WORK}/installer/BoxPilot-2.0.0/deploy"
-printf '#!/bin/sh\nprintf "health=%%s\\n" "${BOXPILOT_HEALTH_URL:-}" > "$STUB_LOG/upgrade"\n' > "${WORK}/installer/BoxPilot-2.0.0/scripts/boxpilot-upgrade.sh"
+cat > "${WORK}/installer/BoxPilot-2.0.0/scripts/boxpilot-upgrade.sh" <<'UPGRADE'
+#!/bin/sh
+printf 'health=%s\n' "${BOXPILOT_HEALTH_URL:-}" > "$STUB_LOG/upgrade"
+systemctl is-enabled boxpilot.service >/dev/null 2>&1 || exit 0
+curl -fsS --max-time 3 "${BOXPILOT_HEALTH_URL:-}" >/dev/null 2>&1 && exit 0
+echo "[boxpilot-upgrade] health check at ${BOXPILOT_HEALTH_URL:-} failed; rolled back" >&2
+exit 1
+UPGRADE
 tr -d '\r' < "${REPO}/deploy/boxpilot.env.example" > "${WORK}/installer/BoxPilot-2.0.0/deploy/boxpilot.env.example"
 printf '{}\n' > "${WORK}/installer/BoxPilot-2.0.0/deploy/redaction.example.json"
 tar -czf "${WORK}/installer.tar.gz" -C "${WORK}/installer" BoxPilot-2.0.0
@@ -125,9 +167,9 @@ SOCKET_PID=$!
 wait_for "${WORK}/helper.sock" || { echo "could not make the stand-in helper socket" >&2; exit 2; }
 
 common_env=(PATH="${BIN}:${PATH}" STUB_LOG="$STUB_LOG" STUB_SLEEP="$(command -v sleep)" STUB_VERSION=2.0.0
-  BOXPILOT_NODE_BIN="${BIN}/node" BOXPILOT_UPGRADE_LOCK="${FAKE}/run/boxpilot-upgrade.lock" BOXPILOT_HELPER_SOCKET=helper.sock)
+  STUB_ENV_FILE="${FAKE}/etc/boxpilot/boxpilot.env" BOXPILOT_NODE_BIN="${BIN}/node" BOXPILOT_UPGRADE_LOCK="${FAKE}/run/boxpilot-upgrade.lock" BOXPILOT_HELPER_SOCKET=helper.sock)
 
-# A box running BoxPilot 1.0.0 whose env file holds $1.
+# A box running BoxPilot 1.0.0 whose env file holds $1 (printf %b: \r, \t and \n are written as such).
 fresh_box() {
   rm -rf "$FAKE" "$STUB_LOG"
   mkdir -p "${FAKE}/opt/boxpilot" "${FAKE}/etc/boxpilot" "${FAKE}/var/lib/boxpilot" "${FAKE}/run" "${FAKE}/usr/local/bin" "$STUB_LOG"
@@ -148,6 +190,13 @@ run_install() {
   out="$(cd "$WORK" && env "${common_env[@]}" STUB_TARBALL="${WORK}/installer.tar.gz" STUB_LISTEN="$listen" "$SH" "${WORK}/install.sh" --ref v2.0.0 --no-token "$@" 2>&1)"; status=$?
 }
 env_line() { grep -x "$1=.*" "${FAKE}/etc/boxpilot/boxpilot.env" | tail -n 1; }
+# After the last daemon-reload: the rollback's restarts.
+restarted_after_rollback() {
+  local from
+  from="$(grep -nx daemon-reload "${STUB_LOG}/systemctl" | tail -n 1 | cut -d: -f1)"
+  [ -n "$from" ] && sed -n "${from},\$p" "${STUB_LOG}/systemctl" | grep -qx "restart boxpilot-helper.service" &&
+    sed -n "${from},\$p" "${STUB_LOG}/systemctl" | grep -qx "restart boxpilot.service"
+}
 
 echo "1. The upgrade health-checks the web service where its env file says it listens"
 upgrade_case() { # upgrade_case <what> <env file> <the URL that answers> [VAR=value ...]
@@ -164,6 +213,10 @@ upgrade_case "on the LAN, port quoted" 'BOXPILOT_HOST="0.0.0.0"\nBOXPILOT_PORT="
 upgrade_case "bound to one address" 'BOXPILOT_HOST=192.0.2.10\nBOXPILOT_PORT=9002' http://192.0.2.10:9002/api/v1/health
 upgrade_case "no port in the env file" 'BOXPILOT_HOST=127.0.0.1' http://127.0.0.1:8787/api/v1/health
 upgrade_case "BOXPILOT_HEALTH_URL given" 'BOXPILOT_PORT=9000' http://127.0.0.1:9100/api/v1/health BOXPILOT_HEALTH_URL=http://127.0.0.1:9100/api/v1/health
+# systemd reads these the same as the plain lines: \r ends a line, blanks around = and after an
+# unquoted value are dropped.
+upgrade_case "CRLF, blanks around = and after the value" 'BOXPILOT_HOST = 192.0.2.10 \r\n  BOXPILOT_PORT= 9003\t\r' http://192.0.2.10:9003/api/v1/health
+upgrade_case "CRLF, quoted after a blank" 'BOXPILOT_HOST = "0.0.0.0"\r\nBOXPILOT_PORT = "9004" \r' http://127.0.0.1:9004/api/v1/health
 
 echo "2. An upgrade stopped by a signal once the service is down rolls back and restarts the old tree"
 signal_case() { # signal_case <what> <signal> <TERM again during the rollback: yes|no>
@@ -187,31 +240,83 @@ signal_case() { # signal_case <what> <signal> <TERM again during the rollback: y
   check "${what}: it rolled back" 'grep -q "rolling back to previous tree" <<<"$out"'
   check "${what}: the old tree is back in place" '[ "$(version_at "${FAKE}/opt/boxpilot")" = 1.0.0 ]'
   check "${what}: the new tree is kept as evidence" 'ls -d "${FAKE}"/opt/boxpilot.failed.* >/dev/null 2>&1'
-  # After the last daemon-reload: the rollback's restarts, which the old script never reached.
-  check "${what}: it restarted the old helper and web service" 'sed -n "$(grep -nx daemon-reload "${STUB_LOG}/systemctl" | tail -n 1 | cut -d: -f1),\$p" "${STUB_LOG}/systemctl" | grep -qx "restart boxpilot-helper.service" &&
-    sed -n "$(grep -nx daemon-reload "${STUB_LOG}/systemctl" | tail -n 1 | cut -d: -f1),\$p" "${STUB_LOG}/systemctl" | grep -qx "restart boxpilot.service"'
+  check "${what}: it restarted the old helper and web service" 'restarted_after_rollback'
 }
 signal_case "TERM" TERM no
 signal_case "HUP (the SSH session dropped)" HUP no
 signal_case "TERM, then TERM again during the rollback" TERM yes
 
-echo "3. Re-running the installer keeps the port and access the env file holds"
+echo "3. The same when nobody reads its output any more"
+# pipe_case <what> <signal sent once the reader is gone, or none> <SIGPIPE on entry: default|ignored>
+#           <release tarball> <expected: rollback|live>
+# The upgrade writes into a FIFO, as into a terminal or a `| tee` that goes away; the reader is
+# killed at the first daemon-reload (the service stopped, the new tree in place), then the signal.
+# systemd starts a unit (the System page's update) with SIGPIPE ignored, so writes fail instead.
+pipe_case() {
+  local what="$1" signal="$2" sigpipe="$3" tarball="$4" expected="$5" pid reader
+  fresh_box 'BOXPILOT_PORT=8787'
+  rm -f "${WORK}/fifo" "${WORK}/out"; mkfifo "${WORK}/fifo"
+  cat "${WORK}/fifo" > "${WORK}/out" &
+  reader=$!
+  (
+    if [ "$sigpipe" = ignored ]; then trap '' PIPE; fi
+    cd "$WORK" && exec env "${common_env[@]}" STUB_TARBALL="$tarball" STUB_LISTEN=http://127.0.0.1:8787/api/v1/health STUB_HOLDS=daemon-reload:1 "$SH" "${WORK}/upgrade.sh" v2.0.0 > "${WORK}/fifo" 2>&1
+  ) &
+  pid=$!
+  if wait_for "${STUB_LOG}/held-1"; then
+    kill "$reader" 2>/dev/null; wait "$reader" 2>/dev/null
+    [ "$signal" = none ] || kill "-${signal}" "$pid"
+  fi
+  : > "${STUB_LOG}/release-1"
+  wait "$pid"; status=$?
+  show "$(cat "${WORK}/out")
+(the reader is gone; the upgrade exited ${status})"
+  if [ "$expected" = rollback ]; then
+    check "${what}: the upgrade exited non-zero" '[ "$status" -ne 0 ]'
+    check "${what}: the old tree is back in place" '[ "$(version_at "${FAKE}/opt/boxpilot")" = 1.0.0 ]'
+    check "${what}: the new tree is kept as evidence" 'ls -d "${FAKE}"/opt/boxpilot.failed.* >/dev/null 2>&1'
+    check "${what}: it restarted the old helper and web service" 'restarted_after_rollback'
+    if [ "$tarball" = "${WORK}/release-move.tar.gz" ]; then
+      # (Git Bash on Windows hands node the path as C:/Program Files/Git/etc/...: hence the .*)
+      check "${what}: it put the backup destination back" '[ "$(sed -n 1p "${STUB_LOG}/mount-move" 2>/dev/null)" = move ] && [ "$(wc -l < "${STUB_LOG}/mount-move")" -eq 2 ] &&
+        sed -n 2p "${STUB_LOG}/mount-move" | grep -q "^undo .*/etc/fstab\.boxpilot-stub$"'
+    fi
+  else
+    check "${what}: the upgrade finished" '[ "$status" -eq 0 ]'
+    check "${what}: the new tree is live" '[ "$(version_at "${FAKE}/opt/boxpilot")" = 2.0.0 ] && ! ls -d "${FAKE}"/opt/boxpilot.failed.* >/dev/null 2>&1'
+    check "${what}: the backup destination was moved and stays moved" '[ "$(cat "${STUB_LOG}/mount-move" 2>/dev/null)" = move ]'
+  fi
+}
+pipe_case "reader gone, then TERM" TERM default "${WORK}/release.tar.gz" rollback
+pipe_case "reader gone with SIGPIPE ignored (a systemd unit), then TERM" TERM ignored "${WORK}/release.tar.gz" rollback
+pipe_case "reader gone, no signal, the backup destination moved" none default "${WORK}/release-move.tar.gz" rollback
+pipe_case "reader gone with SIGPIPE ignored, no signal, the backup destination moved" none ignored "${WORK}/release-move.tar.gz" live
+
+echo "4. Re-running the installer keeps the port and access the env file holds"
 example="$(tr -d '\r' < "${REPO}/deploy/boxpilot.env.example")"
 backup_touched() { grep -q "mnt/boxpilot/backup" "${STUB_LOG}/install" 2>/dev/null; }
+# An installed box: the example's env file on port $1 (Tailscale's loopback, cookies https-only
+# unless $2 says false), the backup mount point already there.
+installed_box() {
+  fresh_box "${example}"
+  sed -i -e "s/^BOXPILOT_PORT=.*/BOXPILOT_PORT=$1/" -e "s/^BOXPILOT_COOKIE_SECURE=.*/BOXPILOT_COOKIE_SECURE=${2:-true}/" "${FAKE}/etc/boxpilot/boxpilot.env"
+  mkdir -p "${FAKE}/mnt/boxpilot/backup"
+}
 
+# A first install: the service is not enabled until the installer enables it.
 fresh_box ""
 rm -rf "${FAKE}/etc/boxpilot" "${FAKE}/mnt"
-run_install http://127.0.0.1:9000/api/v1/health --port 9000 --access lan
+STUB_NOT_ENABLED=1 run_install http://127.0.0.1:9000/api/v1/health --port 9000 --access lan
 show "$out"
 check "fresh install with --port 9000 --access lan: it finished" '[ "$status" -eq 0 ] && grep -q "BoxPilot is installed and running" <<<"$out"'
 check "fresh install: the env file has port 9000 on every address, cookies not https-only" '[ "$(env_line BOXPILOT_PORT)" = BOXPILOT_PORT=9000 ] && [ "$(env_line BOXPILOT_HOST)" = BOXPILOT_HOST=0.0.0.0 ] && [ "$(env_line BOXPILOT_COOKIE_SECURE)" = BOXPILOT_COOKIE_SECURE=false ]'
 check "fresh install: it checked port 9000" 'grep -qx "http://127.0.0.1:9000/api/v1/health" "${STUB_LOG}/curl"'
 check "fresh install: it made the backup mount point" 'backup_touched && [ -d "${FAKE}/mnt/boxpilot/backup" ]'
+check "fresh install with ufw inactive: no rule added" '! grep -q "^allow" "${STUB_LOG}/ufw" 2>/dev/null'
 
 # A Tailscale install on port 9000 whose owner then turned on the LAN in Settings.
-fresh_box "${example}"
-sed -i -e 's/^BOXPILOT_PORT=.*/BOXPILOT_PORT=9000/' -e 's/^BOXPILOT_HOST=.*/BOXPILOT_HOST=0.0.0.0/' "${FAKE}/etc/boxpilot/boxpilot.env"
-mkdir -p "${FAKE}/mnt/boxpilot/backup"
+installed_box 9000
+sed -i -e 's/^BOXPILOT_HOST=.*/BOXPILOT_HOST=0.0.0.0/' "${FAKE}/etc/boxpilot/boxpilot.env"
 run_install http://127.0.0.1:9000/api/v1/health
 show "$out"
 check "re-run, no options: it finished" '[ "$status" -eq 0 ] && grep -q "BoxPilot is installed and running" <<<"$out"'
@@ -223,25 +328,56 @@ check "re-run: it checked port 9000 and nothing else" '[ "$(sort -u "${STUB_LOG}
 check "re-run: it left the existing backup mount point alone" '! backup_touched'
 
 # Installed with --access local: loopback, reached over an SSH tunnel. No Tailscale running.
-fresh_box "${example}"
-sed -i -e 's/^BOXPILOT_COOKIE_SECURE=.*/BOXPILOT_COOKIE_SECURE=false/' "${FAKE}/etc/boxpilot/boxpilot.env"
-mkdir -p "${FAKE}/mnt/boxpilot/backup"
+installed_box 8787 false
 run_install http://127.0.0.1:8787/api/v1/health
 show "$out"
 check "re-run of a local install: it finished" '[ "$status" -eq 0 ]'
 check "re-run of a local install: it stays on loopback, not the LAN" '[ "$(env_line BOXPILOT_HOST)" = BOXPILOT_HOST=127.0.0.1 ] && [ "$(env_line BOXPILOT_COOKIE_SECURE)" = BOXPILOT_COOKIE_SECURE=false ]'
 
-# A new --port on a re-run: the upgrade restarts the service on the port it has now, and the new
-# one is written after it.
-fresh_box "${example}"
-sed -i -e 's/^BOXPILOT_PORT=.*/BOXPILOT_PORT=9000/' -e 's/^BOXPILOT_COOKIE_SECURE=.*/BOXPILOT_COOKIE_SECURE=false/' "${FAKE}/etc/boxpilot/boxpilot.env"
-mkdir -p "${FAKE}/mnt/boxpilot/backup"
+# A new --port on a re-run is written before the upgrade, which restarts the service on it and
+# checks it there.
+installed_box 9000 false
 run_install http://127.0.0.1:9100/api/v1/health --port 9100
 show "$out"
 check "re-run with --port 9100: it finished" '[ "$status" -eq 0 ]'
-check "re-run with --port 9100: the upgrade checked the port the service still had" 'grep -qx "health=http://127.0.0.1:9000/api/v1/health" "${STUB_LOG}/upgrade"'
+check "re-run with --port 9100: the upgrade checked the new port" 'grep -qx "health=http://127.0.0.1:9100/api/v1/health" "${STUB_LOG}/upgrade"'
 check "re-run with --port 9100: the env file says 9100 and the access is kept" '[ "$(env_line BOXPILOT_PORT)" = BOXPILOT_PORT=9100 ] && [ "$(env_line BOXPILOT_HOST)" = BOXPILOT_HOST=127.0.0.1 ]'
-check "re-run with --port 9100: it checked 9100 at the end" '[ "$(tail -n 1 "${STUB_LOG}/curl")" = http://127.0.0.1:9100/api/v1/health ]'
+check "re-run with --port 9100: it checked 9100 and nothing else" '[ "$(sort -u "${STUB_LOG}/curl" 2>/dev/null)" = http://127.0.0.1:9100/api/v1/health ]'
+
+# The env file's port is one the service cannot answer on (taken by something else, say): a re-run
+# with a good --port used to check the bad one first, roll back, and stop before writing the new one.
+installed_box 9000 false
+run_install http://127.0.0.1:8787/api/v1/health --port 8787
+show "$out"
+check "env file on 9000, which does not answer; re-run with --port 8787: it finished" '[ "$status" -eq 0 ] && grep -q "BoxPilot is installed and running" <<<"$out"'
+check "re-run with --port 8787: the upgrade checked 8787" 'grep -qx "health=http://127.0.0.1:8787/api/v1/health" "${STUB_LOG}/upgrade"'
+check "re-run with --port 8787: the env file says 8787" '[ "$(env_line BOXPILOT_PORT)" = BOXPILOT_PORT=8787 ]'
+
+# A new port the service does not come up on: the env file goes back to what it was, and the
+# service is restarted on it.
+installed_box 9000 false
+cp "${FAKE}/etc/boxpilot/boxpilot.env" "${WORK}/env-before"
+run_install http://127.0.0.1:9000/api/v1/health --port 9100
+show "$out"
+check "re-run with --port 9100, which does not answer: it failed and said where it checked" '[ "$status" -ne 0 ] && grep -q "was not installed (its health check was http://127.0.0.1:9100/api/v1/health)" <<<"$out"'
+check "re-run with --port 9100, which does not answer: the env file is as it was" 'cmp -s "${WORK}/env-before" "${FAKE}/etc/boxpilot/boxpilot.env"'
+check "re-run with --port 9100, which does not answer: the service was restarted on it, last" '[ "$(tail -n 1 "${STUB_LOG}/systemctl")" = "restart boxpilot.service" ] && [ "$(tail -n 1 "${STUB_LOG}/web-restarts")" = BOXPILOT_PORT=9000 ]'
+
+# --port outside 1024-65535: refused before anything is downloaded, written or restarted.
+for bad in 80 0 1023 65536 70000 08787 123456789012345678901234567890; do
+  installed_box 9000 false
+  cp "${FAKE}/etc/boxpilot/boxpilot.env" "${WORK}/env-before"
+  run_install http://127.0.0.1:9000/api/v1/health --port "$bad"
+  check "--port ${bad}: refused, nothing changed" '[ "$status" -ne 0 ] && grep -q -- "--port must be a number from 1024 to 65535" <<<"$out" && cmp -s "${WORK}/env-before" "${FAKE}/etc/boxpilot/boxpilot.env" && [ ! -s "${STUB_LOG}/systemctl" ] && [ ! -e "${STUB_LOG}/upgrade" ]'
+done
+for good in 1024 65535; do
+  installed_box 9000 false
+  run_install "http://127.0.0.1:${good}/api/v1/health" --port "$good"
+  check "--port ${good}: accepted" '[ "$status" -eq 0 ] && [ "$(env_line BOXPILOT_PORT)" = "BOXPILOT_PORT=${good}" ]'
+done
+installed_box 9000 false
+run_install http://127.0.0.1:9000/api/v1/health --access wan
+check "--access wan: refused before anything changes" '[ "$status" -ne 0 ] && grep -q -- "--access must be tailscale, lan, or local" <<<"$out" && [ ! -s "${STUB_LOG}/systemctl" ]'
 
 # A first install that stopped before it finished (the service never enabled) left the example's
 # env file: running it again is still a first install, with the default access.
@@ -252,20 +388,46 @@ check "first install run again after it stopped early: it finished" '[ "$status"
 check "first install run again: it takes the default access (no Tailscale: the LAN), not the example's" '[ "$(env_line BOXPILOT_HOST)" = BOXPILOT_HOST=0.0.0.0 ] && [ "$(env_line BOXPILOT_COOKIE_SECURE)" = BOXPILOT_COOKIE_SECURE=false ]'
 
 # --access on a re-run still changes it.
-fresh_box "${example}"
-sed -i -e 's/^BOXPILOT_PORT=.*/BOXPILOT_PORT=9000/' "${FAKE}/etc/boxpilot/boxpilot.env"
-mkdir -p "${FAKE}/mnt/boxpilot/backup"
+installed_box 9000
 run_install http://127.0.0.1:9000/api/v1/health --access lan
 show "$out"
 check "re-run with --access lan: it finished on the port it had" '[ "$status" -eq 0 ] && [ "$(env_line BOXPILOT_PORT)" = BOXPILOT_PORT=9000 ]'
 check "re-run with --access lan: the LAN is what it asked for" '[ "$(env_line BOXPILOT_HOST)" = BOXPILOT_HOST=0.0.0.0 ] && [ "$(env_line BOXPILOT_COOKIE_SECURE)" = BOXPILOT_COOKIE_SECURE=false ]'
+check "re-run with --access lan, ufw inactive: no rule added" '! grep -q "^allow" "${STUB_LOG}/ufw" 2>/dev/null'
 
-echo "4. The host doctor, run with sudo, checks the web service where its env file says it listens"
-fresh_box 'BOXPILOT_HOST=0.0.0.0\nBOXPILOT_PORT=9000'
-out="$(cd "$WORK" && env "${common_env[@]}" STUB_LISTEN=http://127.0.0.1:9000/api/v1/health "$SH" "${WORK}/doctor.sh" 2>&1)"
-show "$(grep -i "health" <<<"$out")"
-check "installed with --port 9000: the doctor finds it answering on 9000" 'grep -q "^\[PASS\] BoxPilot health endpoint responds at 127.0.0.1:9000" <<<"$out"'
-check "it asked port 9000 and nothing else" '[ "$(sort -u "${STUB_LOG}/curl" 2>/dev/null)" = http://127.0.0.1:9000/api/v1/health ]'
+# ufw on: the LAN needs the port open, as Settings opens it (server/tasks/web-bind.mjs).
+installed_box 9000
+STUB_UFW=active run_install http://127.0.0.1:9100/api/v1/health --access lan --port 9100
+show "$out"
+check "re-run with --access lan --port 9100, ufw active: it finished" '[ "$status" -eq 0 ]'
+check "re-run with --access lan --port 9100, ufw active: it opened 9100/tcp for BoxPilot" '[ "$(grep "^allow" "${STUB_LOG}/ufw")" = "allow 9100/tcp comment BoxPilot keeps BoxPilot reachable" ]'
+installed_box 9000
+STUB_UFW=active run_install http://127.0.0.1:9000/api/v1/health --access local
+check "re-run with --access local, ufw active: nothing opened" '[ "$status" -eq 0 ] && ! grep -q "^allow" "${STUB_LOG}/ufw" 2>/dev/null'
+installed_box 9000
+STUB_UFW=active run_install http://127.0.0.1:9100/api/v1/health --access lan --port 9300
+check "re-run with --access lan on a port that does not answer, ufw active: nothing opened" '[ "$status" -ne 0 ] && ! grep -q "^allow" "${STUB_LOG}/ufw" 2>/dev/null'
+
+# An env file written by hand on Windows, or with blanks around "=": read as systemd reads it.
+fresh_box 'NODE_ENV=production\r\n  BOXPILOT_HOST = 0.0.0.0 \r\nBOXPILOT_PORT= "9000"\t\r\nBOXPILOT_COOKIE_SECURE = false\r'
+mkdir -p "${FAKE}/mnt/boxpilot/backup"
+run_install http://127.0.0.1:9000/api/v1/health
+show "$out"
+check "re-run with a CRLF env file, blanks around =: it finished on 9000" '[ "$status" -eq 0 ] && grep -qx "health=http://127.0.0.1:9000/api/v1/health" "${STUB_LOG}/upgrade"'
+check "re-run with a CRLF env file: it kept the LAN" 'grep -q "listening on 0.0.0.0" <<<"$out" && grep -q "^  BOXPILOT_HOST = 0.0.0.0" "${FAKE}/etc/boxpilot/boxpilot.env"'
+check "re-run with a CRLF env file: one BOXPILOT_PORT line, 9000" '[ "$(grep -c "BOXPILOT_PORT" "${FAKE}/etc/boxpilot/boxpilot.env")" -eq 1 ] && [ "$(env_line BOXPILOT_PORT)" = BOXPILOT_PORT=9000 ]'
+
+echo "5. The host doctor, run with sudo, checks the web service where its env file says it listens"
+doctor_case() { # doctor_case <what> <env file> <the URL that answers> <host:port it reports>
+  local what="$1" answering="$3" reported="$4"
+  fresh_box "$2"
+  out="$(cd "$WORK" && env "${common_env[@]}" STUB_LISTEN="$answering" "$SH" "${WORK}/doctor.sh" 2>&1)"
+  show "$(grep -i "health" <<<"$out")"
+  check "${what}: the doctor finds it answering on ${reported}" 'grep -q "^\[PASS\] BoxPilot health endpoint responds at ${reported}" <<<"$out"'
+  check "${what}: it asked ${answering} and nothing else" '[ "$(sort -u "${STUB_LOG}/curl" 2>/dev/null)" = "$answering" ]'
+}
+doctor_case "installed with --port 9000" 'BOXPILOT_HOST=0.0.0.0\nBOXPILOT_PORT=9000' http://127.0.0.1:9000/api/v1/health 127.0.0.1:9000
+doctor_case "CRLF, blanks around =" 'BOXPILOT_HOST = 192.0.2.10 \r\nBOXPILOT_PORT = "9005" \r' http://192.0.2.10:9005/api/v1/health 192.0.2.10:9005
 
 if [ "$failures" -gt 0 ]; then echo "${failures} check(s) failed"; exit 1; fi
 echo "all checks passed"
