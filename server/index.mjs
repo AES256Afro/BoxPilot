@@ -272,6 +272,11 @@ const jobs = createJobService(state, helper, {
     // M37: the model agents use now is pinned into the job, so the root task can refuse to remove it.
     "agents.model.remove": (parameters) => ({ repo: parameters?.repo, file: parameters?.file, projector: parameters?.projector ?? null, current: agents.currentModel() }),
   },
+  // Pinned again as the job is approved: what was pinned at staging may have changed since.
+  operationApprovalHooks: {
+    // A switch to the model a staged removal names, before it is approved, makes it the one in use.
+    "agents.model.remove": (parameters) => ({ ...parameters, current: agents.currentModel() }),
+  },
 });
 state.deleteExpiredSessions();
 const interruptedJobs = state.recoverInterruptedJobs();
