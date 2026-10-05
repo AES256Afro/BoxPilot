@@ -133,6 +133,7 @@ show "$out"
 check "the upgrade failed" '[ "$status" -ne 0 ]'
 check "it said the helper did not stay up" 'grep -q "boxpilot-helper did not stay up with its socket at /run/boxpilot/not-the-helper.sock" <<<"$out"'
 check "it rolled back" 'grep -q "rolling back to previous tree" <<<"$out"'
+check "the rollback asked the restored version, and said it answers" 'grep -q "ERROR: upgrade failed; previous tree restored, and BoxPilot ${VERSION} answers at http://127.0.0.1:8787/api/v1/health" <<<"$out"'
 check "the previous tree answers again" 'answers "$VERSION"'
 check "the helper is up again, with its socket" 'systemctl is-active --quiet boxpilot-helper.service && [ -S /run/boxpilot/helper.sock ]'
 
