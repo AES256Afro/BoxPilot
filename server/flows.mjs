@@ -193,15 +193,20 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
   }
 
   /**
-   * A step only the owner may run, in a flow someone else created, that the owner has not saved since
+   * A step only the owner may run, in a flow someone else created, that the owner has not kept since
    * it was put there: saved before steps were checked (above), or carried over from then. Not run
-   * until the owner has read the flow and saved it, which marks the step as theirs. Null if none.
+   * until the owner keeps it: "Keep this step" on the Automations page saves the steps as they are,
+   * which marks the step as theirs. `{ step, title }` (step counted from 1), or null if none.
    */
-  function unvouchedStep(flow) {
+  function stepToKeep(flow) {
     if ((store.findOwnerById?.(flow.createdBy)?.role ?? null) === "owner") return null;
     const index = (flow.steps ?? []).findIndex((step) => ownerOnly(step) && step.ownerAdded !== true);
-    if (index < 0) return null;
-    return `step ${index + 1} (${registry.get(flow.steps[index].operationId).title}) is one only the owner may run, and the owner has not saved this flow since it was put there. The owner can open it and save the flow to keep the step`;
+    return index < 0 ? null : { step: index + 1, title: registry.get(flow.steps[index].operationId).title };
+  }
+  function unvouchedStep(flow) {
+    const unkept = stepToKeep(flow);
+    if (!unkept) return null;
+    return `step ${unkept.step} (${unkept.title}) is one only the owner may run, and the owner has not kept it since someone else put it there. The owner can keep it with "Keep this step" on this automation in Automations`;
   }
 
   /**
@@ -277,7 +282,7 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
       if (!operation || !step.parameters || typeof step.parameters !== "object") return step;
       return { ...step, parameters: maskSecrets(step.parameters, await secretPaths(operation, step.parameters, { secretEnvNamesFor })) };
     };
-    return Promise.all(store.listFlows().map(async (flow) => ({ ...withoutHash(flow), steps: await Promise.all((flow.steps ?? []).map(masked)), risk: flowRisk(flow.steps, registry), running: running.has(flow.id) })));
+    return Promise.all(store.listFlows().map(async (flow) => ({ ...withoutHash(flow), steps: await Promise.all((flow.steps ?? []).map(masked)), risk: flowRisk(flow.steps, registry), running: running.has(flow.id), ownerToKeep: stepToKeep(flow) })));
   }
 
   async function update(id, { name, steps, cadence, enabled, triggerFlowId }, actorId, { role = "owner" } = {}) {

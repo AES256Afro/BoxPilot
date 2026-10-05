@@ -904,11 +904,16 @@ describe("a step only the owner may run", () => {
     const jobs = fakeJobs(store);
     const service = createFlowService({ store, jobs, pollMs: 2 });
     const flow = store.createFlow({ name: "Tidy", steps: [goodSteps[0], unpublish], createdBy: "operator-1" });
-    await expect(service.launch(flow.id, "owner-1", { role: "owner" })).rejects.toThrow(/^This flow is no longer valid: step 2 \(Stop publishing an app to the internet\) is one only the owner may run, .*save the flow/);
+    // The page cannot edit an existing flow's steps, so "open it and save the flow" was advice nobody
+    // could follow: the refusal names the button that keeps the step, and the list says which step.
+    await expect(service.launch(flow.id, "owner-1", { role: "owner" })).rejects.toThrow(/^This flow is no longer valid: step 2 \(Stop publishing an app to the internet\) is one only the owner may run, .*"Keep this step"/);
     await expect(service.run(flow.id, "owner-1", { role: "owner" })).rejects.toThrow(/only the owner may run/);
     expect(jobs.calls).toEqual([]);
-    // The owner reads it and saves it as it is: the step is now one the owner put there.
-    await service.update(flow.id, { steps: store.getFlow(flow.id).steps }, "owner-1", { role: "owner" });
+    expect((await service.list()).find((entry) => entry.id === flow.id).ownerToKeep).toEqual({ step: 2, title: "Stop publishing an app to the internet" });
+    // Keep this step: the owner saves the steps as they are, and the step is now one the owner put there.
+    await service.update(flow.id, { steps: (await service.list()).find((entry) => entry.id === flow.id).steps }, "owner-1", { role: "owner" });
+    expect(store.getFlow(flow.id).steps[1]).toMatchObject({ ...unpublish, ownerAdded: true });
+    expect((await service.list()).find((entry) => entry.id === flow.id).ownerToKeep).toBeNull();
     await service.run(flow.id, "owner-1", { role: "owner" });
     expect(jobs.calls.map((call) => call.operationId)).toEqual(["controller.backup.create", "cloudflare.unpublish"]);
   });
