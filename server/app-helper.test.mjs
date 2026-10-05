@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { lstat, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import YAML from "yaml";
 import path from "node:path";
@@ -69,8 +69,10 @@ async function setup({ healthKind = "running", exitOnUp = false, failUp = false,
       if (verb === "up") {
         if (args.includes("--force-recreate")) networkGone.value = false;
         if (failUp) return { ok: false, stdout: "", stderr: "Error response from daemon: port is already allocated" };
-        if (args.includes("--no-start")) { containers.set(name, { running: false, status: "created", health: "none", restarts: 0, image: "sha256:new", startedAt: "0001-01-01T00:00:00Z", exitCode: 0 }); return { ok: true, stdout: "", stderr: "" }; }
-        containers.set(name, exitOnUp ? { running: false, status: "exited", health: "none", restarts: 0, image: "sha256:new", startedAt: "x", exitCode: 1 } : { running: true, status: "running", health: healthKind === "healthcheck" ? "healthy" : "none", restarts: 0, image: "sha256:new", startedAt: "x", exitCode: 0 });
+        // Docker's HostConfig.NetworkMode, from the compose file being brought up.
+        const networkMode = /network_mode: host/.test(await readFile(args[args.indexOf("--file") + 1], "utf8").catch(() => "")) ? "host" : `${name}_default`;
+        if (args.includes("--no-start")) { containers.set(name, { running: false, status: "created", health: "none", restarts: 0, image: "sha256:new", startedAt: "0001-01-01T00:00:00Z", exitCode: 0, networkMode }); return { ok: true, stdout: "", stderr: "" }; }
+        containers.set(name, exitOnUp ? { running: false, status: "exited", health: "none", restarts: 0, image: "sha256:new", startedAt: "x", exitCode: 1, networkMode } : { running: true, status: "running", health: healthKind === "healthcheck" ? "healthy" : "none", restarts: 0, image: "sha256:new", startedAt: "x", exitCode: 0, networkMode });
       }
       if (verb === "down") containers.delete(name);
       if (verb === "stop") { const c = containers.get(name); if (c) Object.assign(c, { running: false, status: "exited" }); }
@@ -1419,6 +1421,87 @@ describe.skipIf(onWindows)("restoring an application backup", () => {
     const siblings = await readdir(catalogRoot);
     expect(siblings.filter((entry) => entry.includes(".restoring") || entry.includes(".replaced"))).toEqual([]);
   });
+
+  // R2B3-2: the backup's compose file is what `up` binds, and the app may have moved since it was
+  // written: to tailnet only, with Serve now holding its old port on the tailnet address.
+  it("refuses a backup whose ports something now holds, before stopping the app, and changes nothing", async () => {
+    const held = []; const serving = [];
+    const serveStatus = () => JSON.stringify({ Web: Object.fromEntries(serving.map((port) => [`homebox.tailXXXX.ts.net:${port}`, { Handlers: { "/": { Proxy: `http://127.0.0.1:${port}` } } }])) });
+    const runCommand = (binary, args, options) => (args[0] === "serve" ? Promise.resolve({ ok: true, stdout: serveStatus(), stderr: "" }) : fixedRun(binary, args, options));
+    const own = [{ Names: "bp-demo", Ports: "127.0.0.1:8080->80/tcp", Labels: "io.boxpilot.app=demo" }];
+    const { apps, catalogRoot, calls, containers } = await setup({ lanAddress: "0.0.0.0", hostListeners: async () => held, runCommand, dockerPs: own });
+    await apps.install({ id: "demo", values: { setup: [] } });
+    const made = await apps.backup({ id: "demo", keep: 5 });
+    await apps.reconfigure({ id: "demo", values: { exposure: "tailnet" } }, { checkpoint: false });
+    const compose = await readFile(path.join(catalogRoot, "demo", "compose.yaml"), "utf8");
+    expect(compose).toContain("127.0.0.1:8080:80");
+    serving.push(8080); held.push({ protocol: "tcp", address: "100.64.0.10", port: 8080, scope: "address", process: { name: "tailscaled", pid: 812 } }, { protocol: "tcp", address: "127.0.0.1", port: 8080, scope: "loopback", process: { name: "docker-proxy", pid: 2201 } });
+    calls.length = 0;
+    await expect(apps.restoreAppBackup({ id: "demo", backup: made.artifact })).rejects.toThrow("Demo was not restored; nothing was changed. Port 8080 is taken on the tailnet address (100.64.0.10) by Tailscale Serve, which publishes Demo itself at https://homebox.tailXXXX.ts.net:8080.");
+    // Only the safety copy's own stop and start; the restore never stopped the app or brought anything up.
+    expect(calls.filter((call) => / (stop|up)(?: |$)/.test(call))).toEqual([expect.stringMatching(/ stop$/)]);
+    expect(containers.get("bp-demo")).toMatchObject({ running: true });
+    expect(await readFile(path.join(catalogRoot, "demo", "compose.yaml"), "utf8")).toBe(compose);
+    // Nothing is left that would block the next try.
+    expect((await readdir(catalogRoot)).filter((entry) => entry.includes(".restoring") || entry.includes(".replaced"))).toEqual([]);
+  });
+
+  // R2S2-2: tar as root reproduces whatever mode an archive names, set-user-id included, and an app
+  // backup is only as trustworthy as whoever last held the file. These tests run as an ordinary user,
+  // so each extraction is followed by what root's would have made: set-id files in the app's data.
+  async function withSetIdFiles() {
+    const extractions = [];
+    const runCommand = async (binary, args, options) => {
+      const result = await fixedRun(binary, args, options);
+      if (result.ok && args[0] === "-xzf" && args.includes("-C")) {
+        extractions.push(args);
+        const into = args[args.indexOf("-C") + 1];
+        for (const [relative, mode] of [["data/tool", 0o4755], ["data/group-tool", 0o2750]]) await chmod(path.join(into, relative), mode).catch(() => {});
+      }
+      return result;
+    };
+    const harness = await setup({ runCommand });
+    await harness.apps.install({ id: "demo", values: { setup: [] } });
+    const data = path.join(harness.catalogRoot, "demo", "data");
+    for (const [name, mode] of [["tool", 0o755], ["group-tool", 0o750], ["private", 0o600]]) { await writeFile(path.join(data, name), "x"); await chmod(path.join(data, name), mode); }
+    const made = await harness.apps.backup({ id: "demo", keep: 5 });
+    const modeOf = async (name) => (await stat(path.join(data, name))).mode & 0o7777;
+    return { ...harness, extractions, made, modeOf };
+  }
+
+  it("clears set-user-id and set-group-id a backup names, and keeps every other mode bit and the owner", async () => {
+    const { apps, made, modeOf, extractions } = await withSetIdFiles();
+    const lines = [];
+    await apps.restoreAppBackup({ id: "demo", backup: made.artifact }, { progress: (line, stream) => lines.push([line, stream]) });
+    expect(await modeOf("tool")).toBe(0o755);
+    expect(await modeOf("group-tool")).toBe(0o750);
+    expect(await modeOf("private")).toBe(0o600);
+    expect(lines).toContainEqual(["Cleared set-user-id and set-group-id from 2 files the backup marked so: data/group-tool, data/tool", "stderr"]);
+    // Owners and permissions are the archive's: data a container user must own (a Postgres data
+    // directory, a PUID 1000 app's files) stays theirs, and the helper's umask is not applied to it.
+    expect(extractions.length).toBeGreaterThan(0);
+    for (const args of extractions) expect(args).not.toEqual(expect.arrayContaining(["--no-same-owner"]));
+  });
+
+  it("clears them from one file restored on its own too", async () => {
+    const { apps, made, modeOf } = await withSetIdFiles();
+    await apps.restoreAppBackupPath({ id: "demo", backup: made.artifact, path: "data/tool" });
+    expect(await modeOf("tool")).toBe(0o755);
+  });
+
+  // R2B3-8: the address Homepage's links are written for lives beside its project, outside every
+  // backup, and the restore deleted it with the folder it replaced.
+  it("keeps the address Homepage's links use through a restore of Homepage", async () => {
+    const { apps, catalogRoot, catalogDirectory } = await setup();
+    await writeFile(path.join(catalogDirectory, "homepage.yaml"), "schemaVersion: 2\nid: homepage\nname: Homepage\ncategory: Dashboard\ndescription: dash\nimage:\n  reference: ghcr.io/gethomepage/homepage:v1\nports:\n  - id: web\n    container: 3000\n    host: 3000\nvolumes:\n  - id: config\n    container: /app/config\n    path: config\nhealth:\n  kind: running\n  stableSeconds: 1\n  timeoutSeconds: 10\n");
+    await apps.install({ id: "homepage" });
+    await apps.syncHomepage({ host: "192.168.1.10" });
+    const made = await apps.backup({ id: "homepage", keep: 5 });
+    expect(made.contents).not.toContain("boxpilot-homepage-sync.json");
+    await apps.restoreAppBackup({ id: "homepage", backup: made.artifact });
+    expect(JSON.parse(await readFile(path.join(catalogRoot, "homepage", "boxpilot-homepage-sync.json"), "utf8"))).toMatchObject({ host: "192.168.1.10" });
+    await expect(apps.syncHomepage({})).resolves.toMatchObject({ synced: true, host: "192.168.1.10" });
+  });
 });
 
 describe("dashboard links for an app bound to the server itself", () => {
@@ -2186,5 +2269,175 @@ describe.skipIf(onWindows)("what an app backup leaves out on purpose", () => {
     const verdict = await apps.verifyAppBackup({ id: "stack", backup: made.artifact });
     expect(verdict).toMatchObject({ verified: false, reason: expect.stringContaining("stack.yml") });
     expect(verdict.reason).not.toContain("provisioning");
+  });
+});
+
+// R2B3-4: on the host's own network an app binds its ports itself and Docker publishes nothing, so
+// the port check had nothing to compare: Pi-hole there installed "successfully" beside whatever held
+// port 80, and an app always on the host network crash-looped on a held port with Docker's words.
+const dnsManifest = [
+  "schemaVersion: 2", "id: dns", "name: DNS", "category: T", "description: d", "risk: high",
+  "networkModes: [bridge, host]",
+  "image:", "  reference: x/dns:1",
+  "ports:",
+  "  - id: dns-tcp", "    label: DNS (TCP)", "    container: 53", "    host: 53", "    tailnet: unchanged",
+  "  - id: dns-udp", "    label: DNS (UDP)", "    container: 53", "    host: 53", "    protocol: udp",
+  "  - id: web", "    label: Admin UI", "    container: 80", "    host: 8084",
+  // CivetWeb's "optional" port, as Pi-hole's own FTLCONF_webserver_port says it.
+  "env:", "  - name: WEB_PORT", "    default: \"80o\"", "    fixed: true",
+  "health:", "  kind: running", "  stableSeconds: 1", "  timeoutSeconds: 30",
+].join("\n") + "\n";
+const assistantManifest = [
+  "schemaVersion: 2", "id: assistant", "name: Assistant", "category: T", "description: d", "risk: medium",
+  "network: host",
+  "image:", "  reference: x/assistant:1",
+  "ports:", "  - id: web", "    label: Web UI", "    container: 8123", "    host: 8123", "    fixed: true",
+  "health:", "  kind: running", "  stableSeconds: 1", "  timeoutSeconds: 30",
+].join("\n") + "\n";
+const program = (name, port, { protocol = "tcp", address = "0.0.0.0" } = {}) => ({ protocol, address, port, scope: address === "0.0.0.0" ? "wildcard" : address.startsWith("127.") ? "loopback" : "address", process: { name, pid: 4242 } });
+
+async function hostNetworkHarness({ dockerPs = [] } = {}) {
+  const held = [];
+  const runCommand = vi.fn(async () => ({ ok: false, stdout: "", stderr: "" }));
+  const harness = await setup({ hostListeners: async () => held, runCommand, dockerPs });
+  await writeFile(path.join(harness.catalogDirectory, "dns.yaml"), dnsManifest);
+  await writeFile(path.join(harness.catalogDirectory, "assistant.yaml"), assistantManifest);
+  return { ...harness, held };
+}
+
+describe("ports an app on the host's own network binds itself, checked before it starts", () => {
+  it("refuses Pi-hole on the host network while another program holds DNS, and starts nothing", async () => {
+    const { apps, held, calls, catalogRoot } = await hostNetworkHarness();
+    held.push(program("dnsmasq", 53));
+    await expect(apps.install({ id: "dns", values: { networkMode: "host" } })).rejects.toThrow("DNS was not installed; nothing was started. Port 53 is taken on every address by process dnsmasq (pid 4242). DNS shares this server's own network and listens on it on every address itself, and Linux will not let that share a port with a program holding it on one address. Stop what holds the port if it should not be running, or switch DNS to bridge networking in its Settings, where its ports can move.");
+    expect(calls.some((call) => / up /.test(call))).toBe(false);
+    expect(await readdir(catalogRoot)).toEqual([]);
+  });
+
+  it("installs beside a program holding its optional admin port, and says what it goes without", async () => {
+    const { apps, held } = await hostNetworkHarness();
+    held.push(program("nginx", 80));
+    const lines = [];
+    const installed = await apps.install({ id: "dns", values: { networkMode: "host" } }, { progress: (line, stream) => lines.push([line, stream]) });
+    const warning = "Port 80 is taken on every address by process nginx (pid 4242), so DNS goes ahead without its Admin UI: its own settings let it start without that port. Stop what holds it and restart DNS to have it, or switch DNS to bridge networking in its Settings.";
+    expect(installed).toMatchObject({ installed: true, warnings: [warning] });
+    expect(lines).toContainEqual([warning, "stderr"]);
+    expect(lines).toContainEqual(["Ports 53/tcp, 53/udp are free.", "stdout"]);
+  });
+
+  it("refuses an app always on the host network, at install and at a start, but not its own restart", async () => {
+    const { apps, held, containers } = await hostNetworkHarness();
+    held.push(program("python3", 8123));
+    await expect(apps.install({ id: "assistant" })).rejects.toThrow("Assistant was not installed; nothing was started. Port 8123 is taken on every address by process python3 (pid 4242). Assistant shares this server's own network and listens on it on every address itself, and Linux will not let that share a port with a program holding it on one address. Stop what holds the port if it should not be running.");
+    held.length = 0;
+    await apps.install({ id: "assistant" });
+    expect(containers.get("bp-assistant")).toMatchObject({ running: true, networkMode: "host" });
+    // Running on the host network, its own processes hold its port: nothing to tell apart from them.
+    held.push(program("python3", 8123));
+    await expect(apps.action({ id: "assistant", action: "restart" })).resolves.toMatchObject({ action: "restart" });
+    await apps.action({ id: "assistant", action: "stop" });
+    await expect(apps.action({ id: "assistant", action: "start" })).rejects.toThrow("Assistant was not started. Port 8123 is taken on every address by process python3 (pid 4242).");
+    containers.delete("bp-assistant");
+    await expect(apps.reinstall({ id: "assistant" })).rejects.toThrow("Assistant was not started again; nothing was built.");
+  });
+
+  it("checks a move from bridge to the host network against what holds the ports only there", async () => {
+    // Its own container publishes 53 on the LAN address through docker-proxy, which is never a
+    // conflict with itself; Ubuntu's stub resolver on 127.0.0.53:53 is, once the app binds every address.
+    const own = [{ Names: "bp-dns", Ports: "192.168.1.10:53->53/tcp, 192.168.1.10:53->53/udp, 192.168.1.10:8084->80/tcp", Labels: "io.boxpilot.app=dns" }];
+    const { apps, held, catalogRoot, calls } = await hostNetworkHarness({ dockerPs: own });
+    await apps.install({ id: "dns" });
+    held.push({ protocol: "tcp", address: "192.168.1.10", port: 53, scope: "address", process: { name: "docker-proxy", pid: 2201 } }, program("systemd-resolve", 53, { address: "127.0.0.53" }));
+    await expect(apps.reconfigure({ id: "dns", values: { env: {} } }, { checkpoint: false })).resolves.toMatchObject({ reconfigured: true });
+    calls.length = 0;
+    await expect(apps.reconfigure({ id: "dns", values: { networkMode: "host" } }, { checkpoint: false })).rejects.toThrow("DNS's settings were not changed; nothing was restarted. Port 53 is taken on this server's loopback address (127.0.0.53) by process systemd-resolve (pid 4242).");
+    expect(await readFile(path.join(catalogRoot, "dns", "compose.yaml"), "utf8")).not.toContain("network_mode");
+    expect(calls.some((call) => / up /.test(call))).toBe(false);
+  });
+});
+
+// R2B3-5: tailnet only binds an app's ports to this server for Tailscale Serve to front; on the host's
+// own network the app binds every address itself, so the pair is a Reach tab that says Tailscale-only
+// about an app answering the whole house, with a Serve link to a port nothing listens on.
+describe("tailnet only and the host's own network together", () => {
+  it("refuses to move a tailnet-only app onto the host network, and says to change Reach first", async () => {
+    const { apps, catalogRoot } = await hostNetworkHarness();
+    await apps.install({ id: "dns", values: { exposure: "tailnet" } });
+    const compose = await readFile(path.join(catalogRoot, "dns", "compose.yaml"), "utf8");
+    await expect(apps.reconfigure({ id: "dns", values: { networkMode: "host" } }, { checkpoint: false })).rejects.toThrow("DNS is reachable only through Tailscale (Tailnet only, on its Reach tab). On this server's own network it would answer on every address, so change who can reach it to Home network first, which also stops publishing it on the tailnet, then switch it to host networking. Nothing was changed.");
+    expect(await readFile(path.join(catalogRoot, "dns", "compose.yaml"), "utf8")).toBe(compose);
+    // Moving both at once, or Reach first, is what the owner chose.
+    await expect(apps.reconfigure({ id: "dns", values: { networkMode: "host", exposure: "lan" } }, { checkpoint: false })).resolves.toMatchObject({ reconfigured: true });
+  });
+
+  it("refuses tailnet only for an app on the host network", async () => {
+    const { apps } = await hostNetworkHarness();
+    await apps.install({ id: "dns", values: { networkMode: "host" } });
+    await expect(apps.reconfigure({ id: "dns", values: { exposure: "tailnet" } }, { checkpoint: false })).rejects.toThrow("DNS shares this server's own network, where it answers on every address itself, so it cannot be reachable only through Tailscale. Switch it to bridge networking in its Settings first. Nothing was changed.");
+    await apps.install({ id: "assistant" });
+    await expect(apps.reconfigure({ id: "assistant", values: { exposure: "tailnet" } }, { checkpoint: false })).rejects.toThrow("Assistant shares this server's own network, where it answers on every address itself, so it cannot be reachable only through Tailscale. Nothing was changed.");
+    await expect(apps.install({ id: "dns", values: { networkMode: "host", exposure: "tailnet" } })).rejects.toThrow("already installed");
+  });
+
+  it("refuses the pair at install", async () => {
+    const { apps } = await hostNetworkHarness();
+    await expect(apps.install({ id: "dns", values: { networkMode: "host", exposure: "tailnet" } })).rejects.toThrow("DNS shares this server's own network, where it answers on every address itself, so it cannot be reachable only through Tailscale. Switch it to bridge networking in its Settings first. Nothing was changed.");
+  });
+});
+
+// R2B3-7: setPassword drops saved settings the catalog no longer has, and reconfigure then merged the
+// raw saved ones back in, so every Settings, Reach or password change failed with "is not a setting".
+describe("a settings change over saved settings a catalog release dropped", () => {
+  it("drops them, as update does, instead of refusing", async () => {
+    const { apps, catalogRoot } = await setup();
+    await apps.install({ id: "demo", values: { setup: [] } });
+    const stateFile = path.join(catalogRoot, "demo", "boxpilot.json");
+    const state = JSON.parse(await readFile(stateFile, "utf8"));
+    await writeFile(stateFile, JSON.stringify({ ...state, values: { ...state.values, env: { ...state.values.env, RETIRED_SETTING: "on" } } }));
+    await expect(apps.reconfigure({ id: "demo", values: { env: { TZ: "Europe/Berlin" } } }, { checkpoint: false })).resolves.toMatchObject({ reconfigured: true });
+    const saved = JSON.parse(await readFile(stateFile, "utf8")).values.env;
+    expect(saved).toMatchObject({ TZ: "Europe/Berlin" });
+    expect(saved).not.toHaveProperty("RETIRED_SETTING");
+  });
+});
+describe("devices for apps a machine snapshot restore installs", () => {
+  const stickManifest = ["schemaVersion: 2", "id: stick", "name: Stick", "category: T", "description: d", "image:", "  reference: x/stick:1", "devices: [\"/dev/ttyUSB?\"]", "health:", "  kind: running", "  stableSeconds: 1", "  timeoutSeconds: 30"].join("\n") + "\n";
+  const transcoderManifest = ["schemaVersion: 2", "id: transcoder", "name: Transcoder", "category: T", "description: d", "image:", "  reference: x/transcoder:1", "optionalDevices: [\"/dev/dri/renderD*\"]", "health:", "  kind: running", "  stableSeconds: 1", "  timeoutSeconds: 30"].join("\n") + "\n";
+
+  async function restoring(devicesByApp) {
+    // The helper's own /dev holds no real device (PrivateDevices): only the web process can see them.
+    const { apps, catalogRoot, catalogDirectory } = await setup({ listDevices: async () => ["null", "zero"] });
+    await writeFile(path.join(catalogDirectory, "stick.yaml"), stickManifest);
+    await writeFile(path.join(catalogDirectory, "transcoder.yaml"), transcoderManifest);
+    const snapshotRoot = await mkdtemp(path.join(os.tmpdir(), "boxpilot-snap-")); directories.push(snapshotRoot);
+    const artifact = "machine-snapshot-20260821T020000Z-22222222.tar.gz";
+    await writeFile(path.join(snapshotRoot, artifact), "archive-bytes");
+    await writeFile(path.join(snapshotRoot, `${artifact}.meta.json`), JSON.stringify({ checksumSha256: createHash("sha256").update("archive-bytes").digest("hex") }));
+    const run = vi.fn(async (_binary, args) => {
+      const staging = args[args.indexOf("-C") + 1];
+      await writeFile(path.join(staging, "manifest.json"), JSON.stringify({ contents: { apps: [{ id: "stick", installed: true }, { id: "transcoder", installed: true }] }, files: [] }));
+      for (const id of ["stick", "transcoder"]) {
+        await mkdir(path.join(staging, "apps", id), { recursive: true });
+        await writeFile(path.join(staging, "apps", id, "boxpilot.json"), JSON.stringify({ id, installed: true, values: { ports: {}, env: {}, volumes: {} } }));
+      }
+      return { ok: true, stdout: "", stderr: "" };
+    });
+    const snapshots = createMachineSnapshotHelper({ run, controllerBackups: {}, snapshotRoot, catalogRoot, applicationBackupRoot: path.join(snapshotRoot, "none"), mountRoot: path.join(snapshotRoot, "unmounted"), requireIndependentDevice: false, now: () => new Date("2026-08-21T02:00:00.000Z") });
+    const summary = await snapshots.restore({ source: "local", artifact, restoreData: false, ...(devicesByApp ? { devicesByApp } : {}) }, { apps });
+    const composeOf = (id) => readFile(path.join(catalogRoot, id, "compose.yaml"), "utf8").catch(() => "");
+    return { summary, composeOf };
+  }
+
+  it("installs each with the devices the web process found", async () => {
+    const { summary, composeOf } = await restoring({ stick: ["/dev/ttyUSB0"], transcoder: ["/dev/dri/renderD128"] });
+    expect(summary.apps).toEqual([expect.objectContaining({ id: "stick", installed: true, error: null }), expect.objectContaining({ id: "transcoder", installed: true, error: null })]);
+    expect(await composeOf("stick")).toContain("/dev/ttyUSB0:/dev/ttyUSB0");
+    expect(await composeOf("transcoder")).toContain("/dev/dri/renderD128:/dev/dri/renderD128");
+  });
+
+  it("without them, refuses the app that needs one, as before", async () => {
+    const { summary, composeOf } = await restoring(null);
+    expect(summary.apps[0]).toMatchObject({ id: "stick", installed: false, error: expect.stringContaining("Stick needs a device matching /dev/ttyUSB?") });
+    expect(await composeOf("transcoder")).not.toContain("renderD128");
   });
 });

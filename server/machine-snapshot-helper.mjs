@@ -219,6 +219,12 @@ export function createMachineSnapshotHelper({
     const stamp = startedAt.toISOString().replaceAll(/[-:]/g, "").replace(/\.\d+Z$/, "Z");
     const artifactName = `machine-snapshot-${stamp}-${snapshotId.slice(0, 8)}.tar.gz`;
     const artifactPath = path.join(resolvedSnapshotRoot, artifactName);
+    // Written under a name no listing, mirror or retention reads (isInProgress), and renamed once it
+    // is whole and described: tar writing straight to the snapshot's own name meant a disk that filled
+    // part-way left half an archive that was listed, mirrored off the box and took a retention slot.
+    const partial = `${artifactPath}.partial`;
+    const metaPath = `${artifactPath}.meta.json`;
+    let metaWritten = false;
     const staging = path.join(resolvedSnapshotRoot, `.staging-${snapshotId}`);
     try {
       await mkdir(staging, { recursive: false, mode: 0o700 });
@@ -246,12 +252,14 @@ export function createMachineSnapshotHelper({
       };
       await writeFile(path.join(staging, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o600 });
 
-      const archive = await run(tarBinary, ["-czf", artifactPath, "-C", staging, "."], { timeout: 30 * 60_000 });
+      const archive = await run(tarBinary, ["-czf", partial, "-C", staging, "."], { timeout: 30 * 60_000 });
       if (!archive.ok) throw new Error(`Machine snapshot archive failed: ${archive.stderr?.split("\n").slice(-2).join(" ") ?? "tar error"}`);
-      await chmod(artifactPath, 0o600);
-      const artifactInfo = await stat(artifactPath);
-      const checksumSha256 = await sha256File(artifactPath);
-      await writeFile(`${artifactPath}.meta.json`, `${JSON.stringify({ schemaVersion: 1, snapshotId, artifact: artifactName, createdAt: startedAt.toISOString(), sizeBytes: artifactInfo.size, checksumSha256, containsSecrets: true, contents: manifest.contents }, null, 2)}\n`, { mode: 0o600, flag: "wx" });
+      await chmod(partial, 0o600);
+      const artifactInfo = await stat(partial);
+      const checksumSha256 = await sha256File(partial);
+      await writeFile(metaPath, `${JSON.stringify({ schemaVersion: 1, snapshotId, artifact: artifactName, createdAt: startedAt.toISOString(), sizeBytes: artifactInfo.size, checksumSha256, containsSecrets: true, contents: manifest.contents }, null, 2)}\n`, { mode: 0o600, flag: "wx" });
+      metaWritten = true;
+      await rename(partial, artifactPath);
       const removedByRetention = await applyRetention();
 
       return {
@@ -268,6 +276,12 @@ export function createMachineSnapshotHelper({
         removedByRetention,
         boundary: { dataVolumesIncluded: false, deletesOutsideRetention: false, networkUsed: false },
       };
+    } catch (error) {
+      // Half an archive is nothing to keep, and a description of one that never took its name is
+      // only ever this run's own (written "wx", so it was not there before).
+      await rm(partial, { force: true }).catch(() => {});
+      if (metaWritten && !(await stat(artifactPath).then(() => true, () => false))) await rm(metaPath, { force: true }).catch(() => {});
+      throw error;
     } finally {
       await rm(staging, { recursive: true, force: true });
     }
@@ -504,8 +518,10 @@ export function createMachineSnapshotHelper({
    * Rehydrate from a snapshot. Apps: project files are restored, the app is (re)installed through the
    * generic deployer using the archived settings and secrets, then (optionally) its newest data
    * archive is restored. System files are staged for review, never applied. VM definitions are listed.
+   * `devicesByApp` is the devices the web process found for each app that wants one (this process
+   * may have no real /dev); without it an app that needs a device is refused, as at any install.
    */
-  async function restore({ source, artifact, root = null, apps: selected = "all", restoreData = true }, { apps: appHelper, progress = null } = {}) {
+  async function restore({ source, artifact, root = null, apps: selected = "all", restoreData = true, devicesByApp = null }, { apps: appHelper, progress = null } = {}) {
     if (!appHelper) throw new Error("Application deployer is unavailable");
     const { artifactPath, metaPath } = await locate(source, artifact, root);
     await stat(artifactPath).catch(() => { throw new Error(`Snapshot ${artifact} was not found in the ${source} source`); });
@@ -559,7 +575,8 @@ export function createMachineSnapshotHelper({
             progress?.(`[${app.id}] installing with the archived settings`, "stdout");
             // Saved settings, not an owner's entry: a snapshot from an older release can name a setting
             // the catalog has since dropped, and never holds a secret, which comes from the .env above.
-            await appHelper.install({ id: app.id, values: archivedState?.values ?? {} }, { progress, storedValues: true });
+            const devices = devicesByApp && Object.hasOwn(devicesByApp, app.id) && Array.isArray(devicesByApp[app.id]) ? devicesByApp[app.id] : null;
+            await appHelper.install({ id: app.id, values: archivedState?.values ?? {}, ...(devices ? { devices } : {}) }, { progress, storedValues: true });
             await stamp(target, { restoredFrom: artifact });
             entry.installed = true;
           }

@@ -5,7 +5,7 @@
  * can never reach into another setting, and that a password survives storage exactly as typed.
  */
 import { describe, expect, it } from "vitest";
-import { deployedImages, envFileLine, publishedPorts, renderCompose, securityOptFor } from "./compose.mjs";
+import { deployedImages, envFileLine, hostNetworkPorts, optionalPortsIn, publishedPorts, renderCompose, securityOptFor } from "./compose.mjs";
 import { createCatalogService } from "./index.mjs";
 import { resolveValues } from "./schema.mjs";
 
@@ -329,5 +329,34 @@ describe("the ports a deployed compose file publishes (the Dockge port trap, 202
       { service: "b", host: 8443, protocol: "tcp", bind: "192.168.1.10" },
     ]);
     expect(publishedPorts("not: [valid")).toEqual([]);
+  });
+});
+
+describe("the ports an app on the host's own network binds itself", () => {
+  const piHole = { id: "pi-hole", sha256: "x", image: { reference: "pihole/pihole:1" }, network: "bridge", networkModes: ["bridge", "host"], sidecars: [],
+    ports: [{ id: "dns-tcp", label: "DNS (TCP)", host: 53, container: 53, protocol: "tcp", exposure: "lan" }, { id: "dns-udp", label: "DNS (UDP)", host: 53, container: 53, protocol: "udp", exposure: "lan" }, { id: "web", label: "Admin UI", host: 8084, container: 80, protocol: "tcp", exposure: "lan" }],
+    volumes: [], env: [{ name: "FTLCONF_webserver_port", default: "80o", fixed: true }], capabilities: [], extraHosts: [], devices: [] };
+  const values = (networkMode) => ({ ports: { "dns-tcp": 53, "dns-udp": 53, web: 8084 }, env: { FTLCONF_webserver_port: "80o" }, volumes: {}, networkMode });
+
+  it("are each manifest port at its container port, on every address, the optional one marked", () => {
+    const host = renderCompose(piHole, values("host"), { lanAddress: "0.0.0.0" });
+    expect(publishedPorts(host.composeYaml)).toEqual([]);
+    expect(hostNetworkPorts(piHole, host.composeYaml)).toEqual([
+      { service: "pi-hole", id: "dns-tcp", label: "DNS (TCP)", host: 53, protocol: "tcp", bind: "", optional: false },
+      { service: "pi-hole", id: "dns-udp", label: "DNS (UDP)", host: 53, protocol: "udp", bind: "", optional: false },
+      { service: "pi-hole", id: "web", label: "Admin UI", host: 80, protocol: "tcp", bind: "", optional: true },
+    ]);
+  });
+
+  it("are none for the same app on its own network, or a file that does not parse", () => {
+    expect(hostNetworkPorts(piHole, renderCompose(piHole, values("bridge"), { lanAddress: "0.0.0.0" }).composeYaml)).toEqual([]);
+    expect(hostNetworkPorts(piHole, "not: [valid")).toEqual([]);
+    expect(hostNetworkPorts(piHole, "")).toEqual([]);
+  });
+
+  it("reads an environment written as a list, and only CivetWeb's port-and-o as optional", () => {
+    const text = "services:\n  pi-hole:\n    network_mode: host\n    environment:\n      - FTLCONF_webserver_port=8080,80o\n";
+    expect(hostNetworkPorts(piHole, text).find((entry) => entry.id === "web")).toMatchObject({ host: 80, optional: true });
+    expect([...optionalPortsIn(["80o,443os", "8o0", "on", 53])]).toEqual([80]);
   });
 });
