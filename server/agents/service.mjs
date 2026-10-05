@@ -756,9 +756,10 @@ export function createAgentService({
     const agentNames = new Map(store.listAgents().map((entry) => [entry.id, entry.name]));
     const sources = sourcesFor(spec, readRole);
     if (spec.memory?.enabled) {
-      // `injection`/`injectionHop`: a note kept by a run that had read something that looked like an
-      // instruction, and how far from it; `runId`: the run an episode came from, looked up when one
-      // is used; `own`: this agent's own memory (rememberedFlag).
+      // `injectionHop`: a note kept by a run that had read something that looked like an instruction,
+      // and how far from it (null for one that was not); `runId`: the run an episode came from,
+      // looked up when one is used; `own`: this agent's own memory (rememberedFlag). The owner's
+      // documents carry neither: they are the owner's (sweep 3).
       if (sources.notes) {
         for (const note of ownNotes(agent.id, readRole, { limit: 200 })) items.push({ key: `note:${note.id}`, tier: note.pinned ? "pinned" : "fact", title: note.title, text: note.body, from: agent.name, at: note.updatedAt, freshUntil: note.freshUntil, weight: note.pinned ? 1.3 : 1, own: true, injectionHop: noteHop(note.source) });
         for (const note of store.listSharedNotes({ exceptAgentId: agent.id })) {
