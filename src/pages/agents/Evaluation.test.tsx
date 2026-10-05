@@ -89,10 +89,13 @@ describe("a nightly evaluation the night's model time could not pay for in full 
         { questionId: "q1", question: "What is this server called?", expected: { includes: ["testbox"] }, runId: "r1", passed: true, found: "Every expected word is there" },
         { questionId: "q2", question: "Is Pi-hole blocking ads?", expected: { includes: ["yes"] }, runId: "r2", passed: null, skipped: true, found: "Not asked: there was no model time left for it" },
       ],
-    }], canEdit: true });
+    }], canEdit: true, history: [{ id: "e1", at: "2026-09-30T02:40:00Z", score: 1, version: 3, model: "fake", nightly: true, right: 1, questions: 1, skipped: 1 }] });
     const table = await screen.findByRole("table", { name: "The latest evaluation's answers" });
     expect(table.textContent).toContain("not graded");
     expect(table.textContent).not.toContain("waiting");
-    expect(screen.getByText(/of 1 right · 1 not graded: no model time left for it/)).toBeTruthy();
+    // Why each was not graded is on its row: not asked for want of model time, or cancelled (sweep 4).
+    expect(screen.getByText(/of 1 right · 1 not graded ·/)).toBeTruthy();
+    // Its score over the questions graded, and the rest said apart (sweep 4, R4B1-4).
+    expect(screen.getByRole("table", { name: "Each evaluation's score" }).textContent).toContain("100% · 1/1 · 1 not graded");
   });
 });

@@ -3101,11 +3101,15 @@ export function createAgentService({
     };
   }
 
-  /** Each finished evaluation's score, oldest first: accuracy over time. */
+  /**
+   * Each finished evaluation's score, oldest first: accuracy over time. `questions` are those graded,
+   * as the score counts them, and `skipped` those that were not (sweep 4: "100% · 1/3" for one
+   * right of one graded and two never asked).
+   */
   function historyOf(runs) {
     return [...runs].reverse().filter((run) => run.state === "done" && run.score !== null).map((run) => ({
       id: run.id, at: run.finishedAt ?? run.createdAt, score: run.score, version: run.version, model: run.model, nightly: !run.createdBy,
-      right: run.results.filter((result) => result.passed).length, questions: run.results.length,
+      right: run.results.filter((result) => result.passed).length, questions: run.results.filter((result) => !result.skipped).length, skipped: run.results.filter((result) => result.skipped).length,
     }));
   }
 

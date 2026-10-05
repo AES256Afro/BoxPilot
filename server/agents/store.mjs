@@ -793,8 +793,11 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
    * the evaluation is listed; so is one whose run was never queued (BoxPilot stopped part-way through
    * setting the evaluation up). A completed run is left to the runner's finish, which grades its
    * answer a moment after marking it completed; any other ending grades the same either way. A
-   * nightly question refused at hand-out (the night's model time could not pay for it) is not
-   * graded at all, and left out of the score: it was never asked (2026-10 sweep 3).
+   * nightly question that was never asked is not graded at all, and left out of the score: refused
+   * at hand-out (the night's model time could not pay for it, 2026-10 sweep 3), or stopped before
+   * or while it ran by something other than its answer - it waited too long to start, its agent or
+   * every agent was paused, the kill switch (sweep 4: each was graded wrong, a false drop in
+   * accuracy). A person's evaluation is graded as it ended: they asked for it then.
    */
   function settleEvalRun(evaluation) {
     if (!evaluation || evaluation.state !== "running") return evaluation;
@@ -803,8 +806,9 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
       if (result.passed !== null || result.skipped) continue;
       const run = result.runId ? getRun(result.runId) : null;
       if (run && (!finishedStates.has(run.state) || run.state === "completed")) continue;
-      const grade = run?.state === "refused" && !evaluation.createdBy
-        ? { passed: null, skipped: true, found: `Not asked: ${run.reason ?? "there was no model time left for it"}` }
+      const notAsked = !evaluation.createdBy && ["refused", "cancelled", "killed"].includes(run?.state);
+      const grade = notAsked
+        ? { passed: null, skipped: true, found: `${run.state === "refused" || !run.startedAt ? "Not asked" : "Not graded"}: ${run.reason ?? "there was no model time left for it"}` }
         : { passed: false, found: run ? `The run ended ${run.state}` : "The run was never queued" };
       settled = gradeEval(evaluation.id, result.questionId, grade) ?? settled;
     }
