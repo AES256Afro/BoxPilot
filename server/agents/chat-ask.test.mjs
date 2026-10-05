@@ -151,3 +151,57 @@ describe("someone the owner mapped", () => {
     expect(h.helperCalls.some((call) => call.operation === "agents.zulip.events")).toBe(false);
   });
 });
+
+describe("a question asked in Zulip that the supervisor hands on (R2B1-4, R2B1-5)", { timeout: 30_000 }, () => {
+  const withTools = (body) => body.messages.filter((message) => message.role === "tool").length;
+  const named = (body, name) => String(body.messages[0]?.content ?? "").includes(`Your name is ${name}`);
+  const followUp = (body) => /The specialists you handed work to/.test(JSON.stringify(body.messages));
+  const handTo = (agent, task, interim) => (body) => (withTools(body) === 0 ? { toolCalls: [{ name: "agents_handoff", arguments: { agent, task } }] } : { content: interim });
+  const toAlex = () => posted.filter((post) => post.to?.[0] === 11).map((post) => post.content);
+  const askAlex = async (keeper) => {
+    await mapTo([{ zulipId: 11, zulipEmail: "alex@example.com", boxpilotId: h.accounts.owner.id }], { defaultAgentId: keeper.id });
+    direct(alex, "Is Pi-hole doing its job?");
+    await check();
+    posted = [];
+  };
+  const runAll = async () => { while (await h.runNext()); await h.service.chat.drain(); };
+
+  it("answers the asker once, with the supervisor's answer, never a specialist's", async () => {
+    const keeper = h.service.createAgent(h.caller("owner"), { template: "server-keeper" });
+    h.service.createAgent(h.caller("owner"), { template: "pihole-watcher" });
+    h.fake.state.script = (body) => {
+      if (named(body, "Server Keeper")) return followUp(body) ? { content: "KEEPER-FINAL: Pi-hole is blocking [T1]." } : handTo("Pi-hole Watcher", "Is Pi-hole blocking?", "I asked the Pi-hole Watcher [T1].")(body);
+      return withTools(body) === 0 ? { toolCalls: [{ name: "pihole_stats", arguments: {} }] } : { content: "WATCHER-INTERIM: blocking is on [T1]." };
+    };
+    await askAlex(keeper);
+    await runAll();
+    expect(toAlex()).toEqual([expect.stringMatching(/^KEEPER-FINAL/)]);
+  });
+
+  it("says nothing to the asker about a hand-off that was cancelled", async () => {
+    const keeper = h.service.createAgent(h.caller("owner"), { template: "server-keeper" });
+    h.service.createAgent(h.caller("owner"), { template: "pihole-watcher" });
+    h.fake.state.script = (body) => (followUp(body) ? { content: "KEEPER-FINAL: the watcher did not answer [T1]." } : handTo("Pi-hole Watcher", "Is Pi-hole blocking?", "I asked the Pi-hole Watcher [T1].")(body));
+    await askAlex(keeper);
+    const root = await h.runNext();
+    const [child] = h.store.listChildren(root.id);
+    h.service.cancelRun(h.caller("owner"), child.id);
+    await runAll();
+    expect(toAlex()).toEqual([expect.stringMatching(/^KEEPER-FINAL/)]);
+  });
+
+  it("with two supervisors, answers once, from the root's follow-up, which has the second supervisor's own answer", async () => {
+    const keeper = h.service.createAgent(h.caller("owner"), { template: "server-keeper" });
+    const relay = h.service.createAgent(h.caller("owner"), { template: "server-keeper" });
+    h.service.updateAgent(h.caller("owner"), relay.id, { spec: { ...h.service.getAgent(h.caller("owner"), relay.id).spec, name: "Relay" } });
+    h.service.createAgent(h.caller("owner"), { template: "pihole-watcher" });
+    h.fake.state.script = (body) => {
+      if (named(body, "Server Keeper")) return followUp(body) ? { content: "KEEPER-FINAL: Pi-hole is blocking, Relay says [T1]." } : handTo("Relay", "Check Pi-hole for me", "I asked Relay [T1].")(body);
+      if (named(body, "Relay")) return followUp(body) ? { content: "RELAY-FINAL: the watcher says blocking is on [T1]." } : handTo("Pi-hole Watcher", "Is Pi-hole blocking?", "RELAY-INTERIM: I asked the watcher [T1].")(body);
+      return withTools(body) === 0 ? { toolCalls: [{ name: "pihole_stats", arguments: {} }] } : { content: "WATCHER-INTERIM: blocking is on [T1]." };
+    };
+    await askAlex(keeper);
+    await runAll();
+    expect(toAlex()).toEqual([expect.stringMatching(/^KEEPER-FINAL/)]);
+  });
+});
