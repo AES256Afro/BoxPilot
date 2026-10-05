@@ -15,8 +15,11 @@ export interface ConfigSheetProps {
   live: LiveState | null;
   mode: "install" | "reconfigure";
   csrfToken: string;
-  onSubmit: (values: Values) => void;
+  /** What to send, and the whole form as it was filled in (to put back if the job does not complete). */
+  onSubmit: (values: Values, form: Values) => void;
   onCancel: () => void;
+  /** The form as it was last filled in, when its approval was cancelled or its job failed. */
+  seed?: Values;
   /** An installed app's name by id, to say who holds a port that is taken. */
   appNameFor?: (id: string) => string | null;
 }
@@ -31,10 +34,10 @@ function Section({ title, children, hint }: { title: string; children: ReactNode
   );
 }
 
-export function ConfigSheet({ manifest, live, mode, csrfToken, onSubmit, onCancel, appNameFor = () => null }: ConfigSheetProps) {
+export function ConfigSheet({ manifest, live, mode, csrfToken, onSubmit, onCancel, seed, appNameFor = () => null }: ConfigSheetProps) {
   const formId = useId();
   const foldersId = useId();
-  const [values, setValues] = useState<Values>(() => initialValues(manifest, live));
+  const [values, setValues] = useState<Values>(() => seed ?? initialValues(manifest, live));
   const [checking, setChecking] = useState(false);
   const [problems, setProblems] = useState<string[]>([]);
   // The drives and network shares already mounted on this server, offered for a folder field, so
@@ -81,10 +84,10 @@ export function ConfigSheet({ manifest, live, mode, csrfToken, onSubmit, onCance
       if (!response.ok && !body.errors?.length) throw new Error(body.error ?? "Precheck failed");
       const found = [...(body.errors ?? []), ...(body.conflicts ?? []).map((conflict) => describePortConflict(conflict, appNameFor))];
       if (found.length) { setProblems(found); return; }
-      onSubmit(compact);
+      onSubmit(compact, values);
     } catch {
       // The precheck is advice: if it cannot run, continue and let the install report the real error.
-      onSubmit(compact);
+      onSubmit(compact, values);
     } finally {
       setChecking(false);
     }
