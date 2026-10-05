@@ -6,8 +6,9 @@
 #
 # What it does:
 #   0. Holds /run/boxpilot-upgrade.lock for the whole run: a second upgrade started meanwhile refuses
-#      and says which one to wait for
-#   1. Downloads the ref as a tarball from GitHub into /opt/boxpilot.staging.<stamp>
+#      and says which one to wait for; staging trees earlier runs left unfinished are removed
+#   1. Downloads the ref as a tarball from GitHub into /opt/boxpilot.staging.<stamp> (removed again
+#      if the build fails or a signal stops the run before the service is)
 #   2. npm ci, npm run build, npm prune --omit=dev in the staging directory
 #   3. Copies the database the running version wrote (VACUUM INTO, integrity-checked, the live
 #      file's owner and mode) to /var/lib/boxpilot/boxpilot-rollback-<old version>-<stamp>.sqlite3,
@@ -20,7 +21,8 @@
 #      (on the port /etc/boxpilot/boxpilot.env gives the service; BOXPILOT_HEALTH_URL overrides it)
 #   8. Rolls the directory swap, the units and that move back and restarts the old tree if the health check
 #      fails (or a signal stops the run once the service is down, or the terminal or pipe its output
-#      goes to is gone), and names the database copy that matches the old tree
+#      goes to is gone), names the database copy that matches the old tree, and says whether the old
+#      version answers its health check again
 #
 # It does not touch /etc/boxpilot, systemd drop-ins, or the owner account. In /var/lib/boxpilot it only
 # adds the database copy: it never changes the database itself, and never deletes a copy (the System
@@ -127,6 +129,15 @@ fi
 : > "$UPGRADE_LOCK"
 printf 'pid=%s ref=%s started=%s by=%s\n' "$$" "$REF" "$STAMP" "${BOXPILOT_UPDATE_UNIT:-hand}" > "$UPGRADE_LOCK"
 
+# Staging trees earlier runs left: one stopped outright part way through its build (SIGKILL, a
+# power cut) kept a whole copy of BoxPilot in /opt that nothing came back for. With the lock held,
+# no other upgrade is building in one.
+for leftover in "${INSTALL_DIR}".staging.*; do
+  [ -d "$leftover" ] || continue
+  rm -rf "$leftover"
+  log "removed ${leftover}, which an earlier update left unfinished"
+done
+
 # Resolve the Node.js runtime. Prefer an explicit override, then the unit drop-in, then PATH, then the documented path.
 NODE_BIN="${BOXPILOT_NODE_BIN:-}"
 if [ -z "$NODE_BIN" ]; then
@@ -147,7 +158,17 @@ NODE_MAJOR="$("$NODE_BIN" -p 'process.versions.node.split(".")[0]')"
 command -v npm >/dev/null 2>&1 || fail "npm was not found next to ${NODE_BIN}"
 log "using $("$NODE_BIN" --version) at ${NODE_BIN}"
 
-cleanup_staging() { [ -d "$STAGING" ] && rm -rf "$STAGING"; }
+cleanup_staging() { [ ! -d "$STAGING" ] || rm -rf "$STAGING"; }
+
+# Stopped before anything changed (an SSH session dropping during `curl | sudo sh`, Ctrl-C, systemd
+# stopping the update unit): only the staging tree exists, and it goes. It used to stay in /opt for
+# good. The traps armed before the service is stopped (step 4) take over from this one.
+stopped_building() {
+  trap '' HUP INT TERM PIPE
+  cleanup_staging
+  fail "stopped before ${INSTALL_DIR} was touched; removed ${STAGING}"
+}
+trap stopped_building HUP INT TERM PIPE
 
 # 1. Download
 log "downloading ${REPO}@${REF}"
@@ -257,6 +278,9 @@ rollback() {
       log "could not move the backup destination back; fstab from before the upgrade is ${BACKUP_MOUNT_UNDO}"
     fi
   fi
+  # Whether the old tree is at INSTALL_DIR: it never left (the swap had not happened), or it went
+  # back. Each move is checked: the rollback used to say "previous tree restored" either way.
+  RESTORED=1
   if [ -d "$PREVIOUS" ]; then
     if [ -d "$INSTALL_DIR" ]; then
       rm -rf "${INSTALL_DIR}.failed.${STAMP}"
@@ -264,9 +288,11 @@ rollback() {
     fi
     # Never into the new tree: a move aside that failed leaves it where it is, and says so.
     if [ -e "$INSTALL_DIR" ]; then
+      RESTORED=0
       log "could not move the new tree aside; the previous tree is still at ${PREVIOUS}"
-    else
-      mv "$PREVIOUS" "$INSTALL_DIR"
+    elif ! mv "$PREVIOUS" "$INSTALL_DIR"; then
+      RESTORED=0
+      log "could not move the previous tree back to ${INSTALL_DIR}; it is still at ${PREVIOUS}"
     fi
   fi
   # Old code under new unit files would keep failing for the same reason the upgrade did.
@@ -276,8 +302,8 @@ rollback() {
     log "restored unit ${name}"
   done
   systemctl daemon-reload 2>/dev/null || true
-  systemctl restart boxpilot-helper.service 2>/dev/null || true
-  systemctl restart boxpilot.service 2>/dev/null || true
+  systemctl restart boxpilot-helper.service 2>/dev/null || log "boxpilot-helper.service did not restart"
+  systemctl restart boxpilot.service 2>/dev/null || log "boxpilot.service did not restart"
   # The agents runner (M37) only when the owner turned it on: try-restart leaves a stopped unit stopped.
   systemctl try-restart boxpilot-agents.service 2>/dev/null || true
   # The code is back; the database is whatever the new version left. Usually that is fine - most
@@ -286,10 +312,33 @@ rollback() {
     log "the database as ${OLD_VERSION} left it is ${DB_COPY}"
     log "if ${OLD_VERSION} misbehaves on the current database: systemctl stop boxpilot, copy that file over ${DATABASE} (keeping its owner and mode), delete ${DATABASE}-wal and ${DATABASE}-shm, and start boxpilot. Anything recorded after ${STAMP} is not in the copy."
   fi
-  if [ -d "${INSTALL_DIR}.failed.${STAMP}" ]; then
-    fail "upgrade failed; previous tree restored (failed tree kept at ${INSTALL_DIR}.failed.${STAMP})"
+  if [ "$RESTORED" -ne 1 ]; then
+    if [ -e "$INSTALL_DIR" ]; then
+      trees="the new tree is still at ${INSTALL_DIR}"
+    else
+      trees="${INSTALL_DIR} is missing"
+      [ ! -d "${INSTALL_DIR}.failed.${STAMP}" ] || trees="${trees}, the new tree is at ${INSTALL_DIR}.failed.${STAMP}"
+    fi
+    fail "upgrade failed and the previous tree could not be put back: it is at ${PREVIOUS}; ${trees}. Move ${PREVIOUS} to ${INSTALL_DIR} by hand, then restart boxpilot-helper and boxpilot."
   fi
-  fail "upgrade failed before the new tree was in place; the previous BoxPilot was left as it was"
+  # Whether the old version is really back: a restart's exit code says little, so the service is
+  # asked, as the upgrade asks the new one, for a short while. Bounded, so a TERM's rollback still
+  # ends well inside systemd's stop timeout.
+  case "$OLD_VERSION" in ''|unknown) wanted='"status":"ok"' ;; *) wanted="\"version\":\"${OLD_VERSION}\"" ;; esac
+  if ! systemctl is-enabled boxpilot.service >/dev/null 2>&1; then
+    back="boxpilot.service is not enabled, so nothing was asked"
+  else
+    back=""; attempt=0
+    while [ -z "$back" ] && [ "$attempt" -lt 10 ]; do
+      attempt=$((attempt + 1))
+      case "$(curl -fsS --max-time 2 "$HEALTH_URL" 2>/dev/null)" in *"$wanted"*) back="and BoxPilot ${OLD_VERSION} answers at ${HEALTH_URL}" ;; *) sleep 1 ;; esac
+    done
+    [ -n "$back" ] || back="but BoxPilot ${OLD_VERSION} did not answer at ${HEALTH_URL} after the restart; journalctl -u boxpilot -u boxpilot-helper says why"
+  fi
+  if [ -d "${INSTALL_DIR}.failed.${STAMP}" ]; then
+    fail "upgrade failed; previous tree restored, ${back} (failed tree kept at ${INSTALL_DIR}.failed.${STAMP})"
+  fi
+  fail "upgrade failed before the new tree was in place; the previous BoxPilot was left as it was, ${back}"
 }
 
 HAD_PREVIOUS=0
@@ -315,6 +364,8 @@ else
   log "no existing ${INSTALL_DIR}; installing fresh"
 fi
 mv "$STAGING" "$INSTALL_DIR"
+# A fresh install has nothing to roll back to: the staging tree is the install now.
+[ "$HAD_PREVIOUS" -eq 1 ] || trap - HUP INT TERM PIPE
 
 # 5. Units (only when changed; keep a copy of the old one)
 UNITS_CHANGED=0

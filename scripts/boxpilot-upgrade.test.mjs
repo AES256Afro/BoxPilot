@@ -109,6 +109,18 @@ describe("where the copy sits in the upgrade", () => {
     expect(script).toContain('AS_OWNER="runuser -u ${DB_OWNER} --"');
   });
 
+  // It said "previous tree restored" whether or not the move back worked, and never asked the
+  // restarted service anything.
+  it("says the old tree is back only once it is, and asks the restarted service before it says how it went", () => {
+    const rollback = script.slice(at("rollback() {"), at("HAD_PREVIOUS=0"));
+    expect(rollback).toContain('elif ! mv "$PREVIOUS" "$INSTALL_DIR"; then');
+    const asked = rollback.indexOf('case "$(curl -fsS --max-time 2 "$HEALTH_URL" 2>/dev/null)" in');
+    expect(asked).toBeGreaterThan(rollback.indexOf("systemctl restart boxpilot.service"));
+    expect(asked).toBeGreaterThan(rollback.indexOf('if [ "$RESTORED" -ne 1 ]; then'));
+    expect(asked).toBeLessThan(rollback.indexOf('fail "upgrade failed; previous tree restored, ${back}'));
+    expect(rollback).toMatch(/while \[ -z "\$back" \] && \[ "\$attempt" -lt 10 \]; do/);
+  });
+
   it("names the copy that matches the old code when it rolls back", () => {
     const rollback = script.slice(at("rollback() {"), at("HAD_PREVIOUS=0"));
     expect(rollback).toContain('log "the database as ${OLD_VERSION} left it is ${DB_COPY}"');
@@ -130,6 +142,18 @@ describe("where the copy sits in the upgrade", () => {
     // wipes what the holder wrote.
     expect(at("printf 'pid=%s ref=%s started=%s by=%s\\n'")).toBeGreaterThan(locked);
     expect(script).not.toMatch(/exec 9>"\$UPGRADE_LOCK"/);
+  });
+
+  // An upgrade stopped during its build, or killed outright, left /opt/boxpilot.staging.<stamp> for good.
+  it("clears staging trees earlier runs left once it holds the lock, and its own when stopped while building", () => {
+    const cleared = at('for leftover in "${INSTALL_DIR}".staging.*; do');
+    expect(cleared).toBeGreaterThan(at("if ! flock -n 9; then"));
+    expect(cleared).toBeLessThan(at('mkdir -p "$STAGING"'));
+    const armed = at("trap stopped_building HUP INT TERM PIPE");
+    expect(armed).toBeLessThan(at('mkdir -p "$STAGING"'));
+    expect(armed).toBeLessThan(at("trap 'exit 1' HUP INT TERM PIPE\n"));
+    const handler = script.slice(at("stopped_building() {"), armed);
+    expect(handler.indexOf("trap '' HUP INT TERM PIPE")).toBeLessThan(handler.indexOf("cleanup_staging"));
   });
 
   it("rolls back when the new helper does not stay up, not only when the web service fails its check", () => {

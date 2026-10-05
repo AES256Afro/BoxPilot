@@ -185,14 +185,25 @@ LIVE_HOST="$(env_value BOXPILOT_HOST)"
 ENV_BEFORE="$(mktemp)"
 cat "$ENV_FILE" > "$ENV_BEFORE"
 put_env_back() {
+  # Once only: the copy is gone after the first, and `cat` of a missing copy would empty the env file.
+  [ -f "$ENV_BEFORE" ] || return 0
+  # Not cut short by a second signal, nor by a terminal that has gone: it is what puts the box back.
+  trap '' HUP INT TERM PIPE
   # A first install has nothing to go back to: the example's settings were never anyone's choice.
   if [ "$REINSTALL" -eq 1 ] && ! cmp -s "$ENV_BEFORE" "$ENV_FILE"; then
     cat "$ENV_BEFORE" > "$ENV_FILE"
     systemctl restart boxpilot.service || true
-    log "put ${ENV_FILE} back as it was (port ${LIVE_PORT}, listening on ${LIVE_HOST:-127.0.0.1}) and restarted BoxPilot on it"
+    log "put ${ENV_FILE} back as it was (port ${LIVE_PORT}, listening on ${LIVE_HOST:-127.0.0.1}) and restarted BoxPilot on it" || true
   fi
   rm -f "$ENV_BEFORE"
 }
+# From here until BoxPilot answers on the new settings, a signal puts the old ones back too: an SSH
+# session dropping during `curl | sudo sh -s -- --port 9100` (HUP), Ctrl-C, a TERM, or a write to a
+# terminal or pipe that has gone (PIPE). It used to leave 9100 in the env file, where the service
+# moved at its next restart (or at once, when the upgrade's rollback restarted the old version), with
+# neither ufw nor Tailscale Serve following it. dash runs a trap once the command it waits for has
+# finished, so an upgrade that is rolling back finishes first.
+trap 'put_env_back; rm -rf "$WORK"; exit 1' HUP INT TERM PIPE
 set_env BOXPILOT_PORT "$PORT"
 if [ -z "$ACCESS" ] && [ "$REINSTALL" -eq 1 ]; then
   # A re-run without --access: BOXPILOT_HOST and BOXPILOT_COOKIE_SECURE stay as the env file has them.
@@ -242,6 +253,7 @@ if [ "$HEALTHY" -ne 1 ]; then
   fail "BoxPilot did not answer on port ${PORT}"
 fi
 rm -f "$ENV_BEFORE"
+trap - HUP INT TERM PIPE
 
 # On every address, with ufw on, the port has to be open for the LAN to reach it: Settings opens it
 # when it turns the LAN on (server/tasks/web-bind.mjs), and the installer did not.
@@ -257,6 +269,19 @@ case "$WEB_HOST" in
 esac
 
 # 8. Publish
+#
+# A Tailscale install stays published through Serve after its owner turns on the LAN in Settings
+# (its cookies stay https-only, which only the Tailscale access sets), but a re-run reads it as "lan".
+# Serve was re-pointed only for "tailscale", so a new --port left the tailnet address forwarding to
+# the old port, where nothing answers any more.
+if [ "$ACCESS" != tailscale ] && [ "$PORT" != "$LIVE_PORT" ] && [ "$(env_value BOXPILOT_COOKIE_SECURE)" = true ] &&
+  command -v tailscale >/dev/null 2>&1 && tailscale status >/dev/null 2>&1; then
+  if tailscale serve --bg "http://127.0.0.1:${PORT}" >/dev/null 2>&1; then
+    log "Tailscale Serve now forwards to port ${PORT}"
+  else
+    log "tailscale serve failed; the tailnet address forwards to port ${LIVE_PORT} until it is moved (sudo tailscale serve --bg http://127.0.0.1:${PORT})"
+  fi
+fi
 URL=""
 case "$ACCESS" in
   tailscale)
