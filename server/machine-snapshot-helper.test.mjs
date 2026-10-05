@@ -463,6 +463,20 @@ describe("restoring from a machine snapshot", () => {
     expect(result.warnings).toEqual([`uptime-kuma: ${warning}`]);
   });
 
+  // R5B4-2: an app whose data restore was refused (or that could not be installed) was said only in
+  // its own line of the result, which the job's page does not show, and the job read "Completed."
+  // in green. Said on the job's warnings too, first, so it reads "Completed with notice".
+  it("says on the job which apps were not restored, and why", async () => {
+    const { helper, paths } = await fixture();
+    await snapshotListing(paths, ["20260816T030000Z.tar.gz"]);
+    const refusal = "Uptime Kuma was not restored; nothing was changed. Port 3001 is taken on every address by process node (pid 4242).";
+    const apps = { ...recordingDeployer(paths), restoreAppBackup: async () => { throw new Error(refusal); } };
+    const result = await helper.restore({ source: "local", artifact: olderSnapshot }, { apps });
+    expect(result).toMatchObject({ restored: 1, failed: 1 });
+    expect(result.apps[0]).toMatchObject({ installed: true, dataRestored: false, error: refusal });
+    expect(result.warnings).toEqual([`uptime-kuma: ${refusal}`]);
+  });
+
   // R4B3-7: for a snapshot loose at the top of a drive, its archives were looked for beside the
   // folder the drive is mounted on: outside the drive, where another drive's archives could be.
   it("takes each app's data from the drive a snapshot lies loose on, never from beside the drive", async () => {

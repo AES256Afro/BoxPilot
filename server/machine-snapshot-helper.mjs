@@ -997,8 +997,13 @@ export function createMachineSnapshotHelper({
       summary.restored = summary.apps.filter((entry) => entry.installed).length;
       summary.failed = summary.apps.filter((entry) => entry.error).length;
       // Said on the job as well as per app: an app restored without the data it should have had, or
-      // with no way in yet, is the owner's to act on.
-      const warnings = summary.apps.flatMap((entry) => entry.warnings.map((warning) => `${entry.id}: ${warning}`));
+      // with no way in yet, is the owner's to act on. So is one that was not restored at all, or whose
+      // data restore was refused (R5B4-2): said only in its own line, the job read "Completed." in
+      // green. First, as the job shows only so many.
+      const warnings = [
+        ...summary.apps.filter((entry) => entry.error).map((entry) => `${entry.id}: ${entry.error}`),
+        ...summary.apps.flatMap((entry) => entry.warnings.map((warning) => `${entry.id}: ${warning}`)),
+      ];
       if (warnings.length) summary.warnings = warnings;
       return summary;
     } finally {
