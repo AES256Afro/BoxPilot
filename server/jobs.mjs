@@ -44,6 +44,24 @@ function unreadableReason(status) {
   return blocking && Number.isInteger(blocking.mode) ? `${reason} (the log ${blocking.what} is mode ${blocking.mode.toString(8)})` : reason;
 }
 
+/**
+ * The words a failed operation uses when it did undo its partial changes. Never the bare word
+ * "rollback": the errors that carry it mostly say the rollback failed ("automatic rollback also
+ * failed", "failed exact rollback validation"), and those used to be recorded as undone.
+ */
+const undoneWords = /was rolled back|\bthe previous (?:image|one|configuration) was restored|\bthe version it was on was restored|cleanup completed|was unchanged/i;
+
+/**
+ * Whether a failed operation undid its partial changes: true, false, or null when it did not say.
+ * An operation that tries to roll back says which in `rolledBack` (carried through the helper's
+ * reply); one that does not is read by the words above, unless something in it also failed.
+ */
+function rollbackOutcome(error) {
+  if (typeof error?.rolledBack === "boolean") return error.rolledBack;
+  const message = String(error?.message ?? "");
+  return undoneWords.test(message) && !/also failed/i.test(message) ? true : null;
+}
+
 /** One condition per operation and subject: a nightly backup that cannot record is one alert, not one a night. */
 function recordAlertKey(job) {
   const subject = job.parameters?.id ?? job.parameters?.name ?? null;
@@ -326,10 +344,9 @@ export function createJobService(store, helper, {
         // record that could not be saved) ends verify.
         if (current.state === "applying") store.addJobStep(jobId, "apply", "failed", (timeout ? `${job.title} ran out of time` : `${job.title} failed: ${message}`).slice(0, 500));
         else store.addJobStep(jobId, "verify", "failed", execution.failed);
-        // Helper operations that roll back on failure say so in the error itself.
-        if (/rollback|cleanup completed|was unchanged/i.test(error.message)) {
-          store.addJobStep(jobId, "rollback", "completed", "The operation undid its partial changes before failing; existing data was preserved");
-        }
+        const rolledBack = rollbackOutcome(error);
+        if (rolledBack === true) store.addJobStep(jobId, "rollback", "completed", "The operation undid its partial changes before failing; existing data was preserved");
+        else if (rolledBack === false) store.addJobStep(jobId, "rollback", "failed", "The operation tried to undo its partial changes and could not; check what it changed before running it again");
         store.transitionJob(jobId, current.state, "failed", { error: message, ...(timeout ? { timeout } : {}) });
       }
       store.recordAudit("job.failed", { actorId: owner.id, subjectId: jobId, details: { type: job.type } });

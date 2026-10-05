@@ -1765,6 +1765,32 @@ describe("an update or a step back that fails part-way", () => {
     const error = await apps.update({ id: "step" }, { checkpoint: false }).catch((caught) => caught);
     expect(error.timeout).toBeUndefined();
   });
+
+  it("says on the error whether its own rollback worked, so the job does not read it from the words", async () => {
+    const { apps, publish, failing } = await installed();
+    await publish("app:2.0.0");
+    failing("up", 1);
+    const restored = await apps.update({ id: "step" }, { checkpoint: false }).catch((caught) => caught);
+    expect(restored.message).toMatch(/the previous image was restored/);
+    expect(restored.rolledBack).toBe(true);
+    failing("up");
+    const stuck = await apps.update({ id: "step" }, { checkpoint: false }).catch((caught) => caught);
+    expect(stuck.message).toMatch(/automatic rollback also failed/);
+    expect(stuck.rolledBack).toBe(false);
+  });
+
+  it("says on the error whether a rejected compose edit was put back", async () => {
+    const { apps, composeFile, failing } = await installed();
+    const edited = `${await composeFile()}\n# edited\n`;
+    failing("up", 1);
+    const restored = await apps.editCompose({ id: "step", compose: edited }, { checkpoint: false }).catch((caught) => caught);
+    expect(restored.message).toMatch(/the previous one was restored/);
+    expect(restored.rolledBack).toBe(true);
+    failing("up");
+    const stuck = await apps.editCompose({ id: "step", compose: edited }, { checkpoint: false }).catch((caught) => caught);
+    expect(stuck.message).toMatch(/automatic rollback also failed/);
+    expect(stuck.rolledBack).toBe(false);
+  });
 });
 
 // Linux only: needs /usr/bin/tar.

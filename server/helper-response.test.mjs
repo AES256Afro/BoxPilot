@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createHelperResponseReader, helperQueuedFrame, helperStartedFrame } from "./helper-response.mjs";
+import { createHelperResponseReader, helperErrorReply, helperQueuedFrame, helperStartedFrame } from "./helper-response.mjs";
 const reply = (data) => `${JSON.stringify({ version: 1, id: "request", ...data })}\n`;
 
 describe("bounded helper response parsing", () => {
@@ -59,5 +59,18 @@ describe("bounded helper response parsing", () => {
     const older = caught(reply({ ok: false, error: "docker compose pull failed: timed out after 1800000 ms", code: "operation_failed" }));
     expect(older.timeout).toBeUndefined();
     expect(older.code).toBe("operation_failed");
+  });
+
+  it("carries whether a failed operation's own rollback worked, from the helper's reply onto the error", () => {
+    const caught = (error) => { try { createHelperResponseReader("request").push(`${JSON.stringify(helperErrorReply("request", error))}\n`); } catch (thrown) { return thrown; } return null; };
+    for (const rolledBack of [true, false]) {
+      const error = caught(Object.assign(new Error("Demo update failed"), { rolledBack }));
+      expect(error).toMatchObject({ message: "Demo update failed", code: "operation_failed", rolledBack });
+    }
+    // An operation that does not say claims nothing either way.
+    expect(caught(new Error("Demo update failed")).rolledBack).toBeUndefined();
+    // A step's timeout still rides along beside it.
+    const ranOut = caught(Object.assign(new Error("Downloading did not finish within 30 minutes"), { timeout: { scope: "step", budgetMs: 1_800_000, step: "Downloading" }, rolledBack: true }));
+    expect(ranOut).toMatchObject({ code: "timeout", timeout: { scope: "step", budgetMs: 1_800_000, step: "Downloading" }, rolledBack: true });
   });
 });

@@ -1068,7 +1068,8 @@ export function createAppHelper({
         rolledBack = rollback.ok;
         if (rolledBack && pinnedImages) await writeState(id, { ...state, pinnedRollback: true, image: { reference: before.image, id: before.image } }).catch(() => {});
       }
-      throw keepTimeout(error, new Error(`${manifest.name} update failed${rolledBack ? "; the previous image was restored" : " and automatic rollback also failed"}. ${error.message}`));
+      // rolledBack says which in a field the job records from, rather than reading it from the words.
+      throw keepTimeout(error, Object.assign(new Error(`${manifest.name} update failed${rolledBack ? "; the previous image was restored" : " and automatic rollback also failed"}. ${error.message}`), { rolledBack }));
     }
   }
 
@@ -1242,7 +1243,7 @@ export function createAppHelper({
       progress?.(`Edit failed: ${error.message}. Restoring the previous compose file...`, "stderr");
       await writeFileDurably(target, previous, { mode: 0o600 });
       const rolledBack = (await compose(id, ["up", "--detach", "--remove-orphans"], { timeout: 10 * 60_000, progress })).ok;
-      throw new Error(`${manifest.name} rejected the edited compose file${rolledBack ? "; the previous one was restored" : " and automatic rollback also failed"}. ${error.message}`);
+      throw Object.assign(new Error(`${manifest.name} rejected the edited compose file${rolledBack ? "; the previous one was restored" : " and automatic rollback also failed"}. ${error.message}`), { rolledBack });
     }
   }
 
