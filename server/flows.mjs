@@ -54,6 +54,9 @@ export function validateFlow({ name, steps } = {}, registry = defaultRegistry) {
     const operation = registry.get?.(step.operationId);
     if (!operation) return `${label}: ${step.operationId} is not a registered operation`;
     if (operation.risk === "high") return `${label}: ${operation.title} is high risk and cannot be part of a flow (ADR-002)`;
+    // A typed confirmation is a person promising they meant it, at approval; a flow approves its
+    // steps itself, so such a step would be refused there on every run.
+    if (typeof operation.confirm === "function") return `${label}: ${operation.title} asks you to type a confirmation each time, so it cannot be part of a flow`;
     const parameters = step.parameters ?? {};
     if (typeof parameters !== "object" || Array.isArray(parameters)) return `${label}: parameters must be an object`;
     // Secrets are checked by flowSecretProblem below, which can ask the catalog about an app's own.
@@ -684,7 +687,8 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
   function stepPalette() {
     const isScalar = (field) => ["string", "number", "boolean", undefined].includes(field.type);
     return registry.list()
-      .filter((operation) => operation.risk !== "high" && !operation.readOnly)
+      // validateFlow refuses these, so offering them would only lead to a refusal at save time.
+      .filter((operation) => operation.risk !== "high" && !operation.readOnly && typeof operation.confirm !== "function")
       // Buildable by a plain form, and never able to store a secret in the flow's JSON. A field
       // that is not a scalar (an array of packages, an object of app values) is fine only when it
       // is optional: the form omits it, which is valid. A required non-scalar field, or any secret

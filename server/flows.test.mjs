@@ -92,6 +92,12 @@ describe("what may be a flow at all", () => {
     expect(problem).toMatch(/high risk and cannot be part of a flow/);
   });
 
+  it("rejects a step that asks for a typed confirmation, which no run of a flow can give", () => {
+    // Medium-risk, so it passed the high-risk line, and then failed at approval on every run.
+    const problem = validateFlow({ name: "x", steps: [{ operationId: "storage.fs-snapshot.delete", parameters: { kind: "btrfs", target: "/mnt/pool", name: "before-reorg" } }] });
+    expect(problem).toMatch(/^step 1: Delete .* asks you to type a confirmation each time, so it cannot be part of a flow$/);
+  });
+
   it("rejects an operation that does not exist, and parameters its operation refuses", () => {
     expect(validateFlow({ name: "x", steps: [{ operationId: "no.such.op" }] })).toMatch(/not a registered operation/);
     expect(validateFlow({ name: "x", steps: [{ operationId: "apt.install", parameters: {} }] })).toMatch(/step 1/);
@@ -579,6 +585,7 @@ describe("the step palette", () => {
     expect(ids).not.toContain("storage.format");         // high
     expect(ids).not.toContain("app.inspect");            // read-only
     expect(ids).not.toContain("credentials.set");        // would store a secret in the flow
+    expect(ids).not.toContain("storage.fs-snapshot.delete"); // asks for a typed confirmation every time
     expect(palette.every((step) => step.title && step.risk && Array.isArray(step.fields))).toBe(true);
     // app.backup carries its scalar fields for the builder to render.
     expect(palette.find((step) => step.operationId === "app.backup").fields.map((field) => field.name)).toEqual(["id", "keep"]);
