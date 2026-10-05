@@ -53,6 +53,12 @@ export interface PendingOperation {
    */
   onApproved?: (job: Job) => void;
   /**
+   * Told when the dialog is closed, with the job as it ended here: null when it was cancelled, could
+   * not be staged, or was not followed to its end. A form closes before its approval opens, so the
+   * page puts it back, as it was filled in, unless the job completed.
+   */
+  onClosed?: (job: Job | null) => void;
+  /**
    * Once the job is approved and running, hand it over rather than following it here: Repair streams
    * its log in the finding's card and re-checks the finding when it ends (M35). The approval itself is
    * exactly the same; only who watches the run changes. The caller closes the dialog.
@@ -106,7 +112,7 @@ function ParameterList({ parameters }: { parameters: Record<string, unknown> }) 
   );
 }
 
-export function ApproveDialog({ operationId, title, parameters, preview, confirmText, csrfToken, onClose, onFinished, onStaged, onApproved, handoff, moreTimeFor, existingJobId, next, onNext, proposedBy }: Props) {
+export function ApproveDialog({ operationId, title, parameters, preview, confirmText, csrfToken, onClose, onFinished, onStaged, onApproved, onClosed, handoff, moreTimeFor, existingJobId, next, onNext, proposedBy }: Props) {
   const [phase, setPhase] = useState<Phase>("staging");
   const [job, setJob] = useState<Job | null>(null);
   const [finished, setFinished] = useState<Job | null>(null);
@@ -129,6 +135,8 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
   onStagedRef.current = onStaged;
   const onApprovedRef = useRef(onApproved);
   onApprovedRef.current = onApproved;
+  const onClosedRef = useRef(onClosed);
+  onClosedRef.current = onClosed;
   const handoffRef = useRef(handoff);
   handoffRef.current = handoff;
   useDialogFocus(dialogRef);
@@ -170,7 +178,8 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
       void cancelJob(job.id, csrfToken).catch(() => undefined);
     }
     onClose();
-  }, [job, phase, csrfToken, onClose]);
+    onClosedRef.current?.(finished);
+  }, [job, phase, finished, csrfToken, onClose]);
 
   // Escape closes the dialog (and withdraws the staged job) like Cancel does, unless something
   // opened over it has Escape first.

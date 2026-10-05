@@ -213,6 +213,27 @@ describe("approval dialog", () => {
     await screen.findByText("Completed.");
     expect(approved).toHaveBeenCalledTimes(1);
   });
+
+  // A form closes before its approval opens; the page puts it back unless the job completed.
+  it("tells a page how the job ended when the dialog is closed: nothing when it was cancelled", async () => {
+    stubApi({ confirmText: "" });
+    const closed = vi.fn();
+    const { unmount } = render(<ApproveDialog operationId="controller.backup.create" title="Back up database" parameters={{}} csrfToken="csrf" onClose={() => {}} onClosed={closed} />);
+    await screen.findByRole("button", { name: "Confirm and run" });
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(closed).toHaveBeenCalledWith(null);
+    unmount();
+    closed.mockClear();
+    render(<ApproveDialog operationId="controller.backup.create" title="Back up database" parameters={{}} csrfToken="csrf" onClose={() => {}} onClosed={closed} />);
+    const run = await screen.findByRole("button", { name: "Confirm and run" });
+    await waitFor(() => expect(run.hasAttribute("disabled")).toBe(false));
+    fireEvent.click(run);
+    await screen.findByText("Completed.");
+    expect(closed).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(closed).toHaveBeenCalledTimes(1);
+    expect(closed).toHaveBeenCalledWith(expect.objectContaining({ id: "job-1", state: "completed" }));
+  });
 });
 
 describe("a job that ran out of time (M30.3)", () => {

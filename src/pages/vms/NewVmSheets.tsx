@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { inspectOperation } from "../../operations";
 import { Button, Checkbox, CodeBlock, Field, KeyValue, Notice, Select, Sheet, TextInput, Textarea, riskOf } from "../../ui";
 import { createVmPlan, fetchVmPlanningOptions, formatBytes, formatMemory, type VmCreationPlan, type VmPlanInput, type VmPlanningOptions } from "../../virtualization";
@@ -27,19 +27,28 @@ export async function githubKeys(user: string, current: string): Promise<string>
   return [...new Set([...current.split("\n").map((line) => line.trim()).filter(Boolean), ...body.keys])].join("\n");
 }
 
-/** "New project VM": an official cloud image and cloud-init with your SSH key, ready in about a minute. */
-export function CloudVmSheet({ onClose, start }: { onClose: () => void; start: StartOperation }) {
+/** The cloud-image form as it was filled in, kept by the page while its approval is open. */
+export interface CloudVmDraft { name: string; image: string; vcpus: string; memoryMiB: string; diskGiB: string; username: string; sshKeys: string; githubUser: string; packages: string; autostart: boolean }
+const emptyCloudDraft: CloudVmDraft = { name: "", image: "ubuntu-24.04", vcpus: "2", memoryMiB: "2048", diskGiB: "20", username: "", sshKeys: "", githubUser: "", packages: "", autostart: false };
+
+/**
+ * "New project VM": an official cloud image and cloud-init with your SSH key, ready in about a minute.
+ * The sheet closes for the approval; `onReopen` puts it back as it was filled in (`seed`) when the
+ * job does not complete.
+ */
+export function CloudVmSheet({ onClose, start, seed, onReopen }: { onClose: () => void; start: StartOperation; seed?: CloudVmDraft; onReopen?: (draft: CloudVmDraft) => void }) {
+  const first = seed ?? emptyCloudDraft;
   const [images, setImages] = useState<CloudImage[]>([]);
-  const [name, setName] = useState("");
-  const [image, setImage] = useState("ubuntu-24.04");
-  const [vcpus, setVcpus] = useState("2");
-  const [memoryMiB, setMemoryMiB] = useState("2048");
-  const [diskGiB, setDiskGiB] = useState("20");
-  const [username, setUsername] = useState("");
-  const [sshKeys, setSshKeys] = useState("");
-  const [githubUser, setGithubUser] = useState("");
-  const [packages, setPackages] = useState("");
-  const [autostart, setAutostart] = useState(false);
+  const [name, setName] = useState(first.name);
+  const [image, setImage] = useState(first.image);
+  const [vcpus, setVcpus] = useState(first.vcpus);
+  const [memoryMiB, setMemoryMiB] = useState(first.memoryMiB);
+  const [diskGiB, setDiskGiB] = useState(first.diskGiB);
+  const [username, setUsername] = useState(first.username);
+  const [sshKeys, setSshKeys] = useState(first.sshKeys);
+  const [githubUser, setGithubUser] = useState(first.githubUser);
+  const [packages, setPackages] = useState(first.packages);
+  const [autostart, setAutostart] = useState(first.autostart);
   const [error, setError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
 
@@ -73,10 +82,12 @@ export function CloudVmSheet({ onClose, start }: { onClose: () => void; start: S
     const parameters: Record<string, unknown> = { name, image, vcpus: cpus, memoryMiB: memory, diskGiB: disk, sshKeys: keys, autostart };
     if (username.trim()) parameters.username = username.trim();
     if (packageList.length) parameters.packages = packageList;
+    const draft: CloudVmDraft = { name, image, vcpus, memoryMiB, diskGiB, username, sshKeys, githubUser, packages, autostart };
     onClose();
     start({
       operationId: "vm.cloud.create", title: `Create VM ${name}`, parameters,
       preview: <span>{selected?.label ?? image}, {cpus} vCPU, {memory} MiB RAM, {disk} GiB disk, user <code>{username.trim() || selected?.defaultUser || "ubuntu"}</code> with {keys.length} SSH key{keys.length === 1 ? "" : "s"}{packageList.length ? `, packages: ${packageList.join(", ")}` : ""}. {selected?.cached ? "Base image is cached." : "The base image will be downloaded first (a few hundred MB, checksum verified)."}</span>,
+      onClosed: (job) => { if (job?.state !== "completed") onReopen?.(draft); },
     });
   };
 
@@ -129,15 +140,19 @@ const initialPlan: VmPlanInput = { name: "", osProfile: "ubuntu-24.04", vcpus: 2
 
 /**
  * Plan a VM from an ISO: the host's capacity and the managed media, then a plan the server validates
- * and renders as the exact command. Nothing is created until the plan goes to approval.
+ * and renders as the exact command. Nothing is created until the plan goes to approval. `seed` is the
+ * plan's form as it was, put back when its approval was cancelled or its job did not complete.
  */
-export function PlanVmSheet({ onClose, onStage, csrfToken }: { onClose: () => void; onStage: (input: VmPlanInput) => void; csrfToken: string }) {
+export function PlanVmSheet({ onClose, onStage, csrfToken, seed }: { onClose: () => void; onStage: (input: VmPlanInput) => void; csrfToken: string; seed?: VmPlanInput }) {
   const [options, setOptions] = useState<VmPlanningOptions | null>(null);
-  const [input, setInput] = useState<VmPlanInput>(initialPlan);
+  const [input, setInput] = useState<VmPlanInput>(seed ?? initialPlan);
   const [plan, setPlan] = useState<VmCreationPlan | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The form as it is now, to tell a plan answered for it from one answered for values since changed.
+  const current = useRef(input);
+  current.current = input;
 
   useEffect(() => {
     void fetchVmPlanningOptions()
@@ -150,10 +165,13 @@ export function PlanVmSheet({ onClose, onStage, csrfToken }: { onClose: () => vo
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
+    const asked = input;
     setSubmitting(true);
     setError(null);
-    try { setPlan(await createVmPlan(input, csrfToken)); }
-    catch (requestError) { setPlan(null); setError(requestError instanceof Error ? requestError.message : "Unable to create VM plan"); }
+    // An answer for values changed while it was on its way is dropped: shown, it was staged with
+    // the values from before the change.
+    try { const next = await createVmPlan(asked, csrfToken); if (current.current === asked) setPlan(next); }
+    catch (requestError) { if (current.current === asked) { setPlan(null); setError(requestError instanceof Error ? requestError.message : "Unable to create VM plan"); } }
     finally { setSubmitting(false); }
   };
 
