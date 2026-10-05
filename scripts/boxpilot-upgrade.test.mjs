@@ -9,6 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
+import { onWindows } from "../test/platform.mjs";
 
 const script = (await readFile("scripts/boxpilot-upgrade.sh", "utf8")).replaceAll("\r\n", "\n");
 const copyProgram = /\nDB_COPY_JS='\n([\s\S]*?)\n'\n/.exec(script)?.[1];
@@ -148,4 +149,34 @@ describe("where the copy sits in the upgrade", () => {
   it("keeps saying the new version is live last, which the System page reads", () => {
     expect(script.trimEnd().split("\n").at(-1)).toMatch(/^log "BoxPilot \$\{NEW_VERSION\} \(\$\{REF\}\) is live;/);
   });
+
+  // dash, Ubuntu's sh, runs no EXIT trap for a signal that kills it: an upgrade stopped after the
+  // service was (an SSH drop during curl | sh, the update unit stopped) left both services down.
+  it("rolls back on HUP, INT and TERM as well as on exit, and a second signal cannot stop the rollback", () => {
+    const armed = at("trap 'rollback' EXIT");
+    expect(at("trap 'exit 1' HUP INT TERM")).toBeGreaterThan(armed);
+    expect(at("trap 'exit 1' HUP INT TERM")).toBeLessThan(at("systemctl stop boxpilot.service 2>/dev/null || true\n  mv \"$INSTALL_DIR\" \"$PREVIOUS\""));
+    const rollback = script.slice(at("rollback() {"), at("HAD_PREVIOUS=0"));
+    expect(rollback.split("\n").slice(1, 6).join("\n")).toContain("trap '' HUP INT TERM");
+    // Once the upgrade is judged good, a signal is only a signal again.
+    expect(script).toContain("\ntrap - EXIT\ntrap - HUP INT TERM\n");
+  });
+
+  it("health-checks the port and address the service's env file gives, not 8787", () => {
+    expect(script).not.toContain("BOXPILOT_HEALTH_URL:-http://127.0.0.1:8787");
+    expect(script).toContain('HEALTH_URL="${BOXPILOT_HEALTH_URL:-http://${WEB_HOST}:${WEB_PORT:-8787}/api/v1/health}"');
+    expect(script).toContain('WEB_PORT="$(env_value BOXPILOT_PORT)"');
+  });
+});
+
+// The scripts run for real by sh (dash on Ubuntu), with stub commands and their paths moved under a
+// scratch directory: health on the env file's port, rollback on TERM and HUP, a re-run installer
+// keeping the port and access, the backup mount point left alone, and the doctor's port. Needs
+// POSIX sh, perl for a Unix socket, and tar: Linux CI runs it; Windows skips it.
+describe("the install and upgrade scripts, run under sh with stub commands", () => {
+  it.skipIf(onWindows)("pass tests/ubuntu/install-upgrade-stubbed.sh", () => {
+    const result = spawnSync("bash", ["tests/ubuntu/install-upgrade-stubbed.sh"], { encoding: "utf8", env: { ...process.env, SH: "sh" }, timeout: 120_000 });
+    expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
+    expect(result.stdout).toContain("all checks passed");
+  }, 150_000);
 });

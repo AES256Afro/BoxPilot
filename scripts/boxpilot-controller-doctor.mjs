@@ -5,6 +5,8 @@ import { inspectControllerFiles, addControllerConnectivity } from "../server/con
 import { createHelperClient } from "../server/helper-client.mjs";
 import { inspectControllerDatabase } from "../server/controller-database-health.mjs";
 import { summarizeDoctor } from "../server/controller-doctor.mjs";
+import { defaultEnvPath, readWebEnv } from "../server/tasks/firewall.mjs";
+import { localHealthUrl } from "../server/tasks/update.mjs";
 
 export function formatDoctor(report) {
   const lines = ["BoxPilot controller doctor (read-only)", `Checked ${report.checkedAt}`, ""];
@@ -16,9 +18,21 @@ export function formatDoctor(report) {
   return lines.join("\n");
 }
 
-export async function readWebHealth({ port = process.env.BOXPILOT_PORT ?? "8787", fetchImpl = fetch } = {}) {
+/**
+ * The web service's health, asked where it listens. Run with sudo, this process does not have the
+ * service's environment, so the port and address come from its env file (BOXPILOT_PORT and
+ * BOXPILOT_HOST here still win); it used to ask 8787 whatever the port, and call a healthy service
+ * on another one down.
+ */
+export async function readWebHealth({ env = process.env, port = env.BOXPILOT_PORT, host = env.BOXPILOT_HOST, envPath = defaultEnvPath, readEnv, fetchImpl = fetch } = {}) {
+  if (port === undefined || host === undefined) {
+    const fromFile = await readWebEnv({ envPath, ...(readEnv ? { read: readEnv } : {}) });
+    port ??= String(fromFile.webPort);
+    host ??= fromFile.webHost;
+  }
   if (!/^\d{1,5}$/.test(String(port)) || Number(port) < 1 || Number(port) > 65535) throw new Error("Invalid BoxPilot loopback port");
-  const response = await fetchImpl(`http://127.0.0.1:${port}/api/v1/health`, { signal: AbortSignal.timeout(5000), redirect: "error" });
+  if (!/^[A-Za-z0-9.:-]*$/.test(String(host))) throw new Error("Invalid BoxPilot host");
+  const response = await fetchImpl(localHealthUrl({ webHost: String(host), webPort: port }), { signal: AbortSignal.timeout(5000), redirect: "error" });
   if (!response.ok) throw new Error(`Web health returned HTTP ${response.status}`);
   const reader = response.body?.getReader();
   if (!reader) throw new Error("Web health returned no body");
