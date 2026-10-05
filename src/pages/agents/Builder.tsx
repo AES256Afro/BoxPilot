@@ -522,6 +522,8 @@ export function Builder({ agentId, agents, catalog, canCreate, csrfToken, now, o
   const [busy, setBusy] = useState(false);
   const [showPrompt, setShowPrompt] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  // "Test it" pressed with unsaved changes: the choice is shown instead of leaving.
+  const [leaving, setLeaving] = useState(false);
 
   // The agent on show: an answer for the one chosen before is dropped rather than drawn under this one.
   const shown = useRef(agentId);
@@ -557,12 +559,16 @@ export function Builder({ agentId, agents, catalog, canCreate, csrfToken, now, o
       setError(null);
       setSaved(result.unchanged ? { tone: "info", text: "Nothing changed, so no new version." } : { tone: "success", text: `Saved as version ${result.version}.` });
       onChanged();
+      return true;
     } catch (requestError) {
       setError(errorText(requestError, "The agent could not be saved"));
+      return false;
     } finally {
       setBusy(false);
     }
   };
+  // Testing runs the saved version, and leaving the tab drops what is not saved: with changes, ask first.
+  const testIt = () => { if (dirty) setLeaving(true); else onTest(agent.id); };
   const remove = async () => {
     try { await agentsApi.remove(csrfToken, agent.id); onDeleted(); } catch (requestError) { setError(errorText(requestError, "The agent could not be deleted")); setConfirmDelete(false); }
   };
@@ -587,7 +593,7 @@ export function Builder({ agentId, agents, catalog, canCreate, csrfToken, now, o
         title={agent.name}
         count={`v${agent.version}`}
         meta={agent.template ? `from the ${catalog.templates.find((template) => template.id === agent.template)?.title ?? agent.template} template` : "made from scratch"}
-        actions={<><Button variant="ghost" onClick={() => void exportIt()}>Export</Button><Button variant="ghost" onClick={() => onTest(agent.id)}>Test it</Button></>}
+        actions={<><Button variant="ghost" onClick={() => void exportIt()}>Export</Button><Button variant="ghost" onClick={testIt}>Test it</Button></>}
         padded
         footer={agent.canEdit ? (
           <div className="agents-editor__foot">
@@ -599,6 +605,12 @@ export function Builder({ agentId, agents, catalog, canCreate, csrfToken, now, o
       >
         {!agent.canEdit && <Notice tone="info">Only the owner and the person who made it change it. You can read it and test it.</Notice>}
         {agent.warnings?.length > 0 && <Notice tone="warning" title="About its scope">{agent.warnings.join(" ")}</Notice>}
+        {leaving && dirty && (
+          <Notice tone="warning" live title="Your changes are not saved"
+            action={<><Button variant="ghost" onClick={() => setLeaving(false)}>Keep editing</Button><Button variant="primary" busy={busy} onClick={() => void save().then((ok) => { setLeaving(false); if (ok) onTest(agent.id); })}>Save, then test</Button></>}>
+            Testing runs the saved version, v{agent.version}, and leaving this tab drops the changes.
+          </Notice>
+        )}
         {error && <Notice tone="danger" live title="Not saved">{error}</Notice>}
         {saved && <Notice tone={saved.tone} live>{saved.text}</Notice>}
         <SpecForm draft={draft} setDraft={setDraft} catalog={catalog} disabled={!agent.canEdit} others={others} template={agent.template} />

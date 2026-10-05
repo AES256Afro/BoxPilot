@@ -214,9 +214,11 @@ export default function CatalogPage({ csrfToken, focusApp, role = "owner" }: Cat
     try {
       const { response, body } = await runRead<{ lines?: string[] }>(csrfToken, "compose.project.logs", { name, lines: 200 });
       if (!response.ok || !body.result) throw new Error(body.error ?? "Could not read the logs");
-      setForeignLogs({ name, lines: body.result.lines ?? [], error: null });
+      const lines = body.result.lines ?? [];
+      // Only into the sheet they were read for: late logs reopened a closed sheet, or filled another stack's.
+      setForeignLogs((current) => (current?.name === name ? { name, lines, error: null } : current));
     } catch (requestError) {
-      setForeignLogs({ name, lines: null, error: requestError instanceof Error ? requestError.message : "Could not read the logs" });
+      setForeignLogs((current) => (current?.name === name ? { name, lines: null, error: requestError instanceof Error ? requestError.message : "Could not read the logs" } : current));
     }
   };
 

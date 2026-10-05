@@ -37,6 +37,17 @@ describe("the heartbeat", () => {
     expect((screen.getByRole("button", { name: "Turn on" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
+  // Turned off without forgetting the address, it said "Leave empty to keep the saved one" and then
+  // would not turn on until the address was pasted again.
+  it("turns back on with the saved address when it was turned off and kept", async () => {
+    const staged = serve({ ...off, configured: true, host: "hc-ping.com" });
+    expect(await screen.findByText(/Leave empty to keep the saved one \(hc-ping\.com\)/)).toBeTruthy();
+    const turnOn = screen.getByRole("button", { name: "Turn on" }) as HTMLButtonElement;
+    expect(turnOn.disabled).toBe(false);
+    fireEvent.click(turnOn);
+    await waitFor(() => expect(staged["heartbeat.set"]).toEqual({ parameters: { enabled: true, intervalMinutes: 5 } }));
+  });
+
   it("stages turning it on with the address as the secret it is, and the interval", async () => {
     const staged = serve(off);
     fireEvent.change(await screen.findByLabelText("Ping address"), { target: { value: url } });

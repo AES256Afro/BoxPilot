@@ -26,6 +26,15 @@ describe("Credentials panel", () => {
     expect((screen.getByLabelText("Credential value") as HTMLInputElement).type).toBe("password");
   });
 
+  // A refused read showed "No credentials yet", as if none were saved.
+  it("says the names could not be read, and why, rather than that there are none", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => json({ error: "The helper is not answering" }, 503)));
+    render(<CredentialsPanel csrfToken="csrf" />);
+    expect(await screen.findByText("The helper is not answering")).toBeTruthy();
+    expect(screen.queryByText("No credentials yet")).toBeNull();
+    expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
+  });
+
   it("keeps a name being typed when another credential is removed", async () => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = input.toString();

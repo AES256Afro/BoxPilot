@@ -364,6 +364,25 @@ describe("Storage page", () => {
       expect(screen.queryByRole("dialog", { name: "Add a share" })).toBeNull();
     });
 
+    // /mnt holds /mnt/boxpilot (the backup destination), which both file servers refuse to serve:
+    // the suggestions offered it anyway, and a drive mounted under it had a Share button.
+    it("never suggests or offers to share a folder the file servers refuse", async () => {
+      mockFetch({ overview: { ...report,
+        devices: [...report.devices, { ...base, path: "/dev/sde1", type: "part", sizeBytes: GiB, fstype: "ext4", uuid: "backup-uuid", label: "backup", model: null, transport: null, mountpoints: ["/mnt/boxpilot/backup"], readOnly: false, removable: true, depth: 0 }],
+        fstab: [...report.fstab, { device: "UUID=backup-uuid", mountpoint: "/mnt/boxpilot/backup", fstype: "ext4", options: "defaults,nofail", managedName: "boxpilot-backup" }],
+      } });
+      render(<StoragePage csrfToken="csrf-token" />);
+      expect(await screen.findByRole("button", { name: "Share /mnt/olddata on the network" })).toBeTruthy();
+      expect(screen.queryByRole("button", { name: "Share /mnt/boxpilot/backup on the network" })).toBeNull();
+      openTab(/^File sharing/);
+      await waitFor(() => expect(document.querySelectorAll("datalist option").length).toBeGreaterThan(0));
+      const suggested = [...document.querySelectorAll("datalist option")].map((option) => option.getAttribute("value"));
+      expect(suggested).toContain("/mnt/olddata");
+      expect(suggested).toContain("/srv");
+      expect(suggested).not.toContain("/mnt");
+      expect(suggested).not.toContain("/mnt/boxpilot/backup");
+    });
+
     it("names the folder waiting beside Install Samba when Share is pressed before Samba is installed", async () => {
       mockFetch({
         overview: { ...report, devices: [...report.devices, { ...base, path: "/dev/sdd1", type: "part", sizeBytes: GiB, fstype: "ext4", uuid: "dump-uuid", label: "the-dump", model: null, transport: null, mountpoints: ["/mnt/the-dump"], readOnly: false, removable: true, depth: 0 }] },

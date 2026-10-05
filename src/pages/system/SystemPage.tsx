@@ -120,21 +120,23 @@ export default function SystemPage({ csrfToken, role = "owner", onOpenAppearance
       fetch("/api/v1/health").then((response) => (response.ok ? response.json() : null)).then((health: { version?: string } | null) => {
         if (health?.version === updating) { setUpdateOutcome("live"); window.clearInterval(timer); window.setTimeout(() => window.location.reload(), 1500); }
       }).catch(() => {});
-      if (Date.now() - started > 10 * 60 * 1000) { setUpdateOutcome("timeout"); window.clearInterval(timer); }
+      // No longer "updating" once it has stopped or run out of time: the verdict said so for good,
+      // and the Update button stayed hidden.
+      if (Date.now() - started > 10 * 60 * 1000) { setUpdateOutcome("timeout"); setUpdating(null); window.clearInterval(timer); window.clearInterval(watch); }
     }, 3000);
     // The update can stop before it restarts anything (a database copy that could not be made, a
     // build that failed) and health goes on answering the old version. Its own log says so at once.
     const watch = window.setInterval(() => {
       inspectOperation<UpdateStatus>("system.update.status").then(({ result }) => {
         if (result && Array.isArray(result.log)) setUpdateStatus(result);
-        if (result?.outcome === "failed") { setUpdateOutcome("failed"); window.clearInterval(timer); window.clearInterval(watch); }
+        if (result?.outcome === "failed") { setUpdateOutcome("failed"); setUpdating(null); window.clearInterval(timer); window.clearInterval(watch); }
       }).catch(() => {});
     }, 6000);
     return () => { window.clearInterval(timer); window.clearInterval(watch); };
   }, [updating]);
 
   const { start, dialog } = useOperation(csrfToken, (job) => {
-    if (job.type === "op:system.update" && job.state === "completed" && updateTarget.current) setUpdating(updateTarget.current);
+    if (job.type === "op:system.update" && job.state === "completed" && updateTarget.current) { setUpdateOutcome(null); setUpdating(updateTarget.current); }
     // A finished cleanup invalidates its own figures: leaving them up says gigabytes are still
     // waiting when they have just gone.
     if (job.type === "op:housekeeping.reclaim" && job.state === "completed") void scan();

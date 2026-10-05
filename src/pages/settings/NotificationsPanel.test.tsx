@@ -53,6 +53,29 @@ describe("Notification settings", () => {
     expect(JSON.parse(saved ?? "{}").target).toEqual({ kind: "ntfy", url: "http://127.0.0.1:8093", topic: "boxpilot" });
   });
 
+  // "Change" cannot show the saved token, and saving without retyping it wiped it (Gotify was refused).
+  it("says an empty token keeps the saved one when the service is unchanged, and sends none", async () => {
+    let saved: string | undefined;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url.endsWith("/settings/notifications") && init?.method === "PUT") { saved = init.body as string; return json({ configured: true, kind: "gotify", url: "http://127.0.0.1:8092", topic: null, hasToken: true }); }
+      if (url.endsWith("/settings/notifications")) return json({ configured: true, kind: "gotify", url: "http://127.0.0.1:8091", topic: null, hasToken: true });
+      return json({ error: `unexpected ${url}` }, 500);
+    }));
+    render(<NotificationSettings csrfToken="csrf-token" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Change" }));
+    expect(screen.getByText(/Leave empty to keep the saved token/)).toBeTruthy();
+    // Another service does not keep it, so the hint is not given there.
+    fireEvent.change(screen.getByLabelText("Notification service"), { target: { value: "webhook" } });
+    expect(screen.queryByText(/Leave empty to keep the saved token/)).toBeNull();
+    fireEvent.change(screen.getByLabelText("Notification service"), { target: { value: "gotify" } });
+    fireEvent.change(screen.getByLabelText("Server URL"), { target: { value: "http://127.0.0.1:8092" } });
+    fireEvent.change(screen.getByLabelText("Owner password"), { target: { value: "correct horse battery" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByText(/Saved\./)).toBeTruthy();
+    expect(JSON.parse(saved ?? "{}").target).toEqual({ kind: "gotify", url: "http://127.0.0.1:8092" });
+  });
+
   it("sends a test from a configured target", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = input.toString();

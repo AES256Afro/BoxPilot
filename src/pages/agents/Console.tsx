@@ -145,7 +145,11 @@ export function Console({ agents, agentId, runId, csrfToken, role, now, enabled,
   };
   const cancel = async () => {
     if (!run) return;
-    try { setRun(await agentsApi.cancel(csrfToken, run.id)); } catch (requestError) { setError(errorText(requestError, "The run could not be stopped")); }
+    try {
+      // The reply carries no trace and no tree: merged, so stopping does not empty what was shown.
+      const stopped = await agentsApi.cancel(csrfToken, run.id);
+      setRun((current) => (current?.id === stopped.id ? { ...current, ...stopped, steps: stopped.steps ?? current.steps, tree: stopped.tree ?? current.tree } : stopped));
+    } catch (requestError) { setError(errorText(requestError, "The run could not be stopped")); }
   };
   // Opening an earlier run shows it in the Run panel above, which is out of sight from the list.
   const open = (id: string) => {
@@ -214,7 +218,8 @@ export function Console({ agents, agentId, runId, csrfToken, role, now, enabled,
                 </nav>
               )}
               <RunView run={run} />
-              {finishedRunStates.has(run.state) && run.kind !== "index" && <Feedback run={run} csrfToken={csrfToken}
+              {/* Keyed by run: an open "Wrong" belongs to the run it was opened on. */}
+              {finishedRunStates.has(run.state) && run.kind !== "index" && <Feedback key={run.id} run={run} csrfToken={csrfToken}
                 canAddQuestion={Boolean(run.question) && run.kind !== "eval" && Boolean(agents.find((entry) => entry.id === run.agentId)?.canEdit)}
                 onGiven={(feedback) => setRun((current) => (current ? { ...current, feedback } : current))} />}
               {run.proposals.length > 0 && (

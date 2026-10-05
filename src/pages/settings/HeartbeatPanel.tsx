@@ -83,7 +83,8 @@ export default function HeartbeatPanel({ csrfToken, now = Date.now }: { csrfToke
   const intervals = (state?.intervals?.length ? state.intervals : defaultIntervals).map((minutes) => ({ value: String(minutes), label: `every ${minutesWords(minutes)}` }));
   const on = Boolean(state?.enabled);
   const form = Boolean(state) && (!on || editing);
-  const canSave = !problem && (url ? true : Boolean(state?.configured && on));
+  // A saved address is kept when none is typed, whether the heartbeat is on or was turned off with it.
+  const canSave = !problem && (url ? true : Boolean(state?.configured));
 
   const save = () => start({
     operationId: "heartbeat.set",
