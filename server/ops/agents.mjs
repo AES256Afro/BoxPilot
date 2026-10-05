@@ -43,8 +43,10 @@ export function agentsOperations() {
     defineOperation({
       // Run by BoxPilot itself at each run (M40, ADR-009), as the TLS renewal runs its operation:
       // more processors while a person waits, the background ones otherwise. Low: it only moves the
-      // runner's quota between the owner's two settings, both inside the machine's ceiling.
-      id: "agents.runtime.cpu", title: "Set the agents runner's processors", risk: "low", minimumRole: "owner", timeoutMs: 45_000,
+      // runner's quota between the owner's two settings, both inside the machine's ceiling. Internal
+      // (sweep 3): BoxPilot calls the helper with it directly, so no card, flow, schedule or person
+      // stages it - a steered agent once proposed every processor, all the time, as one click.
+      id: "agents.runtime.cpu", title: "Set the agents runner's processors", risk: "low", minimumRole: "owner", timeoutMs: 45_000, internal: true,
       description: "Sets how many processors the capped agents runner may use, with systemctl set-property --runtime on boxpilot-agents.service: the owner's \"while you wait\" number during a run a person waits on, the \"background\" number otherwise. Idle priority, idle I/O and the memory cap stay. A raise arms a timer that puts the background number back after the run's longest time. Never more than eight, or all of this machine's processors but two.",
       parameters: {
         exact: true,

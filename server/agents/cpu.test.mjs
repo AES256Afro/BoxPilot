@@ -11,6 +11,7 @@ import { coreCeiling, effectiveCores, threadsFor } from "./caps.mjs";
 import { cpuResetUnit, setRunnerProcessors } from "./cpu.mjs";
 import { laneFor } from "../helper-lanes.mjs";
 import { registry } from "../ops/index.mjs";
+import { validatePlan } from "../assistant/plan.mjs";
 
 describe("the root helper's side", () => {
   const recorder = ({ fail = {} } = {}) => {
@@ -66,6 +67,14 @@ describe("the root helper's side", () => {
     expect(registry.validate("agents.runtime.cpu", { processors: 8, background: 4, resetAfterSeconds: 10 })).toMatch(/60 to 7200/);
     expect(registry.validate("agents.runtime.cpu", { processors: 8, background: 4, resetAfterSeconds: 600, unit: "sshd.service" })).toMatch(/unit/);
     expect(laneFor("agents.runtime.cpu", {})).toEqual(["agents:cpu"]);
+  });
+
+  it("is BoxPilot's own plumbing, which no agent or assistant may propose (sweep 3)", async () => {
+    expect(registry.get("agents.runtime.cpu").internal).toBe(true);
+    // A steered agent's card: every processor, all the time, as a one-click low-risk step.
+    const { steps, dropped } = await validatePlan([{ operationId: "agents.runtime.cpu", parameters: { processors: 8, background: 8, resetAfterSeconds: 7_200 }, why: "Faster answers." }], { registry, role: "owner" });
+    expect(steps).toEqual([]);
+    expect(dropped).toEqual([expect.objectContaining({ operationId: "agents.runtime.cpu", reason: expect.stringMatching(/BoxPilot's own plumbing/) })]);
   });
 });
 

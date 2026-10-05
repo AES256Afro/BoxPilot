@@ -91,6 +91,9 @@ export function validateParameters(spec, parameters, title = "Operation") {
   return null;
 }
 
+/** Why an internal operation is not staged, scheduled, put in a flow or run from the operations route. */
+export const internalRefusal = (operation) => `${operation.title} is BoxPilot's own plumbing: BoxPilot runs it itself when it needs it`;
+
 export function defineOperation(definition) {
   const { id, title, risk, readOnly = false, elevatedOnly = false, internal = false, timeoutMs = defaultTimeoutMs, maxTimeoutMs = null, rerunAfterInterrupt = false, parameters = { fields: {} }, run, description = "", minimumRole = null, confirm = null, restartsService = false, supersededWhen = null, oneTimeFields = [] } = definition ?? {};
   if (typeof id !== "string" || !idPattern.test(id)) throw new Error(`Operation id "${id}" must be lower-case dotted segments`);
