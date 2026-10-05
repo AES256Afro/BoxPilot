@@ -171,7 +171,9 @@ function smartWords(disk) {
   if (!disk) return null;
   if (disk.health === "unavailable") {
     if (disk.reason === "usb-bridge-unsupported") return "SMART: not readable through its USB enclosure";
-    if (disk.reason === "asleep") return `SMART: the drive was asleep and not woken${disk.lastHealth ? `; last reading ${disk.lastHealth}${disk.lastReadAt ? ` on ${disk.lastReadAt.slice(0, 10)}` : ""}` : ""}`;
+    // A spinning disk that sleeps when idle is doing what it should, and BoxPilot leaves it asleep
+    // on purpose (M36). "Asleep and not woken" read to the Environment Scout as a fault (A-2).
+    if (disk.reason === "asleep") return `SMART: spun down to save power, which is normal for an idle disk; its health was not read so as not to wake it${disk.lastHealth ? `; last reading ${disk.lastHealth}${disk.lastReadAt ? ` on ${disk.lastReadAt.slice(0, 10)}` : ""}` : ""}`;
     return "SMART: could not be read";
   }
   const parts = [`SMART: ${disk.health}`];
@@ -241,9 +243,12 @@ export function describeStorage(snapshot) {
   const smart = model.smart;
   if (smart) {
     const summary = smart.summary ?? {};
+    // Of those not read, the ones left asleep: said, so "not read" is not taken for a fault (A-2).
+    const sleeping = (smart.disks ?? []).filter((disk) => disk?.health === "unavailable" && disk.reason === "asleep").length;
     lines.push(smart.available
-      ? `Drive health (SMART): ${smart.status}: ${summary.healthy ?? 0} healthy, ${summary.warning ?? 0} warning, ${summary.critical ?? 0} critical, ${summary.unavailable ?? 0} not read${smart.generatedAt ? `; checked ${smart.generatedAt}` : ""}.`
-      : "Drive health (SMART): not read (the storage scan has not run, or smartctl is missing).");
+      ? `Drive health (SMART): ${smart.status}: ${summary.healthy ?? 0} healthy, ${summary.warning ?? 0} warning, ${summary.critical ?? 0} critical, ${summary.unavailable ?? 0} not read${sleeping ? ` (${sleeping} spun down to save power, which is normal)` : ""}${smart.generatedAt ? `; checked ${smart.generatedAt}` : ""}.`
+      : smart.reason === "disks-asleep" ? "Drive health (SMART): not read, because every disk was spun down to save power, which is normal; BoxPilot does not wake them to ask."
+        : "Drive health (SMART): not read (the storage scan has not run, or smartctl is missing).");
   }
   return lines.join("\n");
 }

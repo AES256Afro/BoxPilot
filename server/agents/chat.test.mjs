@@ -90,7 +90,9 @@ describe("posting a run's outcome", () => {
     // Sent as one batch, as the bot, to Zulip on loopback under its own name.
     expect(await h.service.chat.drain()).toEqual({ sent: 3, failed: 0 });
     expect(posted).toHaveLength(1);
-    expect(posted[0]).toMatchObject({ base: "http://127.0.0.1:8543", host: "homebox.tail1234.ts.net:8543", botEmail: "boxpilot-agents-bot@homebox.tail1234.ts.net" });
+    expect(posted[0]).toMatchObject({ host: "homebox.tail1234.ts.net:8543", botEmail: "boxpilot-agents-bot@homebox.tail1234.ts.net" });
+    // Where Zulip is, the helper reads from the app itself (R2S3-4): the web process never says.
+    expect(posted[0]).not.toHaveProperty("base");
     expect(h.store.listChatPosts({ state: "sent" })).toHaveLength(3);
     const panel = await h.service.zulipState(h.caller("owner"));
     expect(panel).toMatchObject({ connected: true, site: "https://homebox.tail1234.ts.net:8543", lastPost: { channel: "agent-knowledge" }, lastError: null, counts: { sent: 3 } });
@@ -206,7 +208,8 @@ describe("#agent-files", () => {
       { id: 204, topic: "ideas", sender: "Alex", content: "The backup drive is the grey one on the left shelf, next to the router.", files: [] },
     ] });
     expect(await h.service.zulipPollNow(h.caller("owner"))).toMatchObject({ messages: 4, added: 4 });
-    expect(polls[0]).toMatchObject({ channel: "agent-files", after: null, base: "http://127.0.0.1:8543" });
+    expect(polls[0]).toMatchObject({ channel: "agent-files", after: null, host: "homebox.tail1234.ts.net:8543" });
+    expect(polls[0]).not.toHaveProperty("base");
 
     const documents = h.store.listDocuments().filter((document) => document.source === "zulip");
     expect(documents.map((document) => document.title).sort()).toEqual(["Image: rack", "Note from Zulip: The backup drive is the grey one on the left shelf, next to…", "nas", "router"]);

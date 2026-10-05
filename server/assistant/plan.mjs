@@ -86,6 +86,7 @@ export async function validatePlan(rawSteps, { registry, role, secretEnvNamesFor
     if (!operationId) { drop("This step names no operation"); continue; }
     const operation = registry.get(operationId);
     if (!operation) { drop(`BoxPilot has no operation called ${operationId}`); continue; }
+    if (operation.internal) { drop(`${operation.title} is BoxPilot's own plumbing: BoxPilot runs it itself, and it is never proposed`); continue; }
     const parameters = raw.parameters === undefined || raw.parameters === null ? {} : raw.parameters;
     if (typeof parameters !== "object" || Array.isArray(parameters)) { drop("Its parameters are not a set of named values"); continue; }
     const refusal = refusalFor(operation, role);

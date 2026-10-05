@@ -10,6 +10,7 @@ import { describe, expect, it } from "vitest";
 import { ownerLikeStorage } from "../../test/fixtures/agents-storage.mjs";
 import { plannerMessages, planMessage } from "./intent.mjs";
 import { actToolIds, plannerLine, toolById, toolCatalog, toolsForQuestion } from "./tool-catalog.mjs";
+import { templateById } from "./templates.mjs";
 import { createToolRunner } from "./tools.mjs";
 import { describeApps, describeServer, describeStorage, drivesOf, locate, osVersion, sizeWords, stopReasonOf, stoppedAppsOf, storageModel } from "./tool-text.mjs";
 
@@ -41,6 +42,24 @@ describe("storage.health, on a server like the owner's", () => {
     expect(usb).toMatch(/USB drive \(spinning disk\), 16\.0 TB, model Example USB HDD 16TB\. Not the system disk\. Holds \/mnt\/archive\. SMART: not readable through its USB enclosure/);
     // Nothing about the root's size is on /dev/sda's line.
     expect(usb).not.toMatch(/528|31%/);
+  });
+
+  it("says a spun-down drive is normal, not a fault, and that it was left asleep on purpose (A-2)", () => {
+    // The Environment Scout read "the drive was asleep and not woken" as a reliability problem.
+    const storage = ownerLikeStorage();
+    storage.smart.disks[1] = { ...storage.smart.disks[1], reason: "asleep", lastHealth: "healthy", lastReadAt: "2026-09-27T03:00:00.000Z" };
+    const asleep = describeStorage({ storage });
+    const usb = asleep.split("\n").find((line) => line.startsWith("- /dev/sda:"));
+    expect(usb).toMatch(/SMART: spun down to save power, which is normal for an idle disk; its health was not read so as not to wake it; last reading healthy on 2026-09-27\./);
+    expect(asleep).not.toMatch(/asleep and not woken/);
+    expect(asleep).toMatch(/Drive health \(SMART\): healthy: 1 healthy, 0 warning, 0 critical, 1 not read \(1 spun down to save power, which is normal\)/);
+    // Never read awake: still not a fault.
+    storage.smart.disks[1] = { ...storage.smart.disks[1], lastHealth: null, lastReadAt: null };
+    expect(describeStorage({ storage })).toMatch(/SMART: spun down to save power, which is normal for an idle disk; its health was not read so as not to wake it\./);
+    // Every disk asleep: the scan read none, and says why.
+    expect(describeStorage({ storage: { ...ownerLikeStorage(), smart: { available: false, status: "unavailable", reason: "disks-asleep", summary: {}, disks: [] } } })).toMatch(/Drive health \(SMART\): not read, because every disk was spun down to save power, which is normal/);
+    // The agents that read drives are told the same in their rules.
+    for (const id of ["environment-scout", "storage-watch"]) expect(templateById(id).spec.prompt.rules.join("\n"), id).toMatch(/spun down to save power[^\n]*normal[^\n]*not a (problem|fault)/i);
   });
 
   it("says where each other filesystem is, through what, its type, size, use and free space, on one line", () => {

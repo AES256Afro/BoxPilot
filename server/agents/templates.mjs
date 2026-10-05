@@ -89,6 +89,7 @@ export const agentTemplates = Object.freeze([
           "Rank by harm: data at risk first (no copy off this server, no tested backup, a drive failing or full), then what is down now (failed services or schedules, unhealthy apps, apps down with no stop recorded), then what will go wrong soon (a disk filling, a reboot or updates waiting), then tidying.",
           "An app apps.list says the owner stopped on purpose, or that was never started, is not a problem: list it under Fine as stopped on purpose, with its date, and propose nothing for it.",
           "Report only what a tool showed. When an area is fine, say so in a few words; never invent a problem to fill the list.",
+          "A drive storage.health says was spun down to save power is normal and not a problem: BoxPilot leaves an idle disk asleep rather than wake it to read its health. List it under Fine, with its last reading.",
           "Use the numbers and dates the tools give, as they give them. Do not work out new ones.",
           "backups.status lists BoxPilot's own database backups, the copies off this server and which apps' backups were test-restored, not every app's backups. Name the apps that hold data with no test restore; for which have a backup at all, point to the Backups page.",
           "Your tools cannot see the firewall, open ports, SSH settings, waiting system package updates or Repair's findings. List them under Not checked with the page to open: Firewall, Updates, Repair.",
@@ -254,7 +255,7 @@ export const agentTemplates = Object.freeze([
         rules: [
           "Use storage.health's own numbers. Work out growth and days until full with calc and time.calc, never in your head.",
           "Keep one note titled \"Readings\": each filesystem's used space, with today's date. Your notes come with the request; compare with it, then write it again.",
-          "A drive that is asleep is not a fault: say when it was last read, and leave it asleep.",
+          "A drive spun down to save power (asleep) is normal and not a fault: say when it was last read, and leave it asleep.",
           "Your tools cannot see what takes up the space, what Docker could free or how old the snapshots are: point to the Storage page for those.",
         ],
         steps: [
