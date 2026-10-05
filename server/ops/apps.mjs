@@ -288,7 +288,7 @@ export function appOperations() {
     defineOperation({
       // Its safety copy of the current state is a whole backup, like a checkpoint.
       id: "app.backup.restore", title: "Restore application data from a backup", risk: "high", timeoutMs: checkpointMs + minutes(90),
-      description: "Checksums the backup, saves the current state as a safety copy, then replaces the app's data and configuration with the backup and starts it.",
+      description: "Checksums the backup and unpacks it beside the app, checks nothing else holds its ports, saves the current state as a safety copy, then replaces the app's data and configuration with the backup and starts it.",
       parameters: { fields: { id: idField, backup: { type: "string", maxLength: 40, pattern: /^\d{8}T\d{6}Z\.tar\.gz$/ } } },
       run: (parameters, { apps, progress }) => apps.restoreAppBackup(parameters, { progress }),
     }),
