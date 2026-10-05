@@ -557,7 +557,15 @@ section "6d. a reboot that could not be scheduled: the drive back before Docker,
 wait_unit_in_step; mounted_here || mount_drive
 run_holder
 cancelled_reboot hold
-check "systemd had not seen the preparation's unmount: the unit said '$(cfield seen.afterUnmount.unit)' with the drive unmounted" bash -c "[ '$(cfield seen.afterUnmount.unit)' = active ] && [ -z '$(cfield seen.afterUnmount.source)' ]"
+# The burst does not always outrun systemd for the preparation's unmount (2 runs in 25 on CI saw it
+# catch up first), and the rest of the preparation can outlast the lag anyway: that is why the lag is
+# made again just before the resume, and the resume is what this section is about. So the first lag
+# is noted when it did not hold, and the second one is checked.
+if [ "$(cfield seen.afterUnmount.unit)" = active ] && [ -z "$(cfield seen.afterUnmount.source)" ]; then
+  check "systemd had not seen the preparation's unmount: the unit said 'active' with the drive unmounted" true
+else
+  note "systemd caught up with the preparation's unmount this time (the unit said '$(cfield seen.afterUnmount.unit)', source '$(cfield seen.afterUnmount.source)'); the lag before the resume is checked next"
+fi
 check "and the resume began with systemd behind: the unit said '$(cfield seen.atResume.unit)' with the drive unmounted" bash -c "[ '$(cfield seen.atResume.unit)' = active ] && [ -z '$(cfield seen.atResume.source)' ]"
 check "the resume waited for systemd before starting the drive" grep -qE 'systemd took [0-9]+ ms to see /mnt/the-dump unmounted' "${WORK}/cancelled.out"
 check "and started it once, with the unit saying '$(cfield seen.atStart.0.unit)'" bash -c "[ '$(cfield seen.atStart.length)' = 1 ] && [ '$(cfield seen.atStart.0.unit)' = inactive ]"
