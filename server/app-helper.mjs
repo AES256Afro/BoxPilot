@@ -1920,7 +1920,12 @@ export function createAppHelper({
     // Said on disk before the app stops. A power cut or a restart mid-backup leaves the app stopped
     // by hand, which Docker's unless-stopped never undoes, and half an archive; the helper's next
     // start reads this and puts both right (resumeInterruptedBackup).
-    await replaceFileWithoutFollowing(interruptedBackupMarker(id), JSON.stringify({ startedAt: clock().toISOString(), partial: path.basename(partial), restart: wasRunning }), { mode: 0o600 });
+    // A marker already here is a backup cut off whose resume is still waiting for Docker: the app it
+    // stopped is started again after this one, as the resume would have, and its half archive goes.
+    const cutOff = await readFileWithoutFollowing(interruptedBackupMarker(id)).then((text) => { try { return JSON.parse(text); } catch { return null; } }, () => null);
+    const restartAfter = wasRunning || cutOff?.restart === true;
+    if (typeof cutOff?.partial === "string" && /^\d{8}T\d{6}Z\.tar\.gz\.partial$/.test(cutOff.partial)) await rm(path.join(backupDirectory, cutOff.partial), { force: true }).catch(() => {});
+    await replaceFileWithoutFollowing(interruptedBackupMarker(id), JSON.stringify({ startedAt: clock().toISOString(), partial: path.basename(partial), restart: restartAfter }), { mode: 0o600 });
     const started = clock().getTime();
     let downtimeMs = null;
     let restartError = null;
@@ -1940,13 +1945,13 @@ export function createAppHelper({
         await rm(partial, { force: true }).catch(() => {});
         // Said with the failure: a start that did not work left the app down while the job spoke
         // only of tar (a full disk fails both).
-        const back = wasRunning ? await compose(id, ["start"], { timeout: backupLimitsMs.start, progress }).catch((failure) => ({ ok: false, stderr: failure.message })) : { ok: true };
+        const back = restartAfter ? await compose(id, ["start"], { timeout: backupLimitsMs.start, progress }).catch((failure) => ({ ok: false, stderr: failure.message })) : { ok: true };
         if (!back.ok) throw new Error(`${String(error.message).replace(/[.\s]+$/, "")}. ${manifest.name} did not start again either: ${redact(back.stderr ?? "").split("\n").slice(-3).join(" ") || "docker compose start failed"}`);
         throw error;
       } finally {
         if (wasRunning) downtimeMs = clock().getTime() - started;
       }
-      if (wasRunning) {
+      if (restartAfter) {
         const start = await compose(id, ["start"], { timeout: backupLimitsMs.start, progress });
         if (!start.ok) restartError = redact(start.stderr).split("\n").slice(-3).join(" ");
       }
