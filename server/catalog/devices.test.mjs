@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { createDeviceResolver } from "./devices.mjs";
+import { createDeviceResolver, createSnapshotDeviceResolver } from "./devices.mjs";
+import { registry } from "../ops/index.mjs";
 
 const manifests = {
   scrutiny: { id: "scrutiny", devices: ["/dev/sd?", "/dev/nvme?"] },
@@ -32,5 +33,39 @@ describe("device resolver", () => {
   it("survives a catalog that cannot be read", async () => {
     const resolve = createDeviceResolver({ catalog: { get: async () => { throw new Error("catalog unavailable"); } }, listDirectory });
     expect(await resolve({ id: "scrutiny", values: { env: {} } })).toEqual({ id: "scrutiny", values: { env: {} } });
+  });
+});
+
+// R2B3-1: a machine snapshot restore installs apps too, and was given no devices: ESPHome, OctoPrint,
+// Scrutiny, Zigbee2MQTT and Z-Wave JS UI refused ("needs a device matching /dev/ttyUSB?") and their
+// data restore was skipped; Tdarr came back without its GPU.
+describe("devices for the apps a machine snapshot restore installs", () => {
+  const catalog = { all: async () => ({ manifests: [...Object.values(manifests), { id: "tdarr", devices: [], optionalDevices: ["/dev/dri/renderD*"] }] }) };
+  const listDirectory = vi.fn(async (directory) => ({ "/dev": ["null", "sda", "ttyUSB0"], "/dev/dri": ["card0", "renderD128"] })[directory] ?? []);
+
+  it("resolves every catalog app that globs for one, here, where /dev is real", async () => {
+    const resolve = createSnapshotDeviceResolver({ catalog, listDirectory });
+    const prepared = await resolve({ source: "local", artifact: "machine-snapshot-20260821T020000Z-abcdef12.tar.gz" });
+    expect(prepared).toEqual({ source: "local", artifact: "machine-snapshot-20260821T020000Z-abcdef12.tar.gz", devicesByApp: { scrutiny: ["/dev/sda"], esphome: ["/dev/ttyUSB0"], tdarr: ["/dev/dri/renderD128"] } });
+    expect(registry.validate("host.snapshot.restore", prepared)).toBeNull();
+  });
+
+  it("only the apps chosen, and never a list the browser sent", async () => {
+    const resolve = createSnapshotDeviceResolver({ catalog, listDirectory });
+    const prepared = await resolve({ source: "local", artifact: "a", apps: ["esphome", "vaultwarden"], devicesByApp: { esphome: ["/dev/sda"], vaultwarden: ["/dev/mem"] } });
+    expect(prepared.devicesByApp).toEqual({ esphome: ["/dev/ttyUSB0"] });
+  });
+
+  it("survives a catalog that cannot be read", async () => {
+    const resolve = createSnapshotDeviceResolver({ catalog: { all: async () => { throw new Error("catalog unavailable"); } }, listDirectory });
+    expect(await resolve({ source: "local", artifact: "a" })).toEqual({ source: "local", artifact: "a", devicesByApp: {} });
+  });
+
+  it("are checked like any other parameter", () => {
+    const base = { source: "local", artifact: "machine-snapshot-20260821T020000Z-abcdef12.tar.gz" };
+    expect(registry.validate("host.snapshot.restore", { ...base, devicesByApp: { esphome: ["/dev/ttyUSB0"] } })).toBeNull();
+    for (const devicesByApp of [{ esphome: ["/etc/shadow"] }, { "../x": ["/dev/sda"] }, { esphome: "/dev/sda" }, { esphome: Array.from({ length: 33 }, (_, index) => `/dev/sd${index}`) }, []]) {
+      expect(registry.validate("host.snapshot.restore", { ...base, devicesByApp }), JSON.stringify(devicesByApp)).toMatch(/devicesByApp/);
+    }
   });
 });

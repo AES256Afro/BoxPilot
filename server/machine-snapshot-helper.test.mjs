@@ -369,3 +369,39 @@ describe("restoring from a discovered drive", () => {
     expect(resolved.artifactPath).toBe(path.join(path.resolve(mirror), "machine-snapshot-20260820T020000Z-abcdef12.tar.gz"));
   });
 });
+
+// R2B3-6: tar wrote straight to the snapshot's own name, so a disk that filled part-way left half an
+// archive that was listed, mirrored off the box, and took one of the retention slots.
+describe("a machine snapshot archive while it is being written", () => {
+  const fakeTar = (run, { fail = false } = {}) => {
+    const original = run.getMockImplementation();
+    const written = [];
+    run.mockImplementation(async (binary, args, options) => {
+      if (args[0] !== "-czf") return original(binary, args, options);
+      written.push(args[1]);
+      await writeFile(args[1], fail ? "half an archive" : "a whole archive");
+      return fail ? { ok: false, stdout: "", stderr: "tar: Cannot write: No space left on device" } : { ok: true, stdout: "", stderr: "" };
+    });
+    return written;
+  };
+
+  it("leaves nothing behind when it cannot be finished", async () => {
+    const { helper, paths, run } = await fixture();
+    const written = fakeTar(run, { fail: true });
+    await expect(helper.create({ snapshotId })).rejects.toThrow("No space left on device");
+    expect(written).toEqual([path.join(paths.snapshotRoot, "machine-snapshot-20260821T020000Z-11111111.tar.gz.partial")]);
+    expect(await readdir(paths.snapshotRoot)).toEqual([]);
+    expect((await helper.inspect()).snapshots).toEqual([]);
+  });
+
+  it("takes its name only once it is whole and described", async () => {
+    const { helper, paths, run } = await fixture();
+    fakeTar(run);
+    const result = await helper.create({ snapshotId });
+    expect(result.artifactPath).toBe(path.join(paths.snapshotRoot, "machine-snapshot-20260821T020000Z-11111111.tar.gz"));
+    expect(await readFile(result.artifactPath, "utf8")).toBe("a whole archive");
+    expect(result.checksumSha256).toBe(createHash("sha256").update("a whole archive").digest("hex"));
+    expect((await readdir(paths.snapshotRoot)).sort()).toEqual([result.artifact, `${result.artifact}.meta.json`]);
+    expect((await helper.inspect()).snapshots).toEqual([expect.objectContaining({ artifact: result.artifact, checksumSha256: result.checksumSha256 })]);
+  });
+});

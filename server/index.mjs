@@ -2,7 +2,7 @@ import express from "express";
 import { randomUUID } from "node:crypto";
 import { createReadStream, readFileSync } from "node:fs";
 import { stat } from "node:fs/promises";
-import { createDeviceResolver, deviceResolvingOperations } from "./catalog/devices.mjs";
+import { createDeviceResolver, createSnapshotDeviceResolver, deviceResolvingOperations } from "./catalog/devices.mjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { startTlsListener } from "./tls-listener.mjs";
@@ -141,6 +141,7 @@ const supportBundle = createSupportBundleService({ inventory, prerequisites, act
 const catalogService = createCatalogService();
 // Device globs in manifests are resolved by this process: the helper's sandbox has no real /dev.
 const withResolvedDevices = createDeviceResolver({ catalog: catalogService });
+const withSnapshotDevices = createSnapshotDeviceResolver({ catalog: catalogService });
 const jobLogReader = createJobLogReader();
 function pinnedBackupDestination() {
   const destination = state.getSetting("backupDestination", null);
@@ -244,6 +245,8 @@ const jobs = createJobService(state, helper, {
   operationPrepareHooks: {
     // Device globs (/dev/sd?, /dev/ttyUSB?) resolve here against the real /dev; the helper runs with PrivateDevices.
     ...Object.fromEntries(deviceResolvingOperations.map((id) => [id, (parameters) => withResolvedDevices(parameters)])),
+    // A snapshot restore installs apps too: each one that wants a device gets the ones found here.
+    "host.snapshot.restore": (parameters) => withSnapshotDevices(parameters),
     "controller.backup.protect": (parameters) => controllerProtection.prepareOperation(parameters),
     "system.update": (parameters) => releaseUpdates.prepareOperation(parameters),
     // Dashboard links need the address the browser uses; fall back to the LAN address for scheduled runs.
