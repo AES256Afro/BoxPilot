@@ -1017,6 +1017,27 @@ describe("a tier that depends on what an operation acts on", () => {
     } finally { store.close(); }
   });
 
+  it("neither approves nor keeps one staged before it was refused, which could otherwise be approved for a week (sweep 4)", async () => {
+    const helper = { request: vi.fn(async () => ({ ok: true })) };
+    const { store, owner } = await setup(helper);
+    try {
+      const jobs = createJobService(store, helper);
+      // Staged before round 3 refused it at staging: still awaiting approval in the database.
+      const stage = (operationId, parameters) => store.createJob({ type: `op:${operationId}`, title: registry.get(operationId).title, risk: "low", parameters, recovery: {}, createdBy: owner.id });
+      const cpu = stage("agents.runtime.cpu", { processors: 8, background: 8, resetAfterSeconds: 7_200 });
+      const post = stage("agents.zulip.post", { host: "127.0.0.1", botEmail: "bot@example.test", posts: [] });
+      const ordinary = stage("apt.refresh", {});
+      await expect(jobs.approveAndRun(cpu.id, owner.id, {})).rejects.toMatchObject({ code: "operation_internal", message: expect.stringMatching(/BoxPilot's own/) });
+      expect(store.getJob(cpu.id)).toMatchObject({ state: "cancelled", error: expect.stringMatching(/BoxPilot's own/) });
+      expect(helper.request).not.toHaveBeenCalled();
+      // The hourly sweep withdraws the rest, saying why; anything else keeps waiting.
+      expect(jobs.sweepStaleApprovals()).toEqual([{ id: post.id, why: "internal" }]);
+      expect(store.getJob(post.id)).toMatchObject({ state: "cancelled", error: expect.stringMatching(/BoxPilot's own/) });
+      expect(store.getJob(ordinary.id).state).toBe("awaiting_approval");
+      expect(helper.request).not.toHaveBeenCalled();
+    } finally { store.close(); }
+  });
+
   it("answers the tier a job would be staged at without staging one, for schedules and flows to check", async () => {
     const helper = { request: vi.fn() };
     const { store } = await setup(helper);
