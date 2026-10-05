@@ -58,7 +58,8 @@ export default function PeoplePanel({ csrfToken }: { csrfToken: string }) {
    * script on the page while it is open. The same masked field the rest of the product uses,
    * inline, instead.
    */
-  const [pending, setPending] = useState<{ id: string; username: string; kind: "role" | "disable"; role?: string; password: string } | null>(null);
+  // "enable": a disabled account given a role again (PUT, as a role change is), as disabling promises.
+  const [pending, setPending] = useState<{ id: string; username: string; kind: "role" | "disable" | "enable"; role?: string; password: string } | null>(null);
   // What asked for the confirmation, so Cancel puts focus back there rather than on the page's body.
   const askedFrom = useRef<HTMLElement | null>(null);
   const ask = (next: NonNullable<typeof pending>) => { askedFrom.current = document.activeElement instanceof HTMLElement ? document.activeElement : null; setPending(next); };
@@ -66,7 +67,7 @@ export default function PeoplePanel({ csrfToken }: { csrfToken: string }) {
 
   const confirmPending = async () => {
     if (!pending || !pending.password) return;
-    const done = pending.kind === "role"
+    const done = pending.kind === "role" || pending.kind === "enable"
       ? await call("PUT", `/api/v1/people/${pending.id}`, { role: pending.role, password: pending.password }, "confirm")
       : await call("DELETE", `/api/v1/people/${pending.id}`, { password: pending.password }, "confirm");
     if (done) setPending(null);
@@ -90,7 +91,7 @@ export default function PeoplePanel({ csrfToken }: { csrfToken: string }) {
     {
       id: "action", header: <span className="ui-visually-hidden">Actions</span>, label: "Actions", className: "settings-cell-action", cell: (person) => person.role !== "disabled"
         ? <Button variant="ghost" className="settings-danger" disabled={busy} onClick={() => ask({ id: person.id, username: person.username, kind: "disable", password: "" })}>Disable</Button>
-        : null,
+        : <Button variant="ghost" disabled={busy} aria-label={`Re-enable ${person.username}`} onClick={() => ask({ id: person.id, username: person.username, kind: "enable", role: "viewer", password: "" })}>Re-enable</Button>,
     },
   ];
 
@@ -106,13 +107,20 @@ export default function PeoplePanel({ csrfToken }: { csrfToken: string }) {
       <Table caption="Accounts on this server" columns={columns} rows={list} rowKey={(person) => person.id} rowStatus={(person) => (person.role === "disabled" ? "neutral" : undefined)} empty={people === null ? "Reading…" : "No accounts."} />
       {pending && (
         <form className="settings-body settings-confirm" onSubmit={(event) => { event.preventDefault(); void confirmPending(); }}>
-          <p className="settings-confirm__what">{pending.kind === "role" ? <>Make <strong>{pending.username}</strong> {becomes(pending.role)}?</> : <>Disable <strong>{pending.username}</strong>? They keep their history and can be re-enabled.</>}</p>
+          <p className="settings-confirm__what">{pending.kind === "role" ? <>Make <strong>{pending.username}</strong> {becomes(pending.role)}?</>
+            : pending.kind === "enable" ? <>Re-enable <strong>{pending.username}</strong>? They can sign in again, in the role chosen here.</>
+              : <>Disable <strong>{pending.username}</strong>? They keep their history and can be re-enabled.</>}</p>
           <div className="settings-form settings-form--row">
+            {pending.kind === "enable" && (
+              <Field label="Role when re-enabled" hint={roleHelp[pending.role ?? "viewer"]}>
+                <Select options={[roles[2], roles[1], roles[0]]} value={pending.role ?? "viewer"} onValueChange={(role) => setPending({ ...pending, role })} />
+              </Field>
+            )}
             <Field label="Your password, to confirm this change">
               <SecretInput autoComplete="current-password" value={pending.password} onValueChange={(password) => setPending({ ...pending, password })} autoFocus />
             </Field>
             <div className="settings-actions">
-              <Button variant="primary" type="submit" disabled={busy || !pending.password}>{pending.kind === "role" ? `Make ${pending.username} ${becomes(pending.role)}` : `Disable ${pending.username}`}</Button>
+              <Button variant="primary" type="submit" disabled={busy || !pending.password}>{pending.kind === "role" ? `Make ${pending.username} ${becomes(pending.role)}` : pending.kind === "enable" ? `Re-enable ${pending.username} as ${becomes(pending.role)}` : `Disable ${pending.username}`}</Button>
               <Button variant="ghost" onClick={cancelPending}>Cancel</Button>
             </div>
           </div>
