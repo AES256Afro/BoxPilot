@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PendingOperation } from "../../shell/ApproveDialog";
 import { DatabaseCopies, type DatabaseCopiesReport } from "./DatabaseCopies";
@@ -146,6 +146,51 @@ describe("System page", () => {
     expect(screen.getByLabelText("Typed confirmation")).toBeTruthy();
     expect(staged["system.update"]).toEqual({ parameters: { tag: "v0.62.0" } });
     expect(screen.getByText("Last update log, live")).toBeTruthy();
+  });
+
+  // "Updating to X" was never cleared when the update stopped or ran past ten minutes: the verdict
+  // said it was updating for good, and the Update button stayed hidden.
+  describe("an update that does not go live", () => {
+    afterEach(() => { vi.useRealTimers(); });
+    /** Approves the update and waits until the page follows it; `outcome` is what its log says. */
+    async function runUpdate(outcome: () => string) {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      serve({
+        "/api/v1/system/update": () => json(release),
+        "/api/v1/health": () => json({ status: "ok", version: "0.61.0" }),
+        "/operations/system.update.status/inspect": () => json({ operation: "system.update.status", result: { units: [], outcome: outcome(), log: outcome() === "failed" ? ["[boxpilot-upgrade] ERROR: the build failed. Nothing was changed."] : ["[boxpilot-upgrade] building"] } }),
+        "/jobs/job-system.update/approve": () => json({ job: { id: "job-system.update", state: "applying" }, elevatedUntil: null }, 202),
+        "/jobs/job-system.update/output": () => json({ jobId: "job-system.update", state: "completed", output: "", live: false }),
+        "/jobs/job-system.update": () => json({ job: { id: "job-system.update", type: "op:system.update", title: "Update", state: "completed", risk: "high", error: null, result: {}, steps: [], approvals: [] } }),
+      });
+      render(<SystemPage csrfToken="csrf-token" />);
+      fireEvent.click(await screen.findByRole("tab", { name: /Updates/ }));
+      fireEvent.click(await screen.findByRole("button", { name: /Update to v0.62.0/ }));
+      fireEvent.change(await screen.findByLabelText("Typed confirmation"), { target: { value: "v0.62.0" } });
+      fireEvent.change(screen.getByLabelText("Approval password"), { target: { value: "correct horse battery" } });
+      fireEvent.click(screen.getByRole("button", { name: "Approve and run" }));
+      fireEvent.click(await screen.findByRole("button", { name: "Close" }, { timeout: 4000 }));
+      await waitFor(() => expect(document.querySelector(".ui-page-header__verdict")?.textContent).toBe("Updating to 0.62.0"));
+      expect(screen.queryByRole("button", { name: /Update to v0.62.0/ })).toBeNull();
+    }
+
+    it("stops saying it is updating once the update's log says it stopped, and offers it again", async () => {
+      let outcome = "running";
+      await runUpdate(() => outcome);
+      outcome = "failed";
+      await act(async () => { vi.advanceTimersByTime(6500); });
+      await waitFor(() => expect(document.querySelector(".ui-page-header__verdict")?.textContent).toBe("Last update failed"));
+      expect(screen.getByText("The last update stopped")).toBeTruthy();
+      expect(screen.getByRole("button", { name: /Update to v0.62.0/ })).toBeTruthy();
+    });
+
+    it("stops saying it is updating after ten minutes without the new version, says so, and offers it again", async () => {
+      await runUpdate(() => "running");
+      await act(async () => { vi.advanceTimersByTime(10 * 60 * 1000 + 6000); });
+      await waitFor(() => expect(document.querySelector(".ui-page-header__verdict")?.textContent).not.toBe("Updating to 0.62.0"));
+      expect(screen.getByText("The update is taking longer than ten minutes")).toBeTruthy();
+      expect(screen.getByRole("button", { name: /Update to v0.62.0/ })).toBeTruthy();
+    });
   });
 
   it("says the last update stopped, and why, in the verdict and on its tab", async () => {
