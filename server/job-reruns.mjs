@@ -19,11 +19,13 @@
  * A job BoxPilot restarted before it began (it was still waiting behind earlier work in the helper,
  * state.recoverInterruptedJobs) changed nothing, so its operation need not be safe to repeat: it runs
  * now as it would have, unless approving it again needs a person - the owner's password, a typed
- * confirmation - or it can restart BoxPilot itself.
+ * confirmation - or it can restart BoxPilot itself, by its operation or as a Services restart of
+ * BoxPilot's own unit.
  */
 import { registry as defaultRegistry } from "./ops/index.mjs";
 import { placeholderPaths, rerunsAfterInterrupt } from "./ops/registry.mjs";
 import { defaultApprovalMode, normalizeApprovalMode } from "./ops/risk.mjs";
+import { restartsBoxPilot } from "./ops/services.mjs";
 
 /** Why an interrupted job is not run again, as the end of a sentence; null when it is. Pure. */
 export function rerunRefusal(job, { registry = defaultRegistry, approvalMode = defaultApprovalMode, startedBy = null, creator = null, neverStarted = false } = {}) {
@@ -32,7 +34,8 @@ export function rerunRefusal(job, { registry = defaultRegistry, approvalMode = d
   if (neverStarted) {
     if ((job.risk ?? operation.risk) === "high") return "it is high risk, and approving it again takes the owner's password";
     if (operation.confirm) return "it asks for a typed confirmation, which is given each time";
-    if (operation.restartsService) return "it can restart BoxPilot, so a person starts it again";
+    // A Services restart of BoxPilot's own unit is the same restart by another door (jobs.mjs).
+    if (operation.restartsService || restartsBoxPilot(operation.id, job.parameters ?? {})) return "it can restart BoxPilot, so a person starts it again";
   } else if (!rerunsAfterInterrupt(operation)) return "it changes the server and may have finished on its own, so check what it did first";
   if (job.recovery?.rerunOf) return "it was already the second run";
   if (job.recovery?.approvalExpiresAt || placeholderPaths(job.parameters ?? {}).length) return "the passwords it was given do not survive a restart";
