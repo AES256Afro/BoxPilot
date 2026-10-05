@@ -189,17 +189,33 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
    * The steps to store, as saved by someone with `role` (sweep 2). A flow runs as whoever starts it,
    * so a step only the owner may run is the owner's to put in one: an operator's flow holding an HTTP
    * request to their own address ran with the owner's authority when the owner clicked Run now.
-   * Saved by the owner, a new or changed such step is marked ownerAdded; one already stored at the
-   * same place, unchanged, keeps the mark it had, whoever saves it, so sending the steps back keeps
-   * nothing the owner has not kept (keepStep below). Saved by anyone else, it must be one already
-   * stored at the same place, unchanged (the owner's step in an operator's flow, put back by the
-   * routes as stored). Anything else is refused.
+   * Saved by the owner, a new or changed such step is marked ownerAdded; one already stored unchanged
+   * keeps the mark it had, whoever saves it, so sending the steps back keeps nothing the owner has
+   * not kept (keepStep below). For the owner's save that is wherever it was stored (sweep 5): it was
+   * matched by place, so removing or adding a step before an unkept one moved it somewhere nothing
+   * was stored, and it was marked as the owner's own. Of two the same, the unkept one is matched
+   * first, so a match that cannot tell them apart never keeps a step. Saved by anyone else, it must
+   * be one already stored at the same place, unchanged (the owner's step in an operator's flow, put
+   * back by the routes as stored). Anything else is refused.
    */
   function authorSteps(steps, role, stored = []) {
-    const authored = normalizeSteps(steps).map((step, index) => {
+    const submitted = normalizeSteps(steps);
+    const matched = new Map(); // submitted place -> stored place
+    const taken = new Set();
+    submitted.forEach((step, index) => {
+      if (ownerOnly(step) && sameStep(stored[index], step)) { matched.set(index, index); taken.add(index); }
+    });
+    if (role === "owner") {
+      submitted.forEach((step, index) => {
+        if (!ownerOnly(step) || matched.has(index)) return;
+        const same = stored.flatMap((entry, position) => (!taken.has(position) && sameStep(entry, step) ? [position] : []));
+        const position = same.find((candidate) => stored[candidate].ownerAdded !== true) ?? same[0];
+        if (position !== undefined) { matched.set(index, position); taken.add(position); }
+      });
+    }
+    const authored = submitted.map((step, index) => {
       if (!ownerOnly(step)) return step;
-      const kept = stored[index];
-      if (sameStep(kept, step)) return { ...step, ...(kept.ownerAdded === true ? { ownerAdded: true } : {}) };
+      if (matched.has(index)) return { ...step, ...(stored[matched.get(index)].ownerAdded === true ? { ownerAdded: true } : {}) };
       if (role === "owner") return { ...step, ownerAdded: true };
       throw Object.assign(new Error(`Only the owner can put step ${index + 1} (${registry.get(step.operationId).title}) in a flow: only the owner may run it, and a flow runs as whoever starts it`), { code: "flow_step_owner_only" });
     });
