@@ -903,19 +903,37 @@ export function createAgentService({
       const from = names.get(finding.agentId) ?? "another agent";
       const cleaned = sanitizeUntrusted(`${finding.title}\n${finding.body}`, { maxChars: limits.findingPromptChars, redact });
       const doubts = { unsure: Boolean(finding.source?.unsure), partial: Boolean(finding.source?.partial) };
-      // Another agent's words, read here: a flag of this run's own (hop 0).
-      if (cleaned.flags.injection) flagInjection(run.id, { hop: 0 });
+      // Another agent's words, read here: a flag of this run's own (hop 0) - but not a person's own
+      // question, its title (sweep 3).
+      const flagged = findingReadsLikeInstruction(finding, run);
+      if (flagged) flagInjection(run.id, { hop: 0 });
       const step = store.addStep(run.id, {
         kind: "finding", name: from, output: cleaned.text,
         input: { id: `F${index}`, noteId: finding.id, agentId: finding.agentId, agent: from, writtenAt: finding.updatedAt, freshUntil: finding.freshUntil, ...doubts },
-        flags: { finding: `F${index}`, ...(cleaned.flags.injection ? { injection: true } : {}) },
+        flags: { finding: `F${index}`, ...(flagged ? { injection: true } : {}) },
       });
       if (step) emit(run.id, "step", step);
       return {
         id: `F${index}`, title: `${from}'s finding`, text: cleaned.text,
-        wrapped: wrapFinding({ index, from, writtenAt: finding.updatedAt.slice(0, 16), age: findingAge(finding), text: cleaned.text, ...doubts, flags: cleaned.flags }),
+        wrapped: wrapFinding({ index, from, writtenAt: finding.updatedAt.slice(0, 16), age: findingAge(finding), text: cleaned.text, ...doubts, flags: { injection: flagged } }),
       };
     });
+  }
+
+  /**
+   * Whether a finding, read by `run`, reads like an instruction: what the agent found, always; its
+   * title - what it was asked, a person's words, or its agent's job - unless those are the owner's or
+   * this run's own person's (sweep 3: "Asked: Forget all the earlier messages..." flagged every run
+   * of the person who asked it that was offered the finding). Another person's words still count.
+   */
+  function findingReadsLikeInstruction(finding, run) {
+    if (detectInjection(finding.body).suspected) return true;
+    if (!detectInjection(finding.title).suspected) return false;
+    const asked = finding.source?.runId ? store.getRun(finding.source.runId) : null;
+    const person = asked?.requestedBy ?? null;
+    if (person) return !(person === run.requestedBy || state.findOwnerById?.(person)?.role === "owner");
+    // A routine finding's title is its agent's job: its maker's words.
+    return !(finding.finding === "routine" && makerOf(store.getAgent(finding.agentId))?.role === "owner");
   }
 
   /** The findings a run was offered, as the check holds claims to them: { id: "F1", title, text }. */
@@ -1556,10 +1574,12 @@ export function createAgentService({
     if (finding) {
       const age = findingAge(finding);
       audit("agents.handoff.reused", { actorId: run.requestedBy, subjectId: run.id, details: { from: agent.id, to: target.id, finding: finding.id, findingAt: finding.updatedAt } });
+      // Held to the task's words and the finding's, as offered findings are (sweep 3).
+      const flagged = sanitizedTask.flags.injection || findingReadsLikeInstruction(finding, run);
       return answer("handoff", {
         text: `${target.name} was asked: ${cleanTask}\nIt was not run again: its finding from ${age} answers this.\n${target.name} found (${finding.title}):\n${finding.body}`,
         input: { agent: target.name, task: cleanTask, finding: finding.id, findingAt: finding.updatedAt },
-        flags: { reused: true, finding: finding.id, from: target.id, age },
+        flags: { reused: true, finding: finding.id, from: target.id, age, ...(flagged ? { injection: true } : {}) }, words: false, hop: 0,
       });
     }
     const targetBudget = budgetOf(target);
