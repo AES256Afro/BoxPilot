@@ -1,18 +1,21 @@
 name: Release
 
 # Tag a commit `vX.Y.Z` (matching package.json) and push the tag. The workflow checks the tree,
-# then publishes a GitHub Release with generated notes. BoxPilot installs (System page →
-# Update) download the tag tarball, build it, health-check it, and roll back on failure.
+# waits for the install smoke test of the same commit to pass, then publishes a GitHub Release with
+# generated notes. BoxPilot installs (System page → Update) download the tag tarball, build it,
+# health-check it, and roll back on failure.
 on:
   push:
     tags: ["v*"]
 
-permissions:
-  contents: write
-
 jobs:
   release:
     runs-on: ubuntu-latest
+    permissions:
+      # Publish the release.
+      contents: write
+      # Read the install smoke test's runs for the tagged commit (the wait below).
+      actions: read
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
@@ -36,6 +39,45 @@ jobs:
             echo "Tag ${GITHUB_REF_NAME} does not match package.json version ${version}" >&2
             exit 1
           fi
+
+      # The install smoke test (install-smoke.yml) is the only real install and upgrade of a commit on
+      # Ubuntu 24.04 and 26.04, and it runs on pushes to main, never on pull requests: 1.156.0 went
+      # out while it had been failing on main for three days. A release pushes its commit to main
+      # together with the tag, so that test starts alongside this run; this waits for it, up to 75
+      # minutes, checking once a minute, and refuses to publish unless a run for this very commit
+      # succeeded. A run cancelled by a newer one for the same commit (its concurrency group) is no
+      # verdict; the newer one is. A tag on a commit that never reached main has no run: start one
+      # (Actions -> Install smoke test -> Run workflow, on the tag), then re-run this workflow.
+      - name: Wait for the install smoke test of this commit to pass
+        timeout-minutes: 80
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          deadline=$(( $(date +%s) + 75 * 60 ))
+          while :; do
+            # The verdict on the first line, then one line per run. A failed query is no verdict.
+            if ! runs="$(gh run list --repo "${GITHUB_REPOSITORY}" --workflow install-smoke.yml --commit "${GITHUB_SHA}" --limit 20 \
+              --json status,conclusion,event,headBranch,url --jq '
+                (if any(.[]; .conclusion == "success") then "success"
+                 elif any(.[]; .status != "completed") then "running"
+                 elif any(.[]; .conclusion == "failure" or .conclusion == "timed_out" or .conclusion == "startup_failure") then "failed"
+                 else "not run yet" end),
+                (.[] | "  \(.status)/\(.conclusion) \(.event) \(.headBranch) \(.url)")')"; then
+              runs="unknown (the runs could not be listed)"
+            fi
+            verdict="$(printf '%s\n' "$runs" | head -n 1)"
+            printf '%s\n' "$runs" | tail -n +2
+            case "$verdict" in
+              success) echo "The install smoke test passed on ${GITHUB_SHA}."; exit 0 ;;
+              failed) echo "::error::The install smoke test failed on ${GITHUB_SHA}; not publishing ${GITHUB_REF_NAME}. Fix it (or re-run it if it was the runner), then re-run this workflow."; exit 1 ;;
+            esac
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+              echo "::error::No install smoke test of ${GITHUB_SHA} passed within 75 minutes (${verdict}); not publishing ${GITHUB_REF_NAME}."
+              exit 1
+            fi
+            echo "Install smoke test of ${GITHUB_SHA}: ${verdict}; checking again in 60 s."
+            sleep 60
+          done
 
       - name: Publish the GitHub Release
         env:
