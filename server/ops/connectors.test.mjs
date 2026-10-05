@@ -45,6 +45,18 @@ describe("the credentials BoxPilot manages itself", () => {
     expect(registry.validate("credentials.set", { name: "ntfy-token", value: "anything" })).toBeNull();
   });
 
+  it("cannot be removed through Remove a credential, from under the feature that uses them", () => {
+    for (const name of reserved) expect(registry.validate("credentials.remove", { name }), name).toMatch(/BoxPilot keeps .* for itself/);
+    expect(registry.validate("credentials.remove", { name: "ntfy-token" })).toBeNull();
+  });
+
+  it("are still removed by the operations that own them, which reach the store directly", async () => {
+    const removed = [];
+    const credentials = { remove: async ({ name }) => { removed.push(name); return { name, removed: true }; }, read: async () => null };
+    await registry.execute("cloudflare.disconnect", {}, { credentials, cloudflareState: { read: async () => null } }).catch(() => {});
+    expect(removed).toContain("cloudflare-api-token");
+  });
+
   it("are not read as a Notion or Slack token", () => {
     for (const name of reserved) expect(registry.validate("agents.connector.sync", { connector: "notion", credentialName: name }), name).toMatch(/BoxPilot keeps .* for itself/);
     expect(registry.validate("agents.connector.sync", { connector: "notion", credentialName: "notion-token" })).toBeNull();

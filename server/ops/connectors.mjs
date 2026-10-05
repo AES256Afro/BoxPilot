@@ -30,7 +30,9 @@ export function connectorOperations() {
     defineOperation({
       id: "credentials.remove", title: "Remove a credential", risk: "medium", timeoutMs: minutes(1), minimumRole: "owner",
       description: "Deletes a saved credential by name. Requests that reference the name will refuse to run until it is saved again.",
-      parameters: { fields: { name: credentialNameField } },
+      // Not one BoxPilot keeps for itself: cloudflare.disconnect, the heartbeat's own switch and
+      // Zulip's disconnect remove those, and taking one away here would break its feature unseen.
+      parameters: { fields: { name: ownCredentialNameField } },
       run: (parameters, { credentials }) => credentials.remove({ name: parameters.name }),
     }),
     defineOperation({
