@@ -218,13 +218,14 @@ export function createJobService(store, helper, {
     // update job is still awaiting_approval here, so it is not yet in the active list itself. This is
     // a best-effort guard against the common case (approving an update while a job is visibly
     // running), not a lock against a job that starts in the same instant. Restarting BoxPilot's own
-    // unit from Services is the same restart by another door.
-    if ((registeredOperation.restartsService || restartsBoxPilot(registeredOperation.id, parameters)) && typeof store.listActiveJobs === "function") {
+    // unit from Services is the same restart by another door. An operation whose restart is drained
+    // (package updates, KVM) is not guarded: its restart waits for every job beside it to finish,
+    // and refusing it sent the nightly 03:00 updates away behind the 03:00 backup, every night.
+    if ((registeredOperation.restartsService === true || restartsBoxPilot(registeredOperation.id, parameters)) && typeof store.listActiveJobs === "function") {
       const running = store.listActiveJobs().filter((other) => other.id !== jobId);
       if (running.length) {
         const names = running.map((other) => other.title).join(", ");
-        const restarts = registeredOperation.restartsService === "maybe" ? "can restart BoxPilot when it finishes, which" : "restarts BoxPilot and";
-        throw new Error(`Wait for ${running.length === 1 ? "a running job" : `${running.length} running jobs`} to finish first: ${names}. "${registeredOperation.title}" ${restarts} would interrupt ${running.length === 1 ? "it" : "them"}.`);
+        throw new Error(`Wait for ${running.length === 1 ? "a running job" : `${running.length} running jobs`} to finish first: ${names}. "${registeredOperation.title}" restarts BoxPilot and would interrupt ${running.length === 1 ? "it" : "them"}.`);
       }
     }
     // The budget this job runs under: the operation's own, or the larger one it was staged with by

@@ -560,6 +560,38 @@ describe("a schedule due while approvals always ask, with the real job service",
   });
 });
 
+describe("the nightly package updates beside a backup, with the real job service (sweep 4)", () => {
+  // Every schedule defaults to 03:00. Installing package updates can restart BoxPilot when it is
+  // done, and that restart waits for the work beside it (self-restart.mjs), but its approval was
+  // still refused while any other job ran: the nightly update was refused behind the backup, every
+  // night, with a "did not run" alert, and with a reason that was no longer true.
+  it("runs, rather than being refused because the backup is running", async () => {
+    let clock = new Date("2026-08-20T02:59:00");
+    const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-sched-upgrade-"));
+    directories.push(directory);
+    const store = createStateStore({ stateDirectory: directory });
+    try {
+      const owner = store.consumeBootstrapToken(store.createBootstrapToken().token, { username: "operator", passwordHash: "hash" });
+      const helper = { request: vi.fn(async () => ({ upgraded: [] })) };
+      const jobs = createJobService(store, helper);
+      const messages = [];
+      const scheduler = createSchedulerService({ store, jobs, now: () => clock, alerts: { raise: async (alert) => { messages.push(alert.message); }, clear: async () => {} } });
+      const updates = await scheduler.create({ operationId: "apt.upgrade", parameters: {}, frequency: "daily", minute: 0, hour: 3, createdBy: owner.id });
+      // The 03:00 backup is running.
+      const backup = await jobs.createOperationJob("app.backup", { id: "jellyfin" }, owner.id);
+      store.transitionJob(backup.id, "awaiting_approval", "applying");
+      clock = new Date("2026-08-20T03:00:30");
+      await scheduler.tick();
+      const jobId = store.getSchedule(updates.id).lastJobId;
+      expect(jobId).toBeTruthy();
+      await vi.waitFor(() => expect(store.getJob(jobId).state).toBe("completed"));
+      expect(helper.request).toHaveBeenCalledWith("apt.upgrade", expect.anything(), expect.anything());
+      expect(scheduler.list().find((entry) => entry.id === updates.id).lastOutcome).not.toBe("did-not-run");
+      expect(messages).toEqual([]);
+    } finally { store.close(); }
+  });
+});
+
 describe("a schedule that would store an app's secret", () => {
   it("is refused, like a schedule carrying a top-level password", async () => {
     // values.env is where an app's token lives; a stored schedule would keep it in the database.
