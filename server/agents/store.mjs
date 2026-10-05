@@ -487,17 +487,19 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
   });
 
   /**
-   * Keep a note: one with the same title is replaced, and the oldest unpinned ones go past
-   * `maxNotes`. `readRole` is what the run that learned it could read: another agent sees a shared
-   * note only if its own run may read as much. Findings (M44) are kept apart: never replaced by a
-   * note of the same title, never counted against `maxNotes`.
+   * Keep a note: one with the same title, learned at the same role, is replaced, and the oldest
+   * unpinned ones go past `maxNotes`. `readRole` is what the run that learned it could read: another
+   * agent sees a shared note only if its own run may read as much. A same-title note learned at
+   * another role is kept apart (2026-10 sweep 4: an owner's run took over an operator's note, id and
+   * all, and the operator read the owner's words back through it). Findings (M44) are kept apart
+   * too: never replaced by a note of the same title, never counted against `maxNotes`.
    */
   function writeNote(agentId, { title, body, source = {}, freshUntil = null, maxNotes = 50, readRole = "owner", shared = false }) {
     return transaction(() => {
       const at = iso();
-      const existing = prepare("SELECT id FROM agent_notes WHERE agent_id = ? AND finding IS NULL AND lower(title) = lower(?)").get(agentId, title);
+      const existing = prepare("SELECT id FROM agent_notes WHERE agent_id = ? AND finding IS NULL AND lower(title) = lower(?) AND read_role = ?").get(agentId, title, readRole);
       const id = existing?.id ?? randomUUID();
-      if (existing) prepare("UPDATE agent_notes SET body = ?, source_json = ?, updated_at = ?, fresh_until = ?, read_role = ?, shared = ? WHERE id = ?").run(body, json(source), at, freshUntil, readRole, shared ? 1 : 0, id);
+      if (existing) prepare("UPDATE agent_notes SET body = ?, source_json = ?, updated_at = ?, fresh_until = ?, shared = ? WHERE id = ?").run(body, json(source), at, freshUntil, shared ? 1 : 0, id);
       else prepare("INSERT INTO agent_notes (id, agent_id, title, body, source_json, created_at, updated_at, fresh_until, read_role, shared) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(id, agentId, title, body, json(source), at, at, freshUntil, readRole, shared ? 1 : 0);
       const dropped = prepare("SELECT id FROM agent_notes WHERE agent_id = ? AND pinned = 0 AND finding IS NULL AND id NOT IN (SELECT id FROM agent_notes WHERE agent_id = ? AND finding IS NULL ORDER BY pinned DESC, updated_at DESC, rowid DESC LIMIT ?)").all(agentId, agentId, maxNotes).map((entry) => entry.id);
       for (const gone of dropped) { prepare("DELETE FROM agent_notes WHERE id = ?").run(gone); prepare("DELETE FROM agent_vectors WHERE kind = 'note' AND item_id = ?").run(gone); }
