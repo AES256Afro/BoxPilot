@@ -204,7 +204,9 @@ export default function FirewallPage({ csrfToken, role = "owner", now = Date.now
     return null;
   };
 
-  const deletable = (rule: FirewallRule) => !rule.raw && rule.port !== null && rule.port !== undefined && rule.app === null && ruleActions.includes(rule.action ?? "") && !rule.interface && (rule.action === "deny" || !isProtectedPort(rule.port, rule.protocol));
+  // Delete sends only the action, port and protocol, which ufw reads as an incoming rule from
+  // anywhere: an outgoing or source-restricted rule is not the one it would delete.
+  const deletable = (rule: FirewallRule) => !rule.raw && rule.port !== null && rule.port !== undefined && rule.app === null && ruleActions.includes(rule.action ?? "") && !rule.interface && rule.direction !== "out" && !rule.source && (rule.action === "deny" || !isProtectedPort(rule.port, rule.protocol));
   const deleteRule = (rule: FirewallRule) => start({
     operationId: "firewall.rule.delete",
     title: `Delete ${rule.action} ${spec(rule.port ?? 0, rule.protocol)}`,

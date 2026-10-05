@@ -1,6 +1,7 @@
 /* What the Firewall page reads: /api/v1/firewall/overview and fail2ban.inspect. */
 
-export interface FirewallRule { action?: string; protocol?: string; port?: number | null; app?: string | null; direction?: string; interface?: string | null; comment?: string | null; family?: string; raw?: string }
+/** `source`: the address a rule is limited to, when it is (anywhere when absent). */
+export interface FirewallRule { action?: string; protocol?: string; port?: number | null; app?: string | null; direction?: string; interface?: string | null; source?: string | null; comment?: string | null; family?: string; raw?: string }
 export interface FirewallReport { installed: boolean; enabled: boolean | null; defaults: { incoming: string | null; outgoing: string | null; routed: string | null } | null; rules: FirewallRule[] }
 export interface ProtectedRule { port: number; protocol: string; label: string; reason: string; allow: boolean }
 export interface Profile { id: string; name: string; recommended: boolean; summary: string; detail: string; defaults: { incoming: string; outgoing: string }; rules: Array<{ action: string; port: number; protocol: string; comment?: string | null }>; lockServices?: boolean }
