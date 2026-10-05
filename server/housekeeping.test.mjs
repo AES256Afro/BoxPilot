@@ -4,7 +4,7 @@
  * The value of this feature is entirely in what it refuses to remove, so that is what these pin:
  * the release a failed update rolls back to, images something still uses, and the newest backups.
  */
-import { mkdir, mkdtemp, rm, stat, utimes, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, stat, utimes, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -178,6 +178,28 @@ describe("finding what can be reclaimed", () => {
     }
     const backups = (await service.inspect()).categories.find((category) => category.id === "app-backups");
     expect(backups.items).toBe(0);
+  });
+
+  // R3B3-7: what a machine snapshot or a restore of one leaves when it is cut off holds the
+  // controller database and every app's .env in the clear. The helper sweeps it when it starts;
+  // anything still there is listed here, and can be cleared.
+  it("lists what a cut-off machine snapshot or restore left, and clears only that", async () => {
+    const { service, root } = await fixture();
+    const snapshots = path.join(root, "machine-snapshots");
+    const staging = ".staging-11111111-1111-4111-8111-111111111111";
+    await mkdir(path.join(snapshots, staging, "apps", "jellyfin"), { recursive: true });
+    await writeFile(path.join(snapshots, staging, "apps", "jellyfin", ".env"), "API_KEY=secret\n");
+    await writeFile(path.join(snapshots, "machine-snapshot-20260821T020000Z-11111111.tar.gz.partial"), "half an archive");
+    await mkdir(path.join(snapshots, "restored", "20260821T030000Z"), { recursive: true });
+    await writeFile(path.join(snapshots, "restored", "20260821T030000Z", "fstab"), "# fstab\n");
+    const category = (await service.inspect()).categories.find((entry) => entry.id === "snapshot-leftovers");
+    expect(category).toMatchObject({ items: 2, safe: true, bytes: "API_KEY=secret\n".length + "half an archive".length });
+    expect([...category.detail].sort()).toEqual([staging, "machine-snapshot-20260821T020000Z-11111111.tar.gz.partial"].sort());
+    const result = await service.reclaim({ targets: ["snapshot-leftovers"] });
+    expect(result.failures).toEqual([]);
+    expect(result.removed.filter((entry) => entry.category === "snapshot-leftovers")).toHaveLength(2);
+    // What a finished restore staged for review is not a leftover.
+    expect(await readdir(snapshots)).toEqual(["restored"]);
   });
 
   it("offers a log older than the history but not a recent one", async () => {
