@@ -229,6 +229,12 @@ export function createRunner({ api, runtime, client, usage = null, now = () => D
     } catch (failed) {
       error = String(failed?.message ?? failed).slice(0, 200);
     }
+    // Failed before the model saw an image (it could not be started, say): each image handed over
+    // still spends one of its tries, or one whose model never starts would be handed over every
+    // night and never given up on (2026-10 sweep). Not when BoxPilot stopped the run.
+    if (!controller.signal.aborted) {
+      for (const item of claim.describe?.items ?? []) if (!descriptions.some((entry) => entry.key === item.key)) descriptions.push({ key: item.key, text: null });
+    }
     heartbeatStop();
     const described = descriptions.filter((entry) => entry.text).length;
     // What the model server said about seeing, or - when it did not say - what describing showed:

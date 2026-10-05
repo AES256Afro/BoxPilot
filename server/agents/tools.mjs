@@ -13,10 +13,24 @@ import { seesEveryAccount } from "../routes/access.mjs";
 import { searxSearch } from "./connectors.mjs";
 import { exactTools } from "./deterministic.mjs";
 import { describePihole } from "./pihole.mjs";
+import { roleAtLeast } from "./tool-catalog.mjs";
 import { describeApps, describePlaces, describeServer, describeStorage, locate } from "./tool-text.mjs";
 
 /** Whether an agent's allowlist lets it look at this app (spec.allow.apps: "*" or ids). */
 export const appAllowed = (spec, appId) => !spec?.allow || spec.allow.apps === "*" || spec.allow.apps.includes(String(appId ?? "").replace(/^bp-/, ""));
+
+/**
+ * The knowledge a run may read: each source only when the agent's spec allows it and so does the
+ * owner's switch for every agent (`sources`, the Knowledge tab's). The owner's documents only for
+ * the owner or an operator, as the library's own page: a viewer asking the House Guide read all
+ * of them (2026-10 sweep).
+ */
+export function readableSources({ spec, sources = null, readRole } = {}) {
+  const own = spec?.knowledge ?? {};
+  const owner = sources ?? {};
+  const on = (key) => own[key] !== false && owner[key] !== false;
+  return { docs: on("docs"), registry: on("registry"), catalog: on("catalog"), notes: on("notes"), documents: on("documents") && roleAtLeast(readRole, "operator") };
+}
 
 const clip = (text, max) => { const value = String(text ?? ""); return value.length > max ? `${value.slice(0, max - 1)}…` : value; };
 const gigabytes = (bytes) => (Number.isFinite(bytes) ? `${(bytes / 1e9).toFixed(bytes >= 100e9 ? 0 : 1)} GB` : "unknown");
@@ -114,8 +128,8 @@ export function createToolRunner({ state, store, registry, helper = null, invent
     },
 
     async "docs.search"({ query, limit = 4 }, context) {
-      const sources = context.spec.knowledge ?? {};
-      const kinds = [sources.docs !== false && "doc", sources.registry !== false && "operation", sources.catalog !== false && "app"].filter(Boolean);
+      const sources = readableSources(context);
+      const kinds = [sources.docs && "doc", sources.registry && "operation", sources.catalog && "app"].filter(Boolean);
       const hits = [];
       if (knowledge && kinds.length) {
         await knowledge.ensure().catch(() => null);
@@ -125,7 +139,7 @@ export function createToolRunner({ state, store, registry, helper = null, invent
         const found = knowledge.search(query, { limit: internalToo ? limit : limit + 24, kinds }).filter((hit) => internalToo || !internalDocument(hit.chunk));
         for (const hit of found.slice(0, limit)) hits.push({ score: hit.score, title: hit.chunk.title, text: hit.chunk.text });
       }
-      if (sources.documents !== false) {
+      if (sources.documents) {
         const documents = store.listDocuments().filter((document) => document.enabled);
         if (documents.length) {
           const chunks = documents.map((document) => ({ title: `Owner's document: ${document.title}`, text: document.text.slice(0, 4_000), weight: 1.2 }));
@@ -192,7 +206,9 @@ export function createToolRunner({ state, store, registry, helper = null, invent
     },
 
     async "document.read"({ title, from = 0 }, context) {
+      if (!roleAtLeast(context?.readRole, "operator")) throw new ToolError("The owner's documents are for the owner and operators");
       if (context.spec?.knowledge?.documents === false) throw new ToolError("This agent does not read the owner's documents");
+      if (!readableSources(context).documents) throw new ToolError("The owner's documents are switched off for every agent");
       const document = store.findDocument(title);
       if (!document) throw new ToolError(`There is no document called "${clip(title, 80)}"; docs.search lists them`);
       const piece = document.text.slice(from, from + 6_000);
