@@ -93,6 +93,19 @@ describe("someone the owner mapped", () => {
     expect(h.store.getThread(helper.id, h.accounts.viewer.id)).toBeTruthy();
   });
 
+  it("asks nothing for an account that was disabled: one plain refusal, no run (R3S3-2)", async () => {
+    h.service.createAgent(h.caller("owner"), { template: "it-support" });
+    await mapTo([{ zulipId: 21, zulipEmail: "rosa@example.com", zulipName: "Rosa", boxpilotId: h.accounts.viewer.id }]);
+    h.state.disableOwner(h.accounts.viewer.id, { actorId: h.accounts.owner.id });
+    posted = [];
+    direct(rosa, "Which drives are connected?");
+    await check();
+    expect(posted.map((post) => [post.to, post.content])).toEqual([[[21], expect.stringMatching(/^Your BoxPilot account cannot ask agents any more/)]]);
+    expect(h.store.activeRuns()).toEqual([]);
+    expect(h.store.listRuns({ limit: 10 })).toEqual([]);
+    expect(h.fake.prompts()).toEqual([]);
+  });
+
   it("asks the agent a message names, in the channel's thread, and says a refusal there", async () => {
     const keeper = h.service.createAgent(h.caller("owner"), { template: "server-keeper" });
     h.service.createAgent(h.caller("owner"), { template: "pihole-watcher" });
