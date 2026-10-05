@@ -7,6 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { startTlsListener } from "./tls-listener.mjs";
 import { productVersion } from "./version.mjs";
+import { webHostOf, webPortOf } from "./env-file.mjs";
 import { createCatalogService, installRiskLookup, secretEnvNamesLookup } from "./catalog/index.mjs";
 import { createJobLogReader } from "./job-log.mjs";
 import { createActionCenterService } from "./action-center.mjs";
@@ -92,8 +93,10 @@ import { jsonGzip, precompressedAssets } from "./compress.mjs";
 import { rootFileHeaders, securityHeaders } from "./security-headers.mjs";
 
 const app = express();
-const host = process.env.BOXPILOT_HOST ?? "127.0.0.1";
-const port = Number.parseInt(process.env.BOXPILOT_PORT ?? "8787", 10);
+// As every reader of the env file takes them (server/env-file.mjs): the port with parseInt, since
+// systemd hands over `9000   # moved off 8787` whole; loopback for an empty address, not every one.
+const host = webHostOf(process.env.BOXPILOT_HOST);
+const port = webPortOf(process.env.BOXPILOT_PORT);
 const tlsDir = process.env.BOXPILOT_TLS_DIR ?? "/etc/boxpilot/tls";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const dist = path.join(root, "dist");

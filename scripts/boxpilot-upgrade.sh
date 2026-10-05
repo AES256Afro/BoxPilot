@@ -22,7 +22,7 @@
 #   8. Rolls the directory swap, the units and that move back and restarts the old tree if the health check
 #      fails (or a signal stops the run once the service is down, or the terminal or pipe its output
 #      goes to is gone), names the database copy that matches the old tree, and says whether the old
-#      version answers its health check again
+#      version answers its health check again and whether its helper is up
 #
 # It does not touch /etc/boxpilot, systemd drop-ins, or the owner account. In /var/lib/boxpilot it only
 # adds the database copy: it never changes the database itself, and never deletes a copy (the System
@@ -56,25 +56,85 @@ RELAY
 # service's environment, so what the service was given - where its database is, where it listens -
 # is read from here.
 ENV_FILE=/etc/boxpilot/boxpilot.env
-# env_value KEY: the value of the file's last KEY= line, read as systemd reads it (a CR ends the
-# line; blanks before the key, around "=" and after the value are not part of it), quotes dropped;
-# empty when it has none.
+# env_file_value FILE KEY: the value systemd gives KEY when FILE is an EnvironmentFile= (nothing when
+# it gives none), by systemd's own rules (src/basic/env-file.c; server/env-file.mjs is the same in
+# JavaScript, and tests/ubuntu/env-file-parity.sh holds both to systemd). CR and LF end a line; # and
+# ; start a comment only where a key could start, so `9000   # moved` is all value; blanks around
+# the key, "=" and an unquoted value go; a quote runs to its match, over lines if need be, and what
+# follows it runs on into the value (`"9000" # web` is `9000# web`); outside quotes a backslash keeps
+# the next character and joins lines; the last assignment wins; `export KEY=1` assigns nothing.
+env_file_value() {
+  awk -v want="$2" '
+    function add(s) { val = val s; kept = length(val) }
+    function push() {
+      sub(/[ \t]+$/, "", key)
+      if (key == want) { found = 1; out = substr(val, 1, kept) }
+      key = ""; val = ""; kept = 0
+    }
+    { text = text $0 "\n" }
+    END {
+      st = "prekey"; n = length(text)
+      for (i = 1; i <= n; i++) {
+        c = substr(text, i, 1); eol = c == "\n" || c == "\r"; blank = eol || c == " " || c == "\t"
+        if (st == "prekey") { if (c == "#" || c == ";") st = "comment"; else if (!blank) { st = "key"; key = c } }
+        else if (st == "key") { if (eol) st = "prekey"; else if (c == "=") { st = "pre"; val = ""; kept = 0 } else key = key c }
+        else if ((st == "pre" || st == "value") && eol) { push(); st = "prekey" }
+        else if (st == "pre") { if (c == "\047") st = "single"; else if (c == "\"") st = "double"; else if (c == "\\") st = "escape"; else if (!blank) { st = "value"; add(c) } }
+        else if (st == "value") { if (c == "\\") { st = "escape"; kept = length(val) } else if (blank) val = val c; else add(c) }
+        else if (st == "escape") { st = "value"; if (!eol) add(c) }
+        else if (st == "single") { if (c == "\047") st = "pre"; else add(c) }
+        else if (st == "double") { if (c == "\"") st = "pre"; else if (c == "\\") st = "dqescape"; else add(c) }
+        else if (st == "dqescape") { st = "double"; if (index("\"\\`$", c)) add(c); else if (c != "\n") add("\\" c) }
+        else if (st == "comment") { if (c == "\\") st = "cescape"; else if (eol) st = "prekey" }
+        else if (st == "cescape") st = eol ? "prekey" : "comment"
+      }
+      if (st != "prekey" && st != "key" && st != "comment" && st != "cescape") push()
+      if (found) printf "%s", out
+    }' "$1"
+}
+# env_value KEY: what the service's env file gives KEY; empty when it gives nothing.
 env_value() {
   [ -f "$ENV_FILE" ] || return 0
-  tr -d '\r' < "$ENV_FILE" | sed -n "s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*//p" | tail -n 1 | sed "s/[[:space:]]*\$//; s/^[\"']//; s/[\"']\$//"
+  env_file_value "$ENV_FILE" "$1"
+}
+# port_of VALUE: the port the web service listens on for a BOXPILOT_PORT value. It takes it with
+# parseInt (server/env-file.mjs webPortOf): the leading digits after blanks and a "+", so
+# `9000   # moved off 8787` is 9000; 8787 when there are none or they are no port.
+port_of() {
+  set -- "$(printf '%s' "$1" | tr '\n' ' ' | sed -n 's/^[[:space:]]*+\{0,1\}0*\([0-9][0-9]*\).*/\1/p')"
+  case "$1" in
+    ''|??????*) echo 8787 ;;
+    *) if [ "$1" -ge 1 ] && [ "$1" -le 65535 ]; then echo "$1"; else echo 8787; fi ;;
+  esac
 }
 
 # The health check asks the web service where it listens: the env file's port, on loopback unless
 # it listens on one other address. It always asked 127.0.0.1:8787, so on a box installed with
 # --port every update rolled back - after the new version had already started on the database.
 # BOXPILOT_HEALTH_URL overrides it.
-WEB_PORT="$(env_value BOXPILOT_PORT)"
+WEB_PORT="$(port_of "$(env_value BOXPILOT_PORT)")"
 WEB_HOST="$(env_value BOXPILOT_HOST)"
 case "$WEB_HOST" in
   ''|0.0.0.0|::) WEB_HOST=127.0.0.1 ;;
   *:*) WEB_HOST="[${WEB_HOST}]" ;;
 esac
-HEALTH_URL="${BOXPILOT_HEALTH_URL:-http://${WEB_HOST}:${WEB_PORT:-8787}/api/v1/health}"
+HEALTH_URL="${BOXPILOT_HEALTH_URL:-http://${WEB_HOST}:${WEB_PORT}/api/v1/health}"
+
+# helper_up TRIES: boxpilot-helper is up - active, with its socket - for three checks in a row, a
+# second apart, within TRIES checks. The health check cannot tell: it is the web service's alone,
+# and the web service only Wants= the helper, so it answers with the helper down. Nor can the
+# restart: the helper's unit is Type=simple, so `systemctl restart` exits 0 once it has forked,
+# whether or not it gets as far as listening.
+HELPER_SOCKET="${BOXPILOT_HELPER_SOCKET:-/run/boxpilot/helper.sock}"
+helper_up() {
+  steady=0; tries=0
+  while [ "$steady" -lt 3 ] && [ "$tries" -lt "$1" ]; do
+    tries=$((tries + 1))
+    if systemctl is-active --quiet boxpilot-helper.service && [ -S "$HELPER_SOCKET" ]; then steady=$((steady + 1)); else steady=0; fi
+    sleep 1
+  done
+  [ "$steady" -ge 3 ]
+}
 
 # The database the running BoxPilot keeps its state in: where the service's environment file says,
 # otherwise the default. BOXPILOT_DATABASE and BOXPILOT_DB_COPY_DIR override both for a test or an
@@ -322,8 +382,9 @@ rollback() {
     fail "upgrade failed and the previous tree could not be put back: it is at ${PREVIOUS}; ${trees}. Move ${PREVIOUS} to ${INSTALL_DIR} by hand, then restart boxpilot-helper and boxpilot."
   fi
   # Whether the old version is really back: a restart's exit code says little, so the service is
-  # asked, as the upgrade asks the new one, for a short while. Bounded, so a TERM's rollback still
-  # ends well inside systemd's stop timeout.
+  # asked, as the upgrade asks the new one, for a short while, and then the helper is checked as the
+  # upgrade checks it: the web service answers with the helper down. Bounded, so a TERM's rollback
+  # still ends well inside systemd's stop timeout.
   case "$OLD_VERSION" in ''|unknown) wanted='"status":"ok"' ;; *) wanted="\"version\":\"${OLD_VERSION}\"" ;; esac
   if ! systemctl is-enabled boxpilot.service >/dev/null 2>&1; then
     back="boxpilot.service is not enabled, so nothing was asked"
@@ -333,7 +394,18 @@ rollback() {
       attempt=$((attempt + 1))
       case "$(curl -fsS --max-time 2 "$HEALTH_URL" 2>/dev/null)" in *"$wanted"*) back="and BoxPilot ${OLD_VERSION} answers at ${HEALTH_URL}" ;; *) sleep 1 ;; esac
     done
-    [ -n "$back" ] || back="but BoxPilot ${OLD_VERSION} did not answer at ${HEALTH_URL} after the restart; journalctl -u boxpilot -u boxpilot-helper says why"
+  fi
+  helper_down=""
+  helper_up 10 || helper_down="boxpilot-helper is not up with its socket at ${HELPER_SOCKET}"
+  if [ -z "$back" ]; then
+    back="but BoxPilot ${OLD_VERSION} did not answer at ${HEALTH_URL} after the restart"
+    [ -z "$helper_down" ] || back="${back}, and ${helper_down}"
+    back="${back}; journalctl -u boxpilot -u boxpilot-helper says why"
+  elif [ -n "$helper_down" ]; then
+    case "$back" in
+      and*) back="${back}, but ${helper_down}; journalctl -u boxpilot-helper says why" ;;
+      *) back="${back}, and ${helper_down}" ;;
+    esac
   fi
   if [ -d "${INSTALL_DIR}.failed.${STAMP}" ]; then
     fail "upgrade failed; previous tree restored, ${back} (failed tree kept at ${INSTALL_DIR}.failed.${STAMP})"
@@ -424,19 +496,10 @@ if [ "$HEALTHY" -ne 1 ]; then
   if [ "$HAD_PREVIOUS" -eq 1 ]; then rollback; else fail "service unhealthy"; fi
 fi
 
-# The helper as well. Its unit is Type=simple, so its restart above exits 0 once it has forked,
-# whether or not it gets as far as listening, and the health check is the web service's alone: a
-# helper that fails at start (an import error, a sandbox path its unit names that is not there) left
-# every host operation failing and nothing rolled back. Up means active, with its socket, for three
-# checks in a row; it has a minute and a half to get there.
-HELPER_SOCKET="${BOXPILOT_HELPER_SOCKET:-/run/boxpilot/helper.sock}"
-steady=0; attempt=0
-while [ "$steady" -lt 3 ] && [ "$attempt" -lt 90 ]; do
-  attempt=$((attempt + 1))
-  if systemctl is-active --quiet boxpilot-helper.service && [ -S "$HELPER_SOCKET" ]; then steady=$((steady + 1)); else steady=0; fi
-  sleep 1
-done
-if [ "$steady" -lt 3 ]; then
+# The helper as well (helper_up). A helper that fails at start (an import error, a sandbox path its
+# unit names that is not there) left every host operation failing and nothing rolled back. It has
+# a minute and a half to get there.
+if ! helper_up 90; then
   log "boxpilot-helper did not stay up with its socket at ${HELPER_SOCKET}"
   journalctl -u boxpilot-helper.service -n 20 --no-pager 2>/dev/null || true
   if [ "$HAD_PREVIOUS" -eq 1 ]; then rollback; else fail "helper unhealthy"; fi
