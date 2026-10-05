@@ -95,19 +95,23 @@ export function createHelperClient({ socketPath = process.env.BOXPILOT_HELPER_SO
       // jobId, and every other request must keep working against it for a release.
       const context = { ...(jobId ? { jobId } : {}), ...(Number.isInteger(budgetMs) ? { budgetMs } : {}) };
       connection.on("connect", () => connection.write(`${JSON.stringify({ version: 1, id, operation, parameters, ...(Object.keys(context).length ? { context } : {}) })}\n`));
-      connection.on("data", (chunk) => { if (!settled) { try { reader.push(chunk); } catch (error) { fail(error); } } });
-      connection.on("end", () => {
+      function succeed() {
         if (settled) return;
         try {
           const result = reader.finish();
           settled = true;
           transport.active -= 1; transport.completed += 1;
           cancel(deadline);
+          connection.destroy();
           resolve(result);
         } catch (error) {
           fail(error);
         }
-      });
+      }
+      // The reply is whole once its line has arrived. The socket's end can follow later under load,
+      // and a deadline between the two reported a finished operation as a timeout.
+      connection.on("data", (chunk) => { if (!settled) { try { reader.push(chunk); if (reader.stats().complete) succeed(); } catch (error) { fail(error); } } });
+      connection.on("end", succeed);
       // Nothing heard for the whole budget: the same timeout, reached through the idle timer.
       connection.on("timeout", () => fail(ranOut("Helper request timed out", connection.timeout ?? requestTimeoutMs)));
       connection.on("error", (error) => fail(new Error(`Helper unavailable: ${error.message}`)));
