@@ -32,6 +32,9 @@ export interface CatalogPageProps {
   role?: string;
 }
 
+/** The install or settings form, the sheet it came from, and (put back after a job that did not complete) what it held. */
+interface ConfigForm { entry: Entry; mode: "install" | "reconfigure"; back: { id: string; tab?: SheetTab } | null; seed?: Values }
+
 const sheetTabs: readonly SheetTab[] = ["overview", "tunnel", "reach", "backups", "vpn", "logs", "config", "models", "signin", "secrets"];
 
 /**
@@ -68,7 +71,7 @@ export default function CatalogPage({ csrfToken, focusApp, role = "owner" }: Cat
   const [category, setCategory] = useState("");
   const [tab, setTab] = useUrlParam<CatalogTab>("tab", catalogTabs, "installed");
   const [sheet, setSheet] = useState<{ id: string; tab?: SheetTab } | null>(null);
-  const [config, setConfig] = useState<{ entry: Entry; mode: "install" | "reconfigure"; back: { id: string; tab?: SheetTab } | null } | null>(null);
+  const [config, setConfig] = useState<ConfigForm | null>(null);
   const focused = useRef(false);
   const canRead = role === "owner" || role === "operator";
 
@@ -136,14 +139,25 @@ export default function CatalogPage({ csrfToken, focusApp, role = "owner" }: Cat
   // Catalog tab, which lists only what is not installed: the app they had just installed vanished.
   const returnTo = useRef<{ id: string; tab?: SheetTab } | null>(null);
   const ended = useRef<Job | null>(null);
+  // What the form an action came from held, put back when its approval is cancelled or its job does
+  // not complete, as Users does: the form closed before the approval opened, and everything typed
+  // into it (the install form, the settings, an edited Compose file) was gone.
+  const keptForm = useRef<{ config?: ConfigForm; composeDraft?: string } | null>(null);
+  const keptCompose = useRef<{ id: string; draft: string } | null>(null);
   const { start, dialog } = useOperation(csrfToken, (job) => { ended.current = job; void refresh(); });
   const openSheet = useCallback((id: string, sheetTab?: SheetTab) => { setSheet({ id, tab: sheetTab }); rememberApp(id); }, []);
   const closeSheet = useCallback(() => { setSheet(null); rememberApp(null); }, []);
-  const act = useCallback((operation: PendingOperation) => {
+  const act = useCallback((operation: PendingOperation, keep?: { config?: ConfigForm; composeDraft?: string }) => {
     returnTo.current = sheet ?? (config ? config.back ?? { id: config.entry.manifest.id } : null);
     ended.current = null;
+    keptForm.current = keep ?? null;
     closeSheet(); setConfig(null); start(operation);
   }, [closeSheet, config, sheet, start]);
+  const takeComposeDraft = useCallback((appId: string) => {
+    const kept = keptCompose.current?.id === appId ? keptCompose.current.draft : null;
+    keptCompose.current = null;
+    return kept;
+  }, []);
   const approving = Boolean(dialog);
   const wasApproving = useRef(false);
   useEffect(() => {
@@ -152,10 +166,14 @@ export default function CatalogPage({ csrfToken, focusApp, role = "owner" }: Cat
     wasApproving.current = false;
     const back = returnTo.current;
     const job = ended.current;
-    returnTo.current = null; ended.current = null;
+    const form = keptForm.current;
+    returnTo.current = null; ended.current = null; keptForm.current = null;
+    const completed = job?.state === "completed";
+    if (!completed && form?.config) { setConfig(form.config); return; }
     if (!back) return;
+    if (!completed && form?.composeDraft !== undefined) keptCompose.current = { id: back.id, draft: form.composeDraft };
     // Installed: it is on the Installed tab now; its sheet opens at Overview, with its address.
-    if (job?.type === "op:app.install" && job.state === "completed") { setTab("installed"); openSheet(back.id); return; }
+    if (job?.type === "op:app.install" && completed) { setTab("installed"); openSheet(back.id); return; }
     openSheet(back.id, back.tab);
   }, [approving, openSheet, setTab]);
 
@@ -252,6 +270,7 @@ export default function CatalogPage({ csrfToken, focusApp, role = "owner" }: Cat
       stopKillswitch: (scheduleId) => changeSchedule(deleteSchedule(scheduleId), "Could not stop the kill-switch check"),
     },
     act,
+    takeComposeDraft,
     openUrl,
     configure: (entry, mode) => { const back = sheet; setSheet(null); setScheduleError(null); setConfig({ entry, mode, back }); },
   } : null;
@@ -414,11 +433,13 @@ export default function CatalogPage({ csrfToken, focusApp, role = "owner" }: Cat
           live={config.entry.live}
           mode={config.mode}
           csrfToken={csrfToken}
+          seed={config.seed}
           appNameFor={(id) => applications.find((entry) => entry.manifest.id === id)?.manifest.name ?? null}
           onCancel={() => { const back = config.back; setConfig(null); if (back) setSheet(back); }}
-          onSubmit={(values: Values) => {
+          onSubmit={(values: Values, form: Values) => {
             const { entry: { manifest }, mode } = config;
-            act({ operationId: mode === "install" ? "app.install" : "app.reconfigure", title: mode === "install" ? `Install ${manifest.name}` : `Change ${manifest.name} settings`, parameters: { id: manifest.id, values }, preview: <span>{mode === "install" ? `Pulls ${manifest.image.reference}, starts it with the settings you chose, and waits until it is healthy. Rolled back automatically if it fails.` : "Recreates the container with the new settings; the previous configuration is restored if it fails."}</span> });
+            act({ operationId: mode === "install" ? "app.install" : "app.reconfigure", title: mode === "install" ? `Install ${manifest.name}` : `Change ${manifest.name} settings`, parameters: { id: manifest.id, values }, preview: <span>{mode === "install" ? `Pulls ${manifest.image.reference}, starts it with the settings you chose, and waits until it is healthy. Rolled back automatically if it fails.` : "Recreates the container with the new settings; the previous configuration is restored if it fails."}</span> },
+              { config: { ...config, seed: form } });
           }}
         />
       )}
