@@ -12,6 +12,7 @@
  * silently skips the part it could not see reads as though there was nothing there.
  */
 import { createHash } from "node:crypto";
+import { watchEntryFor } from "./routes/access.mjs";
 
 /** The document's sections, in order. The first six are fingerprinted; the last two are derived or momentary. */
 export const runbookSections = Object.freeze([
@@ -95,24 +96,27 @@ const outcomeWords = Object.freeze({ ran: "ran", failed: "failed", "did-not-run"
 
 /**
  * The facts as an operator may read them (M29.4, ADR-003). The layout is theirs to read: every part
- * of it is on a page they can open. Two things are not. Where the second copies are kept is the
+ * of it is on a page they can open. Three things are not. Where the second copies are kept is the
  * owner's: with the rest of this document it is the map to every copy of the data, and it goes in
- * the owner's download, as the recovery kit does. And another account's work - its schedules'
- * parameters and results, and the words of an alert about it - is the owner's to see, as on
- * /schedules and /settings/watch. The owner gets the facts unchanged.
+ * the owner's download, as the recovery kit does. What BoxPilot published through the Cloudflare
+ * tunnel, and the tunnel's name, come from an owner-only read (cloudflare.tunnel.inspect), so they
+ * go in the owner's copy too (sweep 3). And another account's work - its schedules' parameters and
+ * results, and the words of an alert about it - is the owner's to see, as on /schedules and
+ * /settings/watch. The owner gets the facts unchanged.
  */
 export function forAudience(facts, { audience = "owner", callerId = null } = {}) {
   if (audience === "owner") return { ...facts, audience: "owner" };
   const own = (createdBy) => Boolean(callerId) && createdBy === callerId;
   const automation = facts.automation ?? {};
   const issues = facts.issues ?? {};
-  // The same rule as GET /settings/watch: the words of an alert about another account's work go
-  // to the owner and that account; everyone else reads what kind of thing it is.
+  const network = facts.network ?? null;
+  // GET /settings/watch's own rule (watchEntryFor), so the two cannot drift apart again: the words of
+  // an alert about another account's work, or of news only the owner decided about, go to the owner
+  // and that account; everyone else reads what kind of thing it is.
+  const asking = { boxpilotSession: { owner: { id: callerId, role: audience } } };
   const titleFor = (entry) => {
-    if (entry.family === "schedule.failed" || entry.family === "schedule.overdue") return own(entry.scheduleCreatedBy) ? entry.title : entry.label;
-    if (entry.family === "signin.new") return own(entry.subject) ? entry.title : entry.label;
-    if (entry.family === "job.interrupted" || entry.family === "record.failed") return entry.label;
-    return entry.title;
+    const key = entry.key ?? [entry.family, entry.subject].filter((part) => typeof part === "string" && part).join(":");
+    return watchEntryFor(asking, key, entry, entry.label, () => entry.scheduleCreatedBy ?? null).title;
   };
   // A schedule someone else set up is shown as what it does and when, without its parameters.
   const scheduleFor = (schedule) => (own(schedule.createdBy) ? schedule : { ...schedule, parameters: {}, keep: null, outcome: null, lastRunAt: null, foreign: true });
@@ -123,6 +127,7 @@ export function forAudience(facts, { audience = "owner", callerId = null } = {})
     ...facts,
     audience: "operator",
     apps,
+    network: network?.tunnel?.published ? { ...network, tunnel: { ...network.tunnel, published: { available: false, withheld: true } } } : network,
     backups: facts.backups ? { ...facts.backups, destinations: (facts.backups.destinations ?? []).map((destination) => ({ ...destination, where: null, credential: null, whereWithheld: Boolean(destination.where) })) } : facts.backups,
     automation: {
       ...automation,
@@ -433,7 +438,8 @@ function renderNetwork(facts, lines) {
   if (tunnel.installed === null || tunnel.installed === undefined) lines.push(`- Public tunnel: ${unknown(tunnel.reason ?? "the app inventory could not be read")}.`);
   else if (tunnel.installed) {
     const head = `- ${clean(tunnel.name ?? "Cloudflare Tunnel")} is installed${tunnel.running === true ? " and running" : tunnel.running === false ? " but not running" : ""}.`;
-    if (published === null) lines.push(`${head} Which hostnames it publishes, and so which apps are public, is set in the Cloudflare dashboard: ${unknown("BoxPilot cannot see the tunnel's routes")}.`);
+    if (tunnel.published?.withheld === true) lines.push(`${head} Which hostnames BoxPilot published through it is in the owner's copy of this document.`);
+    else if (published === null) lines.push(`${head} Which hostnames it publishes, and so which apps are public, is set in the Cloudflare dashboard: ${unknown("BoxPilot cannot see the tunnel's routes")}.`);
     else if (!published.length) lines.push(`${head} BoxPilot has published nothing through it. ${elsewhere}`);
     else {
       lines.push(`${head} Public on the internet, published by BoxPilot${tunnel.published.tunnelName ? ` through the tunnel ${code(tunnel.published.tunnelName)}` : ""}; anyone with the address can open these, and each app's own sign-in is the only lock:`);
@@ -596,7 +602,9 @@ function renderIssues(facts, lines) {
   lines.push("", "### Not announced", "");
   const notices = issues.notices ?? [];
   if (!notices.length) lines.push("- Nothing waiting.");
-  for (const entry of notices) lines.push(`- ${sentence(`${clean(entry.label)}: ${clean(entry.title)} (${timeOr(entry.since, "not recorded")})`)}`);
+  // News cut back to its kind (an operator's copy) is said once, not as "kind: kind".
+  const said = (entry) => (clean(entry.title) && clean(entry.title) !== clean(entry.label) ? `${clean(entry.label)}: ${clean(entry.title)}` : clean(entry.label) || clean(entry.title));
+  for (const entry of notices) lines.push(`- ${sentence(`${said(entry)} (${timeOr(entry.since, "not recorded")})`)}`);
   lines.push("");
 }
 
