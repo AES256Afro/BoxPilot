@@ -56,10 +56,12 @@ export function ProposalCard({ proposal, csrfToken, role, onStage, onDecided, on
     preview: <span>{step.why || proposal.reason}</span>,
     // A card from BoxPilot itself (source "runtime") carries no model's words.
     ...(proposal.source === "runtime" ? {} : { proposedBy: proposal.agentName }),
-    onStaged: (job) => {
+    // Decided once a step is approved, not when it is staged: a staged job is withdrawn when its
+    // approval is cancelled, and a card decided by then could not be staged again.
+    onApproved: (job) => {
       stagedRef.current = { ...stagedRef.current, [index]: job.id };
       setStaged(stagedRef.current);
-      // Every step staged: the card is done, and records which jobs came of it.
+      // Every step approved: the card is done, and records which jobs came of it.
       if (Object.keys(stagedRef.current).length === proposal.steps.length) void decide("staged", Object.values(stagedRef.current));
     },
   });
