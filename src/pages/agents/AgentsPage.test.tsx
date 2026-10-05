@@ -895,6 +895,24 @@ describe("memory", () => {
     await edit(() => fireEvent.change(screen.getByRole("textbox", { name: "What it remembers" }), { target: { value: "Nothing needs a sign-in." } }));
     await waitFor(() => expect(calls.filter((call) => call.method === "PUT").map((call) => call.body).at(-1)).toEqual({ body: "Nothing needs a sign-in." }));
   });
+
+  it("says when a fact's words are another account's, and lets the owner trust them (sweep 4, R4B1-2)", async () => {
+    window.history.replaceState(null, "", `/?view=agents&tab=memory&agent=${keeperId}`);
+    const fact = { id: "99999999-9999-4999-8999-999999999997", title: "Fans", body: "The case fan spins up at night.", source: { by: "agent", wordsBy: { id: "acc-operator", role: "operator" } }, createdAt: ago(600), updatedAt: ago(600), freshUntil: ago(-6000), stale: false, pinned: false, shared: true, readRole: "operator", indexed: false, othersWords: true };
+    const calls = serve(base({
+      [`GET /api/v1/agents/${keeperId}/memory`]: {
+        facts: [fact], shared: [], episodes: [], thread: null,
+        settings: { enabled: true, share: true, threads: true, turns: 6, freshDays: 14, maxNotes: 80 },
+        search: { byMeaning: false, model: "fake", pending: 0, vectors: 0 },
+      },
+      [`PUT /api/v1/agents/${keeperId}/memory/notes/${fact.id}`]: { ...fact, othersWords: false },
+    }));
+    render(<AgentsPage csrfToken="csrf" now={() => now} />);
+    const facts = await screen.findByRole("table", { name: "Facts Server Keeper learned" });
+    expect(facts.textContent).toContain("another account's words");
+    fireEvent.click(within(facts).getByRole("button", { name: "Trust the fact Fans" }));
+    await waitFor(() => expect(calls.find((call) => call.method === "PUT")?.body).toEqual({ trusted: true }));
+  });
 });
 
 describe("findings (M44)", () => {

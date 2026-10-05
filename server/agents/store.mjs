@@ -9,6 +9,7 @@
  */
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
+import { roleAtLeast } from "./tool-catalog.mjs";
 
 const json = (value) => JSON.stringify(value === undefined ? null : value);
 const parse = (value, fallback) => { try { return value === null || value === undefined ? fallback : JSON.parse(value); } catch { return fallback; } };
@@ -540,19 +541,32 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
     return changed;
   });
   /**
-   * The owner's edit of a note: its words, how long it stays fresh, pinned, shared. A finding is
-   * forgotten, not edited. Words the owner rewrote are the owner's, and `trusted` is the owner's
-   * word that it is fine as it is: either way it no longer carries the flag of the run that kept it
-   * (2026-10 sweep 3). Only new words count: the same words sent back with a new freshness or title
-   * are still the run's (sweep 4: the edit sheet sent them every time, and so trusted the fact).
+   * A person's edit of a note: its words, how long it stays fresh, pinned, shared. A finding is
+   * forgotten, not edited. New words, and `trusted` - the person's word that it is fine as it is -
+   * are that person's: the owner's no longer carry the flag of the run that kept it (2026-10 sweep
+   * 3); anyone else's (`by`, the person, as { id, role }) clear it only for runs that read no more
+   * than they may (`trustedBy`), and their words are theirs (`wordsBy`), held to them by a run that
+   * reads more (sweep 4: an operator's Trust, or their rewrite, cleared a note for the owner's runs).
+   * Only new words count: the same words sent back with a new freshness or title are still the
+   * run's (sweep 4: the edit sheet sent them every time, and so trusted the fact).
    */
-  function updateNote(agentId, noteId, { title, body, freshUntil, pinned, shared, trusted = false }) {
+  function updateNote(agentId, noteId, { title, body, freshUntil, pinned, shared, trusted = false, by = null }) {
     return transaction(() => {
       const current = prepare("SELECT * FROM agent_notes WHERE agent_id = ? AND id = ? AND finding IS NULL").get(agentId, noteId);
       if (!current) return null;
-      const { injectionHop: _hop, ...source } = parse(current.source_json, {});
+      const source = parse(current.source_json, {});
       const newWords = body !== undefined && body !== current.body;
-      const cleared = newWords || trusted ? json({ ...source, injection: false }) : current.source_json;
+      const newTitle = title !== undefined && title !== current.title;
+      const person = by?.role ? { id: by.id ?? null, role: by.role } : null;
+      const outranks = (earlier) => !earlier?.role || roleAtLeast(person.role, earlier.role);
+      let next = source;
+      if (newWords || trusted) {
+        if (!person || person.role === "owner") { const { injectionHop: _hop, ...rest } = source; next = { ...rest, injection: false }; }
+        // New words are vouched for by whoever wrote them; a Trust never lowers an earlier one's word.
+        if (person && (newWords || outranks(source.trustedBy))) next = { ...next, trustedBy: person };
+      }
+      if (person && (newWords || newTitle || (trusted && outranks(source.wordsBy)))) next = { ...next, wordsBy: person };
+      const cleared = next === source ? current.source_json : json(next);
       prepare("UPDATE agent_notes SET title = ?, body = ?, fresh_until = ?, pinned = ?, shared = ?, source_json = ?, updated_at = ? WHERE id = ?")
         .run(title ?? current.title, body ?? current.body, freshUntil === undefined ? current.fresh_until : freshUntil, pinned === undefined ? current.pinned : pinned ? 1 : 0, shared === undefined ? current.shared : shared ? 1 : 0, cleared, iso(), noteId);
       if (body !== undefined || title !== undefined) prepare("DELETE FROM agent_vectors WHERE kind = 'note' AND item_id = ?").run(noteId);

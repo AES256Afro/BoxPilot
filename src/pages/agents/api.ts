@@ -216,7 +216,8 @@ export interface Knowledge {
   /** M40.6: whether the model can see images, as the model server last said. */
   vision?: { vision: boolean; reason: string | null; at: string } | null;
 }
-export interface MemoryNote { id: string; title: string; body: string; source: Note["source"]; createdAt: string; updatedAt: string; freshUntil: string | null; stale: boolean; pinned: boolean; shared: boolean; readRole: string; indexed: boolean }
+/** `othersWords`: its words are another account's, held to them by the runs of whoever looks (sweep 4). */
+export interface MemoryNote { id: string; title: string; body: string; source: Note["source"]; createdAt: string; updatedAt: string; freshUntil: string | null; stale: boolean; pinned: boolean; shared: boolean; readRole: string; indexed: boolean; othersWords?: boolean }
 /** M44: a finding, as the Memory tab lists it. */
 export interface Finding { id: string; kind: "routine" | "answer"; title: string; body: string; from: string; agentId: string; updatedAt: string; freshUntil: string | null; stale: boolean; readRole: string; runId: string | null; unsure: boolean; partial: boolean }
 export interface Memory {
