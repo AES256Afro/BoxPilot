@@ -12,7 +12,8 @@
 #   1. The upgrade health-checks the port and address /etc/boxpilot/boxpilot.env gives the web
 #      service. It always asked 127.0.0.1:8787, so on a box installed with --port every update
 #      rolled back - after the new version had already started on the database. The file is read
-#      the way systemd reads it: CRLF, blanks around "=" and trailing blanks are not part of a value.
+#      the way systemd reads it: CRLF, blanks around "=" and trailing blanks are not part of a value,
+#      and the last line for a key wins.
 #   2. An upgrade stopped by TERM or HUP once the service is down (an SSH drop during curl | sh, the
 #      update unit stopped, a shutdown) rolls back and restarts the old tree, and a second TERM
 #      during the rollback does not cut it short. dash runs no EXIT trap for a signal, so the old
@@ -27,6 +28,14 @@
 #      changes; a new --port or --access is written before the upgrade and checked there, and the
 #      env file is put back if the box does not come up on it; a LAN address opens the port in ufw.
 #   5. The host doctor, run with sudo, asks the web service where the env file says it listens.
+#   6. An installer re-run stopped by HUP (the SSH session dropped), during the build or once the
+#      upgrade has stopped the service, puts the env file back and restarts BoxPilot on it.
+#   7. An upgrade stopped during its build (HUP, TERM) removes its staging tree, and the next upgrade
+#      removes one an earlier run left.
+#   8. A new --port re-points Tailscale Serve wherever BoxPilot is published through it, even on a
+#      Tailscale install whose owner has since turned on the LAN.
+#   9. A rollback checks the old tree went back and asks the restarted service, and says what it
+#      found: back and answering, back and silent, or not back (and where both trees are).
 set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -62,7 +71,12 @@ stub() { printf '#!/bin/sh\n%s\n' "$2" > "${BIN}/$1"; chmod +x "${BIN}/$1"; }
 stub node "exec \"${NODE_REAL}\" \"\$@\""
 stub id 'case "${1:-}" in -u) echo 0 ;; -un) echo root ;; esac; exit 0'
 stub flock 'exit 0'
-stub npm 'exit 0'
+# npm: does nothing, but holds `npm ci` (the build) until the harness lets it go when $STUB_NPM_HOLD is set.
+stub npm 'if [ -n "${STUB_NPM_HOLD:-}" ] && [ "${1:-}" = ci ]; then
+  : > "$STUB_LOG/npm-held"
+  while [ ! -e "$STUB_LOG/npm-release" ]; do "$STUB_SLEEP" 0.1; done
+fi
+exit 0'
 stub chown 'exit 0'
 stub journalctl 'exit 0'
 stub sleep 'exit 0'
@@ -71,8 +85,8 @@ stub ip 'exit 0'
 stub useradd 'printf "%s\n" "$*" >> "$STUB_LOG/useradd"'
 stub apt-get 'echo "apt-get must not run here" >&2; exit 1'
 stub sudo 'exit 1'
-# Tailscale is "not running" unless a case says otherwise. Never the real one: it would publish.
-stub tailscale 'printf "%s\n" "$*" >> "$STUB_LOG/tailscale"; exit 1'
+# Tailscale is "not running" unless $STUB_TAILSCALE says "running". Never the real one: it would publish.
+stub tailscale 'printf "%s\n" "$*" >> "$STUB_LOG/tailscale"; [ "${STUB_TAILSCALE:-}" = running ]'
 # ufw: logged, and inactive unless $STUB_UFW says "active". Never the real one: it would open ports.
 stub ufw 'printf "%s\n" "$*" >> "$STUB_LOG/ufw"
 case "${1:-}" in status) echo "Status: ${STUB_UFW:-inactive}" ;; esac
@@ -83,14 +97,28 @@ dir=0
 while [ $# -gt 0 ]; do case "$1" in -d) dir=1; shift ;; -m|-o|-g) shift 2 ;; *) break ;; esac; done
 if [ "$dir" -eq 1 ]; then mkdir -p "$@"; else cp "$1" "$2"; fi'
 # curl: the release tarball for a download; for anything else, a health answer from the addresses
-# in $STUB_LISTEN and a refused connection from every other.
+# in $STUB_LISTEN and a refused connection from every other. The answer names $STUB_VERSION, or with
+# $STUB_TREE set, the version of the tree there (none there, nothing answers): the service answers
+# as whichever version is in place.
 stub curl 'for arg; do url="$arg"; done
 case "$*" in *codeload.github.com*) exec cat "$STUB_TARBALL" ;; esac
 printf "%s\n" "$url" >> "$STUB_LOG/curl"
+version="$STUB_VERSION"
+if [ -n "${STUB_TREE:-}" ]; then
+  version="$(sed -n "s/.*\"version\":\"\([^\"]*\)\".*/\1/p" "$STUB_TREE/package.json" 2>/dev/null)"
+  [ -n "$version" ] || exit 7
+fi
 for listening in $STUB_LISTEN; do
-  if [ "$url" = "$listening" ]; then printf "{\"status\":\"ok\",\"product\":\"BoxPilot\",\"version\":\"%s\"}\n" "$STUB_VERSION"; exit 0; fi
+  if [ "$url" = "$listening" ]; then printf "{\"status\":\"ok\",\"product\":\"BoxPilot\",\"version\":\"%s\"}\n" "$version"; exit 0; fi
 done
 exit 7'
+# mv: the real one, except that with $STUB_MV_FAIL=prev moving a previous tree (.prev.) fails, as a
+# read-only or broken /opt would make it.
+MV_REAL="$(command -v mv)"
+stub mv "if [ \"\${STUB_MV_FAIL:-}\" = prev ]; then
+  case \"\${1:-}\" in *.prev.*) echo \"mv: cannot move '\$1': Read-only file system\" >&2; exit 1 ;; esac
+fi
+exec \"${MV_REAL}\" \"\$@\""
 # systemctl: logged; "<command>:<n>" in $STUB_HOLDS holds the nth such call until the harness lets
 # it go, so a signal can arrive at a known point. Every unit is enabled unless $STUB_NOT_ENABLED.
 # Each restart of the web service also logs the port the env file gives it then.
@@ -160,6 +188,15 @@ tr -d '\r' < "${REPO}/deploy/boxpilot.env.example" > "${WORK}/installer/BoxPilot
 printf '{}\n' > "${WORK}/installer/BoxPilot-2.0.0/deploy/redaction.example.json"
 tar -czf "${WORK}/installer.tar.gz" -C "${WORK}/installer" BoxPilot-2.0.0
 
+# The same download with the real upgrade script in it (moved under $FAKE like the others) and the
+# release it builds: for what the two scripts do together when they are stopped part way.
+mkdir -p "${WORK}/installer-real"
+cp -R "${WORK}/release/BoxPilot-2.0.0" "${WORK}/installer-real/"
+cp -R "${WORK}/installer/BoxPilot-2.0.0/deploy" "${WORK}/installer-real/BoxPilot-2.0.0/"
+mkdir -p "${WORK}/installer-real/BoxPilot-2.0.0/scripts"
+cp "${WORK}/upgrade.sh" "${WORK}/installer-real/BoxPilot-2.0.0/scripts/boxpilot-upgrade.sh"
+tar -czf "${WORK}/installer-real.tar.gz" -C "${WORK}/installer-real" BoxPilot-2.0.0
+
 # The helper's socket, which the upgrade waits to see. Relative, from $WORK: a socket's path has a
 # length limit a scratch directory can exceed.
 (cd "$WORK" && exec perl -MIO::Socket::UNIX -e 'IO::Socket::UNIX->new(Type => SOCK_STREAM(), Local => $ARGV[0], Listen => 1) or die "socket: $!\n"; sleep 600' helper.sock) &
@@ -217,6 +254,8 @@ upgrade_case "BOXPILOT_HEALTH_URL given" 'BOXPILOT_PORT=9000' http://127.0.0.1:9
 # unquoted value are dropped.
 upgrade_case "CRLF, blanks around = and after the value" 'BOXPILOT_HOST = 192.0.2.10 \r\n  BOXPILOT_PORT= 9003\t\r' http://192.0.2.10:9003/api/v1/health
 upgrade_case "CRLF, quoted after a blank" 'BOXPILOT_HOST = "0.0.0.0"\r\nBOXPILOT_PORT = "9004" \r' http://127.0.0.1:9004/api/v1/health
+# The last line for a key is the one systemd gives the service (server/env-file.mjs reads it the same).
+upgrade_case "a leading blank line, a port overridden further down" '\nBOXPILOT_PORT=8787\n# moved\n  BOXPILOT_PORT = 9006' http://127.0.0.1:9006/api/v1/health
 
 echo "2. An upgrade stopped by a signal once the service is down rolls back and restarts the old tree"
 signal_case() { # signal_case <what> <signal> <TERM again during the rollback: yes|no>
@@ -428,6 +467,124 @@ doctor_case() { # doctor_case <what> <env file> <the URL that answers> <host:por
 }
 doctor_case "installed with --port 9000" 'BOXPILOT_HOST=0.0.0.0\nBOXPILOT_PORT=9000' http://127.0.0.1:9000/api/v1/health 127.0.0.1:9000
 doctor_case "CRLF, blanks around =" 'BOXPILOT_HOST = 192.0.2.10 \r\nBOXPILOT_PORT = "9005" \r' http://192.0.2.10:9005/api/v1/health 192.0.2.10:9005
+
+echo "6. An installer re-run stopped by a signal puts the env file back"
+# hup_install_case <what> <where the run is held: build|swap>
+# A re-run with --port 9100 on a box on 9000, with the real upgrade script. The installer runs in a
+# process group of its own and the whole group gets HUP, as when the SSH session behind
+# `curl | sudo sh` drops: at `npm ci` (the build), or at the upgrade's first daemon-reload (the
+# service stopped, the new tree in place, so the upgrade rolls back). The env file used to keep 9100
+# (the service moved there at its next restart, and the rollback restarted the old version on it)
+# with neither ufw nor Tailscale Serve following it.
+hup_install_case() {
+  local what="$1" at="$2" pid holds="" npm_hold="" held
+  installed_box 9000 false
+  cp "${FAKE}/etc/boxpilot/boxpilot.env" "${WORK}/env-before"
+  if [ "$at" = build ]; then npm_hold=1; held="${STUB_LOG}/npm-held"; else holds="daemon-reload:1"; held="${STUB_LOG}/held-1"; fi
+  set -m
+  (cd "$WORK" && exec env "${common_env[@]}" STUB_TARBALL="${WORK}/installer-real.tar.gz" STUB_LISTEN=http://127.0.0.1:9100/api/v1/health STUB_HOLDS="$holds" STUB_NPM_HOLD="$npm_hold" "$SH" "${WORK}/install.sh" --ref v2.0.0 --no-token --port 9100 > "${WORK}/out" 2>&1) &
+  pid=$!
+  set +m
+  if wait_for "$held"; then kill -HUP -- "-${pid}"; else echo "    (never reached ${at})"; fi
+  : > "${STUB_LOG}/npm-release"; : > "${STUB_LOG}/release-1"
+  wait "$pid" 2>/dev/null; status=$?
+  out="$(cat "${WORK}/out")"
+  show "$out
+(the installer exited ${status})"
+  check "${what}: the installer exited non-zero" '[ "$status" -ne 0 ]'
+  check "${what}: the env file is as it was" 'cmp -s "${WORK}/env-before" "${FAKE}/etc/boxpilot/boxpilot.env"'
+  check "${what}: BoxPilot was restarted on port 9000, last" '[ "$(tail -n 1 "${STUB_LOG}/systemctl")" = "restart boxpilot.service" ] && [ "$(tail -n 1 "${STUB_LOG}/web-restarts" 2>/dev/null)" = BOXPILOT_PORT=9000 ]'
+  check "${what}: the old tree is in place" '[ "$(version_at "${FAKE}/opt/boxpilot")" = 1.0.0 ]'
+  check "${what}: nothing was opened or published" '! grep -q "^allow" "${STUB_LOG}/ufw" 2>/dev/null && ! grep -q "^serve" "${STUB_LOG}/tailscale" 2>/dev/null'
+}
+hup_install_case "HUP during the build" build
+hup_install_case "HUP once the upgrade has stopped the service" swap
+
+echo "7. An upgrade stopped during its build leaves no staging tree behind"
+staging_left() { ls -d "${FAKE}"/opt/boxpilot.staging.* >/dev/null 2>&1; }
+# build_signal_case <what> <signal>: the upgrade's process group gets the signal at `npm ci`, as an
+# SSH session dropping (HUP) or systemd stopping the update unit (TERM) would send it. The staging
+# tree was only ever removed when the build failed on its own, so each of these left a copy of
+# BoxPilot in /opt that nothing came back for.
+build_signal_case() {
+  local what="$1" signal="$2" pid
+  fresh_box 'BOXPILOT_PORT=8787'
+  set -m
+  (cd "$WORK" && exec env "${common_env[@]}" STUB_TARBALL="${WORK}/release.tar.gz" STUB_LISTEN=http://127.0.0.1:8787/api/v1/health STUB_NPM_HOLD=1 "$SH" "${WORK}/upgrade.sh" v2.0.0 > "${WORK}/out" 2>&1) &
+  pid=$!
+  set +m
+  if wait_for "${STUB_LOG}/npm-held"; then kill "-${signal}" -- "-${pid}"; else echo "    (never reached the build)"; fi
+  : > "${STUB_LOG}/npm-release"
+  wait "$pid" 2>/dev/null; status=$?
+  out="$(cat "${WORK}/out")"
+  show "$out
+(the upgrade exited ${status})"
+  check "${what}: the upgrade exited non-zero" '[ "$status" -ne 0 ]'
+  check "${what}: no staging tree is left" '! staging_left'
+  check "${what}: the old tree is in place and the service was never stopped" '[ "$(version_at "${FAKE}/opt/boxpilot")" = 1.0.0 ] && ! grep -q "^stop" "${STUB_LOG}/systemctl"'
+}
+build_signal_case "HUP during the build" HUP
+build_signal_case "TERM during the build" TERM
+
+# What a run stopped outright left (SIGKILL, a power cut): the next upgrade, once it holds the lock,
+# clears it. Housekeeping offers it too (server/housekeeping.mjs).
+fresh_box 'BOXPILOT_PORT=8787'
+mkdir -p "${FAKE}/opt/boxpilot.staging.20260101T000000Z/node_modules"
+printf '{"name":"boxpilot","version":"1.5.0"}\n' > "${FAKE}/opt/boxpilot.staging.20260101T000000Z/package.json"
+run_upgrade STUB_LISTEN=http://127.0.0.1:8787/api/v1/health
+show "$out"
+check "a staging tree an earlier run left: the upgrade went live" '[ "$status" -eq 0 ] && [ "$(version_at "${FAKE}/opt/boxpilot")" = 2.0.0 ]'
+check "a staging tree an earlier run left: it is gone, and the upgrade said so" '! staging_left && grep -q "removed .*/opt/boxpilot.staging.20260101T000000Z" <<<"$out"'
+
+echo "8. A new --port moves Tailscale Serve with it wherever Serve is in use"
+served() { grep -x "serve --bg $1" "${STUB_LOG}/tailscale" 2>/dev/null | wc -l | tr -d ' '; }
+# A Tailscale install on port 9000 (cookies https-only, which only the Tailscale access sets) whose
+# owner then turned on the LAN in Settings: a re-run reads that as "lan", and Serve was re-pointed
+# only for "tailscale", so --port 9100 left the tailnet address on 9000, where nothing answers.
+installed_box 9000
+sed -i -e 's/^BOXPILOT_HOST=.*/BOXPILOT_HOST=0.0.0.0/' "${FAKE}/etc/boxpilot/boxpilot.env"
+STUB_TAILSCALE=running run_install http://127.0.0.1:9100/api/v1/health --port 9100
+show "$out"
+check "Tailscale install with the LAN on, re-run with --port 9100: it finished" '[ "$status" -eq 0 ]'
+check "Tailscale install with the LAN on, re-run with --port 9100: Serve now forwards to 9100" '[ "$(served http://127.0.0.1:9100)" -eq 1 ]'
+check "Tailscale install with the LAN on, re-run with --port 9100: the LAN and https-only cookies stay" '[ "$(env_line BOXPILOT_HOST)" = BOXPILOT_HOST=0.0.0.0 ] && [ "$(env_line BOXPILOT_COOKIE_SECURE)" = BOXPILOT_COOKIE_SECURE=true ]'
+# The same box re-run without a new port: Serve already points where the service listens.
+installed_box 9000
+sed -i -e 's/^BOXPILOT_HOST=.*/BOXPILOT_HOST=0.0.0.0/' "${FAKE}/etc/boxpilot/boxpilot.env"
+STUB_TAILSCALE=running run_install http://127.0.0.1:9000/api/v1/health
+check "Tailscale install with the LAN on, re-run on the same port: Serve left alone" '[ "$status" -eq 0 ] && ! grep -q "^serve" "${STUB_LOG}/tailscale" 2>/dev/null'
+# A LAN install (cookies not https-only) on a box that also runs Tailscale: Serve was never BoxPilot's.
+installed_box 9000 false
+sed -i -e 's/^BOXPILOT_HOST=.*/BOXPILOT_HOST=0.0.0.0/' "${FAKE}/etc/boxpilot/boxpilot.env"
+STUB_TAILSCALE=running run_install http://127.0.0.1:9100/api/v1/health --port 9100
+check "LAN install on a box running Tailscale, --port 9100: nothing published" '[ "$status" -eq 0 ] && ! grep -q "^serve" "${STUB_LOG}/tailscale" 2>/dev/null'
+# A Tailscale install as such: Serve is pointed at the new port once.
+installed_box 9000
+STUB_TAILSCALE=running run_install http://127.0.0.1:9100/api/v1/health --port 9100
+check "Tailscale install, re-run with --port 9100: Serve forwards to 9100, set once" '[ "$status" -eq 0 ] && [ "$(served http://127.0.0.1:9100)" -eq 1 ] && [ "$(grep -c "^serve" "${STUB_LOG}/tailscale")" -eq 1 ]'
+
+echo "9. A rollback says whether the old version is really back"
+# The rollback said "previous tree restored" whether or not the old tree had been moved back, and
+# never asked the restarted service anything: its restarts' errors were silenced.
+last_line() { printf '%s\n' "$out" | tail -n 1; }
+# The new helper never comes up (its socket is not there), so the upgrade rolls back; the old
+# version, back in place, answers as 1.0.0.
+fresh_box 'BOXPILOT_PORT=8787'
+run_upgrade STUB_LISTEN=http://127.0.0.1:8787/api/v1/health STUB_TREE="${FAKE}/opt/boxpilot" BOXPILOT_HELPER_SOCKET=missing.sock
+show "$out"
+check "rolled back, the old version answers: it failed, and its last line says 1.0.0 answers again" '[ "$status" -ne 0 ] && last_line | grep -q "ERROR: upgrade failed; previous tree restored, and BoxPilot 1.0.0 answers at http://127.0.0.1:8787/api/v1/health"'
+check "rolled back, the old version answers: it asked once for 2.0.0 and once more after the rollback's restart" '[ "$(grep -cx http://127.0.0.1:8787/api/v1/health "${STUB_LOG}/curl")" -eq 2 ] && [ "$(version_at "${FAKE}/opt/boxpilot")" = 1.0.0 ]'
+# Nothing answers, before or after.
+fresh_box 'BOXPILOT_PORT=8787'
+run_upgrade STUB_LISTEN=
+show "$out"
+check "rolled back, nothing answers: it says so rather than that all is well" '[ "$status" -ne 0 ] && last_line | grep -q "previous tree restored, but BoxPilot 1.0.0 did not answer at http://127.0.0.1:8787/api/v1/health" && ! grep -q "1.0.0 answers" <<<"$out"'
+# The old tree cannot be moved back.
+fresh_box 'BOXPILOT_PORT=8787'
+run_upgrade STUB_LISTEN= STUB_MV_FAIL=prev
+show "$out"
+check "rolled back, the old tree cannot be moved back: it never claims it was restored" '[ "$status" -ne 0 ] && ! grep -q "restored" <<<"$out"'
+check "rolled back, the old tree cannot be moved back: it says plainly where both trees are" 'last_line | grep -q "ERROR: upgrade failed and the previous tree could not be put back: it is at .*/opt/boxpilot\.prev\.[0-9TZ]*; .*/opt/boxpilot is missing, the new tree is at .*/opt/boxpilot\.failed\.[0-9TZ]*\." && [ -d "$(ls -d "${FAKE}"/opt/boxpilot.prev.* | head -n 1)" ]'
 
 if [ "$failures" -gt 0 ]; then echo "${failures} check(s) failed"; exit 1; fi
 echo "all checks passed"

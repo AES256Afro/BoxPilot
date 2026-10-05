@@ -2,7 +2,6 @@ import { chmod, copyFile, mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fixedRun } from "../exec.mjs";
 import { productVersion } from "../version.mjs";
-import { defaultEnvPath, readWebEnv } from "./firewall.mjs";
 
 /**
  * Self-update (root side, runs inside boxpilot-run@ with network). Re-checks that the release
@@ -49,7 +48,6 @@ export async function systemUpdate({ tag, expectedCommit } = {}, {
   nodeBinary = process.execPath,
   now = () => new Date(),
   lockPath = upgradeLockPath,
-  envPath = defaultEnvPath,
 } = {}) {
   if (typeof tag !== "string" || !releaseTagPattern.test(tag)) throw new Error("Release tag must look like v1.2.3");
   if (typeof expectedCommit !== "string" || !shaPattern.test(expectedCommit)) throw new Error("Expected commit must be a full SHA-1");
@@ -77,13 +75,15 @@ export async function systemUpdate({ tag, expectedCommit } = {}, {
   await chmod(scriptCopy, 0o700);
 
   const unit = `boxpilot-update-${stamp}`;
-  // Where the new version must answer, from the service's env file. The script reads that file
-  // itself now; this hands it over as well, so the check does not depend on which script is
-  // installed. Without it, every update on a box installed with --port rolled back.
-  const healthUrl = localHealthUrl(await readWebEnv({ envPath }));
+  // Where the new version must answer is the script's to work out: it reads the service's env file
+  // as systemd does. The copy above is always the installed tree's own script, and every script that
+  // shipped beside this task reads that file (it came in the same change that first handed the
+  // script a BOXPILOT_HEALTH_URL from here). Handing one over as well only overrode its reading
+  // with a second one that could disagree, and an update checked on the wrong port rolls back after
+  // the new version has already started on the database.
   // The script downloads by the reviewed commit, not the tag, so a moved tag cannot swap the code in.
   log?.(`$ systemd-run --unit ${unit} /bin/sh ${scriptCopy} ${expectedCommit}`, "stdout");
-  const started = await run("/usr/bin/systemd-run", ["--quiet", "--unit", unit, "--description", `BoxPilot update to ${tag}`, `--setenv=BOXPILOT_NODE_BIN=${nodeBinary}`, `--setenv=BOXPILOT_UPDATE_UNIT=${unit}`, `--setenv=BOXPILOT_HEALTH_URL=${healthUrl}`, "/bin/sh", scriptCopy, expectedCommit], { timeout: 30_000 });
+  const started = await run("/usr/bin/systemd-run", ["--quiet", "--unit", unit, "--description", `BoxPilot update to ${tag}`, `--setenv=BOXPILOT_NODE_BIN=${nodeBinary}`, `--setenv=BOXPILOT_UPDATE_UNIT=${unit}`, "/bin/sh", scriptCopy, expectedCommit], { timeout: 30_000 });
   if (!started.ok) throw new Error(`Could not start the update unit: ${started.stderr.split("\n").slice(-2).join(" ")}`);
   log?.("Update unit started. BoxPilot restarts when the build finishes and rolls back on a failed health check.", "stdout");
   return { started: true, unit, tag, expectedCommit, fromVersion: productVersion, startedAt: now().toISOString() };

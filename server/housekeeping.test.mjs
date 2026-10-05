@@ -134,6 +134,29 @@ describe("finding what can be reclaimed", () => {
     expect(trees.detail).not.toContain("boxpilot");
   });
 
+  // An update stopped during its build left /opt/boxpilot.staging.<stamp>, a whole copy of BoxPilot
+  // that nothing listed. It is no one's evidence, so it never takes the failed tree's place as the
+  // one kept; and one changed in the last few hours may be an update building right now.
+  it("offers a staging tree an update never finished, but not in place of the failure's evidence, nor one still building", async () => {
+    const { service, installRoot } = await fixture();
+    const now = Date.parse("2026-08-22T12:00:00.000Z");
+    for (const [name, ageHours] of [["boxpilot.staging.20260821T230000Z", 13], ["boxpilot.staging.20260822T115000Z", 0.2]]) {
+      await mkdir(path.join(installRoot, name, "node_modules"), { recursive: true });
+      await writeFile(path.join(installRoot, name, "package.json"), "x".repeat(512));
+      const when = new Date(now - ageHours * 3_600_000);
+      await utimes(path.join(installRoot, name), when, when);
+    }
+    const trees = (await service.inspect()).categories.find((category) => category.id === "boxpilot-versions");
+    expect(trees.keeping).toEqual(["boxpilot.prev.20260822T100000Z", "boxpilot.failed.20260822T090000Z", "boxpilot.staging.20260822T115000Z"]);
+    expect(trees.detail).toContain("boxpilot.staging.20260821T230000Z");
+    expect(trees.items).toBe(5);
+
+    await service.reclaim({ targets: ["boxpilot-versions"] });
+    await expect(stat(path.join(installRoot, "boxpilot.staging.20260821T230000Z"))).rejects.toThrow();
+    await expect(stat(path.join(installRoot, "boxpilot.staging.20260822T115000Z"))).resolves.toBeTruthy();
+    await expect(stat(path.join(installRoot, "boxpilot.failed.20260822T090000Z"))).resolves.toBeTruthy();
+  });
+
   it("counts an image nothing uses, and never one an app is running", async () => {
     const { service } = await fixture();
     const images = (await service.inspect()).categories.find((category) => category.id === "docker-unreferenced-images");
