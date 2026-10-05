@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import {chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import {chmod, lstat, mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -211,6 +211,33 @@ describe("machine snapshot helper", () => {
     const inspection = await helper.inspect();
     expect(inspection.sync.mount).toMatchObject({ mounted: false, independentFilesystem: false });
   });
+
+  // R4S2-1: the mirror is on a drive, only as trustworthy as whoever last held it. Root copied each
+  // backup through a link at its partial name and wrote the sync record through one at its name.
+  // Symbolic links an unprivileged user may create.
+  it.skipIf(onWindows)("never writes through a link someone left on the backup drive", async () => {
+    const { helper, paths } = await fixture();
+    const outside = await mkdtemp(path.join(os.tmpdir(), "boxpilot-outside-")); directories.push(outside);
+    const victim = path.join(outside, "victim");
+    await writeFile(victim, "untouched");
+    const mirror = path.join(paths.mountRoot, "boxpilot-local-mirror");
+    const backups = path.join(mirror, "application-backups", "uptime-kuma");
+    await mkdir(backups, { recursive: true });
+    await symlink(victim, path.join(mirror, ".boxpilot-sync.json"));
+    await symlink(victim, path.join(backups, "20260816T030000Z.tar.gz.boxpilot-partial"));
+    // A link where the copy belongs is no copy: it is replaced, never written through.
+    await symlink(victim, path.join(backups, "20260816T030000Z.tar.gz"));
+    const result = await helper.sync();
+    expect(await readFile(victim, "utf8")).toBe("untouched");
+    expect((await lstat(path.join(backups, "20260816T030000Z.tar.gz"))).isFile()).toBe(true);
+    expect(await readFile(path.join(backups, "20260816T030000Z.tar.gz"), "utf8")).toBe("app-backup-bytes");
+    expect((await helper.inspect()).sync.lastSync).toMatchObject({ completedAt: result.completedAt });
+    // A link on the way to a copy refuses the sync rather than writing where it points.
+    await rm(path.join(mirror, "application-backups"), { recursive: true });
+    await symlink(outside, path.join(mirror, "application-backups"));
+    await expect(helper.sync()).rejects.toMatchObject({ code: "ELOOP" });
+    expect(await readdir(outside)).toEqual(["victim"]);
+  });
 });
 
 describe("restoring from a machine snapshot", () => {
@@ -254,6 +281,36 @@ describe("restoring from a machine snapshot", () => {
     await expect(helper.restore({ source: "local", artifact }, { apps })).rejects.toThrow(/not a valid application id/);
     await expect(stat(path.join(paths.catalogRoot, "..", "escaped"))).rejects.toThrow();
     expect(apps.install).not.toHaveBeenCalled();
+  });
+
+  // R4S2-1: everything after the unpack reads and copies out of the snapshot as root. A `system`
+  // link to /etc had every file under /etc copied into the review folder, which the browser shows;
+  // an app's `.env` as a link had root's copy of any file put in the app's folder.
+  // Symbolic links an unprivileged user may create.
+  it.skipIf(onWindows)("refuses a snapshot that holds a link, before reading or copying anything out of it", async () => {
+    const { paths, controllerBackups } = await fixture();
+    const outside = await mkdtemp(path.join(os.tmpdir(), "boxpilot-outside-")); directories.push(outside);
+    await writeFile(path.join(outside, "shadow"), "root:secret");
+    const artifact = "machine-snapshot-20260821T020000Z-11111111.tar.gz";
+    await mkdir(paths.snapshotRoot, { recursive: true });
+    await writeFile(path.join(paths.snapshotRoot, artifact), "crafted");
+    await writeFile(path.join(paths.snapshotRoot, `${artifact}.meta.json`), JSON.stringify({ checksumSha256: createHash("sha256").update("crafted").digest("hex") }));
+    // What GNU tar leaves once it has finished: the links the archive names, made last.
+    const run = vi.fn(async (_binary, args) => {
+      if (args[0] !== "-xzf" || !args.includes("-C")) return { ok: false, stdout: "", stderr: "unexpected" };
+      const into = args[args.indexOf("-C") + 1];
+      await writeFile(path.join(into, "manifest.json"), JSON.stringify({ contents: { apps: [{ id: "uptime-kuma", installed: true }] }, files: [] }));
+      await symlink(outside, path.join(into, "system"));
+      await mkdir(path.join(into, "apps", "uptime-kuma"), { recursive: true });
+      await symlink(path.join(outside, "shadow"), path.join(into, "apps", "uptime-kuma", ".env"));
+      return { ok: true, stdout: "", stderr: "" };
+    });
+    const helper = createMachineSnapshotHelper({ run, controllerBackups, ...paths, requireIndependentDevice: false, now: () => new Date("2026-08-21T02:00:00.000Z") });
+    const apps = { internals: { readState: vi.fn(async () => null) }, install: vi.fn(async () => {}), restoreAppBackup: vi.fn(async () => {}) };
+    await expect(helper.restore({ source: "local", artifact }, { apps })).rejects.toThrow("The snapshot holds apps/uptime-kuma/.env, system, links or special files, which a snapshot BoxPilot made never does. Nothing was changed.");
+    expect(apps.install).not.toHaveBeenCalled();
+    await expect(stat(path.join(paths.snapshotRoot, "restored"))).rejects.toMatchObject({ code: "ENOENT" });
+    expect(await readFile(path.join(paths.catalogRoot, "uptime-kuma", ".env"), "utf8")).toBe("ADMIN_TOKEN=do-not-lose\n");
   });
 
   // Linux only: needs /usr/bin/tar.

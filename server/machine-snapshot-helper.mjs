@@ -12,8 +12,9 @@
  */
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { chmod, copyFile, mkdir, readdir, readFile, rename, rm, stat, statfs, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, readdir, readFile, rename, rm, stat, statfs, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { copyFileExclusively, mkdirWithoutFollowing, readFileWithoutFollowing, replaceFileWithoutFollowing } from "./durable-file.mjs";
 import { fixedRun } from "./exec.mjs";
 import { createControllerBackupHelper } from "./controller-backup-helper.mjs";
 import { backupMountpoint } from "./backup-mount.mjs";
@@ -49,24 +50,52 @@ function sha256File(filePath) {
   });
 }
 
-/** Record how far a restore got in the app's own state file, without disturbing the rest of it. */
+/**
+ * Record how far a restore got in the app's own state file, without disturbing the rest of it. The
+ * app's folder is what its restored backup held, so a link at either name is never followed.
+ */
 async function stamp(appDirectory, fields) {
   const file = path.join(appDirectory, "boxpilot.json");
-  const state = await readFile(file, "utf8").then(JSON.parse).catch(() => ({}));
-  await writeFile(`${file}.tmp`, `${JSON.stringify({ ...state, ...fields }, null, 2)}\n`, { mode: 0o600 });
-  await rename(`${file}.tmp`, file);
+  const state = await readFileWithoutFollowing(file).then(JSON.parse).catch(() => ({}));
+  await replaceFileWithoutFollowing(file, `${JSON.stringify({ ...state, ...fields }, null, 2)}\n`, { mode: 0o600 });
 }
 
-async function copyIfExists(source, target) {
-  try {
-    await stat(source);
-  } catch {
-    return false;
-  }
+/**
+ * Copy `source` to `target` (0600) when it is there; false when it is not. The copy is made under a
+ * name of its own, created exclusively, and renamed into place, so a link at `target` is replaced,
+ * never written through. A source that is a link, or not a regular file, counts as not there: what
+ * is copied comes out of a snapshot, off a drive, or out of an app's folder, any of which may hold a
+ * link to a file only root can read. `followSource` is for root's own files (/etc/fstab may be a link).
+ */
+async function copyIfExists(source, target, { followSource = false } = {}) {
+  const info = await (followSource ? stat(source) : lstat(source)).catch(() => null);
+  if (!info?.isFile()) return false;
   await mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
-  await copyFile(source, target);
-  await chmod(target, 0o600);
+  const temporary = `${target}.${randomUUID()}.tmp`;
+  try {
+    await copyFileExclusively(source, temporary, { mode: 0o600, followSource });
+    await rename(temporary, target);
+  } catch (error) {
+    await rm(temporary, { force: true }).catch(() => {});
+    if (["ENOENT", "ELOOP", "EINVAL"].includes(error?.code)) return false;
+    throw error;
+  }
   return true;
+}
+
+/**
+ * What under `root` is neither a folder nor a regular file (a symbolic link, a pipe, a device),
+ * relative to it, sorted. A snapshot BoxPilot made holds only folders and copies of files; a link in
+ * one unpacked as root would have every read and copy after it follow it out of the folder.
+ */
+async function nonFilesUnder(root, relative = "") {
+  const found = [];
+  for (const entry of await readdir(path.join(root, relative), { withFileTypes: true })) {
+    const entryRelative = path.join(relative, entry.name);
+    if (entry.isDirectory()) found.push(...await nonFilesUnder(root, entryRelative));
+    else if (!entry.isFile()) found.push(entryRelative.split(path.sep).join("/"));
+  }
+  return found.sort();
 }
 
 async function walkFiles(root, relative = "") {
@@ -204,7 +233,8 @@ export function createMachineSnapshotHelper({
   }
 
   async function lastSync() {
-    return readFile(path.join(mirrorRoot, ".boxpilot-sync.json"), "utf8").then(JSON.parse).catch(() => null);
+    // Not through a link the drive holds: what is read goes back to the web process.
+    return readFileWithoutFollowing(path.join(mirrorRoot, ".boxpilot-sync.json")).then(JSON.parse).catch(() => null);
   }
 
   async function inspect() {
@@ -229,7 +259,7 @@ export function createMachineSnapshotHelper({
     for (const entry of entries.filter((item) => item.isDirectory() && appIdPattern.test(item.name))) {
       const id = entry.name;
       const stateFile = path.join(catalogRoot, id, "boxpilot.json");
-      const appState = await readFile(stateFile, "utf8").then(JSON.parse).catch(() => null);
+      const appState = await readFileWithoutFollowing(stateFile).then(JSON.parse).catch(() => null);
       if (!appState) continue;
       let copied = 0;
       for (const file of appProjectFiles) {
@@ -250,12 +280,12 @@ export function createMachineSnapshotHelper({
   async function collectSystem(staging) {
     const collected = { netplanFiles: 0, ufwFiles: 0, fstab: false };
     for (const name of (await readdir(netplanDirectory).catch(() => [])).filter((file) => /\.ya?ml$/.test(file))) {
-      if (await copyIfExists(path.join(netplanDirectory, name), path.join(staging, "system", "netplan", name))) collected.netplanFiles += 1;
+      if (await copyIfExists(path.join(netplanDirectory, name), path.join(staging, "system", "netplan", name), { followSource: true })) collected.netplanFiles += 1;
     }
     for (const name of ["user.rules", "user6.rules", "ufw.conf"]) {
-      if (await copyIfExists(path.join(ufwDirectory, name), path.join(staging, "system", "ufw", name))) collected.ufwFiles += 1;
+      if (await copyIfExists(path.join(ufwDirectory, name), path.join(staging, "system", "ufw", name), { followSource: true })) collected.ufwFiles += 1;
     }
-    collected.fstab = await copyIfExists(fstabPath, path.join(staging, "system", "fstab"));
+    collected.fstab = await copyIfExists(fstabPath, path.join(staging, "system", "fstab"), { followSource: true });
     return collected;
   }
 
@@ -303,8 +333,8 @@ export function createMachineSnapshotHelper({
 
       // A fresh verified controller backup is part of every snapshot (and recorded web-side).
       const controllerBackup = await controllerBackups.createBackup({ backupId: randomUUID() });
-      await copyIfExists(controllerBackup.artifactPath, path.join(staging, "controller", "boxpilot.sqlite3"));
-      await copyIfExists(controllerBackup.manifestPath, path.join(staging, "controller", "manifest.json"));
+      await copyIfExists(controllerBackup.artifactPath, path.join(staging, "controller", "boxpilot.sqlite3"), { followSource: true });
+      await copyIfExists(controllerBackup.manifestPath, path.join(staging, "controller", "manifest.json"), { followSource: true });
 
       const apps = await collectApps(staging);
       const system = await collectSystem(staging);
@@ -401,12 +431,15 @@ export function createMachineSnapshotHelper({
         fileCount += 1;
         const from = path.join(source.root, relative);
         const to = path.join(mirrorRoot, source.name, relative);
-        const [fromInfo, toInfo] = [await stat(from), await stat(to).catch(() => null)];
-        if (toInfo && toInfo.size === fromInfo.size) continue;
-        await mkdir(path.dirname(to), { recursive: true, mode: 0o700 });
+        // The drive is only as trustworthy as whoever last held it, so nothing on it is followed: a
+        // link where a copy belongs is no copy (it is replaced), and one on the way to it refuses the
+        // sync. Followed, root wrote each backup over whatever the link named.
+        const [fromInfo, toInfo] = [await stat(from), await lstat(to).catch(() => null)];
+        if (toInfo?.isFile() && toInfo.size === fromInfo.size) continue;
+        await mkdirWithoutFollowing(resolvedMountRoot, path.relative(resolvedMountRoot, path.dirname(to)), { mode: 0o700 });
         const partial = `${to}.boxpilot-partial`;
-        await copyFile(from, partial);
-        await chmod(partial, 0o600);
+        await rm(partial, { recursive: true, force: true });
+        await copyFileExclusively(from, partial, { mode: 0o600, followSource: true });
         const [sourceHash, copyHash] = await Promise.all([sha256File(from), sha256File(partial)]);
         if (sourceHash !== copyHash) {
           await rm(partial, { force: true });
@@ -418,8 +451,8 @@ export function createMachineSnapshotHelper({
       }
     }
     const completedAt = now().toISOString();
-    await mkdir(mirrorRoot, { recursive: true, mode: 0o700 });
-    await writeFile(path.join(mirrorRoot, ".boxpilot-sync.json"), `${JSON.stringify({ completedAt, fileCount, copiedCount, copiedBytes }, null, 2)}\n`, { mode: 0o600 });
+    await mkdirWithoutFollowing(resolvedMountRoot, path.relative(resolvedMountRoot, mirrorRoot), { mode: 0o700 });
+    await replaceFileWithoutFollowing(path.join(mirrorRoot, ".boxpilot-sync.json"), `${JSON.stringify({ completedAt, fileCount, copiedCount, copiedBytes }, null, 2)}\n`, { mode: 0o600 });
     return { synced: true, destination: mirrorRoot, completedAt, fileCount, copiedCount, copiedBytes, verified: true, boundary: { deletesPerformed: false, networkUsed: false } };
   }
 
@@ -703,10 +736,16 @@ export function createMachineSnapshotHelper({
       // names — including a set-user-id root binary put there by whoever last held the file.
       const extract = await run(tarBinary, ["-xzf", artifactPath, "--no-same-owner", "--no-same-permissions", "-C", staging], { timeout: 30 * 60_000 });
       if (!extract.ok) throw new Error(`Could not extract the snapshot: ${extract.stderr.split("\n").slice(-2).join(" ")}`);
-      const manifest = JSON.parse(await readFile(path.join(staging, "manifest.json"), "utf8"));
+      // Everything after this reads and copies out of the unpacked snapshot as root, and the
+      // snapshot is only as trustworthy as whoever last held the file.
+      const planted = await nonFilesUnder(staging);
+      if (planted.length) throw new Error(`The snapshot holds ${planted.slice(0, 5).join(", ")}${planted.length > 5 ? ", ..." : ""}, ${planted.length === 1 ? "a link or a special file" : "links or special files"}, which a snapshot BoxPilot made never does. Nothing was changed.`);
+      const manifest = JSON.parse(await readFileWithoutFollowing(path.join(staging, "manifest.json")));
       progress?.("Verifying file inventory...", "stdout");
       for (const file of manifest.files ?? []) {
-        const actual = await sha256File(path.join(staging, file.path)).catch(() => null);
+        // Only a file inside the snapshot is one of its files: a path out of it is not read.
+        const inside = typeof file?.path === "string" ? path.resolve(staging, file.path) : null;
+        const actual = inside?.startsWith(`${staging}${path.sep}`) ? await sha256File(inside).catch(() => null) : null;
         if (actual !== file.sha256) throw new Error(`Snapshot content ${file.path} failed verification. Nothing was changed.`);
       }
       const wanted = (manifest.contents?.apps ?? []).filter((app) => selected === "all" ? app.installed : Array.isArray(selected) && selected.includes(app.id));
@@ -723,7 +762,7 @@ export function createMachineSnapshotHelper({
         // install, or from the data restore, which writes the compose file again for this server.
         let deployed = null;
         try {
-          const stateRaw = await readFile(path.join(staging, "apps", app.id, "boxpilot.json"), "utf8").catch(() => null);
+          const stateRaw = await readFileWithoutFollowing(path.join(staging, "apps", app.id, "boxpilot.json")).catch(() => null);
           const archivedState = stateRaw ? JSON.parse(stateRaw) : null;
           const live = await appHelper.internals.readState(app.id);
           const target = path.join(catalogRoot, app.id);
@@ -739,7 +778,7 @@ export function createMachineSnapshotHelper({
             progress?.(`[${app.id}] restoring project files`, "stdout");
             await mkdir(target, { recursive: true, mode: 0o700 });
             for (const file of [".env"]) await copyIfExists(path.join(staging, "apps", app.id, file), path.join(target, file));
-            await writeFile(path.join(target, "boxpilot.json"), JSON.stringify({ ...(archivedState ?? { id: app.id }), installed: false, restoredFrom: artifact }, null, 2), { mode: 0o600 });
+            await replaceFileWithoutFollowing(path.join(target, "boxpilot.json"), JSON.stringify({ ...(archivedState ?? { id: app.id }), installed: false, restoredFrom: artifact }, null, 2), { mode: 0o600 });
             progress?.(`[${app.id}] installing with the archived settings`, "stdout");
             // Saved settings, not an owner's entry: a snapshot from an older release can name a setting
             // the catalog has since dropped, and never holds a secret, which comes from the .env above.
@@ -754,7 +793,7 @@ export function createMachineSnapshotHelper({
             continue;
           }
           if (restoreData) {
-            const listing = await readFile(path.join(staging, "apps", app.id, "backups.json"), "utf8").then(JSON.parse).catch(() => null);
+            const listing = await readFileWithoutFollowing(path.join(staging, "apps", app.id, "backups.json")).then(JSON.parse).catch(() => null);
             const named = listing?.backups?.[0]?.artifact ?? null;
             // The name is joined onto backup directories and copied between them, so only a plain
             // archive name is followed.
@@ -791,7 +830,7 @@ export function createMachineSnapshotHelper({
       const reviewRoot = path.join(resolvedSnapshotRoot, "restored", now().toISOString().replaceAll(/[-:]/g, "").replace(/\.\d+Z$/, "Z"));
       for (const area of ["system", "vms", "controller"]) {
         const from = path.join(staging, area);
-        if (await stat(from).then((info) => info.isDirectory()).catch(() => false)) {
+        if (await lstat(from).then((info) => info.isDirectory()).catch(() => false)) {
           for (const relative of await walkFiles(from)) await copyIfExists(path.join(from, relative), path.join(reviewRoot, area, relative));
         }
       }

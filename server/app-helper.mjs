@@ -8,7 +8,7 @@ import { constants as fsConstants, createReadStream } from "node:fs";
 import { chmod, lchown, lstat, mkdir, open, readFile, readdir, rename, rm, stat, writeFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import YAML from "yaml";
-import { writeFileDurably } from "./durable-file.mjs";
+import { mkdirWithoutFollowing, readFileWithoutFollowing, replaceFileWithoutFollowing, writeFileDurably } from "./durable-file.mjs";
 import { fixedRun } from "./exec.mjs";
 import { parseServeStatus } from "./tailscale-serve.mjs";
 import { createCatalogService } from "./catalog/index.mjs";
@@ -54,6 +54,15 @@ export const updateHistoryLimit = 10;
 const checkpointKeep = 5;
 /** Where Homepage sync remembers the address its links are written for, in Homepage's own folder. */
 const homepageSyncFile = "boxpilot-homepage-sync.json";
+/** What a backup in progress leaves in the app's folder, saying what it stopped (see backup). */
+const backupMarkerFile = ".boxpilot-backup-in-progress.json";
+/**
+ * The files BoxPilot itself writes, as root, at the top of an app's folder, and the temporary names
+ * they are written under. A backup is unpacked into that folder, so a restore must never bring back a
+ * symbolic link at any of these names (see linksWhereBoxPilotWrites): the next write would follow it.
+ */
+const projectFileNames = Object.freeze([".env", "compose.yaml", "boxpilot.json", homepageSyncFile]);
+const scratchFileNames = Object.freeze([...projectFileNames.map((name) => `${name}.tmp`), backupMarkerFile, `${backupMarkerFile}.tmp`]);
 /** Processes that hold a port on Docker's behalf (as ports.mjs counts them): never an app's own process. */
 const dockerHolders = new Set(["docker-proxy", "dockerd", "rootlesskit", "rootlessport"]);
 
@@ -172,19 +181,18 @@ export function createAppHelper({
   const gpuReady = nvidiaReady ?? createNvidiaInspector({ run: (binary, args, options) => (binary === "/usr/bin/docker" ? docker(args, options) : runCommand(binary, args, options)) }).dockerRuntimeReady;
 
   async function readState(id) {
-    try { return JSON.parse(await readFile(path.join(dirFor(id), "boxpilot.json"), "utf8")); } catch { return null; }
+    try { return JSON.parse(await readFileWithoutFollowing(path.join(dirFor(id), "boxpilot.json"))); } catch { return null; }
   }
+  // Never through a link: an app's folder is whatever its last restored backup held.
   async function writeState(id, state) {
-    const target = path.join(dirFor(id), "boxpilot.json");
-    await writeFileDurably(`${target}.tmp`, JSON.stringify(state, null, 2), { mode: 0o600 });
-    await rename(`${target}.tmp`, target);
+    await replaceFileWithoutFollowing(path.join(dirFor(id), "boxpilot.json"), JSON.stringify(state, null, 2), { mode: 0o600 });
   }
   async function readEnv(id) {
-    try { return parseEnvFile(await readFile(path.join(dirFor(id), ".env"), "utf8")); } catch { return {}; }
+    try { return parseEnvFile(await readFileWithoutFollowing(path.join(dirFor(id), ".env"))); } catch { return {}; }
   }
 
   /** Where a backup in progress says what it stopped and what it is writing (see backup). */
-  const interruptedBackupMarker = (id) => path.join(dirFor(id), ".boxpilot-backup-in-progress.json");
+  const interruptedBackupMarker = (id) => path.join(dirFor(id), backupMarkerFile);
   /** Flush a file's data to disk before it is renamed into place. */
   async function syncFile(file) {
     const handle = await open(file, "r+");
@@ -200,7 +208,7 @@ export function createAppHelper({
     const ids = await presentIds();
     const found = [];
     for (const id of [...ids ?? []].filter((entry) => idPattern.test(entry)).sort()) {
-      const text = await readFile(interruptedBackupMarker(id), "utf8").catch(() => null);
+      const text = await readFileWithoutFollowing(interruptedBackupMarker(id)).catch(() => null);
       if (text === null) continue;
       let marker = null;
       try { marker = JSON.parse(text); } catch { marker = null; }
@@ -253,15 +261,14 @@ export function createAppHelper({
 
   /** The deployed compose.yaml and .env as they are now (null when absent), so a failed change can put them back. */
   async function readProjectFiles(id) {
-    const read = (name) => readFile(path.join(dirFor(id), name), "utf8").catch(() => null);
+    const read = (name) => readFileWithoutFollowing(path.join(dirFor(id), name)).catch(() => null);
     return { compose: await read("compose.yaml"), env: await read(".env") };
   }
 
   async function restoreProjectFiles(id, saved) {
     for (const [name, content] of [["compose.yaml", saved.compose], [".env", saved.env]]) {
       if (content === null) continue;
-      await writeFileDurably(path.join(dirFor(id), `${name}.tmp`), content, { mode: 0o600 });
-      await rename(path.join(dirFor(id), `${name}.tmp`), path.join(dirFor(id), name));
+      await replaceFileWithoutFollowing(path.join(dirFor(id), name), content, { mode: 0o600 });
     }
   }
 
@@ -797,19 +804,17 @@ export function createAppHelper({
       }
     }
     const rendered = await renderProject(manifest, values, { existingEnv, devices: provided });
-    await writeFileDurably(path.join(directory, ".env.tmp"), rendered.envFile, { mode: 0o600 });
-    await rename(path.join(directory, ".env.tmp"), path.join(directory, ".env"));
-    await writeFileDurably(path.join(directory, "compose.yaml.tmp"), rendered.composeYaml, { mode: 0o600 });
-    await rename(path.join(directory, "compose.yaml.tmp"), path.join(directory, "compose.yaml"));
+    // Never through a link at these names, or at a folder on the way to a config file: the folder
+    // holds whatever the app's last restored backup did.
+    await replaceFileWithoutFollowing(path.join(directory, ".env"), rendered.envFile, { mode: 0o600 });
+    await replaceFileWithoutFollowing(path.join(directory, "compose.yaml"), rendered.composeYaml, { mode: 0o600 });
     // Config files shipped with the app (a prometheus.yml, a datasource yaml). Their paths were
     // validated safe and relative by the schema; each is written under the project directory and
     // mounted into the container by the compose file. Rewritten whole on every deploy, so a
     // manifest change reaches the running app.
     for (const file of rendered.files ?? []) {
-      const target = path.join(directory, file.path);
-      await mkdir(path.dirname(target), { recursive: true, mode: 0o755 });
-      await rm(target, { force: true }).catch(() => {});
-      await writeFile(target, file.content, { mode: 0o644 });
+      const folder = await mkdirWithoutFollowing(directory, path.posix.dirname(file.path), { mode: 0o755 });
+      await replaceFileWithoutFollowing(path.join(folder, path.posix.basename(file.path)), file.content, { mode: 0o644 });
     }
     return rendered;
   }
@@ -911,7 +916,7 @@ export function createAppHelper({
     if ((state.values?.networkMode ?? manifest.network) === "host" || manifest.network === "host") {
       return manifest.ports.map((port) => ({ id: port.id, host: port.container, protocol: port.protocol, bind: "*", fixed: true, web: web(port), hostNetwork: true }));
     }
-    const text = await readFile(path.join(dirFor(manifest.id), "compose.yaml"), "utf8").catch(() => null);
+    const text = await readFileWithoutFollowing(path.join(dirFor(manifest.id), "compose.yaml")).catch(() => null);
     const entries = text !== null
       ? publishedPorts(text)
       : manifest.ports.map((port) => ({ host: stored[port.id] ?? port.host, protocol: port.protocol, bind: bindingFor(port, state.values?.exposure ?? "lan", { lanAddress, tailnetAddress: null }).bind }));
@@ -1106,7 +1111,7 @@ export function createAppHelper({
       progress?.(`Building ${manifest.name}'s container again from its saved project, ${path.join(dirFor(id), "compose.yaml")}`, "stdout");
     }
     // Ports are bound when a container starts, not when it is created, so only a start is checked.
-    const project = rewritten ? await readFile(path.join(dirFor(id), "compose.yaml"), "utf8").catch(() => "") : saved.compose;
+    const project = rewritten ? await readFileWithoutFollowing(path.join(dirFor(id), "compose.yaml")).catch(() => "") : saved.compose;
     const ports = start ? await assertPortsFree(manifest, project, { progress, refused: `${manifest.name} was not started again; nothing was built. Its data folder and saved settings are as they were.` }) : null;
     // `up` pulls the image first when a prune took it along with the container.
     const upBudgetMs = scaled(15 * 60_000, timeScale);
@@ -1202,7 +1207,7 @@ export function createAppHelper({
       if (!pull.ok) throw stepTimedOut(pull, "Downloading the new images", pullBudgetMs) ?? new Error(`docker compose pull failed: ${redact(pull.stderr).split("\n").slice(-3).join(" ")}`);
       // `up` recreates the containers, which lets go of their ports and binds them again: something
       // waiting for one (Tailscale Serve on the same port) takes it in between.
-      await assertPortsFree(manifest, await readFile(path.join(dirFor(id), "compose.yaml"), "utf8").catch(() => ""), { progress, refused: "Its ports are not free." });
+      await assertPortsFree(manifest, await readFileWithoutFollowing(path.join(dirFor(id), "compose.yaml")).catch(() => ""), { progress, refused: "Its ports are not free." });
     } catch (error) {
       // Nothing has been restarted yet, so the containers still run the old version: put the files
       // that describe them back, or the next restart would quietly move the app forward.
@@ -1214,7 +1219,7 @@ export function createAppHelper({
     try {
       if (!up.ok) throw stepTimedOut(up, "Starting the new version", upBudgetMs) ?? new Error(`docker compose up failed: ${redact(up.stderr).split("\n").slice(-4).join(" ")}`);
       const status = await waitHealthy(manifest, progress);
-      const deployedNow = deployedImages(await readFile(path.join(dirFor(id), "compose.yaml"), "utf8").catch(() => ""));
+      const deployedNow = deployedImages(await readFileWithoutFollowing(path.join(dirFor(id), "compose.yaml")).catch(() => ""));
       // Keep what it came from, so going back is a click rather than an archaeology exercise. Only
       // when something actually moved: re-running an update that changes nothing is not history.
       const movedFrom = Object.fromEntries(Object.entries(runningBefore).filter(([service, reference]) => deployedNow[service] !== reference));
@@ -1354,7 +1359,7 @@ export function createAppHelper({
     };
     // A secret the request does not re-enter is the one in .env (withSavedSecrets): a settings change
     // never asks for the tunnel token again.
-    const previousEnv = await readFile(path.join(dirFor(id), ".env"), "utf8").catch(() => "");
+    const previousEnv = await readFileWithoutFollowing(path.join(dirFor(id), ".env")).catch(() => "");
     const { values, errors } = resolveValues(manifest, withSavedSecrets(manifest, merged, parseEnvFile(previousEnv)));
     if (errors.length) throw new Error(`Invalid settings: ${errors.join("; ")}`);
     // An app already saved that way (before this was refused) keeps its other settings changeable;
@@ -1363,7 +1368,7 @@ export function createAppHelper({
     const refusal = storedOnHost && stored.exposure === "tailnet" ? null : hostNetworkTailnetRefusal(manifest, values, { switchingNetwork: !storedOnHost });
     if (refusal) throw new Error(refusal);
     const saved = takeCheckpoint ? await checkpoint({ id, reason: "settings change" }, { progress }) : null;
-    const previousCompose = await readFile(path.join(dirFor(id), "compose.yaml"), "utf8").catch(() => null);
+    const previousCompose = await readFileWithoutFollowing(path.join(dirFor(id), "compose.yaml")).catch(() => null);
     const rendered = await writeProject(manifest, values, { existingEnv: parseEnvFile(previousEnv), devices });
     // The new ports are checked before the containers are recreated. Putting a served app on the
     // home network (every address) while Serve still holds its port on the tailnet address is the
@@ -1386,8 +1391,8 @@ export function createAppHelper({
     } catch (error) {
       let rolledBack = false;
       if (previousCompose !== null) {
-        await writeFileDurably(path.join(dirFor(id), "compose.yaml"), previousCompose, { mode: 0o600 });
-        await writeFileDurably(path.join(dirFor(id), ".env"), previousEnv, { mode: 0o600 });
+        await replaceFileWithoutFollowing(path.join(dirFor(id), "compose.yaml"), previousCompose, { mode: 0o600 });
+        await replaceFileWithoutFollowing(path.join(dirFor(id), ".env"), previousEnv, { mode: 0o600 });
         progress?.(`Reconfiguration failed: ${error.message}. Restoring previous configuration...`, "stderr");
         rolledBack = (await compose(id, ["up", "--detach", "--remove-orphans"], { timeout: 10 * 60_000, progress })).ok;
       }
@@ -1409,13 +1414,13 @@ export function createAppHelper({
     try { parsed = YAML.parse(composeText); } catch (parseError) { throw new Error(`Not valid YAML: ${parseError.message}`); }
     if (!parsed || typeof parsed !== "object" || !parsed.services || typeof parsed.services !== "object") throw new Error("The compose file must define services");
     const target = path.join(dirFor(id), "compose.yaml");
-    const previous = await readFile(target, "utf8").catch(() => null);
+    const previous = await readFileWithoutFollowing(target).catch(() => null);
     if (previous === null) throw new Error("There is no compose.yaml to edit");
     const saved = takeCheckpoint ? await checkpoint({ id, reason: "compose edit" }, { progress }) : null;
-    await writeFileDurably(target, composeText, { mode: 0o600 });
+    await replaceFileWithoutFollowing(target, composeText, { mode: 0o600 });
     const check = await compose(id, ["config", "--quiet"], { timeout: 60_000, progress });
     if (!check.ok) {
-      await writeFileDurably(target, previous, { mode: 0o600 });
+      await replaceFileWithoutFollowing(target, previous, { mode: 0o600 });
       throw new Error(`docker compose rejected the file; the previous one was restored: ${redact(check.stderr).split("\n").slice(-3).join(" ")}`);
     }
     const up = await compose(id, ["up", "--detach", "--remove-orphans"], { timeout: 15 * 60_000, progress });
@@ -1426,7 +1431,7 @@ export function createAppHelper({
       return { edited: true, id, rawEdited: true, checkpoint: saved };
     } catch (error) {
       progress?.(`Edit failed: ${error.message}. Restoring the previous compose file...`, "stderr");
-      await writeFileDurably(target, previous, { mode: 0o600 });
+      await replaceFileWithoutFollowing(target, previous, { mode: 0o600 });
       const rolledBack = (await compose(id, ["up", "--detach", "--remove-orphans"], { timeout: 10 * 60_000, progress })).ok;
       throw Object.assign(new Error(`${manifest.name} rejected the edited compose file${rolledBack ? "; the previous one was restored" : " and automatic rollback also failed"}. ${error.message}`), { rolledBack });
     }
@@ -1804,7 +1809,7 @@ export function createAppHelper({
     const homepageState = await readState("homepage");
     if (!homepageState?.installed) throw new Error("Homepage is not installed");
     const rememberedPath = path.join(dirFor("homepage"), homepageSyncFile);
-    const remembered = await readFile(rememberedPath, "utf8").then(JSON.parse).catch(() => null);
+    const remembered = await readFileWithoutFollowing(rememberedPath).then(JSON.parse).catch(() => null);
     const linkHost = host ?? remembered?.host ?? null;
     if (typeof linkHost !== "string" || !homepageHostPattern.test(linkHost)) throw new Error("A host name or address for the dashboard links is required");
     const configDirectory = path.join(dirFor("homepage"), "config");
@@ -1835,7 +1840,9 @@ export function createAppHelper({
     // Only a file that is not there (or holds nothing) is empty; anything else is left as it is.
     const leftAlone = (why) => new Error(`Homepage's services.yaml (${servicesPath}) ${why}, so it was left as it is rather than replaced with only BoxPilot's group, which would lose your own groups. Fix the file, or move it aside to start afresh, then sync again.`);
     let existing = [];
-    const text = await readFile(servicesPath, "utf8").catch((error) => { if (error.code === "ENOENT") return null; throw leftAlone(`could not be read (${error.message})`); });
+    // Homepage's config folder is its container's to write, and a restored backup's: a link here is
+    // not followed, so root never reads another file into a services.yaml the container can read.
+    const text = await readFileWithoutFollowing(servicesPath).catch((error) => { if (error.code === "ENOENT") return null; throw leftAlone(`could not be read (${error.message})`); });
     if (text !== null) {
       let parsed;
       try { parsed = YAML.parse(text); } catch (error) { throw leftAlone(`is not valid YAML (${String(error.message).split("\n")[0]})`); }
@@ -1848,9 +1855,10 @@ export function createAppHelper({
     await writeFile(pending, `# The "${homepageGroup}" group is managed by BoxPilot and rewritten on every sync; other groups are kept.\n${YAML.stringify(services)}`, { mode: 0o644 });
     // Replace in one step: a truncating write can leave torn YAML that the next sync would discard.
     await rename(pending, servicesPath);
-    const dockerPath = path.join(configDirectory, "docker.yaml");
-    try { await stat(dockerPath); } catch { await writeFile(dockerPath, "boxpilot:\n  socket: /var/run/docker.sock\n", { mode: 0o644 }); }
-    await writeFile(rememberedPath, JSON.stringify({ host: linkHost, syncedAt: clock().toISOString() }), { mode: 0o600 });
+    // Written only where nothing is: "wx" creates it exclusively, so a link the container left at
+    // that name (even one to a file that does not exist yet, /etc/nologin) is never written through.
+    await writeFile(path.join(configDirectory, "docker.yaml"), "boxpilot:\n  socket: /var/run/docker.sock\n", { mode: 0o644, flag: "wx" }).catch((error) => { if (error.code !== "EEXIST") throw error; });
+    await replaceFileWithoutFollowing(rememberedPath, JSON.stringify({ host: linkHost, syncedAt: clock().toISOString() }), { mode: 0o600 });
     progress?.(`Homepage now lists ${entries.length} installed app(s) in its ${homepageGroup} group`, "stdout");
     return { synced: true, services: entries.length, groupsKept: kept.length, host: linkHost };
   }
@@ -1912,7 +1920,7 @@ export function createAppHelper({
     // Said on disk before the app stops. A power cut or a restart mid-backup leaves the app stopped
     // by hand, which Docker's unless-stopped never undoes, and half an archive; the helper's next
     // start reads this and puts both right (resumeInterruptedBackup).
-    await writeFileDurably(interruptedBackupMarker(id), JSON.stringify({ startedAt: clock().toISOString(), partial: path.basename(partial), restart: wasRunning }), { mode: 0o600 });
+    await replaceFileWithoutFollowing(interruptedBackupMarker(id), JSON.stringify({ startedAt: clock().toISOString(), partial: path.basename(partial), restart: wasRunning }), { mode: 0o600 });
     const started = clock().getTime();
     let downtimeMs = null;
     let restartError = null;
@@ -2048,6 +2056,44 @@ export function createAppHelper({
       if (index < parts.length - 1 && (info.isSymbolicLink() || !info.isDirectory())) return "unsafe";
     }
     return "present";
+  }
+
+  /**
+   * Where a backup unpacked into `directory` has a symbolic link at a place BoxPilot writes as root,
+   * relative to `directory`, sorted: its project files and their temporary names, the folders it
+   * makes and hands to the app's user, and the folders on the way to the config files it ships.
+   * A file there that is not a regular file (a pipe, a device) is named too: every later read of it
+   * would wait or read a device.
+   *
+   * A backup is only as trustworthy as whoever last held the file, and tar puts a link wherever the
+   * archive says. One at `.env.tmp` made the restore's own rewrite of the project write `.env` over
+   * whatever it pointed at; one at `data` would have every later deploy create and chown folders
+   * through it, and Docker mount whatever it points at into the container. BoxPilot never writes a
+   * link at any of these names, so a backup it made holds none.
+   */
+  async function linksWhereBoxPilotWrites(directory, manifest) {
+    const volumes = [...manifest.volumes, ...(manifest.sidecars ?? []).flatMap((sidecar) => sidecar.volumes ?? [])].filter((volume) => volume.path).map((volume) => volume.path);
+    const shipped = keptOutOfBackup(manifest).files;
+    const found = new Set();
+    for (const relative of [...projectFileNames, ...scratchFileNames, ...volumes, ...shipped]) {
+      const parts = path.posix.normalize(relative).split("/").filter((part) => part && part !== ".");
+      let current = directory;
+      for (const [index, part] of parts.entries()) {
+        current = path.join(current, part);
+        const info = await lstat(current).catch((error) => { if (error.code === "ENOENT" || error.code === "ENOTDIR") return null; throw error; });
+        if (!info) break;
+        const name = parts.slice(0, index + 1).join("/");
+        if (info.isSymbolicLink()) { found.add(name); break; }
+        if ((projectFileNames.includes(name) || scratchFileNames.includes(name)) && !info.isFile()) { found.add(name); break; }
+      }
+    }
+    return [...found].sort();
+  }
+
+  /** Why a restore of `what` from a backup with `planted` (linksWhereBoxPilotWrites) was refused. */
+  function plantedWords(manifest, planted, what = manifest.name) {
+    const one = planted.length === 1;
+    return `${what} was not restored; nothing was changed. In this backup ${planted.join(", ")} ${one ? "is a link, or not a plain file," : "are links, or not plain files,"} where BoxPilot writes ${manifest.name}'s own files as root, which a backup BoxPilot made never holds: restored, the next change to ${manifest.name} would have written through ${one ? "it" : "them"} to somewhere else on this server.`;
   }
 
   /** Backups on disk for one app, newest first. The filesystem is the source of truth. */
@@ -2235,10 +2281,10 @@ export function createAppHelper({
    * Returns `{ rendered, values }` when it wrote the project again, and `warning` when it did not.
    */
   async function projectForThisServer(manifest, directory, archivedCompose, { progress = null } = {}) {
-    const state = await readFile(path.join(directory, "boxpilot.json"), "utf8").then(JSON.parse).catch(() => null);
+    const state = await readFileWithoutFollowing(path.join(directory, "boxpilot.json")).then(JSON.parse).catch(() => null);
     if (!state || typeof state !== "object") return { rendered: null };
     if (state.rawEdited) return { rendered: null, warning: `${manifest.name}'s compose file was edited by hand, so it was restored exactly as it was backed up. If it names an address, a device or a GPU this server does not have, ${manifest.name} will not start until it is edited again.` };
-    const existingEnv = parseEnvFile(await readFile(path.join(directory, ".env"), "utf8").catch(() => ""));
+    const existingEnv = parseEnvFile(await readFileWithoutFollowing(path.join(directory, ".env")).catch(() => ""));
     const { values, errors } = resolveValues(manifest, withSavedSecrets(manifest, sanitizeStoredValues(manifest, state.values ?? {}), existingEnv));
     if (errors.length) return { rendered: null, warning: `${manifest.name}'s settings in this backup no longer fit the catalog (${errors.join("; ")}), so its compose file was restored exactly as it was backed up.` };
     const ran = deployedImages(archivedCompose);
@@ -2247,14 +2293,18 @@ export function createAppHelper({
       image: { ...manifest.image, reference: ran[manifest.id] ?? state.image?.reference ?? manifest.image.reference },
       sidecars: (manifest.sidecars ?? []).map((sidecar) => (ran[sidecar.id] ? { ...sidecar, image: ran[sidecar.id] } : sidecar)),
     };
-    const current = await readFile(path.join(dirFor(manifest.id), "compose.yaml"), "utf8").catch(() => null);
+    const current = await readFileWithoutFollowing(path.join(dirFor(manifest.id), "compose.yaml")).catch(() => null);
     const rendered = await renderProject(pinned, values, { existingEnv, devices: composeDevices(current ?? archivedCompose) });
     // Only these two files. The folders a backup leaves out (downloaded models, a cache) and the
     // config files the manifest ships are carried over from the app folder the restore replaces,
     // and only where the unpacked backup has none: made here, empty, they stood in for the real ones.
+    // `directory` is the unpacked archive, so any of these names may be a link it planted (to
+    // /etc/cron.d/x, to BoxPilot's own code): each is removed, never followed, and the new file is
+    // created exclusively and renamed into place (replaceFileWithoutFollowing).
+    const names = [".env", "compose.yaml"];
+    for (const name of names) for (const entry of [name, `${name}.tmp`]) await rm(path.join(directory, entry), { recursive: true, force: true });
     for (const [name, content] of [[".env", rendered.envFile], ["compose.yaml", rendered.composeYaml]]) {
-      await writeFileDurably(path.join(directory, `${name}.tmp`), content, { mode: 0o600 });
-      await rename(path.join(directory, `${name}.tmp`), path.join(directory, name));
+      await replaceFileWithoutFollowing(path.join(directory, name), content, { mode: 0o600 });
     }
     if (rendered.composeYaml !== archivedCompose) progress?.(`Wrote ${manifest.name}'s compose file again from the settings in the backup, for this server's addresses and devices, on ${pinned.image.reference}`, "stdout");
     return { rendered, values };
@@ -2310,6 +2360,12 @@ export function createAppHelper({
     const warnings = [];
     try {
       await withoutSetIdBits(staged, progress);
+      // Names BoxPilot only writes under and renames away, and the marker of a backup in progress:
+      // nothing a restore brings back, and a link at one would be written through. Then refuse a
+      // backup with a link where BoxPilot writes (linksWhereBoxPilotWrites), before anything stops.
+      for (const name of scratchFileNames) await rm(path.join(staged, name), { recursive: true, force: true });
+      const planted = await linksWhereBoxPilotWrites(staged, manifest);
+      if (planted.length) throw new Error(plantedWords(manifest, planted));
       const stagedCompose = path.join(staged, "compose.yaml");
       let project = (await lstat(stagedCompose).catch(() => null))?.isFile() ? await readFile(stagedCompose, "utf8") : "";
       // Written again for this server first: the port check and `up` are of what will be started.
@@ -2355,10 +2411,14 @@ export function createAppHelper({
       for (const relative of [...carried].reverse()) await rename(path.join(live, relative), path.join(displaced, relative)).catch(() => {});
     };
     if (await lstat(displaced).then(() => true, () => false)) {
+      const linked = [];
       for (const relative of kept.all) {
         if ((await entryAt(displaced, relative)) !== "present") continue;
         const here = await entryAt(live, relative);
         if (here === "present") continue;   // an older backup that did hold it: the archive's copy stands
+        // A link there (left by a backup restored before links were refused) is not carried into the
+        // restored folder: Docker would mount, and the next deploy write through, whatever it names.
+        if ((await lstat(path.join(displaced, relative))).isSymbolicLink()) { linked.push(relative); continue; }
         try {
           if (here === "unsafe") throw new Error("a link or a file in the restored folder stands in its way");
           await placeWithoutFollowing(path.join(displaced, relative), live, relative, path.join(displaced, ".boxpilot-aside"));
@@ -2369,6 +2429,11 @@ export function createAppHelper({
         }
       }
       if (carried.length) progress?.(`Kept from the app folder, as backups leave them out: ${carried.join(", ")}`, "stdout");
+      if (linked.length) {
+        const warning = `Not kept from the app folder: ${linked.join(", ")} ${linked.length === 1 ? "is a link" : "are links"} there, and BoxPilot does not bring a link back where it writes ${manifest.name}'s files as root. What ${linked.length === 1 ? "it points" : "they point"} at is left as it is.`;
+        warnings.push(warning);
+        progress?.(warning, "stderr");
+      }
     }
     const missing = [];
     for (const relative of kept.files) if ((await entryAt(live, relative)) === "absent") missing.push(relative);
@@ -2484,6 +2549,8 @@ export function createAppHelper({
       const extract = await runCommand(tarBinary, ["-xzf", artifact, "-C", staged, relativePath], { timeout: 60 * 60_000, maxBuffer: 4 * 1024 * 1024 });
       if (!extract.ok) throw new Error(`tar extraction failed: ${extract.stderr.split("\n").slice(-2).join(" ")}. The checkpoint ${saved.artifact} holds the pre-restore state.`);
       await withoutSetIdBits(staged, progress);
+      const planted = await linksWhereBoxPilotWrites(staged, manifest);
+      if (planted.length) throw new Error(plantedWords(manifest, planted, relativePath));
       await placeWithoutFollowing(path.join(staged, relativePath), live, relativePath, path.join(staged, ".previous"));
     } catch (error) {
       failure = error;

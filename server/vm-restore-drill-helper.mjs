@@ -343,8 +343,15 @@ export function createVmRestoreDrillHelper({
     const relativeExportRoot = resolvedExportRoot.replace(/^\/+/, "");
     const restoredExport = path.join(drillDirectory, relativeExportRoot, parameters.exportId);
     if (!restoredExport.startsWith(`${drillDirectory}${path.sep}`)) throw new Error("Restored export escaped the drill workspace");
-    const directoryMetadata = await statFile(restoredExport);
-    if (!directoryMetadata.isDirectory() || directoryMetadata.isSymbolicLink()) throw new Error("Restored export is not a safe directory");
+    // Every folder the restore made on the way to the export is a real one, not only the last: a
+    // link at <drill>/var would have the drill check the host's own export, and the QEMU grant
+    // (grantQemuDiskAccess) chown and chmod whatever it points at.
+    let segmentPath = drillDirectory;
+    for (const segment of path.relative(drillDirectory, restoredExport).split(path.sep)) {
+      segmentPath = path.join(segmentPath, segment);
+      const directoryMetadata = await statFile(segmentPath);
+      if (!directoryMetadata.isDirectory() || directoryMetadata.isSymbolicLink()) throw new Error("Restored export is not a safe directory");
+    }
     const manifestPath = path.join(restoredExport, "manifest.json");
     const manifestMetadata = await statFile(manifestPath);
     if (!manifestMetadata.isFile() || manifestMetadata.isSymbolicLink() || manifestMetadata.size <= 0 || manifestMetadata.size > 1024 * 1024) throw new Error("Restored manifest is unsafe");
