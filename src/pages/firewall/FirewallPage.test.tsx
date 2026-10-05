@@ -87,6 +87,24 @@ describe("Firewall page", () => {
     await waitFor(() => expect(staged["firewall.rule.delete"]).toEqual({ parameters: { action: "allow", port: 8096, protocol: "tcp" } }));
   });
 
+  // Delete sends only action, port and protocol, which ufw reads as an incoming rule from anywhere:
+  // offered on an outgoing or source-restricted rule, it deleted another rule or failed.
+  it("offers Delete only on an incoming rule from anywhere, the rule it would delete", async () => {
+    window.history.replaceState(null, "", "/?view=firewall&tab=rules");
+    mockFetch(overview({ report: { ...report, rules: [
+      ...report.rules,
+      { action: "deny", protocol: "tcp", port: 25, app: null, direction: "out", interface: null, comment: "No outgoing mail", family: "both" },
+      { action: "allow", protocol: "tcp", port: 9000, app: null, direction: "in", interface: null, source: "192.168.1.0/24", comment: "LAN only", family: "v4" },
+    ] } }));
+    render(<FirewallPage csrfToken="csrf" now={now} />);
+    const table = await screen.findByRole("table", { name: "Firewall rules from ufw" });
+    await within(table).findByText("No outgoing mail");
+    const rows = within(table).getAllByRole("row");
+    expect(within(rows.find((row) => row.textContent?.includes("No outgoing mail")) as HTMLElement).queryByRole("button", { name: /Delete/ })).toBeNull();
+    expect(within(rows.find((row) => row.textContent?.includes("LAN only")) as HTMLElement).queryByRole("button", { name: /Delete/ })).toBeNull();
+    expect(within(table).getByRole("button", { name: "Delete allow 8096/tcp" })).toBeTruthy();
+  });
+
   it("adds a rule from a sheet, and refuses a deny on a port that stays open", async () => {
     const staged: Record<string, unknown> = {};
     window.history.replaceState(null, "", "/?view=firewall&tab=rules");
