@@ -20,9 +20,11 @@ const templateTokens = /<\|[^|<>\n]{0,64}\|>|\[\/?INST\]|<<\/?SYS>>|<\/?(?:think
 // Our own wrapper tags, escaped so data cannot close its box or open another: every box a prompt
 // puts data in, the conversation and what is remembered too (2026-10 sweep 2), and the specialists
 // a supervisor is told of, as other accounts wrote them (sweep 3). Spaces after the "<" and around
-// the "/" still make a tag to a model, so they are matched too (sweep 3).
+// the "/" still make a tag to a model, so they are matched too (sweep 3). The spaces after the "/"
+// are looked for only after a "/": `\s*\/?\s*` split a run of spaces every way there is, and "<" and
+// 64 KB of spaces in a log took over a second (sweep 5).
 export const wrapperTagNames = Object.freeze(["tool_output", "agent_note", "owner_instructions", "question", "finding", "conversation", "memory", "specialists"]);
-const wrapperTags = new RegExp(`<\\s*(\\/?)\\s*(${wrapperTagNames.join("|")})\\b`, "gi");
+const wrapperTags = new RegExp(`<\\s*(?:(\\/)\\s*)?(${wrapperTagNames.join("|")})\\b`, "gi");
 // Control characters, and the Unicode line separators and direction overrides that can hide text.
 const invisible = new RegExp("[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\u2028\u2029\u202a-\u202e\u2066-\u2069]", "g");
 // Characters that disguise a tag or split a word without showing (2026-10 sweeps 3 and 4): every
@@ -147,7 +149,7 @@ export function sanitizeUntrusted(text, { maxChars = 4_000, redact = (value) => 
   if (read.from && redact(read.plain) !== read.plain) value = redact(read.plain);
   value = value.replace(invisible, " ");
   value = replaceAsRead(value, templateTokens, (token) => `‹${token.replace(/[<>|[\]]/g, "")}›`);
-  value = replaceAsRead(value, wrapperTags, (_match, slash, name) => `&lt;${slash}${name}`);
+  value = replaceAsRead(value, wrapperTags, (_match, slash, name) => `&lt;${slash ?? ""}${name}`);
   let truncated = false;
   if (value.length > maxChars) {
     const cut = value.lastIndexOf("\n", maxChars);
@@ -198,7 +200,7 @@ export function stripWrapperBlocks(text) {
   const names = wrapperTagNames.join("|");
   const code = codeSpans(scan);
   const inCode = (index) => code.some(([start, end]) => index >= start && index < end);
-  const tags = [...scan.matchAll(new RegExp(`<(\\s*)(\\/?)\\s*(${names})\\b([^<>]*)>`, "gi"))]
+  const tags = [...scan.matchAll(new RegExp(`<(\\s*)(?:(\\/)\\s*)?(${names})\\b([^<>]*)>`, "gi"))]
     .map((match) => ({ start: match.index, end: match.index + match[0].length, spaced: match[1].length > 0, close: Boolean(match[2]), name: match[3].toLowerCase(), attributes: match[4], text: match[0] }))
     .filter((tag) => !inCode(tag.start) && (!tag.spaced || boxAttributes.test(tag.attributes)));
   const removed = [];
@@ -234,9 +236,11 @@ export function stripWrapperBlocks(text) {
   }
   // A closing tag left alone.
   for (const tag of tags) if (tag.close && !inside(tag.start)) cuts.push([tag.start, tag.end]);
-  const tidy = (words) => words.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+  // Blanks before a line end, looked for from the first blank of a run only (sweep 5: from every one,
+  // a long run of spaces with no line end after it was read again from each of its spaces).
+  const tidy = (words) => words.replace(/(?<![ \t])[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
   let value = tidy(original(read, cuts));
-  if (!value && kept.length) value = tidy(replaceAsRead(kept.join("\n\n"), new RegExp(`<\\s*\\/?\\s*(${names})\\b[^<>]*>`, "gi"), () => ""));
+  if (!value && kept.length) value = tidy(replaceAsRead(kept.join("\n\n"), new RegExp(`<\\s*(?:\\/\\s*)?(${names})\\b[^<>]*>`, "gi"), () => ""));
   return { text: value, removed };
 }
 
@@ -257,7 +261,14 @@ function codeSpans(text) {
     if (match[1][0] === open.marker[0] && match[1].length >= open.marker.length && !match[2].trim()) { spans.push([open.start, match.index + match[0].length]); open = null; }
   }
   if (open) spans.push([open.start, text.length]);
-  const fenced = (index) => spans.some(([start, end]) => index >= start && index < end);
+  // Inline code is found in order and never inside other inline code, so only the fences matter, and
+  // each is passed once (sweep 5: every span found so far was checked for each, quadratic in spans).
+  const fences = spans.length;
+  let fence = 0;
+  const fenced = (index) => {
+    while (fence < fences && spans[fence][1] <= index) fence += 1;
+    return fence < fences && spans[fence][0] <= index;
+  };
   for (const match of text.matchAll(/(?<!`)(`+)(?!`)(.+?)(?<!`)\1(?!`)/g)) if (!fenced(match.index)) spans.push([match.index, match.index + match[0].length]);
   return spans;
 }
