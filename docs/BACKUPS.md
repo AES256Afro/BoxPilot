@@ -62,6 +62,17 @@ All of it is root-only. Nothing is world-readable, and no archive is served over
 - **An app**: its card offers each recorded backup; restoring stops the app, replaces the volumes,
   and starts it again.
 - **Apps and their data**: *Backups → Restore from a machine snapshot* reinstalls the apps with their saved settings and secrets, then restores each one's newest data archive. Network, firewall, fstab, VM definitions and the database copy are unpacked beside the snapshot for you to review and apply yourself. They are never applied for you.
+- **What a backup may bring with it**: a restore normally writes the app's compose file again from
+  the catalog and the backup's saved settings. A compose file you edited by hand (or one whose
+  settings are missing or no longer fit the catalog) is started exactly as it was backed up, and a
+  backup is only as trustworthy as whoever last held the drive. Before such a restore, the dialog
+  lists every setting in that file that gives the app more than the catalog does (privileged,
+  server folders such as `/` or Docker's socket, devices, capabilities, the host's network or
+  processes, confinement turned off, another image, an extra service), and the restore goes ahead
+  only once you allow exactly that file, typing `allow <app>`. A file this server already runs needs
+  nothing. Data folders a backup's settings name must pass what an install checks (no `..`, no
+  system location, no link on the way), named pipes and sockets in a backup are left out with a
+  warning, and the app's own project files are never restored as links, hard links included.
 - **The database alone**: see the [controller recovery runbook](CONTROLLER-BACKUPS.md), which is
   the procedure to follow when BoxPilot itself will not start.
 

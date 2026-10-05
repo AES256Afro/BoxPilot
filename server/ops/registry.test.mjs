@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { OperationRegistry, budgetFor, createRegistry, defineOperation, maskSecrets, moreTimeCeilingMs, nextBudgetMs, placeholderPaths, rerunsAfterInterrupt, restoreSecrets, secretPaths, secretPlaceholder, splitSecrets, validateParameters } from "./registry.mjs";
+import { OperationRegistry, budgetFor, confirmTextFor, createRegistry, defineOperation, maskSecrets, moreTimeCeilingMs, nextBudgetMs, placeholderPaths, rerunsAfterInterrupt, restoreSecrets, secretPaths, secretPlaceholder, splitSecrets, validateParameters } from "./registry.mjs";
 import { registry } from "./index.mjs";
 import { helperOperations, legacyHelperOperations, validateHelperRequest } from "../helper-protocol.mjs";
 
@@ -186,6 +186,21 @@ describe("more time for an operation that ran out of it (M30.3)", () => {
     const offered = registry.list().filter((operation) => operation.maxTimeoutMs).map((operation) => operation.id).sort();
     expect(offered).toEqual(["agents.model.download", "agents.runtime.install", "app.install", "app.model.pull", "app.reinstall", "app.rollback", "app.update"]);
     for (const id of offered) expect(registry.get(id).maxTimeoutMs).toBe(registry.get(id).timeoutMs * 4);
+  });
+});
+
+// Sweep 4: a typed confirmation some requests ask for and others do not, said as such.
+describe("a typed confirmation for some requests", () => {
+  it("is said by a clause, and only for an operation with a confirm", () => {
+    const sometimes = defineOperation({ id: "a.b", title: "x", risk: "high", confirm: (parameters) => (parameters.allow ? "allow" : null), confirmWhen: "it allows something", run() {} });
+    expect(sometimes.confirmWhen).toBe("it allows something");
+    expect(confirmTextFor(sometimes, {})).toBeNull();
+    expect(confirmTextFor(sometimes, { allow: true })).toBe("allow");
+    expect(confirmTextFor(defineOperation({ id: "a.c", title: "x", risk: "high", confirm: () => { throw new Error("x"); }, run() {} }), {})).toBeNull();
+    expect(confirmTextFor(null, {})).toBeNull();
+    expect(() => defineOperation({ id: "a.b", title: "x", risk: "high", confirmWhen: "it allows something", run() {} })).toThrow("confirmWhen");
+    expect(() => defineOperation({ id: "a.b", title: "x", risk: "high", confirm: () => "x", confirmWhen: "", run() {} })).toThrow("confirmWhen");
+    expect(registry.get("app.backup.restore").confirmWhen).toMatch(/compose file/);
   });
 });
 

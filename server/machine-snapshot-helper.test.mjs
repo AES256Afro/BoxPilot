@@ -834,3 +834,82 @@ describe("an app's data archive copied in for a restore", () => {
     expect(again.warnings).toBeUndefined();
   });
 });
+
+// Sweep 4: a snapshot restore asks the deployer what each app's data archive would start, and the
+// data folders its settings name, and refuses before it changes anything when an archive's compose
+// file needs allowing and was not, or cannot be allowed at all. The data restore checks again what
+// it actually unpacks (app-helper composeGate).
+describe("what a snapshot restore's data archives would start", () => {
+  const hash = "b".repeat(64);
+  const powerful = { id: "uptime-kuma", verbatim: true, reason: "edited", findings: [{ service: "uptime-kuma", setting: "privileged", value: "true", detail: "runs privileged: every device and capability, no confinement - root on this server", system: true }], refusals: [], sha256: hash, sameAsRunning: false, needsAllow: true };
+  function reviewing(paths, review, { problems = [] } = {}) {
+    const calls = { install: 0, restored: [], reviewed: [], folders: [] };
+    return {
+      calls,
+      internals: { readState: async (id) => readFile(path.join(paths.catalogRoot, id, "boxpilot.json"), "utf8").then(JSON.parse).catch(() => null) },
+      reviewArchive: async ({ id, archive }) => { calls.reviewed.push([id, path.basename(archive)]); return review; },
+      dataFoldersRefused: async ({ id, values }) => { calls.folders.push([id, values]); return problems; },
+      install: async ({ id }) => { calls.install += 1; await writeFile(path.join(paths.catalogRoot, id, "boxpilot.json"), JSON.stringify({ id, installed: true })); return { installed: true, id }; },
+      restoreAppBackup: async (parameters) => { calls.restored.push(parameters); return { restored: true }; },
+    };
+  }
+  /** A snapshot of the fixture's app with one data archive, restored onto a server without the app. */
+  async function snapshotted() {
+    const { helper, paths } = await fixture();
+    const created = await helper.create({ snapshotId });
+    await rm(path.join(paths.catalogRoot, "uptime-kuma"), { recursive: true, force: true });
+    return { helper, paths, artifact: created.artifact };
+  }
+
+  it("says, per app, what its data archive would start", async () => {
+    const { helper, paths, artifact } = await snapshotted();
+    const apps = reviewing(paths, powerful);
+    const described = await helper.describe({ source: "local", artifact }, { apps });
+    expect(described.apps).toEqual([expect.objectContaining({ id: "uptime-kuma", dataArchive: "20260816T030000Z.tar.gz", compose: powerful })]);
+    expect(apps.calls.reviewed).toEqual([["uptime-kuma", "20260816T030000Z.tar.gz"]]);
+    // Without a deployer to ask, as before.
+    expect((await helper.describe({ source: "local", artifact })).apps[0].compose).toBeUndefined();
+  });
+
+  it("refuses before it changes anything when an archive's compose file was not allowed", async () => {
+    for (const allowCompose of [null, { "uptime-kuma": "c".repeat(64) }]) {
+      const { helper, paths, artifact } = await snapshotted();
+      const apps = reviewing(paths, powerful);
+      await expect(helper.restore({ source: "local", artifact, apps: ["uptime-kuma"], ...(allowCompose ? { allowCompose } : {}) }, { apps }))
+        .rejects.toThrow(`The snapshot was not restored; nothing was changed. uptime-kuma: its data archive's compose file would be started exactly as it was backed up, and gives it more than the catalog does: uptime-kuma: runs privileged: every device and capability, no confinement - root on this server (compose sha256 ${hash}). Allow these settings in the restore dialog`);
+      expect(apps.calls.install).toBe(0);
+      await expect(stat(path.join(paths.catalogRoot, "uptime-kuma"))).rejects.toMatchObject({ code: "ENOENT" });
+    }
+  });
+
+  it("restores with exactly the file allowed, and hands the allowance to the data restore", async () => {
+    const { helper, paths, artifact } = await snapshotted();
+    const apps = reviewing(paths, powerful);
+    const result = await helper.restore({ source: "local", artifact, apps: ["uptime-kuma"], allowCompose: { "uptime-kuma": hash } }, { apps });
+    expect(result.apps).toEqual([expect.objectContaining({ id: "uptime-kuma", installed: true, dataRestored: true, error: null })]);
+    expect(apps.calls.restored).toEqual([{ id: "uptime-kuma", backup: "20260816T030000Z.tar.gz", allowCompose: hash }]);
+  });
+
+  it("refuses what cannot be allowed at all, and data folders an install would refuse", async () => {
+    for (const [review, problems, words] of [
+      [{ ...powerful, needsAllow: false, findings: [], refusals: ["the file pulls in other compose files, whose settings BoxPilot cannot see from here"] }, [], "uptime-kuma: the file pulls in other compose files"],
+      [{ ...powerful, needsAllow: false, findings: [] }, ["Media folder is set to \"/etc\", which points at a protected system location"], "uptime-kuma: its settings point it at data folders an install would refuse: Media folder is set to \"/etc\""],
+    ]) {
+      const { helper, paths, artifact } = await snapshotted();
+      const apps = reviewing(paths, review, { problems });
+      await expect(helper.restore({ source: "local", artifact, apps: ["uptime-kuma"], allowCompose: { "uptime-kuma": hash } }, { apps })).rejects.toThrow(words);
+      expect(apps.calls.install).toBe(0);
+    }
+  });
+
+  it("asks nothing of an archive that is written again from the catalog, or of a restore without data", async () => {
+    const { helper, paths, artifact } = await snapshotted();
+    const apps = reviewing(paths, { ...powerful, verbatim: false, needsAllow: false, sha256: null, findings: [] });
+    await helper.restore({ source: "local", artifact, apps: ["uptime-kuma"] }, { apps });
+    expect(apps.calls.restored).toEqual([{ id: "uptime-kuma", backup: "20260816T030000Z.tar.gz" }]);
+    const again = await snapshotted();
+    const without = reviewing(again.paths, powerful);
+    await expect(again.helper.restore({ source: "local", artifact: again.artifact, apps: ["uptime-kuma"], restoreData: false }, { apps: without })).resolves.toMatchObject({ restored: 1 });
+    expect(without.calls.reviewed).toEqual([]);
+  });
+});

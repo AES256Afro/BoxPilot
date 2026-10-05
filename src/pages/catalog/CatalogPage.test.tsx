@@ -864,6 +864,69 @@ describe("App catalog: backups", () => {
     expect(within(sheet).getByRole("button", { name: /^Delete / }).getAttribute("data-risk")).toBe("medium");
   });
 
+  // Sweep 4: a whole restore asks the server first what the backup would start. A compose file
+  // started exactly as it was backed up, giving the app more than the catalog does, is listed in the
+  // dialog and staged allowing exactly that file, with the typed confirmation the server asks for;
+  // one that cannot be restored at all says why, and nothing is staged.
+  it("shows what a backup's compose file would hand the app, and stages the restore allowing exactly it", async () => {
+    const hash = "d".repeat(64);
+    const review = { id: "jellyfin", backup: backup.artifact, verbatim: true, reason: "edited", findings: [{ service: "jellyfin", setting: "privileged", value: "true", detail: "runs privileged: every device and capability, no confinement - root on this server", system: true }], refusals: [], sha256: hash, sameAsRunning: false, needsAllow: true };
+    const staged: string[] = [];
+    withBackups([backup], (url, init) => {
+      if (url.endsWith("/operations/app.backup.review/run")) return json({ operation: "app.backup.review", result: review });
+      if (url.endsWith("/operations/app.backup.restore/jobs")) {
+        staged.push(init?.body as string);
+        return json({ job: { id: "job-restore", type: "op:app.backup.restore", title: "restore", state: "awaiting_approval", risk: "high", error: null, result: null, steps: [], approvals: [] }, approval: { tier: "high", passwordRequired: true, elevated: false, mode: "tiered", reason: "high", confirmText: "allow jellyfin" } }, 201);
+      }
+      return undefined;
+    });
+    render(<CatalogPage csrfToken="csrf-token" />);
+    const sheet = await openApp("Jellyfin");
+    fireEvent.click(within(sheet).getByRole("tab", { name: "Backups" }));
+    await within(sheet).findByText("under a second");
+    fireEvent.click(within(sheet).getByRole("button", { name: /^Restore / }));
+    expect(await screen.findByText("Jellyfin's compose file would start exactly as it was backed up")).toBeTruthy();
+    expect(screen.getByText(/runs privileged: every device and capability/)).toBeTruthy();
+    expect(await screen.findByText("Typed confirmation")).toBeTruthy();
+    expect(screen.getByText("allow jellyfin")).toBeTruthy();
+    expect(JSON.parse(staged[0] ?? "{}")).toEqual({ parameters: { id: "jellyfin", backup: "20260816T030000Z.tar.gz", allowCompose: hash } });
+  });
+
+  it("says why a backup cannot be restored, and stages nothing", async () => {
+    const review = { id: "jellyfin", backup: backup.artifact, verbatim: true, reason: "edited", findings: [], refusals: ["Media folder is set to \"/etc\", which points at a protected system location"], sha256: null, sameAsRunning: false, needsAllow: false };
+    const staged: string[] = [];
+    withBackups([backup], (url, init) => {
+      if (url.endsWith("/operations/app.backup.review/run")) return json({ operation: "app.backup.review", result: review });
+      if (url.endsWith("/operations/app.backup.restore/jobs")) { staged.push(init?.body as string); return stagedJob("app.backup.restore", "high", true); }
+      return undefined;
+    });
+    render(<CatalogPage csrfToken="csrf-token" />);
+    const sheet = await openApp("Jellyfin");
+    fireEvent.click(within(sheet).getByRole("tab", { name: "Backups" }));
+    await within(sheet).findByText("under a second");
+    fireEvent.click(within(sheet).getByRole("button", { name: /^Restore / }));
+    expect(await within(sheet).findByText(/^Jellyfin cannot be restored from /)).toBeTruthy();
+    expect(within(sheet).getByText(/points at a protected system location/)).toBeTruthy();
+    expect(staged).toEqual([]);
+  });
+
+  it("restores as before when the backup's compose file is written again from the catalog", async () => {
+    const staged: string[] = [];
+    withBackups([backup], (url, init) => {
+      if (url.endsWith("/operations/app.backup.review/run")) return json({ operation: "app.backup.review", result: { id: "jellyfin", verbatim: false, reason: null, findings: [], refusals: [], sha256: null, sameAsRunning: false, needsAllow: false } });
+      if (url.endsWith("/operations/app.backup.restore/jobs")) { staged.push(init?.body as string); return stagedJob("app.backup.restore", "high", true); }
+      return undefined;
+    });
+    render(<CatalogPage csrfToken="csrf-token" />);
+    const sheet = await openApp("Jellyfin");
+    fireEvent.click(within(sheet).getByRole("tab", { name: "Backups" }));
+    await within(sheet).findByText("under a second");
+    fireEvent.click(within(sheet).getByRole("button", { name: /^Restore / }));
+    expect(await screen.findByText("High risk")).toBeTruthy();
+    expect(screen.queryByText(/compose file would start exactly as it was backed up/)).toBeNull();
+    expect(JSON.parse(staged[0] ?? "{}")).toEqual({ parameters: { id: "jellyfin", backup: "20260816T030000Z.tar.gz" } });
+  });
+
   it("reports a refused rehearsal schedule and blocks a second click while it is out", async () => {
     let answer!: (response: Response) => void;
     let posts = 0;

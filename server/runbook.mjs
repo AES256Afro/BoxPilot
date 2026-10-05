@@ -79,7 +79,8 @@ export function formatBytes(bytes) {
 export function approvalFor(operation) {
   if (!operation) return "not available in this BoxPilot";
   if (operation.readOnly) return operation.minimumRole === "operator" ? "a read, for an operator or the owner" : operation.minimumRole === "owner" ? "a read, for the owner" : "a read";
-  const how = { low: "low risk, one click", medium: "medium risk, one confirmation", high: `high risk, the owner's password${operation.confirm ? " and a typed confirmation" : ""}` }[operation.risk] ?? `${clean(operation.risk)} risk`;
+  const typed = operation.confirm ? (operation.confirmWhen ? ` and, when ${clean(operation.confirmWhen)}, a typed confirmation` : " and a typed confirmation") : "";
+  const how = { low: "low risk, one click", medium: "medium risk, one confirmation", high: `high risk, the owner's password${typed}` }[operation.risk] ?? `${clean(operation.risk)} risk`;
   return operation.minimumRole === "owner" && operation.risk !== "high" ? `${how}, owner only` : how;
 }
 

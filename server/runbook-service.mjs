@@ -121,7 +121,7 @@ export function createRunbookService({
 
   const describeOperation = (id) => {
     const operation = registry.get(id);
-    return operation ? { title: operation.title, risk: operation.risk, readOnly: operation.readOnly, minimumRole: operation.minimumRole, confirm: Boolean(operation.confirm) } : null;
+    return operation ? { title: operation.title, risk: operation.risk, readOnly: operation.readOnly, minimumRole: operation.minimumRole, confirm: Boolean(operation.confirm), confirmWhen: operation.confirmWhen ?? null } : null;
   };
 
   async function schedulesAndFlows() {
