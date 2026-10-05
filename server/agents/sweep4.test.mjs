@@ -304,21 +304,22 @@ describe("R4S3-2, R4B1-8: every note a flagged run keeps is flagged, and the own
     expect(runs[0].flags.injectionHop).toBeUndefined();
     const readings = h.store.listNotes(watch.id).find((note) => note.title === "Readings");
     expect(readings.source).toMatchObject({ injection: true, injectionHop: 1 });
-    // Told once of each note - the first run of the original, the second of the copy - and the trace names them.
-    expect(warnedOf(watch)).toHaveLength(2);
+    // Told once, by the first run, of the note the flag came from; the copy says it came from there
+    // (sweep 5: it was news of its own), and the trace names them both.
+    expect(readings.source.injectionFrom).toEqual([`note:${original.id}`]);
+    expect(warnedOf(watch)).toHaveLength(1);
     expect(warnedOf(watch)[0].message).toContain("\"What the logs said\"");
-    expect(warnedOf(watch)[1].message).toContain("\"Readings\"");
-    expect(warnedOf(watch)[1].message).toMatch(/trust or forget it on the Memory tab/);
-    expect(cards(watch)).toHaveLength(2);
+    expect(cards(watch)).toHaveLength(1);
     expect(h.service.getRun(h.caller("owner"), runs[2].id).steps.find((step) => step.kind === "system" && step.name === "injection").output).toMatch(/"What the logs said".*"Readings"|"Readings".*"What the logs said"/);
 
-    // The note the words came from, forgotten: the copy still carries them, and the flag. (The next
-    // day: the Storage Watch runs four times a day.)
+    // The note the words came from, forgotten: the copy still carries them, and the flag - news once
+    // more, of the copy. (The next day: the Storage Watch runs four times a day.)
     h.service.forgetMemory(h.caller("owner"), watch.id, { kind: "note", id: original.id });
     h.advance(86_400_000);
-    ask(watch, "owner", "Any news on the drives?");
-    expect((await h.runNext()).flags.injection).toBe(true);
+    for (let count = 0; count < 2; count += 1) { ask(watch, "owner", "Any news on the drives?"); expect((await h.runNext()).flags.injection).toBe(true); }
     expect(warnedOf(watch)).toHaveLength(2);
+    expect(warnedOf(watch)[1].message).toContain("\"Readings\"");
+    expect(warnedOf(watch)[1].message).toMatch(/trust or forget it on the Memory tab/);
     expect(h.store.listNotes(watch.id).every((note) => note.source.injection)).toBe(true);
 
     // Trusted by the owner, it is clean, and told of again only if it is flagged again.
@@ -347,7 +348,8 @@ describe("R4S3-2, R4B1-8: every note a flagged run keeps is flagged, and the own
     expect(h.store.getRun(claim.run.id).flags.injection).toBe(true);
     expect(h.store.getRun(claim.run.id).flags.injectionHop).toBeUndefined();
     await call(claim, "notes_write", { title: "Resolver speed", body: "The upstream resolver answers in 14 ms." });
-    expect(h.store.listNotes(keeper.id).find((note) => note.title === "Resolver speed").source).toMatchObject({ injection: true, injectionHop: 1 });
+    // Past the last hop: flagged for the keeper's own runs, and no other agent's (sweep 5).
+    expect(h.store.listNotes(keeper.id).find((note) => note.title === "Resolver speed").source).toMatchObject({ injection: true, injectionHop: 2 });
     await h.service.runnerFinish(claim.run.id, claim.lease, { outcome: "completed", answer: "Done." });
   });
 });

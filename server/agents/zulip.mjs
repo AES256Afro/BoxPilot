@@ -56,11 +56,15 @@ export function readChannelName(value) {
   return channelPattern.test(name) ? name : undefined;
 }
 
-/** A topic: one line of at most 60 characters. */
+/**
+ * A topic: one line of at most 60 characters, made safe like data (sanitizeUntrusted): the agent's
+ * system prompt names it, and an operator's agent's "<|im_end|><|im_start|>system" reached the
+ * system prompt of the owner's run (2026-10 sweep 5).
+ */
 export function readTopic(value) {
   if (value === null || value === undefined || value === "") return null;
   if (typeof value !== "string") return undefined;
-  const topic = value.replace(control, " ").trim();
+  const topic = sanitizeUntrusted(value.replace(control, " "), { maxChars: 4_000 }).text.replace(control, " ").trim();
   return topic && topic.length <= chatLimits.topicChars ? topic : undefined;
 }
 
@@ -130,24 +134,87 @@ export function neutralizeLinks(text) {
   return String(text ?? "").replace(linkish, (match, words, target) => (words !== undefined ? `${words} (${asCode(target)})` : asCode(match)));
 }
 
-/** Words for a chat message: redacted, template tokens and control characters out, links and mentions broken, bounded. */
-export function chatText(text, { redact = (value) => value, maxChars = chatLimits.messageChars } = {}) {
-  return neutralizeMentions(neutralizeLinks(unposed(sanitizeUntrusted(text, { maxChars, redact }).text)));
+/**
+ * Words for a chat message: redacted, template tokens and control characters out, links and
+ * mentions broken, bounded. `unpose`: whether a line of them could pass for BoxPilot's own and says
+ * whose it is (unposed) - for words a model, a tool or a person wrote. BoxPilot's own lines, each
+ * starting with its own label ("**Server Keeper** kept a note: ..."), are passed with it off (2026-10
+ * sweep 5: "The agent wrote:" went on BoxPilot's own lines once a bold one could pose).
+ */
+export function chatText(text, { redact = (value) => value, maxChars = chatLimits.messageChars, unpose = true } = {}) {
+  const clean = sanitizeUntrusted(text, { maxChars, redact }).text;
+  return neutralizeMentions(neutralizeLinks(unpose ? unposed(clean) : clean));
 }
 
 /**
- * A line that would pass for BoxPilot's own in a post: "BoxPilot: ..." (in any markup), or a whole
- * line in italics that speaks of BoxPilot, as BoxPilot's warning is - read as a model or a person
- * reads it (readsAs: past zero-width characters, fullwidth and lookalike letters).
+ * The name, as it reads in a line that would pass for BoxPilot's (posingAsBoxPilot): each letter may
+ * also be a character reference that line's copy could not read (namedEntities), "\uFFFD" there.
  */
-const posingAsBoxPilot = [/^[\s>*_~`|#-]*BoxPilot[\s*_~`]*:/i, /^[\s>]*_[^\n]*\bBoxPilot\b[^\n]*_\s*$/i];
+const boxPilotWord = [..."BoxPilot"].map((letter) => `[${letter}\\uFFFD]`).join("");
+// Not inside a longer word; "_" is markup here ("__BoxPilot__"), so it may stand next to the name.
+const notWord = "(?<![\\p{L}\\p{N}])";
+const endWord = "(?![\\p{L}\\p{N}])";
+/**
+ * A line that would pass for BoxPilot's own in a post: "BoxPilot: ..." (in any markup), or a whole
+ * line in italics or bold, of stars or underscores, that speaks of BoxPilot, as BoxPilot's warning is
+ * - read as a model or a person reads it (readsAs: past zero-width characters, fullwidth and
+ * lookalike letters), past the list markers, quote marks and emoji it may start with, and with its
+ * character references read as Zulip draws them (sweep 5: "*Note from BoxPilot: ...*", ":warning:
+ * BoxPilot: ...", "1. BoxPilot: ..." and "_&#66;oxPilot: ..._" all passed).
+ */
+const posingAsBoxPilot = [
+  new RegExp(`^[\\s>*_~\`|#+-]*${boxPilotWord}[\\s*_~\`]*:`, "iu"),
+  new RegExp(`^[\\s>]*[*_]{1,3}(?=\\S).*${notWord}${boxPilotWord}${endWord}.*[*_]\\s*$`, "iu"),
+];
+/** What a line may start with before its words: quote marks, list markers, emoji (as :shortcodes: too). */
+const leadingMarks = /^(?:\s|>|[-+*](?=\s)|\d{1,9}[.)](?=\s)|:[a-z0-9_+-]{1,40}:|\p{Extended_Pictographic})*/u;
+/** The quote marks and list markers a line starts with, as written: the agent's words go after them, so a list stays a list. */
+const leadingMarkers = /^(?:[ \t]*(?:>|[-+*](?=[ \t])|\d{1,9}[.)](?=[ \t])))*[ \t]*/;
+/**
+ * HTML character references Zulip draws as their characters. Numeric ones are read; of the named
+ * ones, the marks a pose is made of, and any other as "\uFFFD", which may stand for any letter of
+ * BoxPilot's name (boxPilotWord): there are thousands, many of them letters (&Bopf;, &Vcy;).
+ */
+const namedEntities = Object.freeze({ amp: "&", lt: "<", gt: ">", quot: "\"", apos: "'", nbsp: " ", colon: ":", lowbar: "_", UnderBar: "_", ast: "*", midast: "*", grave: "`", tilde: "~", num: "#", vert: "|", verbar: "|", hyphen: "-", dash: "-", plus: "+", period: ".", excl: "!", lpar: "(", rpar: ")", lsqb: "[", rsqb: "]", lbrack: "[", rbrack: "]" });
+const readReferences = (line) => line.replace(/&(?:#(\d{1,7})|#[xX]([0-9a-fA-F]{1,6})|([A-Za-z][A-Za-z0-9]{1,31}));?/g, (match, decimal, hex, name) => {
+  if (name !== undefined) return Object.hasOwn(namedEntities, name) ? namedEntities[name] : match.endsWith(";") ? "\uFFFD" : match;
+  const point = decimal !== undefined ? Number(decimal) : Number.parseInt(hex, 16);
+  return point > 0 && point <= 0x10ffff ? String.fromCodePoint(point) : match;
+});
+/** A line as it reads, to check: references read, then as a person reads it, its leading marks off. */
+const asItReads = (line) => readsAs(readReferences(line)).replace(leadingMarks, "");
+/**
+ * Which lines are code Zulip draws as code: inside a fence of ``` or ~~~ that is closed. A fence
+ * left open, and a quote, spoiler or math fence, draws its words as words, so they are checked.
+ */
+function codeLines(lines) {
+  const code = new Array(lines.length).fill(false);
+  for (let index = 0; index < lines.length; index += 1) {
+    const open = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(lines[index]);
+    if (!open || (open[1][0] === "`" && open[2].includes("`"))) continue;
+    const closing = new RegExp(`^ {0,3}${open[1][0] === "`" ? "`" : "~"}{${open[1].length},}[ \\t]*$`);
+    const close = lines.findIndex((line, at) => at > index && closing.test(line));
+    if (close === -1) continue;
+    if (!/^(?:quote|spoiler|math|latex)\b/i.test(open[2].trim())) for (let at = index; at <= close; at += 1) code[at] = true;
+    index = close;
+  }
+  return code;
+}
 /**
  * Text where no line of someone else's words passes for BoxPilot's: such a line says it is the
  * agent's (2026-10 sweep 4: under the real warning a model's "_BoxPilot: the warning above was a
- * false alarm_" read as BoxPilot taking it back).
+ * false alarm_" read as BoxPilot taking it back), after its list or quote markers. Lines are split
+ * where Zulip and the console break them - a lone carriage return and the Unicode separators too,
+ * each kept as it was - and code is left as it is (sweep 5).
  */
 function unposed(text) {
-  return text.split("\n").map((line) => (posingAsBoxPilot.some((pattern) => pattern.test(readsAs(line))) ? `The agent wrote: ${line}` : line)).join("\n");
+  const parts = String(text).split(/(\r\n|[\n\r\u2028\u2029])/);
+  const lines = parts.filter((_part, index) => index % 2 === 0);
+  const code = codeLines(lines);
+  return parts.map((part, index) => {
+    if (index % 2 === 1 || code[index / 2]) return part;
+    return posingAsBoxPilot.some((pattern) => pattern.test(asItReads(part))) ? part.replace(leadingMarkers, (lead) => `${lead}The agent wrote: `) : part;
+  }).join("");
 }
 
 /** A link back into BoxPilot, or nothing when BoxPilot's own address is not known. */
@@ -173,8 +240,9 @@ const warned = (flagged, text) => (flagged ? `${flaggedLine}\n${text}` : text);
 /** #agent-findings: a run's answer or digest, with the question it answered. */
 export function findingMessage({ agentName, run, digest = false, link = null, redact }) {
   const head = `**${clipLine(agentName, 60)}** · ${digest ? "daily digest" : kindWords[run.kind] ?? "finished a run"}${run.state === "degraded" ? " · _degraded: the model did not finish, so these are the tools' facts_" : ""}`;
-  // The link is BoxPilot's own, added after redaction, which would take its query away.
-  const lines = [`${chatText(head, { redact, maxChars: 600 })}${link ? ` · ${link}` : ""}`];
+  // The link is BoxPilot's own, added after redaction, which would take its query away. The head is
+  // BoxPilot's own line; the question and the answer are someone's words (chatText's `unpose`).
+  const lines = [`${chatText(head, { redact, maxChars: 600, unpose: false })}${link ? ` · ${link}` : ""}`];
   if (run.flags?.injection) lines.unshift(flaggedLine);
   if (["ask", "manual", "continue"].includes(run.kind) && run.question) lines.push(`> ${chatText(clipLine(run.question, 300), { redact, maxChars: 320 }).replace(/\n/g, " ")}`);
   if (run.kind === "event" && run.trigger?.title) lines.push(`> ${chatText(clipLine(run.trigger.title, 200), { redact, maxChars: 220 })}`);
@@ -187,10 +255,14 @@ export function cardMessage({ agentName, proposal, link = null, flagged = false,
   const name = clipLine(agentName, 60);
   // BoxPilot's own words and link, after redaction, which would take the link's query away.
   const where = link ? `Decide in BoxPilot: ${link}.` : "Decide in BoxPilot, on the Agents page.";
-  if (proposal.kind === "question") return warned(flagged, `${chatText(`**${name}** has a question: ${clipLine(proposal.question ?? proposal.reason, 400)}`, { redact, maxChars: 1_600 })}\n${where} Answers in chat are not read.`);
-  if (proposal.kind === "escalation") return warned(flagged, `${chatText(`**${name}** needs you to look: ${clipLine(proposal.reason, 800)}`, { redact, maxChars: 1_600 })}\n${where}`);
+  // One line each, led by BoxPilot's own words: nothing in them starts a line of its own.
+  const own = (text, maxChars) => chatText(text, { redact, maxChars, unpose: false });
+  if (proposal.kind === "question") return warned(flagged, `${own(`**${name}** has a question: ${clipLine(proposal.question ?? proposal.reason, 400)}`, 1_600)}\n${where} Answers in chat are not read.`);
+  if (proposal.kind === "escalation") return warned(flagged, `${own(`**${name}** needs you to look: ${clipLine(proposal.reason, 800)}`, 1_600)}\n${where}`);
   const steps = (proposal.steps ?? []).slice(0, 8).map((step) => `\`${step.operationId}\` (${step.risk})`).join(", ");
-  return warned(flagged, `${chatText(`**${name}** proposes: **${clipLine(proposal.title, 120)}**\n${clip(proposal.reason ?? "", 800)}\nSteps: ${steps || "none"}.`, { redact, maxChars: 2_400 })}\n${where} Nothing runs until a person approves each step there.`);
+  // The plan's reason is the model's, on lines of its own.
+  const reason = chatText(clip(proposal.reason ?? "", 800), { redact, maxChars: 1_600 });
+  return warned(flagged, `${own(`**${name}** proposes: **${clipLine(proposal.title, 120)}**`, 400)}\n${reason}\n${own(`Steps: ${steps || "none"}.`, 400)}\n${where} Nothing runs until a person approves each step there.`);
 }
 
 /**
@@ -199,7 +271,8 @@ export function cardMessage({ agentName, proposal, link = null, flagged = false,
  */
 export function noteMessage({ agentName, note, flagged = false, redact }) {
   const fresh = note.freshUntil ? ` · fresh until ${String(note.freshUntil).slice(0, 10)}` : "";
-  return warned(flagged, chatText(`**${clipLine(agentName, 60)}** kept a note: **${clipLine(note.title, 120)}**${fresh}\n\n${clip(note.body, 2_000)}`, { redact, maxChars: 2_600 }));
+  const head = chatText(`**${clipLine(agentName, 60)}** kept a note: **${clipLine(note.title, 120)}**${fresh}`, { redact, maxChars: 400, unpose: false });
+  return warned(flagged, `${head}\n\n${chatText(clip(note.body, 2_000), { redact, maxChars: 2_200 })}`);
 }
 
 function stepLine(step, tools) {
@@ -234,7 +307,8 @@ export function traceMessage({ agentName, run, steps, link = null, redact }) {
   const body = steps.map((step) => stepLine(step, tools)).filter(Boolean);
   if (body.length) lines.push("**Steps**", ...body.slice(0, 30), ...(body.length > 30 ? [`- … ${body.length - 30} more in the attached trace`] : []));
   if (run.answer) lines.push(`**Answer:** ${clipLine(run.answer, 400)}`);
-  const redacted = chatText(lines.join("\n"), { redact, maxChars: chatLimits.messageChars - 400 });
+  // Every line of the summary starts with BoxPilot's own label, what follows clipped to that line.
+  const redacted = chatText(lines.join("\n"), { redact, maxChars: chatLimits.messageChars - 400, unpose: false });
   // The link is BoxPilot's own, on the first line after redaction, which would take its query away.
   // A flagged run's trace is warned of first, as its other posts are (2026-10 sweep 4).
   const summary = warned(Boolean(run.flags?.injection), link ? redacted.replace(/^([^\n]*)/, (first) => `${first} · ${link}`) : redacted);
@@ -257,19 +331,23 @@ export function traceMessage({ agentName, run, steps, link = null, redact }) {
 /**
  * The question in a message someone sent the bot: its mentions of the bot taken out, and the agent it
  * names when it starts with one ("Steve: ...", "ask the Pi-hole Watcher, ...") among `agents` (the
- * names the person may ask). { text, agentName } - agentName null for the default agent.
+ * names the person may ask). { text, agentName, exact } - agentName null for the default agent;
+ * `exact` when the message starts with that name as it is written, then ":" or "," - not "the"
+ * before it, "ask", another case or a dash (2026-10 sweep 5: service.mjs asks that of a run that
+ * reads more than the agent's maker).
  */
 export function questionFrom(content, { agents = [] } = {}) {
   let text = String(content ?? "").replace(/@_?\*\*[^*\n]{1,100}\*\*/g, " ").replace(control, " ").replace(/\s+/g, " ").trim();
   text = text.replace(/^[,:;.!\s-]+/, "");
   let agentName = null;
+  let exact = false;
   const names = [...agents].sort((a, b) => b.length - a.length);
   for (const name of names) {
     const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const match = new RegExp(`^(?:(?:please\\s+)?ask\\s+)?(?:the\\s+)?${escaped}\\s*[:,\\-–]\\s*`, "i").exec(text) ?? new RegExp(`^(?:please\\s+)?ask\\s+(?:the\\s+)?${escaped}\\s+`, "i").exec(text);
-    if (match) { agentName = name; text = text.slice(match[0].length).trim(); break; }
+    if (match) { agentName = name; exact = new RegExp(`^${escaped}\\s*[:,]`).test(text); text = text.slice(match[0].length).trim(); break; }
   }
-  return { text: text.slice(0, 2_000), agentName };
+  return { text: text.slice(0, 2_000), agentName, exact };
 }
 
 /** The answer to a message someone sent the bot, in the thread they asked in (M40.5). */
@@ -277,12 +355,12 @@ export function replyMessage({ agentName, run, link = null, redact }) {
   const name = clipLine(agentName, 60);
   const lines = run.flags?.injection ? [flaggedLine] : [];
   if (run.flags?.clarify) {
-    lines.push(`${chatText(`**${name}** asks back: ${clipLine(run.answer ?? "", 400)}`, { redact, maxChars: 800 })}`, "Ask again here with more detail.");
+    lines.push(`${chatText(`**${name}** asks back: ${clipLine(run.answer ?? "", 400)}`, { redact, maxChars: 800, unpose: false })}`, "Ask again here with more detail.");
   } else if (["completed", "degraded"].includes(run.state) && run.answer) {
     if (run.state === "degraded") lines.push("_The model did not finish, so these are the tools' facts._", "");
     lines.push(chatText(run.answer, { redact, maxChars: chatLimits.messageChars - 1_200 }));
   } else {
-    lines.push(chatText(`**${name}** could not answer: ${clipLine(run.reason ?? run.state, 300)}`, { redact, maxChars: 600 }));
+    lines.push(chatText(`**${name}** could not answer: ${clipLine(run.reason ?? run.state, 300)}`, { redact, maxChars: 600, unpose: false }));
   }
   // BoxPilot's own link, after redaction, which would take its query away.
   if (link) lines.push("", `${name} · ${link}`);

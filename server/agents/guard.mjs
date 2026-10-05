@@ -216,8 +216,16 @@ export function stripWrapperBlocks(text) {
     keep(tag, tag.end, closing.start);
     cuts.push([tag.start, closing.end]);
   });
-  // A box left open: its tag and everything after it, when it looks like one.
-  const atLineStart = (tag) => /^[ \t]*$/.test(scan.slice(scan.lastIndexOf("\n", tag.start - 1) + 1, tag.start));
+  // A box left open: its tag and everything after it, when it looks like one. A line starts after
+  // any break Zulip and the console draw as one: a lone carriage return and the Unicode line and
+  // paragraph separators too (2026-10 sweep 5: "fine.\r<tool_output>" was left in as prose).
+  const atLineStart = (tag) => {
+    for (let at = tag.start - 1; at >= 0; at -= 1) {
+      if (lineBreak.test(scan[at])) return true;
+      if (scan[at] !== " " && scan[at] !== "\t") return false;
+    }
+    return true;
+  };
   const open = tags.find((tag) => !tag.close && !inside(tag.start) && (boxAttributes.test(tag.attributes) || atLineStart(tag)));
   if (open) {
     note(open);
@@ -234,6 +242,8 @@ export function stripWrapperBlocks(text) {
 
 /** The attributes only BoxPilot's boxes carry: a tag with one is a box wherever it starts. */
 const boxAttributes = /\b(?:id|trust|tool)\s*=/i;
+/** A character that ends a line where text is drawn: a newline, a lone carriage return, a line or paragraph separator. */
+const lineBreak = /[\n\r\u2028\u2029]/;
 
 /**
  * Where code is in `text`, as [start, end): fenced blocks (``` or ~~~, to their closing fence or
