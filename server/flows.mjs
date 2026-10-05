@@ -17,6 +17,7 @@ import { holdsPlaceholder, isSinglePlaceholder, referencesIn, resolveValues, ste
 import { asSentence } from "./health-alerts.mjs";
 import { mountNamePattern } from "./tasks/storage.mjs";
 import { mountpointFor } from "./backup-mount.mjs";
+import { queuedCeilingMs } from "./helper-client.mjs";
 
 const nameLimit = 80;
 const stepLimit = 10;
@@ -27,6 +28,9 @@ const chainLimit = 8;
 // "skipped". Every stop-path throw in run() carries one of these prefixes; keep them in step.
 const recordedRunFailure = /stopped at step|failed at step|lost sight of step/;
 const riskOrder = { low: 0, medium: 1, high: 2 };
+
+/** A job still waiting in the helper's queue behind other work: the job layer notes "queue" waiting, then completed. */
+const waitingInQueue = (job) => (job.steps ?? []).filter((step) => step.name === "queue").at(-1)?.state === "waiting";
 
 /** The highest tier any step carries; what the flow answers for. */
 export function flowRisk(steps, registry = defaultRegistry) {
@@ -260,13 +264,21 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
     settle(flow, { quietly: true }); // deleted, not fixed: nothing to announce
   }
 
-  /** Wait for one step's job to reach a terminal state, bounded by the operation's own budget. */
+  /**
+   * Wait for one step's job to reach a terminal state, bounded by the operation's own budget. The
+   * budget starts when the job does, not when it was approved: a drive's reconnect queued behind a
+   * six-hour sync was declared lost while it waited, and ran later with nobody watching. While the
+   * job says it is waiting in the helper's queue it is not lost - the job layer gives up on it at
+   * the queue ceiling and settles it - so the wait is bounded by that ceiling plus the budget.
+   */
   async function awaitJob(jobId, timeoutMs) {
-    const deadline = Date.now() + timeoutMs;
+    const ceiling = Date.now() + queuedCeilingMs + timeoutMs;
+    let deadline = Date.now() + timeoutMs;
     for (;;) {
       const job = store.getJob(jobId);
       if (!job) throw new Error("The step's job record disappeared");
       if (["completed", "failed", "cancelled"].includes(job.state)) return job;
+      if (waitingInQueue(job)) deadline = Math.min(Date.now() + timeoutMs, ceiling);
       if (Date.now() > deadline) throw new Error("The step did not finish inside its operation's own time budget");
       await new Promise((resolve) => setTimeout(resolve, pollMs));
     }
