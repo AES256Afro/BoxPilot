@@ -344,6 +344,41 @@ describe("Backups page", () => {
       expect(JSON.parse(bodies["host.snapshot.restore"] ?? "{}")).toEqual({ parameters: { source: "local", artifact: "machine-snapshot-a.tar.gz", apps: ["immich", "jellyfin"], restoreData: true } });
     });
 
+    it("never shows one snapshot's apps in another's sheet when the first answers late", async () => {
+      // A slow answer for the snapshot opened first used to land in the sheet of the one opened
+      // next: B's sheet listed A's apps, and restoring staged B's artifact with A's app list.
+      const two = { ...sources, sources: [{ ...sources.sources[0], snapshots: [
+        { artifact: "machine-snapshot-a.tar.gz", sizeBytes: 41 * 1024 ** 2, createdAt: daysAgo(2), checksumSha256: null, apps: 1 },
+        { artifact: "machine-snapshot-b.tar.gz", sizeBytes: 42 * 1024 ** 2, createdAt: daysAgo(1), checksumSha256: null, apps: 1 },
+      ] }] };
+      const describedA = { ...described, artifact: "machine-snapshot-a.tar.gz", apps: [{ id: "immich", installed: true, newestBackup: null, dataAvailable: false, dataLocation: null }], vms: null };
+      const describedB = { ...described, artifact: "machine-snapshot-b.tar.gz", apps: [{ id: "vaultwarden", installed: true, newestBackup: null, dataAvailable: false, dataLocation: null }], vms: null };
+      let answerA: (response: Response) => void = () => undefined;
+      const { bodies } = mockFetch({ extra: (url, init) => {
+        if (url.endsWith("/operations/host.snapshot.sources/inspect")) return json({ result: two });
+        if (url.endsWith("/operations/host.snapshot.describe/run")) {
+          if (String(init?.body).includes("snapshot-b")) return json({ result: describedB });
+          return new Promise<Response>((resolve) => { answerA = resolve; }) as unknown as Response;
+        }
+        return null;
+      } });
+      render(<BackupsPage csrfToken="csrf-token" />);
+      await screen.findByRole("tab", { name: /^Restore/ });
+      openTab(/^Restore/);
+      // Newest first: B, then A.
+      const [snapshotB, snapshotA] = await screen.findAllByRole("button", { name: /^Restore from the snapshot of/ });
+      fireEvent.click(snapshotA);
+      fireEvent.click(within(await screen.findByRole("dialog", { name: /^Snapshot of/ })).getByRole("button", { name: "Cancel" }));
+      fireEvent.click(snapshotB);
+      const sheet = await screen.findByRole("dialog", { name: /^Snapshot of/ });
+      expect(await within(sheet).findByText("vaultwarden")).toBeTruthy();
+      answerA(json({ result: describedA }));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(within(sheet).queryByText("immich")).toBeNull();
+      fireEvent.click(within(sheet).getByRole("button", { name: "Restore 1 app" }));
+      await waitFor(() => expect(JSON.parse(bodies["host.snapshot.restore"] ?? "{}")).toEqual({ parameters: { source: "local", artifact: "machine-snapshot-b.tar.gz", apps: ["vaultwarden"], restoreData: true } }));
+    });
+
     it("shows what a restore staged for review, and discards it", async () => {
       const restores = [{ name: "20260825T140000Z", stagedAt: "/var/lib/boxpilot/snapshots/restored/20260825T140000Z", files: [{ path: "system/fstab", area: "system", sizeBytes: 640, content: "UUID=1a2b / ext4 defaults 0 1\n" }, { path: "controller/boxpilot.sqlite3", area: "controller", sizeBytes: 845_000, content: null }] }];
       const { bodies } = mockFetch({ extra: (url) => (url.endsWith("/operations/host.snapshot.restores/inspect") ? json({ result: { restores } }) : null) });
