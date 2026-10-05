@@ -278,6 +278,38 @@ describe("the builder's steps", () => {
     await waitFor(() => expect(within(screen.getByRole("region", { name: "Webhook" })).getByRole("button", { name: "Make a new URL" })).toBeTruthy());
     expect((screen.getByLabelText("Its one job") as HTMLTextAreaElement | HTMLInputElement).value).toBe("Watch the backups and say when one is late.");
   });
+
+  // "Test it" with unsaved changes opened the Test tab on the saved version, and the changes were gone.
+  it("asks before testing with unsaved changes, and saves them first when told to", async () => {
+    window.history.replaceState(null, "", `/?view=agents&tab=build&agent=${keeperId}`);
+    const calls = serve(base({
+      [`GET /api/v1/agents/${keeperId}`]: detail(2),
+      [`PUT /api/v1/agents/${keeperId}`]: (init: RequestInit | undefined) => json(detail(3, JSON.parse(String(init?.body)).spec.name)),
+      [`GET /api/v1/agents/${keeperId}/runs`]: { runs: [] },
+    }));
+    render(<AgentsPage csrfToken="csrf" now={() => now} />);
+    fireEvent.change(await screen.findByLabelText("Name"), { target: { value: "Keeper" } });
+    fireEvent.click(screen.getByRole("button", { name: "Test it" }));
+    // Still on Build, the change still there, and the choice said.
+    expect(screen.getByRole("tab", { name: "Build" }).getAttribute("aria-selected")).toBe("true");
+    expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe("Keeper");
+    expect(screen.getByText(/runs the saved version, v2/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Keep editing" }));
+    expect(screen.queryByText(/runs the saved version, v2/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Test it" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save, then test" }));
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Test" }).getAttribute("aria-selected")).toBe("true"));
+    expect((calls.find((call) => call.method === "PUT")?.body as { spec: AgentSpec }).spec.name).toBe("Keeper");
+  });
+
+  it("goes straight to testing when nothing is unsaved", async () => {
+    window.history.replaceState(null, "", `/?view=agents&tab=build&agent=${keeperId}`);
+    serve(base({ [`GET /api/v1/agents/${keeperId}`]: detail(2), [`GET /api/v1/agents/${keeperId}/runs`]: { runs: [] } }));
+    render(<AgentsPage csrfToken="csrf" now={() => now} />);
+    await screen.findByLabelText("Name");
+    fireEvent.click(screen.getByRole("button", { name: "Test it" }));
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Test" }).getAttribute("aria-selected")).toBe("true"));
+  });
 });
 
 describe("the test console", () => {
