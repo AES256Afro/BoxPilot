@@ -18,6 +18,7 @@ import path from "node:path";
 import { fixedRun } from "./exec.mjs";
 import { shared } from "./cache.mjs";
 import { createTreeScanBudget, listTreeEntries, measureTreeBytes } from "./tree-scan.mjs";
+import { snapshotBackupReferences, snapshotLeftoverKind } from "./machine-snapshot-helper.mjs";
 
 /**
  * Directories in /opt left behind by past upgrades, under every naming scheme BoxPilot has used.
@@ -43,7 +44,7 @@ function previousTreeKind(name) {
 
 /** Every category `inspect` reports and `reclaim` accepts, in the order they are shown. */
 export const categoryIds = Object.freeze([
-  "boxpilot-versions", "docker-unused", "docker-unreferenced-images", "app-backups", "restore-leftovers", "job-logs",
+  "boxpilot-versions", "docker-unused", "docker-unreferenced-images", "app-backups", "restore-leftovers", "snapshot-leftovers", "job-logs",
 ]);
 
 export const humanBytes = (bytes) => {
@@ -307,30 +308,30 @@ export function createHousekeepingService({
 
   /**
    * The application backups each retained machine snapshot would restore from: the newest one each
-   * app had when the snapshot was taken, which is usually older than the newest few kept here.
-   * Throws when a snapshot cannot be read, so nothing is offered that a restore might still need.
+   * app had when the snapshot was taken, which is usually older than the newest few kept here. The
+   * same reading an app backup's own pruning asks (machine-snapshot-helper.mjs). Throws when a
+   * snapshot cannot be read, so nothing is offered that a restore might still need.
    */
   async function machineSnapshotReferences({ budget }) {
-    const references = new Map();
-    const snapshots = (await listTreeEntries(machineSnapshotRoot, { budget }))
-      .filter((entry) => entry.isFile() && /^machine-snapshot-\d{8}T\d{6}Z-[a-f0-9]{8}\.tar\.gz$/.test(entry.name));
-    const readMember = async (artifactPath, member) => {
-      const result = await run(tarBinary, ["-xzf", artifactPath, "--no-same-owner", "--no-same-permissions", "-O", member], { timeout: 5 * 60_000, maxBuffer: 16 * 1024 * 1024 });
-      if (!result.ok) throw new Error(`Machine snapshot ${path.basename(artifactPath)} could not be read, so no application backup is offered for removal`);
-      return JSON.parse(result.stdout);
-    };
-    for (const snapshot of snapshots) {
-      const artifactPath = path.join(machineSnapshotRoot, snapshot.name);
-      const manifest = await readMember(artifactPath, "./manifest.json");
-      for (const app of manifest.contents?.apps ?? []) {
-        if (typeof app?.id !== "string" || !/^[a-z0-9][a-z0-9-]{1,62}$/.test(app.id)) continue;
-        const newest = (await readMember(artifactPath, `./apps/${app.id}/backups.json`)).backups?.[0]?.artifact;
-        if (typeof newest !== "string") continue;
-        if (!references.has(app.id)) references.set(app.id, new Set());
-        references.get(app.id).add(newest);
-      }
+    const names = (await listTreeEntries(machineSnapshotRoot, { budget })).filter((entry) => entry.isFile()).map((entry) => entry.name);
+    try {
+      return await snapshotBackupReferences({ snapshotRoot: machineSnapshotRoot, names, run, tarBinary });
+    } catch (error) {
+      throw new Error(`${error.message}, so no application backup is offered for removal`);
     }
-    return references;
+  }
+
+  /** What a machine snapshot or a restore of one left when it was cut off (snapshotLeftoverKind). */
+  async function snapshotLeftovers({ budget = createTreeScanBudget(treeScanLimits) } = {}) {
+    const found = [];
+    for (const entry of await listTreeEntries(machineSnapshotRoot, { budget })) {
+      const kind = snapshotLeftoverKind(entry.name);
+      if (!kind || entry.isSymbolicLink() || (kind === "partial" ? !entry.isFile() : !entry.isDirectory())) continue;
+      const full = path.join(machineSnapshotRoot, entry.name);
+      const bytes = kind === "partial" ? (await lstat(full).catch(() => null))?.size ?? 0 : await measureTreeBytes(full, { budget });
+      found.push({ path: full, name: entry.name, kind, bytes });
+    }
+    return found;
   }
 
   /**
@@ -402,11 +403,11 @@ export function createHousekeepingService({
     const budget = createTreeScanBudget(treeScanLimits);
     const scans = await Promise.allSettled([
       previousTrees({ budget }), imageInventory(), oldApplicationBackups({ budget }), restoreLeftovers({ budget }),
-      orphanedJobLogs({ budget }), docker(["system", "df", "--format", "json"]), danglingLayers(),
+      orphanedJobLogs({ budget }), docker(["system", "df", "--format", "json"]), danglingLayers(), snapshotLeftovers({ budget }),
     ]);
-    const defaults = [{ keep: [], remove: [] }, null, [], [], [], { ok: false, stdout: "" }, null];
-    const [trees, images, backups, leftovers, logs, df, dangling] = scans.map((result, index) => result.status === "fulfilled" ? result.value : defaults[index]);
-    const categoryForScan = ["boxpilot-versions", "docker-unreferenced-images", "app-backups", "restore-leftovers", "job-logs", "docker-unused", "docker-unused"];
+    const defaults = [{ keep: [], remove: [] }, null, [], [], [], { ok: false, stdout: "" }, null, []];
+    const [trees, images, backups, leftovers, logs, df, dangling, snapshotScraps] = scans.map((result, index) => result.status === "fulfilled" ? result.value : defaults[index]);
+    const categoryForScan = ["boxpilot-versions", "docker-unreferenced-images", "app-backups", "restore-leftovers", "job-logs", "docker-unused", "docker-unused", "snapshot-leftovers"];
     const unavailable = new Map();
     scans.forEach((result, index) => {
       if (result.status === "rejected") unavailable.set(categoryForScan[index], result.reason?.code === "TREE_SCAN_BUDGET"
@@ -477,6 +478,16 @@ export function createHousekeepingService({
         keeping: leftovers.map((entry) => path.basename(entry.path)),
         safe: false,
         unavailable: "Recovery evidence. General cleanup cannot remove these folders.",
+      },
+      {
+        id: "snapshot-leftovers",
+        title: "Unfinished machine snapshots",
+        summary: "What a machine snapshot or a restore of one left when it was cut off part way: a half-written archive, or the folder it was assembled or unpacked in. The folders hold an unencrypted copy of BoxPilot's database and every app's secrets, and nothing reads them again; BoxPilot clears them when it starts. A snapshot or restore running now is finished before these are cleared.",
+        items: snapshotScraps.length,
+        bytes: snapshotScraps.reduce((sum, entry) => sum + entry.bytes, 0),
+        detail: snapshotScraps.map((entry) => entry.name),
+        keeping: [],
+        safe: true,
       },
       {
         id: "job-logs",
@@ -584,6 +595,17 @@ export function createHousekeepingService({
       throw new Error("Unfinished restore folders may contain the only original data or an active restore. Review the restore job and backups; general cleanup preserves them.");
     });
 
+    if (chosen.has("snapshot-leftovers")) await attempt("snapshot-leftovers", async () => {
+      // A snapshot or a restore holds the exclusive lane, so none is running beside this.
+      const scraps = await snapshotLeftovers();
+      say(`Removing ${scraps.length} unfinished machine snapshot${scraps.length === 1 ? "" : "s"} or restore folder${scraps.length === 1 ? "" : "s"}.`);
+      for (const entry of scraps) {
+        await rm(entry.path, { recursive: entry.kind !== "partial", force: true });
+        freedBytes += entry.bytes;
+        removed.push({ category: "snapshot-leftovers", what: entry.name, bytes: entry.bytes });
+      }
+    });
+
     if (chosen.has("job-logs")) await attempt("job-logs", async () => {
       const logs = await orphanedJobLogs();
       say(`Removing ${logs.length} log${logs.length === 1 ? "" : "s"} for jobs nothing lists any more.`);
@@ -598,5 +620,5 @@ export function createHousekeepingService({
     return { reclaimed: failures.length === 0, targets: [...chosen], removed, failures, freedBytes, freedHumanBytes: humanBytes(freedBytes) };
   }
 
-  return { inspect: shared(inspect), reclaim, databaseCopies, removeDatabaseCopies, internals: { listDatabaseCopies, previousTrees, imageInventory, danglingLayers, oldApplicationBackups, restoreLeftovers, orphanedJobLogs, humanBytes } };
+  return { inspect: shared(inspect), reclaim, databaseCopies, removeDatabaseCopies, internals: { listDatabaseCopies, previousTrees, imageInventory, danglingLayers, oldApplicationBackups, restoreLeftovers, snapshotLeftovers, orphanedJobLogs, humanBytes } };
 }
