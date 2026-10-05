@@ -1,4 +1,5 @@
 import { createHash, randomBytes, scrypt as scryptCallback, timingSafeEqual } from "node:crypto";
+import { isIP } from "node:net";
 import { defaultThrottle as throttle, defaultSprayThrottle as sprayThrottle } from "./login-throttle.mjs";
 import { normalizeAddress, tailnetClientAddress } from "./identity.mjs";
 import { promisify } from "node:util";
@@ -15,6 +16,37 @@ const cookieName = "boxpilot_session";
  * name, and both names are read so nobody is signed out by an upgrade.
  */
 const hostCookieName = `__Host-${cookieName}`;
+
+/** What the browser is told when its session was presented from an address it was not signed in from. */
+export const addressChangedMessage = "You were signed out because this sign-in came from a different network address. Sign in again.";
+
+/**
+ * One spelling per client address, so the address a session was signed in from and the one it is
+ * presented from compare as the address they are: IPv4-mapped IPv6 is its IPv4 address, a zone is
+ * dropped, IPv6 is written the one way URL writes it, and every loopback form is one loopback (a
+ * browser on the server itself may reach it over 127.0.0.1 or ::1 from one request to the next).
+ */
+export function canonicalClientAddress(value) {
+  if (typeof value !== "string") return null;
+  let address = value.trim().replace(/^\[|\]$/g, "").replace(/%.*$/, "").toLowerCase();
+  if (!address || address.length > 64) return null;
+  if (isIP(address) === 6) {
+    try { address = new URL(`http://[${address}]/`).hostname.slice(1, -1); } catch { /* keep it as written */ }
+    const mapped = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(address);
+    if (mapped) {
+      const [high, low] = [Number.parseInt(mapped[1], 16), Number.parseInt(mapped[2], 16)];
+      address = `${high >> 8}.${high & 255}.${low >> 8}.${low & 255}`;
+    }
+  }
+  if (address === "::1" || /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(address)) return "loopback";
+  return address;
+}
+
+/** Whether two client addresses are the same one. An unknown address is never the same as anything. */
+export function sameClientAddress(left, right) {
+  const canonical = canonicalClientAddress(left);
+  return canonical !== null && canonical === canonicalClientAddress(right);
+}
 
 function safeEqual(left, right) {
   if (typeof left !== "string" || typeof right !== "string") return false;
@@ -71,9 +103,17 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000, r
    * through the resolver, which trusts it from loopback when Tailscale Serve is the proxy in front.
    * Read from anyone, a forged "127.0.0.1" silenced the alert for a new address and put a false
    * address on the session and in the audit log.
+   *
+   * The same descriptor is what a session is bound to (sweep 1, S1-1): worked out once per request,
+   * the same way when the session is issued and every time it is presented.
    */
-  async function clientDescriptor(request) {
-    const peer = resolveClientAddress ? await resolveClientAddress(request).catch(() => null) : tailnetClientAddress(request);
+  const descriptors = new WeakMap();
+  function clientDescriptor(request) {
+    if (!descriptors.has(request)) descriptors.set(request, describeClient(request));
+    return descriptors.get(request);
+  }
+  async function describeClient(request) {
+    const peer = resolveClientAddress ? await Promise.resolve().then(() => resolveClientAddress(request)).catch(() => null) : tailnetClientAddress(request);
     const raw = peer || request.socket?.remoteAddress || request.ip || null;
     return {
       address: raw ? (normalizeAddress(raw) ?? String(raw).slice(0, 64)) : null,
@@ -113,17 +153,82 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000, r
     })).catch(() => {});
   }
 
-  function requestSession(request) {
+  /**
+   * Sessions ended because they were presented from another address, kept a while (by the token's
+   * digest, never the token) so the browser that still holds the cookie is told why it was signed
+   * out rather than that someone signed it out elsewhere. In memory: after a restart it is only
+   * told that the session ended.
+   */
+  const endedForAddress = new Map();
+  const endedLimit = 500;
+  const tokenDigest = (token) => createHash("sha256").update(token).digest("hex");
+  function rememberEndedForAddress(token) {
+    const key = tokenDigest(token);
+    endedForAddress.delete(key);
+    endedForAddress.set(key, Date.now() + sessionTtlMs);
+    while (endedForAddress.size > endedLimit) endedForAddress.delete(endedForAddress.keys().next().value);
+  }
+  function endedForAddressBefore(token) {
+    const key = tokenDigest(token);
+    const until = endedForAddress.get(key);
+    if (until !== undefined && until <= Date.now()) endedForAddress.delete(key);
+    return until !== undefined && until > Date.now();
+  }
+
+  /**
+   * The session a request presents, or null.
+   *
+   * The cookie is pinned to this host but not to a port: the browser also sends it to every app the
+   * owner opens on another port of this server (src/appLinks.ts links them by this very host), and
+   * an app that keeps what it is sent could replay it here. So a session answers only to the client
+   * address it was signed in from, worked out by the same descriptor at both ends (the tailnet peer
+   * Tailscale Serve vouches for, otherwise the socket). Presented from anywhere else it is ended, not
+   * merely refused, and `request.boxpilotSignedOut` says why. A phone that changes networks signs in
+   * again; ADR-001's addendum (sweep 1) records that trade.
+   */
+  async function requestSession(request) {
     const cookies = parseCookies(request.get("cookie"));
     // The host-pinned name wins; the plain one keeps sessions issued before this alive.
     const token = cookies[hostCookieName] ?? cookies[cookieName];
     const session = store.getSession(token);
-    return session ? { ...session, token } : null;
+    if (!session) {
+      if (typeof token === "string" && token.length >= 20 && endedForAddressBefore(token)) request.boxpilotSignedOut = "address-changed";
+      return null;
+    }
+    const { address } = await clientDescriptor(request);
+    if (!sameClientAddress(session.address, address)) {
+      store.deleteSession(token);
+      rememberEndedForAddress(token);
+      store.recordAudit("session.address-changed", { actorId: session.owner.id, subjectId: session.owner.id, details: { from: session.address ?? null, to: address } });
+      request.boxpilotSignedOut = "address-changed";
+      return null;
+    }
+    return { ...session, token };
+  }
+
+  /** A 401 for a request with no session, saying why when BoxPilot knows. */
+  function refuseUnauthenticated(request, response) {
+    if (request.boxpilotSignedOut === "address-changed") {
+      response.status(401).json({ error: addressChangedMessage, code: "authentication_required", reason: "address-changed" });
+      return;
+    }
+    response.status(401).json({ error: "Authentication required", code: "authentication_required" });
+  }
+
+  /**
+   * Whether this response's cookies may only travel over HTTPS. A request that arrived over TLS (the
+   * LAN listener, M18.2) is HTTPS whatever BOXPILOT_COOKIE_SECURE says: LAN mode sets it to false for
+   * its plain listener, and that used to strip Secure from sign-ins over :8443 too. Forwarded HTTPS
+   * (Tailscale Serve) counts unless the mode says the listener is plain.
+   */
+  function cookieSecure(request) {
+    const mode = process.env.BOXPILOT_COOKIE_SECURE;
+    const forwardedHttps = request.get?.("x-forwarded-proto")?.split(",")[0].trim() === "https";
+    return Boolean(request.secure) || mode === "true" || (mode !== "false" && forwardedHttps);
   }
 
   function cookieHeader(request, token, maxAgeSeconds) {
-    const forwardedHttps = request.get("x-forwarded-proto")?.split(",")[0].trim() === "https";
-    const secure = process.env.BOXPILOT_COOKIE_SECURE === "true" || (process.env.BOXPILOT_COOKIE_SECURE !== "false" && (request.secure || forwardedHttps));
+    const secure = cookieSecure(request);
     return `${secure ? hostCookieName : cookieName}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${maxAgeSeconds}${secure ? "; Secure" : ""}`;
   }
 
@@ -133,10 +238,10 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000, r
     response.setHeader("Set-Cookie", [...(Array.isArray(earlier) ? earlier : earlier ? [String(earlier)] : []), value]);
   }
 
-  function requireSession(request, response, next) {
-    const session = requestSession(request);
+  async function requireSession(request, response, next) {
+    const session = await requestSession(request);
     if (!session) {
-      response.status(401).json({ error: "Authentication required", code: "authentication_required" });
+      refuseUnauthenticated(request, response);
       return;
     }
     request.boxpilotSession = session;
@@ -145,7 +250,7 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000, r
 
   /** Any signed-in account changes its own password with the current one; other sessions end. */
   async function changePassword(request, response) {
-    const session = request.boxpilotSession ?? requestSession(request);
+    const session = request.boxpilotSession ?? await requestSession(request);
     const owner = session ? store.findOwnerById(session.owner.id) : null;
     const { currentPassword, newPassword } = request.body ?? {};
     const verdict = await checkPassword(request, owner, currentPassword);
@@ -184,8 +289,12 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000, r
     };
   }
 
-  function requireCsrf(request, response, next) {
-    const session = request.boxpilotSession ?? requestSession(request);
+  async function requireCsrf(request, response, next) {
+    const session = request.boxpilotSession ?? await requestSession(request);
+    if (!session && request.boxpilotSignedOut) {
+      refuseUnauthenticated(request, response);
+      return;
+    }
     if (!session || !safeEqual(request.get("x-boxpilot-csrf") ?? "", session.csrfToken)) {
       response.status(403).json({ error: "Valid CSRF token required", code: "csrf_required" });
       return;
@@ -317,29 +426,38 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000, r
   const deviceTtlSeconds = 365 * 24 * 3600;
   const deviceDigest = (token) => createHash("sha256").update(token).digest("hex");
 
-  /** A browser that confirmed the password once for this account (see rememberDevice). */
-  function trustedDevice(request, owner) {
+  /**
+   * A browser that confirmed the password once for this account (see rememberDevice), from where it
+   * is now. The device cookie goes wherever the browser's other cookies for this host go, apps on
+   * other ports included (S1-1), so it is honoured only from the address the password was confirmed
+   * from; anywhere else it is just a cookie and the password is asked for again. Devices remembered
+   * before the address was kept answer to none, and ask for it once.
+   */
+  async function trustedDevice(request, owner) {
     const token = parseCookies(request.headers?.cookie ?? "")[deviceCookieName];
     if (typeof token !== "string" || token.length < 20 || !owner) return false;
     const devices = store.getSetting("trustedDevices", []);
     const hash = deviceDigest(token);
-    return Array.isArray(devices) && devices.some((entry) => entry && entry.hash === hash && entry.ownerId === owner.id);
+    const entry = Array.isArray(devices) ? devices.find((device) => device && device.hash === hash && device.ownerId === owner.id) : null;
+    if (!entry) return false;
+    const { address } = await clientDescriptor(request);
+    return sameClientAddress(entry.address, address);
   }
 
-  /** Mark this browser as trusted for identity sign-in: a long-lived cookie whose hash is kept in settings (newest 50). */
-  function rememberDevice(request, response, owner) {
+  /** Mark this browser, at this address, as trusted for identity sign-in: a long-lived cookie whose hash is kept in settings (newest 50). */
+  async function rememberDevice(request, response, owner) {
+    const { address } = await clientDescriptor(request);
     const token = randomBytes(32).toString("base64url");
     const devices = (store.getSetting("trustedDevices", []) ?? []).filter((entry) => entry && typeof entry.hash === "string").slice(-49);
-    devices.push({ hash: deviceDigest(token), ownerId: owner.id, createdAt: new Date().toISOString() });
+    devices.push({ hash: deviceDigest(token), ownerId: owner.id, address, createdAt: new Date().toISOString() });
     store.setSetting("trustedDevices", devices, { updatedBy: owner.id });
     store.recordAudit("session.device-trusted", { actorId: owner.id, subjectId: owner.id });
-    const forwardedHttps = request.get("x-forwarded-proto")?.split(",")[0].trim() === "https";
-    const secure = process.env.BOXPILOT_COOKIE_SECURE === "true" || (process.env.BOXPILOT_COOKIE_SECURE !== "false" && (request.secure || forwardedHttps));
+    const secure = cookieSecure(request);
     appendCookie(request, response, `${deviceCookieName}=${token}; Path=/api/v1/auth; HttpOnly; SameSite=Strict; Max-Age=${deviceTtlSeconds}${secure ? "; Secure" : ""}`);
   }
 
-  function status(request, response) {
-    const session = requestSession(request);
+  async function status(request, response) {
+    const session = await requestSession(request);
     response.json({
       bootstrapRequired: store.ownerCount() === 0,
       authenticated: Boolean(session),
@@ -347,6 +465,8 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000, r
       csrfToken: session?.csrfToken ?? null,
       expiresAt: session?.expiresAt ?? null,
       elevatedUntil: session?.elevatedUntil ?? null,
+      // Why this browser's session is gone, when it went because it came back from another address.
+      ...(!session && request.boxpilotSignedOut ? { signedOut: request.boxpilotSignedOut } : {}),
     });
   }
 

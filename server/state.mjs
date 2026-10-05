@@ -587,6 +587,8 @@ export function createStateStore({
       csrfToken: row.csrf_token,
       expiresAt: row.expires_at,
       elevatedUntil: row.elevated_until ?? null,
+      // The address it was signed in from: a session answers only to that one (security.mjs).
+      address: row.client_address ?? null,
     };
   }
 

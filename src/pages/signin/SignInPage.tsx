@@ -18,6 +18,7 @@ export interface SignedOutNotice { reason: SignedOutReason; page: string | null 
 
 export function signedOutWords({ reason, page }: SignedOutNotice): string {
   const back = page ? ` Sign in to go back to ${page}.` : " Sign in to carry on.";
+  if (reason === "address-changed") return `You were signed out because this sign-in came from a different network address, as it does when a phone or laptop changes networks.${back}`;
   return reason === "expired"
     ? `Your session ended: a sign-in lasts twelve hours, and restarts and updates do not end it.${back}`
     : `You were signed out from somewhere else: a password change, a role change or "sign out everywhere else" ends this browser's session.${back}`;
