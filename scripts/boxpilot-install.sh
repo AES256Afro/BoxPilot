@@ -144,10 +144,56 @@ install -d -m 0755 /etc/boxpilot
 # that left the example's settings, which are not a choice anyone made.
 ENV_FILE=/etc/boxpilot/boxpilot.env
 if [ -f "$ENV_FILE" ] && systemctl is-enabled boxpilot.service >/dev/null 2>&1; then REINSTALL=1; else REINSTALL=0; fi
-# env_value KEY: the value of the env file's last KEY= line, read as systemd reads it (a CR ends the
-# line; blanks before the key, around "=" and after the value are not part of it), quotes dropped.
+# env_file_value FILE KEY: the value systemd gives KEY when FILE is an EnvironmentFile= (nothing when
+# it gives none), by systemd's own rules (src/basic/env-file.c; server/env-file.mjs is the same in
+# JavaScript, and tests/ubuntu/env-file-parity.sh holds both to systemd). CR and LF end a line; # and
+# ; start a comment only where a key could start, so `9000   # moved` is all value; blanks around
+# the key, "=" and an unquoted value go; a quote runs to its match, over lines if need be, and what
+# follows it runs on into the value (`"9000" # web` is `9000# web`); outside quotes a backslash keeps
+# the next character and joins lines; the last assignment wins; `export KEY=1` assigns nothing.
+env_file_value() {
+  awk -v want="$2" '
+    function add(s) { val = val s; kept = length(val) }
+    function push() {
+      sub(/[ \t]+$/, "", key)
+      if (key == want) { found = 1; out = substr(val, 1, kept) }
+      key = ""; val = ""; kept = 0
+    }
+    { text = text $0 "\n" }
+    END {
+      st = "prekey"; n = length(text)
+      for (i = 1; i <= n; i++) {
+        c = substr(text, i, 1); eol = c == "\n" || c == "\r"; blank = eol || c == " " || c == "\t"
+        if (st == "prekey") { if (c == "#" || c == ";") st = "comment"; else if (!blank) { st = "key"; key = c } }
+        else if (st == "key") { if (eol) st = "prekey"; else if (c == "=") { st = "pre"; val = ""; kept = 0 } else key = key c }
+        else if ((st == "pre" || st == "value") && eol) { push(); st = "prekey" }
+        else if (st == "pre") { if (c == "\047") st = "single"; else if (c == "\"") st = "double"; else if (c == "\\") st = "escape"; else if (!blank) { st = "value"; add(c) } }
+        else if (st == "value") { if (c == "\\") { st = "escape"; kept = length(val) } else if (blank) val = val c; else add(c) }
+        else if (st == "escape") { st = "value"; if (!eol) add(c) }
+        else if (st == "single") { if (c == "\047") st = "pre"; else add(c) }
+        else if (st == "double") { if (c == "\"") st = "pre"; else if (c == "\\") st = "dqescape"; else add(c) }
+        else if (st == "dqescape") { st = "double"; if (index("\"\\`$", c)) add(c); else if (c != "\n") add("\\" c) }
+        else if (st == "comment") { if (c == "\\") st = "cescape"; else if (eol) st = "prekey" }
+        else if (st == "cescape") st = eol ? "prekey" : "comment"
+      }
+      if (st != "prekey" && st != "key" && st != "comment" && st != "cescape") push()
+      if (found) printf "%s", out
+    }' "$1"
+}
+# env_value KEY: what the env file gives KEY; empty when it gives nothing.
 env_value() {
-  tr -d '\r' < "$ENV_FILE" | sed -n "s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*//p" | tail -n 1 | sed "s/[[:space:]]*\$//; s/^[\"']//; s/[\"']\$//"
+  [ -f "$ENV_FILE" ] || return 0
+  env_file_value "$ENV_FILE" "$1"
+}
+# port_of VALUE: the port the web service listens on for a BOXPILOT_PORT value. It takes it with
+# parseInt (server/env-file.mjs webPortOf): the leading digits after blanks and a "+", so
+# `9000   # moved off 8787` is 9000; 8787 when there are none or they are no port.
+port_of() {
+  set -- "$(printf '%s' "$1" | tr '\n' ' ' | sed -n 's/^[[:space:]]*+\{0,1\}0*\([0-9][0-9]*\).*/\1/p')"
+  case "$1" in
+    ''|??????*) echo 8787 ;;
+    *) if [ "$1" -ge 1 ] && [ "$1" -le 65535 ]; then echo "$1"; else echo 8787; fi ;;
+  esac
 }
 # set_env KEY VALUE: KEY's lines (however they are written) become KEY=VALUE; appended when it has none.
 set_env() {
@@ -171,7 +217,7 @@ curl -fsSL "https://codeload.github.com/${REPO}/tar.gz/${REF}" | tar -xz -C "$WO
 [ -f "$WORK/scripts/boxpilot-upgrade.sh" ] || fail "ref ${REF} has no scripts/boxpilot-upgrade.sh"
 [ -f "$ENV_FILE" ] || install -m 0600 "$WORK/deploy/boxpilot.env.example" "$ENV_FILE"
 [ -f /etc/boxpilot/redaction.json ] || install -m 0640 -o root -g boxpilot "$WORK/deploy/redaction.example.json" /etc/boxpilot/redaction.json
-LIVE_PORT="$(env_value BOXPILOT_PORT)"; LIVE_PORT="${LIVE_PORT:-8787}"
+LIVE_PORT="$(port_of "$(env_value BOXPILOT_PORT)")"
 LIVE_HOST="$(env_value BOXPILOT_HOST)"
 [ "$PORT_GIVEN" -eq 1 ] || PORT="$LIVE_PORT"
 

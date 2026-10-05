@@ -8,6 +8,7 @@
 import { randomUUID } from "node:crypto";
 import { fixedRun } from "./exec.mjs";
 import { productVersion } from "./version.mjs";
+import { webPortOf } from "./env-file.mjs";
 
 const tailnetV4 = /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d{1,3}\.\d{1,3}$/;
 // Anchored at both ends: the old prefix-only test accepted the marker followed by anything at all,
@@ -56,7 +57,7 @@ export function createIdentityService({
   fetchImpl = globalThis.fetch,
   now = () => Date.now(),
   whoisTtlMs = 30_000,
-  webPort = Number.parseInt(process.env.BOXPILOT_PORT ?? "8787", 10),
+  webPort = webPortOf(process.env.BOXPILOT_PORT),
   serveTtlMs = 60_000,
 } = {}) {
   const whoisCache = new Map();

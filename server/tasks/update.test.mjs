@@ -52,12 +52,13 @@ describe("system.update root task", () => {
     expect(started.filter((arg) => arg.includes("BOXPILOT_HEALTH_URL"))).toEqual([]);
     // The copy it runs is the installed tree's own script, not one downloaded with the release.
     expect(await readFile(path.join(root, "run", "update-20260821T150000Z.sh"), "utf8")).toBe(await readFile(path.join(options.installDir, "scripts", "boxpilot-upgrade.sh"), "utf8"));
-    // ...and the script shipped beside this task reads the port and address from the env file, the
-    // last line for each, with blanks around "=" and CRLF allowed.
+    // ...and the script shipped beside this task reads the port and address from the env file with
+    // systemd's own parser (tests/ubuntu/env-file-parity.sh holds it to systemd), the port as the
+    // service takes it.
     const script = (await readFile("scripts/boxpilot-upgrade.sh", "utf8")).replaceAll("\r\n", "\n");
     expect(script).toContain("ENV_FILE=/etc/boxpilot/boxpilot.env");
-    expect(script).toContain("tr -d '\\r' < \"$ENV_FILE\" | sed -n \"s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*//p\" | tail -n 1");
-    expect(script).toContain("WEB_PORT=\"$(env_value BOXPILOT_PORT)\"");
+    expect(script).toContain('env_file_value "$ENV_FILE" "$1"');
+    expect(script).toContain("WEB_PORT=\"$(port_of \"$(env_value BOXPILOT_PORT)\")\"");
     expect(script).toContain("WEB_HOST=\"$(env_value BOXPILOT_HOST)\"");
   });
 

@@ -8,6 +8,7 @@
  */
 import { afterEach, describe, expect, it } from "vitest";
 import { createBench, ownerQuestion, ownerScript } from "../../test/agents-bench.mjs";
+import { runnerApiBase } from "./runner.mjs";
 import { agentsRuntimeKey, defaultRuntimeSettings } from "./service.mjs";
 import { toolCatalog } from "./tool-catalog.mjs";
 
@@ -154,5 +155,23 @@ describe("a structured answer", () => {
     expect(rewrite).toMatchObject({ toolChoice: "none", extra: { response_format: { json_schema: { name: "answer" } } } });
     // Read again: only the last few tokens, from the checkpoint llama-server keeps just before a prompt's end.
     expect(bench.h.fake.calls().at(-1).readTokens).toBeLessThanOrEqual(5);
+  });
+});
+
+// boxpilot-agents.service reads BoxPilot's port from the same EnvironmentFile= as the web service,
+// which keeps `9000   # moved off 8787` whole. The web service takes it with parseInt and listens on
+// 9000; the runner built `http://127.0.0.1:9000   # moved off 8787`, refused it, and restarted every 30 s.
+describe("where the runner finds BoxPilot", () => {
+  it("takes the port the way the web service does", () => {
+    expect(runnerApiBase({})).toBe("http://127.0.0.1:8787");
+    expect(runnerApiBase({ BOXPILOT_PORT: "9000" })).toBe("http://127.0.0.1:9000");
+    expect(runnerApiBase({ BOXPILOT_PORT: "9000   # moved off 8787" })).toBe("http://127.0.0.1:9000");
+    expect(runnerApiBase({ BOXPILOT_PORT: "9000# web" })).toBe("http://127.0.0.1:9000");
+    expect(runnerApiBase({ BOXPILOT_PORT: "" })).toBe("http://127.0.0.1:8787");
+    expect(runnerApiBase({ BOXPILOT_PORT: "70000" })).toBe("http://127.0.0.1:8787");
+  });
+
+  it("takes BOXPILOT_AGENTS_API as given, without a trailing slash", () => {
+    expect(runnerApiBase({ BOXPILOT_AGENTS_API: "http://127.0.0.1:18787/", BOXPILOT_PORT: "9000" })).toBe("http://127.0.0.1:18787");
   });
 });

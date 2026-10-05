@@ -38,6 +38,7 @@
  * server's /v1/embeddings, for memory search by meaning.
  */
 import { randomUUID } from "node:crypto";
+import { webPortOf } from "../env-file.mjs";
 import { stripWrapperBlocks } from "./guard.mjs";
 import { planMessage, plannerMessages, readUnderstanding, understandingFormatFor } from "./intent.mjs";
 import { answerFormat, answerNowNote, fallbackAnswer, readStructuredAnswer } from "./prompt.mjs";
@@ -599,6 +600,15 @@ export function createRunner({ api, runtime, client, usage = null, now = () => D
   }
 
   return { loop, execute };
+}
+
+/**
+ * Where the runner finds BoxPilot's web API: BOXPILOT_AGENTS_API, or loopback on the web service's
+ * port. Both services read BOXPILOT_PORT from the same env file, which systemd hands over whole -
+ * `9000   # moved off 8787` - so it is taken the way the web service takes it (parseInt).
+ */
+export function runnerApiBase(env = process.env) {
+  return (env.BOXPILOT_AGENTS_API ?? `http://127.0.0.1:${webPortOf(env.BOXPILOT_PORT)}`).replace(/\/$/, "");
 }
 
 /** The runner's side of the web API: token-authenticated JSON over loopback. */
