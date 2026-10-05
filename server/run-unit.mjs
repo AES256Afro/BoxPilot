@@ -42,8 +42,10 @@ export function createRunUnitClient({
       await unlink(resultPath).catch(() => {});
     }
     // The runner says when the task ran out of its own budget (M30.3); that is a timeout, with the
-    // task's budget, rather than one more failure sentence.
-    if (payload?.ok === false && payload.timedOut === true) throw timedOut(`Root task ${task} did not finish within ${formatDuration(timeoutMs)}`, { budgetMs: timeoutMs, step: `Root task ${task}` });
+    // task's budget, rather than one more failure sentence. The runner writes that and lets the task
+    // carry on (the unit's KillMode=process), so it may still be running: a flow must not start it
+    // again beside itself, and nor must "Try again with more time".
+    if (payload?.ok === false && payload.timedOut === true) throw timedOut(`Root task ${task} did not finish within ${formatDuration(timeoutMs)}`, { budgetMs: timeoutMs, step: `Root task ${task}`, stillRunning: true });
     if (!payload) throw new Error(`Root task ${task} produced no result${start?.ok ? "" : ` (unit failed: ${start?.stderr || "see journalctl -u " + unitTemplate + id})`}`);
     if (!payload.ok) throw new Error(payload.error || `Root task ${task} failed`);
     return payload.result;

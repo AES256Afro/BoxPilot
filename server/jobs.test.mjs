@@ -568,6 +568,28 @@ describe("guarding restarts against running jobs (M4.5 / self-update safety)", (
     } finally { store.close(); }
   });
 
+  it("guards the operations that can restart BoxPilot when they finish: upgrades, installs and KVM", async () => {
+    // An upgrade that moves libc or openssl restarts BoxPilot to pick them up; installing KVM restarts
+    // the helper so VM work can write to /var/lib/libvirt. Neither was marked, so neither was guarded.
+    const helper = { request: vi.fn(async () => ({ ok: true })) };
+    const { store, owner, jobs } = await setup(helper);
+    try {
+      const backup = await jobs.createOperationJob("app.backup", { id: "jellyfin" }, owner.id);
+      store.transitionJob(backup.id, "awaiting_approval", "applying");
+      const packages = { "libvirt-clients": "1.0", "libvirt-daemon-system": "1.0", ovmf: "1.0", "qemu-system-x86": "1.0", virtinst: "1.0" };
+      const staged = [
+        await jobs.createOperationJob("apt.upgrade", {}, owner.id),
+        await jobs.createOperationJob("apt.install", { packages: ["htop"] }, owner.id),
+        await jobs.createOperationJob("prerequisite.virtualization.install", { expectedPackages: packages }, owner.id),
+      ];
+      for (const job of staged) {
+        await expect(jobs.approveAndRun(job.id, owner.id, { session: store.getSession(store.createSession(owner.id).token) })).rejects.toThrow(/^Wait for a running job to finish first: Back up application data\. ".+" (can restart|restarts) BoxPilot/);
+        expect(store.getJob(job.id).state).toBe("awaiting_approval");
+      }
+      expect(helper.request).not.toHaveBeenCalled();
+    } finally { store.close(); }
+  });
+
   it("does not block ordinary operations while a job runs", async () => {
     const helper = { request: vi.fn(async () => ({ ok: true })) };
     const { store, owner, jobs } = await setup(helper);
@@ -828,6 +850,23 @@ describe("a job that ran out of time (M30.3)", () => {
       expect(store.getJob(queued.id).timeout).toMatchObject({ phase: "queued", moreTimeMs: null });
       expect(store.getJob(queued.id).error).toMatch(/waited 2 hours 30 minutes behind other work/);
       await expect(jobs.retryWithMoreTime(queued.id, owner.id)).rejects.toThrow("never started");
+    } finally { store.close(); }
+  });
+
+  it("says a root task that ran out of its own time may still be running, and does not start it again beside itself", async () => {
+    // The runner writes "timed out" and lets the task carry on, so "Try again with more time" staged
+    // a second install into the same folder beside the first, still running.
+    const { store, owner, jobs } = await timed((_operation, _parameters, _options, advance) => {
+      advance(minutes(44));
+      throw Object.assign(new Error("Root task agents.install did not finish within 44 minutes"), { code: "timeout", timeout: { scope: "step", budgetMs: minutes(44), step: "Root task agents.install", stillRunning: true } });
+    });
+    try {
+      const job = await jobs.createOperationJob("agents.runtime.install", {}, owner.id);
+      await expect(jobs.approveAndRun(job.id, owner.id, {})).rejects.toThrow();
+      const failed = store.getJob(job.id);
+      expect(failed.timeout).toMatchObject({ scope: "step", stillRunning: true, moreTimeMs: null });
+      expect(failed.error).toMatch(/may still be running on the server/);
+      await expect(jobs.retryWithMoreTime(job.id, owner.id)).rejects.toThrow(/may still be running/);
     } finally { store.close(); }
   });
 

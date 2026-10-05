@@ -18,6 +18,7 @@ import { asSentence } from "./health-alerts.mjs";
 import { mountNamePattern } from "./tasks/storage.mjs";
 import { mountpointFor } from "./backup-mount.mjs";
 import { queuedCeilingMs } from "./helper-client.mjs";
+import { mayStillBeRunning } from "./timeouts.mjs";
 
 const nameLimit = 80;
 const stepLimit = 10;
@@ -236,15 +237,20 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
   }
 
   /**
-   * A step only the owner may run, in a flow someone else created, that the owner has not saved since
+   * A step only the owner may run, in a flow someone else created, that the owner has not kept since
    * it was put there: saved before steps were checked (above), or carried over from then. Not run
-   * until the owner has read the flow and saved it, which marks the step as theirs. Null if none.
+   * until the owner keeps it: "Keep this step" on the Automations page saves the steps as they are,
+   * which marks the step as theirs. `{ step, title }` (step counted from 1), or null if none.
    */
-  function unvouchedStep(flow) {
+  function stepToKeep(flow) {
     if ((store.findOwnerById?.(flow.createdBy)?.role ?? null) === "owner") return null;
     const index = (flow.steps ?? []).findIndex((step) => ownerOnly(step) && step.ownerAdded !== true);
-    if (index < 0) return null;
-    return `step ${index + 1} (${registry.get(flow.steps[index].operationId).title}) is one only the owner may run, and the owner has not saved this flow since it was put there. The owner can open it and save the flow to keep the step`;
+    return index < 0 ? null : { step: index + 1, title: registry.get(flow.steps[index].operationId).title };
+  }
+  function unvouchedStep(flow) {
+    const unkept = stepToKeep(flow);
+    if (!unkept) return null;
+    return `step ${unkept.step} (${unkept.title}) is one only the owner may run, and the owner has not kept it since someone else put it there. The owner can keep it with "Keep this step" on this automation in Automations`;
   }
 
   /**
@@ -320,7 +326,7 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
       if (!operation || !step.parameters || typeof step.parameters !== "object") return step;
       return { ...step, parameters: maskSecrets(step.parameters, await secretPaths(operation, step.parameters, { secretEnvNamesFor })) };
     };
-    return Promise.all(store.listFlows().map(async (flow) => ({ ...withoutHash(flow), steps: await Promise.all((flow.steps ?? []).map(masked)), risk: flowRisk(flow.steps, registry), running: running.has(flow.id) })));
+    return Promise.all(store.listFlows().map(async (flow) => ({ ...withoutHash(flow), steps: await Promise.all((flow.steps ?? []).map(masked)), risk: flowRisk(flow.steps, registry), running: running.has(flow.id), ownerToKeep: stepToKeep(flow) })));
   }
 
   async function update(id, { name, steps, cadence, enabled, triggerFlowId }, actorId, { role = "owner" } = {}) {
@@ -513,7 +519,8 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
           // A job that used its whole budget after it started was given up on, not stopped: its own
           // record says it may still be running. That is losing sight of the step by another name,
           // so neither a retry (a second copy beside the first) nor a keep-going policy applies.
-          if (finished.state === "failed" && finished.timeout?.scope === "operation" && finished.timeout.phase !== "queued") {
+          // A root task past its own limit is the same: the runner writes it down and lets it run on.
+          if (finished.state === "failed" && mayStillBeRunning(finished.timeout)) {
             const summary = `lost sight of step ${index + 1} (${title}): it did not finish inside its time budget and may still be running on the server, so later steps did not start`.slice(0, 300);
             store.markFlowRun(id, { result: summary, jobIds });
             store.recordAudit("flow.failed", { actorId, subjectId: id, details: { step: index + 1, operationId: step.operationId, jobId: job.id, attempt, reason: "ran out of its whole time budget" } });

@@ -12,6 +12,8 @@ import { createHostInspectHelper } from "./host-inspect-helper.mjs";
 import { executeHelperOperation } from "./helper-protocol.mjs";
 import { helperErrorReply, helperQueuedFrame, helperStartedFrame } from "./helper-response.mjs";
 import { createConcurrencyGate, createLaneQueues, laneFor } from "./helper-lanes.mjs";
+import { createDrainedRestart } from "./self-restart.mjs";
+import { resumeInterruptedBackups } from "./interrupted-backups.mjs";
 import { createVmRecoveryHelper } from "./vm-recovery-helper.mjs";
 import { createVmRestoreDrillHelper } from "./vm-restore-drill-helper.mjs";
 import { createVmRetentionHelper } from "./vm-retention-helper.mjs";
@@ -35,10 +37,15 @@ const maxRequestBytes = 128 * 1024; // compose edits and key imports declare 64 
 const legacyReadOnlyOperations = new Set(["container.docker.inspect", "container.docker.inventory", "controller.database.backup.inspect", "controller.database.protection.inspect", "controller.database.protection.retention.inspect", "virtualization.foundation.inspect", "virtualization.media.inspect", "virtualization.inventory.inspect", "virtualization.console.inspect", "virtualization.domain.export.inspect", "virtualization.export.backup.inspect", "virtualization.export.backup.retention.inspect", "virtualization.export.backup.restore-drill.inspect", "virtualization.backup.recovery.inspect"]);
 const readOnlyOperations = new Set([...registry.readOnlyIds(), ...legacyReadOnlyOperations]);
 const lanes = createLaneQueues();
+// BoxPilot restarting itself after an upgrade or a KVM install: once every lane has drained, and
+// holding the exclusive lane so nothing new starts before it.
+const selfRestart = createDrainedRestart({ lanes, run: fixedRun });
 // Inspections do not queue per subject, so this is what stops a page in a reload loop from
 // starting dozens of root child processes at once.
 const reads = createConcurrencyGate(8);
 const queuedHeartbeatMs = 20_000;
+/** Mutations waiting in a lane, not yet started. */
+const waiting = new Set();
 const vmRestoreDrill = createVmRestoreDrillHelper();
 const vmRecovery = createVmRecoveryHelper({ restoreEngine: vmRestoreDrill });
 const vmRetention = createVmRetentionHelper();
@@ -67,7 +74,7 @@ const machineSnapshot = createMachineSnapshotHelper({ controllerBackups });
 const housekeeping = createHousekeepingService({ apps, runUnit });
 const performance = createPerformanceService();
 const localDns = createLocalDnsService({ apps, runDocker: fixedRun });
-const helperDependencies = { runUnit, credentials, vpnProfile, apps, housekeeping, performance, localDns, vmCloud, hostInspect, controllerBackups, controllerProtection, controllerRetention, prerequisites, foundation, vmMedia, virtualization, vmProtection, vmRestoreDrill, vmRecovery, vmRetention, machineSnapshot };
+const helperDependencies = { runUnit, credentials, vpnProfile, apps, housekeeping, performance, localDns, vmCloud, hostInspect, controllerBackups, controllerProtection, controllerRetention, prerequisites, foundation, vmMedia, virtualization, vmProtection, vmRestoreDrill, vmRecovery, vmRetention, machineSnapshot, selfRestart };
 if (recovery.blocked) {
   console.error("BoxPilot is serving requests; restore drills stay unavailable until that is resolved.");
 }
@@ -81,15 +88,9 @@ const swept = await runUnit.sweepStale().catch(() => ({ removed: 0 }));
 if (swept.removed > 0) console.log(`Removed ${swept.removed} stale root-task file(s) from a previous run`);
 
 // An app backup a power cut or a restart cut off left the app stopped, which Docker never undoes,
-// and half an archive. Both are put right here, each under its app's lane so nothing that arrives
-// once the socket is up reaches the app first; Docker may still be starting, so this waits for it.
-for (const entry of await apps.interruptedBackups().catch(() => [])) {
-  void lanes.run([`app:${entry.id}`], () => apps.resumeInterruptedBackup(entry)).then((outcome) => {
-    if (outcome.restarted) console.log(`Started ${entry.id} again: a backup begun at ${entry.startedAt ?? "an unknown time"} had stopped it and was cut off`);
-    else if (outcome.error) console.error(`${entry.id} was stopped by a backup that was cut off, and could not be started again: ${outcome.error}`);
-    if (outcome.removedPartial) console.log(`Removed the unfinished backup archive ${entry.partial} of ${entry.id}`);
-  }, (error) => console.error(`Recovering ${entry.id} after an interrupted backup failed: ${error.message}`));
-}
+// and half an archive. Both are put right here: Docker may still be starting, so it is waited for
+// outside any lane, and each app's lane is held only for its start (interrupted-backups.mjs).
+void resumeInterruptedBackups(await apps.interruptedBackups().catch(() => []), { apps, lanes });
 
 // A machine snapshot or a restore of one that a power cut or a restart cut off left its half-written
 // archive and the folder it worked in, which hold the database and every app's .env in the clear.
@@ -155,8 +156,14 @@ const server = net.createServer({ allowHalfOpen: true }, (connection) => {
           heartbeat = setInterval(() => frame(helperQueuedFrame(request?.id ?? null, held.join("+"))), queuedHeartbeatMs);
           heartbeat.unref?.();
         }
+        // While it waits, a stop of the helper (a drained self-restart holds every lane until then)
+        // answers it at once with nothing done, rather than holding the stop until systemd kills it.
+        const queued = { refused: false, refuse: () => { queued.refused = true; if (heartbeat) { clearInterval(heartbeat); heartbeat = null; } reply(helperErrorReply(request?.id ?? null, new Error("BoxPilot's helper restarted before this began, so nothing was changed. Run it again."))); } };
+        waiting.add(queued);
         try {
           result = await lanes.run(held, async () => {
+            waiting.delete(queued);
+            if (queued.refused) throw new Error("The helper stopped before this request began");
             // The web side gave up while this waited: running it now would change the host with no job watching.
             // allowHalfOpen keeps `destroyed` false after the peer's FIN, so check the read side too.
             if (connection.destroyed || connection.readableEnded) throw new Error("The request was abandoned while it waited for an earlier operation on this subject");
@@ -166,6 +173,7 @@ const server = net.createServer({ allowHalfOpen: true }, (connection) => {
             return executeHelperOperation(request, helperDependencies);
           });
         } finally {
+          waiting.delete(queued);
           if (heartbeat) clearInterval(heartbeat);
         }
       }
@@ -207,6 +215,9 @@ server.listen(socketPath, async () => {
 });
 
 async function shutdown() {
+  // Work already running drains (systemd allows it 90 seconds); work still queued never starts.
+  for (const queued of waiting) queued.refuse();
+  waiting.clear();
   server.close(async () => {
     await unlink(socketPath).catch(() => {});
     process.exit(0);

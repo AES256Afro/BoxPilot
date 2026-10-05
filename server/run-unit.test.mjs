@@ -43,7 +43,9 @@ describe("run-unit client", () => {
     }) });
     const error = await client.runTask("apt.upgrade", {}, { timeoutMs: 10_800_000 }).catch((caught) => caught);
     expect(error.message).toBe("Root task apt.upgrade did not finish within 3 hours");
-    expect(error.timeout).toEqual({ scope: "step", budgetMs: 10_800_000, step: "Root task apt.upgrade" });
+    // The runner writes "timed out" and lets the task carry on (KillMode=process): it may still be
+    // running, which a flow must not retry beside, nor "Try again with more time" start again.
+    expect(error.timeout).toEqual({ scope: "step", budgetMs: 10_800_000, step: "Root task apt.upgrade", stillRunning: true });
   });
 });
 

@@ -277,3 +277,89 @@ describe("operations that can restart Docker", () => {
     await first;
   });
 });
+
+/**
+ * A drive check, a reconnect and letting apps write stop the containers bound to the drive, unmount
+ * it and start them again; unmounting a drive or a share decides from the running containers that
+ * none holds it. They held only the host lane, which no app operation holds, so Start Jellyfin
+ * mid-check bound the empty folder on the system disk, and the check's own start afterwards left
+ * that container as it was: Jellyfin wrote to the system disk, hidden under the drive.
+ */
+describe("operations that unmount a drive under the apps", () => {
+  const underApps = [
+    ["storage.check", { name: "media" }],
+    ["storage.dirty-mark.clear", { name: "media" }],
+    ["storage.remount", { name: "media" }],
+    ["storage.writable", { name: "media" }],
+    ["storage.unmount", { name: "media" }],
+    ["share.reconnect", { name: "nas" }],
+    ["share.unmount", { name: "nas" }],
+  ];
+
+  it("hold the Docker lane as well as the host lane", () => {
+    for (const [id, parameters] of underApps) expect(laneFor(id, parameters), id).toEqual(["host", dockerLane]);
+    // Mounting a drive or a share touches no container.
+    expect(laneFor("storage.mount", { name: "media" })).toEqual(["host"]);
+    expect(laneFor("share.mount", { name: "nas" })).toEqual(["host"]);
+  });
+
+  it.each(underApps)("%s keeps an app started behind it waiting until the drive is back", async (id, parameters) => {
+    const queues = createLaneQueues();
+    const order = [];
+    let releaseCheck;
+    const check = queues.run(laneFor(id, parameters), async () => {
+      order.push("unmounted");
+      await new Promise((resolve) => { releaseCheck = resolve; });
+      order.push("mounted again");
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const start = laneFor("app.action", { id: "jellyfin", action: "start" });
+    expect(queues.busy(start)).toBe(true);
+    const started = queues.run(start, async () => { order.push("jellyfin started"); });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(order).toEqual(["unmounted"]);
+    releaseCheck();
+    await Promise.all([check, started]);
+    expect(order).toEqual(["unmounted", "mounted again", "jellyfin started"]);
+  });
+
+  it("waits for an app operation already running before it unmounts", async () => {
+    const queues = createLaneQueues();
+    const order = [];
+    let releaseUpdate;
+    const update = queues.run(laneFor("app.update", { id: "jellyfin" }), async () => {
+      order.push("update:start");
+      await new Promise((resolve) => { releaseUpdate = resolve; });
+      order.push("update:end");
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const check = queues.run(laneFor("storage.check", { name: "media" }), async () => { order.push("check"); });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(order).toEqual(["update:start"]);
+    releaseUpdate();
+    await Promise.all([update, check]);
+    expect(order).toEqual(["update:start", "update:end", "check"]);
+  });
+});
+
+/** A DNS rehearsal stops and starts the DNS app's own container: it holds that app's lane. */
+it("holds the DNS app's lane while a rehearsal stops and starts it", async () => {
+  expect(laneFor("dns.fallback.rehearse", { app: "pihole", router: "192.0.2.1", lanAddress: "192.0.2.10" })).toEqual(["host", "app:pihole"]);
+  expect(laneFor("dns.fallback.rehearse", { app: "adguard" })).toEqual(["host", "app:adguard"]);
+  const queues = createLaneQueues();
+  const order = [];
+  let release;
+  const rehearsal = queues.run(laneFor("dns.fallback.rehearse", { app: "pihole" }), async () => {
+    order.push("stopped");
+    await new Promise((resolve) => { release = resolve; });
+    order.push("started again");
+  });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const update = queues.run(laneFor("app.update", { id: "pihole" }), async () => { order.push("update"); });
+  // Another app is not held up.
+  await queues.run(laneFor("app.action", { id: "jellyfin", action: "restart" }), async () => { order.push("jellyfin"); });
+  expect(order).toEqual(["stopped", "jellyfin"]);
+  release();
+  await Promise.all([rehearsal, update]);
+  expect(order).toEqual(["stopped", "jellyfin", "started again", "update"]);
+});
