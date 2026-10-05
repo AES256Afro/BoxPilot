@@ -1,7 +1,11 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { appStopClearingOperations } from "./app-stops.mjs";
+import { deviceResolvingOperations } from "./catalog/devices.mjs";
+import { registry } from "./ops/index.mjs";
 
 // Password hashing runs at production scrypt cost; CI runners need more than the 5 s default.
 vi.setConfig({ testTimeout: 30_000 });
@@ -930,5 +934,25 @@ describe("a tier that depends on what an operation acts on", () => {
       expect(other.risk).toBe("medium");
       expect(jobs.describeApproval(other.id, null)).toMatchObject({ tier: "medium", passwordRequired: false });
     } finally { store.close(); }
+  });
+});
+
+describe("the hooks index.mjs gives the job service", () => {
+  // A hook under a name no operation has never runs: "firewall.rule.set" was registered for the
+  // operation "firewall.rule.add", so adding a rule by hand never marked the firewall profile edited.
+  it("are each keyed by a registered operation", async () => {
+    const index = (await readFile(path.join(path.dirname(fileURLToPath(import.meta.url)), "index.mjs"), "utf8")).replaceAll("\r\n", "\n");
+    const start = index.indexOf("const jobs = createJobService(");
+    expect(start).toBeGreaterThan(-1);
+    const block = index.slice(start, index.indexOf("\n});", start));
+    // Every quoted dotted name followed by a colon in the options is a hook key...
+    const keyed = [...block.matchAll(/"([a-z][a-z0-9-]*(?:\.[a-z0-9-]+)+)"\s*:/g)].map((match) => match[1]);
+    // ...and so is every name in a list spread into one with Object.fromEntries.
+    const listed = [...block.matchAll(/Object\.fromEntries\(\[([^\]]*)\]/g)].flatMap((match) => [...match[1].matchAll(/"([^"]+)"/g)].map((name) => name[1]));
+    const spread = [...(block.includes("appStopClearingOperations") ? appStopClearingOperations : []), ...(block.includes("deviceResolvingOperations") ? deviceResolvingOperations : [])];
+    const keys = [...keyed, ...listed, ...spread];
+    expect(keyed.length).toBeGreaterThan(40);
+    expect(keys).toContain("firewall.rule.add");
+    expect(keys.filter((key) => !registry.has(key))).toEqual([]);
   });
 });
