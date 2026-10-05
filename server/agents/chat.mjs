@@ -11,6 +11,7 @@
  * posts wait in the outbox, files wait in Zulip.
  */
 import { ConnectorError, cleanDocumentText, textOfUpload } from "./connectors.mjs";
+import { boxLine } from "./guard.mjs";
 import { ackMessage, boxpilotLink, cardMessage, chatLimits, chatText, destinationFor, findingMessage, imageMediaType, messageWords, notSetUpMessage, noteMessage, replyMessage, traceMessage, zulipChannels } from "./zulip.mjs";
 
 export const zulipSettingKey = "agentsZulip";
@@ -225,7 +226,8 @@ export function createAgentChat({ state, store, helper = null, now = () => new D
     for (const file of message.files ?? []) {
       if (file.skipped) { outcomes.push({ added: false, name: file.name, reason: file.skipped }); continue; }
       const name = clip(String(file.name ?? "file").replace(/[\u0000-\u001f\u007f]/g, " "), 120);
-      const title = clip(name.replace(/\.(pdf|md|markdown|txt|text|png|jpe?g|gif|webp)$/i, "").trim(), 110) || "File from Zulip";
+      // Whoever dropped it named it: one safe line, as it comes in (2026-10 sweep 4).
+      const title = boxLine(redact(name.replace(/\.(pdf|md|markdown|txt|text|png|jpe?g|gif|webp)$/i, "")), 110) || "File from Zulip";
       const externalId = clip(`${message.id}:${file.path ?? name}`, 300);
       try {
         const bytes = Buffer.from(String(file.bytes ?? ""), "base64");
@@ -249,7 +251,7 @@ export function createAgentChat({ state, store, helper = null, now = () => new D
     }
     // Words alone, long enough to be worth keeping, are a note from the owner as well.
     if (!(message.files ?? []).length && context.length >= limits.textMinChars) {
-      const title = `Note from Zulip: ${clip(context, 60)}`;
+      const title = `Note from Zulip: ${boxLine(redact(context), 60)}`;
       store.upsertDocument({ source: "zulip", externalId: `${message.id}:text`, title, text: redact(cleanDocumentText(`${context}\n\n(${sender}, in #${channel})`)) });
       outcomes.push({ added: true, title });
     }

@@ -30,7 +30,7 @@ import { coreLimits, defaultCores, effectiveCores, physicalCores, runnerCaps, ru
 import { createAgentChat, zulipSettingKey } from "./chat.mjs";
 import { ConnectorError, boundSync, cleanDocumentText, connectors, readFolderSetting, scanFolder, textOfUpload } from "./connectors.mjs";
 import { ageWords, compactFinding, findingAnswers, findingFreshMs, findingKind, findingReaderKinds, findingScore, sharingOf, wantsFresh } from "./findings.mjs";
-import { detectInjection, sanitizeUntrusted, stripWrapperBlocks, wrapFinding, wrapNote, wrapToolOutput } from "./guard.mjs";
+import { boxAttribute, boxLine, detectInjection, sanitizeUntrusted, stripWrapperBlocks, wrapFinding, wrapNote, wrapToolOutput } from "./guard.mjs";
 import { readUnderstanding, understandingSummary } from "./intent.mjs";
 import { decodeVector, encodeVector, episodeOf, foldThread, hybridSearch, memoryTiers, readVector } from "./memory.mjs";
 import { defaultModelId, downloadPreview, findNewerQwen, modelById, modelLibrary, testedUnslothVersion, unslothModelSpec } from "./models.mjs";
@@ -804,7 +804,9 @@ export function createAgentService({
   const embedModelName = () => { const runtime = runtimeSettings(); return runtime.driver === "unsloth" || runtime.driver === "llama-server" ? runtime.repo : runtime.driver; };
 
   function memoryLine(item) {
-    return `<memory kind="${item.tier}" from="${String(item.from).replace(/"/g, "'")}" written="${String(item.at ?? "").slice(0, 10)}"${stale(item) ? " stale=\"true\"" : ""} trust="untrusted">\n${item.title}: ${sanitizeUntrusted(item.text, { maxChars: 600, redact }).text}\n</memory>`;
+    // Its title and who it is from are someone's words too - a document's title, another account's
+    // agent's name - made safe like its text (2026-10 sweep 4: they went in as they were).
+    return `<memory kind="${item.tier}" from="${boxAttribute(item.from)}" written="${boxAttribute(String(item.at ?? "").slice(0, 10))}"${stale(item) ? " stale=\"true\"" : ""} trust="untrusted">\n${boxLine(redact(String(item.title ?? "")), 160)}: ${sanitizeUntrusted(item.text, { maxChars: 600, redact }).text}\n</memory>`;
   }
 
   // ---- the injection flag goes where the text came from (2026-10 sweeps 2 and 3) ----
@@ -2682,7 +2684,8 @@ export function createAgentService({
       if (!entry?.externalId || !entry?.text) continue;
       const externalId = String(entry.externalId).slice(0, 300);
       seen.add(externalId);
-      const result = store.upsertDocument({ source, externalId, title: clip(String(entry.title ?? externalId), 120), text: redact(cleanDocumentText(entry.text)), createdBy: actorId });
+      // Its title is whoever named the page or file: one safe line, as it comes in (sweep 4).
+      const result = store.upsertDocument({ source, externalId, title: boxLine(redact(String(entry.title ?? externalId)), 120) || clip(externalId, 120), text: redact(cleanDocumentText(entry.text)), createdBy: actorId });
       if (result.changed) changed += 1;
     }
     if (removeMissing) {
