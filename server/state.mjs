@@ -1538,13 +1538,13 @@ export function createStateStore({
   function recoverInterruptedJobs() {
     const interrupted = database.prepare("SELECT id, title, state FROM jobs WHERE state IN ('applying', 'verifying')").all();
     if (!interrupted.length) return [];
-    // One transaction: a crash during startup recovery would otherwise leave some jobs marked
-    // failed with no step saying why.
     // A job whose last word from the helper was that it waited behind earlier work never began: the
     // helper starts nothing queued once it is stopping, and the web side, stopped first in a restart
     // of both, never heard the refusal. Said as never started, and free to run again (job-reruns.mjs).
     const lastQueueStep = database.prepare("SELECT state FROM job_steps WHERE job_id = ? AND name = 'queue' ORDER BY created_at DESC, rowid DESC LIMIT 1");
     for (const job of interrupted) job.neverStarted = job.state === "applying" && lastQueueStep.get(job.id)?.state === "waiting";
+    // One transaction: a crash during startup recovery would otherwise leave some jobs marked
+    // failed with no step saying why.
     database.exec("BEGIN IMMEDIATE");
     try {
       for (const { id, state, neverStarted } of interrupted) {
