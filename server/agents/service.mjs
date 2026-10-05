@@ -769,12 +769,19 @@ export function createAgentService({
       }
     }
     if (sources.documents) {
+      // The owner's own uploads are the owner's words. A document a folder or a connector brings in
+      // is whoever wrote it there - anyone who may post in that channel or edit that page - and it is
+      // read again as it changes, pin and all: held to its words (sweep 4).
       for (const document of store.listDocuments().filter((entry) => entry.enabled && entry.pinned)) {
-        chunksOf(document).forEach((text, index) => items.push({ key: `doc:${document.id}#${index}`, tier: "pinned", title: document.title, text, from: "the owner", at: document.createdAt, freshUntil: null, weight: 1.2 }));
+        const owners = ownersDocument(document);
+        chunksOf(document).forEach((text, index) => items.push({ key: `doc:${document.id}#${index}`, tier: "pinned", title: document.title, text, from: owners ? "the owner" : `a document from ${document.source}`, at: document.createdAt, freshUntil: null, weight: 1.2, held: !owners }));
       }
     }
     return items;
   }
+
+  /** Whether a document is the owner's own words: pasted or uploaded by them, not brought in by a folder or a connector. */
+  const ownersDocument = (document) => ["upload", "pdf"].includes(document.source) && state.findOwnerById?.(document.createdBy)?.role === "owner";
 
   /** A document in the pieces it is embedded as: at most 1,200 characters, twenty pieces. */
   function chunksOf(document) {
