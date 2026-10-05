@@ -9,7 +9,7 @@ import { finalRedaction } from "../assistant/prompt.mjs";
 import { chatParagraph, systemMessage } from "./prompt.mjs";
 import { normalizeSpec, SpecError } from "./spec.mjs";
 import { agentTemplates, templateById } from "./templates.mjs";
-import { ackMessage, cardMessage, chatOutputsOf, destinationFor, findingMessage, neutralizeMentions, noteMessage, readChannelName, traceMessage, uploadKind, uploadsIn } from "./zulip.mjs";
+import { ackMessage, cardMessage, chatOutputsOf, destinationFor, findingMessage, neutralizeMentions, noteMessage, readChannelName, replyMessage, traceMessage, uploadKind, uploadsIn } from "./zulip.mjs";
 
 const redactor = createRedactor({ additionalLiterals: ["SENTINEL-LITERAL-9"] });
 const redact = (text) => finalRedaction(text, redactor);
@@ -80,6 +80,20 @@ describe("the words posted", () => {
     expect(plan).toContain("Decide in BoxPilot: [the card on the Agents page](https://box/?view=agents). Nothing runs until a person approves each step there.");
     const question = cardMessage({ agentName: "Server Keeper", proposal: { kind: "question", question: "Which drive?" }, redact });
     expect(question).toContain("Answers in chat are not read.");
+  });
+
+  it("warn, first, when the run read something that looked like an instruction (R3S3-3)", () => {
+    const flagged = { ...run, flags: { injection: true } };
+    const warning = /^_BoxPilot: this run read something that looked like an instruction\. Check its trace in BoxPilot before acting on what it says\._/;
+    expect(findingMessage({ agentName: "Server Keeper", run: flagged, redact })).toMatch(warning);
+    expect(replyMessage({ agentName: "Server Keeper", run: flagged, redact })).toMatch(warning);
+    expect(replyMessage({ agentName: "Server Keeper", run: { ...flagged, answer: "Which drive do you mean?", flags: { injection: true, clarify: true } }, redact })).toMatch(warning);
+    expect(cardMessage({ agentName: "Server Keeper", proposal: { kind: "question", question: "Which drive?" }, flagged: true, redact })).toMatch(warning);
+    expect(cardMessage({ agentName: "Server Keeper", proposal: { kind: "plan", title: "Restart", reason: "x", steps: [] }, flagged: true, redact })).toMatch(warning);
+    // A run that read nothing like it says nothing of the kind.
+    expect(findingMessage({ agentName: "Server Keeper", run, redact })).not.toMatch(/looked like an instruction/);
+    expect(replyMessage({ agentName: "Server Keeper", run, redact })).not.toMatch(/looked like an instruction/);
+    expect(cardMessage({ agentName: "Server Keeper", proposal: { kind: "question", question: "Which drive?" }, redact })).not.toMatch(/looked like an instruction/);
   });
 
   it("keep a short trace in the message and the whole of a long one as a file", () => {

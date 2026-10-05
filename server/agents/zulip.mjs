@@ -144,26 +144,34 @@ const kindWords = {
 
 const seconds = (ms) => (ms >= 90_000 ? `${Math.round(ms / 60_000)} min` : `${Math.max(1, Math.round(ms / 1000))} s`);
 
+/**
+ * BoxPilot's first line on what a run that read something that looked like an instruction posts:
+ * its answer, its question back or its card may be those words (2026-10 sweep 3: posted unmarked).
+ */
+export const flaggedLine = "_BoxPilot: this run read something that looked like an instruction. Check its trace in BoxPilot before acting on what it says._";
+const warned = (flagged, text) => (flagged ? `${flaggedLine}\n${text}` : text);
+
 /** #agent-findings: a run's answer or digest, with the question it answered. */
 export function findingMessage({ agentName, run, digest = false, link = null, redact }) {
   const head = `**${clipLine(agentName, 60)}** · ${digest ? "daily digest" : kindWords[run.kind] ?? "finished a run"}${run.state === "degraded" ? " · _degraded: the model did not finish, so these are the tools' facts_" : ""}`;
   // The link is BoxPilot's own, added after redaction, which would take its query away.
   const lines = [`${chatText(head, { redact, maxChars: 600 })}${link ? ` · ${link}` : ""}`];
+  if (run.flags?.injection) lines.unshift(flaggedLine);
   if (["ask", "manual", "continue"].includes(run.kind) && run.question) lines.push(`> ${chatText(clipLine(run.question, 300), { redact, maxChars: 320 }).replace(/\n/g, " ")}`);
   if (run.kind === "event" && run.trigger?.title) lines.push(`> ${chatText(clipLine(run.trigger.title, 200), { redact, maxChars: 220 })}`);
   lines.push("", chatText(run.answer ?? "(no answer)", { redact, maxChars: chatLimits.messageChars - 1_200 }));
   return lines.join("\n");
 }
 
-/** #agent-findings: a card the run left, which is decided in BoxPilot and never in chat. */
-export function cardMessage({ agentName, proposal, link = null, redact }) {
+/** #agent-findings: a card the run left, which is decided in BoxPilot and never in chat. `flagged`: its run's injection flag. */
+export function cardMessage({ agentName, proposal, link = null, flagged = false, redact }) {
   const name = clipLine(agentName, 60);
   // BoxPilot's own words and link, after redaction, which would take the link's query away.
   const where = link ? `Decide in BoxPilot: ${link}.` : "Decide in BoxPilot, on the Agents page.";
-  if (proposal.kind === "question") return `${chatText(`**${name}** has a question: ${clipLine(proposal.question ?? proposal.reason, 400)}`, { redact, maxChars: 1_600 })}\n${where} Answers in chat are not read.`;
-  if (proposal.kind === "escalation") return `${chatText(`**${name}** needs you to look: ${clipLine(proposal.reason, 800)}`, { redact, maxChars: 1_600 })}\n${where}`;
+  if (proposal.kind === "question") return warned(flagged, `${chatText(`**${name}** has a question: ${clipLine(proposal.question ?? proposal.reason, 400)}`, { redact, maxChars: 1_600 })}\n${where} Answers in chat are not read.`);
+  if (proposal.kind === "escalation") return warned(flagged, `${chatText(`**${name}** needs you to look: ${clipLine(proposal.reason, 800)}`, { redact, maxChars: 1_600 })}\n${where}`);
   const steps = (proposal.steps ?? []).slice(0, 8).map((step) => `\`${step.operationId}\` (${step.risk})`).join(", ");
-  return `${chatText(`**${name}** proposes: **${clipLine(proposal.title, 120)}**\n${clip(proposal.reason ?? "", 800)}\nSteps: ${steps || "none"}.`, { redact, maxChars: 2_400 })}\n${where} Nothing runs until a person approves each step there.`;
+  return warned(flagged, `${chatText(`**${name}** proposes: **${clipLine(proposal.title, 120)}**\n${clip(proposal.reason ?? "", 800)}\nSteps: ${steps || "none"}.`, { redact, maxChars: 2_400 })}\n${where} Nothing runs until a person approves each step there.`);
 }
 
 /** #agent-knowledge: a note the agent kept. */
@@ -244,7 +252,7 @@ export function questionFrom(content, { agents = [] } = {}) {
 /** The answer to a message someone sent the bot, in the thread they asked in (M40.5). */
 export function replyMessage({ agentName, run, link = null, redact }) {
   const name = clipLine(agentName, 60);
-  const lines = [];
+  const lines = run.flags?.injection ? [flaggedLine] : [];
   if (run.flags?.clarify) {
     lines.push(`${chatText(`**${name}** asks back: ${clipLine(run.answer ?? "", 400)}`, { redact, maxChars: 800 })}`, "Ask again here with more detail.");
   } else if (["completed", "degraded"].includes(run.state) && run.answer) {
