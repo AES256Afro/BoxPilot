@@ -13,7 +13,9 @@
 #      service. It always asked 127.0.0.1:8787, so on a box installed with --port every update
 #      rolled back - after the new version had already started on the database. The file is read
 #      the way systemd reads it: CRLF, blanks around "=" and trailing blanks are not part of a value,
-#      and the last line for a key wins.
+#      the last line for a key wins, a # after a value is part of it, a quote runs to its match
+#      (over lines if need be) and what follows it is part of the value, a line like `export KEY=`
+#      is ignored. The port is taken as the service takes it, with parseInt: `9000 # moved` is 9000.
 #   2. An upgrade stopped by TERM or HUP once the service is down (an SSH drop during curl | sh, the
 #      update unit stopped, a shutdown) rolls back and restarts the old tree, and a second TERM
 #      during the rollback does not cut it short. dash runs no EXIT trap for a signal, so the old
@@ -256,6 +258,21 @@ upgrade_case "CRLF, blanks around = and after the value" 'BOXPILOT_HOST = 192.0.
 upgrade_case "CRLF, quoted after a blank" 'BOXPILOT_HOST = "0.0.0.0"\r\nBOXPILOT_PORT = "9004" \r' http://127.0.0.1:9004/api/v1/health
 # The last line for a key is the one systemd gives the service (server/env-file.mjs reads it the same).
 upgrade_case "a leading blank line, a port overridden further down" '\nBOXPILOT_PORT=8787\n# moved\n  BOXPILOT_PORT = 9006' http://127.0.0.1:9006/api/v1/health
+# EnvironmentFile= has no inline comments: systemd gives the service `9000   # moved off 8787`, and
+# the service takes the port with parseInt (9000). The upgrade asked
+# `http://127.0.0.1:9000   # moved off 8787/api/v1/health` and rolled back a version already running.
+upgrade_case "an inline comment after the port" 'BOXPILOT_HOST=127.0.0.1\nBOXPILOT_PORT=9000   # moved off 8787' http://127.0.0.1:9000/api/v1/health
+# Quoted, what follows the closing quote is part of the value too: systemd gives `9001# web`.
+upgrade_case "a quoted port with a comment after it" 'BOXPILOT_PORT="9001" # web' http://127.0.0.1:9001/api/v1/health
+upgrade_case "CRLF, a comment after the port" 'BOXPILOT_HOST = 192.0.2.10\r\nBOXPILOT_PORT=9008 ; moved\r' http://192.0.2.10:9008/api/v1/health
+upgrade_case "duplicates, the last with a comment" 'BOXPILOT_PORT=8787\nBOXPILOT_PORT = 9009 # moved' http://127.0.0.1:9009/api/v1/health
+# systemd ignores a line whose name is not a variable name, `export BOXPILOT_PORT` among them.
+upgrade_case "an export line after the port" 'BOXPILOT_PORT=9007\nexport BOXPILOT_PORT=9100' http://127.0.0.1:9007/api/v1/health
+# A quote left open runs to the end of the file: the BOXPILOT_HOST line below it is part of the port.
+upgrade_case "a quote left open" 'BOXPILOT_HOST=192.0.2.10\nBOXPILOT_PORT="9010\nBOXPILOT_HOST=0.0.0.0' http://192.0.2.10:9010/api/v1/health
+upgrade_case "an empty address" 'BOXPILOT_HOST=\nBOXPILOT_PORT=9011' http://127.0.0.1:9011/api/v1/health
+# Not a port at all: the service listens on 8787, as every other reader says.
+upgrade_case "a port that is no number" 'BOXPILOT_PORT=web' http://127.0.0.1:8787/api/v1/health
 
 echo "2. An upgrade stopped by a signal once the service is down rolls back and restarts the old tree"
 signal_case() { # signal_case <what> <signal> <TERM again during the rollback: yes|no>
@@ -456,6 +473,17 @@ check "re-run with a CRLF env file, blanks around =: it finished on 9000" '[ "$s
 check "re-run with a CRLF env file: it kept the LAN" 'grep -q "listening on 0.0.0.0" <<<"$out" && grep -q "^  BOXPILOT_HOST = 0.0.0.0" "${FAKE}/etc/boxpilot/boxpilot.env"'
 check "re-run with a CRLF env file: one BOXPILOT_PORT line, 9000" '[ "$(grep -c "BOXPILOT_PORT" "${FAKE}/etc/boxpilot/boxpilot.env")" -eq 1 ] && [ "$(env_line BOXPILOT_PORT)" = BOXPILOT_PORT=9000 ]'
 
+# A comment after the port: the service is on 9000 (systemd keeps the comment, parseInt drops it).
+# The installer took the comment into the port, wrote it back and checked a URL with it in.
+installed_box '9000   # moved off 8787'
+run_install http://127.0.0.1:9000/api/v1/health
+show "$out"
+check "re-run with a comment after the port: it finished on 9000" '[ "$status" -eq 0 ] && grep -qx "health=http://127.0.0.1:9000/api/v1/health" "${STUB_LOG}/upgrade"'
+check "re-run with a comment after the port: the env file says 9000" '[ "$(env_line BOXPILOT_PORT)" = BOXPILOT_PORT=9000 ]'
+installed_box '"9000" # web'
+run_install http://127.0.0.1:9100/api/v1/health --port 9100
+check "re-run with a quoted port and a comment, --port 9100: it moved from 9000 to 9100" '[ "$status" -eq 0 ] && grep -qx "health=http://127.0.0.1:9100/api/v1/health" "${STUB_LOG}/upgrade" && [ "$(env_line BOXPILOT_PORT)" = BOXPILOT_PORT=9100 ]'
+
 echo "5. The host doctor, run with sudo, checks the web service where its env file says it listens"
 doctor_case() { # doctor_case <what> <env file> <the URL that answers> <host:port it reports>
   local what="$1" answering="$3" reported="$4"
@@ -467,6 +495,10 @@ doctor_case() { # doctor_case <what> <env file> <the URL that answers> <host:por
 }
 doctor_case "installed with --port 9000" 'BOXPILOT_HOST=0.0.0.0\nBOXPILOT_PORT=9000' http://127.0.0.1:9000/api/v1/health 127.0.0.1:9000
 doctor_case "CRLF, blanks around =" 'BOXPILOT_HOST = 192.0.2.10 \r\nBOXPILOT_PORT = "9005" \r' http://192.0.2.10:9005/api/v1/health 192.0.2.10:9005
+# It warned that a healthy service on 9000 did not answer, having asked for the comment's URL.
+doctor_case "an inline comment after the port" 'BOXPILOT_HOST=0.0.0.0\nBOXPILOT_PORT=9000   # moved off 8787' http://127.0.0.1:9000/api/v1/health 127.0.0.1:9000
+doctor_case "a quoted port with a comment after it" "BOXPILOT_PORT='9001' ; web" http://127.0.0.1:9001/api/v1/health 127.0.0.1:9001
+doctor_case "a quote left open" 'BOXPILOT_HOST=192.0.2.10\nBOXPILOT_PORT="9010\nBOXPILOT_HOST=0.0.0.0' http://192.0.2.10:9010/api/v1/health 192.0.2.10:9010
 
 echo "6. An installer re-run stopped by a signal puts the env file back"
 # hup_install_case <what> <where the run is held: build|swap>
