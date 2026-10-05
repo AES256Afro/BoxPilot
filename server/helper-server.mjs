@@ -13,6 +13,7 @@ import { executeHelperOperation } from "./helper-protocol.mjs";
 import { helperErrorReply, helperQueuedFrame, helperStartedFrame } from "./helper-response.mjs";
 import { createConcurrencyGate, createLaneQueues, laneFor } from "./helper-lanes.mjs";
 import { createDrainedRestart } from "./self-restart.mjs";
+import { resumeInterruptedBackups } from "./interrupted-backups.mjs";
 import { createVmRecoveryHelper } from "./vm-recovery-helper.mjs";
 import { createVmRestoreDrillHelper } from "./vm-restore-drill-helper.mjs";
 import { createVmRetentionHelper } from "./vm-retention-helper.mjs";
@@ -87,15 +88,9 @@ const swept = await runUnit.sweepStale().catch(() => ({ removed: 0 }));
 if (swept.removed > 0) console.log(`Removed ${swept.removed} stale root-task file(s) from a previous run`);
 
 // An app backup a power cut or a restart cut off left the app stopped, which Docker never undoes,
-// and half an archive. Both are put right here, each under its app's lane so nothing that arrives
-// once the socket is up reaches the app first; Docker may still be starting, so this waits for it.
-for (const entry of await apps.interruptedBackups().catch(() => [])) {
-  void lanes.run([`app:${entry.id}`], () => apps.resumeInterruptedBackup(entry)).then((outcome) => {
-    if (outcome.restarted) console.log(`Started ${entry.id} again: a backup begun at ${entry.startedAt ?? "an unknown time"} had stopped it and was cut off`);
-    else if (outcome.error) console.error(`${entry.id} was stopped by a backup that was cut off, and could not be started again: ${outcome.error}`);
-    if (outcome.removedPartial) console.log(`Removed the unfinished backup archive ${entry.partial} of ${entry.id}`);
-  }, (error) => console.error(`Recovering ${entry.id} after an interrupted backup failed: ${error.message}`));
-}
+// and half an archive. Both are put right here: Docker may still be starting, so it is waited for
+// outside any lane, and each app's lane is held only for its start (interrupted-backups.mjs).
+void resumeInterruptedBackups(await apps.interruptedBackups().catch(() => []), { apps, lanes });
 
 await mkdir(path.dirname(socketPath), { recursive: true, mode: 0o750 });
 await unlink(socketPath).catch((error) => {
