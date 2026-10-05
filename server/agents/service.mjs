@@ -294,16 +294,20 @@ export function createAgentService({
   };
   const canEdit = (caller, agent) => caller.role === "owner" || (caller.role === "operator" && agent.createdBy === caller.id);
   const canAsk = (caller, agent) => Boolean(agent.spec?.triggers?.ask) && (agent.spec?.audience ?? []).includes(caller.role);
-  /** Another account's work is the owner's to see (M29.4): runs follow the jobs rule. */
+  /**
+   * Another account's work is the owner's to see (M29.4): runs follow the jobs rule. An operator
+   * sees the unattended runs of the agents they made, but only those that read as an operator at
+   * most: a run that read as the owner holds the owner's facts (2026-10 sweep 2).
+   */
   function canSeeRun(caller, run, agent = store.getAgent(run.agentId, { includeDeleted: true })) {
     if (caller.role === "owner") return true;
     if (run.requestedBy && run.requestedBy === caller.id) return true;
-    return caller.role === "operator" && !run.requestedBy && agent?.createdBy === caller.id;
+    return caller.role === "operator" && !run.requestedBy && agent?.createdBy === caller.id && roleAtLeast("operator", run.readRole);
   }
   /** Another account's id is the owner's to see (M29.4): anyone else sees their own, or nothing. */
   const ownActor = (caller, id) => (caller.role === "owner" || id === caller.id ? id ?? null : null);
   const canSeeProposal = (caller, proposal) => caller.role === "owner" || (proposal.requestedBy && proposal.requestedBy === caller.id)
-    || (caller.role === "operator" && proposal.source === "agent" && !proposal.requestedBy && store.getAgent(proposal.agentId, { includeDeleted: true })?.createdBy === caller.id);
+    || (caller.role === "operator" && proposal.source === "agent" && !proposal.requestedBy && roleAtLeast("operator", proposal.forRole) && store.getAgent(proposal.agentId, { includeDeleted: true })?.createdBy === caller.id);
 
   function agentFor(caller, id, { edit = false } = {}) {
     const agent = store.getAgent(id);
@@ -1370,8 +1374,23 @@ export function createAgentService({
   }
 
   /**
+   * Whom a specialist's run reads as: the supervisor's run's person, but never more than the person
+   * who made the specialist may read (2026-10 sweep 2). The Server Keeper's owner runs handed work
+   * to an operator's agent as the owner, and that operator then read the run's trace: the owner's
+   * jobs, other agents' owner findings, what it recalled. Capped, it reads as its maker, whose run
+   * it is to see. Null when its maker's account is gone: there is nobody to read as.
+   */
+  function handoffReader(run, target) {
+    const maker = target.createdBy ? state.findOwnerById?.(target.createdBy) : null;
+    if (!maker) return null;
+    const makerRole = ["owner", "operator", "viewer"].includes(maker.role) ? maker.role : "viewer";
+    return roleAtLeast(makerRole, run.readRole) ? { readRole: run.readRole, readAs: run.readAs } : { readRole: makerRole, readAs: maker.id };
+  }
+
+  /**
    * A supervisor hands a subtask to a specialist: the specialist's run is queued as the same person,
-   * one level deeper under this run; its answer comes back in the supervisor's follow-up run.
+   * one level deeper under this run - reading no more than the specialist's maker may - and its
+   * answer comes back in the supervisor's follow-up run.
    */
   function handoffFor(run, spec, { agent: name, task }, answer) {
     const agent = store.getAgent(run.agentId, { includeDeleted: true });
@@ -1394,9 +1413,11 @@ export function createAgentService({
     }
     const targetBudget = budgetOf(target);
     if (targetBudget.refusal) return answer("handoff", { state: "refused", text: `${target.name} cannot run again today: ${targetBudget.refusal.toLowerCase()}.`, input: { agent: target.name }, flags: { refused: true } });
+    const reader = handoffReader(run, target);
+    if (!reader) return answer("handoff", { state: "refused", text: `${target.name}'s maker no longer has an account here, so it does not take work from other agents.`, input: { agent: target.name }, flags: { refused: true } });
     const child = store.enqueueRun({
       agentId: target.id, version: target.version, kind: "handoff", question: cleanTask, trigger: { title: `Handed over by ${agent.name}` },
-      requestedBy: run.requestedBy, readRole: run.readRole, readAs: run.readAs, parentRunId: run.id, rootRunId: run.rootRunId ?? run.id, depth: check.depth,
+      requestedBy: run.requestedBy, readRole: reader.readRole, readAs: reader.readAs, parentRunId: run.id, rootRunId: run.rootRunId ?? run.id, depth: check.depth,
     });
     audit("agents.handoff", { actorId: run.requestedBy, subjectId: child.id, details: { from: agent.id, to: target.id, parentRunId: run.id, depth: check.depth } });
     wake();
