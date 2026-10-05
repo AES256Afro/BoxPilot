@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatBytes } from "../../formatBytes";
 import { Button, EmptyState, Notice, Panel, SearchField, StatusChip, mayStart, riskOf } from "../../ui";
 import { ComposeAllowance, ComposeRefusal, type ComposeReview } from "../backups/ComposeReview";
@@ -18,7 +18,24 @@ import type { CatalogContext, Entry } from "./types";
  */
 
 interface Backup { artifact: string; createdAt: string | null; sizeBytes: number | null; downtimeMs: number | null; skippedHostPaths: string[]; skippedVolumes?: string[]; image: string | null }
-interface Browsing { backup: string; files: Array<{ path: string; sizeBytes: number; type: string }>; truncated: boolean }
+type BackupFile = { path: string; sizeBytes: number; type: string };
+interface FileListing { files?: BackupFile[]; truncated?: boolean; matched?: number }
+/** A backup's files as the server listed them: `filter` is what it filtered by ("" for none), `matched` how many there were. */
+interface Browsing { backup: string; files: BackupFile[]; truncated: boolean; matched: number | null; filter: string }
+
+/** How the server is asked to filter a backup's files: lower case, as long as it takes one. */
+const serverFilter = (text: string) => text.trim().toLowerCase().slice(0, 200);
+
+/**
+ * Whether the server must filter a backup's files again (R5B3-6): what is here holds only the first
+ * few thousand of a long listing, so a filter searched only those. Not when the list here is whole
+ * and the filter only narrows what it was listed for.
+ */
+function needsServer(text: string, browsing: Browsing): boolean {
+  const wanted = serverFilter(text);
+  if (wanted === browsing.filter) return false;
+  return browsing.truncated || !wanted.includes(browsing.filter);
+}
 
 export function BackupsTab({ entry, ctx }: { entry: Entry; ctx: CatalogContext }) {
   const { manifest, live } = entry;
@@ -47,17 +64,42 @@ export function BackupsTab({ entry, ctx }: { entry: Entry; ctx: CatalogContext }
   }, [csrfToken, manifest.id]);
   useEffect(() => { void read(); }, [read]);
 
+  // Which listing an answer belongs to: a slow one for an earlier filter must not replace a newer one.
+  const listingAsked = useRef(0);
   const browse = async (backup: string) => {
     setError(null);
+    const ticket = ++listingAsked.current;
     try {
-      const { response, body } = await runRead<Browsing>(csrfToken, "app.backup.files", { id: manifest.id, backup });
+      const { response, body } = await runRead<FileListing>(csrfToken, "app.backup.files", { id: manifest.id, backup });
       if (!response.ok || !body.result) throw new Error(body.error ?? "Could not read the backup");
+      if (ticket !== listingAsked.current) return;
       setFilter("");
-      setBrowsing({ backup, files: body.result.files ?? [], truncated: Boolean(body.result.truncated) });
+      setBrowsing({ backup, files: body.result.files ?? [], truncated: Boolean(body.result.truncated), matched: typeof body.result.matched === "number" ? body.result.matched : null, filter: "" });
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Could not read the backup");
     }
   };
+  // A listing too long to send whole is filtered by the server, a moment after the typing stops.
+  useEffect(() => {
+    if (!browsing || !needsServer(filter, browsing)) return undefined;
+    const wanted = serverFilter(filter);
+    const { backup } = browsing;
+    const timer = window.setTimeout(() => {
+      const ticket = ++listingAsked.current;
+      void (async () => {
+        try {
+          const { response, body } = await runRead<FileListing>(csrfToken, "app.backup.files", { id: manifest.id, backup, ...(wanted ? { filter: wanted } : {}) });
+          if (!response.ok || !body.result) throw new Error(body.error ?? "Could not read the backup");
+          if (ticket !== listingAsked.current) return;
+          const result = body.result;
+          setBrowsing((current) => (current && current.backup === backup ? { backup, files: result.files ?? [], truncated: Boolean(result.truncated), matched: typeof result.matched === "number" ? result.matched : null, filter: wanted } : current));
+        } catch (requestError) {
+          if (ticket === listingAsked.current) setError(requestError instanceof Error ? requestError.message : "Could not read the backup");
+        }
+      })();
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [browsing, filter, csrfToken, manifest.id]);
 
   const when = (backup: Backup) => (backup.createdAt ? new Date(backup.createdAt).toLocaleString() : backup.artifact);
 
@@ -137,7 +179,13 @@ export function BackupsTab({ entry, ctx }: { entry: Entry; ctx: CatalogContext }
             ))}
             {shownFiles.length === 0 && <li className="catalog-quiet">No file matches.</li>}
           </ul>
-          {browsing.truncated && <p className="catalog-quiet">The listing is capped; narrow the filter.</p>}
+          {browsing.truncated && (
+            <p className="catalog-quiet">
+              {browsing.matched !== null
+                ? `${browsing.filter ? `${browsing.matched.toLocaleString()} files and folders match “${browsing.filter}”` : `The backup holds ${browsing.matched.toLocaleString()} files and folders`}; the first ${browsing.files.length.toLocaleString()} are here. The filter searches all of them.`
+                : "Only the first part of the listing is here. The filter searches all of it."}
+            </p>
+          )}
         </Panel>
       )}
 

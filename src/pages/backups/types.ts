@@ -16,7 +16,8 @@ export interface MachineSnapshot { artifact: string; sizeBytes: number | null; c
 export interface MachineSnapshotState {
   snapshots: MachineSnapshot[];
   keep: number;
-  sync: { destination: string; mount: { mounted: boolean; blocker?: string | null; freeBytes?: number | null }; lastSync: { completedAt: string; copiedCount: number } | null };
+  /** `skippedCount`/`skipped`: what the last sync left out, and why (the first few); absent from a record written before it said so. */
+  sync: { destination: string; mount: { mounted: boolean; blocker?: string | null; freeBytes?: number | null }; lastSync: { completedAt: string; copiedCount: number; skippedCount?: number; skipped?: string[] } | null };
 }
 
 export interface RemoteMirrorState { keyReady: boolean; publicKey: string | null; fingerprint: string | null; hostKeysPinned: number; rsyncInstalled: boolean }
@@ -34,8 +35,12 @@ export interface SnapshotSources { sources: Array<{ source: "local" | "mirror"; 
 export interface DiscoveredSnapshots { locations: Array<{ root: string; mount: { target: string; source: string; filesystem: string }; snapshots: SnapshotEntry[] }>; unanswered?: Array<{ target: string; source: string; error: string }> }
 export interface DescribedSnapshot {
   source: string; artifact: string; createdAt: string | null;
-  /** `compose`: what restoring the app's data archive would start (sweep 4), when there is one to restore. */
-  apps: Array<{ id: string; installed: boolean; newestBackup: string | null; dataAvailable: boolean; dataLocation: string | null; compose?: ComposeReview }>;
+  /**
+   * `newestBackup`: the data archive the snapshot names. `dataArchive`: the one a restore would use,
+   * that one or, when it is gone, an older one the snapshot lists (null when none is left).
+   * `compose`: what restoring the app's data archive would start (sweep 4), when there is one to restore.
+   */
+  apps: Array<{ id: string; installed: boolean; newestBackup: string | null; dataAvailable: boolean; dataLocation: string | null; dataArchive?: string | null; compose?: ComposeReview }>;
   system: { netplanFiles?: number; ufwFiles?: number; fstab?: boolean } | null;
   vms: { domains: string[]; disksIncluded?: boolean; diskRepositoryReachable?: boolean } | null;
 }

@@ -332,9 +332,9 @@ export function appOperations() {
       // caller is the restore-a-single-file dialog, which is medium risk and so beyond a viewer
       // anyway. It also inflates a whole archive to answer, so it is not a cheap thing to invite.
       id: "app.backup.files", title: "List the files in an application backup", risk: "low", readOnly: true, minimumRole: "operator", timeoutMs: minutes(10),
-      description: "Paths, sizes, and kinds inside one backup archive, so a single file or folder can be restored.",
-      parameters: { fields: { id: idField, backup: { type: "string", maxLength: 40, pattern: /^\d{8}T\d{6}Z\.tar\.gz$/ } } },
-      run: (parameters, { apps }) => apps.listAppBackupFiles({ id: parameters.id, backup: parameters.backup }),
+      description: "Paths, sizes, and kinds inside one backup archive, so a single file or folder can be restored. The first 5000 come back, or the first 5000 whose path contains the filter: a backup with more is filtered here, not in the browser.",
+      parameters: { fields: { id: idField, backup: { type: "string", maxLength: 40, pattern: /^\d{8}T\d{6}Z\.tar\.gz$/ }, filter: { type: "string", optional: true, maxLength: 200 } } },
+      run: (parameters, { apps }) => apps.listAppBackupFiles({ id: parameters.id, backup: parameters.backup, ...(parameters.filter ? { filter: parameters.filter } : {}) }),
     }),
     defineOperation({
       id: "app.backup.restore-path", title: "Restore one file or folder from a backup", risk: "medium", timeoutMs: checkpointMs + minutes(60),

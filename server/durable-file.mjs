@@ -44,10 +44,12 @@ export async function syncDirectory(directory, { fs = defaultFs } = {}) {
   }
 }
 
-async function writeAndSync(fs, file, data, { flag, mode, encoding }) {
+/** `exact`: the file gets `mode` itself, set through its own handle, rather than `mode` less the umask. */
+async function writeAndSync(fs, file, data, { flag, mode, encoding, exact = false }) {
   const handle = await fs.open(file, flag, mode);
   try {
     await handle.writeFile(data, { encoding });
+    if (exact) await handle.chmod(mode);
     await handle.sync();
   } finally {
     await handle.close();
@@ -109,14 +111,16 @@ export async function writeFileDurably(file, data, options = {}, { fs = defaultF
  *   2. create it exclusively - O_CREAT|O_EXCL refuses a link that reappears there - write, fsync;
  *   3. rename it over `file`, which replaces the entry at that name (a link included), never the
  *      file a link there points at, and fsync the folder.
- * The new file is this process's, with `mode` less the umask. The folder itself is the caller's to
- * trust: only the last component is not followed.
+ * The new file is this process's, with exactly `mode`: set through its open handle, never by name,
+ * as the umask would otherwise take from it. The helper runs with UMask=0077, and a config file an
+ * app ships asked for 0644 came out 0600, which the app's own user could not read (R5B3-2). The
+ * folder itself is the caller's to trust: only the last component is not followed.
  */
 export async function replaceFileWithoutFollowing(file, data, { mode = 0o600, encoding = "utf8" } = {}, { fs = defaultFs } = {}) {
   const temporary = `${file}.tmp`;
   await fs.rm(temporary, { recursive: true, force: true });
   try {
-    await writeAndSync(fs, temporary, data, { flag: "wx", mode, encoding });
+    await writeAndSync(fs, temporary, data, { flag: "wx", mode, encoding, exact: true });
     await fs.rename(temporary, file);
   } catch (error) {
     await fs.rm(temporary, { force: true }).catch(() => {});

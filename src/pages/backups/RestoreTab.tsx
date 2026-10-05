@@ -29,6 +29,30 @@ export interface RestoreTabProps {
 /** Where an app's data archive was found: this server, the backup drive, or beside a snapshot found on another drive. */
 const dataPlace = (location: string | null) => (location === "mirror" ? "on backup drive" : location === "drive" ? "on the snapshot's drive" : "local");
 
+/** When an app data archive was taken, from its name (`20260815T030000Z.tar.gz`), as this browser writes a date. */
+function archiveDate(name: string): string {
+  const match = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z/.exec(name);
+  if (!match) return name;
+  const date = new Date(`${match[1]}-${match[2]}-${match[3]}T${match[4]}:${match[5]}:${match[6]}Z`);
+  return Number.isNaN(date.getTime()) ? name : date.toLocaleDateString();
+}
+
+type DescribedApp = DescribedSnapshot["apps"][number];
+
+/**
+ * Which data a restore would bring back for one app (R5B4-4): the archive the snapshot names, or, when
+ * that one is gone, an older one it lists, which the restore uses and says so; the sheet said "newest"
+ * and showed the same green chip either way.
+ */
+function DataArchive({ app }: { app: DescribedApp }) {
+  if (!app.newestBackup) return <span className="backups-dim">none</span>;
+  if (!app.dataAvailable) return <StatusChip status="warning">not reachable</StatusChip>;
+  if (app.dataArchive && app.dataArchive !== app.newestBackup) {
+    return <StatusChip status="warning" title={`${app.newestBackup}, the archive this snapshot names, is gone; the restore would use ${app.dataArchive}, an older one it lists.`}>older copy, {archiveDate(app.dataArchive)} · {dataPlace(app.dataLocation)}</StatusChip>;
+  }
+  return <StatusChip status="good">{dataPlace(app.dataLocation)}</StatusChip>;
+}
+
 interface Option { key: string; source: "local" | "mirror" | "discovered"; root: string | null; where: string; snapshot: SnapshotEntry }
 
 /** What each staged area is, and what to do with it: a file alone is a puzzle. */
@@ -129,7 +153,7 @@ export default function RestoreTab({ csrfToken, role, restores, onChanged }: Res
       title: `Restore ${countOf(apps.length, "app")} from snapshot`,
       parameters: { source: option.source, artifact: option.snapshot.artifact, ...(option.root ? { root: option.root } : {}), apps, restoreData, ...(toAllow.length ? { allowCompose } : {}) },
       preview: <>
-        <span>Reinstalls {apps.join(", ")} from <code>{option.snapshot.artifact}</code>{option.root ? <> on <code>{option.where}</code></> : null}{restoreData ? " and restores each one's newest data archive (a safety copy of any existing data is taken first)" : " without touching data"}. Apps already installed on this box are skipped.</span>
+        <span>Reinstalls {apps.join(", ")} from <code>{option.snapshot.artifact}</code>{option.root ? <> on <code>{option.where}</code></> : null}{restoreData ? " and restores each one's data from the archive the snapshot names, or an older one it lists where that one is gone (a safety copy of any existing data is taken first)" : " without touching data"}. Apps already installed on this box are skipped.</span>
         {toAllow.map((app) => <ComposeAllowance key={app.id} name={app.id} review={app.compose!} />)}
       </>,
     });
@@ -159,7 +183,7 @@ export default function RestoreTab({ csrfToken, role, restores, onChanged }: Res
       <Panel
         title="Restore from a machine snapshot"
         count={canRead && sources ? options.length : undefined}
-        meta={canRead ? <>apps come back with their settings and secrets, then their newest data</> : undefined}
+        meta={canRead ? <>apps come back with their settings and secrets, then their data as the snapshot found it</> : undefined}
         actions={canRead ? <Button variant="ghost" busy={reading} onClick={() => void refresh()}>Read again</Button> : undefined}
       >
         {!canRead ? (
@@ -247,13 +271,13 @@ export default function RestoreTab({ csrfToken, role, restores, onChanged }: Res
                   { id: "pick", header: <span className="ui-visually-hidden">Restore</span>, label: "Restore", className: "backups-pick", cell: (app) => <Checkbox label={<span className="ui-visually-hidden">Restore {app.id}</span>} checked={selected.has(app.id)} disabled={!canRestore} onChange={(on) => setSelected((current) => { const next = new Set(current); if (on) next.add(app.id); else next.delete(app.id); return next; })} /> },
                   { id: "app", header: "App", sortValue: (app) => app.id, cell: (app) => <code>{app.id}</code> },
                   { id: "installed", header: "In snapshot", cell: (app) => (app.installed ? "installed" : "not installed") },
-                  { id: "data", header: "Data archive", cell: (app) => (app.newestBackup ? (app.dataAvailable ? <StatusChip status="good">{dataPlace(app.dataLocation)}</StatusChip> : <StatusChip status="warning">not reachable</StatusChip>) : <span className="backups-dim">none</span>) },
+                  { id: "data", header: "Data archive", cell: (app) => <DataArchive app={app} /> },
                 ]}
                 rows={described.apps}
                 rowKey={(app) => app.id}
                 empty={<EmptyState title="This snapshot has no apps" />}
               />
-              <Checkbox label="Restore each app's newest data archive after installing it" description="A safety copy of any data already there is taken first." checked={restoreData} disabled={!canRestore} onChange={setRestoreData} />
+              <Checkbox label="Restore each app's data after installing it" description="From the data archive the snapshot names, or an older one it lists where that one is gone. A safety copy of any data already there is taken first." checked={restoreData} disabled={!canRestore} onChange={setRestoreData} />
               {refusedApps.map((app) => <ComposeRefusal key={app.id} title={`${app.id} cannot be restored from this snapshot's data; leave it out`} review={app.compose!} />)}
               {toAllow.map((app) => (
                 <ComposeAllowance key={app.id} name={app.id} review={app.compose!}>

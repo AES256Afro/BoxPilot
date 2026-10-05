@@ -138,8 +138,8 @@ export default function SystemPage({ csrfToken, role = "owner", onOpenAppearance
   const { start, dialog } = useOperation(csrfToken, (job) => {
     if (job.type === "op:system.update" && job.state === "completed" && updateTarget.current) { setUpdateOutcome(null); setUpdating(updateTarget.current); }
     // A finished cleanup invalidates its own figures: leaving them up says gigabytes are still
-    // waiting when they have just gone.
-    if (job.type === "op:housekeeping.reclaim" && job.state === "completed") void scan();
+    // waiting when they have just gone, and a snapshot removed by name is still offered for removal.
+    if ((job.type === "op:housekeeping.reclaim" || job.type === "op:housekeeping.unreadable-snapshot.remove") && job.state === "completed") void scan();
     if (job.type === "op:ups.setup" || job.type === "op:apt.install") void lookForUps();
     void refresh();
   });

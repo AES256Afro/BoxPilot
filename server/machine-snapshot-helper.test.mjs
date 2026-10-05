@@ -463,6 +463,20 @@ describe("restoring from a machine snapshot", () => {
     expect(result.warnings).toEqual([`uptime-kuma: ${warning}`]);
   });
 
+  // R5B4-2: an app whose data restore was refused (or that could not be installed) was said only in
+  // its own line of the result, which the job's page does not show, and the job read "Completed."
+  // in green. Said on the job's warnings too, first, so it reads "Completed with notice".
+  it("says on the job which apps were not restored, and why", async () => {
+    const { helper, paths } = await fixture();
+    await snapshotListing(paths, ["20260816T030000Z.tar.gz"]);
+    const refusal = "Uptime Kuma was not restored; nothing was changed. Port 3001 is taken on every address by process node (pid 4242).";
+    const apps = { ...recordingDeployer(paths), restoreAppBackup: async () => { throw new Error(refusal); } };
+    const result = await helper.restore({ source: "local", artifact: olderSnapshot }, { apps });
+    expect(result).toMatchObject({ restored: 1, failed: 1 });
+    expect(result.apps[0]).toMatchObject({ installed: true, dataRestored: false, error: refusal });
+    expect(result.warnings).toEqual([`uptime-kuma: ${refusal}`]);
+  });
+
   // R4B3-7: for a snapshot loose at the top of a drive, its archives were looked for beside the
   // folder the drive is mounted on: outside the drive, where another drive's archives could be.
   it("takes each app's data from the drive a snapshot lies loose on, never from beside the drive", async () => {
@@ -820,6 +834,23 @@ describe("an app's data archive copied in for a restore", () => {
     const third = await helper.sync();
     expect(await readFile(mirrored, "utf8")).toBe("app-backup-bytes");
     expect(third.warnings).toEqual([`application-backups/uptime-kuma/${name} was not copied: it has no record to check it against, and the copy on the backup drive differs from it.`]);
+  });
+
+  // R5B4-7: what a sync left out was said only in its job, and the drive's sync record kept just the
+  // counts, so the Off-box tab and Home showed "Last synced ... N files" with nothing amiss.
+  it("keeps what a sync left out in the drive's sync record, and clears it once all is copied", async () => {
+    const { helper, paths } = await fixture();
+    const store = path.join(paths.applicationBackupRoot, "uptime-kuma");
+    await helper.sync();
+    await writeFile(path.join(store, name), "app-backup");
+    await writeFile(path.join(store, record), JSON.stringify({ artifact: name, checksumSha256: sha("app-backup-bytes") }));
+    const skipped = await helper.sync();
+    const said = `application-backups/uptime-kuma/${name} was not copied: it does not match the checksum recorded when it was written, so it may be damaged.`;
+    expect(skipped.warnings).toEqual([said]);
+    expect((await helper.inspect()).sync.lastSync).toMatchObject({ completedAt: skipped.completedAt, skippedCount: 1, skipped: [said] });
+    await writeFile(path.join(store, name), "app-backup-bytes");
+    await helper.sync();
+    expect((await helper.inspect()).sync.lastSync).toMatchObject({ skippedCount: 0, skipped: [] });
   });
 
   it("still copies one that matches its record over a mirror copy that differs", async () => {

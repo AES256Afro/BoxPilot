@@ -543,7 +543,10 @@ export function createMachineSnapshotHelper({
     }
     const completedAt = now().toISOString();
     await mkdirWithoutFollowing(resolvedMountRoot, path.relative(resolvedMountRoot, mirrorRoot), { mode: 0o700 });
-    await replaceFileWithoutFollowing(path.join(mirrorRoot, ".boxpilot-sync.json"), `${JSON.stringify({ completedAt, fileCount, copiedCount, copiedBytes }, null, 2)}\n`, { mode: 0o600 });
+    // What was left out goes in the record too (R5B4-7): said only in the job, the Off-box tab and
+    // Home showed "Last synced ... N files" as if every backup had reached the drive.
+    const record = { completedAt, fileCount, copiedCount, copiedBytes, skippedCount: warnings.length, skipped: warnings.slice(0, 20) };
+    await replaceFileWithoutFollowing(path.join(mirrorRoot, ".boxpilot-sync.json"), `${JSON.stringify(record, null, 2)}\n`, { mode: 0o600 });
     return { synced: true, destination: mirrorRoot, completedAt, fileCount, copiedCount, copiedBytes, verified: true, ...(warnings.length ? { warnings } : {}), boundary: { deletesPerformed: false, networkUsed: false } };
   }
 
@@ -997,8 +1000,13 @@ export function createMachineSnapshotHelper({
       summary.restored = summary.apps.filter((entry) => entry.installed).length;
       summary.failed = summary.apps.filter((entry) => entry.error).length;
       // Said on the job as well as per app: an app restored without the data it should have had, or
-      // with no way in yet, is the owner's to act on.
-      const warnings = summary.apps.flatMap((entry) => entry.warnings.map((warning) => `${entry.id}: ${warning}`));
+      // with no way in yet, is the owner's to act on. So is one that was not restored at all, or whose
+      // data restore was refused (R5B4-2): said only in its own line, the job read "Completed." in
+      // green. First, as the job shows only so many.
+      const warnings = [
+        ...summary.apps.filter((entry) => entry.error).map((entry) => `${entry.id}: ${entry.error}`),
+        ...summary.apps.flatMap((entry) => entry.warnings.map((warning) => `${entry.id}: ${warning}`)),
+      ];
       if (warnings.length) summary.warnings = warnings;
       return summary;
     } finally {

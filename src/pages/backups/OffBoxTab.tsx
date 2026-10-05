@@ -60,6 +60,8 @@ export default function OffBoxTab({ csrfToken, role, tailnetHosts, machine, remo
   const [cloudForm, setCloudForm] = useState<{ provider: string; values: Record<string, string> } | null>(null);
 
   const mounted = Boolean(machine?.sync.mount.mounted);
+  // What the last sync to the drive left out (R5B4-7): recent, and still not every backup.
+  const driveSkipped = machine?.sync.lastSync?.skippedCount ?? 0;
   const destination = remoteSettings?.destination ?? null;
   const pinned = (remote?.hostKeysPinned ?? 0) > 0;
 
@@ -142,11 +144,19 @@ export default function OffBoxTab({ csrfToken, role, tailnetHosts, machine, remo
           ? <p className="backups-pad backups-dim">The backup drive's state could not be read.</p>
           : mounted
             ? (
-              <KeyValue items={[
-                { id: "to", label: "Copies to", value: machine.sync.destination, mono: true },
-                { id: "free", label: "Free", value: formatBytes(machine.sync.mount.freeBytes ?? null), mono: true },
-                { id: "last", label: "Last synced", value: machine.sync.lastSync ? `${when(machine.sync.lastSync.completedAt)} · ${countOf(machine.sync.lastSync.copiedCount, "file")}` : "never", mono: true, status: machine.sync.lastSync ? undefined : "warning" },
-              ]} />
+              <>
+                <KeyValue items={[
+                  { id: "to", label: "Copies to", value: machine.sync.destination, mono: true },
+                  { id: "free", label: "Free", value: formatBytes(machine.sync.mount.freeBytes ?? null), mono: true },
+                  { id: "last", label: "Last synced", value: machine.sync.lastSync ? `${when(machine.sync.lastSync.completedAt)} · ${countOf(machine.sync.lastSync.copiedCount, "file")}${driveSkipped ? ` · ${driveSkipped} not copied` : ""}` : "never", mono: true, status: !machine.sync.lastSync || driveSkipped ? "warning" : undefined },
+                ]} />
+                {driveSkipped > 0 && (
+                  <Notice tone="warning" className="backups-inset" title={`The last sync left ${countOf(driveSkipped, "file")} out`}>
+                    <ul>{(machine.sync.lastSync?.skipped ?? []).map((reason) => <li key={reason}>{reason}</li>)}</ul>
+                    {driveSkipped > (machine.sync.lastSync?.skipped ?? []).length && <p>The job of that sync lists the rest.</p>}
+                  </Notice>
+                )}
+              </>
             )
             : (
               <EmptyState title="No backup drive is mounted" action={onNavigate ? <Button onClick={() => onNavigate("storage")}>Open Storage</Button> : undefined}>

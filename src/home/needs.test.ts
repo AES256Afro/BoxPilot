@@ -188,6 +188,12 @@ describe("what needs you", () => {
     expect(needs[0]).toMatchObject({ id: "off-box", title: "The off-box copy of your backups is 10 days old", action: { operationId: "backup.remote.sync", label: "Copy now", risk: "medium" } });
   });
 
+  // R5B4-7: a recent copy that left files out said nothing on Home.
+  it("says when the last copy off the box left files out", () => {
+    const needs = buildNeeds(facts({ offBox: { verdict: { configured: true, lastSyncAt: hoursAgo(2), ageDays: 0, where: ["a backup drive"], state: "ok", behindHours: null, skipped: 2 }, inputs: { drive: { configured: true, lastSyncAt: hoursAgo(2), skipped: 2 } } } }), { now, role: "owner" });
+    expect(needs[0]).toMatchObject({ id: "off-box", title: "The last copy off this server left 2 files out", action: { operationId: "backup.sync", label: "Copy now" } });
+  });
+
   it("leaves an app's folder problem to Repair's finding when the scan answered", () => {
     const folder = app({ id: "qbittorrent", name: "qBittorrent", folderProblems: 1 });
     expect(ids(buildNeeds(facts({ catalog: { apps: [folder], total: 1, liveKnown: true } }), { now, role: "owner" }))).toEqual(["app-folder:qbittorrent"]);
