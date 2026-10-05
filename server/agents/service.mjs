@@ -623,13 +623,14 @@ export function createAgentService({
 
   /**
    * The specialists a supervisor's run may hand work to: only those whose maker may read at least
-   * what the run reads (2026-10 sweep 3). Work is never handed down: an owner's run's task - its
-   * words, the notes and the finding the specialist keeps from it - would land where an operator
-   * reads it. Each with whether its words are trusted: the owner's, or the supervisor's own maker's;
-   * any other account's name and job are data, held to their words (claimPayload).
+   * what the run reads (2026-10 sweep 3), and whose audience takes the run's reader (sweep 4)
+   * (handoffRefusal). Work is never handed down: an owner's run's task - its words, the notes and
+   * the finding the specialist keeps from it - would land where an operator reads it. Each with
+   * whether its words are trusted: the owner's, or the supervisor's own maker's; any other
+   * account's name and job are data, held to their words (claimPayload).
    */
   function specialistsForRun(spec, agent, readRole) {
-    const eligible = store.listAgents().filter((entry) => { const maker = makerOf(entry); return Boolean(maker) && roleAtLeast(maker.role, readRole); });
+    const eligible = store.listAgents().filter((entry) => !handoffRefusal({ readRole }, entry));
     const byId = new Map(eligible.map((entry) => [entry.id, entry]));
     return specialistsFor(spec, eligible, agent.id).map((entry) => ({ ...entry, trusted: writerTrusted(byId.get(entry.id), agent) }));
   }
@@ -1641,6 +1642,10 @@ export function createAgentService({
     const maker = makerOf(target);
     if (!maker) return `${target.name}'s maker no longer has an account here, so it does not take work from other agents`;
     if (!roleAtLeast(maker.role, run.readRole)) return `${target.name} was made by ${maker.role === "operator" ? "an operator" : "a viewer"}, and this run reads what only ${run.readRole === "owner" ? "the owner" : "an operator"} may, so it hands it nothing`;
+    // Whom it answers, as its maker or the owner set it (sweep 4: an operator's supervisor handed work
+    // to an agent the owner kept to themselves, spent its runs and showed the operator its answer).
+    const audience = target.spec?.audience ?? [];
+    if (!audience.includes(run.readRole)) return `${target.name} takes work only for ${audience.length ? audience.map((role) => (role === "owner" ? "the owner" : `${role}s`)).join(" and ") : "nobody"}, and this run is for ${run.readRole === "owner" ? "the owner" : run.readRole === "operator" ? "an operator" : "a viewer"}`;
     return null;
   }
 
@@ -1651,15 +1656,22 @@ export function createAgentService({
    */
   function handoffFor(run, spec, { agent: name, task }, answer) {
     const agent = store.getAgent(run.agentId, { includeDeleted: true });
-    const named = agentsNamed(store.listAgents(), name);
-    // Two with that name: neither is guessed at (sweep 3).
+    // The name is looked for among the specialists this run may hand to - not paused, its own to
+    // hand to, made by someone who reads as much, for this run's reader - and only there are two of
+    // one name refused (sweep 3); every agent is looked through only to say why one is not among
+    // them. Sweep 4: an operator's agent, or a paused copy, of the same name blocked the owner's
+    // supervisor from the one it meant.
+    const delegates = spec.orchestration?.delegates;
+    const reachable = store.listAgents().filter((entry) => entry.id !== agent.id && !agentPaused(entry) && (delegates === "*" || (Array.isArray(delegates) && delegates.includes(entry.id))) && !handoffRefusal(run, entry));
+    const named = agentsNamed(reachable, name);
     if (named.length > 1) return answer("handoff", { state: "refused", text: `More than one agent is called ${clip(name, 60)}, so none was handed it. Ask the owner to give them different names.`, input: { agent: clip(name, 60) }, flags: { refused: true } });
-    const target = named[0] ?? null;
+    const target = named[0] ?? agentsNamed(store.listAgents(), name)[0] ?? null;
     const handed = store.listChildren(run.id).filter((entry) => entry.kind === "handoff").length;
     const check = checkHandoff({ agent, spec, run, target, chain: chainOf(run, (id) => store.getRun(id)), handedSoFar: handed });
     if (check.problem) return answer("handoff", { state: "refused", text: `${check.problem}.`, input: { agent: clip(name, 60) }, flags: { refused: true } });
     const refusal = handoffRefusal(run, target);
     if (refusal) return answer("handoff", { state: "refused", text: `${refusal}.`, input: { agent: target.name }, flags: { refused: true } });
+    if (!named.length) return answer("handoff", { state: "refused", text: `${target.name} cannot take work from this run.`, input: { agent: target.name }, flags: { refused: true } });
     const sanitizedTask = sanitizeUntrusted(task, { maxChars: 1_000, redact });
     const cleanTask = sanitizedTask.text;
     // M44: a specialist that already found this, recently, is not run again: its finding is its
