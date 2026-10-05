@@ -2989,6 +2989,36 @@ describe("a restore refused before anything changes", () => {
     expect(calls.filter((call) => / (stop|start|up)(?: |$)/.test(call))).toEqual([]);
   });
 
+  // R5B3-3: the port check ran before the safety copy, which stops the app and starts it again. A
+  // program waiting for one of its ports took it meanwhile, `up` after the swap failed "address
+  // already in use", and the .replaced folder it left refused every retry. Asked again just before.
+  it("asks about the ports again after the safety copy has had the app stopped", async () => {
+    const held = [];
+    const own = [{ Names: "bp-demo", Ports: "0.0.0.0:8080->80/tcp", Labels: "io.boxpilot.app=demo" }];
+    const { apps, runDocker, catalogRoot, containers, advance } = await setup({ lanAddress: "0.0.0.0", hostListeners: async () => held, runCommand: withRealTar, dockerPs: own });
+    await apps.install({ id: "demo", values: { setup: [] } });
+    const made = await apps.backup({ id: "demo", keep: 5 });
+    const composeFile = path.join(catalogRoot, "demo", "compose.yaml");
+    const compose = await readFile(composeFile, "utf8");
+    const original = runDocker.getMockImplementation();
+    let taken = false;
+    runDocker.mockImplementation(async (binary, args, options) => {
+      // While the safety copy has the app stopped, another program takes its port, once.
+      if (args[0] === "compose" && args.includes("stop") && !taken) { taken = true; held.push(program("nginx", 8080)); }
+      return original(binary, args, options);
+    });
+    advance(60_000);
+    const failure = await apps.restoreAppBackup({ id: "demo", backup: made.artifact }).then(() => null, (error) => error);
+    expect(failure?.message).toMatch(/^Demo was not restored; its current state was saved as \d{8}T\d{6}Z\.tar\.gz first, and nothing else was changed\. Port 8080 is taken on every address by process nginx \(pid 4242\)\./);
+    expect(failure?.code).toBe("port_conflict");
+    // Nothing swapped and nothing left behind: a retry once the port is free goes ahead.
+    expect(await readdir(catalogRoot)).toEqual(["demo"]);
+    expect(await readFile(composeFile, "utf8")).toBe(compose);
+    expect(containers.get("bp-demo")).toMatchObject({ running: true });
+    held.length = 0;
+    await expect(apps.restoreAppBackup({ id: "demo", backup: made.artifact })).resolves.toMatchObject({ restored: true });
+  });
+
   it("still takes the safety copy of a restore that goes ahead", async () => {
     const { apps, backupRoot, advance } = await setup({ runCommand: withRealTar });
     await apps.install({ id: "demo", values: { setup: [] } });
