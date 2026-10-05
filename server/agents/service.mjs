@@ -30,7 +30,7 @@ import { coreLimits, defaultCores, effectiveCores, physicalCores, runnerCaps, ru
 import { createAgentChat, zulipSettingKey } from "./chat.mjs";
 import { ConnectorError, boundSync, cleanDocumentText, connectors, readFolderSetting, scanFolder, textOfUpload } from "./connectors.mjs";
 import { ageWords, compactFinding, findingAnswers, findingFreshMs, findingKind, findingReaderKinds, findingScore, sharingOf, wantsFresh } from "./findings.mjs";
-import { sanitizeUntrusted, wrapFinding, wrapNote, wrapToolOutput } from "./guard.mjs";
+import { sanitizeUntrusted, stripWrapperBlocks, wrapFinding, wrapNote, wrapToolOutput } from "./guard.mjs";
 import { readUnderstanding, understandingSummary } from "./intent.mjs";
 import { decodeVector, encodeVector, episodeOf, foldThread, hybridSearch, memoryTiers, readVector } from "./memory.mjs";
 import { defaultModelId, downloadPreview, findNewerQwen, modelById, modelLibrary, testedUnslothVersion, unslothModelSpec } from "./models.mjs";
@@ -294,16 +294,20 @@ export function createAgentService({
   };
   const canEdit = (caller, agent) => caller.role === "owner" || (caller.role === "operator" && agent.createdBy === caller.id);
   const canAsk = (caller, agent) => Boolean(agent.spec?.triggers?.ask) && (agent.spec?.audience ?? []).includes(caller.role);
-  /** Another account's work is the owner's to see (M29.4): runs follow the jobs rule. */
+  /**
+   * Another account's work is the owner's to see (M29.4): runs follow the jobs rule. An operator
+   * sees the unattended runs of the agents they made, but only those that read as an operator at
+   * most: a run that read as the owner holds the owner's facts (2026-10 sweep 2).
+   */
   function canSeeRun(caller, run, agent = store.getAgent(run.agentId, { includeDeleted: true })) {
     if (caller.role === "owner") return true;
     if (run.requestedBy && run.requestedBy === caller.id) return true;
-    return caller.role === "operator" && !run.requestedBy && agent?.createdBy === caller.id;
+    return caller.role === "operator" && !run.requestedBy && agent?.createdBy === caller.id && roleAtLeast("operator", run.readRole);
   }
   /** Another account's id is the owner's to see (M29.4): anyone else sees their own, or nothing. */
   const ownActor = (caller, id) => (caller.role === "owner" || id === caller.id ? id ?? null : null);
   const canSeeProposal = (caller, proposal) => caller.role === "owner" || (proposal.requestedBy && proposal.requestedBy === caller.id)
-    || (caller.role === "operator" && proposal.source === "agent" && !proposal.requestedBy && store.getAgent(proposal.agentId, { includeDeleted: true })?.createdBy === caller.id);
+    || (caller.role === "operator" && proposal.source === "agent" && !proposal.requestedBy && roleAtLeast("operator", proposal.forRole) && store.getAgent(proposal.agentId, { includeDeleted: true })?.createdBy === caller.id);
 
   function agentFor(caller, id, { edit = false } = {}) {
     const agent = store.getAgent(id);
@@ -715,14 +719,16 @@ export function createAgentService({
     const agentNames = new Map(store.listAgents().map((entry) => [entry.id, entry.name]));
     const sources = sourcesFor(spec, readRole);
     if (spec.memory?.enabled) {
+      // `injection`: a note kept by a run that had read something that looked like an instruction;
+      // `runId`: the run an episode came from, looked up when one is used (noteTainted).
       if (sources.notes) {
-        for (const note of ownNotes(agent.id, readRole, { limit: 200 })) items.push({ key: `note:${note.id}`, tier: note.pinned ? "pinned" : "fact", title: note.title, text: note.body, from: agent.name, at: note.updatedAt, freshUntil: note.freshUntil, weight: note.pinned ? 1.3 : 1 });
+        for (const note of ownNotes(agent.id, readRole, { limit: 200 })) items.push({ key: `note:${note.id}`, tier: note.pinned ? "pinned" : "fact", title: note.title, text: note.body, from: agent.name, at: note.updatedAt, freshUntil: note.freshUntil, weight: note.pinned ? 1.3 : 1, injection: Boolean(note.source?.injection) });
         for (const note of store.listSharedNotes({ exceptAgentId: agent.id })) {
-          if (roleAtLeast(readRole, note.readRole)) items.push({ key: `note:${note.id}`, tier: note.pinned ? "pinned" : "fact", title: note.title, text: note.body, from: agentNames.get(note.agentId) ?? "another agent", at: note.updatedAt, freshUntil: note.freshUntil, weight: 0.9 });
+          if (roleAtLeast(readRole, note.readRole)) items.push({ key: `note:${note.id}`, tier: note.pinned ? "pinned" : "fact", title: note.title, text: note.body, from: agentNames.get(note.agentId) ?? "another agent", at: note.updatedAt, freshUntil: note.freshUntil, weight: 0.9, injection: Boolean(note.source?.injection) });
         }
       }
       for (const episode of store.listEpisodes(agent.id, { limit: 100 })) {
-        if (roleAtLeast(readRole, episode.readRole)) items.push({ key: `episode:${episode.id}`, tier: "episode", title: `A run on ${episode.createdAt.slice(0, 10)}`, text: episode.text, from: agent.name, at: episode.createdAt, freshUntil: null, weight: 0.8 });
+        if (roleAtLeast(readRole, episode.readRole)) items.push({ key: `episode:${episode.id}`, tier: "episode", title: `A run on ${episode.createdAt.slice(0, 10)}`, text: episode.text, from: agent.name, at: episode.createdAt, freshUntil: null, weight: 0.8, runId: episode.runId });
       }
     }
     if (sources.documents) {
@@ -754,6 +760,27 @@ export function createAgentService({
 
   function memoryLine(item) {
     return `<memory kind="${item.tier}" from="${String(item.from).replace(/"/g, "'")}" written="${String(item.at ?? "").slice(0, 10)}"${stale(item) ? " stale=\"true\"" : ""} trust="untrusted">\n${item.title}: ${sanitizeUntrusted(item.text, { maxChars: 600, redact }).text}\n</memory>`;
+  }
+
+  // ---- the injection flag goes where the text goes (2026-10 sweep 2) ----
+
+  /** A note kept by a run that had read something like an instruction, or whose words read like one. */
+  const noteTainted = (note) => Boolean(note.source?.injection) || sanitizeUntrusted(`${note.title}\n${note.body}`).flags.injection;
+  /** Something remembered that carries the flag: a flagged note, an episode of a flagged run, or words like an instruction. */
+  const rememberedTainted = (item) => Boolean(item.injection) || Boolean(item.runId && store.getRun(item.runId)?.flags?.injection) || sanitizeUntrusted(`${item.title}\n${item.text}`).flags.injection;
+
+  /**
+   * A run given text that came from a run that read something looking like an instruction - a
+   * specialist's answer, a supervisor's task, a kept note, something remembered - is flagged as if
+   * it had read it itself: its notice is held back, its cards are marked, the owner is warned and
+   * it shares no finding. The flag stayed with the run that read it, so the same words reached a
+   * notice one run or three hours later with nothing held back. The trace says where it came from.
+   */
+  function inheritInjection(runId, detail) {
+    if (store.getRun(runId)?.flags?.injection) return;
+    store.mergeRunFlags(runId, { injection: true });
+    const step = store.addStep(runId, { kind: "system", name: "injection", output: detail, flags: { detail, injection: true } });
+    if (step) emit(runId, "step", step);
   }
 
   // ---- findings (M44, ADR-012) ----
@@ -904,17 +931,22 @@ export function createAgentService({
     const version = store.getVersion(run.agentId, run.version) ?? { spec: agent.spec };
     const spec = version.spec;
     const offered = offeredTools(run, spec, agent);
-    const notes = spec.memory?.enabled && spec.knowledge?.notes !== false && knowledgeSettings().notes !== false
-      ? ownNotes(agent.id, run.readRole, { limit: limits.notesInPrompt }).map((note) => wrapNote({ ...note, stale: stale(note) }, { redact }))
-      : [];
+    // A specialist's task came from its supervisor's run: one that had read something looking like
+    // an instruction by the time it ended taints the task it handed over (2026-10 sweep 2).
+    if (run.kind === "handoff" && run.parentRunId && store.getRun(run.parentRunId)?.flags?.injection) inheritInjection(run.id, "The agent that handed it this task had read something that looked like an instruction, so this run is treated as if it had read it too.");
+    const promptNotes = spec.memory?.enabled && spec.knowledge?.notes !== false && knowledgeSettings().notes !== false ? ownNotes(agent.id, run.readRole, { limit: limits.notesInPrompt }) : [];
+    const notes = promptNotes.map((note) => wrapNote({ ...note, stale: stale(note) }, { redact }));
+    if (promptNotes.some(noteTainted)) inheritInjection(run.id, "One of its notes was kept by a run that read something that looked like an instruction, or reads like one itself.");
     // What it remembers that bears on this request, by words (the query's vector comes later, from
     // the runner, when the model searches memory itself). Recorded in the trace as a memory read.
     const query = [run.question, run.trigger?.title, spec.job].filter(Boolean).join(" ");
     const noteKeys = new Set(ownNotes(agent.id, run.readRole, { limit: limits.notesInPrompt }).map((note) => `note:${note.id}`));
     const recalled = spec.memory?.enabled ? hybridSearch(memoryItems(agent, spec, run.readRole).filter((item) => !noteKeys.has(item.key)), { query, limit: limits.memoryInPrompt }) : [];
     if (recalled.length) {
-      const step = store.addStep(run.id, { kind: "recall", name: "recall", input: { query: clip(query, 200) }, output: recalled.map((item) => `${item.tier}: ${item.title} (${item.from}, ${String(item.at ?? "").slice(0, 10)}${stale(item) ? ", may be out of date" : ""})`).join("\n"), flags: { read: recalled.length } });
+      const tainted = recalled.some(rememberedTainted);
+      const step = store.addStep(run.id, { kind: "recall", name: "recall", input: { query: clip(query, 200) }, output: recalled.map((item) => `${item.tier}: ${item.title} (${item.from}, ${String(item.at ?? "").slice(0, 10)}${stale(item) ? ", may be out of date" : ""})`).join("\n"), flags: { read: recalled.length, ...(tainted ? { injection: true } : {}) } });
       if (step) emit(run.id, "step", step);
+      if (tainted) inheritInjection(run.id, "Something it remembered came from a run that read something that looked like an instruction, or reads like one itself.");
     }
     // What the other agents found that bears on it (M44): before it plans, so it need not look again.
     const usesFindings = sharingFor(agent, spec).useFindings;
@@ -922,26 +954,35 @@ export function createAgentService({
     // The conversation with this person, when the agent keeps one.
     const thread = spec.memory?.threads && run.requestedBy && ["ask", "manual"].includes(run.kind) ? store.getThread(agent.id, run.requestedBy) : null;
     const context = thread ? foldThread(thread, { keep: spec.memory.turns ?? 6 }) : null;
+    if (context && [context.summary, ...(context.turns ?? []).map((turn) => turn.text)].some((text) => sanitizeUntrusted(text).flags.injection)) inheritInjection(run.id, "The earlier conversation holds text that looks like an instruction.");
     // A supervisor's follow-up: what each specialist answered, as tool output it can cite, in the
     // order it handed them over - a hand-off a specialist's fresh finding answered (M44) as well as
-    // one it ran for.
+    // one it ran for. A specialist's run that was flagged flags its answer, and so this run.
     if (run.kind === "continue") {
       const children = store.listChildren(run.parentRunId).filter((entry) => entry.kind === "handoff");
+      let tainted = false;
       const answered = (child) => {
         const name = store.getAgent(child.agentId, { includeDeleted: true })?.name ?? "A specialist";
         // A specialist that handed work on answered in its own follow-up (2026-10 sweep 2).
         const final = followUpOf(child) ?? child;
         const text = final.answer ? `${name} was asked: ${child.question}\n${name} answered: ${final.answer}` : `${name} was asked: ${child.question}\nIt did not answer (${final.state}).`;
         const cleaned = sanitizeUntrusted(text, { maxChars: limits.toolOutputChars, redact });
-        store.addStep(run.id, { kind: "tool", name: "agents.handoff", input: { agent: name, runId: child.id }, output: cleaned.text, flags: cleaned.flags.injection ? { injection: true } : {} });
+        const flagged = Boolean(cleaned.flags.injection || child.flags?.injection || final.flags?.injection);
+        tainted ||= flagged;
+        store.addStep(run.id, { kind: "tool", name: "agents.handoff", input: { agent: name, runId: child.id }, output: cleaned.text, flags: flagged ? { injection: true } : {} });
       };
       const shown = new Set();
       for (const step of store.listSteps(run.parentRunId).filter((entry) => entry.kind === "handoff" && entry.state === "done")) {
-        if (step.flags?.reused) { store.addStep(run.id, { kind: "tool", name: "agents.handoff", input: step.input, output: step.output, flags: { reused: true, finding: step.flags.finding ?? null } }); continue; }
+        if (step.flags?.reused) {
+          tainted ||= Boolean(step.flags.injection);
+          store.addStep(run.id, { kind: "tool", name: "agents.handoff", input: step.input, output: step.output, flags: { reused: true, finding: step.flags.finding ?? null, ...(step.flags.injection ? { injection: true } : {}) } });
+          continue;
+        }
         const child = children.find((entry) => entry.id === step.flags?.childRunId);
         if (child && !shown.has(child.id)) { shown.add(child.id); answered(child); }
       }
       for (const child of children.filter((entry) => !shown.has(entry.id))) answered(child);
+      if (tainted) inheritInjection(run.id, "A specialist's answer it was given came from a run that read something that looked like an instruction.");
     }
     const handoffOutputs = run.kind === "continue" ? store.listSteps(run.id).filter((step) => step.kind === "tool" && step.name === "agents.handoff").map((step, index) => wrapToolOutput({ index: index + 1, tool: "agents_handoff", text: step.output ?? "", flags: step.flags })) : [];
     const budget = budgetOf({ ...agent, spec });
@@ -1305,7 +1346,8 @@ export function createAgentService({
       const cleaned = sanitizeUntrusted(text, { maxChars: limits.toolOutputChars, redact });
       const allFlags = { ...flags, ...(cleaned.flags.injection ? { injection: true, matches: cleaned.flags.matches } : {}), ...(cleaned.flags.truncated ? { truncated: true } : {}) };
       const step = store.addStep(run.id, { kind: stepKind, name: tool?.id ?? clip(String(name), 80), state: stepState, input, output: cleaned.text, flags: allFlags, startedAt: started.toISOString(), durationMs: now().getTime() - started.getTime() });
-      if (cleaned.flags.injection) store.mergeRunFlags(run.id, { injection: true });
+      // Its own words, or what it read (a note a flagged run kept, an episode of one), looked like an instruction.
+      if (allFlags.injection) store.mergeRunFlags(run.id, { injection: true });
       if (step) emit(run.id, "step", step);
       const index = stepState === "done" ? given + 1 : null;
       const content = stepState === "done"
@@ -1325,9 +1367,15 @@ export function createAgentService({
     const context = { readRole: run.readRole, readAs: run.readAs, spec, run, sources: knowledgeSettings() };
     if (tool.id === "web.search" && !(moduleSettings().webSearch?.enabled && moduleSettings().webSearch?.endpoint)) return answer("tool", { state: "refused", text: "Web search is off on this server.", flags: { refused: true } });
     try {
-      if (tool.id === "memory.search") return answer("memory", { text: searchMemory(run, spec, value, extras.vector), input: { query: value.query, tier: value.tier ?? "any", byMeaning: Boolean(readVector(extras.vector)) } });
+      if (tool.id === "memory.search") {
+        const found = searchMemory(run, spec, value, extras.vector);
+        return answer("memory", { text: found.text, input: { query: value.query, tier: value.tier ?? "any", byMeaning: Boolean(readVector(extras.vector)) }, flags: found.injection ? { injection: true } : {} });
+      }
       if (tool.id === "agents.handoff") return handoffFor(run, spec, value, answer);
-      if (tool.id === "notes.read") return answer("tool", { text: readNotes(run, spec, value), input: value });
+      if (tool.id === "notes.read") {
+        const read = readNotes(run, spec, value);
+        return answer("tool", { text: read.text, input: value, flags: read.injection ? { injection: true } : {} });
+      }
       if (tool.id === "notes.write") return writeNoteFor(run, spec, value, answer);
       if (tool.id === "plan.propose") return await proposeFor(run, spec, value, answer);
       if (tool.id === "notify.owner") return notifyFor(run, spec, value, answer);
@@ -1341,37 +1389,56 @@ export function createAgentService({
     }
   }
 
+  /** notes.read: { text, injection } - whether a note it read was kept by a run flagged for injection. */
   function readNotes(run, spec, { query = null }) {
-    if (!spec.memory?.enabled) return "This agent keeps no notes.";
-    if (!sourcesFor(spec, run.readRole).notes) return "Notes are switched off as knowledge for this agent.";
+    if (!spec.memory?.enabled) return { text: "This agent keeps no notes." };
+    if (!sourcesFor(spec, run.readRole).notes) return { text: "Notes are switched off as knowledge for this agent." };
     const words = query ? new Set(query.toLowerCase().split(/\W+/).filter((word) => word.length > 2)) : null;
     const notes = ownNotes(run.agentId, run.readRole, { limit: 50 }).filter((note) => !words || [...words].some((word) => `${note.title} ${note.body}`.toLowerCase().includes(word))).slice(0, 10);
-    if (!notes.length) return query ? `No notes about "${clip(query, 60)}".` : "No notes yet.";
-    return notes.map((note) => {
+    if (!notes.length) return { text: query ? `No notes about "${clip(query, 60)}".` : "No notes yet." };
+    const text = notes.map((note) => {
       const stale = note.freshUntil && Date.parse(note.freshUntil) < now().getTime();
       return `## ${note.title}${stale ? " (may be out of date)" : ""}\nWritten ${note.updatedAt.slice(0, 10)}${note.source?.tools?.length ? ` from ${note.source.tools.join(", ")}` : ""}.\n${note.body}`;
     }).join("\n\n");
+    return { text, injection: notes.some((note) => Boolean(note.source?.injection)) };
   }
 
   /**
    * Memory search: hybrid retrieval over what this agent may remember. `vector` is the query's
    * embedding, made by the runner with the model server's /v1/embeddings; without it (or with no
-   * stored vectors from the same model) the search is by words alone.
+   * stored vectors from the same model) the search is by words alone. { text, injection }: whether
+   * something it found came from a run flagged for injection.
    */
   function searchMemory(run, spec, { query, tier = "any", limit = 5 }, vector) {
     const agent = store.getAgent(run.agentId, { includeDeleted: true });
     let items = memoryItems(agent, spec, run.readRole);
     if (tier !== "any") items = items.filter((item) => item.tier === tier);
-    if (!items.length) return "Nothing is remembered yet.";
+    if (!items.length) return { text: "Nothing is remembered yet." };
     const queryVector = readVector(vector);
     const found = hybridSearch(queryVector ? withVectors(items, embedModelName()) : items, { query, queryVector, limit });
-    if (!found.length) return `Nothing remembered about "${clip(query, 80)}".`;
-    return found.map((item) => `## ${item.title} (${memoryTiers[item.tier]?.toLowerCase() ?? item.tier}; from ${item.from}; ${String(item.at ?? "").slice(0, 10)}${stale(item) ? "; may be out of date" : ""}; matched by ${item.via.join(" and ")})\n${item.text}`).join("\n\n");
+    if (!found.length) return { text: `Nothing remembered about "${clip(query, 80)}".` };
+    const text = found.map((item) => `## ${item.title} (${memoryTiers[item.tier]?.toLowerCase() ?? item.tier}; from ${item.from}; ${String(item.at ?? "").slice(0, 10)}${stale(item) ? "; may be out of date" : ""}; matched by ${item.via.join(" and ")})\n${item.text}`).join("\n\n");
+    return { text, injection: found.some((item) => Boolean(item.injection) || Boolean(item.runId && store.getRun(item.runId)?.flags?.injection)) };
+  }
+
+  /**
+   * Whom a specialist's run reads as: the supervisor's run's person, but never more than the person
+   * who made the specialist may read (2026-10 sweep 2). The Server Keeper's owner runs handed work
+   * to an operator's agent as the owner, and that operator then read the run's trace: the owner's
+   * jobs, other agents' owner findings, what it recalled. Capped, it reads as its maker, whose run
+   * it is to see. Null when its maker's account is gone: there is nobody to read as.
+   */
+  function handoffReader(run, target) {
+    const maker = target.createdBy ? state.findOwnerById?.(target.createdBy) : null;
+    if (!maker) return null;
+    const makerRole = ["owner", "operator", "viewer"].includes(maker.role) ? maker.role : "viewer";
+    return roleAtLeast(makerRole, run.readRole) ? { readRole: run.readRole, readAs: run.readAs } : { readRole: makerRole, readAs: maker.id };
   }
 
   /**
    * A supervisor hands a subtask to a specialist: the specialist's run is queued as the same person,
-   * one level deeper under this run; its answer comes back in the supervisor's follow-up run.
+   * one level deeper under this run - reading no more than the specialist's maker may - and its
+   * answer comes back in the supervisor's follow-up run.
    */
   function handoffFor(run, spec, { agent: name, task }, answer) {
     const agent = store.getAgent(run.agentId, { includeDeleted: true });
@@ -1379,7 +1446,8 @@ export function createAgentService({
     const handed = store.listChildren(run.id).filter((entry) => entry.kind === "handoff").length;
     const check = checkHandoff({ agent, spec, run, target, chain: chainOf(run, (id) => store.getRun(id)), handedSoFar: handed });
     if (check.problem) return answer("handoff", { state: "refused", text: `${check.problem}.`, input: { agent: clip(name, 60) }, flags: { refused: true } });
-    const cleanTask = sanitizeUntrusted(task, { maxChars: 1_000, redact }).text;
+    const sanitizedTask = sanitizeUntrusted(task, { maxChars: 1_000, redact });
+    const cleanTask = sanitizedTask.text;
     // M44: a specialist that already found this, recently, is not run again: its finding is its
     // answer, here and now, unless the person asked for a fresh check.
     const finding = findingForHandoff(run, spec, agent, target, cleanTask);
@@ -1394,11 +1462,17 @@ export function createAgentService({
     }
     const targetBudget = budgetOf(target);
     if (targetBudget.refusal) return answer("handoff", { state: "refused", text: `${target.name} cannot run again today: ${targetBudget.refusal.toLowerCase()}.`, input: { agent: target.name }, flags: { refused: true } });
+    const reader = handoffReader(run, target);
+    if (!reader) return answer("handoff", { state: "refused", text: `${target.name}'s maker no longer has an account here, so it does not take work from other agents.`, input: { agent: target.name }, flags: { refused: true } });
     const child = store.enqueueRun({
       agentId: target.id, version: target.version, kind: "handoff", question: cleanTask, trigger: { title: `Handed over by ${agent.name}` },
-      requestedBy: run.requestedBy, readRole: run.readRole, readAs: run.readAs, parentRunId: run.id, rootRunId: run.rootRunId ?? run.id, depth: check.depth,
+      requestedBy: run.requestedBy, readRole: reader.readRole, readAs: reader.readAs, parentRunId: run.id, rootRunId: run.rootRunId ?? run.id, depth: check.depth,
     });
-    audit("agents.handoff", { actorId: run.requestedBy, subjectId: child.id, details: { from: agent.id, to: target.id, parentRunId: run.id, depth: check.depth } });
+    // The task carries the flag: its words read like an instruction, or the run that wrote it had read
+    // something that did (2026-10 sweep 2). What the supervisor reads after this is checked at claim.
+    if (sanitizedTask.flags.injection) inheritInjection(child.id, "The task it was handed reads like an instruction.");
+    else if (store.getRun(run.id)?.flags?.injection) inheritInjection(child.id, "The agent that handed it this task had read something that looked like an instruction, so this run is treated as if it had read it too.");
+    audit("agents.handoff",{ actorId: run.requestedBy, subjectId: child.id, details: { from: agent.id, to: target.id, parentRunId: run.id, depth: check.depth } });
     wake();
     return answer("handoff", { text: `Handed to ${target.name}. It runs after this run, and its answer comes back to you in a follow-up; finish this run with what you have.`, input: { agent: target.name, task: cleanTask }, flags: { childRunId: child.id } });
   }
@@ -1466,7 +1540,11 @@ export function createAgentService({
     const outcome = ["completed", "degraded", "failed"].includes(result.outcome) ? result.outcome : "failed";
     // The agent asked before guessing: its question is the answer, and a card for the person.
     const clarify = outcome === "completed" && typeof result.clarify === "string" && result.clarify.trim() ? sanitizeUntrusted(result.clarify, { maxChars: 300, redact }).text : null;
-    let answer = clarify ?? (result.answer ? redact(clip(String(result.answer), limits.answerChars)) : null);
+    // Its scratch notes and any tool output it wrote itself are not its answer (A-1): taken out here
+    // too, whatever the runner did, before the answer is kept, shown, shared or posted.
+    const unboxed = !clarify && result.answer ? stripWrapperBlocks(String(result.answer)) : { text: null, removed: [] };
+    const madeUpOnly = "The model's answer held only text written as if a tool or BoxPilot had written it, so it was left out.";
+    let answer = clarify ?? (result.answer ? (unboxed.text ? redact(clip(unboxed.text, limits.answerChars)) : madeUpOnly) : null);
     // A structured answer is checked against the fields the owner named, and kept as their JSON.
     const format = spec.prompt?.output?.format ?? "text";
     let structured = null;
@@ -1480,7 +1558,21 @@ export function createAgentService({
     const citations = checkCitations(answer, toolOutputs, { findings: findings.length });
     // The check before answering (M40), done again here on what was kept: the runner's report says
     // whether the model corrected anything; what still does not match is counted from the answer.
-    const checked = answer && outcomeIsAnswer(outcome) && !clarify ? checkKept(run.id, answer, result.usage?.check, findings) : null;
+    let checked = answer && outcomeIsAnswer(outcome) && !clarify ? checkKept(run.id, answer, result.usage?.check, findings) : null;
+    // A tool output or finding it wrote itself, and a citation of one the run never read (A-1): each
+    // counts as a statement that does not match, and the check says it is not sure of the answer.
+    const madeUp = madeUpBoxes(run.id, [...unboxed.removed, ...readBoxes(result.boxes)], findings);
+    const fabricated = [...new Set([...madeUp, ...citations.unknown])];
+    if (fabricated.length && answer && outcomeIsAnswer(outcome) && !clarify) {
+      const base = checked ?? { claims: 0, checked: 0, mismatches: 0, corrected: false, found: 0, unsure: false };
+      checked = { ...base, mismatches: base.mismatches + madeUp.length + (checked ? 0 : citations.unknown.length), unsure: true };
+    }
+    if (fabricated.length) {
+      const words = madeUp.length ? `The answer held ${madeUp.length === 1 ? "a tool output" : "tool outputs"} the model wrote itself (${madeUp.join(", ")}), not ${madeUp.length === 1 ? "one" : "ones"} a tool returned: taken out, and counted as not matching.` : "";
+      const cites = citations.unknown.length ? `It cites ${citations.unknown.join(", ")}, which this run never read: not evidence.` : "";
+      const step = store.addStep(run.id, { kind: "system", name: "answer", state: "failed", output: [words, cites].filter(Boolean).join(" "), flags: { detail: clip([words, cites].filter(Boolean).join(" "), 300), fabricated } });
+      if (step) emit(run.id, "step", step);
+    }
     const usage = {
       modelMs: Math.round(finite(result.usage?.modelMs, 3_600_000)),
       loadMs: Math.round(finite(result.usage?.loadMs, 3_600_000)),
@@ -1513,7 +1605,7 @@ export function createAgentService({
       answer, outputKind, usage,
       flags: {
         citations: { cited: citations.cited.length, unknown: citations.unknown }, ...(degradedReason ? { degraded: degradedReason } : {}),
-        ...(checked ? { check: checked } : {}),
+        ...(checked ? { check: checked } : {}), ...(fabricated.length ? { fabricated } : {}),
         ...(clarify ? { clarify: true } : {}), ...(structured ? { structured } : {}), ...(limitReached ? { limitReached: true } : {}), ...(limitKind ? { limit: limitKind } : {}),
         model: embedModelName(),
       },
@@ -1561,6 +1653,30 @@ export function createAgentService({
     };
   }
 
+  /** The boxes the runner took out of the answer (A-1), as it reported them: bounded, and only their names. */
+  function readBoxes(list) {
+    if (!Array.isArray(list)) return [];
+    const word = (value, max) => (typeof value === "string" && value.trim() ? value.trim().slice(0, max) : null);
+    return list.slice(0, 10).filter((entry) => entry && typeof entry === "object").map((entry) => ({ tag: String(entry.tag ?? "").toLowerCase().slice(0, 40), id: word(entry.id, 20), tool: word(entry.tool, 80) }));
+  }
+
+  /**
+   * Of the boxes the model wrote into its answer, the tool outputs and findings it made up: an id
+   * this run never gave it, or a real output's id with another tool's name. A real one copied back
+   * whole is taken out of the answer but is not made up. Their ids, "?" for one with none.
+   */
+  function madeUpBoxes(runId, removed, findings) {
+    const fn = (name) => String(name ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "_");
+    const real = new Map(store.listSteps(runId).filter((step) => outputKinds.includes(step.kind) && step.state === "done").map((step, index) => [`T${index + 1}`, step.name]));
+    for (const finding of findings) real.set(finding.id, null);
+    const ids = removed.filter((box) => ["tool_output", "finding"].includes(box.tag)).flatMap((box) => {
+      const id = /^[TF]\d{1,3}$/.test(box.id ?? "") ? box.id : "?";
+      const copied = real.has(id) && (box.tag !== "tool_output" || !box.tool || !real.get(id) || fn(box.tool) === fn(real.get(id)));
+      return copied ? [] : [id];
+    });
+    return [...new Set(ids)];
+  }
+
   /** An index run's end: its usage counts toward the day's budget like any run's. */
   function finishIndex(run, result) {
     const usage = { modelMs: Math.round(finite(result.usage?.modelMs, 3_600_000)), loadMs: Math.round(finite(result.usage?.loadMs, 3_600_000)), wallMs: Math.max(0, now().getTime() - Date.parse(run.startedAt)) };
@@ -1582,6 +1698,9 @@ export function createAgentService({
       // A run that handed work to specialists answers in its follow-up run: that one is remembered,
       // once, rather than the interim "I asked them" as well.
       if (run.kind !== "continue" && store.listChildren(run.id).some((entry) => entry.kind === "handoff")) return;
+      // A run that read something like an instruction leaves nothing to be read back later as if it
+      // were clean: no episode, and no turn of the conversation (2026-10 sweep 2).
+      if (run.flags?.injection) return;
       if (spec.memory?.enabled && outcomeIsAnswer(run.state) && !["eval", "handoff"].includes(run.kind)) {
         const text = episodeOf(run);
         if (text) store.addEpisode({ agentId: agent.id, runId: run.id, text, readRole: run.readRole });
@@ -1798,7 +1917,7 @@ export function createAgentService({
     // A new background number applies at once when nothing waits on the runner (M40).
     if (input.cores !== undefined || (input.enabled !== undefined && !next.enabled)) void settleCpu({ force: true }).catch(() => null);
     wake();
-    return { module: presentModule(), runtime };
+    return { module: presentModule(person), runtime };
   }
 
   function pauseModule(caller, { until = null } = {}) {
@@ -1808,7 +1927,7 @@ export function createAgentService({
     if (resumeAt && (Number.isNaN(resumeAt.getTime()) || resumeAt <= now() || resumeAt.getTime() - now().getTime() > 30 * 86_400_000)) refuse(400, "Pause until a time within the next thirty days", "invalid_pause");
     state.setSetting(agentsSettingKey, { ...moduleSettings(), paused: true, pausedUntil: resumeAt ? resumeAt.toISOString() : null, pausedBy: person.id }, { updatedBy: person.id });
     audit("agents.module.paused", { actorId: person.id, details: { until: resumeAt?.toISOString() ?? null } });
-    return presentModule();
+    return presentModule(person);
   }
 
   function resumeModule(caller) {
@@ -1819,7 +1938,7 @@ export function createAgentService({
     state.setSetting(agentsSettingKey, { ...settings, paused: false, pausedUntil: null, pausedBy: null, killedAt: null }, { updatedBy: person.id });
     audit("agents.module.resumed", { actorId: person.id });
     wake();
-    return presentModule();
+    return presentModule(person);
   }
 
   /** Stop everything now: cancel what waits, stop what runs, tell the runner to stop its model. */
@@ -1840,7 +1959,7 @@ export function createAgentService({
     audit("agents.module.killed", { actorId: person.id, details: { cancelled, stopped } });
     void settleCpu({ force: true }).catch(() => null);
     wake();
-    return { module: presentModule(), cancelled, stopped };
+    return { module: presentModule(person), cancelled, stopped };
   }
 
   function pauseAgent(caller, agentId, { until = null } = {}) {
@@ -1933,20 +2052,29 @@ export function createAgentService({
 
   // ---- what the pages read ----
 
-  function presentModule() {
+  /**
+   * The module's settings as `person` may see them. Where the agents learn from - the owner's folder,
+   * the SearXNG address, the connectors' credential names and Slack channels - is for the owner and
+   * operators, who set and use them; a viewer, who sees the Agents page to ask, is not shown them
+   * (2026-10 sweep 2).
+   */
+  function presentModule(person) {
     const settings = moduleSettings();
-    return {
-      enabled: settings.enabled, paused: modulePaused(settings), pausedUntil: modulePaused(settings) ? settings.pausedUntil : null,
-      killedAt: settings.killedAt, quietHours: settings.quietHours, inQuietHours: inQuietHours(now(), settings.quietHours), notify: settings.notify !== false,
-      budget: moduleBudget(), embeddings: settings.embeddings !== false,
-      // M40: processors while someone waits and in the background, this machine's ceiling, and what is set now.
-      cores: { ...effectiveCores(settings.cores, { processors }), processors, physical: physical ?? null, limits: coreLimits, now: cpuNow() },
+    const sources = roleAtLeast(person?.role, "operator") ? {
       webSearch: { enabled: settings.webSearch?.enabled === true, endpoint: settings.webSearch?.endpoint ?? null },
       folder: { enabled: settings.folder?.enabled === true, path: settings.folder?.path ?? null },
       connectors: {
         notion: { enabled: settings.connectors?.notion?.enabled === true, credential: settings.connectors?.notion?.credential ?? null },
         slack: { enabled: settings.connectors?.slack?.enabled === true, credential: settings.connectors?.slack?.credential ?? null, channels: settings.connectors?.slack?.channels ?? [] },
       },
+    } : {};
+    return {
+      enabled: settings.enabled, paused: modulePaused(settings), pausedUntil: modulePaused(settings) ? settings.pausedUntil : null,
+      killedAt: settings.killedAt, quietHours: settings.quietHours, inQuietHours: inQuietHours(now(), settings.quietHours), notify: settings.notify !== false,
+      budget: moduleBudget(), embeddings: settings.embeddings !== false,
+      // M40: processors while someone waits and in the background, this machine's ceiling, and what is set now.
+      cores: { ...effectiveCores(settings.cores, { processors }), processors, physical: physical ?? null, limits: coreLimits, now: cpuNow() },
+      ...sources,
     };
   }
 
@@ -2014,7 +2142,7 @@ export function createAgentService({
     const agents = store.listAgents().filter((agent) => person.role !== "viewer" || canAsk(person, agent)).map((agent) => presentAgent(person, agent));
     const { queued, running } = queueCounts();
     return {
-      module: presentModule(),
+      module: presentModule(person),
       runner: runnerStatus(),
       agents,
       queue: { queued, running, dropped: droppedRuns },
@@ -2355,8 +2483,9 @@ export function createAgentService({
   }
 
   function usage(caller) {
-    personOf(caller);
-    const perAgent = store.listAgents().map((agent) => {
+    const person = personOf(caller);
+    // A viewer sees the agents they may ask, as the overview lists them (2026-10 sweep 2).
+    const perAgent = store.listAgents().filter((agent) => person.role !== "viewer" || canAsk(person, agent)).map((agent) => {
       const used = usedToday(agent.id);
       return { agentId: agent.id, name: agent.name, runs: used.runs, runsPerDay: agent.spec.budget.runsPerDay, modelSeconds: Math.round(used.modelMs / 1000), modelSecondsPerDay: agent.spec.budget.modelSecondsPerDay, tokens: used.tokens };
     });
@@ -2371,7 +2500,7 @@ export function createAgentService({
       // and the answers that cited another agent's finding.
       findings: { days: 7, ...store.findingsUseSince(new Date(now().getTime() - 7 * 86_400_000).toISOString()) },
       queue: { queued, running, dropped: droppedRuns },
-      module: presentModule(),
+      module: presentModule(person),
     };
   }
 
@@ -2412,7 +2541,7 @@ export function createAgentService({
         embeddings: moduleSettings().embeddings === false ? "Off: search is by words only." : runtimeSettings().driver === "llama-server" ? "Not with llama.cpp's server alone: search is by words only." : `${store.countVectors()} pieces indexed by the model server's embedder; ${pendingEmbeddings().length} wait for the next quiet hours.`,
         pending: pendingEmbeddings().length, vectors: store.countVectors(), enabled: moduleSettings().embeddings !== false,
       },
-      connectors: presentModule().connectors, folder: presentModule().folder, webSearch: presentModule().webSearch,
+      connectors: presentModule(person).connectors, folder: presentModule(person).folder, webSearch: presentModule(person).webSearch,
       learning: { quietHours: moduleSettings().quietHours, agents: lastLearn },
       canChange: person.role === "owner",
       // M40.6: whether the model can see the images waiting to be described, as it last said.

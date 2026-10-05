@@ -190,6 +190,15 @@ export function verifyAnswer(answer, outputs, { maxIssues = 8 } = {}) {
     const cited = claim.cites.map((id) => byId.get(id)).filter(Boolean);
     const sources = cited.length ? cited : [...byId.values()];
     if (!sources.length) break;
+    // A claim citing only outputs the run never read (2026-10: a [T5] the model made up, with a
+    // <tool_output id="T5"> it wrote itself) does not match: what it cites is not evidence, and it
+    // is not checked against everything else instead.
+    if (claim.cites.length && !cited.length) {
+      checked += 1;
+      issues.push({ claim: claim.text.slice(0, 240), cites: claim.cites, kind: "citation", said: claim.cites.join(", "), detail: `no tool output or finding in this run is ${claim.cites.join(" or ")}`, tool: claim.cites.join(", ") });
+      if (issues.length >= maxIssues) break;
+      continue;
+    }
     const lines = sources.flatMap((source) => String(source.text ?? "").split("\n").map((line) => line.trim()).filter(Boolean));
     const subjects = [...new Set(lines.map(subjectOf).filter(Boolean))];
     const text = clean(claim.text);

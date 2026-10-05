@@ -162,3 +162,21 @@ describe("a notice from a run that read something like an instruction (S3-4)", (
     expect(h.told).toEqual([{ key: `agent.important:${keeper.id}`, title: "Server Keeper: Update ready", message: "Jellyfin 10.11 is out: see `https://jellyfin.org/posts/10.11`", priority: "high" }]);
   });
 });
+
+describe("the team chat's own plumbing (R2S3-4)", () => {
+  it("is never a card: a plan that would post the bot's key to another port is refused, and nothing is sent", async () => {
+    const keeper = make("server-keeper");
+    const at = { base: "http://127.0.0.1:3022", host: "zulip.example.ts.net", botEmail: "boxpilot-agents-bot@zulip.example.ts.net" };
+    const post = { id: "00000000-0000-4000-8000-000000000001", channel: "agent-findings", topic: "Server Keeper", content: "Hello" };
+    h.fake.state.script = (body) => (withTools(body) === 0
+      ? { toolCalls: [{ name: "plan_propose", arguments: { title: "Repair the team chat", reason: "It stopped posting [T1].", steps: [{ operationId: "agents.zulip.post", parameters: { ...at, posts: [post] } }, { operationId: "agents.zulip.events", parameters: { host: at.host, botEmail: at.botEmail } }] } }] }
+      : { content: "Proposed a repair [T1]." });
+    ask(keeper, "owner", "Why did the team chat stop posting?");
+    const run = await h.runNext();
+    const proposed = run.steps.find((step) => step.kind === "proposal");
+    expect(proposed).toMatchObject({ state: "refused" });
+    expect(proposed.output).toMatch(/never proposed/);
+    expect(h.service.listProposals(h.caller("owner")).filter((card) => card.kind === "plan")).toEqual([]);
+    expect(h.helperCalls.filter((entry) => entry.operation.startsWith("agents.zulip."))).toEqual([]);
+  });
+});
