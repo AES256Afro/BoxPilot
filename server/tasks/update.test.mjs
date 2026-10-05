@@ -32,33 +32,33 @@ describe("system.update root task", () => {
     expect(fetchImpl).toHaveBeenCalledWith("https://api.github.com/repos/AES256Afro/BoxPilot/commits/v0.62.0", expect.anything());
     const scriptCopy = path.join(root, "run", "update-20260821T150000Z.sh");
     expect(await readFile(scriptCopy, "utf8")).toContain("echo upgrade");
-    expect(run).toHaveBeenCalledWith("/usr/bin/systemd-run", ["--quiet", "--unit", "boxpilot-update-20260821T150000Z", "--description", "BoxPilot update to v0.62.0", "--setenv=BOXPILOT_NODE_BIN=/usr/local/bin/node", "--setenv=BOXPILOT_UPDATE_UNIT=boxpilot-update-20260821T150000Z", "--setenv=BOXPILOT_HEALTH_URL=http://127.0.0.1:8787/api/v1/health", "/bin/sh", scriptCopy, sha], expect.anything());
+    expect(run).toHaveBeenCalledWith("/usr/bin/systemd-run", ["--quiet", "--unit", "boxpilot-update-20260821T150000Z", "--description", "BoxPilot update to v0.62.0", "--setenv=BOXPILOT_NODE_BIN=/usr/local/bin/node", "--setenv=BOXPILOT_UPDATE_UNIT=boxpilot-update-20260821T150000Z", "/bin/sh", scriptCopy, sha], expect.anything());
     // It looked at the upgrade lock first, and found it free.
     expect(run.mock.calls[0]).toEqual(["/usr/bin/flock", ["-n", options.lockPath, "/bin/true"], expect.anything()]);
     expect(log).toHaveBeenCalledWith(expect.stringContaining("rolls back"), "stdout");
   });
 
   // A box installed with --port 9000: the script's health check asked 8787, failed, and rolled
-  // every update back - after the new version had already started on the database.
-  it("tells the update where the web service listens, from its env file", async () => {
+  // every update back - after the new version had already started on the database. This task then
+  // handed the script a health URL of its own, from a reader that took the first `^BOXPILOT_PORT=`
+  // line literally, and it overrode the script's own reading: `BOXPILOT_PORT = 9000`, or 8787 with
+  // 9000 appended below it, rolled every update back the same way. The script the System page runs is
+  // always the installed tree's own copy, and that script reads the env file as systemd does.
+  it("leaves the health check to the installed script, which reads the env file itself", async () => {
     const { root, run, options } = await fixture();
-    const healthUrl = async (env) => {
-      await writeFile(options.envPath, env);
-      run.mockClear();
-      await systemUpdate({ tag: "v0.62.0", expectedCommit: sha }, options);
-      return run.mock.calls.find(([binary]) => binary === "/usr/bin/systemd-run")[1].find((arg) => arg.startsWith("--setenv=BOXPILOT_HEALTH_URL="));
-    };
-    expect(await healthUrl("BOXPILOT_HOST=127.0.0.1\nBOXPILOT_PORT=9000\n")).toBe("--setenv=BOXPILOT_HEALTH_URL=http://127.0.0.1:9000/api/v1/health");
-    // On the LAN (Settings, or --access lan): loopback still answers.
-    expect(await healthUrl('BOXPILOT_HOST="0.0.0.0"\nBOXPILOT_PORT="9001"\n')).toBe("--setenv=BOXPILOT_HEALTH_URL=http://127.0.0.1:9001/api/v1/health");
-    // Bound to one address: loopback does not answer there, that address does.
-    expect(await healthUrl("BOXPILOT_HOST=192.0.2.10\nBOXPILOT_PORT=9002\n")).toBe("--setenv=BOXPILOT_HEALTH_URL=http://192.0.2.10:9002/api/v1/health");
-    expect(await healthUrl("BOXPILOT_HOST=fd00::10\nBOXPILOT_PORT=9003\n")).toBe("--setenv=BOXPILOT_HEALTH_URL=http://[fd00::10]:9003/api/v1/health");
-    // No env file: the service's own defaults.
-    await rm(options.envPath);
-    run.mockClear();
-    await systemUpdate({ tag: "v0.62.0", expectedCommit: sha }, { ...options, envPath: path.join(root, "missing.env") });
-    expect(run.mock.calls.at(-1)[1]).toContain("--setenv=BOXPILOT_HEALTH_URL=http://127.0.0.1:8787/api/v1/health");
+    await writeFile(options.envPath, "BOXPILOT_PORT=8787\nBOXPILOT_PORT = 9000\n");
+    await systemUpdate({ tag: "v0.62.0", expectedCommit: sha }, options);
+    const started = run.mock.calls.find(([binary]) => binary === "/usr/bin/systemd-run")[1];
+    expect(started.filter((arg) => arg.includes("BOXPILOT_HEALTH_URL"))).toEqual([]);
+    // The copy it runs is the installed tree's own script, not one downloaded with the release.
+    expect(await readFile(path.join(root, "run", "update-20260821T150000Z.sh"), "utf8")).toBe(await readFile(path.join(options.installDir, "scripts", "boxpilot-upgrade.sh"), "utf8"));
+    // ...and the script shipped beside this task reads the port and address from the env file, the
+    // last line for each, with blanks around "=" and CRLF allowed.
+    const script = (await readFile("scripts/boxpilot-upgrade.sh", "utf8")).replaceAll("\r\n", "\n");
+    expect(script).toContain("ENV_FILE=/etc/boxpilot/boxpilot.env");
+    expect(script).toContain("tr -d '\\r' < \"$ENV_FILE\" | sed -n \"s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*//p\" | tail -n 1");
+    expect(script).toContain("WEB_PORT=\"$(env_value BOXPILOT_PORT)\"");
+    expect(script).toContain("WEB_HOST=\"$(env_value BOXPILOT_HOST)\"");
   });
 
   it("builds the health address the way the web service binds", () => {
