@@ -231,7 +231,7 @@ export default function AgentsPage({ csrfToken, role = "owner", now = Date.now }
               onSelectAgent={(id) => { setAgentId(id); setRunId(null); }} onStage={start} onRunFinished={() => void refresh()} />;
           }
           if (current === "memory") return <Memory agents={agents} agentId={selected} csrfToken={csrfToken} role={role} now={now()} onSelectAgent={setAgentId} />;
-          if (current === "knowledge") return <Knowledge csrfToken={csrfToken} role={role} now={now()} onStart={start} />;
+          if (current === "knowledge") return <Knowledge csrfToken={csrfToken} role={role} now={now()} onStart={start} refreshKey={jobsFinished} />;
           if (current === "usage") return <Usage module={module} csrfToken={csrfToken} role={role} now={now()} onStart={start} onModuleChanged={() => void refresh()} refreshKey={jobsFinished} />;
           if (current === "evaluation") {
             return <Evaluation agents={agents} agentId={selected} csrfToken={csrfToken} now={now()} enabled={module.enabled && !module.paused} onSelectAgent={setAgentId} onOpenRun={(id, run) => open(id, "test", run)} />;

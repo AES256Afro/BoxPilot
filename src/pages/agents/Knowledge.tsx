@@ -19,6 +19,8 @@ export interface KnowledgeProps {
   role: string;
   now: number;
   onStart: (operation: PendingOperation) => void;
+  /** Bumped when a job ends: the library is read again. */
+  refreshKey?: number;
 }
 
 type ConnectorDraft = { folderEnabled: boolean; folderPath: string; webEnabled: boolean; webEndpoint: string; notionEnabled: boolean; notionCredential: string; slackEnabled: boolean; slackCredential: string; slackChannels: string };
@@ -31,7 +33,7 @@ function visionWords(vision: KnowledgeState["vision"]): string {
   return `waiting: the model cannot see them (${vision.reason ?? "no vision projector"})`;
 }
 
-export function Knowledge({ csrfToken, role, now, onStart }: KnowledgeProps) {
+export function Knowledge({ csrfToken, role, now, onStart, refreshKey = 0 }: KnowledgeProps) {
   const [state, setState] = useState<KnowledgeState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -47,7 +49,8 @@ export function Knowledge({ csrfToken, role, now, onStart }: KnowledgeProps) {
   const read = useCallback(async () => {
     try { setState(await agentsApi.knowledge()); setError(null); } catch (requestError) { setError(errorText(requestError, "The library could not be read")); }
   }, []);
-  useEffect(() => { void read(); }, [read]);
+  // Read again whenever a job ends (refreshKey): an approved sync changes what the library holds.
+  useEffect(() => { void read(); }, [read, refreshKey]);
   useEffect(() => {
     if (!state || connectors) return;
     setConnectors({
