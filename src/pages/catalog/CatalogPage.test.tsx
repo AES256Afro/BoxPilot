@@ -853,6 +853,31 @@ describe("App catalog: backups", () => {
     expect(JSON.parse(staged[0] ?? "{}")).toEqual({ parameters: { id: "jellyfin", backup: "20260816T030000Z.tar.gz", path: "config/system.xml" } });
   });
 
+  // R5B3-6: only the first 5000 names reached the dialog, and its filter searched only those: a file
+  // further into a large backup could not be found to restore. A capped list is filtered by the server.
+  it("asks the server to filter a listing too long to send whole", async () => {
+    const asked: Array<Record<string, unknown>> = [];
+    withBackups([backup], (url, init) => {
+      if (url.endsWith("/operations/app.backup.files/run")) {
+        const parameters = (JSON.parse(String(init?.body)) as { parameters: Record<string, unknown> }).parameters;
+        asked.push(parameters);
+        return parameters.filter === "users"
+          ? json({ operation: "app.backup.files", result: { id: "jellyfin", backup: backup.artifact, files: [{ path: "config/deep/users.db", sizeBytes: 40960, type: "file" }], truncated: false, matched: 1, filter: "users" } })
+          : json({ operation: "app.backup.files", result: { id: "jellyfin", backup: backup.artifact, files: [{ path: "config/system.xml", sizeBytes: 2048, type: "file" }], truncated: true, matched: 120_000 } });
+      }
+      return undefined;
+    });
+    render(<CatalogPage csrfToken="csrf-token" />);
+    const sheet = await openApp("Jellyfin");
+    fireEvent.click(within(sheet).getByRole("tab", { name: "Backups" }));
+    fireEvent.click(await within(sheet).findByRole("button", { name: /^Browse / }));
+    expect(await within(sheet).findByText("config/system.xml")).toBeTruthy();
+    expect(within(sheet).getByText(/120,000 files/)).toBeTruthy();
+    fireEvent.change(within(sheet).getByRole("searchbox", { name: "Filter files" }), { target: { value: "users" } });
+    expect(await within(sheet).findByText("config/deep/users.db", undefined, { timeout: 3000 })).toBeTruthy();
+    expect(asked.at(-1)).toEqual({ id: "jellyfin", backup: backup.artifact, filter: "users" });
+  });
+
   it("puts a whole restore behind the password, and a delete and a rehearsal behind a preview", async () => {
     withBackups([backup]);
     render(<CatalogPage csrfToken="csrf-token" />);
