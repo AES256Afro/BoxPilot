@@ -27,6 +27,17 @@ export function moreTimeOffered(job: Pick<Job, "state" | "timeout"> | null | und
 }
 
 /**
+ * Whether what ran out of time may still be running on the server: the whole operation given up on,
+ * or a step left running (a root task past its own limit). The same rule as the server's. Such a job
+ * is not run again from a page - that would start a second copy beside the first - unless the server
+ * itself offered it more time (moreTimeOffered), which it does only where the helper keeps the two apart.
+ */
+export function mayStillBeRunning(job: { state?: string | null; timeout?: JobTimeout | null } | null | undefined): boolean {
+  const timeout = job?.state === "failed" ? job.timeout ?? null : null;
+  return timeout !== null && timeout.phase !== "queued" && (timeout.scope === "operation" || timeout.stillRunning === true);
+}
+
+/**
  * Whether the job's error is only the timeout said again. The server words a whole-operation or
  * queued timeout as the error ("did not finish within 25 minutes. ... Activity shows how far it
  * got"), which the notice below says better; a step's own error still carries what the step said.
