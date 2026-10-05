@@ -91,6 +91,15 @@ for (const entry of await apps.interruptedBackups().catch(() => [])) {
   }, (error) => console.error(`Recovering ${entry.id} after an interrupted backup failed: ${error.message}`));
 }
 
+// A machine snapshot or a restore of one that a power cut or a restart cut off left its half-written
+// archive and the folder it worked in, which hold the database and every app's .env in the clear.
+// Both run in this process, which has taken no request yet, so neither can still be running.
+const snapshotScraps = await machineSnapshot.sweepInterrupted().catch((error) => {
+  console.error(`Clearing what an interrupted machine snapshot or restore left failed: ${error.message}`);
+  return { removed: [] };
+});
+if (snapshotScraps.removed.length) console.log(`Removed what an interrupted machine snapshot or restore left: ${snapshotScraps.removed.join(", ")}`);
+
 await mkdir(path.dirname(socketPath), { recursive: true, mode: 0o750 });
 await unlink(socketPath).catch((error) => {
   if (error.code !== "ENOENT") throw error;

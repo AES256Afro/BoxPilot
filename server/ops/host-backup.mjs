@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
 import { defineOperation } from "./registry.mjs";
 import { destinationPatterns } from "../backup-destination.mjs";
+import { serveTailnetOnly } from "./apps.mjs";
 
 const appIdPattern = /^[a-z0-9][a-z0-9-]{1,62}$/;
 /**
@@ -70,7 +71,8 @@ export function hostBackupOperations() {
       id: "host.snapshot.restore", title: "Restore from a machine snapshot", risk: "high", confirm: () => "restore", timeoutMs: 6 * 60 * 60_000,
       description: "Reinstalls the selected apps with the settings and secrets in the snapshot, then restores each app's newest data archive (from the local store or the mirror). Network, firewall, fstab, VM definitions, and the database copy are staged for review, never applied automatically.",
       parameters: { fields: { source: { type: "string", enum: ["local", "mirror", "discovered"] }, artifact: { type: "string", pattern: /^machine-snapshot-\d{8}T\d{6}Z-[a-f0-9]{8}\.tar\.gz$/ }, root: { type: "string", maxLength: 4096, optional: true }, apps: { type: "array", optional: true, validate: (value) => (value.every((id) => typeof id === "string" && appIdPattern.test(id)) ? null : "must list app ids") }, restoreData: { type: "boolean", optional: true }, devicesByApp: devicesByAppField } },
-      run: (parameters, { machineSnapshot, apps, progress }) => machineSnapshot.restore({ ...parameters, apps: parameters.apps ?? "all", restoreData: parameters.restoreData ?? true }, { apps, progress }),
+      // A tailnet-only app it brings back is published with Tailscale Serve, as app.install does.
+      run: (parameters, { machineSnapshot, apps, run, progress }) => machineSnapshot.restore({ ...parameters, apps: parameters.apps ?? "all", restoreData: parameters.restoreData ?? true }, { apps, progress, serve: run ? (deployed) => serveTailnetOnly(deployed, { run, progress }) : null }),
     }),
     defineOperation({
       id: "backup.remote.inspect", title: "Read the off-box SSH destination state", risk: "low", readOnly: true, timeoutMs: 30_000,

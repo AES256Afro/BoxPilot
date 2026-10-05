@@ -23,6 +23,7 @@ import { profileConnectionEnv, profileSecurityEnv } from "./vpn-profile.mjs";
 import { dataScanCommand } from "./scan-resources.mjs";
 import { shared } from "./cache.mjs";
 import { formatDuration, keepTimeout, timedOut } from "./timeouts.mjs";
+import { snapshotBackupReferences } from "./machine-snapshot-helper.mjs";
 
 /**
  * A job given more time (M30.3) runs with `timeScale` above 1: its budget over the operation's
@@ -53,6 +54,8 @@ export const updateHistoryLimit = 10;
 const checkpointKeep = 5;
 /** Where Homepage sync remembers the address its links are written for, in Homepage's own folder. */
 const homepageSyncFile = "boxpilot-homepage-sync.json";
+/** Processes that hold a port on Docker's behalf (as ports.mjs counts them): never an app's own process. */
+const dockerHolders = new Set(["docker-proxy", "dockerd", "rootlesskit", "rootlessport"]);
 
 /**
  * Canonicalise a path for the deny-list check even when its leaf does not exist yet: resolve every
@@ -105,6 +108,23 @@ function parseEnvFile(text) {
   return env;
 }
 
+/**
+ * The host devices a compose file hands its services (`/dev/ttyUSB0:/dev/ttyUSB0`), host side only.
+ * Empty for a file that names none or does not parse.
+ */
+function composeDevices(composeText) {
+  let parsed = null;
+  try { parsed = YAML.parse(String(composeText ?? "")); } catch { return []; }
+  const devices = new Set();
+  for (const service of Object.values(parsed?.services && typeof parsed.services === "object" ? parsed.services : {})) {
+    for (const entry of Array.isArray(service?.devices) ? service.devices : []) {
+      const host = typeof entry === "string" ? entry.split(":")[0] : entry?.source;
+      if (typeof host === "string" && host.startsWith("/dev/")) devices.add(host);
+    }
+  }
+  return [...devices];
+}
+
 /** "4.7 GB" as bytes. Ollama prints powers of 1000, the way the Docker CLI does. */
 function parseModelSize(text) {
   const match = /^([\d.]+)\s*([KMGT]?B)$/i.exec(String(text ?? "").trim());
@@ -116,6 +136,8 @@ function parseModelSize(text) {
 export function createAppHelper({
   catalogRoot = process.env.BOXPILOT_CATALOG_ROOT ?? "/var/lib/boxpilot-managed/catalog",
   backupRoot = path.join(process.env.BOXPILOT_APPLICATION_BACKUP_ROOT ?? "/var/lib/boxpilot-managed/backups", "catalog"),
+  // Machine snapshots, whose app backups pruning keeps (snapshotBackupReferences).
+  machineSnapshotRoot = process.env.BOXPILOT_MACHINE_SNAPSHOT_ROOT ?? "/var/lib/boxpilot-managed/machine-snapshots",
   dockerBinary = process.env.BOXPILOT_DOCKER_BINARY ?? "/usr/bin/docker",
   tarBinary = process.env.BOXPILOT_TAR_BINARY ?? "/usr/bin/tar",
   runDocker = defaultDockerRunner,
@@ -374,9 +396,13 @@ export function createAppHelper({
    * whichever of the two binds first after a restart or a reboot wins.
    *
    * An app on the host's own network publishes nothing and binds its ports itself, on every address
-   * (hostNetworkPorts): those are checked too, unless its own container is running there now and
-   * holds them itself. A port the app's own settings say it can start without (Pi-hole's admin page)
-   * is marked `optional`, and assertPortsFree warns about it instead of refusing.
+   * (hostNetworkPorts): those are checked too. While its own container is running there, its own
+   * processes hold its container ports, and `ss` names them as themselves (pihole-FTL), not as
+   * Docker's: any listener on one of those ports held by a program that is neither Docker nor
+   * tailscaled is taken to be the app's own and left out, whatever network the new compose file is
+   * on. Pi-hole moving from the host network to bridge was refused on its own DNS port otherwise.
+   * A port the app's own settings say it can start without (Pi-hole's admin page) is marked
+   * `optional`, and assertPortsFree warns about it instead of refusing.
    *
    * Returns `{ checked, conflicts, requested }`; `checked` is false when the listeners could not be
    * read (the Serve half still ran). Each conflict is `{ port, protocol, bind, holders }` (ports.mjs
@@ -385,13 +411,19 @@ export function createAppHelper({
   async function portCheck(manifest, composeText, { progress = null } = {}) {
     const requested = publishedPorts(composeText).map((entry) => ({ id: entry.service, host: entry.host, protocol: entry.protocol, bind: entry.bind }));
     const hostBound = hostNetworkPorts(manifest, composeText);
-    if (hostBound.length && !(await runningOnHostNetwork(manifest.id))) {
-      requested.push(...hostBound.map((entry) => ({ id: entry.service, host: entry.host, protocol: entry.protocol, bind: entry.bind, hostNetwork: true, optional: entry.optional, label: entry.label })));
-    }
+    requested.push(...hostBound.map((entry) => ({ id: entry.service, host: entry.host, protocol: entry.protocol, bind: entry.bind, hostNetwork: true, optional: entry.optional, label: entry.label })));
     if (!requested.length) return { checked: true, conflicts: [], requested };
     let listeners = null;
     if (hostListeners) {
       try { listeners = await hostListeners(); } catch (error) { progress?.(`Could not read which ports are in use (${error.message}); going ahead without that check.`, "stderr"); }
+    }
+    if (Array.isArray(listeners) && await runningOnHostNetwork(manifest.id)) {
+      const containerPorts = new Set((manifest.ports ?? []).map((port) => `${port.container}/${port.protocol === "udp" ? "udp" : "tcp"}`));
+      const ownProcess = (listener) => {
+        const name = listener.process?.name;
+        return Boolean(name) && !dockerHolders.has(name) && name !== "tailscaled" && containerPorts.has(`${listener.port}/${listener.protocol}`);
+      };
+      listeners = listeners.filter((listener) => !ownProcess(listener));
     }
     const everyAddress = requested.filter((entry) => entry.protocol === "tcp" && coversEveryAddress(entry.bind));
     const live = Array.isArray(listeners) ? findPortConflicts(requested, listeners) : [];
@@ -675,8 +707,8 @@ export function createAppHelper({
     return resolved;
   }
 
-  async function writeProject(manifest, values, { existingEnv = {}, devices: provided = null } = {}) {
-    const directory = dirFor(manifest.id);
+  /** `directory` is the app's own unless a restore is writing the project it is about to swap in. */
+  async function writeProject(manifest, values, { existingEnv = {}, devices: provided = null, directory = dirFor(manifest.id) } = {}) {
     await mkdir(directory, { recursive: true, mode: 0o700 });
     // Images that run as a fixed non-root user (declared with `user:`) must be able to write their
     // managed volumes, which the helper creates as root. Ownership is set on the directory only;
@@ -1896,7 +1928,18 @@ export function createAppHelper({
       await rm(interruptedBackupMarker(id), { force: true }).catch(() => {});
     }
     let pruned = [];
+    // A machine snapshot restores each app from the backup that was its newest when the snapshot was
+    // taken, usually older than the newest few kept here, so none of those goes (housekeeping keeps
+    // them too). A snapshot that cannot be read could name any of them: then nothing goes this time.
+    let referenced = null;
     if (keep !== null) {
+      try {
+        referenced = (await snapshotBackupReferences({ snapshotRoot: machineSnapshotRoot, run: runCommand, tarBinary })).get(id) ?? new Set();
+      } catch (error) {
+        progress?.(`Kept every older backup of ${manifest.name}: ${error.message}, and one it restores from may be among them.`, "stderr");
+      }
+    }
+    if (referenced) {
       // Each kind is counted against its own kind only. An archive without metadata is treated as
       // the owner's, so a checkpoint never removes something it cannot identify as a checkpoint.
       const names = (await readdir(backupDirectory)).filter((name) => backupNamePattern.test(name)).sort().reverse();
@@ -1906,7 +1949,9 @@ export function createAppHelper({
         try { entryMeta = JSON.parse(await readFile(path.join(backupDirectory, name.replace(/\.tar\.gz$/, ".json")), "utf8")); } catch { entryMeta = null; }
         if (Boolean(entryMeta?.checkpoint) === Boolean(checkpointReason)) sameKind.push(name);
       }
-      pruned = sameKind.slice(keep).filter((name) => name !== preserve);
+      const behind = sameKind.slice(keep).filter((name) => name !== preserve);
+      pruned = behind.filter((name) => !referenced.has(name));
+      if (pruned.length < behind.length) progress?.(`Kept ${behind.length - pruned.length} older cop${behind.length - pruned.length === 1 ? "y" : "ies"} a machine snapshot restores ${manifest.name} from`, "stdout");
       for (const name of pruned) {
         await rm(path.join(backupDirectory, name), { force: true });
         await rm(path.join(backupDirectory, name.replace(/\.tar\.gz$/, ".json")), { force: true });
@@ -2148,6 +2193,41 @@ export function createAppHelper({
     return { verified: true, id, backup: target, checkedAt: clock().toISOString(), sizeBytes: info.size, entries: topLevel.size, members: memberCount, contents: expected, checksumVerified: Boolean(meta?.checksumSha256), durationMs, reason: null };
   }
 
+  /**
+   * The compose project of a backup unpacked into `directory`, written again for this server.
+   *
+   * A backup's compose file carries the server it was taken on: the tailnet address every
+   * `tailnet: address` port binds, device paths, a GPU reservation. Started as it was on a rebuilt
+   * server or a node that re-joined Tailscale, `up` failed with "cannot assign requested address"
+   * and the app was left down. So it is written again from the backup's own saved settings, as
+   * Reinstall writes a missing one, on the images the backup's compose file ran (the data in it was
+   * written by those, a sidecar's database included), with the devices this server's compose file
+   * names (the web process resolved those; this process has no real /dev), else the backup's.
+   *
+   * A compose file edited by hand is the owner's own and is kept as it is, with a warning; so is one
+   * whose saved settings no longer fit the catalog. Throws when this server cannot take the
+   * settings (tailnet only with no tailnet address, a device it does not have).
+   * Returns `{ rendered, values }` when it wrote the project again, and `warning` when it did not.
+   */
+  async function projectForThisServer(manifest, directory, archivedCompose, { progress = null } = {}) {
+    const state = await readFile(path.join(directory, "boxpilot.json"), "utf8").then(JSON.parse).catch(() => null);
+    if (!state || typeof state !== "object") return { rendered: null };
+    if (state.rawEdited) return { rendered: null, warning: `${manifest.name}'s compose file was edited by hand, so it was restored exactly as it was backed up. If it names an address, a device or a GPU this server does not have, ${manifest.name} will not start until it is edited again.` };
+    const existingEnv = parseEnvFile(await readFile(path.join(directory, ".env"), "utf8").catch(() => ""));
+    const { values, errors } = resolveValues(manifest, withSavedSecrets(manifest, sanitizeStoredValues(manifest, state.values ?? {}), existingEnv));
+    if (errors.length) return { rendered: null, warning: `${manifest.name}'s settings in this backup no longer fit the catalog (${errors.join("; ")}), so its compose file was restored exactly as it was backed up.` };
+    const ran = deployedImages(archivedCompose);
+    const pinned = {
+      ...manifest,
+      image: { ...manifest.image, reference: ran[manifest.id] ?? state.image?.reference ?? manifest.image.reference },
+      sidecars: (manifest.sidecars ?? []).map((sidecar) => (ran[sidecar.id] ? { ...sidecar, image: ran[sidecar.id] } : sidecar)),
+    };
+    const current = await readFile(path.join(dirFor(manifest.id), "compose.yaml"), "utf8").catch(() => null);
+    const rendered = await writeProject(pinned, values, { existingEnv, devices: composeDevices(current ?? archivedCompose), directory });
+    if (rendered.composeYaml !== archivedCompose) progress?.(`Wrote ${manifest.name}'s compose file again from the settings in the backup, for this server's addresses and devices, on ${pinned.image.reference}`, "stdout");
+    return { rendered, values };
+  }
+
   /** Restore a backup over the app directory: checksum check, safety backup, stop, extract, start. */
   async function restoreAppBackup({ id, backup: backupName }, { progress = null } = {}) {
     const manifest = await ensureManifest(id);
@@ -2194,10 +2274,22 @@ export function createAppHelper({
     // anything is stopped: found by `up` instead, the app was left down with "address already in
     // use", and the .replaced folder it left refused every retry.
     let ports;
+    let deployed = { rendered: null };
+    const warnings = [];
     try {
       await withoutSetIdBits(staged, progress);
       const stagedCompose = path.join(staged, "compose.yaml");
-      const project = (await lstat(stagedCompose).catch(() => null))?.isFile() ? await readFile(stagedCompose, "utf8") : "";
+      let project = (await lstat(stagedCompose).catch(() => null))?.isFile() ? await readFile(stagedCompose, "utf8") : "";
+      // Written again for this server first: the port check and `up` are of what will be started.
+      if (project) {
+        try {
+          deployed = await projectForThisServer(manifest, staged, project, { progress });
+        } catch (error) {
+          throw keepTimeout(error, new Error(`${manifest.name} was not restored; nothing was changed. ${error.message}`));
+        }
+        if (deployed.warning) { warnings.push(deployed.warning); progress?.(deployed.warning, "stderr"); }
+        if (deployed.rendered) project = deployed.rendered.composeYaml;
+      }
       ports = await assertPortsFree(manifest, project, { progress, refused: `${manifest.name} was not restored; nothing was changed.` });
     } catch (error) {
       await rm(staged, { recursive: true, force: true });
@@ -2263,7 +2355,14 @@ export function createAppHelper({
     if (safetyBackupSaved) await rm(displaced, { recursive: true, force: true });
     const retainedOriginal = !safetyBackupSaved && await lstat(displaced).then(() => true, () => false);
     if (retainedOriginal) progress?.(`Restore passed its health check. ${path.basename(displaced)} was retained because no safety backup was saved.`, "stderr");
-    return { restored: true, id, backup: backupName, image: healthy.image, health: healthy.health, retainedOriginal, ...withPortWarnings(ports) };
+    warnings.push(...(ports?.warnings ?? []));
+    return {
+      restored: true, id, name: manifest.name, backup: backupName, image: healthy.image, health: healthy.health, retainedOriginal,
+      // Who can reach it and on which ports, as written for this server: a snapshot restore publishes
+      // a tailnet-only app's web ports with Tailscale Serve from these.
+      ...(deployed.rendered ? { exposure: deployed.values.exposure ?? "lan", hostPorts: deployed.rendered.hostPorts } : {}),
+      ...(warnings.length ? { warnings } : {}),
+    };
   }
 
   function backupArtifactFor(id, backupName) {
@@ -2345,6 +2444,7 @@ export function createAppHelper({
     // (data/config -> /etc). The result is then moved into place one checked component at a time.
     const live = dirFor(id);
     const staged = `${live}.restoring-path`;
+    let failure = null;
     try {
       await rm(staged, { recursive: true, force: true });
       await mkdir(staged, { mode: 0o700 });
@@ -2353,13 +2453,29 @@ export function createAppHelper({
       if (!extract.ok) throw new Error(`tar extraction failed: ${extract.stderr.split("\n").slice(-2).join(" ")}. The checkpoint ${saved.artifact} holds the pre-restore state.`);
       await withoutSetIdBits(staged, progress);
       await placeWithoutFollowing(path.join(staged, relativePath), live, relativePath, path.join(staged, ".previous"));
+    } catch (error) {
+      failure = error;
     } finally {
       await rm(staged, { recursive: true, force: true }).catch(() => {});
-      if (status.running) {
-        const start = await compose(id, ["start"], { timeout: 180_000, progress });
-        if (!start.ok) progress?.(`${manifest.name} did not start again: ${redact(start.stderr).split("\n").slice(-2).join(" ")}`, "stderr");
-      }
     }
+    // Started again as it was running, after the same port check a start has: the restored path may
+    // be its compose file, and something may have taken a port while it was stopped. A start that
+    // does not work fails the job, saying the path came back, as a backup does when its app will not.
+    let notStarted = null;
+    if (status.running) {
+      const done = failure ? `${manifest.name} was not started again either.` : `${relativePath} was restored from ${backupName}, but ${manifest.name} was not started again.`;
+      try {
+        const project = (await readProjectFiles(id)).compose;
+        if (project !== null) await assertPortsFree(manifest, project, { progress, refused: done });
+        const start = await compose(id, ["start"], { timeout: 180_000, progress });
+        if (!start.ok) notStarted = new Error(`${failure ? `${manifest.name} did not start again either` : `${relativePath} was restored from ${backupName}, but ${manifest.name} did not start again`}: ${redact(start.stderr).split("\n").filter(Boolean).slice(-2).join(" ") || "docker compose start failed"}`);
+      } catch (error) {
+        notStarted = error;
+      }
+      if (notStarted) progress?.(notStarted.message, "stderr");
+    }
+    if (failure) throw notStarted ? Object.assign(new Error(`${String(failure.message).replace(/[.\s]+$/, "")}. ${notStarted.message}`), { code: notStarted.code }) : failure;
+    if (notStarted) throw notStarted;
     return { restored: true, id, backup: backupName, path: relativePath, type: member.type, sizeBytes: member.sizeBytes, checkpoint: saved };
   }
 
