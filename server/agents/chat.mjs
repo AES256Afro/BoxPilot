@@ -12,6 +12,7 @@
  */
 import { ConnectorError, cleanDocumentText, textOfUpload } from "./connectors.mjs";
 import { boxLine } from "./guard.mjs";
+import { roleAtLeast } from "./tool-catalog.mjs";
 import { ackMessage, boxpilotLink, cardMessage, chatLimits, chatText, destinationFor, findingMessage, imageMediaType, messageWords, notSetUpMessage, noteMessage, replyMessage, traceMessage, zulipChannels } from "./zulip.mjs";
 
 export const zulipSettingKey = "agentsZulip";
@@ -93,6 +94,10 @@ export function createAgentChat({ state, store, helper = null, now = () => new D
     };
     const name = spec?.name ?? agent.name;
     const runLink = linkTo(link, `view=agents&tab=test&agent=${agent.id}&run=${run.id}`, "open the run in BoxPilot");
+    // A run that read more than the agent's maker may - the owner asking an operator's agent - posts
+    // only to the connection's own channels, never to ones that maker chose (2026-10 sweep 4).
+    const maker = agent.createdBy ? state.findOwnerById?.(agent.createdBy) : null;
+    const connectionOnly = !maker || !roleAtLeast(maker.role, run.readRole);
     try {
       // A supervisor that handed work on answers in its follow-up run; that one is posted, once.
       const handedOn = run.kind !== "continue" && store.listChildren(run.id).some((entry) => entry.kind === "handoff");
@@ -103,7 +108,7 @@ export function createAgentChat({ state, store, helper = null, now = () => new D
       // Asked in Zulip (M40.5): the answer, and its cards, go back to the thread it was asked in -
       // the root question's thread for a supervisor's follow-up - and not to #agent-findings as well.
       const asked = chatOrigin(run);
-      const findings = asked ?? destinationFor(spec, "findings", link);
+      const findings = asked ?? destinationFor(spec, "findings", link, { connectionOnly });
       // However it ended: a question BoxPilot cancelled (it waited too long), refused (no runs left
       // today) or stopped is answered with why, not left unanswered (2026-10 sweep). A run that
       // handed on and ended with an answer is answered by its follow-up; one that ended any other
@@ -119,12 +124,12 @@ export function createAgentChat({ state, store, helper = null, now = () => new D
         if (asked && proposal.kind === "question") continue;
         queue("findings", findings, cardMessage({ agentName: name, proposal, link: linkTo(link, `view=agents&agent=${agent.id}`, "the card on the Agents page"), flagged: Boolean(run.flags?.injection), redact }));
       }
-      const logs = destinationFor(spec, "logs", link);
+      const logs = destinationFor(spec, "logs", link, { connectionOnly });
       if (logs) {
         const trace = traceMessage({ agentName: name, run, steps: store.listSteps(run.id), link: runLink, redact });
         queue("logs", logs, trace.content, trace.attachment);
       }
-      const knowledge = destinationFor(spec, "knowledge", link);
+      const knowledge = destinationFor(spec, "knowledge", link, { connectionOnly });
       if (knowledge) {
         const notes = store.listNotes(agent.id, { limit: 200 }).filter((note) => note.source?.runId === run.id).slice(0, limits.notesPerRun);
         for (const note of notes) queue("knowledge", knowledge, noteMessage({ agentName: name, note, flagged: Boolean(run.flags?.injection || note.source?.injection), redact }));

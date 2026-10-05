@@ -89,9 +89,13 @@ export function chatOutputsOf(spec) {
 }
 
 /** Where one kind of output goes for this agent: its channel and topic, or null when it is off. */
-export function destinationFor(spec, kind, connection) {
+export function destinationFor(spec, kind, connection, { connectionOnly = false } = {}) {
   const output = chatOutputsOf(spec)[kind];
   if (!output?.enabled || !connection?.channels?.[kind]) return null;
+  // `connectionOnly`: a run that read more than the agent's maker may posts only to the
+  // connection's own channel, never one the agent's spec chose (2026-10 sweep 4: an operator's
+  // agent, asked by the owner, posted the owner's run's trace wherever the operator said).
+  if (connectionOnly) return { channel: connection.channels[kind], topic: clipLine(spec?.name ?? "Agent", chatLimits.topicChars) };
   const topic = clipLine(output.topic ?? spec?.name ?? "Agent", chatLimits.topicChars);
   return { channel: output.channel ?? connection.channels[kind], topic };
 }
