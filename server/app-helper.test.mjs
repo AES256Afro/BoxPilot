@@ -2671,6 +2671,18 @@ describe("ports an app on the host's own network binds itself, checked before it
     expect((await readdir(catalogRoot)).filter((entry) => entry.includes(".replaced") || entry.includes(".restoring"))).toEqual([]);
   });
 
+  // R5B3-5: paused, its processes still hold its ports and `docker top` still lists them, but only
+  // "running" counted: a paused Pi-hole on the host network was refused a settings change, an update
+  // and a restore on its own pihole-FTL.
+  it("takes its own processes for its own while it is paused", async () => {
+    const { apps, held, containers } = await hostNetworkHarness();
+    await apps.install({ id: "dns", values: { networkMode: "host" } });
+    // Paused, as Docker reports it: Running stays true and the status reads "paused".
+    Object.assign(containers.get("bp-dns"), { running: true, status: "paused" });
+    held.push(...ownProcesses());
+    await expect(apps.reconfigure({ id: "dns", values: { networkMode: "bridge" } }, { checkpoint: false })).resolves.toMatchObject({ reconfigured: true });
+  });
+
   it("takes the processes its running container lists for its own, not a program of the same name", async () => {
     // Running steadily on the host network, a pihole-FTL that is not among its processes is another's.
     const { apps, held } = await hostNetworkHarness();

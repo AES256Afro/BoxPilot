@@ -393,7 +393,8 @@ export function createAppHelper({
    * `ss` names them as themselves (pihole-FTL, python3), not as Docker's. A name says nothing about
    * whose a process is, and Docker reports Running=true through restart backoff, when the container
    * has no process at all: a Pi-hole crash-looping because systemd-resolve or libvirt's dnsmasq held
-   * port 53 let that holder off as its own. Only "running" counts, and only the PIDs it lists.
+   * port 53 let that holder off as its own. Only "running" and "paused" count, and only the PIDs it
+   * lists: a paused container's processes are frozen, not gone, and still hold its ports (R5B3-5).
    */
   async function ownHostNetworkPids(id) {
     const none = new Set();
@@ -401,7 +402,7 @@ export function createAppHelper({
     if (!result?.ok) return none;
     let parsed = null;
     try { parsed = JSON.parse(String(result.stdout ?? "").split("\n")[0]); } catch { return none; }
-    if (parsed?.running !== true || parsed.status !== "running" || parsed.networkMode !== "host") return none;
+    if (parsed?.running !== true || !["running", "paused"].includes(parsed.status) || parsed.networkMode !== "host") return none;
     const top = await docker(["top", projectNameFor(id), "-eo", "pid"], { timeout: 10_000 }).catch(() => null);
     if (!top?.ok) return none;
     // A header line ("PID"), then one PID a line.
