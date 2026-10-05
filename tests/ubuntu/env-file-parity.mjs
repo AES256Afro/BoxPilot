@@ -13,14 +13,15 @@
  *   - server/env-file.mjs reading the file (the firewall's protected port, Settings' LAN switch, the
  *     controller doctor), which must also give the same raw values systemd gives;
  *   - the shell readers in scripts/boxpilot-upgrade.sh (the System page's update health check),
- *     scripts/boxpilot-install.sh and scripts/boxpilot-doctor.sh, under sh.
+ *     scripts/boxpilot-install.sh and scripts/boxpilot-doctor.sh, under sh, with mawk (a server's
+ *     awk) and with gawk (the runner's).
  *
  * Then seeded random files over a small alphabet of the characters that matter (=, #, ;, quotes,
  * backslash, blanks, CR, LF): systemd's values for two keys against server/env-file.mjs and the
  * shell scripts' parser, byte for byte.
  */
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -69,11 +70,23 @@ const shellReaders = {
   "boxpilot-doctor.sh": [shellFunction(doctor, "boxpilot_env_file_value"), shellFunction(doctor, "boxpilot_env_value"), shellFunction(doctor, "boxpilot_port_of"),
     'boxpilot_env_file="$1"', `printf '%s\\n%s' "$(boxpilot_port_of "$(boxpilot_env_value BOXPILOT_PORT)")" "$(boxpilot_env_value BOXPILOT_HOST)"`].join("\n"),
 };
+// Under every awk this machine has. A server's `awk` is Ubuntu's own, mawk (Priority: required);
+// GitHub's runner images put gawk in front of it, so without this only gawk would ever be tried.
+const awks = ["mawk", "gawk"].flatMap((name) => {
+  const found = spawnSync("sh", ["-c", `command -v ${name}`], { encoding: "utf8" }).stdout.trim();
+  if (!found) return [];
+  const directory = path.join(work, `awk-${name}`);
+  mkdirSync(directory);
+  symlinkSync(found, path.join(directory, "awk"));
+  return [{ name, PATH: `${directory}:${process.env.PATH}` }];
+});
+if (!awks.some(({ name }) => name === "mawk")) { console.log("mawk, the awk an Ubuntu server runs these scripts with, is not on this machine"); process.exit(1); }
+console.log(`shell readers run under sh with ${awks.map(({ name }) => name).join(" and ")}`);
 const programs = new Map();
-function runShell(program, file) {
+function runShell(program, file, awk) {
   if (!programs.has(program)) programs.set(program, fileWith(`${program}\n`));
-  const result = spawnSync("sh", [programs.get(program), file], { encoding: "utf8", timeout: 30_000 });
-  if (result.status !== 0 || result.stderr) throw new Error(`sh exited ${result.status}: ${result.stderr}`);
+  const result = spawnSync("sh", [programs.get(program), file], { encoding: "utf8", timeout: 30_000, env: { ...process.env, PATH: awk.PATH } });
+  if (result.status !== 0 || result.stderr) throw new Error(`sh with ${awk.name} exited ${result.status}: ${result.stderr}`);
   return result.stdout;
 }
 
@@ -129,9 +142,11 @@ for (const [name, escaped] of table) {
     "server/env-file.mjs": { port: listen.webPort, host: listen.webHost },
   };
   for (const [reader, program] of Object.entries(shellReaders)) {
-    const out = runShell(program, file);
-    const split = out.indexOf("\n");
-    answers[reader] = { port: Number(out.slice(0, split)), host: out.slice(split + 1) || "127.0.0.1" };
+    for (const awk of awks) {
+      const out = runShell(program, file, awk);
+      const split = out.indexOf("\n");
+      answers[`${reader} (${awk.name})`] = { port: Number(out.slice(0, split)), host: out.slice(split + 1) || "127.0.0.1" };
+    }
   }
   const read = parseEnvFile(text);
   const raw = { BOXPILOT_PORT: read.get("BOXPILOT_PORT") ?? null, BOXPILOT_HOST: read.get("BOXPILOT_HOST") ?? null };
@@ -160,15 +175,17 @@ for (let round = 0; round < rounds; round += 1) {
   const file = fileWith(text);
   const { given } = fromSystemd(file, ["A", "B"]);
   const read = parseEnvFile(text);
-  const [awkA, awkB] = runShell(parser, file).split("\u0001");
-  const readers = { "server/env-file.mjs": { A: read.get("A") ?? null, B: read.get("B") ?? null }, "the scripts' parser": { A: given.A === null ? null : awkA, B: given.B === null ? null : awkB } };
+  const readers = { "server/env-file.mjs": { A: read.get("A") ?? null, B: read.get("B") ?? null } };
+  for (const awk of awks) {
+    const [awkA, awkB] = runShell(parser, file, awk).split("\u0001");
+    // The shell parser cannot tell unset from empty: where systemd gives nothing it must print nothing.
+    readers[`the scripts' parser (${awk.name})`] = { A: given.A === null && awkA === "" ? null : awkA, B: given.B === null && awkB === "" ? null : awkB };
+  }
   for (const [reader, values] of Object.entries(readers)) {
     for (const key of ["A", "B"]) {
       if (values[key] !== given[key]) { differences += 1; fail(`random ${JSON.stringify(text)}: systemd gives ${key}=${JSON.stringify(given[key])}, ${reader} ${JSON.stringify(values[key])}`); }
     }
   }
-  // Where systemd gives nothing, the shell parser must print nothing (it cannot tell unset from empty).
-  for (const key of ["A", "B"]) if (given[key] === null && (key === "A" ? awkA : awkB) !== "") fail(`random ${JSON.stringify(text)}: systemd gives no ${key}, the scripts' parser ${JSON.stringify(key === "A" ? awkA : awkB)}`);
 }
 console.log(`${rounds} random files: ${differences} values differ from systemd's`);
 
