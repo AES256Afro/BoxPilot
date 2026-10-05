@@ -915,8 +915,9 @@ its run token, set its routes (`ingress`), and add the DNS name. The helper has 
   `cloudflare-api-token` anywhere at a tier below the one that saved it. The names BoxPilot writes
   itself (`managedCredentialNames` in `server/credentials.mjs`: the two Cloudflare tokens,
   `heartbeat-url`, `zulip-agents-bot`) are refused by `http.request`'s parameter check (where an
-  agent's plan is checked too) and again in its root task, by `agents.connector.sync`, and by Save a
-  credential, so only their own operations write them.
+  agent's plan is checked too) and again in its root task, by `agents.connector.sync`, and by Save
+  and Remove a credential, so only their own operations write or remove them. The tunnel's run token
+  has no remove of its own, so it stays until Connect replaces it.
 
 ## ADR-012: agents share their findings, by a permission each, and re-read live facts before any card
 
