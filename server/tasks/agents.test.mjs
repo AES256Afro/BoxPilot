@@ -140,6 +140,9 @@ describe("installing Unsloth", () => {
     expect(result).toMatchObject({ installed: true, tested: true, testedVersion: testedUnslothVersion, installerSha256: createHash("sha256").update(script).digest("hex") });
     const apt = calls.find((call) => call.binary === "apt-get");
     expect(apt.args).toContain("libgomp1");
+    // needrestart's hook stays off, as for every package change (tasks/apt.mjs): an outdated curl brings
+    // a new openssl, and in automatic mode needrestart restarted BoxPilot mid-install.
+    expect(apt.options.env).toMatchObject({ NEEDRESTART_SUSPEND: "1" });
     const installer = calls.find((call) => call.binary === "runuser" && call.args.includes("/bin/sh"));
     expect(installer.args.slice(0, 5)).toEqual(["-u", "boxpilot-agents", "--", "/usr/bin/env", "-i"]);
     expect(installer.args).toEqual(expect.arrayContaining(["UNSLOTH_NO_TORCH=1", "UNSLOTH_SKIP_AUTOSTART=1", `UNSLOTH_STUDIO_HOME=${paths.runtime}`, `HOME=${paths.state}`]));

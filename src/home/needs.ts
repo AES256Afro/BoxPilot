@@ -1,7 +1,7 @@
 import type { AppProtection } from "../backupProtection";
 import { behindBackupSchedules, judgeProtection, protectionWarning } from "../backupProtection";
 import { countOf, sentenceList, type ViewName } from "../data";
-import { jobTimeout } from "../JobTimeout";
+import { jobTimeout, mayStillBeRunning } from "../JobTimeout";
 import { dismissedFailure, failureSettled, jobSubject, ranAgain } from "../jobStatus";
 import { mirrorOperations, offBoxWarning } from "../offBox";
 import type { Job } from "../operations";
@@ -201,7 +201,8 @@ export function buildNeeds(facts: FactValues, { now, role }: { now: number; role
     const failedBefore = finding.lastAttempt?.state === "failed";
     // "Try again" only when the same fix can work again; a failure that names another place opens it.
     const advice: RetryAdvice = failedBefore ? adviseRetry(finding.lastAttempt?.error) : { retry: true };
-    const fixes = fixesOf(finding)
+    // A try that may still be running on the server is not offered again beside itself (sweep 4).
+    const fixes = mayStillBeRunning(finding.lastAttempt) ? [] : fixesOf(finding)
       .filter((fix) => mayStart(role, fix.operationId))
       .map((fix, index): NeedAction => ({ kind: fix.kind === "schedule" ? "schedule" : "operation", fix, operationId: fix.operationId, label: index === 0 && failedBefore && advice.retry ? "Try again" : fix.label, title: fix.label, parameters: fix.parameters ?? {}, preview: fix.preview, risk: fix.risk ?? riskOf(fix.operationId) }));
     const actions = [...(advice.next && fixes.length ? [openAction(advice.next)] : []), ...fixes];
@@ -336,7 +337,9 @@ export function buildNeeds(facts: FactValues, { now, role }: { now: number; role
     // Run again only when that can work: a failure that names another fix (install a tool first, free
     // space, a port someone else holds) opens where that fix is instead. Pressing Try again on those
     // repeated the same refusal; the owner did it three times on "Reconnect a drive".
-    const advice = moreTime ? { retry: true } : adviseRetry(failedJob.error);
+    // One that may still be running on the server is not run again beside itself (sweep 4): the row
+    // opens it in Activity, where its log says how far it has got, and Dismiss lets it go.
+    const advice = moreTime ? { retry: true } : mayStillBeRunning(failedJob) ? { retry: false } : adviseRetry(failedJob.error);
     const retry = advice.retry && failedJob.type.startsWith("op:") && !JSON.stringify(parameters).includes("[secret]")
       ? act(operationId, moreTime ? "Try again with more time" : "Try again", failedJob.title, parameters, `Runs ${failedJob.title} again with the same settings${moreTime ? " and a larger time budget" : ""}. The last run failed: ${failedJob.error ?? "no error was recorded"}`)
       : null;

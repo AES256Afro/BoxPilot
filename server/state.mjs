@@ -1538,17 +1538,24 @@ export function createStateStore({
   function recoverInterruptedJobs() {
     const interrupted = database.prepare("SELECT id, title, state FROM jobs WHERE state IN ('applying', 'verifying')").all();
     if (!interrupted.length) return [];
+    // A job whose last word from the helper was that it waited behind earlier work never began: the
+    // helper starts nothing queued once it is stopping, and the web side, stopped first in a restart
+    // of both, never heard the refusal. Said as never started, and free to run again (job-reruns.mjs).
+    const lastQueueStep = database.prepare("SELECT state FROM job_steps WHERE job_id = ? AND name = 'queue' ORDER BY created_at DESC, rowid DESC LIMIT 1");
+    for (const job of interrupted) job.neverStarted = job.state === "applying" && lastQueueStep.get(job.id)?.state === "waiting";
     // One transaction: a crash during startup recovery would otherwise leave some jobs marked
     // failed with no step saying why.
     database.exec("BEGIN IMMEDIATE");
     try {
-      for (const { id, state } of interrupted) {
+      for (const { id, state, neverStarted } of interrupted) {
         database.prepare("UPDATE jobs SET state = 'failed', error = ?, updated_at = ? WHERE id = ?")
-          .run("BoxPilot restarted while this job was running. The operation itself may still have finished on its own; check what it changed before retrying.", timestamp(), id);
+          .run(neverStarted
+            ? "BoxPilot restarted before this job began, while it waited for earlier work on the server, so nothing was changed. It can be run again as it is."
+            : "BoxPilot restarted while this job was running. The operation itself may still have finished on its own; check what it changed before retrying.", timestamp(), id);
         // A failed job leaves no step running: the one it was in ends here, cut off.
-        addJobStep(id, state === "verifying" ? "verify" : "apply", "failed", "Cut off when BoxPilot restarted");
+        addJobStep(id, state === "verifying" ? "verify" : "apply", "failed", neverStarted ? "Never started: BoxPilot restarted while it waited for earlier work" : "Cut off when BoxPilot restarted");
         // Whether it runs again is decided after this, from the registry (server/job-reruns.mjs).
-        addJobStep(id, "recovery", "required", "The operation was interrupted by a BoxPilot restart");
+        addJobStep(id, "recovery", "required", neverStarted ? "BoxPilot restarted before the operation began; nothing was changed" : "The operation was interrupted by a BoxPilot restart");
       }
       database.exec("COMMIT");
     } catch (error) {

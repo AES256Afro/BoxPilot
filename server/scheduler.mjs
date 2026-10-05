@@ -346,11 +346,18 @@ export function createSchedulerService({ store, jobs, secretEnvNamesFor = async 
    */
   function recover(interrupted = []) {
     const ids = new Set(interrupted.map((job) => job.id));
+    const neverStarted = new Set(interrupted.filter((job) => job.neverStarted).map((job) => job.id));
     const taken = [];
     for (const schedule of store.listSchedules()) {
       if (!schedule.lastJobId || !ids.has(schedule.lastJobId)) continue;
       remember(schedule.lastJobId, null);
       taken.push(schedule.lastJobId);
+      // Still queued in the helper when BoxPilot restarted: it never began, and nothing changed.
+      if (neverStarted.has(schedule.lastJobId)) {
+        store.settleScheduleRun?.(schedule.id, { jobId: schedule.lastJobId, result: "cancelled: BoxPilot restarted before it began" });
+        announce(schedule, "Scheduled task did not run", "BoxPilot restarted before it began, so nothing ran or changed. It runs again at its next time.");
+        continue;
+      }
       store.settleScheduleRun?.(schedule.id, { jobId: schedule.lastJobId, result: "failed: interrupted by a BoxPilot restart" });
       announce(schedule, "Scheduled task was interrupted", "BoxPilot restarted while it was running, so it is marked failed. It may still have finished on its own; check what it changed before running it again.");
     }

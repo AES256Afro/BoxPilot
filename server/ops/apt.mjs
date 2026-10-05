@@ -126,13 +126,13 @@ export function aptOperations() {
     }),
     defineOperation({
       // Restarts BoxPilot when the upgrade replaced libraries it runs on (libc, openssl).
-      id: "apt.upgrade", title: "Install package updates", risk: "medium", timeoutMs: minutes(185), restartsService: "maybe",
+      id: "apt.upgrade", title: "Install package updates", risk: "medium", timeoutMs: minutes(185), restartsService: "drained",
       description: "Runs apt-get update then upgrades every package, or only the selected ones.",
       parameters: { fields: { packages: optionalPackagesField, refreshFirst: refreshField } },
       run: (parameters, { runUnit, jobLog, selfRestart, progress }) => restartBoxPilotAfter(withCacheReset(runUnit.runTask("apt.upgrade", { packages: parameters.packages ?? null, refreshFirst: parameters.refreshFirst ?? true }, { timeoutMs: minutes(180), logPath: jobLog?.path ?? null })), { selfRestart, progress }),
     }),
     defineOperation({
-      id: "apt.install", title: "Install packages", risk: "medium", timeoutMs: minutes(70), restartsService: "maybe",
+      id: "apt.install", title: "Install packages", risk: "medium", timeoutMs: minutes(70), restartsService: "drained",
       description: "Installs the listed APT packages without recommends.",
       parameters: { fields: { packages: packagesField, refreshFirst: refreshField } },
       run: (parameters, { runUnit, jobLog, selfRestart, progress }) => restartBoxPilotAfter(withCacheReset(runUnit.runTask("apt.install", { packages: parameters.packages, refreshFirst: parameters.refreshFirst ?? true }, { timeoutMs: minutes(65), logPath: jobLog?.path ?? null })), { selfRestart, progress }),

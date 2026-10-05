@@ -1052,6 +1052,26 @@ sidecars:
       expect(containers.get("bp-demo").running).toBe(false);
     });
 
+    it("starts the app again and drops the old half archive when the app's own backup runs while the resume waits for Docker (sweep 4)", async () => {
+      // The resume waits for Docker outside the app's lane, so the nightly backup can run first. It
+      // found the app stopped, wrote its own marker as "don't restart" over the old one and removed
+      // it: the app was never started again, and the old partial archive stayed.
+      const context = await setup();
+      const { apps, containers, backupRoot } = context;
+      await apps.install({ id: "demo" });
+      void helperOver(context, { runCommand: dyingTar }).backup({ id: "demo" });
+      await vi.waitFor(async () => expect(await readdir(path.join(backupRoot, "demo")).catch(() => [])).toEqual(["20260929T031500Z.tar.gz.partial"]));
+      expect(containers.get("bp-demo").running).toBe(false);
+      const next = helperOver(context, { clock: () => new Date("2026-09-29T03:20:00.000Z"), runCommand: async (_binary, args) => { await writeFile(args[args.indexOf("-czf") + 1], "a whole archive"); return { ok: true, stdout: "", stderr: "" }; } });
+      const [cutOff] = await next.interruptedBackups();
+      await expect(next.backup({ id: "demo" })).resolves.toMatchObject({ backedUp: true, artifact: "20260929T032000Z.tar.gz" });
+      expect(containers.get("bp-demo").running).toBe(true);
+      expect((await readdir(path.join(backupRoot, "demo"))).sort()).toEqual(["20260929T032000Z.json", "20260929T032000Z.tar.gz"]);
+      // The resume, when Docker answers, finds it settled.
+      await expect(next.resumeInterruptedBackup(cutOff)).resolves.toMatchObject({ id: "demo", settled: true });
+      expect(await next.interruptedBackups()).toEqual([]);
+    });
+
     it("is not left behind by a backup that finished, or one that failed on its own", async () => {
       const context = await setup();
       const { containers, backupRoot, catalogRoot } = context;

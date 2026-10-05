@@ -568,9 +568,11 @@ describe("guarding restarts against running jobs (M4.5 / self-update safety)", (
     } finally { store.close(); }
   });
 
-  it("guards the operations that can restart BoxPilot when they finish: upgrades, installs and KVM", async () => {
+  it("runs the operations whose restart is drained beside other work: upgrades, installs and KVM (sweep 4)", async () => {
     // An upgrade that moves libc or openssl restarts BoxPilot to pick them up; installing KVM restarts
-    // the helper so VM work can write to /var/lib/libvirt. Neither was marked, so neither was guarded.
+    // the helper so VM work can write to /var/lib/libvirt. That restart waits for every job running
+    // beside them (self-restart.mjs), so refusing them while a backup ran guarded nothing: it only
+    // sent the nightly updates, Update night's steps and the Install buttons away with a "did not run".
     const helper = { request: vi.fn(async () => ({ ok: true })) };
     const { store, owner, jobs } = await setup(helper);
     try {
@@ -583,10 +585,14 @@ describe("guarding restarts against running jobs (M4.5 / self-update safety)", (
         await jobs.createOperationJob("prerequisite.virtualization.install", { expectedPackages: packages }, owner.id),
       ];
       for (const job of staged) {
-        await expect(jobs.approveAndRun(job.id, owner.id, { session: store.getSession(store.createSession(owner.id).token) })).rejects.toThrow(/^Wait for a running job to finish first: Back up application data\. ".+" (can restart|restarts) BoxPilot/);
-        expect(store.getJob(job.id).state).toBe("awaiting_approval");
+        expect(registry.get(job.type.slice(3)).restartsService).toBe("drained");
+        await expect(jobs.approveAndRun(job.id, owner.id, { session: store.getSession(store.createSession(owner.id).token) })).resolves.toMatchObject({ state: "completed" });
       }
-      expect(helper.request).not.toHaveBeenCalled();
+      expect(helper.request.mock.calls.map(([operation]) => operation)).toEqual(expect.arrayContaining(["apt.upgrade", "apt.install", "prerequisite.virtualization.install"]));
+      // A restart that is not drained is still refused beside it: a LAN change restarts BoxPilot at once.
+      const lan = await jobs.createOperationJob("system.web.lan.set", { enabled: true }, owner.id);
+      await expect(jobs.approveAndRun(lan.id, owner.id, { session: store.getSession(store.createSession(owner.id).token) })).rejects.toThrow(/^Wait for a running job to finish first: Back up application data\. ".+" restarts BoxPilot/);
+      expect(store.getJob(lan.id).state).toBe("awaiting_approval");
     } finally { store.close(); }
   });
 
@@ -870,6 +876,24 @@ describe("a job that ran out of time (M30.3)", () => {
     } finally { store.close(); }
   });
 
+  it("does not give more time beside a root task whose whole operation ran out, which may still be running (sweep 4)", async () => {
+    // The web side's deadline fired before the helper's answer: the record said the whole operation
+    // ran out, with nothing about the task left running, and "Try again with more time" was accepted
+    // and ran a second download beside the first for up to five hours.
+    const { store, owner, jobs } = await timed((_operation, _parameters, options, advance) => budgetRanOut(options, advance));
+    try {
+      for (const [operationId, parameters] of [["agents.model.download", { repo: "unsloth/Qwen3-8B-GGUF", file: "Qwen3-8B-Q4_K_M.gguf" }], ["agents.runtime.install", {}]]) {
+        const job = await jobs.createOperationJob(operationId, parameters, owner.id);
+        await expect(jobs.approveAndRun(job.id, owner.id, {})).rejects.toThrow();
+        const failed = store.getJob(job.id);
+        expect(failed.timeout).toMatchObject({ scope: "operation", moreTimeMs: null });
+        expect(failed.error).toMatch(/may still be running on the server/);
+        await expect(jobs.retryWithMoreTime(job.id, owner.id)).rejects.toMatchObject({ code: "more_time_refused", message: expect.stringMatching(/may still be running/) });
+      }
+      expect(store.listAwaitingApproval()).toEqual([]);
+    } finally { store.close(); }
+  });
+
   it("leaves an ordinary failure without a timeout", async () => {
     const { store, owner, jobs } = await timed(() => { throw new Error("docker compose up failed: no such image"); });
     try {
@@ -1007,6 +1031,27 @@ describe("a tier that depends on what an operation acts on", () => {
       await expect(jobs.createOperationJob("agents.runtime.cpu", { processors: 8, background: 8, resetAfterSeconds: 7_200 }, owner.id, { role: "owner" })).rejects.toMatchObject({ code: "operation_internal", message: expect.stringMatching(/BoxPilot's own/) });
       await expect(jobs.createOperationJob("agents.zulip.post", { host: "127.0.0.1", botEmail: "bot@example.test", posts: [] }, owner.id, { role: "owner" })).rejects.toMatchObject({ code: "operation_internal" });
       expect(store.listJobs(10)).toEqual([]);
+      expect(helper.request).not.toHaveBeenCalled();
+    } finally { store.close(); }
+  });
+
+  it("neither approves nor keeps one staged before it was refused, which could otherwise be approved for a week (sweep 4)", async () => {
+    const helper = { request: vi.fn(async () => ({ ok: true })) };
+    const { store, owner } = await setup(helper);
+    try {
+      const jobs = createJobService(store, helper);
+      // Staged before round 3 refused it at staging: still awaiting approval in the database.
+      const stage = (operationId, parameters) => store.createJob({ type: `op:${operationId}`, title: registry.get(operationId).title, risk: "low", parameters, recovery: {}, createdBy: owner.id });
+      const cpu = stage("agents.runtime.cpu", { processors: 8, background: 8, resetAfterSeconds: 7_200 });
+      const post = stage("agents.zulip.post", { host: "127.0.0.1", botEmail: "bot@example.test", posts: [] });
+      const ordinary = stage("apt.refresh", {});
+      await expect(jobs.approveAndRun(cpu.id, owner.id, {})).rejects.toMatchObject({ code: "operation_internal", message: expect.stringMatching(/BoxPilot's own/) });
+      expect(store.getJob(cpu.id)).toMatchObject({ state: "cancelled", error: expect.stringMatching(/BoxPilot's own/) });
+      expect(helper.request).not.toHaveBeenCalled();
+      // The hourly sweep withdraws the rest, saying why; anything else keeps waiting.
+      expect(jobs.sweepStaleApprovals()).toEqual([{ id: post.id, why: "internal" }]);
+      expect(store.getJob(post.id)).toMatchObject({ state: "cancelled", error: expect.stringMatching(/BoxPilot's own/) });
+      expect(store.getJob(ordinary.id).state).toBe("awaiting_approval");
       expect(helper.request).not.toHaveBeenCalled();
     } finally { store.close(); }
   });

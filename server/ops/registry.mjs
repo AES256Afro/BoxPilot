@@ -95,7 +95,7 @@ export function validateParameters(spec, parameters, title = "Operation") {
 export const internalRefusal = (operation) => `${operation.title} is BoxPilot's own plumbing: BoxPilot runs it itself when it needs it`;
 
 export function defineOperation(definition) {
-  const { id, title, risk, readOnly = false, elevatedOnly = false, internal = false, timeoutMs = defaultTimeoutMs, maxTimeoutMs = null, rerunAfterInterrupt = false, parameters = { fields: {} }, run, description = "", minimumRole = null, confirm = null, restartsService = false, supersededWhen = null, oneTimeFields = [] } = definition ?? {};
+  const { id, title, risk, readOnly = false, elevatedOnly = false, internal = false, timeoutMs = defaultTimeoutMs, maxTimeoutMs = null, rerunAfterInterrupt = false, parameters = { fields: {} }, run, description = "", minimumRole = null, confirm = null, restartsService = false, supersededWhen = null, oneTimeFields = [], runsRootTask = false } = definition ?? {};
   if (typeof id !== "string" || !idPattern.test(id)) throw new Error(`Operation id "${id}" must be lower-case dotted segments`);
   if (typeof title !== "string" || !title.trim()) throw new Error(`Operation ${id} needs a title`);
   if (!riskTiers.includes(risk)) throw new Error(`Operation ${id} risk must be one of ${riskTiers.join(", ")}`);
@@ -105,7 +105,7 @@ export function defineOperation(definition) {
   if (minimumRole !== null && !["owner", "operator"].includes(minimumRole)) throw new Error(`Operation ${id} minimumRole must be owner or operator`);
   if (confirm !== null && typeof confirm !== "function") throw new Error(`Operation ${id} confirm must be a function of the parameters returning the text to type`);
   if (supersededWhen !== null && (typeof supersededWhen !== "function" || readOnly)) throw new Error(`Operation ${id} supersededWhen must be a function, and only a staged job can be superseded`);
-  if (![true, false, "maybe"].includes(restartsService)) throw new Error(`Operation ${id} restartsService must be true, false or "maybe"`);
+  if (![true, false, "drained"].includes(restartsService)) throw new Error(`Operation ${id} restartsService must be true, false or "drained"`);
   for (const [name, field] of Object.entries(parameters?.fields ?? {})) {
     if (field?.secretEnvOf === undefined) continue;
     if (field.type !== "object" || field.secret) throw new Error(`Operation ${id} parameter ${name}: secretEnvOf belongs on an object field that is not itself secret`);
@@ -134,15 +134,19 @@ export function defineOperation(definition) {
   // confirm(parameters): text the approver must type for destructive jobs; checked server-side at approval.
   // restartsService: the operation restarts (or reboots) the BoxPilot service, so approving it while
   // another job runs would interrupt that job. The job service refuses the approval when so.
-  // "maybe": it restarts BoxPilot only when what it did calls for it (a package change that replaced
-  // libc), and is guarded the same way.
+  // "drained": it may restart BoxPilot when what it did calls for it (a package change that replaced
+  // libc, KVM installed), through the helper's drained restart (self-restart.mjs), which waits for
+  // every job running beside it to finish first. Nothing is cut off, so it is not refused beside them.
   // supersededWhen(parameters, { version }): why a job of this operation, staged and still waiting,
   // no longer has anything to do (an update to a version already running), or null. The job service
   // cancels such a job with that reason rather than let it wait for an approval that would do harm
   // or nothing (M36).
+  // runsRootTask: its work is a root task (boxpilot-run@), which runs on past its own limit when that
+  // runs out. A job of it whose whole budget ran out may still have that task running, so it is not
+  // given more time beside it (jobs.mjs). Declared where more time is offered; a test keeps it so.
   // internal: BoxPilot's own plumbing, run by BoxPilot itself (the agents' Zulip posts and reads):
   // never a step an agent or the assistant may propose (validatePlan drops it).
-  return Object.freeze({ id, title, description, risk, readOnly: Boolean(readOnly), elevatedOnly: Boolean(elevatedOnly), internal: Boolean(internal), timeoutMs, maxTimeoutMs, rerunAfterInterrupt: Boolean(rerunAfterInterrupt), parameters, run, minimumRole, confirm, restartsService, supersededWhen, oneTimeFields: Object.freeze([...oneTimeFields]) });
+  return Object.freeze({ id, title, description, risk, readOnly: Boolean(readOnly), elevatedOnly: Boolean(elevatedOnly), internal: Boolean(internal), timeoutMs, maxTimeoutMs, rerunAfterInterrupt: Boolean(rerunAfterInterrupt), parameters, run, minimumRole, confirm, restartsService, supersededWhen, oneTimeFields: Object.freeze([...oneTimeFields]), runsRootTask: Boolean(runsRootTask) });
 }
 
 export class OperationRegistry {

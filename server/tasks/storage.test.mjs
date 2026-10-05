@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { registry } from "../ops/index.mjs";
 import { assertNotProtected, bindHolds, parseManagedFstab, parseSmbstatusShares, processesUsing, removeManagedEntry, sharesOnMount, storageClearMark, storageFormat, storageLvmExtend, storageLvmSnapshotCreate, storageLvmSnapshotDelete, storageLvmSnapshotRollback, storageMount, storageUnmount, swapFileSet, storageRemount, storageCheck } from "./storage.mjs";
 
 const BASE_FSTAB = "# /etc/fstab\nUUID=root-uuid / ext4 defaults 0 1\n";
@@ -715,6 +716,20 @@ describe("clearing the mark Linux keeps on an exFAT drive (M26)", () => {
     const order = ["docker stop bp-plex", "umount -N /proc/1/ns/mnt /mnt/the-dump", "fsck.exfat -n /dev/sda2", "fsck.exfat -y /dev/sda2", "mount -N /proc/1/ns/mnt /mnt/the-dump", "docker start bp-plex"].map((call) => calls.indexOf(call));
     expect(order.every((index, position) => index >= 0 && (position === 0 || index > order[position - 1]))).toBe(true);
     expect(log).toHaveBeenCalledWith(expect.stringContaining("the mark is all that changed"), "stdout");
+  });
+
+  it("is given a limit that covers both checker passes and the work around them (sweep 4)", async () => {
+    // Two passes of up to 25 minutes each in a 33-minute task: the runner's limit could run out in
+    // the middle of fsck.exfat -y, which it then leaves writing to the unmounted drive.
+    const { run, files } = markedDrive();
+    await storageClearMark({ name: "the-dump" }, { run, files, sleep: async () => {} });
+    const passes = run.mock.calls.filter(([binary]) => binary.endsWith("fsck.exfat")).map(([, , options]) => options.timeout);
+    expect(passes).toHaveLength(2);
+    const limits = [];
+    await registry.get("storage.dirty-mark.clear").run({ name: "the-dump" }, { runUnit: { runTask: async (_task, _parameters, options) => { limits.push(options.timeoutMs); } }, jobLog: null });
+    // Room beyond the passes for stopping the apps, unmounting, mounting and starting them, as the
+    // check has (storage.check: one pass of 25 in 33).
+    expect(limits[0] - passes.reduce((total, ms) => total + ms, 0)).toBeGreaterThanOrEqual(8 * 60_000);
   });
 
   it("changes nothing on a drive with real damage, and starts the apps again", async () => {

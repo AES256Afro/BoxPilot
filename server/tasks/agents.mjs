@@ -48,7 +48,7 @@ async function ensureStateDirectory(run, paths) {
 const asRunner = (run, paths, command, args, options = {}) => run(runuser, ["-u", paths.user, "--", "/usr/bin/env", "-i", "PATH=/usr/local/bin:/usr/bin:/bin", "LANG=C.UTF-8", `HOME=${paths.state}`, ...(options.env ?? []), command, ...args], { timeout: options.timeout ?? 60_000, maxBuffer: 16 * 1024 * 1024, ...(options.onLine ? { onLine: options.onLine } : {}) });
 
 export async function agentsInstall(_parameters = {}, { log = () => {}, run, fetcher = fetch, paths = agentsPaths } = {}) {
-  const apt = await run("/usr/bin/apt-get", ["install", "-y", "--no-install-recommends", "libgomp1", "ca-certificates", "curl"], { timeout: 10 * 60_000, env: { DEBIAN_FRONTEND: "noninteractive" } });
+  const apt = await run("/usr/bin/apt-get", ["install", "-y", "--no-install-recommends", "libgomp1", "ca-certificates", "curl"], { timeout: 10 * 60_000, env: { DEBIAN_FRONTEND: "noninteractive", NEEDRESTART_SUSPEND: "1" } });
   if (!apt.ok) throw new Error("Could not install the OpenMP library Unsloth's llama.cpp needs (libgomp1)");
   const created = await ensureUser(run, paths);
   log(created ? `Created the ${paths.user} user` : `The ${paths.user} user exists`, "stdout");

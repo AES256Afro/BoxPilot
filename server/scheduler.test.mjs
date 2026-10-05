@@ -466,6 +466,22 @@ describe("what the Schedules panel says about the last run (M27.2)", () => {
     expect(outcomeOf(scheduler, schedule.id)).toMatchObject({ lastOutcome: "failed", lastReason: "interrupted by a BoxPilot restart" });
     store.close();
   });
+
+  it("says a run BoxPilot restarted before it began did not run, and told the owner nothing changed (sweep 4)", async () => {
+    let clock = new Date("2026-08-20T02:59:00");
+    const { store, jobs, owner, registry } = await setup();
+    const messages = [];
+    const alerts = { raise: async (alert) => { messages.push(alert); }, clear: async () => {} };
+    const scheduler = createSchedulerService({ store, jobs, registry, now: () => clock, alerts });
+    const schedule = await scheduler.create({ operationId: "app.backup", parameters: { id: "jellyfin" }, frequency: "daily", minute: 0, hour: 3, createdBy: owner.id });
+    clock = new Date("2026-08-20T03:00:30");
+    await scheduler.tick();
+    const jobId = store.getSchedule(schedule.id).lastJobId;
+    createSchedulerService({ store, jobs, registry, now: () => clock, alerts }).recover([{ id: jobId, title: "Back up application data", neverStarted: true }]);
+    expect(outcomeOf(scheduler, schedule.id)).toMatchObject({ lastOutcome: "did-not-run", lastReason: "BoxPilot restarted before it began" });
+    await vi.waitFor(() => expect(messages.at(-1)?.message).toBe("BoxPilot restarted before it began, so nothing ran or changed. It runs again at its next time."));
+    store.close();
+  });
 });
 
 describe("a scheduled run whose result was not saved (M27.2)", () => {
@@ -556,6 +572,38 @@ describe("a schedule due while approvals always ask, with the real job service",
       expect(messages).toEqual([expect.stringContaining("Approvals are set to always ask")]);
       expect(store.listAwaitingApproval()).toEqual([]);
       expect(helper.request).not.toHaveBeenCalled();
+    } finally { store.close(); }
+  });
+});
+
+describe("the nightly package updates beside a backup, with the real job service (sweep 4)", () => {
+  // Every schedule defaults to 03:00. Installing package updates can restart BoxPilot when it is
+  // done, and that restart waits for the work beside it (self-restart.mjs), but its approval was
+  // still refused while any other job ran: the nightly update was refused behind the backup, every
+  // night, with a "did not run" alert, and with a reason that was no longer true.
+  it("runs, rather than being refused because the backup is running", async () => {
+    let clock = new Date("2026-08-20T02:59:00");
+    const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-sched-upgrade-"));
+    directories.push(directory);
+    const store = createStateStore({ stateDirectory: directory });
+    try {
+      const owner = store.consumeBootstrapToken(store.createBootstrapToken().token, { username: "operator", passwordHash: "hash" });
+      const helper = { request: vi.fn(async () => ({ upgraded: [] })) };
+      const jobs = createJobService(store, helper);
+      const messages = [];
+      const scheduler = createSchedulerService({ store, jobs, now: () => clock, alerts: { raise: async (alert) => { messages.push(alert.message); }, clear: async () => {} } });
+      const updates = await scheduler.create({ operationId: "apt.upgrade", parameters: {}, frequency: "daily", minute: 0, hour: 3, createdBy: owner.id });
+      // The 03:00 backup is running.
+      const backup = await jobs.createOperationJob("app.backup", { id: "jellyfin" }, owner.id);
+      store.transitionJob(backup.id, "awaiting_approval", "applying");
+      clock = new Date("2026-08-20T03:00:30");
+      await scheduler.tick();
+      const jobId = store.getSchedule(updates.id).lastJobId;
+      expect(jobId).toBeTruthy();
+      await vi.waitFor(() => expect(store.getJob(jobId).state).toBe("completed"));
+      expect(helper.request).toHaveBeenCalledWith("apt.upgrade", expect.anything(), expect.anything());
+      expect(scheduler.list().find((entry) => entry.id === updates.id).lastOutcome).not.toBe("did-not-run");
+      expect(messages).toEqual([]);
     } finally { store.close(); }
   });
 });

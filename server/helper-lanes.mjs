@@ -110,6 +110,15 @@ export function laneFor(operation, parameters = {}) {
  */
 export function createLaneQueues() {
   const lanes = new Map();
+  // Called, once each, the moment no lane is held (onIdle).
+  const idleWaiters = new Set();
+  function noticeIdle() {
+    for (const waiter of [...idleWaiters]) {
+      if (lanes.size) return; // a waiter before this one took a lane
+      idleWaiters.delete(waiter);
+      waiter();
+    }
+  }
 
   /** The lanes besides its own that a request must wait for: Docker and the apps wait for each other. */
   function across(held) {
@@ -126,12 +135,21 @@ export function createLaneQueues() {
     const waitFor = held.includes(exclusiveLane)
       ? [...lanes.values()]
       : [...held, ...across(held), exclusiveLane].map((lane) => lanes.get(lane)).filter(Boolean);
-    const result = Promise.allSettled(waitFor).then(task, task); // an earlier failure must not cancel this one
+    // `holdUntil(promise)`: what the task started and left running (a root task past its own limit,
+    // run-unit.mjs) keeps its lanes held until it settles too, while the task's answer goes out now.
+    const after = [];
+    let released = false;
+    const holdUntil = (promise) => { if (!released) after.push(Promise.resolve(promise).catch(() => {})); };
+    const start = () => task(holdUntil);
+    const result = Promise.allSettled(waitFor).then(start, start); // an earlier failure must not cancel this one
     // Keep the chain alive but never leak rejections, and drop a lane once it is idle again.
-    const settled = result.then(() => {}, () => {});
+    const settled = result.then(() => {}, () => {}).then(async () => {
+      while (after.length) await Promise.all(after.splice(0));
+      released = true;
+    });
     for (const lane of held) {
       lanes.set(lane, settled);
-      settled.then(() => { if (lanes.get(lane) === settled) lanes.delete(lane); });
+      settled.then(() => { if (lanes.get(lane) === settled) lanes.delete(lane); if (!lanes.size) noticeIdle(); });
     }
     return result;
   }
@@ -143,7 +161,18 @@ export function createLaneQueues() {
     return [...held, ...across(held), exclusiveLane].some((lane) => lanes.has(lane));
   }
 
-  return { run, busy, size: () => lanes.size };
+  /**
+   * Call `callback` the moment no lane is held - now, if none is - without holding or queueing on
+   * anything meanwhile. Within the call nothing else has started, so a lane it takes is taken from
+   * an idle helper. Returns a function that stops waiting.
+   */
+  function onIdle(callback) {
+    if (!lanes.size) { callback(); return () => {}; }
+    idleWaiters.add(callback);
+    return () => { idleWaiters.delete(callback); };
+  }
+
+  return { run, busy, onIdle, size: () => lanes.size };
 }
 
 /** Bound active and queued reads; abandoned queued work must never start later. */

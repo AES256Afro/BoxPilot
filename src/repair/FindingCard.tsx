@@ -1,6 +1,7 @@
 import { useId, type ReactNode } from "react";
 import type { ViewName } from "../data";
 import { JobLogView } from "../JobLogView";
+import { mayStillBeRunning } from "../JobTimeout";
 import { adviseRetry } from "../retryAdvice";
 import { Button, StatusChip, type Status } from "../ui";
 import { mayStart } from "../ui/operationRisk";
@@ -87,11 +88,14 @@ export function FindingCard({ finding, role, run, onFix, onDismiss, onRestore, e
   // A failed try not already shown by a run on this page: said on the card, and the fix says "Try again"
   // when the same fix can work again. One whose error names a fix elsewhere offers that place instead.
   const failedBefore = !run && attempt?.state === "failed";
-  const advice = failedBefore ? adviseRetry(attempt?.error) : null;
+  // One that ran out of time and may still be running on the server is offered nothing that would
+  // start a second copy beside it (sweep 4): its log says how far it has got; Dismiss lets it go.
+  const leftRunning = mayStillBeRunning(attempt);
+  const advice = failedBefore && !leftRunning ? adviseRetry(attempt?.error) : null;
   // The card is on Repair: a fix the error places on Repair is on this page already.
   const elsewhere = advice?.next && advice.next.view !== "repairs" ? advice.next : null;
   const canAct = role === "owner" || role === "operator";
-  const hasFixes = fixesOf(finding).some((fix) => mayStart(role, fix.operationId));
+  const hasFixes = !leftRunning && fixesOf(finding).some((fix) => mayStart(role, fix.operationId));
   return (
     <article className={cx("rp-finding", gone && "rp-finding--gone")} data-severity={finding.severity} aria-labelledby={headingId}>
       <header className="rp-finding__head">
@@ -107,22 +111,24 @@ export function FindingCard({ finding, role, run, onFix, onDismiss, onRestore, e
       )}
       {failedBefore && attempt && (
         <p className="rp-finding__note rp-finding__note--failed"><strong>Last try failed</strong> ({attempt.title}, {when(attempt.at)}): {attempt.error ?? "no error was recorded"}
-          {advice && !advice.retry && <> <strong>Trying again would stop the same way</strong>{advice.next ? `; ${elsewhere ? "the fix it names comes first" : "the fix it names is on this page"}.` : "."}</>}</p>
+          {advice && !advice.retry && <> <strong>Trying again would stop the same way</strong>{advice.next ? `; ${elsewhere ? "the fix it names comes first" : "the fix it names is on this page"}.` : "."}</>}
+          {leftRunning && <> <strong>It may still be running on the server, so it is not offered again until it has finished.</strong> Its log below says how far it has got.</>}</p>
       )}
+      {failedBefore && attempt && leftRunning && <details className="rp-log"><summary>Job log</summary><JobLogView jobId={attempt.jobId} title={attempt.title} /></details>}
       {!gone && finding.evidence.length > 0 && (
         <details className="rp-evidence"><summary>Evidence</summary><ul>{finding.evidence.map((line) => <li key={line}>{line}</li>)}</ul></details>
       )}
       {!gone && (hasFixes || (onDismiss && canAct && finding.severity !== "critical") || onRestore) && (
         <div className="rp-finding__actions">
           {!finding.dismissal && elsewhere && onOpen && canAct && <Button variant="primary" onClick={() => onOpen(elsewhere.view, elsewhere.tab ? { tab: elsewhere.tab } : undefined)} aria-label={`${elsewhere.label}: ${finding.title}`}>{elsewhere.label}</Button>}
-          {!finding.dismissal && <FixButtons finding={finding} role={role} onFix={onFix} disabled={Boolean(running)} retrying={failedBefore && Boolean(advice?.retry)} secondary={Boolean(elsewhere && onOpen && canAct)} />}
+          {!finding.dismissal && !leftRunning && <FixButtons finding={finding} role={role} onFix={onFix} disabled={Boolean(running)} retrying={failedBefore && Boolean(advice?.retry)} secondary={Boolean(elsewhere && onOpen && canAct)} />}
           {onDismiss && canAct && finding.severity !== "critical" && !finding.dismissal && <Button variant="ghost" className="rp-dismiss" disabled={Boolean(running)} onClick={onDismiss} aria-label={`Dismiss: ${finding.title}`}>Dismiss</Button>}
           {onRestore && canAct && finding.dismissal && <Button variant="ghost" onClick={onRestore} aria-label={`Bring back: ${finding.title}`}>Bring back</Button>}
         </div>
       )}
       {!gone && extra}
       {finding.manual && !gone && <p className="rp-finding__manual"><strong>{hasFixes ? "If that does not do it:" : "What to do:"}</strong> {finding.manual}</p>}
-      {!hasFixes && !finding.manual && !gone && canAct && <p className="rp-finding__manual">Your role cannot start this fix; the owner can.</p>}
+      {!hasFixes && !leftRunning && !finding.manual && !gone && canAct && <p className="rp-finding__manual">Your role cannot start this fix; the owner can.</p>}
       {run && <FixProgress run={run} title={finding.title} />}
     </article>
   );
