@@ -132,6 +132,18 @@ describe("where the copy sits in the upgrade", () => {
     expect(script).not.toMatch(/exec 9>"\$UPGRADE_LOCK"/);
   });
 
+  // An upgrade stopped during its build, or killed outright, left /opt/boxpilot.staging.<stamp> for good.
+  it("clears staging trees earlier runs left once it holds the lock, and its own when stopped while building", () => {
+    const cleared = at('for leftover in "${INSTALL_DIR}".staging.*; do');
+    expect(cleared).toBeGreaterThan(at("if ! flock -n 9; then"));
+    expect(cleared).toBeLessThan(at('mkdir -p "$STAGING"'));
+    const armed = at("trap stopped_building HUP INT TERM PIPE");
+    expect(armed).toBeLessThan(at('mkdir -p "$STAGING"'));
+    expect(armed).toBeLessThan(at("trap 'exit 1' HUP INT TERM PIPE\n"));
+    const handler = script.slice(at("stopped_building() {"), armed);
+    expect(handler.indexOf("trap '' HUP INT TERM PIPE")).toBeLessThan(handler.indexOf("cleanup_staging"));
+  });
+
   it("rolls back when the new helper does not stay up, not only when the web service fails its check", () => {
     // boxpilot-helper is Type=simple: `systemctl restart` exits 0 once it forks, and /api/v1/health
     // is answered by the web service alone, so a helper failing at start passed as a good upgrade.

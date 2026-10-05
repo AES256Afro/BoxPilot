@@ -14,7 +14,7 @@ import path from "node:path";
  * the install root, be a directory, match a naming scheme BoxPilot's own updater has used, and not
  * be the running install.
  */
-const leftoverPattern = /^boxpilot(?:\.prev\.|\.rollback-|-prev-|-live-before-|-candidate-|\.failed\.)/;
+const leftoverPattern = /^boxpilot(?:\.prev\.|\.rollback-|-prev-|-live-before-|-candidate-|\.failed\.|\.staging\.)/;
 
 export async function housekeepingRemoveTrees({ paths = [], installRoot = "/opt", currentTree = "/opt/boxpilot" } = {}, { log = null, files = { rm, stat } } = {}) {
   if (!Array.isArray(paths)) throw new Error("paths must be a list");

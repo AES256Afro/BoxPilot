@@ -31,11 +31,18 @@ import { snapshotBackupReferences, snapshotLeftoverKind } from "./machine-snapsh
  *
  * The upgrade script prunes just two of its own `.prev.` trees and has never known about the
  * others, so on a box updated as often as this one they pile up unseen: nothing lists /opt.
+ *
+ * A `.staging.` tree is spent too: a build an update never swapped in, left when it was stopped part
+ * way (an SSH session dropping, a power cut). It is no one's evidence, so it is never the spent tree
+ * kept; but one changed in the last few hours may be the build of an update running now, and stays.
  */
 const previousTreeKinds = [
   { kind: "revert", pattern: /^boxpilot(?:\.prev\.|\.rollback-|-prev-|-live-before-)/ },
-  { kind: "spent", pattern: /^boxpilot(?:-candidate-|\.failed\.)/ },
+  { kind: "spent", pattern: /^boxpilot(?:-candidate-|\.failed\.|\.staging\.)/ },
 ];
+const stagingTreePattern = /^boxpilot\.staging\./;
+/** How long a staging tree may belong to an update still building: far longer than any build takes. */
+const stagingBuildHours = 6;
 
 /** Which kind of leftover a directory name is, or null if it is not one. */
 function previousTreeKind(name) {
@@ -261,8 +268,11 @@ export function createHousekeepingService({
     found.sort((left, right) => right.at - left.at);
     // The newest of each kind stays: the version you would revert to by hand, and the last failed
     // upgrade's tree, which is the evidence for why it failed. Everything behind them is finished
-    // with — several of these naming schemes belong to updaters BoxPilot no longer ships.
-    const keep = previousTreeKinds.map(({ kind }) => found.find((entry) => entry.kind === kind)).filter(Boolean);
+    // with — several of these naming schemes belong to updaters BoxPilot no longer ships. A staging
+    // tree is never that evidence, and one recent enough to be an update's build in progress stays.
+    const staging = (entry) => stagingTreePattern.test(entry.name);
+    const building = found.filter((entry) => staging(entry) && now().getTime() - entry.at < stagingBuildHours * 3_600_000);
+    const keep = [...previousTreeKinds.map(({ kind }) => found.find((entry) => entry.kind === kind && !staging(entry))).filter(Boolean), ...building];
     return { keep, remove: found.filter((entry) => !keep.includes(entry)) };
   }
 

@@ -127,6 +127,15 @@ fi
 : > "$UPGRADE_LOCK"
 printf 'pid=%s ref=%s started=%s by=%s\n' "$$" "$REF" "$STAMP" "${BOXPILOT_UPDATE_UNIT:-hand}" > "$UPGRADE_LOCK"
 
+# Staging trees earlier runs left: one stopped outright part way through its build (SIGKILL, a
+# power cut) kept a whole copy of BoxPilot in /opt that nothing came back for. With the lock held,
+# no other upgrade is building in one.
+for leftover in "${INSTALL_DIR}".staging.*; do
+  [ -d "$leftover" ] || continue
+  rm -rf "$leftover"
+  log "removed ${leftover}, which an earlier update left unfinished"
+done
+
 # Resolve the Node.js runtime. Prefer an explicit override, then the unit drop-in, then PATH, then the documented path.
 NODE_BIN="${BOXPILOT_NODE_BIN:-}"
 if [ -z "$NODE_BIN" ]; then
@@ -147,7 +156,17 @@ NODE_MAJOR="$("$NODE_BIN" -p 'process.versions.node.split(".")[0]')"
 command -v npm >/dev/null 2>&1 || fail "npm was not found next to ${NODE_BIN}"
 log "using $("$NODE_BIN" --version) at ${NODE_BIN}"
 
-cleanup_staging() { [ -d "$STAGING" ] && rm -rf "$STAGING"; }
+cleanup_staging() { [ ! -d "$STAGING" ] || rm -rf "$STAGING"; }
+
+# Stopped before anything changed (an SSH session dropping during `curl | sudo sh`, Ctrl-C, systemd
+# stopping the update unit): only the staging tree exists, and it goes. It used to stay in /opt for
+# good. The traps armed before the service is stopped (step 4) take over from this one.
+stopped_building() {
+  trap '' HUP INT TERM PIPE
+  cleanup_staging
+  fail "stopped before ${INSTALL_DIR} was touched; removed ${STAGING}"
+}
+trap stopped_building HUP INT TERM PIPE
 
 # 1. Download
 log "downloading ${REPO}@${REF}"
@@ -315,6 +334,8 @@ else
   log "no existing ${INSTALL_DIR}; installing fresh"
 fi
 mv "$STAGING" "$INSTALL_DIR"
+# A fresh install has nothing to roll back to: the staging tree is the install now.
+[ "$HAD_PREVIOUS" -eq 1 ] || trap - HUP INT TERM PIPE
 
 # 5. Units (only when changed; keep a copy of the old one)
 UNITS_CHANGED=0
