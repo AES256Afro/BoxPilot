@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { appStatus, installTier, offlineFor } from "./appState";
-import type { LiveState } from "./types";
+import { appStatus, compactValues, installTier, offlineFor } from "./appState";
+import type { LiveState, Manifest, ManifestEnv } from "./types";
 
 /**
  * Backing an app up stops it. Whether that matters depends on the app and on how long, and the
@@ -66,5 +66,27 @@ describe("the tier installing an app asks for", () => {
     expect(installTier({ risk: "high" })).toBe("high");
     expect(installTier({ risk: "medium" })).toBe("medium");
     expect(installTier({ risk: "low" })).toBe("medium");
+  });
+});
+
+describe("what a settings change sends", () => {
+  const entry = (name: string, extra: Partial<ManifestEnv> = {}): ManifestEnv => ({ name, label: name, description: null, type: "string", default: null, required: false, secret: false, generate: false, options: null, fixed: false, ...extra });
+  const manifest = { ports: [], volumes: [], env: [entry("SERVER_URL"), entry("TZ", { default: "UTC" }), entry("ADMIN_TOKEN", { secret: true }), entry("DB_PASSWORD", { type: "password" }), entry("UNSET")] } as unknown as Manifest;
+
+  it("sends a setting cleared to empty, so the server does not keep the old value", () => {
+    // The server merges the request over what it stored ({...stored, ...request}): leaving the
+    // empty setting out kept the old address in place.
+    const stored = { ports: {}, env: { SERVER_URL: "https://old.example", TZ: "Europe/Berlin" }, volumes: {} };
+    const values = { ports: {}, env: { SERVER_URL: "", TZ: "", ADMIN_TOKEN: "", DB_PASSWORD: "", UNSET: "" }, volumes: {} };
+    expect(compactValues(manifest, values, stored).env).toEqual({ SERVER_URL: "", TZ: "" });
+  });
+
+  it("leaves an empty secret or password out: empty there means unchanged", () => {
+    const stored = { ports: {}, env: { ADMIN_TOKEN: "kept", DB_PASSWORD: "kept" }, volumes: {} };
+    expect(compactValues(manifest, { ports: {}, env: { ADMIN_TOKEN: "", DB_PASSWORD: "" }, volumes: {} }, stored).env).toEqual({});
+  });
+
+  it("sends nothing empty on install, where there is nothing stored to clear", () => {
+    expect(compactValues(manifest, { ports: {}, env: { SERVER_URL: "", TZ: "", ADMIN_TOKEN: "" }, volumes: {} }).env).toEqual({});
   });
 });
