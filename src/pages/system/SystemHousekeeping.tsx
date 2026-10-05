@@ -40,6 +40,19 @@ export function SystemHousekeeping({ csrfToken, role, housekeeping, scanning, on
       </span>
     ),
   });
+  // A machine snapshot that cannot be read keeps every app's older backups (R4B3-5); the owner removes
+  // one by name, and the job removes it only if it still cannot be read then.
+  const mayRemoveSnapshot = mayStart(role, "housekeeping.unreadable-snapshot.remove");
+  const removeSnapshot = (name: string) => start({
+    operationId: "housekeeping.unreadable-snapshot.remove",
+    title: "Remove an unreadable machine snapshot",
+    parameters: { name },
+    preview: (
+      <span>
+        Deletes <code>{name}</code> and its description from the machine snapshot folder, if it still cannot be read when the job runs. Nothing can be restored from a damaged snapshot, and while it is there no app's older backups are removed. It cannot be brought back.
+      </span>
+    ),
+  });
   const capLogs = () => start({
     operationId: "docker.logging.set",
     title: "Apply Docker log rotation defaults",
@@ -80,6 +93,16 @@ export function SystemHousekeeping({ csrfToken, role, housekeeping, scanning, on
                     </span>
                     {category.unavailable && <span className="system-sub">{category.unavailable}</span>}
                     {category.keeping.length > 0 && <span className="system-sub">Keeping: {category.keeping.join(", ")}.</span>}
+                    {category.id === "unreadable-snapshots" && mayRemoveSnapshot && category.detail.length > 0 && (
+                      <ul className="system-clean__remove">
+                        {category.detail.map((name) => (
+                          <li key={name}>
+                            <code>{name}</code>
+                            <Button risk={riskOf("housekeeping.unreadable-snapshot.remove")} aria-label={`Remove ${name}`} onClick={() => removeSnapshot(name)}>Remove</Button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
                     {category.detail.length > 0 && (
                       <details className="system-details">
                         <summary>What exactly</summary>

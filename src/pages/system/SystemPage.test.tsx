@@ -222,6 +222,30 @@ describe("System page", () => {
     expect(staged["housekeeping.reclaim"]).toEqual({ parameters: { targets: ["docker-unused"] } });
   });
 
+  // R4B3-5: a machine snapshot that cannot be read stops every app's older backups from being pruned,
+  // and nothing could remove it. Housekeeping names it, and the owner removes it by name.
+  it("offers the owner the removal of each unreadable machine snapshot, by name", async () => {
+    const damaged = "machine-snapshot-20260811T000000Z-abcdef01.tar.gz";
+    const unreadable = { id: "unreadable-snapshots", title: "Unreadable machine snapshots", summary: "Machine snapshots BoxPilot cannot open.", items: 1, bytes: 8, humanBytes: "8 B", detail: [damaged], keeping: [], safe: false, unavailable: "The owner removes these one at a time." };
+    const report = { ...housekeeping, categories: [...housekeeping.categories, unreadable] };
+    const staged = serve({ "/operations/housekeeping.inspect/inspect": () => json({ operation: "housekeeping.inspect", result: report }) });
+    window.history.replaceState(null, "", "/?tab=housekeeping");
+    render(<SystemPage csrfToken="csrf-token" />);
+    expect((await screen.findByRole("checkbox", { name: /Unreadable machine snapshots/ }) as HTMLInputElement).disabled).toBe(true);
+    const remove = screen.getByRole("button", { name: `Remove ${damaged}` });
+    expect(remove.getAttribute("data-risk")).toBe("medium");
+    fireEvent.click(remove);
+    expect(await screen.findByText("Medium risk")).toBeTruthy();
+    expect(staged["housekeeping.unreadable-snapshot.remove"]).toEqual({ parameters: { name: damaged } });
+    cleanup();
+
+    // An operator sees the name, and no way to remove it.
+    serve({ "/operations/housekeeping.inspect/inspect": () => json({ operation: "housekeeping.inspect", result: report }) });
+    render(<SystemPage csrfToken="csrf-token" role="operator" />);
+    expect(await screen.findByRole("checkbox", { name: /Unreadable machine snapshots/ })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: `Remove ${damaged}` })).toBeNull();
+  });
+
   it("switches the weekly trim through its own tiered switch", async () => {
     const staged = serve({ "/operations/system.settings.inspect/inspect": () => json({ operation: "system.settings.inspect", result: { ...settings, fstrim: { active: "inactive", enabled: "disabled", nextRun: null } } }) });
     window.history.replaceState(null, "", "/?tab=hardware");

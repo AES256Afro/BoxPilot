@@ -102,8 +102,9 @@ if (swept.removed > 0) console.log(`Removed ${swept.removed} stale root-task fil
 void resumeInterruptedBackups(await apps.interruptedBackups().catch(() => []), { apps, lanes });
 
 // A machine snapshot or a restore of one that a power cut or a restart cut off left its half-written
-// archive and the folder it worked in, which hold the database and every app's .env in the clear.
-// Both run in this process, which has taken no request yet, so neither can still be running.
+// archive and the folder it worked in, which hold the database and every app's .env in the clear;
+// and an app data archive it was copying in from the mirror or a drive is left unfinished beside the
+// app's backups. All run in this process, which has taken no request yet, so none can still be running.
 const snapshotScraps = await machineSnapshot.sweepInterrupted().catch((error) => {
   console.error(`Clearing what an interrupted machine snapshot or restore left failed: ${error.message}`);
   return { removed: [] };

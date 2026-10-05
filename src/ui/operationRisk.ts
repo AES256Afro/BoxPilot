@@ -81,6 +81,7 @@ export const operationRisk = {
   "host.snapshot.restores.discard": "medium",
   "housekeeping.database-copies.remove": "medium",
   "housekeeping.reclaim": "medium",
+  "housekeeping.unreadable-snapshot.remove": "medium",
   "network.wake": "low",
   "nfs.apply": "medium",
   "notifications.ntfy.connect": "high",
@@ -158,7 +159,7 @@ export type KnownOperation = keyof typeof operationRisk;
  * Operations whose registry entry says `minimumRole: "owner"`: an operator may not stage them
  * whatever their tier. The same test holds this list to the registry.
  */
-export const ownerOnlyOperations: ReadonlySet<string> = new Set<KnownOperation>(["agents.connector.sync", "agents.model.download", "agents.model.remove", "agents.model.switch", "agents.runtime.cpu", "agents.runtime.enable", "agents.runtime.install", "agents.zulip.connect", "agents.zulip.disconnect", "app.zulip.organization.link", "backup.cloud.setup", "backup.cloud.sync", "backup.cloud.test", "cloudflare.connect", "cloudflare.disconnect", "cloudflare.publish", "cloudflare.unpublish", "credentials.remove", "credentials.set", "heartbeat.set", "heartbeat.test", "housekeeping.database-copies.remove", "notifications.ntfy.connect", "router.connect", "system.web.lan.set", "system.web.tls.provision", "vm.backup.snapshot.forget", "vpn.profile.clear", "vpn.profile.set"]);
+export const ownerOnlyOperations: ReadonlySet<string> = new Set<KnownOperation>(["agents.connector.sync", "agents.model.download", "agents.model.remove", "agents.model.switch", "agents.runtime.cpu", "agents.runtime.enable", "agents.runtime.install", "agents.zulip.connect", "agents.zulip.disconnect", "app.zulip.organization.link", "backup.cloud.setup", "backup.cloud.sync", "backup.cloud.test", "cloudflare.connect", "cloudflare.disconnect", "cloudflare.publish", "cloudflare.unpublish", "credentials.remove", "credentials.set", "heartbeat.set", "heartbeat.test", "housekeeping.database-copies.remove", "housekeeping.unreadable-snapshot.remove", "notifications.ntfy.connect", "router.connect", "system.web.lan.set", "system.web.tls.provision", "vm.backup.snapshot.forget", "vpn.profile.clear", "vpn.profile.set"]);
 
 /** The tier for an operation. An id missing from the table is high, as it is on the server. */
 export function riskOf(operationId: string): RiskTier {

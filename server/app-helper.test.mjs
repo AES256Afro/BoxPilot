@@ -41,6 +41,14 @@ async function setup({ healthKind = "running", exitOnUp = false, failUp = false,
       return { ok: true, stdout: lines.join("\n"), stderr: "" };
     }
     if (args[0] === "logs") return { ok: true, stdout: "line1\npassword=hunter2", stderr: "" };
+    // `docker top <name> -eo pid`: the host PIDs of the container's processes, under a PID header.
+    // Like the real CLI, a container that is stopped or sits in restart backoff has none to list.
+    if (args[0] === "top") {
+      const container = containers.get(args[1]);
+      if (!container?.running) return { ok: false, stdout: "", stderr: `Error response from daemon: container ${args[1]} is not running` };
+      if (container.status === "restarting") return { ok: false, stdout: "", stderr: `Error response from daemon: Container ${args[1]} is restarting, wait until the container is running` };
+      return { ok: true, stdout: ["    PID", ...(container.pids ?? [7001, 7002]).map(String)].join("\n"), stderr: "" };
+    }
     // `docker ps --format '{{json .}}'`, as the port check reads it: who publishes what.
     if (args[0] === "ps") return { ok: true, stdout: dockerPs.map((row) => JSON.stringify(row)).join("\n"), stderr: "" };
     if (args[0] === "exec") {
@@ -1493,8 +1501,8 @@ describe.skipIf(onWindows)("restoring an application backup", () => {
     serving.push(8080); held.push({ protocol: "tcp", address: "100.64.0.10", port: 8080, scope: "address", process: { name: "tailscaled", pid: 812 } }, { protocol: "tcp", address: "127.0.0.1", port: 8080, scope: "loopback", process: { name: "docker-proxy", pid: 2201 } });
     calls.length = 0;
     await expect(apps.restoreAppBackup({ id: "demo", backup: made.artifact })).rejects.toThrow("Demo was not restored; nothing was changed. Port 8080 is taken on the tailnet address (100.64.0.10) by Tailscale Serve, which publishes Demo itself at https://homebox.tailXXXX.ts.net:8080.");
-    // Only the safety copy's own stop and start; the restore never stopped the app or brought anything up.
-    expect(calls.filter((call) => / (stop|up)(?: |$)/.test(call))).toEqual([expect.stringMatching(/ stop$/)]);
+    // Nothing was stopped, not even for a safety copy (R4B3-3), and nothing was brought up.
+    expect(calls.filter((call) => / (stop|up)(?: |$)/.test(call))).toEqual([]);
     expect(containers.get("bp-demo")).toMatchObject({ running: true });
     expect(await readFile(path.join(catalogRoot, "demo", "compose.yaml"), "utf8")).toBe(compose);
     // Nothing is left that would block the next try.
@@ -2516,7 +2524,9 @@ const assistantManifest = [
   "ports:", "  - id: web", "    label: Web UI", "    container: 8123", "    host: 8123", "    fixed: true",
   "health:", "  kind: running", "  stableSeconds: 1", "  timeoutSeconds: 30",
 ].join("\n") + "\n";
-const program = (name, port, { protocol = "tcp", address = "0.0.0.0" } = {}) => ({ protocol, address, port, scope: address === "0.0.0.0" ? "wildcard" : address.startsWith("127.") ? "loopback" : "address", process: { name, pid: 4242 } });
+const program = (name, port, { protocol = "tcp", address = "0.0.0.0", pid = 4242 } = {}) => ({ protocol, address, port, scope: address === "0.0.0.0" ? "wildcard" : address.startsWith("127.") ? "loopback" : "address", process: { name, pid } });
+/** A process of the app's own container, as `docker top` lists it in the fake (setup). */
+const ownPid = 7001;
 
 /** The deployer's commands with a real tar (the test platform's) and no Tailscale. */
 const withRealTar = (binary, args, options) => (binary === "/usr/bin/tar" ? fixedRun(testTar, args, options) : Promise.resolve({ ok: false, stdout: "", stderr: "" }));
@@ -2556,11 +2566,11 @@ describe("ports an app on the host's own network binds itself, checked before it
     held.length = 0;
     await apps.install({ id: "assistant" });
     expect(containers.get("bp-assistant")).toMatchObject({ running: true, networkMode: "host" });
-    // Running on the host network, its own processes hold its port: nothing to tell apart from them.
-    held.push(program("python3", 8123));
+    // Running on the host network, its own processes hold its port: `docker top` lists them.
+    held.push(program("python3", 8123, { pid: ownPid }));
     await expect(apps.action({ id: "assistant", action: "restart" })).resolves.toMatchObject({ action: "restart" });
     await apps.action({ id: "assistant", action: "stop" });
-    await expect(apps.action({ id: "assistant", action: "start" })).rejects.toThrow("Assistant was not started. Port 8123 is taken on every address by process python3 (pid 4242).");
+    await expect(apps.action({ id: "assistant", action: "start" })).rejects.toThrow(`Assistant was not started. Port 8123 is taken on every address by process python3 (pid ${ownPid}).`);
     containers.delete("bp-assistant");
     await expect(apps.reinstall({ id: "assistant" })).rejects.toThrow("Assistant was not started again; nothing was built.");
   });
@@ -2582,7 +2592,7 @@ describe("ports an app on the host's own network binds itself, checked before it
   // R3B3-2: the app's own processes were let off only when the new compose file was on the host
   // network too, so Pi-hole running there was refused the move to bridge on its own pihole-FTL, the
   // very move the optional-port warning tells the owner to make.
-  const ownProcesses = () => [program("pihole-FTL", 53), program("pihole-FTL", 53, { protocol: "udp" }), program("pihole-FTL", 80)];
+  const ownProcesses = () => [program("pihole-FTL", 53, { pid: ownPid }), program("pihole-FTL", 53, { protocol: "udp", pid: ownPid }), program("pihole-FTL", 80, { pid: ownPid })];
 
   it("moves an app running on the host network to bridge, past the ports its own processes hold", async () => {
     const { apps, held, catalogRoot, containers } = await hostNetworkHarness();
@@ -2609,6 +2619,49 @@ describe("ports an app on the host's own network binds itself, checked before it
     held.push(...ownProcesses());
     await expect(apps.restoreAppBackup({ id: "dns", backup: made.artifact })).resolves.toMatchObject({ restored: true });
     expect(await readFile(path.join(catalogRoot, "dns", "compose.yaml"), "utf8")).not.toContain("network_mode");
+  });
+
+  // R4B3-1: "its own" was a process on one of its container ports that was neither Docker's nor
+  // tailscaled, whenever Docker called the container running, which it does through restart backoff
+  // too. A Pi-hole crash-looping on the host network (because systemd-resolve or libvirt's dnsmasq
+  // holds 53) let that holder off as its own: `up` then failed "address already in use", the
+  // .replaced folder refused every retry, and the house had no DNS. Its own are the PIDs `docker top`
+  // lists, and a container in restart backoff has none.
+  it("takes nothing for its own while it crash-loops on the host network", async () => {
+    const { apps, held, containers, catalogRoot } = await hostNetworkHarness();
+    await apps.install({ id: "dns", values: { networkMode: "host" } });
+    const compose = await readFile(path.join(catalogRoot, "dns", "compose.yaml"), "utf8");
+    // Restart backoff, as Docker reports it: Running stays true while the status reads "restarting".
+    Object.assign(containers.get("bp-dns"), { running: true, status: "restarting", restarts: 6 });
+    held.push(program("systemd-resolve", 53, { address: "127.0.0.53" }));
+    await expect(apps.reconfigure({ id: "dns", values: { env: {} } }, { checkpoint: false })).rejects.toThrow("DNS's settings were not changed; nothing was restarted. Port 53 is taken on this server's loopback address (127.0.0.53) by process systemd-resolve (pid 4242).");
+    held.length = 0;
+    held.push(program("dnsmasq", 53));
+    await expect(apps.reconfigure({ id: "dns", values: { networkMode: "bridge" } }, { checkpoint: false })).rejects.toThrow("DNS's settings were not changed; nothing was restarted. Port 53 is taken on every address by process dnsmasq (pid 4242).");
+    expect(await readFile(path.join(catalogRoot, "dns", "compose.yaml"), "utf8")).toBe(compose);
+  });
+
+  it("refuses a bridge-era backup over a crash-looping host-network app while dnsmasq holds DNS", async () => {
+    const { apps, held, containers, catalogRoot } = await hostNetworkHarness({ runCommand: withRealTar });
+    await apps.install({ id: "dns" });
+    const made = await apps.backup({ id: "dns", keep: 5 });
+    await apps.reconfigure({ id: "dns", values: { networkMode: "host" } }, { checkpoint: false });
+    Object.assign(containers.get("bp-dns"), { running: true, status: "restarting", restarts: 6 });
+    held.push(program("dnsmasq", 53));
+    await expect(apps.restoreAppBackup({ id: "dns", backup: made.artifact })).rejects.toThrow("DNS was not restored; nothing was changed. Port 53 is taken on every address by process dnsmasq (pid 4242).");
+    expect(await readFile(path.join(catalogRoot, "dns", "compose.yaml"), "utf8")).toContain("network_mode: host");
+    expect((await readdir(catalogRoot)).filter((entry) => entry.includes(".replaced") || entry.includes(".restoring"))).toEqual([]);
+  });
+
+  it("takes the processes its running container lists for its own, not a program of the same name", async () => {
+    // Running steadily on the host network, a pihole-FTL that is not among its processes is another's.
+    const { apps, held } = await hostNetworkHarness();
+    await apps.install({ id: "dns", values: { networkMode: "host" } });
+    held.push(program("pihole-FTL", 53, { pid: 9999 }));
+    await expect(apps.reconfigure({ id: "dns", values: { networkMode: "bridge" } }, { checkpoint: false })).rejects.toThrow("Port 53 is taken on every address by process pihole-FTL (pid 9999).");
+    held.length = 0;
+    held.push(...ownProcesses());
+    await expect(apps.reconfigure({ id: "dns", values: { networkMode: "bridge" } }, { checkpoint: false })).resolves.toMatchObject({ reconfigured: true });
   });
 });
 
@@ -2776,7 +2829,8 @@ describe("pruning the backups a machine snapshot restores from", () => {
     const lines = [];
     const second = await apps.backup({ id: "demo", keep: 1 }, { progress: (line, stream) => lines.push([line, stream]) });
     expect(second.pruned).toEqual([]);
-    expect(lines).toContainEqual(["Kept every older backup of Demo: Machine snapshot machine-snapshot-20260819T120100Z-22222222.tar.gz could not be read, and one it restores from may be among them.", "stderr"]);
+    // R4B3-5: named, with where to remove it if it is damaged: until then no app's older copies go.
+    expect(lines).toContainEqual(["Kept every older backup of Demo: Machine snapshot machine-snapshot-20260819T120100Z-22222222.tar.gz could not be read, and one it restores from may be among them. If it is damaged, remove it from Housekeeping on the System page; until then no app's older backups are removed.", "stderr"]);
   });
 });
 
@@ -2860,5 +2914,69 @@ describe("restoring an app backup taken on another server, or before Tailscale m
     const made = await apps.backup({ id: "stick", keep: 5 });
     await expect(apps.restoreAppBackup({ id: "stick", backup: made.artifact })).resolves.toMatchObject({ restored: true });
     expect(await readFile(path.join(catalogRoot, "stick", "compose.yaml"), "utf8")).toContain("/dev/ttyUSB0:/dev/ttyUSB0");
+  });
+});
+
+// R4B3-3: the restore took its safety copy (stopping and starting the app, and counting toward the
+// newest few kept) before the refusals that say "nothing was changed": a port something holds, no
+// tailnet address. Each retry left another copy, and the next backup's pruning pushed the very
+// archive being restored out. The copy is taken once nothing is left to refuse, just before the stop.
+describe("a restore refused before anything changes", () => {
+  const backupsOf = async (backupRoot, id) => (await readdir(path.join(backupRoot, id))).filter((name) => /^\d{8}T\d{6}Z\.tar\.gz$/.test(name)).sort();
+
+  it("takes no safety copy, and stops nothing, when a port is held", async () => {
+    const held = [];
+    const serving = [];
+    const serveStatus = () => JSON.stringify({ Web: Object.fromEntries(serving.map((port) => [`homebox.tailXXXX.ts.net:${port}`, { Handlers: { "/": { Proxy: `http://127.0.0.1:${port}` } } }])) });
+    const runCommand = (binary, args, options) => (args[0] === "serve" ? Promise.resolve({ ok: true, stdout: serveStatus(), stderr: "" }) : withRealTar(binary, args, options));
+    const own = [{ Names: "bp-demo", Ports: "127.0.0.1:8080->80/tcp", Labels: "io.boxpilot.app=demo" }];
+    const { apps, backupRoot, calls, containers, advance } = await setup({ lanAddress: "0.0.0.0", hostListeners: async () => held, runCommand, dockerPs: own });
+    await apps.install({ id: "demo", values: { setup: [] } });
+    const made = await apps.backup({ id: "demo", keep: 5 });
+    await apps.reconfigure({ id: "demo", values: { exposure: "tailnet" } }, { checkpoint: false });
+    serving.push(8080);
+    held.push({ protocol: "tcp", address: "100.64.0.10", port: 8080, scope: "address", process: { name: "tailscaled", pid: 812 } });
+    calls.length = 0;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      advance(60_000);
+      await expect(apps.restoreAppBackup({ id: "demo", backup: made.artifact })).rejects.toThrow("Demo was not restored; nothing was changed. Port 8080 is taken on the tailnet address");
+    }
+    expect(await backupsOf(backupRoot, "demo")).toEqual([made.artifact]);
+    expect(calls.filter((call) => / (stop|start|up)(?: |$)/.test(call))).toEqual([]);
+    expect(containers.get("bp-demo")).toMatchObject({ running: true });
+  });
+
+  it("takes no safety copy when this server has no tailnet address for the backup's tailnet-only ports", async () => {
+    const tailnet = { address: "100.64.0.5" };
+    const runCommand = async (binary, args, options) => {
+      if (binary === "/usr/bin/tar") return fixedRun(testTar, args, options);
+      if (args[0] === "ip") return tailnet.address ? { ok: true, stdout: tailnet.address, stderr: "" } : { ok: false, stdout: "", stderr: "Tailscale is stopped." };
+      if (args[0] === "serve") return { ok: true, stdout: "{}", stderr: "" };
+      return { ok: false, stdout: "", stderr: "" };
+    };
+    const { apps, backupRoot, catalogDirectory, calls, advance } = await setup({ runCommand });
+    await writeFile(path.join(catalogDirectory, "relay.yaml"), [
+      "schemaVersion: 2", "id: relay", "name: Relay", "category: T", "description: d", "image:", "  reference: x/relay:1",
+      "ports:", "  - id: web", "    container: 8384", "    host: 8384", "  - id: sync", "    container: 22000", "    host: 22000", "    tailnet: address",
+      "volumes:", "  - id: data", "    container: /data", "    path: data",
+      "health:", "  kind: running", "  stableSeconds: 1", "  timeoutSeconds: 30",
+    ].join("\n") + "\n");
+    await apps.install({ id: "relay", values: { exposure: "tailnet" } });
+    const made = await apps.backup({ id: "relay", keep: 5 });
+    tailnet.address = null;
+    calls.length = 0;
+    advance(60_000);
+    await expect(apps.restoreAppBackup({ id: "relay", backup: made.artifact })).rejects.toThrow("Relay was not restored; nothing was changed.");
+    expect(await backupsOf(backupRoot, "relay")).toEqual([made.artifact]);
+    expect(calls.filter((call) => / (stop|start|up)(?: |$)/.test(call))).toEqual([]);
+  });
+
+  it("still takes the safety copy of a restore that goes ahead", async () => {
+    const { apps, backupRoot, advance } = await setup({ runCommand: withRealTar });
+    await apps.install({ id: "demo", values: { setup: [] } });
+    const made = await apps.backup({ id: "demo", keep: 5 });
+    advance(60_000);
+    await expect(apps.restoreAppBackup({ id: "demo", backup: made.artifact })).resolves.toMatchObject({ restored: true, retainedOriginal: false });
+    expect(await backupsOf(backupRoot, "demo")).toHaveLength(2);
   });
 });

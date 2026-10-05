@@ -4,10 +4,11 @@
  * The value of this feature is entirely in what it refuses to remove, so that is what these pin:
  * the release a failed update rolls back to, images something still uses, and the newest backups.
  */
-import { mkdir, mkdtemp, readdir, rm, stat, utimes, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { onWindows } from "../test/platform.mjs";
 import { createHousekeepingService } from "./housekeeping.mjs";
 import { housekeepingRemoveTrees } from "./tasks/housekeeping.mjs";
 
@@ -191,6 +192,64 @@ describe("finding what can be reclaimed", () => {
     const result = await service.reclaim({ targets: ["app-backups"] });
     expect(result.failures.map((entry) => entry.category)).toContain("app-backups");
     await expect(stat(path.join(applicationBackupRoot, "jellyfin", "20260801T000000Z.tar.gz"))).resolves.toBeTruthy();
+  });
+
+  // R4B3-5: one machine snapshot that cannot be read stops this category and every app's own keep-N
+  // pruning for as long as it is there. Housekeeping did not say which snapshot, and nothing could
+  // remove it: it is named now, and the owner can remove it once it still cannot be read.
+  it("names the machine snapshot that cannot be read, and lets the owner remove it", async () => {
+    const damaged = "machine-snapshot-20260811T000000Z-abcdef01.tar.gz";
+    const good = "machine-snapshot-20260812T000000Z-abcdef02.tar.gz";
+    const { service, root } = await fixture({ snapshotArchives: { [damaged]: null, [good]: { "./manifest.json": { contents: { apps: [] } } } } });
+    const snapshots = path.join(root, "machine-snapshots");
+    await writeFile(path.join(snapshots, `${damaged}.meta.json`), "{}");
+    const report = await service.inspect();
+    expect(report.categories.find((category) => category.id === "app-backups")).toMatchObject({
+      safe: false,
+      unavailable: `Machine snapshot ${damaged} could not be read, so no application backup is offered for removal, and no app's own backups remove their older copies either. If it is damaged, remove it under Unreadable machine snapshots.`,
+    });
+    expect(report.categories.find((category) => category.id === "unreadable-snapshots")).toMatchObject({ items: 1, bytes: "snapshot".length, detail: [damaged], safe: false });
+
+    // Only a snapshot's own name, and only one that still cannot be read.
+    for (const name of ["../machine-snapshots", `${damaged}.meta.json`, "machine-snapshot-20260811T000000Z-abcdef01.tar.gz/.."]) {
+      await expect(service.removeUnreadableSnapshot({ name })).rejects.toThrow("That is not a machine snapshot's name");
+    }
+    await expect(service.removeUnreadableSnapshot({ name: good })).rejects.toThrow(`${good} can be read now, so it was not removed.`);
+    await expect(service.removeUnreadableSnapshot({ name: "machine-snapshot-20260813T000000Z-abcdef03.tar.gz" })).rejects.toThrow("is no longer there");
+    // Not something a general clean-up removes.
+    const cleanup = await service.reclaim({ targets: ["unreadable-snapshots"] });
+    expect(cleanup.failures.map((entry) => entry.category)).toEqual(["unreadable-snapshots"]);
+    expect(await readdir(snapshots)).toContain(damaged);
+
+    const lines = [];
+    const removed = await service.removeUnreadableSnapshot({ name: damaged, progress: (line) => lines.push(line) });
+    expect(removed).toMatchObject({ removed: [damaged, `${damaged}.meta.json`], freedBytes: "snapshot".length + 2 });
+    expect(lines).toEqual([`removed ${damaged} and its description (10 B)`]);
+    expect(await readdir(snapshots)).toEqual([good]);
+    const after = await service.inspect();
+    expect(after.categories.find((category) => category.id === "app-backups")).toMatchObject({ safe: true, items: 2 });
+    expect(after.categories.find((category) => category.id === "unreadable-snapshots")).toMatchObject({ items: 0, detail: [] });
+  });
+
+  it("names every machine snapshot that cannot be read", async () => {
+    const first = "machine-snapshot-20260811T000000Z-abcdef01.tar.gz";
+    const second = "machine-snapshot-20260812T000000Z-abcdef02.tar.gz";
+    const { service } = await fixture({ snapshotArchives: { [first]: null, [second]: null } });
+    const report = await service.inspect();
+    expect(report.categories.find((category) => category.id === "app-backups").unavailable).toMatch(new RegExp(`^Machine snapshots ${first.replace(/\./g, "\\.")} and ${second.replace(/\./g, "\\.")} could not be read, so`));
+    expect(report.categories.find((category) => category.id === "unreadable-snapshots")).toMatchObject({ items: 2, detail: [first, second] });
+  });
+
+  // Linux only: creates file symlinks, which need a privilege on Windows.
+  it.skipIf(onWindows)("never follows a link with a snapshot's name", async () => {
+    const { service, root } = await fixture();
+    const elsewhere = path.join(root, "elsewhere.tar.gz");
+    await writeFile(elsewhere, "not a snapshot");
+    const link = "machine-snapshot-20260811T000000Z-abcdef01.tar.gz";
+    await symlink(elsewhere, path.join(root, "machine-snapshots", link));
+    expect((await service.inspect()).categories.find((category) => category.id === "unreadable-snapshots")).toMatchObject({ items: 0 });
+    await expect(service.removeUnreadableSnapshot({ name: link })).rejects.toThrow("is not a plain file, so it was left alone");
+    await expect(stat(elsewhere)).resolves.toBeTruthy();
   });
 
   it("does not let pre-change checkpoints push the owner's own backups out", async () => {
