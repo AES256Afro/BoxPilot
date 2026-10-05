@@ -66,14 +66,19 @@ describe("Setup", () => {
     expect(onDone).toHaveBeenCalled();
   });
 
-  it("asks for the owner password once when approval demands it, then continues", async () => {
-    let approvals = 0;
+  it("asks for the owner password once when approval demands it, withdraws the job it staged, then continues", async () => {
+    // The approve route answers a missing password with 409 and the server's own words, not 401:
+    // the form never appeared, and each try left another staged job waiting in Activity.
+    const calls: string[] = [];
+    let staged = 0;
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = input.toString();
+      calls.push(`${init?.method ?? "GET"} ${url}`);
       if (url.endsWith("/api/v1/setup")) return json(setupState);
-      if (url.endsWith("/operations/app.install/jobs")) return json({ job: { id: "job-1" } }, 201);
-      if (url.endsWith("/jobs/job-1/approve")) { approvals += 1; const body = JSON.parse(String(init?.body)); return body.password ? json({ job: { id: "job-1" } }, 202) : json({ error: "Enter the owner password to run this" }, 401); }
-      if (url.endsWith("/jobs/job-1")) return json({ job: { id: "job-1", state: "completed", error: null } });
+      if (url.endsWith("/operations/app.install/jobs")) { staged += 1; return json({ job: { id: `job-${staged}` } }, 201); }
+      if (/\/jobs\/job-\d\/approve$/.test(url)) { const body = JSON.parse(String(init?.body)); return body.password ? json({ job: { id: "job-2" } }, 202) : json({ error: "Enter the owner password: medium-risk job needs the owner password", code: "job_approval_failed" }, 409); }
+      if (url.endsWith("/jobs/job-1") && init?.method === "DELETE") return json({ job: { id: "job-1", state: "cancelled" } });
+      if (url.endsWith("/jobs/job-2")) return json({ job: { id: "job-2", state: "completed", error: null } });
       if (url.endsWith("/api/v1/schedules")) return json({ schedule: { id: "s1" } }, 201);
       return json({ error: `unexpected ${url}` }, 500);
     }));
@@ -82,10 +87,41 @@ describe("Setup", () => {
     fireEvent.click(screen.getByRole("button", { name: /Install everything \(2\)/ }));
     const passwordInput = await screen.findByLabelText(/Owner password/);
     expect(passwordInput.getAttribute("type")).toBe("password");
+    expect(screen.queryByText("A step failed")).toBeNull();
+    expect(calls).toContain("DELETE /api/v1/jobs/job-1");
     fireEvent.change(passwordInput, { target: { value: "correct horse battery" } });
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     expect(await screen.findByText("All done")).toBeTruthy();
-    expect(approvals).toBe(2);
+    expect(calls.filter((call) => call.endsWith("/approve"))).toEqual(["POST /api/v1/jobs/job-1/approve", "POST /api/v1/jobs/job-2/approve"]);
+    expect(calls.filter((call) => call.startsWith("DELETE"))).toEqual(["DELETE /api/v1/jobs/job-1"]);
+  });
+
+  it("asks again after a wrong password, and withdraws a step's job when its approval fails", async () => {
+    // A wrong password held for the run made every retry fail the same way, with no way to fix it.
+    const calls: string[] = [];
+    let staged = 0;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      calls.push(`${init?.method ?? "GET"} ${url}`);
+      if (url.endsWith("/api/v1/setup")) return json(setupState);
+      if (url.endsWith("/operations/app.install/jobs")) { staged += 1; return json({ job: { id: `job-${staged}` } }, 201); }
+      if (url.endsWith("/jobs/job-1/approve")) return json({ error: "Enter the owner password: medium-risk job needs the owner password" }, 409);
+      if (url.endsWith("/jobs/job-2/approve")) return json({ error: "Wrong password" }, 409);
+      if (url.endsWith("/jobs/job-3/approve")) return json({ error: "Viewers cannot approve jobs" }, 403);
+      if (init?.method === "DELETE") return json({ job: { state: "cancelled" } });
+      return json({ error: `unexpected ${url}` }, 500);
+    }));
+    render(<SetupPage csrfToken="csrf" onDone={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: /Home server/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Install everything \(2\)/ }));
+    fireEvent.change(await screen.findByLabelText(/Owner password/), { target: { value: "not it" } });
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    expect(await screen.findByText("Wrong password")).toBeTruthy();
+    fireEvent.change(screen.getByLabelText(/Owner password/), { target: { value: "correct horse battery" } });
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    expect(await screen.findByText("A step failed")).toBeTruthy();
+    expect(screen.getByText("Viewers cannot approve jobs")).toBeTruthy();
+    expect(calls.filter((call) => call.startsWith("DELETE"))).toEqual(["DELETE /api/v1/jobs/job-1", "DELETE /api/v1/jobs/job-2", "DELETE /api/v1/jobs/job-3"]);
   });
 
   it("says when a step fails, and offers to retry or skip it", async () => {

@@ -385,6 +385,54 @@ describe("App catalog: installing", () => {
     expect(JSON.parse(staged!).parameters.values).toEqual({ ports: changed === "port" ? { web: 5001 } : {}, env: changed === "port" ? {} : { PUBLIC_URL: `${origin}/new` }, volumes: {} });
   });
 
+  it("puts the install form back as it was filled in when its approval is cancelled", async () => {
+    // The form closed before the approval opened, and cancelling the approval opened only the app's
+    // sheet: everything typed into the form was gone.
+    serve(catalogOf([{ manifest, live: absent("jellyfin") }]), (url) => {
+      if (url.endsWith("/catalog/jellyfin/precheck")) return json({ ok: true, errors: [], conflicts: [] });
+      if (url.endsWith("/operations/app.install/jobs")) return stagedJob("app.install");
+      if (url.endsWith("/jobs/job-app.install")) return json({ job: { id: "job-app.install", state: "cancelled" } });
+      return undefined;
+    });
+    render(<CatalogPage csrfToken="csrf-token" />);
+    const sheet = await openInstall("Jellyfin");
+    fireEvent.change(within(sheet).getByLabelText("Web UI port"), { target: { value: "8097" } });
+    fireEvent.click(within(sheet).getByRole("button", { name: "Continue to install" }));
+    expect(await screen.findByText("Medium risk")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    const form = await screen.findByRole("dialog", { name: "Jellyfin" });
+    expect(within(form).getByText("Install", { selector: ".ui-sheet__kicker" })).toBeTruthy();
+    expect((within(form).getByLabelText("Web UI port") as HTMLInputElement).value).toBe("8097");
+  });
+
+  it("puts the settings form back as it was when the job fails, and the app's sheet once one succeeds", async () => {
+    let outcome = "failed";
+    serve(catalogOf([{ manifest: dockge, live: dockgeLive }]), (url) => {
+      if (url.endsWith("/catalog/dockge/precheck")) return json({ ok: true, errors: [], conflicts: [] });
+      if (url.endsWith("/operations/app.reconfigure/jobs")) return stagedJob("app.reconfigure");
+      if (url.endsWith("/jobs/job-app.reconfigure/approve")) return json({ job: { id: "job-app.reconfigure", state: "applying" }, elevatedUntil: null }, 202);
+      if (url.endsWith("/jobs/job-app.reconfigure")) return json({ job: { id: "job-app.reconfigure", type: "op:app.reconfigure", title: "Change Dockge settings", state: outcome, risk: "medium", error: outcome === "failed" ? "port 5002 is taken" : null, result: {}, steps: [], approvals: [] } });
+      return undefined;
+    });
+    render(<CatalogPage csrfToken="csrf-token" />);
+    const sheet = await openApp("Dockge");
+    fireEvent.click(within(sheet).getByRole("button", { name: "Settings" }));
+    let form = await screen.findByRole("dialog", { name: "Dockge" });
+    fireEvent.change(within(form).getByLabelText("Web UI port"), { target: { value: "5002" } });
+    fireEvent.click(within(form).getByRole("button", { name: "Apply settings" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm and run" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Close" }, { timeout: 4000 }));
+    form = await screen.findByRole("dialog", { name: "Dockge" });
+    expect(within(form).getByText("Settings", { selector: ".ui-sheet__kicker" })).toBeTruthy();
+    expect((within(form).getByLabelText("Web UI port") as HTMLInputElement).value).toBe("5002");
+    outcome = "completed";
+    fireEvent.click(within(form).getByRole("button", { name: "Apply settings" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm and run" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Close" }, { timeout: 4000 }));
+    const back = await screen.findByRole("dialog", { name: "Dockge" });
+    expect(within(back).getByRole("tab", { name: "Overview" })).toBeTruthy();
+  });
+
   it("goes back to the app's sheet when its settings are cancelled", async () => {
     serve(catalogOf([{ manifest: dockge, live: dockgeLive }]));
     render(<CatalogPage csrfToken="csrf-token" />);
@@ -842,6 +890,29 @@ describe("App catalog: configuration", () => {
     fireEvent.click(within(sheet).getByRole("button", { name: "Edit raw" }));
     expect((within(sheet).getByLabelText("Compose file") as HTMLTextAreaElement).value).toBe(compose);
     expect(within(sheet).getByRole("button", { name: "Apply" }).getAttribute("data-risk")).toBe("high");
+  });
+
+  it("keeps an edited Compose file when applying it is cancelled", async () => {
+    const compose = "services:\n  dockge:\n    image: louislam/dockge:1.5.0\n";
+    withConfig((url) => {
+      if (url.includes("app.config.inspect")) return json({ result: { id: "dockge", name: "Dockge", env: [] } });
+      if (url.includes("app.compose.inspect")) return json({ result: { compose } });
+      if (url.endsWith("/operations/app.compose.edit/jobs")) return stagedJob("app.compose.edit", "high", true);
+      if (url.includes("/jobs/")) return json({ job: { id: "job-app.compose.edit", state: "cancelled" } });
+      return undefined;
+    });
+    render(<CatalogPage csrfToken="csrf-token" />);
+    const sheet = await openApp("Dockge");
+    fireEvent.click(within(sheet).getByRole("tab", { name: "Config" }));
+    fireEvent.click(await within(sheet).findByRole("button", { name: "Read Compose file" }));
+    fireEvent.click(await within(sheet).findByRole("button", { name: "Edit raw" }));
+    const edited = `${compose}    restart: always\n`;
+    fireEvent.change(within(sheet).getByLabelText("Compose file"), { target: { value: edited } });
+    fireEvent.click(within(sheet).getByRole("button", { name: "Apply" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
+    const back = await screen.findByRole("dialog", { name: "Dockge" });
+    expect(within(back).getByRole("tab", { name: "Config" }).getAttribute("aria-selected")).toBe("true");
+    expect((await within(back).findByLabelText("Compose file") as HTMLTextAreaElement).value).toBe(edited);
   });
 
   it("offers to read the configuration again when the first read fails", async () => {

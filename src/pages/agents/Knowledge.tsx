@@ -59,7 +59,8 @@ export function Knowledge({ csrfToken, role, now, onStart }: KnowledgeProps) {
   }, [state, connectors]);
 
   const act = async (work: () => Promise<unknown>, done: string, failed: string) => {
-    try { await work(); setNotice(done); setError(null); await read(); } catch (requestError) { setError(errorText(requestError, failed)); }
+    // An empty `done` leaves the notice the work set itself (an upload says what it added).
+    try { await work(); if (done) setNotice(done); setError(null); await read(); } catch (requestError) { setError(errorText(requestError, failed)); }
   };
 
   if (!state) {

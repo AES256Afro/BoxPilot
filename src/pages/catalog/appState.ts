@@ -115,7 +115,11 @@ export function compactValues(manifest: Manifest, values: Values, baseline?: Val
   const envBase = (name: string) => baseline?.env?.[name] ?? String(manifest.env.find((entry) => entry.name === name)?.default ?? "");
   const volumeBase = (id: string) => baseline?.volumes?.[id] ?? manifest.volumes.find((volume) => volume.id === id)?.hostPath;
   const ports = Object.fromEntries(Object.entries(values.ports).filter(([id, host]) => portBase(id) !== host));
-  const env = Object.fromEntries(Object.entries(values.env).filter(([name, value]) => value !== "" && envBase(name) !== value));
+  // Empty means "unchanged" only for a secret, a password or a generated value (the server keeps
+  // the one it has). Any other setting cleared over a stored value is sent empty: left out, the
+  // merge kept the old value.
+  const keptWhenEmpty = (name: string) => { const entry = manifest.env.find((field) => field.name === name); return !entry || entry.secret || entry.generate || entry.type === "password"; };
+  const env = Object.fromEntries(Object.entries(values.env).filter(([name, value]) => (value === "" ? !keptWhenEmpty(name) && Boolean(baseline?.env?.[name]) : envBase(name) !== value)));
   const volumes = Object.fromEntries(Object.entries(values.volumes).filter(([id, path]) => path !== "" && volumeBase(id) !== path));
   // Setup choices are always sent explicitly: an empty list means "none", not "the defaults".
   return { ports, env, volumes, ...((manifest.networkModes?.length ?? 0) > 1 && values.networkMode ? { networkMode: values.networkMode } : {}), ...(manifest.setup ? { setup: values.setup ?? [] } : {}) };

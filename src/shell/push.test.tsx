@@ -73,6 +73,34 @@ describe("approvals on your phone", () => {
     expect(sent).toEqual({ tiers: { low: true, medium: true, high: true }, quietHours: { enabled: true, start: "22:00", end: "07:00" }, ntfy: "fallback" });
   });
 
+  it("keeps unsaved choices through a test push or a removed device, and takes the saved ones after Save", async () => {
+    // Every action read the status again and reset the choices to the stored ones.
+    let stored = status("owner").settings;
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/v1/push/test") return json({ devices: 1, delivered: 1 });
+      if (url === "/api/v1/settings/push" && init?.method === "PUT") { stored = { ...stored, ...JSON.parse(String(init.body)) }; return json(stored); }
+      if (url.startsWith("/api/v1/push/subscriptions/")) return json({ removed: true });
+      return json({ ...status("owner"), settings: stored });
+    });
+    vi.stubGlobal("fetch", fetch);
+    render(<PushPanel csrfToken="csrf" role="owner" />);
+    const panel = await screen.findByRole("region", { name: "Approvals on your phone" });
+    fireEvent.click(within(panel).getByRole("checkbox", { name: "Low risk" }));
+    fireEvent.click(within(panel).getByRole("button", { name: "Send a test" }));
+    expect(await within(panel).findByText("Sent to 1 of 1 device.")).toBeTruthy();
+    expect((within(panel).getByRole("checkbox", { name: "Low risk" }) as HTMLInputElement).checked).toBe(true);
+    fireEvent.click(within(panel).getByRole("button", { name: "Remove iPhone" }));
+    expect(await within(panel).findByText("Removed.")).toBeTruthy();
+    expect((within(panel).getByRole("checkbox", { name: "Low risk" }) as HTMLInputElement).checked).toBe(true);
+    expect((within(panel).getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(within(panel).getByRole("button", { name: "Save" }));
+    expect(await within(panel).findByText("Saved.")).toBeTruthy();
+    expect(stored.tiers.low).toBe(true);
+    expect((within(panel).getByRole("checkbox", { name: "Low risk" }) as HTMLInputElement).checked).toBe(true);
+    await vi.waitFor(() => expect((within(panel).getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true));
+  });
+
   it("shows an operator their devices but not the owner's choices, and a viewer nothing", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => json(status("operator"))));
     render(<PushPanel csrfToken="csrf" role="operator" />);
