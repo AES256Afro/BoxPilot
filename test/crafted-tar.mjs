@@ -4,12 +4,14 @@
  * `../escape`. A backup or snapshot is only as trustworthy as whoever last held the file, and these
  * are what someone holding it could put there.
  *
- * Each entry is `{ name, type, body, linkname, mode }`: `type` is "file" (default), "dir", "hardlink"
- * or "symlink". Plain ustar headers; names and link targets up to 100 bytes.
+ * Each entry is `{ name, type, body, linkname, mode }`: `type` is "file" (default), "dir", "hardlink",
+ * "symlink", "fifo" or "chardev"; "longname" (GNU) and "pax" carry, as their body, the name or the
+ * extended header of the member after them. Plain ustar headers; names and link targets up to 100 bytes.
  */
 import { gzipSync } from "node:zlib";
 
-const typeFlags = { file: "0", hardlink: "1", symlink: "2", dir: "5" };
+const typeFlags = { file: "0", hardlink: "1", symlink: "2", chardev: "3", dir: "5", fifo: "6", longname: "L", pax: "x" };
+const withBody = new Set(["file", "longname", "pax"]);
 
 function octal(value, width) {
   return `${value.toString(8).padStart(width - 1, "0")}\0`;
@@ -17,7 +19,7 @@ function octal(value, width) {
 
 function member({ name, type = "file", body = "", linkname = "", mode = type === "dir" ? 0o755 : 0o644 }) {
   const header = Buffer.alloc(512);
-  const content = type === "file" ? Buffer.from(body) : Buffer.alloc(0);
+  const content = withBody.has(type) ? Buffer.from(body) : Buffer.alloc(0);
   if (Buffer.byteLength(name) > 100 || Buffer.byteLength(linkname) > 100) throw new Error("crafted-tar keeps names and link targets to 100 bytes");
   header.write(name, 0, 100, "utf8");
   header.write(octal(mode, 8), 100, 8, "ascii");
@@ -36,6 +38,17 @@ function member({ name, type = "file", body = "", linkname = "", mode = type ===
   const padded = Buffer.alloc(Math.ceil(content.length / 512) * 512);
   content.copy(padded);
   return Buffer.concat([header, padded]);
+}
+
+/** A pax extended header's body: `path=x`, `size=n`, each as one length-prefixed record. */
+export function paxBody(records) {
+  return Object.entries(records).map(([key, value]) => {
+    const line = ` ${key}=${value}
+`;
+    let length = Buffer.byteLength(line);
+    length += String(length + String(length).length).length;
+    return `${length}${line}`;
+  }).join("");
 }
 
 /** The archive, gzipped, as a Buffer. */
