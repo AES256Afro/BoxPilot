@@ -117,6 +117,45 @@ describe("publishing an app (M42)", () => {
     expect(state.current.routes[0].dnsRecordId).toBe("recOurs");
   });
 
+  // The route goes in first, then the DNS name, then the record. A name Cloudflare would not add
+  // left a route nobody recorded, which unpublishing then refused as "not published by BoxPilot".
+  const tooManyRequests = () => new Response(JSON.stringify({ success: false, errors: [{ code: 10000, message: "Rate limited" }], messages: [], result: null }), { status: 429, headers: { "content-type": "application/json" } });
+
+  it("takes its route back out of the tunnel when Cloudflare will not add the name", async () => {
+    const foreign = { hostname: "wiki.example.com", service: "http://192.0.2.5:8080" };
+    const before = { ingress: [foreign, { service: "http_status:404" }], "warp-routing": { enabled: false } };
+    const { cloudflare, deps, lines, state } = setup({
+      configs: { [tunnelId]: before },
+      fail: ({ method, route }) => (method === "POST" && route.endsWith("/dns_records") ? tooManyRequests() : null),
+    });
+    const error = await cloudflarePublish(publish, deps).catch((caught) => caught);
+    expect(error.message).toMatch(/^Cloudflare refused adding share\.example\.com to your domain: Rate limited/);
+    expect(error.message).toMatch(/route .* was rolled back/);
+    expect(error.rolledBack).toBe(true);
+    expect(cloudflare.state.configs[tunnelId]).toEqual(before);
+    expect(cloudflare.state.records).toEqual([]);
+    expect(state.current.routes).toEqual([]);
+    expect(lines.join("\n")).toContain("share.example.com");
+    expectNoSecrets(cloudflare, error.message, lines);
+  });
+
+  it("says so, and how to clear it, when putting the routes back fails too", async () => {
+    let puts = 0;
+    const { cloudflare, deps } = setup({
+      fail: ({ method, route }) => {
+        if (method === "POST" && route.endsWith("/dns_records")) return tooManyRequests();
+        if (method === "PUT" && route.endsWith("/configurations") && ++puts > 1) return tooManyRequests();
+        return null;
+      },
+    });
+    const error = await cloudflarePublish(publish, deps).catch((caught) => caught);
+    expect(error.message).toMatch(/^Cloudflare refused adding share\.example\.com to your domain/);
+    expect(error.message).toMatch(/taking its route back out of the tunnel also failed .*Rate limited/);
+    expect(error.message).toContain("Publish it again");
+    expect(error.rolledBack).toBe(false);
+    expect(cloudflare.state.configs[tunnelId].ingress.map((rule) => rule.hostname ?? null)).toEqual(["share.example.com", null]);
+  });
+
   it("refuses a name outside the connected domains, an address off this server, and an unconnected server", async () => {
     await expect(cloudflarePublish({ ...publish, hostname: "share.example.org" }, setup().deps)).rejects.toThrow(/not a name under one of your connected domains/);
     await expect(cloudflarePublish({ ...publish, service: "http://192.0.2.5:3022" }, setup().deps)).rejects.toThrow(/loopback/);
