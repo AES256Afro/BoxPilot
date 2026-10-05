@@ -364,6 +364,29 @@ it("holds the DNS app's lane while a rehearsal stops and starts it", async () =>
   expect(order).toEqual(["stopped", "jellyfin", "started again", "update"]);
 });
 
+it("says when no lane is held, without queueing on any meanwhile", async () => {
+  const queues = createLaneQueues();
+  const idle = [];
+  queues.onIdle(() => idle.push("at once"));
+  expect(idle).toEqual(["at once"]);
+  let release;
+  const backup = queues.run(laneFor("app.backup", { id: "jellyfin" }), () => new Promise((resolve) => { release = resolve; }));
+  const stop = queues.onIdle(() => idle.push("never"));
+  stop();
+  queues.onIdle(() => {
+    idle.push("drained");
+    // Nothing else has started: a lane taken here is taken from an idle helper.
+    expect(queues.size()).toBe(0);
+  });
+  // Waiting for idle holds nothing: other work starts and finishes meanwhile.
+  await queues.run(laneFor("vm.action", { name: "dev-lab" }), async () => { idle.push("vm"); });
+  expect(idle).toEqual(["at once", "vm"]);
+  release();
+  await backup;
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(idle).toEqual(["at once", "vm", "drained"]);
+});
+
 /**
  * A root task that ran out of its own time is left running (boxpilot-run@ has KillMode=process): the
  * operation answers at once that it timed out, but what it holds must not be free while that task is
