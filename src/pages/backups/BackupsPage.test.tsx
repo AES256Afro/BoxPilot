@@ -389,10 +389,10 @@ describe("Backups page", () => {
       const go = within(sheet).getByRole("button", { name: "Restore 1 app" }) as HTMLButtonElement;
       expect(go.disabled).toBe(true);
       // Without its data, nothing is started from the archive, and nothing needs allowing.
-      fireEvent.click(within(sheet).getByLabelText(/^Restore each app's newest data archive/));
+      fireEvent.click(within(sheet).getByLabelText(/^Restore each app's data after installing it/));
       expect(within(sheet).queryByText("immich's compose file would start exactly as it was backed up")).toBeNull();
       expect(go.disabled).toBe(false);
-      fireEvent.click(within(sheet).getByLabelText(/^Restore each app's newest data archive/));
+      fireEvent.click(within(sheet).getByLabelText(/^Restore each app's data after installing it/));
       fireEvent.click(within(sheet).getByLabelText("Start immich with these settings"));
       expect(go.disabled).toBe(false);
       fireEvent.click(go);
@@ -443,6 +443,32 @@ describe("Backups page", () => {
       expect(within(sheet).getByText("local")).toBeTruthy();
       expect(within(sheet).getByText("on backup drive")).toBeTruthy();
       expect(within(sheet).getByText("on the snapshot's drive")).toBeTruthy();
+    });
+
+    // R5B4-4: the snapshot's own archive gone, a restore uses an older one it lists, and says so in
+    // its job; the sheet said "newest data archive" and showed the same green chip either way.
+    it("says when an app's data would come from an older archive than the snapshot names", async () => {
+      const older = { ...described, apps: [
+        { id: "immich", installed: true, newestBackup: "20260816T030000Z.tar.gz", dataAvailable: true, dataLocation: "local", dataArchive: "20260815T030000Z.tar.gz" },
+        { id: "jellyfin", installed: true, newestBackup: "20260816T030000Z.tar.gz", dataAvailable: true, dataLocation: "local", dataArchive: "20260816T030000Z.tar.gz" },
+      ] };
+      mockFetch({ extra: (url) => {
+        if (url.endsWith("/operations/host.snapshot.sources/inspect")) return json({ result: sources });
+        if (url.endsWith("/operations/host.snapshot.discover/inspect")) return json({ result: { locations: [], unanswered: [] } });
+        if (url.endsWith("/operations/host.snapshot.describe/run")) return json({ result: older });
+        return null;
+      } });
+      render(<BackupsPage csrfToken="csrf-token" />);
+      await screen.findByRole("tab", { name: /^Restore/ });
+      openTab(/^Restore/);
+      fireEvent.click(await screen.findByRole("button", { name: /^Restore from the snapshot of/ }));
+      const sheet = await screen.findByRole("dialog", { name: /^Snapshot of/ });
+      await within(sheet).findByText("immich");
+      const chip = within(sheet).getByText(/^older copy, /);
+      expect(chip.textContent).toContain(new Date("2026-08-15T03:00:00Z").toLocaleDateString());
+      expect(chip.closest("[data-status]")?.getAttribute("data-status")).toBe("warning");
+      expect(within(sheet).getAllByText(/^older copy, /)).toHaveLength(1);
+      expect(within(sheet).queryByText(/newest data archive/)).toBeNull();
     });
 
     it("never shows one snapshot's apps in another's sheet when the first answers late", async () => {
