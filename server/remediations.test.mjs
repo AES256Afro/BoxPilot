@@ -3,7 +3,7 @@ import { appsWithoutContainer, backupDestinationToMove, backupsDue, containersOn
 
 /**
  * The situation each of these was written from, on a real server:
- * a 15 TB Seagate on USB dropped off the bus at 06:46, came back two seconds later as /dev/sdb,
+ * a 15 TB drive on USB dropped off the bus at 06:46, came back two seconds later as /dev/sdb,
  * and /mnt/the-dump stayed mounted from /dev/sda2 — which no longer existed. findmnt still listed
  * it, df still printed 15T with 1.9T used, and the Windows share showed "This folder is empty".
  */
@@ -488,11 +488,11 @@ describe("a server that cannot check its exFAT drives", () => {
 
 
 describe("a drive that keeps dropping off USB", () => {
-  const twice = { available: true, days: 30, ports: [{ port: "6-1", product: "Expansion HDD", vendorId: "0bc2", productId: "2038", drops: ["2026-09-01T06:46:02.000Z", "2026-09-05T16:01:11.000Z"], returns: [], powerFaults: 0, resets: 0, lastDropAt: "2026-09-05T16:01:11.000Z" }] };
+  const twice = { available: true, days: 30, ports: [{ port: "6-1", product: "Portable Drive", vendorId: "1a2b", productId: "3c4d", drops: ["2026-09-01T06:46:02.000Z", "2026-09-05T16:01:11.000Z"], returns: [], powerFaults: 0, resets: 0, lastDropAt: "2026-09-05T16:01:11.000Z" }] };
 
   it("is named after the second drop, with the cable as the first suspect when no power fault was logged", () => {
     const [found] = flakyDrives({ usb: twice });
-    expect(found.title).toBe("Expansion HDD keeps dropping off USB port 6-1");
+    expect(found.title).toBe("Portable Drive keeps dropping off USB port 6-1");
     expect(found.detail).toContain("cable");
     expect(found.severity).toBe("warning");
     expect(found.fix).toBeNull();   // nothing BoxPilot can run fixes a cable

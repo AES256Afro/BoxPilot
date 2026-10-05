@@ -212,7 +212,7 @@ describe("what needs you", () => {
 });
 
 describe("apps that are not running, on the owner's real server", () => {
-  // Home on bigbox the evening it shipped: three apps the owner had stopped from BoxPilot, and six
+  // Home on the owner's server the evening it shipped: three apps the owner had stopped from BoxPilot, and six
   // listed as installed with no container, each called a problem of its own.
   const catalog = (apps: AppFact[]) => facts({ catalog: { apps, total: 160, liveKnown: true } });
 
