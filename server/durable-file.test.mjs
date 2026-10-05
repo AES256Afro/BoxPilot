@@ -12,7 +12,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { onWindows } from "../test/platform.mjs";
-import { writeFileDurably } from "./durable-file.mjs";
+import { copyFileExclusively, mkdirWithoutFollowing, readFileWithoutFollowing, replaceFileWithoutFollowing, writeFileDurably } from "./durable-file.mjs";
 
 const directories = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true }))); });
@@ -133,5 +133,103 @@ describe("writing a boot-critical file", () => {
     expect((await lstat(link)).isSymbolicLink()).toBe(true);
     expect(await readlink(link)).toBe(real);
     expect(await readFile(real, "utf8")).toBe("127.0.0.1 localhost\n127.0.1.1 homeserver\n");
+  });
+});
+
+// R4S2-1: a file in a folder an archive was unpacked into (an app restored from a backup, the
+// backup drive's mirror) is never written, read or copied through a link at its name: the archive
+// can hold `.env.tmp` as a link to /etc/cron.d/x or to BoxPilot's own code.
+describe("a file in a folder an archive was unpacked into", () => {
+  it("is replaced by removing its temporary name, creating that exclusively, and renaming it over", async () => {
+    const directory = await folder();
+    const file = path.join(directory, ".env");
+    await writeFile(file, "OLD=1\n");
+    await writeFile(`${file}.tmp`, "left by an archive\n");
+    const calls = [];
+    const recording = {
+      ...fsPromises,
+      rm: async (target, options) => { calls.push(`rm ${path.basename(target)}`); return fsPromises.rm(target, options); },
+      open: async (target, flag, mode) => { if (target !== directory) calls.push(`open ${path.basename(target)} ${flag}`); return open(target, flag, mode); },
+      rename: async (from, to) => { calls.push(`rename ${path.basename(from)} ${path.basename(to)}`); return fsPromises.rename(from, to); },
+    };
+    await replaceFileWithoutFollowing(file, "NEW=1\n", { mode: 0o600 }, { fs: recording });
+    expect(calls).toEqual(["rm .env.tmp", "open .env.tmp wx", "rename .env.tmp .env"]);
+    expect(await readFile(file, "utf8")).toBe("NEW=1\n");
+    expect(await readdir(directory)).toEqual([".env"]);
+  });
+
+  it("is never replaced when something takes the temporary name back before it is created", async () => {
+    const directory = await folder();
+    const file = path.join(directory, "compose.yaml");
+    await writeFile(file, "services: {}\n");
+    // The temporary name taken again between its removal and its exclusive creation, as a link
+    // that reappears would take it: the exclusive create refuses, and nothing is renamed.
+    const racing = { ...fsPromises, rm: async (target, options) => { await fsPromises.rm(target, options); if (target.endsWith(".tmp")) await writeFile(target, "planted\n"); } };
+    await expect(replaceFileWithoutFollowing(file, "services: { x: {} }\n", {}, { fs: racing })).rejects.toMatchObject({ code: "EEXIST" });
+    expect(await readFile(file, "utf8")).toBe("services: {}\n");
+  });
+
+  // Symbolic links an unprivileged user may create.
+  it.skipIf(onWindows)("replaces a link at its name or its temporary name, never what either points at", async () => {
+    const directory = await folder();
+    const outside = await folder();
+    const victim = path.join(outside, "victim");
+    await writeFile(victim, "untouched");
+    for (const [name, at] of [[".env", ".env"], ["compose.yaml", "compose.yaml.tmp"]]) {
+      await symlink(victim, path.join(directory, at));
+      await replaceFileWithoutFollowing(path.join(directory, name), `${name} written\n`);
+      expect((await lstat(path.join(directory, name))).isFile()).toBe(true);
+      expect(await readFile(path.join(directory, name), "utf8")).toBe(`${name} written\n`);
+    }
+    // A link to a file that is not there yet (/etc/nologin) is not created through either.
+    await symlink(path.join(outside, "not-yet"), path.join(directory, "boxpilot.json.tmp"));
+    await replaceFileWithoutFollowing(path.join(directory, "boxpilot.json"), "{}");
+    expect(await readdir(outside)).toEqual(["victim"]);
+    expect(await readFile(victim, "utf8")).toBe("untouched");
+    expect((await readdir(directory)).sort()).toEqual([".env", "boxpilot.json", "compose.yaml"]);
+  });
+
+  // Symbolic links an unprivileged user may create.
+  it.skipIf(onWindows)("is read only when it is a regular file", async () => {
+    const directory = await folder();
+    const outside = await folder();
+    await writeFile(path.join(outside, "secret"), "root's");
+    await writeFile(path.join(directory, "plain"), "plain");
+    await symlink(path.join(outside, "secret"), path.join(directory, "link"));
+    expect(await readFileWithoutFollowing(path.join(directory, "plain"))).toBe("plain");
+    await expect(readFileWithoutFollowing(path.join(directory, "link"))).rejects.toMatchObject({ code: "ELOOP" });
+    await expect(readFileWithoutFollowing(path.join(directory, "missing"))).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(readFileWithoutFollowing(directory)).rejects.toMatchObject({ code: "EINVAL" });
+  });
+
+  // Symbolic links an unprivileged user may create.
+  it.skipIf(onWindows)("is copied only from a regular file, and only to a name nothing holds", async () => {
+    const directory = await folder();
+    const outside = await folder();
+    const victim = path.join(outside, "victim");
+    await writeFile(victim, "untouched");
+    await writeFile(path.join(directory, "archive"), "archive bytes");
+    await symlink(victim, path.join(directory, "linked-source"));
+    await symlink(victim, path.join(directory, "linked-target"));
+    await expect(copyFileExclusively(path.join(directory, "linked-source"), path.join(directory, "copy"))).rejects.toMatchObject({ code: "ELOOP" });
+    await expect(copyFileExclusively(path.join(directory, "archive"), path.join(directory, "linked-target"))).rejects.toMatchObject({ code: "EEXIST" });
+    expect(await readFile(victim, "utf8")).toBe("untouched");
+    await copyFileExclusively(path.join(directory, "archive"), path.join(directory, "copy"), { mode: 0o600 });
+    expect(await readFile(path.join(directory, "copy"), "utf8")).toBe("archive bytes");
+    // Root's own file, which may be a link (/etc/fstab), is followed when the caller says so.
+    await copyFileExclusively(path.join(directory, "linked-source"), path.join(directory, "followed"), { followSource: true });
+    expect(await readFile(path.join(directory, "followed"), "utf8")).toBe("untouched");
+  });
+
+  // Symbolic links an unprivileged user may create.
+  it.skipIf(onWindows)("has its folders made of real folders, never created through a link", async () => {
+    const directory = await folder();
+    const outside = await folder();
+    await mkdirWithoutFollowing(directory, "provisioning/dashboards", { mode: 0o755 });
+    expect((await stat(path.join(directory, "provisioning", "dashboards"))).isDirectory()).toBe(true);
+    await symlink(outside, path.join(directory, "linked"));
+    await expect(mkdirWithoutFollowing(directory, "linked/dashboards")).rejects.toMatchObject({ code: "ELOOP" });
+    await expect(mkdirWithoutFollowing(directory, "../climbed")).rejects.toThrow(/climbs out/);
+    expect(await readdir(outside)).toEqual([]);
   });
 });
