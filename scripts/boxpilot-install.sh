@@ -7,9 +7,9 @@
 #   --ref <branch|tag>        BoxPilot ref to install (default: main)
 #   --access <tailscale|lan|local>
 #                             tailscale: bind to loopback and publish https://<host>.<tailnet>.ts.net via Tailscale Serve (default when tailscaled is running)
-#                             lan:       bind to all interfaces on port 8787 over plain HTTP (default when Tailscale is not running)
+#                             lan:       bind to all interfaces over plain HTTP, allowing the port in ufw when it is on (default when Tailscale is not running)
 #                             local:     bind to loopback only (reach it with an SSH tunnel)
-#   --port <n>                web port (default 8787)
+#   --port <n>                web port, 1024-65535 (default 8787)
 #   --node-version <v24.x.y>  pin the Node.js release to install (default: latest v24 LTS)
 #   --no-token                do not print a first-owner bootstrap token at the end
 #
@@ -36,7 +36,7 @@ Install BoxPilot on a fresh Ubuntu Server.
   --access <lan|tailscale|local>
                          how the web UI is reachable (default: tailscale when it
                          is running, otherwise lan; a re-run keeps the current one)
-  --port <number>        port for the web UI (default: 8787; a re-run keeps the
+  --port <number>        port for the web UI, 1024-65535 (default: 8787; a re-run keeps the
                          current one)
   --node-version <ver>   pin a Node.js 24 release instead of the newest
   --no-token             do not print the one-time owner token
@@ -67,7 +67,14 @@ fail() { printf '[boxpilot-install] ERROR: %s\n' "$*" >&2; exit 1; }
 [ "$(id -u)" -eq 0 ] || fail "run with sudo"
 [ -f /etc/debian_version ] || fail "this installer targets Ubuntu/Debian"
 command -v systemctl >/dev/null 2>&1 || fail "systemd is required"
-[ "$PORT_GIVEN" -eq 0 ] || case "$PORT" in ''|*[!0-9]*) fail "--port must be a number" ;; esac
+# Both checked before anything is downloaded or changed. The web service runs as the boxpilot user
+# with no capabilities, so it cannot listen below 1024; --port 80 (or 0, or 70000) used to be
+# written to the env file anyway, leaving a service that could not start.
+port_ok() { # port_ok N: N is a port the web service can listen on
+  case "$1" in [1-9][0-9][0-9][0-9]|[1-9][0-9][0-9][0-9][0-9]) [ "$1" -ge 1024 ] && [ "$1" -le 65535 ] ;; *) return 1 ;; esac
+}
+[ "$PORT_GIVEN" -eq 0 ] || port_ok "$PORT" || fail "--port must be a number from 1024 to 65535 (got '${PORT}')"
+case "$ACCESS" in ''|tailscale|lan|local) ;; *) fail "--access must be tailscale, lan, or local" ;; esac
 
 # 1. Base packages
 export DEBIAN_FRONTEND=noninteractive
@@ -137,15 +144,27 @@ install -d -m 0755 /etc/boxpilot
 # that left the example's settings, which are not a choice anyone made.
 ENV_FILE=/etc/boxpilot/boxpilot.env
 if [ -f "$ENV_FILE" ] && systemctl is-enabled boxpilot.service >/dev/null 2>&1; then REINSTALL=1; else REINSTALL=0; fi
-env_value() { # env_value KEY: the value of the env file's last KEY= line, quotes dropped
-  sed -n "s/^$1=//p" "$ENV_FILE" | tail -n 1 | sed "s/^[\"']//; s/[\"']\$//"
+# env_value KEY: the value of the env file's last KEY= line, read as systemd reads it (a CR ends the
+# line; blanks before the key, around "=" and after the value are not part of it), quotes dropped.
+env_value() {
+  tr -d '\r' < "$ENV_FILE" | sed -n "s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*//p" | tail -n 1 | sed "s/[[:space:]]*\$//; s/^[\"']//; s/[\"']\$//"
+}
+# set_env KEY VALUE: KEY's lines (however they are written) become KEY=VALUE; appended when it has none.
+set_env() {
+  if grep -q "^[[:space:]]*$1[[:space:]]*=" "$ENV_FILE"; then
+    sed -i "s|^[[:space:]]*$1[[:space:]]*=.*|$1=$2|" "$ENV_FILE"
+  else
+    # A file edited by hand may not end in a newline; the new line must not join its last one.
+    [ -z "$(tail -c 1 "$ENV_FILE")" ] || printf '\n' >> "$ENV_FILE"
+    printf '%s=%s\n' "$1" "$2" >> "$ENV_FILE"
+  fi
 }
 health_url() { # health_url HOST PORT: the web service's health check, as this machine reaches it
   case "$1" in ''|0.0.0.0|::) set -- 127.0.0.1 "$2" ;; *:*) set -- "[$1]" "$2" ;; esac
   printf 'http://%s:%s/api/v1/health' "$1" "${2:-8787}"
 }
 
-# 4. Build and install the code (delegates to the upgrade script from the same ref)
+# 4. Download the chosen ref (its upgrade script builds and installs it, step 6)
 WORK="$(mktemp -d)"
 log "fetching ${REPO}@${REF}"
 curl -fsSL "https://codeload.github.com/${REPO}/tar.gz/${REF}" | tar -xz -C "$WORK" --strip-components=1 || fail "could not download ${REPO}@${REF}"
@@ -155,15 +174,24 @@ curl -fsSL "https://codeload.github.com/${REPO}/tar.gz/${REF}" | tar -xz -C "$WO
 LIVE_PORT="$(env_value BOXPILOT_PORT)"; LIVE_PORT="${LIVE_PORT:-8787}"
 LIVE_HOST="$(env_value BOXPILOT_HOST)"
 [ "$PORT_GIVEN" -eq 1 ] || PORT="$LIVE_PORT"
-# Re-running the installer is the documented upgrade path, so the health check must use this box's
-# port. The upgrade restarts the service on the env file as it is now - a new --port is written after
-# it - so that is the port and address it checks.
-BOXPILOT_REPO="$REPO" BOXPILOT_NODE_BIN=/usr/local/bin/node BOXPILOT_HEALTH_URL="$(health_url "$LIVE_HOST" "$LIVE_PORT")" sh "$WORK/scripts/boxpilot-upgrade.sh" "$REF"
-rm -rf "$WORK"
 
-# 5. Access mode → env file
-set_env() { # set_env KEY VALUE
-  if grep -q "^$1=" "$ENV_FILE"; then sed -i "s|^$1=.*|$1=$2|" "$ENV_FILE"; else printf '%s=%s\n' "$1" "$2" >> "$ENV_FILE"; fi
+# 5. Port and access mode → env file, before the upgrade restarts the service on it.
+#
+# They used to be written after it, so the upgrade restarted the service on the old port and
+# checked that: a box whose env file named a port the service could not answer on (taken by
+# something else) rolled back and stopped there, and re-running with a good --port never got as far
+# as writing it. What the env file said is kept, and put back if the box does not come up on the
+# new settings, so a bad choice leaves it as it was.
+ENV_BEFORE="$(mktemp)"
+cat "$ENV_FILE" > "$ENV_BEFORE"
+put_env_back() {
+  # A first install has nothing to go back to: the example's settings were never anyone's choice.
+  if [ "$REINSTALL" -eq 1 ] && ! cmp -s "$ENV_BEFORE" "$ENV_FILE"; then
+    cat "$ENV_BEFORE" > "$ENV_FILE"
+    systemctl restart boxpilot.service || true
+    log "put ${ENV_FILE} back as it was (port ${LIVE_PORT}, listening on ${LIVE_HOST:-127.0.0.1}) and restarted BoxPilot on it"
+  fi
+  rm -f "$ENV_BEFORE"
 }
 set_env BOXPILOT_PORT "$PORT"
 if [ -z "$ACCESS" ] && [ "$REINSTALL" -eq 1 ]; then
@@ -183,24 +211,52 @@ else
     tailscale) set_env BOXPILOT_HOST 127.0.0.1; set_env BOXPILOT_COOKIE_SECURE true ;;
     lan)       set_env BOXPILOT_HOST 0.0.0.0;   set_env BOXPILOT_COOKIE_SECURE false ;;
     local)     set_env BOXPILOT_HOST 127.0.0.1; set_env BOXPILOT_COOKIE_SECURE false ;;
-    *) fail "--access must be tailscale, lan, or local" ;;
   esac
 fi
+WEB_HOST="$(env_value BOXPILOT_HOST)"
+HEALTH_URL="$(health_url "$WEB_HOST" "$PORT")"
 
-# 6. Enable and start
+# 6. Build and install the code (delegates to the upgrade script from the same ref). Re-running the
+# installer is the documented upgrade path: the upgrade restarts the service on the env file as it
+# is now, so the port and address written above are the ones it checks.
+if ! BOXPILOT_REPO="$REPO" BOXPILOT_NODE_BIN=/usr/local/bin/node BOXPILOT_HEALTH_URL="$HEALTH_URL" sh "$WORK/scripts/boxpilot-upgrade.sh" "$REF"; then
+  rm -rf "$WORK"
+  put_env_back
+  fail "BoxPilot ${REF} was not installed (its health check was ${HEALTH_URL}); the upgrade's lines above say why"
+fi
+rm -rf "$WORK"
+
+# 7. Enable and start
 systemctl daemon-reload
 systemctl enable --now boxpilot-helper.service boxpilot.service boxpilot-storage-scan.timer >/dev/null 2>&1 || true
-systemctl restart boxpilot.service
-HEALTH_URL="$(health_url "$(env_value BOXPILOT_HOST)" "$PORT")"
+systemctl restart boxpilot.service || true
 attempt=0; HEALTHY=0
 while [ "$attempt" -lt 30 ]; do
   attempt=$((attempt + 1))
   if curl -fsS --max-time 3 "$HEALTH_URL" >/dev/null 2>&1; then HEALTHY=1; break; fi
   sleep 1
 done
-[ "$HEALTHY" -eq 1 ] || { journalctl -u boxpilot.service -n 20 --no-pager || true; fail "BoxPilot did not answer on port ${PORT}"; }
+if [ "$HEALTHY" -ne 1 ]; then
+  journalctl -u boxpilot.service -n 20 --no-pager || true
+  put_env_back
+  fail "BoxPilot did not answer on port ${PORT}"
+fi
+rm -f "$ENV_BEFORE"
 
-# 7. Publish
+# On every address, with ufw on, the port has to be open for the LAN to reach it: Settings opens it
+# when it turns the LAN on (server/tasks/web-bind.mjs), and the installer did not.
+case "$WEB_HOST" in
+  0.0.0.0|::)
+    if command -v ufw >/dev/null 2>&1 && LC_ALL=C ufw status 2>/dev/null | grep -q '^Status: active'; then
+      if ufw allow "${PORT}/tcp" comment "BoxPilot keeps BoxPilot reachable" >/dev/null 2>&1; then
+        log "ufw is on: allowed ${PORT}/tcp for BoxPilot"
+      else
+        log "ufw is on and ${PORT}/tcp could not be allowed; the LAN cannot reach BoxPilot until it is (sudo ufw allow ${PORT}/tcp)"
+      fi
+    fi ;;
+esac
+
+# 8. Publish
 URL=""
 case "$ACCESS" in
   tailscale)
@@ -218,7 +274,7 @@ case "$ACCESS" in
     URL="http://127.0.0.1:${PORT} (via SSH tunnel: ssh -N -L ${PORT}:127.0.0.1:${PORT} <user>@<host>)" ;;
 esac
 
-# 8. First owner token
+# 9. First owner token
 TOKEN_LINE=""
 if [ "$PRINT_TOKEN" -eq 1 ]; then
   TOKEN_LINE="$(sudo -u boxpilot env BOXPILOT_STATE_DIRECTORY=/var/lib/boxpilot /usr/local/bin/node /opt/boxpilot/scripts/boxpilot-owner.mjs create-bootstrap-token 2>/dev/null | sed -n '2p' || true)"

@@ -19,8 +19,8 @@
 #   7. daemon-reload, restarts boxpilot-helper and boxpilot, and checks /api/v1/health reports the new version
 #      (on the port /etc/boxpilot/boxpilot.env gives the service; BOXPILOT_HEALTH_URL overrides it)
 #   8. Rolls the directory swap, the units and that move back and restarts the old tree if the health check
-#      fails (or a signal stops the run once the service is down), and names the database copy that
-#      matches the old tree
+#      fails (or a signal stops the run once the service is down, or the terminal or pipe its output
+#      goes to is gone), and names the database copy that matches the old tree
 #
 # It does not touch /etc/boxpilot, systemd drop-ins, or the owner account. In /var/lib/boxpilot it only
 # adds the database copy: it never changes the database itself, and never deletes a copy (the System
@@ -37,17 +37,29 @@ STAGING="${INSTALL_DIR}.staging.${STAMP}"
 PREVIOUS="${INSTALL_DIR}.prev.${STAMP}"
 KEEP_PREVIOUS="${BOXPILOT_KEEP_PREVIOUS:-2}"
 
-log() { printf '[boxpilot-upgrade] %s\n' "$*"; }
-fail() { printf '[boxpilot-upgrade] ERROR: %s\n' "$*" >&2; exit 1; }
+# Output is best effort. Whoever started the upgrade may be gone (an SSH session that dropped, a
+# `| tee` that was stopped): a line that cannot be written must not end a step, least of all the
+# rollback, which once died on its own first line and left both services stopped. A dead pipe
+# still raises SIGPIPE, which the traps below turn into a rollback while one is needed.
+log() { printf '[boxpilot-upgrade] %s\n' "$*" 2>/dev/null || true; }
+fail() { printf '[boxpilot-upgrade] ERROR: %s\n' "$*" >&2 2>/dev/null || true; exit 1; }
+# relay TEXT: another program's captured output, line by line, through log.
+relay() {
+  while IFS= read -r line; do [ -z "$line" ] || log "$line"; done <<RELAY
+$1
+RELAY
+}
 
 # The service's environment file. Neither sudo nor the System page's update hands this script the
 # service's environment, so what the service was given - where its database is, where it listens -
 # is read from here.
 ENV_FILE=/etc/boxpilot/boxpilot.env
-# env_value KEY: the value of the file's last KEY= line, quotes dropped; empty when it has none.
+# env_value KEY: the value of the file's last KEY= line, read as systemd reads it (a CR ends the
+# line; blanks before the key, around "=" and after the value are not part of it), quotes dropped;
+# empty when it has none.
 env_value() {
   [ -f "$ENV_FILE" ] || return 0
-  sed -n "s/^$1=//p" "$ENV_FILE" | tail -n 1 | sed "s/^[\"']//; s/[\"']\$//"
+  tr -d '\r' < "$ENV_FILE" | sed -n "s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*//p" | tail -n 1 | sed "s/[[:space:]]*\$//; s/^[\"']//; s/[\"']\$//"
 }
 
 # The health check asks the web service where it listens: the env file's port, on loopback unless
@@ -223,18 +235,25 @@ BACKUP_MOUNT_UNDO=""
 # evidence and the old one restored.
 rollback() {
   trap - EXIT
+  # Every step is tried: one that fails (a line that cannot be written, a unit that will not stop)
+  # must not end the rollback before the old tree is back and restarted.
+  set +e
   # A second signal (the session dropping while the first is handled, systemd stopping the update
-  # unit) must not cut the way back short and leave the box with neither tree running.
-  trap '' HUP INT TERM
+  # unit) must not cut the way back short and leave the box with neither tree running. Nor may a
+  # write to a terminal or pipe that has gone: ignored, it fails and log() goes on.
+  trap '' HUP INT TERM PIPE
   log "rolling back to previous tree"
   systemctl stop boxpilot.service 2>/dev/null || true
   # The old helper looks for the backup destination where it used to be. Undone while the new tree,
-  # which made the move, is still at INSTALL_DIR; the move only ever happens after the swap.
+  # which made the move, is still at INSTALL_DIR; the move only ever happens after the swap. Its
+  # output is captured and relayed, so nobody reading cannot stop it halfway either.
   if [ -n "$BACKUP_MOUNT_UNDO" ]; then
     systemctl stop boxpilot-helper.service 2>/dev/null || true
-    if "$NODE_BIN" "${INSTALL_DIR}/scripts/boxpilot-backup-mount-move.mjs" undo "$BACKUP_MOUNT_UNDO"; then
+    if undone="$("$NODE_BIN" "${INSTALL_DIR}/scripts/boxpilot-backup-mount-move.mjs" undo "$BACKUP_MOUNT_UNDO" 2>&1)"; then
+      relay "$undone"
       log "moved the backup destination back to /mnt/boxpilot-backup"
     else
+      relay "$undone"
       log "could not move the backup destination back; fstab from before the upgrade is ${BACKUP_MOUNT_UNDO}"
     fi
   fi
@@ -243,7 +262,12 @@ rollback() {
       rm -rf "${INSTALL_DIR}.failed.${STAMP}"
       mv "$INSTALL_DIR" "${INSTALL_DIR}.failed.${STAMP}"
     fi
-    mv "$PREVIOUS" "$INSTALL_DIR"
+    # Never into the new tree: a move aside that failed leaves it where it is, and says so.
+    if [ -e "$INSTALL_DIR" ]; then
+      log "could not move the new tree aside; the previous tree is still at ${PREVIOUS}"
+    else
+      mv "$PREVIOUS" "$INSTALL_DIR"
+    fi
   fi
   # Old code under new unit files would keep failing for the same reason the upgrade did.
   for name in $REPLACED_UNITS; do
@@ -281,7 +305,10 @@ if [ -d "$INSTALL_DIR" ]; then
   # A signal too: an SSH session dropping during `curl | sudo sh` (HUP), Ctrl-C, or systemd stopping
   # the update unit or shutting down (TERM). dash, Ubuntu's sh, runs no EXIT trap for a signal that
   # kills it, so without these the upgrade died with both services stopped on the new, unchecked tree.
-  trap 'exit 1' HUP INT TERM
+  # PIPE as well: a line written to a pipe nobody reads any more (a `| tee` stopped, the terminal
+  # behind it gone) killed the script there the same way. A PIPE that was ignored when the script
+  # started (a systemd unit, the System page's update) stays ignored: the write fails, log() goes on.
+  trap 'exit 1' HUP INT TERM PIPE
   systemctl stop boxpilot.service 2>/dev/null || true
   mv "$INSTALL_DIR" "$PREVIOUS"
 else
@@ -313,10 +340,11 @@ if [ -f "${INSTALL_DIR}/scripts/boxpilot-backup-mount-move.mjs" ]; then
   # Restarted just below anyway; stopped first so its own view of the old mount does not hold it.
   systemctl stop boxpilot-helper.service 2>/dev/null || true
   if moved="$("$NODE_BIN" "${INSTALL_DIR}/scripts/boxpilot-backup-mount-move.mjs" 2>&1)"; then
-    printf '%s\n' "$moved" | sed 's/^/[boxpilot-upgrade] /'
+    # What to undo is kept before anything is written: a rollback from here on must find it.
     BACKUP_MOUNT_UNDO="$(printf '%s\n' "$moved" | sed -n 's/^fstab-copy=//p' | tail -n 1)"
+    relay "$moved"
   else
-    printf '%s\n' "$moved" | sed 's/^/[boxpilot-upgrade] /'
+    relay "$moved"
     log "the backup destination stays at /mnt/boxpilot-backup for now; Repair offers to move it"
   fi
 fi
@@ -363,7 +391,7 @@ if [ "$steady" -lt 3 ]; then
   if [ "$HAD_PREVIOUS" -eq 1 ]; then rollback; else fail "helper unhealthy"; fi
 fi
 trap - EXIT
-trap - HUP INT TERM
+trap - HUP INT TERM PIPE
 
 # The agents runner (M37) runs the new code too, but only if the owner turned it on: its unit is
 # installed above with the rest and stays disabled until then, and try-restart leaves it so. Its

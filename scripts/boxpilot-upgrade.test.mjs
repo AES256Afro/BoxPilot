@@ -152,14 +152,39 @@ describe("where the copy sits in the upgrade", () => {
 
   // dash, Ubuntu's sh, runs no EXIT trap for a signal that kills it: an upgrade stopped after the
   // service was (an SSH drop during curl | sh, the update unit stopped) left both services down.
-  it("rolls back on HUP, INT and TERM as well as on exit, and a second signal cannot stop the rollback", () => {
+  it("rolls back on HUP, INT, TERM and PIPE as well as on exit, and a second signal cannot stop the rollback", () => {
     const armed = at("trap 'rollback' EXIT");
-    expect(at("trap 'exit 1' HUP INT TERM")).toBeGreaterThan(armed);
-    expect(at("trap 'exit 1' HUP INT TERM")).toBeLessThan(at("systemctl stop boxpilot.service 2>/dev/null || true\n  mv \"$INSTALL_DIR\" \"$PREVIOUS\""));
+    expect(at("trap 'exit 1' HUP INT TERM PIPE\n")).toBeGreaterThan(armed);
+    expect(at("trap 'exit 1' HUP INT TERM PIPE\n")).toBeLessThan(at("systemctl stop boxpilot.service 2>/dev/null || true\n  mv \"$INSTALL_DIR\" \"$PREVIOUS\""));
     const rollback = script.slice(at("rollback() {"), at("HAD_PREVIOUS=0"));
-    expect(rollback.split("\n").slice(1, 6).join("\n")).toContain("trap '' HUP INT TERM");
+    // Before its first line is written: a terminal or pipe that has gone cannot end it there.
+    const firstLine = rollback.indexOf('log "rolling back to previous tree"');
+    for (const shield of ["\n  set +e\n", "\n  trap '' HUP INT TERM PIPE\n"]) {
+      expect(rollback.indexOf(shield), shield).toBeGreaterThan(0);
+      expect(rollback.indexOf(shield), shield).toBeLessThan(firstLine);
+    }
     // Once the upgrade is judged good, a signal is only a signal again.
-    expect(script).toContain("\ntrap - EXIT\ntrap - HUP INT TERM\n");
+    expect(script).toContain("\ntrap - EXIT\ntrap - HUP INT TERM PIPE\n");
+  });
+
+  // The rollback died on its own first line when nobody read the output any more (SIGPIPE, or a
+  // failed printf under set -e), after `trap - EXIT`: both services stopped on the unchecked tree.
+  it("writes its output best effort, so a write that fails never ends a step", () => {
+    expect(script).toContain("log() { printf '[boxpilot-upgrade] %s\\n' \"$*\" 2>/dev/null || true; }");
+    expect(script).toMatch(/fail\(\) \{ printf '\[boxpilot-upgrade\] ERROR: %s\\n' "\$\*" >&2 2>\/dev\/null \|\| true; exit 1; \}/);
+    // Other programs' output goes through log(), not a pipeline set -e ends the upgrade on.
+    expect(script).not.toMatch(/\| sed 's\/\^\/\[boxpilot-upgrade\] \/'/);
+    const relay = script.slice(at("relay() {"), at("ENV_FILE=/etc/boxpilot/boxpilot.env"));
+    expect(relay).toContain('do [ -z "$line" ] || log "$line"; done <<RELAY');
+  });
+
+  it("knows what to undo of the backup-destination move before it writes anything about it", () => {
+    const step = script.slice(at('if moved="$("$NODE_BIN" "${INSTALL_DIR}/scripts/boxpilot-backup-mount-move.mjs" 2>&1)"; then'), at("# 7. Restart and verify"));
+    expect(step.indexOf("BACKUP_MOUNT_UNDO=")).toBeGreaterThan(0);
+    expect(step.indexOf("BACKUP_MOUNT_UNDO=")).toBeLessThan(step.indexOf('relay "$moved"'));
+    // The undo's own output is captured too, not written to wherever stdout went.
+    const rollback = script.slice(at("rollback() {"), at("HAD_PREVIOUS=0"));
+    expect(rollback).toContain('if undone="$("$NODE_BIN" "${INSTALL_DIR}/scripts/boxpilot-backup-mount-move.mjs" undo "$BACKUP_MOUNT_UNDO" 2>&1)"; then');
   });
 
   it("health-checks the port and address the service's env file gives, not 8787", () => {
@@ -170,13 +195,15 @@ describe("where the copy sits in the upgrade", () => {
 });
 
 // The scripts run for real by sh (dash on Ubuntu), with stub commands and their paths moved under a
-// scratch directory: health on the env file's port, rollback on TERM and HUP, a re-run installer
-// keeping the port and access, the backup mount point left alone, and the doctor's port. Needs
-// POSIX sh, perl for a Unix socket, and tar: Linux CI runs it; Windows skips it.
-describe("the install and upgrade scripts, run under sh with stub commands", () => {
-  it.skipIf(onWindows)("pass tests/ubuntu/install-upgrade-stubbed.sh", () => {
-    const result = spawnSync("bash", ["tests/ubuntu/install-upgrade-stubbed.sh"], { encoding: "utf8", env: { ...process.env, SH: "sh" }, timeout: 120_000 });
+// scratch directory: health on the env file's port (read as systemd reads it), rollback on TERM and
+// HUP and with nobody reading the output, a re-run installer keeping the port and access, a new
+// --port checked and put back, ufw, the backup mount point left alone, and the doctor's port. Also
+// under bash, which the scripts are sometimes run with by hand. Needs POSIX sh, perl for a Unix
+// socket, mkfifo, and tar: Linux CI runs it; Windows skips it.
+describe("the install and upgrade scripts, run with stub commands", () => {
+  it.skipIf(onWindows).each(["sh", "bash"])("pass tests/ubuntu/install-upgrade-stubbed.sh under %s", (shell) => {
+    const result = spawnSync("bash", ["tests/ubuntu/install-upgrade-stubbed.sh"], { encoding: "utf8", env: { ...process.env, SH: shell }, timeout: 180_000 });
     expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
     expect(result.stdout).toContain("all checks passed");
-  }, 150_000);
+  }, 210_000);
 });
