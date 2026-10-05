@@ -15,6 +15,17 @@
 const reads = new Set(["GET", "HEAD", "OPTIONS"]);
 
 /**
+ * A path without its trailing slashes, "/" itself kept. It was `replace(/(.)\/+$/, "$1")`, which read
+ * a run of slashes again from each one of them when the path went on after it: a 16 KB path of
+ * slashes took 70 ms of the event loop per request (sweep 5).
+ */
+function withoutTrailingSlashes(path) {
+  let end = path.length;
+  while (end > 1 && path[end - 1] === "/") end -= 1;
+  return path.slice(0, end);
+}
+
+/**
  * The /api/v1 role policy, ahead of every router: viewers look (and run read-only operations, which
  * the operations router checks one by one, and ask the assistant, which only reads and answers from
  * what the asker may read); operators change the box but not its settings or people - Repair's
@@ -27,7 +38,7 @@ export function apiRolePolicy() {
   return function rolePolicy(request, response, next) {
     const role = request.boxpilotSession?.owner?.role ?? "owner";
     const reading = reads.has(request.method);
-    const pathname = request.path.toLowerCase().replace(/(.)\/+$/, "$1");
+    const pathname = withoutTrailingSlashes(request.path.toLowerCase());
     const readOnlyRun = /^\/operations\/[^/]+\/run$/.test(pathname);
     // Asking the assistant, or an agent someone may borrow (M37): both only read, as the asker.
     const asking = request.method === "POST" && (pathname === "/assistant/ask" || /^\/agents\/[^/]+\/ask$/.test(pathname));
