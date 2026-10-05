@@ -107,7 +107,7 @@ const helperAnswers = {
     installed: true, running: true, configured: true, users: ["alex"], discovery: { running: true },
     config: { managed: true, workgroup: "WORKGROUP", scope: "tailscale", interfaces: [], shares: [{ name: "media", path: "/srv/media", comment: null, readOnly: false, guest: false, users: [], recycle: true, recycleBytes: 734003200, ownerUid: 0 }] },
   }),
-  "storage.usb.events": () => ({ available: true, days: 30, ports: [{ port: "2-1", drops: [{ at: "2026-09-20T10:00:00Z" }, { at: "2026-09-25T10:00:00Z" }], lastDropAt: "2026-09-25T10:00:00Z", vendorId: "0bc2", productId: "ab38", powerFaults: 1, resets: 0 }] }),
+  "storage.usb.events": () => ({ available: true, days: 30, ports: [{ port: "2-1", drops: [{ at: "2026-09-20T10:00:00Z" }, { at: "2026-09-25T10:00:00Z" }], lastDropAt: "2026-09-25T10:00:00Z", vendorId: "1a2b", productId: "3c4d", powerFaults: 1, resets: 0 }] }),
   "storage.unclean.events": () => ({ available: true, events: [] }),
   "storage.volumes.state": () => ({ available: true, readAt: "2026-09-28T12:00:00.000Z", drives: [] }),
   "housekeeping.inspect": () => ({ groups: [{ id: "docker-unused", safe: true, bytes: 40 * 1024 ** 3 }] }),
