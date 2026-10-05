@@ -108,6 +108,22 @@ describe("BoxPilot console", () => {
     expect(within(screen.getByRole("navigation", { name: "Areas" })).getByRole("button", { name: "Settings" }).getAttribute("aria-current")).toBe("page");
   });
 
+  // Settings chosen again from Appearance dropped the section from the address but left Appearance on
+  // show, until any later render jumped to Account, in the middle of trying a look.
+  it("opens Settings at its first section when chosen again from another section", async () => {
+    vi.stubGlobal("fetch", vi.fn(authenticatedFetch));
+    render(<App />);
+    expect(await screen.findByRole("heading", { level: 1, name: greeting })).toBeTruthy();
+    const menu = () => screen.getAllByRole("button", { name: "Account: operator" })[0];
+    fireEvent.click(menu());
+    fireEvent.click(screen.getByRole("menuitem", { name: "Appearance" }));
+    expect(await screen.findByRole("heading", { level: 1, name: "Appearance" }, { timeout: 5000 })).toBeTruthy();
+    fireEvent.click(menu());
+    fireEvent.click(screen.getByRole("menuitem", { name: "Settings" }));
+    expect(window.location.search).not.toContain("tab=");
+    expect(await screen.findByRole("heading", { level: 1, name: "Account & sign-in" })).toBeTruthy();
+  });
+
   it("never draws the old frame: no page header, no feature strip, the description behind the info toggle", async () => {
     // Every page in the Command Center, where each page's own name is its title in the bar; Home
     // keeps the Launcher it greets from.

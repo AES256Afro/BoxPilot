@@ -90,12 +90,18 @@ export function createNotificationService({ store, fetcher = fetch, now = () => 
     return store.getSetting(settingKey, null);
   }
 
-  function setTarget(target, { updatedBy = null } = {}) {
-    if (target === null) {
+  function setTarget(requested, { updatedBy = null } = {}) {
+    if (requested === null) {
       store.setSetting(settingKey, null, { updatedBy });
       store.recordAudit("notifications.cleared", { actorId: updatedBy });
       return null;
     }
+    // Settings never shows the saved token, so changing the address cannot send it back: a change
+    // that sends none keeps it, as long as it is still for the same service.
+    const stored = getTarget();
+    const target = requested && typeof requested === "object" && requested.token === undefined && stored?.token && stored.kind === requested.kind
+      ? { ...requested, token: stored.token }
+      : requested;
     const problem = validateTarget(target);
     if (problem) throw new Error(problem);
     const saved = { kind: target.kind, url: target.url, topic: target.topic ?? null, token: target.token ?? null };

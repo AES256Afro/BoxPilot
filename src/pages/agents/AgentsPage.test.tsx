@@ -278,6 +278,38 @@ describe("the builder's steps", () => {
     await waitFor(() => expect(within(screen.getByRole("region", { name: "Webhook" })).getByRole("button", { name: "Make a new URL" })).toBeTruthy());
     expect((screen.getByLabelText("Its one job") as HTMLTextAreaElement | HTMLInputElement).value).toBe("Watch the backups and say when one is late.");
   });
+
+  // "Test it" with unsaved changes opened the Test tab on the saved version, and the changes were gone.
+  it("asks before testing with unsaved changes, and saves them first when told to", async () => {
+    window.history.replaceState(null, "", `/?view=agents&tab=build&agent=${keeperId}`);
+    const calls = serve(base({
+      [`GET /api/v1/agents/${keeperId}`]: detail(2),
+      [`PUT /api/v1/agents/${keeperId}`]: (init: RequestInit | undefined) => json(detail(3, JSON.parse(String(init?.body)).spec.name)),
+      [`GET /api/v1/agents/${keeperId}/runs`]: { runs: [] },
+    }));
+    render(<AgentsPage csrfToken="csrf" now={() => now} />);
+    fireEvent.change(await screen.findByLabelText("Name"), { target: { value: "Keeper" } });
+    fireEvent.click(screen.getByRole("button", { name: "Test it" }));
+    // Still on Build, the change still there, and the choice said.
+    expect(screen.getByRole("tab", { name: "Build" }).getAttribute("aria-selected")).toBe("true");
+    expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe("Keeper");
+    expect(screen.getByText(/runs the saved version, v2/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Keep editing" }));
+    expect(screen.queryByText(/runs the saved version, v2/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Test it" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save, then test" }));
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Test" }).getAttribute("aria-selected")).toBe("true"));
+    expect((calls.find((call) => call.method === "PUT")?.body as { spec: AgentSpec }).spec.name).toBe("Keeper");
+  });
+
+  it("goes straight to testing when nothing is unsaved", async () => {
+    window.history.replaceState(null, "", `/?view=agents&tab=build&agent=${keeperId}`);
+    serve(base({ [`GET /api/v1/agents/${keeperId}`]: detail(2), [`GET /api/v1/agents/${keeperId}/runs`]: { runs: [] } }));
+    render(<AgentsPage csrfToken="csrf" now={() => now} />);
+    await screen.findByLabelText("Name");
+    fireEvent.click(screen.getByRole("button", { name: "Test it" }));
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Test" }).getAttribute("aria-selected")).toBe("true"));
+  });
 });
 
 describe("the test console", () => {
@@ -290,6 +322,9 @@ describe("the test console", () => {
       [`GET /api/v1/agents/runs/${finishedRun.id}`]: () => { reads += 1; return json(reads > 1 ? finishedRun : { ...finishedRun, state: "running", answer: null, proposals: [], steps: finishedRun.steps?.slice(0, 2) }); },
       "POST /api/v1/operations/app.backup/jobs": () => json({ job: { id: "55555555-5555-4555-8555-555555555555", type: "op:app.backup", title: "Back up application data", state: "awaiting_approval", risk: "medium", error: null, result: null, steps: [], approvals: [] }, approval: { tier: "medium", passwordRequired: false, elevated: false, mode: "tiered", reason: "medium risk" } }, 201),
       [`POST /api/v1/agents/proposals/${proposal.id}/decide`]: { ...proposal, state: "staged", jobIds: ["55555555-5555-4555-8555-555555555555"] },
+      "POST /api/v1/jobs/55555555-5555-4555-8555-555555555555/approve": () => json({ job: { id: "55555555-5555-4555-8555-555555555555", state: "applying" }, elevatedUntil: null }, 202),
+      "GET /api/v1/jobs/55555555-5555-4555-8555-555555555555": { job: { id: "55555555-5555-4555-8555-555555555555", type: "op:app.backup", title: "Back up application data", state: "completed", risk: "medium", error: null, result: {}, steps: [], approvals: [] } },
+      "GET /api/v1/jobs/55555555-5555-4555-8555-555555555555/output": { jobId: "55555555-5555-4555-8555-555555555555", state: "completed", output: "", live: false },
     }));
     vi.stubGlobal("EventSource", undefined);
     render(<AgentsPage csrfToken="csrf" now={() => now} />);
@@ -305,8 +340,11 @@ describe("the test console", () => {
     const card = screen.getByRole("article", { name: "Card: Back up Vaultwarden" });
     fireEvent.click(within(card).getByRole("button", { name: "Stage Back up application data" }));
     expect(await screen.findByText("Medium risk")).toBeTruthy();
-    await waitFor(() => expect(calls.find((call) => call.path.endsWith("/decide"))?.body).toEqual({ decision: "staged", jobIds: ["55555555-5555-4555-8555-555555555555"] }));
     expect(calls.find((call) => call.path === "/api/v1/operations/app.backup/jobs")?.body).toEqual({ parameters: { id: "vaultwarden" } });
+    // Staged is not decided: the card is decided once the step is approved.
+    expect(calls.find((call) => call.path.endsWith("/decide"))).toBeUndefined();
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm and run" }));
+    await waitFor(() => expect(calls.find((call) => call.path.endsWith("/decide"))?.body).toEqual({ decision: "staged", jobIds: ["55555555-5555-4555-8555-555555555555"] }));
   }, 15_000);
 });
 
@@ -718,6 +756,36 @@ describe("the learning library", () => {
     await waitFor(() => expect(calls.filter((call) => call.path === "/api/v1/settings/agents").at(-1)?.body).toMatchObject({ password: "right", webSearch: { enabled: true, endpoint: "http://192.168.1.20:8089" }, connectors: { notion: { enabled: true, credential: "notion-token" } } }));
     // A connector's sync is a registered operation, shown with its tier.
     expect(within(outside).getByRole("button", { name: "Sync Notion" }).getAttribute("data-risk")).toBe("low");
+  });
+
+  // The library was read once, when the tab opened: after an approved sync it still showed the
+  // documents from before, until the page was opened again.
+  it("reads the library again once an approved sync finishes", async () => {
+    window.history.replaceState(null, "", "/?view=agents&tab=knowledge");
+    let synced = false;
+    const library = (titles: string[]) => ({
+      sources: [{ id: "documents", title: "Your documents", enabled: true, items: titles.length, size: 900, unit: "characters", indexedAt: ago(300) }],
+      documents: titles.map((title, index) => ({ id: `7777777${index}-7777-4777-8777-777777777777`, title, enabled: true, createdAt: ago(300), characters: 900, source: "notion", externalId: null, pinned: false })),
+      search: { kind: "words (BM25)", embeddings: "off", pending: 0, vectors: 0, enabled: false },
+      learning: { quietHours: { start: "02:00", end: "06:00" }, agents: [] }, canChange: true,
+      connectors: { notion: { enabled: true, credential: "notion-token" }, slack: { enabled: false, credential: null, channels: [] } },
+      folder: { enabled: false, path: null }, webSearch: { enabled: false, endpoint: null },
+    });
+    const job = (state: string) => ({ id: "job-sync", type: "op:agents.connector.sync", title: "Sync Notion", state, risk: "low", error: null, result: {}, steps: [], approvals: [] });
+    serve(base({
+      "GET /api/v1/agents/knowledge": () => json(library(synced ? ["Runbook", "Network plan"] : ["Runbook"])),
+      "POST /api/v1/operations/agents.connector.sync/jobs": () => json({ job: job("awaiting_approval"), approval: { tier: "low", passwordRequired: false, elevated: false, mode: "tiered", confirmText: null } }, 201),
+      "POST /api/v1/jobs/job-sync/approve": () => { synced = true; return json({ job: job("applying"), elevatedUntil: null }, 202); },
+      "GET /api/v1/jobs/job-sync": () => json({ job: job("completed") }),
+      "GET /api/v1/jobs/job-sync/output": { jobId: "job-sync", state: "completed", output: "", live: false },
+    }));
+    render(<AgentsPage csrfToken="csrf" now={() => now} />);
+    const documents = await screen.findByRole("table", { name: "Documents you gave the agents" });
+    expect(within(documents).queryByText("Network plan")).toBeNull();
+    fireEvent.click(await screen.findByRole("button", { name: "Sync Notion" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Run" }));
+    await screen.findByText("Completed.", {}, { timeout: 4000 });
+    expect(await within(screen.getByRole("table", { name: "Documents you gave the agents" })).findByText("Network plan")).toBeTruthy();
   });
 
   it("says when images wait because the model server cannot see (M40.6)", async () => {

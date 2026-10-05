@@ -122,8 +122,10 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
     if (options.app) url.searchParams.set("app", options.app);
     if (options.tab) url.searchParams.set("tab", options.tab); // a tabbed page opens at this tab
     window.history.replaceState(null, "", url);
-    // Settings already open hears of it too, and turns to the section ("Appearance" from the menu).
-    if (next === "settings" && options.tab) openSection(options.tab as SettingsSection);
+    // Settings already open hears of it too, and turns to the section ("Appearance" from the menu),
+    // or to the first one when none is named: the address had dropped the section while the page
+    // went on showing it, until any later render jumped to Account, in the middle of trying a look.
+    if (next === "settings") openSection((options.tab ?? "account") as SettingsSection);
   }, []);
   // A push tapped while the app is open: the service worker says which approval, and it opens here.
   useEffect(() => {

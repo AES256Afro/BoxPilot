@@ -67,6 +67,22 @@ describe("failed-job notifications", () => {
     store.close();
   });
 
+  // Settings never shows the token, so "Change" cannot put it back in the form: saving without
+  // retyping it wiped it, and Gotify (which needs one) was refused as if none had ever been set.
+  it("keeps the saved token when a change of the same service sends none, and only then", async () => {
+    const { store, owner, service, requests } = await setup();
+    service.setTarget({ kind: "gotify", url: "http://127.0.0.1:8091", token: "secret-token" }, { updatedBy: owner.id });
+    expect(service.setTarget({ kind: "gotify", url: "http://127.0.0.1:8092" }, { updatedBy: owner.id })).toMatchObject({ url: "http://127.0.0.1:8092", token: "secret-token" });
+    await service.send({ title: "T", message: "M" });
+    expect(requests.at(-1).url).toBe("http://127.0.0.1:8092/message?token=secret-token");
+    // A new token replaces it.
+    expect(service.setTarget({ kind: "gotify", url: "http://127.0.0.1:8092", token: "new-token" }).token).toBe("new-token");
+    // Another service does not inherit it.
+    expect(service.setTarget({ kind: "ntfy", url: "http://127.0.0.1:8093", topic: "boxpilot" }).token).toBeNull();
+    expect(() => service.setTarget({ kind: "gotify", url: "http://127.0.0.1:8091" })).toThrow("token is required");
+    store.close();
+  });
+
   it("takes the ntfy on this server as the target once its test was accepted, and never replaces one set in Settings (M35)", async () => {
     const { store, owner, service } = await setup();
     expect(service.adoptLocalNtfy({ kind: "ntfy", url: "http://127.0.0.1:8093", topic: "boxpilot-Abc_123-xyz" }, { updatedBy: owner.id })).toMatchObject({ kind: "ntfy", url: "http://127.0.0.1:8093", topic: "boxpilot-Abc_123-xyz" });

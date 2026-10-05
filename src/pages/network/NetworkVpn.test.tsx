@@ -44,6 +44,35 @@ describe("the Network page's VPN tab", () => {
     expect((staged["vpn.profile.set"] as { parameters: Record<string, string> }).parameters.wireguardPrivateKey).toBeUndefined();
   });
 
+  // The sheet closed before the approval opened, and the finished job emptied the key: a cancelled
+  // approval or a failed save left nothing of what was typed.
+  it("puts the sheet back as it was filled in, key and all, when the save is cancelled or fails", async () => {
+    window.history.replaceState(null, "", "/?view=network&tab=vpn");
+    mockFetch({
+      [route]: { profile: { configured: false }, ...lists },
+      "/api/v1/jobs/job-vpn.profile.set/approve": () => new Response(JSON.stringify({ job: { id: "job-vpn.profile.set", state: "applying" }, elevatedUntil: null }), { status: 202, headers: { "Content-Type": "application/json" } }),
+      "/api/v1/jobs/job-vpn.profile.set": () => new Response(JSON.stringify({ job: { id: "job-vpn.profile.set", type: "op:vpn.profile.set", title: "Save the VPN profile", state: "failed", risk: "medium", error: "The provider refused the key", result: {}, steps: [], approvals: [] } }), { headers: { "Content-Type": "application/json" } }),
+      "/api/v1/jobs/job-vpn.profile.set/output": { jobId: "job-vpn.profile.set", state: "failed", output: "", live: false },
+    });
+    render(<NetworkPage csrfToken="csrf" role="owner" now={now} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Set up a VPN profile…" }));
+    let sheet = await screen.findByRole("dialog", { name: "Set up a VPN profile" });
+    fireEvent.change(within(sheet).getByLabelText(/WireGuard private key/), { target: { value: "placeholder-key" } });
+    fireEvent.change(within(sheet).getByLabelText(/Preferred countries/), { target: { value: "Netherlands" } });
+    fireEvent.click(within(sheet).getByRole("button", { name: "Save profile" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
+    sheet = await screen.findByRole("dialog", { name: "Set up a VPN profile" });
+    expect((within(sheet).getByLabelText(/WireGuard private key/) as HTMLInputElement).value).toBe("placeholder-key");
+    expect((within(sheet).getByLabelText(/Preferred countries/) as HTMLInputElement).value).toBe("Netherlands");
+    // Approved, and the job fails: the same again.
+    fireEvent.click(within(sheet).getByRole("button", { name: "Save profile" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm and run" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Close" }, { timeout: 4000 }));
+    sheet = await screen.findByRole("dialog", { name: "Set up a VPN profile" });
+    expect((within(sheet).getByLabelText(/WireGuard private key/) as HTMLInputElement).value).toBe("placeholder-key");
+    expect((within(sheet).getByLabelText(/Preferred countries/) as HTMLInputElement).value).toBe("Netherlands");
+  });
+
   it("will not save a new WireGuard profile without its key", async () => {
     openVpn({ configured: false });
     fireEvent.click(await screen.findByRole("button", { name: "Set up a VPN profile…" }));

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useOperation } from "../../shell/ApproveDialog";
+import { inspectOperation } from "../../operations";
 import { Button, EmptyState, Field, Notice, Panel, SecretInput, Table, TextInput, riskOf, type TableColumn } from "../../ui";
 
 interface Credential { name: string; createdAt: string | null; updatedAt: string | null }
@@ -15,10 +16,14 @@ export default function CredentialsPanel({ csrfToken }: { csrfToken: string }) {
   const [name, setName] = useState("");
   const [value, setValue] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const refresh = useCallback(() => fetch("/api/v1/operations/credentials.inspect/inspect")
-    .then((response) => response.json())
-    .then((body: { result?: { credentials: Credential[] } }) => setCredentials(body.result?.credentials ?? []))
-    .catch(() => setError("Could not read the credential names")), []);
+  // A refused read is an error to say, with the server's reason: it used to show "No credentials yet".
+  const refresh = useCallback(() => inspectOperation<{ credentials?: Credential[] }>("credentials.inspect")
+    .then(({ result }) => {
+      if (!Array.isArray(result?.credentials)) throw new Error("The credential names came back in a shape this page cannot read");
+      setCredentials(result.credentials);
+      setError(null);
+    })
+    .catch((requestError: unknown) => { setCredentials(null); setError(requestError instanceof Error ? requestError.message : "Could not read the credential names"); }), []);
   useEffect(() => { void refresh(); }, [refresh]);
   // Saving clears the form once it has worked; removing another credential, or a save that failed,
   // used to clear the name and value being typed.
@@ -53,7 +58,7 @@ export default function CredentialsPanel({ csrfToken }: { csrfToken: string }) {
         columns={columns}
         rows={credentials ?? []}
         rowKey={(credential) => credential.name}
-        empty={credentials === null ? "Reading…" : <EmptyState title="No credentials yet">Save a token below and HTTP-request steps can use it by name.</EmptyState>}
+        empty={credentials === null ? (error ? "Not read." : "Reading…") : <EmptyState title="No credentials yet">Save a token below and HTTP-request steps can use it by name.</EmptyState>}
       />
       <form className="settings-body settings-add" aria-label="Save a credential" onSubmit={(event) => { event.preventDefault(); if (name && value) start({ operationId: "credentials.set", title: `Save the credential ${name}`, parameters: { name, value }, preview: <span>Saves the value under <code>{name}</code> in a root-owned file on this server. It never appears in a flow, a job record, or the database.</span> }); }}>
         <h3 className="settings-sub__title">Save a credential</h3>

@@ -284,6 +284,27 @@ describe("Backups page", () => {
       expect(JSON.parse(bodies["backup.cloud.setup"] ?? "{}")).toEqual({ parameters: { provider: "b2", account: "0012abc", bucket: "home-backups", key: "K123" } });
     });
 
+    // The sheet closed before the approval opened: cancelling it lost the key and everything typed.
+    it("puts the cloud destination's sheet back as it was filled in when its approval is cancelled", async () => {
+      mockFetch();
+      render(<BackupsPage csrfToken="csrf-token" />);
+      await screen.findByRole("tab", { name: /^Off-box/ });
+      openTab(/^Off-box/);
+      const cloud = await screen.findByRole("region", { name: "Cloud bucket" });
+      fireEvent.click(within(cloud).getByRole("button", { name: "Set destination" }));
+      let sheet = screen.getByRole("dialog", { name: "Set the cloud destination" });
+      fireEvent.change(within(sheet).getByLabelText("Key ID"), { target: { value: "0012abc" } });
+      fireEvent.change(within(sheet).getByLabelText("Bucket"), { target: { value: "home-backups" } });
+      fireEvent.change(within(sheet).getByLabelText("Application key"), { target: { value: "K123" } });
+      fireEvent.click(within(sheet).getByRole("button", { name: "Save destination" }));
+      expect(await screen.findByText("Medium risk")).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+      sheet = await screen.findByRole("dialog", { name: "Set the cloud destination" });
+      expect((within(sheet).getByLabelText("Key ID") as HTMLInputElement).value).toBe("0012abc");
+      expect((within(sheet).getByLabelText("Bucket") as HTMLInputElement).value).toBe("home-backups");
+      expect((within(sheet).getByLabelText("Application key") as HTMLInputElement).value).toBe("K123");
+    });
+
     it("offers rclone when it is missing, and a saved cloud destination's test and mirror to the owner only", async () => {
       const cloudSettings = { destination: { provider: "b2", account: "0012abc", bucket: "home-backups", path: "homebox" }, lastSync: { completedAt: daysAgo(1), filesTransferred: 7, bytesTransferred: "1.2 GiB", destination: "boxpilot:home-backups/homebox" } };
       mockFetch({ cloud: { rcloneInstalled: false, configured: true, provider: "b2", providers }, cloudSettings });

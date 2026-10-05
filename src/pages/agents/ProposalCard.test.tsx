@@ -1,5 +1,7 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { Job } from "../../operations";
+import type { PendingOperation } from "../../shell/ApproveDialog";
 import type { Proposal } from "./api";
 import { ProposalCard } from "./ProposalCard";
 
@@ -25,5 +27,29 @@ describe("an agent's card", () => {
     render(<ProposalCard proposal={proposal} csrfToken="csrf" role="owner" onStage={onStage} onDecided={() => {}} />);
     fireEvent.click(screen.getByRole("button", { name: "Stage Add a user" }));
     expect(onStage).toHaveBeenCalledWith(expect.objectContaining({ operationId: "users.add", parameters: { username: "backup", githubUser: "someone-else" }, proposedBy: "Server Keeper" }));
+  });
+
+  // Decided when the job was staged, the card stayed decided after the approval was cancelled and
+  // the job withdrawn: Stage was gone, and the server said the card was already decided.
+  it("is decided only once its step is approved, so a cancelled approval can be staged again", async () => {
+    const decided: Array<Record<string, unknown>> = [];
+    vi.stubGlobal("fetch", vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+      decided.push(JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>);
+      return Promise.resolve(new Response(JSON.stringify({ proposal: { ...proposal, state: "staged", jobIds: ["job-1"] } }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    }));
+    const onStage = vi.fn();
+    const onDecided = vi.fn();
+    render(<ProposalCard proposal={proposal} csrfToken="csrf" role="owner" onStage={onStage} onDecided={onDecided} />);
+    fireEvent.click(screen.getByRole("button", { name: "Stage Add a user" }));
+    const operation = onStage.mock.calls[0][0] as PendingOperation;
+    // Staged, then cancelled: nothing is decided, and the step can be staged again.
+    operation.onStaged?.({ id: "job-1" } as Job);
+    await act(async () => {});
+    expect(decided).toHaveLength(0);
+    expect(screen.getByRole("button", { name: "Stage Add a user" })).toBeTruthy();
+    // Approved: the card is done, with the job that came of it.
+    await act(async () => { operation.onApproved?.({ id: "job-2" } as Job); });
+    await waitFor(() => expect(onDecided).toHaveBeenCalled());
+    expect(decided).toEqual([expect.objectContaining({ decision: "staged", jobIds: ["job-2"] })]);
   });
 });

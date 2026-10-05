@@ -158,6 +158,8 @@ export default function NotificationsPanel({ csrfToken, onChange }: { csrfToken:
   const configured = current?.configured === true;
   const form = !configured || editing;
   const offerLocal = Boolean(localServer && form && url !== localServer.sendUrl);
+  // The server keeps the saved token when none is sent for the same service.
+  const keepsToken = Boolean(configured && current?.hasToken && current.kind === kind);
 
   return (
     <>
@@ -206,7 +208,7 @@ export default function NotificationsPanel({ csrfToken, onChange }: { csrfToken:
                     <TextInput mono placeholder="topic" value={topic} onValueChange={(value) => setTopic(value.trim())} autoComplete="off" spellCheck={false} />
                   </Field>
                 )}
-                <Field label="Token" optional hint={kind === "gotify" ? "The application token." : kind === "ntfy" ? "An access token, if the topic needs one." : "A bearer token, if the webhook needs one."}>
+                <Field label="Token" optional hint={`${kind === "gotify" ? "The application token." : kind === "ntfy" ? "An access token, if the topic needs one." : "A bearer token, if the webhook needs one."}${keepsToken ? " Leave empty to keep the saved token." : ""}`}>
                   <SecretInput value={token} onValueChange={setToken} />
                 </Field>
               </div>

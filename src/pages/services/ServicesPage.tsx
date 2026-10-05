@@ -74,9 +74,10 @@ export default function ServicesPage({ csrfToken, role = "owner" }: ServicesPage
     try {
       const response = await fetch("/api/v1/operations/service.journal/run", { method: "POST", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ parameters: { unit, lines: 200 } }) });
       const body = await readJson<{ result?: { lines: string[] } }>(response);
-      setJournal({ unit, lines: body.result?.lines ?? [], error: null });
+      // Only into the sheet it was read for: a late answer reopened a closed sheet, or filled another unit's.
+      setJournal((current) => (current?.unit === unit ? { unit, lines: body.result?.lines ?? [], error: null } : current));
     } catch (requestError) {
-      setJournal({ unit, lines: null, error: requestError instanceof Error ? requestError.message : "The journal could not be read" });
+      setJournal((current) => (current?.unit === unit ? { unit, lines: null, error: requestError instanceof Error ? requestError.message : "The journal could not be read" } : current));
     }
   }, [csrfToken]);
 

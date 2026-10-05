@@ -94,13 +94,16 @@ export default function OffBoxTab({ csrfToken, role, tailnetHosts, machine, remo
   };
   const saveCloud = () => {
     if (!cloudForm || !complete || !cloud?.rcloneInstalled) return;
-    const { provider, values } = cloudForm;
+    const kept = cloudForm;
+    const { provider, values } = kept;
     setCloudForm(null);
     start({
       operationId: "backup.cloud.setup",
       title: `Save the ${spec?.label ?? provider} backup destination`,
       parameters: { provider, ...Object.fromEntries([...fields, ...secrets].map((field) => [field, (values[field] ?? "").trim()]).filter(([, value]) => value)) },
       preview: <span>Writes the rclone remote to <code>/etc/boxpilot/secrets/rclone.conf</code> (root only). The {secrets.map((field) => fieldLabels[field] ?? field).join(" and ")} stays in memory until this job runs and is never stored in BoxPilot's database. Test the connection afterwards.</span>,
+      // The sheet closes for the approval, and comes back as it was filled in unless the job completed.
+      onClosed: (job) => { if (job?.state !== "completed") setCloudForm(kept); },
     });
   };
 
