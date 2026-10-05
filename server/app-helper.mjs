@@ -2075,7 +2075,25 @@ export function createAppHelper({
   function keptOutOfBackup(manifest) {
     const folders = [...manifest.volumes, ...(manifest.sidecars ?? []).flatMap((sidecar) => sidecar.volumes ?? [])].filter((volume) => volume.path && !volume.backup).map((volume) => volume.path);
     const files = (manifest.files ?? []).map((file) => path.posix.normalize(file.path)).filter((relative) => !relative.startsWith("..") && !path.posix.isAbsolute(relative));
-    return { files, all: [...new Set([...folders, ...files, homepageSyncFile])].sort((a, b) => a.length - b.length) };
+    return { folders, files, all: [...new Set([...folders, ...files, homepageSyncFile])].sort((a, b) => a.length - b.length) };
+  }
+
+  /**
+   * Why a link the owner left at a folder backups leave out (R5B3-4: downloaded models moved to
+   * another disk) cannot be carried into a restored app folder, or null when it can: where it leads,
+   * every link resolved (a not-yet-mounted tail too), must pass what an install checks a folder the
+   * owner chooses against, a protected system location, and must not be inside BoxPilot's own
+   * folders (another app's, this app's own, the backups). A backup never brings such a link: one in
+   * an archive at a folder BoxPilot manages is refused before anything changes (linksWhereBoxPilotWrites),
+   * and so is a backup of an archived folder that is one (archivedEntry). This one is the owner's,
+   * on this server, in the folder the restore replaces.
+   */
+  async function ownersLinkRefusal(link) {
+    const real = await resolveExisting(link, { realpath: realpathOf });
+    if (isDeniedHostPath(real)) return `${real}, a protected system location`;
+    const inside = (base) => { const relative = path.relative(path.resolve(base), real); return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative)); };
+    if ([root, backupRoot, machineSnapshotRoot].some(inside)) return `${real}, inside BoxPilot's own folders`;
+    return null;
   }
 
   /**
@@ -2748,13 +2766,23 @@ export function createAppHelper({
     };
     if (await lstat(displaced).then(() => true, () => false)) {
       const linked = [];
+      const refusedLinks = [];
+      const carriedLinks = [];
       for (const relative of kept.all) {
         if ((await entryAt(displaced, relative)) !== "present") continue;
         const here = await entryAt(live, relative);
         if (here === "present") continue;   // an older backup that did hold it: the archive's copy stands
-        // A link there (left by a backup restored before links were refused) is not carried into the
-        // restored folder: Docker would mount, and the next deploy write through, whatever it names.
-        if ((await lstat(path.join(displaced, relative))).isSymbolicLink()) { linked.push(relative); continue; }
+        // A link there is carried only at a folder backups leave out (R5B3-4), and only when where it
+        // leads is somewhere an install would let the owner choose (ownersLinkRefusal). One at a file
+        // BoxPilot writes, or one leading into a protected place (left by a backup restored before
+        // links were refused), stays behind: Docker would mount, and the next deploy write through,
+        // whatever it names.
+        if ((await lstat(path.join(displaced, relative))).isSymbolicLink()) {
+          if (!kept.folders.includes(relative)) { linked.push(relative); continue; }
+          const refusal = await ownersLinkRefusal(path.join(displaced, relative));
+          if (refusal) { refusedLinks.push(`${relative} is a link to ${refusal}`); continue; }
+          carriedLinks.push(relative);
+        }
         try {
           if (here === "unsafe") throw new Error("a link or a file in the restored folder stands in its way");
           await placeWithoutFollowing(path.join(displaced, relative), live, relative, path.join(displaced, ".boxpilot-aside"));
@@ -2764,9 +2792,14 @@ export function createAppHelper({
           throw new Error(`Restored the files, but could not keep ${relative} from the app folder (${error.message}), so ${manifest.name} was not started. The original directory remains in ${path.basename(displaced)}; preserve it.`);
         }
       }
-      if (carried.length) progress?.(`Kept from the app folder, as backups leave them out: ${carried.join(", ")}`, "stdout");
+      if (carried.length) progress?.(`Kept from the app folder, as backups leave them out: ${carried.join(", ")}${carriedLinks.length ? ` (${carriedLinks.join(", ")} as the link${carriedLinks.length === 1 ? "" : "s"} you made)` : ""}`, "stdout");
       if (linked.length) {
         const warning = `Not kept from the app folder: ${linked.join(", ")} ${linked.length === 1 ? "is a link" : "are links"} there, and BoxPilot does not bring a link back where it writes ${manifest.name}'s files as root. What ${linked.length === 1 ? "it points" : "they point"} at is left as it is.`;
+        warnings.push(warning);
+        progress?.(warning, "stderr");
+      }
+      if (refusedLinks.length) {
+        const warning = `Not kept from the app folder: ${refusedLinks.join("; ")}, which BoxPilot does not mount into ${manifest.name}. What ${refusedLinks.length === 1 ? "it points" : "they point"} at is left as it is; ${manifest.name} starts with ${refusedLinks.length === 1 ? "that folder" : "those folders"} empty.`;
         warnings.push(warning);
         progress?.(warning, "stderr");
       }

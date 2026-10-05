@@ -3363,6 +3363,70 @@ describe.skipIf(onWindows)("a crafted backup that hard-links the app's own files
   });
 });
 
+// R5B3-4: a folder backups leave out on purpose (downloaded models, a cache) that the owner moved to
+// another disk with a link in its place was dropped by every restore since links were refused there,
+// where it used to be kept. The link is carried as itself when where it leads passes what an install
+// checks a chosen folder against: never into a protected location, nor into BoxPilot's own folders.
+describe("an owner's link at a folder backups leave out", () => {
+  const keepManifest = [
+    "schemaVersion: 2", "id: keep", "name: Keep", "category: T", "description: d",
+    "image:", "  reference: x/keep:1",
+    "volumes:",
+    "  - id: data", "    container: /data", "    path: data",
+    "  - id: models", "    container: /models", "    path: models", "    backup: false",
+    "health:", "  kind: running", "  stableSeconds: 1", "  timeoutSeconds: 30",
+  ].join("\n") + "\n";
+
+  async function linked(target) {
+    const harness = await setup({ runCommand: withRealTar });
+    await writeFile(path.join(harness.catalogDirectory, "keep.yaml"), keepManifest);
+    await harness.apps.install({ id: "keep" });
+    const live = path.join(harness.catalogRoot, "keep");
+    const made = await harness.apps.backup({ id: "keep", keep: 5 });
+    await rm(path.join(live, "models"), { recursive: true, force: true });
+    await symlink(target, path.join(live, "models"), "junction"); // a junction on Windows, which needs no privilege; ignored elsewhere
+    harness.advance(60_000);
+    return { ...harness, live, made };
+  }
+
+  it("carries a link to the owner's own disk through a restore, as the link it is", async () => {
+    const disk = await mkdtemp(path.join(os.tmpdir(), "boxpilot-models-disk-")); directories.push(disk);
+    await writeFile(path.join(disk, "llama.gguf"), "forty gigabytes");
+    const { apps, live, made, catalogRoot } = await linked(disk);
+    const restored = await apps.restoreAppBackup({ id: "keep", backup: made.artifact });
+    expect(restored.warnings ?? []).toEqual([]);
+    expect((await lstat(path.join(live, "models"))).isSymbolicLink()).toBe(true);
+    expect(await realpath(path.join(live, "models"))).toBe(await realpath(disk));
+    expect(await readFile(path.join(disk, "llama.gguf"), "utf8")).toBe("forty gigabytes");
+    expect(await readdir(catalogRoot)).toEqual(["keep"]);
+  });
+
+  it("leaves behind a link into BoxPilot's own folders, and says so", async () => {
+    const harness = await setup({ runCommand: withRealTar });
+    const other = path.join(harness.catalogRoot, "other-app-data");
+    await mkdir(other);
+    await writeFile(path.join(harness.catalogDirectory, "keep.yaml"), keepManifest);
+    await harness.apps.install({ id: "keep" });
+    const live = path.join(harness.catalogRoot, "keep");
+    const made = await harness.apps.backup({ id: "keep", keep: 5 });
+    await rm(path.join(live, "models"), { recursive: true, force: true });
+    await symlink(other, path.join(live, "models"), "junction");
+    harness.advance(60_000);
+    const restored = await harness.apps.restoreAppBackup({ id: "keep", backup: made.artifact });
+    expect(restored.warnings).toEqual([expect.stringMatching(/^Not kept from the app folder: models is a link to .+, inside BoxPilot's own folders/)]);
+    expect(await lstat(path.join(live, "models")).then((info) => info.isSymbolicLink(), () => false)).toBe(false);
+    expect(await readdir(other)).toEqual([]);
+  });
+
+  // Linux only: /usr must be the protected /usr.
+  it.skipIf(onWindows)("leaves behind a link into a protected location, and says so", async () => {
+    const { apps, live, made } = await linked("/usr");
+    const restored = await apps.restoreAppBackup({ id: "keep", backup: made.artifact });
+    expect(restored.warnings).toEqual([expect.stringMatching(/^Not kept from the app folder: models is a link to \/usr, a protected system location/)]);
+    expect(await lstat(path.join(live, "models")).then((info) => info.isSymbolicLink(), () => false)).toBe(false);
+  });
+});
+
 // R5B3-1: an owner who moved an app's data folder to another disk and left a link in its place got
 // backups that held only the link: tar archives a link as a link. The rehearsal passed them, and the
 // restore refused them saying BoxPilot never makes such a backup. A backup now looks at what it would
