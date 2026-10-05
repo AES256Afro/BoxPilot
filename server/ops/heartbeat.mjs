@@ -64,7 +64,7 @@ export function heartbeatOperations() {
       },
     }),
     defineOperation({
-      id: "heartbeat.test", title: "Send a test heartbeat", risk: "low", minimumRole: "owner", timeoutMs: minutes(1),
+      id: "heartbeat.test", title: "Send a test heartbeat", risk: "low", minimumRole: "owner", timeoutMs: 105_000,
       description: "Sends one heartbeat now, exactly as the timer does: a bare request to the saved address from boxpilot-heartbeat.service. Your dead man's switch should show it within a minute.",
       run: (_parameters, { runUnit, jobLog }) => runUnit.runTask("heartbeat.ping", {}, { timeoutMs: 45_000, logPath: jobLog?.path ?? null }),
     }),

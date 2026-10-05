@@ -21,6 +21,14 @@ export const dismissed = (job) => (job?.steps ?? []).some((step) => step.name ==
 /** A job that ran but whose result BoxPilot could not save; it carries a failed "record" step. */
 export const recordFailed = (job) => (job?.steps ?? []).some((step) => step.name === "record" && step.state === "failed");
 
+/**
+ * Whether what ran out may have left a second copy's worth of work running on the server: a step left
+ * running (a root task past its own limit), or the whole budget of an operation whose work is a root
+ * task, which the helper may still be waiting on. Nothing records that unit stopping, so neither is
+ * given more time beside it.
+ */
+const leftRunning = (timeout, operation) => timeout.phase !== "queued" && (timeout.stillRunning === true || (timeout.scope === "operation" && operation?.runsRootTask === true));
+
 /** The job-log step for a timeout: which limit ran out, and how long the job had run by then. */
 function timeoutStep(timeout) {
   if (timeout.phase === "queued") return `Waited ${formatDuration(timeout.elapsedMs)} behind other work and never started`;
@@ -308,7 +316,7 @@ export function createJobService(store, helper, {
     const operation = registry.get(job.type.slice(3));
     // A step left running (a root task past its own budget) is not offered more time: the retry
     // would start a second copy beside the first, with no lane between them.
-    const moreTimeMs = timeout.phase === "queued" || timeout.stillRunning || placeholderPaths(job.parameters ?? {}).length ? null : nextBudgetMs(operation, execution.timeoutMs);
+    const moreTimeMs = timeout.phase === "queued" || leftRunning(timeout, operation) || placeholderPaths(job.parameters ?? {}).length ? null : nextBudgetMs(operation, execution.timeoutMs);
     let log = "";
     try { log = jobLog ? (await jobLog.read(job.id, 0))?.text ?? "" : ""; } catch { /* the record stands without it */ }
     return jobTimeoutRecord(timeout, { elapsedMs: now() - startedAt, log, moreTimeMs });
@@ -457,7 +465,7 @@ export function createJobService(store, helper, {
     if (!operation || job.state !== "failed" || !job.timeout) throw refuse("Only a job that ran out of time can be tried again with more time");
     if (job.timeout.phase === "queued") throw refuse("This job never started: it waited behind other work. Run it again once that work has finished.");
     // The step that ran out was left running on the server; a second copy would run beside it.
-    if (job.timeout.stillRunning) throw refuse(`${job.timeout.step ?? "Its last step"} may still be running on the server, so it was not started a second time beside itself. Run it again once that has finished.`);
+    if (leftRunning(job.timeout, operation)) throw refuse(`${job.timeout.step ?? job.title} may still be running on the server, so it was not started a second time beside itself. Run it again once that has finished.`);
     if (placeholderPaths(job.parameters ?? {}).length) throw refuse("This job was given passwords, and BoxPilot does not keep them after a job runs. Start it again from where you started it.");
     const budgetMs = nextBudgetMs(operation, budgetFor(operation, job.recovery?.budgetMs ?? null));
     if (!budgetMs) throw refuse(operation.maxTimeoutMs ? `${operation.title} already had the most time it can have, ${formatDuration(operation.maxTimeoutMs)}.` : `${operation.title} cannot be given more time.`);

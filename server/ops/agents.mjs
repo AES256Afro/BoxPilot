@@ -31,9 +31,9 @@ export function agentsOperations() {
       run: (_parameters, { run }) => inspectRuntime({ run }),
     }),
     defineOperation({
-      id: "agents.runtime.install", title: "Install the agents runtime (Unsloth)", risk: "medium", minimumRole: "owner", timeoutMs: minutes(45), maxTimeoutMs: minutes(180),
+      id: "agents.runtime.install", title: "Install the agents runtime (Unsloth)", risk: "medium", minimumRole: "owner", timeoutMs: minutes(45), maxTimeoutMs: minutes(180), runsRootTask: true,
       description: "Installs Unsloth (GGUF only, no PyTorch) into /var/lib/boxpilot-agents/unsloth with Unsloth's own installer, run as the unprivileged boxpilot-agents user rather than root, and the OpenMP library its llama.cpp needs. Downloads about 2 GB. The installer takes Unsloth's newest release; BoxPilot says when that is not the one it was measured with. Nothing is started.",
-      run: (_parameters, { runUnit, jobLog, timeScale = 1 }) => runUnit.runTask("agents.install", {}, { timeoutMs: Math.round(minutes(44) * timeScale), logPath: jobLog?.path ?? null }),
+      run: (_parameters, { runUnit, jobLog, timeScale = 1 }) => runUnit.runTask("agents.install", {}, { timeoutMs: Math.round(minutes(43) * timeScale), logPath: jobLog?.path ?? null }),
     }),
     defineOperation({
       id: "agents.runtime.enable", title: "Start the agents runner", risk: "medium", minimumRole: "owner", timeoutMs: minutes(3),
@@ -64,10 +64,10 @@ export function agentsOperations() {
       run: (_parameters, { runUnit, jobLog }) => runUnit.runTask("agents.disable", {}, { timeoutMs: minutes(2), logPath: jobLog?.path ?? null }),
     }),
     defineOperation({
-      id: "agents.model.download", title: "Download a model for agents", risk: "medium", minimumRole: "owner", timeoutMs: minutes(60), maxTimeoutMs: minutes(240),
+      id: "agents.model.download", title: "Download a model for agents", risk: "medium", minimumRole: "owner", timeoutMs: minutes(60), maxTimeoutMs: minutes(240), runsRootTask: true,
       description: "Downloads one of Unsloth's Qwen GGUF models, and its vision projector, from huggingface.co into the runner's model cache, as the runner's own user. Every byte is checked against the SHA-256 Hugging Face publishes; space is checked first. The model in use is not changed.",
       parameters: { fields: modelFields },
-      run: (parameters, { runUnit, jobLog, timeScale = 1 }) => runUnit.runTask("agents.model.download", parameters, { timeoutMs: Math.round(minutes(59) * timeScale), logPath: jobLog?.path ?? null }),
+      run: (parameters, { runUnit, jobLog, timeScale = 1 }) => runUnit.runTask("agents.model.download", parameters, { timeoutMs: Math.round(minutes(58) * timeScale), logPath: jobLog?.path ?? null }),
     }),
     defineOperation({
       id: "agents.model.switch", title: "Switch the agents' model", risk: "medium", minimumRole: "owner", timeoutMs: 30_000,
