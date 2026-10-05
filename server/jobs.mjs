@@ -199,6 +199,11 @@ export function createJobService(store, helper, {
     const approvalMethod = passwordProvided ? "password" : policy.elevated && policy.tier === "high" ? "elevated" : "confirm";
     const registeredOperation = job.type.startsWith("op:") ? registry.get(job.type.slice(3)) : null;
     if (!registeredOperation) throw new Error("Job type is not supported by this executor");
+    // BoxPilot's own plumbing is refused at staging (sweep 3); one staged before then is withdrawn here.
+    if (registeredOperation.internal) {
+      withdraw(job, `${internalRefusal(registeredOperation)}, never as a job.`, "job.internal.withdrawn");
+      throw Object.assign(new Error(`${internalRefusal(registeredOperation)}, so this job was cancelled. Nothing ran.`), { code: "operation_internal" });
+    }
     // Staged for a server that has moved on (an update to a version already running): approving it
     // would do nothing or harm, so it is cancelled with the reason instead of run (M36).
     const superseded = supersededReason(job, registeredOperation);
@@ -515,6 +520,12 @@ export function createJobService(store, helper, {
   function sweepStaleApprovals() {
     const swept = [];
     for (const job of store.listAwaitingApproval?.() ?? []) {
+      // Staged before BoxPilot's own plumbing was refused as a job (sweep 3): it could still be approved.
+      const operation = job.type?.startsWith("op:") ? registry.get(job.type.slice(3)) : null;
+      if (operation?.internal) {
+        if (withdraw(job, `${internalRefusal(operation)}, never as a job.`, "job.internal.withdrawn")) swept.push({ id: job.id, why: "internal" });
+        continue;
+      }
       const superseded = supersededReason(job);
       if (superseded) {
         if (withdraw(job, `Superseded: ${superseded}.`, "job.superseded")) swept.push({ id: job.id, why: "superseded", reason: superseded });
