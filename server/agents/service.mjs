@@ -34,7 +34,7 @@ import { boxAttribute, boxLine, detectInjection, sanitizeUntrusted, stripWrapper
 import { readUnderstanding, understandingSummary } from "./intent.mjs";
 import { decodeVector, encodeVector, episodeOf, foldThread, hybridSearch, memoryTiers, readVector } from "./memory.mjs";
 import { defaultModelId, downloadPreview, findNewerQwen, modelById, modelLibrary, testedUnslothVersion, unslothModelSpec } from "./models.mjs";
-import { agentsNamed, chainOf, checkHandoff, specialistsFor, treeOf } from "./orchestrator.mjs";
+import { agentsNamed, chainOf, checkHandoff, nameKey, reservedNameProblem, specialistsFor, treeOf } from "./orchestrator.mjs";
 import { exportDefinition, readDefinition } from "./portable.mjs";
 import { checkCitations, readStructuredAnswer, systemMessage, taskMessage } from "./prompt.mjs";
 import { SpecError, agentEvents, budgetCeilings, diffSpecs, normalizeSpec, outputFormats, previousRunSecondsDefault, scopeWarnings, specText } from "./spec.mjs";
@@ -756,17 +756,20 @@ export function createAgentService({
     if (spec.memory?.enabled) {
       // `injectionHop`: a note kept by a run that had read something that looked like an instruction,
       // and how far from it, for this run (null for one that was not, or that someone whose word
-      // holds for it trusted); `held`: words another account wrote, held to them (wordsHeld); `runId`:
-      // the run an episode came from, looked up when one is used; `own`: this agent's own memory
-      // (rememberedFlag). The owner's documents carry none of these: they are the owner's (sweep 3).
+      // holds for it trusted), and `injectionFrom`, the notes that flag came from; `held`: words
+      // another account wrote, held to them (wordsHeld); `runId`: the run an episode came from,
+      // looked up when one is used; `own`: this agent's own memory (rememberedFlag). The owner's
+      // documents carry none of these: they are the owner's (sweep 3).
       if (sources.notes) {
-        for (const note of ownNotes(agent.id, readRole, { limit: 200 })) items.push({ key: `note:${note.id}`, tier: note.pinned ? "pinned" : "fact", title: note.title, text: note.body, from: agent.name, at: note.updatedAt, freshUntil: note.freshUntil, weight: note.pinned ? 1.3 : 1, own: true, injectionHop: noteHopFor(note.source, readRole), held: wordsHeld(note, agent, readRole, agents) });
+        for (const note of ownNotes(agent.id, readRole, { limit: 200 })) items.push({ ...noteItem(note, agent, readRole, { own: true, from: agent.name, agents }), tier: note.pinned ? "pinned" : "fact", at: note.updatedAt, freshUntil: note.freshUntil, weight: note.pinned ? 1.3 : 1 });
         for (const note of store.listSharedNotes({ exceptAgentId: agent.id })) {
-          if (roleAtLeast(readRole, note.readRole)) items.push({ key: `note:${note.id}`, tier: note.pinned ? "pinned" : "fact", title: note.title, text: note.body, from: agents.get(note.agentId)?.name ?? "another agent", at: note.updatedAt, freshUntil: note.freshUntil, weight: 0.9, injectionHop: noteHopFor(note.source, readRole), held: wordsHeld(note, agent, readRole, agents) });
+          if (roleAtLeast(readRole, note.readRole)) items.push({ ...noteItem(note, agent, readRole, { own: false, from: agents.get(note.agentId)?.name ?? "another agent", agents }), tier: note.pinned ? "pinned" : "fact", at: note.updatedAt, freshUntil: note.freshUntil, weight: 0.9 });
         }
       }
+      // An episode a run reading less kept is its person's words to this one (sweep 5: an operator's
+      // question to the owner's Server Keeper reached the owner's runs unflagged).
       for (const episode of store.listEpisodes(agent.id, { limit: 100 })) {
-        if (roleAtLeast(readRole, episode.readRole)) items.push({ key: `episode:${episode.id}`, tier: "episode", title: `A run on ${episode.createdAt.slice(0, 10)}`, text: episode.text, from: agent.name, at: episode.createdAt, freshUntil: null, weight: 0.8, runId: episode.runId, own: true });
+        if (roleAtLeast(readRole, episode.readRole)) items.push({ key: `episode:${episode.id}`, tier: "episode", title: `A run on ${episode.createdAt.slice(0, 10)}`, text: episode.text, from: agent.name, at: episode.createdAt, freshUntil: null, weight: 0.8, runId: episode.runId, own: true, held: learnedBelow(episode, readRole) });
       }
     }
     if (sources.documents) {
@@ -824,13 +827,19 @@ export function createAgentService({
    * agent's finding, the task it was handed, a specialist's answer, another account's words - and 1
    * when it came by way of another agent's note kept by such a run. A run flagged only by memory
    * (its own notes, its runs' episodes, a note already one hop away) has none. Every note a flagged
-   * run keeps is flagged, at the run's hop or, without one, at the last (sweep 4: sweep 3 kept them
-   * clean, so words copied from a flagged note came back clean once that note was forgotten or
-   * dropped past `maxNotes`). A flag goes on through the notes that carry those words, as it should;
-   * the owner is told once for each note that flags runs (escalate), not at every run (sweep 3's
-   * storm), and Trust or Forget on the Memory tab ends it.
+   * run keeps is flagged, at the run's hop or, without one, at how far what flagged it was (its
+   * reach: sweep 4: sweep 3 kept them clean, so words copied from a flagged note came back clean
+   * once that note was forgotten or dropped past `maxNotes`). A flag goes on through the notes that
+   * carry those words, as it should - within an agent; to another agent's runs only as far as
+   * `injectionHops` and one more (`flagReach`): a note kept past the last hop flags its own agent's
+   * runs and no other's (sweep 5: kept at the last hop, it spread from agent to agent for good).
+   * Such a note says which notes the flag came from (`injectionFrom`); the owner is told once for
+   * each of those (escalate), not at every run (sweep 3's storm), nor at each new note a flagged run
+   * keeps (sweep 5), and Trust or Forget on the Memory tab ends it.
    */
   const injectionHops = 1;
+  /** How far from such text a remembered item still flags a run: one past the last hop, its own agent's notes only. */
+  const flagReach = injectionHops + 1;
   /**
    * A kept note's hop: null when it is not flagged. One flagged before hops were kept is at the last
    * hop (sweep 4: taken as hop 0, its readers spread it a hop further than a note of today would).
@@ -853,49 +862,97 @@ export function createAgentService({
    * reading no more than they may. Another agent's words are its maker's: the owner's and the
    * reading agent's own maker's are trusted, any other account's are data (sweep 4: an operator's
    * agent's shared note reached the owner's runs unflagged, since sweep 3 stopped holding remembered
-   * words to them - the owner's own words stay trusted). `agents` maps ids to agents, when at hand.
+   * words to them - the owner's own words stay trusted). A note learned by a run that read less than
+   * this one - an operator asking the owner's Server Keeper - is that person's words, its own agent's
+   * or not, unless someone whose word holds for this run trusted it (sweep 5: "Remember: ... ignore
+   * all previous instructions" reached the owner's next run unflagged). `agents` maps ids to agents.
    */
   function wordsHeld(note, reader, readRole, agents = null) {
     const by = note.source?.wordsBy;
     if (by?.role) return !vouchedFor(by, readRole);
+    if (learnedBelow(note, readRole)) return !vouchedFor(note.source?.trustedBy, readRole);
     if (note.agentId === reader?.id) return false;
     return !writerTrusted(agents?.get(note.agentId) ?? store.getAgent(note.agentId, { includeDeleted: true }), reader);
   }
+  /** Whether a note or an episode was learned by a run that read less than one reading as `readRole`. */
+  const learnedBelow = (item, readRole) => Boolean(item?.readRole) && !roleAtLeast(item.readRole, readRole);
   /** Words held to them (wordsHeld) that read like an instruction. */
   const heldWordsSteer = (title, text) => detectInjection(`${title ?? ""}\n${text ?? ""}`).suspected;
+  /** The notes a flag came from: a flagged item's `injectionFrom` (or `origins`, as kept on a run), else the item itself. */
+  const originsOf = (item) => { const kept = item?.origins ?? item?.injectionFrom; return Array.isArray(kept) && kept.length ? kept : [item.key]; };
+  /** A note as a remembered item for a run of `reader` reading as `readRole` (rememberedFlag). */
+  const noteItem = (note, reader, readRole, { own, from, agents = null }) => ({
+    key: `note:${note.id}`, title: note.title, text: note.body, from, own,
+    injectionHop: noteHopFor(note.source, readRole), injectionFrom: note.source?.injectionFrom ?? null, held: wordsHeld(note, reader, readRole, agents),
+  });
+  /**
+   * How far from such text a flagged remembered item puts the run that reads it - another agent's
+   * note one hop further, its own agent's no nearer than the last hop, an episode of a flagged run at
+   * the last - or null when it does not flag it: not flagged, or another agent's past `flagReach`.
+   */
+  function itemReach(item) {
+    if (Number.isInteger(item.injectionHop)) {
+      const reach = item.own ? Math.max(item.injectionHop, injectionHops) : item.injectionHop + 1;
+      return reach <= flagReach ? reach : null;
+    }
+    return item.runId && store.getRun(item.runId)?.flags?.injection ? injectionHops : null;
+  }
   /** A run's hop: null when it is not flagged or only its own memory flagged it. */
   const runHop = (run) => (run?.flags?.injection && Number.isInteger(run.flags.injectionHop) ? run.flags.injectionHop : null);
   const nearest = (...hops) => { const known = hops.filter(Number.isInteger); return known.length ? Math.min(...known) : null; };
 
   /**
-   * What remembered items bring a run: `{ flagged, hop, read, items }`. Another account's words that
-   * read like an instruction (`held`) were read by this run itself (`read`, hop 0). Otherwise, by
-   * where they came from: a flagged note of another agent brings its hop plus one, within
+   * What remembered items bring a run: `{ flagged, hop, items }`. Another account's words that read
+   * like an instruction (`held`) were read by this run itself: hop 0. Otherwise, by where they came
+   * from (itemReach): a flagged note of another agent brings its hop plus one, within
    * `injectionHops`; the agent's own flagged notes, its flagged runs' episodes, and a note already
-   * as far as a flag goes, flag the run but bring no hop. `items`: those flagged by where they came
-   * from, { key, title, from }, which the trace and the owner's warning name.
+   * as far as a flag goes, flag the run but bring no hop. `items`: each item that flagged it,
+   * { key, title, from, origins, reach, held }, which the trace and the owner's warning name, and
+   * which the owner is told of once (sweep 5: held words were told of at every run, unnamed).
    */
   function rememberedFlag(items) {
     let flagged = false;
     let hop = null;
-    let read = false;
     const carried = [];
     for (const item of items) {
+      const named = { key: item.key, title: clip(String(item.title ?? ""), 80), from: clip(String(item.from ?? ""), 60) };
       // Words held to them (`held`: another account's) that read like an instruction: read by this run itself (sweep 4).
-      if (item.held && heldWordsSteer(item.title, item.text)) { flagged = true; read = true; hop = 0; continue; }
-      const itemHop = Number.isInteger(item.injectionHop) ? item.injectionHop : null;
-      if (itemHop === null && !(item.runId && store.getRun(item.runId)?.flags?.injection)) continue;
+      if (item.held && heldWordsSteer(item.title, item.text)) { flagged = true; hop = 0; carried.push({ ...named, origins: [item.key], reach: 0, held: true }); continue; }
+      const reach = itemReach(item);
+      if (reach === null) continue;
       flagged = true;
-      carried.push({ key: item.key, title: clip(String(item.title ?? ""), 80), from: clip(String(item.from ?? ""), 60) });
-      if (itemHop !== null && !item.own && itemHop + 1 <= injectionHops) hop = nearest(hop, itemHop + 1);
+      carried.push({ ...named, origins: originsOf(item).slice(0, 12), reach });
+      if (!item.own && reach <= injectionHops) hop = nearest(hop, reach);
     }
-    return { flagged, hop, read, items: carried };
+    return { flagged, hop, items: carried };
   }
 
   /** The remembered items that alone flagged a run, as kept on it; null when it read such text itself, or was flagged before these were kept. */
   const flaggedBy = (run) => (run?.flags?.injection && !run.flags.injectionRead && run.flags.injectionItems?.length ? run.flags.injectionItems : null);
-  /** Remembered items, named for a person: "Readings" (Storage Watch), "Fans" (Server Keeper). */
-  const itemNames = (items) => items.slice(0, 4).map((item) => `"${clip(item.title, 60)}"${item.from ? ` (${item.from})` : ""}`).join(", ") + (items.length > 4 ? ` and ${items.length - 4} more` : "");
+  /**
+   * How far from such text a run flagged without a hop is (its items' nearest reach), for the notes
+   * it keeps; the last hop when that is not known.
+   */
+  const runReach = (run) => runHop(run) ?? nearest(...(flaggedBy(run) ?? []).map((item) => item.reach)) ?? injectionHops;
+  /**
+   * Remembered items, named for a person: "Readings" (from "Storage Watch"). A note's title and an
+   * agent's name are someone's words: each quoted, on one line, its own quotes made plain, so none
+   * can speak inside BoxPilot's warning (sweep 5).
+   */
+  const itemNames = (items) => items.slice(0, 4).map((item) => `"${boxAttribute(item.title, 80)}"${item.from ? ` (from "${boxAttribute(item.from, 60)}")` : ""}`).join(", ") + (items.length > 4 ? ` and ${items.length - 4} more` : "");
+  /**
+   * Why remembered items flagged a run, in words: "read X, kept by a run that read something that
+   * looked like an instruction", or, for another account's words, "read X, which holds another
+   * account's words that read like an instruction".
+   */
+  function rememberedWhy(items) {
+    const held = items.filter((item) => item.held);
+    const carried = items.filter((item) => !item.held);
+    return [
+      held.length ? `${itemNames(held)}, which ${held.length === 1 ? "holds" : "hold"} another account's words that read like an instruction` : null,
+      carried.length ? `${itemNames(carried)}, kept by a run that read something that looked like an instruction` : null,
+    ].filter(Boolean).join("; and ");
+  }
 
   /**
    * Flag a run (above), with its hop when it has one: the nearest it came to such text is kept. The
@@ -918,16 +975,18 @@ export function createAgentService({
   }
 
   /** What one remembered-item flag says in the trace: which they are, and what to do. */
-  const rememberedDetail = (items) => `${items.length === 1 ? "What it remembered" : "Things it remembered"}, ${itemNames(items)}, came from a run that read something that looked like an instruction. Trust or forget ${items.length === 1 ? "it" : "them"} on the Memory tab if ${items.length === 1 ? "it is" : "they are"} fine.`;
+  const rememberedDetail = (items) => `${items.length === 1 ? "A note or past run it remembered" : "Notes or past runs it remembered"}: ${rememberedWhy(items)}. Trust or forget ${items.length === 1 ? "it" : "them"} on the Memory tab if ${items.length === 1 ? "it is" : "they are"} fine.`;
 
-  // ---- which flagged notes the owner was told of: once each (sweep 4) ----
+  // ---- which flagged notes the owner was told of: once each (sweeps 4 and 5) ----
 
   const warnedItemsKey = "agents.warnedItems";
   const warnedItems = () => state.getSetting?.(warnedItemsKey, null) ?? {};
-  /** Told of these, now; the newest 500 are kept. */
+  /** Items the owner was not told of: one whose flag came from a note they were not told of (originsOf). */
+  const newsIn = (items, warned = warnedItems()) => items.filter((item) => originsOf(item).some((key) => !(key in warned)));
+  /** Told of these, now - the notes their flags came from; the newest 500 are kept. */
   function noteWarned(items) {
     const kept = { ...warnedItems() };
-    for (const item of items) kept[item.key] = now().toISOString();
+    for (const item of items) for (const key of originsOf(item)) kept[key] = now().toISOString();
     const newest = Object.entries(kept).sort(([, a], [, b]) => String(b).localeCompare(String(a))).slice(0, 500);
     state.setSetting?.(warnedItemsKey, Object.fromEntries(newest), { updatedBy: null });
   }
@@ -1121,11 +1180,10 @@ export function createAgentService({
     const promptNotes = spec.memory?.enabled && spec.knowledge?.notes !== false && knowledgeSettings().notes !== false ? ownNotes(agent.id, run.readRole, { limit: limits.notesInPrompt }) : [];
     const notes = promptNotes.map((note) => wrapNote({ ...note, stale: stale(note) }, { redact }));
     // Its own note kept by a flagged run: flagged, by where the note came from and never by its own
-    // words (sweep 3) - unless they are another account's, which are held to them (sweep 4).
-    const steeredNote = promptNotes.find((note) => wordsHeld(note, agent, run.readRole) && heldWordsSteer(note.title, note.body));
-    if (steeredNote) flagInjection(run.id, { hop: 0, detail: `Its note "${clip(steeredNote.title, 80)}" holds words another account wrote that read like an instruction. Forget the note, or trust it on the Memory tab, if it is fine.` });
-    const flaggedNotes = promptNotes.filter((note) => noteHopFor(note.source, run.readRole) !== null).map((note) => ({ key: `note:${note.id}`, title: clip(note.title, 80), from: clip(agent.name, 60) }));
-    if (flaggedNotes.length) flagInjection(run.id, { from: flaggedNotes, detail: `${flaggedNotes.length === 1 ? "Its note" : "Its notes"} ${itemNames(flaggedNotes)} ${flaggedNotes.length === 1 ? "was" : "were"} kept by a run that read something that looked like an instruction. Forget ${flaggedNotes.length === 1 ? "it" : "them"}, or trust ${flaggedNotes.length === 1 ? "it" : "them"} on the Memory tab, if ${flaggedNotes.length === 1 ? "it is" : "they are"} fine.` });
+    // words (sweep 3) - unless they are another account's, which are held to them (sweep 4), each
+    // named, and news to the owner once (sweep 5: told of at every run, unnamed).
+    const fromNotes = rememberedFlag(promptNotes.map((note) => noteItem(note, agent, run.readRole, { own: true, from: agent.name })));
+    if (fromNotes.flagged) flagInjection(run.id, { hop: fromNotes.hop, from: fromNotes.items, detail: rememberedDetail(fromNotes.items) });
     // What it remembers that bears on this request, by words (the query's vector comes later, from
     // the runner, when the model searches memory itself). Recorded in the trace as a memory read.
     const query = [run.question, run.trigger?.title, spec.job].filter(Boolean).join(" ");
@@ -1135,7 +1193,6 @@ export function createAgentService({
       const carried = rememberedFlag(recalled);
       const step = store.addStep(run.id, { kind: "recall", name: "recall", input: { query: clip(query, 200) }, output: recalled.map((item) => `${item.tier}: ${item.title} (${item.from}, ${String(item.at ?? "").slice(0, 10)}${stale(item) ? ", may be out of date" : ""})`).join("\n"), flags: { read: recalled.length, ...(carried.flagged ? { injection: true } : {}) } });
       if (step) emit(run.id, "step", step);
-      if (carried.read) flagInjection(run.id, { hop: 0, detail: "Something it remembered holds another account's words that read like an instruction." });
       if (carried.items.length) flagInjection(run.id, { hop: carried.hop, from: carried.items, detail: rememberedDetail(carried.items) });
     }
     // What the other agents found that bears on it (M44): before it plans, so it need not look again.
@@ -1578,12 +1635,12 @@ export function createAgentService({
     try {
       if (tool.id === "memory.search") {
         const found = searchMemory(run, spec, value, extras.vector);
-        return answer("memory", { text: found.text, input: { query: value.query, tier: value.tier ?? "any", byMeaning: Boolean(readVector(extras.vector)) }, words: false, flags: found.flagged ? { injection: true } : {}, hop: found.hop, from: found.read ? null : found.items });
+        return answer("memory", { text: found.text, input: { query: value.query, tier: value.tier ?? "any", byMeaning: Boolean(readVector(extras.vector)) }, words: false, flags: found.flagged ? { injection: true } : {}, hop: found.hop, from: found.items });
       }
       if (tool.id === "agents.handoff") return handoffFor(run, spec, value, answer);
       if (tool.id === "notes.read") {
         const read = readNotes(run, spec, value);
-        return answer("tool", { text: read.text, input: value, words: false, flags: read.flagged ? { injection: true } : {}, hop: read.hop, from: read.read ? null : read.items });
+        return answer("tool", { text: read.text, input: value, words: false, flags: read.flagged ? { injection: true } : {}, hop: read.hop, from: read.items });
       }
       if (tool.id === "notes.write") return writeNoteFor(run, spec, value, answer);
       if (tool.id === "plan.propose") return await proposeFor(run, spec, value, answer);
@@ -1613,7 +1670,7 @@ export function createAgentService({
       return `## ${note.title}${stale ? " (may be out of date)" : ""}\nWritten ${note.updatedAt.slice(0, 10)}${note.source?.tools?.length ? ` from ${note.source.tools.join(", ")}` : ""}.\n${note.body}`;
     }).join("\n\n");
     const agent = store.getAgent(run.agentId, { includeDeleted: true });
-    return { text, ...rememberedFlag(notes.map((note) => ({ key: `note:${note.id}`, title: note.title, text: note.body, from: agent?.name, own: true, injectionHop: noteHopFor(note.source, run.readRole), held: wordsHeld(note, agent, run.readRole) }))) };
+    return { text, ...rememberedFlag(notes.map((note) => noteItem(note, agent, run.readRole, { own: true, from: agent?.name }))) };
   }
 
   /**
@@ -1713,16 +1770,25 @@ export function createAgentService({
     const cleanBody = sanitizeUntrusted(body, { maxChars: 2_000, redact });
     const toolsUsed = [...new Set(store.listSteps(run.id).filter((step) => step.kind === "tool" && step.state === "done").map((step) => step.name))];
     const days = freshDays ?? spec.memory.freshDays;
-    // Flagged when this run is - at its hop, or the last one when it has none - never by the note's
-    // own words (sweep 4: sweep 3 kept the notes of a run flagged only by its memory clean, and the
-    // words it copied from a flagged note came back clean once that note was gone). A flagged note it
-    // rewrites stays flagged: rewriting is not the owner trusting it.
+    // Flagged when this run is - at its hop, or without one at how far what flagged it was (runReach)
+    // - never by the note's own words (sweep 4: sweep 3 kept the notes of a run flagged only by its
+    // memory clean, and the words it copied from a flagged note came back clean once that note was
+    // gone). A flagged note it rewrites stays flagged: rewriting is not the owner trusting it. A run
+    // flagged only by remembered notes says which notes its flag came from (`injectionFrom`), so its
+    // new notes are not news to the owner told of those (sweep 5: a new note each run, an alert each run).
     const earlier = store.listNotes(run.agentId, { limit: 200 }).find((note) => note.title.toLowerCase() === cleanTitle.toLowerCase() && note.readRole === run.readRole);
     const writing = store.getRun(run.id);
-    const hop = nearest(writing?.flags?.injection ? runHop(writing) ?? injectionHops : null, noteHopFor(earlier?.source, run.readRole));
+    const flagged = Boolean(writing?.flags?.injection);
+    const earlierHop = noteHopFor(earlier?.source, run.readRole);
+    const hop = nearest(flagged ? runReach(writing) : null, earlierHop);
+    const carried = flaggedBy(writing);
+    // A run that read such text itself makes its note news of its own; else where its flag came from, and the earlier note's.
+    const origins = hop === null || (flagged && !carried) ? [] : [...new Set([...(carried ?? []).flatMap(originsOf), ...(earlierHop !== null ? earlier.source?.injectionFrom ?? [] : [])])].slice(0, 12);
+    // Learned for someone who reads less than the owner: their words, held to them in a run that reads more (sweep 5).
+    const wordsBy = run.requestedBy && run.readRole !== "owner" ? { wordsBy: { id: run.requestedBy, role: run.readRole } } : {};
     const note = store.writeNote(run.agentId, {
       title: cleanTitle, body: cleanBody.text,
-      source: { runId: run.id, by: "agent", tools: toolsUsed, injection: hop !== null, ...(hop === null ? {} : { injectionHop: hop }) },
+      source: { runId: run.id, by: "agent", tools: toolsUsed, injection: hop !== null, ...(hop === null ? {} : { injectionHop: hop }), ...(origins.length ? { injectionFrom: origins } : {}), ...wordsBy },
       freshUntil: new Date(now().getTime() + days * 86_400_000).toISOString(), maxNotes: spec.memory.maxNotes, readRole: run.readRole, shared: spec.memory.share === true,
     });
     return answer("note", { text: `Kept the note "${note.title}", fresh for ${days} days.`, input: { title: cleanTitle } });
@@ -1979,11 +2045,17 @@ export function createAgentService({
       // A run flagged only by remembered items is news to the owner once for each of them (sweep 4):
       // every run a flagged note reaches is still flagged and its notice held, but a card and a
       // high-priority alert at every run (sweep 3's storm) told the owner nothing new.
+      // News is a note the owner was not told of, by where its flag came from (sweep 5: each new note
+      // a flagged run kept was news, so the owner was told at every run).
       const remembered = flaggedBy(run);
-      const warned = remembered ? warnedItems() : {};
-      const news = remembered ? remembered.filter((item) => !(item.key in warned)) : null;
+      const news = remembered ? newsIn(remembered) : null;
       const toldBefore = Boolean(remembered) && !news.length;
-      const risky = rules.risk && run.flags?.injection && !toldBefore;
+      // An agent's own rule to keep quiet about such text is its maker's: never for a run that read
+      // more than its maker may (sweep 5: an operator's agent with it off silenced the owner's warning
+      // on the owner's own runs).
+      const maker = makerOf(agent);
+      const riskRule = Boolean(rules.risk) || !maker || !roleAtLeast(maker.role, run.readRole);
+      const risky = riskRule && run.flags?.injection && !toldBefore;
       const confidence = run.flags?.confidence;
       const reasons = [];
       if (clarify) {
@@ -1994,7 +2066,7 @@ export function createAgentService({
       }
       // A run that asked back is no less one that read something like an instruction: its question
       // may be those words (sweep 3: the card and the warning were skipped for it).
-      const ofNotes = news?.length ? `read ${itemNames(news)}, kept by a run that read something that looked like an instruction. Until you trust or forget ${news.length === 1 ? "it" : "them"} on the Memory tab, every run that reads ${news.length === 1 ? "it" : "them"} is flagged and what it asks to tell you is held back; you are told this once for each.` : null;
+      const ofNotes = news?.length ? `read ${rememberedWhy(news)}. Until you trust or forget ${news.length === 1 ? "it" : "them"} on the Memory tab, every run that reads ${news.length === 1 ? "it" : "them"} is flagged and what it asks to tell you is held back; you are told this once for each.` : null;
       if (risky) reasons.push(ofNotes ? `It ${ofNotes}` : "Something it read looked like an instruction to it. It was told to treat it as data; check what it read and what it did.");
       if (reasons.length) {
         card("escalation", `${agent.name} needs you to look`, reasons.join(" "));
@@ -2254,6 +2326,7 @@ export function createAgentService({
     if (template && !base) refuse(400, `There is no template called ${template}`, "invalid_agent");
     if (store.listAgents().length >= 30) refuse(409, "Thirty agents is the most BoxPilot keeps. Delete one first.", "agent_limit");
     const normalized = wrapSpecError(() => normalizeSpec(spec ?? base?.spec ?? {}));
+    refuseReservedName(normalized.name);
     const agent = store.createAgent({ spec: normalized, template: base?.id ?? null, createdBy: person.id, nextRunAt: nextRunFor(normalized) });
     if (base && templateQuestions[base.id]?.length) store.setQuestions(agent.id, templateQuestions[base.id], { updatedBy: person.id });
     audit("agents.created", { actorId: person.id, subjectId: agent.id, details: { template: base?.id ?? null, name: normalized.name } });
@@ -2265,6 +2338,7 @@ export function createAgentService({
     const agent = agentFor(person, agentId, { edit: true });
     const normalized = wrapSpecError(() => normalizeSpec(spec));
     if (specText(normalized) === specText(agent.spec)) return { ...presentAgent(person, agent, { detail: true }), unchanged: true };
+    refuseReservedName(normalized.name, agent.spec.name);
     const version = store.addVersion(agent.id, { spec: normalized, note: typeof note === "string" ? clip(note.replace(/[\u0000-\u001f\u007f]/g, " ").trim(), 200) || null : null, createdBy: person.id, nextRunAt: nextRunFor(normalized) });
     audit("agents.updated", { actorId: person.id, subjectId: agent.id, details: { version, fields: diffSpecs(agent.spec, normalized).map((change) => change.field) } });
     forgetFindingsIfUnshared(agent, normalized);
@@ -2282,6 +2356,7 @@ export function createAgentService({
     const target = store.getVersion(agent.id, Number(version));
     if (!target) refuse(404, "That version does not exist", "version_not_found");
     if (target.version === agent.version) refuse(409, "That is already the current version", "version_current");
+    refuseReservedName(target.spec.name, agent.spec.name);
     const next = store.addVersion(agent.id, { spec: target.spec, note: `Rolled back to version ${target.version}`, createdBy: person.id, nextRunAt: nextRunFor(target.spec) });
     audit("agents.rolled-back", { actorId: person.id, subjectId: agent.id, details: { to: target.version, version: next } });
     forgetFindingsIfUnshared(agent, target.spec);
@@ -2308,6 +2383,11 @@ export function createAgentService({
   }
 
   const wrapSpecError = (fn) => { try { return fn(); } catch (error) { if (error instanceof SpecError) throw new AgentError(400, error.message, error.code); throw error; } };
+  /** A greeting or BoxPilot's own name, given as an agent's new name: refused (sweep 5). One it already had is kept. */
+  const refuseReservedName = (name, before = null) => {
+    const problem = before !== null && nameKey(name) === nameKey(before) ? null : reservedNameProblem(name);
+    if (problem) refuse(400, problem, "reserved_name");
+  };
   const nextRunFor = (spec) => nextScheduledRun(spec.triggers?.schedule, now())?.toISOString() ?? null;
 
   // ---- what the pages read ----
@@ -2494,7 +2574,9 @@ export function createAgentService({
         usable: sharing.useFindings ? usableFindings(person.role, { exceptAgentId: agent.id }).map((finding) => presentFinding(finding, agentNames)) : [],
       },
       facts: ownNotes(agent.id, person.role, { limit: 200 }).map((note) => ({ ...presentNote(note, agent, person.role), indexed: indexed(`note:${note.id}`) })),
-      shared: store.listSharedNotes({ exceptAgentId: agent.id }).filter((note) => roleAtLeast(person.role, note.readRole)).map((note) => ({ id: note.id, title: note.title, body: note.body, from: agentNames.get(note.agentId) ?? "another agent", updatedAt: note.updatedAt, stale: stale(note) })),
+      // Another agent's shared note as this agent's runs read it (sweep 5: worked out against the
+      // note's own agent, another account's words never showed here, and could not be trusted here).
+      shared: store.listSharedNotes({ exceptAgentId: agent.id }).filter((note) => roleAtLeast(person.role, note.readRole)).map((note) => presentShared(note, agent, person, agentNames)),
       episodes: store.listEpisodes(agent.id, { limit: 100 }).filter((episode) => roleAtLeast(person.role, episode.readRole)).map((episode) => ({ ...episode, indexed: indexed(`episode:${episode.id}`) })),
       thread: thread ? { summary: thread.summary, turns: thread.turns, updatedAt: thread.updatedAt } : null,
       settings: { enabled: agent.spec.memory.enabled, share: agent.spec.memory.share, threads: agent.spec.memory.threads, turns: agent.spec.memory.turns, freshDays: agent.spec.memory.freshDays, maxNotes: agent.spec.memory.maxNotes, shareFindings: sharing.shareFindings, useFindings: sharing.useFindings },
@@ -2538,6 +2620,20 @@ export function createAgentService({
   const presentNote = (note, agent, role) => ({
     ...note, source: { ...note.source, injection: noteHopFor(note.source, role) !== null }, othersWords: wordsHeld(note, agent, role), stale: stale(note),
   });
+
+  /**
+   * Another agent's shared note on `reader`'s Memory tab, for `person`: flagged and held as far as
+   * the reader's runs reading as they may would be (itemReach, wordsHeld), with its own agent, which
+   * is where Trust goes - for whoever may change that agent (sweep 5).
+   */
+  function presentShared(note, reader, person, agentNames) {
+    const writer = store.getAgent(note.agentId);
+    const item = noteItem(note, reader, person.role, { own: false, from: agentNames.get(note.agentId) ?? "another agent" });
+    return {
+      id: note.id, agentId: note.agentId, title: note.title, body: note.body, from: item.from, updatedAt: note.updatedAt, stale: stale(note),
+      injection: itemReach(item) !== null, othersWords: item.held, canTrust: Boolean(writer) && canEdit(person, writer),
+    };
+  }
 
   /** Forget: a fact, a past run's episode, or the whole conversation. Really deleted, embedding and all. */
   function forgetMemory(caller, agentId, { kind, id = null } = {}) {
@@ -2608,6 +2704,7 @@ export function createAgentService({
     let read;
     try { read = readDefinition(definition); } catch (error) { refuse(error.status ?? 400, error.message, error.code ?? "invalid_definition"); }
     if (store.listAgents().length >= 30) refuse(409, "Thirty agents is the most BoxPilot keeps. Delete one first.", "agent_limit");
+    refuseReservedName(read.spec.name);
     const agent = store.createAgent({ spec: read.spec, template: read.template, createdBy: person.id, nextRunAt: nextRunFor(read.spec) });
     let questions = [];
     try { questions = normalizeQuestions(read.questions); } catch { questions = []; }
@@ -2973,21 +3070,30 @@ export function createAgentService({
     if (!["owner", "operator", "viewer"].includes(account.role)) return { refused: "Your BoxPilot account cannot ask agents any more. The owner can set you up again." };
     const caller = { id: account.id, role: account.role };
     const askable = store.listAgents().filter((agent) => canAsk(caller, agent) && !agentPaused(agent));
-    const { text, agentName } = questionFrom(message.content, { agents: askable.map((agent) => agent.name) });
+    const { text, agentName, exact } = questionFrom(message.content, { agents: askable.map((agent) => agent.name) });
     if (!text) return { refused: "Ask a question after the mention, like: Steve, which drives are connected?" };
     const chosen = state.getSetting?.(zulipSettingKey, null)?.defaultAgentId ?? null;
-    // Two of the name the message gives: neither is guessed at, and the reply says whose each is
-    // (2026-10 sweep 4: the first made was asked - an operator's, say, run as the owner under that
-    // operator's words). Without a name, the owner's own agents, then the asker's, come first.
-    const named = agentName ? askable.filter((entry) => entry.name === agentName) : [];
-    if (named.length > 1) {
-      const whose = named.map((entry) => { const maker = makerOf(entry); return maker ? `one made by ${maker.username ?? maker.role}${maker.username && maker.role !== "owner" ? ` (${maker.role})` : ""}` : "one whose maker has gone"; });
-      return { refused: `More than one agent is called ${agentName}: ${whose.join(", ")}. Ask the owner to give them different names, then ask again.` };
-    }
+    // Two the name the message gives could mean: neither is guessed at, and the reply says whose each
+    // is (2026-10 sweep 4: the first made was asked - an operator's, say, run as the owner under that
+    // operator's words). Matched as questionFrom matches - any case, "the" before it or not (sweep 5:
+    // an operator's "The Server Keeper" took the owner's questions to the owner's Server Keeper) -
+    // and said by role, never by username: the thread may hold people who are not in BoxPilot (sweep 5).
+    // Without a name, the owner's own agents, then the asker's, come first.
+    const named = agentName ? askable.filter((entry) => nameKey(entry.name) === nameKey(agentName)) : [];
+    const whose = (entry) => { const maker = makerOf(entry); return !maker ? "one whose maker has gone" : maker.id === account.id ? "one you made" : maker.role === "owner" ? "one made by the owner" : `one made by ${maker.role === "operator" ? "an operator" : "a viewer"}`; };
+    if (named.length > 1) return { refused: `More than one agent is called ${agentName}: ${named.map(whose).join(", ")}. Ask the owner to give them different names, then ask again.` };
     const ownersFirst = (list) => list.find((entry) => makerOf(entry)?.role === "owner") ?? list.find((entry) => entry.createdBy === account.id) ?? list[0];
     const agent = agentName ? named[0]
       : askable.find((entry) => entry.id === chosen) ?? ownersFirst(askable.filter((entry) => entry.template === "server-keeper")) ?? ownersFirst(askable);
     if (!agent) return { refused: "None of BoxPilot's agents takes questions from you." };
+    // An agent whose maker reads less than the asker runs as the asker, under its maker's words: only
+    // when the message names it exactly, its full name and a colon - never "the", another case or
+    // the start of a sentence that happens to match (sweep 5: an operator's agent called "Hey" took
+    // the owner's "Hey, ..."). Otherwise the reply says whose it is and how to ask it.
+    const maker = makerOf(agent);
+    if (agentName && !exact && (!maker || !roleAtLeast(maker.role, account.role))) {
+      return { refused: `The agent ${agent.name} was made by ${maker ? (maker.role === "operator" ? "an operator" : "a viewer") : "someone who has gone"}, and it would answer as you. To ask it, start with its full name and a colon - ${agent.name}: your question - or ask without a name.` };
+    }
     try {
       const run = startRun(caller, agent.id, { kind: "ask", question: text }, { trigger: { title: "Asked in Zulip", chat: { ...where, messageId: message.id, kind: message.kind } } });
       return { run, agentName: agent.name };

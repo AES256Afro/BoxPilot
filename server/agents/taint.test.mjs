@@ -248,7 +248,7 @@ describe("the flag follows where the text came from, not what its words look lik
     expect(h.store.getNote(keeper.id, rewritten.id).source.injectionHop).toBeUndefined();
   });
 
-  it("R3B1-1, R4S3-2: another agent's flagged note flags the run that reads it and the notes it keeps; those flag their readers, at the last hop", async () => {
+  it("R3B1-1, R4S3-2, R5B1-1: another agent's flagged note flags the run that reads it and the notes it keeps; those flag their readers, and theirs only their own agent's", async () => {
     const keeper = make("server-keeper");
     const watcher = make("pihole-watcher");
     ask(keeper, "owner", "Which apps are installed?");
@@ -264,7 +264,8 @@ describe("the flag follows where the text came from, not what its words look lik
     await h.service.runnerFinish(claim.run.id, claim.lease, { outcome: "completed", answer: "Done." });
 
     // The keeper's note, shared, reaches the watcher: flagged, without a hop; a third note is
-    // flagged too, at the last hop (sweep 4, R4S3-2), until the owner trusts or forgets it.
+    // flagged too (sweep 4, R4S3-2), until the owner trusts or forgets it - past the last hop, for
+    // the watcher's own runs and no other agent's (sweep 5, R5B1-1).
     h.store.deleteNote(watcher.id, h.store.listNotes(watcher.id).find((note) => note.title === "Upstream resolver").id);
     ask(watcher, "owner", "Is Pi-hole blocking?");
     const theirs = await h.service.runnerNext(h.runnerId, { waitMs: 0 });
@@ -272,7 +273,7 @@ describe("the flag follows where the text came from, not what its words look lik
     expect(h.store.getRun(theirs.run.id).flags.injection).toBe(true);
     expect(h.store.getRun(theirs.run.id).flags.injectionHop).toBeUndefined();
     await call(theirs, "notes_write", { title: "Resolver", body: "The upstream resolver is fast." });
-    expect(noteNamed(watcher, "Resolver").source).toMatchObject({ injection: true, injectionHop: 1 });
+    expect(noteNamed(watcher, "Resolver").source).toMatchObject({ injection: true, injectionHop: 2 });
     await h.service.runnerFinish(theirs.run.id, theirs.lease, { outcome: "completed", answer: "Done." });
   });
 

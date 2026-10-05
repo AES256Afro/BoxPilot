@@ -502,7 +502,9 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
       const id = existing?.id ?? randomUUID();
       if (existing) prepare("UPDATE agent_notes SET body = ?, source_json = ?, updated_at = ?, fresh_until = ?, shared = ? WHERE id = ?").run(body, json(source), at, freshUntil, shared ? 1 : 0, id);
       else prepare("INSERT INTO agent_notes (id, agent_id, title, body, source_json, created_at, updated_at, fresh_until, read_role, shared) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(id, agentId, title, body, json(source), at, at, freshUntil, readRole, shared ? 1 : 0);
-      const dropped = prepare("SELECT id FROM agent_notes WHERE agent_id = ? AND pinned = 0 AND finding IS NULL AND id NOT IN (SELECT id FROM agent_notes WHERE agent_id = ? AND finding IS NULL ORDER BY pinned DESC, updated_at DESC, rowid DESC LIMIT ?)").all(agentId, agentId, maxNotes).map((entry) => entry.id);
+      // Never the note just written: with as many pinned as it keeps, that one was dropped, and
+      // every note an agent wrote failed (2026-10 sweep 5).
+      const dropped = prepare("SELECT id FROM agent_notes WHERE agent_id = ? AND pinned = 0 AND finding IS NULL AND id != ? AND id NOT IN (SELECT id FROM agent_notes WHERE agent_id = ? AND finding IS NULL ORDER BY pinned DESC, updated_at DESC, rowid DESC LIMIT ?)").all(agentId, id, agentId, maxNotes).map((entry) => entry.id);
       for (const gone of dropped) { prepare("DELETE FROM agent_notes WHERE id = ?").run(gone); prepare("DELETE FROM agent_vectors WHERE kind = 'note' AND item_id = ?").run(gone); }
       return noteOf(prepare("SELECT * FROM agent_notes WHERE id = ?").get(id));
     });
@@ -548,7 +550,10 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
    * than they may (`trustedBy`), and their words are theirs (`wordsBy`), held to them by a run that
    * reads more (sweep 4: an operator's Trust, or their rewrite, cleared a note for the owner's runs).
    * Only new words count: the same words sent back with a new freshness or title are still the
-   * run's (sweep 4: the edit sheet sent them every time, and so trusted the fact).
+   * run's (sweep 4: the edit sheet sent them every time, and so trusted the fact). A new title alone
+   * never vouches for the words under it (sweep 5: the owner renaming an operator's note trusted
+   * it); it makes them the editor's only when an earlier word outranked theirs - their title is
+   * theirs, and never the owner's.
    */
   function updateNote(agentId, noteId, { title, body, freshUntil, pinned, shared, trusted = false, by = null }) {
     return transaction(() => {
@@ -561,11 +566,12 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
       const outranks = (earlier) => !earlier?.role || roleAtLeast(person.role, earlier.role);
       let next = source;
       if (newWords || trusted) {
-        if (!person || person.role === "owner") { const { injectionHop: _hop, ...rest } = source; next = { ...rest, injection: false }; }
+        if (!person || person.role === "owner") { const { injectionHop: _hop, injectionFrom: _from, ...rest } = source; next = { ...rest, injection: false }; }
         // New words are vouched for by whoever wrote them; a Trust never lowers an earlier one's word.
         if (person && (newWords || outranks(source.trustedBy))) next = { ...next, trustedBy: person };
       }
-      if (person && (newWords || newTitle || (trusted && outranks(source.wordsBy)))) next = { ...next, wordsBy: person };
+      const lowersWord = newTitle && Boolean(source.wordsBy?.role) && !roleAtLeast(person?.role ?? "viewer", source.wordsBy.role);
+      if (person && (newWords || (trusted && outranks(source.wordsBy)) || lowersWord)) next = { ...next, wordsBy: person };
       const cleared = next === source ? current.source_json : json(next);
       prepare("UPDATE agent_notes SET title = ?, body = ?, fresh_until = ?, pinned = ?, shared = ?, source_json = ?, updated_at = ? WHERE id = ?")
         .run(title ?? current.title, body ?? current.body, freshUntil === undefined ? current.fresh_until : freshUntil, pinned === undefined ? current.pinned : pinned ? 1 : 0, shared === undefined ? current.shared : shared ? 1 : 0, cleared, iso(), noteId);
