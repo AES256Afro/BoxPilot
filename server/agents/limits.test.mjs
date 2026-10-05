@@ -138,6 +138,24 @@ describe("one run at a time", () => {
     expect(second.run.id).not.toBe(first.run.id);
   });
 
+  it("ends a question that waited too long while no runner asked for work, so its person may ask again (R3B1-8)", async () => {
+    await setup();
+    const keeper = make("server-keeper");
+    const helper = make("it-support");
+    const waiting = ask(keeper, "operator");
+    // No runner asks for work for two hours: the next tick ends it, as handing it out would have.
+    h.advance(2 * 3600_000 + 60_000);
+    await h.service.tick();
+    expect(h.store.getRun(waiting.id)).toMatchObject({ state: "cancelled", reason: "It waited too long to start" });
+    expect(ask(helper, "operator", "Anything else?")).toMatchObject({ state: "queued" });
+    // A background run waits its own, longer time, from when quiet hours begin.
+    h.service.relearn(h.caller("owner"), keeper.id);
+    const learn = h.store.activeRuns().find((run) => run.kind === "learn");
+    h.advance(3 * 3600_000);
+    await h.service.tick();
+    expect(h.store.getRun(learn.id).state).toBe("queued");
+  });
+
   it("takes one question at a time from each person", async () => {
     await setup();
     const agent = make("it-support");

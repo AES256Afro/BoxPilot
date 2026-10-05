@@ -134,6 +134,21 @@ describe("someone the owner mapped", () => {
     expect(h.helperCalls.some((call) => call.operation === "app.backup")).toBe(false);
   });
 
+  it("tells the asker when their question waited too long because no runner took it, and takes their next (R3B1-8)", async () => {
+    const keeper = h.service.createAgent(h.caller("owner"), { template: "server-keeper" });
+    await mapTo([{ zulipId: 11, zulipEmail: "alex@example.com", boxpilotId: h.accounts.owner.id }], { defaultAgentId: keeper.id });
+    direct(alex, "Which drives are connected?");
+    await check();
+    posted = [];
+    h.advance(2 * 3600_000 + 60_000);
+    await h.service.tick();
+    await h.service.chat.drain();
+    expect(posted.filter((post) => post.to?.[0] === 11).map((post) => post.content)).toEqual([expect.stringMatching(/could not answer: It waited too long to start/)]);
+    direct(alex, "Which drives are connected now?");
+    await check();
+    expect(h.store.activeRuns()).toMatchObject([{ question: "Which drives are connected now?", state: "queued" }]);
+  });
+
   it("asks nothing while Agents are paused, and keeps the owner's list to accounts that exist", async () => {
     await expect(mapTo([{ zulipEmail: "alex@example.com", boxpilotId: "no-such-account" }])).rejects.toMatchObject({ status: 400 });
     await expect(mapTo([{ zulipEmail: "not an address", boxpilotId: h.accounts.owner.id }])).rejects.toMatchObject({ status: 400 });
