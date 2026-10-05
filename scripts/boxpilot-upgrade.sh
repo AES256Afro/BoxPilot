@@ -276,6 +276,9 @@ rollback() {
       log "could not move the backup destination back; fstab from before the upgrade is ${BACKUP_MOUNT_UNDO}"
     fi
   fi
+  # Whether the old tree is at INSTALL_DIR: it never left (the swap had not happened), or it went
+  # back. Each move is checked: the rollback used to say "previous tree restored" either way.
+  RESTORED=1
   if [ -d "$PREVIOUS" ]; then
     if [ -d "$INSTALL_DIR" ]; then
       rm -rf "${INSTALL_DIR}.failed.${STAMP}"
@@ -283,9 +286,11 @@ rollback() {
     fi
     # Never into the new tree: a move aside that failed leaves it where it is, and says so.
     if [ -e "$INSTALL_DIR" ]; then
+      RESTORED=0
       log "could not move the new tree aside; the previous tree is still at ${PREVIOUS}"
-    else
-      mv "$PREVIOUS" "$INSTALL_DIR"
+    elif ! mv "$PREVIOUS" "$INSTALL_DIR"; then
+      RESTORED=0
+      log "could not move the previous tree back to ${INSTALL_DIR}; it is still at ${PREVIOUS}"
     fi
   fi
   # Old code under new unit files would keep failing for the same reason the upgrade did.
@@ -295,8 +300,8 @@ rollback() {
     log "restored unit ${name}"
   done
   systemctl daemon-reload 2>/dev/null || true
-  systemctl restart boxpilot-helper.service 2>/dev/null || true
-  systemctl restart boxpilot.service 2>/dev/null || true
+  systemctl restart boxpilot-helper.service 2>/dev/null || log "boxpilot-helper.service did not restart"
+  systemctl restart boxpilot.service 2>/dev/null || log "boxpilot.service did not restart"
   # The agents runner (M37) only when the owner turned it on: try-restart leaves a stopped unit stopped.
   systemctl try-restart boxpilot-agents.service 2>/dev/null || true
   # The code is back; the database is whatever the new version left. Usually that is fine - most
@@ -305,10 +310,33 @@ rollback() {
     log "the database as ${OLD_VERSION} left it is ${DB_COPY}"
     log "if ${OLD_VERSION} misbehaves on the current database: systemctl stop boxpilot, copy that file over ${DATABASE} (keeping its owner and mode), delete ${DATABASE}-wal and ${DATABASE}-shm, and start boxpilot. Anything recorded after ${STAMP} is not in the copy."
   fi
-  if [ -d "${INSTALL_DIR}.failed.${STAMP}" ]; then
-    fail "upgrade failed; previous tree restored (failed tree kept at ${INSTALL_DIR}.failed.${STAMP})"
+  if [ "$RESTORED" -ne 1 ]; then
+    if [ -e "$INSTALL_DIR" ]; then
+      trees="the new tree is still at ${INSTALL_DIR}"
+    else
+      trees="${INSTALL_DIR} is missing"
+      [ ! -d "${INSTALL_DIR}.failed.${STAMP}" ] || trees="${trees}, the new tree is at ${INSTALL_DIR}.failed.${STAMP}"
+    fi
+    fail "upgrade failed and the previous tree could not be put back: it is at ${PREVIOUS}; ${trees}. Move ${PREVIOUS} to ${INSTALL_DIR} by hand, then restart boxpilot-helper and boxpilot."
   fi
-  fail "upgrade failed before the new tree was in place; the previous BoxPilot was left as it was"
+  # Whether the old version is really back: a restart's exit code says little, so the service is
+  # asked, as the upgrade asks the new one, for a short while. Bounded, so a TERM's rollback still
+  # ends well inside systemd's stop timeout.
+  case "$OLD_VERSION" in ''|unknown) wanted='"status":"ok"' ;; *) wanted="\"version\":\"${OLD_VERSION}\"" ;; esac
+  if ! systemctl is-enabled boxpilot.service >/dev/null 2>&1; then
+    back="boxpilot.service is not enabled, so nothing was asked"
+  else
+    back=""; attempt=0
+    while [ -z "$back" ] && [ "$attempt" -lt 10 ]; do
+      attempt=$((attempt + 1))
+      case "$(curl -fsS --max-time 2 "$HEALTH_URL" 2>/dev/null)" in *"$wanted"*) back="and BoxPilot ${OLD_VERSION} answers at ${HEALTH_URL}" ;; *) sleep 1 ;; esac
+    done
+    [ -n "$back" ] || back="but BoxPilot ${OLD_VERSION} did not answer at ${HEALTH_URL} after the restart; journalctl -u boxpilot -u boxpilot-helper says why"
+  fi
+  if [ -d "${INSTALL_DIR}.failed.${STAMP}" ]; then
+    fail "upgrade failed; previous tree restored, ${back} (failed tree kept at ${INSTALL_DIR}.failed.${STAMP})"
+  fi
+  fail "upgrade failed before the new tree was in place; the previous BoxPilot was left as it was, ${back}"
 }
 
 HAD_PREVIOUS=0

@@ -109,6 +109,18 @@ describe("where the copy sits in the upgrade", () => {
     expect(script).toContain('AS_OWNER="runuser -u ${DB_OWNER} --"');
   });
 
+  // It said "previous tree restored" whether or not the move back worked, and never asked the
+  // restarted service anything.
+  it("says the old tree is back only once it is, and asks the restarted service before it says how it went", () => {
+    const rollback = script.slice(at("rollback() {"), at("HAD_PREVIOUS=0"));
+    expect(rollback).toContain('elif ! mv "$PREVIOUS" "$INSTALL_DIR"; then');
+    const asked = rollback.indexOf('case "$(curl -fsS --max-time 2 "$HEALTH_URL" 2>/dev/null)" in');
+    expect(asked).toBeGreaterThan(rollback.indexOf("systemctl restart boxpilot.service"));
+    expect(asked).toBeGreaterThan(rollback.indexOf('if [ "$RESTORED" -ne 1 ]; then'));
+    expect(asked).toBeLessThan(rollback.indexOf('fail "upgrade failed; previous tree restored, ${back}'));
+    expect(rollback).toMatch(/while \[ -z "\$back" \] && \[ "\$attempt" -lt 10 \]; do/);
+  });
+
   it("names the copy that matches the old code when it rolls back", () => {
     const rollback = script.slice(at("rollback() {"), at("HAD_PREVIOUS=0"));
     expect(rollback).toContain('log "the database as ${OLD_VERSION} left it is ${DB_COPY}"');

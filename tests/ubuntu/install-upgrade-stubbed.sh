@@ -34,6 +34,8 @@
 #      removes one an earlier run left.
 #   8. A new --port re-points Tailscale Serve wherever BoxPilot is published through it, even on a
 #      Tailscale install whose owner has since turned on the LAN.
+#   9. A rollback checks the old tree went back and asks the restarted service, and says what it
+#      found: back and answering, back and silent, or not back (and where both trees are).
 set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -95,14 +97,28 @@ dir=0
 while [ $# -gt 0 ]; do case "$1" in -d) dir=1; shift ;; -m|-o|-g) shift 2 ;; *) break ;; esac; done
 if [ "$dir" -eq 1 ]; then mkdir -p "$@"; else cp "$1" "$2"; fi'
 # curl: the release tarball for a download; for anything else, a health answer from the addresses
-# in $STUB_LISTEN and a refused connection from every other.
+# in $STUB_LISTEN and a refused connection from every other. The answer names $STUB_VERSION, or with
+# $STUB_TREE set, the version of the tree there (none there, nothing answers): the service answers
+# as whichever version is in place.
 stub curl 'for arg; do url="$arg"; done
 case "$*" in *codeload.github.com*) exec cat "$STUB_TARBALL" ;; esac
 printf "%s\n" "$url" >> "$STUB_LOG/curl"
+version="$STUB_VERSION"
+if [ -n "${STUB_TREE:-}" ]; then
+  version="$(sed -n "s/.*\"version\":\"\([^\"]*\)\".*/\1/p" "$STUB_TREE/package.json" 2>/dev/null)"
+  [ -n "$version" ] || exit 7
+fi
 for listening in $STUB_LISTEN; do
-  if [ "$url" = "$listening" ]; then printf "{\"status\":\"ok\",\"product\":\"BoxPilot\",\"version\":\"%s\"}\n" "$STUB_VERSION"; exit 0; fi
+  if [ "$url" = "$listening" ]; then printf "{\"status\":\"ok\",\"product\":\"BoxPilot\",\"version\":\"%s\"}\n" "$version"; exit 0; fi
 done
 exit 7'
+# mv: the real one, except that with $STUB_MV_FAIL=prev moving a previous tree (.prev.) fails, as a
+# read-only or broken /opt would make it.
+MV_REAL="$(command -v mv)"
+stub mv "if [ \"\${STUB_MV_FAIL:-}\" = prev ]; then
+  case \"\${1:-}\" in *.prev.*) echo \"mv: cannot move '\$1': Read-only file system\" >&2; exit 1 ;; esac
+fi
+exec \"${MV_REAL}\" \"\$@\""
 # systemctl: logged; "<command>:<n>" in $STUB_HOLDS holds the nth such call until the harness lets
 # it go, so a signal can arrive at a known point. Every unit is enabled unless $STUB_NOT_ENABLED.
 # Each restart of the web service also logs the port the env file gives it then.
@@ -546,6 +562,29 @@ check "LAN install on a box running Tailscale, --port 9100: nothing published" '
 installed_box 9000
 STUB_TAILSCALE=running run_install http://127.0.0.1:9100/api/v1/health --port 9100
 check "Tailscale install, re-run with --port 9100: Serve forwards to 9100, set once" '[ "$status" -eq 0 ] && [ "$(served http://127.0.0.1:9100)" -eq 1 ] && [ "$(grep -c "^serve" "${STUB_LOG}/tailscale")" -eq 1 ]'
+
+echo "9. A rollback says whether the old version is really back"
+# The rollback said "previous tree restored" whether or not the old tree had been moved back, and
+# never asked the restarted service anything: its restarts' errors were silenced.
+last_line() { printf '%s\n' "$out" | tail -n 1; }
+# The new helper never comes up (its socket is not there), so the upgrade rolls back; the old
+# version, back in place, answers as 1.0.0.
+fresh_box 'BOXPILOT_PORT=8787'
+run_upgrade STUB_LISTEN=http://127.0.0.1:8787/api/v1/health STUB_TREE="${FAKE}/opt/boxpilot" BOXPILOT_HELPER_SOCKET=missing.sock
+show "$out"
+check "rolled back, the old version answers: it failed, and its last line says 1.0.0 answers again" '[ "$status" -ne 0 ] && last_line | grep -q "ERROR: upgrade failed; previous tree restored, and BoxPilot 1.0.0 answers at http://127.0.0.1:8787/api/v1/health"'
+check "rolled back, the old version answers: it asked once for 2.0.0 and once more after the rollback's restart" '[ "$(grep -cx http://127.0.0.1:8787/api/v1/health "${STUB_LOG}/curl")" -eq 2 ] && [ "$(version_at "${FAKE}/opt/boxpilot")" = 1.0.0 ]'
+# Nothing answers, before or after.
+fresh_box 'BOXPILOT_PORT=8787'
+run_upgrade STUB_LISTEN=
+show "$out"
+check "rolled back, nothing answers: it says so rather than that all is well" '[ "$status" -ne 0 ] && last_line | grep -q "previous tree restored, but BoxPilot 1.0.0 did not answer at http://127.0.0.1:8787/api/v1/health" && ! grep -q "1.0.0 answers" <<<"$out"'
+# The old tree cannot be moved back.
+fresh_box 'BOXPILOT_PORT=8787'
+run_upgrade STUB_LISTEN= STUB_MV_FAIL=prev
+show "$out"
+check "rolled back, the old tree cannot be moved back: it never claims it was restored" '[ "$status" -ne 0 ] && ! grep -q "restored" <<<"$out"'
+check "rolled back, the old tree cannot be moved back: it says plainly where both trees are" 'last_line | grep -q "ERROR: upgrade failed and the previous tree could not be put back: it is at .*/opt/boxpilot\.prev\.[0-9TZ]*; .*/opt/boxpilot is missing, the new tree is at .*/opt/boxpilot\.failed\.[0-9TZ]*\." && [ -d "$(ls -d "${FAKE}"/opt/boxpilot.prev.* | head -n 1)" ]'
 
 if [ "$failures" -gt 0 ]; then echo "${failures} check(s) failed"; exit 1; fi
 echo "all checks passed"
