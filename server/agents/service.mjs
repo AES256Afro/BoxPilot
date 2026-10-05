@@ -1029,7 +1029,12 @@ export function createAgentService({
       for (const child of children.filter((entry) => !shown.has(entry.id))) answered(child);
       if (tainted) flagInjection(run.id, { hop: taintHop, detail: "A specialist's answer it was given came from a run that read something that looked like an instruction." });
     }
-    const handoffOutputs = run.kind === "continue" ? store.listSteps(run.id).filter((step) => step.kind === "tool" && step.name === "agents.handoff").map((step, index) => wrapToolOutput({ index: index + 1, tool: "agents_handoff", text: step.output ?? "", flags: step.flags })) : [];
+    // The specialists' answers, T1, T2 ...: in the prompt, and to the runner, which numbers its tool
+    // outputs after them, checks the answer against them and falls back on them (sweep 3: it had
+    // none, so an answer citing T1 was "not sure", and one with no words of its own lost them).
+    const handoffSteps = run.kind === "continue" ? store.listSteps(run.id).filter((step) => step.kind === "tool" && step.name === "agents.handoff") : [];
+    const handoffOutputs = handoffSteps.map((step, index) => wrapToolOutput({ index: index + 1, tool: "agents_handoff", text: step.output ?? "", flags: step.flags }));
+    const handoffs = handoffSteps.map((step, index) => ({ id: `T${index + 1}`, title: `${clip(String(step.input?.agent ?? "A specialist"), 60)}'s answer`, text: step.output ?? "" }));
     const budget = budgetOf({ ...agent, spec });
     const deadlineAt = new Date(Date.parse(run.startedAt) + spec.budget.runSeconds * 1000).toISOString();
     // An evaluation plans too (M40): it measures what a person asking gets, and the plan is where
@@ -1046,6 +1051,8 @@ export function createAgentService({
       ],
       // The findings it was offered, F1, F2 ...: what the runner's check holds a claim citing one to.
       findings: findings.map(({ id, title, text }) => ({ id, title, text })),
+      // A follow-up's specialists' answers, T1, T2 ...: tool output already, before any it reads (sweep 3).
+      handoffs,
       tools: offered.map((tool) => ({ id: tool.id, ...toModelTool(tool) })),
       // Intent, then plan, then act: the runner asks for the structured understanding first.
       understand: understand ? { tools: offered.map((tool) => ({ fn: tool.fn, title: tool.title, ...(tool.use ? { use: tool.use } : {}) })) } : null,
