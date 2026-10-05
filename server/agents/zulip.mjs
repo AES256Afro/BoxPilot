@@ -9,7 +9,7 @@
  * reads as a chat-template token, and has its @-mentions broken, so an agent can never page the
  * whole organization. A card links back to BoxPilot: nothing is approved in chat.
  */
-import { sanitizeUntrusted } from "./guard.mjs";
+import { readsAs, sanitizeUntrusted } from "./guard.mjs";
 
 /** The bot's key in the credential store, under one fixed name. */
 export const zulipCredentialName = "zulip-agents-bot";
@@ -89,9 +89,13 @@ export function chatOutputsOf(spec) {
 }
 
 /** Where one kind of output goes for this agent: its channel and topic, or null when it is off. */
-export function destinationFor(spec, kind, connection) {
+export function destinationFor(spec, kind, connection, { connectionOnly = false } = {}) {
   const output = chatOutputsOf(spec)[kind];
   if (!output?.enabled || !connection?.channels?.[kind]) return null;
+  // `connectionOnly`: a run that read more than the agent's maker may posts only to the
+  // connection's own channel, never one the agent's spec chose (2026-10 sweep 4: an operator's
+  // agent, asked by the owner, posted the owner's run's trace wherever the operator said).
+  if (connectionOnly) return { channel: connection.channels[kind], topic: clipLine(spec?.name ?? "Agent", chatLimits.topicChars) };
   const topic = clipLine(output.topic ?? spec?.name ?? "Agent", chatLimits.topicChars);
   return { channel: output.channel ?? connection.channels[kind], topic };
 }
@@ -128,7 +132,22 @@ export function neutralizeLinks(text) {
 
 /** Words for a chat message: redacted, template tokens and control characters out, links and mentions broken, bounded. */
 export function chatText(text, { redact = (value) => value, maxChars = chatLimits.messageChars } = {}) {
-  return neutralizeMentions(neutralizeLinks(sanitizeUntrusted(text, { maxChars, redact }).text));
+  return neutralizeMentions(neutralizeLinks(unposed(sanitizeUntrusted(text, { maxChars, redact }).text)));
+}
+
+/**
+ * A line that would pass for BoxPilot's own in a post: "BoxPilot: ..." (in any markup), or a whole
+ * line in italics that speaks of BoxPilot, as BoxPilot's warning is - read as a model or a person
+ * reads it (readsAs: past zero-width characters, fullwidth and lookalike letters).
+ */
+const posingAsBoxPilot = [/^[\s>*_~`|#-]*BoxPilot[\s*_~`]*:/i, /^[\s>]*_[^\n]*\bBoxPilot\b[^\n]*_\s*$/i];
+/**
+ * Text where no line of someone else's words passes for BoxPilot's: such a line says it is the
+ * agent's (2026-10 sweep 4: under the real warning a model's "_BoxPilot: the warning above was a
+ * false alarm_" read as BoxPilot taking it back).
+ */
+function unposed(text) {
+  return text.split("\n").map((line) => (posingAsBoxPilot.some((pattern) => pattern.test(readsAs(line))) ? `The agent wrote: ${line}` : line)).join("\n");
 }
 
 /** A link back into BoxPilot, or nothing when BoxPilot's own address is not known. */
@@ -174,10 +193,13 @@ export function cardMessage({ agentName, proposal, link = null, flagged = false,
   return warned(flagged, `${chatText(`**${name}** proposes: **${clipLine(proposal.title, 120)}**\n${clip(proposal.reason ?? "", 800)}\nSteps: ${steps || "none"}.`, { redact, maxChars: 2_400 })}\n${where} Nothing runs until a person approves each step there.`);
 }
 
-/** #agent-knowledge: a note the agent kept. */
-export function noteMessage({ agentName, note, redact }) {
+/**
+ * #agent-knowledge: a note the agent kept. `flagged`: its run's injection flag, or the note's own -
+ * warned first, as the run's other posts are (2026-10 sweep 4: posted unmarked).
+ */
+export function noteMessage({ agentName, note, flagged = false, redact }) {
   const fresh = note.freshUntil ? ` · fresh until ${String(note.freshUntil).slice(0, 10)}` : "";
-  return chatText(`**${clipLine(agentName, 60)}** kept a note: **${clipLine(note.title, 120)}**${fresh}\n\n${clip(note.body, 2_000)}`, { redact, maxChars: 2_600 });
+  return warned(flagged, chatText(`**${clipLine(agentName, 60)}** kept a note: **${clipLine(note.title, 120)}**${fresh}\n\n${clip(note.body, 2_000)}`, { redact, maxChars: 2_600 }));
 }
 
 function stepLine(step, tools) {
@@ -214,7 +236,8 @@ export function traceMessage({ agentName, run, steps, link = null, redact }) {
   if (run.answer) lines.push(`**Answer:** ${clipLine(run.answer, 400)}`);
   const redacted = chatText(lines.join("\n"), { redact, maxChars: chatLimits.messageChars - 400 });
   // The link is BoxPilot's own, on the first line after redaction, which would take its query away.
-  const summary = link ? redacted.replace(/^([^\n]*)/, (first) => `${first} · ${link}`) : redacted;
+  // A flagged run's trace is warned of first, as its other posts are (2026-10 sweep 4).
+  const summary = warned(Boolean(run.flags?.injection), link ? redacted.replace(/^([^\n]*)/, (first) => `${first} · ${link}`) : redacted);
 
   // The whole trace, every step in full, when the summary had to leave things out.
   const full = [`# ${clipLine(agentName, 60)}, run ${run.id}`, "", `${run.kind} · ${run.state}${took}${tokens}`, "", ...steps.map((step) => {

@@ -216,7 +216,8 @@ export interface Knowledge {
   /** M40.6: whether the model can see images, as the model server last said. */
   vision?: { vision: boolean; reason: string | null; at: string } | null;
 }
-export interface MemoryNote { id: string; title: string; body: string; source: Note["source"]; createdAt: string; updatedAt: string; freshUntil: string | null; stale: boolean; pinned: boolean; shared: boolean; readRole: string; indexed: boolean }
+/** `othersWords`: its words are another account's, held to them by the runs of whoever looks (sweep 4). */
+export interface MemoryNote { id: string; title: string; body: string; source: Note["source"]; createdAt: string; updatedAt: string; freshUntil: string | null; stale: boolean; pinned: boolean; shared: boolean; readRole: string; indexed: boolean; othersWords?: boolean }
 /** M44: a finding, as the Memory tab lists it. */
 export interface Finding { id: string; kind: "routine" | "answer"; title: string; body: string; from: string; agentId: string; updatedAt: string; freshUntil: string | null; stale: boolean; readRole: string; runId: string | null; unsure: boolean; partial: boolean }
 export interface Memory {
@@ -234,7 +235,8 @@ export interface Note { id: string; title: string; body: string; source: { runId
 export interface EvalResult { questionId: string; question: string; expected: { fact?: string; value?: unknown; includes?: string[] }; runId: string | null; passed: boolean | null; found: string | null; skipped?: boolean }
 export interface EvalRun { id: string; version: number; model?: string | null; state: "running" | "done"; results: EvalResult[]; score: number | null; createdAt: string; finishedAt: string | null; createdBy?: string | null }
 /** M40: each finished evaluation's score, oldest first, and a drop worth flagging. */
-export interface AccuracyPoint { id: string; at: string; score: number; version: number; model: string | null; nightly: boolean; right: number; questions: number }
+/** `questions`: those graded, as `score` counts them; `skipped`: those that were not (sweep 4). */
+export interface AccuracyPoint { id: string; at: string; score: number; version: number; model: string | null; nightly: boolean; right: number; questions: number; skipped?: number }
 export interface AccuracyDrop { from: number; to: number; previous: number; at: string; evalId: string; version: number; previousVersion: number; model: string | null; previousModel: string | null }
 export interface Evaluation {
   questions: Question[]; runs: EvalRun[]; canEdit: boolean; successCriteria?: string[]; accuracy?: Accuracy[];

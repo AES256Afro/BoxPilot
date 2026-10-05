@@ -9,6 +9,7 @@
  */
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
+import { roleAtLeast } from "./tool-catalog.mjs";
 
 const json = (value) => JSON.stringify(value === undefined ? null : value);
 const parse = (value, fallback) => { try { return value === null || value === undefined ? fallback : JSON.parse(value); } catch { return fallback; } };
@@ -487,17 +488,19 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
   });
 
   /**
-   * Keep a note: one with the same title is replaced, and the oldest unpinned ones go past
-   * `maxNotes`. `readRole` is what the run that learned it could read: another agent sees a shared
-   * note only if its own run may read as much. Findings (M44) are kept apart: never replaced by a
-   * note of the same title, never counted against `maxNotes`.
+   * Keep a note: one with the same title, learned at the same role, is replaced, and the oldest
+   * unpinned ones go past `maxNotes`. `readRole` is what the run that learned it could read: another
+   * agent sees a shared note only if its own run may read as much. A same-title note learned at
+   * another role is kept apart (2026-10 sweep 4: an owner's run took over an operator's note, id and
+   * all, and the operator read the owner's words back through it). Findings (M44) are kept apart
+   * too: never replaced by a note of the same title, never counted against `maxNotes`.
    */
   function writeNote(agentId, { title, body, source = {}, freshUntil = null, maxNotes = 50, readRole = "owner", shared = false }) {
     return transaction(() => {
       const at = iso();
-      const existing = prepare("SELECT id FROM agent_notes WHERE agent_id = ? AND finding IS NULL AND lower(title) = lower(?)").get(agentId, title);
+      const existing = prepare("SELECT id FROM agent_notes WHERE agent_id = ? AND finding IS NULL AND lower(title) = lower(?) AND read_role = ?").get(agentId, title, readRole);
       const id = existing?.id ?? randomUUID();
-      if (existing) prepare("UPDATE agent_notes SET body = ?, source_json = ?, updated_at = ?, fresh_until = ?, read_role = ?, shared = ? WHERE id = ?").run(body, json(source), at, freshUntil, readRole, shared ? 1 : 0, id);
+      if (existing) prepare("UPDATE agent_notes SET body = ?, source_json = ?, updated_at = ?, fresh_until = ?, shared = ? WHERE id = ?").run(body, json(source), at, freshUntil, shared ? 1 : 0, id);
       else prepare("INSERT INTO agent_notes (id, agent_id, title, body, source_json, created_at, updated_at, fresh_until, read_role, shared) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(id, agentId, title, body, json(source), at, at, freshUntil, readRole, shared ? 1 : 0);
       const dropped = prepare("SELECT id FROM agent_notes WHERE agent_id = ? AND pinned = 0 AND finding IS NULL AND id NOT IN (SELECT id FROM agent_notes WHERE agent_id = ? AND finding IS NULL ORDER BY pinned DESC, updated_at DESC, rowid DESC LIMIT ?)").all(agentId, agentId, maxNotes).map((entry) => entry.id);
       for (const gone of dropped) { prepare("DELETE FROM agent_notes WHERE id = ?").run(gone); prepare("DELETE FROM agent_vectors WHERE kind = 'note' AND item_id = ?").run(gone); }
@@ -538,17 +541,32 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
     return changed;
   });
   /**
-   * The owner's edit of a note: its words, how long it stays fresh, pinned, shared. A finding is
-   * forgotten, not edited. Words the owner rewrote are the owner's, and `trusted` is the owner's
-   * word that it is fine as it is: either way it no longer carries the flag of the run that kept it
-   * (2026-10 sweep 3).
+   * A person's edit of a note: its words, how long it stays fresh, pinned, shared. A finding is
+   * forgotten, not edited. New words, and `trusted` - the person's word that it is fine as it is -
+   * are that person's: the owner's no longer carry the flag of the run that kept it (2026-10 sweep
+   * 3); anyone else's (`by`, the person, as { id, role }) clear it only for runs that read no more
+   * than they may (`trustedBy`), and their words are theirs (`wordsBy`), held to them by a run that
+   * reads more (sweep 4: an operator's Trust, or their rewrite, cleared a note for the owner's runs).
+   * Only new words count: the same words sent back with a new freshness or title are still the
+   * run's (sweep 4: the edit sheet sent them every time, and so trusted the fact).
    */
-  function updateNote(agentId, noteId, { title, body, freshUntil, pinned, shared, trusted = false }) {
+  function updateNote(agentId, noteId, { title, body, freshUntil, pinned, shared, trusted = false, by = null }) {
     return transaction(() => {
       const current = prepare("SELECT * FROM agent_notes WHERE agent_id = ? AND id = ? AND finding IS NULL").get(agentId, noteId);
       if (!current) return null;
-      const { injectionHop: _hop, ...source } = parse(current.source_json, {});
-      const cleared = body !== undefined || trusted ? json({ ...source, injection: false }) : current.source_json;
+      const source = parse(current.source_json, {});
+      const newWords = body !== undefined && body !== current.body;
+      const newTitle = title !== undefined && title !== current.title;
+      const person = by?.role ? { id: by.id ?? null, role: by.role } : null;
+      const outranks = (earlier) => !earlier?.role || roleAtLeast(person.role, earlier.role);
+      let next = source;
+      if (newWords || trusted) {
+        if (!person || person.role === "owner") { const { injectionHop: _hop, ...rest } = source; next = { ...rest, injection: false }; }
+        // New words are vouched for by whoever wrote them; a Trust never lowers an earlier one's word.
+        if (person && (newWords || outranks(source.trustedBy))) next = { ...next, trustedBy: person };
+      }
+      if (person && (newWords || newTitle || (trusted && outranks(source.wordsBy)))) next = { ...next, wordsBy: person };
+      const cleared = next === source ? current.source_json : json(next);
       prepare("UPDATE agent_notes SET title = ?, body = ?, fresh_until = ?, pinned = ?, shared = ?, source_json = ?, updated_at = ? WHERE id = ?")
         .run(title ?? current.title, body ?? current.body, freshUntil === undefined ? current.fresh_until : freshUntil, pinned === undefined ? current.pinned : pinned ? 1 : 0, shared === undefined ? current.shared : shared ? 1 : 0, cleared, iso(), noteId);
       if (body !== undefined || title !== undefined) prepare("DELETE FROM agent_vectors WHERE kind = 'note' AND item_id = ?").run(noteId);
@@ -775,8 +793,11 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
    * the evaluation is listed; so is one whose run was never queued (BoxPilot stopped part-way through
    * setting the evaluation up). A completed run is left to the runner's finish, which grades its
    * answer a moment after marking it completed; any other ending grades the same either way. A
-   * nightly question refused at hand-out (the night's model time could not pay for it) is not
-   * graded at all, and left out of the score: it was never asked (2026-10 sweep 3).
+   * nightly question that was never asked is not graded at all, and left out of the score: refused
+   * at hand-out (the night's model time could not pay for it, 2026-10 sweep 3), or stopped before
+   * or while it ran by something other than its answer - it waited too long to start, its agent or
+   * every agent was paused, the kill switch (sweep 4: each was graded wrong, a false drop in
+   * accuracy). A person's evaluation is graded as it ended: they asked for it then.
    */
   function settleEvalRun(evaluation) {
     if (!evaluation || evaluation.state !== "running") return evaluation;
@@ -785,8 +806,9 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
       if (result.passed !== null || result.skipped) continue;
       const run = result.runId ? getRun(result.runId) : null;
       if (run && (!finishedStates.has(run.state) || run.state === "completed")) continue;
-      const grade = run?.state === "refused" && !evaluation.createdBy
-        ? { passed: null, skipped: true, found: `Not asked: ${run.reason ?? "there was no model time left for it"}` }
+      const notAsked = !evaluation.createdBy && ["refused", "cancelled", "killed"].includes(run?.state);
+      const grade = notAsked
+        ? { passed: null, skipped: true, found: `${run.state === "refused" || !run.startedAt ? "Not asked" : "Not graded"}: ${run.reason ?? "there was no model time left for it"}` }
         : { passed: false, found: run ? `The run ended ${run.state}` : "The run was never queued" };
       settled = gradeEval(evaluation.id, result.questionId, grade) ?? settled;
     }

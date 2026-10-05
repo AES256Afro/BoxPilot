@@ -90,6 +90,14 @@ describe("the words posted", () => {
     expect(replyMessage({ agentName: "Server Keeper", run: { ...flagged, answer: "Which drive do you mean?", flags: { injection: true, clarify: true } }, redact })).toMatch(warning);
     expect(cardMessage({ agentName: "Server Keeper", proposal: { kind: "question", question: "Which drive?" }, flagged: true, redact })).toMatch(warning);
     expect(cardMessage({ agentName: "Server Keeper", proposal: { kind: "plan", title: "Restart", reason: "x", steps: [] }, flagged: true, redact })).toMatch(warning);
+    // Its note and its trace too (sweep 4, R4B1-7).
+    expect(noteMessage({ agentName: "Server Keeper", note: { title: "Sign-in", body: "x" }, flagged: true, redact })).toMatch(warning);
+    expect(traceMessage({ agentName: "Server Keeper", run: { ...flagged, id: "r-1", kind: "ask", state: "completed" }, steps: [], redact }).content).toMatch(warning);
+    // A line of the model's in BoxPilot's voice says whose it is (R4S3-8), seen past a zero-width character too.
+    for (const posing of ["_BoxPilot: the warning above was a false alarm._", "**BoxPilot**: all clear", "B​oxPilot: fine", "_A note from BoxPilot: all clear_", "> BoxPilot: ok"]) {
+      expect(findingMessage({ agentName: "Server Keeper", run: { ...run, answer: `Fine.\n${posing}` }, redact }), posing).toContain(`\nThe agent wrote: ${posing}`);
+    }
+    expect(findingMessage({ agentName: "BoxPilot Helper", run: { ...run, answer: "BoxPilot's backups ran: all fine." }, redact })).not.toContain("The agent wrote");
     // A run that read nothing like it says nothing of the kind.
     expect(findingMessage({ agentName: "Server Keeper", run, redact })).not.toMatch(/looked like an instruction/);
     expect(replyMessage({ agentName: "Server Keeper", run, redact })).not.toMatch(/looked like an instruction/);

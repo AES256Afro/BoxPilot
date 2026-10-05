@@ -19,6 +19,7 @@
  * "2" when it is unsure what a field is for) is named after its tool, or dropped when it has none.
  * A reply that does not parse is not fatal - the run goes on without a plan, and the trace says so.
  */
+import { boxLine, sanitizeUntrusted } from "./guard.mjs";
 import { toolById, toolIdOf } from "./tool-catalog.mjs";
 
 const stepText = { type: "string", minLength: 3, maxLength: 80, description: "What to do, in a few words." };
@@ -57,12 +58,15 @@ export const understandingFormat = Object.freeze(understandingFormatFor());
  */
 export function plannerSystem(agent = {}, tools = []) {
   const example = tools.find((tool) => /^(alerts|server|storage|services)_/.test(tool.fn))?.fn ?? tools[0]?.fn ?? null;
+  // Its maker's words, never a chat template's token (2026-10 sweep 4, as systemMessage).
+  const own = (text) => sanitizeUntrusted(String(text ?? ""), { maxChars: 20_000 }).text;
+  const name = agent.name ? boxLine(agent.name, 80) : "";
   const lines = [
-    `You work out what a request to ${agent.name || "an agent"} asks for, before anything is done, and plan it.`,
+    `You work out what a request to ${name || "an agent"} asks for, before anything is done, and plan it.`,
   ];
-  if (agent.purpose) lines.push(`${agent.name || "The agent"}: ${agent.purpose}`);
-  if (agent.job) lines.push(`Its job: ${agent.job}`);
-  if (agent.steps?.length) lines.push("How it works:", ...agent.steps.map((step, index) => `${index + 1}. ${step}`));
+  if (agent.purpose) lines.push(`${name || "The agent"}: ${own(agent.purpose)}`);
+  if (agent.job) lines.push(`Its job: ${own(agent.job)}`);
+  if (agent.steps?.length) lines.push("How it works:", ...agent.steps.map((step, index) => `${index + 1}. ${own(step)}`));
   lines.push(
     "",
     "Answer only with JSON like this:",
