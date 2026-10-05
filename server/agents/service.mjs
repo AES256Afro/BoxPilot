@@ -719,14 +719,16 @@ export function createAgentService({
     const agentNames = new Map(store.listAgents().map((entry) => [entry.id, entry.name]));
     const sources = sourcesFor(spec, readRole);
     if (spec.memory?.enabled) {
+      // `injection`: a note kept by a run that had read something that looked like an instruction;
+      // `runId`: the run an episode came from, looked up when one is used (noteTainted).
       if (sources.notes) {
-        for (const note of ownNotes(agent.id, readRole, { limit: 200 })) items.push({ key: `note:${note.id}`, tier: note.pinned ? "pinned" : "fact", title: note.title, text: note.body, from: agent.name, at: note.updatedAt, freshUntil: note.freshUntil, weight: note.pinned ? 1.3 : 1 });
+        for (const note of ownNotes(agent.id, readRole, { limit: 200 })) items.push({ key: `note:${note.id}`, tier: note.pinned ? "pinned" : "fact", title: note.title, text: note.body, from: agent.name, at: note.updatedAt, freshUntil: note.freshUntil, weight: note.pinned ? 1.3 : 1, injection: Boolean(note.source?.injection) });
         for (const note of store.listSharedNotes({ exceptAgentId: agent.id })) {
-          if (roleAtLeast(readRole, note.readRole)) items.push({ key: `note:${note.id}`, tier: note.pinned ? "pinned" : "fact", title: note.title, text: note.body, from: agentNames.get(note.agentId) ?? "another agent", at: note.updatedAt, freshUntil: note.freshUntil, weight: 0.9 });
+          if (roleAtLeast(readRole, note.readRole)) items.push({ key: `note:${note.id}`, tier: note.pinned ? "pinned" : "fact", title: note.title, text: note.body, from: agentNames.get(note.agentId) ?? "another agent", at: note.updatedAt, freshUntil: note.freshUntil, weight: 0.9, injection: Boolean(note.source?.injection) });
         }
       }
       for (const episode of store.listEpisodes(agent.id, { limit: 100 })) {
-        if (roleAtLeast(readRole, episode.readRole)) items.push({ key: `episode:${episode.id}`, tier: "episode", title: `A run on ${episode.createdAt.slice(0, 10)}`, text: episode.text, from: agent.name, at: episode.createdAt, freshUntil: null, weight: 0.8 });
+        if (roleAtLeast(readRole, episode.readRole)) items.push({ key: `episode:${episode.id}`, tier: "episode", title: `A run on ${episode.createdAt.slice(0, 10)}`, text: episode.text, from: agent.name, at: episode.createdAt, freshUntil: null, weight: 0.8, runId: episode.runId });
       }
     }
     if (sources.documents) {
@@ -758,6 +760,27 @@ export function createAgentService({
 
   function memoryLine(item) {
     return `<memory kind="${item.tier}" from="${String(item.from).replace(/"/g, "'")}" written="${String(item.at ?? "").slice(0, 10)}"${stale(item) ? " stale=\"true\"" : ""} trust="untrusted">\n${item.title}: ${sanitizeUntrusted(item.text, { maxChars: 600, redact }).text}\n</memory>`;
+  }
+
+  // ---- the injection flag goes where the text goes (2026-10 sweep 2) ----
+
+  /** A note kept by a run that had read something like an instruction, or whose words read like one. */
+  const noteTainted = (note) => Boolean(note.source?.injection) || sanitizeUntrusted(`${note.title}\n${note.body}`).flags.injection;
+  /** Something remembered that carries the flag: a flagged note, an episode of a flagged run, or words like an instruction. */
+  const rememberedTainted = (item) => Boolean(item.injection) || Boolean(item.runId && store.getRun(item.runId)?.flags?.injection) || sanitizeUntrusted(`${item.title}\n${item.text}`).flags.injection;
+
+  /**
+   * A run given text that came from a run that read something looking like an instruction - a
+   * specialist's answer, a supervisor's task, a kept note, something remembered - is flagged as if
+   * it had read it itself: its notice is held back, its cards are marked, the owner is warned and
+   * it shares no finding. The flag stayed with the run that read it, so the same words reached a
+   * notice one run or three hours later with nothing held back. The trace says where it came from.
+   */
+  function inheritInjection(runId, detail) {
+    if (store.getRun(runId)?.flags?.injection) return;
+    store.mergeRunFlags(runId, { injection: true });
+    const step = store.addStep(runId, { kind: "system", name: "injection", output: detail, flags: { detail, injection: true } });
+    if (step) emit(runId, "step", step);
   }
 
   // ---- findings (M44, ADR-012) ----
@@ -908,17 +931,22 @@ export function createAgentService({
     const version = store.getVersion(run.agentId, run.version) ?? { spec: agent.spec };
     const spec = version.spec;
     const offered = offeredTools(run, spec, agent);
-    const notes = spec.memory?.enabled && spec.knowledge?.notes !== false && knowledgeSettings().notes !== false
-      ? ownNotes(agent.id, run.readRole, { limit: limits.notesInPrompt }).map((note) => wrapNote({ ...note, stale: stale(note) }, { redact }))
-      : [];
+    // A specialist's task came from its supervisor's run: one that had read something looking like
+    // an instruction by the time it ended taints the task it handed over (2026-10 sweep 2).
+    if (run.kind === "handoff" && run.parentRunId && store.getRun(run.parentRunId)?.flags?.injection) inheritInjection(run.id, "The agent that handed it this task had read something that looked like an instruction, so this run is treated as if it had read it too.");
+    const promptNotes = spec.memory?.enabled && spec.knowledge?.notes !== false && knowledgeSettings().notes !== false ? ownNotes(agent.id, run.readRole, { limit: limits.notesInPrompt }) : [];
+    const notes = promptNotes.map((note) => wrapNote({ ...note, stale: stale(note) }, { redact }));
+    if (promptNotes.some(noteTainted)) inheritInjection(run.id, "One of its notes was kept by a run that read something that looked like an instruction, or reads like one itself.");
     // What it remembers that bears on this request, by words (the query's vector comes later, from
     // the runner, when the model searches memory itself). Recorded in the trace as a memory read.
     const query = [run.question, run.trigger?.title, spec.job].filter(Boolean).join(" ");
     const noteKeys = new Set(ownNotes(agent.id, run.readRole, { limit: limits.notesInPrompt }).map((note) => `note:${note.id}`));
     const recalled = spec.memory?.enabled ? hybridSearch(memoryItems(agent, spec, run.readRole).filter((item) => !noteKeys.has(item.key)), { query, limit: limits.memoryInPrompt }) : [];
     if (recalled.length) {
-      const step = store.addStep(run.id, { kind: "recall", name: "recall", input: { query: clip(query, 200) }, output: recalled.map((item) => `${item.tier}: ${item.title} (${item.from}, ${String(item.at ?? "").slice(0, 10)}${stale(item) ? ", may be out of date" : ""})`).join("\n"), flags: { read: recalled.length } });
+      const tainted = recalled.some(rememberedTainted);
+      const step = store.addStep(run.id, { kind: "recall", name: "recall", input: { query: clip(query, 200) }, output: recalled.map((item) => `${item.tier}: ${item.title} (${item.from}, ${String(item.at ?? "").slice(0, 10)}${stale(item) ? ", may be out of date" : ""})`).join("\n"), flags: { read: recalled.length, ...(tainted ? { injection: true } : {}) } });
       if (step) emit(run.id, "step", step);
+      if (tainted) inheritInjection(run.id, "Something it remembered came from a run that read something that looked like an instruction, or reads like one itself.");
     }
     // What the other agents found that bears on it (M44): before it plans, so it need not look again.
     const usesFindings = sharingFor(agent, spec).useFindings;
@@ -926,26 +954,35 @@ export function createAgentService({
     // The conversation with this person, when the agent keeps one.
     const thread = spec.memory?.threads && run.requestedBy && ["ask", "manual"].includes(run.kind) ? store.getThread(agent.id, run.requestedBy) : null;
     const context = thread ? foldThread(thread, { keep: spec.memory.turns ?? 6 }) : null;
+    if (context && [context.summary, ...(context.turns ?? []).map((turn) => turn.text)].some((text) => sanitizeUntrusted(text).flags.injection)) inheritInjection(run.id, "The earlier conversation holds text that looks like an instruction.");
     // A supervisor's follow-up: what each specialist answered, as tool output it can cite, in the
     // order it handed them over - a hand-off a specialist's fresh finding answered (M44) as well as
-    // one it ran for.
+    // one it ran for. A specialist's run that was flagged flags its answer, and so this run.
     if (run.kind === "continue") {
       const children = store.listChildren(run.parentRunId).filter((entry) => entry.kind === "handoff");
+      let tainted = false;
       const answered = (child) => {
         const name = store.getAgent(child.agentId, { includeDeleted: true })?.name ?? "A specialist";
         // A specialist that handed work on answered in its own follow-up (2026-10 sweep 2).
         const final = followUpOf(child) ?? child;
         const text = final.answer ? `${name} was asked: ${child.question}\n${name} answered: ${final.answer}` : `${name} was asked: ${child.question}\nIt did not answer (${final.state}).`;
         const cleaned = sanitizeUntrusted(text, { maxChars: limits.toolOutputChars, redact });
-        store.addStep(run.id, { kind: "tool", name: "agents.handoff", input: { agent: name, runId: child.id }, output: cleaned.text, flags: cleaned.flags.injection ? { injection: true } : {} });
+        const flagged = Boolean(cleaned.flags.injection || child.flags?.injection || final.flags?.injection);
+        tainted ||= flagged;
+        store.addStep(run.id, { kind: "tool", name: "agents.handoff", input: { agent: name, runId: child.id }, output: cleaned.text, flags: flagged ? { injection: true } : {} });
       };
       const shown = new Set();
       for (const step of store.listSteps(run.parentRunId).filter((entry) => entry.kind === "handoff" && entry.state === "done")) {
-        if (step.flags?.reused) { store.addStep(run.id, { kind: "tool", name: "agents.handoff", input: step.input, output: step.output, flags: { reused: true, finding: step.flags.finding ?? null } }); continue; }
+        if (step.flags?.reused) {
+          tainted ||= Boolean(step.flags.injection);
+          store.addStep(run.id, { kind: "tool", name: "agents.handoff", input: step.input, output: step.output, flags: { reused: true, finding: step.flags.finding ?? null, ...(step.flags.injection ? { injection: true } : {}) } });
+          continue;
+        }
         const child = children.find((entry) => entry.id === step.flags?.childRunId);
         if (child && !shown.has(child.id)) { shown.add(child.id); answered(child); }
       }
       for (const child of children.filter((entry) => !shown.has(entry.id))) answered(child);
+      if (tainted) inheritInjection(run.id, "A specialist's answer it was given came from a run that read something that looked like an instruction.");
     }
     const handoffOutputs = run.kind === "continue" ? store.listSteps(run.id).filter((step) => step.kind === "tool" && step.name === "agents.handoff").map((step, index) => wrapToolOutput({ index: index + 1, tool: "agents_handoff", text: step.output ?? "", flags: step.flags })) : [];
     const budget = budgetOf({ ...agent, spec });
@@ -1309,7 +1346,8 @@ export function createAgentService({
       const cleaned = sanitizeUntrusted(text, { maxChars: limits.toolOutputChars, redact });
       const allFlags = { ...flags, ...(cleaned.flags.injection ? { injection: true, matches: cleaned.flags.matches } : {}), ...(cleaned.flags.truncated ? { truncated: true } : {}) };
       const step = store.addStep(run.id, { kind: stepKind, name: tool?.id ?? clip(String(name), 80), state: stepState, input, output: cleaned.text, flags: allFlags, startedAt: started.toISOString(), durationMs: now().getTime() - started.getTime() });
-      if (cleaned.flags.injection) store.mergeRunFlags(run.id, { injection: true });
+      // Its own words, or what it read (a note a flagged run kept, an episode of one), looked like an instruction.
+      if (allFlags.injection) store.mergeRunFlags(run.id, { injection: true });
       if (step) emit(run.id, "step", step);
       const index = stepState === "done" ? given + 1 : null;
       const content = stepState === "done"
@@ -1329,9 +1367,15 @@ export function createAgentService({
     const context = { readRole: run.readRole, readAs: run.readAs, spec, run, sources: knowledgeSettings() };
     if (tool.id === "web.search" && !(moduleSettings().webSearch?.enabled && moduleSettings().webSearch?.endpoint)) return answer("tool", { state: "refused", text: "Web search is off on this server.", flags: { refused: true } });
     try {
-      if (tool.id === "memory.search") return answer("memory", { text: searchMemory(run, spec, value, extras.vector), input: { query: value.query, tier: value.tier ?? "any", byMeaning: Boolean(readVector(extras.vector)) } });
+      if (tool.id === "memory.search") {
+        const found = searchMemory(run, spec, value, extras.vector);
+        return answer("memory", { text: found.text, input: { query: value.query, tier: value.tier ?? "any", byMeaning: Boolean(readVector(extras.vector)) }, flags: found.injection ? { injection: true } : {} });
+      }
       if (tool.id === "agents.handoff") return handoffFor(run, spec, value, answer);
-      if (tool.id === "notes.read") return answer("tool", { text: readNotes(run, spec, value), input: value });
+      if (tool.id === "notes.read") {
+        const read = readNotes(run, spec, value);
+        return answer("tool", { text: read.text, input: value, flags: read.injection ? { injection: true } : {} });
+      }
       if (tool.id === "notes.write") return writeNoteFor(run, spec, value, answer);
       if (tool.id === "plan.propose") return await proposeFor(run, spec, value, answer);
       if (tool.id === "notify.owner") return notifyFor(run, spec, value, answer);
@@ -1345,32 +1389,36 @@ export function createAgentService({
     }
   }
 
+  /** notes.read: { text, injection } - whether a note it read was kept by a run flagged for injection. */
   function readNotes(run, spec, { query = null }) {
-    if (!spec.memory?.enabled) return "This agent keeps no notes.";
-    if (!sourcesFor(spec, run.readRole).notes) return "Notes are switched off as knowledge for this agent.";
+    if (!spec.memory?.enabled) return { text: "This agent keeps no notes." };
+    if (!sourcesFor(spec, run.readRole).notes) return { text: "Notes are switched off as knowledge for this agent." };
     const words = query ? new Set(query.toLowerCase().split(/\W+/).filter((word) => word.length > 2)) : null;
     const notes = ownNotes(run.agentId, run.readRole, { limit: 50 }).filter((note) => !words || [...words].some((word) => `${note.title} ${note.body}`.toLowerCase().includes(word))).slice(0, 10);
-    if (!notes.length) return query ? `No notes about "${clip(query, 60)}".` : "No notes yet.";
-    return notes.map((note) => {
+    if (!notes.length) return { text: query ? `No notes about "${clip(query, 60)}".` : "No notes yet." };
+    const text = notes.map((note) => {
       const stale = note.freshUntil && Date.parse(note.freshUntil) < now().getTime();
       return `## ${note.title}${stale ? " (may be out of date)" : ""}\nWritten ${note.updatedAt.slice(0, 10)}${note.source?.tools?.length ? ` from ${note.source.tools.join(", ")}` : ""}.\n${note.body}`;
     }).join("\n\n");
+    return { text, injection: notes.some((note) => Boolean(note.source?.injection)) };
   }
 
   /**
    * Memory search: hybrid retrieval over what this agent may remember. `vector` is the query's
    * embedding, made by the runner with the model server's /v1/embeddings; without it (or with no
-   * stored vectors from the same model) the search is by words alone.
+   * stored vectors from the same model) the search is by words alone. { text, injection }: whether
+   * something it found came from a run flagged for injection.
    */
   function searchMemory(run, spec, { query, tier = "any", limit = 5 }, vector) {
     const agent = store.getAgent(run.agentId, { includeDeleted: true });
     let items = memoryItems(agent, spec, run.readRole);
     if (tier !== "any") items = items.filter((item) => item.tier === tier);
-    if (!items.length) return "Nothing is remembered yet.";
+    if (!items.length) return { text: "Nothing is remembered yet." };
     const queryVector = readVector(vector);
     const found = hybridSearch(queryVector ? withVectors(items, embedModelName()) : items, { query, queryVector, limit });
-    if (!found.length) return `Nothing remembered about "${clip(query, 80)}".`;
-    return found.map((item) => `## ${item.title} (${memoryTiers[item.tier]?.toLowerCase() ?? item.tier}; from ${item.from}; ${String(item.at ?? "").slice(0, 10)}${stale(item) ? "; may be out of date" : ""}; matched by ${item.via.join(" and ")})\n${item.text}`).join("\n\n");
+    if (!found.length) return { text: `Nothing remembered about "${clip(query, 80)}".` };
+    const text = found.map((item) => `## ${item.title} (${memoryTiers[item.tier]?.toLowerCase() ?? item.tier}; from ${item.from}; ${String(item.at ?? "").slice(0, 10)}${stale(item) ? "; may be out of date" : ""}; matched by ${item.via.join(" and ")})\n${item.text}`).join("\n\n");
+    return { text, injection: found.some((item) => Boolean(item.injection) || Boolean(item.runId && store.getRun(item.runId)?.flags?.injection)) };
   }
 
   /**
@@ -1398,7 +1446,8 @@ export function createAgentService({
     const handed = store.listChildren(run.id).filter((entry) => entry.kind === "handoff").length;
     const check = checkHandoff({ agent, spec, run, target, chain: chainOf(run, (id) => store.getRun(id)), handedSoFar: handed });
     if (check.problem) return answer("handoff", { state: "refused", text: `${check.problem}.`, input: { agent: clip(name, 60) }, flags: { refused: true } });
-    const cleanTask = sanitizeUntrusted(task, { maxChars: 1_000, redact }).text;
+    const sanitizedTask = sanitizeUntrusted(task, { maxChars: 1_000, redact });
+    const cleanTask = sanitizedTask.text;
     // M44: a specialist that already found this, recently, is not run again: its finding is its
     // answer, here and now, unless the person asked for a fresh check.
     const finding = findingForHandoff(run, spec, agent, target, cleanTask);
@@ -1419,7 +1468,11 @@ export function createAgentService({
       agentId: target.id, version: target.version, kind: "handoff", question: cleanTask, trigger: { title: `Handed over by ${agent.name}` },
       requestedBy: run.requestedBy, readRole: reader.readRole, readAs: reader.readAs, parentRunId: run.id, rootRunId: run.rootRunId ?? run.id, depth: check.depth,
     });
-    audit("agents.handoff", { actorId: run.requestedBy, subjectId: child.id, details: { from: agent.id, to: target.id, parentRunId: run.id, depth: check.depth } });
+    // The task carries the flag: its words read like an instruction, or the run that wrote it had read
+    // something that did (2026-10 sweep 2). What the supervisor reads after this is checked at claim.
+    if (sanitizedTask.flags.injection) inheritInjection(child.id, "The task it was handed reads like an instruction.");
+    else if (store.getRun(run.id)?.flags?.injection) inheritInjection(child.id, "The agent that handed it this task had read something that looked like an instruction, so this run is treated as if it had read it too.");
+    audit("agents.handoff",{ actorId: run.requestedBy, subjectId: child.id, details: { from: agent.id, to: target.id, parentRunId: run.id, depth: check.depth } });
     wake();
     return answer("handoff", { text: `Handed to ${target.name}. It runs after this run, and its answer comes back to you in a follow-up; finish this run with what you have.`, input: { agent: target.name, task: cleanTask }, flags: { childRunId: child.id } });
   }
@@ -1603,6 +1656,9 @@ export function createAgentService({
       // A run that handed work to specialists answers in its follow-up run: that one is remembered,
       // once, rather than the interim "I asked them" as well.
       if (run.kind !== "continue" && store.listChildren(run.id).some((entry) => entry.kind === "handoff")) return;
+      // A run that read something like an instruction leaves nothing to be read back later as if it
+      // were clean: no episode, and no turn of the conversation (2026-10 sweep 2).
+      if (run.flags?.injection) return;
       if (spec.memory?.enabled && outcomeIsAnswer(run.state) && !["eval", "handoff"].includes(run.kind)) {
         const text = episodeOf(run);
         if (text) store.addEpisode({ agentId: agent.id, runId: run.id, text, readRole: run.readRole });
