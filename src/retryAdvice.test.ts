@@ -38,8 +38,10 @@ describe("whether running a failure again can work", () => {
   // time (sweep 5). Try again on a high-risk restore asked for the password, then refused again.
   // Each is the server's own sentence, and the server's source is checked to still say it.
   it.each([
-    ["an app backup with a link where BoxPilot writes", appHelperSource, "which a backup BoxPilot made never holds",
-      "Immich was not restored; nothing was changed. In this backup .env.tmp is a link, or not a plain file, where BoxPilot writes Immich's own files as root, which a backup BoxPilot made never holds: restored, the next change to Immich would have written through it to somewhere else on this server."],
+    ["an app backup with a link where BoxPilot writes", appHelperSource, "where BoxPilot writes ${manifest.name}'s own files as root:",
+      "Uptime Kuma was not restored; nothing was changed. In this backup data is a link, or not a plain file, where BoxPilot writes Uptime Kuma's own files as root: restored, the next change to Uptime Kuma would have written through it to somewhere else on this server. If data was a link in Uptime Kuma's folder when this backup was taken (to another disk, say), the backup holds only that link and none of what it pointed at; backups now refuse such a folder instead of taking it."],
+    ["an app folder whose data folder has become a link", appHelperSource, "was not backed up; nothing was stopped. In its folder",
+      "Immich was not backed up; nothing was stopped. In its folder library is a link to /mnt/disk2/library: a backup would hold only the link, none of what it points at, and a restore refuses a link where BoxPilot writes Immich's files as root. Move the data back into /var/lib/boxpilot-managed/catalog/immich/library, or mount the other disk there itself rather than linking to it, then back up again."],
     ["a machine snapshot with links or special files", snapshotSource, "which a snapshot BoxPilot made never does",
       "The snapshot holds srv/data/link, links or special files, which a snapshot BoxPilot made never does. Nothing was changed."],
     ["an unreadable snapshot that reads now", housekeepingSource, "can be read now, so it was not removed.",
