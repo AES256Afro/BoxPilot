@@ -293,7 +293,7 @@ export const agentsApi = {
   /** Which job a card's step was staged as; the server decides the card once every step's job is approved. */
   stageStep: (csrf: string, proposalId: string, step: number, jobId: string) => send<Proposal>("POST", `/proposals/${encodeURIComponent(proposalId)}/steps/${step}/job`, csrf, { jobId }),
   memory: (id: string) => get<Memory>(`/${encodeURIComponent(id)}/memory`),
-  editMemory: (csrf: string, id: string, noteId: string, patch: { title?: string; body?: string; freshDays?: number | null; pinned?: boolean; shared?: boolean }) => send<MemoryNote>("PUT", `/${encodeURIComponent(id)}/memory/notes/${encodeURIComponent(noteId)}`, csrf, patch),
+  editMemory: (csrf: string, id: string, noteId: string, patch: { title?: string; body?: string; freshDays?: number | null; pinned?: boolean; shared?: boolean; trusted?: boolean }) => send<MemoryNote>("PUT", `/${encodeURIComponent(id)}/memory/notes/${encodeURIComponent(noteId)}`, csrf, patch),
   forget: (csrf: string, id: string, kind: "notes" | "episodes", itemId: string) => send<{ forgotten: boolean }>("DELETE", `/${encodeURIComponent(id)}/memory/${kind}/${encodeURIComponent(itemId)}`, csrf),
   forgetThread: (csrf: string, id: string) => send<{ forgotten: boolean }>("DELETE", `/${encodeURIComponent(id)}/memory/thread`, csrf),
   /** A verdict; a "wrong" with `expect` (words the right answer holds) also becomes a golden question (M40). */
