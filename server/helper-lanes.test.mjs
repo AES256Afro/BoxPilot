@@ -363,3 +363,32 @@ it("holds the DNS app's lane while a rehearsal stops and starts it", async () =>
   await Promise.all([rehearsal, update]);
   expect(order).toEqual(["stopped", "jellyfin", "started again", "update"]);
 });
+
+/**
+ * A root task that ran out of its own time is left running (boxpilot-run@ has KillMode=process): the
+ * operation answers at once that it timed out, but what it holds must not be free while that task is
+ * still at work. fsck.exfat -y went on writing to an unmounted drive while an app start bound the
+ * empty folder and a reconnect mounted the drive mid-repair (sweep 4).
+ */
+it("keeps an operation's lanes held for what it asks to be held for, after it has answered", async () => {
+  const queues = createLaneQueues();
+  const order = [];
+  let unitStops;
+  const stopped = new Promise((resolve) => { unitStops = resolve; });
+  const clearing = queues.run(laneFor("storage.dirty-mark.clear", { name: "media" }), async (holdUntil) => {
+    holdUntil(stopped);
+    throw new Error("Root task storage.clear-mark did not finish within 58 minutes");
+  });
+  // The operation's answer is not held back.
+  await expect(clearing).rejects.toThrow("did not finish");
+  expect(queues.busy(laneFor("storage.remount", { name: "media" }))).toBe(true);
+  const reconnect = queues.run(laneFor("storage.remount", { name: "media" }), async () => { order.push("reconnect"); });
+  const start = queues.run(laneFor("app.action", { id: "jellyfin", action: "start" }), async () => { order.push("app start"); });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(order).toEqual([]);
+  unitStops();
+  await Promise.all([reconnect, start]);
+  expect(order).toEqual(["reconnect", "app start"]);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(queues.size()).toBe(0);
+});

@@ -3,7 +3,7 @@ import net from "node:net";
 import path from "node:path";
 import { productVersion } from "./version.mjs";
 import { registry } from "./ops/index.mjs";
-import { createRunUnitClient } from "./run-unit.mjs";
+import { createRunUnitClient, whileHoldingRootTasks } from "./run-unit.mjs";
 import { createCredentialStore } from "./credentials.mjs";
 import { createVpnProfileStore } from "./vpn-profile.mjs";
 import { createAppHelper } from "./app-helper.mjs";
@@ -161,7 +161,7 @@ const server = net.createServer({ allowHalfOpen: true }, (connection) => {
         const queued = { refused: false, refuse: () => { queued.refused = true; if (heartbeat) { clearInterval(heartbeat); heartbeat = null; } reply(helperErrorReply(request?.id ?? null, new Error("BoxPilot's helper restarted before this began, so nothing was changed. Run it again."))); } };
         waiting.add(queued);
         try {
-          result = await lanes.run(held, async () => {
+          result = await lanes.run(held, async (holdUntil) => {
             waiting.delete(queued);
             if (queued.refused) throw new Error("The helper stopped before this request began");
             // The web side gave up while this waited: running it now would change the host with no job watching.
@@ -170,7 +170,8 @@ const server = net.createServer({ allowHalfOpen: true }, (connection) => {
             if (heartbeat) { clearInterval(heartbeat); heartbeat = null; }
             if (registeredTimeout) connection.setTimeout(registeredTimeout); // the operation's own budget starts now
             if (willWait) frame(helperStartedFrame(request.id)); // ...and the client's deadline restarts with it
-            return executeHelperOperation(request, helperDependencies);
+            // A root task it leaves running past its own limit keeps these lanes until its unit stops.
+            return whileHoldingRootTasks(holdUntil, () => executeHelperOperation(request, helperDependencies));
           });
         } finally {
           waiting.delete(queued);

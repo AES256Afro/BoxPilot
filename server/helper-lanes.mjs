@@ -126,9 +126,18 @@ export function createLaneQueues() {
     const waitFor = held.includes(exclusiveLane)
       ? [...lanes.values()]
       : [...held, ...across(held), exclusiveLane].map((lane) => lanes.get(lane)).filter(Boolean);
-    const result = Promise.allSettled(waitFor).then(task, task); // an earlier failure must not cancel this one
+    // `holdUntil(promise)`: what the task started and left running (a root task past its own limit,
+    // run-unit.mjs) keeps its lanes held until it settles too, while the task's answer goes out now.
+    const after = [];
+    let released = false;
+    const holdUntil = (promise) => { if (!released) after.push(Promise.resolve(promise).catch(() => {})); };
+    const start = () => task(holdUntil);
+    const result = Promise.allSettled(waitFor).then(start, start); // an earlier failure must not cancel this one
     // Keep the chain alive but never leak rejections, and drop a lane once it is idle again.
-    const settled = result.then(() => {}, () => {});
+    const settled = result.then(() => {}, () => {}).then(async () => {
+      while (after.length) await Promise.all(after.splice(0));
+      released = true;
+    });
     for (const lane of held) {
       lanes.set(lane, settled);
       settled.then(() => { if (lanes.get(lane) === settled) lanes.delete(lane); });
