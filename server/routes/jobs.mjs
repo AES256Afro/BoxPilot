@@ -6,6 +6,7 @@ import { Router } from "express";
 import { createEventStream, createStreamBudget } from "../event-stream.mjs";
 import { suggestFlows, suggestionFacts } from "../flow-suggestions.mjs";
 import { callerId, readsThroughHelper, seesEveryAccount } from "./access.mjs";
+import { registry } from "../ops/index.mjs";
 
 /**
  * The part of a job's persisted output the stream has not sent yet, given how many BYTES of the
@@ -192,12 +193,27 @@ export function createJobsRouter({ state, jobs, scheduler, flows = null, autoRec
    * are jobs of whoever ran it (M29.4). For anyone but the owner, a last run that was not entirely
    * theirs keeps its outcome and the step it reached, and loses its job ids and the error text those
    * jobs recorded; the flow's creator is named only to the creator.
+   *
+   * A step of an operation only the owner may run keeps its settings to the owner too (sweep 1):
+   * an HTTP request's address can be the secret itself (an ntfy topic, a webhook's path), so it is
+   * cut to where it goes, and everything else such a step carries is left out.
    */
+  function stepForCaller(step) {
+    const operation = registry.get(step?.operationId);
+    if (operation && operation.minimumRole !== "owner") return step;
+    let origin = null;
+    if (step?.operationId === "http.request" && typeof step.parameters?.url === "string") {
+      try { origin = new URL(step.parameters.url).origin; } catch { origin = null; }
+    }
+    const method = typeof step?.parameters?.method === "string" ? step.parameters.method : null;
+    return { ...step, parameters: origin ? { url: origin, ...(method ? { method } : {}) } : {}, parametersHidden: true };
+  }
+
   function flowForCaller(request, flow) {
     const self = callerId(request);
     const jobIds = Array.isArray(flow.lastJobIds) ? flow.lastJobIds : [];
     const theirs = jobIds.every((jobId) => jobId === null || (self !== null && state.getJob(jobId)?.createdBy === self));
-    const visible = { ...flow, createdBy: flow.createdBy === self ? flow.createdBy : null };
+    const visible = { ...flow, createdBy: flow.createdBy === self ? flow.createdBy : null, ...(Array.isArray(flow.steps) ? { steps: flow.steps.map(stepForCaller) } : {}) };
     if (theirs) return visible;
     return { ...visible, lastJobIds: [], lastResult: typeof flow.lastResult === "string" ? flow.lastResult.split(": ")[0] : flow.lastResult, lastRunElsewhere: true };
   }
