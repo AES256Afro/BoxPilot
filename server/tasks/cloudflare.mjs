@@ -68,6 +68,7 @@ export async function cloudflareConnect({ tunnelName } = {}, deps = {}) {
 /**
  * Publish one name: refuse a name that already points anywhere but this tunnel, route the name to
  * the app's port (keeping every other route), add the CNAME (or keep BoxPilot's own), and record it.
+ * When the CNAME cannot be added, the routes are put back as they were.
  */
 export async function cloudflarePublish(parameters = {}, deps = {}) {
   const { credentials, state, fetcher, log, now } = toolsOf(deps);
@@ -94,7 +95,22 @@ export async function cloudflarePublish(parameters = {}, deps = {}) {
   await api.setConfiguration(current.accountId, current.tunnelId, { ...config, ingress: next });
   log(`The tunnel now sends ${hostname} to ${service}${noTLSVerify ? " (HTTPS, the app's own certificate not checked)" : ""}; ${next.length - 2 === 0 ? "no other routes" : `${next.length - 2} other route${next.length - 2 === 1 ? "" : "s"} kept`}.`, "stdout");
 
-  const record = ours ?? await api.createCname(zoneId, { name: hostname, target, comment: `BoxPilot: ${appId}` });
+  let record = ours;
+  if (!record) {
+    try {
+      record = await api.createCname(zoneId, { name: hostname, target, comment: `BoxPilot: ${appId}` });
+    } catch (error) {
+      // Nothing has recorded the route yet, so left in place it is one unpublishing refuses as not
+      // BoxPilot's. The routes go back exactly as they were read, other names' and all.
+      const restored = await api.setConfiguration(current.accountId, current.tunnelId, config).then(() => null, (failure) => failure);
+      if (!restored) {
+        log(`Put the tunnel's routes back as they were: ${hostname} no longer goes to ${service}.`, "stderr");
+        throw Object.assign(new Error(`${error.message}. The route the tunnel was given for ${hostname} was rolled back, so nothing changed.`), { rolledBack: true });
+      }
+      log(`Could not take ${hostname}'s route back out of the tunnel: ${restored.message}`, "stderr");
+      throw Object.assign(new Error(`${error.message}, and taking its route back out of the tunnel also failed (${restored.message}). The tunnel still sends ${hostname} to ${service}: Publish it again to finish, or remove that route in the Cloudflare dashboard.`), { rolledBack: false });
+    }
+  }
   log(ours ? `${hostname} already points at this tunnel; kept it.` : `Added ${hostname} to ${zone.name}, pointing at this tunnel through Cloudflare.`, "stdout");
 
   const latest = await connectedState(state);
