@@ -2976,8 +2976,17 @@ export function createAgentService({
     const { text, agentName } = questionFrom(message.content, { agents: askable.map((agent) => agent.name) });
     if (!text) return { refused: "Ask a question after the mention, like: Steve, which drives are connected?" };
     const chosen = state.getSetting?.(zulipSettingKey, null)?.defaultAgentId ?? null;
-    const agent = agentName ? askable.find((entry) => entry.name === agentName)
-      : askable.find((entry) => entry.id === chosen) ?? askable.find((entry) => entry.template === "server-keeper") ?? askable[0];
+    // Two of the name the message gives: neither is guessed at, and the reply says whose each is
+    // (2026-10 sweep 4: the first made was asked - an operator's, say, run as the owner under that
+    // operator's words). Without a name, the owner's own agents, then the asker's, come first.
+    const named = agentName ? askable.filter((entry) => entry.name === agentName) : [];
+    if (named.length > 1) {
+      const whose = named.map((entry) => { const maker = makerOf(entry); return maker ? `one made by ${maker.username ?? maker.role}${maker.username && maker.role !== "owner" ? ` (${maker.role})` : ""}` : "one whose maker has gone"; });
+      return { refused: `More than one agent is called ${agentName}: ${whose.join(", ")}. Ask the owner to give them different names, then ask again.` };
+    }
+    const ownersFirst = (list) => list.find((entry) => makerOf(entry)?.role === "owner") ?? list.find((entry) => entry.createdBy === account.id) ?? list[0];
+    const agent = agentName ? named[0]
+      : askable.find((entry) => entry.id === chosen) ?? ownersFirst(askable.filter((entry) => entry.template === "server-keeper")) ?? ownersFirst(askable);
     if (!agent) return { refused: "None of BoxPilot's agents takes questions from you." };
     try {
       const run = startRun(caller, agent.id, { kind: "ask", question: text }, { trigger: { title: "Asked in Zulip", chat: { ...where, messageId: message.id, kind: message.kind } } });
