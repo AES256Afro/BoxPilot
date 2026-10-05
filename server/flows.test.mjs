@@ -156,6 +156,51 @@ describe("running a flow", () => {
     expect(store.getFlow(flow.id).lastResult).toMatch(/lost sight of step 1 .*time budget/);
   });
 
+  /** A step whose job waits in the helper's queue for `queuedMs`, then runs, finishing after `runMs` (never, if null). */
+  function queuedJobs(store, { queuedMs, runMs }) {
+    let counter = 0;
+    return {
+      async createOperationJob(operationId, parameters) {
+        counter += 1;
+        const job = { id: `job-${counter}`, operationId, parameters, state: "awaiting_approval", steps: [] };
+        store.jobs.set(job.id, job);
+        return job;
+      },
+      async approveAndStart(jobId) {
+        const job = store.jobs.get(jobId);
+        job.state = "applying";
+        // As the job layer records the helper's "queued" and "started" frames.
+        job.steps.push({ name: "queue", state: "waiting", detail: "waiting" });
+        setTimeout(() => {
+          job.steps.push({ name: "queue", state: "completed", detail: "started" });
+          job.startedRunningAt = Date.now();
+          if (runMs !== null) setTimeout(() => { job.state = "completed"; job.result = {}; }, runMs);
+        }, queuedMs);
+      },
+      cancelJob: vi.fn(),
+    };
+  }
+
+  it("does not count the time a step waits in the helper's queue against its budget", async () => {
+    // Reconnecting a dropped drive queued behind a six-hour sync was declared "lost sight", the
+    // drive put on hold, and the remount ran later with nobody watching it.
+    const store = fakeStore();
+    const service = createFlowService({ store, jobs: queuedJobs(store, { queuedMs: 150, runMs: 10 }), pollMs: 2, maxStepMs: 40 });
+    const flow = await service.create({ name: "reconnect", steps: [goodSteps[0]], createdBy: "owner-1" });
+    await expect(service.run(flow.id, "owner-1", { role: "owner" })).resolves.toMatchObject({ completed: true });
+    expect(store.getFlow(flow.id).lastResult).toBe("completed");
+  });
+
+  it("still holds a step to its budget, counted from when it left the queue", async () => {
+    const store = fakeStore();
+    const jobs = queuedJobs(store, { queuedMs: 100, runMs: null });
+    const service = createFlowService({ store, jobs, pollMs: 2, maxStepMs: 40 });
+    const flow = await service.create({ name: "reconnect", steps: [goodSteps[0]], createdBy: "owner-1" });
+    await expect(service.run(flow.id, "owner-1", { role: "owner" })).rejects.toThrow(/lost sight of step 1 .*time budget/);
+    // Declared lost only after it had left the queue (100 ms, more than twice the budget).
+    expect(store.getJob("job-1").startedRunningAt).toBeTypeOf("number");
+  });
+
   it("records which step is running as it goes, so a watcher and a crash both see the truth", async () => {
     const store = fakeStore();
     const seen = [];

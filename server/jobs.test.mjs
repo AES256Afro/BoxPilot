@@ -459,6 +459,21 @@ describe("durable job executor", () => {
     store.close();
   });
 
+  it("says on the job when it waits behind other work in the helper's queue, and when it starts", async () => {
+    // A flow watching the job reads this: its step's budget starts when the job does.
+    const helper = { request: vi.fn(async (_operation, _parameters, options) => {
+      options.onQueued();
+      options.onStarted();
+      return { ok: true };
+    }) };
+    const { store, owner, jobs } = await setup(helper);
+    try {
+      const job = await jobs.createOperationJob("apt.refresh", {}, owner.id);
+      await jobs.approveAndRun(job.id, owner.id, {});
+      expect(store.getJob(job.id).steps.filter((step) => step.name === "queue").map((step) => step.state)).toEqual(["waiting", "completed"]);
+    } finally { store.close(); }
+  });
+
   it("records a rollback as completed only when the operation's own rollback worked", async () => {
     // Any error mentioning "rollback" used to be recorded as "undid its partial changes", and the
     // errors that mention it are mostly the ones whose rollback FAILED; the ones that worked
@@ -748,7 +763,7 @@ describe("a job that ran out of time (M30.3)", () => {
     try {
       const job = await jobs.createOperationJob("app.install", { id: "jellyfin", values: {} }, owner.id);
       await expect(jobs.approveAndRun(job.id, owner.id, {})).rejects.toThrow("overall deadline");
-      expect(helper.request).toHaveBeenCalledWith("app.install", { id: "jellyfin", values: {} }, { timeoutMs: minutes(25), jobId: job.id });
+      expect(helper.request).toHaveBeenCalledWith("app.install", { id: "jellyfin", values: {} }, { timeoutMs: minutes(25), jobId: job.id, onQueued: expect.any(Function), onStarted: expect.any(Function) });
       const failed = store.getJob(job.id);
       expect(failed.state).toBe("failed");
       expect(failed.timeout).toEqual({ scope: "operation", budgetMs: minutes(25), elapsedMs: minutes(25), phase: "running", step: null, lastOutput: "abc123 Downloading 812MB/2.1GB", moreTimeMs: minutes(50) });
@@ -814,7 +829,7 @@ describe("a job that ran out of time (M30.3)", () => {
 
       await expect(jobs.approveAndRun(second.id, owner.id, {})).rejects.toThrow();
       // The larger budget reaches the helper, which checks it against the registry.
-      expect(helper.request).toHaveBeenLastCalledWith("app.install", { id: "jellyfin", values: {} }, { timeoutMs: minutes(50), jobId: second.id, budgetMs: minutes(50) });
+      expect(helper.request).toHaveBeenLastCalledWith("app.install", { id: "jellyfin", values: {} }, { timeoutMs: minutes(50), jobId: second.id, budgetMs: minutes(50), onQueued: expect.any(Function), onStarted: expect.any(Function) });
       expect(store.getJob(second.id).timeout).toMatchObject({ budgetMs: minutes(50), elapsedMs: minutes(50), moreTimeMs: minutes(100) });
 
       const third = await jobs.retryWithMoreTime(second.id, owner.id);

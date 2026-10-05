@@ -309,12 +309,19 @@ export function createJobService(store, helper, {
       // Invalidate before publishing terminal state so a UI refresh sees new evidence.
       try { await onOperationSettled(job); } catch { /* preserve the operation's actual outcome */ }
     };
+    // Waiting behind other work in the helper's queue is said on the job, and so is leaving it: the
+    // operation's budget starts there, and a flow watching this job counts its step's time from then.
+    const note = (state, detail) => { try { store.addJobStep(jobId, "queue", state, detail); } catch { /* the job's outcome stands */ } };
+    const queue = {
+      onQueued: () => note("waiting", "Waiting for earlier work on the server to finish; its time limit starts when it begins"),
+      onStarted: () => note("completed", "Started once the earlier work had finished"),
+    };
     try {
       const result = splitOneTime(job, execution.run
         ? await execution.run()
         : execution.timeoutMs
-          ? await helper.request(execution.operation, execution.parameters, { timeoutMs: execution.timeoutMs, jobId, ...(execution.budgetMs ? { budgetMs: execution.budgetMs } : {}) })
-          : await helper.request(execution.operation, execution.parameters, { jobId }));
+          ? await helper.request(execution.operation, execution.parameters, { timeoutMs: execution.timeoutMs, jobId, ...(execution.budgetMs ? { budgetMs: execution.budgetMs } : {}), ...queue })
+          : await helper.request(execution.operation, execution.parameters, { jobId, ...queue }));
       store.transitionJob(jobId, "applying", "verifying", { result });
       store.addJobStep(jobId, "apply", "completed", execution.applied);
       if (!execution.validate(result)) throw new Error(execution.run ? "Operation returned an invalid result" : "Helper returned an invalid operation result");
