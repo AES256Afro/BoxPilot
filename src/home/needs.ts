@@ -201,19 +201,26 @@ export function buildNeeds(facts: FactValues, { now, role }: { now: number; role
     const failedBefore = finding.lastAttempt?.state === "failed";
     // "Try again" only when the same fix can work again; a failure that names another place opens it.
     const advice: RetryAdvice = failedBefore ? adviseRetry(finding.lastAttempt?.error) : { retry: true };
-    // A try that may still be running on the server is not offered again beside itself (sweep 4).
-    const fixes = mayStillBeRunning(finding.lastAttempt) ? [] : fixesOf(finding)
+    // A try that may still be running on the server is not offered again beside itself (sweep 4),
+    // until it can no longer be (12 hours on). Letting that try go is, and opens the fix again (sweep 5).
+    const attempt = finding.lastAttempt ?? null;
+    const leftRunning = mayStillBeRunning(attempt, now);
+    const fixes = leftRunning ? [] : fixesOf(finding)
       .filter((fix) => mayStart(role, fix.operationId))
       .map((fix, index): NeedAction => ({ kind: fix.kind === "schedule" ? "schedule" : "operation", fix, operationId: fix.operationId, label: index === 0 && failedBefore && advice.retry ? "Try again" : fix.label, title: fix.label, parameters: fix.parameters ?? {}, preview: fix.preview, risk: fix.risk ?? riskOf(fix.operationId) }));
-    const actions = [...(advice.next && fixes.length ? [openAction(advice.next)] : []), ...fixes];
+    const letGo: NeedAction | null = leftRunning && attempt && (role === "owner" || role === "operator")
+      ? { kind: "dismiss", operationId: "", label: "Dismiss this try", title: `Dismiss this try: ${attempt.title}`, parameters: {}, preview: "", risk: "low" } : null;
+    const runnable = [...(advice.next && fixes.length ? [openAction(advice.next)] : []), ...fixes];
+    const actions = [...runnable, ...(letGo ? [letGo] : [])];
     needs.push({
+      ...(letGo && attempt ? { jobId: attempt.jobId } : {}),
       id: `repair:${finding.id}`, kind: "repair", finding,
       severity: finding.severity === "critical" ? "danger" : finding.severity === "warning" ? "warning" : "neutral",
       title: finding.title,
       // A row holds a line or two; the whole error is on Repair's card, with the job's log. What the
       // error says to do first is kept, even when the start of it has to be cut.
       detail: failedBefore ? failureLine("Last try failed: ", finding.lastAttempt?.error) : finding.evidence?.[0] ?? null,
-      view: finding.view ?? "repairs", action: actions[0] ?? null, ...(actions.length > 1 ? { actions } : {}),
+      view: finding.view ?? "repairs", action: runnable[0] ?? null, ...(actions.length > 1 || letGo ? { actions } : {}),
     });
   }
 
@@ -339,7 +346,7 @@ export function buildNeeds(facts: FactValues, { now, role }: { now: number; role
     // repeated the same refusal; the owner did it three times on "Reconnect a drive".
     // One that may still be running on the server is not run again beside itself (sweep 4): the row
     // opens it in Activity, where its log says how far it has got, and Dismiss lets it go.
-    const advice = moreTime ? { retry: true } : mayStillBeRunning(failedJob) ? { retry: false } : adviseRetry(failedJob.error);
+    const advice = moreTime ? { retry: true } : mayStillBeRunning(failedJob, now) ? { retry: false } : adviseRetry(failedJob.error);
     const retry = advice.retry && failedJob.type.startsWith("op:") && !JSON.stringify(parameters).includes("[secret]")
       ? act(operationId, moreTime ? "Try again with more time" : "Try again", failedJob.title, parameters, `Runs ${failedJob.title} again with the same settings${moreTime ? " and a larger time budget" : ""}. The last run failed: ${failedJob.error ?? "no error was recorded"}`)
       : null;

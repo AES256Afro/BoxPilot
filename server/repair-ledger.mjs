@@ -14,6 +14,7 @@
  * Pure: the route reads and writes the two settings, this decides what they mean.
  */
 import { fingerprintOf } from "./remediations.mjs";
+import { mayStillBeRunning, mayStillBeRunningAt } from "./timeouts.mjs";
 
 export const dismissalsKey = "repairDismissals";
 export const attemptsKey = "repairAttempts";
@@ -70,6 +71,20 @@ export function ranFix(job, fix) {
 
 const at = (job) => job?.updatedAt ?? job?.createdAt ?? null;
 const newestFirst = (a, b) => String(at(b)).localeCompare(String(at(a)));
+/** A failed job someone let go with M36's mark (Activity's, Home's, Repair's Dismiss this try). */
+const letGo = (job) => (job?.steps ?? []).some((step) => step.name === "dismissed" && step.state === "completed");
+
+/**
+ * A try's timeout as the finding carries it. One that may have left work running is marked settled
+ * once that can no longer be so (sweep 5): 12 hours after it ran out, or its budget again if longer
+ * (timeouts.mjs), or as soon as someone let the try go. The fix is then offered again. It used to be
+ * held back for as long as the job was among the newest 200, which was weeks.
+ */
+function attemptTimeout(job, now) {
+  const timeout = job.timeout ?? null;
+  if (!mayStillBeRunning(timeout) || (!letGo(job) && mayStillBeRunningAt(timeout, at(job), now.getTime()))) return timeout;
+  return { ...timeout, settled: true };
+}
 
 /**
  * The managed mount (its fstab name) a reconnecting fix was about: Reconnect a drive and Let apps
@@ -91,7 +106,7 @@ function reconnectedMount(job) {
  * `jobs` are the jobs the caller may see (newest first or not), `attempts` and `dismissals` the two
  * settings. `mounts`, when the scan read them, are what is mounted now with each one's fstab name.
  */
-export function applyLedger(findings = [], { dismissals = {}, attempts = {}, jobs = [], mounts = null } = {}) {
+export function applyLedger(findings = [], { dismissals = {}, attempts = {}, jobs = [], mounts = null, now = () => new Date() } = {}) {
   const byId = new Map(jobs.map((job) => [job.id, job]));
   const recent = [...jobs].sort(newestFirst);
   const active = [];
@@ -107,8 +122,9 @@ export function applyLedger(findings = [], { dismissals = {}, attempts = {}, job
     const lastAttempt = last ? {
       jobId: last.id, state: last.state, error: last.error ?? null, at: at(last), title: last.title,
       operationId: last.type.replace(/^op:/, ""), label: fixes.find((fix) => ranFix(last, fix))?.label ?? null,
-      // Whether it ran out of time, and may still be running: then it is not offered again (sweep 4).
-      timeout: last.timeout ?? null,
+      // Whether it ran out of time, and may still be running: then it is not offered again (sweep 4),
+      // until that can no longer be so (sweep 5).
+      timeout: attemptTimeout(last, now()),
     } : null;
     if (last && last.state === "failed") attached.add(last.id);
     const dismissal = dismissals?.[entry.id];
