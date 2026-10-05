@@ -77,4 +77,17 @@ describe("cloud backup tasks", () => {
     const copyCall = run.mock.calls.find(([, args]) => args.includes("copy"));
     expect(copyCall[1]).toEqual(expect.arrayContaining(["--exclude", "/.staging-*/**", "--exclude", "/.restore-*/**", "--exclude", "/restored/**"]));
   });
+
+  it("leaves an app backup still being written out of every copy", async () => {
+    // `<stamp>.tar.gz.partial` grows and is then renamed: copied, it would stay in the bucket as a
+    // truncated archive, and its growing mid-transfer is an rclone error.
+    const secretsDirectory = await secretsDir();
+    const run = vi.fn(async () => ({ ok: true, stdout: "", stderr: "Errors:                 0\nTransferred:            1 / 1, 100%\n" }));
+    await backupCloudSetup({ provider: "b2", account: "a", bucket: "home-backups", path: "homebox", key: "k" }, { run, secretsDirectory, rclone: "/" });
+    const sources = [{ name: "application-backups", root: secretsDirectory }, { name: "machine-snapshots", root: secretsDirectory }];
+    await backupCloudSync({ provider: "b2", account: "a", bucket: "home-backups", path: "homebox" }, { run, secretsDirectory, rclone: "/", sources });
+    const copyCalls = run.mock.calls.filter(([, args]) => args.includes("copy"));
+    expect(copyCalls).toHaveLength(2);
+    for (const [, args] of copyCalls) expect(args.join(" ")).toContain("--exclude *.partial");
+  });
 });

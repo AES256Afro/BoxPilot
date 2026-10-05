@@ -174,6 +174,16 @@ describe("machine snapshot helper", () => {
     expect(await readdir(path.join(result.destination, "machine-snapshots"))).toEqual([name, `${name}.meta.json`]);
   });
 
+  it("leaves an app backup still being written out of the mirror", async () => {
+    // A backup writes `<stamp>.tar.gz.partial` and renames it once whole. Copied mid-write it was kept
+    // forever, a truncated archive beside the real one; renamed or grown mid-copy, the sync died.
+    const { helper, paths } = await fixture();
+    const partial = path.join(paths.applicationBackupRoot, "uptime-kuma", "20260821T015959Z.tar.gz.partial");
+    await writeFile(partial, "half an archive");
+    const result = await helper.sync();
+    expect(await readdir(path.join(result.destination, "application-backups", "uptime-kuma"))).toEqual(["20260816T030000Z.tar.gz"]);
+  });
+
   it("refuses to sync when the destination is not an independent mount", async () => {
     const { helper } = await fixture({ mounted: false });
     await expect(helper.sync()).rejects.toThrow("Mount an independent filesystem");

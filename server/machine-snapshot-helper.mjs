@@ -28,6 +28,12 @@ const isSnapshotScratch = (relative) => {
   const [first] = relative.split(path.sep);
   return first.startsWith(".staging-") || first.startsWith(".restore-") || first === "restored";
 };
+/**
+ * An app backup is written as `<stamp>.tar.gz.partial` and renamed once it is whole. Copied, half an
+ * archive would sit on the destination for good (the mirrors never delete); read while it grows or
+ * is renamed, it fails the copy.
+ */
+const isInProgress = (relative) => relative.endsWith(".partial");
 /** The deployer's own id rule; a snapshot's manifest is only as trustworthy as whoever last held the file. */
 const appIdPattern = /^[a-z0-9][a-z0-9-]{1,62}$/;
 const appBackupNamePattern = /^\d{8}T\d{6}Z\.tar\.gz$/;
@@ -280,6 +286,7 @@ export function createMachineSnapshotHelper({
     for (const source of sources) {
       for (const relative of await walkFiles(source.root)) {
         if (source.root === resolvedSnapshotRoot && isSnapshotScratch(relative)) continue;
+        if (isInProgress(relative)) continue;
         fileCount += 1;
         const from = path.join(source.root, relative);
         const to = path.join(mirrorRoot, source.name, relative);
@@ -550,7 +557,9 @@ export function createMachineSnapshotHelper({
             for (const file of [".env"]) await copyIfExists(path.join(staging, "apps", app.id, file), path.join(target, file));
             await writeFile(path.join(target, "boxpilot.json"), JSON.stringify({ ...(archivedState ?? { id: app.id }), installed: false, restoredFrom: artifact }, null, 2), { mode: 0o600 });
             progress?.(`[${app.id}] installing with the archived settings`, "stdout");
-            await appHelper.install({ id: app.id, values: archivedState?.values ?? {} }, { progress });
+            // Saved settings, not an owner's entry: a snapshot from an older release can name a setting
+            // the catalog has since dropped, and never holds a secret, which comes from the .env above.
+            await appHelper.install({ id: app.id, values: archivedState?.values ?? {} }, { progress, storedValues: true });
             await stamp(target, { restoredFrom: artifact });
             entry.installed = true;
           }
