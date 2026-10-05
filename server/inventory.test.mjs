@@ -29,6 +29,25 @@ describe("sanitized host inventory", () => {
     expect(helper.request).toHaveBeenCalledWith("container.docker.inventory", {});
   });
 
+  it("says what BoxPilot's own restart still owes, from the helper's runtime read (sweep 5)", async () => {
+    const owed = (unfinished) => ({ selfRestart: { waiting: null, restarting: false, unfinished } });
+    const collect = async (runtime, { startedAt = "2026-10-05T08:00:00.000Z" } = {}) => createInventoryService({
+      helper: { request: vi.fn(async (operation) => { if (operation !== "system.runtime.inspect") return { available: true, containers: [] }; if (runtime instanceof Error) throw runtime; return runtime; }) },
+      runCommand: vi.fn(async () => ({ ok: false, stdout: "" })), readOsRelease: async () => "", getFilesystem: async () => { throw new Error("none"); }, getNetworkInterfaces: () => ({}),
+      readStorageHealth: async () => { throw new Error("none"); }, maintenance: { inspect: async () => ({}) }, ups: { inspect: async () => ({}) },
+      webStartedAt: () => new Date(startedAt),
+    }).inspect().then((inventory) => inventory.boxpilot);
+    const gaveUp = { outcome: "gave-up", units: ["boxpilot.service", "boxpilot-helper.service"], reason: "upgraded libraries", at: "2026-10-05T09:00:00.000Z", error: null };
+    expect(await collect(owed(gaveUp))).toEqual({ available: true, restart: gaveUp });
+    // The web service started since it gave up: that unit has restarted, the helper (which still says so) has not.
+    expect(await collect(owed(gaveUp), { startedAt: "2026-10-05T10:00:00.000Z" })).toEqual({ available: true, restart: { ...gaveUp, units: ["boxpilot-helper.service"] } });
+    expect(await collect(owed({ ...gaveUp, units: ["boxpilot.service"] }), { startedAt: "2026-10-05T10:00:00.000Z" })).toEqual({ available: true, restart: null });
+    expect(await collect(owed(null))).toEqual({ available: true, restart: null });
+    // A helper that does not answer, or does not say, is not read as nothing owed.
+    expect(await collect(new Error("offline"))).toEqual({ available: false, restart: null });
+    expect(await collect({ uptimeSeconds: 5 })).toEqual({ available: false, restart: null });
+  });
+
   it("degrades Docker and OS collectors independently", async () => {
     const service = createInventoryService({
       helper: { request: vi.fn(async () => { throw new Error("offline"); }) },

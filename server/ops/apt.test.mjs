@@ -110,6 +110,7 @@ describe("BoxPilot restarting after a package change", () => {
     const progress = vi.fn();
     const result = await registry.execute("apt.upgrade", {}, { runUnit, progress });
     expect(result.selfRestartScheduled).toBe(false);
-    expect(progress.mock.calls.some(([line]) => /System page/.test(line))).toBe(true);
+    // The restart button is on Services (sweep 5).
+    expect(progress.mock.calls.some(([line]) => /Services page/.test(line))).toBe(true);
   });
 });

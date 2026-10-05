@@ -88,7 +88,7 @@ export const readsThroughHelper = (request) => ["owner", "operator"].includes(re
 const everyonesFamilies = new Set([
   "storage.root.full", "storage.mount.full", "storage.smart", "storage.mount.detached", "storage.mount.readonly", "storage.forecast",
   "smart.errors", "smart.wear", "power.ups", "system.services", "system.reboot", "docker.unhealthy", "docker.restarting",
-  "joblog.unreadable", "release.available", "drive.reconnected",
+  "joblog.unreadable", "release.available", "drive.reconnected", "boxpilot.restart",
 ]);
 
 /**

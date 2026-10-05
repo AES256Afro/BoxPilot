@@ -22,6 +22,7 @@ export const healthConditions = Object.freeze({
   "power.ups": "UPS on battery or low",
   "system.services": "System services have failed",
   "system.reboot": "A reboot is required",
+  "boxpilot.restart": "BoxPilot needs a restart it could not make itself",
   "docker.unhealthy": "A container is unhealthy",
   "docker.restarting": "A container keeps restarting (crash-looping)",
   "schedule.overdue": "A scheduled task (such as a backup) has stopped running",
@@ -183,6 +184,17 @@ export function evaluateHealth(inventory) {
   if (maintenance?.reboot?.required) {
     alerts.push({ key: "system.reboot", priority: "default", title: "A reboot is required", message: "Updates were installed that need a restart. Reboot from the System page when convenient." });
   }
+  // BoxPilot's own restart after an update or a KVM install that gave up (the server was never idle
+  // for hours) or failed: it used to be said only in the journal (sweep 5). Which units, from the
+  // helper's runtime read; the web unit drops out once this process has restarted (inventory.mjs).
+  const owed = inventory?.boxpilot?.restart;
+  if (Array.isArray(owed?.units) && owed.units.length) {
+    const units = owed.units.join(" and ");
+    const why = owed.outcome === "gave-up"
+      ? `after it was asked to (${owed.reason}): the server was never idle long enough, so nothing was stopped.`
+      : `(${owed.reason}): ${asSentence(owed.error || "the restart failed")}`;
+    alerts.push({ key: "boxpilot.restart", priority: "default", title: "BoxPilot needs a restart", message: `BoxPilot could not restart ${units} ${why} Restart ${owed.units.length === 1 ? "it" : "them"} from Services when nothing is running; the Updates page lists what still runs old libraries.` });
+  }
   for (const container of inventory?.docker?.containers ?? []) {
     // Crash-looping is worse than unhealthy and unambiguous: a running container is "running", so
     // "restarting"/"dead" means Docker keeps trying to start something that keeps dying. A stopped
@@ -212,6 +224,7 @@ export function collectorAvailability(inventory) {
     "power.ups": inventory?.power?.ups?.available === true,
     "system.services": maintenance?.available !== false && Number.isFinite(maintenance?.system?.failedServiceCount),
     "system.reboot": maintenance?.available !== false && typeof maintenance?.reboot?.required === "boolean",
+    "boxpilot.restart": inventory?.boxpilot?.available === true,
     "docker.unhealthy": inventory?.docker?.available !== false && Array.isArray(inventory?.docker?.containers),
     "docker.restarting": inventory?.docker?.available !== false && Array.isArray(inventory?.docker?.containers),
   };

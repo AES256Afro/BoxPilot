@@ -55,6 +55,10 @@ const rules: Rule[] = [
   { test: /is already installed; use reconfigure or update|start or restart it instead/i, retry: false, next: { label: "Open App catalog", view: "catalog" } },
   // Nothing BoxPilot can change by running it again.
   { test: /has no data to back up|is already scheduled/i, retry: false },
+  // What a backup or snapshot holds, and whether it is there, are the file's own: the same file is
+  // refused the same way every time (a high-risk restore asked for the password first, each time).
+  { test: /which a (?:backup|snapshot) BoxPilot made never (?:holds|does)|failed its checksum/i, retry: false },
+  { test: /can be read now, so it was not removed|\bis no longer there\.?$/i, retry: false },
 ];
 
 /** The sentence that says what to do, when the error ends with one: "Check …", "Stop … and try again". */

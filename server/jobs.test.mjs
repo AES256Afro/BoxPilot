@@ -480,6 +480,104 @@ describe("durable job executor", () => {
     } finally { store.close(); }
   });
 
+  describe("a change sent while BoxPilot restarts (sweep 5)", () => {
+    // An automation's next step, sent in the moment between its last step and BoxPilot's drained
+    // restart, was refused "BoxPilot is restarting" and the automation stopped: no off-box copy that night.
+    const refusedForRestart = () => Object.assign(new Error("BoxPilot is restarting to pick up what an update changed, so this did not start and nothing was changed."), { code: "helper_restarting" });
+    const fast = { helperPollMs: 1, sleep: () => new Promise((resolve) => setTimeout(resolve, 1)) };
+
+    it("waits for BoxPilot to come back and sends it again, once", async () => {
+      let sends = 0;
+      let probes = 0;
+      const helper = { request: vi.fn(async (operation) => {
+        if (operation === "system.runtime.inspect") {
+          probes += 1;
+          // Still restarting, then gone while its helper restarts, then back.
+          if (probes === 1) return { selfRestart: { restarting: true } };
+          if (probes === 2) throw Object.assign(new Error("Helper unavailable: connect ENOENT"), { code: "helper_unavailable" });
+          return { selfRestart: { restarting: false, waiting: null, unfinished: null } };
+        }
+        if (operation === "job.output.release") return {};
+        sends += 1;
+        if (sends === 1) throw refusedForRestart();
+        return { synced: true };
+      }) };
+      const { store, owner } = await setup(helper);
+      try {
+        const jobs = createJobService(store, helper, fast);
+        const job = await jobs.createOperationJob("apt.refresh", {}, owner.id);
+        expect((await jobs.approveAndRun(job.id, owner.id, {})).state).toBe("completed");
+        expect(sends).toBe(2);
+        const queue = store.getJob(job.id).steps.filter((step) => step.name === "queue");
+        expect(queue.map((step) => [step.state, step.detail])).toEqual([
+          ["waiting", "BoxPilot is restarting, so this has not started; it is sent again once BoxPilot is back"],
+          ["completed", "Sent again now that BoxPilot is back"],
+        ]);
+      } finally { store.close(); }
+    });
+
+    it("waits the same for a helper that is not there yet, since nothing reached it", async () => {
+      let sends = 0;
+      const helper = { request: vi.fn(async (operation) => {
+        if (operation === "system.runtime.inspect") return { selfRestart: { restarting: false } };
+        if (operation === "job.output.release") return {};
+        sends += 1;
+        if (sends === 1) throw Object.assign(new Error("Helper unavailable: connect ECONNREFUSED"), { code: "helper_unavailable" });
+        return {};
+      }) };
+      const { store, owner } = await setup(helper);
+      try {
+        const jobs = createJobService(store, helper, fast);
+        const job = await jobs.createOperationJob("apt.refresh", {}, owner.id);
+        expect((await jobs.approveAndRun(job.id, owner.id, {})).state).toBe("completed");
+        expect(store.getJob(job.id).steps.find((step) => step.name === "queue")?.detail).toBe("BoxPilot's helper is not answering, so this has not started; it is sent again once it is back");
+      } finally { store.close(); }
+    });
+
+    it("fails, saying nothing ran, when BoxPilot is not back in time or refuses it again", async () => {
+      let at = 0;
+      const neverBack = { request: vi.fn(async (operation) => {
+        if (operation === "system.runtime.inspect") { at += 60_000; return { selfRestart: { restarting: true } }; }
+        if (operation === "job.output.release") return {};
+        throw refusedForRestart();
+      }) };
+      const { store, owner } = await setup(neverBack);
+      try {
+        const jobs = createJobService(store, neverBack, { ...fast, now: () => at });
+        const job = await jobs.createOperationJob("apt.refresh", {}, owner.id);
+        await expect(jobs.approveAndRun(job.id, owner.id, {})).rejects.toThrow(/^BoxPilot was not back within 10 minutes, so this did not start and nothing was changed/);
+        expect(store.getJob(job.id)).toMatchObject({ state: "failed" });
+        // Sent once and never again; the queue step says it never left.
+        expect(neverBack.request.mock.calls.filter(([operation]) => operation === "apt.refresh")).toHaveLength(1);
+        expect(store.getJob(job.id).steps.filter((step) => step.name === "queue").at(-1).state).toBe("waiting");
+
+        const twice = { request: vi.fn(async (operation) => {
+          if (operation === "system.runtime.inspect") return { selfRestart: { restarting: false } };
+          if (operation === "job.output.release") return {};
+          throw refusedForRestart();
+        }) };
+        const again = createJobService(store, twice, fast);
+        const second = await again.createOperationJob("apt.refresh", {}, owner.id);
+        await expect(again.approveAndRun(second.id, owner.id, {})).rejects.toThrow(/^BoxPilot is restarting/);
+        expect(twice.request.mock.calls.filter(([operation]) => operation === "apt.refresh")).toHaveLength(2);
+      } finally { store.close(); }
+    });
+
+    it("never sends again a change that failed, or one the helper may have started", async () => {
+      for (const error of [new Error("apt-get failed"), new Error("Helper connection closed before sending a result"), Object.assign(new Error("Helper unavailable: read ECONNRESET"), {})]) {
+        const helper = { request: vi.fn(async (operation) => { if (operation === "apt.refresh") throw error; return {}; }) };
+        const { store, owner } = await setup(helper);
+        try {
+          const jobs = createJobService(store, helper, fast);
+          const job = await jobs.createOperationJob("apt.refresh", {}, owner.id);
+          await expect(jobs.approveAndRun(job.id, owner.id, {})).rejects.toThrow(error.message);
+          expect(helper.request.mock.calls.filter(([operation]) => operation === "apt.refresh")).toHaveLength(1);
+          expect(helper.request.mock.calls.some(([operation]) => operation === "system.runtime.inspect")).toBe(false);
+        } finally { store.close(); }
+      }
+    });
+  });
+
   it("records a rollback as completed only when the operation's own rollback worked", async () => {
     // Any error mentioning "rollback" used to be recorded as "undid its partial changes", and the
     // errors that mention it are mostly the ones whose rollback FAILED; the ones that worked
