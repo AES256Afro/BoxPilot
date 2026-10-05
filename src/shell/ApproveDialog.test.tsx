@@ -193,6 +193,26 @@ describe("approval dialog", () => {
     await waitFor(() => expect(calls.some((call) => call.method === "DELETE" && call.url.includes("/jobs/job-1"))).toBe(true));
     expect(onClose).toHaveBeenCalled();
   });
+
+  // An agent's card was decided when its job was staged: cancelling withdrew the job, and the card
+  // stayed decided with nothing run. A page that needs to know the job will run is told on approval.
+  it("tells a page its job was approved once it is accepted, and never when it is withdrawn", async () => {
+    stubApi({ confirmText: "" });
+    const approved = vi.fn();
+    const { unmount } = render(<ApproveDialog operationId="controller.backup.create" title="Back up database" parameters={{}} csrfToken="csrf" onClose={() => {}} onApproved={approved} />);
+    await screen.findByRole("button", { name: "Confirm and run" });
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(approved).not.toHaveBeenCalled();
+    unmount();
+    render(<ApproveDialog operationId="controller.backup.create" title="Back up database" parameters={{}} csrfToken="csrf" onClose={() => {}} onApproved={approved} />);
+    const run = await screen.findByRole("button", { name: "Confirm and run" });
+    await waitFor(() => expect(run.hasAttribute("disabled")).toBe(false));
+    fireEvent.click(run);
+    await waitFor(() => expect(approved).toHaveBeenCalledTimes(1));
+    expect(approved).toHaveBeenCalledWith(expect.objectContaining({ id: "job-1" }));
+    await screen.findByText("Completed.");
+    expect(approved).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("a job that ran out of time (M30.3)", () => {
