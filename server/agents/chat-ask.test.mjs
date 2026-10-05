@@ -274,3 +274,39 @@ describe("a question asked in Zulip that the supervisor hands on (R2B1-4, R2B1-5
     expect(toAlex()).toEqual([expect.stringMatching(/^KEEPER-FINAL/)]);
   });
 });
+
+describe("two agents of one name, and an agent another account set up (sweep 4, R4S3-5)", () => {
+  const rename = (role, agent, changes) => h.service.updateAgent(h.caller(role), agent.id, { spec: { ...h.service.getAgent(h.caller(role), agent.id).spec, ...changes } });
+
+  it("asks neither of two agents of the name a message gives, and says who made each", async () => {
+    // The operator's came first: Zulip took the first-made one of that name.
+    h.service.createAgent(h.caller("operator"), { template: "backup-auditor" });
+    h.service.createAgent(h.caller("owner"), { template: "backup-auditor" });
+    await mapTo([{ zulipId: 11, zulipEmail: "alex@example.com", zulipName: "Alex", boxpilotId: h.accounts.owner.id }]);
+    posted = [];
+    direct(alex, "Backup Auditor: did last night's backups finish?");
+    await check();
+    expect(h.store.activeRuns()).toEqual([]);
+    expect(posted.map((post) => post.content)).toEqual([expect.stringMatching(/^More than one agent is called Backup Auditor: /)]);
+    expect(posted[0].content).toContain("one made by owner");
+    expect(posted[0].content).toContain("one made by operator (operator)");
+  });
+
+  it("posts the work of a run that reads more than its agent's maker may only to the connection's own channels", async () => {
+    const theirs = h.service.createAgent(h.caller("operator"), { template: "backup-auditor" });
+    const chat = h.service.getAgent(h.caller("operator"), theirs.id).spec.outputs.chat;
+    rename("operator", theirs, { outputs: { ...h.service.getAgent(h.caller("operator"), theirs.id).spec.outputs, chat: { ...chat, logs: { enabled: true, channel: "operator-logs", topic: null }, findings: { enabled: true, channel: "operator-findings", topic: null } } } });
+    // The owner asks it: what the run read, the owner's to read, stays in the owner's channels.
+    h.service.startRun(h.caller("owner"), theirs.id, { kind: "ask", question: "Did last night's backups finish?" });
+    await h.runNext();
+    // The operator asks it: their run, their channels.
+    h.service.startRun(h.caller("operator"), theirs.id, { kind: "ask", question: "Did last night's backups finish?" });
+    await h.runNext();
+    const posts = h.store.listChatPosts({ state: "queued" });
+    const runs = h.store.listRuns({ agentId: theirs.id, limit: 10 });
+    const channelsOf = (role) => [...new Set(posts.filter((post) => post.runId === runs.find((run) => run.readRole === role).id).map((post) => post.channel))].sort();
+    expect(channelsOf("owner").every((channel) => channel.startsWith("agent-"))).toBe(true);
+    expect(channelsOf("owner")).toContain("agent-logs");
+    expect(channelsOf("operator")).toEqual(expect.arrayContaining(["operator-logs"]));
+  });
+});

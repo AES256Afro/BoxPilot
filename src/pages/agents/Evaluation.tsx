@@ -159,7 +159,8 @@ export function Evaluation({ agents, agentId, csrfToken, now, enabled, onSelectA
   ];
   const score = (entry: EvalRun) => (entry.score === null ? "—" : percent(entry.score));
   const passed = latest ? latest.results.filter((result) => result.passed).length : 0;
-  // A nightly question the night's model time could not pay for is not graded, nor counted (sweep 3).
+  // A nightly question never asked - the night's model time could not pay for it (sweep 3), it
+  // waited too long or its agent was paused (sweep 4) - is not graded, nor counted; its row says why.
   const graded = latest ? latest.results.filter((result) => !result.skipped).length : 0;
   const skipped = latest ? latest.results.length - graded : 0;
   const quiet = state.nightly?.quietHours;
@@ -224,7 +225,7 @@ export function Evaluation({ agents, agentId, csrfToken, now, enabled, onSelectA
       </Panel>
 
       <Panel className="agents-result" title="Latest result" count={latest ? { status: latest.state === "running" ? "neutral" : (latest.score ?? 0) >= 0.8 ? "good" : "warning", label: latest.state === "running" ? "running" : score(latest) } : undefined}
-        meta={latest ? <>v{latest.version} · <b>{passed}</b> of {graded} right{skipped ? ` · ${skipped} not graded: no model time left for ${skipped === 1 ? "it" : "them"}` : ""} · {latest.createdBy === null ? "nightly" : "asked by a person"} · {relativeTime(latest.finishedAt ?? latest.createdAt, now) ?? ""}</> : undefined}>
+        meta={latest ? <>v{latest.version} · <b>{passed}</b> of {graded} right{skipped ? ` · ${skipped} not graded` : ""} · {latest.createdBy === null ? "nightly" : "asked by a person"} · {relativeTime(latest.finishedAt ?? latest.createdAt, now) ?? ""}</> : undefined}>
         <Table caption="The latest evaluation's answers" columns={resultColumns} rows={latest?.results ?? []} rowKey={(result) => result.questionId}
           rowStatus={(result) => (result.passed === false ? "danger" : undefined)}
           empty={<EmptyState title="Not run yet">It runs tonight in quiet hours, or now with "Run the evaluation now".</EmptyState>} />
@@ -241,7 +242,7 @@ export function Evaluation({ agents, agentId, csrfToken, now, enabled, onSelectA
             rowStatus={(entry) => (drop?.evalId === entry.id ? "warning" : undefined)}
             columns={[
               { id: "when", header: "When", cell: (entry) => <span className="agents-dim">{relativeTime(entry.at, now) ?? entry.at.slice(0, 10)}</span> },
-              { id: "score", header: "Score", cell: (entry) => <span className="agents-accuracy__score"><Progress label={`${entry.at.slice(0, 10)}: score`} hideLabel value={Math.round(entry.score * 100)} max={100} status={entry.score >= 0.8 ? "good" : "warning"} /><span className="agents-mono">{percent(entry.score)} · {entry.right}/{entry.questions}</span></span> },
+              { id: "score", header: "Score", cell: (entry) => <span className="agents-accuracy__score"><Progress label={`${entry.at.slice(0, 10)}: score`} hideLabel value={Math.round(entry.score * 100)} max={100} status={entry.score >= 0.8 ? "good" : "warning"} /><span className="agents-mono">{percent(entry.score)} · {entry.right}/{entry.questions}{entry.skipped ? ` · ${entry.skipped} not graded` : ""}</span></span> },
               { id: "version", header: "Version", hideOnPhone: true, cell: (entry) => <span className="agents-mono">v{entry.version}{entry.nightly ? " · nightly" : ""}</span> },
               { id: "model", header: "Model", hideOnPhone: true, cell: (entry) => <span className="agents-mono">{(entry.model ?? "—").replace(/^unsloth\//, "")}</span> },
             ]} />
