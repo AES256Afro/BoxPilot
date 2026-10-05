@@ -294,7 +294,7 @@ export function createJobsRouter({ state, jobs, scheduler, flows = null, autoRec
       // shown its owner-only steps redacted: those come back as stored, or the save is refused.
       const stored = state.getFlow(request.params.id);
       const steps = !seesEveryAccount(request) && stored && stored.createdBy === callerId(request) ? restoreHiddenSteps(stored, request.body?.steps) : request.body?.steps;
-      const flow = await flows.update(request.params.id, { name: request.body?.name, steps, cadence: request.body?.cadence, enabled: request.body?.enabled, triggerFlowId: request.body?.triggerFlowId === undefined ? undefined : (typeof request.body.triggerFlowId === "string" ? request.body.triggerFlowId : null) }, request.boxpilotSession.owner.id, { role: request.boxpilotSession.owner.role });
+      const flow = await flows.update(request.params.id, { name: request.body?.name, steps, cadence: request.body?.cadence, enabled: request.body?.enabled, triggerFlowId: request.body?.triggerFlowId === undefined ? undefined : (typeof request.body.triggerFlowId === "string" ? request.body.triggerFlowId : null), keepStep: request.body?.keepStep }, request.boxpilotSession.owner.id, { role: request.boxpilotSession.owner.role });
       response.json({ flow: seesEveryAccount(request) ? flow : flowForCaller(request, flow) });
     } catch (error) {
       if (error instanceof OwnerOnlyStepError || error.code === "flow_step_owner_only") return response.status(403).json({ error: error.message, code: "flow_step_owner_only" });

@@ -144,20 +144,25 @@ describe("an owner-only step in a flow an operator edits", () => {
     expect(state.getFlow(flowId).steps).toHaveLength(1);
   });
 
-  it("is kept by the owner with the steps sent back as shown (Keep this step)", async () => {
+  it("is kept by the owner, that step alone (Keep this step)", async () => {
     // Put there before steps were checked: it does not run until the owner keeps it.
-    expect(await shown("owner")).toMatchObject({ ownerToKeep: { step: 2, title: "Send an HTTP request" } });
+    expect(await shown("owner")).toMatchObject({ ownerToKeep: [{ step: 2, title: "Send an HTTP request", reads: ["refresh"] }] });
     const refused = await call("POST", `/api/v1/flows/${flowId}/run`, sessions.owner);
     expect(refused.status).toBe(409);
     expect(refused.body.error).toMatch(/step 2 \(Send an HTTP request\) is one only the owner may run.*"Keep this step"/);
-    // The operator cannot keep it: what they send back is the step as stored, which keeps no mark.
+    // The operator cannot keep it: what they send back is the step as stored, which keeps no mark,
+    // and asking to keep it is refused.
     expect((await call("PUT", `/api/v1/flows/${flowId}`, sessions.operator, { steps: (await shown("operator")).steps })).status).toBe(200);
     expect(state.getFlow(flowId).steps[1].ownerAdded).toBeUndefined();
-    // The owner's button sends the steps back unchanged.
-    const kept = await call("PUT", `/api/v1/flows/${flowId}`, sessions.owner, { steps: (await shown("owner")).steps });
+    expect((await call("PUT", `/api/v1/flows/${flowId}`, sessions.operator, { keepStep: 2 })).status).toBe(403);
+    // Nor does the owner sending the steps back as shown keep it (sweep 4): that kept every one.
+    expect((await call("PUT", `/api/v1/flows/${flowId}`, sessions.owner, { steps: (await shown("owner")).steps })).status).toBe(200);
+    expect(state.getFlow(flowId).steps[1].ownerAdded).toBeUndefined();
+    // The owner's button names the step it keeps.
+    const kept = await call("PUT", `/api/v1/flows/${flowId}`, sessions.owner, { keepStep: 2 });
     expect(kept.status).toBe(200);
     expect(state.getFlow(flowId).steps).toEqual([{ operationId: "apt.refresh", parameters: {}, name: "refresh" }, { operationId: "http.request", parameters: request, ownerAdded: true }]);
-    expect((await shown("owner")).ownerToKeep).toBeNull();
+    expect((await shown("owner")).ownerToKeep).toEqual([]);
   });
 });
 
