@@ -6,8 +6,9 @@
 #
 # What it does:
 #   0. Holds /run/boxpilot-upgrade.lock for the whole run: a second upgrade started meanwhile refuses
-#      and says which one to wait for
-#   1. Downloads the ref as a tarball from GitHub into /opt/boxpilot.staging.<stamp>
+#      and says which one to wait for; staging trees earlier runs left unfinished are removed
+#   1. Downloads the ref as a tarball from GitHub into /opt/boxpilot.staging.<stamp> (removed again
+#      if the build fails or a signal stops the run before the service is)
 #   2. npm ci, npm run build, npm prune --omit=dev in the staging directory
 #   3. Copies the database the running version wrote (VACUUM INTO, integrity-checked, the live
 #      file's owner and mode) to /var/lib/boxpilot/boxpilot-rollback-<old version>-<stamp>.sqlite3,
@@ -20,7 +21,8 @@
 #      (on the port /etc/boxpilot/boxpilot.env gives the service; BOXPILOT_HEALTH_URL overrides it)
 #   8. Rolls the directory swap, the units and that move back and restarts the old tree if the health check
 #      fails (or a signal stops the run once the service is down, or the terminal or pipe its output
-#      goes to is gone), and names the database copy that matches the old tree
+#      goes to is gone), names the database copy that matches the old tree, and says whether the old
+#      version answers its health check again
 #
 # It does not touch /etc/boxpilot, systemd drop-ins, or the owner account. In /var/lib/boxpilot it only
 # adds the database copy: it never changes the database itself, and never deletes a copy (the System
