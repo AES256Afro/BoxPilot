@@ -213,8 +213,22 @@ describe("where the copy sits in the upgrade", () => {
 
   it("health-checks the port and address the service's env file gives, not 8787", () => {
     expect(script).not.toContain("BOXPILOT_HEALTH_URL:-http://127.0.0.1:8787");
-    expect(script).toContain('HEALTH_URL="${BOXPILOT_HEALTH_URL:-http://${WEB_HOST}:${WEB_PORT:-8787}/api/v1/health}"');
-    expect(script).toContain('WEB_PORT="$(env_value BOXPILOT_PORT)"');
+    expect(script).toContain('HEALTH_URL="${BOXPILOT_HEALTH_URL:-http://${WEB_HOST}:${WEB_PORT}/api/v1/health}"');
+    // With parseInt's reading, as the service takes it: `9000   # moved off 8787` is 9000.
+    expect(script).toContain('WEB_PORT="$(port_of "$(env_value BOXPILOT_PORT)")"');
+  });
+
+  // The installer and the doctor read the env file with the same parser, so the three agree with
+  // each other as well as with systemd (tests/ubuntu/env-file-parity.sh).
+  it("reads the env file with the same parser as the installer and the doctor", async () => {
+    const body = (text, name) => new RegExp(`^${name}\\(\\) \\{\\n([\\s\\S]*?)\\n\\}$`, "m").exec(text)?.[1];
+    const install = (await readFile("scripts/boxpilot-install.sh", "utf8")).replaceAll("\r\n", "\n");
+    const doctor = (await readFile("scripts/boxpilot-doctor.sh", "utf8")).replaceAll("\r\n", "\n");
+    expect(body(script, "env_file_value")).toContain("awk -v want=");
+    expect(body(install, "env_file_value")).toBe(body(script, "env_file_value"));
+    expect(body(doctor, "boxpilot_env_file_value")).toBe(body(script, "env_file_value"));
+    expect(body(install, "port_of")).toBe(body(script, "port_of"));
+    expect(body(doctor, "boxpilot_port_of")).toBe(body(script, "port_of"));
   });
 });
 
