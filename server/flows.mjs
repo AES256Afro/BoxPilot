@@ -19,6 +19,7 @@ import { mountNamePattern } from "./tasks/storage.mjs";
 import { mountpointFor } from "./backup-mount.mjs";
 import { queuedCeilingMs } from "./helper-client.mjs";
 import { mayStillBeRunning } from "./timeouts.mjs";
+import { restartsBoxPilot } from "./ops/services.mjs";
 
 const nameLimit = 80;
 const stepLimit = 10;
@@ -28,6 +29,8 @@ const chainLimit = 8;
 // Failures run() has already recorded on the flow, so a caller must not overwrite them with
 // "skipped". Every stop-path throw in run() carries one of these prefixes; keep them in step.
 const recordedRunFailure = /stopped at step|failed at step|lost sight of step/;
+// What a run resumed after a restart says while it runs (recover() resumes a run only once).
+const resumedMark = "resumed after BoxPilot restarted";
 const riskOrder = { low: 0, medium: 1, high: 2 };
 
 /** A job still waiting in the helper's queue behind other work: the job layer notes "queue" waiting, then completed. */
@@ -458,26 +461,34 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
     return { started: true, id, name: flow.name };
   }
 
-  async function run(id, actorId, { role = "owner", chainDepth = 0, silent = false } = {}) {
+  /**
+   * `resume` (recover() only) goes on with a run a BoxPilot restart stopped before step `from` began:
+   * the steps before it keep their jobs, results, skips and problems, and the run says it resumed.
+   */
+  async function run(id, actorId, { role = "owner", chainDepth = 0, silent = false, resume = null } = {}) {
     const flow = preflight(id, role);
     // A drive's trigger words its own outcome (runForDrive); every other run is told from here, as this run's.
     const tell = silent ? () => {} : (target, headline, message) => announce(target, headline, message, actorId);
 
     running.add(id);
     let completedRun = false;
+    const from = resume?.from ?? 0;
     // One entry per step, in step order: a job id, or null for a step whose condition was not
     // met. The page maps run entries back to steps by position, so skipped steps hold their place.
-    const jobIds = [];
-    const problems = [];
-    const notes = [];
-    let skippedByCondition = 0;
-    const namedResults = {};
+    const jobIds = resume ? [...resume.jobIds] : [];
+    const problems = resume ? [...resume.problems] : [];
+    const notes = resume ? [`resumed at step ${from + 1} after BoxPilot restarted`] : [];
+    let skippedByCondition = resume?.skipped ?? 0;
+    const namedResults = resume ? { ...resume.namedResults } : {};
+    // A resumed run says so while it runs, so a second restart does not resume it again.
+    const resumedWords = resume ? `, ${resumedMark}` : "";
     try {
       // A flow saved before its secret (or its step's raised tier) was refused still carries it: it
       // does not run, like any other flow validateFlow no longer accepts. Checked after the flow is marked running, so the
       // wait on the catalog cannot let a second start slip past preflight.
       await refuseStoredSteps(flow.steps, "This flow is no longer valid: ");
       for (const [index, step] of flow.steps.entries()) {
+        if (index < from) continue;
         const operation = registry.get(step.operationId);
         const title = operation?.title ?? step.operationId;
         // A condition reads an earlier step's recorded result; false means the step is skipped
@@ -520,7 +531,7 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
             if (attempt === 1) jobIds.push(job.id); else jobIds[index] = job.id;
             // Progress lands as it happens, not at the end: the page can show which step is running
             // and its live output, and a crash mid-run leaves an honest record of where it stopped.
-            store.markFlowRun(id, { result: `running step ${index + 1} of ${flow.steps.length} (${title})${attempt > 1 ? `, attempt ${attempt} of ${attemptsAllowed}` : ""}`, jobIds });
+            store.markFlowRun(id, { result: `running step ${index + 1} of ${flow.steps.length} (${title})${attempt > 1 ? `, attempt ${attempt} of ${attemptsAllowed}` : ""}${resumedWords}`, jobIds });
             await jobs.approveAndStart(job.id, actorId, {});
           } catch (error) {
             if (job && typeof jobs.cancelJob === "function") {
@@ -586,7 +597,7 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
       // A step that failed under a keep-going policy is still a failure; its job no longer pushes on its own.
       if (problems.length) tell(flow, "Automation finished with problems", `${flow.name} ${result}`);
       else settle(flow);
-      store.recordAudit("flow.completed", { actorId, subjectId: id, details: { steps: flow.steps.length, problems: problems.length } });
+      store.recordAudit("flow.completed", { actorId, subjectId: id, details: { steps: flow.steps.length, problems: problems.length, ...(resume ? { resumedAt: from + 1 } : {}) } });
       completedRun = true;
       return { completed: true, steps: flow.steps.length, jobIds, problems };
     } finally {
@@ -784,27 +795,122 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
   }
 
   /**
+   * Where a run a BoxPilot restart stopped can go on from (sweep 5), or why it cannot. It can when the
+   * restart came between two steps: the step it was on had finished (completed), or had not begun -
+   * its job still waiting for approval, or never started by the helper (state.recoverInterruptedJobs:
+   * it was waiting behind other work, or for BoxPilot to come back from the restart). A step cut off
+   * mid-run may have done anything, so that run stays interrupted, as before. Not resumed either: a
+   * run already resumed once, one whose steps changed meanwhile, a drive's reconnect (auto-reconnect
+   * holds the drive for a person), one whose runner can no longer run it, and one with a step still
+   * to run that takes a person - high risk, a typed confirmation - or can restart BoxPilot again.
+   * `{ from, actor, role, jobIds, namedResults, problems, skipped, staged, stopped, between }`, or
+   * `{ why, between }`, `between` saying where it stopped (null when a step was cut off mid-run).
+   */
+  function resumePoint(flow, neverStarted) {
+    const progress = /^running step (\d+) of (\d+)/.exec(flow.lastResult ?? "");
+    if (!progress) return { why: null, between: null };
+    const index = Number(progress[1]) - 1;
+    const recorded = flow.lastJobIds ?? [];
+    const jobId = recorded[index] ?? null;
+    const job = jobId ? store.getJob?.(jobId) ?? null : null;
+    // A step's job is recorded before the run says it is on that step; without it nothing is known.
+    if (!job) return { why: null, between: null };
+    const began = job.state !== "awaiting_approval" && !neverStarted.has(job.id);
+    if (began && job.state !== "completed") return { why: null, between: null };
+    const from = began ? index + 1 : index;
+    // Where it stopped, as the record says it when it does not go on.
+    const between = began ? `after step ${index + 1} (${job.title}) finished, so nothing after it ran` : `before step ${index + 1} (${job.title}) began, so nothing ran for step ${index + 1} or after it`;
+    const refuse = (why) => ({ why, between });
+    if (flow.lastResult.includes(resumedMark)) return refuse("it had already been resumed once after a restart");
+    if (Number(progress[2]) !== (flow.steps ?? []).length) return refuse("its steps changed while it ran");
+    if (flow.triggerDrive) return refuse("it reconnects a drive, which waits for a person after a restart");
+    for (const [position, step] of flow.steps.entries()) {
+      if (position < from) continue;
+      const operation = registry.get?.(step.operationId);
+      const title = titleOf(step);
+      if (!operation) return refuse(`step ${position + 1} (${title}) is not a registered operation`);
+      if (operation.risk === "high") return refuse(`step ${position + 1} (${title}) is high risk`);
+      if (typeof operation.confirm === "function") return refuse(`step ${position + 1} (${title}) asks for a typed confirmation`);
+      if (operation.restartsService || restartsBoxPilot(step.operationId, step.parameters ?? {})) return refuse(`step ${position + 1} (${title}) can restart BoxPilot`);
+    }
+    const actor = runnerOf(recorded.slice(0, index + 1));
+    const role = actor ? store.findOwnerById?.(actor)?.role ?? null : null;
+    if (!actor || !role || ["viewer", "disabled"].includes(role)) return refuse("who ran it cannot run it again");
+    // What the steps before it left: their jobs, their named results, and what was skipped or failed.
+    const jobIds = Array.from({ length: from }, (_, position) => recorded[position] ?? null);
+    const namedResults = {};
+    const problems = [];
+    let skipped = 0;
+    for (const [position, step] of flow.steps.slice(0, from).entries()) {
+      const earlier = jobIds[position] ? store.getJob?.(jobIds[position]) ?? null : null;
+      if (!earlier) { skipped += 1; continue; }
+      if (earlier.state === "completed") { if (typeof step.name === "string") namedResults[step.name] = earlier.result ?? {}; continue; }
+      problems.push(`step ${position + 1} (${titleOf(step)}) ${earlier.state}`.slice(0, 200));
+    }
+    return { from, actor, role, jobIds, namedResults, problems, skipped, between, staged: job.state === "awaiting_approval" ? job : null, stopped: began || job.state === "awaiting_approval" ? null : job };
+  }
+
+  /**
    * A run lives in this process, so a BoxPilot restart mid-run (a self-update, the upgrade's own
    * deferred service restart, a crash) leaves the record claiming "running step N" forever while
    * the flow looks idle. Startup rewrites those records to what is actually known. The step's own
    * job was already marked by the interrupted-jobs recovery, and may well have finished on its
    * own; the record says to check it rather than guessing.
+   *
+   * A run the restart stopped between two steps goes on instead, from the step that had not begun,
+   * once (sweep 5): BoxPilot restarting itself after the night's update, the moment a backup step
+   * finished, used to leave "back up, then copy off-box" without its copy, and the automations that
+   * run after it never ran. Followers run after a resumed run completes, as after any. One that cannot
+   * go on says nothing ran for the step that had not begun, and why. `interrupted` is what
+   * state.recoverInterruptedJobs returned.
    */
-  function recover() {
+  function recover(interrupted = []) {
+    const neverStarted = new Set((interrupted ?? []).filter((entry) => entry?.neverStarted).map((entry) => entry.id));
     let recovered = 0;
     for (const flow of store.listFlows()) {
       if (!flow.lastResult || !flow.lastResult.startsWith("running step")) continue;
-      const summary = `interrupted by a BoxPilot restart while ${flow.lastResult}; the step's job record says how far it got, and later steps did not run`.slice(0, 300);
-      store.markFlowRun(flow.id, { result: summary, jobIds: flow.lastJobIds ?? [] });
-      store.recordAudit("flow.interrupted", { actorId: flow.createdBy, subjectId: flow.id, details: { was: flow.lastResult.slice(0, 200) } });
-      announce(flow, "Automation was interrupted", `${flow.name} was ${summary}`, runnerOf(flow.lastJobIds));
       recovered += 1;
+      const point = resumePoint(flow, neverStarted);
+      if (point.from !== undefined) {
+        resumed.push(resumeRun(flow, point));
+        continue;
+      }
+      const summary = (point.between === null
+        ? `interrupted by a BoxPilot restart while ${flow.lastResult}; the step's job record says how far it got, and later steps did not run`
+        : `interrupted by a BoxPilot restart ${point.between}. It was not run on from there: ${point.why}`).slice(0, 300);
+      store.markFlowRun(flow.id, { result: summary, jobIds: flow.lastJobIds ?? [] });
+      store.recordAudit("flow.interrupted", { actorId: flow.createdBy, subjectId: flow.id, details: { was: flow.lastResult.slice(0, 200), ...(point.why ? { notResumed: point.why } : {}) } });
+      announce(flow, "Automation was interrupted", `${flow.name} was ${summary}`, runnerOf(flow.lastJobIds));
     }
     return recovered;
   }
 
-  function start(intervalMs = 60_000) {
-    recover();
+  /** Runs recover() went on with, each settling once it has ended (for whoever waits on them). */
+  const resumed = [];
+
+  /** Go on with a run from the step a restart kept from beginning, under its runner's authority. */
+  async function resumeRun(flow, point) {
+    const reason = "BoxPilot restarted before this step began; its automation runs it again";
+    // A step's job staged but never approved is withdrawn; one that never started says what happens next.
+    if (point.staged) { try { jobs.cancelJob?.(point.staged.id, point.actor, { role: "owner", reason }); } catch { /* moved on already */ } }
+    else if (point.stopped) { try { store.addJobStep(point.stopped.id, "rerun", "started", `${reason}.`); } catch { /* the run stands without it */ } }
+    store.recordAudit("flow.resumed", { actorId: point.actor, subjectId: flow.id, details: { step: point.from + 1, was: flow.lastResult.slice(0, 200) } });
+    try {
+      return await run(flow.id, point.actor, { role: point.role, resume: point });
+    } catch (error) {
+      if (recordedRunFailure.test(error.message)) return null;
+      // Refused before it began (no longer valid, approvals always ask): nothing ran from that step.
+      const summary = `interrupted by a BoxPilot restart ${point.between}. It could not be run on from there: ${error.message}`.slice(0, 300);
+      store.markFlowRun(flow.id, { result: summary, jobIds: point.jobIds });
+      store.recordAudit("flow.interrupted", { actorId: point.actor, subjectId: flow.id, details: { notResumed: error.message.slice(0, 200) } });
+      announce(flow, "Automation was interrupted", `${flow.name} was ${summary}`, point.actor);
+      return null;
+    }
+  }
+
+  function start(options = {}) {
+    const { intervalMs = 60_000, interrupted = [] } = typeof options === "number" ? { intervalMs: options } : options;
+    recover(interrupted);
     const timer = setInterval(() => { tick().catch(() => {}); }, intervalMs);
     timer.unref?.();
     return () => clearInterval(timer);
@@ -839,5 +945,5 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
       }));
   }
 
-  return { create, list, update, remove, run, launch, tick, start, recover, stepPalette, shelf, mintWebhook, clearWebhook, fireWebhook, owns, runForDrive, recordSkip };
+  return { create, list, update, remove, run, launch, tick, start, recover, resumed: () => Promise.all(resumed), stepPalette, shelf, mintWebhook, clearWebhook, fireWebhook, owns, runForDrive, recordSkip };
 }

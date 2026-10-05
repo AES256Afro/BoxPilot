@@ -99,6 +99,11 @@ export function createJobService(store, helper, {
   secretTtlMs = stagedSecretTtlMs,
   approvalMaxAge = approvalMaxAgeMs,
   version = productVersion,
+  // How long a change the helper turned away unstarted, because BoxPilot was restarting, waits for
+  // it to come back before it is sent again (sweep 5), and how often it looks.
+  helperReturnMs = 10 * 60_000,
+  helperPollMs = 5_000,
+  sleep = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); }),
 } = {}) {
   // Announcing never holds up or fails the job: the ledger may wait on a notification target.
   const tell = (call) => { try { Promise.resolve(call()).catch(() => {}); } catch { /* the job's outcome stands */ } };
@@ -232,8 +237,9 @@ export function createJobService(store, helper, {
     // a best-effort guard against the common case (approving an update while a job is visibly
     // running), not a lock against a job that starts in the same instant. Restarting BoxPilot's own
     // unit from Services is the same restart by another door. An operation whose restart is drained
-    // (package updates, KVM) is not guarded: its restart waits for every job beside it to finish,
-    // and refusing it sent the nightly 03:00 updates away behind the 03:00 backup, every night.
+    // (package updates, KVM) is not guarded: its restart waits for the work running beside it to
+    // finish, a change sent while it restarts is sent again once BoxPilot is back (sweep 5), and
+    // refusing it sent the nightly 03:00 updates away behind the 03:00 backup, every night.
     if ((registeredOperation.restartsService === true || restartsBoxPilot(registeredOperation.id, parameters)) && typeof store.listActiveJobs === "function") {
       const running = store.listActiveJobs().filter((other) => other.id !== jobId);
       if (running.length) {
@@ -322,6 +328,30 @@ export function createJobService(store, helper, {
     return jobTimeoutRecord(timeout, { elapsedMs: now() - startedAt, log, moreTimeMs });
   }
 
+  /**
+   * Whether the helper never started what it was sent: it turned it away because BoxPilot was
+   * restarting (helper_restarting), or there was no helper to send it to (helper_unavailable, between
+   * a helper restart's stop and its start). Nothing ran either way. Anything else - a failure, a
+   * connection lost after sending - may have run, and is never sent again.
+   */
+  const notStarted = (error) => error?.code === "helper_restarting" || error?.code === "helper_unavailable";
+
+  /**
+   * Wait for BoxPilot's helper to be back from a restart, for at most helperReturnMs: it answers, and
+   * no longer says it is restarting (its runtime read, self-restart.mjs). True once it is back.
+   */
+  async function helperBack() {
+    const deadline = now() + helperReturnMs;
+    for (;;) {
+      await sleep(helperPollMs);
+      try {
+        const runtime = await helper.request("system.runtime.inspect", {}, { timeoutMs: 10_000 });
+        if (runtime?.selfRestart?.restarting !== true) return true;
+      } catch { /* not there yet */ }
+      if (now() >= deadline) return false;
+    }
+  }
+
   async function executePrepared({ job, owner, execution }) {
     const jobId = job.id;
     const startedAt = now();
@@ -339,12 +369,32 @@ export function createJobService(store, helper, {
       onQueued: () => note("waiting", "Waiting for earlier work on the server to finish; its time limit starts when it begins"),
       onStarted: () => note("completed", "Started once the earlier work had finished"),
     };
+    const send = () => (execution.run
+      ? execution.run()
+      : execution.timeoutMs
+        ? helper.request(execution.operation, execution.parameters, { timeoutMs: execution.timeoutMs, jobId, ...(execution.budgetMs ? { budgetMs: execution.budgetMs } : {}), ...queue })
+        : helper.request(execution.operation, execution.parameters, { jobId, ...queue }));
+    /**
+     * Sent; and, when the helper never started it because BoxPilot was restarting (sweep 5), sent
+     * again once, when BoxPilot is back. An automation's next step used to be refused in the moment
+     * between its last step and the restart, and the automation stopped there. While it waits the job
+     * says so as a queue wait, which a flow watching it reads as not lost, and which a restart of the
+     * web side in the meantime reads as never started (state.recoverInterruptedJobs).
+     */
+    const sendOnceBack = async () => {
+      try {
+        return await send();
+      } catch (error) {
+        if (execution.run || !notStarted(error)) throw error;
+        note("waiting", error.code === "helper_restarting" ? "BoxPilot is restarting, so this has not started; it is sent again once BoxPilot is back" : "BoxPilot's helper is not answering, so this has not started; it is sent again once it is back");
+        if (!await helperBack()) throw Object.assign(new Error(`BoxPilot was not back within ${formatDuration(helperReturnMs)}, so this did not start and nothing was changed. Run it again once BoxPilot is back.`), { code: error.code });
+        // From here it may start: a web restart now reads it as cut off, never as never started.
+        note("completed", "Sent again now that BoxPilot is back");
+        return send();
+      }
+    };
     try {
-      const result = splitOneTime(job, execution.run
-        ? await execution.run()
-        : execution.timeoutMs
-          ? await helper.request(execution.operation, execution.parameters, { timeoutMs: execution.timeoutMs, jobId, ...(execution.budgetMs ? { budgetMs: execution.budgetMs } : {}), ...queue })
-          : await helper.request(execution.operation, execution.parameters, { jobId, ...queue }));
+      const result = splitOneTime(job, await sendOnceBack());
       store.transitionJob(jobId, "applying", "verifying", { result });
       store.addJobStep(jobId, "apply", "completed", execution.applied);
       if (!execution.validate(result)) throw new Error(execution.run ? "Operation returned an invalid result" : "Helper returned an invalid operation result");
