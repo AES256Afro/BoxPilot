@@ -365,6 +365,29 @@ describe("Backups page", () => {
       expect(JSON.parse(bodies["host.snapshot.restore"] ?? "{}")).toEqual({ parameters: { source: "local", artifact: "machine-snapshot-a.tar.gz", apps: ["immich", "jellyfin"], restoreData: true } });
     });
 
+    it("says where each app's data archive was found", async () => {
+      const placed = { ...described, apps: [
+        { id: "immich", installed: true, newestBackup: "x", dataAvailable: true, dataLocation: "local" },
+        { id: "jellyfin", installed: true, newestBackup: "x", dataAvailable: true, dataLocation: "mirror" },
+        { id: "vaultwarden", installed: true, newestBackup: "x", dataAvailable: true, dataLocation: "drive" },
+      ] };
+      mockFetch({ extra: (url) => {
+        if (url.endsWith("/operations/host.snapshot.sources/inspect")) return json({ result: sources });
+        if (url.endsWith("/operations/host.snapshot.discover/inspect")) return json({ result: { locations: [], unanswered: [] } });
+        if (url.endsWith("/operations/host.snapshot.describe/run")) return json({ result: placed });
+        return null;
+      } });
+      render(<BackupsPage csrfToken="csrf-token" />);
+      await screen.findByRole("tab", { name: /^Restore/ });
+      openTab(/^Restore/);
+      fireEvent.click(await screen.findByRole("button", { name: /^Restore from the snapshot of/ }));
+      const sheet = await screen.findByRole("dialog", { name: /^Snapshot of/ });
+      expect(await within(sheet).findByText("vaultwarden")).toBeTruthy();
+      expect(within(sheet).getByText("local")).toBeTruthy();
+      expect(within(sheet).getByText("on backup drive")).toBeTruthy();
+      expect(within(sheet).getByText("on the snapshot's drive")).toBeTruthy();
+    });
+
     it("never shows one snapshot's apps in another's sheet when the first answers late", async () => {
       // A slow answer for the snapshot opened first used to land in the sheet of the one opened
       // next: B's sheet listed A's apps, and restoring staged B's artifact with A's app list.

@@ -53,6 +53,12 @@ export interface PendingOperation {
    */
   onApproved?: (job: Job) => void;
   /**
+   * Told once a job this dialog staged and then withdrew (Cancel, Escape, the dialog going away) is
+   * cancelled, or the cancel was refused because someone approved it meanwhile from another page or
+   * a push: a page that shows the job's state reads it again then, not before the cancel landed.
+   */
+  onWithdrawn?: (jobId: string) => void;
+  /**
    * Told when the dialog is closed, with the job as it ended here: null when it was cancelled, could
    * not be staged, or was not followed to its end. A form closes before its approval opens, so the
    * page puts it back, as it was filled in, unless the job completed.
@@ -112,7 +118,7 @@ function ParameterList({ parameters }: { parameters: Record<string, unknown> }) 
   );
 }
 
-export function ApproveDialog({ operationId, title, parameters, preview, confirmText, csrfToken, onClose, onFinished, onStaged, onApproved, onClosed, handoff, moreTimeFor, existingJobId, next, onNext, proposedBy }: Props) {
+export function ApproveDialog({ operationId, title, parameters, preview, confirmText, csrfToken, onClose, onFinished, onStaged, onApproved, onWithdrawn, onClosed, handoff, moreTimeFor, existingJobId, next, onNext, proposedBy }: Props) {
   const [phase, setPhase] = useState<Phase>("staging");
   const [job, setJob] = useState<Job | null>(null);
   const [finished, setFinished] = useState<Job | null>(null);
@@ -135,6 +141,8 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
   onStagedRef.current = onStaged;
   const onApprovedRef = useRef(onApproved);
   onApprovedRef.current = onApproved;
+  const onWithdrawnRef = useRef(onWithdrawn);
+  onWithdrawnRef.current = onWithdrawn;
   const onClosedRef = useRef(onClosed);
   onClosedRef.current = onClosed;
   const handoffRef = useRef(handoff);
@@ -155,7 +163,8 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
     const withdraw = () => {
       if (!stagedState.owned || !stagedState.jobId || stagedState.approvalStarted || stagedState.withdrawn) return;
       stagedState.withdrawn = true;
-      void cancelJob(stagedState.jobId, csrfToken).catch(() => undefined);
+      const jobId = stagedState.jobId;
+      void cancelJob(jobId, csrfToken).catch(() => undefined).then(() => onWithdrawnRef.current?.(jobId));
     };
     setPhase("staging"); setJob(null); setFinished(null); setPolicy(null); setError(null); setPassword(""); setTypedConfirm("");
     // A retry with more time is staged by the server from the timed-out job, and then approved
@@ -175,7 +184,8 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
   const dismiss = useCallback(() => {
     if (job && phase === "ready" && stagedRef.current?.owned && !stagedRef.current.withdrawn) {
       stagedRef.current.withdrawn = true;
-      void cancelJob(job.id, csrfToken).catch(() => undefined);
+      const jobId = job.id;
+      void cancelJob(jobId, csrfToken).catch(() => undefined).then(() => onWithdrawnRef.current?.(jobId));
     }
     onClose();
     onClosedRef.current?.(finished);

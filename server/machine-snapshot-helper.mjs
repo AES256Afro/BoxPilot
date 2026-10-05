@@ -80,6 +80,75 @@ async function walkFiles(root, relative = "") {
   return files;
 }
 
+/**
+ * What a machine snapshot, or a restore of one, leaves beside the snapshots when it is cut off part
+ * way (a power cut, a restart): the archive still being written (`machine-snapshot-*.tar.gz.partial`),
+ * the folder it was assembled in (`.staging-<uuid>`), and the one a restore unpacked into
+ * (`.restore-<uuid>`). The folders hold the controller database and every app's .env in the clear,
+ * and nothing ever reads any of them again. The kind, or null. `restored/` is a finished restore's
+ * work, kept for review, and is not one of them.
+ */
+export function snapshotLeftoverKind(name) {
+  if (/^\.staging-[a-f0-9-]{36}$/i.test(name)) return "staging";
+  if (/^\.restore-[a-f0-9-]{36}$/i.test(name)) return "restore";
+  if (/^machine-snapshot-\d{8}T\d{6}Z-[a-f0-9]{8}\.tar\.gz\.partial$/.test(name)) return "partial";
+  return null;
+}
+
+/** What each snapshot archive references, by its path, while its size and time are unchanged. */
+const referenceCache = new Map();
+
+/** App id to the data archive a snapshot restores it from: its newest when the snapshot was taken. */
+async function readSnapshotReferences(artifactPath, { run, tarBinary }) {
+  const readMember = async (member) => {
+    const result = await run(tarBinary, ["-xzf", artifactPath, "--no-same-owner", "--no-same-permissions", "-O", member], { timeout: 5 * 60_000, maxBuffer: 16 * 1024 * 1024 });
+    if (!result.ok) throw new Error(`Machine snapshot ${path.basename(artifactPath)} could not be read`);
+    try { return JSON.parse(result.stdout); } catch { throw new Error(`Machine snapshot ${path.basename(artifactPath)} could not be read`); }
+  };
+  const named = new Map();
+  for (const app of (await readMember("./manifest.json")).contents?.apps ?? []) {
+    if (typeof app?.id !== "string" || !appIdPattern.test(app.id)) continue;
+    const newest = (await readMember(`./apps/${app.id}/backups.json`)).backups?.[0]?.artifact;
+    if (typeof newest === "string") named.set(app.id, newest);
+  }
+  return named;
+}
+
+/**
+ * The application backups the machine snapshots in `snapshotRoot` restore from: app id to the set
+ * of archive names. A snapshot restores each app from the backup that was its newest when it was
+ * taken, which is usually older than the newest few an app keeps, so whatever prunes app backups
+ * (the app's own keep-N, housekeeping) asks this first. `names` limits it to those archives.
+ *
+ * Throws when a snapshot cannot be read: a caller about to delete backups then deletes none. Each
+ * snapshot is read once while its size and time stay the same, as a nightly run of app backups asks
+ * once per app.
+ */
+export async function snapshotBackupReferences({ snapshotRoot, names = null, run = fixedRun, tarBinary = process.env.BOXPILOT_TAR_BINARY ?? "/usr/bin/tar" } = {}) {
+  const root = path.resolve(snapshotRoot);
+  const listed = names ?? await readdir(root).catch((error) => { if (error.code === "ENOENT") return []; throw error; });
+  const references = new Map();
+  const seen = new Set();
+  for (const name of listed.filter((entry) => snapshotNamePattern.test(entry))) {
+    const artifactPath = path.join(root, name);
+    const info = await stat(artifactPath).catch((error) => { if (error.code === "ENOENT") return null; throw error; });
+    if (!info) continue;   // retention removed it since the listing
+    seen.add(artifactPath);
+    const key = `${info.size}:${info.mtimeMs}`;
+    let named = referenceCache.get(artifactPath)?.key === key ? referenceCache.get(artifactPath).named : null;
+    if (!named) {
+      named = await readSnapshotReferences(artifactPath, { run, tarBinary });
+      referenceCache.set(artifactPath, { key, named });
+    }
+    for (const [id, archive] of named) {
+      if (!references.has(id)) references.set(id, new Set());
+      references.get(id).add(archive);
+    }
+  }
+  for (const cached of referenceCache.keys()) if (path.dirname(cached) === root && !seen.has(cached) && !names) referenceCache.delete(cached);
+  return references;
+}
+
 export function createMachineSnapshotHelper({
   run = fixedRun,
   controllerBackups = createControllerBackupHelper(),
@@ -154,7 +223,10 @@ export function createMachineSnapshotHelper({
   async function collectApps(staging) {
     const entries = await readdir(catalogRoot, { withFileTypes: true }).catch(() => []);
     const apps = [];
-    for (const entry of entries.filter((item) => item.isDirectory())) {
+    // Only app folders. A restore that could not finish leaves `<id>.replaced` or `<id>.restoring`
+    // beside the app, boxpilot.json and all, and a snapshot that listed it offered a restore of an
+    // "installed app" whose name the restore itself refuses.
+    for (const entry of entries.filter((item) => item.isDirectory() && appIdPattern.test(item.name))) {
       const id = entry.name;
       const stateFile = path.join(catalogRoot, id, "boxpilot.json");
       const appState = await readFile(stateFile, "utf8").then(JSON.parse).catch(() => null);
@@ -285,6 +357,31 @@ export function createMachineSnapshotHelper({
     } finally {
       await rm(staging, { recursive: true, force: true });
     }
+  }
+
+  /**
+   * Remove what a snapshot or a restore cut off part way left (snapshotLeftoverKind), and the
+   * description written for an archive that never took its name. Called when the helper starts,
+   * before it takes a request: both run in the helper, so neither can be running then. Only real
+   * folders and files are removed; a link with one of those names is left alone.
+   */
+  async function sweepInterrupted() {
+    const removed = [];
+    for (const entry of await readdir(resolvedSnapshotRoot, { withFileTypes: true }).catch(() => [])) {
+      const kind = snapshotLeftoverKind(entry.name);
+      if (!kind || (kind === "partial" ? !entry.isFile() : !entry.isDirectory())) continue;
+      await rm(path.join(resolvedSnapshotRoot, entry.name), { recursive: true, force: true });
+      removed.push(entry.name);
+      if (kind !== "partial") continue;
+      const artifact = entry.name.replace(/\.partial$/, "");
+      const meta = path.join(resolvedSnapshotRoot, `${artifact}.meta.json`);
+      const exists = (target) => stat(target).then(() => true, () => false);
+      if (!(await exists(path.join(resolvedSnapshotRoot, artifact))) && await exists(meta)) {
+        await rm(meta, { force: true });
+        removed.push(`${artifact}.meta.json`);
+      }
+    }
+    return { removed };
   }
 
   /** Mirror the local backup roots onto the independent mount. Copies and verifies; never deletes. */
@@ -475,17 +572,76 @@ export function createMachineSnapshotHelper({
     try { return JSON.parse(result.stdout); } catch { throw new Error("The snapshot manifest is not valid JSON"); }
   }
 
-  /** Where an app data archive referenced by the snapshot can be found right now (local first, then mirror). */
-  async function locateAppArchive(id, name) {
+  /**
+   * Where an app's data archives can be, in the order they are tried: this server's own store, the
+   * configured mirror, and, for a snapshot found on a drive (`place` is `{ source, root }`), the
+   * application backups beside it there (`<root>/../application-backups/<id>`, the mirror's own
+   * layout). A server rebuilt from an old backup drive has neither of the first two, and every app
+   * came back empty with its archives beside the snapshot on the same drive.
+   */
+  function archiveDirectories(id, place = null) {
     const candidates = [
       { location: "local", directory: path.join(path.resolve(applicationBackupRoot), id) },
       { location: "mirror", directory: path.join(mirrorRoot, "application-backups", id) },
     ];
-    for (const candidate of candidates) {
+    if (place?.source === "discovered" && place.root) {
+      const directory = path.join(path.dirname(path.resolve(place.root)), "application-backups", id);
+      if (!candidates.some((candidate) => candidate.directory === directory)) candidates.push({ location: "drive", directory });
+    }
+    return candidates;
+  }
+
+  /** Where an app data archive referenced by the snapshot can be found right now (archiveDirectories). */
+  async function locateAppArchive(id, name, place = null) {
+    for (const candidate of archiveDirectories(id, place)) {
       if (await stat(path.join(candidate.directory, name)).then(() => true).catch(() => false)) return { ...candidate, name };
     }
     return null;
   }
+
+  /**
+   * The archive an app is restored from: the one the snapshot names, or, when that one is gone (an
+   * app backup's own keep-N pruning took it before it learnt not to), the newest there is, marked
+   * `fallback` so the restore says so.
+   */
+  async function dataArchiveFor(id, name, place = null) {
+    const located = await locateAppArchive(id, name, place);
+    if (located) return located;
+    let newest = null;
+    for (const candidate of archiveDirectories(id, place)) {
+      for (const entry of await readdir(candidate.directory).catch(() => [])) {
+        if (appBackupNamePattern.test(entry) && (!newest || entry > newest.name)) newest = { ...candidate, name: entry };
+      }
+    }
+    return newest ? { ...newest, fallback: true } : null;
+  }
+
+  /**
+   * A tailnet-only app has no way in until Tailscale Serve publishes its web ports: the deployer
+   * binds them to 127.0.0.1 for Serve to front. The app.install operation publishes them; a restore
+   * called the deployer directly, and said "installed" about an app nothing could open (Zulip).
+   * `deployed` is what the deployer last said it wrote; `entry` is the app's line in the summary.
+   */
+  async function publishForTailnet(entry, deployed, { serve, progress }) {
+    if (deployed?.exposure !== "tailnet") return;
+    const name = deployed.name ?? entry.id;
+    let published;
+    try {
+      published = serve
+        ? await serve(deployed)
+        : { warnings: [`${name} is installed for your tailnet only, and nothing published it there yet, so nothing can open it: on its Reach tab, choose Publish on the tailnet.`] };
+    } catch (error) {
+      published = { warnings: [`${name} is installed for your tailnet only, but publishing it with Tailscale Serve failed (${error.message}). Until it is published nothing can open it: on its Reach tab, choose Publish on the tailnet.`] };
+    }
+    if (published?.urls?.length) entry.urls = published.urls;
+    for (const warning of published?.warnings ?? []) {
+      entry.warnings.push(warning);
+      progress?.(`[${entry.id}] ${warning}`, "stderr");
+    }
+  }
+
+  /** What a restore says when the snapshot's own archive was gone and another was used. */
+  const fallbackWords = (named, used) => `The data archive this snapshot names, ${named}, is no longer there, so its data came from ${used}, the newest one there is.`;
 
   /** Manifest summary plus, per app, whether its newest data archive is reachable. */
   /** Local store, configured mirror, or a drive discovery just found. */
@@ -494,17 +650,22 @@ export function createMachineSnapshotHelper({
   }
 
   async function describe({ source, artifact, root = null }) {
-    const { artifactPath, metaPath } = await locate(source, artifact, root);
+    const { artifactPath, metaPath, root: snapshotDirectory } = await locate(source, artifact, root);
+    const place = { source, root: snapshotDirectory };
     await stat(artifactPath).catch(() => { throw new Error(`Snapshot ${artifact} was not found in the ${source} source`); });
     const meta = await readFile(metaPath, "utf8").then(JSON.parse).catch(() => null);
     const manifest = await readManifestFromArchive(artifactPath);
     const apps = [];
-    for (const app of manifest.contents?.apps ?? []) {
+    // A snapshot taken before collectApps kept to app ids can list a restore's leftover folder as an
+    // installed app; offered, it was ticked with the rest and the whole restore refused for it.
+    for (const app of (manifest.contents?.apps ?? []).filter((entry) => typeof entry?.id === "string" && appIdPattern.test(entry.id))) {
       const listing = await run(tarBinary, ["-xzf", artifactPath, "--no-same-owner", "--no-same-permissions", "-O", `./apps/${app.id}/backups.json`], { timeout: 5 * 60_000, maxBuffer: 4 * 1024 * 1024 }).catch(() => ({ ok: false }));
       let newest = null;
       if (listing.ok) { try { newest = JSON.parse(listing.stdout).backups?.[0]?.artifact ?? null; } catch { newest = null; } }
-      const located = newest ? await locateAppArchive(app.id, newest) : null;
-      apps.push({ id: app.id, installed: app.installed, projectFiles: app.projectFiles, newestBackup: newest, dataAvailable: Boolean(located), dataLocation: located?.location ?? null });
+      if (typeof newest !== "string" || !appBackupNamePattern.test(newest)) newest = null;
+      const located = newest ? await dataArchiveFor(app.id, newest, place) : null;
+      // `dataArchive` is the one a restore would use: the snapshot's own, or the newest there is now.
+      apps.push({ id: app.id, installed: app.installed, projectFiles: app.projectFiles, newestBackup: newest, dataAvailable: Boolean(located), dataLocation: located?.location ?? null, dataArchive: located?.name ?? null });
     }
     // A snapshot carries VM definitions, never their disks: those live in the encrypted VM
     // repository, so say whether it is reachable rather than implying the VMs are inside.
@@ -520,10 +681,14 @@ export function createMachineSnapshotHelper({
    * archive is restored. System files are staged for review, never applied. VM definitions are listed.
    * `devicesByApp` is the devices the web process found for each app that wants one (this process
    * may have no real /dev); without it an app that needs a device is refused, as at any install.
+   * `serve(deployed)` publishes a tailnet-only app's web ports with Tailscale Serve, as the
+   * app.install operation does (ops/apps.mjs serveTailnetOnly); without it such an app is restored
+   * with a warning that nothing can open it yet.
    */
-  async function restore({ source, artifact, root = null, apps: selected = "all", restoreData = true, devicesByApp = null }, { apps: appHelper, progress = null } = {}) {
+  async function restore({ source, artifact, root = null, apps: selected = "all", restoreData = true, devicesByApp = null }, { apps: appHelper, progress = null, serve = null } = {}) {
     if (!appHelper) throw new Error("Application deployer is unavailable");
-    const { artifactPath, metaPath } = await locate(source, artifact, root);
+    const { artifactPath, metaPath, root: snapshotDirectory } = await locate(source, artifact, root);
+    const place = { source, root: snapshotDirectory };
     await stat(artifactPath).catch(() => { throw new Error(`Snapshot ${artifact} was not found in the ${source} source`); });
     const meta = await readFile(metaPath, "utf8").then(JSON.parse).catch(() => null);
     if (!meta?.checksumSha256) throw new Error(`${artifact}.meta.json is missing its checksum, so this archive cannot be verified. Copy the .meta.json file next to the archive and try again. Nothing was changed.`);
@@ -552,8 +717,11 @@ export function createMachineSnapshotHelper({
         if (!valid) throw new Error(`The snapshot names ${JSON.stringify(String(app?.id).slice(0, 80))}, which is not a valid application id. Nothing was changed.`);
       }
       for (const app of wanted) {
-        const entry = { id: app.id, installed: false, dataRestored: false, alreadyRestored: false, error: null };
+        const entry = { id: app.id, installed: false, dataRestored: false, alreadyRestored: false, error: null, warnings: [] };
         summary.apps.push(entry);
+        // What the deployer last said it wrote (who can reach the app, on which ports): from the
+        // install, or from the data restore, which writes the compose file again for this server.
+        let deployed = null;
         try {
           const stateRaw = await readFile(path.join(staging, "apps", app.id, "boxpilot.json"), "utf8").catch(() => null);
           const archivedState = stateRaw ? JSON.parse(stateRaw) : null;
@@ -576,7 +744,7 @@ export function createMachineSnapshotHelper({
             // Saved settings, not an owner's entry: a snapshot from an older release can name a setting
             // the catalog has since dropped, and never holds a secret, which comes from the .env above.
             const devices = devicesByApp && Object.hasOwn(devicesByApp, app.id) && Array.isArray(devicesByApp[app.id]) ? devicesByApp[app.id] : null;
-            await appHelper.install({ id: app.id, values: archivedState?.values ?? {}, ...(devices ? { devices } : {}) }, { progress, storedValues: true });
+            deployed = await appHelper.install({ id: app.id, values: archivedState?.values ?? {}, ...(devices ? { devices } : {}) }, { progress, storedValues: true });
             await stamp(target, { restoredFrom: artifact });
             entry.installed = true;
           }
@@ -591,18 +759,25 @@ export function createMachineSnapshotHelper({
             // The name is joined onto backup directories and copied between them, so only a plain
             // archive name is followed.
             const newest = typeof named === "string" && appBackupNamePattern.test(named) ? named : null;
-            const located = newest ? await locateAppArchive(app.id, newest) : null;
+            const located = newest ? await dataArchiveFor(app.id, newest, place) : null;
             if (!located) { progress?.(`[${app.id}] no data archive available; installed fresh`, "stderr"); }
             else {
-              if (located.location === "mirror") {
-                progress?.(`[${app.id}] copying ${newest} from the mirror`, "stdout");
+              if (located.fallback) {
+                const warning = fallbackWords(newest, located.name);
+                entry.warnings.push(warning);
+                progress?.(`[${app.id}] ${warning}`, "stderr");
+              }
+              if (located.location !== "local") {
+                progress?.(`[${app.id}] copying ${located.name} from ${located.location === "mirror" ? "the mirror" : "the drive the snapshot is on"}`, "stdout");
                 const localDirectory = path.join(path.resolve(applicationBackupRoot), app.id);
                 await mkdir(localDirectory, { recursive: true, mode: 0o700 });
-                for (const name of [newest, newest.replace(/\.tar\.gz$/, ".json")]) await copyIfExists(path.join(located.directory, name), path.join(localDirectory, name));
+                for (const name of [located.name, located.name.replace(/\.tar\.gz$/, ".json")]) await copyIfExists(path.join(located.directory, name), path.join(localDirectory, name));
               }
-              progress?.(`[${app.id}] restoring data from ${newest}`, "stdout");
-              await appHelper.restoreAppBackup({ id: app.id, backup: newest }, { progress });
-              await stamp(target, { restoredFrom: artifact, restoredDataFrom: newest });
+              progress?.(`[${app.id}] restoring data from ${located.name}`, "stdout");
+              const restored = await appHelper.restoreAppBackup({ id: app.id, backup: located.name }, { progress });
+              if (restored?.hostPorts) deployed = restored;
+              for (const warning of restored?.warnings ?? []) entry.warnings.push(warning);
+              await stamp(target, { restoredFrom: artifact, restoredDataFrom: located.name });
               entry.dataRestored = true;
             }
           }
@@ -610,6 +785,7 @@ export function createMachineSnapshotHelper({
           entry.error = error.message;
           progress?.(`[${app.id}] ${error.message}`, "stderr");
         }
+        if (deployed) await publishForTailnet(entry, deployed, { serve, progress });
       }
       // System files and VM definitions are staged for the operator; applying them blindly could cut off access.
       const reviewRoot = path.join(resolvedSnapshotRoot, "restored", now().toISOString().replaceAll(/[-:]/g, "").replace(/\.\d+Z$/, "Z"));
@@ -624,6 +800,10 @@ export function createMachineSnapshotHelper({
       summary.controllerBackupStaged = path.join(reviewRoot, "controller");
       summary.restored = summary.apps.filter((entry) => entry.installed).length;
       summary.failed = summary.apps.filter((entry) => entry.error).length;
+      // Said on the job as well as per app: an app restored without the data it should have had, or
+      // with no way in yet, is the owner's to act on.
+      const warnings = summary.apps.flatMap((entry) => entry.warnings.map((warning) => `${entry.id}: ${warning}`));
+      if (warnings.length) summary.warnings = warnings;
       return summary;
     } finally {
       await rm(staging, { recursive: true, force: true });
@@ -684,5 +864,5 @@ export function createMachineSnapshotHelper({
     return { discarded: true, name };
   }
 
-  return { inspect, create, sync, sources, discover, describe, restore, listRestores, discardRestore, internals: { locateAppArchive, resolveArtifact, resolveDiscovered, snapshotsIn } };
+  return { inspect, create, sync, sources, discover, describe, restore, listRestores, discardRestore, sweepInterrupted, internals: { locateAppArchive, resolveArtifact, resolveDiscovered, snapshotsIn } };
 }
