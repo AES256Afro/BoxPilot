@@ -52,6 +52,17 @@ const percent = (score: number) => `${Math.round(score * 100)}%`;
 
 type Draft = { id: string; question: string; kind: "fact" | "includes"; fact: string; includes: string };
 const toDraft = (question: Question): Draft => ({ id: question.id, question: question.question, kind: question.expect.fact ? "fact" : "includes", fact: question.expect.fact ?? "hostname", includes: (question.expect.includes ?? []).join(", ") });
+/**
+ * An id no other question has, the way the server names one ("Wrong" in the Test tab). Numbering
+ * from how many there were reused the id of one still there after a removal, and the two
+ * questions' grades were swapped.
+ */
+const freshId = (drafts: Draft[]) => {
+  const base = `q${Date.now().toString(36)}`;
+  let id = base;
+  for (let next = 2; drafts.some((draft) => draft.id === id); next += 1) id = `${base}-${next}`;
+  return id;
+};
 const fromDraft = (draft: Draft): Question => ({ id: draft.id, question: draft.question.trim(), expect: draft.kind === "fact" ? { fact: draft.fact } : { includes: draft.includes.split(",").map((part) => part.trim()).filter(Boolean) } });
 
 /**
@@ -187,7 +198,7 @@ export function Evaluation({ agents, agentId, csrfToken, now, enabled, onSelectA
         actions={<Select aria-label="Which agent" value={agent.id} onValueChange={onSelectAgent} options={usable.map((entry) => ({ value: entry.id, label: entry.name }))} />}
         footer={state.canEdit ? (
           <div className="agents-editor__foot">
-            <Button variant="ghost" disabled={drafts.length >= 10} onClick={() => setDrafts([...drafts, { id: `q${drafts.length + 1}`, question: "", kind: "includes", fact: "drives", includes: "" }])}>Add a question</Button>
+            <Button variant="ghost" disabled={drafts.length >= 10} onClick={() => setDrafts([...drafts, { id: freshId(drafts), question: "", kind: "includes", fact: "drives", includes: "" }])}>Add a question</Button>
             <Button busy={busy === "save"} onClick={() => void save()}>Save the questions</Button>
             <Button variant="primary" busy={busy === "run"} disabled={!enabled || !(state.questions.length + builtIn.length) || latest?.state === "running"} onClick={() => void run()}>Run the evaluation now</Button>
           </div>

@@ -47,3 +47,33 @@ describe("golden questions, when another agent is chosen while its read is on th
     expect(mocked.saved[0]).toMatchObject({ id: watcher.id, questions: [{ question: "Is Pi-hole blocking ads?" }] });
   });
 });
+
+describe("adding a golden question", () => {
+  // A new question was numbered from how many there were: after a removal it took the id of one
+  // still there, and the two questions' grades were swapped.
+  it("gives a new question an id no other question has, after one was removed, and after quick clicks", async () => {
+    const props = { agents: [steve], csrfToken: "csrf", now: Date.parse("2026-09-29T16:00:00Z"), enabled: true, onSelectAgent: () => undefined, onOpenRun: () => undefined };
+    render(<Evaluation {...props} agentId={steve.id} />);
+    await waitFor(() => expect(mocked.pending.has(steve.id)).toBe(true));
+    mocked.pending.get(steve.id)!({ questions: [
+      { id: "q1", question: "What is this server called?", expect: { fact: "hostname" } },
+      { id: "q2", question: "Is Pi-hole blocking ads?", expect: { includes: ["yes"] } },
+    ], runs: [], canEdit: true });
+    await screen.findByDisplayValue("Is Pi-hole blocking ads?");
+    fireEvent.click(screen.getByRole("button", { name: "Remove question 1" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add a question" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add a question" }));
+    const fields = screen.getAllByLabelText(/^Question \d$/) as HTMLInputElement[];
+    fireEvent.change(fields[1], { target: { value: "How full is the backup drive?" } });
+    fireEvent.change(fields[2], { target: { value: "Is Jellyfin up?" } });
+    const expected = screen.getAllByLabelText("Expected answer") as HTMLInputElement[];
+    for (const field of expected.slice(1)) fireEvent.change(field, { target: { value: "yes" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save the questions" }));
+    await waitFor(() => expect(mocked.saved).toHaveLength(1));
+    const ids = (mocked.saved[0].questions as Array<{ id: string }>).map((question) => question.id);
+    expect(ids).toHaveLength(3);
+    expect(ids[0]).toBe("q2");
+    expect(new Set(ids).size).toBe(3);
+    for (const id of ids) expect(id).toMatch(/^[a-z0-9-]{1,40}$/);
+  });
+});
