@@ -17,9 +17,11 @@ const files = [
 let changed = 0;
 for (const { path, pattern } of files) {
   const before = await readFile(path, "utf8");
+  // Before the unchanged check, not after it: a line rewritten into a shape the pattern does not
+  // know (`--ref=v1.2.3`) also leaves the file unchanged, and was skipped without a word.
+  if (!pattern.test(before)) throw new Error(`${path} no longer contains a version to sync`);
   const after = before.replace(pattern, (match, prefix) => `${prefix}${productVersion}`);
   if (after === before) continue;
-  if (!pattern.test(before)) throw new Error(`${path} no longer contains a version to sync`);
   await writeFile(path, after);
   changed += 1;
   process.stdout.write(`synced ${path} to ${productVersion}\n`);
