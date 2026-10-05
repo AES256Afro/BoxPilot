@@ -707,8 +707,8 @@ export function createAppHelper({
     return resolved;
   }
 
-  /** `directory` is the app's own unless a restore is writing the project it is about to swap in. */
-  async function writeProject(manifest, values, { existingEnv = {}, devices: provided = null, directory = dirFor(manifest.id) } = {}) {
+  async function writeProject(manifest, values, { existingEnv = {}, devices: provided = null } = {}) {
+    const directory = dirFor(manifest.id);
     await mkdir(directory, { recursive: true, mode: 0o700 });
     // Images that run as a fixed non-root user (declared with `user:`) must be able to write their
     // managed volumes, which the helper creates as root. Ownership is set on the directory only;
@@ -780,6 +780,30 @@ export function createAppHelper({
         if (runsAs) await chownDirectory(target, runsAs.uid, runsAs.gid).catch(() => {});
       }
     }
+    const rendered = await renderProject(manifest, values, { existingEnv, devices: provided });
+    await writeFileDurably(path.join(directory, ".env.tmp"), rendered.envFile, { mode: 0o600 });
+    await rename(path.join(directory, ".env.tmp"), path.join(directory, ".env"));
+    await writeFileDurably(path.join(directory, "compose.yaml.tmp"), rendered.composeYaml, { mode: 0o600 });
+    await rename(path.join(directory, "compose.yaml.tmp"), path.join(directory, "compose.yaml"));
+    // Config files shipped with the app (a prometheus.yml, a datasource yaml). Their paths were
+    // validated safe and relative by the schema; each is written under the project directory and
+    // mounted into the container by the compose file. Rewritten whole on every deploy, so a
+    // manifest change reaches the running app.
+    for (const file of rendered.files ?? []) {
+      const target = path.join(directory, file.path);
+      await mkdir(path.dirname(target), { recursive: true, mode: 0o755 });
+      await rm(target, { force: true }).catch(() => {});
+      await writeFile(target, file.content, { mode: 0o644 });
+    }
+    return rendered;
+  }
+
+  /**
+   * The compose file and .env these settings make on this server, written nowhere: its devices, its
+   * VPN profile, whether Docker has a GPU for it, its tailnet address and name. Throws when this
+   * server cannot take them (a device it does not have, tailnet only with no tailnet address).
+   */
+  async function renderProject(manifest, values, { existingEnv = {}, devices: provided = null } = {}) {
     // The web process resolves device globs against the real /dev (this process may run without one); only paths matching the manifest are accepted.
     const wanted = [...manifest.devices, ...(manifest.optionalDevices ?? [])];
     const devices = Array.isArray(provided)
@@ -814,22 +838,7 @@ export function createAppHelper({
         throw new Error(`${manifest.name} is reached at this server's tailnet HTTPS address, and Tailscale did not say what that is (is it up and signed in?). Start Tailscale and try again${named ? `, or set ${named.label} to the address people use` : ""}. Nothing was changed.`);
       }
     }
-    const rendered = renderCompose(manifest, values, { existingEnv, lanAddress, devices, tailnetAddress: await tailnetAddressFor(manifest, values), tailnetHost, sidecarEnvOverrides, gpu });
-    await writeFileDurably(path.join(directory, ".env.tmp"), rendered.envFile, { mode: 0o600 });
-    await rename(path.join(directory, ".env.tmp"), path.join(directory, ".env"));
-    await writeFileDurably(path.join(directory, "compose.yaml.tmp"), rendered.composeYaml, { mode: 0o600 });
-    await rename(path.join(directory, "compose.yaml.tmp"), path.join(directory, "compose.yaml"));
-    // Config files shipped with the app (a prometheus.yml, a datasource yaml). Their paths were
-    // validated safe and relative by the schema; each is written under the project directory and
-    // mounted into the container by the compose file. Rewritten whole on every deploy, so a
-    // manifest change reaches the running app.
-    for (const file of rendered.files ?? []) {
-      const target = path.join(directory, file.path);
-      await mkdir(path.dirname(target), { recursive: true, mode: 0o755 });
-      await rm(target, { force: true }).catch(() => {});
-      await writeFile(target, file.content, { mode: 0o644 });
-    }
-    return rendered;
+    return renderCompose(manifest, values, { existingEnv, lanAddress, devices, tailnetAddress: await tailnetAddressFor(manifest, values), tailnetHost, sidecarEnvOverrides, gpu });
   }
 
   /**
@@ -2223,7 +2232,14 @@ export function createAppHelper({
       sidecars: (manifest.sidecars ?? []).map((sidecar) => (ran[sidecar.id] ? { ...sidecar, image: ran[sidecar.id] } : sidecar)),
     };
     const current = await readFile(path.join(dirFor(manifest.id), "compose.yaml"), "utf8").catch(() => null);
-    const rendered = await writeProject(pinned, values, { existingEnv, devices: composeDevices(current ?? archivedCompose), directory });
+    const rendered = await renderProject(pinned, values, { existingEnv, devices: composeDevices(current ?? archivedCompose) });
+    // Only these two files. The folders a backup leaves out (downloaded models, a cache) and the
+    // config files the manifest ships are carried over from the app folder the restore replaces,
+    // and only where the unpacked backup has none: made here, empty, they stood in for the real ones.
+    for (const [name, content] of [[".env", rendered.envFile], ["compose.yaml", rendered.composeYaml]]) {
+      await writeFileDurably(path.join(directory, `${name}.tmp`), content, { mode: 0o600 });
+      await rename(path.join(directory, `${name}.tmp`), path.join(directory, name));
+    }
     if (rendered.composeYaml !== archivedCompose) progress?.(`Wrote ${manifest.name}'s compose file again from the settings in the backup, for this server's addresses and devices, on ${pinned.image.reference}`, "stdout");
     return { rendered, values };
   }
