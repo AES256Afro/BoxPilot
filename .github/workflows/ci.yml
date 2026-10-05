@@ -158,6 +158,14 @@ jobs:
       - name: The agents runner stays under its caps, and idles near 0%
         run: sudo bash tests/ubuntu/agents-caps.sh "$(command -v node)"
 
+      # The runner reads BoxPilot's port from the env file the web service is started with, as do
+      # the upgrade, the installer, the doctor and the firewall. systemd has no inline comments
+      # (`BOXPILOT_PORT=9000 # moved` is all value): every one of them is checked against what
+      # systemd itself gives a unit, on both releases' systemd. Runs whether or not the caps passed.
+      - name: Every reader of the env file agrees with systemd on the port and address
+        if: ${{ !cancelled() }}
+        run: sudo bash tests/ubuntu/env-file-parity.sh "$(command -v node)"
+
   # M39.2: whether the house keeps its DNS with the server off, against real dnsmasq (the resolver
   # GL.iNet and OpenWrt routers run): each server asked directly, the canary through a "router"
   # found in a "Pi-hole"'s query log, and the rehearsal with that Pi-hole really stopped, for a
