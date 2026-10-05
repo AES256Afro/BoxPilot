@@ -77,3 +77,22 @@ describe("adding a golden question", () => {
     for (const id of ids) expect(id).toMatch(/^[a-z0-9-]{1,40}$/);
   });
 });
+
+describe("a nightly evaluation the night's model time could not pay for in full (sweep 3)", () => {
+  it("shows the questions it could not ask as not graded, and counts only the ones graded", async () => {
+    const props = { agents: [steve], csrfToken: "csrf", now: Date.parse("2026-09-30T08:00:00Z"), enabled: true, onSelectAgent: () => undefined, onOpenRun: () => undefined };
+    render(<Evaluation {...props} agentId={steve.id} />);
+    await waitFor(() => expect(mocked.pending.has(steve.id)).toBe(true));
+    mocked.pending.get(steve.id)!({ questions: [], runs: [{
+      id: "e1", version: 3, model: "fake", state: "done", score: 1, createdAt: "2026-09-30T02:30:00Z", finishedAt: "2026-09-30T02:40:00Z", createdBy: null,
+      results: [
+        { questionId: "q1", question: "What is this server called?", expected: { includes: ["testbox"] }, runId: "r1", passed: true, found: "Every expected word is there" },
+        { questionId: "q2", question: "Is Pi-hole blocking ads?", expected: { includes: ["yes"] }, runId: "r2", passed: null, skipped: true, found: "Not asked: there was no model time left for it" },
+      ],
+    }], canEdit: true });
+    const table = await screen.findByRole("table", { name: "The latest evaluation's answers" });
+    expect(table.textContent).toContain("not graded");
+    expect(table.textContent).not.toContain("waiting");
+    expect(screen.getByText(/of 1 right · 1 not graded: no model time left for it/)).toBeTruthy();
+  });
+});

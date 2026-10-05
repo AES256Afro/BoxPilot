@@ -116,6 +116,50 @@ describe("the evaluation, night after night", { timeout: 60_000 }, () => {
     expect(h.state.listAudit(200).filter((event) => event.type === "agents.evaluation.skipped")).toHaveLength(1);
   });
 
+  it("asks no nightly question the night's model time cannot pay for, and grades none it could not finish for want of it (R3B1-6)", async () => {
+    const keeper = h.service.createAgent(h.caller("owner"), { template: "server-keeper" });
+    h.service.setEvaluation(h.caller("owner"), keeper.id, { questions: [] });
+    const night = (day) => { h.setTime(new Date(2026, 8, day, 2, 30, 0)); h.fake.state.script = answering({ drivesRight: true }); };
+    night(30);
+    await h.service.tick();
+    await drain();
+    expect(h.service.getEvaluation(h.caller("owner"), keeper.id).history.map((entry) => entry.score)).toEqual([1]);
+
+    // The next night the questions are queued; then a person's run spends the agent's day down to
+    // less than one question's worth above the half kept for people.
+    night(31);
+    await h.service.tick();
+    const questions = h.store.activeRuns().filter((run) => run.kind === "eval");
+    expect(questions.length).toBeGreaterThan(0);
+    const day = h.service.getAgent(h.caller("owner"), keeper.id).spec.budget.modelSecondsPerDay * 1000;
+    h.service.startRun(h.caller("owner"), keeper.id, { kind: "manual" });
+    const spender = await h.service.runnerNext(h.runnerId, { waitMs: 0 });
+    expect(spender.run.kind).toBe("manual");
+    await h.service.runnerFinish(spender.run.id, spender.lease, { outcome: "completed", answer: "Done.", usage: { modelMs: day / 2 - 60_000 } });
+    await drain();
+    for (const question of questions) expect(h.store.getRun(question.id)).toMatchObject({ state: "refused", reason: expect.stringMatching(/model time/) });
+    const [starved] = h.service.getEvaluation(h.caller("owner"), keeper.id).runs;
+    expect(starved).toMatchObject({ state: "done", score: null });
+    expect(starved.results.every((result) => result.skipped === true && result.passed === null)).toBe(true);
+    // Not a drop: a question it was never asked is not one it got wrong.
+    const evaluation = h.service.getEvaluation(h.caller("owner"), keeper.id);
+    expect(evaluation.history.map((entry) => entry.score)).toEqual([1]);
+    expect(evaluation.drop).toBeNull();
+
+    // A question cut short for want of model time is not graded either; the rest are, as asked.
+    night(32);
+    await h.service.tick();
+    // What goes before an evaluation (its schedule, the memory index) goes first.
+    let first = await h.service.runnerNext(h.runnerId, { waitMs: 0 });
+    while (first && first.run.kind !== "eval") { await h.runner.execute(first); first = await h.service.runnerNext(h.runnerId, { waitMs: 0 }); }
+    expect(first.run.kind).toBe("eval");
+    await h.service.runnerFinish(first.run.id, first.lease, { outcome: "degraded", answer: "The agent's model time for today is used up.", degradedReason: "budget" });
+    await drain();
+    const [cut] = h.service.getEvaluation(h.caller("owner"), keeper.id).runs;
+    expect(cut.results.filter((result) => result.skipped)).toHaveLength(1);
+    expect(cut).toMatchObject({ state: "done", score: 1 });
+  });
+
   it("follows accuracy over time and flags a drop, on the tab and in the agent's summary", async () => {
     const keeper = h.service.createAgent(h.caller("owner"), { template: "server-keeper" });
     h.service.setEvaluation(h.caller("owner"), keeper.id, { questions: [] });
