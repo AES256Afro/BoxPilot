@@ -10,7 +10,7 @@ import { createAppHelper } from "./app-helper.mjs";
 import { createVmCloudHelper } from "./vm-cloud.mjs";
 import { createHostInspectHelper } from "./host-inspect-helper.mjs";
 import { executeHelperOperation } from "./helper-protocol.mjs";
-import { helperQueuedFrame, helperStartedFrame } from "./helper-response.mjs";
+import { helperErrorReply, helperQueuedFrame, helperStartedFrame } from "./helper-response.mjs";
 import { createConcurrencyGate, createLaneQueues, laneFor } from "./helper-lanes.mjs";
 import { createVmRecoveryHelper } from "./vm-recovery-helper.mjs";
 import { createVmRestoreDrillHelper } from "./vm-restore-drill-helper.mjs";
@@ -28,7 +28,6 @@ import { createHousekeepingService } from "./housekeeping.mjs";
 import { createPerformanceService } from "./performance.mjs";
 import { createLocalDnsService } from "./local-dns.mjs";
 import { fixedRun } from "./exec.mjs";
-import { timeoutOf } from "./timeouts.mjs";
 
 const socketPath = process.env.BOXPILOT_HELPER_SOCKET ?? "/run/boxpilot/helper.sock";
 const idleGraceMs = 30_000;
@@ -163,10 +162,8 @@ const server = net.createServer({ allowHalfOpen: true }, (connection) => {
       }
       reply(result);
     } catch (error) {
-      // A step that ran out of its own time says so in a field (M30.3). An older web side reads
-      // only `error`, so the reply stays what it was for it.
-      const timeout = timeoutOf(error);
-      reply({ version: 1, id: request?.id ?? null, ok: false, error: error.message, code: timeout ? "timeout" : "operation_failed", ...(timeout ? { timeout } : {}) });
+      // A step that ran out of its own time, and whether a rollback worked, go in fields.
+      reply(helperErrorReply(request?.id ?? null, error));
     }
   }
 

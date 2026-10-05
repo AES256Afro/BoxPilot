@@ -279,7 +279,8 @@ export function createSchedulerService({ store, jobs, secretEnvNamesFor = async 
         const creator = store.findOwnerById?.(schedule.createdBy) ?? null;
         if (creator && ["viewer", "disabled"].includes(creator.role)) throw new Error(`${creator.username} can no longer approve jobs`);
         const creatorRole = creator?.role ?? "owner";
-        if (jobs.approvalPolicy && store.getSetting?.("approvalMode", null) === "always-password") throw new Error("Enter the owner password to run this: approvals are set to always ask");
+        // The same code the job layer gives a password-gated approval, which is what the skip below tests.
+        if (jobs.approvalPolicy && store.getSetting?.("approvalMode", null) === "always-password") throw Object.assign(new Error("Enter the owner password to run this: approvals are set to always ask"), { code: "password_required" });
         job = await jobs.createOperationJob(schedule.operationId, schedule.parameters ?? {}, schedule.createdBy, { role: creatorRole });
         // Before it starts: a job can fail before approveAndStart has even returned.
         remember(job.id, schedule.id);

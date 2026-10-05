@@ -17,6 +17,7 @@ import { holdsPlaceholder, isSinglePlaceholder, referencesIn, resolveValues, ste
 import { asSentence } from "./health-alerts.mjs";
 import { mountNamePattern } from "./tasks/storage.mjs";
 import { mountpointFor } from "./backup-mount.mjs";
+import { queuedCeilingMs } from "./helper-client.mjs";
 
 const nameLimit = 80;
 const stepLimit = 10;
@@ -27,6 +28,9 @@ const chainLimit = 8;
 // "skipped". Every stop-path throw in run() carries one of these prefixes; keep them in step.
 const recordedRunFailure = /stopped at step|failed at step|lost sight of step/;
 const riskOrder = { low: 0, medium: 1, high: 2 };
+
+/** A job still waiting in the helper's queue behind other work: the job layer notes "queue" waiting, then completed. */
+const waitingInQueue = (job) => (job.steps ?? []).filter((step) => step.name === "queue").at(-1)?.state === "waiting";
 
 /** The highest tier any step carries; what the flow answers for. */
 export function flowRisk(steps, registry = defaultRegistry) {
@@ -50,6 +54,9 @@ export function validateFlow({ name, steps } = {}, registry = defaultRegistry) {
     const operation = registry.get?.(step.operationId);
     if (!operation) return `${label}: ${step.operationId} is not a registered operation`;
     if (operation.risk === "high") return `${label}: ${operation.title} is high risk and cannot be part of a flow (ADR-002)`;
+    // A typed confirmation is a person promising they meant it, at approval; a flow approves its
+    // steps itself, so such a step would be refused there on every run.
+    if (typeof operation.confirm === "function") return `${label}: ${operation.title} asks you to type a confirmation each time, so it cannot be part of a flow`;
     const parameters = step.parameters ?? {};
     if (typeof parameters !== "object" || Array.isArray(parameters)) return `${label}: parameters must be an object`;
     // Secrets are checked by flowSecretProblem below, which can ask the catalog about an app's own.
@@ -260,13 +267,21 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
     settle(flow, { quietly: true }); // deleted, not fixed: nothing to announce
   }
 
-  /** Wait for one step's job to reach a terminal state, bounded by the operation's own budget. */
+  /**
+   * Wait for one step's job to reach a terminal state, bounded by the operation's own budget. The
+   * budget starts when the job does, not when it was approved: a drive's reconnect queued behind a
+   * six-hour sync was declared lost while it waited, and ran later with nobody watching. While the
+   * job says it is waiting in the helper's queue it is not lost - the job layer gives up on it at
+   * the queue ceiling and settles it - so the wait is bounded by that ceiling plus the budget.
+   */
   async function awaitJob(jobId, timeoutMs) {
-    const deadline = Date.now() + timeoutMs;
+    const ceiling = Date.now() + queuedCeilingMs + timeoutMs;
+    let deadline = Date.now() + timeoutMs;
     for (;;) {
       const job = store.getJob(jobId);
       if (!job) throw new Error("The step's job record disappeared");
       if (["completed", "failed", "cancelled"].includes(job.state)) return job;
+      if (waitingInQueue(job)) deadline = Math.min(Date.now() + timeoutMs, ceiling);
       if (Date.now() > deadline) throw new Error("The step did not finish inside its operation's own time budget");
       await new Promise((resolve) => setTimeout(resolve, pollMs));
     }
@@ -672,7 +687,8 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
   function stepPalette() {
     const isScalar = (field) => ["string", "number", "boolean", undefined].includes(field.type);
     return registry.list()
-      .filter((operation) => operation.risk !== "high" && !operation.readOnly)
+      // validateFlow refuses these, so offering them would only lead to a refusal at save time.
+      .filter((operation) => operation.risk !== "high" && !operation.readOnly && typeof operation.confirm !== "function")
       // Buildable by a plain form, and never able to store a secret in the flow's JSON. A field
       // that is not a scalar (an array of packages, an object of app values) is fine only when it
       // is optional: the form omits it, which is valid. A required non-scalar field, or any secret

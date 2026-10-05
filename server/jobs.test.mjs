@@ -1,7 +1,12 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { appStopClearingOperations } from "./app-stops.mjs";
+import { deviceResolvingOperations } from "./catalog/devices.mjs";
+import { registry } from "./ops/index.mjs";
+import { agentsModelRemove } from "./tasks/agents.mjs";
 
 // Password hashing runs at production scrypt cost; CI runners need more than the 5 s default.
 vi.setConfig({ testTimeout: 30_000 });
@@ -459,6 +464,45 @@ describe("durable job executor", () => {
     store.close();
   });
 
+  it("says on the job when it waits behind other work in the helper's queue, and when it starts", async () => {
+    // A flow watching the job reads this: its step's budget starts when the job does.
+    const helper = { request: vi.fn(async (_operation, _parameters, options) => {
+      options.onQueued();
+      options.onStarted();
+      return { ok: true };
+    }) };
+    const { store, owner, jobs } = await setup(helper);
+    try {
+      const job = await jobs.createOperationJob("apt.refresh", {}, owner.id);
+      await jobs.approveAndRun(job.id, owner.id, {});
+      expect(store.getJob(job.id).steps.filter((step) => step.name === "queue").map((step) => step.state)).toEqual(["waiting", "completed"]);
+    } finally { store.close(); }
+  });
+
+  it("records a rollback as completed only when the operation's own rollback worked", async () => {
+    // Any error mentioning "rollback" used to be recorded as "undid its partial changes", and the
+    // errors that mention it are mostly the ones whose rollback FAILED; the ones that worked
+    // ("the previous image was restored") recorded nothing.
+    const rollbackSteps = async (error) => {
+      const helper = { request: vi.fn(async () => { throw error; }) };
+      const { store, owner, jobs } = await setup(helper);
+      try {
+        const job = await jobs.createOperationJob("app.update", { id: "jellyfin" }, owner.id);
+        await expect(jobs.approveAndRun(job.id, owner.id, {})).rejects.toThrow();
+        return store.getJob(job.id).steps.filter((step) => step.name === "rollback").map((step) => step.state);
+      } finally { store.close(); }
+    };
+    // The helper says which, as rolledBack on the error.
+    expect(await rollbackSteps(Object.assign(new Error("Jellyfin update failed and automatic rollback also failed. docker compose up failed"), { rolledBack: false }))).toEqual(["failed"]);
+    expect(await rollbackSteps(Object.assign(new Error("Jellyfin update failed; the previous image was restored. docker compose up failed"), { rolledBack: true }))).toEqual(["completed"]);
+    // Without it, only the words for a rollback that worked count; the bare word never does.
+    expect(await rollbackSteps(new Error("Jellyfin update failed and automatic rollback also failed. docker compose up failed"))).toEqual([]);
+    expect(await rollbackSteps(new Error("The incomplete recovery domain failed exact rollback validation"))).toEqual([]);
+    expect(await rollbackSteps(new Error("Jellyfin update failed; the previous image was restored. docker compose up failed"))).toEqual(["completed"]);
+    expect(await rollbackSteps(new Error("Jellyfin rejected the edited compose file; the previous one was restored. docker compose up failed"))).toEqual(["completed"]);
+    expect(await rollbackSteps(new Error("Jellyfin installation failed and was rolled back. docker compose up failed"))).toEqual(["completed"]);
+  });
+
   it("lets operators run low and medium work but reserves high-risk staging and approval for owners", async () => {
     const helper = { request: vi.fn(async () => ({ ok: true })) };
     const { store, owner, jobs } = await setup(helper);
@@ -724,7 +768,7 @@ describe("a job that ran out of time (M30.3)", () => {
     try {
       const job = await jobs.createOperationJob("app.install", { id: "jellyfin", values: {} }, owner.id);
       await expect(jobs.approveAndRun(job.id, owner.id, {})).rejects.toThrow("overall deadline");
-      expect(helper.request).toHaveBeenCalledWith("app.install", { id: "jellyfin", values: {} }, { timeoutMs: minutes(25), jobId: job.id });
+      expect(helper.request).toHaveBeenCalledWith("app.install", { id: "jellyfin", values: {} }, { timeoutMs: minutes(25), jobId: job.id, onQueued: expect.any(Function), onStarted: expect.any(Function) });
       const failed = store.getJob(job.id);
       expect(failed.state).toBe("failed");
       expect(failed.timeout).toEqual({ scope: "operation", budgetMs: minutes(25), elapsedMs: minutes(25), phase: "running", step: null, lastOutput: "abc123 Downloading 812MB/2.1GB", moreTimeMs: minutes(50) });
@@ -790,7 +834,7 @@ describe("a job that ran out of time (M30.3)", () => {
 
       await expect(jobs.approveAndRun(second.id, owner.id, {})).rejects.toThrow();
       // The larger budget reaches the helper, which checks it against the registry.
-      expect(helper.request).toHaveBeenLastCalledWith("app.install", { id: "jellyfin", values: {} }, { timeoutMs: minutes(50), jobId: second.id, budgetMs: minutes(50) });
+      expect(helper.request).toHaveBeenLastCalledWith("app.install", { id: "jellyfin", values: {} }, { timeoutMs: minutes(50), jobId: second.id, budgetMs: minutes(50), onQueued: expect.any(Function), onStarted: expect.any(Function) });
       expect(store.getJob(second.id).timeout).toMatchObject({ budgetMs: minutes(50), elapsedMs: minutes(50), moreTimeMs: minutes(100) });
 
       const third = await jobs.retryWithMoreTime(second.id, owner.id);
@@ -891,5 +935,63 @@ describe("a tier that depends on what an operation acts on", () => {
       expect(other.risk).toBe("medium");
       expect(jobs.describeApproval(other.id, null)).toMatchObject({ tier: "medium", passwordRequired: false });
     } finally { store.close(); }
+  });
+});
+
+describe("a value pinned at staging that can change before approval", () => {
+  // The model agents use is pinned into a staged removal (M37) so the root task can refuse to remove
+  // it. Switching agents to the model a removal names, then approving the removal, deleted the model
+  // now in use: the task checked the pin from staging. It is pinned again as the job is approved.
+  const repo = "unsloth/Qwen3.5-4B-GGUF";
+  const inUse = `${repo}/Qwen3.5-4B-UD-Q4_K_XL.gguf`;
+  const staged = { repo, file: "Qwen3.5-4B-UD-Q8_K_XL.gguf" };
+
+  it("is pinned again as the job is approved, so the model now in use is not removed", async () => {
+    let current = inUse;
+    const ran = vi.fn(async () => { throw new Error("the removal ran"); });
+    // The root task itself, with a recorder where the runner's script would run.
+    const helper = { request: vi.fn(async (_operation, parameters) => agentsModelRemove(parameters, { run: ran })) };
+    const { store, owner } = await setup(helper);
+    try {
+      // As index.mjs wires it.
+      const jobs = createJobService(store, helper, {
+        operationPrepareHooks: { "agents.model.remove": (parameters) => ({ repo: parameters?.repo, file: parameters?.file, projector: parameters?.projector ?? null, current }) },
+        operationApprovalHooks: { "agents.model.remove": (parameters) => ({ ...parameters, current }) },
+      });
+      const job = await jobs.createOperationJob("agents.model.remove", staged, owner.id);
+      expect(store.getJob(job.id).parameters.current).toBe(inUse);
+      current = `${staged.repo}/${staged.file}`; // agents switched to the staged model
+      await expect(jobs.approveAndRun(job.id, owner.id, {})).rejects.toThrow(/agents use now/);
+      expect(helper.request).toHaveBeenCalledWith("agents.model.remove", expect.objectContaining({ current: `${staged.repo}/${staged.file}` }), expect.anything());
+      expect(ran).not.toHaveBeenCalled();
+    } finally { store.close(); }
+  });
+
+  it("is wired for the model removal in index.mjs", async () => {
+    const index = (await readFile(path.join(path.dirname(fileURLToPath(import.meta.url)), "index.mjs"), "utf8")).replaceAll("\r\n", "\n");
+    const start = index.indexOf("operationApprovalHooks: {");
+    expect(start).toBeGreaterThan(-1);
+    const hooks = index.slice(start, index.indexOf("\n  },", start));
+    expect(hooks).toMatch(/"agents\.model\.remove": \(parameters\) => \(\{ \.\.\.parameters, current: agents\.currentModel\(\) \}\)/);
+  });
+});
+
+describe("the hooks index.mjs gives the job service", () => {
+  // A hook under a name no operation has never runs: "firewall.rule.set" was registered for the
+  // operation "firewall.rule.add", so adding a rule by hand never marked the firewall profile edited.
+  it("are each keyed by a registered operation", async () => {
+    const index = (await readFile(path.join(path.dirname(fileURLToPath(import.meta.url)), "index.mjs"), "utf8")).replaceAll("\r\n", "\n");
+    const start = index.indexOf("const jobs = createJobService(");
+    expect(start).toBeGreaterThan(-1);
+    const block = index.slice(start, index.indexOf("\n});", start));
+    // Every quoted dotted name followed by a colon in the options is a hook key...
+    const keyed = [...block.matchAll(/"([a-z][a-z0-9-]*(?:\.[a-z0-9-]+)+)"\s*:/g)].map((match) => match[1]);
+    // ...and so is every name in a list spread into one with Object.fromEntries.
+    const listed = [...block.matchAll(/Object\.fromEntries\(\[([^\]]*)\]/g)].flatMap((match) => [...match[1].matchAll(/"([^"]+)"/g)].map((name) => name[1]));
+    const spread = [...(block.includes("appStopClearingOperations") ? appStopClearingOperations : []), ...(block.includes("deviceResolvingOperations") ? deviceResolvingOperations : [])];
+    const keys = [...keyed, ...listed, ...spread];
+    expect(keyed.length).toBeGreaterThan(40);
+    expect(keys).toContain("firewall.rule.add");
+    expect(keys.filter((key) => !registry.has(key))).toEqual([]);
   });
 });
