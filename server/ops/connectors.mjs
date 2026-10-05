@@ -8,17 +8,23 @@
  * names and dates.
  */
 import { defineOperation } from "./registry.mjs";
-import { credentialNamePattern } from "../credentials.mjs";
+import { credentialNamePattern, managedCredentialProblem } from "../credentials.mjs";
 
 const minutes = (count) => count * 60_000;
 const credentialNameField = { type: "string", pattern: credentialNamePattern };
+/**
+ * A name the owner's own requests may use: not one BoxPilot keeps for itself (the Cloudflare tokens,
+ * the heartbeat address, the Zulip bot key), which only their own operations write or read. Checked
+ * here, which is also where an agent's or the assistant's proposed step is checked (validatePlan).
+ */
+const ownCredentialNameField = { ...credentialNameField, validate: (name) => managedCredentialProblem(name) };
 
 export function connectorOperations() {
   return [
     defineOperation({
       id: "credentials.set", title: "Save a credential", risk: "medium", timeoutMs: minutes(1), minimumRole: "owner",
       description: "Saves a token or password under a short name, in a root-owned file on this server. Steps and requests then reference the name; the value itself never appears in a flow, a job record, or the database, and cannot be read back from the interface.",
-      parameters: { fields: { name: credentialNameField, value: { type: "string", maxLength: 4096, secret: true } } },
+      parameters: { fields: { name: ownCredentialNameField, value: { type: "string", maxLength: 4096, secret: true } } },
       run: (parameters, { credentials }) => credentials.set({ name: parameters.name, value: parameters.value }),
     }),
     defineOperation({
@@ -41,7 +47,7 @@ export function connectorOperations() {
         method: { type: "string", optional: true, enum: ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"] },
         body: { type: "string", optional: true, maxLength: 16384 },
         contentType: { type: "string", optional: true, maxLength: 120, pattern: /^[!-~][ -~]*$/ },
-        credentialName: { ...credentialNameField, optional: true },
+        credentialName: { ...ownCredentialNameField, optional: true },
         credentialHeader: { type: "string", optional: true, maxLength: 60, pattern: /^[A-Za-z][A-Za-z0-9-]*$/ },
         credentialPrefix: { type: "string", optional: true, maxLength: 40, pattern: /^[ -~]*$/ },
       } },
