@@ -41,8 +41,8 @@ export function createAgentChat({ state, store, helper = null, now = () => new D
   /** The connection when the owner has connected Zulip; null otherwise. */
   const connection = () => { const value = saved(); return value?.connected ? value : null; };
   const remember = (patch) => { const current = saved() ?? {}; state.setSetting?.(zulipSettingKey, { ...current, ...patch }); };
-  const base = (link) => `http://127.0.0.1:${link.port}`;
-  const where = (link) => ({ base: base(link), host: link.host, botEmail: link.botEmail });
+  // Who Zulip is to the bot. Where it is, the helper reads from the Zulip app itself (2026-10 sweep 2).
+  const where = (link) => ({ host: link.host, botEmail: link.botEmail });
 
   // ---- connecting ----
 
