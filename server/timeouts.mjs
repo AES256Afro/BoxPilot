@@ -13,6 +13,9 @@
  *   budgetMs the limit that ran out
  *   step     what was running, in the operation's words ("Downloading the images")
  *   phase    "queued" when the budget ran out before the helper started it
+ *   stillRunning  true when what ran out is known to carry on: a root task past its own budget is
+ *            written down as timed out and left running (boxpilot-run@ has KillMode=process). Like
+ *            the whole operation's budget running out, it is lost sight of, not stopped.
  */
 
 export const timeoutScopes = Object.freeze(["operation", "step"]);
@@ -31,13 +34,17 @@ export function timeoutOf(error) {
     budgetMs,
     ...(text(raw.step, 200) ? { step: text(raw.step, 200) } : {}),
     ...(raw.phase === "queued" ? { phase: "queued" } : {}),
+    ...(raw.stillRunning === true ? { stillRunning: true } : {}),
   };
 }
 
 /** An error that says it ran out of time. */
-export function timedOut(message, { budgetMs, step = null, scope = "step", phase = null } = {}) {
-  return Object.assign(new Error(message), { code: "timeout", timeout: { scope, budgetMs, ...(step ? { step } : {}), ...(phase ? { phase } : {}) } });
+export function timedOut(message, { budgetMs, step = null, scope = "step", phase = null, stillRunning = false } = {}) {
+  return Object.assign(new Error(message), { code: "timeout", timeout: { scope, budgetMs, ...(step ? { step } : {}), ...(phase ? { phase } : {}), ...(stillRunning ? { stillRunning: true } : {}) } });
 }
+
+/** Whether what ran out of time may still be running: the whole operation given up on, or a step left running. */
+export const mayStillBeRunning = (timeout) => Boolean(timeout) && timeout.phase !== "queued" && (timeout.scope === "operation" || timeout.stillRunning === true);
 
 /** Carry a cause's timeout onto the error that wraps it ("the update failed and was rolled back. ..."). */
 export function keepTimeout(cause, error) {
@@ -72,6 +79,7 @@ export function lastOutputLine(log) {
  *   step        what the operation said was running, when it said
  *   lastOutput  the last line of its log: how far it got
  *   moreTimeMs  the budget "Try again with more time" would give it, or null when it is not offered
+ *   stillRunning  present (true) when a step that ran out was left running
  */
 export function jobTimeoutRecord(timeout, { elapsedMs, log = "", moreTimeMs = null } = {}) {
   return {
@@ -82,6 +90,7 @@ export function jobTimeoutRecord(timeout, { elapsedMs, log = "", moreTimeMs = nu
     step: timeout.step ?? null,
     lastOutput: lastOutputLine(log),
     moreTimeMs: Number.isInteger(moreTimeMs) && moreTimeMs > 0 ? moreTimeMs : null,
+    ...(timeout.stillRunning === true && timeout.phase !== "queued" ? { stillRunning: true } : {}),
   };
 }
 
@@ -89,5 +98,6 @@ export function jobTimeoutRecord(timeout, { elapsedMs, log = "", moreTimeMs = nu
 export function timeoutMessage(title, timeout) {
   if (timeout.phase === "queued") return `${title} waited ${formatDuration(timeout.budgetMs)} behind other work on the server and did not start.`;
   if (timeout.scope === "operation") return `${title} did not finish within ${formatDuration(timeout.budgetMs)}. It may still be running on the server; Activity shows how far it got.`;
+  if (timeout.stillRunning === true) return `${title} stopped waiting: ${timeout.step ?? "one step"} did not finish within ${formatDuration(timeout.budgetMs)}. It may still be running on the server; Activity shows how far it got.`;
   return `${title} stopped: ${timeout.step ? `${timeout.step} did not finish` : "one step did not finish"} within ${formatDuration(timeout.budgetMs)}.`;
 }

@@ -210,12 +210,28 @@ export function createAppHelper({
   }
 
   /**
+   * Whether Docker answers, asking up to `attempts` times: at boot it may still be starting. The
+   * helper waits here outside any lane (interrupted-backups.mjs), so the owner's own start of
+   * docker.service, which holds the Docker lane, is never queued behind the wait.
+   */
+  async function waitForDocker({ attempts = 40, delayMs = 15_000 } = {}) {
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+      if ((await docker(["info", "--format", "{{.ServerVersion}}"], { timeout: 30_000 })).ok) return true;
+      if (attempt < attempts) await wait(delayMs);
+    }
+    return false;
+  }
+
+  /**
    * Put right what an interrupted backup left: its half-written archive is removed, and an app it
    * had stopped is started again. Docker never starts a container stopped by hand, whatever its
    * restart policy, so after a power cut during the nightly backup the app stayed down until
-   * someone noticed. Docker may not be up yet at boot, so the start is tried for a while.
+   * someone noticed. The caller has waited for Docker first (waitForDocker); the start is still
+   * tried a few times. A marker gone by now was settled by a backup that ran meanwhile, which
+   * started the app again or left it as the owner had it: nothing is done.
    */
-  async function resumeInterruptedBackup({ id, restart, partial }, { attempts = 40, delayMs = 15_000 } = {}) {
+  async function resumeInterruptedBackup({ id, restart, partial }, { attempts = 3, delayMs = 5_000 } = {}) {
+    if (!(await stat(interruptedBackupMarker(id)).then(() => true, () => false))) return { id, removedPartial: false, restarted: false, settled: true };
     let removedPartial = false;
     if (partial && /^\d{8}T\d{6}Z\.tar\.gz\.partial$/.test(partial)) {
       const file = path.join(backupDirFor(id), partial);
@@ -2714,5 +2730,5 @@ export function createAppHelper({
     return installed;
   }
 
-  return { syncHomepage, inspect, installedIds, dataUsage: shared(dataUsage), reachabilityFacts, vpnKillSwitchDrill, foreignProjects, foreignProjectAction, foreignProjectLogs, vpnStatus, listModels, pullModel, removeModel, countAppBackups, backupProtection, install, uninstall, reinstall, backupMany, interruptedBackups, resumeInterruptedBackup, update, reconfigure, action, execIn, logs, config, readComposeConfig, editCompose, secrets, setPassword, backup, listAppBackups, verifyAppBackup, restoreAppBackup, rollbackApp, listAppBackupFiles, restoreAppBackupPath, deleteAppBackup, checkUpdates, catalogRoot: root, internals: { imageDeclaredOwner, parseModelList, containerStatus, waitHealthy, writeProject, readState, parseEnvFile } };
+  return { syncHomepage, inspect, installedIds, dataUsage: shared(dataUsage), reachabilityFacts, vpnKillSwitchDrill, foreignProjects, foreignProjectAction, foreignProjectLogs, vpnStatus, listModels, pullModel, removeModel, countAppBackups, backupProtection, install, uninstall, reinstall, backupMany, interruptedBackups, waitForDocker, resumeInterruptedBackup, update, reconfigure, action, execIn, logs, config, readComposeConfig, editCompose, secrets, setPassword, backup, listAppBackups, verifyAppBackup, restoreAppBackup, rollbackApp, listAppBackupFiles, restoreAppBackupPath, deleteAppBackup, checkUpdates, catalogRoot: root, internals: { imageDeclaredOwner, parseModelList, containerStatus, waitHealthy, writeProject, readState, parseEnvFile } };
 }

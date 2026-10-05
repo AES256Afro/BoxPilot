@@ -219,3 +219,37 @@ describe("Automations page", () => {
     expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
   });
 });
+
+/**
+ * A step only the owner may run, put in an operator's flow before steps were checked, does not run
+ * until the owner keeps it. The refusal said "open it and save the flow", and the page cannot edit
+ * an existing flow's steps: the owner had no way to do it.
+ */
+describe("an owner-only step the owner has not kept", () => {
+  const send = { operationId: "http.request", parameters: { url: "https://ntfy.example/topic", method: "POST" } };
+  const tidy = { ...baseFlow, id: "flow-7", name: "Tidy", createdBy: "operator-1", steps: [{ operationId: "apt.refresh", parameters: {} }, send], ownerToKeep: { step: 2, title: "Send an HTTP request" } };
+
+  it("offers the owner Keep this step, which saves the steps as they are", async () => {
+    let saved: unknown = null;
+    let kept = false;
+    serve({ flows: [tidy] }, (url, init) => {
+      if (url === "/api/v1/flows" && kept) return json({ flows: [{ ...tidy, ownerToKeep: null }], palette, shelf: [] });
+      if (url === "/api/v1/flows/flow-7" && init?.method === "PUT") { saved = JSON.parse(String(init.body)); kept = true; return json({ flow: { ...tidy, ownerToKeep: null } }); }
+      return undefined;
+    });
+    render(<AutomationsPage csrfToken="csrf" role="owner" />);
+    const card = (await screen.findByRole("heading", { level: 3, name: "Tidy" })).closest("li")!;
+    expect(within(card).getByText(/Step 2 \(Send an HTTP request\) is one only you may run/)).toBeTruthy();
+    fireEvent.click(within(card).getByRole("button", { name: "Keep this step" }));
+    await vi.waitFor(() => expect(saved).toEqual({ steps: tidy.steps }));
+    await vi.waitFor(() => expect(within(card).queryByRole("button", { name: "Keep this step" })).toBeNull());
+    expect(within(card).getByText(/Step 2 is kept/)).toBeTruthy();
+  });
+
+  it("offers it to nobody else", async () => {
+    serve({ flows: [tidy] });
+    render(<AutomationsPage csrfToken="csrf" role="operator" />);
+    await screen.findByRole("heading", { level: 3, name: "Tidy" });
+    expect(screen.queryByRole("button", { name: "Keep this step" })).toBeNull();
+  });
+});

@@ -136,6 +136,18 @@ export default function AutomationsPage({ csrfToken, role = "owner" }: Automatio
     catch (requestError) { setError(requestError instanceof Error ? requestError.message : failure); }
   };
 
+  // The owner keeps a step only they may run that someone else put in the flow: the steps go back as
+  // they are, saved by the owner, which marks it as theirs. The page cannot edit an existing flow's
+  // steps, so this is the way to do what the run's refusal asks.
+  const keepStep = async (flow: Flow, unkept: { step: number; title: string }) => {
+    setAbout(flow.id); setError(null); setNotice(null);
+    try {
+      await post(`/api/v1/flows/${encodeURIComponent(flow.id)}`, { steps: flow.steps }, "PUT");
+      setNotice(`Step ${unkept.step} is kept: ${flow.name} runs it as it is.`);
+      await refresh();
+    } catch (requestError) { setError(requestError instanceof Error ? requestError.message : "Could not keep the step"); }
+  };
+
   const mintWebhook = async (flow: Flow) => {
     setAbout(flow.id); setError(null); setNotice(null);
     try {
@@ -255,6 +267,11 @@ export default function AutomationsPage({ csrfToken, role = "owner" }: Automatio
                     {mayManage && flow.webhookEnabled && <Button variant="ghost" onClick={() => void removeWebhook(flow)}>Remove the webhook</Button>}
                     {mayManage && <Button variant="ghost" disabled={flow.running} onClick={() => setConfirming({ flowId: flow.id, action: "remove" })}>Remove</Button>}
                   </div>
+                  {role === "owner" && flow.ownerToKeep && (
+                    <Notice tone="warning" title="Not run until you keep a step" action={<Button variant="primary" disabled={flow.running} onClick={() => void keepStep(flow, flow.ownerToKeep!)}>Keep this step</Button>}>
+                      Step {flow.ownerToKeep.step} ({flow.ownerToKeep.title}) is one only you may run, and someone else put it in this automation. It runs as whoever starts the automation, so it waits for you to keep it as it is.
+                    </Notice>
+                  )}
                   {about === flow.id && error && <Notice tone="danger" live title="That did not work" onDismiss={() => setError(null)}>{error}</Notice>}
                   {about === flow.id && notice && !error && <Notice tone="success" live onDismiss={() => setNotice(null)}>{notice}</Notice>}
                   {webhook?.flowId === flow.id && (

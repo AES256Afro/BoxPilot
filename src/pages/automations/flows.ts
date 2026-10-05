@@ -15,6 +15,9 @@ export interface Flow {
   enabled: boolean; nextDueAt: string | null; triggerFlowId: string | null; webhookEnabled: boolean;
   // Armed from a drive's row or its Repair notice (M26.5): the managed drive whose loss runs it.
   triggerDrive?: string | null;
+  // A step only the owner may run that someone else put in this flow and the owner has not kept:
+  // the flow does not run until the owner keeps it (Keep this step).
+  ownerToKeep?: { step: number; title: string } | null;
 }
 
 export interface PaletteField { name: string; type: "string" | "number" | "boolean"; optional: boolean; enum: string[] | null; default: string | number | boolean | null }

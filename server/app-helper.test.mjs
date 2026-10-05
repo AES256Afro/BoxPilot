@@ -1020,6 +1020,38 @@ sidecars:
       expect(containers.get("bp-demo").running).toBe(true);
     });
 
+    it("waits for Docker to answer, a bounded number of times, before anything is started", async () => {
+      // The wait happens outside the app's lane (interrupted-backups.mjs); the start, under it, is short.
+      let down = 2;
+      const calls = [];
+      const runDocker = vi.fn(async (_binary, args) => {
+        calls.push(args.join(" "));
+        return args[0] === "info" && down-- > 0 ? { ok: false, stdout: "", stderr: "Cannot connect to the Docker daemon" } : { ok: true, stdout: "27.5.1", stderr: "" };
+      });
+      const waits = [];
+      const apps = createAppHelper({ catalogRoot: "/nonexistent", backupRoot: "/nonexistent", runDocker, wait: async (ms) => { waits.push(ms); } });
+      await expect(apps.waitForDocker({ attempts: 5, delayMs: 15_000 })).resolves.toBe(true);
+      expect(calls).toEqual(["info --format {{.ServerVersion}}", "info --format {{.ServerVersion}}", "info --format {{.ServerVersion}}"]);
+      expect(waits).toEqual([15_000, 15_000]);
+      down = 99;
+      await expect(apps.waitForDocker({ attempts: 3, delayMs: 0 })).resolves.toBe(false);
+    });
+
+    it("leaves an app alone whose marker another backup has since settled", async () => {
+      const context = await setup();
+      const { apps, containers, backupRoot } = context;
+      await apps.install({ id: "demo" });
+      void helperOver(context, { runCommand: dyingTar }).backup({ id: "demo" });
+      await vi.waitFor(async () => expect(await readdir(path.join(backupRoot, "demo")).catch(() => [])).toHaveLength(1));
+      const next = helperOver(context);
+      const [cutOff] = await next.interruptedBackups();
+      // The owner stops it while BoxPilot waits for Docker, and a backup of their own settles the marker.
+      await apps.action({ id: "demo", action: "stop" });
+      await rm(path.join(context.catalogRoot, "demo", ".boxpilot-backup-in-progress.json"), { force: true });
+      await expect(next.resumeInterruptedBackup(cutOff)).resolves.toMatchObject({ id: "demo", restarted: false, settled: true });
+      expect(containers.get("bp-demo").running).toBe(false);
+    });
+
     it("is not left behind by a backup that finished, or one that failed on its own", async () => {
       const context = await setup();
       const { containers, backupRoot, catalogRoot } = context;
