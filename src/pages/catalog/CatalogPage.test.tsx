@@ -135,6 +135,33 @@ describe("App catalog: the page", () => {
     expect(await within(sheet).findByText("stack says hello")).toBeTruthy();
   });
 
+  // Logs that answered late went into whatever sheet was open then: another stack's, or a closed one.
+  it("never shows a stack's late logs in a closed sheet or another stack's", async () => {
+    const answers = new Map<string, () => void>();
+    serve(catalogOf([]), (url, init) => {
+      if (url === "/api/v1/operations/compose.projects.inspect/inspect") return json({ operation: "compose.projects.inspect", result: { available: true, projects: [{ name: "old-wordpress", status: "exited(2)", configFiles: ["/opt/wordpress/docker-compose.yml"] }, { name: "handmade", status: "running(3)", configFiles: ["/home/user/compose.yaml"] }] } });
+      if (url.endsWith("/operations/compose.project.logs/run")) {
+        const name = (JSON.parse(String(init?.body)) as { parameters: { name: string } }).parameters.name;
+        return new Promise<Response>((resolve) => { answers.set(name, () => resolve(json({ result: { name, lines: [`logs of ${name}`] } }))); });
+      }
+      return undefined;
+    });
+    render(<CatalogPage csrfToken="csrf-token" />);
+    fireEvent.click(await screen.findByRole("tab", { name: /Other stacks/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Logs of handmade" }));
+    fireEvent.keyDown(await screen.findByRole("dialog", { name: "handmade" }), { key: "Escape" });
+    fireEvent.click(screen.getByRole("button", { name: "Logs of old-wordpress" }));
+    const sheet = await screen.findByRole("dialog", { name: "old-wordpress" });
+    await waitFor(() => expect(answers.size).toBe(2));
+    answers.get("handmade")!();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(screen.getByRole("dialog", { name: "old-wordpress" }).textContent).not.toContain("logs of handmade");
+    fireEvent.keyDown(sheet, { key: "Escape" });
+    answers.get("old-wordpress")!();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
   it("opens straight at an app's sheet from a link, and leaves the address when it closes", async () => {
     window.history.replaceState(null, "", "/?view=catalog&app=jellyfin");
     serve(catalogOf([{ manifest, live: absent("jellyfin") }, { manifest: dockge, live: dockgeLive }]));
