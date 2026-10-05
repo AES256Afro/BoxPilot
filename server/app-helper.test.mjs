@@ -355,6 +355,40 @@ sidecars:
     expect(emitted).toBe(200_000);
   });
 
+  // R5B3-6: the file list buffered the whole `tar -tzvf` (a 64 MB cap) and kept the first 5000, so a
+  // large backup failed with "maxBuffer exceeded", and the dialog's filter could never reach a file
+  // past the first 5000. The listing streams, and filtering and lookup happen as it goes.
+  it("streams a backup's file list, and filters and looks up past the first few thousand", async () => {
+    let listingOptions = null;
+    const runCommand = vi.fn(async (_binary, args, options = {}) => {
+      if (args[0] === "-tzvf") {
+        listingOptions = options;
+        options.onLine?.("-rw------- root/root       612 2026-01-01 00:00 boxpilot.json", "stdout");
+        options.onLine?.("drwxr-xr-x 1000/1000         0 2026-01-01 00:00 data/", "stdout");
+        for (let index = 0; index < 300_000; index += 1) options.onLine?.(`-rw-r--r-- 1000/1000      ${index % 977} 2026-01-01 00:00 data/photos/IMG_${String(index).padStart(6, "0")}.jpg`, "stdout");
+        options.onLine?.("tar: Removing leading `/' from member names", "stderr");
+        return { ok: true, stdout: "", stderr: "" };
+      }
+      return { ok: true, stdout: "", stderr: "" };
+    });
+    const { apps, backupRoot } = await setup({ runCommand });
+    await mkdir(path.join(backupRoot, "demo"), { recursive: true });
+    const backup = "20260101T000000Z.tar.gz";
+    await writeFile(path.join(backupRoot, "demo", backup), "pretend archive bytes");
+
+    const all = await apps.listAppBackupFiles({ id: "demo", backup });
+    expect(typeof listingOptions.onLine).toBe("function");
+    expect(listingOptions.maxBuffer).toBeUndefined();
+    expect(all.files).toHaveLength(5000);
+    expect(all).toMatchObject({ truncated: true, matched: 300_002 });
+    // A name far past the first 5000, found by the filter on the server.
+    const found = await apps.listAppBackupFiles({ id: "demo", backup, filter: "img_299998" });
+    expect(found).toMatchObject({ truncated: false, matched: 1, files: [{ path: "data/photos/IMG_299998.jpg", type: "file", sizeBytes: 299_998 % 977 }] });
+    // And one path looked up exactly, as a single-file restore does.
+    const exact = await apps.listAppBackupFiles({ id: "demo", backup, path: "data/photos/IMG_250000.jpg" });
+    expect(exact.files).toEqual([{ path: "data/photos/IMG_250000.jpg", type: "file", sizeBytes: 250_000 % 977 }]);
+  });
+
   it("does not persist shared-VPN-profile connection values into per-app state (GET /catalog would leak them)", async () => {
     // The profile is owner-only, but its injected connection env used to land in boxpilot.json and be
     // served by /catalog to any role. With the profile on, those values are re-derived every deploy,

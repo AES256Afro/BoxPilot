@@ -2837,26 +2837,41 @@ export function createAppHelper({
     return { backupDirectory: backupDirFor(id), artifact: path.join(backupDirFor(id), backupName) };
   }
 
-  /** `tar -tzv` listing of one backup: relative path, size, and kind. Capped so a huge archive cannot flood the UI. */
-  async function listAppBackupFiles({ id, backup: backupName, limit = 5000 }) {
+  /**
+   * `tar -tzv` listing of one backup: relative path, size, and kind, at most `limit` of them.
+   * `filter` keeps the paths that contain it (any case), and `path` the one with exactly that path.
+   *
+   * Streamed a line at a time (R5B3-6): buffered whole, a backup with a large photo library or mail
+   * store overflowed the 64 MB cap and failed "maxBuffer exceeded", and only the first 5000 names
+   * ever reached the dialog, so its filter could not find a file past them. The archive is read to
+   * the end whatever the limit, so `matched` says how many there were and `truncated` whether more
+   * matched than came back.
+   */
+  async function listAppBackupFiles({ id, backup: backupName, limit = 5000, filter = null, path: exactPath = null }) {
     await ensureManifest(id);
     const { artifact } = backupArtifactFor(id, backupName);
     await stat(artifact).catch(() => { throw new Error(`Backup ${backupName} does not exist`); });
-    const listing = await runCommand(tarBinary, ["-tzvf", artifact], { timeout: 10 * 60_000, maxBuffer: 64 * 1024 * 1024 });
-    if (!listing.ok) throw new Error(`Could not read the archive: ${listing.stderr.split("\n").slice(-2).join(" ")}`);
+    const needle = typeof filter === "string" && filter.trim() ? filter.trim().toLowerCase() : null;
     const files = [];
+    let matched = 0;
     // GNU tar: "mode owner/group size YYYY-MM-DD HH:MM name"; bsdtar: "mode links owner group size Mon DD HH:MM|YYYY name".
     const gnu = /^([-dlcbps][rwxsStT-]{9})\s+\S+\s+(\d+)\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}(?::\d{2})?\s+(.+)$/;
     const bsd = /^([-dlcbps][rwxsStT-]{9})\s+\d+\s+\S+\s+\S+\s+(\d+)\s+[A-Za-z]{3}\s+\d{1,2}\s+(?:\d{2}:\d{2}|\d{4})\s+(.+)$/;
-    for (const line of listing.stdout.split("\n")) {
-      const match = line.match(gnu) ?? line.match(bsd);
-      if (!match) continue;
-      const relative = match[3].replace(/ -> .*$/, "").replace(/^\.\//, "").replace(/\/$/, "");
-      if (!relative || relative === ".") continue;
-      files.push({ path: relative, sizeBytes: Number(match[2]), type: match[1].startsWith("d") ? "directory" : match[1].startsWith("l") ? "link" : "file" });
-      if (files.length >= limit) break;
-    }
-    return { id, backup: backupName, files, truncated: files.length >= limit };
+    const listing = await runCommand(tarBinary, ["-tzvf", artifact], {
+      timeout: 10 * 60_000,
+      onLine: (line, stream) => {
+        if (stream !== "stdout") return;   // tar warns on stderr; a warning is not an archive member
+        const match = String(line ?? "").match(gnu) ?? String(line ?? "").match(bsd);
+        if (!match) return;
+        const relative = match[3].replace(/ -> .*$/, "").replace(/^\.\//, "").replace(/\/$/, "");
+        if (!relative || relative === ".") return;
+        if (exactPath !== null ? relative !== exactPath : needle !== null && !relative.toLowerCase().includes(needle)) return;
+        matched += 1;
+        if (files.length < limit) files.push({ path: relative, sizeBytes: Number(match[2]), type: match[1].startsWith("d") ? "directory" : match[1].startsWith("l") ? "link" : "file" });
+      },
+    });
+    if (!listing.ok) throw new Error(`Could not read the archive: ${listing.stderr.split("\n").slice(-2).join(" ")}`);
+    return { id, backup: backupName, files, truncated: matched > files.length, matched, ...(needle !== null ? { filter: needle } : {}) };
   }
 
   /**
@@ -2891,7 +2906,7 @@ export function createAppHelper({
     const manifest = await ensureManifest(id);
     const { backupDirectory, artifact } = backupArtifactFor(id, backupName);
     if (typeof relativePath !== "string" || !relativePath || relativePath.startsWith("/") || relativePath.split("/").some((part) => part === "" || part === "." || part === "..")) throw new Error("Path must be a relative path inside the backup");
-    const listing = await listAppBackupFiles({ id, backup: backupName, limit: 200_000 });
+    const listing = await listAppBackupFiles({ id, backup: backupName, path: relativePath, limit: 1 });
     const member = listing.files.find((entry) => entry.path === relativePath);
     if (!member) throw new Error(`${relativePath} is not in ${backupName}`);
     let meta = null;
