@@ -2,6 +2,7 @@ import { useState, type CSSProperties } from "react";
 import { useOperation } from "../../shell/ApproveDialog";
 import { autoReconnectRule, type AutoReconnectControl } from "../../AutoReconnect";
 import { BACKUP_MOUNT_NAME, BACKUP_MOUNTPOINT, mountpointFor } from "../../mountpoints";
+import { mayServe } from "../../servedFolder";
 import type { MapApp, MapSambaShare } from "../../storageMap";
 import { Button, Checkbox, EmptyState, Field, KeyValue, Notice, Panel, Sheet, Table, Tag, TextInput, mayStart, riskOf, type TableColumn } from "../../ui";
 import { ReconnectSwitch, UsageMeter } from "./parts";
@@ -37,7 +38,8 @@ const snapshotReserveBytes = 32 * 1024 ** 3;
 
 const canMount = (device: DeviceRow) => Boolean(!device.protected && device.uuid && device.fstype && device.fstype !== "swap" && device.mountpoints.length === 0 && !device.readOnly);
 const canFormat = (device: DeviceRow) => Boolean(!device.protected && device.path && !device.readOnly && ["disk", "part"].includes(device.type ?? "") && device.mountpoints.length === 0);
-const dataMountpoint = (device: DeviceRow) => device.mountpoints.find((point) => point.startsWith("/mnt/") || point.startsWith("/srv/"));
+// A folder the file servers would serve: never one under /mnt/boxpilot, the backup destination.
+const dataMountpoint = (device: DeviceRow) => device.mountpoints.find((point) => (point.startsWith("/mnt/") || point.startsWith("/srv/")) && mayServe(point));
 
 function filesystemOf(device: DeviceRow) {
   if (device.type === "lvm" && device.volumeGroup) return <>LVM volume <code>{device.volumeGroup}/{device.logicalVolume}</code>{device.fstype ? ` · ${device.fstype}` : ""}</>;
