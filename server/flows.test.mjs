@@ -455,6 +455,23 @@ describe("running a flow", () => {
     expect(jobs.calls.map((call) => call.operationId)).toEqual(["controller.backup.create"]);
   });
 
+  /**
+   * A root task that runs out of its own budget is a step timeout, but the runner lets it carry on
+   * (KillMode=process): storage.check at 33 of its 35 minutes, apt.upgrade at 180 of 185. With
+   * retry: 1 a flow staged a second storage.remount beside the first, still running.
+   */
+  it("does not retry or continue past a step whose root task may still be running", async () => {
+    const rootTask = { scope: "step", phase: "running", step: "Root task storage.remount", stillRunning: true };
+    for (const step of [{ ...goodSteps[0], retry: 1 }, { ...goodSteps[0], onFailure: "continue" }]) {
+      const store = fakeStore();
+      const jobs = timingOutJobs(store, rootTask);
+      const service = createFlowService({ store, jobs, pollMs: 2, retryDelayMs: 2 });
+      const flow = await service.create({ name: "reconnect", steps: [step, goodSteps[1]], createdBy: "owner-1" });
+      await expect(service.run(flow.id, "owner-1", { role: "owner" })).rejects.toThrow(/lost sight of step 1 .*may still be running/);
+      expect(jobs.calls).toHaveLength(1);                              // no second copy beside the first
+    }
+  });
+
   it("still retries a step that timed out in a way that stopped it: one of its own steps, or waiting in the queue", async () => {
     for (const timeout of [{ scope: "step", phase: "running" }, { scope: "operation", phase: "queued" }]) {
       const store = fakeStore();

@@ -853,6 +853,23 @@ describe("a job that ran out of time (M30.3)", () => {
     } finally { store.close(); }
   });
 
+  it("says a root task that ran out of its own time may still be running, and does not start it again beside itself", async () => {
+    // The runner writes "timed out" and lets the task carry on, so "Try again with more time" staged
+    // a second install into the same folder beside the first, still running.
+    const { store, owner, jobs } = await timed((_operation, _parameters, _options, advance) => {
+      advance(minutes(44));
+      throw Object.assign(new Error("Root task agents.install did not finish within 44 minutes"), { code: "timeout", timeout: { scope: "step", budgetMs: minutes(44), step: "Root task agents.install", stillRunning: true } });
+    });
+    try {
+      const job = await jobs.createOperationJob("agents.runtime.install", {}, owner.id);
+      await expect(jobs.approveAndRun(job.id, owner.id, {})).rejects.toThrow();
+      const failed = store.getJob(job.id);
+      expect(failed.timeout).toMatchObject({ scope: "step", stillRunning: true, moreTimeMs: null });
+      expect(failed.error).toMatch(/may still be running on the server/);
+      await expect(jobs.retryWithMoreTime(job.id, owner.id)).rejects.toThrow(/may still be running/);
+    } finally { store.close(); }
+  });
+
   it("leaves an ordinary failure without a timeout", async () => {
     const { store, owner, jobs } = await timed(() => { throw new Error("docker compose up failed: no such image"); });
     try {
