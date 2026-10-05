@@ -56,6 +56,9 @@ describe("what needs you", () => {
     expect(repair.view).toBe("repairs");
     expect(needs.find((need) => need.id === "approval:s1")).toMatchObject({ risk: "medium", view: "repairs", action: { operationId: "storage.remount", label: "Review", risk: "medium", existingJobId: "s1", parameters: {} } });
     expect(needs.find((need) => need.id === "alert:flow.failed:0")).toMatchObject({ view: "automations", detail: "Since 30 hours ago" });
+    // BoxPilot's own restart that gave up or failed is made from Services (sweep 5).
+    const [restart] = buildNeeds(facts({ watch: { targetConfigured: true, alerts: [{ family: "boxpilot.restart", title: "BoxPilot needs a restart", since: hoursAgo(2), announced: true }], notices: [] } }), { now, role: "owner" });
+    expect(restart).toMatchObject({ id: "alert:boxpilot.restart:0", view: "services" });
     expect(needs.find((need) => need.id === "updates")).toMatchObject({ title: "4 updates available", detail: "1 security fix among them", action: { operationId: "apt.upgrade", risk: "medium" } });
   });
 

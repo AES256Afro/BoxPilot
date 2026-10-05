@@ -97,6 +97,22 @@ describe("health alerts", () => {
     expect(evaluateHealth({})).toEqual([]);
   });
 
+  it("says BoxPilot needs a restart when its own restart gave up or failed, and where to make it (sweep 5)", () => {
+    // It used to be only a journal line, which named the System page; the restart button is on Services.
+    const owed = (restart) => ({ boxpilot: { available: true, restart } });
+    const [gaveUp] = evaluateHealth(owed({ outcome: "gave-up", units: ["boxpilot.service", "boxpilot-helper.service"], reason: "it is running libraries the package change replaced", at: "2026-10-05T09:00:00.000Z", error: null }));
+    expect(gaveUp).toMatchObject({ key: "boxpilot.restart", priority: "default", title: "BoxPilot needs a restart" });
+    expect(gaveUp.message).toMatch(/^BoxPilot could not restart boxpilot\.service and boxpilot-helper\.service after it was asked to \(it is running libraries the package change replaced\): the server was never idle long enough, so nothing was stopped\./);
+    expect(gaveUp.message).toMatch(/Restart them from Services when nothing is running; the Updates page lists what still runs old libraries\.$/);
+    const [failed] = evaluateHealth(owed({ outcome: "failed", units: ["boxpilot-helper.service"], reason: "KVM was installed", at: "2026-10-05T09:00:00.000Z", error: "Failed to restart boxpilot-helper.service: Access denied" }));
+    expect(failed.message).toMatch(/^BoxPilot could not restart boxpilot-helper\.service \(KVM was installed\): Failed to restart boxpilot-helper\.service: Access denied\. Restart it from Services/);
+    expect(evaluateHealth(owed(null))).toEqual([]);
+    // Read, it can clear; not read, it is not taken as cleared.
+    expect(collectorAvailability(owed(null))["boxpilot.restart"]).toBe(true);
+    expect(collectorAvailability({ boxpilot: { available: false, restart: null } })["boxpilot.restart"]).toBe(false);
+    expect(collectorAvailability({})["boxpilot.restart"]).toBe(false);
+  });
+
   it("keeps a failing disk's alert while the scan leaves it asleep, and raises none for a healthy one (M36)", () => {
     const asleep = (lastHealth) => ({ storage: { smart: { disks: [{ device: "/dev/sdb", health: "unavailable", reason: "asleep", lastHealth, lastReadAt: "2026-09-28T06:00:00.000Z" }] } } });
     const [alert] = evaluateHealth(asleep("critical"));

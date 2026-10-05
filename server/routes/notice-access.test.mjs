@@ -203,7 +203,7 @@ describe("news nobody but the owner decided about (R3S1-2)", () => {
   it("still gives every role the server's own conditions and news in full", async () => {
     targetSet = true;
     // Every kind BoxPilot says, and what a viewer reads of it with nobody's account behind it.
-    const everyone = ["storage.root.full", "storage.mount.full", "storage.smart", "storage.mount.detached", "storage.mount.readonly", "power.ups", "system.services", "system.reboot", "docker.unhealthy", "docker.restarting", "storage.forecast", "smart.errors", "smart.wear", "joblog.unreadable", "release.available", "drive.reconnected"];
+    const everyone = ["storage.root.full", "storage.mount.full", "storage.smart", "storage.mount.detached", "storage.mount.readonly", "power.ups", "system.services", "system.reboot", "docker.unhealthy", "docker.restarting", "storage.forecast", "smart.errors", "smart.wear", "joblog.unreadable", "release.available", "drive.reconnected", "boxpilot.restart"];
     const ownersOrTheirs = ["schedule.overdue", "schedule.failed", "flow.failed", "record.failed", "job.interrupted", "signin.new", "report.weekly", "approval.lapsed", "agent.important"];
     expect([...everyone, ...ownersOrTheirs].sort()).toEqual([...Object.keys(healthConditions), ...Object.keys(noticeKinds)].sort());
     for (const family of [...everyone, ...ownersOrTheirs]) {
