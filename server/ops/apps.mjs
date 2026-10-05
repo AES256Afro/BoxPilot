@@ -114,7 +114,7 @@ export function appOperations() {
       },
     }),
     defineOperation({
-      id: "compose.projects.inspect", title: "List compose projects BoxPilot did not create", risk: "low", readOnly: true, timeoutMs: 60_000,
+      id: "compose.projects.inspect", title: "List compose projects BoxPilot did not create", risk: "low", readOnly: true, minimumRole: "operator", timeoutMs: 60_000,
       description: "Compose stacks running on this server that were started outside BoxPilot, with their status and compose file locations. Nothing is changed.",
       parameters: { fields: {} },
       run: (parameters, { apps }) => apps.foreignProjects(),

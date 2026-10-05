@@ -64,8 +64,8 @@ export function createOidcRouter({ oidc, auth, store }) {
 
   // The consent screen. The owner must be signed in to BoxPilot; if not, send them to sign in and
   // come back here afterwards.
-  router.get("/oidc/authorize", (request, response) => {
-    const session = auth.requestSession(request);
+  router.get("/oidc/authorize", async (request, response) => {
+    const session = await auth.requestSession(request);
     if (!session) {
       const next = encodeURIComponent(request.originalUrl);
       return response.redirect(`/?next=${next}`);
@@ -87,8 +87,8 @@ export function createOidcRouter({ oidc, auth, store }) {
   });
 
   // The consent decision. Owner session + a CSRF token carried in the form.
-  router.post("/oidc/authorize", (request, response) => {
-    const session = auth.requestSession(request);
+  router.post("/oidc/authorize", async (request, response) => {
+    const session = await auth.requestSession(request);
     if (!session) return response.status(401).type("html").send(simplePage("Session expired", "Sign in to BoxPilot again, then retry from the app."));
     const body = request.body ?? {};
     // Constant-time, like auth.requireCsrf: the one CSRF comparison in the product that was not.

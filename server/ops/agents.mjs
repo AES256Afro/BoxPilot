@@ -13,6 +13,7 @@ import { setRunnerProcessors } from "../agents/cpu.mjs";
 import { agentsPaths, checkDownloaded, inspectRuntime } from "../agents/host.mjs";
 import { ggufPattern, repoPattern } from "../agents/models.mjs";
 import { createPiholeReader } from "../agents/pihole.mjs";
+import { managedCredentialProblem } from "../credentials.mjs";
 
 const minutes = (count) => count * 60_000;
 const modelFields = {
@@ -85,7 +86,8 @@ export function agentsOperations() {
         exact: true,
         fields: {
           connector: { type: "string", enum: ["notion", "slack"] },
-          credentialName: { type: "string", pattern: /^[a-z][a-z0-9-]{0,31}$/ },
+          // A token the owner saved for this connector, never one BoxPilot keeps for itself (sweep 1).
+          credentialName: { type: "string", pattern: /^[a-z][a-z0-9-]{0,31}$/, validate: (name) => managedCredentialProblem(name) },
           channels: { type: "array", optional: true, validate: (value) => (value.length <= 10 && value.every((channel) => typeof channel === "string" && /^[CG][A-Z0-9]{6,20}$/.test(channel)) ? null : "up to ten Slack channel ids") },
         },
       },

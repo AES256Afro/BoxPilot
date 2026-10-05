@@ -55,6 +55,24 @@ The owner's goal for the product is the opposite: open the app on a fresh Ubuntu
 - Existing guarded workflows keep working during the transition; they are ported to the registry and re-tiered rather than rewritten from scratch.
 - `README.md` was rewritten around the new goal; `docs/ROADMAP-V2.md` is the authoritative plan, and the pre-pivot roadmap moved to `docs/legacy/ROADMAP.md`.
 - Anyone (human or agent) adding a feature should add a registry entry or a catalog manifest, not a new named systemd unit, a new per-workflow SQLite ledger, or a new paragraph of boundary prose.
+- **Addendum (2026-10-05, sweep 1): a session answers only to the address it was signed in from.**
+  The `__Host-` prefix pins the session cookie to this host, but a cookie has no port: the browser
+  sends it to every app the owner opens on another port of the server (Home links them by this very
+  host), and the sweep proved an app's container could replay it and get the owner's account and a
+  CSRF token back. A session already recorded the client address it was issued to - the tailnet peer
+  Tailscale Serve vouches for, otherwise the socket - and now it is honoured only from that address,
+  worked out by the same descriptor at both ends (IPv4-mapped, zoned and long IPv6 forms compare as
+  the address they are; every loopback form is one). Presented from anywhere else it is ended, not
+  merely refused, audited as `session.address-changed` with both addresses, and the browser is told
+  "You were signed out because this sign-in came from a different network address." A browser
+  remembered for Tailscale sign-in is bound the same way: its cookie from another address asks for
+  the password again. **The trade, accepted:** a phone or laptop that changes networks (Wi-Fi to
+  mobile data, another Wi-Fi, a new IPv6 privacy address, or IPv4 and IPv6 in turn to a name that has
+  both) signs in again; over the tailnet a device keeps its address, so there it rarely happens.
+  Devices remembered before this ask for the password once. **What an address cannot separate:** anything on this server that reaches BoxPilot over
+  loopback - an app on the host's network - looks like a browser on the server itself and can write
+  the headers Serve writes, as `server/identity.mjs` already says of loopback. Apps on Docker's
+  bridge networks, nearly all of the catalog, cannot.
 
 ## ADR-002: Flows compose registered operations; a chain answers for its riskiest step
 
@@ -891,6 +909,15 @@ its run token, set its routes (`ingress`), and add the DNS name. The helper has 
   first domain listed, and domains in the others are not offered.
 - BoxPilot's record can drift from Cloudflare when the owner edits the tunnel in the dashboard;
   Check with Cloudflare shows it, and publishing again repairs a missing route.
+- **Addendum (2026-10-05, sweep 1): BoxPilot's own credentials are not the owner's to send.**
+  `http.request` (medium, M13.7) sends a saved credential by name, in any header, to any address,
+  so a session that never gave the password, or an agent's proposed step, could have posted
+  `cloudflare-api-token` anywhere at a tier below the one that saved it. The names BoxPilot writes
+  itself (`managedCredentialNames` in `server/credentials.mjs`: the two Cloudflare tokens,
+  `heartbeat-url`, `zulip-agents-bot`) are refused by `http.request`'s parameter check (where an
+  agent's plan is checked too) and again in its root task, by `agents.connector.sync`, and by Save
+  and Remove a credential, so only their own operations write or remove them. The tunnel's run token
+  has no remove of its own, so it stays until Connect replaces it.
 
 ## ADR-012: agents share their findings, by a permission each, and re-read live facts before any card
 

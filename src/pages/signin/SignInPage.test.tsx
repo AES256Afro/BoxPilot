@@ -66,6 +66,7 @@ describe("signing in again after a session ended (M36)", () => {
 
   it("tells a session ended elsewhere from one that ran out", () => {
     expect(signedOutWords({ reason: "ended", page: null })).toMatch(/^You were signed out from somewhere else: .* Sign in to carry on.$/);
+    expect(signedOutWords({ reason: "address-changed", page: null })).toMatch(/^You were signed out because this sign-in came from a different network address, .* Sign in to carry on.$/);
   });
 });
 

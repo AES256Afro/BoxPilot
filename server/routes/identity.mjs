@@ -43,14 +43,14 @@ export function createIdentityRouter({ store, auth, identity }) {
     if (!account) return response.status(403).json({ error: `${tailscale.login} is not linked to an account that can sign in`, code: "identity_not_linked" });
     // A browser signs in with the password once; after that the Tailscale identity alone is enough there.
     // Anything that can reach the loopback listener could otherwise claim a tailnet address.
-    if (!auth.trustedDevice(request, account)) {
+    if (!(await auth.trustedDevice(request, account))) {
       const password = request.body?.password;
       const verdict = typeof password === "string" ? await auth.checkPassword(request, account, password) : { ok: false, blocked: false };
       if (verdict.blocked) return auth.rejectThrottled(response, verdict);
       if (!verdict.ok) {
         return response.status(401).json({ error: `First sign-in from this browser: enter the password for ${account.username}`, code: "device_password_required", username: account.username });
       }
-      auth.rememberDevice(request, response, account);
+      await auth.rememberDevice(request, response, account);
     }
     try {
       return response.json(await auth.issueSession(request, response, account, { method: "tailscale", detail: tailscale.login }));
@@ -76,7 +76,7 @@ export function createIdentityRouter({ store, auth, identity }) {
     try { result = await identity.githubPoll(flowId); } catch (error) { return response.status(503).json({ status: "error", error: error.message }); }
     if (result.status !== "complete") return response.json({ status: result.status, error: result.error ?? null });
     if (result.purpose === "link") {
-      const session = auth.requestSession(request);
+      const session = await auth.requestSession(request);
       if (!session || session.owner.id !== result.ownerId) return response.status(403).json({ status: "error", error: "The link flow belongs to another session" });
       try {
         const linked = identity.linkGithub(session.owner.id, result.login, result.githubId ?? null);
