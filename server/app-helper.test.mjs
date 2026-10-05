@@ -2481,6 +2481,23 @@ describe.skipIf(onWindows)("what an app backup leaves out on purpose", () => {
     expect((await readdir(catalogRoot)).filter((entry) => entry.includes(".restoring") || entry.includes(".replaced"))).toEqual([]);
   });
 
+  // R5B3-2: the helper runs with UMask=0077, and a shipped config file came out 0600, root's: the
+  // app's own user (Prometheus runs as nobody) could not read the file it was handed.
+  it("writes the shipped config files readable by the app's own user, whatever the helper's umask", async () => {
+    const harness = await setup();
+    await writeFile(path.join(harness.catalogDirectory, "stack.yaml"), stackManifest);
+    let previous = null;
+    try { previous = process.umask(0o077); } catch { return; }   // a worker thread may not set it
+    try {
+      await harness.apps.install({ id: "stack" });
+    } finally {
+      process.umask(previous);
+    }
+    const app = path.join(harness.catalogRoot, "stack");
+    for (const file of ["stack.yml", "provisioning/sources/stack.yaml"]) expect((await stat(path.join(app, file))).mode & 0o777, file).toBe(0o644);
+    for (const file of [".env", "compose.yaml", "boxpilot.json"]) expect((await stat(path.join(app, file))).mode & 0o777, file).toBe(0o600);
+  });
+
   it("puts them back with the original when the restored app does not start", async () => {
     const { apps, made, runDocker, catalogRoot } = await stack();
     const original = runDocker.getMockImplementation();
