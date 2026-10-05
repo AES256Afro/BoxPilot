@@ -12,14 +12,14 @@
  */
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { chmod, lstat, mkdir, readdir, readFile, rename, rm, stat, statfs, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, open, readdir, readFile, rename, rm, stat, statfs, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { copyFileExclusively, mkdirWithoutFollowing, readFileWithoutFollowing, replaceFileWithoutFollowing } from "./durable-file.mjs";
+import { copyFileExclusively, mkdirWithoutFollowing, readFileWithoutFollowing, replaceFileWithoutFollowing, syncDirectory } from "./durable-file.mjs";
 import { fixedRun } from "./exec.mjs";
 import { createControllerBackupHelper } from "./controller-backup-helper.mjs";
 import { backupMountpoint } from "./backup-mount.mjs";
 
-const snapshotNamePattern = /^machine-snapshot-\d{8}T\d{6}Z-[a-f0-9]{8}\.tar\.gz$/;
+export const snapshotNamePattern = /^machine-snapshot-\d{8}T\d{6}Z-[a-f0-9]{8}\.tar\.gz$/;
 /**
  * What a snapshot or restore that stopped half way leaves beside the snapshots (`.staging-*`,
  * `.restore-*`), and what a restore stages for review (`restored/`). They hold the controller
@@ -38,6 +38,8 @@ const isInProgress = (relative) => relative.endsWith(".partial");
 /** The deployer's own id rule; a snapshot's manifest is only as trustworthy as whoever last held the file. */
 const appIdPattern = /^[a-z0-9][a-z0-9-]{1,62}$/;
 const appBackupNamePattern = /^\d{8}T\d{6}Z\.tar\.gz$/;
+/** An app data archive not yet whole: written by an app backup, or copied in for a restore. */
+const appBackupPartialPattern = /^\d{8}T\d{6}Z\.tar\.gz\.partial$/;
 const uuidPattern = /^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
 
 function sha256File(filePath) {
@@ -48,6 +50,65 @@ function sha256File(filePath) {
       .on("error", reject)
       .on("end", () => resolve(digest.digest("hex")));
   });
+}
+
+/** Flush a file's data to disk before it is renamed into place. */
+async function syncFile(file) {
+  const handle = await open(file, "r+");
+  try { await handle.sync(); } finally { await handle.close(); }
+}
+
+/** An app data archive's record (`<stamp>.json` beside it) as written, or null. Never read through a link. */
+const recordText = (directory, name) => readFileWithoutFollowing(path.join(directory, name.replace(/\.tar\.gz$/, ".json"))).catch(() => null);
+
+/** The checksum an app data archive's record says it was written with, or null. */
+async function recordedChecksum(directory, name) {
+  const text = await recordText(directory, name);
+  if (text === null) return null;
+  try {
+    const checksum = JSON.parse(text)?.checksumSha256;
+    return typeof checksum === "string" && /^[a-f0-9]{64}$/.test(checksum) ? checksum : null;
+  } catch { return null; }
+}
+
+/**
+ * Copy one app data archive, and its record when it has one, from the mirror or a drive into this
+ * server's own store (`<storeRoot>/<id>`), where the deployer restores from. Written as
+ * `<name>.partial` (what an app backup writes, and what no listing, restore or mirror reads), created
+ * exclusively from a regular file only (copyFileExclusively: a link at either end is refused, never
+ * followed), checked against the checksum its record holds (against the original's size when it has
+ * none), and only then given its own name, with the record beside it. Copied straight to its own
+ * name, a restart mid-copy left half an archive there that the next restore preferred (tar:
+ * unexpected EOF) and the next sync copied over the mirror's whole one. A copy that does not check
+ * out is removed, and the restore told why.
+ */
+async function copyArchiveIn(fromDirectory, storeRoot, id, name) {
+  const source = path.join(fromDirectory, name);
+  const record = await recordText(fromDirectory, name);
+  const checksum = await recordedChecksum(fromDirectory, name);
+  const original = await lstat(source);
+  await mkdir(storeRoot, { recursive: true, mode: 0o700 });
+  const toDirectory = await mkdirWithoutFollowing(storeRoot, id);
+  const target = path.join(toDirectory, name);
+  const partial = `${target}.partial`;
+  // Whatever an earlier attempt left at that name goes first; a link there goes, never its target.
+  await rm(partial, { recursive: true, force: true });
+  try {
+    await copyFileExclusively(source, partial, { mode: 0o600 });
+    if (checksum) {
+      if ((await sha256File(partial)) !== checksum) throw new Error(`The copy of ${name} does not match the checksum recorded when it was written, so it was not used.`);
+    } else {
+      const copied = await lstat(partial);
+      if (copied.size !== original.size) throw new Error(`The copy of ${name} is ${copied.size} bytes where the original is ${original.size}, so it was not used.`);
+    }
+    await syncFile(partial);
+    if (record !== null) await replaceFileWithoutFollowing(path.join(toDirectory, name.replace(/\.tar\.gz$/, ".json")), record, { mode: 0o600 });
+    await rename(partial, target);
+    await syncDirectory(toDirectory);
+  } catch (error) {
+    await rm(partial, { force: true }).catch(() => {});
+    throw error;
+  }
 }
 
 /**
@@ -394,9 +455,22 @@ export function createMachineSnapshotHelper({
    * description written for an archive that never took its name. Called when the helper starts,
    * before it takes a request: both run in the helper, so neither can be running then. Only real
    * folders and files are removed; a link with one of those names is left alone.
+   *
+   * So is an app data archive left unfinished in the app backup store (`<stamp>.tar.gz.partial`):
+   * one a restore was copying in from the mirror or a drive, or one an app backup was writing. Only
+   * the helper writes either, and nothing ever finishes one.
    */
   async function sweepInterrupted() {
     const removed = [];
+    const appBackups = path.resolve(applicationBackupRoot);
+    for (const app of await readdir(appBackups, { withFileTypes: true }).catch(() => [])) {
+      if (!app.isDirectory() || !appIdPattern.test(app.name)) continue;
+      for (const entry of await readdir(path.join(appBackups, app.name), { withFileTypes: true }).catch(() => [])) {
+        if (!entry.isFile() || !appBackupPartialPattern.test(entry.name)) continue;
+        await rm(path.join(appBackups, app.name, entry.name), { force: true });
+        removed.push(`${app.name}/${entry.name}`);
+      }
+    }
     for (const entry of await readdir(resolvedSnapshotRoot, { withFileTypes: true }).catch(() => [])) {
       const kind = snapshotLeftoverKind(entry.name);
       if (!kind || (kind === "partial" ? !entry.isFile() : !entry.isDirectory())) continue;
@@ -424,6 +498,7 @@ export function createMachineSnapshotHelper({
       { name: "machine-snapshots", root: resolvedSnapshotRoot },
     ];
     let fileCount = 0; let copiedCount = 0; let copiedBytes = 0;
+    const warnings = [];
     for (const source of sources) {
       for (const relative of await walkFiles(source.root)) {
         if (source.root === resolvedSnapshotRoot && isSnapshotScratch(relative)) continue;
@@ -436,11 +511,21 @@ export function createMachineSnapshotHelper({
         // sync. Followed, root wrote each backup over whatever the link named.
         const [fromInfo, toInfo] = [await stat(from), await lstat(to).catch(() => null)];
         if (toInfo?.isFile() && toInfo.size === fromInfo.size) continue;
+        const sourceHash = await sha256File(from);
+        // A copy here is never deleted, and one of a different size is replaced: an app data archive
+        // goes only as its record says it was written. Half of one left under its own name (a copy
+        // in for a restore cut off before it learnt not to) went over the mirror's whole one.
+        if (source.name === "application-backups" && appBackupNamePattern.test(path.basename(relative))) {
+          const recorded = await recordedChecksum(path.dirname(from), path.basename(relative));
+          const reason = recorded && recorded !== sourceHash ? "it does not match the checksum recorded when it was written, so it may be damaged"
+            : !recorded && toInfo?.isFile() ? "it has no record to check it against, and the copy on the backup drive differs from it" : null;
+          if (reason) { warnings.push(`${source.name}/${relative.split(path.sep).join("/")} was not copied: ${reason}.`); continue; }
+        }
         await mkdirWithoutFollowing(resolvedMountRoot, path.relative(resolvedMountRoot, path.dirname(to)), { mode: 0o700 });
         const partial = `${to}.boxpilot-partial`;
         await rm(partial, { recursive: true, force: true });
         await copyFileExclusively(from, partial, { mode: 0o600, followSource: true });
-        const [sourceHash, copyHash] = await Promise.all([sha256File(from), sha256File(partial)]);
+        const copyHash = await sha256File(partial);
         if (sourceHash !== copyHash) {
           await rm(partial, { force: true });
           throw new Error(`Mirror verification failed for ${source.name}/${relative}`);
@@ -453,7 +538,7 @@ export function createMachineSnapshotHelper({
     const completedAt = now().toISOString();
     await mkdirWithoutFollowing(resolvedMountRoot, path.relative(resolvedMountRoot, mirrorRoot), { mode: 0o700 });
     await replaceFileWithoutFollowing(path.join(mirrorRoot, ".boxpilot-sync.json"), `${JSON.stringify({ completedAt, fileCount, copiedCount, copiedBytes }, null, 2)}\n`, { mode: 0o600 });
-    return { synced: true, destination: mirrorRoot, completedAt, fileCount, copiedCount, copiedBytes, verified: true, boundary: { deletesPerformed: false, networkUsed: false } };
+    return { synced: true, destination: mirrorRoot, completedAt, fileCount, copiedCount, copiedBytes, verified: true, ...(warnings.length ? { warnings } : {}), boundary: { deletesPerformed: false, networkUsed: false } };
   }
 
   // ---- Restore ------------------------------------------------------------------------------------
@@ -589,7 +674,7 @@ export function createMachineSnapshotHelper({
     const location = locations.find((candidate) => candidate.root === wanted);
     if (!location) throw new Error("That drive is no longer mounted, or no longer has snapshots on it");
     if (!location.snapshots.some((snapshot) => snapshot.artifact === artifact)) throw new Error("That snapshot is not on that drive any more");
-    return { root: wanted, artifactPath: path.join(wanted, artifact), metaPath: path.join(wanted, `${artifact}.meta.json`) };
+    return { root: wanted, mount: path.resolve(location.mount.target), artifactPath: path.join(wanted, artifact), metaPath: path.join(wanted, `${artifact}.meta.json`) };
   }
 
   function resolveArtifact(source, artifact) {
@@ -607,19 +692,26 @@ export function createMachineSnapshotHelper({
 
   /**
    * Where an app's data archives can be, in the order they are tried: this server's own store, the
-   * configured mirror, and, for a snapshot found on a drive (`place` is `{ source, root }`), the
-   * application backups beside it there (`<root>/../application-backups/<id>`, the mirror's own
-   * layout). A server rebuilt from an old backup drive has neither of the first two, and every app
-   * came back empty with its archives beside the snapshot on the same drive.
+   * configured mirror, and, for a snapshot found on a drive (`place` is `{ source, root, mount }`),
+   * the application backups beside it there. A server rebuilt from an old backup drive has neither
+   * of the first two, and every app came back empty with its archives beside the snapshot on the
+   * same drive. Beside it is `<root>/../application-backups/<id>` for a snapshot in a folder (the
+   * mirror's own layout, or `machine-snapshots`), and `<root>/application-backups/<id>` for one lying
+   * loose at the top of the drive, where the folder above is not the drive's at all. Either way it
+   * must be on the drive: a place outside the mount is never looked in.
    */
   function archiveDirectories(id, place = null) {
     const candidates = [
       { location: "local", directory: path.join(path.resolve(applicationBackupRoot), id) },
       { location: "mirror", directory: path.join(mirrorRoot, "application-backups", id) },
     ];
-    if (place?.source === "discovered" && place.root) {
-      const directory = path.join(path.dirname(path.resolve(place.root)), "application-backups", id);
-      if (!candidates.some((candidate) => candidate.directory === directory)) candidates.push({ location: "drive", directory });
+    if (place?.source === "discovered" && place.root && place.mount) {
+      const root = path.resolve(place.root);
+      const mount = path.resolve(place.mount);
+      const directory = path.join(root === mount ? root : path.dirname(root), "application-backups", id);
+      const within = path.relative(mount, directory);
+      const onTheDrive = within !== "" && !within.startsWith("..") && !path.isAbsolute(within);
+      if (onTheDrive && !candidates.some((candidate) => candidate.directory === directory)) candidates.push({ location: "drive", directory });
     }
     return candidates;
   }
@@ -632,21 +724,27 @@ export function createMachineSnapshotHelper({
     return null;
   }
 
+  /** The data archives a snapshot's `backups.json` lists for one app, newest first, as plain archive names. */
+  const listedArchives = (listing) => (Array.isArray(listing?.backups) ? listing.backups : [])
+    .map((entry) => entry?.artifact).filter((name) => typeof name === "string" && appBackupNamePattern.test(name));
+
+  /** When a snapshot was taken, as the stamp its name carries (`20260821T020000Z`). */
+  const takenAt = (artifact) => /^machine-snapshot-(\d{8}T\d{6}Z)-/.exec(String(artifact ?? ""))?.[1] ?? null;
+
   /**
-   * The archive an app is restored from: the one the snapshot names, or, when that one is gone (an
-   * app backup's own keep-N pruning took it before it learnt not to), the newest there is, marked
-   * `fallback` so the restore says so.
+   * The archive an app is restored from: the one the snapshot names (the first it lists), or, when
+   * that one is gone (an app backup's own keep-N pruning took it before it learnt not to), the next
+   * the snapshot itself lists that is still here, marked `fallback` so the restore says so. Never
+   * one it does not list, nor one dated after it (`place.takenAt`): the newest archive there is was
+   * the safety copy a failed attempt took of the app installed empty, and was restored as its data.
    */
-  async function dataArchiveFor(id, name, place = null) {
-    const located = await locateAppArchive(id, name, place);
-    if (located) return located;
-    let newest = null;
-    for (const candidate of archiveDirectories(id, place)) {
-      for (const entry of await readdir(candidate.directory).catch(() => [])) {
-        if (appBackupNamePattern.test(entry) && (!newest || entry > newest.name)) newest = { ...candidate, name: entry };
-      }
+  async function dataArchiveFor(id, listed, place = null) {
+    const before = listed.filter((name) => !place?.takenAt || name.slice(0, 16) <= place.takenAt);
+    for (const name of before) {
+      const located = await locateAppArchive(id, name, place);
+      if (located) return name === listed[0] ? located : { ...located, fallback: true };
     }
-    return newest ? { ...newest, fallback: true } : null;
+    return null;
   }
 
   /**
@@ -673,8 +771,10 @@ export function createMachineSnapshotHelper({
     }
   }
 
-  /** What a restore says when the snapshot's own archive was gone and another was used. */
-  const fallbackWords = (named, used) => `The data archive this snapshot names, ${named}, is no longer there, so its data came from ${used}, the newest one there is.`;
+  /** What a restore says when the snapshot's own archive was gone and another it lists was used. */
+  const fallbackWords = (named, used) => `The data archive this snapshot names, ${named}, is no longer there, so its data came from ${used}, an older backup the snapshot also lists.`;
+  /** And when none it lists is left. */
+  const noArchiveWords = (named) => `The data archive this snapshot names, ${named}, is no longer there, nor is any older one it lists, so the app was installed without its data. A backup taken after the snapshot is not used in its place.`;
 
   /** Manifest summary plus, per app, whether its newest data archive is reachable. */
   /** Local store, configured mirror, or a drive discovery just found. */
@@ -683,8 +783,8 @@ export function createMachineSnapshotHelper({
   }
 
   async function describe({ source, artifact, root = null }) {
-    const { artifactPath, metaPath, root: snapshotDirectory } = await locate(source, artifact, root);
-    const place = { source, root: snapshotDirectory };
+    const { artifactPath, metaPath, root: snapshotDirectory, mount = null } = await locate(source, artifact, root);
+    const place = { source, root: snapshotDirectory, mount, takenAt: takenAt(artifact) };
     await stat(artifactPath).catch(() => { throw new Error(`Snapshot ${artifact} was not found in the ${source} source`); });
     const meta = await readFile(metaPath, "utf8").then(JSON.parse).catch(() => null);
     const manifest = await readManifestFromArchive(artifactPath);
@@ -693,11 +793,11 @@ export function createMachineSnapshotHelper({
     // installed app; offered, it was ticked with the rest and the whole restore refused for it.
     for (const app of (manifest.contents?.apps ?? []).filter((entry) => typeof entry?.id === "string" && appIdPattern.test(entry.id))) {
       const listing = await run(tarBinary, ["-xzf", artifactPath, "--no-same-owner", "--no-same-permissions", "-O", `./apps/${app.id}/backups.json`], { timeout: 5 * 60_000, maxBuffer: 4 * 1024 * 1024 }).catch(() => ({ ok: false }));
-      let newest = null;
-      if (listing.ok) { try { newest = JSON.parse(listing.stdout).backups?.[0]?.artifact ?? null; } catch { newest = null; } }
-      if (typeof newest !== "string" || !appBackupNamePattern.test(newest)) newest = null;
-      const located = newest ? await dataArchiveFor(app.id, newest, place) : null;
-      // `dataArchive` is the one a restore would use: the snapshot's own, or the newest there is now.
+      let listed = [];
+      if (listing.ok) { try { listed = listedArchives(JSON.parse(listing.stdout)); } catch { listed = []; } }
+      const newest = listed[0] ?? null;
+      const located = listed.length ? await dataArchiveFor(app.id, listed, place) : null;
+      // `dataArchive` is the one a restore would use: the snapshot's own, or an older one it lists.
       apps.push({ id: app.id, installed: app.installed, projectFiles: app.projectFiles, newestBackup: newest, dataAvailable: Boolean(located), dataLocation: located?.location ?? null, dataArchive: located?.name ?? null });
     }
     // A snapshot carries VM definitions, never their disks: those live in the encrypted VM
@@ -720,8 +820,8 @@ export function createMachineSnapshotHelper({
    */
   async function restore({ source, artifact, root = null, apps: selected = "all", restoreData = true, devicesByApp = null }, { apps: appHelper, progress = null, serve = null } = {}) {
     if (!appHelper) throw new Error("Application deployer is unavailable");
-    const { artifactPath, metaPath, root: snapshotDirectory } = await locate(source, artifact, root);
-    const place = { source, root: snapshotDirectory };
+    const { artifactPath, metaPath, root: snapshotDirectory, mount = null } = await locate(source, artifact, root);
+    const place = { source, root: snapshotDirectory, mount, takenAt: takenAt(artifact) };
     await stat(artifactPath).catch(() => { throw new Error(`Snapshot ${artifact} was not found in the ${source} source`); });
     const meta = await readFile(metaPath, "utf8").then(JSON.parse).catch(() => null);
     if (!meta?.checksumSha256) throw new Error(`${artifact}.meta.json is missing its checksum, so this archive cannot be verified. Copy the .meta.json file next to the archive and try again. Nothing was changed.`);
@@ -794,12 +894,16 @@ export function createMachineSnapshotHelper({
           }
           if (restoreData) {
             const listing = await readFileWithoutFollowing(path.join(staging, "apps", app.id, "backups.json")).then(JSON.parse).catch(() => null);
-            const named = listing?.backups?.[0]?.artifact ?? null;
-            // The name is joined onto backup directories and copied between them, so only a plain
-            // archive name is followed.
-            const newest = typeof named === "string" && appBackupNamePattern.test(named) ? named : null;
-            const located = newest ? await dataArchiveFor(app.id, newest, place) : null;
-            if (!located) { progress?.(`[${app.id}] no data archive available; installed fresh`, "stderr"); }
+            // The names are joined onto backup directories and copied between them, so only plain
+            // archive names are followed.
+            const listed = listedArchives(listing);
+            const newest = listed[0] ?? null;
+            const located = listed.length ? await dataArchiveFor(app.id, listed, place) : null;
+            if (!located && newest) {
+              const warning = noArchiveWords(newest);
+              entry.warnings.push(warning);
+              progress?.(`[${app.id}] ${warning}`, "stderr");
+            } else if (!located) { progress?.(`[${app.id}] no data archive available; installed fresh`, "stderr"); }
             else {
               if (located.fallback) {
                 const warning = fallbackWords(newest, located.name);
@@ -808,9 +912,7 @@ export function createMachineSnapshotHelper({
               }
               if (located.location !== "local") {
                 progress?.(`[${app.id}] copying ${located.name} from ${located.location === "mirror" ? "the mirror" : "the drive the snapshot is on"}`, "stdout");
-                const localDirectory = path.join(path.resolve(applicationBackupRoot), app.id);
-                await mkdir(localDirectory, { recursive: true, mode: 0o700 });
-                for (const name of [located.name, located.name.replace(/\.tar\.gz$/, ".json")]) await copyIfExists(path.join(located.directory, name), path.join(localDirectory, name));
+                await copyArchiveIn(located.directory, path.resolve(applicationBackupRoot), app.id, located.name);
               }
               progress?.(`[${app.id}] restoring data from ${located.name}`, "stdout");
               const restored = await appHelper.restoreAppBackup({ id: app.id, backup: located.name }, { progress });
