@@ -5,7 +5,7 @@
  * cite by those ids; afterwards each id it used is checked against the set it was given, and every
  * sentence that states something without one is listed, so a wrong answer can be caught.
  */
-import { createRedactor } from "../redaction.mjs";
+import { createRedactor, redactPrivateKeys } from "../redaction.mjs";
 
 export const systemPrompt = `You are BoxPilot's assistant. You run on a local model on this server and help the people who look after it understand BoxPilot and fix problems on this Ubuntu home server.
 
@@ -37,10 +37,12 @@ const kindLabels = { doc: "Document", operation: "Operation", app: "Catalog app"
 /**
  * The final redaction pass: every piece of text that reaches the model goes through the same
  * redactor the support bundle uses, after secretPaths masking has already been applied upstream.
- * The redactor works on at most 4 KiB at a time, so longer text is fed to it line-aligned.
+ * The redactor works on at most 4 KiB at a time, so longer text is fed to it line-aligned. Private
+ * keys go first, from the whole text: a key the pieces would split has its BEGIN in one and its END
+ * in the next, and the redactor sees each piece alone (sweep 3).
  */
 export function finalRedaction(text, redactor) {
-  const value = String(text ?? "");
+  const value = redactPrivateKeys(String(text ?? ""));
   const out = [];
   let segment = "";
   for (const line of value.split("\n")) {

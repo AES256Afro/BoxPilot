@@ -161,6 +161,11 @@ function markProfileEdited(job) {
 }
 
 const secretEnvNamesFor = secretEnvNamesLookup(catalogService);
+// Installing an app its manifest calls high risk (the house's DNS, the VPN) is staged and approved
+// as high: the owner, with the password. The registry has the same hooks, so a card an agent or the
+// assistant proposes says the tier the job will be staged at (sweep 3).
+const operationRiskHooks = { "app.install": installRiskLookup(catalogService) };
+registry.useRiskHooks(operationRiskHooks);
 // Where alerts go, and the one ledger of what was announced and what could not be (M27.2). A failed
 // scheduled run, an automation's step, or a result that could not be saved is announced through the
 // health alerts, once per condition, so the notifier leaves those jobs alone. scheduler and flows are
@@ -238,9 +243,7 @@ const jobs = createJobService(state, helper, {
       dnsResilience.forget();
     },
   },
-  // Installing an app its manifest calls high risk (the house's DNS, the VPN) is staged and approved
-  // as high: the owner, with the password.
-  operationRiskHooks: { "app.install": installRiskLookup(catalogService) },
+  operationRiskHooks,
   // Prepare hooks pin server-derived expectations into the staged parameters.
   operationPrepareHooks: {
     // Device globs (/dev/sd?, /dev/ttyUSB?) resolve here against the real /dev; the helper runs with PrivateDevices.

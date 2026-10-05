@@ -1,5 +1,5 @@
 import { registry as defaultRegistry } from "./ops/index.mjs";
-import { secretPaths } from "./ops/registry.mjs";
+import { internalRefusal, secretPaths } from "./ops/registry.mjs";
 import { defaultApprovalMode, normalizeApprovalMode } from "./ops/risk.mjs";
 import { overdueScheduleIds } from "./schedule-freshness.mjs";
 import { asSentence } from "./health-alerts.mjs";
@@ -170,6 +170,7 @@ export function createSchedulerService({ store, jobs, secretEnvNamesFor = async 
   async function create({ operationId, parameters = {}, frequency, minute, hour = null, weekday = null, spread = false, createdBy }) {
     const operation = registry.get(operationId);
     if (!operation) throw new Error("Operation is not registered");
+    if (operation.internal) throw new Error(internalRefusal(operation));
     if (operation.readOnly) throw new Error("Read-only operations run on demand; they are not scheduled");
     if (operation.risk === "high") throw new Error(`${operation.title} is high risk and cannot run unattended`);
     if (operation.minimumRole === "owner" && (store.findOwnerById?.(createdBy)?.role ?? "owner") !== "owner") throw new Error(`Only the owner can schedule ${operation.title}`);
