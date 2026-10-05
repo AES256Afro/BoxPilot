@@ -80,6 +80,8 @@ export const noticeMaxAgeMs = 30 * 24 * 60 * 60_000;
  * limit, are counted from the newer of the two, so replaced news is not dropped as a month old.
  */
 const toldAt = (entry) => entry?.renewedAt ?? entry?.since ?? "";
+/** Whose run a raised condition's words describe, as kept on its entry: only when the raiser said. */
+const ranBy = (actorId) => (actorId === undefined ? {} : { actorId: typeof actorId === "string" ? actorId : null });
 
 /** One notice per operation and subject: the same backup cut off twice is one entry, not two. */
 export function jobNoticeKey(kind, job) {
@@ -236,8 +238,8 @@ export function createHealthAlerts({ inventory, notifications, store, history = 
    * Send one announcement: true when the target took it, false when there is none or it failed.
    * Either way the notification centre records what was said and whether it arrived (M36).
    */
-  async function announce(key, { title, message, priority = "default" }, kind = "alert") {
-    const said = (delivered, reason = null) => history?.record({ key, kind, title, message, priority, delivered, reason });
+  async function announce(key, { title, message, priority = "default", actorId }, kind = "alert") {
+    const said = (delivered, reason = null) => history?.record({ key, kind, title, message, priority, delivered, reason, actorId });
     if (!notifications.getTarget()) { said(false, "no-target"); return false; }
     try {
       await notifications.send({ title: `BoxPilot: ${title}`, message, priority });
@@ -299,9 +301,9 @@ export function createHealthAlerts({ inventory, notifications, store, history = 
         // One not yet announced gets another try, so a target set today still hears about yesterday.
         if (isReported(key)) {
           const retry = entry?.notified === false && target
-            ? await announce(key, { title: entry.title ?? key, message: entry.message ?? entry.title ?? key, priority: entry.priority ?? "high" })
+            ? await announce(key, { title: entry.title ?? key, message: entry.message ?? entry.title ?? key, priority: entry.priority ?? "high", actorId: entry.actorId })
             : false;
-          nextState[key] = retry ? { since: entry.since ?? null, title: entry.title ?? key, notified: true } : entry;
+          nextState[key] = retry ? { since: entry.since ?? null, title: entry.title ?? key, notified: true, ...ranBy(entry.actorId) } : entry;
           if (retry) sent.push(key);
           continue;
         }
@@ -334,16 +336,18 @@ export function createHealthAlerts({ inventory, notifications, store, history = 
    * A reported condition turned bad: announce it once, or keep it as not announced. Raising it again
    * while it stands announced does nothing, so a schedule failing every hour is one push, not one an
    * hour. Not announced keeps the words, so the round that finds a target later can send them.
+   * `actorId` is whose run the words describe (an automation's, sweep 3). It is kept with them, here
+   * and in the notification centre, so who may read them follows that run and not a later one.
    */
-  function raise({ key, title, message, priority = "high" }) {
+  function raise({ key, title, message, priority = "high", actorId }) {
     return exclusive(async () => {
       const state = readState();
       const seen = state[key];
       if (seen && seen.notified !== false) return { key, notified: true, sent: false };
       const since = seen?.since ?? now().toISOString();
       const text = String(message ?? title).slice(0, 500);
-      const notified = await announce(key, { title, message: text, priority });
-      state[key] = notified ? { since, title, notified } : { since, title, message: text, priority, notified };
+      const notified = await announce(key, { title, message: text, priority, actorId });
+      state[key] = notified ? { since, title, notified, ...ranBy(actorId) } : { since, title, message: text, priority, notified, ...ranBy(actorId) };
       writeState(state);
       return { key, notified, sent: notified };
     });
