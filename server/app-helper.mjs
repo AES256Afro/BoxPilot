@@ -2311,7 +2311,7 @@ export function createAppHelper({
     return { rendered, values };
   }
 
-  /** Restore a backup over the app directory: checksum check, safety backup, stop, extract, start. */
+  /** Restore a backup over the app directory: checksum check, extract, port check, safety backup, stop, swap, start. */
   async function restoreAppBackup({ id, backup: backupName }, { progress = null } = {}) {
     const manifest = await ensureManifest(id);
     if (typeof backupName !== "string" || !backupNamePattern.test(backupName)) throw new Error("Backup name is invalid");
@@ -2332,15 +2332,6 @@ export function createAppHelper({
       progress?.("Verifying the backup checksum...", "stdout");
       const actual = await sha256File(artifact);
       if (actual !== meta.checksumSha256) throw new Error(`Backup ${backupName} failed its checksum; it may be damaged. Nothing was changed.`);
-    }
-    let safetyBackupSaved = false;
-    try {
-      progress?.("Taking a safety backup of the current state first...", "stdout");
-      const safety = await backup({ id, keep: null }, { progress });
-      safetyBackupSaved = true;
-      progress?.(`Current state saved as ${safety.artifact}`, "stdout");
-    } catch (error) {
-      progress?.(`Safety backup failed (${error.message}); the original directory will be retained after the restore`, "stderr");
     }
     // Extract beside the app and swap, so the result is the backup and nothing else. Unpacking over
     // the live directory would leave every file written since — for a database that means old control
@@ -2383,6 +2374,18 @@ export function createAppHelper({
     } catch (error) {
       await rm(staged, { recursive: true, force: true });
       throw error;
+    }
+    // Taken only now, with nothing left to refuse: it stops and starts the app and counts toward the
+    // newest few an app keeps, so one taken before a refusal that says "nothing was changed" was a
+    // change, and a few retries pushed the very archive being restored out at the next prune.
+    let safetyBackupSaved = false;
+    try {
+      progress?.("Taking a safety backup of the current state first...", "stdout");
+      const safety = await backup({ id, keep: null }, { progress });
+      safetyBackupSaved = true;
+      progress?.(`Current state saved as ${safety.artifact}`, "stdout");
+    } catch (error) {
+      progress?.(`Safety backup failed (${error.message}); the original directory will be retained after the restore`, "stderr");
     }
     const status = await containerStatus(id);
     if (status.running) {

@@ -1481,8 +1481,8 @@ describe.skipIf(onWindows)("restoring an application backup", () => {
     serving.push(8080); held.push({ protocol: "tcp", address: "100.64.0.10", port: 8080, scope: "address", process: { name: "tailscaled", pid: 812 } }, { protocol: "tcp", address: "127.0.0.1", port: 8080, scope: "loopback", process: { name: "docker-proxy", pid: 2201 } });
     calls.length = 0;
     await expect(apps.restoreAppBackup({ id: "demo", backup: made.artifact })).rejects.toThrow("Demo was not restored; nothing was changed. Port 8080 is taken on the tailnet address (100.64.0.10) by Tailscale Serve, which publishes Demo itself at https://homebox.tailXXXX.ts.net:8080.");
-    // Only the safety copy's own stop and start; the restore never stopped the app or brought anything up.
-    expect(calls.filter((call) => / (stop|up)(?: |$)/.test(call))).toEqual([expect.stringMatching(/ stop$/)]);
+    // Nothing was stopped, not even for a safety copy (R4B3-3), and nothing was brought up.
+    expect(calls.filter((call) => / (stop|up)(?: |$)/.test(call))).toEqual([]);
     expect(containers.get("bp-demo")).toMatchObject({ running: true });
     expect(await readFile(path.join(catalogRoot, "demo", "compose.yaml"), "utf8")).toBe(compose);
     // Nothing is left that would block the next try.
@@ -2893,5 +2893,69 @@ describe("restoring an app backup taken on another server, or before Tailscale m
     const made = await apps.backup({ id: "stick", keep: 5 });
     await expect(apps.restoreAppBackup({ id: "stick", backup: made.artifact })).resolves.toMatchObject({ restored: true });
     expect(await readFile(path.join(catalogRoot, "stick", "compose.yaml"), "utf8")).toContain("/dev/ttyUSB0:/dev/ttyUSB0");
+  });
+});
+
+// R4B3-3: the restore took its safety copy (stopping and starting the app, and counting toward the
+// newest few kept) before the refusals that say "nothing was changed": a port something holds, no
+// tailnet address. Each retry left another copy, and the next backup's pruning pushed the very
+// archive being restored out. The copy is taken once nothing is left to refuse, just before the stop.
+describe("a restore refused before anything changes", () => {
+  const backupsOf = async (backupRoot, id) => (await readdir(path.join(backupRoot, id))).filter((name) => /^\d{8}T\d{6}Z\.tar\.gz$/.test(name)).sort();
+
+  it("takes no safety copy, and stops nothing, when a port is held", async () => {
+    const held = [];
+    const serving = [];
+    const serveStatus = () => JSON.stringify({ Web: Object.fromEntries(serving.map((port) => [`homebox.tailXXXX.ts.net:${port}`, { Handlers: { "/": { Proxy: `http://127.0.0.1:${port}` } } }])) });
+    const runCommand = (binary, args, options) => (args[0] === "serve" ? Promise.resolve({ ok: true, stdout: serveStatus(), stderr: "" }) : withRealTar(binary, args, options));
+    const own = [{ Names: "bp-demo", Ports: "127.0.0.1:8080->80/tcp", Labels: "io.boxpilot.app=demo" }];
+    const { apps, backupRoot, calls, containers, advance } = await setup({ lanAddress: "0.0.0.0", hostListeners: async () => held, runCommand, dockerPs: own });
+    await apps.install({ id: "demo", values: { setup: [] } });
+    const made = await apps.backup({ id: "demo", keep: 5 });
+    await apps.reconfigure({ id: "demo", values: { exposure: "tailnet" } }, { checkpoint: false });
+    serving.push(8080);
+    held.push({ protocol: "tcp", address: "100.64.0.10", port: 8080, scope: "address", process: { name: "tailscaled", pid: 812 } });
+    calls.length = 0;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      advance(60_000);
+      await expect(apps.restoreAppBackup({ id: "demo", backup: made.artifact })).rejects.toThrow("Demo was not restored; nothing was changed. Port 8080 is taken on the tailnet address");
+    }
+    expect(await backupsOf(backupRoot, "demo")).toEqual([made.artifact]);
+    expect(calls.filter((call) => / (stop|start|up)(?: |$)/.test(call))).toEqual([]);
+    expect(containers.get("bp-demo")).toMatchObject({ running: true });
+  });
+
+  it("takes no safety copy when this server has no tailnet address for the backup's tailnet-only ports", async () => {
+    const tailnet = { address: "100.64.0.5" };
+    const runCommand = async (binary, args, options) => {
+      if (binary === "/usr/bin/tar") return fixedRun(testTar, args, options);
+      if (args[0] === "ip") return tailnet.address ? { ok: true, stdout: tailnet.address, stderr: "" } : { ok: false, stdout: "", stderr: "Tailscale is stopped." };
+      if (args[0] === "serve") return { ok: true, stdout: "{}", stderr: "" };
+      return { ok: false, stdout: "", stderr: "" };
+    };
+    const { apps, backupRoot, catalogDirectory, calls, advance } = await setup({ runCommand });
+    await writeFile(path.join(catalogDirectory, "relay.yaml"), [
+      "schemaVersion: 2", "id: relay", "name: Relay", "category: T", "description: d", "image:", "  reference: x/relay:1",
+      "ports:", "  - id: web", "    container: 8384", "    host: 8384", "  - id: sync", "    container: 22000", "    host: 22000", "    tailnet: address",
+      "volumes:", "  - id: data", "    container: /data", "    path: data",
+      "health:", "  kind: running", "  stableSeconds: 1", "  timeoutSeconds: 30",
+    ].join("\n") + "\n");
+    await apps.install({ id: "relay", values: { exposure: "tailnet" } });
+    const made = await apps.backup({ id: "relay", keep: 5 });
+    tailnet.address = null;
+    calls.length = 0;
+    advance(60_000);
+    await expect(apps.restoreAppBackup({ id: "relay", backup: made.artifact })).rejects.toThrow("Relay was not restored; nothing was changed.");
+    expect(await backupsOf(backupRoot, "relay")).toEqual([made.artifact]);
+    expect(calls.filter((call) => / (stop|start|up)(?: |$)/.test(call))).toEqual([]);
+  });
+
+  it("still takes the safety copy of a restore that goes ahead", async () => {
+    const { apps, backupRoot, advance } = await setup({ runCommand: withRealTar });
+    await apps.install({ id: "demo", values: { setup: [] } });
+    const made = await apps.backup({ id: "demo", keep: 5 });
+    advance(60_000);
+    await expect(apps.restoreAppBackup({ id: "demo", backup: made.artifact })).resolves.toMatchObject({ restored: true, retainedOriginal: false });
+    expect(await backupsOf(backupRoot, "demo")).toHaveLength(2);
   });
 });
