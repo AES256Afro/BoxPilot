@@ -876,6 +876,24 @@ describe("a job that ran out of time (M30.3)", () => {
     } finally { store.close(); }
   });
 
+  it("does not give more time beside a root task whose whole operation ran out, which may still be running (sweep 4)", async () => {
+    // The web side's deadline fired before the helper's answer: the record said the whole operation
+    // ran out, with nothing about the task left running, and "Try again with more time" was accepted
+    // and ran a second download beside the first for up to five hours.
+    const { store, owner, jobs } = await timed((_operation, _parameters, options, advance) => budgetRanOut(options, advance));
+    try {
+      for (const [operationId, parameters] of [["agents.model.download", { repo: "unsloth/Qwen3-8B-GGUF", file: "Qwen3-8B-Q4_K_M.gguf" }], ["agents.runtime.install", {}]]) {
+        const job = await jobs.createOperationJob(operationId, parameters, owner.id);
+        await expect(jobs.approveAndRun(job.id, owner.id, {})).rejects.toThrow();
+        const failed = store.getJob(job.id);
+        expect(failed.timeout).toMatchObject({ scope: "operation", moreTimeMs: null });
+        expect(failed.error).toMatch(/may still be running on the server/);
+        await expect(jobs.retryWithMoreTime(job.id, owner.id)).rejects.toMatchObject({ code: "more_time_refused", message: expect.stringMatching(/may still be running/) });
+      }
+      expect(store.listAwaitingApproval()).toEqual([]);
+    } finally { store.close(); }
+  });
+
   it("leaves an ordinary failure without a timeout", async () => {
     const { store, owner, jobs } = await timed(() => { throw new Error("docker compose up failed: no such image"); });
     try {

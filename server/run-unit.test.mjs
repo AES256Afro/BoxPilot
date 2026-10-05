@@ -17,7 +17,7 @@ describe("run-unit client", () => {
     });
     const client = createRunUnitClient({ run, runDirectory, systemctlBinary: "/bin/systemctl", now: () => new Date("2026-08-19T12:00:00.000Z") });
     await expect(client.runTask("apt.update", {}, { timeoutMs: 5000 })).resolves.toEqual({ updated: true });
-    expect(run).toHaveBeenCalledWith("/bin/systemctl", ["start", expect.stringMatching(/^boxpilot-run@[a-f0-9-]{36}\.service$/)], { timeout: 65000 });
+    expect(run).toHaveBeenCalledWith("/bin/systemctl", ["start", expect.stringMatching(/^boxpilot-run@[a-f0-9-]{36}\.service$/)], { timeout: 35000 });
     expect(await readdir(runDirectory)).toEqual([]);
   });
 

@@ -10,6 +10,16 @@ import { fixedRun } from "./exec.mjs";
 import { taskIds } from "./tasks/index.mjs";
 import { formatDuration, timedOut } from "./timeouts.mjs";
 
+/**
+ * How long past a root task's own limit the helper waits for its unit. The runner writes its result
+ * the moment the limit runs out, a few seconds after the unit starts; this covers that start. It was
+ * a minute, and most operations' budgets are their task's limit plus a minute, so the web side's
+ * deadline and the helper's answer came due together and the deadline won: the job recorded the
+ * whole operation running out, not the task left running. An operation that runs a root task keeps
+ * this, and half a minute more, inside its budget (ops/root-task-budgets.test.mjs).
+ */
+export const rootTaskWaitMarginMs = 30_000;
+
 export function createRunUnitClient({
   run = fixedRun,
   runDirectory = process.env.BOXPILOT_RUN_DIRECTORY ?? "/run/boxpilot/run",
@@ -29,7 +39,7 @@ export function createRunUnitClient({
     await writeFile(specPath, JSON.stringify({ task, parameters, approvedAt: now().toISOString(), timeoutMs, ...(logPath ? { logPath } : {}) }), { mode: 0o600, flag: "wx" });
     let start;
     try {
-      start = await run(systemctlBinary, ["start", `${unitTemplate}${id}.service`], { timeout: timeoutMs + 60_000 });
+      start = await run(systemctlBinary, ["start", `${unitTemplate}${id}.service`], { timeout: timeoutMs + rootTaskWaitMarginMs });
     } finally {
       await unlink(specPath).catch(() => {});
     }

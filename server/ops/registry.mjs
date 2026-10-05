@@ -95,7 +95,7 @@ export function validateParameters(spec, parameters, title = "Operation") {
 export const internalRefusal = (operation) => `${operation.title} is BoxPilot's own plumbing: BoxPilot runs it itself when it needs it`;
 
 export function defineOperation(definition) {
-  const { id, title, risk, readOnly = false, elevatedOnly = false, internal = false, timeoutMs = defaultTimeoutMs, maxTimeoutMs = null, rerunAfterInterrupt = false, parameters = { fields: {} }, run, description = "", minimumRole = null, confirm = null, restartsService = false, supersededWhen = null, oneTimeFields = [] } = definition ?? {};
+  const { id, title, risk, readOnly = false, elevatedOnly = false, internal = false, timeoutMs = defaultTimeoutMs, maxTimeoutMs = null, rerunAfterInterrupt = false, parameters = { fields: {} }, run, description = "", minimumRole = null, confirm = null, restartsService = false, supersededWhen = null, oneTimeFields = [], runsRootTask = false } = definition ?? {};
   if (typeof id !== "string" || !idPattern.test(id)) throw new Error(`Operation id "${id}" must be lower-case dotted segments`);
   if (typeof title !== "string" || !title.trim()) throw new Error(`Operation ${id} needs a title`);
   if (!riskTiers.includes(risk)) throw new Error(`Operation ${id} risk must be one of ${riskTiers.join(", ")}`);
@@ -141,9 +141,12 @@ export function defineOperation(definition) {
   // no longer has anything to do (an update to a version already running), or null. The job service
   // cancels such a job with that reason rather than let it wait for an approval that would do harm
   // or nothing (M36).
+  // runsRootTask: its work is a root task (boxpilot-run@), which runs on past its own limit when that
+  // runs out. A job of it whose whole budget ran out may still have that task running, so it is not
+  // given more time beside it (jobs.mjs). Declared where more time is offered; a test keeps it so.
   // internal: BoxPilot's own plumbing, run by BoxPilot itself (the agents' Zulip posts and reads):
   // never a step an agent or the assistant may propose (validatePlan drops it).
-  return Object.freeze({ id, title, description, risk, readOnly: Boolean(readOnly), elevatedOnly: Boolean(elevatedOnly), internal: Boolean(internal), timeoutMs, maxTimeoutMs, rerunAfterInterrupt: Boolean(rerunAfterInterrupt), parameters, run, minimumRole, confirm, restartsService, supersededWhen, oneTimeFields: Object.freeze([...oneTimeFields]) });
+  return Object.freeze({ id, title, description, risk, readOnly: Boolean(readOnly), elevatedOnly: Boolean(elevatedOnly), internal: Boolean(internal), timeoutMs, maxTimeoutMs, rerunAfterInterrupt: Boolean(rerunAfterInterrupt), parameters, run, minimumRole, confirm, restartsService, supersededWhen, oneTimeFields: Object.freeze([...oneTimeFields]), runsRootTask: Boolean(runsRootTask) });
 }
 
 export class OperationRegistry {
