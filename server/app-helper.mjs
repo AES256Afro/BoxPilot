@@ -63,8 +63,6 @@ const backupMarkerFile = ".boxpilot-backup-in-progress.json";
  */
 const projectFileNames = Object.freeze([".env", "compose.yaml", "boxpilot.json", homepageSyncFile]);
 const scratchFileNames = Object.freeze([...projectFileNames.map((name) => `${name}.tmp`), backupMarkerFile, `${backupMarkerFile}.tmp`]);
-/** Processes that hold a port on Docker's behalf (as ports.mjs counts them): never an app's own process. */
-const dockerHolders = new Set(["docker-proxy", "dockerd", "rootlesskit", "rootlessport"]);
 
 /**
  * Canonicalise a path for the deny-list check even when its leaf does not exist yet: resolve every
@@ -386,17 +384,24 @@ export function createAppHelper({
   }
 
   /**
-   * Whether the app's own container is running on the host's network right now. Its own processes
-   * then hold the ports it binds, and `ss` names them as themselves (pihole-FTL, python3), not as
-   * Docker's, so they cannot be told apart from another program's: those ports are not checked then.
+   * The host PIDs of the processes in the app's own container while it runs on the host's network,
+   * as `docker top` lists them; empty otherwise. Those processes then hold the ports it binds, and
+   * `ss` names them as themselves (pihole-FTL, python3), not as Docker's. A name says nothing about
+   * whose a process is, and Docker reports Running=true through restart backoff, when the container
+   * has no process at all: a Pi-hole crash-looping because systemd-resolve or libvirt's dnsmasq held
+   * port 53 let that holder off as its own. Only "running" counts, and only the PIDs it lists.
    */
-  async function runningOnHostNetwork(id) {
-    const result = await docker(["inspect", "--format", '{"running":{{.State.Running}},"networkMode":"{{.HostConfig.NetworkMode}}"}', projectNameFor(id)], { timeout: 10_000 }).catch(() => null);
-    if (!result?.ok) return false;
-    try {
-      const parsed = JSON.parse(String(result.stdout ?? "").split("\n")[0]);
-      return parsed.running === true && parsed.networkMode === "host";
-    } catch { return false; }
+  async function ownHostNetworkPids(id) {
+    const none = new Set();
+    const result = await docker(["inspect", "--format", '{"running":{{.State.Running}},"status":"{{.State.Status}}","networkMode":"{{.HostConfig.NetworkMode}}"}', projectNameFor(id)], { timeout: 10_000 }).catch(() => null);
+    if (!result?.ok) return none;
+    let parsed = null;
+    try { parsed = JSON.parse(String(result.stdout ?? "").split("\n")[0]); } catch { return none; }
+    if (parsed?.running !== true || parsed.status !== "running" || parsed.networkMode !== "host") return none;
+    const top = await docker(["top", projectNameFor(id), "-eo", "pid"], { timeout: 10_000 }).catch(() => null);
+    if (!top?.ok) return none;
+    // A header line ("PID"), then one PID a line.
+    return new Set(String(top.stdout ?? "").split("\n").map((line) => line.trim()).filter((line) => /^\d+$/.test(line)).map(Number).filter((pid) => pid > 0));
   }
 
   /** What Tailscale Serve publishes right now; empty when Tailscale is absent. */
@@ -421,9 +426,9 @@ export function createAppHelper({
    * An app on the host's own network publishes nothing and binds its ports itself, on every address
    * (hostNetworkPorts): those are checked too. While its own container is running there, its own
    * processes hold its container ports, and `ss` names them as themselves (pihole-FTL), not as
-   * Docker's: any listener on one of those ports held by a program that is neither Docker nor
-   * tailscaled is taken to be the app's own and left out, whatever network the new compose file is
-   * on. Pi-hole moving from the host network to bridge was refused on its own DNS port otherwise.
+   * Docker's: a listener held by one of the processes `docker top` lists for its container is the
+   * app's own and left out (ownHostNetworkPids), whatever network the new compose file is on.
+   * Pi-hole moving from the host network to bridge was refused on its own DNS port otherwise.
    * A port the app's own settings say it can start without (Pi-hole's admin page) is marked
    * `optional`, and assertPortsFree warns about it instead of refusing.
    *
@@ -440,13 +445,9 @@ export function createAppHelper({
     if (hostListeners) {
       try { listeners = await hostListeners(); } catch (error) { progress?.(`Could not read which ports are in use (${error.message}); going ahead without that check.`, "stderr"); }
     }
-    if (Array.isArray(listeners) && await runningOnHostNetwork(manifest.id)) {
-      const containerPorts = new Set((manifest.ports ?? []).map((port) => `${port.container}/${port.protocol === "udp" ? "udp" : "tcp"}`));
-      const ownProcess = (listener) => {
-        const name = listener.process?.name;
-        return Boolean(name) && !dockerHolders.has(name) && name !== "tailscaled" && containerPorts.has(`${listener.port}/${listener.protocol}`);
-      };
-      listeners = listeners.filter((listener) => !ownProcess(listener));
+    if (Array.isArray(listeners) && listeners.length) {
+      const ownPids = await ownHostNetworkPids(manifest.id);
+      if (ownPids.size) listeners = listeners.filter((listener) => !ownPids.has(listener.process?.pid));
     }
     const everyAddress = requested.filter((entry) => entry.protocol === "tcp" && coversEveryAddress(entry.bind));
     const live = Array.isArray(listeners) ? findPortConflicts(requested, listeners) : [];

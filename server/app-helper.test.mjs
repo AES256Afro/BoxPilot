@@ -41,6 +41,14 @@ async function setup({ healthKind = "running", exitOnUp = false, failUp = false,
       return { ok: true, stdout: lines.join("\n"), stderr: "" };
     }
     if (args[0] === "logs") return { ok: true, stdout: "line1\npassword=hunter2", stderr: "" };
+    // `docker top <name> -eo pid`: the host PIDs of the container's processes, under a PID header.
+    // Like the real CLI, a container that is stopped or sits in restart backoff has none to list.
+    if (args[0] === "top") {
+      const container = containers.get(args[1]);
+      if (!container?.running) return { ok: false, stdout: "", stderr: `Error response from daemon: container ${args[1]} is not running` };
+      if (container.status === "restarting") return { ok: false, stdout: "", stderr: `Error response from daemon: Container ${args[1]} is restarting, wait until the container is running` };
+      return { ok: true, stdout: ["    PID", ...(container.pids ?? [7001, 7002]).map(String)].join("\n"), stderr: "" };
+    }
     // `docker ps --format '{{json .}}'`, as the port check reads it: who publishes what.
     if (args[0] === "ps") return { ok: true, stdout: dockerPs.map((row) => JSON.stringify(row)).join("\n"), stderr: "" };
     if (args[0] === "exec") {
@@ -2496,7 +2504,9 @@ const assistantManifest = [
   "ports:", "  - id: web", "    label: Web UI", "    container: 8123", "    host: 8123", "    fixed: true",
   "health:", "  kind: running", "  stableSeconds: 1", "  timeoutSeconds: 30",
 ].join("\n") + "\n";
-const program = (name, port, { protocol = "tcp", address = "0.0.0.0" } = {}) => ({ protocol, address, port, scope: address === "0.0.0.0" ? "wildcard" : address.startsWith("127.") ? "loopback" : "address", process: { name, pid: 4242 } });
+const program = (name, port, { protocol = "tcp", address = "0.0.0.0", pid = 4242 } = {}) => ({ protocol, address, port, scope: address === "0.0.0.0" ? "wildcard" : address.startsWith("127.") ? "loopback" : "address", process: { name, pid } });
+/** A process of the app's own container, as `docker top` lists it in the fake (setup). */
+const ownPid = 7001;
 
 /** The deployer's commands with a real tar (the test platform's) and no Tailscale. */
 const withRealTar = (binary, args, options) => (binary === "/usr/bin/tar" ? fixedRun(testTar, args, options) : Promise.resolve({ ok: false, stdout: "", stderr: "" }));
@@ -2536,11 +2546,11 @@ describe("ports an app on the host's own network binds itself, checked before it
     held.length = 0;
     await apps.install({ id: "assistant" });
     expect(containers.get("bp-assistant")).toMatchObject({ running: true, networkMode: "host" });
-    // Running on the host network, its own processes hold its port: nothing to tell apart from them.
-    held.push(program("python3", 8123));
+    // Running on the host network, its own processes hold its port: `docker top` lists them.
+    held.push(program("python3", 8123, { pid: ownPid }));
     await expect(apps.action({ id: "assistant", action: "restart" })).resolves.toMatchObject({ action: "restart" });
     await apps.action({ id: "assistant", action: "stop" });
-    await expect(apps.action({ id: "assistant", action: "start" })).rejects.toThrow("Assistant was not started. Port 8123 is taken on every address by process python3 (pid 4242).");
+    await expect(apps.action({ id: "assistant", action: "start" })).rejects.toThrow(`Assistant was not started. Port 8123 is taken on every address by process python3 (pid ${ownPid}).`);
     containers.delete("bp-assistant");
     await expect(apps.reinstall({ id: "assistant" })).rejects.toThrow("Assistant was not started again; nothing was built.");
   });
@@ -2562,7 +2572,7 @@ describe("ports an app on the host's own network binds itself, checked before it
   // R3B3-2: the app's own processes were let off only when the new compose file was on the host
   // network too, so Pi-hole running there was refused the move to bridge on its own pihole-FTL, the
   // very move the optional-port warning tells the owner to make.
-  const ownProcesses = () => [program("pihole-FTL", 53), program("pihole-FTL", 53, { protocol: "udp" }), program("pihole-FTL", 80)];
+  const ownProcesses = () => [program("pihole-FTL", 53, { pid: ownPid }), program("pihole-FTL", 53, { protocol: "udp", pid: ownPid }), program("pihole-FTL", 80, { pid: ownPid })];
 
   it("moves an app running on the host network to bridge, past the ports its own processes hold", async () => {
     const { apps, held, catalogRoot, containers } = await hostNetworkHarness();
@@ -2589,6 +2599,49 @@ describe("ports an app on the host's own network binds itself, checked before it
     held.push(...ownProcesses());
     await expect(apps.restoreAppBackup({ id: "dns", backup: made.artifact })).resolves.toMatchObject({ restored: true });
     expect(await readFile(path.join(catalogRoot, "dns", "compose.yaml"), "utf8")).not.toContain("network_mode");
+  });
+
+  // R4B3-1: "its own" was a process on one of its container ports that was neither Docker's nor
+  // tailscaled, whenever Docker called the container running, which it does through restart backoff
+  // too. A Pi-hole crash-looping on the host network (because systemd-resolve or libvirt's dnsmasq
+  // holds 53) let that holder off as its own: `up` then failed "address already in use", the
+  // .replaced folder refused every retry, and the house had no DNS. Its own are the PIDs `docker top`
+  // lists, and a container in restart backoff has none.
+  it("takes nothing for its own while it crash-loops on the host network", async () => {
+    const { apps, held, containers, catalogRoot } = await hostNetworkHarness();
+    await apps.install({ id: "dns", values: { networkMode: "host" } });
+    const compose = await readFile(path.join(catalogRoot, "dns", "compose.yaml"), "utf8");
+    // Restart backoff, as Docker reports it: Running stays true while the status reads "restarting".
+    Object.assign(containers.get("bp-dns"), { running: true, status: "restarting", restarts: 6 });
+    held.push(program("systemd-resolve", 53, { address: "127.0.0.53" }));
+    await expect(apps.reconfigure({ id: "dns", values: { env: {} } }, { checkpoint: false })).rejects.toThrow("DNS's settings were not changed; nothing was restarted. Port 53 is taken on this server's loopback address (127.0.0.53) by process systemd-resolve (pid 4242).");
+    held.length = 0;
+    held.push(program("dnsmasq", 53));
+    await expect(apps.reconfigure({ id: "dns", values: { networkMode: "bridge" } }, { checkpoint: false })).rejects.toThrow("DNS's settings were not changed; nothing was restarted. Port 53 is taken on every address by process dnsmasq (pid 4242).");
+    expect(await readFile(path.join(catalogRoot, "dns", "compose.yaml"), "utf8")).toBe(compose);
+  });
+
+  it("refuses a bridge-era backup over a crash-looping host-network app while dnsmasq holds DNS", async () => {
+    const { apps, held, containers, catalogRoot } = await hostNetworkHarness({ runCommand: withRealTar });
+    await apps.install({ id: "dns" });
+    const made = await apps.backup({ id: "dns", keep: 5 });
+    await apps.reconfigure({ id: "dns", values: { networkMode: "host" } }, { checkpoint: false });
+    Object.assign(containers.get("bp-dns"), { running: true, status: "restarting", restarts: 6 });
+    held.push(program("dnsmasq", 53));
+    await expect(apps.restoreAppBackup({ id: "dns", backup: made.artifact })).rejects.toThrow("DNS was not restored; nothing was changed. Port 53 is taken on every address by process dnsmasq (pid 4242).");
+    expect(await readFile(path.join(catalogRoot, "dns", "compose.yaml"), "utf8")).toContain("network_mode: host");
+    expect((await readdir(catalogRoot)).filter((entry) => entry.includes(".replaced") || entry.includes(".restoring"))).toEqual([]);
+  });
+
+  it("takes the processes its running container lists for its own, not a program of the same name", async () => {
+    // Running steadily on the host network, a pihole-FTL that is not among its processes is another's.
+    const { apps, held } = await hostNetworkHarness();
+    await apps.install({ id: "dns", values: { networkMode: "host" } });
+    held.push(program("pihole-FTL", 53, { pid: 9999 }));
+    await expect(apps.reconfigure({ id: "dns", values: { networkMode: "bridge" } }, { checkpoint: false })).rejects.toThrow("Port 53 is taken on every address by process pihole-FTL (pid 9999).");
+    held.length = 0;
+    held.push(...ownProcesses());
+    await expect(apps.reconfigure({ id: "dns", values: { networkMode: "bridge" } }, { checkpoint: false })).resolves.toMatchObject({ reconfigured: true });
   });
 });
 
