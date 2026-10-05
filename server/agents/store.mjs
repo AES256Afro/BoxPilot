@@ -635,6 +635,22 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
     return Number(changed) ? getProposal(id) : null;
   }
 
+  /**
+   * Which job a plan's step was staged as (2026-10 sweep 3), kept on the step itself so every page
+   * that draws the card knows it. Only while the card is open; null when it is not, or has no such step.
+   */
+  function setProposalStepJob(id, index, jobId) {
+    const proposal = getProposal(id);
+    if (!proposal || proposal.state !== "open" || !proposal.steps[index]) return null;
+    const steps = proposal.steps.map((step, at) => (at === index ? { ...step, jobId } : step));
+    const changed = prepare("UPDATE agent_proposals SET steps_json = ? WHERE id = ? AND state = 'open'").run(json(steps), id).changes;
+    return Number(changed) ? getProposal(id) : null;
+  }
+  /** The open cards one of whose steps was staged as this job (a job id is a UUID: nothing in it is a LIKE wildcard). */
+  const listOpenProposalsForJob = (jobId) => (/^[0-9a-f-]{36}$/i.test(String(jobId ?? ""))
+    ? prepare("SELECT * FROM agent_proposals WHERE state = 'open' AND steps_json LIKE ?").all(`%"jobId":"${jobId}"%`).map(proposalOf).filter((proposal) => proposal.steps.some((step) => step.jobId === jobId))
+    : []);
+
   const findOpenProposal = (source, title) => proposalOf(prepare("SELECT * FROM agent_proposals WHERE source = ? AND title = ? AND state = 'open'").get(source, title));
   const listProposalsForRun = (runId) => prepare("SELECT * FROM agent_proposals WHERE run_id = ? ORDER BY created_at, rowid LIMIT 10").all(runId).map(proposalOf);
 
@@ -808,7 +824,7 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
     addEpisode, listEpisodes, deleteEpisode,
     setVector, vectorsOf, deleteVector, deleteVectorsLike, countVectors,
     setFeedback, getFeedback, listFeedback,
-    createProposal, getProposal, listProposals, decideProposal, findOpenProposal, listProposalsForRun,
+    createProposal, getProposal, listProposals, decideProposal, findOpenProposal, listProposalsForRun, setProposalStepJob, listOpenProposalsForJob,
     addDocument, upsertDocument, listDocuments, getDocument, findDocument, setDocumentEnabled, setDocumentPinned, deleteDocument,
     getDocumentMedia, listUndescribed, describeDocument, countImageDocuments,
     queueChatPost, listChatPosts, getChatPost, markChatPost, chatPostsSince, countChatPosts, pruneChatPosts, dropQueuedChatPosts,

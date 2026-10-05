@@ -227,7 +227,7 @@ const changeRoutes = [
   "POST /api/v1/agents", "PUT /api/v1/agents/:id", "DELETE /api/v1/agents/:id", "POST /api/v1/agents/:id/rollback",
   "POST /api/v1/agents/:id/pause", "POST /api/v1/agents/:id/resume", "POST /api/v1/agents/:id/runs",
   "DELETE /api/v1/agents/:id/notes/:noteId", "PUT /api/v1/agents/:id/evaluation", "POST /api/v1/agents/:id/evaluation/run",
-  "POST /api/v1/agents/proposals/:proposalId/decide", "POST /api/v1/agents/runs/:runId/cancel",
+  "POST /api/v1/agents/proposals/:proposalId/decide", "POST /api/v1/agents/proposals/:proposalId/steps/:step/job", "POST /api/v1/agents/runs/:runId/cancel",
   "POST /api/v1/agents/module/pause", "POST /api/v1/agents/module/resume", "POST /api/v1/agents/module/kill",
   "POST /api/v1/agents/knowledge/documents", "PUT /api/v1/agents/knowledge/documents/:documentId", "DELETE /api/v1/agents/knowledge/documents/:documentId", "POST /api/v1/agents/knowledge/relearn",
   "PUT /api/v1/agents/knowledge/documents/:documentId/pin", "POST /api/v1/agents/knowledge/upload", "POST /api/v1/agents/knowledge/folder/sync", "POST /api/v1/agents/knowledge/reindex",
@@ -516,6 +516,8 @@ const dataRoutes = {
   }],
   "GET /api/v1/agents/glance": [operatorUp],
   "GET /api/v1/agents/proposals": [{ ...open, check: ({ role, body }) => expect(body.proposals.length, role).toBe(role === "owner" ? 1 : 0) }],
+  // One card, read again as its step's dialog closes: the owner's card is the owner's to see.
+  "GET /api/v1/agents/proposals/:proposalId": [{ viewer: 404, operator: 404, owner: 200, params: () => ({ proposalId: fixtures.ownerCard }), check: ({ body }) => expect(body.steps.map((step) => step.status)).toEqual(["ready"]) }],
   "GET /api/v1/agents/knowledge": [operatorUp],
   // M38: the team chat's panel; the posts themselves only for the owner.
   "GET /api/v1/agents/zulip": [{ ...operatorUp, check: ({ role, body }) => { if (role !== "viewer") expect(Array.isArray(body.recent), role).toBe(true); } }],
@@ -736,6 +738,7 @@ beforeAll(async () => {
   await agents.runnerTool(ownerClaim.run.id, ownerClaim.lease, "plan_propose", JSON.stringify({ title: "Refresh owner-marker", reason: "owner-marker reason", steps: [{ operationId: "apt.refresh", parameters: {} }] }));
   await agents.runnerFinish(ownerClaim.run.id, ownerClaim.lease, { outcome: "completed", answer: "owner-marker answer" });
   fixtures.ownerRun = ownerClaim.run.id;
+  fixtures.ownerCard = agents.listProposals(ownerCaller)[0].id;
   agents.startRun(operatorCaller, fixtures.helper.id, { kind: "ask", question: "operator-marker question" });
   const operatorClaim = await agents.runnerNext(runnerId, { waitMs: 0 });
   await agents.runnerFinish(operatorClaim.run.id, operatorClaim.lease, { outcome: "completed", answer: "operator-marker answer" });
