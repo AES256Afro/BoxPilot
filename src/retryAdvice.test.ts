@@ -1,4 +1,7 @@
 import { describe, expect, it } from "vitest";
+import appHelperSource from "../server/app-helper.mjs?raw";
+import housekeepingSource from "../server/housekeeping.mjs?raw";
+import snapshotSource from "../server/machine-snapshot-helper.mjs?raw";
 import { adviseRetry, failureLine } from "./retryAdvice";
 
 describe("whether running a failure again can work", () => {
@@ -29,6 +32,27 @@ describe("whether running a failure again can work", () => {
 
   it("offers nothing to run when nothing BoxPilot runs would change it", () => {
     expect(adviseRetry("Homepage has no data to back up")).toEqual({ retry: false });
+  });
+
+  // Refusals about what a file holds, or whether it is there: the same file refuses the same way every
+  // time (sweep 5). Try again on a high-risk restore asked for the password, then refused again.
+  // Each is the server's own sentence, and the server's source is checked to still say it.
+  it.each([
+    ["an app backup with a link where BoxPilot writes", appHelperSource, "which a backup BoxPilot made never holds",
+      "Immich was not restored; nothing was changed. In this backup .env.tmp is a link, or not a plain file, where BoxPilot writes Immich's own files as root, which a backup BoxPilot made never holds: restored, the next change to Immich would have written through it to somewhere else on this server."],
+    ["a machine snapshot with links or special files", snapshotSource, "which a snapshot BoxPilot made never does",
+      "The snapshot holds srv/data/link, links or special files, which a snapshot BoxPilot made never does. Nothing was changed."],
+    ["an unreadable snapshot that reads now", housekeepingSource, "can be read now, so it was not removed.",
+      "boxpilot-machine-20260901-030000.tar.zst can be read now, so it was not removed."],
+    ["an unreadable snapshot already gone", housekeepingSource, "is no longer there`",
+      "boxpilot-machine-20260901-030000.tar.zst is no longer there"],
+    ["an app backup that failed its checksum", appHelperSource, "failed its checksum; it may be damaged. Nothing was changed.",
+      "Backup immich-20260901-030000.tar.gz failed its checksum; it may be damaged. Nothing was changed."],
+    ["a machine snapshot that failed its checksum", snapshotSource, "The snapshot failed its checksum; it may be damaged. Nothing was changed.",
+      "The snapshot failed its checksum; it may be damaged. Nothing was changed."],
+  ])("offers no Try again on %s, which refuses the same way every time", (_what, source, wording, message) => {
+    expect(source).toContain(wording);
+    expect(adviseRetry(message)).toEqual({ retry: false });
   });
 });
 
