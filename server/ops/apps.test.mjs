@@ -217,3 +217,35 @@ describe("installing an app for the tailnet only (M38)", () => {
     expect(result.served).toBeUndefined();
   });
 });
+
+// R4B3-6: a restore writes the backup's compose file again for this server and says who can reach the
+// app and on which ports (exposure, hostPorts), as an install does; app.backup.restore ignored that,
+// so restoring a tailnet-only backup left its web port on 127.0.0.1 with nothing publishing it.
+describe("restoring a tailnet-only app's backup", () => {
+  const serving = JSON.stringify({ Web: { "homebox.tail1234.ts.net:8384": { Handlers: { "/": { Proxy: "http://127.0.0.1:8384" } } } } });
+  const restoring = (exposure, extra = {}) => ({ restoreAppBackup: vi.fn(async () => ({ restored: true, id: "relay", name: "Relay", backup: "20260819T120000Z.tar.gz", exposure, hostPorts: [{ id: "web", host: 8384, protocol: "tcp", exposure: exposure === "tailnet" ? "loopback" : "lan", tailnet: "serve" }], ...extra })) });
+  const parameters = { id: "relay", backup: "20260819T120000Z.tar.gz" };
+
+  it("publishes its web port with Tailscale Serve once it is back, and says where", async () => {
+    const run = vi.fn(async (_binary, args) => (args[1] === "status" ? { ok: true, stdout: serving, stderr: "" } : { ok: true, stdout: "", stderr: "" }));
+    const result = await operations["app.backup.restore"].run(parameters, { apps: restoring("tailnet"), run });
+    expect(run).toHaveBeenCalledWith(expect.stringContaining("tailscale"), ["serve", "--bg", "--yes", "--https=8384", "http://127.0.0.1:8384"], expect.anything());
+    expect(result).toMatchObject({ restored: true, served: true, urls: ["https://homebox.tail1234.ts.net:8384"] });
+    expect(result.warnings).toBeUndefined();
+  });
+
+  it("keeps the restore, with its own warnings, and says how to publish it when Serve fails", async () => {
+    const run = vi.fn(async (_binary, args) => (args[1] === "--bg" ? { ok: false, stdout: "", stderr: "serve: Tailscale is stopped" } : { ok: true, stdout: "{}", stderr: "" }));
+    const result = await operations["app.backup.restore"].run(parameters, { apps: restoring("tailnet", { warnings: ["an earlier warning"] }), run });
+    expect(result).toMatchObject({ restored: true, served: false });
+    expect(result.warnings[0]).toBe("an earlier warning");
+    expect(result.warnings[1]).toMatch(/^Relay is installed for your tailnet only, but publishing it with Tailscale Serve failed \(8384: serve: Tailscale is stopped\).*choose Publish on the tailnet\.$/);
+  });
+
+  it("leaves an app on the home network alone", async () => {
+    const run = vi.fn();
+    const result = await operations["app.backup.restore"].run(parameters, { apps: restoring("lan"), run });
+    expect(run).not.toHaveBeenCalled();
+    expect(result.served).toBeUndefined();
+  });
+});

@@ -192,6 +192,8 @@ describe("the backup tree", () => {
     // Reclaiming space deletes app archives behind the newest few of each app, so it holds the tree
     // too, and keeps the host lane it had for everything else it clears.
     expect(laneFor("housekeeping.reclaim", { categories: ["app-backups"] })).toEqual([backupTreeLane, "host"]);
+    // Removing a machine snapshot that cannot be read deletes from the folder the mirrors copy.
+    expect(laneFor("housekeeping.unreadable-snapshot.remove", { name: "machine-snapshot-20261001T030000Z-abcdef01.tar.gz" })).toEqual([backupTreeLane, "host"]);
     // The checkpoint is all an update writes there: it takes the tree's lane, not the host's.
     expect(laneFor("app.update", { id: "jellyfin" })).toEqual(["app:jellyfin", backupTreeLane]);
     expect(laneFor("app.backup.delete", { id: "jellyfin", backup: "20261001T030000Z.tar.gz" })).toEqual(["app:jellyfin", backupTreeLane]);

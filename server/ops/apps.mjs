@@ -288,9 +288,18 @@ export function appOperations() {
     defineOperation({
       // Its safety copy of the current state is a whole backup, like a checkpoint.
       id: "app.backup.restore", title: "Restore application data from a backup", risk: "high", timeoutMs: checkpointMs + minutes(90),
-      description: "Checksums the backup, saves the current state as a safety copy, then replaces the app's data and configuration with the backup and starts it.",
+      description: "Checksums the backup and unpacks it beside the app, checks nothing else holds its ports, saves the current state as a safety copy, then replaces the app's data and configuration with the backup and starts it. An app the backup has reachable for the tailnet only is then published over HTTPS on your tailnet with Tailscale Serve.",
       parameters: { fields: { id: idField, backup: { type: "string", maxLength: 40, pattern: /^\d{8}T\d{6}Z\.tar\.gz$/ } } },
-      run: (parameters, { apps, progress }) => apps.restoreAppBackup(parameters, { progress }),
+      // The deployer writes the backup's compose file again for this server and says who can reach
+      // the app and on which ports, as an install does: a tailnet-only app's web ports are on
+      // 127.0.0.1 for Serve to front, so it is published as app.install and a snapshot restore do.
+      run: async (parameters, { apps, run, progress }) => {
+        const restored = await apps.restoreAppBackup(parameters, { progress });
+        if (restored?.exposure !== "tailnet" || !run) return restored;
+        const published = await serveTailnetOnly({ ...restored, name: restored.name ?? parameters.id }, { run, progress });
+        const warnings = [...(restored.warnings ?? []), ...(published.warnings ?? [])];
+        return { ...restored, served: published.served, urls: published.urls, ...(warnings.length ? { warnings } : {}) };
+      },
     }),
     defineOperation({
       // operator: this lists what is inside a backup - every filename in the app's config and data,
