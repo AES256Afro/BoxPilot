@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { lstat, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import YAML from "yaml";
@@ -7,6 +8,7 @@ import { onWindows } from "../test/platform.mjs";
 import { createAppHelper, keepsBackupData } from "./app-helper.mjs";
 import { createCatalogService } from "./catalog/index.mjs";
 import { fixedRun } from "./exec.mjs";
+import { createMachineSnapshotHelper } from "./machine-snapshot-helper.mjs";
 
 const directories = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((d) => rm(d, { recursive: true, force: true }))); });
@@ -1972,5 +1974,217 @@ describe("which apps keep data a backup archives", () => {
     expect(keepsBackupData({ volumes: [{ id: "media", hostPath: "/srv/media", backup: false }], sidecars: [{ id: "cache", volumes: [{ id: "models", path: "models", backup: false }] }] })).toBe(false);
     expect(keepsBackupData({ volumes: [{ id: "config", path: "config", backup: true }] })).toBe(true);
     expect(keepsBackupData({})).toBe(false);
+  });
+});
+
+// A secret the owner enters once and BoxPilot never saves: the token lives only in the app's .env.
+const tunnelManifest = (reference = "x/tunnel:1") => [
+  "schemaVersion: 2", "id: tunnel", "name: Tunnel", "category: T", "description: d",
+  "image:", `  reference: ${reference}`,
+  "env:", "  - name: TUNNEL_TOKEN", "    type: password", "    required: true", "  - name: TZ", "    default: Etc/UTC",
+  "health:", "  kind: running", "  stableSeconds: 1", "  timeoutSeconds: 30",
+].join("\n") + "\n";
+
+describe("a required secret the saved settings never hold", () => {
+  async function installed() {
+    const harness = await setup();
+    await writeFile(path.join(harness.catalogDirectory, "tunnel.yaml"), tunnelManifest());
+    await harness.apps.install({ id: "tunnel", values: { env: { TUNNEL_TOKEN: "eyJ-the-token" } } });
+    const stored = JSON.parse(await readFile(path.join(harness.catalogRoot, "tunnel", "boxpilot.json"), "utf8"));
+    expect(stored.values.env).not.toHaveProperty("TUNNEL_TOKEN");
+    return { ...harness, envFile: path.join(harness.catalogRoot, "tunnel", ".env") };
+  }
+
+  it("updates, and goes back a version, on the token in .env", async () => {
+    const { apps, catalogDirectory, envFile } = await installed();
+    await rm(path.join(catalogDirectory, "tunnel.yaml"));
+    await writeFile(path.join(catalogDirectory, "tunnel.yaml"), tunnelManifest("x/tunnel:2"));
+    await expect(apps.update({ id: "tunnel" }, { checkpoint: false })).resolves.toMatchObject({ updated: true, reference: "x/tunnel:2" });
+    expect(await readFile(envFile, "utf8")).toBe("TUNNEL_TOKEN='eyJ-the-token'\n");
+    await expect(apps.rollbackApp({ id: "tunnel" }, { checkpoint: false })).resolves.toMatchObject({ rolledBack: true, restored: { tunnel: "x/tunnel:1" } });
+    expect(await readFile(envFile, "utf8")).toBe("TUNNEL_TOKEN='eyJ-the-token'\n");
+  });
+
+  it("changes settings without the token typed again, and takes a new one when it is", async () => {
+    const { apps, envFile } = await installed();
+    await expect(apps.reconfigure({ id: "tunnel", values: {} }, { checkpoint: false })).resolves.toMatchObject({ reconfigured: true });
+    await expect(apps.reconfigure({ id: "tunnel", values: { env: { TZ: "Europe/Berlin" } } }, { checkpoint: false })).resolves.toMatchObject({ reconfigured: true });
+    expect(await readFile(envFile, "utf8")).toBe("TUNNEL_TOKEN='eyJ-the-token'\n");
+    await apps.reconfigure({ id: "tunnel", values: { env: { TUNNEL_TOKEN: "eyJ-a-new-one" } } }, { checkpoint: false });
+    expect(await readFile(envFile, "utf8")).toBe("TUNNEL_TOKEN='eyJ-a-new-one'\n");
+  });
+
+  it("rebuilds a pruned container whose compose project is gone too", async () => {
+    const { apps, containers, catalogRoot, envFile } = await installed();
+    containers.delete("bp-tunnel");
+    await rm(path.join(catalogRoot, "tunnel", "compose.yaml"));
+    await expect(apps.reinstall({ id: "tunnel" })).resolves.toMatchObject({ reinstalled: true, projectRewritten: true });
+    expect(await readFile(envFile, "utf8")).toBe("TUNNEL_TOKEN='eyJ-the-token'\n");
+  });
+
+  it("still asks for it when there is no .env to take it from", async () => {
+    const { apps, catalogRoot } = await installed();
+    await rm(path.join(catalogRoot, "tunnel", ".env"));
+    await expect(apps.update({ id: "tunnel" }, { checkpoint: false })).rejects.toThrow("values.env.TUNNEL_TOKEN: is required");
+  });
+});
+
+describe("saved settings from an older catalog", () => {
+  it("rebuilds an app whose saved settings name one the catalog has since dropped", async () => {
+    const { apps, containers, catalogRoot } = await setup();
+    await apps.install({ id: "demo", values: { setup: [] } });
+    const stateFile = path.join(catalogRoot, "demo", "boxpilot.json");
+    const state = JSON.parse(await readFile(stateFile, "utf8"));
+    await writeFile(stateFile, JSON.stringify({ ...state, values: { ...state.values, env: { ...state.values.env, RETIRED_SETTING: "on" } } }));
+    containers.delete("bp-demo");
+    await rm(path.join(catalogRoot, "demo", "compose.yaml"));
+    await expect(apps.reinstall({ id: "demo" })).resolves.toMatchObject({ reinstalled: true, projectRewritten: true });
+  });
+
+  it("restores an app from a machine snapshot with what it saved, its token from the archived .env, and without dropped settings", async () => {
+    const { apps, catalogRoot, catalogDirectory } = await setup();
+    await writeFile(path.join(catalogDirectory, "tunnel.yaml"), tunnelManifest());
+    const snapshotRoot = await mkdtemp(path.join(os.tmpdir(), "boxpilot-snap-")); directories.push(snapshotRoot);
+    const artifact = "machine-snapshot-20260821T020000Z-11111111.tar.gz";
+    await writeFile(path.join(snapshotRoot, artifact), "archive-bytes");
+    await writeFile(path.join(snapshotRoot, `${artifact}.meta.json`), JSON.stringify({ checksumSha256: createHash("sha256").update("archive-bytes").digest("hex") }));
+    // What the archive unpacks to: the app as an older release saved it, with a setting since removed.
+    const unpack = async (staging) => {
+      await mkdir(path.join(staging, "apps", "tunnel"), { recursive: true });
+      await writeFile(path.join(staging, "manifest.json"), JSON.stringify({ contents: { apps: [{ id: "tunnel", installed: true }] }, files: [] }));
+      await writeFile(path.join(staging, "apps", "tunnel", "boxpilot.json"), JSON.stringify({ id: "tunnel", installed: true, values: { ports: {}, env: { TZ: "Europe/Berlin", TUNNEL_METRICS: "on" }, volumes: {} } }));
+      await writeFile(path.join(staging, "apps", "tunnel", ".env"), "TUNNEL_TOKEN='eyJ-the-token'\n");
+    };
+    const run = vi.fn(async (_binary, args) => {
+      if (args[0] !== "-xzf" || !args.includes("-C")) return { ok: false, stdout: "", stderr: "unexpected" };
+      await unpack(args[args.indexOf("-C") + 1]);
+      return { ok: true, stdout: "", stderr: "" };
+    });
+    const snapshots = createMachineSnapshotHelper({ run, controllerBackups: {}, snapshotRoot, catalogRoot, applicationBackupRoot: path.join(snapshotRoot, "none"), mountRoot: path.join(snapshotRoot, "unmounted"), requireIndependentDevice: false, now: () => new Date("2026-08-21T02:00:00.000Z") });
+    const summary = await snapshots.restore({ source: "local", artifact, restoreData: false }, { apps });
+    expect(summary.apps).toEqual([expect.objectContaining({ id: "tunnel", installed: true, error: null })]);
+    const state = JSON.parse(await readFile(path.join(catalogRoot, "tunnel", "boxpilot.json"), "utf8"));
+    expect(state).toMatchObject({ installed: true, restoredFrom: artifact, values: { env: { TZ: "Europe/Berlin" } } });
+    expect(state.values.env).not.toHaveProperty("TUNNEL_METRICS");
+    expect(await readFile(path.join(catalogRoot, "tunnel", ".env"), "utf8")).toBe("TUNNEL_TOKEN='eyJ-the-token'\n");
+  });
+
+  it("still refuses a setting the owner sends that the catalog does not have", async () => {
+    const { apps } = await setup();
+    await expect(apps.install({ id: "demo", values: { env: { RETIRED_SETTING: "on" } } })).rejects.toThrow("values.env.RETIRED_SETTING: is not a setting of this application");
+  });
+});
+
+describe("the owner's own groups on the dashboard", () => {
+  const homepageManifest = "schemaVersion: 2\nid: homepage\nname: Homepage\ncategory: Dashboard\ndescription: dash\nimage:\n  reference: ghcr.io/gethomepage/homepage:v1\nports:\n  - id: web\n    container: 3000\n    host: 3000\nvolumes:\n  - id: config\n    container: /app/config\n    path: config\nhealth:\n  kind: running\n  stableSeconds: 1\n  timeoutSeconds: 10\n";
+  async function withHomepage() {
+    const harness = await setup();
+    await writeFile(path.join(harness.catalogDirectory, "homepage.yaml"), homepageManifest);
+    await harness.apps.install({ id: "homepage" });
+    await harness.apps.syncHomepage({ host: "192.168.1.10" });
+    return { ...harness, servicesPath: path.join(harness.catalogRoot, "homepage", "config", "services.yaml") };
+  }
+
+  it("leaves a services.yaml that does not parse as it is, and says why", async () => {
+    const { apps, servicesPath } = await withHomepage();
+    const broken = "- My network:\n    - Router: {href: http://192.168.1.1\n";
+    await writeFile(servicesPath, broken);
+    await expect(apps.syncHomepage({})).rejects.toThrow(/is not valid YAML.*left as it is/s);
+    expect(await readFile(servicesPath, "utf8")).toBe(broken);
+    // An install's refresh says so in its log, and the install itself goes ahead.
+    const lines = [];
+    await expect(apps.install({ id: "demo", values: { setup: [] } }, { progress: (line, stream) => lines.push([line, stream]) })).resolves.toMatchObject({ installed: true });
+    expect(lines).toContainEqual([expect.stringMatching(/^Homepage dashboard not refreshed: .*not valid YAML/), "stderr"]);
+    expect(await readFile(servicesPath, "utf8")).toBe(broken);
+  });
+
+  it("leaves one that is not a list of groups as it is", async () => {
+    const { apps, servicesPath } = await withHomepage();
+    const mapping = "My network:\n  - Router:\n      href: http://192.168.1.1\n";
+    await writeFile(servicesPath, mapping);
+    await expect(apps.syncHomepage({})).rejects.toThrow(/not a list of groups/);
+    expect(await readFile(servicesPath, "utf8")).toBe(mapping);
+  });
+
+  it("keeps the owner's groups beside its own, and writes the file where there is none or it is empty", async () => {
+    const { apps, servicesPath } = await withHomepage();
+    await writeFile(servicesPath, "- My network:\n    - Router:\n        href: http://192.168.1.1\n");
+    await expect(apps.syncHomepage({})).resolves.toMatchObject({ synced: true, groupsKept: 1 });
+    expect(YAML.parse(await readFile(servicesPath, "utf8")).map((group) => Object.keys(group)[0])).toEqual([expect.any(String), "My network"]);
+    await rm(servicesPath);
+    await expect(apps.syncHomepage({})).resolves.toMatchObject({ synced: true, groupsKept: 0 });
+    await writeFile(servicesPath, "# nothing here yet\n");
+    await expect(apps.syncHomepage({})).resolves.toMatchObject({ synced: true, groupsKept: 0 });
+  });
+});
+
+// Linux only: needs /usr/bin/tar.
+describe.skipIf(onWindows)("what an app backup leaves out on purpose", () => {
+  // Downloaded models and a sidecar's cache, kept out of the archive; two config files the manifest
+  // ships and the compose file mounts; and data that is archived.
+  const stackManifest = [
+    "schemaVersion: 2", "id: stack", "name: Stack", "category: T", "description: d",
+    "image:", "  reference: x/stack:1",
+    "volumes:",
+    "  - id: data", "    container: /data", "    path: data",
+    "  - id: models", "    container: /models", "    path: models", "    backup: false",
+    "files:",
+    "  - path: stack.yml", "    container: /etc/stack.yml", "    content: |", "      scrape: 15s",
+    "  - path: provisioning/sources/stack.yaml", "    container: /etc/stack/sources.yaml", "    content: |", "      sources: []",
+    "sidecars:",
+    "  - id: cache", "    image: valkey/valkey:9", "    volumes:", "      - id: cache", "        container: /data", "        path: cache-data", "        backup: false",
+    "health:", "  kind: running", "  stableSeconds: 1", "  timeoutSeconds: 30",
+  ].join("\n") + "\n";
+
+  async function stack() {
+    const harness = await setup();
+    await writeFile(path.join(harness.catalogDirectory, "stack.yaml"), stackManifest);
+    await harness.apps.install({ id: "stack" });
+    const app = path.join(harness.catalogRoot, "stack");
+    await writeFile(path.join(app, "data", "notes.txt"), "as backed up");
+    const made = await harness.apps.backup({ id: "stack", keep: 5 });
+    // The archive holds the data, and on purpose none of what the restore must keep from the app folder.
+    expect(made.contents).toEqual(expect.arrayContaining(["boxpilot.json", "compose.yaml", "data"]));
+    for (const left of ["models", "cache-data", "stack.yml", "provisioning"]) expect(made.contents).not.toContain(left);
+    harness.advance(60_000);
+    await writeFile(path.join(app, "data", "notes.txt"), "changed since");
+    await writeFile(path.join(app, "models", "llama.gguf"), "forty gigabytes");
+    await writeFile(path.join(app, "cache-data", "dump.rdb"), "warm cache");
+    return { ...harness, app, made };
+  }
+
+  it("keeps the models, the cache and the shipped config files through a restore", async () => {
+    const { apps, app, made, catalogRoot } = await stack();
+    await writeFile(path.join(app, "written-later.txt"), "not part of the backup");
+    await apps.restoreAppBackup({ id: "stack", backup: made.artifact });
+    expect(await readFile(path.join(app, "data", "notes.txt"), "utf8")).toBe("as backed up");
+    expect(await readFile(path.join(app, "models", "llama.gguf"), "utf8")).toBe("forty gigabytes");
+    expect(await readFile(path.join(app, "cache-data", "dump.rdb"), "utf8")).toBe("warm cache");
+    expect(await readFile(path.join(app, "stack.yml"), "utf8")).toBe("scrape: 15s\n");
+    expect(await readFile(path.join(app, "provisioning", "sources", "stack.yaml"), "utf8")).toBe("sources: []\n");
+    // Anything else written since is still the backup's to decide: gone.
+    await expect(readFile(path.join(app, "written-later.txt"), "utf8")).rejects.toThrow();
+    expect((await readdir(catalogRoot)).filter((entry) => entry.includes(".restoring") || entry.includes(".replaced"))).toEqual([]);
+  });
+
+  it("puts them back with the original when the restored app does not start", async () => {
+    const { apps, made, runDocker, catalogRoot } = await stack();
+    const original = runDocker.getMockImplementation();
+    runDocker.mockImplementation(async (binary, args, options) => (args[0] === "compose" && args.includes("up") ? { ok: false, stdout: "", stderr: "fixture start failure" } : original(binary, args, options)));
+    await expect(apps.restoreAppBackup({ id: "stack", backup: made.artifact })).rejects.toThrow(/original directory remains/);
+    const replaced = path.join(catalogRoot, "stack.replaced");
+    expect(await readFile(path.join(replaced, "models", "llama.gguf"), "utf8")).toBe("forty gigabytes");
+    expect(await readFile(path.join(replaced, "cache-data", "dump.rdb"), "utf8")).toBe("warm cache");
+    expect(await readFile(path.join(replaced, "stack.yml"), "utf8")).toBe("scrape: 15s\n");
+    expect(await readFile(path.join(replaced, "data", "notes.txt"), "utf8")).toBe("changed since");
+  });
+
+  it("verifies a backup the app folder completes, and fails one whose restore would lose a shipped file", async () => {
+    const { apps, app, made } = await stack();
+    await expect(apps.verifyAppBackup({ id: "stack", backup: made.artifact })).resolves.toMatchObject({ verified: true });
+    await rm(path.join(app, "stack.yml"));
+    const verdict = await apps.verifyAppBackup({ id: "stack", backup: made.artifact });
+    expect(verdict).toMatchObject({ verified: false, reason: expect.stringContaining("stack.yml") });
+    expect(verdict.reason).not.toContain("provisioning");
   });
 });
