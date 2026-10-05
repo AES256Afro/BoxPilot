@@ -224,7 +224,12 @@ export interface Memory {
   /** M44: what it shared, and the other agents' fresh findings it can use. Absent from an older server. */
   findings?: { shared: Finding[]; usable: Finding[] };
   facts: MemoryNote[];
-  shared: Array<{ id: string; title: string; body: string; from: string; updatedAt: string; stale: boolean }>;
+  /**
+   * Other agents' shared facts, as this agent's runs read them: `injection` when one flags them,
+   * `othersWords` when its words are another account's, held to them; Trust goes to `agentId`, for
+   * whoever may change that agent (`canTrust`). The last four are absent from an older server.
+   */
+  shared: Array<{ id: string; title: string; body: string; from: string; updatedAt: string; stale: boolean; agentId?: string; injection?: boolean; othersWords?: boolean; canTrust?: boolean }>;
   episodes: Array<{ id: string; runId: string | null; text: string; createdAt: string; indexed: boolean }>;
   thread: { summary: string; turns: Array<{ role: "user" | "agent"; text: string; at?: string }>; updatedAt: string } | null;
   settings: { enabled: boolean; share: boolean; threads: boolean; turns: number; freshDays: number; maxNotes: number; shareFindings?: boolean; useFindings?: boolean };

@@ -162,10 +162,27 @@ export function Memory({ agents, agentId, csrfToken, role, now, onSelectAgent }:
       {state.shared.length > 0 && (
         <Panel className="agents-shared" title="Shared by other agents" count={state.shared.length} meta="as far as its runs may read">
           <Table caption="Facts other agents share" rows={state.shared} rowKey={(note) => note.id}
+            rowStatus={(note) => (note.injection ? "warning" : undefined)}
             columns={[
-              { id: "fact", header: "Fact", cell: (note) => <span className="agents-note"><span className="agents-note__title">{note.title}</span><span className="agents-note__body">{note.body}</span></span> },
+              {
+                id: "fact", header: "Fact", cell: (note) => (
+                  <span className="agents-note">
+                    <span className="agents-note__title">{note.title}</span>
+                    <span className="agents-note__body">{note.body}</span>
+                    {(note.injection || note.othersWords) && <span className="agents-name__purpose">{[note.injection ? "after suspicious tool output" : null, note.othersWords ? "another account's words" : null].filter(Boolean).join(" · ")}</span>}
+                  </span>
+                ),
+              },
               { id: "from", header: "From", cell: (note) => note.from },
               { id: "fresh", header: "Fresh", cell: (note) => <StatusChip status={note.stale ? "warning" : "good"}>{note.stale ? "stale" : "fresh"}</StatusChip> },
+              {
+                // Trust goes to the agent that shared it, for whoever may change that agent (sweep 5).
+                id: "actions", header: <span className="ui-visually-hidden">Actions</span>, label: "Actions", className: "agents-actions-cell", cell: (note) => (
+                  note.canTrust && note.agentId && (note.injection || note.othersWords)
+                    ? <Button variant="ghost" onClick={() => void act(() => agentsApi.editMemory(csrfToken, note.agentId as string, note.id, { trusted: true }), `“${note.title}” is trusted: runs that read it are no longer flagged.`)} aria-label={`Trust the shared fact ${note.title}`}>Trust</Button>
+                    : null
+                ),
+              },
             ]} />
         </Panel>
       )}

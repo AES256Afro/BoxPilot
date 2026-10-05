@@ -21,8 +21,8 @@ async function restartBoxPilotAfter(task, { selfRestart, progress }) {
   if (!units.length) return result;
   const scheduled = selfRestart?.request(units, { reason: "it is running libraries the package change replaced" }) === true;
   progress?.(scheduled
-    ? "BoxPilot restarts once this job and any work running beside it have finished; anything started meanwhile waits for the restart."
-    : "BoxPilot needs a restart to pick up the upgraded libraries, and none could be arranged. Restart it from the System page.", scheduled ? "stdout" : "stderr");
+    ? "BoxPilot restarts once this job and any work running beside it have finished. Work started before then finishes first; anything sent while it restarts starts once BoxPilot is back."
+    : "BoxPilot needs a restart to pick up the upgraded libraries, and none could be arranged. Restart it from the Services page.", scheduled ? "stdout" : "stderr");
   return { ...result, selfRestartScheduled: scheduled };
 }
 

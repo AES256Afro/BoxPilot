@@ -94,7 +94,10 @@ export function createHelperClient({ socketPath = process.env.BOXPILOT_HELPER_SO
       // budgetMs goes only with a job given more time: an older helper refuses any context key but
       // jobId, and every other request must keep working against it for a release.
       const context = { ...(jobId ? { jobId } : {}), ...(Number.isInteger(budgetMs) ? { budgetMs } : {}) };
-      connection.on("connect", () => connection.write(`${JSON.stringify({ version: 1, id, operation, parameters, ...(Object.keys(context).length ? { context } : {}) })}\n`));
+      // Until it connects, nothing has been sent: a helper that is not there (stopped and not yet
+      // started again, mid restart) ran nothing, which the job layer may send again (sweep 5).
+      let sent = false;
+      connection.on("connect", () => { sent = true; connection.write(`${JSON.stringify({ version: 1, id, operation, parameters, ...(Object.keys(context).length ? { context } : {}) })}\n`); });
       function succeed() {
         if (settled) return;
         try {
@@ -114,7 +117,7 @@ export function createHelperClient({ socketPath = process.env.BOXPILOT_HELPER_SO
       connection.on("end", succeed);
       // Nothing heard for the whole budget: the same timeout, reached through the idle timer.
       connection.on("timeout", () => fail(ranOut("Helper request timed out", connection.timeout ?? requestTimeoutMs)));
-      connection.on("error", (error) => fail(new Error(`Helper unavailable: ${error.message}`)));
+      connection.on("error", (error) => fail(Object.assign(new Error(`Helper unavailable: ${error.message}`), sent ? {} : { code: "helper_unavailable" })));
       connection.on("close", () => { if (!settled) fail(new Error("Helper connection closed before sending a result")); });
     });
   }

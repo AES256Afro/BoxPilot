@@ -92,17 +92,91 @@ function redactPuttyKeys(text) {
  * The names a secret goes by in an assignment (NAME=value, name: value, "name":"value"). Any case: a
  * secret word anywhere in the name, as a word of its own or run on (RESTIC_PASSWORD, SERVERPASSWORD,
  * VIKUNJA_SERVICE_JWTSECRET), or a name ending in a word of its own that is only a secret at the end
- * (DB_PASS, PLEX_CLAIM). Upper case only, as environment variables are written: a name ending in _KEY
- * (APP_KEY, MEILI_MASTER_KEY) and PASS alone - in lower case `sort_key` and `pass` are ordinary words.
+ * (DB_PASS, PLEX_CLAIM, MYSQL_PWD, DB_CREDENTIALS - never PWD alone, the working directory). Upper
+ * case only, as environment variables are written: a name ending in _KEY (APP_KEY, MEILI_MASTER_KEY),
+ * PASS alone, and PASS run on (DBPASS, ADMINPASS) unless the word is English or a filter (BYPASS,
+ * COMPASS, HIGHPASS) - in lower case `sort_key` and `pass` are ordinary words.
  * Every secret setting in the catalog is one of these; a test holds that to every manifest.
  */
 const secretWords = "token|password|passphrase|passwd|secret|(?:api|access|private|master|encryption|signing|account|app)[_-]?key|authorization|cookie";
-const anyCaseSecretName = `(?:[A-Za-z0-9]+[_.-])*[A-Za-z0-9]*?(?:${secretWords})(?:[_.-][A-Za-z0-9]+)*|(?:[A-Za-z0-9]+[_.-])+(?:pass|claim)`;
-const envSecretName = "(?:[A-Z0-9]+_+)+KEY|PASS";
-const assignment = new RegExp(`(?<![A-Za-z0-9])["']?(${anyCaseSecretName})["']?\\s*[:=]\\s*["']?([^\\s,;"']+)`, "gi");
-const envAssignment = new RegExp(`(?<![A-Za-z0-9_])["']?(${envSecretName})["']?\\s*[:=]\\s*["']?([^\\s,;"']+)`, "g");
+const anyCaseSecretName = `(?:[A-Za-z0-9]+[_.-])*[A-Za-z0-9]*?(?:${secretWords})(?:[_.-][A-Za-z0-9]+)*|(?:[A-Za-z0-9]+[_.-])+(?:pass|claim|pwd|credentials?)`;
+const notAPassword = "BY|COM|ENCOM|SUR|TRES|OVER|UNDER|HIGH|LOW|BAND|ALL|NOTCH|MULTI|ONE|TWO|SINGLE|DOUBLE|FIRST|SECOND|NO";
+const envSecretName = `(?:[A-Z0-9]+_+)+KEY|PASS|(?:[A-Z0-9]+_+)*(?!(?:${notAPassword})PASS(?![A-Za-z0-9_]))[A-Z0-9]+PASS`;
+
+/**
+ * An Authorization header with any scheme, not only Basic and Bearer (sweep 5): `Token 9944b...`,
+ * `ApiKey`, `Bot`, `SSWS` used to come out as `Authorization=[REDACTED] 9944b...` - the scheme hidden,
+ * the credential kept. The word after the scheme goes; for a scheme written as parameters (Digest,
+ * AWS SigV4, OAuth 1) every value goes but the few that only say who and where. A scheme known by
+ * name stays to read; any other first word could be the credential itself, so the assignment rule
+ * below takes it as well.
+ */
+// At most three words before it (HTTP_AUTHORIZATION, X-Forwarded-Authorization): an unbounded run
+// would be tried again from every word of a long name.
+const authorizationName = "(?:[A-Za-z0-9]+[_.-]){0,3}authorization";
+const authSchemes = "Basic|Bearer|Digest|Token|ApiKey|Api-Key|Key|Bot|SSWS|Negotiate|NTLM|OAuth|HOBA|Mutual|SCRAM-SHA-1|SCRAM-SHA-256|vapid|DPoP|GenieKey|Splunk|Hawk|AWS4-HMAC-SHA256|AWS";
+// A parameter's value: quoted (JSON-escaped quotes too, and to the end of the line when cut off), or
+// bare and not starting with `=` - a base64 token's padding is not a parameter.
+const authParamValue = String.raw`\\?"(?:[^"\\\r\n]|\\[^"\r\n])*(?:\\?")?|[^\s,"'\\=][^\s,"'\\]*`;
+const authParam = String.raw`[A-Za-z][\w-]*[ \t]*=[ \t]*(?:${authParamValue})`;
+const authorizationHeader = new RegExp(String.raw`(?<![A-Za-z0-9])(["']?${authorizationName}["']?\s*[:=]\s*["']?)([A-Za-z][\w-]*)([ \t]+)(?:(${authParam}(?:(?:[ \t]*,[ \t]*|[ \t]+)${authParam})*)|(?!\[REDACTED\])[^\s,;"']+)`, "gi");
+const eachAuthParam = new RegExp(String.raw`([A-Za-z][\w-]*)([ \t]*=[ \t]*)(${authParamValue})`, "g");
+const notSecretAuthParam = /^(?:username|realm|uri|qop|nc|algorithm|userhash|charset|signedheaders|oauth_signature_method|oauth_timestamp|oauth_version)$/i;
+
+function redactAuthParam(all, name, equals, value) {
+  if (notSecretAuthParam.test(name)) return all;
+  const open = /^\\?"/.exec(value)?.[0] ?? "";
+  const close = open && value.length > open.length && value.endsWith('"') ? (value.endsWith('\\"') ? '\\"' : '"') : "";
+  return `${name}${equals}${open}[REDACTED]${close}`;
+}
+
+function redactAuthorizationHeader(_match, head, scheme, gap, params) {
+  return `${head}${scheme}${gap}${params ? params.replace(eachAuthParam, redactAuthParam) : "[REDACTED]"}`;
+}
+
+/** Where the header rule already did its work: a named scheme and its credential gone, or its parameters. */
+const authorizationDone = String.raw`(?!["']?${authorizationName}["']?\s*[:=]\s*["']?(?:${authSchemes})[ \t]+(?:\[REDACTED\]|[A-Za-z][\w-]*[ \t]*=[ \t]*(?:\\?"|[^\s,"'\\=])))`;
+
+/**
+ * NAME=value, with a quoted value taken whole (sweep 5): to its closing quote, JSON-escaped quotes and
+ * YAML's doubled single quote inside it, or to the end of the line when the quote was cut off. Before,
+ * a value stopped at its first space, comma or semicolon, and `RESTIC_PASSWORD="correct horse battery
+ * staple"` kept three words of four. A quote before the name and none after it holds the whole
+ * assignment - docker inspect's `"POSTGRES_PASSWORD=pa,ss"` - and the value runs to that quote's pair.
+ */
+const quotedValue = String.raw`"(?:[^"\\\r\n]|\\.)*"?|'(?:[^'\r\n]|'')*'?`;
+function assignmentRule(name, flags, notAfter, skip = "") {
+  return new RegExp(String.raw`(?<![${notAfter}])${skip}(?:(["'])(${name})\s*[:=]\s*(?:(?!\1)[^\\\r\n]|\\.)*|["']?(${name})["']?\s*[:=]\s*(?:${quotedValue}|[^\s,;"']+))`, flags);
+}
+const assignment = assignmentRule(anyCaseSecretName, "gi", "A-Za-z0-9", authorizationDone);
+const envAssignment = assignmentRule(envSecretName, "g", "A-Za-z0-9_");
+const redactAssignment = (_match, quote, quotedName, name) => (quote ? `${quote}${quotedName}=[REDACTED]` : `${name}=[REDACTED]`);
 const secretNamePatterns = [new RegExp(`^(?:${anyCaseSecretName})$`, "i"), new RegExp(`^(?:${envSecretName})$`)];
 const isSecretName = (name) => secretNamePatterns.some((pattern) => pattern.test(name));
+
+/**
+ * Secrets that ride in a URL or a request whatever the scheme (sweep 5). A token as a URL's whole
+ * user part (`https://glpat-...@gitlab...`, `https://<40 hex>@forgejo...`): long, and with a digit
+ * or long enough that no one's name is. A secret-named parameter in any query string, a request
+ * line's or a wss URL's as well as an http(s) one's, plain, HTML-escaped (&amp;) or percent-encoded
+ * inside another parameter. A Discord or Slack webhook, whose secret is the path.
+ */
+const tokenUrlUser = /\b([A-Za-z][A-Za-z0-9+.-]{1,31}:\/\/)(?:(?=[A-Za-z0-9_-]*[0-9])[A-Za-z0-9_-]{20,}|[A-Za-z0-9_-]{32,})@/g;
+const queryName = String.raw`(?:key|auth|sig|pass|pwd|(?:[A-Za-z0-9]+[_.-]){0,4}[A-Za-z0-9]*?(?:token|secret|passw(?:or)?d|api[_-]?key|access[_-]?key|private[_-]?key|signature|credentials?))`;
+const querySecret = new RegExp(String.raw`([?&](?:amp;)?)(${queryName})=[^\s&#"'<>]+`, "gi");
+const encodedQuerySecret = new RegExp(String.raw`(%3F|%26)(${queryName})(%3D)(?:(?!%26)[^\s&#"'<>])+`, "gi");
+const webhookSecret = /(discord(?:app)?\.com\/api(?:\/v\d+)?\/webhooks\/\d+\/)[A-Za-z0-9_-]+|(hooks\.slack\.com\/(?:services|workflows|triggers)\/)[^\s"'<>?#]+/gi;
+
+/**
+ * A private key as one line of DER in base64 (sweep 5): PKCS#8, PKCS#1 RSA, SEC1 EC and PKCS#12 all
+ * start with a SEQUENCE whose first member is a one-byte version, and its encoding says so in the
+ * first nine characters whatever the key (MII..IBA, MIG.AgEA, MHcCAQEE). Certificates, requests,
+ * public keys and CMS start a SEQUENCE with another SEQUENCE, a long INTEGER or an OID, so they are
+ * left alone without a length rule or a label to read - a one-line certificate is ambiguous only to a
+ * rule that looks at "MII" and the length. The cost is the other way: an ENCRYPTED PRIVATE KEY starts
+ * like a certificate and stays, and it is encrypted. Ed25519's 64 characters have their own rule.
+ */
+const oneLineDerKey = /(?<![A-Za-z0-9+/])(?:MII[A-Za-z0-9+/]{2}[AQgw]IBA|MI[GH][A-Za-z0-9+/]AgE[AB]|M[A-H][A-Za-z0-9+/]CAQ[AE])[A-Za-z0-9+/]{72,}={0,2}/g;
 
 /**
  * A YAML block scalar under a secret's name (`password: |` and the lines indented under it): the
@@ -223,31 +297,40 @@ function wrappedPem(value) {
 }
 
 function redactString(input, policy) {
-  let value = redactSecretBlocks(String(input).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]+/g, " "))
+  // A lone carriage return is a new line to whoever reads the text - a chat post shows it as one - so
+  // it becomes one here (sweep 5), before any rule that reads lines.
+  let value = redactSecretBlocks(String(input).replace(/\r(?!\n)/g, "\n").replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]+/g, " "))
     .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer [REDACTED]")
     // HTTP Basic is base64 of user:password - the Zulip bot's key travels this way. Not a word in a
     // sentence ("Basic authentication"): a capital and lower-case letters alone are left as they are.
     .replace(/\b(?:[Bb]asic|BASIC)\s+(?![A-Z]?[a-z]+\b)[A-Za-z0-9+/]{8,}={0,2}/g, "Basic [REDACTED]")
     // Whatever the scheme, the credential after it in an Authorization header, however short.
-    .replace(/\b((?:proxy-)?authorization["']?\s*[:=]\s*["']?)(basic|bearer)\s+(?!\[REDACTED\])[^\s,;"']+/gi, "$1$2 [REDACTED]")
+    .replace(authorizationHeader, redactAuthorizationHeader)
     // Credentials that say what they are whatever surrounds them (sweep 4): a JWT, the token formats
-    // of GitHub, Slack and Tailscale, an AWS access key id, a PEM block base64-wrapped again, and an
-    // Ed25519 private key as one line of DER.
+    // of GitHub, GitLab (sweep 5), Slack and Tailscale, an AWS access key id, a PEM block
+    // base64-wrapped again, and a private key as one line of DER.
     .replace(/(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]*/g, "[REDACTED_JWT]")
     .replace(/(?<![A-Za-z0-9_])(gh[pousr]_)[A-Za-z0-9]{20,}/g, "$1[REDACTED]")
     .replace(/(?<![A-Za-z0-9_])(github_pat_)[A-Za-z0-9_]{20,}/g, "$1[REDACTED]")
+    .replace(/(?<![A-Za-z0-9_-])(gl(?:pat|ptt|dt|rt|cbt|soat|ft|imt|oas|agent)-)[A-Za-z0-9_.-]{20,}/g, "$1[REDACTED]")
     .replace(/(?<![A-Za-z0-9_-])(xox[abeoprs]-|xapp-|tskey-)[A-Za-z0-9-]{8,}/g, "$1[REDACTED]")
     .replace(/(?<![A-Za-z0-9])(AKIA|ASIA)[A-Z0-9]{16}(?![A-Za-z0-9])/g, "$1[REDACTED]")
     .replace(/(?<![A-Za-z0-9+/])LS0tLS1CRUdJTi[A-Za-z0-9+/]*={0,2}/g, wrappedPem)
     .replace(/(?<![A-Za-z0-9+/])MC4CAQAwBQYDK2V[uw]BCIEI[A-Za-z0-9+/]{20,}={0,2}/g, redactedKey)
+    .replace(oneLineDerKey, redactedKey)
+    .replace(webhookSecret, (_match, discord, slack) => `${discord ?? slack}[REDACTED]`)
+    .replace(querySecret, "$1$2=[REDACTED]")
+    .replace(encodedQuerySecret, "$1$2$3[REDACTED]")
     // A quoted JSON key, an env var with a prefix, and a value that runs to the end of the line
     // all had to be handled: {"password":"x"}, RESTIC_PASSWORD=x and `secret_access_key = x` were
     // each untouched, and those are three shapes this product's own logs and configs produce.
-    .replace(assignment, "$1=[REDACTED]")
-    .replace(envAssignment, "$1=[REDACTED]")
+    .replace(assignment, redactAssignment)
+    .replace(envAssignment, redactAssignment)
     // Credentials embedded in a URL are the value, not a field, whatever the scheme: postgres://,
-    // mongodb+srv://, redis:// and amqp:// carry them as often as https:// does. The user stays.
+    // mongodb+srv://, redis:// and amqp:// carry them as often as https:// does. The user stays,
+    // unless it is the token.
     .replace(/\b([A-Za-z][A-Za-z0-9+.-]{1,31}:\/\/)([^\s:/?#@"'<>]*):([^\s/?#"'<>]*)@/g, "$1$2:[REDACTED]@")
+    .replace(tokenUrlUser, "$1[REDACTED]@")
     // A command-line flag takes its value as the next argument: rclone and restic are invoked in
     // exactly this shape, and the key/value rule above cannot see it.
     .replace(/(--[A-Za-z0-9-]*(?:pass|password|secret|token|key)[A-Za-z0-9-]*)(\s+|=)(?!-)[^\s]+/gi, "$1$2[REDACTED]")
