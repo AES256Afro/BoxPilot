@@ -18,7 +18,6 @@ import { copyFileExclusively, mkdirWithoutFollowing, readFileWithoutFollowing, r
 import { fixedRun } from "./exec.mjs";
 import { createControllerBackupHelper } from "./controller-backup-helper.mjs";
 import { backupMountpoint } from "./backup-mount.mjs";
-import { composeFindingsText } from "./catalog/compose-review.mjs";
 
 export const snapshotNamePattern = /^machine-snapshot-\d{8}T\d{6}Z-[a-f0-9]{8}\.tar\.gz$/;
 /**
@@ -790,6 +789,13 @@ export function createMachineSnapshotHelper({
   }
 
   /**
+   * The settings a review lists, one line each (as catalog/compose-review.mjs composeFindingsText says
+   * them). Written out here: the root task runner reaches this module through housekeeping, and runs
+   * with Node's own modules only, so nothing here may import the YAML parser the review needs.
+   */
+  const findingsText = (findings) => (Array.isArray(findings) ? findings : []).map((finding) => `${finding.service ? `${finding.service}: ` : "the file "}${finding.detail}`).join("; ");
+
+  /**
    * What restoring each app's data archive would start (sweep 4): the deployer's review of the
    * archive where it lies (app-helper reviewArchive), without unpacking it. Null where there is no
    * archive to restore or no deployer to ask; `{ error }` where the archive could not be read.
@@ -900,7 +906,7 @@ export function createMachineSnapshotHelper({
         const review = await composeReviewFor(appHelper, app.id, listed.length ? await dataArchiveFor(app.id, listed, place) : null);
         if (!review || review.error) continue;
         if (review.refusals?.length) blocked.push(`${app.id}: ${review.refusals.join("; ")}`);
-        else if (review.needsAllow && allowCompose?.[app.id] !== review.sha256) blocked.push(`${app.id}: its data archive's compose file would be started exactly as it was backed up, and gives it more than the catalog does: ${composeFindingsText(review.findings)} (compose sha256 ${review.sha256}). Allow these settings in the restore dialog, which lists them, or leave ${app.id} out`);
+        else if (review.needsAllow && allowCompose?.[app.id] !== review.sha256) blocked.push(`${app.id}: its data archive's compose file would be started exactly as it was backed up, and gives it more than the catalog does: ${findingsText(review.findings)} (compose sha256 ${review.sha256}). Allow these settings in the restore dialog, which lists them, or leave ${app.id} out`);
       }
       if (blocked.length) throw new Error(`The snapshot was not restored; nothing was changed. ${blocked.join(". ")}.`);
       for (const app of wanted) {
