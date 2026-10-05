@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { appStopClearingOperations } from "./app-stops.mjs";
 import { deviceResolvingOperations } from "./catalog/devices.mjs";
 import { registry } from "./ops/index.mjs";
+import { agentsModelRemove } from "./tasks/agents.mjs";
 
 // Password hashing runs at production scrypt cost; CI runners need more than the 5 s default.
 vi.setConfig({ testTimeout: 30_000 });
@@ -934,6 +935,44 @@ describe("a tier that depends on what an operation acts on", () => {
       expect(other.risk).toBe("medium");
       expect(jobs.describeApproval(other.id, null)).toMatchObject({ tier: "medium", passwordRequired: false });
     } finally { store.close(); }
+  });
+});
+
+describe("a value pinned at staging that can change before approval", () => {
+  // The model agents use is pinned into a staged removal (M37) so the root task can refuse to remove
+  // it. Switching agents to the model a removal names, then approving the removal, deleted the model
+  // now in use: the task checked the pin from staging. It is pinned again as the job is approved.
+  const repo = "unsloth/Qwen3.5-4B-GGUF";
+  const inUse = `${repo}/Qwen3.5-4B-UD-Q4_K_XL.gguf`;
+  const staged = { repo, file: "Qwen3.5-4B-UD-Q8_K_XL.gguf" };
+
+  it("is pinned again as the job is approved, so the model now in use is not removed", async () => {
+    let current = inUse;
+    const ran = vi.fn(async () => { throw new Error("the removal ran"); });
+    // The root task itself, with a recorder where the runner's script would run.
+    const helper = { request: vi.fn(async (_operation, parameters) => agentsModelRemove(parameters, { run: ran })) };
+    const { store, owner } = await setup(helper);
+    try {
+      // As index.mjs wires it.
+      const jobs = createJobService(store, helper, {
+        operationPrepareHooks: { "agents.model.remove": (parameters) => ({ repo: parameters?.repo, file: parameters?.file, projector: parameters?.projector ?? null, current }) },
+        operationApprovalHooks: { "agents.model.remove": (parameters) => ({ ...parameters, current }) },
+      });
+      const job = await jobs.createOperationJob("agents.model.remove", staged, owner.id);
+      expect(store.getJob(job.id).parameters.current).toBe(inUse);
+      current = `${staged.repo}/${staged.file}`; // agents switched to the staged model
+      await expect(jobs.approveAndRun(job.id, owner.id, {})).rejects.toThrow(/agents use now/);
+      expect(helper.request).toHaveBeenCalledWith("agents.model.remove", expect.objectContaining({ current: `${staged.repo}/${staged.file}` }), expect.anything());
+      expect(ran).not.toHaveBeenCalled();
+    } finally { store.close(); }
+  });
+
+  it("is wired for the model removal in index.mjs", async () => {
+    const index = (await readFile(path.join(path.dirname(fileURLToPath(import.meta.url)), "index.mjs"), "utf8")).replaceAll("\r\n", "\n");
+    const start = index.indexOf("operationApprovalHooks: {");
+    expect(start).toBeGreaterThan(-1);
+    const hooks = index.slice(start, index.indexOf("\n  },", start));
+    expect(hooks).toMatch(/"agents\.model\.remove": \(parameters\) => \(\{ \.\.\.parameters, current: agents\.currentModel\(\) \}\)/);
   });
 });
 

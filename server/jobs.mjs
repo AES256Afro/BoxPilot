@@ -76,6 +76,9 @@ export function createJobService(store, helper, {
   jobLog = null,
   operationRecordHooks = {},
   operationPrepareHooks = {},
+  // A value a prepare hook pins at staging that can change while the job waits for approval (the
+  // model agents use, M37) is pinned again here, on the staged parameters, as the job is approved.
+  operationApprovalHooks = {},
   // An operation whose tier depends on what it acts on names a hook that answers that tier from its
   // validated parameters: installing an app its manifest calls high risk is high. The job is staged
   // and approved at the higher of the two, never lower than the operation's own.
@@ -202,10 +205,11 @@ export function createJobService(store, helper, {
       withdraw(job, `Superseded: ${superseded}.`, "job.superseded");
       throw Object.assign(new Error(`${superseded}, so BoxPilot cancelled it. Nothing ran.`), { code: "job_superseded" });
     }
-    const parameters = restoreSecrets(job.parameters ?? {}, stagedSecrets.get(jobId)?.values);
+    let parameters = restoreSecrets(job.parameters ?? {}, stagedSecrets.get(jobId)?.values);
     // A placeholder still present, anywhere, means the staged copy is gone (the service restarted):
     // refuse rather than run with the literal text "[secret]" as a password or an app's token.
     if (placeholderPaths(parameters).length) throw new Error("The credentials staged with this job are no longer available (the service restarted); stage it again");
+    if (operationApprovalHooks[registeredOperation.id]) parameters = await operationApprovalHooks[registeredOperation.id](parameters);
     const parameterError = registry.validate(registeredOperation.id, parameters);
     if (parameterError) throw new Error(`Job parameters are no longer valid: ${parameterError}`);
     // An operation that restarts (or reboots) BoxPilot must not start while another job is mid-run:
