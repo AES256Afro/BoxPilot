@@ -49,8 +49,10 @@ beforeAll(async () => {
   owner = state.consumeBootstrapToken(state.createBootstrapToken().token, { username: "owner", passwordHash });
   operator = state.createOwnerAccount({ username: "operator", passwordHash, role: "operator", createdBy: owner.id });
   const auth = createAuthService(state);
-  const jobs = createJobService(state, { request: async () => ({ ok: true }) });
-  const flows = createFlowService({ store: state, jobs, library: [] });
+  // The helper answers as the real one would where a later step reads the result: syncing Homepage
+  // records the host its links point at, which is whatever the step was given.
+  const jobs = createJobService(state, { request: async (operation, parameters) => (operation === "homepage.sync" ? { synced: true, services: 2, groupsKept: 0, host: parameters.host } : { ok: true }) });
+  const flows = createFlowService({ store: state, jobs, library: [], pollMs: 5 });
   const app = express();
   app.use(express.json({ limit: "256kb", strict: true }));
   app.post("/api/v1/auth/login", auth.login);
@@ -84,14 +86,14 @@ describe("an owner-only step in a flow an operator edits", () => {
 
   it("keeps its real settings when the operator saves changes to the other steps", async () => {
     const steps = (await shown("operator")).steps;
-    steps[0] = { ...steps[0], retry: 2 };
-    steps.push({ operationId: "apt.refresh", parameters: {} });
+    steps.push({ operationId: "apt.refresh", parameters: {}, retry: 2 });
     const saved = await call("PUT", `/api/v1/flows/${flowId}`, sessions.operator, { steps });
     expect(saved.status).toBe(200);
     const stored = state.getFlow(flowId).steps;
     expect(stored).toHaveLength(3);
-    expect(stored[0]).toMatchObject({ operationId: "apt.refresh", retry: 2 });
+    expect(stored[0]).toEqual({ operationId: "apt.refresh", parameters: {}, name: "refresh" });
     expect(stored[1]).toEqual({ operationId: "http.request", parameters: request });
+    expect(stored[2]).toMatchObject({ operationId: "apt.refresh", retry: 2 });
     // A rename that leaves the steps alone is as it was.
     expect((await call("PUT", `/api/v1/flows/${flowId}`, sessions.operator, { name: "Tidy up" })).status).toBe(200);
     expect(state.getFlow(flowId).steps[1].parameters).toEqual(request);
@@ -140,5 +142,85 @@ describe("an owner-only step in a flow an operator edits", () => {
     expect(state.getFlow(flowId).steps[1].parameters.url).toBe("https://ntfy.example/new-topic");
     expect((await call("PUT", `/api/v1/flows/${flowId}`, sessions.owner, { steps: [steps[0]] })).status).toBe(200);
     expect(state.getFlow(flowId).steps).toHaveLength(1);
+  });
+});
+
+describe("a step an owner-only step reads (sweep 3)", () => {
+  // The owner's request goes to the host the step before it records, and a credential rides along.
+  // Syncing Homepage records the host it was given, so whoever edits that step chooses the address.
+  const pinged = { operationId: "http.request", parameters: { url: "https://{{ steps.dash.host }}/hook", method: "POST", body: "synced {{ steps.dash.services }} apps", credentialName: "ntfy-token" }, ownerAdded: true };
+  const stored = [
+    { operationId: "apt.refresh", parameters: {}, name: "refresh" },
+    { operationId: "homepage.sync", parameters: { host: "box.example" }, name: "dash" },
+    pinged,
+  ];
+  let id;
+  beforeEach(() => { id = state.createFlow({ name: "Ping", steps: stored, createdBy: operator.id }).id; });
+  const steps = async () => (await call("GET", "/api/v1/flows", sessions.operator)).body.flows.find((flow) => flow.id === id).steps;
+
+  /** Run the flow as the owner, as Run now does, and return the owner's request as it was staged. */
+  async function ownersRequest() {
+    expect((await call("POST", `/api/v1/flows/${id}/run`, sessions.owner)).status).toBe(202);
+    for (let wait = 0; wait < 500 && String(state.getFlow(id).lastResult ?? "running").startsWith("running"); wait += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(state.getFlow(id).lastResult).toBe("completed");
+    return state.getFlow(id).lastJobIds.map((jobId) => state.getJob(jobId)).find((job) => job.type === "op:http.request");
+  }
+
+  it("cannot be changed, swapped, made conditional or moved by the operator", async () => {
+    const shown = await steps();
+    const attempts = {
+      "a new host": [shown[0], { ...shown[1], parameters: { host: "other-host.example" } }, shown[2]],
+      "another operation under its name": [shown[0], { operationId: "apt.refresh", parameters: {}, name: "dash" }, shown[2]],
+      "a condition": [shown[0], { ...shown[1], when: { value: "{{ steps.refresh.ok }}" } }, shown[2]],
+      "a new failure rule": [shown[0], { ...shown[1], onFailure: "continue" }, shown[2]],
+      "moved": [{ ...shown[1] }, { ...shown[0] }, shown[2]],
+    };
+    for (const [what, attempt] of Object.entries(attempts)) {
+      const refused = await call("PUT", `/api/v1/flows/${id}`, sessions.operator, { steps: attempt });
+      expect(refused.status, what).toBe(403);
+      expect(refused.body, what).toMatchObject({ code: "flow_step_owner_only" });
+      expect(refused.body.error, what).toMatch(/step 3 \(Send an HTTP request\), which only the owner may run, reads/);
+      expect(state.getFlow(id).steps, what).toEqual(stored);
+    }
+    expect((await call("PUT", `/api/v1/flows/${id}`, sessions.operator, { steps: attempts["a new host"] })).body.error).toBe("Only the owner can change, move or remove step 2 (Sync Homepage with installed apps): step 3 (Send an HTTP request), which only the owner may run, reads its result. Leave it where it is, as it is, to save your other changes.");
+    // Removing it moves the owner's step, which was already refused.
+    expect((await call("PUT", `/api/v1/flows/${id}`, sessions.operator, { steps: [shown[0], shown[2]] })).status).toBe(403);
+    // The owner's request goes where the owner meant.
+    expect((await ownersRequest()).parameters).toMatchObject({ url: "https://box.example/hook", body: "synced 2 apps", credentialName: "ntfy-token" });
+  });
+
+  it("leaves the operator every step it does not read", async () => {
+    const shown = await steps();
+    const saved = await call("PUT", `/api/v1/flows/${id}`, sessions.operator, { name: "Ping it", steps: [{ ...shown[0], retry: 1 }, shown[1], shown[2], { operationId: "apt.refresh", parameters: {} }] });
+    expect(saved.status).toBe(200);
+    expect(state.getFlow(id).steps.map((step) => step.retry ?? 0)).toEqual([1, 0, 0, 0]);
+    expect(state.getFlow(id).steps[2]).toEqual(pinged);
+  });
+
+  it("covers a step it reads through another, and a step its condition reads", async () => {
+    const through = state.createFlow({ name: "Chain", steps: [
+      { operationId: "homepage.sync", parameters: { host: "box.example" }, name: "pick" },
+      { operationId: "homepage.sync", parameters: { host: "{{ steps.pick.host }}" }, name: "dash" },
+      pinged,
+    ], createdBy: operator.id }).id;
+    const chain = (await call("GET", "/api/v1/flows", sessions.operator)).body.flows.find((flow) => flow.id === through).steps;
+    const steered = await call("PUT", `/api/v1/flows/${through}`, sessions.operator, { steps: [{ ...chain[0], parameters: { host: "other-host.example" } }, chain[1], chain[2]] });
+    expect(steered.status).toBe(403);
+    expect(steered.body.error).toMatch(/^Only the owner can change, move or remove step 1 \(Sync Homepage with installed apps\): step 3/);
+
+    const gated = state.createFlow({ name: "Gated", steps: [
+      { operationId: "homepage.sync", parameters: { host: "box.example" }, name: "check" },
+      { operationId: "http.request", parameters: { url: "https://hooks.example/hook" }, when: { value: "{{ steps.check.synced }}" }, ownerAdded: true },
+    ], createdBy: operator.id }).id;
+    const shown = (await call("GET", "/api/v1/flows", sessions.operator)).body.flows.find((flow) => flow.id === gated).steps;
+    const swapped = await call("PUT", `/api/v1/flows/${gated}`, sessions.operator, { steps: [{ operationId: "apt.refresh", parameters: {}, name: "check" }, shown[1]] });
+    expect(swapped.status).toBe(403);
+    expect(swapped.body.error).toMatch(/^Only the owner can change, move or remove step 1 \(Sync Homepage with installed apps\): step 2 \(Send an HTTP request\)/);
+  });
+
+  it("stays the owner's to change", async () => {
+    const shown = (await call("GET", "/api/v1/flows", sessions.owner)).body.flows.find((flow) => flow.id === id).steps;
+    expect((await call("PUT", `/api/v1/flows/${id}`, sessions.owner, { steps: [shown[0], { ...shown[1], parameters: { host: "dash.example" } }, shown[2]] })).status).toBe(200);
+    expect((await ownersRequest()).parameters.url).toBe("https://dash.example/hook");
   });
 });

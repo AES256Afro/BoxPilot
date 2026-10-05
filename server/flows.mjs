@@ -192,13 +192,46 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
    * the routes as stored), and keeps its mark. Anything else is refused.
    */
   function authorSteps(steps, role, stored = []) {
-    return normalizeSteps(steps).map((step, index) => {
+    const authored = normalizeSteps(steps).map((step, index) => {
       if (!ownerOnly(step)) return step;
       if (role === "owner") return { ...step, ownerAdded: true };
       const kept = stored[index];
       if (sameStep(kept, step)) return { ...step, ...(kept.ownerAdded === true ? { ownerAdded: true } : {}) };
       throw Object.assign(new Error(`Only the owner can put step ${index + 1} (${registry.get(step.operationId).title}) in a flow: only the owner may run it, and a flow runs as whoever starts it`), { code: "flow_step_owner_only" });
     });
+    if (role !== "owner") keepStepsOwnerStepsRead(authored, stored);
+    return authored;
+  }
+
+  const titleOf = (step) => registry.get?.(step?.operationId)?.title ?? step?.operationId;
+  /** The step names a step reads: its parameters' placeholders and its condition's. */
+  const namesRead = (step) => [...referencesIn(step?.parameters ?? {}), ...(step?.when ? referencesIn({ value: step.when.value }) : [])].map((reference) => reference.step);
+
+  /**
+   * A step only the owner may run reads earlier steps' results through {{ steps.x.y }} and `when`
+   * (sweep 3). Whoever can change one of those steps chooses what the owner's step sends, and where,
+   * and whether it runs at all, the next time the owner presses Run now: keeping the owner's step
+   * unchanged was not enough. So a save by anyone but the owner leaves every step an owner-only step
+   * reads, directly or through the steps it reads in turn, where it is and as it is. An owner-only
+   * step moved or removed is refused already (authorSteps above, and the routes' hidden-step guard).
+   */
+  function keepStepsOwnerStepsRead(submitted, stored) {
+    for (const [index, ownersStep] of stored.entries()) {
+      if (!ownerOnly(ownersStep) || !sameStep(ownersStep, submitted[index])) continue;
+      const read = new Set();
+      const pending = namesRead(ownersStep);
+      while (pending.length) {
+        const name = pending.pop();
+        if (read.has(name)) continue;
+        read.add(name);
+        const source = stored.find((step, position) => position < index && step.name === name);
+        if (source) pending.push(...namesRead(source));
+      }
+      for (const [position, step] of stored.entries()) {
+        if (position >= index || typeof step.name !== "string" || !read.has(step.name) || sameStep(step, submitted[position])) continue;
+        throw Object.assign(new Error(`Only the owner can change, move or remove step ${position + 1} (${titleOf(step)}): step ${index + 1} (${titleOf(ownersStep)}), which only the owner may run, reads its result. Leave it where it is, as it is, to save your other changes.`), { code: "flow_step_owner_only" });
+      }
+    }
   }
 
   /**
