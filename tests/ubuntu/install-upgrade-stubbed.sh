@@ -28,6 +28,8 @@
 #      changes; a new --port or --access is written before the upgrade and checked there, and the
 #      env file is put back if the box does not come up on it; a LAN address opens the port in ufw.
 #   5. The host doctor, run with sudo, asks the web service where the env file says it listens.
+#   6. An installer re-run stopped by HUP (the SSH session dropped), during the build or once the
+#      upgrade has stopped the service, puts the env file back and restarts BoxPilot on it.
 set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -63,7 +65,12 @@ stub() { printf '#!/bin/sh\n%s\n' "$2" > "${BIN}/$1"; chmod +x "${BIN}/$1"; }
 stub node "exec \"${NODE_REAL}\" \"\$@\""
 stub id 'case "${1:-}" in -u) echo 0 ;; -un) echo root ;; esac; exit 0'
 stub flock 'exit 0'
-stub npm 'exit 0'
+# npm: does nothing, but holds `npm ci` (the build) until the harness lets it go when $STUB_NPM_HOLD is set.
+stub npm 'if [ -n "${STUB_NPM_HOLD:-}" ] && [ "${1:-}" = ci ]; then
+  : > "$STUB_LOG/npm-held"
+  while [ ! -e "$STUB_LOG/npm-release" ]; do "$STUB_SLEEP" 0.1; done
+fi
+exit 0'
 stub chown 'exit 0'
 stub journalctl 'exit 0'
 stub sleep 'exit 0'
@@ -160,6 +167,15 @@ UPGRADE
 tr -d '\r' < "${REPO}/deploy/boxpilot.env.example" > "${WORK}/installer/BoxPilot-2.0.0/deploy/boxpilot.env.example"
 printf '{}\n' > "${WORK}/installer/BoxPilot-2.0.0/deploy/redaction.example.json"
 tar -czf "${WORK}/installer.tar.gz" -C "${WORK}/installer" BoxPilot-2.0.0
+
+# The same download with the real upgrade script in it (moved under $FAKE like the others) and the
+# release it builds: for what the two scripts do together when they are stopped part way.
+mkdir -p "${WORK}/installer-real"
+cp -R "${WORK}/release/BoxPilot-2.0.0" "${WORK}/installer-real/"
+cp -R "${WORK}/installer/BoxPilot-2.0.0/deploy" "${WORK}/installer-real/BoxPilot-2.0.0/"
+mkdir -p "${WORK}/installer-real/BoxPilot-2.0.0/scripts"
+cp "${WORK}/upgrade.sh" "${WORK}/installer-real/BoxPilot-2.0.0/scripts/boxpilot-upgrade.sh"
+tar -czf "${WORK}/installer-real.tar.gz" -C "${WORK}/installer-real" BoxPilot-2.0.0
 
 # The helper's socket, which the upgrade waits to see. Relative, from $WORK: a socket's path has a
 # length limit a scratch directory can exceed.
@@ -431,6 +447,38 @@ doctor_case() { # doctor_case <what> <env file> <the URL that answers> <host:por
 }
 doctor_case "installed with --port 9000" 'BOXPILOT_HOST=0.0.0.0\nBOXPILOT_PORT=9000' http://127.0.0.1:9000/api/v1/health 127.0.0.1:9000
 doctor_case "CRLF, blanks around =" 'BOXPILOT_HOST = 192.0.2.10 \r\nBOXPILOT_PORT = "9005" \r' http://192.0.2.10:9005/api/v1/health 192.0.2.10:9005
+
+echo "6. An installer re-run stopped by a signal puts the env file back"
+# hup_install_case <what> <where the run is held: build|swap>
+# A re-run with --port 9100 on a box on 9000, with the real upgrade script. The installer runs in a
+# process group of its own and the whole group gets HUP, as when the SSH session behind
+# `curl | sudo sh` drops: at `npm ci` (the build), or at the upgrade's first daemon-reload (the
+# service stopped, the new tree in place, so the upgrade rolls back). The env file used to keep 9100
+# (the service moved there at its next restart, and the rollback restarted the old version on it)
+# with neither ufw nor Tailscale Serve following it.
+hup_install_case() {
+  local what="$1" at="$2" pid holds="" npm_hold="" held
+  installed_box 9000 false
+  cp "${FAKE}/etc/boxpilot/boxpilot.env" "${WORK}/env-before"
+  if [ "$at" = build ]; then npm_hold=1; held="${STUB_LOG}/npm-held"; else holds="daemon-reload:1"; held="${STUB_LOG}/held-1"; fi
+  set -m
+  (cd "$WORK" && exec env "${common_env[@]}" STUB_TARBALL="${WORK}/installer-real.tar.gz" STUB_LISTEN=http://127.0.0.1:9100/api/v1/health STUB_HOLDS="$holds" STUB_NPM_HOLD="$npm_hold" "$SH" "${WORK}/install.sh" --ref v2.0.0 --no-token --port 9100 > "${WORK}/out" 2>&1) &
+  pid=$!
+  set +m
+  if wait_for "$held"; then kill -HUP -- "-${pid}"; else echo "    (never reached ${at})"; fi
+  : > "${STUB_LOG}/npm-release"; : > "${STUB_LOG}/release-1"
+  wait "$pid" 2>/dev/null; status=$?
+  out="$(cat "${WORK}/out")"
+  show "$out
+(the installer exited ${status})"
+  check "${what}: the installer exited non-zero" '[ "$status" -ne 0 ]'
+  check "${what}: the env file is as it was" 'cmp -s "${WORK}/env-before" "${FAKE}/etc/boxpilot/boxpilot.env"'
+  check "${what}: BoxPilot was restarted on port 9000, last" '[ "$(tail -n 1 "${STUB_LOG}/systemctl")" = "restart boxpilot.service" ] && [ "$(tail -n 1 "${STUB_LOG}/web-restarts" 2>/dev/null)" = BOXPILOT_PORT=9000 ]'
+  check "${what}: the old tree is in place" '[ "$(version_at "${FAKE}/opt/boxpilot")" = 1.0.0 ]'
+  check "${what}: nothing was opened or published" '! grep -q "^allow" "${STUB_LOG}/ufw" 2>/dev/null && ! grep -q "^serve" "${STUB_LOG}/tailscale" 2>/dev/null'
+}
+hup_install_case "HUP during the build" build
+hup_install_case "HUP once the upgrade has stopped the service" swap
 
 if [ "$failures" -gt 0 ]; then echo "${failures} check(s) failed"; exit 1; fi
 echo "all checks passed"
