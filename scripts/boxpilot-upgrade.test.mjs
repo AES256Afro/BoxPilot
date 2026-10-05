@@ -159,15 +159,23 @@ describe("where the copy sits in the upgrade", () => {
   it("rolls back when the new helper does not stay up, not only when the web service fails its check", () => {
     // boxpilot-helper is Type=simple: `systemctl restart` exits 0 once it forks, and /api/v1/health
     // is answered by the web service alone, so a helper failing at start passed as a good upgrade.
+    const up = script.slice(at("helper_up() {"), at("rollback() {"));
+    expect(up).toContain('systemctl is-active --quiet boxpilot-helper.service && [ -S "$HELPER_SOCKET" ]');
     const web = at('if [ "$HEALTHY" -ne 1 ]; then');
-    const helper = at('HELPER_SOCKET="${BOXPILOT_HELPER_SOCKET:-/run/boxpilot/helper.sock}"');
+    const helper = at("if ! helper_up 90; then");
     // The last disarm, where the upgrade is judged good (rollback() disarms it too, first).
     const disarmed = script.lastIndexOf("\ntrap - EXIT\n");
     expect(web).toBeLessThan(helper);
     expect(helper).toBeLessThan(disarmed);
-    const check = script.slice(helper, disarmed);
-    expect(check).toContain('systemctl is-active --quiet boxpilot-helper.service && [ -S "$HELPER_SOCKET" ]');
-    expect(check).toMatch(/if \[ "\$HAD_PREVIOUS" -eq 1 \]; then rollback; else fail "helper unhealthy"; fi/);
+    expect(script.slice(helper, disarmed)).toMatch(/if \[ "\$HAD_PREVIOUS" -eq 1 \]; then rollback; else fail "helper unhealthy"; fi/);
+  });
+
+  // The web service only Wants= the helper, so it answers with the helper down: a rollback that
+  // asked the web service alone said the old version was back while every host operation failed.
+  it("asks the helper after a rollback too, and says when it is not up", () => {
+    const rollback = script.slice(at("rollback() {"), at("HAD_PREVIOUS=0"));
+    expect(rollback).toContain('helper_up 10 || helper_down="boxpilot-helper is not up with its socket at ${HELPER_SOCKET}"');
+    expect(rollback.indexOf("helper_up 10")).toBeGreaterThan(rollback.indexOf('curl -fsS --max-time 2 "$HEALTH_URL"'));
   });
 
   it("keeps saying the new version is live last, which the System page reads", () => {
