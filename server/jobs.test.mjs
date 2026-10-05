@@ -788,7 +788,8 @@ describe("a job that ran out of time (M30.3)", () => {
       const job = await jobs.createOperationJob("app.update", { id: "jellyfin" }, owner.id);
       await expect(jobs.approveAndRun(job.id, owner.id, {})).rejects.toThrow("was unchanged");
       const failed = store.getJob(job.id);
-      expect(failed.timeout).toMatchObject({ scope: "step", budgetMs: minutes(30), elapsedMs: minutes(33), step: "Downloading the new images", moreTimeMs: minutes(80) });
+      // More time is twice the update's own budget (its checkpoint's allowance included), not the step's.
+      expect(failed.timeout).toMatchObject({ scope: "step", budgetMs: minutes(30), elapsedMs: minutes(33), step: "Downloading the new images", moreTimeMs: 2 * registry.get("app.update").timeoutMs });
       expect(failed.error).toMatch(/^Jellyfin update failed before anything was restarted/);
       expect(failed.steps.map((step) => step.name)).toEqual(expect.arrayContaining(["timeout", "rollback"]));
     } finally { store.close(); }
