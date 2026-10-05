@@ -909,6 +909,14 @@ its run token, set its routes (`ingress`), and add the DNS name. The helper has 
   first domain listed, and domains in the others are not offered.
 - BoxPilot's record can drift from Cloudflare when the owner edits the tunnel in the dashboard;
   Check with Cloudflare shows it, and publishing again repairs a missing route.
+- **Addendum (2026-10-05, sweep 1): BoxPilot's own credentials are not the owner's to send.**
+  `http.request` (medium, M13.7) sends a saved credential by name, in any header, to any address,
+  so a session that never gave the password, or an agent's proposed step, could have posted
+  `cloudflare-api-token` anywhere at a tier below the one that saved it. The names BoxPilot writes
+  itself (`managedCredentialNames` in `server/credentials.mjs`: the two Cloudflare tokens,
+  `heartbeat-url`, `zulip-agents-bot`) are refused by `http.request`'s parameter check (where an
+  agent's plan is checked too) and again in its root task, by `agents.connector.sync`, and by Save a
+  credential, so only their own operations write them.
 
 ## ADR-012: agents share their findings, by a permission each, and re-read live facts before any card
 
