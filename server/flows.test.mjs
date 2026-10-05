@@ -410,6 +410,62 @@ describe("running a flow", () => {
     expect(jobs.calls).toHaveLength(3);
   });
 
+  /** Jobs that fail as the job layer records a timeout: `timeout` is the job's timeout record. */
+  function timingOutJobs(store, timeout) {
+    let counter = 0;
+    return {
+      calls: [],
+      async createOperationJob(operationId, parameters) {
+        counter += 1;
+        const job = { id: `job-${counter}`, operationId, parameters, state: "awaiting_approval" };
+        store.jobs.set(job.id, job);
+        this.calls.push({ operationId });
+        return job;
+      },
+      async approveAndStart(jobId) {
+        const job = store.jobs.get(jobId);
+        job.state = "applying";
+        setTimeout(() => {
+          job.state = "failed";
+          job.error = timeout.scope === "operation" && timeout.phase !== "queued" ? "Back up BoxPilot did not finish within 3 minutes. It may still be running on the server; Activity shows how far it got." : "it ran out of time";
+          job.timeout = { budgetMs: 180_000, elapsedMs: 180_000, step: null, lastOutput: null, moreTimeMs: null, ...timeout };
+        }, 5);
+      },
+      cancelJob: vi.fn(),
+    };
+  }
+  const stillRunning = { scope: "operation", phase: "running" };
+
+  it("does not retry a step whose job ran out of its whole budget: it may still be running", async () => {
+    const store = fakeStore();
+    const jobs = timingOutJobs(store, stillRunning);
+    const service = createFlowService({ store, jobs, pollMs: 2, retryDelayMs: 2 });
+    const flow = await service.create({ name: "nightly", steps: [{ ...goodSteps[0], retry: 1 }, goodSteps[1]], createdBy: "owner-1" });
+    await expect(service.run(flow.id, "owner-1", { role: "owner" })).rejects.toThrow(/lost sight of step 1 .*may still be running/);
+    expect(jobs.calls).toHaveLength(1);                                // no second copy started beside the first
+    expect(store.getFlow(flow.id).lastResult).toMatch(/^lost sight of step 1 /);
+  });
+
+  it("does not continue past such a step under a keep-going policy either", async () => {
+    const store = fakeStore();
+    const jobs = timingOutJobs(store, stillRunning);
+    const service = createFlowService({ store, jobs, pollMs: 2, retryDelayMs: 2 });
+    const flow = await service.create({ name: "belt", steps: [{ ...goodSteps[0], onFailure: "continue" }, goodSteps[1]], createdBy: "owner-1" });
+    await expect(service.run(flow.id, "owner-1", { role: "owner" })).rejects.toThrow(/lost sight of step 1/);
+    expect(jobs.calls.map((call) => call.operationId)).toEqual(["controller.backup.create"]);
+  });
+
+  it("still retries a step that timed out in a way that stopped it: one of its own steps, or waiting in the queue", async () => {
+    for (const timeout of [{ scope: "step", phase: "running" }, { scope: "operation", phase: "queued" }]) {
+      const store = fakeStore();
+      const jobs = timingOutJobs(store, timeout);
+      const service = createFlowService({ store, jobs, pollMs: 2, retryDelayMs: 2 });
+      const flow = await service.create({ name: "again", steps: [{ ...goodSteps[0], retry: 1 }], createdBy: "owner-1" });
+      await expect(service.run(flow.id, "owner-1", { role: "owner" })).rejects.toThrow(/stopped at step 1 .*after 2 attempts/);
+      expect(jobs.calls).toHaveLength(2);
+    }
+  });
+
   it("rewrites a record stranded by a restart to what is actually known", () => {
     const store = fakeStore();
     const notified = [];
@@ -659,6 +715,80 @@ describe("a flow on the clock", () => {
     // The same operation with the secret left blank is not the problem: it will be asked for at run time.
     const ok = service.create({ name: "fine", createdBy: "owner-1", steps: [{ operationId: "credentials.set", parameters: { name: "ntfy", value: "" } }] });
     await expect(ok).resolves.toBeTruthy().catch(() => { /* if the op requires the value, that is a different refusal and fine */ });
+  });
+
+  /** Jobs that finish on their own a moment after they start, except those of `heldOperation`, which run until released. */
+  function heldJobs(store, heldOperation) {
+    let counter = 0;
+    return {
+      calls: [],
+      async createOperationJob(operationId, parameters, actorId, { role }) {
+        counter += 1;
+        const job = { id: `job-${counter}`, operationId, parameters, state: "awaiting_approval" };
+        store.jobs.set(job.id, job);
+        this.calls.push({ operationId, actorId, role });
+        return job;
+      },
+      async approveAndStart(jobId) {
+        const job = store.jobs.get(jobId);
+        job.state = "applying";
+        if (job.operationId !== heldOperation) setTimeout(() => { job.state = "completed"; job.result = null; }, 5);
+      },
+      release() { for (const job of store.jobs.values()) if (job.operationId === heldOperation && job.state === "applying") job.state = "completed"; },
+      cancelJob: vi.fn(),
+    };
+  }
+  async function until(condition, ms = 1500) {
+    const end = Date.now() + ms;
+    while (!condition()) {
+      if (Date.now() > end) throw new Error("timed out waiting");
+      await new Promise((resolve) => setTimeout(resolve, 2));
+    }
+  }
+
+  it("runs flows due together side by side, so one step held open does not hold up the other", async () => {
+    // tick() awaited each due flow in turn: a step queued behind six hours of work kept every other
+    // scheduled flow, and every follower, from starting until it finished.
+    const store = fakeStore();
+    const jobs = heldJobs(store, "controller.backup.create");
+    const service = createFlowService({ store, jobs, pollMs: 2, maxStepMs: 60_000, now: at("2026-08-30T03:00:30.000Z") });
+    const daily = { frequency: "daily", minute: 0, hour: 3 };
+    const slow = await service.create({ name: "Slow", steps: [goodSteps[0]], createdBy: "owner-1", cadence: daily });
+    const quick = await service.create({ name: "Quick", steps: [goodSteps[1]], createdBy: "owner-1", cadence: daily });
+    for (const flow of [slow, quick]) store.flows.get(flow.id).nextDueAt = "2026-08-30T03:00:00.000Z";
+    const ticked = service.tick();
+    try {
+      await until(() => store.getFlow(quick.id).lastResult === "completed");
+      expect(jobs.calls.map((call) => call.operationId).sort()).toEqual(["controller.backup.create", "host.snapshot.create"]);
+      expect(store.getFlow(slow.id).lastResult).toMatch(/^running step 1 of 1/);
+      // Both clocks moved on when they fired, not when the slow one finally finished.
+      for (const flow of [slow, quick]) expect(store.getFlow(flow.id).nextDueAt > "2026-08-30T03:00:30.000Z").toBe(true);
+    } finally { jobs.release(); }
+    expect(await ticked).toBe(2);
+    expect(store.getFlow(slow.id).lastResult).toBe("completed");
+    expect(store.audits.filter((audit) => audit.event === "flow.scheduled-run")).toHaveLength(2);
+  });
+
+  it("is not turned away by an earlier tick whose flow is still running", async () => {
+    const store = fakeStore();
+    const jobs = heldJobs(store, "controller.backup.create");
+    let clock = new Date("2026-08-30T03:00:30.000Z");
+    const service = createFlowService({ store, jobs, pollMs: 2, maxStepMs: 60_000, now: () => clock });
+    const slow = await service.create({ name: "Slow", steps: [goodSteps[0]], createdBy: "owner-1", cadence: { frequency: "daily", minute: 0, hour: 3 } });
+    const later = await service.create({ name: "Later", steps: [goodSteps[1]], createdBy: "owner-1", cadence: { frequency: "daily", minute: 0, hour: 4 } });
+    store.flows.get(slow.id).nextDueAt = "2026-08-30T03:00:00.000Z";
+    const first = service.tick();
+    try {
+      await until(() => /^running step/.test(store.getFlow(slow.id).lastResult ?? ""));
+      clock = new Date("2026-08-30T04:00:30.000Z");
+      store.flows.get(later.id).nextDueAt = "2026-08-30T04:00:00.000Z";
+      // The slow flow is still running and due again only tomorrow; the later one fires now.
+      expect(await service.tick()).toBe(1);
+      expect(store.getFlow(later.id).lastResult).toBe("completed");
+      expect(store.getFlow(slow.id).lastResult).toMatch(/^running step 1 of 1/);
+    } finally { jobs.release(); }
+    await first;
+    expect(store.getFlow(slow.id).lastResult).toBe("completed");
   });
 
   it("does not fire a disabled flow, and re-enabling reckons the clock afresh", async () => {
