@@ -105,7 +105,7 @@ export function defineOperation(definition) {
   if (minimumRole !== null && !["owner", "operator"].includes(minimumRole)) throw new Error(`Operation ${id} minimumRole must be owner or operator`);
   if (confirm !== null && typeof confirm !== "function") throw new Error(`Operation ${id} confirm must be a function of the parameters returning the text to type`);
   if (supersededWhen !== null && (typeof supersededWhen !== "function" || readOnly)) throw new Error(`Operation ${id} supersededWhen must be a function, and only a staged job can be superseded`);
-  if (![true, false, "maybe"].includes(restartsService)) throw new Error(`Operation ${id} restartsService must be true, false or "maybe"`);
+  if (![true, false, "drained"].includes(restartsService)) throw new Error(`Operation ${id} restartsService must be true, false or "drained"`);
   for (const [name, field] of Object.entries(parameters?.fields ?? {})) {
     if (field?.secretEnvOf === undefined) continue;
     if (field.type !== "object" || field.secret) throw new Error(`Operation ${id} parameter ${name}: secretEnvOf belongs on an object field that is not itself secret`);
@@ -134,8 +134,9 @@ export function defineOperation(definition) {
   // confirm(parameters): text the approver must type for destructive jobs; checked server-side at approval.
   // restartsService: the operation restarts (or reboots) the BoxPilot service, so approving it while
   // another job runs would interrupt that job. The job service refuses the approval when so.
-  // "maybe": it restarts BoxPilot only when what it did calls for it (a package change that replaced
-  // libc), and is guarded the same way.
+  // "drained": it may restart BoxPilot when what it did calls for it (a package change that replaced
+  // libc, KVM installed), through the helper's drained restart (self-restart.mjs), which waits for
+  // every job running beside it to finish first. Nothing is cut off, so it is not refused beside them.
   // supersededWhen(parameters, { version }): why a job of this operation, staged and still waiting,
   // no longer has anything to do (an update to a version already running), or null. The job service
   // cancels such a job with that reason rather than let it wait for an approval that would do harm

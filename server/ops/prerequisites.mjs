@@ -65,7 +65,7 @@ export function prerequisiteOperations() {
       // apt-get may take 20 minutes, its unit 21 (TimeoutStartSec), and the helper waits 21 for that
       // unit; the budget covers all of it and the checks after. The helper then restarts, once the
       // work beside this job has finished, so VM work can write to /var/lib/libvirt.
-      id: "prerequisite.virtualization.install", title: "Install KVM/QEMU/libvirt", risk: "medium", description: "Installs KVM, QEMU and libvirt from Ubuntu's archive, which is what virtual machines run on. Existing applications and containers are unaffected.", timeoutMs: minutes(23), restartsService: true,
+      id: "prerequisite.virtualization.install", title: "Install KVM/QEMU/libvirt", risk: "medium", description: "Installs KVM, QEMU and libvirt from Ubuntu's archive, which is what virtual machines run on. Existing applications and containers are unaffected.", timeoutMs: minutes(23), restartsService: "drained",
       parameters: { fields: { expectedPackages: { type: "object", validate: validExpectedPackages } } },
       run: async (parameters, { prerequisites, selfRestart, progress }) => {
         const { helperRestartNeeded = false, ...result } = await prerequisites.installVirtualization(parameters);

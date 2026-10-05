@@ -568,9 +568,11 @@ describe("guarding restarts against running jobs (M4.5 / self-update safety)", (
     } finally { store.close(); }
   });
 
-  it("guards the operations that can restart BoxPilot when they finish: upgrades, installs and KVM", async () => {
+  it("runs the operations whose restart is drained beside other work: upgrades, installs and KVM (sweep 4)", async () => {
     // An upgrade that moves libc or openssl restarts BoxPilot to pick them up; installing KVM restarts
-    // the helper so VM work can write to /var/lib/libvirt. Neither was marked, so neither was guarded.
+    // the helper so VM work can write to /var/lib/libvirt. That restart waits for every job running
+    // beside them (self-restart.mjs), so refusing them while a backup ran guarded nothing: it only
+    // sent the nightly updates, Update night's steps and the Install buttons away with a "did not run".
     const helper = { request: vi.fn(async () => ({ ok: true })) };
     const { store, owner, jobs } = await setup(helper);
     try {
@@ -583,10 +585,14 @@ describe("guarding restarts against running jobs (M4.5 / self-update safety)", (
         await jobs.createOperationJob("prerequisite.virtualization.install", { expectedPackages: packages }, owner.id),
       ];
       for (const job of staged) {
-        await expect(jobs.approveAndRun(job.id, owner.id, { session: store.getSession(store.createSession(owner.id).token) })).rejects.toThrow(/^Wait for a running job to finish first: Back up application data\. ".+" (can restart|restarts) BoxPilot/);
-        expect(store.getJob(job.id).state).toBe("awaiting_approval");
+        expect(registry.get(job.type.slice(3)).restartsService).toBe("drained");
+        await expect(jobs.approveAndRun(job.id, owner.id, { session: store.getSession(store.createSession(owner.id).token) })).resolves.toMatchObject({ state: "completed" });
       }
-      expect(helper.request).not.toHaveBeenCalled();
+      expect(helper.request.mock.calls.map(([operation]) => operation)).toEqual(expect.arrayContaining(["apt.upgrade", "apt.install", "prerequisite.virtualization.install"]));
+      // A restart that is not drained is still refused beside it: a LAN change restarts BoxPilot at once.
+      const lan = await jobs.createOperationJob("system.web.lan.set", { enabled: true }, owner.id);
+      await expect(jobs.approveAndRun(lan.id, owner.id, { session: store.getSession(store.createSession(owner.id).token) })).rejects.toThrow(/^Wait for a running job to finish first: Back up application data\. ".+" restarts BoxPilot/);
+      expect(store.getJob(lan.id).state).toBe("awaiting_approval");
     } finally { store.close(); }
   });
 

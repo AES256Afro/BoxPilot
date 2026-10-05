@@ -87,7 +87,7 @@ describe("BoxPilot restarting after a package change", () => {
   const stale = { upgraded: true, servicesNeedingRestart: ["boxpilot.service", "boxpilot-helper.service"], servicesRestarted: [], selfRestartNeeded: ["boxpilot.service", "boxpilot-helper.service"] };
 
   it.each([["apt.upgrade", {}], ["apt.install", { packages: ["htop"] }]])("%s can restart BoxPilot, and asks the helper for a drained restart", async (id, parameters) => {
-    expect(registry.get(id).restartsService).toBe("maybe");
+    expect(registry.get(id).restartsService).toBe("drained");
     const runUnit = { runTask: vi.fn(async () => ({ ...stale })) };
     const selfRestart = { request: vi.fn(() => true) };
     const progress = vi.fn();
