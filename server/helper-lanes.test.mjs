@@ -1,19 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { createConcurrencyGate, createLaneQueues, exclusiveLane, laneFor } from "./helper-lanes.mjs";
+import { backupTreeLane, createConcurrencyGate, createLaneQueues, exclusiveLane, laneFor } from "./helper-lanes.mjs";
 
 describe("helper lanes", () => {
   it("gives each app and VM its own lane and keeps shared host work on one", () => {
-    expect(laneFor("app.backup", { id: "jellyfin" })).toEqual(["app:jellyfin", "host"]);
+    expect(laneFor("app.backup", { id: "jellyfin" })).toEqual(["app:jellyfin", "backup-tree", "host"]);
     expect(laneFor("app.action", { id: "immich", action: "restart" })).toEqual(["app:immich"]);
     expect(laneFor("app.install", {})).toEqual(["app:homepage"]); // installs write the shared dashboard file
-    expect(laneFor("app.backup", {})).toEqual(["host"]); // no subject: stay conservative
+    expect(laneFor("app.backup", {})).toEqual(["backup-tree", "host"]); // no subject: stay conservative
     expect(laneFor("vm.action", { name: "dev-lab" })).toEqual(["vm:dev-lab"]);
     expect(laneFor("vm.create", { name: "dev-lab" })).toEqual(["host"]); // shared pools and libvirt config
     expect(laneFor("vm.media.import", { name: "iso" })).toEqual(["host"]);
     expect(laneFor("apt.upgrade", {})).toEqual(["host"]);
     expect(laneFor("firewall.set", { enabled: true })).toEqual(["host"]);
     expect(laneFor("storage.format", { device: "/dev/sdb" })).toEqual(["host"]);
-    expect(laneFor("app.backup", { id: "x".repeat(100) })).toEqual(["host"]); // implausible subject
+    expect(laneFor("app.backup", { id: "x".repeat(100) })).toEqual(["backup-tree", "host"]); // implausible subject
   });
 
   it("runs different lanes concurrently and the same lane in order, surviving failures", async () => {
@@ -66,7 +66,7 @@ describe("apps that touch the shared dashboard", () => {
     expect(laneFor("app.purge", { id: "immich" })).toEqual(["app:immich", "app:homepage"]);
     expect(laneFor("homepage.sync", {})).toEqual(["app:homepage"]);
     // Everything else about an app still gets that app's own lane.
-    expect(laneFor("app.backup", { id: "jellyfin" })).toEqual(["app:jellyfin", "host"]);
+    expect(laneFor("app.backup", { id: "jellyfin" })).toEqual(["app:jellyfin", "backup-tree", "host"]);
     expect(laneFor("app.action", { id: "jellyfin", action: "restart" })).toEqual(["app:jellyfin"]);
   });
 });
@@ -172,7 +172,48 @@ it("keeps completed-log cache release independent of long host work", () => {
 });
 
 it("holds every app a several-app backup touches, and the shared dashboard when an app is rebuilt (M35)", () => {
-  expect(laneFor("app.backup.many", { ids: ["audhdmap", "protec"] })).toEqual(["app:audhdmap", "app:protec", "host"]);
+  expect(laneFor("app.backup.many", { ids: ["audhdmap", "protec"] })).toEqual(["app:audhdmap", "app:protec", "backup-tree", "host"]);
   expect(laneFor("app.reinstall", { id: "homepage" })).toEqual(["app:homepage"]);
   expect(laneFor("app.reinstall", { id: "it-tools" })).toEqual(["app:it-tools", "app:homepage"]);
+});
+
+/**
+ * An update, a settings change, a compose edit, a rollback and a file restore each write a
+ * checkpoint into the backup tree, and a delete removes from it; they held only their app's lane, so
+ * a mirror ran beside them, copied a `<stamp>.tar.gz.partial` mid-write and kept it forever, or died
+ * when the file it was reading was renamed or grew under it (rsync exits 24, rclone errors).
+ */
+describe("the backup tree", () => {
+  it("puts everything that writes or deletes there, and the three mirrors, on one lane", () => {
+    for (const id of ["app.backup", "app.backup.many", "app.backup.restore", "app.backup.restore-path", "app.backup.delete", "app.backup.verify", "app.update", "app.rollback", "app.reconfigure", "app.compose.edit"]) {
+      expect(laneFor(id, { id: "jellyfin" })).toContain(backupTreeLane);
+    }
+    for (const id of ["backup.sync", "backup.remote.sync", "backup.cloud.sync"]) expect(laneFor(id, {})).toEqual([backupTreeLane, "host"]);
+    // The checkpoint is all an update writes there: it still does not wait behind an apt upgrade.
+    expect(laneFor("app.update", { id: "jellyfin" })).toEqual(["app:jellyfin", backupTreeLane]);
+    expect(laneFor("app.backup.delete", { id: "jellyfin", backup: "20261001T030000Z.tar.gz" })).toEqual(["app:jellyfin", backupTreeLane]);
+    // Nothing else about an app touches the tree.
+    expect(laneFor("app.action", { id: "jellyfin", action: "restart" })).toEqual(["app:jellyfin"]);
+    expect(laneFor("app.exposure.set", { id: "jellyfin", mode: "tailnet" })).toEqual(["app:jellyfin"]);
+  });
+
+  it("never runs a mirror beside an update's checkpoint, or a delete beside a mirror", async () => {
+    const queues = createLaneQueues();
+    const order = [];
+    let releaseUpdate;
+    const update = queues.run(laneFor("app.update", { id: "jellyfin" }), async () => {
+      order.push("update:start");
+      await new Promise((resolve) => { releaseUpdate = resolve; });
+      order.push("update:end");
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const mirrors = ["backup.sync", "backup.remote.sync", "backup.cloud.sync"].map((id) => queues.run(laneFor(id, {}), async () => { order.push(id); }));
+    const remove = queues.run(laneFor("app.backup.delete", { id: "immich" }), async () => { order.push("delete"); });
+    // A third app's restart shares no lane with any of them.
+    await queues.run(laneFor("app.action", { id: "pihole", action: "restart" }), async () => { order.push("restart"); });
+    expect(order).toEqual(["update:start", "restart"]);
+    releaseUpdate();
+    await Promise.all([update, ...mirrors, remove]);
+    expect(order).toEqual(["update:start", "restart", "update:end", "backup.sync", "backup.remote.sync", "backup.cloud.sync", "delete"]);
+  });
 });

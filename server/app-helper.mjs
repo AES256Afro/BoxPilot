@@ -469,6 +469,24 @@ export function createAppHelper({
   }
 
   /**
+   * Saved settings with the secrets they never hold put back from the app's .env, where the only
+   * copy lives (storableValues). A required secret with no default - the Cloudflare Tunnel's token,
+   * cloudflare-ddns's API token - was otherwise missing from every re-check of saved settings: the
+   * tunnel could not be updated at all, a settings change wanted the token typed again, and neither
+   * a reinstall nor a snapshot restore could bring it back. Only what was not given is filled, and
+   * only from a non-empty value; renderCompose keeps the same value for the same reason.
+   */
+  function withSavedSecrets(manifest, raw, existingEnv) {
+    const env = { ...(raw?.env ?? {}) };
+    for (const entry of manifest.env) {
+      if (!entry.secret || !entry.required || entry.fixed || entry.generate || (entry.default !== null && entry.default !== undefined)) continue;
+      if (env[entry.name] !== undefined && env[entry.name] !== null && env[entry.name] !== "") continue;
+      if (typeof existingEnv?.[entry.name] === "string" && existingEnv[entry.name] !== "") env[entry.name] = existingEnv[entry.name];
+    }
+    return { ...raw, env };
+  }
+
+  /**
    * Run the manifest's setup choices (blocklists, plugins) inside the running container.
    * Commands are idempotent by contract, so every install and settings change re-applies the
    * chosen ones. Failures are reported, never fatal: the app itself is up.
@@ -835,14 +853,20 @@ export function createAppHelper({
     return { applications: described, problems: readProblems, catalogRoot: root };
   }
 
-  async function install({ id, values: rawValues = {}, devices = null }, { progress = null, timeScale = 1 } = {}) {
+  /**
+   * `storedValues` (a machine snapshot restore) says the values are settings an earlier release
+   * saved, not the owner's entry: what the catalog no longer has is dropped, as update does, and a
+   * secret they never hold comes from the .env restored beside them.
+   */
+  async function install({ id, values: rawValues = {}, devices = null }, { progress = null, timeScale = 1, storedValues = false } = {}) {
     const manifest = await ensureManifest(id);
     const existing = await readState(id);
     if (existing?.installed) throw new Error(`${manifest.name} is already installed; use reconfigure or update`);
+    const given = storedValues ? withSavedSecrets(manifest, sanitizeStoredValues(manifest, rawValues ?? {}), await readEnv(id)) : rawValues;
     // An install that does not say who can reach the app takes the manifest's default: tailnet only
     // for an app that must not face the home network (Zulip). Only here: a reconfigure keeps what
     // was stored, so a manifest gaining a default never moves an app already installed.
-    const withExposure = rawValues?.exposure === undefined && manifest.defaultExposure === "tailnet" ? { ...rawValues, exposure: "tailnet" } : rawValues;
+    const withExposure = given?.exposure === undefined && manifest.defaultExposure === "tailnet" ? { ...given, exposure: "tailnet" } : given;
     const { values, errors } = resolveValues(manifest, withExposure);
     if (errors.length) throw new Error(`Invalid settings: ${errors.join("; ")}`);
     const probe = await docker(["version", "--format", "{{.Server.Version}}"], { timeout: 10_000 });
@@ -921,11 +945,13 @@ export function createAppHelper({
     const saved = await readProjectFiles(id);
     let rewritten = false;
     if (saved.compose === null) {
-      const { values, errors } = resolveValues(manifest, state.values ?? {});
+      // As update does: settings a catalog revision has dropped are dropped, not a reason to refuse.
+      const existingEnv = await readEnv(id);
+      const { values, errors } = resolveValues(manifest, withSavedSecrets(manifest, sanitizeStoredValues(manifest, state.values ?? {}), existingEnv));
       if (errors.length) throw new Error(`${manifest.name}'s saved settings no longer fit the catalog (${errors.join("; ")}); uninstall it and install it again from the App catalog`);
       const pinned = state.image?.reference ? { ...manifest, image: { ...manifest.image, reference: state.image.reference } } : manifest;
       progress?.(`${manifest.name}'s compose project is gone too; writing it again from its saved settings, on ${pinned.image.reference}`, "stdout");
-      await writeProject(pinned, values, { existingEnv: await readEnv(id), devices });
+      await writeProject(pinned, values, { existingEnv, devices });
       rewritten = true;
     } else {
       progress?.(`Building ${manifest.name}'s container again from its saved project, ${path.join(dirFor(id), "compose.yaml")}`, "stdout");
@@ -1011,7 +1037,7 @@ export function createAppHelper({
     }
     // Stored state may predate the current manifest (or older releases stored values the
     // operator could not change); keep only what the manifest accepts today.
-    const { values, errors } = resolveValues(manifest, sanitizeStoredValues(manifest, state.values ?? {}));
+    const { values, errors } = resolveValues(manifest, withSavedSecrets(manifest, sanitizeStoredValues(manifest, state.values ?? {}), await readEnv(id)));
     if (errors.length) throw new Error(`Stored settings no longer match the manifest: ${errors.join("; ")}`);
     const saved = takeCheckpoint ? await checkpoint({ id, reason: "update" }, { progress }) : null;
     // What is running right now, read from the deployed compose file before it is overwritten. This
@@ -1102,7 +1128,7 @@ export function createAppHelper({
       typeof reference === "string" && reference && (service === id || (manifest.sidecars ?? []).some((sidecar) => sidecar.id === service))));
     if (!Object.keys(restoreTo).length) throw new Error(`${manifest.name} has no recorded version that still matches how it is built today, so there is nothing to go back to`);
 
-    const { values, errors } = resolveValues(manifest, sanitizeStoredValues(manifest, state.values ?? {}));
+    const { values, errors } = resolveValues(manifest, withSavedSecrets(manifest, sanitizeStoredValues(manifest, state.values ?? {}), await readEnv(id)));
     if (errors.length) throw new Error(`Stored settings no longer match the manifest: ${errors.join("; ")}`);
     // Pin every service that moved, app and sidecars alike: restoring the app onto an upgraded
     // database is how a rollback reports success and leaves the app unable to read its own data.
@@ -1175,11 +1201,13 @@ export function createAppHelper({
       exposure: rawValues.exposure ?? stored.exposure,
       networkMode: rawValues.networkMode ?? stored.networkMode,
     };
-    const { values, errors } = resolveValues(manifest, merged);
+    // A secret the request does not re-enter is the one in .env (withSavedSecrets): a settings change
+    // never asks for the tunnel token again.
+    const previousEnv = await readFile(path.join(dirFor(id), ".env"), "utf8").catch(() => "");
+    const { values, errors } = resolveValues(manifest, withSavedSecrets(manifest, merged, parseEnvFile(previousEnv)));
     if (errors.length) throw new Error(`Invalid settings: ${errors.join("; ")}`);
     const saved = takeCheckpoint ? await checkpoint({ id, reason: "settings change" }, { progress }) : null;
     const previousCompose = await readFile(path.join(dirFor(id), "compose.yaml"), "utf8").catch(() => null);
-    const previousEnv = await readFile(path.join(dirFor(id), ".env"), "utf8").catch(() => "");
     const rendered = await writeProject(manifest, values, { existingEnv: parseEnvFile(previousEnv), devices });
     // The new ports are checked before the containers are recreated. Putting a served app on the
     // home network (every address) while Serve still holds its port on the tailnet address is the
@@ -1644,8 +1672,18 @@ export function createAppHelper({
     }
     await mkdir(configDirectory, { recursive: true });
     const servicesPath = path.join(configDirectory, "services.yaml");
+    // The owner's own groups live in the same file. One that does not parse, or is not a list of
+    // groups, used to count as empty and was replaced with BoxPilot's group alone, deleting theirs.
+    // Only a file that is not there (or holds nothing) is empty; anything else is left as it is.
+    const leftAlone = (why) => new Error(`Homepage's services.yaml (${servicesPath}) ${why}, so it was left as it is rather than replaced with only BoxPilot's group, which would lose your own groups. Fix the file, or move it aside to start afresh, then sync again.`);
     let existing = [];
-    try { const parsed = YAML.parse(await readFile(servicesPath, "utf8")); if (Array.isArray(parsed)) existing = parsed; } catch { existing = []; }
+    const text = await readFile(servicesPath, "utf8").catch((error) => { if (error.code === "ENOENT") return null; throw leftAlone(`could not be read (${error.message})`); });
+    if (text !== null) {
+      let parsed;
+      try { parsed = YAML.parse(text); } catch (error) { throw leftAlone(`is not valid YAML (${String(error.message).split("\n")[0]})`); }
+      if (Array.isArray(parsed)) existing = parsed;
+      else if (parsed !== null && parsed !== undefined) throw leftAlone("is not a list of groups");
+    }
     const kept = existing.filter((group) => !(group && typeof group === "object" && Object.keys(group)[0] === homepageGroup));
     const services = [{ [homepageGroup]: entries }, ...kept];
     const pending = `${servicesPath}.${randomUUID()}.tmp`;
@@ -1777,6 +1815,31 @@ export function createAppHelper({
     return { backedUp: true, ...meta, pruned };
   }
 
+  /**
+   * What an app backup leaves out on purpose, which a restore therefore keeps from the app folder it
+   * replaces: the folders marked `backup: false` of the app and its sidecars (downloaded models, a
+   * cache, an export folder, a mailbox) and the config files the manifest ships (a prometheus.yml),
+   * which the deployer writes and the compose file mounts. Relative to the app folder, shortest first.
+   */
+  function keptOutOfBackup(manifest) {
+    const folders = [...manifest.volumes, ...(manifest.sidecars ?? []).flatMap((sidecar) => sidecar.volumes ?? [])].filter((volume) => volume.path && !volume.backup).map((volume) => volume.path);
+    const files = (manifest.files ?? []).map((file) => path.posix.normalize(file.path)).filter((relative) => !relative.startsWith("..") && !path.posix.isAbsolute(relative));
+    return { files, all: [...new Set([...folders, ...files])].sort((a, b) => a.length - b.length) };
+  }
+
+  /** Whether `relative` is under `base` through real folders only: "present", "absent", or "unsafe" (a link or a file on the way). */
+  async function entryAt(base, relative) {
+    const parts = relative.split("/");
+    let current = base;
+    for (const [index, part] of parts.entries()) {
+      current = path.join(current, part);
+      const info = await lstat(current).catch((error) => { if (error.code === "ENOENT" || error.code === "ENOTDIR") return null; throw error; });
+      if (!info) return "absent";
+      if (index < parts.length - 1 && (info.isSymbolicLink() || !info.isDirectory())) return "unsafe";
+    }
+    return "present";
+  }
+
   /** Backups on disk for one app, newest first. The filesystem is the source of truth. */
   /**
    * How many backups each app has, from one walk of the backup root. The recovery kit needs only
@@ -1898,6 +1961,8 @@ export function createAppHelper({
     progress?.(`$ tar -tzf ${target} (reads the whole archive; writes nothing)`, "stdout");
     const topLevel = new Set();
     let memberCount = 0;
+    const shipped = new Set(keptOutOfBackup(manifest).files);
+    const shippedInArchive = new Set();
     const listed = await runCommand(tarBinary, ["-tzf", artifact], {
       timeout: 60 * 60_000,
       onLine: (line, stream) => {
@@ -1907,6 +1972,8 @@ export function createAppHelper({
         memberCount += 1;
         const first = name.replace(/^\.\//, "").split("/")[0];
         if (first) topLevel.add(first);
+        const member = name.replace(/^\.\//, "").replace(/\/$/, "");
+        if (shipped.has(member)) shippedInArchive.add(member);
       },
     });
     if (!listed.ok) return fail(`The archive could not be read all the way through: ${redact(listed.stderr).split("\n").slice(-2).join(" ")}`);
@@ -1919,7 +1986,22 @@ export function createAppHelper({
     // background rehearsal can afford.
     const compose = await runCommand(tarBinary, ["-xzOf", artifact, "compose.yaml"], { timeout: 30 * 60_000, maxBuffer: 8 * 1024 * 1024 });
     if (!compose.ok || !compose.stdout.trim()) return fail("The archive has no compose.yaml, so it could not be redeployed from.");
-    try { YAML.parse(compose.stdout); } catch (error) { return fail(`The compose file in the archive is not valid YAML: ${error.message}`); }
+    let archivedCompose;
+    try { archivedCompose = YAML.parse(compose.stdout); } catch (error) { return fail(`The compose file in the archive is not valid YAML: ${error.message}`); }
+
+    // A config file the manifest ships is never archived: the restore keeps it from the app folder
+    // (keptOutOfBackup). One the archived compose file mounts that the folder no longer has would
+    // come back as a directory Docker makes in its place, and the app would not start.
+    const mountedSources = new Set(Object.values(archivedCompose?.services ?? {}).flatMap((service) => (Array.isArray(service?.volumes) ? service.volumes : []))
+      .map((volume) => (typeof volume === "string" ? volume.split(":")[0] : volume?.source))
+      .filter((source) => typeof source === "string" && source.startsWith("./"))
+      .map((source) => path.posix.normalize(source)));
+    const lost = [];
+    for (const relative of shipped) {
+      if (!mountedSources.has(relative) || shippedInArchive.has(relative)) continue;
+      if ((await entryAt(dirFor(id), relative)) !== "present") lost.push(relative);
+    }
+    if (lost.length) return fail(`Restoring it would leave ${lost.join(", ")} missing: the backup does not hold ${lost.length === 1 ? "that config file" : "those config files"} (${manifest.name} ships them, so no backup does) and ${manifest.name}'s folder no longer has ${lost.length === 1 ? "it" : "them"} to keep, so Docker would make a folder in ${lost.length === 1 ? "its" : "their"} place and ${manifest.name} would not start. Saving ${manifest.name}'s settings again writes ${lost.length === 1 ? "it" : "them"} back.`);
 
     const durationMs = clock().getTime() - startedAt;
     progress?.(`${target} reads cleanly: ${memberCount} entr${memberCount === 1 ? "y" : "ies"}, compose.yaml valid`, "stdout");
@@ -1930,6 +2012,7 @@ export function createAppHelper({
   async function restoreAppBackup({ id, backup: backupName }, { progress = null } = {}) {
     const manifest = await ensureManifest(id);
     if (typeof backupName !== "string" || !backupNamePattern.test(backupName)) throw new Error("Backup name is invalid");
+    const kept = keptOutOfBackup(manifest);
     const live = dirFor(id);
     const staged = `${live}.restoring`;
     const displaced = `${live}.replaced`;
@@ -1984,11 +2067,45 @@ export function createAppHelper({
       await rm(staged, { recursive: true, force: true });
       throw new Error(`Could not swap in the restored files (${error.message}). ${recovered ? "The original directory was put back; check whether the app needs starting." : "The original may remain in the .replaced directory; preserve it and inspect before retrying."}`);
     }
+    // What the archive leaves out on purpose comes across from the folder it replaced
+    // (keptOutOfBackup). Swapping the archive in alone deleted the downloaded models, the export
+    // folder and the mailbox with the old folder, and left Docker to make a directory where
+    // Prometheus's config file belongs. Moved, not copied (models can be most of a disk), and moved
+    // back if the restored app does not come up, so .replaced is always the whole original.
+    const carried = [];
+    const putBack = async () => {
+      for (const relative of [...carried].reverse()) await rename(path.join(live, relative), path.join(displaced, relative)).catch(() => {});
+    };
+    if (await lstat(displaced).then(() => true, () => false)) {
+      for (const relative of kept.all) {
+        if ((await entryAt(displaced, relative)) !== "present") continue;
+        const here = await entryAt(live, relative);
+        if (here === "present") continue;   // an older backup that did hold it: the archive's copy stands
+        try {
+          if (here === "unsafe") throw new Error("a link or a file in the restored folder stands in its way");
+          await placeWithoutFollowing(path.join(displaced, relative), live, relative, path.join(displaced, ".boxpilot-aside"));
+          carried.push(relative);
+        } catch (error) {
+          await putBack();
+          throw new Error(`Restored the files, but could not keep ${relative} from the app folder (${error.message}), so ${manifest.name} was not started. The original directory remains in ${path.basename(displaced)}; preserve it.`);
+        }
+      }
+      if (carried.length) progress?.(`Kept from the app folder, as backups leave them out: ${carried.join(", ")}`, "stdout");
+    }
+    const missing = [];
+    for (const relative of kept.files) if ((await entryAt(live, relative)) === "absent") missing.push(relative);
+    if (missing.length) progress?.(`${missing.join(", ")} ${missing.length === 1 ? "is" : "are"} in neither the backup nor the app folder; ${manifest.name} may not start without ${missing.length === 1 ? "it" : "them"}`, "stderr");
     const up = await compose(id, ["up", "--detach", "--remove-orphans"], { timeout: 15 * 60_000, progress });
-    if (!up.ok) throw new Error(`Restored the files, but docker compose up failed: ${redact(up.stderr).split("\n").slice(-4).join(" ")}. The original directory remains in ${path.basename(displaced)} for recovery.`);
+    if (!up.ok) {
+      await putBack();
+      throw new Error(`Restored the files, but docker compose up failed: ${redact(up.stderr).split("\n").slice(-4).join(" ")}. The original directory remains in ${path.basename(displaced)} for recovery.`);
+    }
     let healthy;
     try { healthy = await waitHealthy(manifest, progress); }
-    catch (error) { throw new Error(`${error.message}. Preserve ${path.basename(displaced)}; it holds the original directory when one existed.`); }
+    catch (error) {
+      await putBack();
+      throw new Error(`${error.message}. Preserve ${path.basename(displaced)}; it holds the original directory when one existed.`);
+    }
     if (safetyBackupSaved) await rm(displaced, { recursive: true, force: true });
     const retainedOriginal = !safetyBackupSaved && await lstat(displaced).then(() => true, () => false);
     if (retainedOriginal) progress?.(`Restore passed its health check. ${path.basename(displaced)} was retained because no safety backup was saved.`, "stderr");
