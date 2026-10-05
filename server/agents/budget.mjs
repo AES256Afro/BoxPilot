@@ -39,6 +39,16 @@ export function nextQuietStart(now, quiet = defaultQuietHours) {
   return next;
 }
 
+/** When the quiet hours `now` falls in began, or null outside them. */
+export function quietHoursStart(now, quiet = defaultQuietHours) {
+  if (!inQuietHours(now, quiet)) return null;
+  const start = parseClock(quiet.start) ?? parseClock(defaultQuietHours.start);
+  const began = new Date(now);
+  began.setHours(Math.floor(start / 60), start % 60, 0, 0);
+  if (began > now) began.setDate(began.getDate() - 1);
+  return began;
+}
+
 /** Local midnight at the start of `now`'s day: where "today" begins for a budget. */
 export function startOfLocalDay(now) {
   const day = new Date(now);

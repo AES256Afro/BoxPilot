@@ -399,6 +399,11 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
     prepare("UPDATE agent_runs SET lease_expires_at = ? WHERE id = ? AND state = 'running'").run(new Date(now().getTime() + leaseMs).toISOString(), runId);
   }
 
+  /** A run claimed for a runner that never received it, back in the queue as it was before the claim. */
+  function releaseRun(runId) {
+    return Number(prepare("UPDATE agent_runs SET state = 'queued', started_at = NULL, lease_hash = NULL, lease_expires_at = NULL, runner_id = NULL WHERE id = ? AND state = 'running'").run(runId).changes) > 0;
+  }
+
   /** Move a run to a finished state, once: a run that already finished stays as it ended. */
   function finishRun(runId, { state, reason = null, answer = null, outputKind = null, usage = null, flags = null, evalInfo = undefined }) {
     const row = prepare("SELECT usage_json, flags_json, eval_json FROM agent_runs WHERE id = ?").get(runId);
@@ -422,18 +427,22 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
     prepare("UPDATE agents SET last_run_at = ? WHERE id = ?").run(at, agentId);
   }
 
-  /** Runs started today (since `since`) and the model time they used: what a budget counts. */
+  /**
+   * Runs started today (since `since`) and the model time they used: what a budget counts. Of the
+   * runs, `nightlyEvals` are the nightly evaluation's questions (an eval nobody asked for).
+   */
   function usageSince(agentId, since) {
     const rows = agentId === null
-      ? prepare("SELECT usage_json FROM agent_runs WHERE started_at >= ?").all(since)
-      : prepare("SELECT usage_json FROM agent_runs WHERE agent_id = ? AND started_at >= ?").all(agentId, since);
-    let modelMs = 0; let tokens = 0;
+      ? prepare("SELECT usage_json, kind, requested_by FROM agent_runs WHERE started_at >= ?").all(since)
+      : prepare("SELECT usage_json, kind, requested_by FROM agent_runs WHERE agent_id = ? AND started_at >= ?").all(agentId, since);
+    let modelMs = 0; let tokens = 0; let nightlyEvals = 0;
     for (const row of rows) {
       const usage = parse(row.usage_json, {});
       modelMs += (Number(usage.modelMs) || 0) + (Number(usage.loadMs) || 0);
       tokens += (Number(usage.promptTokens) || 0) + (Number(usage.completionTokens) || 0);
+      if (row.kind === "eval" && !row.requested_by) nightlyEvals += 1;
     }
-    return { runs: rows.length, modelMs, tokens };
+    return { runs: rows.length, nightlyEvals, modelMs, tokens };
   }
 
   /**
@@ -791,7 +800,7 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
   return {
     databasePath, transaction,
     createAgent, getAgent, listAgents, getVersion, listVersions, addVersion, setPaused, setNextRun, noteEvent, deleteAgent, setWebhook,
-    enqueueRun, getRun, listRuns, listChildren, listTree, activeRuns, claimNext, holdsLease, extendLease, finishRun, mergeRunFlags, setEvalInfo, markAgentRan, usageSince, findingsUseSince,
+    enqueueRun, getRun, listRuns, listChildren, listTree, activeRuns, claimNext, holdsLease, extendLease, releaseRun, finishRun, mergeRunFlags, setEvalInfo, markAgentRan, usageSince, findingsUseSince,
     addStep, listSteps, countSteps,
     writeNote, listNotes, getNote, listSharedNotes, deleteNote, updateNote,
     writeFinding, listFindings, deleteFindings,

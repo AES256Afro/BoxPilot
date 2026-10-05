@@ -369,7 +369,9 @@ async function seed({ service, state, store, caller, at, runNext, script, world,
   // One request, handed by the Server Keeper (the supervisor) to two specialists, then answered
   // from what they found: one trace tree on the one queue, as the person who asked. The Backup
   // Auditor's finding from its run this morning answers its part, so it is not run again (M44);
-  // the Pi-hole Watcher's last answer was about something else, so it runs.
+  // the Pi-hole Watcher is asked to check now, so it runs. Without "check now" whether it ran
+  // depended on the hour the demo was built: its 05:31 routine's finding stays fresh seven hours,
+  // so a demo built between about 05:45 and 12:45 took that finding instead (2026-10 sweep, D-1).
   at(new Date(Date.now() - hours(0.25)));
   script((body) => {
     if (understanding(body)) {
@@ -380,7 +382,7 @@ async function seed({ service, state, store, caller, at, runNext, script, world,
     if (from(body, "Server Keeper")) {
       if (continuing(body)) return { content: "Not all backups are current: Vaultwarden, Nextcloud and Homepage have never been backed up, and cards already propose the first two [T1]. Pi-hole is healthy: blocking, its lists a day old, both upstreams answering in about 20 ms [T2]." };
       return withTools(body) === 0
-        ? { toolCalls: [call("agents.handoff", { agent: "Backup Auditor", task: "Say which apps with data have no recent backup." }), call("agents.handoff", { agent: "Pi-hole Watcher", task: "Say whether Pi-hole is blocking and its lists are fresh." })] }
+        ? { toolCalls: [call("agents.handoff", { agent: "Backup Auditor", task: "Say which apps with data have no recent backup." }), call("agents.handoff", { agent: "Pi-hole Watcher", task: "Check now whether Pi-hole is blocking and its lists are fresh." })] }
         : { content: "The Backup Auditor already found what the backups need [T1], so it was not run again. I asked the Pi-hole Watcher [T2]; its answer comes back to me, and I put the two together." };
     }
     if (from(body, "Backup Auditor")) return withTools(body) === 0 ? { toolCalls: [call("backups.status")] } : { content: "Vaultwarden, Nextcloud and Homepage hold data and have never been backed up; database backups and their restore drills are current [T1]." };
