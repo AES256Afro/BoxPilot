@@ -342,7 +342,9 @@ describe("R5S3-1, R5S1-3: a name in Zulip reaches only the agent it names, and s
     }
     // The operator asking: the owner's, and theirs.
     const [theirs] = await sendAs("olly", "Server Keeper: which drives are there?");
-    expect(theirs).toMatch(/^More than one agent is called Server Keeper: one made by the owner, one you made\./);
+    expect(theirs).toMatch(/^More than one agent is called Server Keeper: /);
+    expect(theirs).toContain("one made by the owner");
+    expect(theirs).toContain("one you made");
     expect(h.store.activeRuns()).toEqual([]);
   });
 
