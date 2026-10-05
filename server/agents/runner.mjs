@@ -189,7 +189,7 @@ export function createRunner({ api, runtime, client, usage = null, now = () => D
    * A describe run (M38): the model reads each image the web service handed over - one an image
    * from #agent-files - and says what it shows. No tools, no conversation, thinking off.
    */
-  async function executeDescribe(claim, controller, used, heartbeatStop) {
+  async function executeDescribe(claim, controller, used, heartbeatStop, { ownDeadline = () => false } = {}) {
     const { run, lease } = claim;
     const descriptions = [];
     let error = null;
@@ -231,8 +231,10 @@ export function createRunner({ api, runtime, client, usage = null, now = () => D
     }
     // Failed before the model saw an image (it could not be started, say): each image handed over
     // still spends one of its tries, or one whose model never starts would be handed over every
-    // night and never given up on (2026-10 sweep). Not when BoxPilot stopped the run.
-    if (!controller.signal.aborted) {
+    // night and never given up on (2026-10 sweep). Not when BoxPilot stopped the run - but the
+    // run's own deadline is no stop of BoxPilot's: an image too slow to describe spends its tries
+    // like one that failed (2026-10 sweep 2).
+    if (!controller.signal.aborted || ownDeadline()) {
       for (const item of claim.describe?.items ?? []) if (!descriptions.some((entry) => entry.key === item.key)) descriptions.push({ key: item.key, text: null });
     }
     heartbeatStop();
@@ -433,7 +435,7 @@ export function createRunner({ api, runtime, client, usage = null, now = () => D
 
     try {
       if (run.kind === "index") return await executeIndex(claim, controller, used, () => clearInterval(heartbeat));
-      if (run.kind === "describe") return await executeDescribe(claim, controller, used, () => clearInterval(heartbeat));
+      if (run.kind === "describe") return await executeDescribe(claim, controller, used, () => clearInterval(heartbeat), { ownDeadline: () => !stoppedBy && String(controller.signal.reason?.message) === "timeout" });
       let model = null;
       try {
         await system("model", "Starting the model");

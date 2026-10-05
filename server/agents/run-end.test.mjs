@@ -9,6 +9,7 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createAgentsHarness } from "../../test/agents-harness.mjs";
+import { directRunnerApi } from "./runner.mjs";
 
 let h;
 afterEach(async () => { await h?.close(); h = null; });
@@ -255,6 +256,32 @@ describe("a runner that hangs up on its long poll (B1-12)", () => {
     expect(claim.run.id).toBe(queued.id);
     expect(h.store.listSteps(queued.id).filter((step) => step.name === "claimed")).toHaveLength(1);
     expect(h.service.usage(h.caller("owner")).today.runs).toBe(1);
+  });
+
+  it("is handed no run that was cancelled while its processors were set (R2B1-8)", async () => {
+    await setup();
+    const queued = ask(make("it-support"), "owner");
+    const events = [];
+    h.service.subscribeRun(h.caller("owner"), queued.id, (event, data) => events.push([event, data.state]));
+    const cpu = h.helperAnswers["agents.runtime.cpu"];
+    let once = false;
+    h.helperAnswers["agents.runtime.cpu"] = (parameters) => { if (!once) { once = true; h.service.cancelRun(h.caller("owner"), queued.id); } return cpu(parameters); };
+    expect(await h.service.runnerNext(h.runnerId, { waitMs: 0 })).toBeNull();
+    expect(h.store.getRun(queued.id).state).toBe("cancelled");
+    // Its watchers saw it end, and nothing after: it never went running again.
+    expect(events).toEqual([["state", "cancelled"]]);
+    expect(h.store.listSteps(queued.id).some((step) => step.name === "claimed")).toBe(false);
+  });
+
+  it("is handed no run that the kill switch stopped while its processors were set, and is told to stop its model (R2B1-8)", async () => {
+    await setup();
+    const queued = ask(make("it-support"), "owner");
+    const cpu = h.helperAnswers["agents.runtime.cpu"];
+    let once = false;
+    h.helperAnswers["agents.runtime.cpu"] = (parameters) => { if (!once) { once = true; h.service.killSwitch(h.caller("owner")); } return cpu(parameters); };
+    const answer = await directRunnerApi(h.service, h.runnerId).next({ waitMs: 0 });
+    expect(answer).toMatchObject({ claim: null, stopModel: true });
+    expect(h.store.getRun(queued.id).state).toBe("killed");
   });
 
   it("sets processors within a time that fits twice in the runner's fifteen seconds past its long poll", async () => {

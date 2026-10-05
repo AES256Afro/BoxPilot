@@ -95,6 +95,9 @@ export function createAgentChat({ state, store, helper = null, now = () => new D
     try {
       // A supervisor that handed work on answers in its follow-up run; that one is posted, once.
       const handedOn = run.kind !== "continue" && store.listChildren(run.id).some((entry) => entry.kind === "handoff");
+      // A specialist's answer, or a second supervisor's follow-up under a hand-off, is for the
+      // supervisor that asked, not the person (2026-10 sweep 2): its cards may still go to the thread.
+      const forSupervisor = run.kind === "handoff" || (run.kind === "continue" && (run.depth ?? 0) > 0);
       const proposals = store.listProposalsForRun(run.id).slice(0, limits.cardsPerRun);
       // Asked in Zulip (M40.5): the answer, and its cards, go back to the thread it was asked in -
       // the root question's thread for a supervisor's follow-up - and not to #agent-findings as well.
@@ -102,9 +105,9 @@ export function createAgentChat({ state, store, helper = null, now = () => new D
       const findings = asked ?? destinationFor(spec, "findings", link);
       // However it ended: a question BoxPilot cancelled (it waited too long), refused (no runs left
       // today) or stopped is answered with why, not left unanswered (2026-10 sweep).
-      if (asked && !handedOn && ["completed", "degraded", "failed", "timeout", "interrupted", "cancelled", "refused", "killed"].includes(run.state)) {
+      if (asked && !handedOn && !forSupervisor && ["completed", "degraded", "failed", "timeout", "interrupted", "cancelled", "refused", "killed"].includes(run.state)) {
         queue("reply", asked, replyMessage({ agentName: name, run, link: runLink, redact }));
-      } else if (!asked && findings && findingKinds.has(run.kind) && answered.has(run.state) && run.answer && !handedOn && !run.flags?.clarify) {
+      } else if (!asked && findings && findingKinds.has(run.kind) && answered.has(run.state) && run.answer && !handedOn && !forSupervisor && !run.flags?.clarify) {
         queue("findings", findings, findingMessage({ agentName: name, run, digest: run.kind === "schedule" && Boolean(spec?.outputs?.digest), link: runLink, redact }));
       }
       for (const proposal of proposals) {
