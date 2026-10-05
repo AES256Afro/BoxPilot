@@ -212,7 +212,7 @@ const jobs = createJobService(state, helper, {
     "firewall.profile.apply": (job, result) => state.setSetting("firewallProfile", { id: result.profile, services: result.services ?? [], sshRateLimit: result.sshRateLimit ?? false, appliedAt: result.appliedAt, appliedBy: job.createdBy }, { updatedBy: job.createdBy }),
     // Editing rules by hand moves the box away from the profile, so the page stops claiming one is
     // in force rather than naming a profile whose rules are no longer what is loaded.
-    "firewall.rule.set": (job) => markProfileEdited(job),
+    "firewall.rule.add": (job) => markProfileEdited(job),
     "firewall.rule.delete": (job) => markProfileEdited(job),
     "backup.cloud.setup": (job, result) => state.setSetting("cloudDestination", result.destination, { updatedBy: job.createdBy }),
     "backup.cloud.sync": (job, result) => state.setSetting("cloudDestinationLastSync", { completedAt: result.completedAt, filesTransferred: result.filesTransferred, bytesTransferred: result.bytesTransferred, destination: result.destination, errors: result.errors ?? 0 }, { updatedBy: job.createdBy }),
