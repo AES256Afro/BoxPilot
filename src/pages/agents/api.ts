@@ -231,7 +231,7 @@ export interface Memory {
 }
 export interface Accuracy { version: number; model: string | null; evaluations: number; score: number | null; up: number; down: number; since: string | null }
 export interface Note { id: string; title: string; body: string; source: { runId?: string; by?: string; tools?: string[]; injection?: boolean }; createdAt: string; updatedAt: string; freshUntil: string | null; stale: boolean }
-export interface EvalResult { questionId: string; question: string; expected: { fact?: string; value?: unknown; includes?: string[] }; runId: string | null; passed: boolean | null; found: string | null }
+export interface EvalResult { questionId: string; question: string; expected: { fact?: string; value?: unknown; includes?: string[] }; runId: string | null; passed: boolean | null; found: string | null; skipped?: boolean }
 export interface EvalRun { id: string; version: number; model?: string | null; state: "running" | "done"; results: EvalResult[]; score: number | null; createdAt: string; finishedAt: string | null; createdBy?: string | null }
 /** M40: each finished evaluation's score, oldest first, and a drop worth flagging. */
 export interface AccuracyPoint { id: string; at: string; score: number; version: number; model: string | null; nightly: boolean; right: number; questions: number }

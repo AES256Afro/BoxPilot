@@ -154,11 +154,14 @@ export function Evaluation({ agents, agentId, csrfToken, now, enabled, onSelectA
   const resultColumns: Array<TableColumn<EvalResult>> = [
     { id: "question", header: "Question", cell: (result) => <span className="agents-name"><span>{result.question}</span><span className="agents-name__purpose">{result.expected.fact ? `${factLabel(result.expected.fact)}: ${valueWords(result.expected.value)}` : `contains ${(result.expected.includes ?? []).join(", ")}`}</span></span> },
     { id: "found", header: "Found", hideOnPhone: true, cell: (result) => <span className="agents-dim">{result.found ?? "—"}</span> },
-    { id: "passed", header: "Right?", label: "Verdict", cell: (result) => (result.passed === null ? <StatusChip status="neutral">waiting</StatusChip> : <StatusChip status={result.passed ? "good" : "danger"}>{result.passed ? "right" : "wrong"}</StatusChip>) },
+    { id: "passed", header: "Right?", label: "Verdict", cell: (result) => (result.skipped ? <StatusChip status="neutral">not graded</StatusChip> : result.passed === null ? <StatusChip status="neutral">waiting</StatusChip> : <StatusChip status={result.passed ? "good" : "danger"}>{result.passed ? "right" : "wrong"}</StatusChip>) },
     { id: "open", header: <span className="ui-visually-hidden">Open</span>, label: "Actions", className: "agents-actions-cell", cell: (result) => (result.runId ? <Button variant="ghost" onClick={() => onOpenRun(agent.id, result.runId!)} aria-label="Open this answer">Open</Button> : null) },
   ];
   const score = (entry: EvalRun) => (entry.score === null ? "—" : percent(entry.score));
   const passed = latest ? latest.results.filter((result) => result.passed).length : 0;
+  // A nightly question the night's model time could not pay for is not graded, nor counted (sweep 3).
+  const graded = latest ? latest.results.filter((result) => !result.skipped).length : 0;
+  const skipped = latest ? latest.results.length - graded : 0;
   const quiet = state.nightly?.quietHours;
 
   return (
@@ -221,7 +224,7 @@ export function Evaluation({ agents, agentId, csrfToken, now, enabled, onSelectA
       </Panel>
 
       <Panel className="agents-result" title="Latest result" count={latest ? { status: latest.state === "running" ? "neutral" : (latest.score ?? 0) >= 0.8 ? "good" : "warning", label: latest.state === "running" ? "running" : score(latest) } : undefined}
-        meta={latest ? <>v{latest.version} · <b>{passed}</b> of {latest.results.length} right · {latest.createdBy === null ? "nightly" : "asked by a person"} · {relativeTime(latest.finishedAt ?? latest.createdAt, now) ?? ""}</> : undefined}>
+        meta={latest ? <>v{latest.version} · <b>{passed}</b> of {graded} right{skipped ? ` · ${skipped} not graded: no model time left for ${skipped === 1 ? "it" : "them"}` : ""} · {latest.createdBy === null ? "nightly" : "asked by a person"} · {relativeTime(latest.finishedAt ?? latest.createdAt, now) ?? ""}</> : undefined}>
         <Table caption="The latest evaluation's answers" columns={resultColumns} rows={latest?.results ?? []} rowKey={(result) => result.questionId}
           rowStatus={(result) => (result.passed === false ? "danger" : undefined)}
           empty={<EmptyState title="Not run yet">It runs tonight in quiet hours, or now with "Run the evaluation now".</EmptyState>} />

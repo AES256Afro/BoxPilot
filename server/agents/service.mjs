@@ -558,7 +558,12 @@ export function createAgentService({
     if (run.kind === "continue" || (run.kind === "eval" && run.requestedBy)) return null;
     if (["index", "describe"].includes(run.kind)) return moduleBudget().refusal;
     const agent = store.getAgent(run.agentId);
-    return agent ? budgetOf(agent).refusal : null;
+    if (!agent) return null;
+    // A nightly question is given only what is left above the half of the day kept for people: less
+    // than a question's worth, and it ran to end degraded and be graded wrong, a false drop in
+    // accuracy (sweep 3). It is refused, and left out of the score (store.settleEvalRun).
+    if (run.kind === "eval" && nightlyModelMs(agent) < limits.evalSecondsPerQuestion * 1000) return budgetOf(agent).refusal ?? "Not enough model time left tonight for an evaluation question: half of the day's is kept for people";
+    return budgetOf(agent).refusal;
   }
 
   /**
@@ -3090,19 +3095,22 @@ export function createAgentService({
   async function gradeEvalRun(run) {
     const expected = run.eval.expected ?? {};
     const answer = String(run.answer ?? "");
-    let passed = false; let found = null;
-    if (run.state !== "completed") { passed = false; found = `The run ended ${run.state}`; }
+    let passed = false; let found = null; let skipped = false;
+    // A nightly question cut short for want of model time says nothing of the agent's answers: not
+    // graded, and left out of the score (sweep 3), as one refused for it at hand-out is.
+    if (!run.requestedBy && run.state === "degraded" && run.flags?.degraded === "budget") { passed = null; skipped = true; found = "Not graded: the night's model time ran out before it finished"; }
+    else if (run.state !== "completed") { passed = false; found = `The run ended ${run.state}`; }
     else if (expected.includes) {
       const missing = expected.includes.filter((text) => !answer.toLowerCase().includes(text.toLowerCase()));
       passed = missing.length === 0; found = passed ? "Every expected word is there" : `Missing: ${missing.join(", ")}`;
     } else if (expected.fact) {
       ({ passed, found } = gradeFact(expected.fact, expected.value, answer));
     }
-    const graded = store.gradeEval(run.eval.evalId, run.eval.questionId, { passed, found });
+    const graded = store.gradeEval(run.eval.evalId, run.eval.questionId, { passed, found, ...(skipped ? { skipped } : {}) });
     // The last answer is in: a drop against the evaluations before it is flagged (M40).
     if (graded?.state === "done") {
       const drop = accuracyDrop(historyOf(store.listEvalRuns(run.agentId, limits.evalHistory)));
-      audit("agents.evaluation.finished", { subjectId: run.agentId, details: { evalId: graded.id, score: graded.score, questions: graded.results.length, nightly: !graded.createdBy, dropped: Boolean(drop && drop.evalId === graded.id) } });
+      audit("agents.evaluation.finished", { subjectId: run.agentId, details: { evalId: graded.id, score: graded.score, questions: graded.results.length, skipped: graded.results.filter((result) => result.skipped).length, nightly: !graded.createdBy, dropped: Boolean(drop && drop.evalId === graded.id) } });
     }
   }
 
