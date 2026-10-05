@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { assertNotProtected, parseManagedFstab, parseSmbstatusShares, processesUsing, removeManagedEntry, sharesOnMount, storageClearMark, storageFormat, storageLvmExtend, storageLvmSnapshotCreate, storageLvmSnapshotDelete, storageLvmSnapshotRollback, storageMount, storageUnmount, swapFileSet, storageRemount, storageCheck } from "./storage.mjs";
+import { assertNotProtected, bindHolds, parseManagedFstab, parseSmbstatusShares, processesUsing, removeManagedEntry, sharesOnMount, storageClearMark, storageFormat, storageLvmExtend, storageLvmSnapshotCreate, storageLvmSnapshotDelete, storageLvmSnapshotRollback, storageMount, storageUnmount, swapFileSet, storageRemount, storageCheck } from "./storage.mjs";
 
 const BASE_FSTAB = "# /etc/fstab\nUUID=root-uuid / ext4 defaults 0 1\n";
 // Every drive entry is ordered around Docker (M26): mounted before it starts, unmounted after it stops.
@@ -34,7 +34,7 @@ function dockerWith(bound, { stuck = [] } = {}) {
   const done = { ok: true, stdout: "", stderr: "" };
   return (args) => {
     if (args[0] === "ps") return { ok: true, stdout: [...running].map((name) => `${idOf(name)}\n`).join(""), stderr: "" };
-    if (args[0] === "inspect") return { ok: true, stdout: args.slice(3).map(nameOf).filter(Boolean).map((name) => `/${name}\t${bound[name]}\t\n`).join(""), stderr: "" };
+    if (args[0] === "inspect") return { ok: true, stdout: args.slice(3).map(nameOf).filter(Boolean).map((name) => `/${name}\t${[bound[name]].flat().join("\t")}\t\n`).join(""), stderr: "" };
     if (args[0] === "stop" && stuck.includes(args[1])) return { ok: false, stdout: "", stderr: "Error response from daemon: cannot stop container: tried to kill container, but did not receive an exit event" };
     if (args[0] === "stop") { running.delete(args[1]); return done; }
     if (args[0] === "start") { running.add(args[1]); return done; }
@@ -244,6 +244,24 @@ describe("root storage tasks", () => {
     expect(run.mock.calls.some(([binary]) => binary.endsWith("umount"))).toBe(false);
   });
 
+  it("tells a bind that holds a drive from one that only shares a prefix with it", () => {
+    for (const source of ["/mnt/media", "/mnt/media/", "/mnt/media/library", "/mnt", "/mnt/", "/"]) expect(bindHolds(source, "/mnt/media")).toBe(true);
+    for (const source of ["/mnt/media-old", "/mnt/med", "/srv", "/srv/media", "", "relative/mnt", null]) expect(bindHolds(source, "/mnt/media")).toBe(false);
+  });
+
+  it("counts an app bound to a folder above the drive as holding it", async () => {
+    // Docker's binds are recursive: File Browser with /mnt, or node-exporter with /, carries every
+    // drive mounted below into its own namespace and keeps it alive there after the host lets go.
+    const fstab = `${BASE_FSTAB}# boxpilot:media\nUUID=x /mnt/media ext4 defaults,nofail 0 2\n`;
+    const files = fakeFiles(fstab);
+    const base = fakeRun({ mountedAt: { "/mnt/media": "/dev/sdb1" } });
+    const docker = dockerWith({ "bp-filebrowser": "/mnt", "bp-node-exporter": ["/proc", "/sys", "/"], "bp-old": "/mnt/media-old", "bp-ntfy": "/srv/ntfy" });
+    const run = vi.fn(async (binary, args, options) => (binary.endsWith("/docker") ? docker(args) : base(binary, args, options)));
+    await expect(storageUnmount({ name: "media" }, { run, files })).rejects.toThrow("/mnt/media is in use by bp-filebrowser and bp-node-exporter, so it was left mounted and in fstab");
+    expect(files.state.fstab).toBe(fstab);
+    expect(run.mock.calls.some(([binary]) => binary.endsWith("umount"))).toBe(false);
+  });
+
   it("removes nothing when swapoff fails with the swap file still in use", async () => {
     const files = fakeFiles(`${BASE_FSTAB}# boxpilot:swap\n/swap.boxpilot none swap sw,nofail 0 0\n`);
     const readFstab = files.readFile;
@@ -287,7 +305,8 @@ describe("reconnecting a drive through the busy pipeline (M35)", () => {
   const fstab = "# boxpilot:the-dump\nUUID=0023-7927 /mnt/the-dump exfat defaults,nofail,uid=1000,gid=1000 0 0\n";
   const smbConf = "# Managed by BoxPilot\n[global]\n   workgroup = WORKGROUP\n[Media]\n   path = /mnt/the-dump/media\n[Documents]\n   path = /srv/documents\n";
 
-  function rig({ source = "/dev/sda2", deadBefore = false, readsAfter = true, holders = "none", present = true, readOnlyAfter = false, mountFails = false, restartFails = null } = {}) {
+  const usualContainers = "/bp-plex\t/mnt/the-dump\t/srv/plex\t\n/bp-qbittorrent\t/mnt/the-dump/torrents\t\n/bp-backup\t/mnt/the-dump-backup\t\n";
+  function rig({ source = "/dev/sda2", deadBefore = false, readsAfter = true, holders = "none", present = true, readOnlyAfter = false, mountFails = false, restartFails = null, containers = usualContainers } = {}) {
     const calls = [];
     const state = { mounted: source, readOnly: false, closed: false, phase: "before" };
     const run = vi.fn(async (binary, args) => {
@@ -295,7 +314,7 @@ describe("reconnecting a drive through the busy pipeline (M35)", () => {
       if (name === "findmnt") return state.mounted ? { ok: true, stdout: `${state.mounted} exfat 8:2 ${state.readOnly ? "ro" : "rw"},relatime,uid=1000\n`, stderr: "" } : { ok: false, stdout: "", stderr: "" };
       if (name === "blkid") return present ? { ok: true, stdout: "/dev/sdb2\n", stderr: "" } : { ok: false, stdout: "", stderr: "" };
       if (name === "docker" && args[0] === "ps") return { ok: true, stdout: "aaa\nbbb\nccc\n", stderr: "" };
-      if (name === "docker" && args[0] === "inspect") return { ok: true, stdout: "/bp-plex\t/mnt/the-dump\t/srv/plex\t\n/bp-qbittorrent\t/mnt/the-dump/torrents\t\n/bp-backup\t/mnt/the-dump-backup\t\n", stderr: "" };
+      if (name === "docker" && args[0] === "inspect") return { ok: true, stdout: containers, stderr: "" };
       if (name === "docker" && args[0] === "start") return restartFails === args[1] ? { ok: false, stdout: "", stderr: "Error response from daemon: cannot start" } : { ok: true, stdout: "", stderr: "" };
       if (name === "smbstatus") return { ok: true, stdout: JSON.stringify({ tcons: { 1: { service: "Media", machine: "192.168.8.23" } } }), stderr: "" };
       if (name === "smbcontrol") { if (holders === "samba") state.closed = true; return { ok: true, stdout: "", stderr: "" }; }
@@ -328,6 +347,17 @@ describe("reconnecting a drive through the busy pipeline (M35)", () => {
     expect(calls).not.toContain("docker stop bp-backup");   // /mnt/the-dump-backup is a prefix, not a parent
     // Everything about the mount is asked of PID 1's namespace, never the runner's own.
     expect(calls.filter((call) => call.startsWith("findmnt")).every((call) => call.includes("--task 1"))).toBe(true);
+  });
+
+  it("restarts the apps bound to a folder above the drive too, so they see the new mount", async () => {
+    // Kopia with /mnt and cAdvisor with / hold the old mount in their own namespaces: left running,
+    // they go on writing to (or reading) the drive that dropped, and never see the one that came back.
+    const fakes = rig({ holders: "apps-only", containers: "/bp-kopia\t/srv\t/mnt\t\n/bp-cadvisor\t/\t/sys\t\n/bp-backup\t/mnt/the-dump-backup\t\n" });
+    const result = await reconnect(fakes);
+    expect(result).toMatchObject({ remounted: true, stopped: ["bp-kopia", "bp-cadvisor"], restarted: ["bp-kopia", "bp-cadvisor"] });
+    expect(fakes.calls.indexOf("docker stop bp-kopia")).toBeLessThan(fakes.calls.indexOf("umount -N /proc/1/ns/mnt /mnt/the-dump"));
+    expect(fakes.calls.indexOf("mount -N /proc/1/ns/mnt /mnt/the-dump")).toBeLessThan(fakes.calls.indexOf("docker start bp-cadvisor"));
+    expect(fakes.calls).not.toContain("docker stop bp-backup");
   });
 
   it("gets file-sharing clients off the drive when they are what holds it, and says whom it disconnected", async () => {
@@ -453,10 +483,10 @@ describe("checking a drive without changing it", () => {
   const fstab = "# boxpilot:the-dump\nUUID=0023-7927 /mnt/the-dump exfat defaults,nofail,uid=1000,gid=1000 0 0\n";
   // `comesBack` is what each mount after the check leaves at /mnt/the-dump: a device, or null for a
   // mount that exits 0 with nothing mounted (a nofail entry whose device udev is still re-reading).
-  function checkFakes({ fstype = "exfat", exit = 0, umountBusy = false, markedDirty = false, comesBack = [], stuck = [] } = {}) {
+  function checkFakes({ fstype = "exfat", exit = 0, umountBusy = false, markedDirty = false, comesBack = [], stuck = [], bound = { "bp-plex": "/mnt/the-dump", "bp-ntfy": "/srv/ntfy" } } = {}) {
     const calls = [];
     let mounted = "/dev/sda2";
-    const docker = dockerWith({ "bp-plex": "/mnt/the-dump", "bp-ntfy": "/srv/ntfy" }, { stuck });
+    const docker = dockerWith(bound, { stuck });
     const run = vi.fn(async (binary, args, options) => {
       const name = binary.split("/").pop(); calls.push(`${name} ${args.join(" ")}`);
       if (name === "findmnt" && args.includes(HOST_TABLE)) return hostTable(mounted, fstype);
@@ -504,6 +534,17 @@ describe("checking a drive without changing it", () => {
     expect(calls).toContain("fsck.exfat -n /dev/sda2");   // -n: report, never repair
     expect(calls.indexOf("mount -N /proc/1/ns/mnt /mnt/the-dump")).toBeLessThan(calls.indexOf("docker start bp-plex"));
     expect(calls).not.toContain("docker stop bp-ntfy");    // not on that drive
+  });
+
+  it("pauses the apps bound to a folder above the drive as well, so the checker reads a filesystem nothing has mounted", async () => {
+    // Duplicati with /mnt keeps the drive mounted in its own namespace after the host's umount, and
+    // goes on writing to it while the checker reads it.
+    const { run, calls, files } = checkFakes({ bound: { "bp-duplicati": ["/srv", "/mnt"], "bp-node-exporter": "/", "bp-ntfy": "/srv/ntfy" } });
+    const result = await storageCheck({ name: "the-dump" }, { run, files });
+    expect(result).toMatchObject({ checked: true, restarted: ["bp-duplicati", "bp-node-exporter"] });
+    expect(calls.indexOf("docker stop bp-duplicati")).toBeLessThan(calls.indexOf("umount -N /proc/1/ns/mnt /mnt/the-dump"));
+    expect(calls.indexOf("docker stop bp-node-exporter")).toBeLessThan(calls.indexOf("umount -N /proc/1/ns/mnt /mnt/the-dump"));
+    expect(calls).not.toContain("docker stop bp-ntfy");
   });
 
   it("reports problems as problems, with the checker's own words", async () => {

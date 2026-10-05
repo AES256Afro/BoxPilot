@@ -2,7 +2,7 @@ import { readdir, readFile, readlink, rename, unlink } from "node:fs/promises";
 import { writeFileDurably as writeFile } from "../durable-file.mjs";
 import { mountpointFor } from "../backup-mount.mjs";
 import { fixedRun } from "../exec.mjs";
-import { deviceFor, exfatVolumeFlags, parseManagedFstab, processesUsing, readBootSector, unmountFromHost, withDockerOrder } from "./storage.mjs";
+import { bindHolds, deviceFor, exfatVolumeFlags, parseManagedFstab, processesUsing, readBootSector, unmountFromHost, withDockerOrder } from "./storage.mjs";
 import { startMountUnit } from "./mount-agreement.mjs";
 
 /**
@@ -182,8 +182,6 @@ export function parseContainers(text) {
   }));
 }
 
-const under = (source, mountpoint) => source === mountpoint || source.startsWith(`${mountpoint}/`);
-
 /** A container's StopSignal as process.kill takes it: Docker accepts "SIGQUIT", "QUIT" and "3" alike. */
 export function stopSignalOf(container) {
   const value = String(container?.stopSignal ?? "").trim().toUpperCase();
@@ -273,7 +271,8 @@ export async function prepareDrivesForReboot(_parameters = {}, {
     if (inspected.ok) containers = parseContainers(inspected.stdout);
     else log?.(`Could not read the running containers, so none was stopped: ${tail(inspected.stderr)}`, "stderr");
   }
-  const bound = containers.filter((container) => container.sources.some((source) => mounted.some((drive) => under(source, drive.mountpoint))));
+  // A container bound to a folder above a drive (/mnt, or /) holds it as surely as one bound inside it.
+  const bound = containers.filter((container) => container.sources.some((source) => mounted.some((drive) => bindHolds(source, drive.mountpoint))));
   if (bound.length) {
     log?.(`Stopping Docker so ${bound.map((container) => container.name).join(", ")} stop the way they do at shutdown; their restart policies start them again after the reboot`, "stdout");
     const stopped = await run(binaries.systemctl, ["stop", "docker.socket", "docker.service"], { timeout: left(90_000) });
