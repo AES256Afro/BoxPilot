@@ -85,20 +85,33 @@ export const readsThroughHelper = (request) => ["owner", "operator"].includes(re
  * cut off, a result not saved, a schedule of theirs, their sign-in from a new address - go only to
  * the owner and to that account. Everyone else reads what kind of thing it is, and its key is cut
  * back to that kind, because the rest of the key names the schedule, the account or the subject.
- * `scheduleOwner(id)` answers who created a schedule.
+ * `scheduleOwner(id)` answers who created a schedule. An automation's failure carries its step's job
+ * error, which GET /flows keeps to the owner and to the account whose last run it was (flowForCaller):
+ * `flowRunner(id)` answers the flow's creator when every job of its last run was theirs, else null.
  */
-export function watchEntryFor(request, key, entry, label, scheduleOwner = () => null) {
+export function watchEntryFor(request, key, entry, label, scheduleOwner = () => null, flowRunner = () => null) {
   const title = entry?.title ?? key;
   const [family, subject] = String(key).split(":");
   if (seesEveryAccount(request)) return { title, key };
   const self = callerId(request);
   const theirs = family === "schedule.failed" || family === "schedule.overdue" ? Boolean(self && scheduleOwner(subject) === self)
+    : family === "flow.failed" ? Boolean(self && flowRunner(subject) === self)
     : family === "signin.new" ? Boolean(self && subject === self)
     // Named by operation and subject rather than by job, so whose it was cannot be told apart.
     // An agent's notice (M37) is written from what its maker's run read, so its words are the owner's.
     : family === "job.interrupted" || family === "record.failed" || family === "approval.lapsed" || family === "agent.important" ? false
     : true;
   return theirs ? { title, key } : { title: label, key: family };
+}
+
+/** watchEntryFor's `flowRunner` over the state store: a flow's creator when every job of its last run was theirs. */
+export function flowRunnerFrom(state) {
+  return (id) => {
+    const flow = state.getFlow?.(id);
+    if (!flow) return null;
+    const jobIds = Array.isArray(flow.lastJobIds) ? flow.lastJobIds : [];
+    return jobIds.every((jobId) => jobId === null || state.getJob?.(jobId)?.createdBy === flow.createdBy) ? flow.createdBy : null;
+  };
 }
 
 /** The fields that name who did something: a job's creator, a drill's runner, a profile's applier. */
