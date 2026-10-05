@@ -21,6 +21,9 @@ export interface RestoreTabProps {
   onChanged: () => void;
 }
 
+/** Where an app's data archive was found: this server, the backup drive, or beside a snapshot found on another drive. */
+const dataPlace = (location: string | null) => (location === "mirror" ? "on backup drive" : location === "drive" ? "on the snapshot's drive" : "local");
+
 interface Option { key: string; source: "local" | "mirror" | "discovered"; root: string | null; where: string; snapshot: SnapshotEntry }
 
 /** What each staged area is, and what to do with it: a file alone is a puzzle. */
@@ -228,7 +231,7 @@ export default function RestoreTab({ csrfToken, role, restores, onChanged }: Res
                   { id: "pick", header: <span className="ui-visually-hidden">Restore</span>, label: "Restore", className: "backups-pick", cell: (app) => <Checkbox label={<span className="ui-visually-hidden">Restore {app.id}</span>} checked={selected.has(app.id)} disabled={!canRestore} onChange={(on) => setSelected((current) => { const next = new Set(current); if (on) next.add(app.id); else next.delete(app.id); return next; })} /> },
                   { id: "app", header: "App", sortValue: (app) => app.id, cell: (app) => <code>{app.id}</code> },
                   { id: "installed", header: "In snapshot", cell: (app) => (app.installed ? "installed" : "not installed") },
-                  { id: "data", header: "Data archive", cell: (app) => (app.newestBackup ? (app.dataAvailable ? <StatusChip status="good">{app.dataLocation === "mirror" ? "on backup drive" : "local"}</StatusChip> : <StatusChip status="warning">not reachable</StatusChip>) : <span className="backups-dim">none</span>) },
+                  { id: "data", header: "Data archive", cell: (app) => (app.newestBackup ? (app.dataAvailable ? <StatusChip status="good">{dataPlace(app.dataLocation)}</StatusChip> : <StatusChip status="warning">not reachable</StatusChip>) : <span className="backups-dim">none</span>) },
                 ]}
                 rows={described.apps}
                 rowKey={(app) => app.id}
