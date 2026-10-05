@@ -3,6 +3,7 @@ import { defaultThrottle as throttle } from "./login-throttle.mjs";
 import { approvalRequirement, defaultApprovalMode, elevationTtlMs, higherTier, normalizeApprovalMode } from "./ops/risk.mjs";
 import { registry } from "./ops/index.mjs";
 import { budgetFor, nextBudgetMs, placeholderPaths, restoreSecrets, secretPaths, secretPlaceholder, splitSecrets } from "./ops/registry.mjs";
+import { restartsBoxPilot } from "./ops/services.mjs";
 import { asSentence } from "./health-alerts.mjs";
 import { formatDuration, jobTimeoutRecord, timeoutMessage, timeoutOf } from "./timeouts.mjs";
 import { productVersion } from "./version.mjs";
@@ -216,8 +217,9 @@ export function createJobService(store, helper, {
     // the restart would cut that job off and leave it marked interrupted, its work half-done. The
     // update job is still awaiting_approval here, so it is not yet in the active list itself. This is
     // a best-effort guard against the common case (approving an update while a job is visibly
-    // running), not a lock against a job that starts in the same instant.
-    if (registeredOperation.restartsService && typeof store.listActiveJobs === "function") {
+    // running), not a lock against a job that starts in the same instant. Restarting BoxPilot's own
+    // unit from Services is the same restart by another door.
+    if ((registeredOperation.restartsService || restartsBoxPilot(registeredOperation.id, parameters)) && typeof store.listActiveJobs === "function") {
       const running = store.listActiveJobs().filter((other) => other.id !== jobId);
       if (running.length) {
         const names = running.map((other) => other.title).join(", ");
@@ -397,7 +399,7 @@ export function createJobService(store, helper, {
     if (operationPrepareHooks[operationId]) parameters = await operationPrepareHooks[operationId](parameters ?? {});
     const parameterError = registry.validate(operationId, parameters ?? {});
     if (parameterError) throw new Error(parameterError);
-    const tier = operationRiskHooks[operationId] ? higherTier(operation.risk, await operationRiskHooks[operationId](parameters ?? {})) : operation.risk;
+    const tier = await effectiveRisk(operationId, parameters);
     if (tier === "high" && role !== "owner") throw new Error(`Only the owner can stage this: ${operation.title} is high risk here`);
     // Every secret, top-level or an app's own inside values.env, is staged in memory and the record
     // keeps a placeholder, so the controller database - and every backup of it - never holds one.
@@ -449,6 +451,17 @@ export function createJobService(store, helper, {
     store.addJobStep(job.id, "retry", "staged", `Staged again with ${formatDuration(budgetMs)} as job ${retry.id}`);
     store.recordAudit("job.more-time", { actorId: ownerId, subjectId: retry.id, details: { type: job.type, retryOf: job.id, budgetMs } });
     return retry;
+  }
+
+  /**
+   * The tier a job for this operation and these (prepared) parameters is staged at: the operation's
+   * own, or higher where its risk hook says what it acts on is riskier. Null for an unknown operation.
+   * Schedules and flows ask before they store a step, since an unattended run cannot be high.
+   */
+  async function effectiveRisk(operationId, parameters = {}) {
+    const operation = registry.get(operationId);
+    if (!operation) return null;
+    return operationRiskHooks[operationId] ? higherTier(operation.risk, await operationRiskHooks[operationId](parameters ?? {})) : operation.risk;
   }
 
   /** Apply the operation's prepare hook without staging — the scheduler validates with it. */
@@ -556,5 +569,5 @@ export function createJobService(store, helper, {
     return dropped;
   }
 
-  return { pruneStagedSecrets, holdsStagedSecrets, createOperationJob, retryWithMoreTime, approveAndRun, approveAndStart, describeApproval, approvalPolicy, cancelJob, prepareParameters, sweepStaleApprovals, dismissFailure, supersededReason, takeOneTime, oneTimeHeld: () => oneTimeResults.size };
+  return { pruneStagedSecrets, holdsStagedSecrets, createOperationJob, retryWithMoreTime, approveAndRun, approveAndStart, describeApproval, approvalPolicy, cancelJob, prepareParameters, effectiveRisk, sweepStaleApprovals, dismissFailure, supersededReason, takeOneTime, oneTimeHeld: () => oneTimeResults.size };
 }

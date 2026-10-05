@@ -89,6 +89,7 @@ describe("operation scheduler", () => {
     const { store, jobs, scheduler, owner } = await setup({ now: () => clock });
     // The job layer marks a password-gated approval with a code; the scheduler reads the code, not the prose.
     jobs.approveAndStart.mockRejectedValueOnce(Object.assign(new Error("Enter the owner password: medium-risk job needs the owner password"), { code: "password_required" }));
+    store.setSetting("approvalMode", "always-password", { updatedBy: owner.id });
     const schedule = await scheduler.create({ operationId: "apt.refresh", parameters: {}, frequency: "hourly", minute: 0, createdBy: owner.id });
     clock = new Date("2026-08-20T04:00:30");
     await scheduler.tick();
@@ -104,6 +105,36 @@ describe("operation scheduler", () => {
     expect(store.getSchedule(schedule.id).nextDueAt).toBe(new Date("2026-08-20T10:00:00").toISOString()); // fresh start, no backlog
     scheduler.remove(schedule.id, owner.id);
     expect(store.listSchedules()).toEqual([]);
+    store.close();
+  });
+
+  it("says a password refusal under tiered approvals is an error, not the approval mode", async () => {
+    // A job staged high for what it acts on wants the password whatever the mode; calling that
+    // "blocked by approval mode" sent the owner to a setting that was not the cause.
+    let clock = new Date("2026-08-20T03:00:30");
+    const { store, jobs, scheduler, owner } = await setup({ now: () => clock });
+    jobs.approveAndStart.mockRejectedValueOnce(Object.assign(new Error("Enter the owner password: high-risk job needs the owner password"), { code: "password_required" }));
+    const schedule = await scheduler.create({ operationId: "apt.refresh", parameters: {}, frequency: "hourly", minute: 0, createdBy: owner.id });
+    clock = new Date("2026-08-20T04:00:30");
+    await scheduler.tick();
+    expect(store.getSchedule(schedule.id).lastResult).toBe("error: Enter the owner password: high-risk job needs the owner password");
+    expect(store.listAudit()).toEqual(expect.arrayContaining([expect.objectContaining({ type: "schedule.skipped", details: expect.objectContaining({ reason: "Enter the owner password: high-risk job needs the owner password" }) })]));
+    store.close();
+  });
+});
+
+describe("an operation whose tier depends on what it acts on", () => {
+  it("cannot be scheduled where that makes it high risk", async () => {
+    // app.install is medium, and staged as high for an app whose manifest says so (Pi-hole, the VPN):
+    // every run failed asking for a password, and the record blamed the approval mode.
+    const { store, owner } = await setup();
+    const helper = { request: vi.fn() };
+    const jobs = createJobService(store, helper, { operationRiskHooks: { "app.install": async ({ id }) => (id === "pi-hole" ? "high" : null) } });
+    const scheduler = createSchedulerService({ store, jobs, now: () => new Date("2026-08-20T10:30:00") });
+    const base = { operationId: "app.install", frequency: "weekly", minute: 0, hour: 3, weekday: 0, createdBy: owner.id };
+    await expect(scheduler.create({ ...base, parameters: { id: "pi-hole" } })).rejects.toThrow("Install application is high risk here and cannot run unattended");
+    expect(store.listSchedules()).toEqual([]);
+    await expect(scheduler.create({ ...base, parameters: { id: "jellyfin" } })).resolves.toMatchObject({ operationId: "app.install" });
     store.close();
   });
 });
@@ -285,6 +316,7 @@ describe("a scheduled task that fails (M27.2)", () => {
     expect(state()[key].message).toContain("helper is busy");
 
     // Always-ask approvals skip every run: a choice, but one whose effect is easy to miss.
+    store.setSetting("approvalMode", "always-password", { updatedBy: owner.id });
     jobs.approveAndStart = vi.fn(async () => { throw Object.assign(new Error("Enter the owner password"), { code: "password_required" }); });
     clock = new Date("2026-08-20T05:00:30");
     await scheduler.tick();
@@ -372,6 +404,7 @@ describe("what the Schedules panel says about the last run (M27.2)", () => {
     clock = new Date("2026-08-20T05:00:30");
     await scheduler.tick();
     expect(outcomeOf(scheduler, schedule.id)).toMatchObject({ lastOutcome: "did-not-run", lastReason: "helper is busy" });
+    store.setSetting("approvalMode", "always-password", { updatedBy: owner.id });
     jobs.approveAndStart = vi.fn(async () => { throw Object.assign(new Error("Enter the owner password"), { code: "password_required" }); });
     clock = new Date("2026-08-20T06:00:30");
     await scheduler.tick();

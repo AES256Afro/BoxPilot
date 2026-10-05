@@ -546,6 +546,28 @@ describe("guarding restarts against running jobs (M4.5 / self-update safety)", (
     store.close();
   });
 
+  it("treats restarting BoxPilot's own units from Services as restarting BoxPilot", async () => {
+    // service.action is not marked as restarting the service, so restarting boxpilot.service from
+    // the Services page cut a running backup off and left it marked interrupted, its work half done.
+    const helper = { request: vi.fn(async () => ({ unit: "x", action: "restart" })) };
+    const { store, owner, jobs } = await setup(helper);
+    try {
+      const backup = await jobs.createOperationJob("app.backup", { id: "jellyfin" }, owner.id);
+      store.transitionJob(backup.id, "awaiting_approval", "applying");
+      for (const unit of ["boxpilot.service", "boxpilot-helper.service"]) {
+        const restart = await jobs.createOperationJob("service.action", { unit, action: "restart" }, owner.id);
+        await expect(jobs.approveAndRun(restart.id, owner.id, {})).rejects.toThrow(/^Wait for a running job to finish first: Back up application data\. "Control a system service" restarts BoxPilot/);
+        expect(store.getJob(restart.id).state).toBe("awaiting_approval");
+      }
+      expect(helper.request).not.toHaveBeenCalled();
+      // Any other unit, or any other action on BoxPilot's, is not a restart of BoxPilot.
+      const other = await jobs.createOperationJob("service.action", { unit: "nginx.service", action: "restart" }, owner.id);
+      await expect(jobs.approveAndRun(other.id, owner.id, {})).resolves.toMatchObject({ state: "completed" });
+      const enable = await jobs.createOperationJob("service.action", { unit: "boxpilot.service", action: "enable" }, owner.id);
+      await expect(jobs.approveAndRun(enable.id, owner.id, {})).resolves.toMatchObject({ state: "completed" });
+    } finally { store.close(); }
+  });
+
   it("does not block ordinary operations while a job runs", async () => {
     const helper = { request: vi.fn(async () => ({ ok: true })) };
     const { store, owner, jobs } = await setup(helper);
@@ -788,7 +810,8 @@ describe("a job that ran out of time (M30.3)", () => {
       const job = await jobs.createOperationJob("app.update", { id: "jellyfin" }, owner.id);
       await expect(jobs.approveAndRun(job.id, owner.id, {})).rejects.toThrow("was unchanged");
       const failed = store.getJob(job.id);
-      expect(failed.timeout).toMatchObject({ scope: "step", budgetMs: minutes(30), elapsedMs: minutes(33), step: "Downloading the new images", moreTimeMs: minutes(80) });
+      // More time is twice the update's own budget (its checkpoint's allowance included), not the step's.
+      expect(failed.timeout).toMatchObject({ scope: "step", budgetMs: minutes(30), elapsedMs: minutes(33), step: "Downloading the new images", moreTimeMs: 2 * registry.get("app.update").timeoutMs });
       expect(failed.error).toMatch(/^Jellyfin update failed before anything was restarted/);
       expect(failed.steps.map((step) => step.name)).toEqual(expect.arrayContaining(["timeout", "rollback"]));
     } finally { store.close(); }
@@ -934,6 +957,19 @@ describe("a tier that depends on what an operation acts on", () => {
       const other = await jobs.createOperationJob("app.install", { id: "jellyfin" }, operator.id, { role: "operator" });
       expect(other.risk).toBe("medium");
       expect(jobs.describeApproval(other.id, null)).toMatchObject({ tier: "medium", passwordRequired: false });
+    } finally { store.close(); }
+  });
+
+  it("answers the tier a job would be staged at without staging one, for schedules and flows to check", async () => {
+    const helper = { request: vi.fn() };
+    const { store } = await setup(helper);
+    try {
+      const jobs = createJobService(store, helper, { operationRiskHooks: { "app.install": async ({ id }) => (id === "pi-hole" ? "high" : null) } });
+      expect(await jobs.effectiveRisk("app.install", { id: "pi-hole" })).toBe("high");
+      expect(await jobs.effectiveRisk("app.install", { id: "jellyfin" })).toBe("medium");
+      expect(await jobs.effectiveRisk("apt.purge", { packages: ["htop"] })).toBe("high");
+      expect(await jobs.effectiveRisk("no.such.operation", {})).toBeNull();
+      expect(store.listJobs(10)).toEqual([]);
     } finally { store.close(); }
   });
 });
