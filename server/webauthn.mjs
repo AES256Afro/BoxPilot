@@ -122,8 +122,8 @@ export function relyingPartyId(origin) {
 /**
  * Checks common to both ceremonies: the type is what we asked for, the challenge is the one we
  * issued, the origin is exactly the expected one and is secure, and the signed RP ID hash matches
- * the RP ID derived from that origin. The RP ID hash is signed by the authenticator, so this is the
- * binding that makes trusting the browser-reported origin safe.
+ * the RP ID derived from that origin. The RP ID hash binds the host name but not the port, so the
+ * expected origin must also be one BoxPilot is served at; passkeys.mjs checks that before this.
  */
 function verifyCommon({ clientDataJSON, authenticatorData, expected, expectedType }) {
   const clientData = decodeClientData(clientDataJSON);
