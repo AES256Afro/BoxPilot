@@ -471,7 +471,7 @@ app.use("/api/v1", (request, response, next) => {
     next();
     return;
   }
-  auth.requireCsrf(request, response, next);
+  return auth.requireCsrf(request, response, next); // async: Express 5 handles what it returns
 });
 
 // Roles (M5.4): viewers may only look (plus read-only operation runs); operators may not change

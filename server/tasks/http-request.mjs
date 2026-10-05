@@ -7,7 +7,7 @@
  * the job record, not into a log line. The response comes back bounded: the status, a capped body
  * excerpt, and the parsed JSON when it parses, which is what later flow steps read.
  */
-import { createCredentialStore, headerUnsafe } from "../credentials.mjs";
+import { createCredentialStore, headerUnsafe, managedCredentialProblem } from "../credentials.mjs";
 
 const bodyLimit = 8192;
 const methods = new Set(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"]);
@@ -30,6 +30,10 @@ export async function httpRequest(parameters = {}, { credentials = createCredent
   if (body !== null) headers["Content-Type"] = contentType ?? "application/json";
   let carriesCredential = false;
   if (credentialName) {
+    // The parameter check refuses these first; the root task holds the same line on its own, since
+    // it is the one place the value is read.
+    const reserved = managedCredentialProblem(credentialName);
+    if (reserved) throw new Error(reserved);
     const value = await credentials.read(credentialName);
     if (value === null) throw new Error(`No credential is named ${credentialName}; save it under Settings first`);
     const headerValue = `${credentialPrefix}${value}`;

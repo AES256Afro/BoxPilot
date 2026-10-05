@@ -303,7 +303,9 @@ describe("reads that go through the system's own permissions", () => {
     for (const id of ["storage.folders", "app.backup.files", "app.data.usage", "host.snapshot.describe", // Found by a second pass over every read-only operation: each runs in the root helper and
       // answers something the caller could not have read - a journal, authorized_keys, a 0770
       // recycle bin, a query log, every mounted filesystem.
-      "system.update.status", "users.inspect", "samba.inspect", "dns.blocker.clients", "host.snapshot.discover", "host.snapshot.restores", "router.leases", "router.inspect", "storage.usb.events", "storage.unclean.events", "storage.volumes.state"]) {
+      "system.update.status", "users.inspect", "samba.inspect", "dns.blocker.clients", "host.snapshot.discover", "host.snapshot.restores", "router.leases", "router.inspect", "storage.usb.events", "storage.unclean.events", "storage.volumes.state",
+      // Sweep 1: every compose stack started outside BoxPilot, with where its files live, read as root.
+      "compose.projects.inspect"]) {
       expect(registry.get(id)?.minimumRole, `${id} should need an operator`).toBe("operator");
     }
   });

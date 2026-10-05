@@ -15,6 +15,27 @@ import { writeFileDurably } from "./durable-file.mjs";
 export const credentialNamePattern = /^[a-z][a-z0-9-]{0,31}$/;
 export const defaultCredentialFile = process.env.BOXPILOT_CREDENTIAL_FILE ?? "/var/lib/boxpilot-managed/credentials.json";
 
+/**
+ * The credentials BoxPilot saves for itself, each through its own operation at its own tier: the
+ * Cloudflare API token and the tunnel's run token (cloudflare.connect, high, ADR-011), the
+ * heartbeat's secret address (heartbeat.set), and the agents' Zulip bot key (agents.zulip.connect).
+ * Every name BoxPilot writes to this store on its own belongs here; ops/connectors.test.mjs holds
+ * the list to the modules that write them.
+ *
+ * None of them is the owner's to send anywhere. http.request is medium and sends a credential by
+ * name, in any header, to any address, so without this an agent's proposed step or a session that
+ * never gave the password could post the Cloudflare token wherever it liked. These names are refused
+ * by http.request, by a connector sync, and by Save and Remove a credential, which would otherwise
+ * replace one without the checks of the operation that owns it, or take it away from under its
+ * feature. Their own operations reach the store directly and are not affected.
+ */
+export const managedCredentialNames = new Set(["cloudflare-api-token", "cloudflare-tunnel-token", "heartbeat-url", "zulip-agents-bot"]);
+
+/** Why a credential name may not be used, saved or removed by hand, or null when it may. */
+export function managedCredentialProblem(name) {
+  return managedCredentialNames.has(name) ? `BoxPilot keeps ${name} for itself: only the setting that saved it uses, replaces or removes it` : null;
+}
+
 const valueLimit = 4096;
 const countLimit = 64;
 

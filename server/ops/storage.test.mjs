@@ -215,28 +215,28 @@ describe("what the kernel says about a drive it found not cleanly unmounted (M26
 describe("what the kernel says about USB drives", () => {
   // The lines the kernel wrote during the 2026-09-05 incident, trimmed to the ones that matter.
   const journal = [
-    "2026-09-01T06:46:02+0000 bigbox kernel: usb 6-1: USB disconnect, device number 4",
-    "2026-09-01T06:46:10+0000 bigbox kernel: usb 6-1: new SuperSpeed USB device number 5 using xhci_hcd",
-    "2026-09-01T06:46:10+0000 bigbox kernel: usb 6-1: New USB device found, idVendor=0bc2, idProduct=2038, bcdDevice=18.01",
-    "2026-09-01T06:46:10+0000 bigbox kernel: usb 6-1: Product: Expansion HDD",
-    "2026-09-05T16:01:11+0000 bigbox kernel: usb 6-1: USB disconnect, device number 5",
-    "2026-09-05T16:01:19+0000 bigbox kernel: usb 6-1: new SuperSpeed USB device number 6 using xhci_hcd",
-    "2026-09-05T16:01:19+0000 bigbox kernel: usb 6-1: New USB device found, idVendor=0bc2, idProduct=2038, bcdDevice=18.01",
-    "2026-09-05T16:01:19+0000 bigbox kernel: usb 6-1: Product: Expansion HDD",
-    "2026-09-04T12:00:00+0000 bigbox kernel: usb 1-3: new full-speed USB device number 2 using xhci_hcd",   // a keyboard: no drop, not an event
-    "2026-07-01T00:00:00+0000 bigbox kernel: usb 6-1: USB disconnect, device number 1",                     // older than the window
+    "2026-09-01T06:46:02+0000 homebox kernel: usb 6-1: USB disconnect, device number 4",
+    "2026-09-01T06:46:10+0000 homebox kernel: usb 6-1: new SuperSpeed USB device number 5 using xhci_hcd",
+    "2026-09-01T06:46:10+0000 homebox kernel: usb 6-1: New USB device found, idVendor=1a2b, idProduct=3c4d, bcdDevice=18.01",
+    "2026-09-01T06:46:10+0000 homebox kernel: usb 6-1: Product: Portable Drive",
+    "2026-09-05T16:01:11+0000 homebox kernel: usb 6-1: USB disconnect, device number 5",
+    "2026-09-05T16:01:19+0000 homebox kernel: usb 6-1: new SuperSpeed USB device number 6 using xhci_hcd",
+    "2026-09-05T16:01:19+0000 homebox kernel: usb 6-1: New USB device found, idVendor=1a2b, idProduct=3c4d, bcdDevice=18.01",
+    "2026-09-05T16:01:19+0000 homebox kernel: usb 6-1: Product: Portable Drive",
+    "2026-09-04T12:00:00+0000 homebox kernel: usb 1-3: new full-speed USB device number 2 using xhci_hcd",   // a keyboard: no drop, not an event
+    "2026-07-01T00:00:00+0000 homebox kernel: usb 6-1: USB disconnect, device number 1",                     // older than the window
   ].join("\n");
 
   it("groups the drops by port and names the device", () => {
     const { ports } = parseUsbEvents(journal, { now: () => new Date("2026-09-06T00:00:00Z") });
     expect(ports).toHaveLength(1);
-    expect(ports[0]).toMatchObject({ port: "6-1", vendorId: "0bc2", productId: "2038", product: "Expansion HDD", powerFaults: 0 });
+    expect(ports[0]).toMatchObject({ port: "6-1", vendorId: "1a2b", productId: "3c4d", product: "Portable Drive", powerFaults: 0 });
     expect(ports[0].drops).toHaveLength(2);   // the July one is outside thirty days
     expect(ports[0].lastDropAt).toBe("2026-09-05T16:01:11.000Z");
   });
 
   it("keeps a power fault beside the drops it explains", () => {
-    const withFault = `${journal}\n2026-09-05T16:01:11+0000 bigbox kernel: usb 6-1: over-current condition\n`;
+    const withFault = `${journal}\n2026-09-05T16:01:11+0000 homebox kernel: usb 6-1: over-current condition\n`;
     expect(parseUsbEvents(withFault, { now: () => new Date("2026-09-06T00:00:00Z") }).ports[0].powerFaults).toBe(1);
   });
 

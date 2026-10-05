@@ -288,6 +288,38 @@ describe("config files shipped with an app", () => {
     expect(escape.errors.join(" ")).toMatch(/safe relative path/);
   });
 
+  it("refuses a secret on a command line, where every process on the server can read it", () => {
+    // /proc/<pid>/cmdline is world-readable; the environment is not. Kopia's web password sat in its
+    // command (sweep 1); the image reads it from KOPIA_SERVER_PASSWORD instead.
+    const app = {
+      id: "cmd", name: "Cmd", category: "T", description: "d", schemaVersion: 2,
+      image: { reference: "nginx:1.27" },
+      env: [{ name: "GREETING", default: "hello" }, { name: "TOKEN", type: "password" }, { name: "API_KEY", secret: true }],
+      command: ["serve", "--greeting=${GREETING}", "--port=${PORT_WEB}"],
+      ports: [{ id: "web", container: 80, host: 8080 }],
+    };
+    expect(validateManifest(app).errors).toEqual([]);
+    for (const command of [["serve", "--password=${TOKEN}"], ["serve", "--key", "$API_KEY"], ["sh", "-c", "run --token ${TOKEN:-none}"]]) {
+      const leaky = validateManifest({ ...app, command });
+      expect(leaky.manifest, command.join(" ")).toBeNull();
+      expect(leaky.errors.join(" ")).toMatch(/must not put the secret (TOKEN|API_KEY) on the command line/);
+    }
+    // An escaped $$ is a literal dollar to compose, not a reference.
+    expect(validateManifest({ ...app, command: ["sh", "-c", "echo $$TOKEN"] }).errors).toEqual([]);
+    const sidecar = validateManifest({ ...app, command: undefined, sidecars: [{ id: "db", image: "postgres:17", command: ["postgres", "-c", "password=${TOKEN}"] }] });
+    expect(sidecar.manifest).toBeNull();
+    expect(sidecar.errors.join(" ")).toMatch(/sidecars\[0\]\.command.*must not put the secret TOKEN on the command line/);
+  });
+
+  it("starts Kopia with its web password from the environment, not its command line", async () => {
+    const { manifests, problems } = await loadCatalog();
+    expect(problems).toEqual([]);
+    const manifest = manifests.find((entry) => entry.id === "kopia");
+    expect(manifest.command.join(" ")).not.toContain("KOPIA_SERVER_PASSWORD");
+    const { compose } = renderCompose(manifest, resolveValues(manifest, {}).values, { lanAddress: "0.0.0.0" });
+    expect(compose.services.kopia.environment.KOPIA_SERVER_PASSWORD).toBe("${KOPIA_SERVER_PASSWORD}");
+  });
+
   it("mounts a sidecar host bind read-only, and refuses a writable one", () => {
     const monitor = {
       id: "mon", name: "Mon", category: "T", description: "d", schemaVersion: 2,
