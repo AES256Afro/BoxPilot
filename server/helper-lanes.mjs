@@ -41,6 +41,19 @@ const backupTreeOperations = new Set(["app.backup", "app.backup.many", "app.back
 /** Those that held the host lane before the tree had a lane of its own still hold it as well. */
 const hostBackupOperations = new Set(["app.backup", "app.backup.many", "app.backup.restore", "app.backup.verify", "backup.sync", "backup.remote.sync", "backup.cloud.sync"]);
 
+/**
+ * The Docker daemon. An operation that can restart it holds this lane (with the host's): it waits
+ * for every app lane to drain, and every operation holding an app lane waits for it, while app
+ * operations still run beside each other. Docker log rotation restarts dockerd; a package change can
+ * restart docker.service or containerd, through the package's own scripts or needrestart afterwards;
+ * Services can restart either by name. They held only the host lane, which no app operation holds,
+ * so Docker restarted under an install, an update or a model pull mid-compose, and its rollback.
+ */
+export const dockerLane = "docker";
+const dockerRestartOperations = new Set(["docker.logging.set", "apt.upgrade", "apt.install", "apt.remove", "apt.purge", "apt.autoremove", "apt.repair", "apt.unattended.set", "prerequisite.docker.install"]);
+const dockerUnit = /^(docker|containerd)\.(service|socket)$/;
+const isAppLane = (lane) => lane.startsWith("app:");
+
 /** The lanes an operation must hold, as an array. Read-only operations never queue, so never get here. */
 export function laneFor(operation, parameters = {}) {
   const id = String(operation ?? "");
@@ -57,6 +70,7 @@ export function laneFor(operation, parameters = {}) {
   // rewrites the dashboard); unpublishing and disconnecting touch only Cloudflare and the record.
   if (id === "cloudflare.connect" || id === "cloudflare.publish") return [cloudflareLane, "app:cloudflared", homepageLane];
   if (id.startsWith("cloudflare.")) return [cloudflareLane];
+  if (dockerRestartOperations.has(id) || (id === "service.action" && dockerUnit.test(String(parameters?.unit ?? "")))) return [hostLane, dockerLane];
   const subject = (value) => (typeof value === "string" && value.length && value.length <= 64 ? value : null);
   const lanes = [];
   if (id.startsWith("app.")) {
@@ -78,10 +92,19 @@ export function laneFor(operation, parameters = {}) {
 
 /**
  * Independent FIFOs keyed by lane. `run(lanes, task)` waits until every lane it names is free (and
- * the exclusive lane with it), then holds all of them until the task settles.
+ * the exclusive lane with it), then holds all of them until the task settles. The Docker lane also
+ * waits for every app lane, and an app lane for the Docker lane.
  */
 export function createLaneQueues() {
   const lanes = new Map();
+
+  /** The lanes besides its own that a request must wait for: Docker and the apps wait for each other. */
+  function across(held) {
+    const also = [];
+    if (held.includes(dockerLane)) for (const lane of lanes.keys()) if (isAppLane(lane)) also.push(lane);
+    if (held.some(isAppLane)) also.push(dockerLane);
+    return also;
+  }
 
   function run(requested, task) {
     const held = [...new Set(Array.isArray(requested) ? requested : [requested])];
@@ -89,7 +112,7 @@ export function createLaneQueues() {
     // want the same pair in the opposite order.
     const waitFor = held.includes(exclusiveLane)
       ? [...lanes.values()]
-      : [...held.map((lane) => lanes.get(lane)), lanes.get(exclusiveLane)].filter(Boolean);
+      : [...held, ...across(held), exclusiveLane].map((lane) => lanes.get(lane)).filter(Boolean);
     const result = Promise.allSettled(waitFor).then(task, task); // an earlier failure must not cancel this one
     // Keep the chain alive but never leak rejections, and drop a lane once it is idle again.
     const settled = result.then(() => {}, () => {});
@@ -104,7 +127,7 @@ export function createLaneQueues() {
   function busy(requested) {
     const held = Array.isArray(requested) ? requested : [requested];
     if (held.includes(exclusiveLane)) return lanes.size > 0;
-    return held.some((lane) => lanes.has(lane)) || lanes.has(exclusiveLane);
+    return [...held, ...across(held), exclusiveLane].some((lane) => lanes.has(lane));
   }
 
   return { run, busy, size: () => lanes.size };

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { backupTreeLane, createConcurrencyGate, createLaneQueues, exclusiveLane, laneFor } from "./helper-lanes.mjs";
+import { backupTreeLane, createConcurrencyGate, createLaneQueues, dockerLane, exclusiveLane, laneFor } from "./helper-lanes.mjs";
 
 describe("helper lanes", () => {
   it("gives each app and VM its own lane and keeps shared host work on one", () => {
@@ -10,7 +10,7 @@ describe("helper lanes", () => {
     expect(laneFor("vm.action", { name: "dev-lab" })).toEqual(["vm:dev-lab"]);
     expect(laneFor("vm.create", { name: "dev-lab" })).toEqual(["host"]); // shared pools and libvirt config
     expect(laneFor("vm.media.import", { name: "iso" })).toEqual(["host"]);
-    expect(laneFor("apt.upgrade", {})).toEqual(["host"]);
+    expect(laneFor("apt.refresh", {})).toEqual(["host"]);
     expect(laneFor("firewall.set", { enabled: true })).toEqual(["host"]);
     expect(laneFor("storage.format", { device: "/dev/sdb" })).toEqual(["host"]);
     expect(laneFor("app.backup", { id: "x".repeat(100) })).toEqual(["backup-tree", "host"]); // implausible subject
@@ -189,7 +189,7 @@ describe("the backup tree", () => {
       expect(laneFor(id, { id: "jellyfin" })).toContain(backupTreeLane);
     }
     for (const id of ["backup.sync", "backup.remote.sync", "backup.cloud.sync"]) expect(laneFor(id, {})).toEqual([backupTreeLane, "host"]);
-    // The checkpoint is all an update writes there: it still does not wait behind an apt upgrade.
+    // The checkpoint is all an update writes there: it takes the tree's lane, not the host's.
     expect(laneFor("app.update", { id: "jellyfin" })).toEqual(["app:jellyfin", backupTreeLane]);
     expect(laneFor("app.backup.delete", { id: "jellyfin", backup: "20261001T030000Z.tar.gz" })).toEqual(["app:jellyfin", backupTreeLane]);
     // Nothing else about an app touches the tree.
@@ -215,5 +215,62 @@ describe("the backup tree", () => {
     releaseUpdate();
     await Promise.all([update, ...mirrors, remove]);
     expect(order).toEqual(["update:start", "restart", "update:end", "backup.sync", "backup.remote.sync", "backup.cloud.sync", "delete"]);
+  });
+});
+
+/**
+ * Docker log rotation restarts dockerd; a package change can restart docker.service or containerd
+ * (their own scripts, or needrestart afterwards); so can Services. Those held only the host lane, and
+ * app operations never hold it, so Docker restarted under an install, an update or a model pull
+ * mid-compose - and under its rollback.
+ */
+describe("operations that can restart Docker", () => {
+  const restartsDocker = [
+    ["docker.logging.set", {}],
+    ...["apt.upgrade", "apt.install", "apt.remove", "apt.purge", "apt.autoremove", "apt.repair", "apt.unattended.set", "prerequisite.docker.install"].map((id) => [id, {}]),
+    ["service.action", { unit: "docker.service", action: "restart" }],
+    ["service.action", { unit: "containerd.service", action: "restart" }],
+    ["service.action", { unit: "docker.socket", action: "stop" }],
+  ];
+
+  it("hold the Docker lane as well as the host lane; nothing else does", () => {
+    for (const [id, parameters] of restartsDocker) expect(laneFor(id, parameters)).toEqual(["host", dockerLane]);
+    expect(laneFor("apt.refresh", {})).toEqual(["host"]); // lists only: nothing is installed or restarted
+    expect(laneFor("service.action", { unit: "nginx.service", action: "restart" })).toEqual(["host"]);
+    expect(laneFor("docker.prune", {})).toEqual(["host"]);
+    expect(laneFor("app.install", { id: "jellyfin" })).not.toContain(dockerLane);
+  });
+
+  it("waits for every app operation already running, and every app operation behind it waits for it", async () => {
+    const queues = createLaneQueues();
+    const order = [];
+    let releaseInstall;
+    const install = queues.run(laneFor("app.install", { id: "jellyfin" }), async () => {
+      order.push("install:start");
+      await new Promise((resolve) => { releaseInstall = resolve; });
+      order.push("install:end");
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(queues.busy(laneFor("apt.upgrade", {}))).toBe(true);
+    const upgrade = queues.run(laneFor("apt.upgrade", {}), async () => { order.push("upgrade"); });
+    expect(queues.busy(laneFor("app.model.pull", { id: "ollama" }))).toBe(true);
+    const pull = queues.run(laneFor("app.model.pull", { id: "ollama" }), async () => { order.push("pull"); });
+    // Work that never touches Docker's apps is not held up by either.
+    await queues.run(laneFor("vm.action", { name: "dev-lab" }), async () => { order.push("vm"); });
+    expect(order).toEqual(["install:start", "vm"]);
+    releaseInstall();
+    await Promise.all([install, upgrade, pull]);
+    expect(order).toEqual(["install:start", "vm", "install:end", "upgrade", "pull"]);
+  });
+
+  it("still lets two apps work at once with nothing restarting Docker", async () => {
+    const queues = createLaneQueues();
+    let release;
+    const first = queues.run(laneFor("app.update", { id: "jellyfin" }), () => new Promise((resolve) => { release = resolve; }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(queues.busy(laneFor("app.action", { id: "immich", action: "restart" }))).toBe(false);
+    await queues.run(laneFor("app.action", { id: "immich", action: "restart" }), async () => {});
+    release();
+    await first;
   });
 });
