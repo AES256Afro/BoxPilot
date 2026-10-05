@@ -417,6 +417,16 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
             if (attempt > 1) notes.push(`step ${index + 1} (${title}) succeeded on attempt ${attempt} of ${attemptsAllowed}`);
             break;
           }
+          // A job that used its whole budget after it started was given up on, not stopped: its own
+          // record says it may still be running. That is losing sight of the step by another name,
+          // so neither a retry (a second copy beside the first) nor a keep-going policy applies.
+          if (finished.state === "failed" && finished.timeout?.scope === "operation" && finished.timeout.phase !== "queued") {
+            const summary = `lost sight of step ${index + 1} (${title}): it did not finish inside its time budget and may still be running on the server, so later steps did not start`.slice(0, 300);
+            store.markFlowRun(id, { result: summary, jobIds });
+            store.recordAudit("flow.failed", { actorId, subjectId: id, details: { step: index + 1, operationId: step.operationId, jobId: job.id, attempt, reason: "ran out of its whole time budget" } });
+            tell(flow, "Automation stopped", `${flow.name} ${summary}`);
+            throw new Error(`${flow.name} ${summary}`);
+          }
           store.recordAudit("flow.failed", { actorId, subjectId: id, details: { step: index + 1, operationId: step.operationId, jobId: job.id, attempt } });
           if (finished.state === "failed" && attempt < attemptsAllowed) {
             await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
@@ -506,8 +516,8 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
     return "accepted";
   }
 
-  /** One flow run under its creator's stored authority, with refusals recorded and notified. */
-  async function runUnderCreator(flow, refusalPhrase) {
+  /** One flow run under its creator's stored authority, with refusals recorded and notified. `afterRun` follows a run that completed. */
+  async function runUnderCreator(flow, refusalPhrase, { afterRun = null } = {}) {
     if (running.has(flow.id)) return;
     const creator = store.findOwnerById?.(flow.createdBy) ?? null;
     try {
@@ -516,6 +526,7 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
       if (!creator) throw new Error("the flow's creator no longer exists");
       if (["viewer", "disabled"].includes(creator.role)) throw new Error(`${creator.username} can no longer approve jobs`);
       await run(flow.id, flow.createdBy, { role: creator.role });
+      afterRun?.();
     } catch (error) {
       if (!recordedRunFailure.test(error.message)) {
         store.markFlowRun(flow.id, { result: `skipped: ${error.message}`.slice(0, 300), jobIds: [] });
@@ -609,43 +620,33 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
    * scheduler already carries: the creator consented by writing the cadence, the consent is
    * visible on the page, and disabling the flow revokes it. Everything else about unattended
    * running is inherited too, including refusing to run under always-ask approval mode.
+   *
+   * Every due flow is started and left to run: the clocks are all advanced and the runs all fired
+   * before any of them is waited on. tick() used to await each run in turn and turn away the ticks
+   * that came meanwhile, so one slow flow - a step queued for hours behind other work - kept every
+   * other schedule, and every follower, from starting. `running` still stops a flow lapping itself.
+   * The promise returned settles once the runs this tick started have, for a caller that waits.
    */
-  let ticking = false;
   async function tick() {
-    if (ticking) return 0;
-    ticking = true;
-    try {
-      const due = store.listDueFlows(now().toISOString());
-      for (const flow of due) {
-        // Advance the clock before running, so a slow flow cannot fire twice.
-        const nextDueAt = computeNextRun(flow, now()).toISOString();
-        if (running.has(flow.id)) { store.updateFlow(flow.id, { nextDueAt }, { actorId: flow.createdBy }); continue; }
-        // Advanced BEFORE the refusals below, not after. When the creator had been demoted, the
-        // refusal threw first and the clock never moved, so the flow was due again on the very next
-        // tick: a "did not run" push to the owner's phone every sixty seconds, and 1,440 skipped
-        // rows a day into an audit log capped at 20,000 - which evicts every other record in a
-        // fortnight. The scheduler had always advanced first; this now does the same.
-        store.updateFlow(flow.id, { nextDueAt }, { actorId: flow.createdBy });
-        const creator = store.findOwnerById?.(flow.createdBy) ?? null;
-        try {
-          if (!creator) throw new Error("the flow's creator no longer exists");
-          if (["viewer", "disabled"].includes(creator.role)) throw new Error(`${creator.username} can no longer approve jobs`);
-          await run(flow.id, flow.createdBy, { role: creator.role });
-          store.recordAudit("flow.scheduled-run", { actorId: flow.createdBy, subjectId: flow.id, details: { nextDueAt } });
-        } catch (error) {
-          // run() already recorded the failure on the flow; a refusal before it started needs recording here.
-          if (!recordedRunFailure.test(error.message)) {
-            store.markFlowRun(flow.id, { result: `skipped: ${error.message}`.slice(0, 300), jobIds: [] });
-            store.recordAudit("flow.skipped", { actorId: flow.createdBy, subjectId: flow.id, details: { reason: error.message.slice(0, 200) } });
-            // A refusal produces no job, so nothing else would tell the owner their schedule did not run.
-            announce(flow, "Automation did not run", `${flow.name} was due but did not run: ${error.message}`.slice(0, 300));
-          }
-        }
-      }
-      return due.length;
-    } finally {
-      ticking = false;
+    const due = store.listDueFlows(now().toISOString());
+    const started = [];
+    for (const flow of due) {
+      // Advance the clock before running, so a slow flow cannot fire twice. Advanced BEFORE the
+      // refusals in runUnderCreator, not after: when the creator had been demoted, the refusal threw
+      // first and the clock never moved, so the flow was due again on the very next tick: a "did not
+      // run" push to the owner's phone every sixty seconds, and 1,440 skipped rows a day into an audit
+      // log capped at 20,000 - which evicts every other record in a fortnight.
+      const nextDueAt = computeNextRun(flow, now()).toISOString();
+      store.updateFlow(flow.id, { nextDueAt }, { actorId: flow.createdBy });
+      if (running.has(flow.id)) continue;
+      // A refusal before the run starts produces no job, so runUnderCreator records it and tells the
+      // owner their schedule did not run; run() records its own failures.
+      const recordRan = () => store.recordAudit("flow.scheduled-run", { actorId: flow.createdBy, subjectId: flow.id, details: { nextDueAt } });
+      started.push(runUnderCreator(flow, "was due but did not run", { afterRun: recordRan })
+        .catch((error) => report(`[boxpilot] scheduled flow ${flow.name} could not be run: ${error.message}`)));
     }
+    await Promise.all(started);
+    return due.length;
   }
 
   /**
