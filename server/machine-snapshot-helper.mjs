@@ -557,7 +557,9 @@ export function createMachineSnapshotHelper({
             for (const file of [".env"]) await copyIfExists(path.join(staging, "apps", app.id, file), path.join(target, file));
             await writeFile(path.join(target, "boxpilot.json"), JSON.stringify({ ...(archivedState ?? { id: app.id }), installed: false, restoredFrom: artifact }, null, 2), { mode: 0o600 });
             progress?.(`[${app.id}] installing with the archived settings`, "stdout");
-            await appHelper.install({ id: app.id, values: archivedState?.values ?? {} }, { progress });
+            // Saved settings, not an owner's entry: a snapshot from an older release can name a setting
+            // the catalog has since dropped, and never holds a secret, which comes from the .env above.
+            await appHelper.install({ id: app.id, values: archivedState?.values ?? {} }, { progress, storedValues: true });
             await stamp(target, { restoredFrom: artifact });
             entry.installed = true;
           }
