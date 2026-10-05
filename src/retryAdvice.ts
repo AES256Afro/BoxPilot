@@ -57,7 +57,9 @@ const rules: Rule[] = [
   { test: /has no data to back up|is already scheduled/i, retry: false },
   // What a backup or snapshot holds, and whether it is there, are the file's own: the same file is
   // refused the same way every time (a high-risk restore asked for the password first, each time).
-  { test: /which a (?:backup|snapshot) BoxPilot made never (?:holds|does)|failed its checksum/i, retry: false },
+  // So is an app folder that must be put right first: a data folder that has become a link is
+  // refused by every backup until it is a real folder again.
+  { test: /which a snapshot BoxPilot made never does|, where BoxPilot writes .{1,80}? own files as root|was not backed up; nothing was stopped\. In its folder|failed its checksum/i, retry: false },
   { test: /can be read now, so it was not removed|\bis no longer there\.?$/i, retry: false },
 ];
 

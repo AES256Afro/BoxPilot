@@ -393,7 +393,8 @@ export function createAppHelper({
    * `ss` names them as themselves (pihole-FTL, python3), not as Docker's. A name says nothing about
    * whose a process is, and Docker reports Running=true through restart backoff, when the container
    * has no process at all: a Pi-hole crash-looping because systemd-resolve or libvirt's dnsmasq held
-   * port 53 let that holder off as its own. Only "running" counts, and only the PIDs it lists.
+   * port 53 let that holder off as its own. Only "running" and "paused" count, and only the PIDs it
+   * lists: a paused container's processes are frozen, not gone, and still hold its ports (R5B3-5).
    */
   async function ownHostNetworkPids(id) {
     const none = new Set();
@@ -401,7 +402,7 @@ export function createAppHelper({
     if (!result?.ok) return none;
     let parsed = null;
     try { parsed = JSON.parse(String(result.stdout ?? "").split("\n")[0]); } catch { return none; }
-    if (parsed?.running !== true || parsed.status !== "running" || parsed.networkMode !== "host") return none;
+    if (parsed?.running !== true || !["running", "paused"].includes(parsed.status) || parsed.networkMode !== "host") return none;
     const top = await docker(["top", projectNameFor(id), "-eo", "pid"], { timeout: 10_000 }).catch(() => null);
     if (!top?.ok) return none;
     // A header line ("PID"), then one PID a line.
@@ -1895,6 +1896,37 @@ export function createAppHelper({
     }
   }
 
+  /**
+   * What is at `relative` in an app's folder, as a backup would archive it, never following a link:
+   * `{ state: "present" }`, `{ state: "absent" }`, `{ state: "link", at, target }` for a link on the
+   * way or at the name, or `{ state: "other", at }` for a project file that is not a plain file.
+   */
+  async function archivedEntry(directory, relative, kind) {
+    const parts = relative.split("/").filter(Boolean);
+    let current = directory;
+    for (const [index, part] of parts.entries()) {
+      current = path.join(current, part);
+      const info = await lstat(current).catch((error) => { if (error.code === "ENOENT" || error.code === "ENOTDIR") return null; throw error; });
+      if (!info) return { state: "absent" };
+      const at = parts.slice(0, index + 1).join("/");
+      if (info.isSymbolicLink()) return { state: "link", at, target: await readlink(current).catch(() => "somewhere else") };
+      if (index < parts.length - 1 && !info.isDirectory()) return { state: "absent" };
+      if (index === parts.length - 1 && kind === "file" && !info.isFile()) return { state: "other", at };
+    }
+    return { state: "present" };
+  }
+
+  /** Why a backup was refused for what archivedEntry found. */
+  function unfitWords(manifest, directory, unfit) {
+    const links = unfit.filter((entry) => entry.state === "link");
+    const said = unfit.map((entry) => (entry.state === "link" ? `${entry.at} is a link to ${entry.target}` : `${entry.at} is not a plain file`)).join(", and ");
+    const one = links.length === 1;
+    const why = links.length
+      ? `: a backup would hold only the link${one ? "" : "s"}, none of what ${one ? "it points" : "they point"} at, and a restore refuses a link where BoxPilot writes ${manifest.name}'s files as root. Move the data back into ${links.map((entry) => path.join(directory, entry.at)).join(" and ")}, or mount the other disk there itself rather than linking to it, then back up again.`
+      : `, which BoxPilot never writes there, and a restore refuses. Remove ${unfit.length === 1 ? "it" : "them"}, then save ${manifest.name}'s settings again, which writes its project files afresh.`;
+    return `${manifest.name} was not backed up; nothing was stopped. In its folder ${said}${why}`;
+  }
+
   /** `checkpointReason` and `preserve` are for checkpoint() only; the registry operation passes neither. */
   async function backup({ id, keep = 5, checkpointReason = null, preserve = null }, { progress = null } = {}) {
     const manifest = await ensureManifest(id);
@@ -1902,8 +1934,19 @@ export function createAppHelper({
     if (!state) throw new Error(`${manifest.name} has no data to back up`);
     if (keep !== null && (!Number.isInteger(keep) || keep < 1 || keep > 30)) throw new Error("keep must be a whole number between 1 and 30");
     const directory = dirFor(id);
-    const contents = ["boxpilot.json"];
-    for (const name of ["compose.yaml", ".env"]) { try { await stat(path.join(directory, name)); contents.push(name); } catch { /* uninstalled apps have no compose.yaml */ } }
+    // What goes into the archive is looked at first, never through a link (R5B3-1): tar archives a
+    // link as a link, so a data folder the owner moved to another disk and linked back made backups
+    // holding only the link, which the rehearsal passed and every restore refuses.
+    const unfit = [];
+    const contents = [];
+    const add = async (relative, kind) => {
+      const found = await archivedEntry(directory, relative, kind);
+      if (found.state === "present") contents.push(relative);
+      else if (found.state !== "absent") unfit.push(found);
+    };
+    await add("boxpilot.json", "file");
+    // Uninstalled apps have no compose.yaml.
+    for (const name of ["compose.yaml", ".env"]) await add(name, "file");
     const skippedHostPaths = [];
     const skippedVolumes = [];
     for (const volume of manifest.volumes) {
@@ -1914,14 +1957,15 @@ export function createAppHelper({
         else if (volume.path) skippedVolumes.push(volume.label ?? volume.id);
         continue;
       }
-      try { await stat(path.join(directory, volume.path)); contents.push(volume.path); } catch { /* volume directory not created yet */ }
+      await add(volume.path, "folder");   // absent: not created yet
     }
     for (const sidecar of manifest.sidecars ?? []) {
       for (const volume of sidecar.volumes) {
         if (!volume.backup) continue;
-        try { await stat(path.join(directory, volume.path)); contents.push(volume.path); } catch { /* not created yet */ }
+        await add(volume.path, "folder");
       }
     }
+    if (unfit.length) throw new Error(unfitWords(manifest, directory, unfit));
     const status = await containerStatus(id);
     const wasRunning = status.running;
     const backupDirectory = backupDirFor(id);
@@ -2032,7 +2076,25 @@ export function createAppHelper({
   function keptOutOfBackup(manifest) {
     const folders = [...manifest.volumes, ...(manifest.sidecars ?? []).flatMap((sidecar) => sidecar.volumes ?? [])].filter((volume) => volume.path && !volume.backup).map((volume) => volume.path);
     const files = (manifest.files ?? []).map((file) => path.posix.normalize(file.path)).filter((relative) => !relative.startsWith("..") && !path.posix.isAbsolute(relative));
-    return { files, all: [...new Set([...folders, ...files, homepageSyncFile])].sort((a, b) => a.length - b.length) };
+    return { folders, files, all: [...new Set([...folders, ...files, homepageSyncFile])].sort((a, b) => a.length - b.length) };
+  }
+
+  /**
+   * Why a link the owner left at a folder backups leave out (R5B3-4: downloaded models moved to
+   * another disk) cannot be carried into a restored app folder, or null when it can: where it leads,
+   * every link resolved (a not-yet-mounted tail too), must pass what an install checks a folder the
+   * owner chooses against, a protected system location, and must not be inside BoxPilot's own
+   * folders (another app's, this app's own, the backups). A backup never brings such a link: one in
+   * an archive at a folder BoxPilot manages is refused before anything changes (linksWhereBoxPilotWrites),
+   * and so is a backup of an archived folder that is one (archivedEntry). This one is the owner's,
+   * on this server, in the folder the restore replaces.
+   */
+  async function ownersLinkRefusal(link) {
+    const real = await resolveExisting(link, { realpath: realpathOf });
+    if (isDeniedHostPath(real)) return `${real}, a protected system location`;
+    const inside = (base) => { const relative = path.relative(path.resolve(base), real); return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative)); };
+    if ([root, backupRoot, machineSnapshotRoot].some(inside)) return `${real}, inside BoxPilot's own folders`;
+    return null;
   }
 
   /**
@@ -2137,10 +2199,19 @@ export function createAppHelper({
     return [...found].sort();
   }
 
-  /** Why a restore of `what` from a backup with `planted` (linksWhereBoxPilotWrites) was refused. */
+  /**
+   * Why a restore of `what` from a backup with `planted` (linksWhereBoxPilotWrites) was refused. A
+   * data folder there can be the owner's own doing rather than a crafted archive: one moved to another
+   * disk with a link left in its place was archived as that link until backups refused it (R5B3-1).
+   */
   function plantedWords(manifest, planted, what = manifest.name) {
     const one = planted.length === 1;
-    return `${what} was not restored; nothing was changed. In this backup ${planted.join(", ")} ${one ? "is a link, or not a plain file," : "are links, or not plain files,"} where BoxPilot writes ${manifest.name}'s own files as root, which a backup BoxPilot made never holds: restored, the next change to ${manifest.name} would have written through ${one ? "it" : "them"} to somewhere else on this server.`;
+    const folders = new Set([...manifest.volumes, ...(manifest.sidecars ?? []).flatMap((sidecar) => sidecar.volumes ?? [])].filter((volume) => volume.path).map((volume) => path.posix.normalize(volume.path).replace(/\/$/, "")));
+    const linkedFolders = planted.filter((name) => folders.has(name));
+    const how = linkedFolders.length
+      ? ` If ${linkedFolders.join(" and ")} ${linkedFolders.length === 1 ? "was a link" : "were links"} in ${manifest.name}'s folder when this backup was taken (to another disk, say), the backup holds only that link and none of what it pointed at; backups now refuse such a folder instead of taking it.`
+      : "";
+    return `${what} was not restored; nothing was changed. In this backup ${planted.join(", ")} ${one ? "is a link, or not a plain file," : "are links, or not plain files,"} where BoxPilot writes ${manifest.name}'s own files as root: restored, the next change to ${manifest.name} would have written through ${one ? "it" : "them"} to somewhere else on this server.${how}`;
   }
 
   /** Backups on disk for one app, newest first. The filesystem is the source of truth. */
@@ -2266,6 +2337,12 @@ export function createAppHelper({
     let memberCount = 0;
     const shipped = new Set(keptOutOfBackup(manifest).files);
     const shippedInArchive = new Set();
+    // The folders a backup archives, each seen as a folder (`data/`, or something under it) or only
+    // as a bare name: tar lists a folder with its slash, so `data` alone is a link or a file there,
+    // and the backup holds none of the folder's data (R5B3-1).
+    const folders = [...manifest.volumes, ...(manifest.sidecars ?? []).flatMap((sidecar) => sidecar.volumes ?? [])].filter((volume) => volume.backup && volume.path).map((volume) => path.posix.normalize(volume.path).replace(/\/$/, ""));
+    const bare = new Set();
+    const asFolder = new Set();
     const listed = await runCommand(tarBinary, ["-tzf", artifact], {
       timeout: 60 * 60_000,
       onLine: (line, stream) => {
@@ -2277,12 +2354,19 @@ export function createAppHelper({
         if (first) topLevel.add(first);
         const member = name.replace(/^\.\//, "").replace(/\/$/, "");
         if (shipped.has(member)) shippedInArchive.add(member);
+        const raw = name.replace(/^\.\//, "");
+        for (const folder of folders) {
+          if (raw === folder) bare.add(folder);
+          else if (raw.startsWith(`${folder}/`)) asFolder.add(folder);
+        }
       },
     });
     if (!listed.ok) return fail(`The archive could not be read all the way through: ${redact(listed.stderr).split("\n").slice(-2).join(" ")}`);
     const expected = meta?.contents ?? ["compose.yaml"];
     const missing = expected.filter((entry) => !topLevel.has(entry.split("/")[0]));
     if (missing.length) return fail(`The archive is missing ${missing.join(", ")}, which the backup says it contains.`);
+    const linked = folders.filter((folder) => bare.has(folder) && !asFolder.has(folder));
+    if (linked.length) return fail(`The archive holds ${linked.join(" and ")} as a link, not the folder and what is in it: ${linked.length === 1 ? "it was a link" : "they were links"} in ${manifest.name}'s folder when the backup was taken (to another disk, say), so the backup has none of that data, and a restore refuses it.`);
 
     // Read the compose file out on its own. No --occurrence: that is GNU tar only, and this has to
     // behave the same wherever it runs. It costs a second pass over the archive, which a weekly
@@ -2582,6 +2666,8 @@ export function createAppHelper({
     // use", and the .replaced folder it left refused every retry.
     let ports;
     let deployed = { rendered: null };
+    // The compose file `up` will start, as the port checks see it.
+    let starting = "";
     const warnings = [];
     try {
       // Names BoxPilot only writes under and renames away, and the marker of a backup in progress:
@@ -2623,6 +2709,7 @@ export function createAppHelper({
           if (allowed) { warnings.push(allowed); progress?.(allowed, "stderr"); }
         }
       }
+      starting = project;
       ports = await assertPortsFree(manifest, project, { progress, refused: `${manifest.name} was not restored; nothing was changed.` });
     } catch (error) {
       await rm(staged, { recursive: true, force: true });
@@ -2632,13 +2719,24 @@ export function createAppHelper({
     // newest few an app keeps, so one taken before a refusal that says "nothing was changed" was a
     // change, and a few retries pushed the very archive being restored out at the next prune.
     let safetyBackupSaved = false;
+    let safetyArtifact = null;
     try {
       progress?.("Taking a safety backup of the current state first...", "stdout");
       const safety = await backup({ id, keep: null }, { progress });
       safetyBackupSaved = true;
+      safetyArtifact = safety.artifact;
       progress?.(`Current state saved as ${safety.artifact}`, "stdout");
     } catch (error) {
       progress?.(`Safety backup failed (${error.message}); the original directory will be retained after the restore`, "stderr");
+    }
+    // Asked again (R5B3-3): the safety copy had the app stopped for a while, and a program waiting
+    // for one of its ports (Serve retrying, a restart elsewhere) could take it then. Found by `up`
+    // after the swap instead, the app was left down and the .replaced folder refused every retry.
+    try {
+      ports = await assertPortsFree(manifest, starting, { progress, refused: safetyArtifact ? `${manifest.name} was not restored; its current state was saved as ${safetyArtifact} first, and nothing else was changed.` : `${manifest.name} was not restored.` });
+    } catch (error) {
+      await rm(staged, { recursive: true, force: true });
+      throw error;
     }
     const status = await containerStatus(id);
     if (status.running) {
@@ -2669,13 +2767,23 @@ export function createAppHelper({
     };
     if (await lstat(displaced).then(() => true, () => false)) {
       const linked = [];
+      const refusedLinks = [];
+      const carriedLinks = [];
       for (const relative of kept.all) {
         if ((await entryAt(displaced, relative)) !== "present") continue;
         const here = await entryAt(live, relative);
         if (here === "present") continue;   // an older backup that did hold it: the archive's copy stands
-        // A link there (left by a backup restored before links were refused) is not carried into the
-        // restored folder: Docker would mount, and the next deploy write through, whatever it names.
-        if ((await lstat(path.join(displaced, relative))).isSymbolicLink()) { linked.push(relative); continue; }
+        // A link there is carried only at a folder backups leave out (R5B3-4), and only when where it
+        // leads is somewhere an install would let the owner choose (ownersLinkRefusal). One at a file
+        // BoxPilot writes, or one leading into a protected place (left by a backup restored before
+        // links were refused), stays behind: Docker would mount, and the next deploy write through,
+        // whatever it names.
+        if ((await lstat(path.join(displaced, relative))).isSymbolicLink()) {
+          if (!kept.folders.includes(relative)) { linked.push(relative); continue; }
+          const refusal = await ownersLinkRefusal(path.join(displaced, relative));
+          if (refusal) { refusedLinks.push(`${relative} is a link to ${refusal}`); continue; }
+          carriedLinks.push(relative);
+        }
         try {
           if (here === "unsafe") throw new Error("a link or a file in the restored folder stands in its way");
           await placeWithoutFollowing(path.join(displaced, relative), live, relative, path.join(displaced, ".boxpilot-aside"));
@@ -2685,9 +2793,14 @@ export function createAppHelper({
           throw new Error(`Restored the files, but could not keep ${relative} from the app folder (${error.message}), so ${manifest.name} was not started. The original directory remains in ${path.basename(displaced)}; preserve it.`);
         }
       }
-      if (carried.length) progress?.(`Kept from the app folder, as backups leave them out: ${carried.join(", ")}`, "stdout");
+      if (carried.length) progress?.(`Kept from the app folder, as backups leave them out: ${carried.join(", ")}${carriedLinks.length ? ` (${carriedLinks.join(", ")} as the link${carriedLinks.length === 1 ? "" : "s"} you made)` : ""}`, "stdout");
       if (linked.length) {
         const warning = `Not kept from the app folder: ${linked.join(", ")} ${linked.length === 1 ? "is a link" : "are links"} there, and BoxPilot does not bring a link back where it writes ${manifest.name}'s files as root. What ${linked.length === 1 ? "it points" : "they point"} at is left as it is.`;
+        warnings.push(warning);
+        progress?.(warning, "stderr");
+      }
+      if (refusedLinks.length) {
+        const warning = `Not kept from the app folder: ${refusedLinks.join("; ")}, which BoxPilot does not mount into ${manifest.name}. What ${refusedLinks.length === 1 ? "it points" : "they point"} at is left as it is; ${manifest.name} starts with ${refusedLinks.length === 1 ? "that folder" : "those folders"} empty.`;
         warnings.push(warning);
         progress?.(warning, "stderr");
       }
@@ -2724,26 +2837,41 @@ export function createAppHelper({
     return { backupDirectory: backupDirFor(id), artifact: path.join(backupDirFor(id), backupName) };
   }
 
-  /** `tar -tzv` listing of one backup: relative path, size, and kind. Capped so a huge archive cannot flood the UI. */
-  async function listAppBackupFiles({ id, backup: backupName, limit = 5000 }) {
+  /**
+   * `tar -tzv` listing of one backup: relative path, size, and kind, at most `limit` of them.
+   * `filter` keeps the paths that contain it (any case), and `path` the one with exactly that path.
+   *
+   * Streamed a line at a time (R5B3-6): buffered whole, a backup with a large photo library or mail
+   * store overflowed the 64 MB cap and failed "maxBuffer exceeded", and only the first 5000 names
+   * ever reached the dialog, so its filter could not find a file past them. The archive is read to
+   * the end whatever the limit, so `matched` says how many there were and `truncated` whether more
+   * matched than came back.
+   */
+  async function listAppBackupFiles({ id, backup: backupName, limit = 5000, filter = null, path: exactPath = null }) {
     await ensureManifest(id);
     const { artifact } = backupArtifactFor(id, backupName);
     await stat(artifact).catch(() => { throw new Error(`Backup ${backupName} does not exist`); });
-    const listing = await runCommand(tarBinary, ["-tzvf", artifact], { timeout: 10 * 60_000, maxBuffer: 64 * 1024 * 1024 });
-    if (!listing.ok) throw new Error(`Could not read the archive: ${listing.stderr.split("\n").slice(-2).join(" ")}`);
+    const needle = typeof filter === "string" && filter.trim() ? filter.trim().toLowerCase() : null;
     const files = [];
+    let matched = 0;
     // GNU tar: "mode owner/group size YYYY-MM-DD HH:MM name"; bsdtar: "mode links owner group size Mon DD HH:MM|YYYY name".
     const gnu = /^([-dlcbps][rwxsStT-]{9})\s+\S+\s+(\d+)\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}(?::\d{2})?\s+(.+)$/;
     const bsd = /^([-dlcbps][rwxsStT-]{9})\s+\d+\s+\S+\s+\S+\s+(\d+)\s+[A-Za-z]{3}\s+\d{1,2}\s+(?:\d{2}:\d{2}|\d{4})\s+(.+)$/;
-    for (const line of listing.stdout.split("\n")) {
-      const match = line.match(gnu) ?? line.match(bsd);
-      if (!match) continue;
-      const relative = match[3].replace(/ -> .*$/, "").replace(/^\.\//, "").replace(/\/$/, "");
-      if (!relative || relative === ".") continue;
-      files.push({ path: relative, sizeBytes: Number(match[2]), type: match[1].startsWith("d") ? "directory" : match[1].startsWith("l") ? "link" : "file" });
-      if (files.length >= limit) break;
-    }
-    return { id, backup: backupName, files, truncated: files.length >= limit };
+    const listing = await runCommand(tarBinary, ["-tzvf", artifact], {
+      timeout: 10 * 60_000,
+      onLine: (line, stream) => {
+        if (stream !== "stdout") return;   // tar warns on stderr; a warning is not an archive member
+        const match = String(line ?? "").match(gnu) ?? String(line ?? "").match(bsd);
+        if (!match) return;
+        const relative = match[3].replace(/ -> .*$/, "").replace(/^\.\//, "").replace(/\/$/, "");
+        if (!relative || relative === ".") return;
+        if (exactPath !== null ? relative !== exactPath : needle !== null && !relative.toLowerCase().includes(needle)) return;
+        matched += 1;
+        if (files.length < limit) files.push({ path: relative, sizeBytes: Number(match[2]), type: match[1].startsWith("d") ? "directory" : match[1].startsWith("l") ? "link" : "file" });
+      },
+    });
+    if (!listing.ok) throw new Error(`Could not read the archive: ${listing.stderr.split("\n").slice(-2).join(" ")}`);
+    return { id, backup: backupName, files, truncated: matched > files.length, matched, ...(needle !== null ? { filter: needle } : {}) };
   }
 
   /**
@@ -2778,7 +2906,7 @@ export function createAppHelper({
     const manifest = await ensureManifest(id);
     const { backupDirectory, artifact } = backupArtifactFor(id, backupName);
     if (typeof relativePath !== "string" || !relativePath || relativePath.startsWith("/") || relativePath.split("/").some((part) => part === "" || part === "." || part === "..")) throw new Error("Path must be a relative path inside the backup");
-    const listing = await listAppBackupFiles({ id, backup: backupName, limit: 200_000 });
+    const listing = await listAppBackupFiles({ id, backup: backupName, path: relativePath, limit: 1 });
     const member = listing.files.find((entry) => entry.path === relativePath);
     if (!member) throw new Error(`${relativePath} is not in ${backupName}`);
     let meta = null;

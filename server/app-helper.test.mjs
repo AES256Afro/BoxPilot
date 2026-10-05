@@ -355,6 +355,40 @@ sidecars:
     expect(emitted).toBe(200_000);
   });
 
+  // R5B3-6: the file list buffered the whole `tar -tzvf` (a 64 MB cap) and kept the first 5000, so a
+  // large backup failed with "maxBuffer exceeded", and the dialog's filter could never reach a file
+  // past the first 5000. The listing streams, and filtering and lookup happen as it goes.
+  it("streams a backup's file list, and filters and looks up past the first few thousand", async () => {
+    let listingOptions = null;
+    const runCommand = vi.fn(async (_binary, args, options = {}) => {
+      if (args[0] === "-tzvf") {
+        listingOptions = options;
+        options.onLine?.("-rw------- root/root       612 2026-01-01 00:00 boxpilot.json", "stdout");
+        options.onLine?.("drwxr-xr-x 1000/1000         0 2026-01-01 00:00 data/", "stdout");
+        for (let index = 0; index < 300_000; index += 1) options.onLine?.(`-rw-r--r-- 1000/1000      ${index % 977} 2026-01-01 00:00 data/photos/IMG_${String(index).padStart(6, "0")}.jpg`, "stdout");
+        options.onLine?.("tar: Removing leading `/' from member names", "stderr");
+        return { ok: true, stdout: "", stderr: "" };
+      }
+      return { ok: true, stdout: "", stderr: "" };
+    });
+    const { apps, backupRoot } = await setup({ runCommand });
+    await mkdir(path.join(backupRoot, "demo"), { recursive: true });
+    const backup = "20260101T000000Z.tar.gz";
+    await writeFile(path.join(backupRoot, "demo", backup), "pretend archive bytes");
+
+    const all = await apps.listAppBackupFiles({ id: "demo", backup });
+    expect(typeof listingOptions.onLine).toBe("function");
+    expect(listingOptions.maxBuffer).toBeUndefined();
+    expect(all.files).toHaveLength(5000);
+    expect(all).toMatchObject({ truncated: true, matched: 300_002 });
+    // A name far past the first 5000, found by the filter on the server.
+    const found = await apps.listAppBackupFiles({ id: "demo", backup, filter: "img_299998" });
+    expect(found).toMatchObject({ truncated: false, matched: 1, files: [{ path: "data/photos/IMG_299998.jpg", type: "file", sizeBytes: 299_998 % 977 }] });
+    // And one path looked up exactly, as a single-file restore does.
+    const exact = await apps.listAppBackupFiles({ id: "demo", backup, path: "data/photos/IMG_250000.jpg" });
+    expect(exact.files).toEqual([{ path: "data/photos/IMG_250000.jpg", type: "file", sizeBytes: 250_000 % 977 }]);
+  });
+
   it("does not persist shared-VPN-profile connection values into per-app state (GET /catalog would leak them)", async () => {
     // The profile is owner-only, but its injected connection env used to land in boxpilot.json and be
     // served by /catalog to any role. With the profile on, those values are re-derived every deploy,
@@ -2481,6 +2515,23 @@ describe.skipIf(onWindows)("what an app backup leaves out on purpose", () => {
     expect((await readdir(catalogRoot)).filter((entry) => entry.includes(".restoring") || entry.includes(".replaced"))).toEqual([]);
   });
 
+  // R5B3-2: the helper runs with UMask=0077, and a shipped config file came out 0600, root's: the
+  // app's own user (Prometheus runs as nobody) could not read the file it was handed.
+  it("writes the shipped config files readable by the app's own user, whatever the helper's umask", async () => {
+    const harness = await setup();
+    await writeFile(path.join(harness.catalogDirectory, "stack.yaml"), stackManifest);
+    let previous = null;
+    try { previous = process.umask(0o077); } catch { return; }   // a worker thread may not set it
+    try {
+      await harness.apps.install({ id: "stack" });
+    } finally {
+      process.umask(previous);
+    }
+    const app = path.join(harness.catalogRoot, "stack");
+    for (const file of ["stack.yml", "provisioning/sources/stack.yaml"]) expect((await stat(path.join(app, file))).mode & 0o777, file).toBe(0o644);
+    for (const file of [".env", "compose.yaml", "boxpilot.json"]) expect((await stat(path.join(app, file))).mode & 0o777, file).toBe(0o600);
+  });
+
   it("puts them back with the original when the restored app does not start", async () => {
     const { apps, made, runDocker, catalogRoot } = await stack();
     const original = runDocker.getMockImplementation();
@@ -2652,6 +2703,18 @@ describe("ports an app on the host's own network binds itself, checked before it
     await expect(apps.restoreAppBackup({ id: "dns", backup: made.artifact })).rejects.toThrow("DNS was not restored; nothing was changed. Port 53 is taken on every address by process dnsmasq (pid 4242).");
     expect(await readFile(path.join(catalogRoot, "dns", "compose.yaml"), "utf8")).toContain("network_mode: host");
     expect((await readdir(catalogRoot)).filter((entry) => entry.includes(".replaced") || entry.includes(".restoring"))).toEqual([]);
+  });
+
+  // R5B3-5: paused, its processes still hold its ports and `docker top` still lists them, but only
+  // "running" counted: a paused Pi-hole on the host network was refused a settings change, an update
+  // and a restore on its own pihole-FTL.
+  it("takes its own processes for its own while it is paused", async () => {
+    const { apps, held, containers } = await hostNetworkHarness();
+    await apps.install({ id: "dns", values: { networkMode: "host" } });
+    // Paused, as Docker reports it: Running stays true and the status reads "paused".
+    Object.assign(containers.get("bp-dns"), { running: true, status: "paused" });
+    held.push(...ownProcesses());
+    await expect(apps.reconfigure({ id: "dns", values: { networkMode: "bridge" } }, { checkpoint: false })).resolves.toMatchObject({ reconfigured: true });
   });
 
   it("takes the processes its running container lists for its own, not a program of the same name", async () => {
@@ -2970,6 +3033,36 @@ describe("a restore refused before anything changes", () => {
     await expect(apps.restoreAppBackup({ id: "relay", backup: made.artifact })).rejects.toThrow("Relay was not restored; nothing was changed.");
     expect(await backupsOf(backupRoot, "relay")).toEqual([made.artifact]);
     expect(calls.filter((call) => / (stop|start|up)(?: |$)/.test(call))).toEqual([]);
+  });
+
+  // R5B3-3: the port check ran before the safety copy, which stops the app and starts it again. A
+  // program waiting for one of its ports took it meanwhile, `up` after the swap failed "address
+  // already in use", and the .replaced folder it left refused every retry. Asked again just before.
+  it("asks about the ports again after the safety copy has had the app stopped", async () => {
+    const held = [];
+    const own = [{ Names: "bp-demo", Ports: "0.0.0.0:8080->80/tcp", Labels: "io.boxpilot.app=demo" }];
+    const { apps, runDocker, catalogRoot, containers, advance } = await setup({ lanAddress: "0.0.0.0", hostListeners: async () => held, runCommand: withRealTar, dockerPs: own });
+    await apps.install({ id: "demo", values: { setup: [] } });
+    const made = await apps.backup({ id: "demo", keep: 5 });
+    const composeFile = path.join(catalogRoot, "demo", "compose.yaml");
+    const compose = await readFile(composeFile, "utf8");
+    const original = runDocker.getMockImplementation();
+    let taken = false;
+    runDocker.mockImplementation(async (binary, args, options) => {
+      // While the safety copy has the app stopped, another program takes its port, once.
+      if (args[0] === "compose" && args.includes("stop") && !taken) { taken = true; held.push(program("nginx", 8080)); }
+      return original(binary, args, options);
+    });
+    advance(60_000);
+    const failure = await apps.restoreAppBackup({ id: "demo", backup: made.artifact }).then(() => null, (error) => error);
+    expect(failure?.message).toMatch(/^Demo was not restored; its current state was saved as \d{8}T\d{6}Z\.tar\.gz first, and nothing else was changed\. Port 8080 is taken on every address by process nginx \(pid 4242\)\./);
+    expect(failure?.code).toBe("port_conflict");
+    // Nothing swapped and nothing left behind: a retry once the port is free goes ahead.
+    expect(await readdir(catalogRoot)).toEqual(["demo"]);
+    expect(await readFile(composeFile, "utf8")).toBe(compose);
+    expect(containers.get("bp-demo")).toMatchObject({ running: true });
+    held.length = 0;
+    await expect(apps.restoreAppBackup({ id: "demo", backup: made.artifact })).resolves.toMatchObject({ restored: true });
   });
 
   it("still takes the safety copy of a restore that goes ahead", async () => {
@@ -3313,5 +3406,136 @@ describe.skipIf(onWindows)("a crafted backup that hard-links the app's own files
     await expect(harness.apps.restoreAppBackup({ id: "demo", backup: harness.backup })).resolves.toMatchObject({ restored: true });
     for (const name of ["boxpilot.json", "compose.yaml", ".env"]) expect((await stat(path.join(harness.live, name))).nlink, name).toBe(1);
     expect((await stat(path.join(harness.live, "data", "b"))).nlink).toBe(2);
+  });
+});
+
+// R5B3-4: a folder backups leave out on purpose (downloaded models, a cache) that the owner moved to
+// another disk with a link in its place was dropped by every restore since links were refused there,
+// where it used to be kept. The link is carried as itself when where it leads passes what an install
+// checks a chosen folder against: never into a protected location, nor into BoxPilot's own folders.
+describe("an owner's link at a folder backups leave out", () => {
+  const keepManifest = [
+    "schemaVersion: 2", "id: keep", "name: Keep", "category: T", "description: d",
+    "image:", "  reference: x/keep:1",
+    "volumes:",
+    "  - id: data", "    container: /data", "    path: data",
+    "  - id: models", "    container: /models", "    path: models", "    backup: false",
+    "health:", "  kind: running", "  stableSeconds: 1", "  timeoutSeconds: 30",
+  ].join("\n") + "\n";
+
+  async function linked(target) {
+    const harness = await setup({ runCommand: withRealTar });
+    await writeFile(path.join(harness.catalogDirectory, "keep.yaml"), keepManifest);
+    await harness.apps.install({ id: "keep" });
+    const live = path.join(harness.catalogRoot, "keep");
+    const made = await harness.apps.backup({ id: "keep", keep: 5 });
+    await rm(path.join(live, "models"), { recursive: true, force: true });
+    await symlink(target, path.join(live, "models"), "junction"); // a junction on Windows, which needs no privilege; ignored elsewhere
+    harness.advance(60_000);
+    return { ...harness, live, made };
+  }
+
+  it("carries a link to the owner's own disk through a restore, as the link it is", async () => {
+    const disk = await mkdtemp(path.join(os.tmpdir(), "boxpilot-models-disk-")); directories.push(disk);
+    await writeFile(path.join(disk, "llama.gguf"), "forty gigabytes");
+    const { apps, live, made, catalogRoot } = await linked(disk);
+    const restored = await apps.restoreAppBackup({ id: "keep", backup: made.artifact });
+    expect(restored.warnings ?? []).toEqual([]);
+    expect((await lstat(path.join(live, "models"))).isSymbolicLink()).toBe(true);
+    expect(await realpath(path.join(live, "models"))).toBe(await realpath(disk));
+    expect(await readFile(path.join(disk, "llama.gguf"), "utf8")).toBe("forty gigabytes");
+    expect(await readdir(catalogRoot)).toEqual(["keep"]);
+  });
+
+  it("leaves behind a link into BoxPilot's own folders, and says so", async () => {
+    const harness = await setup({ runCommand: withRealTar });
+    const other = path.join(harness.catalogRoot, "other-app-data");
+    await mkdir(other);
+    await writeFile(path.join(harness.catalogDirectory, "keep.yaml"), keepManifest);
+    await harness.apps.install({ id: "keep" });
+    const live = path.join(harness.catalogRoot, "keep");
+    const made = await harness.apps.backup({ id: "keep", keep: 5 });
+    await rm(path.join(live, "models"), { recursive: true, force: true });
+    await symlink(other, path.join(live, "models"), "junction");
+    harness.advance(60_000);
+    const restored = await harness.apps.restoreAppBackup({ id: "keep", backup: made.artifact });
+    expect(restored.warnings).toEqual([expect.stringMatching(/^Not kept from the app folder: models is a link to .+, inside BoxPilot's own folders/)]);
+    expect(await lstat(path.join(live, "models")).then((info) => info.isSymbolicLink(), () => false)).toBe(false);
+    expect(await readdir(other)).toEqual([]);
+  });
+
+  // Linux only: /usr must be the protected /usr.
+  it.skipIf(onWindows)("leaves behind a link into a protected location, and says so", async () => {
+    const { apps, live, made } = await linked("/usr");
+    const restored = await apps.restoreAppBackup({ id: "keep", backup: made.artifact });
+    expect(restored.warnings).toEqual([expect.stringMatching(/^Not kept from the app folder: models is a link to \/usr, a protected system location/)]);
+    expect(await lstat(path.join(live, "models")).then((info) => info.isSymbolicLink(), () => false)).toBe(false);
+  });
+});
+
+// R5B3-1: an owner who moved an app's data folder to another disk and left a link in its place got
+// backups that held only the link: tar archives a link as a link. The rehearsal passed them, and the
+// restore refused them saying BoxPilot never makes such a backup. A backup now looks at what it would
+// archive first, never through a link, and refuses before anything stops; the rehearsal fails one
+// that holds a folder as a link; the restore's refusal says how such a backup came to be.
+describe("a folder a backup archives that has become a link", () => {
+  async function movedAway() {
+    const harness = await setup({ runCommand: withRealTar });
+    await harness.apps.install({ id: "demo", values: { setup: [] } });
+    const live = path.join(harness.catalogRoot, "demo");
+    const disk = await mkdtemp(path.join(os.tmpdir(), "boxpilot-otherdisk-")); directories.push(disk);
+    await writeFile(path.join(disk, "notes.txt"), "moved to another disk");
+    await rm(path.join(live, "data"), { recursive: true, force: true });
+    await symlink(disk, path.join(live, "data"), "junction"); // a junction on Windows, which needs no privilege; ignored elsewhere
+    return { ...harness, live, disk };
+  }
+
+  it("refuses the backup before anything stops, and says what to do", async () => {
+    const { apps, calls, containers, backupRoot, live, disk } = await movedAway();
+    calls.length = 0;
+    const failure = await apps.backup({ id: "demo", keep: 5 }).then(() => null, (error) => error);
+    expect(failure?.message).toMatch(/^Demo was not backed up; nothing was stopped\. In its folder data is a link to /);
+    expect(failure?.message).toContain(disk);
+    expect(failure?.message).toMatch(/a backup would hold only the link/);
+    expect(calls.filter((call) => / (stop|start|up)(?: |$)/.test(call))).toEqual([]);
+    expect(containers.get("bp-demo")).toMatchObject({ running: true });
+    expect((await readdir(path.join(backupRoot, "demo")).catch(() => [])).filter((name) => name.includes(".tar.gz"))).toEqual([]);
+    expect(await readdir(live)).not.toContain(".boxpilot-backup-in-progress.json");
+    // A checkpoint is a backup: the change it guards is not made without it.
+    await expect(apps.update({ id: "demo" })).rejects.toThrow(/^Demo was not backed up; nothing was stopped\./);
+  });
+
+  it("fails the rehearsal of a backup that holds a folder as a link", async () => {
+    const { apps, backupRoot, live } = await movedAway();
+    const backup = "20260101T000000Z.tar.gz";
+    await mkdir(path.join(backupRoot, "demo"), { recursive: true });
+    await writeFile(path.join(backupRoot, "demo", backup), craftedTarGz([
+      { name: "boxpilot.json", body: await readFile(path.join(live, "boxpilot.json"), "utf8") },
+      { name: "compose.yaml", body: await readFile(path.join(live, "compose.yaml"), "utf8") },
+      { name: ".env", body: await readFile(path.join(live, ".env"), "utf8") },
+      { name: "data", type: "symlink", linkname: "/mnt/disk2/demo" },
+    ]));
+    await writeFile(path.join(backupRoot, "demo", "20260101T000000Z.json"), JSON.stringify({ contents: ["boxpilot.json", "compose.yaml", ".env", "data"] }));
+    const verdict = await apps.verifyAppBackup({ id: "demo", backup });
+    expect(verdict).toMatchObject({ verified: false });
+    expect(verdict.reason).toMatch(/^The archive holds data as a link, not the folder and what is in it/);
+  });
+
+  // Linux only: unpacking a symbolic link needs a privilege on Windows.
+  it.skipIf(onWindows)("refuses to restore one, saying how such a backup came to be", async () => {
+    const { apps, backupRoot, live } = await movedAway();
+    const backup = "20260101T000000Z.tar.gz";
+    await rm(path.join(live, "data")); await mkdir(path.join(live, "data"));
+    await mkdir(path.join(backupRoot, "demo"), { recursive: true });
+    await writeFile(path.join(backupRoot, "demo", backup), craftedTarGz([
+      { name: "boxpilot.json", body: await readFile(path.join(live, "boxpilot.json"), "utf8") },
+      { name: "compose.yaml", body: await readFile(path.join(live, "compose.yaml"), "utf8") },
+      { name: ".env", body: await readFile(path.join(live, ".env"), "utf8") },
+      { name: "data", type: "symlink", linkname: "/mnt/disk2/demo" },
+    ]));
+    const failure = await apps.restoreAppBackup({ id: "demo", backup }).then(() => null, (error) => error);
+    expect(failure?.message).toMatch(/^Demo was not restored; nothing was changed\. In this backup data is a link/);
+    expect(failure?.message).not.toMatch(/never holds/);
+    expect(failure?.message).toMatch(/holds only that link and none of what it pointed at/);
   });
 });

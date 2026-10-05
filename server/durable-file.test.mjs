@@ -158,6 +158,46 @@ describe("a file in a folder an archive was unpacked into", () => {
     expect(await readdir(directory)).toEqual([".env"]);
   });
 
+  // R5B3-2: the helper runs with UMask=0077, so a config file an app ships (prometheus.yml, Grafana's
+  // provisioning) asked for 0644 came out 0600 root's, and Prometheus (nobody) or Grafana (472) could
+  // not read it. CI's umask 022 hid it. The mode asked for is set on the open file before the rename.
+  it("gives the new file exactly the mode asked for, through its own handle", async () => {
+    const directory = await folder();
+    const file = path.join(directory, "prometheus.yml");
+    const calls = [];
+    const recording = {
+      ...fsPromises,
+      open: async (target, flag, mode) => {
+        const handle = await open(target, flag, mode);
+        if (target === directory) return handle;
+        return Object.assign(Object.create(handle), {
+          writeFile: (data, options) => handle.writeFile(data, options),
+          chmod: async (value) => { calls.push(`chmod ${path.basename(target)} ${value.toString(8)}`); return handle.chmod(value); },
+          sync: () => handle.sync(), close: () => handle.close(),
+        });
+      },
+      rename: async (from, to) => { calls.push(`rename ${path.basename(from)} ${path.basename(to)}`); return fsPromises.rename(from, to); },
+    };
+    await replaceFileWithoutFollowing(file, "scrape_configs: []\n", { mode: 0o644 }, { fs: recording });
+    expect(calls).toEqual(["chmod prometheus.yml.tmp 644", "rename prometheus.yml.tmp prometheus.yml"]);
+    expect(await readFile(file, "utf8")).toBe("scrape_configs: []\n");
+  });
+
+  // POSIX modes, and a umask this process may set (the forks pool; a worker thread may not).
+  it.skipIf(onWindows)("gives the new file exactly the mode asked for under the helper's umask 0077", async () => {
+    const directory = await folder();
+    let previous = null;
+    try { previous = process.umask(0o077); } catch { return; }
+    try {
+      await replaceFileWithoutFollowing(path.join(directory, "prometheus.yml"), "scrape_configs: []\n", { mode: 0o644 });
+      await replaceFileWithoutFollowing(path.join(directory, ".env"), "A=1\n", { mode: 0o600 });
+    } finally {
+      process.umask(previous);
+    }
+    expect((await stat(path.join(directory, "prometheus.yml"))).mode & 0o777).toBe(0o644);
+    expect((await stat(path.join(directory, ".env"))).mode & 0o777).toBe(0o600);
+  });
+
   it("is never replaced when something takes the temporary name back before it is created", async () => {
     const directory = await folder();
     const file = path.join(directory, "compose.yaml");
