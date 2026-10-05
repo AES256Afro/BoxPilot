@@ -28,7 +28,7 @@ const pathOf = (unit) => `/${unit.replace(/\.(auto)?mount$/, "").replaceAll("-",
  * refuses the mount unit's stop until something lets go (Samba's close-share when `samba` is set);
  * `retrigger` has a client mount the share again through the automount between the two stops.
  */
-function fakeHost({ mounts = {}, fstype = "cifs", mountFails = null, startsButNothing = false, noopStarts = 0, busy = false, samba = false, retrigger = false, containers = [], journal = "", readOnly = false } = {}) {
+function fakeHost({ mounts = {}, fstype = "cifs", mountFails = null, startsButNothing = false, noopStarts = 0, busy = false, samba = false, retrigger = false, containers = [], binds = {}, journal = "", readOnly = false } = {}) {
   const state = { mounts: structuredClone(mounts), busy, journal, retriggered: false, noopStarts };
   const calls = [];
   const ok = (stdout = "") => ({ ok: true, code: 0, stdout, stderr: "" });
@@ -46,7 +46,7 @@ function fakeHost({ mounts = {}, fstype = "cifs", mountFails = null, startsButNo
     if (name === "systemd-escape") return ok(escape(args.at(-1)));
     if (name === "journalctl") return ok(args[0] === "--sync" ? "" : state.journal);
     if (name === "docker" && args[0] === "ps") return ok(containers.length ? "c0ffee" : "");
-    if (name === "docker" && args[0] === "inspect") return ok(containers.map((container) => `/${container}\t/mnt/nas-media/films\t`).join("\n"));
+    if (name === "docker" && args[0] === "inspect") return ok(containers.map((container) => `/${container}\t${binds[container] ?? "/mnt/nas-media/films"}\t`).join("\n"));
     if (name === "smbstatus") return ok(JSON.stringify({ tcons: { 1: { service: "Everything", machine: "192.168.1.40" } } }));
     if (name === "smbcontrol") { if (samba) state.busy = false; return ok(); }
     if (name !== "systemctl") return ok();
@@ -261,6 +261,16 @@ describe("share.unmount, on the host, and not while something uses the share", (
     expect(host.calls.some((call) => call.startsWith("systemctl stop"))).toBe(false);
     expect(files.state.fstab).toBe(MANAGED_FSTAB);
     expect(host.state.mounts["/mnt/nas-media"]).toEqual(["autofs", "cifs"]);
+  });
+
+  it("names an app bound to a folder above the share, and forgets nothing", async () => {
+    // Kopia with /mnt carries the share into its own namespace: forgetting the share and its
+    // credentials under it would leave Kopia writing to the NAS through a mount nobody can see.
+    const files = fakeFiles(MANAGED_FSTAB);
+    const host = fakeHost({ mounts: { "/mnt/nas-media": ["autofs", "cifs"] }, containers: ["bp-kopia", "bp-nas-media-old"], binds: { "bp-kopia": "/mnt", "bp-nas-media-old": "/mnt/nas-media-old" } });
+    await expect(shareUnmount({ name: "nas-media" }, { run: host.run, files, now })).rejects.toThrow("/mnt/nas-media is in use by bp-kopia, so the share was left mounted and in fstab.");
+    expect(host.calls.some((call) => call.startsWith("systemctl stop"))).toBe(false);
+    expect(files.state.fstab).toBe(MANAGED_FSTAB);
   });
 
   it("names what holds the share and leaves it mounted, automount and all", async () => {
