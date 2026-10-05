@@ -1610,7 +1610,7 @@ export function createAgentService({
     // own words, nor because only its own memory flagged the run (sweep 3: the flag renewed itself
     // through every note a flagged run kept). A flagged note it rewrites stays flagged: rewriting
     // is not the owner trusting it.
-    const earlier = store.listNotes(run.agentId, { limit: 200 }).find((note) => note.title.toLowerCase() === cleanTitle.toLowerCase());
+    const earlier = store.listNotes(run.agentId, { limit: 200 }).find((note) => note.title.toLowerCase() === cleanTitle.toLowerCase() && note.readRole === run.readRole);
     const hop = nearest(runHop(store.getRun(run.id)), noteHop(earlier?.source));
     const note = store.writeNote(run.agentId, {
       title: cleanTitle, body: cleanBody.text,
@@ -2332,10 +2332,21 @@ export function createAgentService({
     return ownNotes(agent.id, person.role, { limit: 100 }).map((note) => ({ ...note, stale: note.freshUntil ? Date.parse(note.freshUntil) < now().getTime() : false }));
   }
 
+  /**
+   * A note (a finding too) or an episode of `agent`, as far as `person` may read it: one learned by a
+   * run that read more than they may is not there for them, to read, change, trust or forget
+   * (2026-10 sweep 4: an operator who may change the agent read an owner's run's note back by
+   * editing it with nothing, and could trust or forget it).
+   */
+  function readableItem(person, agent, kind, id) {
+    const item = kind === "episode" ? store.listEpisodes(agent.id, { limit: 200 }).find((entry) => entry.id === String(id ?? "")) : store.getNote(agent.id, String(id ?? ""));
+    return item && roleAtLeast(person.role, item.readRole) ? item : null;
+  }
+
   function deleteNote(caller, agentId, noteId) {
     const person = personOf(caller);
     const agent = agentFor(person, agentId, { edit: true });
-    if (!store.deleteNote(agent.id, noteId)) refuse(404, "There is no such note", "note_not_found");
+    if (!readableItem(person, agent, "note", noteId) || !store.deleteNote(agent.id, noteId)) refuse(404, "There is no such note", "note_not_found");
     audit("agents.note.deleted", { actorId: person.id, subjectId: agent.id });
     return { deleted: true };
   }
@@ -2382,6 +2393,7 @@ export function createAgentService({
   function editMemory(caller, agentId, noteId, patch = {}) {
     const person = personOf(caller);
     const agent = agentFor(person, agentId, { edit: true });
+    if (!readableItem(person, agent, "note", noteId)) refuse(404, "There is no such note", "note_not_found");
     const title = patch.title === undefined ? undefined : sanitizeUntrusted(String(patch.title), { maxChars: 120, redact }).text.replace(/\n/g, " ");
     const body = patch.body === undefined ? undefined : sanitizeUntrusted(String(patch.body), { maxChars: 2_000, redact }).text;
     if (title !== undefined && !title) refuse(400, "A note needs a title", "invalid_note");
@@ -2405,9 +2417,9 @@ export function createAgentService({
       ? store.deleteThread(agent.id, person.id)
       : (() => {
         if (!canEdit(person, agent)) refuse(403, "Only the owner and the person who made it change what it remembers", "forbidden");
-        if (kind === "note") return store.deleteNote(agent.id, String(id ?? ""));
-        if (kind === "episode") return store.deleteEpisode(agent.id, String(id ?? ""));
-        return refuse(400, "Forget a note, an episode or the conversation", "invalid_memory");
+        if (!["note", "episode"].includes(kind)) return refuse(400, "Forget a note, an episode or the conversation", "invalid_memory");
+        if (!readableItem(person, agent, kind, id)) return false;
+        return kind === "note" ? store.deleteNote(agent.id, String(id ?? "")) : store.deleteEpisode(agent.id, String(id ?? ""));
       })();
     if (!forgotten) refuse(404, "There is nothing like that to forget", "memory_not_found");
     audit("agents.memory.forgotten", { actorId: person.id, subjectId: agent.id, details: { kind } });
