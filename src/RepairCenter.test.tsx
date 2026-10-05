@@ -331,6 +331,8 @@ describe("Repair Center", () => {
 
 describe("Repair that fixes (M35)", () => {
   const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+  /** A moment `ms` before now: a try's age is read against the clock. */
+  const ago = (ms: number) => new Date(Date.now() - ms).toISOString();
   const writable = { operationId: "storage.writable", parameters: { name: "the-dump" }, label: "Let apps write to the drive", preview: "Adds uid=1000,gid=1000 to /mnt/the-dump's fstab entry, then reconnects it.", risk: "medium" };
   const exfat = { id: "permissionless-mount:the-dump", severity: "warning", title: "Only root can write to /mnt/the-dump", detail: "exfat does not store owners.", evidence: ["exfat mounted without uid="], fix: writable, fixes: [writable], manual: null, fingerprint: "0123456789abcdef", lastAttempt: null };
   const scan = (findings: unknown[], extra: Record<string, unknown> = {}) => ({ findings, dismissed: [], counts: { critical: 0, warning: findings.length, info: 0 }, jobs: { attached: [], resolved: [], dismissed: [] }, sourceStatus: "ready", unavailableChecks: [], ...extra });
@@ -352,6 +354,7 @@ describe("Repair that fixes (M35)", () => {
       const stage = url.match(/^\/api\/v1\/operations\/([^/]+)\/jobs$/);
       if (stage) return staged(`job-${requests.filter((entry) => /\/jobs$/.test(entry.url) && entry.method === "POST").length}`, stage[1], stage[1] === "app.action" ? "low" : "medium");
       if (/\/approve$/.test(url)) return json({ job: { id: url.split("/")[4], state: "applying" }, elevatedUntil: null }, 202);
+      if (/\/more-time$/.test(url)) return staged("job-9", "storage.remount");
       const job = url.match(/^\/api\/v1\/jobs\/([^/?]+)$/);
       if (job && method === "GET") return json({ job: { id: job[1], type: "op:storage.writable", title: "Let apps write to a drive", risk: "medium", steps: [], approvals: [], ...finished(job[1]) } });
       if (job && method === "DELETE") return json({ job: { id: job[1], state: "cancelled" } });
@@ -402,7 +405,7 @@ describe("Repair that fixes (M35)", () => {
   it("offers no fix while the last try may still be running on the server, and shows its log (sweep 4)", async () => {
     // Try again staged it afresh, and the helper started a second root task beside the first.
     const timeout = { scope: "step", budgetMs: 540_000, elapsedMs: 600_000, phase: "running", step: "Root task storage.writable", lastOutput: null, moreTimeMs: null, stillRunning: true };
-    const tried = { ...exfat, lastAttempt: { jobId: "job-0", state: "failed", error: "Let apps write to a drive stopped waiting: Root task storage.writable did not finish within 9 minutes. It may still be running on the server; Activity shows how far it got.", at: "2026-09-29T10:00:00.000Z", title: "Let apps write to a drive", operationId: "storage.writable", label: "Let apps write to the drive", timeout } };
+    const tried = { ...exfat, lastAttempt: { jobId: "job-0", state: "failed", error: "Let apps write to a drive stopped waiting: Root task storage.writable did not finish within 9 minutes. It may still be running on the server; Activity shows how far it got.", at: ago(60_000), title: "Let apps write to a drive", operationId: "storage.writable", label: "Let apps write to the drive", timeout } };
     server({ scans: [scan([tried])], finished: () => ({ state: "failed" }) });
     render(<RepairCenter csrfToken="csrf-token" />);
     expect(await screen.findByText(/It may still be running on the server, so it is not offered again until it has finished/)).toBeTruthy();
@@ -410,6 +413,44 @@ describe("Repair that fixes (M35)", () => {
     expect(screen.queryByRole("button", { name: /^Let apps write to the drive: / })).toBeNull();
     expect(screen.getByRole("button", { name: /^Dismiss: / })).toBeTruthy();
     expect(screen.getByText("Job log")).toBeTruthy();
+  });
+
+  describe("a critical finding whose last try ran out of time (sweep 5)", () => {
+    const remount = { operationId: "storage.remount", parameters: { name: "the-dump" }, label: "Reconnect the drive", preview: "Mounts it again from fstab.", risk: "medium" };
+    const stale = { id: "stale-mount:the-dump", severity: "critical", title: "/mnt/the-dump is mounted from a drive that is gone", detail: "The mount still points at /dev/sda2, which no longer exists.", evidence: ["mounted from /dev/sda2"], fix: remount, fixes: [remount], manual: null, fingerprint: "0123456789abcdef" };
+    const timeout = { scope: "step", budgetMs: 540_000, elapsedMs: 600_000, phase: "running", step: "Root task storage.remount", lastOutput: null, moreTimeMs: null, stillRunning: true };
+    const tried = (at: string, overrides: Record<string, unknown> = {}) => ({ ...stale, lastAttempt: { jobId: "job-0", state: "failed", error: "Reconnect a drive stopped waiting: Root task storage.remount did not finish within 9 minutes. It may still be running on the server; Activity shows how far it got.", at, title: "Reconnect a drive", operationId: "storage.remount", label: "Reconnect the drive", timeout, ...overrides } });
+
+    it("renders its Reconnect action again once the try timed out 30 days ago", async () => {
+      // One timeout hid the fix for as long as the job was among the newest 200: weeks.
+      server({ scans: [scan([tried(ago(30 * 86_400_000))], { counts: { critical: 1, warning: 0, info: 0 } })], finished: () => ({ state: "failed" }) });
+      render(<RepairCenter csrfToken="csrf-token" />);
+      expect(await screen.findByRole("button", { name: /^Try again: Reconnect the drive: \/mnt\/the-dump is mounted from a drive that is gone$/ })).toBeTruthy();
+      expect(screen.queryByText(/so it is not offered again until it has finished/)).toBeNull();
+    });
+
+    it("keeps a way to let a try that may still be running go, where the finding cannot be dismissed", async () => {
+      // A critical finding cannot be set aside, so it showed no button at all.
+      const { requests } = server({ scans: [scan([tried(ago(60_000))], { counts: { critical: 1, warning: 0, info: 0 } }), scan([tried(ago(60_000), { timeout: { ...timeout, settled: true } })], { counts: { critical: 1, warning: 0, info: 0 } })], finished: () => ({ state: "failed" }) });
+      render(<RepairCenter csrfToken="csrf-token" />);
+      expect(await screen.findByText(/It may still be running on the server, so it is not offered again until it has finished/)).toBeTruthy();
+      expect(screen.queryByRole("button", { name: /^Try again: / })).toBeNull();
+      expect(screen.queryByRole("button", { name: /^Dismiss: / })).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Dismiss this try: /mnt/the-dump is mounted from a drive that is gone" }));
+      await waitFor(() => expect(requests.some((entry) => entry.method === "POST" && entry.url === "/api/v1/jobs/job-0/dismiss")).toBe(true));
+      // Let go, the server says it is settled, and the fix is offered again.
+      expect(await screen.findByRole("button", { name: /^Try again: Reconnect the drive: / })).toBeTruthy();
+    });
+
+    it("offers more time where the server does, as Activity does", async () => {
+      // A whole operation's budget ran out on one that is not a root task: Activity offered "Try again
+      // with more time" and Repair offered nothing.
+      const whole = { scope: "operation", budgetMs: 900_000, elapsedMs: 900_000, phase: "running", step: null, lastOutput: null, moreTimeMs: 1_800_000 };
+      const { requests } = server({ scans: [scan([tried(ago(60_000), { timeout: whole })], { counts: { critical: 1, warning: 0, info: 0 } })], finished: () => ({ state: "completed" }) });
+      render(<RepairCenter csrfToken="csrf-token" />);
+      fireEvent.click(await screen.findByRole("button", { name: "Try again with more time: /mnt/the-dump is mounted from a drive that is gone" }));
+      await waitFor(() => expect(requests.some((entry) => entry.method === "POST" && entry.url === "/api/v1/jobs/job-0/more-time")).toBe(true));
+    });
   });
 
   it("offers the place a failed try names, not Try again, when the same fix would stop the same way", async () => {

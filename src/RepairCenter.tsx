@@ -385,6 +385,8 @@ export default function RepairCenter({ csrfToken, role = "owner", onNavigate = (
   const card = (finding: Finding, gone = false) => (
     <FindingCard key={finding.id} finding={finding} role={role} run={fixes.runs[finding.id]} gone={gone}
       onFix={(fix) => fixes.start(finding, fix)} onDismiss={() => fixes.dismiss({ kind: "finding", finding })} onOpen={onNavigate}
+      onDismissTry={finding.lastAttempt ? () => fixes.dismiss({ kind: "job", jobId: finding.lastAttempt!.jobId, title: finding.lastAttempt!.title }) : undefined}
+      onMoreTime={() => fixes.moreTime(finding)}
       extra={droppedDrive(finding) && !gone ? <DriveAutoReconnect drive={droppedDrive(finding)!} control={autoReconnect} /> : undefined} />
   );
 
