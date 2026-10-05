@@ -7,7 +7,7 @@ import { approvalModes, defaultApprovalMode, elevationTtlMs, normalizeApprovalMo
 import { normalizeDestination } from "../backup-destination.mjs";
 import { healthConditions, isNotice, noticeKinds } from "../health-alerts.mjs";
 import { vpnProviders, vpnProtocols } from "../vpn-profile.mjs";
-import { watchEntryFor } from "./access.mjs";
+import { flowRunnerFrom, watchEntryFor } from "./access.mjs";
 import { createNotificationHistory } from "../notification-history.mjs";
 
 export function createSettingsRouter({ state, notifications, notificationHistory = createNotificationHistory({ store: state }), weeklyReport = null, auth }) {
@@ -37,7 +37,9 @@ export function createSettingsRouter({ state, notifications, notificationHistory
   });
 
   /** An entry's words as this caller may read them (M29.4); access.mjs holds the rule, which the assistant shares. */
-  const titleFor = (request, key, entry, label) => watchEntryFor(request, key, entry, label, (id) => state.getSchedule?.(id)?.createdBy ?? null).title;
+  const scheduleOwner = (id) => state.getSchedule?.(id)?.createdBy ?? null;
+  const flowRunner = flowRunnerFrom(state);
+  const titleFor = (request, key, entry, label) => watchEntryFor(request, key, entry, label, scheduleOwner, flowRunner).title;
 
   // What BoxPilot watches for on its own, and which conditions are live right now. The active set is
   // the health-alert watcher's own persisted state, grouped back to its condition families.
@@ -80,7 +82,7 @@ export function createSettingsRouter({ state, notifications, notificationHistory
       const theirs = request.boxpilotSession?.owner?.role === "owner" || (job && job.createdBy === request.boxpilotSession?.owner?.id);
       visible = theirs ? { title: entry.title, key: entry.key } : { title: labelFor(family), key: family };
     } else {
-      visible = watchEntryFor(request, entry.key, entry, labelFor(family), (id) => state.getSchedule?.(id)?.createdBy ?? null);
+      visible = watchEntryFor(request, entry.key, entry, labelFor(family), scheduleOwner, flowRunner);
     }
     const masked = visible.key !== entry.key;
     return {
