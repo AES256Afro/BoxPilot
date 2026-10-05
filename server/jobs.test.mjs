@@ -546,6 +546,28 @@ describe("guarding restarts against running jobs (M4.5 / self-update safety)", (
     store.close();
   });
 
+  it("treats restarting BoxPilot's own units from Services as restarting BoxPilot", async () => {
+    // service.action is not marked as restarting the service, so restarting boxpilot.service from
+    // the Services page cut a running backup off and left it marked interrupted, its work half done.
+    const helper = { request: vi.fn(async () => ({ unit: "x", action: "restart" })) };
+    const { store, owner, jobs } = await setup(helper);
+    try {
+      const backup = await jobs.createOperationJob("app.backup", { id: "jellyfin" }, owner.id);
+      store.transitionJob(backup.id, "awaiting_approval", "applying");
+      for (const unit of ["boxpilot.service", "boxpilot-helper.service"]) {
+        const restart = await jobs.createOperationJob("service.action", { unit, action: "restart" }, owner.id);
+        await expect(jobs.approveAndRun(restart.id, owner.id, {})).rejects.toThrow(/^Wait for a running job to finish first: Back up application data\. "Control a system service" restarts BoxPilot/);
+        expect(store.getJob(restart.id).state).toBe("awaiting_approval");
+      }
+      expect(helper.request).not.toHaveBeenCalled();
+      // Any other unit, or any other action on BoxPilot's, is not a restart of BoxPilot.
+      const other = await jobs.createOperationJob("service.action", { unit: "nginx.service", action: "restart" }, owner.id);
+      await expect(jobs.approveAndRun(other.id, owner.id, {})).resolves.toMatchObject({ state: "completed" });
+      const enable = await jobs.createOperationJob("service.action", { unit: "boxpilot.service", action: "enable" }, owner.id);
+      await expect(jobs.approveAndRun(enable.id, owner.id, {})).resolves.toMatchObject({ state: "completed" });
+    } finally { store.close(); }
+  });
+
   it("does not block ordinary operations while a job runs", async () => {
     const helper = { request: vi.fn(async () => ({ ok: true })) };
     const { store, owner, jobs } = await setup(helper);

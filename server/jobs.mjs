@@ -3,6 +3,7 @@ import { defaultThrottle as throttle } from "./login-throttle.mjs";
 import { approvalRequirement, defaultApprovalMode, elevationTtlMs, higherTier, normalizeApprovalMode } from "./ops/risk.mjs";
 import { registry } from "./ops/index.mjs";
 import { budgetFor, nextBudgetMs, placeholderPaths, restoreSecrets, secretPaths, secretPlaceholder, splitSecrets } from "./ops/registry.mjs";
+import { restartsBoxPilot } from "./ops/services.mjs";
 import { asSentence } from "./health-alerts.mjs";
 import { formatDuration, jobTimeoutRecord, timeoutMessage, timeoutOf } from "./timeouts.mjs";
 import { productVersion } from "./version.mjs";
@@ -216,8 +217,9 @@ export function createJobService(store, helper, {
     // the restart would cut that job off and leave it marked interrupted, its work half-done. The
     // update job is still awaiting_approval here, so it is not yet in the active list itself. This is
     // a best-effort guard against the common case (approving an update while a job is visibly
-    // running), not a lock against a job that starts in the same instant.
-    if (registeredOperation.restartsService && typeof store.listActiveJobs === "function") {
+    // running), not a lock against a job that starts in the same instant. Restarting BoxPilot's own
+    // unit from Services is the same restart by another door.
+    if ((registeredOperation.restartsService || restartsBoxPilot(registeredOperation.id, parameters)) && typeof store.listActiveJobs === "function") {
       const running = store.listActiveJobs().filter((other) => other.id !== jobId);
       if (running.length) {
         const names = running.map((other) => other.title).join(", ");
