@@ -314,3 +314,40 @@ export function publishedPorts(composeText) {
   }
   return published;
 }
+
+/**
+ * The port numbers an app's own settings say it can start without: CivetWeb's `80o`, which
+ * Pi-hole's webserver reads (FTLCONF_webserver_port). Pi-hole on the host's network finds port 80
+ * taken, starts without its admin page, and answers DNS as before.
+ */
+export function optionalPortsIn(envValues) {
+  const optional = new Set();
+  for (const value of envValues ?? []) {
+    for (const token of String(value ?? "").split(",")) {
+      const match = /^(\d{1,5})o$/.exec(token.trim());
+      if (match) optional.add(Number(match[1]));
+    }
+  }
+  return optional;
+}
+
+/**
+ * The ports an app on the host's own network binds itself, which `publishedPorts` cannot see: such
+ * an app publishes nothing, and Docker binds nothing for it, so a port something else holds was
+ * found only when the app crash-looped on it (or, for Pi-hole's optional admin port, not at all).
+ * Each manifest port at its container port, on every address (`bind` ""), the way these apps bind;
+ * `optional` marks one its environment says it can start without (optionalPortsIn). Empty when the
+ * app's service in this compose file is not on the host network.
+ */
+export function hostNetworkPorts(manifest, composeText) {
+  let parsed = null;
+  try { parsed = YAML.parse(String(composeText ?? "")); } catch { return []; }
+  const service = parsed?.services?.[manifest.id];
+  if (!service || typeof service !== "object" || service.network_mode !== "host") return [];
+  const environment = service.environment;
+  const values = Array.isArray(environment)
+    ? environment.map((line) => String(line).split("=").slice(1).join("="))
+    : Object.values(environment && typeof environment === "object" ? environment : {});
+  const optional = optionalPortsIn(values);
+  return (manifest.ports ?? []).map((port) => ({ service: manifest.id, id: port.id, label: port.label ?? port.id, host: port.container, protocol: port.protocol === "udp" ? "udp" : "tcp", bind: "", optional: optional.has(port.container) }));
+}
