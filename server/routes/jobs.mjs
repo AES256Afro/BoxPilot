@@ -279,9 +279,11 @@ export function createJobsRouter({ state, jobs, scheduler, flows = null, autoRec
 
   router.post("/flows", auth.requireCsrf, async (request, response) => {
     try {
-      const flow = await flows.create({ name: request.body?.name, steps: request.body?.steps, cadence: request.body?.cadence ?? null, triggerFlowId: typeof request.body?.triggerFlowId === "string" ? request.body.triggerFlowId : null, createdBy: request.boxpilotSession.owner.id });
+      // The creator's role decides which steps they may put in it (an owner-only one is the owner's).
+      const flow = await flows.create({ name: request.body?.name, steps: request.body?.steps, cadence: request.body?.cadence ?? null, triggerFlowId: typeof request.body?.triggerFlowId === "string" ? request.body.triggerFlowId : null, createdBy: request.boxpilotSession.owner.id, role: request.boxpilotSession.owner.role ?? "owner" });
       response.status(201).json({ flow });
     } catch (error) {
+      if (error.code === "flow_step_owner_only") return response.status(403).json({ error: error.message, code: "flow_step_owner_only" });
       response.status(400).json({ error: error.message, code: "flow_rejected" });
     }
   });
@@ -295,7 +297,7 @@ export function createJobsRouter({ state, jobs, scheduler, flows = null, autoRec
       const flow = await flows.update(request.params.id, { name: request.body?.name, steps, cadence: request.body?.cadence, enabled: request.body?.enabled, triggerFlowId: request.body?.triggerFlowId === undefined ? undefined : (typeof request.body.triggerFlowId === "string" ? request.body.triggerFlowId : null) }, request.boxpilotSession.owner.id, { role: request.boxpilotSession.owner.role });
       response.json({ flow: seesEveryAccount(request) ? flow : flowForCaller(request, flow) });
     } catch (error) {
-      if (error instanceof OwnerOnlyStepError) return response.status(403).json({ error: error.message, code: "flow_step_owner_only" });
+      if (error instanceof OwnerOnlyStepError || error.code === "flow_step_owner_only") return response.status(403).json({ error: error.message, code: "flow_step_owner_only" });
       response.status(error.message.includes("not found") ? 404 : 400).json({ error: error.message, code: "flow_update_failed" });
     }
   });

