@@ -83,3 +83,31 @@ describe("boxpilot-run task runner", () => {
     await expect(runTask(id, { now, taskTable })).resolves.toEqual({ ok: false, task: "apt.update", error: "Task apt.update exceeded 1000 ms", timedOut: true, timeoutMs: 1000 });
   });
 });
+
+// The root task runner is installed and started from /opt/boxpilot by boxpilot-run@, and the host
+// tests run it from a copy of server/ and scripts/ alone: it loads with Node's own modules and
+// BoxPilot's, never a package. Sweep 4's restore review once reached it through housekeeping and the
+// machine snapshot helper, and every root task failed to load for want of the YAML parser.
+describe("the root task runner's imports", () => {
+  it("reach no package, only Node's own modules and BoxPilot's", async () => {
+    const { existsSync, readFileSync } = await import("node:fs");
+    const seen = new Set();
+    const packages = [];
+    const walk = (file) => {
+      if (seen.has(file)) return;
+      seen.add(file);
+      const source = readFileSync(file, "utf8");
+      for (const match of source.matchAll(/(?:^|\n)\s*(?:import|export)\s[^;]*?from\s+"([^"]+)"|import\(\s*"([^"]+)"\s*\)/g)) {
+        const specifier = match[1] ?? match[2];
+        if (specifier.startsWith("node:")) continue;
+        if (!specifier.startsWith(".")) { packages.push(`${specifier} (from ${path.relative(process.cwd(), file)})`); continue; }
+        const target = path.resolve(path.dirname(file), specifier);
+        if (existsSync(target)) walk(target);
+      }
+    };
+    // vitest runs from the repository root, as npm test does.
+    walk(path.resolve("scripts", "boxpilot-run.mjs"));
+    expect(seen.size).toBeGreaterThan(20);
+    expect(packages).toEqual([]);
+  });
+});
