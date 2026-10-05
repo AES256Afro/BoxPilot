@@ -936,6 +936,19 @@ describe("a tier that depends on what an operation acts on", () => {
       expect(jobs.describeApproval(other.id, null)).toMatchObject({ tier: "medium", passwordRequired: false });
     } finally { store.close(); }
   });
+
+  it("answers the tier a job would be staged at without staging one, for schedules and flows to check", async () => {
+    const helper = { request: vi.fn() };
+    const { store } = await setup(helper);
+    try {
+      const jobs = createJobService(store, helper, { operationRiskHooks: { "app.install": async ({ id }) => (id === "pi-hole" ? "high" : null) } });
+      expect(await jobs.effectiveRisk("app.install", { id: "pi-hole" })).toBe("high");
+      expect(await jobs.effectiveRisk("app.install", { id: "jellyfin" })).toBe("medium");
+      expect(await jobs.effectiveRisk("apt.purge", { packages: ["htop"] })).toBe("high");
+      expect(await jobs.effectiveRisk("no.such.operation", {})).toBeNull();
+      expect(store.listJobs(10)).toEqual([]);
+    } finally { store.close(); }
+  });
 });
 
 describe("a value pinned at staging that can change before approval", () => {

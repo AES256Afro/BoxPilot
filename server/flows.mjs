@@ -203,16 +203,26 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
   // The stored hash is never the browser's business; strip it from anything a route returns.
   const withoutHash = ({ webhookHash: _webhookHash, ...flow }) => flow;
 
-  /** A flow's steps, refused if one carries a secret; `prefix` says why for a flow already saved. */
-  async function refuseStoredSecrets(steps, prefix = "") {
+  /**
+   * A flow's steps, refused if one carries a secret or is high risk for what it acts on; `prefix`
+   * says why for a flow already saved. validateFlow refuses an operation that is high risk itself;
+   * one the job layer raises to high for its subject (installing an app whose manifest says so)
+   * needs the job layer's answer, and would otherwise stop the flow at that step on every run.
+   */
+  async function refuseStoredSteps(steps, prefix = "") {
     const problem = await flowSecretProblem(steps, { registry, secretEnvNamesFor });
     if (problem) throw new Error(`${prefix}${problem}`);
+    if (typeof jobs?.effectiveRisk !== "function") return;
+    for (const [index, step] of steps.entries()) {
+      const operation = registry.get?.(step?.operationId);
+      if (operation && await jobs.effectiveRisk(step.operationId, step.parameters ?? {}) === "high") throw new Error(`${prefix}step ${index + 1}: ${operation.title} is high risk here and cannot be part of a flow (ADR-002)`);
+    }
   }
 
   async function create({ name, steps, createdBy, cadence = null, triggerFlowId = null, triggerDrive = null }) {
     const problem = validateFlow({ name, steps }, registry);
     if (problem) throw new Error(problem);
-    await refuseStoredSecrets(steps);
+    await refuseStoredSteps(steps);
     const triggerProblem = checkTrigger(triggerFlowId) ?? checkDriveTrigger(triggerDrive);
     if (triggerProblem) throw new Error(triggerProblem);
     return withoutHash(store.createFlow({ name: name.trim(), steps: normalizeSteps(steps), createdBy, triggerFlowId, ...(triggerDrive ? { triggerDrive } : {}), ...cadenceFields(cadence) }));
@@ -245,7 +255,7 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
     const problem = validateFlow({ name: name ?? flow.name, steps: steps ?? flow.steps }, registry);
     if (problem) throw new Error(problem);
     // The steps as they will be after this edit, new or kept: editing was once the way round the check.
-    await refuseStoredSecrets(steps ?? flow.steps);
+    await refuseStoredSteps(steps ?? flow.steps);
     if (triggerFlowId !== undefined) {
       const triggerProblem = checkTrigger(triggerFlowId, id);
       if (triggerProblem) throw new Error(triggerProblem);
@@ -315,7 +325,7 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
    * can do that is reported, so nothing is lost by not being awaited.
    */
   async function launch(id, actorId, { role = "owner" } = {}) {
-    await refuseStoredSecrets(preflight(id, role).steps, "This flow is no longer valid: ");
+    await refuseStoredSteps(preflight(id, role).steps, "This flow is no longer valid: ");
     // Checked again after waiting on the catalog, and with nothing between this and run() taking
     // the flow: a second start in that gap must be refused to its own caller, not merely logged.
     const flow = preflight(id, role);
@@ -340,10 +350,10 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
     let skippedByCondition = 0;
     const namedResults = {};
     try {
-      // A flow saved before its secret was refused still carries it: it does not run, like any
-      // other flow validateFlow no longer accepts. Checked after the flow is marked running, so the
+      // A flow saved before its secret (or its step's raised tier) was refused still carries it: it
+      // does not run, like any other flow validateFlow no longer accepts. Checked after the flow is marked running, so the
       // wait on the catalog cannot let a second start slip past preflight.
-      await refuseStoredSecrets(flow.steps, "This flow is no longer valid: ");
+      await refuseStoredSteps(flow.steps, "This flow is no longer valid: ");
       for (const [index, step] of flow.steps.entries()) {
         const operation = registry.get(step.operationId);
         const title = operation?.title ?? step.operationId;
