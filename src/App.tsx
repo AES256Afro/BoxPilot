@@ -9,7 +9,7 @@ import { SessionControls } from "./shell/SessionControls";
 import { AccountMenu } from "./shell/AccountMenu";
 import { useTheme } from "./useTheme";
 import { ThemeSwitch } from "./ui/ThemeSwitch";
-import { fetchAuthStatus, forgetAccount, forgetSession, rememberSession, rememberedAccount, signedOutReason, type AuthStatus, type SignedOutReason } from "./auth";
+import { fetchAuthStatus, forgetAccount, forgetSession, rememberSession, rememberedAccount, signedOutReasonFor, type AuthStatus, type SignedOutReason } from "./auth";
 import { useSessionEnded } from "./sessionEnd";
 import { connected, useConnection } from "./pwa/connection";
 import { OfflineBanner } from "./shell/OfflineBanner";
@@ -144,7 +144,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
     if (!Number.isFinite(expiresAt)) return undefined;
     const delay = Math.min(2_147_000_000, Math.max(1000, expiresAt - Date.now() + 1000));
     let retry = 0;
-    const check = () => { void fetchAuthStatus().then((status) => { if (!status.authenticated) onSignedOut(signedOutReason() ?? "expired"); else onAuthChanged?.(status); }).catch(() => { retry = window.setTimeout(check, 15_000); }); };
+    const check = () => { void fetchAuthStatus().then((status) => { if (!status.authenticated) onSignedOut(signedOutReasonFor(status) ?? "expired"); else onAuthChanged?.(status); }).catch(() => { retry = window.setTimeout(check, 15_000); }); };
     const timer = window.setTimeout(check, delay);
     return () => { window.clearTimeout(timer); if (retry) window.clearTimeout(retry); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -292,7 +292,7 @@ function App() {
 
   useEffect(() => {
     void fetchAuthStatus()
-      .then((status) => { if (!status.authenticated) { setSignedOut(signedOutReason()); forgetAccount(); } setAuthStatus(status); })
+      .then((status) => { if (!status.authenticated) { setSignedOut(signedOutReasonFor(status)); forgetAccount(); } setAuthStatus(status); })
       .catch((error) => {
         // BoxPilot cannot be reached (M25.1): a device with a session that has time left opens as
         // that account, offline, to read what it kept; nothing can be changed until BoxPilot answers.
@@ -308,7 +308,7 @@ function App() {
   useEffect(() => {
     if (!authStatus?.offline || !reachable) return;
     void fetchAuthStatus()
-      .then((status) => { if (!status.authenticated) { setSignedOut(signedOutReason()); forgetAccount(); } setAuthStatus(status); })
+      .then((status) => { if (!status.authenticated) { setSignedOut(signedOutReasonFor(status)); forgetAccount(); } setAuthStatus(status); })
       .catch(() => undefined);
   }, [authStatus?.offline, reachable, setAuthStatus]);
 

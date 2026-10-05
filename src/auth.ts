@@ -20,6 +20,8 @@ export interface AuthStatus {
    * this device remembered (M25.1). Nothing can be changed until BoxPilot answers again.
    */
   offline?: boolean;
+  /** Set by the server when this browser's session was ended because it came from another network address. */
+  signedOut?: "address-changed";
 }
 
 /** An auth failure with the server's machine-readable code (e.g. device_password_required). */
@@ -55,7 +57,7 @@ const sessionMark = "boxpilot:signed-in-until";
  */
 const accountMark = "boxpilot:signed-in-as";
 
-export type SignedOutReason = "expired" | "ended";
+export type SignedOutReason = "expired" | "ended" | "address-changed";
 
 export function rememberSession(status: AuthStatus | null): void {
   try {
@@ -96,6 +98,14 @@ export function rememberedAccount(now = Date.now()): { owner: Owner; expiresAt: 
   } catch {
     return null;
   }
+}
+
+/**
+ * Why BoxPilot says this browser is not signed in: what the server said, when it said it (a session
+ * presented from another network address is ended there), otherwise what this browser remembers.
+ */
+export function signedOutReasonFor(status: Pick<AuthStatus, "signedOut"> | null | undefined, now = Date.now()): SignedOutReason | null {
+  return status?.signedOut === "address-changed" ? "address-changed" : signedOutReason(now);
 }
 
 /** Whether a session this browser had ran out (its twelve hours were up) or was ended elsewhere; null if it had none. */
