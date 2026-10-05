@@ -167,6 +167,42 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
     }));
   }
 
+  /** An operation only the owner may run (minimumRole "owner"). */
+  const ownerOnly = (step) => registry.get?.(step?.operationId)?.minimumRole === "owner";
+  /** JSON with object keys in one order, so two steps compare by what they hold. */
+  const canonical = (value) => JSON.stringify(value ?? null, (_key, entry) => (entry && typeof entry === "object" && !Array.isArray(entry) ? Object.fromEntries(Object.entries(entry).sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))) : entry));
+  const sameStep = (left, right) => Boolean(left && right) && canonical(normalizeSteps([left])[0]) === canonical(normalizeSteps([right])[0]);
+
+  /**
+   * The steps to store, as saved by someone with `role` (sweep 2). A flow runs as whoever starts it,
+   * so a step only the owner may run is the owner's to put in one: an operator's flow holding an HTTP
+   * request to their own address ran with the owner's authority when the owner clicked Run now.
+   * Saved by the owner, such a step is marked ownerAdded; saved by anyone else, it must be one
+   * already stored at the same place, unchanged (the owner's step in an operator's flow, put back by
+   * the routes as stored), and keeps its mark. Anything else is refused.
+   */
+  function authorSteps(steps, role, stored = []) {
+    return normalizeSteps(steps).map((step, index) => {
+      if (!ownerOnly(step)) return step;
+      if (role === "owner") return { ...step, ownerAdded: true };
+      const kept = stored[index];
+      if (sameStep(kept, step)) return { ...step, ...(kept.ownerAdded === true ? { ownerAdded: true } : {}) };
+      throw Object.assign(new Error(`Only the owner can put step ${index + 1} (${registry.get(step.operationId).title}) in a flow: only the owner may run it, and a flow runs as whoever starts it`), { code: "flow_step_owner_only" });
+    });
+  }
+
+  /**
+   * A step only the owner may run, in a flow someone else created, that the owner has not saved since
+   * it was put there: saved before steps were checked (above), or carried over from then. Not run
+   * until the owner has read the flow and saved it, which marks the step as theirs. Null if none.
+   */
+  function unvouchedStep(flow) {
+    if ((store.findOwnerById?.(flow.createdBy)?.role ?? null) === "owner") return null;
+    const index = (flow.steps ?? []).findIndex((step) => ownerOnly(step) && step.ownerAdded !== true);
+    if (index < 0) return null;
+    return `step ${index + 1} (${registry.get(flow.steps[index].operationId).title}) is one only the owner may run, and the owner has not saved this flow since it was put there. The owner can open it and save the flow to keep the step`;
+  }
+
   /**
    * A flow may run after another completes (ADR-002 addendum, v1.45.0). The link must point at a
    * real flow, never itself, and never close a loop: A after B after A would run forever on the
@@ -219,13 +255,14 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
     }
   }
 
-  async function create({ name, steps, createdBy, cadence = null, triggerFlowId = null, triggerDrive = null }) {
+  async function create({ name, steps, createdBy, role = "owner", cadence = null, triggerFlowId = null, triggerDrive = null }) {
     const problem = validateFlow({ name, steps }, registry);
     if (problem) throw new Error(problem);
+    const authored = authorSteps(steps, role);
     await refuseStoredSteps(steps);
     const triggerProblem = checkTrigger(triggerFlowId) ?? checkDriveTrigger(triggerDrive);
     if (triggerProblem) throw new Error(triggerProblem);
-    return withoutHash(store.createFlow({ name: name.trim(), steps: normalizeSteps(steps), createdBy, triggerFlowId, ...(triggerDrive ? { triggerDrive } : {}), ...cadenceFields(cadence) }));
+    return withoutHash(store.createFlow({ name: name.trim(), steps: authored, createdBy, triggerFlowId, ...(triggerDrive ? { triggerDrive } : {}), ...cadenceFields(cadence) }));
   }
 
   /**
@@ -249,18 +286,20 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
     // drive was armed (M26.5): it can be renamed, paused or resumed, and anything else means disarming
     // and arming again. The same steps sent back by an edit form are not a change.
     if (flow.triggerDrive) {
-      const stepsChanged = steps !== undefined && JSON.stringify(normalizeSteps(steps)) !== JSON.stringify(flow.steps);
+      const stepsChanged = steps !== undefined && JSON.stringify(normalizeSteps(steps)) !== JSON.stringify(normalizeSteps(flow.steps));
       if (stepsChanged || cadence !== undefined || triggerFlowId !== undefined) throw new Error(`${flow.name} reconnects ${mountpointFor(flow.triggerDrive)} when it drops; to change what it does, stop reconnecting automatically and arm the drive again`);
     }
     const problem = validateFlow({ name: name ?? flow.name, steps: steps ?? flow.steps }, registry);
     if (problem) throw new Error(problem);
+    // Only new or changed owner-only steps are the editor's; those already there stay as they were.
+    const authored = steps ? authorSteps(steps, role, flow.steps) : undefined;
     // The steps as they will be after this edit, new or kept: editing was once the way round the check.
     await refuseStoredSteps(steps ?? flow.steps);
     if (triggerFlowId !== undefined) {
       const triggerProblem = checkTrigger(triggerFlowId, id);
       if (triggerProblem) throw new Error(triggerProblem);
     }
-    const changes = { name: name?.trim(), steps: steps ? normalizeSteps(steps) : undefined, enabled, triggerFlowId };
+    const changes = { name: name?.trim(), steps: authored, enabled, triggerFlowId };
     if (cadence !== undefined) Object.assign(changes, cadenceFields(cadence));
     // Re-enabling a scheduled flow computes the next due time afresh, so a flow paused for a
     // month does not fire the moment it is switched back on to make up for missed Sundays.
@@ -307,7 +346,7 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
     if (!flow) throw new Error("Flow not found");
     if (["viewer", "disabled"].includes(role)) throw new Error("Viewers cannot run flows");
     if (running.has(id)) throw new Error(`${flow.name} is already running`);
-    const problem = validateFlow(flow, registry);
+    const problem = validateFlow(flow, registry) ?? unvouchedStep(flow);
     if (problem) throw new Error(`This flow is no longer valid: ${problem}`);
     if (store.getSetting?.("approvalMode", null) === "always-password") {
       throw new Error("Approval mode is set to always ask, so flows cannot run: each step would need its own password. Change the approval mode to run flows.");
