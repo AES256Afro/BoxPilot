@@ -190,7 +190,12 @@ export function Memory({ agents, agentId, csrfToken, role, now, onSelectAgent }:
       {editing && (
         <Sheet kicker={agent.name} title="Edit a fact" onClose={() => setEditing(null)}
           footer={<><Button variant="ghost" onClick={() => setEditing(null)}>Cancel</Button><Button variant="primary" onClick={() => void act(async () => {
-            await agentsApi.editMemory(csrfToken, agent.id, editing.id, { title: draft.title, body: draft.body, ...(draft.freshDays === "always" ? { freshDays: null } : draft.freshDays ? { freshDays: Number(draft.freshDays) } : {}) });
+            // Only what changed (sweep 4): new words are the person's own, and clear a flagged fact's flag; its own words sent back unchanged must not.
+            await agentsApi.editMemory(csrfToken, agent.id, editing.id, {
+              ...(draft.title !== editing.title ? { title: draft.title } : {}),
+              ...(draft.body !== editing.body ? { body: draft.body } : {}),
+              ...(draft.freshDays === "always" ? { freshDays: null } : draft.freshDays ? { freshDays: Number(draft.freshDays) } : {}),
+            });
             setEditing(null);
           }, "The fact is changed; its embedding is made again in quiet hours.")}>Save</Button></>}>
           <div className="agents-password">
