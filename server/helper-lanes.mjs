@@ -28,8 +28,18 @@ export const chatLane = "chat:zulip";
 /** BoxPilot's Cloudflare tunnel (M42): what it published, and the record of it. */
 export const cloudflareLane = "cloudflare:tunnel";
 
-/** Operations that read or write the shared backup tree; they hold the host lane as well as their own. */
-const backupTreeOperations = new Set(["app.backup", "app.backup.many", "app.backup.restore", "app.backup.verify", "backup.sync", "backup.remote.sync", "backup.cloud.sync"]);
+/**
+ * The application backup tree, which the three mirrors copy off the box. Held by every operation
+ * that writes or deletes there and by the mirrors, so a mirror never reads an archive being written
+ * (`<stamp>.tar.gz.partial`), renamed or pruned under it. A checkpoint is an app backup: an update,
+ * a settings change, a compose edit, a rollback and a file restore each write one, and held only
+ * their app's lane, so a mirror ran beside them, copied the half-written archive and kept it
+ * forever, or died when it was renamed or grew (rsync exit 24, rclone errors).
+ */
+export const backupTreeLane = "backup-tree";
+const backupTreeOperations = new Set(["app.backup", "app.backup.many", "app.backup.restore", "app.backup.restore-path", "app.backup.delete", "app.backup.verify", "app.update", "app.rollback", "app.reconfigure", "app.compose.edit", "backup.sync", "backup.remote.sync", "backup.cloud.sync"]);
+/** Those that held the host lane before the tree had a lane of its own still hold it as well. */
+const hostBackupOperations = new Set(["app.backup", "app.backup.many", "app.backup.restore", "app.backup.verify", "backup.sync", "backup.remote.sync", "backup.cloud.sync"]);
 
 /** The lanes an operation must hold, as an array. Read-only operations never queue, so never get here. */
 export function laneFor(operation, parameters = {}) {
@@ -61,8 +71,8 @@ export function laneFor(operation, parameters = {}) {
     if (vm && !["vm.create", "vm.cloud.create", "vm.media.import", "vm.foundation.initialize"].includes(id)) lanes.push(`vm:${vm}`);
   }
   if (homepageOperations.has(id)) lanes.push(homepageLane);
-  // An app backup writes the same tree the mirrors read, so they serialize through the host lane.
-  if (backupTreeOperations.has(id)) lanes.push(hostLane);
+  if (backupTreeOperations.has(id)) lanes.push(backupTreeLane);
+  if (hostBackupOperations.has(id)) lanes.push(hostLane);
   return lanes.length ? [...new Set(lanes)] : [hostLane];
 }
 
