@@ -81,6 +81,21 @@ describe("sharing helper reads", () => {
     await expect(client.request("app.password.set", { id: "demo" }, { timeoutMs: 150 })).resolves.toEqual({ ran: true });
   });
 
+  it("tells its caller once when the request queues and once when it starts", async () => {
+    const frame = (request, value) => `${JSON.stringify({ version: 1, id: request.id, ...value })}\n`;
+    const socketPath = await helperSocket(async (request, connection) => {
+      connection.write(frame(request, { queued: true, lane: "drive:media" }));
+      connection.write(frame(request, { queued: true, lane: "drive:media" })); // a heartbeat
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      connection.write(frame(request, { started: true }));
+      return { ran: true };
+    });
+    const events = [];
+    const client = createHelperClient({ socketPath });
+    await expect(client.request("app.password.set", { id: "demo" }, { timeoutMs: 5_000, jobId: "job-1", onQueued: () => events.push("queued"), onStarted: () => events.push("started") })).resolves.toEqual({ ran: true });
+    expect(events).toEqual(["queued", "started"]);
+  });
+
   it("still holds a started operation to its own budget", async () => {
     const socketPath = await helperSocket(async (request, connection) => {
       connection.write(`${JSON.stringify({ version: 1, id: request.id, queued: true })}\n`);

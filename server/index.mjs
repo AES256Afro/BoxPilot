@@ -212,7 +212,7 @@ const jobs = createJobService(state, helper, {
     "firewall.profile.apply": (job, result) => state.setSetting("firewallProfile", { id: result.profile, services: result.services ?? [], sshRateLimit: result.sshRateLimit ?? false, appliedAt: result.appliedAt, appliedBy: job.createdBy }, { updatedBy: job.createdBy }),
     // Editing rules by hand moves the box away from the profile, so the page stops claiming one is
     // in force rather than naming a profile whose rules are no longer what is loaded.
-    "firewall.rule.set": (job) => markProfileEdited(job),
+    "firewall.rule.add": (job) => markProfileEdited(job),
     "firewall.rule.delete": (job) => markProfileEdited(job),
     "backup.cloud.setup": (job, result) => state.setSetting("cloudDestination", result.destination, { updatedBy: job.createdBy }),
     "backup.cloud.sync": (job, result) => state.setSetting("cloudDestinationLastSync", { completedAt: result.completedAt, filesTransferred: result.filesTransferred, bytesTransferred: result.bytesTransferred, destination: result.destination, errors: result.errors ?? 0 }, { updatedBy: job.createdBy }),
@@ -271,6 +271,11 @@ const jobs = createJobService(state, helper, {
     },
     // M37: the model agents use now is pinned into the job, so the root task can refuse to remove it.
     "agents.model.remove": (parameters) => ({ repo: parameters?.repo, file: parameters?.file, projector: parameters?.projector ?? null, current: agents.currentModel() }),
+  },
+  // Pinned again as the job is approved: what was pinned at staging may have changed since.
+  operationApprovalHooks: {
+    // A switch to the model a staged removal names, before it is approved, makes it the one in use.
+    "agents.model.remove": (parameters) => ({ ...parameters, current: agents.currentModel() }),
   },
 });
 state.deleteExpiredSessions();
