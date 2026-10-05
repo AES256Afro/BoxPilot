@@ -214,6 +214,27 @@ describe("approval dialog", () => {
     expect(approved).toHaveBeenCalledTimes(1);
   });
 
+  // An agent's card reads itself again once its step's job is withdrawn (sweep 3): before the cancel
+  // landed it would still read the job as waiting.
+  it("tells a page once the job it withdrew has been cancelled, and never for a job that ran", async () => {
+    const calls = stubApi({ confirmText: "" });
+    const withdrawn = vi.fn((_jobId: string) => calls.map((call) => call.method));
+    const { unmount } = render(<ApproveDialog operationId="controller.backup.create" title="Back up database" parameters={{}} csrfToken="csrf" onClose={() => {}} onWithdrawn={withdrawn} />);
+    await screen.findByRole("button", { name: "Confirm and run" });
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(withdrawn).toHaveBeenCalledWith("job-1"));
+    expect(withdrawn.mock.results[0].value).toContain("DELETE");
+    unmount();
+    withdrawn.mockClear();
+    render(<ApproveDialog operationId="controller.backup.create" title="Back up database" parameters={{}} csrfToken="csrf" onClose={() => {}} onWithdrawn={withdrawn} />);
+    const run = await screen.findByRole("button", { name: "Confirm and run" });
+    await waitFor(() => expect(run.hasAttribute("disabled")).toBe(false));
+    fireEvent.click(run);
+    await screen.findByText("Completed.");
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(withdrawn).not.toHaveBeenCalled();
+  });
+
   // A form closes before its approval opens; the page puts it back unless the job completed.
   it("tells a page how the job ended when the dialog is closed: nothing when it was cancelled", async () => {
     stubApi({ confirmText: "" });

@@ -71,4 +71,13 @@ describe("the demo's agents", { timeout: 60_000 }, () => {
     const { body: usage } = await get("/agents/usage");
     expect(usage.findings.runsSaved).toBeGreaterThanOrEqual(1);
   });
+
+  // The demo stages nothing: a card told its step is the demo's job answers as it stands (sweep 3).
+  it("answer a card's staged step with the card as it stands", async () => {
+    const { body: proposals } = await get("/agents/proposals");
+    const [card] = proposals.proposals.filter((entry) => entry.kind === "plan");
+    const response = await fetch(`${base}/agents/proposals/${card.id}/steps/0/job`, { method: "POST", headers: { "Content-Type": "application/json", referer: "http://127.0.0.1/?scenario=default" }, body: JSON.stringify({ jobId: "demo-job" }) });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ id: card.id, state: "open", steps: card.steps.map((step) => ({ operationId: step.operationId, status: "ready" })) });
+  });
 });
