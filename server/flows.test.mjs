@@ -103,6 +103,13 @@ describe("what may be a flow at all", () => {
     expect(validateFlow({ name: "x", steps: [{ operationId: "apt.install", parameters: {} }] })).toMatch(/step 1/);
   });
 
+  it("rejects BoxPilot's own plumbing, and never offers it (sweep 3)", () => {
+    expect(validateFlow({ name: "x", steps: [{ operationId: "agents.runtime.cpu", parameters: { processors: 8, background: 8, resetAfterSeconds: 7_200 } }] })).toMatch(/^step 1: .*BoxPilot's own/);
+    const store = fakeStore();
+    const ids = createFlowService({ store, jobs: fakeJobs(store) }).stepPalette().map((step) => step.operationId);
+    for (const id of ["agents.runtime.cpu", "agents.zulip.post"]) expect(ids, id).not.toContain(id);
+  });
+
   it("bounds the name and the step count", () => {
     expect(validateFlow({ name: "", steps: goodSteps })).toMatch(/name/);
     expect(validateFlow({ name: "x", steps: [] })).toMatch(/1 to 10/);

@@ -91,6 +91,9 @@ export function validateParameters(spec, parameters, title = "Operation") {
   return null;
 }
 
+/** Why an internal operation is not staged, scheduled, put in a flow or run from the operations route. */
+export const internalRefusal = (operation) => `${operation.title} is BoxPilot's own plumbing: BoxPilot runs it itself when it needs it`;
+
 export function defineOperation(definition) {
   const { id, title, risk, readOnly = false, elevatedOnly = false, internal = false, timeoutMs = defaultTimeoutMs, maxTimeoutMs = null, rerunAfterInterrupt = false, parameters = { fields: {} }, run, description = "", minimumRole = null, confirm = null, restartsService = false, supersededWhen = null, oneTimeFields = [] } = definition ?? {};
   if (typeof id !== "string" || !idPattern.test(id)) throw new Error(`Operation id "${id}" must be lower-case dotted segments`);
@@ -141,6 +144,28 @@ export function defineOperation(definition) {
 
 export class OperationRegistry {
   #operations = new Map();
+  #riskHooks = {};
+
+  /**
+   * What raises an operation's tier for what it acts on: installing an app its manifest calls high
+   * risk. The web process gives these the same hooks it gives the job layer, so a card an agent or
+   * the assistant builds says the tier the job will be staged at (sweep 3).
+   */
+  useRiskHooks(hooks = {}) {
+    this.#riskHooks = { ...(hooks ?? {}) };
+    return this;
+  }
+
+  /** The tier a job for this operation and these parameters is staged at; null for an unknown operation. */
+  async effectiveRisk(id, parameters = {}) {
+    const operation = this.#operations.get(id);
+    if (!operation) return null;
+    const hook = this.#riskHooks[id];
+    if (typeof hook !== "function") return operation.risk;
+    // It can raise the tier, never lower it; an answer that is not a tier counts for nothing.
+    const raised = await hook(parameters ?? {});
+    return riskTiers.indexOf(raised) > riskTiers.indexOf(operation.risk) ? raised : operation.risk;
+  }
 
   register(definition) {
     const operation = Object.isFrozen(definition) && definition.run ? definition : defineOperation(definition);

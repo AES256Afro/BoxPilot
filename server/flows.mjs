@@ -9,7 +9,7 @@
  * nothing attempts an automatic unwind — a half-done flow the owner can read beats a rollback
  * that guesses.
  */
-import { maskSecrets, secretPaths } from "./ops/registry.mjs";
+import { internalRefusal, maskSecrets, secretPaths } from "./ops/registry.mjs";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { registry as defaultRegistry, validateParameters } from "./ops/index.mjs";
 import { computeNextRun, validateCadence } from "./scheduler.mjs";
@@ -53,6 +53,7 @@ export function validateFlow({ name, steps } = {}, registry = defaultRegistry) {
     if (!step || typeof step.operationId !== "string") return `${label} must name an operation`;
     const operation = registry.get?.(step.operationId);
     if (!operation) return `${label}: ${step.operationId} is not a registered operation`;
+    if (operation.internal) return `${label}: ${internalRefusal(operation)}`;
     if (operation.risk === "high") return `${label}: ${operation.title} is high risk and cannot be part of a flow (ADR-002)`;
     // A typed confirmation is a person promising they meant it, at approval; a flow approves its
     // steps itself, so such a step would be refused there on every run.
@@ -781,7 +782,7 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
     const isScalar = (field) => ["string", "number", "boolean", undefined].includes(field.type);
     return registry.list()
       // validateFlow refuses these, so offering them would only lead to a refusal at save time.
-      .filter((operation) => operation.risk !== "high" && !operation.readOnly && typeof operation.confirm !== "function")
+      .filter((operation) => operation.risk !== "high" && !operation.readOnly && !operation.internal && typeof operation.confirm !== "function")
       // Buildable by a plain form, and never able to store a secret in the flow's JSON. A field
       // that is not a scalar (an array of packages, an object of app values) is fine only when it
       // is optional: the form omits it, which is valid. A required non-scalar field, or any secret

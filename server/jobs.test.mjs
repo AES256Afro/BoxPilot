@@ -960,6 +960,18 @@ describe("a tier that depends on what an operation acts on", () => {
     } finally { store.close(); }
   });
 
+  it("never stages BoxPilot's own plumbing, which BoxPilot runs itself through the helper (sweep 3)", async () => {
+    const helper = { request: vi.fn() };
+    const { store, owner } = await setup(helper);
+    try {
+      const jobs = createJobService(store, helper);
+      await expect(jobs.createOperationJob("agents.runtime.cpu", { processors: 8, background: 8, resetAfterSeconds: 7_200 }, owner.id, { role: "owner" })).rejects.toMatchObject({ code: "operation_internal", message: expect.stringMatching(/BoxPilot's own/) });
+      await expect(jobs.createOperationJob("agents.zulip.post", { host: "127.0.0.1", botEmail: "bot@example.test", posts: [] }, owner.id, { role: "owner" })).rejects.toMatchObject({ code: "operation_internal" });
+      expect(store.listJobs(10)).toEqual([]);
+      expect(helper.request).not.toHaveBeenCalled();
+    } finally { store.close(); }
+  });
+
   it("answers the tier a job would be staged at without staging one, for schedules and flows to check", async () => {
     const helper = { request: vi.fn() };
     const { store } = await setup(helper);

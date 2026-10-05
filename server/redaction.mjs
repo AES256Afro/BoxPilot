@@ -39,11 +39,53 @@ export async function loadRedactionPolicy({ configPath = process.env.BOXPILOT_RE
   }
 }
 
+// Every armoured private key: PKCS#8 and its ENCRYPTED form, RSA, EC, DSA, OpenSSH, and a PGP
+// secret key block. Certificates and public keys say neither, and are left alone.
+const keyMarker = (edge) => new RegExp(`-{4,5} ?${edge} (?:[A-Z0-9]+ ){0,3}PRIVATE KEY(?: BLOCK)? ?-{4,5}`, "gi");
+const redactedKey = "[REDACTED_PRIVATE_KEY]";
+
+/**
+ * Every private key in the text taken out whole (sweep 3). It runs on the whole text before anything
+ * cuts it into pieces: a key whose BEGIN and END fell in different pieces used to go through
+ * untouched. A key the text was clipped inside goes too - from its BEGIN to the end of the text when
+ * the END was cut off, from the start of the text to its END when the BEGIN was. One pass, each
+ * marker looked for once, so text full of markers cannot make it slow.
+ */
+export function redactPrivateKeys(input) {
+  const text = String(input ?? "");
+  if (!/PRIVATE KEY/i.test(text)) return text;
+  const begin = keyMarker("BEGIN");
+  const end = keyMarker("END");
+  const next = (pattern, from) => { pattern.lastIndex = from; return pattern.exec(text); };
+  let opening = next(begin, 0);
+  let closing = next(end, 0);
+  let out = "";
+  let at = 0;
+  for (;;) {
+    if (opening && opening.index < at) opening = next(begin, at);
+    if (closing && closing.index < at) closing = next(end, at);
+    if (closing && (!opening || closing.index < opening.index)) {
+      // An END with no BEGIN before it: the text starts inside a key.
+      if (!out.endsWith(redactedKey)) out += redactedKey;
+      at = closing.index + closing[0].length;
+      continue;
+    }
+    if (!opening) return out + text.slice(at);
+    out += text.slice(at, opening.index) + redactedKey;
+    // A BEGIN with no END after it: the text was cut inside the key.
+    if (!closing) return out;
+    at = closing.index + closing[0].length;
+  }
+}
+
 function redactString(input, policy) {
-  let value = String(input)
-    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]+/g, " ")
-    .replace(/-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----[\s\S]*?-----END (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/gi, "[REDACTED_PRIVATE_KEY]")
+  let value = redactPrivateKeys(String(input).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]+/g, " "))
     .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer [REDACTED]")
+    // HTTP Basic is base64 of user:password - the Zulip bot's key travels this way. Not a word in a
+    // sentence ("Basic authentication"): a capital and lower-case letters alone are left as they are.
+    .replace(/\b(?:[Bb]asic|BASIC)\s+(?![A-Z]?[a-z]+\b)[A-Za-z0-9+/]{8,}={0,2}/g, "Basic [REDACTED]")
+    // Whatever the scheme, the credential after it in an Authorization header, however short.
+    .replace(/\b((?:proxy-)?authorization["']?\s*[:=]\s*["']?)(basic|bearer)\s+(?!\[REDACTED\])[^\s,;"']+/gi, "$1$2 [REDACTED]")
     // A quoted JSON key, an env var with a prefix, and a value that runs to the end of the line
     // all had to be handled: {"password":"x"}, RESTIC_PASSWORD=x and `secret_access_key = x` were
     // each untouched, and those are three shapes this product's own logs and configs produce.

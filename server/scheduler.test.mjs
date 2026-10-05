@@ -28,6 +28,7 @@ async function setup({ now = () => new Date("2026-08-20T10:30:00") } = {}) {
       "app.inspect": { id, title: "Inspect", risk: "low", readOnly: true },
       "snap.delete": { id, title: "Delete a snapshot", risk: "medium", readOnly: false, confirm: (p) => String(p.name ?? "") },
       "recycle.empty": { id, title: "Empty the recycle bin", risk: "medium", readOnly: false },
+      "agents.runtime.cpu": { id, title: "Set the agents runner's processors", risk: "low", readOnly: false, internal: true },
     })[id] ?? null,
     validate: (id, parameters) => (id === "app.backup" && !parameters.id ? "requires id" : null),
   };
@@ -63,6 +64,14 @@ describe("operation scheduler", () => {
     // The ops that ARE meant to run unattended (no confirm) still schedule fine.
     await expect(scheduler.create({ ...base, operationId: "recycle.empty", parameters: { share: "media" } })).resolves.toBeTruthy();
     store.close();
+  });
+
+  it("refuses to schedule BoxPilot's own plumbing (sweep 3)", async () => {
+    const { store, scheduler, owner } = await setup();
+    try {
+      const base = { frequency: "daily", minute: 0, hour: 3, createdBy: owner.id };
+      await expect(scheduler.create({ ...base, operationId: "agents.runtime.cpu", parameters: { processors: 8, background: 8, resetAfterSeconds: 7_200 } })).rejects.toThrow(/BoxPilot's own/);
+    } finally { store.close(); }
   });
 
   it("runs due schedules as their creator and advances the next occurrence", async () => {
