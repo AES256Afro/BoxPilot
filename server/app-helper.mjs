@@ -1970,7 +1970,9 @@ export function createAppHelper({
       try {
         referenced = (await snapshotBackupReferences({ snapshotRoot: machineSnapshotRoot, run: runCommand, tarBinary })).get(id) ?? new Set();
       } catch (error) {
-        progress?.(`Kept every older backup of ${manifest.name}: ${error.message}, and one it restores from may be among them.`, "stderr");
+        // Named, with where to remove it: one damaged snapshot keeps every app's older copies.
+        const damaged = Array.isArray(error.unreadable) && error.unreadable.length;
+        progress?.(`Kept every older backup of ${manifest.name}: ${error.message}, and one it restores from may be among them.${damaged ? ` If ${error.unreadable.length === 1 ? "it is" : "they are"} damaged, remove ${error.unreadable.length === 1 ? "it" : "them"} from Housekeeping on the System page; until then no app's older backups are removed.` : ""}`, "stderr");
       }
     }
     if (referenced) {
