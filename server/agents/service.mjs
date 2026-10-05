@@ -2798,7 +2798,10 @@ export function createAgentService({
   function askFromChat({ message, person, where }) {
     const account = state.findOwnerById?.(person.boxpilotId);
     if (!account) return { refused: "Your BoxPilot account is gone; the owner can set you up again." };
-    const caller = { id: account.id, role: ["owner", "operator", "viewer"].includes(account.role) ? account.role : "viewer" };
+    // Only an account that may sign in asks: a disabled one ("disabled") was taken for a viewer and
+    // kept getting answers (2026-10 sweep 3).
+    if (!["owner", "operator", "viewer"].includes(account.role)) return { refused: "Your BoxPilot account cannot ask agents any more. The owner can set you up again." };
+    const caller = { id: account.id, role: account.role };
     const askable = store.listAgents().filter((agent) => canAsk(caller, agent) && !agentPaused(agent));
     const { text, agentName } = questionFrom(message.content, { agents: askable.map((agent) => agent.name) });
     if (!text) return { refused: "Ask a question after the mention, like: Steve, which drives are connected?" };
