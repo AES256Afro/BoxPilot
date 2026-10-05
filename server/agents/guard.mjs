@@ -15,13 +15,23 @@
 
 // Tokens chat templates use to start a turn or a role. Written into data, they would look to the
 // model like the conversation itself.
-const templateTokens = /<\|(?:im_start|im_end|endoftext|system|user|assistant|eot_id|start_header_id|end_header_id|begin_of_text)\|>|\[\/?INST\]|<<\/?SYS>>|<\/?(?:think|tool_call|tool_response|function_call)>/gi;
+// Any <|...|> is a special token to some template, not only the ones named here (2026-10 sweep 3).
+const templateTokens = /<\|[^|<>\n]{0,64}\|>|\[\/?INST\]|<<\/?SYS>>|<\/?(?:think|tool_call|tool_response|function_call)>/gi;
 // Our own wrapper tags, escaped so data cannot close its box or open another: every box a prompt
-// puts data in, the conversation and what is remembered too (2026-10 sweep 2).
-export const wrapperTagNames = Object.freeze(["tool_output", "agent_note", "owner_instructions", "question", "finding", "conversation", "memory"]);
-const wrapperTags = new RegExp(`<(\\/?)(${wrapperTagNames.join("|")})\\b`, "gi");
+// puts data in, the conversation and what is remembered too (2026-10 sweep 2), and the specialists
+// a supervisor is told of, as other accounts wrote them (sweep 3). Spaces after the "<" and around
+// the "/" still make a tag to a model, so they are matched too (sweep 3).
+export const wrapperTagNames = Object.freeze(["tool_output", "agent_note", "owner_instructions", "question", "finding", "conversation", "memory", "specialists"]);
+const wrapperTags = new RegExp(`<\\s*(\\/?)\\s*(${wrapperTagNames.join("|")})\\b`, "gi");
 // Control characters, and the Unicode line separators and direction overrides that can hide text.
 const invisible = new RegExp("[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\u2028\u2029\u202a-\u202e\u2066-\u2069]", "g");
+// Characters that disguise a tag or split a word without showing (2026-10 sweep 3): zero-width
+// ones are taken out, and fullwidth and small angle brackets and bars read as the plain ones.
+const zeroWidth = /[\u200b-\u200d\u2060\ufeff]/g;
+const lookalikes = { "\uff1c": "<", "\ufe64": "<", "\uff1e": ">", "\ufe65": ">", "\uff5c": "|", "\uff0f": "/" };
+const lookalike = new RegExp(`[${Object.keys(lookalikes).join("")}]`, "g");
+/** Text as a model would read it once what hides a tag or splits a word is gone. */
+const plainly = (text) => String(text ?? "").replace(zeroWidth, "").replace(lookalike, (character) => lookalikes[character]);
 
 const injectionPatterns = [
   /\b(?:ignore|disregard|forget|override)\b[^.\n]{0,40}\b(?:previous|prior|above|earlier|all|your|the system|these)\b[^.\n]{0,20}\b(?:instructions?|prompts?|rules?|messages?)\b/i,
@@ -40,7 +50,7 @@ const injectionPatterns = [
 
 /** Whether text reads like an instruction to a model, and the first few phrases that did. */
 export function detectInjection(text) {
-  const value = String(text ?? "");
+  const value = plainly(text);
   const matches = [];
   for (const pattern of injectionPatterns) {
     const found = pattern.exec(value);
@@ -51,11 +61,12 @@ export function detectInjection(text) {
 }
 
 /**
- * Untrusted text made safe to put in front of a model: redacted, control characters and template
- * tokens neutralised, wrapper tags escaped, and cut to `maxChars` at a line.
+ * Untrusted text made safe to put in front of a model: zero-width characters out and lookalike
+ * brackets made plain first, then redacted, control characters and template tokens neutralised,
+ * wrapper tags escaped, and cut to `maxChars` at a line.
  */
 export function sanitizeUntrusted(text, { maxChars = 4_000, redact = (value) => value } = {}) {
-  const raw = String(text ?? "");
+  const raw = plainly(text);
   const injection = detectInjection(raw);
   let value = redact(raw)
     .replace(invisible, " ")
@@ -78,24 +89,34 @@ const attributeOf = (tag, name) => new RegExp(`\\b${name}\\s*=\\s*["']?([^"'\\s>
  * the run never called, which the owner read as evidence. Every wrapper block the model wrote is
  * taken out, its words with it - a box the model wrote is never evidence - and so is any tag left
  * open or closed alone. `removed` names each block, with the id and tool a tool_output or finding
- * gave itself. If that leaves nothing, the words inside the boxes are kept, without the boxes and
- * without any tool_output's, so an answer the model only boxed is not lost.
+ * gave itself. A box opened and never closed takes the rest of the answer with it (2026-10 sweep 3:
+ * its words were kept as if the model had written them itself). Tags are found as a model reads
+ * them: spaced, or behind zero-width and fullwidth characters. If that leaves nothing, the words
+ * inside the boxes are kept, without the boxes and without any tool_output's, so an answer the
+ * model only boxed is not lost.
  */
 export function stripWrapperBlocks(text) {
-  const source = String(text ?? "");
+  const source = plainly(text);
   const names = wrapperTagNames.join("|");
   const removed = [];
   const kept = [];
   const note = (tag, open) => removed.push({ tag: tag.toLowerCase(), id: attributeOf(open, "id"), tool: attributeOf(open, "tool") });
-  let value = source.replace(new RegExp(`(<(${names})\\b[^>]*>)([\\s\\S]*?)<\\/\\2\\s*>`, "gi"), (_match, open, tag, inner) => {
+  const keep = (tag, inner) => { if (tag.toLowerCase() !== "tool_output") kept.push(inner.trim()); };
+  let value = source.replace(new RegExp(`(<\\s*(${names})\\b[^>]*>)([\\s\\S]*?)<\\s*\\/\\s*\\2\\s*>`, "gi"), (_match, open, tag, inner) => {
     note(tag, open);
-    if (tag.toLowerCase() !== "tool_output") kept.push(inner.trim());
+    keep(tag, inner);
     return "";
   });
-  value = value.replace(new RegExp(`<\\/?(${names})\\b[^>]*>`, "gi"), (match, tag) => { if (!match.startsWith("</")) note(tag, match); return ""; });
+  // A box left open: its tag and everything after it.
+  value = value.replace(new RegExp(`(<\\s*(${names})\\b[^>]*>)([\\s\\S]*)$`, "i"), (_match, open, tag, inner) => {
+    note(tag, open);
+    keep(tag, inner.replace(new RegExp(`<\\s*\\/?\\s*(${names})\\b[^>]*>`, "gi"), ""));
+    return "";
+  });
+  value = value.replace(new RegExp(`<\\s*\\/\\s*(${names})\\b[^>]*>`, "gi"), "");
   const tidy = (words) => words.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
   value = tidy(value);
-  if (!value && kept.length) value = tidy(kept.join("\n\n").replace(new RegExp(`<\\/?(${names})\\b[^>]*>`, "gi"), ""));
+  if (!value && kept.length) value = tidy(kept.join("\n\n").replace(new RegExp(`<\\s*\\/?\\s*(${names})\\b[^>]*>`, "gi"), ""));
   return { text: value, removed };
 }
 
