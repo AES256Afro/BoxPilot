@@ -102,8 +102,8 @@ function replaceAsRead(text, pattern, replace) {
 
 /** Text as a model would read it, to look for an instruction in - never to keep. */
 const plainly = (text) => readAs(text).plain;
-/** The same, exported, for what checks words without keeping them (zulip.mjs). */
-export const readsAs = plainly;
+/** Text as it reads, lookalike letters made Latin too: to check words by, never to keep (zulip.mjs). */
+export const readsAs = (text) => readAs(text).tags;
 
 const injectionPatterns = [
   /\b(?:ignore|disregard|forget|override)\b[^.\n]{0,40}\b(?:previous|prior|above|earlier|all|your|the system|these)\b[^.\n]{0,20}\b(?:instructions?|prompts?|rules?|messages?)\b/i,

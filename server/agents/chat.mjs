@@ -127,7 +127,7 @@ export function createAgentChat({ state, store, helper = null, now = () => new D
       const knowledge = destinationFor(spec, "knowledge", link);
       if (knowledge) {
         const notes = store.listNotes(agent.id, { limit: 200 }).filter((note) => note.source?.runId === run.id).slice(0, limits.notesPerRun);
-        for (const note of notes) queue("knowledge", knowledge, noteMessage({ agentName: name, note, redact }));
+        for (const note of notes) queue("knowledge", knowledge, noteMessage({ agentName: name, note, flagged: Boolean(run.flags?.injection || note.source?.injection), redact }));
       }
     } catch { /* chat is a copy of what BoxPilot keeps; a run never fails over it */ }
     if (queued.length) soon();
