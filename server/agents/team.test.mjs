@@ -92,6 +92,42 @@ describe("the orchestrator", () => {
     expect(handed).not.toMatch(/RELAY-INTERIM/);
   });
 
+  it("hands an operator's specialist no more than its maker may read, and that operator never opens an owner's run (R2S3-1)", async () => {
+    const keeper = make("server-keeper");
+    const watcher = make("pihole-watcher", "operator");
+    // What only the owner may read: a note the Server Keeper shared from one of its owner runs.
+    h.store.writeNote(keeper.id, { title: "Pi-hole blocking, as the owner saw it", body: "OWNER-ONLY-FACT: Pi-hole blocking is on; the owner's jobs failed twice.", readRole: "owner", shared: true, source: { by: "agent" } });
+    h.fake.state.script = (body) => {
+      if (system(body).includes("Your name is Server Keeper") && !/The specialists you handed work to/.test(JSON.stringify(body.messages))) {
+        return withTools(body) === 0 ? { toolCalls: [{ name: "agents_handoff", arguments: { agent: "Pi-hole Watcher", task: "Is Pi-hole blocking?" } }] } : { content: "I asked the Pi-hole Watcher [T1]." };
+      }
+      if (system(body).includes("Your name is Pi-hole Watcher")) return withTools(body) === 0 ? { toolCalls: [{ name: "memory_search", arguments: { query: "pi-hole blocking" } }] } : { content: "Blocking is on [T1]." };
+      return { content: "Pi-hole is blocking, the watcher says [T1]." };
+    };
+    // The owner's Server Keeper on its schedule: it reads as the owner.
+    h.store.enqueueRun({ agentId: keeper.id, version: h.store.getAgent(keeper.id).version, kind: "schedule", trigger: { title: "Its schedule" }, requestedBy: null, readRole: "owner", readAs: h.accounts.owner.id });
+    const parent = await h.runNext();
+    expect(parent).toMatchObject({ kind: "schedule", readRole: "owner", state: "completed" });
+    // The operator's Pi-hole Watcher reads as the operator who made it, not as the owner.
+    const claim = await h.service.runnerNext(h.runnerId, { waitMs: 0 });
+    expect(claim.run).toMatchObject({ kind: "handoff", readRole: "operator" });
+    expect(h.store.getRun(claim.run.id)).toMatchObject({ agentId: watcher.id, readRole: "operator", readAs: h.accounts.operator.id });
+    expect(JSON.stringify(claim.messages)).not.toContain("OWNER-ONLY-FACT");
+    await h.runner.execute(claim);
+    const child = h.service.getRun(h.caller("owner"), claim.run.id);
+    expect(JSON.stringify(child.steps)).not.toContain("OWNER-ONLY-FACT");
+    // Its maker sees that run, which read only what they may.
+    expect(h.service.getRun(h.caller("operator"), child.id)).toMatchObject({ id: child.id, readRole: "operator" });
+    await h.runNext();
+
+    // A run on the operator's agent that read as the owner (one made before this) is the owner's alone.
+    const owners = h.store.enqueueRun({ agentId: watcher.id, version: h.store.getAgent(watcher.id).version, kind: "handoff", question: "Is Pi-hole blocking?", requestedBy: null, readRole: "owner", readAs: h.accounts.owner.id, parentRunId: parent.id, depth: 1 });
+    h.store.finishRun(owners.id, { state: "completed", answer: "OWNER-ONLY-FACT" });
+    expect(thrown(() => h.service.getRun(h.caller("operator"), owners.id))).toMatchObject({ status: 404 });
+    expect(h.service.listRuns(h.caller("operator"), watcher.id).map((run) => run.id)).not.toContain(owners.id);
+    expect(h.service.getRun(h.caller("owner"), owners.id).id).toBe(owners.id);
+  });
+
   it("never loops, never hands work to itself or past its depth, and hands off only as a supervisor", async () => {
     const keeper = make("server-keeper");
     make("pihole-watcher");
