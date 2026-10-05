@@ -307,6 +307,15 @@ const dataRoutes = {
       expect(body.flows.length, role).toBe(2);
       if (role === "owner") expect(flow(fixtures.ownerFlow.id)).toMatchObject({ createdBy: accounts.owner.id, lastJobIds: [fixtures.ownerJob.id] });
       else expect(flow(fixtures.ownerFlow.id)).toMatchObject({ createdBy: null, lastJobIds: [], lastRunElsewhere: true, lastResult: "stopped at step 1 (Refresh package lists)" });
+      // A request's address is cut to where it goes, and an owner-only step keeps only its name.
+      const [, request, removal] = flow(fixtures.ownerFlow.id).steps;
+      if (role === "owner") {
+        expect(request.parameters).toMatchObject({ url: "https://ntfy.example/owner-marker-topic", credentialName: "ntfy-token" });
+        expect(removal.parameters).toEqual({ name: "ntfy-old" });
+      } else {
+        expect(request).toMatchObject({ operationId: "http.request", parameters: { url: "https://ntfy.example", method: "POST" }, parametersHidden: true });
+        expect(removal).toMatchObject({ operationId: "credentials.remove", parameters: {}, parametersHidden: true });
+      }
       if (role === "viewer") expect(flow(fixtures.operatorFlow.id)).toMatchObject({ createdBy: null, lastJobIds: [], lastRunElsewhere: true, lastResult: "completed" });
       else expect(flow(fixtures.operatorFlow.id)).toMatchObject({ createdBy: accounts.operator.id, lastJobIds: [fixtures.operatorJob.id] });
     },
@@ -661,7 +670,8 @@ beforeAll(async () => {
   const ownerSchedule = state.createSchedule({ operationId: "apt.refresh", parameters: { note: "owner-marker-schedule" }, frequency: "daily", minute: 0, hour: 3, createdBy: owner.id, nextDueAt: new Date(Date.now() + day).toISOString() });
   const operatorSchedule = state.createSchedule({ operationId: "apt.refresh", parameters: { note: "operator-marker-schedule" }, frequency: "daily", minute: 0, hour: 4, createdBy: operator.id, nextDueAt: new Date(Date.now() + day).toISOString() });
 
-  fixtures.ownerFlow = state.createFlow({ name: "Nightly", steps: [{ operationId: "apt.refresh", parameters: {} }], createdBy: owner.id });
+  // A push to a topic whose path is the password (ntfy), and an owner-only step: both the owner's to read (sweep 1).
+  fixtures.ownerFlow = state.createFlow({ name: "Nightly", steps: [{ operationId: "apt.refresh", parameters: {} }, { operationId: "http.request", parameters: { url: "https://ntfy.example/owner-marker-topic", method: "POST", body: "owner-marker body", credentialName: "ntfy-token" } }, { operationId: "credentials.remove", parameters: { name: "ntfy-old" } }], createdBy: owner.id });
   state.markFlowRun(fixtures.ownerFlow.id, { result: "stopped at step 1 (Refresh package lists): owner-marker failure", jobIds: [fixtures.ownerJob.id] });
   fixtures.operatorFlow = state.createFlow({ name: "Tidy", steps: [{ operationId: "apt.refresh", parameters: {} }], createdBy: operator.id });
   state.markFlowRun(fixtures.operatorFlow.id, { result: "completed", jobIds: [fixtures.operatorJob.id] });
