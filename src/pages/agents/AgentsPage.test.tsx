@@ -913,6 +913,29 @@ describe("memory", () => {
     fireEvent.click(within(facts).getByRole("button", { name: "Trust the fact Fans" }));
     await waitFor(() => expect(calls.find((call) => call.method === "PUT")?.body).toEqual({ trusted: true }));
   });
+
+  it("marks another agent's shared fact that is another account's words, and trusts it on that agent (sweep 5, R5B4-6)", async () => {
+    window.history.replaceState(null, "", `/?view=agents&tab=memory&agent=${keeperId}`);
+    const shared = (id: string, extra: Record<string, unknown>) => ({ id, agentId: helperId, title: "Drive readings", body: "sda is 42% full.", from: "IT Support helper", updatedAt: ago(60), stale: false, injection: false, othersWords: true, canTrust: true, ...extra });
+    const calls = serve(base({
+      [`GET /api/v1/agents/${keeperId}/memory`]: {
+        facts: [], episodes: [], thread: null,
+        shared: [shared("n-1", {}), shared("n-2", { title: "Fan speed", othersWords: false }), shared("n-3", { title: "Not mine to trust", canTrust: false })],
+        settings: { enabled: true, share: true, threads: true, turns: 6, freshDays: 14, maxNotes: 80 },
+        search: { byMeaning: false, model: "fake", pending: 0, vectors: 0 },
+      },
+      [`PUT /api/v1/agents/${helperId}/memory/notes/n-1`]: { id: "n-1", othersWords: false },
+    }));
+    render(<AgentsPage csrfToken="csrf" now={() => now} />);
+    const table = await screen.findByRole("table", { name: "Facts other agents share" });
+    const rows = within(table).getAllByRole("row").slice(1);
+    expect(rows[0].textContent).toContain("another account's words");
+    expect(rows[1].textContent).not.toContain("another account's words");
+    expect(within(table).queryByRole("button", { name: "Trust the shared fact Fan speed" })).toBeNull();
+    expect(within(table).queryByRole("button", { name: "Trust the shared fact Not mine to trust" })).toBeNull();
+    fireEvent.click(within(table).getByRole("button", { name: "Trust the shared fact Drive readings" }));
+    await waitFor(() => expect(calls.find((call) => call.method === "PUT")).toMatchObject({ path: `/api/v1/agents/${helperId}/memory/notes/n-1`, body: { trusted: true } }));
+  });
 });
 
 describe("findings (M44)", () => {
