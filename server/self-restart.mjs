@@ -9,6 +9,17 @@ export const ownUnitPattern = /^boxpilot(-helper)?\.service$/;
 
 const pause = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
 
+/** What the helper answers a change sent while BoxPilot restarts: it did not start. */
+export const restartRefusal = "BoxPilot is restarting to pick up what an update changed, so this did not start and nothing was changed. Run it again once BoxPilot is back, in a minute.";
+
+/**
+ * The helper's refusal of a change it never started because it is restarting or stopping, with its
+ * own code (sweep 5): the web side's job layer waits for BoxPilot to come back and sends it again
+ * once, so an automation's next step is not lost to the restart. Every other failure says
+ * operation_failed and is never sent again.
+ */
+export const restartRefusalError = (message = restartRefusal) => Object.assign(new Error(message), { code: "helper_restarting" });
+
 /**
  * BoxPilot restarting its own services after a job, once the work beside and behind it is done.
  *
