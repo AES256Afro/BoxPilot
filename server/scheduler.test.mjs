@@ -490,6 +490,34 @@ describe("a scheduled run whose result was not saved (M27.2)", () => {
   });
 });
 
+describe("a schedule due while approvals always ask, with the real job service", () => {
+  // The fake job services above have no approvalPolicy, so the check that refuses before staging
+  // never ran in a test; it threw without the code the skip is recognised by, and every run read
+  // as an error ("could not start") rather than the approval mode the Schedules panel points at.
+  it("is recorded as blocked by the approval mode, and nothing is staged or run", async () => {
+    let clock = new Date("2026-08-20T02:59:00");
+    const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-sched-always-"));
+    directories.push(directory);
+    const store = createStateStore({ stateDirectory: directory });
+    try {
+      const owner = store.consumeBootstrapToken(store.createBootstrapToken().token, { username: "operator", passwordHash: "hash" });
+      const helper = { request: vi.fn(async () => ({ ok: true })) };
+      const jobs = createJobService(store, helper);
+      const messages = [];
+      const scheduler = createSchedulerService({ store, jobs, now: () => clock, alerts: { raise: async (alert) => { messages.push(alert.message); }, clear: async () => {} } });
+      const schedule = await scheduler.create({ operationId: "apt.refresh", parameters: {}, frequency: "hourly", minute: 0, createdBy: owner.id });
+      store.setSetting("approvalMode", "always-password", { updatedBy: owner.id });
+      clock = new Date("2026-08-20T03:00:30");
+      await scheduler.tick();
+      expect(store.getSchedule(schedule.id).lastResult).toBe("blocked-by-approval-mode");
+      expect(scheduler.list().find((entry) => entry.id === schedule.id)).toMatchObject({ lastOutcome: "did-not-run", lastReason: "Approvals are set to always ask" });
+      expect(messages).toEqual([expect.stringContaining("Approvals are set to always ask")]);
+      expect(store.listAwaitingApproval()).toEqual([]);
+      expect(helper.request).not.toHaveBeenCalled();
+    } finally { store.close(); }
+  });
+});
+
 describe("a schedule that would store an app's secret", () => {
   it("is refused, like a schedule carrying a top-level password", async () => {
     // values.env is where an app's token lives; a stored schedule would keep it in the database.
