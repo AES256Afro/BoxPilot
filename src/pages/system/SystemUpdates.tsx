@@ -66,13 +66,16 @@ export function SystemUpdates({ release, releaseError, checking, onCheck, status
         </Notice>
       )}
 
+      {!updating && outcome === "timeout" && (
+        <Notice tone="warning" title="The update is taking longer than ten minutes">
+          Check the update log below; a failed health check restores the previous version automatically.
+        </Notice>
+      )}
+
       {updating && (
-        <Notice live tone={outcome === "live" ? "success" : outcome === "failed" || outcome === "timeout" ? "danger" : "info"}
-          title={outcome === "live" ? `BoxPilot ${updating} is live` : outcome === "failed" ? `The update to ${updating} stopped` : outcome === "timeout" ? "The update is taking longer than ten minutes" : `Updating to ${updating}…`}>
-          {outcome === "live" ? "Reloading."
-            : outcome === "failed" ? `${facts.error ?? "The update log below says why."}${/nothing was changed/i.test(facts.error ?? "") ? "" : " A failed health check restores the previous version automatically."}`
-              : outcome === "timeout" ? "Check the update log below; a failed health check restores the previous version automatically."
-                : "It copies the database first, then builds; BoxPilot restarts when the build finishes. This page reconnects by itself."}
+        // A stopped or timed-out update is no longer "updating" (the notices above say how it ended).
+        <Notice live tone={outcome === "live" ? "success" : "info"} title={outcome === "live" ? `BoxPilot ${updating} is live` : `Updating to ${updating}…`}>
+          {outcome === "live" ? "Reloading." : "It copies the database first, then builds; BoxPilot restarts when the build finishes. This page reconnects by itself."}
           {!outcome && <Progress label={`Updating to ${updating}`} hideLabel className="system-progress" />}
         </Notice>
       )}
