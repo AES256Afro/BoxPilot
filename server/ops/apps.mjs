@@ -70,6 +70,19 @@ const valuesField = { type: "object", optional: true, secretEnvOf: "id", validat
 // Concrete device paths resolved by the web process (the helper's sandbox has no real /dev); the deployer keeps only those matching the manifest.
 const devicesField = { type: "array", optional: true, nullable: true, validate: (value) => (value.length > 32 || value.some((entry) => typeof entry !== "string" || !/^\/dev\/[A-Za-z0-9._/-]{1,64}$/.test(entry)) ? "must be up to 32 /dev paths" : null) };
 const minutes = (value) => value * 60_000;
+/** A compose file's sha256 (catalog/compose-review.mjs composeSha256), as `allowCompose` names one. */
+const composeHashField = { type: "string", optional: true, pattern: /^[a-f0-9]{64}$/ };
+
+/**
+ * Sweep 4: a restore whose request allows a backup's compose file to be started exactly as it was
+ * archived, granting more than the catalog does, is high risk with a typed confirmation that names
+ * the app, whatever the operation's own tier: approving that file approves whatever it hands its
+ * containers. The jobs service and the registry take the tier from this hook (server/index.mjs).
+ */
+export function archivedComposeRisk(parameters) {
+  const allowed = parameters?.allowCompose;
+  return (typeof allowed === "string" && allowed) || (allowed && typeof allowed === "object" && Object.keys(allowed).length) ? "high" : "low";
+}
 /**
  * A checkpoint is a whole app backup taken before the change (app-helper.mjs checkpointCeilingMs:
  * stopping the app, up to an hour of archive, starting it again), with room for its checksum. The
@@ -288,8 +301,11 @@ export function appOperations() {
     defineOperation({
       // Its safety copy of the current state is a whole backup, like a checkpoint.
       id: "app.backup.restore", title: "Restore application data from a backup", risk: "high", timeoutMs: checkpointMs + minutes(90),
-      description: "Checksums the backup and unpacks it beside the app, checks nothing else holds its ports, saves the current state as a safety copy, then replaces the app's data and configuration with the backup and starts it. An app the backup has reachable for the tailnet only is then published over HTTPS on your tailnet with Tailscale Serve.",
-      parameters: { fields: { id: idField, backup: { type: "string", maxLength: 40, pattern: /^\d{8}T\d{6}Z\.tar\.gz$/ } } },
+      // Allowing a backup's own compose file is typed out, naming the app (sweep 4).
+      confirm: (parameters) => (parameters.allowCompose ? `allow ${parameters.id}` : null),
+      confirmWhen: "it starts a backup's own compose file as it was archived",
+      description: "Checksums the backup and unpacks it beside the app, checks nothing else holds its ports, saves the current state as a safety copy, then replaces the app's data and configuration with the backup and starts it. An app the backup has reachable for the tailnet only is then published over HTTPS on your tailnet with Tailscale Serve. A compose file edited by hand (or one whose settings no longer fit the catalog) is started exactly as it was backed up only when it gives the app nothing past the catalog, this server already runs it, or allowCompose names its sha256.",
+      parameters: { fields: { id: idField, backup: { type: "string", maxLength: 40, pattern: /^\d{8}T\d{6}Z\.tar\.gz$/ }, allowCompose: composeHashField } },
       // The deployer writes the backup's compose file again for this server and says who can reach
       // the app and on which ports, as an install does: a tailnet-only app's web ports are on
       // 127.0.0.1 for Serve to front, so it is published as app.install and a snapshot restore do.
@@ -300,6 +316,15 @@ export function appOperations() {
         const warnings = [...(restored.warnings ?? []), ...(published.warnings ?? [])];
         return { ...restored, served: published.served, urls: published.urls, ...(warnings.length ? { warnings } : {}) };
       },
+    }),
+    defineOperation({
+      // operator (ADR-003), like app.backup.files: it reads inside a backup as root, and says what the
+      // backup's compose file mounts from this server. It reads the first few kilobytes of the archive,
+      // not all of it. The restore dialog asks it before staging a restore (sweep 4).
+      id: "app.backup.review", title: "Check what restoring a backup would start", risk: "low", readOnly: true, minimumRole: "operator", timeoutMs: minutes(5),
+      description: "Whether restoring this backup would start its compose file exactly as it was archived (edited by hand, or with settings that no longer fit the catalog), and if so every setting in it that gives the app more than the catalog does - privileged, host folders, devices, capabilities, the host's network - with the file's sha256 to allow it by. Data folders the backup's settings name that an install would refuse are listed too. Nothing is unpacked or changed.",
+      parameters: { fields: { id: idField, backup: { type: "string", maxLength: 40, pattern: /^\d{8}T\d{6}Z\.tar\.gz$/ } } },
+      run: (parameters, { apps }) => apps.reviewAppBackup({ id: parameters.id, backup: parameters.backup }),
     }),
     defineOperation({
       // operator: this lists what is inside a backup - every filename in the app's config and data,

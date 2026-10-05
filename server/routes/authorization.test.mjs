@@ -317,7 +317,9 @@ describe("reads that go through the system's own permissions", () => {
       // recycle bin, a query log, every mounted filesystem.
       "system.update.status", "users.inspect", "samba.inspect", "dns.blocker.clients", "host.snapshot.discover", "host.snapshot.restores", "router.leases", "router.inspect", "storage.usb.events", "storage.unclean.events", "storage.volumes.state",
       // Sweep 1: every compose stack started outside BoxPilot, with where its files live, read as root.
-      "compose.projects.inspect"]) {
+      "compose.projects.inspect",
+      // Sweep 4: what a backup's compose file mounts from this server, read inside the archive as root.
+      "app.backup.review"]) {
       expect(registry.get(id)?.minimumRole, `${id} should need an operator`).toBe("operator");
     }
   });

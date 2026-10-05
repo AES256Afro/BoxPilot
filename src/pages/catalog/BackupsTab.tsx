@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { formatBytes } from "../../formatBytes";
 import { Button, EmptyState, Notice, Panel, SearchField, StatusChip, mayStart, riskOf } from "../../ui";
+import { ComposeAllowance, ComposeRefusal, type ComposeReview } from "../backups/ComposeReview";
 import { offlineFor, runRead } from "./appState";
 import type { CatalogContext, Entry } from "./types";
 
@@ -9,6 +10,11 @@ import type { CatalogContext, Entry } from "./types";
  * something rehearses them on a schedule, then each archive with what it cost (how long the app was
  * offline) and what can be done with it: restore it whole, restore one file, rehearse it, or
  * delete it. Each of those goes through the approval dialog at its tier.
+ *
+ * A whole restore asks first what the backup would start (sweep 4): a compose file edited by hand,
+ * or one whose settings no longer fit, starts exactly as it was backed up, and one that gives the app
+ * more than the catalog does is listed in the dialog and staged allowing exactly that file, which
+ * the server types out as a confirmation. One the server cannot restore at all says why instead.
  */
 
 interface Backup { artifact: string; createdAt: string | null; sizeBytes: number | null; downtimeMs: number | null; skippedHostPaths: string[]; skippedVolumes?: string[]; image: string | null }
@@ -21,6 +27,9 @@ export function BackupsTab({ entry, ctx }: { entry: Entry; ctx: CatalogContext }
   const [error, setError] = useState<string | null>(null);
   const [browsing, setBrowsing] = useState<Browsing | null>(null);
   const [filter, setFilter] = useState("");
+  // The backup whose restore is being looked over, and one that cannot be restored, with why.
+  const [checking, setChecking] = useState<string | null>(null);
+  const [refused, setRefused] = useState<{ backup: string; review: ComposeReview } | null>(null);
   const may = (operationId: string) => mayStart(role, operationId);
   const verification = live?.backupVerification ?? null;
   const name = manifest.name;
@@ -51,6 +60,29 @@ export function BackupsTab({ entry, ctx }: { entry: Entry; ctx: CatalogContext }
   };
 
   const when = (backup: Backup) => (backup.createdAt ? new Date(backup.createdAt).toLocaleString() : backup.artifact);
+
+  const restore = async (backup: Backup) => {
+    setError(null); setRefused(null); setChecking(backup.artifact);
+    // A review that cannot be read is not a reason not to try: the restore itself checks the files it
+    // unpacks, and says what it refused and why.
+    let review: ComposeReview | null = null;
+    try {
+      const { response, body } = await runRead<ComposeReview>(csrfToken, "app.backup.review", { id: manifest.id, backup: backup.artifact });
+      if (response.ok && body.result) review = body.result;
+    } catch { review = null; }
+    setChecking(null);
+    if (review && review.refusals.length) { setRefused({ backup: when(backup), review }); return; }
+    const allow = review?.needsAllow && review.sha256 ? review.sha256 : null;
+    act({
+      operationId: "app.backup.restore",
+      title: `Restore ${name} from ${when(backup)}`,
+      parameters: { id: manifest.id, backup: backup.artifact, ...(allow ? { allowCompose: allow } : {}) },
+      preview: <>
+        <span>Saves the current state as a safety copy first, then replaces {name}'s data and configuration with this backup and starts it.</span>
+        {allow && review ? <ComposeAllowance name={name} review={review} /> : null}
+      </>,
+    });
+  };
   // Newest first; one without a date (an older record) goes last.
   const archives = useMemo(() => [...(backups ?? [])].sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? "")), [backups]);
 
@@ -89,6 +121,7 @@ export function BackupsTab({ entry, ctx }: { entry: Entry; ctx: CatalogContext }
       )}
       {scheduleError && <Notice tone="danger" live title="The rehearsal schedule was not changed">{scheduleError}</Notice>}
       {error && <Notice tone="danger" live title="The backups could not be read" action={<Button onClick={() => void read()}>Try again</Button>}>{error}</Notice>}
+      {refused && <ComposeRefusal title={`${name} cannot be restored from ${refused.backup}`} review={refused.review} />}
 
       {browsing && (
         <Panel level={3} title={`Files in ${browsing.backup}`} count={browsing.files.filter((file) => file.type !== "directory").length} className="catalog-files" actions={<Button variant="ghost" onClick={() => setBrowsing(null)}>Close the file list</Button>}>
@@ -121,7 +154,7 @@ export function BackupsTab({ entry, ctx }: { entry: Entry; ctx: CatalogContext }
                       <span className="catalog-archive__facts"><span>{formatBytes(backup.sizeBytes)}</span><span>offline for <span className="catalog-archive__offline">{offlineFor(backup.downtimeMs)}</span></span></span>
                     </span>
                     <span className="catalog-actions catalog-actions--wrap">
-                      {may("app.backup.restore") && <Button risk={riskOf("app.backup.restore")} aria-label={`Restore ${when(backup)}`} onClick={() => act({ operationId: "app.backup.restore", title: `Restore ${name} from ${when(backup)}`, parameters: { id: manifest.id, backup: backup.artifact }, preview: <span>Saves the current state as a safety copy first, then replaces {name}'s data and configuration with this backup and starts it.</span> })}>Restore</Button>}
+                      {may("app.backup.restore") && <Button risk={riskOf("app.backup.restore")} aria-label={`Restore ${when(backup)}`} busy={checking === backup.artifact} disabled={checking !== null} onClick={() => void restore(backup)}>Restore</Button>}
                       <Button variant="ghost" aria-label={`Browse ${when(backup)}`} onClick={() => void browse(backup.artifact)}>Browse</Button>
                       {may("app.backup.verify") && <Button risk={riskOf("app.backup.verify")} aria-label={`Rehearse restoring ${when(backup)}`} onClick={() => act({ operationId: "app.backup.verify", title: `Rehearse restoring ${name}`, parameters: { id: manifest.id, backup: backup.artifact }, preview: <span>Checks this archive against its recorded checksum, unpacks all of it into scratch space to prove it opens and holds what it claims, then deletes the scratch copy. {name} keeps running and nothing it holds is changed.</span> })}>Rehearse</Button>}
                       {may("app.backup.delete") && <Button risk={riskOf("app.backup.delete")} aria-label={`Delete ${when(backup)}`} onClick={() => act({ operationId: "app.backup.delete", title: `Delete backup of ${name}`, parameters: { id: manifest.id, backup: backup.artifact }, preview: <span>Deletes the archive from {when(backup)}. This cannot be undone.</span> })}>Delete</Button>}

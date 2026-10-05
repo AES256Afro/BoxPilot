@@ -94,8 +94,17 @@ export function validateParameters(spec, parameters, title = "Operation") {
 /** Why an internal operation is not staged, scheduled, put in a flow or run from the operations route. */
 export const internalRefusal = (operation) => `${operation.title} is BoxPilot's own plumbing: BoxPilot runs it itself when it needs it`;
 
+/** The text a job of `operation` with these parameters must be confirmed with by typing it, or null. */
+export function confirmTextFor(operation, parameters = {}) {
+  if (typeof operation?.confirm !== "function") return null;
+  try {
+    const text = operation.confirm(parameters ?? {});
+    return typeof text === "string" && text ? text : null;
+  } catch { return null; }
+}
+
 export function defineOperation(definition) {
-  const { id, title, risk, readOnly = false, elevatedOnly = false, internal = false, timeoutMs = defaultTimeoutMs, maxTimeoutMs = null, rerunAfterInterrupt = false, parameters = { fields: {} }, run, description = "", minimumRole = null, confirm = null, restartsService = false, supersededWhen = null, oneTimeFields = [], runsRootTask = false } = definition ?? {};
+  const { id, title, risk, readOnly = false, elevatedOnly = false, internal = false, timeoutMs = defaultTimeoutMs, maxTimeoutMs = null, rerunAfterInterrupt = false, parameters = { fields: {} }, run, description = "", minimumRole = null, confirm = null, confirmWhen = null, restartsService = false, supersededWhen = null, oneTimeFields = [], runsRootTask = false } = definition ?? {};
   if (typeof id !== "string" || !idPattern.test(id)) throw new Error(`Operation id "${id}" must be lower-case dotted segments`);
   if (typeof title !== "string" || !title.trim()) throw new Error(`Operation ${id} needs a title`);
   if (!riskTiers.includes(risk)) throw new Error(`Operation ${id} risk must be one of ${riskTiers.join(", ")}`);
@@ -104,6 +113,10 @@ export function defineOperation(definition) {
   if (readOnly && risk !== "low") throw new Error(`Operation ${id} is read-only and must be low risk`);
   if (minimumRole !== null && !["owner", "operator"].includes(minimumRole)) throw new Error(`Operation ${id} minimumRole must be owner or operator`);
   if (confirm !== null && typeof confirm !== "function") throw new Error(`Operation ${id} confirm must be a function of the parameters returning the text to type`);
+  // confirmWhen: for an operation whose confirm asks for typed text only for some requests (and
+  // returns null for the rest), the clause that says when, for words written without a request to
+  // hand: "it starts a backup's own compose file as it was archived".
+  if (confirmWhen !== null && (confirm === null || typeof confirmWhen !== "string" || !confirmWhen.trim() || confirmWhen.length > 120)) throw new Error(`Operation ${id} confirmWhen is a short clause, and only for an operation with a confirm`);
   if (supersededWhen !== null && (typeof supersededWhen !== "function" || readOnly)) throw new Error(`Operation ${id} supersededWhen must be a function, and only a staged job can be superseded`);
   if (![true, false, "drained"].includes(restartsService)) throw new Error(`Operation ${id} restartsService must be true, false or "drained"`);
   for (const [name, field] of Object.entries(parameters?.fields ?? {})) {
@@ -146,7 +159,7 @@ export function defineOperation(definition) {
   // given more time beside it (jobs.mjs). Declared where more time is offered; a test keeps it so.
   // internal: BoxPilot's own plumbing, run by BoxPilot itself (the agents' Zulip posts and reads):
   // never a step an agent or the assistant may propose (validatePlan drops it).
-  return Object.freeze({ id, title, description, risk, readOnly: Boolean(readOnly), elevatedOnly: Boolean(elevatedOnly), internal: Boolean(internal), timeoutMs, maxTimeoutMs, rerunAfterInterrupt: Boolean(rerunAfterInterrupt), parameters, run, minimumRole, confirm, restartsService, supersededWhen, oneTimeFields: Object.freeze([...oneTimeFields]), runsRootTask: Boolean(runsRootTask) });
+  return Object.freeze({ id, title, description, risk, readOnly: Boolean(readOnly), elevatedOnly: Boolean(elevatedOnly), internal: Boolean(internal), timeoutMs, maxTimeoutMs, rerunAfterInterrupt: Boolean(rerunAfterInterrupt), parameters, run, minimumRole, confirm, confirmWhen, restartsService, supersededWhen, oneTimeFields: Object.freeze([...oneTimeFields]), runsRootTask: Boolean(runsRootTask) });
 }
 
 export class OperationRegistry {

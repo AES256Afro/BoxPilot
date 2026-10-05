@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { appStopClearingOperations } from "./app-stops.mjs";
 import { deviceResolvingOperations } from "./catalog/devices.mjs";
 import { registry } from "./ops/index.mjs";
+import { archivedComposeRisk } from "./ops/apps.mjs";
 import { agentsModelRemove } from "./tasks/agents.mjs";
 
 // Password hashing runs at production scrypt cost; CI runners need more than the 5 s default.
@@ -1125,5 +1126,44 @@ describe("the hooks index.mjs gives the job service", () => {
     expect(keyed.length).toBeGreaterThan(40);
     expect(keys).toContain("firewall.rule.add");
     expect(keys.filter((key) => !registry.has(key))).toEqual([]);
+  });
+});
+
+// Sweep 4: a restore that lets a backup's own compose file start as it was archived, granting more
+// than the catalog does, is the owner's, typed out and naming the app, at high risk.
+describe("allowing a backup's compose file on a restore", () => {
+  const hash = "a".repeat(64);
+  it("is high risk, owner only, and typed out naming the app", async () => {
+    const helper = { request: vi.fn(async () => ({ restored: true })) };
+    const { store, owner, jobs } = await setup(helper);
+    const plain = await jobs.createOperationJob("app.backup.restore", { id: "demo", backup: "20260101T000000Z.tar.gz" }, owner.id);
+    expect(jobs.approvalPolicy(plain)).toMatchObject({ tier: "high", confirmText: null });
+    const allowing = await jobs.createOperationJob("app.backup.restore", { id: "demo", backup: "20260101T000000Z.tar.gz", allowCompose: hash }, owner.id);
+    expect(jobs.approvalPolicy(allowing)).toMatchObject({ tier: "high", confirmText: "allow demo" });
+    await expect(jobs.approveAndRun(allowing.id, owner.id, { password: "correct horse battery", confirmText: "restore" })).rejects.toThrow("Type allow demo to confirm");
+    expect(helper.request).not.toHaveBeenCalled();
+    await jobs.approveAndRun(allowing.id, owner.id, { password: "correct horse battery", confirmText: "allow demo" });
+    expect(helper.request).toHaveBeenCalledWith("app.backup.restore", { id: "demo", backup: "20260101T000000Z.tar.gz", allowCompose: hash }, expect.anything());
+    await expect(jobs.createOperationJob("app.backup.restore", { id: "demo", backup: "20260101T000000Z.tar.gz", allowCompose: hash }, owner.id, { role: "operator" })).rejects.toThrow(/Only the owner/);
+    await expect(jobs.createOperationJob("app.backup.restore", { id: "demo", backup: "20260101T000000Z.tar.gz", allowCompose: "not-a-hash" }, owner.id)).rejects.toThrow("allowCompose");
+    store.close();
+  });
+
+  it("names every app a snapshot restore allows, and refuses one that is not a hash", async () => {
+    const { store, owner, jobs } = await setup({ request: vi.fn() });
+    const base = { source: "local", artifact: "machine-snapshot-20260821T020000Z-abcdef12.tar.gz" };
+    expect(jobs.approvalPolicy(await jobs.createOperationJob("host.snapshot.restore", base, owner.id))).toMatchObject({ tier: "high", confirmText: "restore" });
+    expect(jobs.approvalPolicy(await jobs.createOperationJob("host.snapshot.restore", { ...base, allowCompose: { zulip: hash, dockge: hash } }, owner.id))).toMatchObject({ tier: "high", confirmText: "allow dockge zulip" });
+    await expect(jobs.createOperationJob("host.snapshot.restore", { ...base, allowCompose: { dockge: "x" } }, owner.id)).rejects.toThrow("dockge must be a compose file's sha256");
+    await expect(jobs.createOperationJob("host.snapshot.restore", { ...base, allowCompose: { "../x": hash } }, owner.id)).rejects.toThrow("must be keyed by app id");
+    store.close();
+  });
+
+  it("raises the tier to high whatever the operation's own, through the risk hook", async () => {
+    expect(archivedComposeRisk({ id: "demo", backup: "x" })).toBe("low");
+    expect(archivedComposeRisk({ allowCompose: hash })).toBe("high");
+    expect(archivedComposeRisk({ allowCompose: {} })).toBe("low");
+    expect(archivedComposeRisk({ allowCompose: { demo: hash } })).toBe("high");
+    expect(await registry.effectiveRisk("app.backup.restore", { id: "demo", backup: "20260101T000000Z.tar.gz", allowCompose: hash })).toBe("high");
   });
 });

@@ -365,6 +365,63 @@ describe("Backups page", () => {
       expect(JSON.parse(bodies["host.snapshot.restore"] ?? "{}")).toEqual({ parameters: { source: "local", artifact: "machine-snapshot-a.tar.gz", apps: ["immich", "jellyfin"], restoreData: true } });
     });
 
+    // Sweep 4: an app whose data archive would start its compose file as it was backed up, giving it
+    // more than the catalog does, is listed with those settings and must be allowed before the
+    // restore is offered; the request then allows exactly that file. One that cannot be restored at
+    // all says why, and holds the restore until it is left out.
+    it("lists what an app's data archive would start, and allows exactly that file once the owner says so", async () => {
+      const hash = "c".repeat(64);
+      const powerful = { verbatim: true, reason: "edited", findings: [{ service: "immich", setting: "privileged", value: "true", detail: "runs privileged: every device and capability, no confinement - root on this server", system: true }, { service: "immich", setting: "volumes", value: "/:/host", detail: "mounts / (the whole server) from the server at /host", system: true }], refusals: [], sha256: hash, sameAsRunning: false, needsAllow: true };
+      const reviewed = { ...described, apps: [{ ...described.apps[0], compose: powerful }, described.apps[1]] };
+      const { bodies } = mockFetch({ extra: (url) => {
+        if (url.endsWith("/operations/host.snapshot.sources/inspect")) return json({ result: sources });
+        if (url.endsWith("/operations/host.snapshot.describe/run")) return json({ result: reviewed });
+        return null;
+      } });
+      render(<BackupsPage csrfToken="csrf-token" />);
+      await screen.findByRole("tab", { name: /^Restore/ });
+      openTab(/^Restore/);
+      fireEvent.click(await screen.findByRole("button", { name: /^Restore from the snapshot of/ }));
+      const sheet = await screen.findByRole("dialog", { name: /^Snapshot of/ });
+      expect(await within(sheet).findByText("immich's compose file would start exactly as it was backed up")).toBeTruthy();
+      expect(within(sheet).getByText(/mounts \/ \(the whole server\) from the server at \/host/)).toBeTruthy();
+      expect(within(sheet).getAllByText("reaches the server")).toHaveLength(2);
+      const go = within(sheet).getByRole("button", { name: "Restore 1 app" }) as HTMLButtonElement;
+      expect(go.disabled).toBe(true);
+      // Without its data, nothing is started from the archive, and nothing needs allowing.
+      fireEvent.click(within(sheet).getByLabelText(/^Restore each app's newest data archive/));
+      expect(within(sheet).queryByText("immich's compose file would start exactly as it was backed up")).toBeNull();
+      expect(go.disabled).toBe(false);
+      fireEvent.click(within(sheet).getByLabelText(/^Restore each app's newest data archive/));
+      fireEvent.click(within(sheet).getByLabelText("Start immich with these settings"));
+      expect(go.disabled).toBe(false);
+      fireEvent.click(go);
+      expect(await screen.findByText("High risk")).toBeTruthy();
+      expect(JSON.parse(bodies["host.snapshot.restore"] ?? "{}")).toEqual({ parameters: { source: "local", artifact: "machine-snapshot-a.tar.gz", apps: ["immich"], restoreData: true, allowCompose: { immich: hash } } });
+    });
+
+    it("holds the restore of an app that cannot be restored from its data until it is left out", async () => {
+      const refused = { verbatim: true, reason: "edited", findings: [], refusals: ["Media folder is set to \"/etc\", which points at a protected system location"], sha256: null, sameAsRunning: false, needsAllow: false };
+      const reviewed = { ...described, apps: [{ ...described.apps[0], compose: refused }, described.apps[1]] };
+      const { bodies } = mockFetch({ extra: (url) => {
+        if (url.endsWith("/operations/host.snapshot.sources/inspect")) return json({ result: sources });
+        if (url.endsWith("/operations/host.snapshot.describe/run")) return json({ result: reviewed });
+        return null;
+      } });
+      render(<BackupsPage csrfToken="csrf-token" />);
+      await screen.findByRole("tab", { name: /^Restore/ });
+      openTab(/^Restore/);
+      fireEvent.click(await screen.findByRole("button", { name: /^Restore from the snapshot of/ }));
+      const sheet = await screen.findByRole("dialog", { name: /^Snapshot of/ });
+      expect(await within(sheet).findByText("immich cannot be restored from this snapshot's data; leave it out")).toBeTruthy();
+      expect(within(sheet).getByText(/points at a protected system location/)).toBeTruthy();
+      expect((within(sheet).getByRole("button", { name: "Restore 1 app" }) as HTMLButtonElement).disabled).toBe(true);
+      fireEvent.click(within(sheet).getByLabelText("Restore immich"));
+      fireEvent.click(within(sheet).getByLabelText("Restore jellyfin"));
+      fireEvent.click(within(sheet).getByRole("button", { name: "Restore 1 app" }));
+      await waitFor(() => expect(JSON.parse(bodies["host.snapshot.restore"] ?? "{}")).toEqual({ parameters: { source: "local", artifact: "machine-snapshot-a.tar.gz", apps: ["jellyfin"], restoreData: true } }));
+    });
+
     it("says where each app's data archive was found", async () => {
       const placed = { ...described, apps: [
         { id: "immich", installed: true, newestBackup: "x", dataAvailable: true, dataLocation: "local" },
