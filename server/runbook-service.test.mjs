@@ -8,9 +8,11 @@ import { randomUUID } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import express from "express";
 import { afterEach, describe, expect, it } from "vitest";
 import { createStateStore } from "./state.mjs";
 import { createRunbookService, diskFor, mountFor, runbookSettingKey } from "./runbook-service.mjs";
+import { createRunbookRouter } from "./routes/runbook.mjs";
 
 const sentinel = "SENTINEL-4d1e-never-print";
 const directories = [];
@@ -251,6 +253,56 @@ describe("the downloaded copy", () => {
     // Downloading again brings it up to date.
     await runbook.download({ callerId: owner.id });
     expect(await runbook.status({ role: "owner", callerId: owner.id })).toMatchObject({ outOfDate: null, changes: 0 });
+  });
+});
+
+describe("an operator's copy, through GET /runbook (sweep 3)", () => {
+  /** The real router over the real service, with the role and account a session would carry. */
+  async function serve(runbook) {
+    const auth = { requireRole: (...roles) => (request, response, next) => (roles.includes(request.boxpilotSession.owner.role) ? next() : response.status(403).json({ code: "forbidden" })) };
+    const app = express();
+    app.use((request, _response, next) => { request.boxpilotSession = { owner: { id: request.headers["x-test-owner"], role: request.headers["x-test-role"] } }; next(); });
+    app.use("/api/v1", createRunbookRouter({ runbook, auth }));
+    const server = app.listen(0, "127.0.0.1");
+    await new Promise((resolve) => server.once("listening", resolve));
+    const base = `http://127.0.0.1:${server.address().port}`;
+    return { server, markdownFor: async (account) => (await (await fetch(`${base}/api/v1/runbook`, { headers: { "x-test-owner": account.id, "x-test-role": account.role } })).json()).markdown };
+  }
+
+  it("gives an alert's words as the watch list does, and leaves out what BoxPilot published through the tunnel", async () => {
+    const answers = answersFor();
+    const apps = answers["app.inspect"];
+    answers["app.inspect"] = () => ({ ...apps(), applications: [...apps().applications, { id: "cloudflared", installed: true, container: { exists: true, running: true, status: "running" } }] });
+    answers["cloudflare.tunnel.inspect"] = () => ({ connected: true, tunnel: { id: "tunnel-1", name: "SECRET-TUNNEL-home" }, routes: [{ hostname: "photos.secret-zone.example", appId: "jellyfin", hostPort: 8096 }] });
+    const { state, service, owner, operator } = await setup({ answers });
+    const since = "2026-09-27T00:00:00.000Z";
+    state.setSetting("healthAlertsState", {
+      "system.reboot": { title: "A reboot is required", since, notified: false },
+      "agent.important:agent-1": { title: "Owner's Auditor: SECRET-FINDING in /srv/private", message: "SECRET-FINDING", since, notified: false },
+      "approval.lapsed:job-1": { title: "Not approved in 7 days: SECRET-JOB", since, notified: false },
+      "report.weekly": { title: "Weekly report: SECRET-REPORT", since, notified: false },
+      "flow.failed:flow-1": { title: "Automation stopped: SECRET-FLOW", since, notified: true, actorId: owner.id },
+      "flow.failed:flow-2": { title: "Automation stopped: Operator's own", since, notified: true, actorId: operator.id },
+    });
+    const { server, markdownFor } = await serve(service());
+    try {
+      const mine = await markdownFor({ id: operator.id, role: "operator" });
+      for (const secret of ["SECRET-FINDING", "SECRET-JOB", "SECRET-REPORT", "SECRET-FLOW", "SECRET-TUNNEL", "secret-zone"]) expect(mine, secret).not.toContain(secret);
+      for (const line of [
+        "- A reboot is required (since 2026-09-27 00:00 UTC). Not announced.",
+        "- Automation stopped: Operator's own (since 2026-09-27 00:00 UTC). Announced.",
+        "- An automation stopped or did not run (since 2026-09-27 00:00 UTC). Announced.",
+        "- An agent found something important (2026-09-27 00:00 UTC).",
+        "- A staged job was not approved in time (2026-09-27 00:00 UTC).",
+        "- The weekly report (2026-09-27 00:00 UTC).",
+        "Which hostnames BoxPilot published through it is in the owner's copy of this document.",
+      ]) expect(mine).toContain(line);
+
+      const owners = await markdownFor({ id: owner.id, role: "owner" });
+      for (const secret of ["SECRET-FINDING", "SECRET-JOB", "SECRET-REPORT", "SECRET-FLOW", "`SECRET-TUNNEL-home`", "https://photos.secret-zone.example"]) expect(owners, secret).toContain(secret);
+    } finally {
+      server.close();
+    }
   });
 });
 

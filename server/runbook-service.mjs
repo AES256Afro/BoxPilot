@@ -431,9 +431,11 @@ export function createRunbookService({
     for (const [key, entry] of Object.entries(isObject(alerts) ? alerts : {})) {
       if (!isObject(entry)) continue;
       const [family, subject = null] = key.split(":");
-      if (isNotice(key)) { notices.push({ family, subject, label: noticeKinds[family], title: entry.title ?? noticeKinds[family], since: entry.since ?? null }); continue; }
+      // The key, and who ran an automation's run (actorId), are what forAudience asks watchEntryFor with.
+      const ranBy = typeof entry.actorId === "string" ? { actorId: entry.actorId } : {};
+      if (isNotice(key)) { notices.push({ key, family, subject, label: noticeKinds[family], title: entry.title ?? noticeKinds[family], since: entry.since ?? null }); continue; }
       const label = healthConditions[family] ?? family;
-      conditions.push({ family, subject, label, title: entry.title ?? label, since: entry.since ?? null, announced: entry.notified !== false, ...(family.startsWith("schedule.") ? { scheduleCreatedBy: store.getSchedule?.(subject)?.createdBy ?? null } : {}) });
+      conditions.push({ key, family, subject, label, title: entry.title ?? label, since: entry.since ?? null, announced: entry.notified !== false, ...ranBy, ...(family.startsWith("schedule.") ? { scheduleCreatedBy: store.getSchedule?.(subject)?.createdBy ?? null } : {}) });
     }
     let targetConfigured = null;
     try { targetConfigured = notifications ? notifications.describe().configured === true : null; } catch { targetConfigured = null; }
