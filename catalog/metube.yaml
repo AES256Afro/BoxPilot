@@ -19,7 +19,7 @@ volumes:
   - id: downloads
     label: Downloads folder
     container: /downloads
-    hostPath: /srv/media/youtube
+    hostPath: /srv/metube
     configurable: true
     backup: false
 env:

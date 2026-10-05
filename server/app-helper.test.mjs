@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, readlink, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, readlink, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import YAML from "yaml";
 import path from "node:path";
@@ -10,11 +10,12 @@ import { createAppHelper, keepsBackupData } from "./app-helper.mjs";
 import { createCatalogService } from "./catalog/index.mjs";
 import { fixedRun } from "./exec.mjs";
 import { createMachineSnapshotHelper } from "./machine-snapshot-helper.mjs";
+import { composeSha256 } from "./catalog/compose-review.mjs";
 
 const directories = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((d) => rm(d, { recursive: true, force: true }))); });
 
-async function setup({ healthKind = "running", exitOnUp = false, failUp = false, crashLoop = false, networkGone_ = false, listDevices = undefined, chownDirectory = undefined, statPath = undefined, lstatPath = undefined, runCommand = undefined, vpnProfile = undefined, nvidiaReady = undefined, execTable = { vpn: "running", leaks: false, noCurl: false }, hostListeners = undefined, lanAddress = "192.168.1.10", dockerPs = [], machineSnapshotRoot = undefined } = {}) {
+async function setup({ healthKind = "running", exitOnUp = false, failUp = false, crashLoop = false, networkGone_ = false, listDevices = undefined, chownDirectory = undefined, statPath = undefined, lstatPath = undefined, runCommand = undefined, vpnProfile = undefined, nvidiaReady = undefined, execTable = { vpn: "running", leaks: false, noCurl: false }, hostListeners = undefined, lanAddress = "192.168.1.10", dockerPs = [], machineSnapshotRoot = undefined, realpathOf = undefined } = {}) {
   const catalogDirectory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-cat-")); directories.push(catalogDirectory);
   const catalogRoot = await mkdtemp(path.join(os.tmpdir(), "boxpilot-approot-")); directories.push(catalogRoot);
   await writeFile(path.join(catalogDirectory, "demo.yaml"), `schemaVersion: 2\nid: demo\nname: Demo\ncategory: T\ndescription: d\nimage:\n  reference: nginx:1.27\nports:\n  - id: web\n    container: 80\n    host: 8080\nvolumes:\n  - id: data\n    container: /data\n    path: data\n  - id: docker\n    container: /var/run/docker.sock\n    hostPath: /var/run/docker.sock\nenv:\n  - name: ADMIN_PASSWORD\n    type: password\n    generate: true\n  - name: TZ\n    default: Etc/UTC\nhealth:\n  kind: ${healthKind}\n  stableSeconds: 4\n  timeoutSeconds: 30\n`);
@@ -99,7 +100,7 @@ async function setup({ healthKind = "running", exitOnUp = false, failUp = false,
   const backupRoot = await mkdtemp(path.join(os.tmpdir(), "boxpilot-appbk-")); directories.push(backupRoot);
   // Machine snapshots a backup's pruning must not take the archives of: none, unless a test makes some.
   const snapshots = machineSnapshotRoot ?? path.join(catalogDirectory, "no-machine-snapshots");
-  const apps = createAppHelper({ catalogRoot, backupRoot, machineSnapshotRoot: snapshots, runDocker, catalog, wait, clock, scanCommand: async (folder) => ({ binary: "du", args: ["-sbx", folder], priority: "fixture" }), lanAddress, ...(hostListeners ? { hostListeners } : {}), ...(listDevices ? { listDevices } : {}), ...(chownDirectory ? { chownDirectory } : {}), ...(statPath ? { statPath } : {}), ...(lstatPath ? { lstatPath } : {}), ...(runCommand ? { runCommand } : {}), ...(vpnProfile ? { vpnProfile } : {}), ...(nvidiaReady ? { nvidiaReady } : {}) });
+  const apps = createAppHelper({ catalogRoot, backupRoot, machineSnapshotRoot: snapshots, runDocker, catalog, wait, clock, scanCommand: async (folder) => ({ binary: "du", args: ["-sbx", folder], priority: "fixture" }), lanAddress, ...(hostListeners ? { hostListeners } : {}), ...(listDevices ? { listDevices } : {}), ...(chownDirectory ? { chownDirectory } : {}), ...(statPath ? { statPath } : {}), ...(lstatPath ? { lstatPath } : {}), ...(realpathOf ? { realpathOf } : {}), ...(runCommand ? { runCommand } : {}), ...(vpnProfile ? { vpnProfile } : {}), ...(nvidiaReady ? { nvidiaReady } : {}) });
   const advance = (ms) => { nowMs += ms; };
   return { apps, calls, containers, catalogRoot, catalogDirectory, backupRoot, advance, runDocker };
 }
@@ -2978,5 +2979,339 @@ describe("a restore refused before anything changes", () => {
     advance(60_000);
     await expect(apps.restoreAppBackup({ id: "demo", backup: made.artifact })).resolves.toMatchObject({ restored: true, retainedOriginal: false });
     expect(await backupsOf(backupRoot, "demo")).toHaveLength(2);
+  });
+});
+
+// Sweep 4: a restore starts a backup's compose file exactly as it was archived when the owner edited
+// it by hand, or when its saved settings are missing or no longer fit the catalog. A backup is only
+// as trustworthy as whoever last held it, and that file can ask Docker for anything root has. It is
+// started only when it grants nothing past the catalog, when this server already runs that very
+// file, or when the owner allowed exactly that file (its sha256), and the data folders a backup's
+// settings name must pass what an install checks. Pipes and sockets in it are left out.
+describe("a backup's compose file started as it was archived", () => {
+  const backupsOf = async (backupRoot, id) => (await readdir(path.join(backupRoot, id))).filter((name) => /^\d{8}T\d{6}Z\.tar\.gz$/.test(name)).sort();
+  const powerful = "services:\n  demo:\n    image: nginx:1.27\n    privileged: true\n    volumes:\n      - /:/host\n      - ./data:/data\n";
+  const libraryManifest = ["schemaVersion: 2", "id: library", "name: Library", "category: T", "description: d", "image:", "  reference: x/library:1",
+    "volumes:", "  - id: config", "    container: /config", "    path: config", "  - id: media", "    label: Media folder", "    container: /media", "    hostPath: /srv/media", "    configurable: true",
+    "health:", "  kind: running", "  stableSeconds: 1", "  timeoutSeconds: 30"].join("\n") + "\n";
+
+  /** A backup written byte by byte, as whoever held the drive could write it. */
+  async function craftedBackup(harness, { app = "demo", compose = powerful, state = { id: app, installed: true, rawEdited: true, values: {} }, env = "ADMIN_PASSWORD='x'\n", extra = [], name = "20260101T000000Z.tar.gz" } = {}) {
+    await mkdir(path.join(harness.backupRoot, app), { recursive: true });
+    await writeFile(path.join(harness.backupRoot, app, name), craftedTarGz([
+      ...(state === null ? [] : [{ name: "boxpilot.json", body: typeof state === "string" ? state : JSON.stringify(state) }]),
+      ...(compose === null ? [] : [{ name: "compose.yaml", body: compose }]),
+      { name: ".env", body: env },
+      { name: "data/", type: "dir" },
+      ...extra,
+    ]));
+    return name;
+  }
+  async function installedDemo(options = {}) {
+    const harness = await setup({ runCommand: withRealTar, ...options });
+    await harness.apps.install({ id: "demo", values: { setup: [] } });
+    const live = path.join(harness.catalogRoot, "demo");
+    return { ...harness, live, compose: await readFile(path.join(live, "compose.yaml"), "utf8") };
+  }
+  /** Refused with the app exactly as it was: its files, its container, no safety copy, nothing stopped. */
+  async function expectNothingChanged(harness, attempt, message) {
+    harness.calls.length = 0;
+    await expect(attempt).rejects.toThrow(message);
+    expect(await readFile(path.join(harness.live, "compose.yaml"), "utf8")).toBe(harness.compose);
+    expect(harness.containers.get("bp-demo")).toMatchObject({ running: true });
+    expect(harness.calls.filter((call) => / (stop|start|up)(?: |$)/.test(call))).toEqual([]);
+    expect((await readdir(harness.catalogRoot)).filter((entry) => entry !== "demo")).toEqual([]);
+  }
+
+  it("refuses a hand-edited one that runs privileged and mounts the server, and leaves the app as it was", async () => {
+    const harness = await installedDemo();
+    const backup = await craftedBackup(harness);
+    await expectNothingChanged(harness, harness.apps.restoreAppBackup({ id: "demo", backup }), /^Demo was not restored; nothing was changed\. Its compose file would be started exactly as it was backed up, since it was edited by hand, and it gives Demo more than the catalog does: demo: runs privileged.*demo: mounts \/ \(the whole server\).*allow these settings in the restore dialog/);
+    expect(await backupsOf(harness.backupRoot, "demo")).toEqual([backup]);
+  });
+
+  it("says what it would start before the restore, with the hash that allows it", async () => {
+    const harness = await installedDemo();
+    const backup = await craftedBackup(harness);
+    const review = await harness.apps.reviewAppBackup({ id: "demo", backup });
+    expect(review).toMatchObject({ id: "demo", backup, verbatim: true, reason: "edited", needsAllow: true, sameAsRunning: false, refusals: [], sha256: composeSha256(powerful) });
+    expect(review.findings.map((finding) => [finding.service, finding.setting, Boolean(finding.system)])).toEqual([["demo", "privileged", true], ["demo", "volumes", true]]);
+    // No file contents, no secrets: only what each setting is.
+    expect(JSON.stringify(review)).not.toContain("ADMIN_PASSWORD");
+  });
+
+  it("starts exactly the file the owner allowed, and says so", async () => {
+    const harness = await installedDemo();
+    const backup = await craftedBackup(harness);
+    const restored = await harness.apps.restoreAppBackup({ id: "demo", backup, allowCompose: composeSha256(powerful) });
+    expect(restored).toMatchObject({ restored: true });
+    expect(await readFile(path.join(harness.live, "compose.yaml"), "utf8")).toBe(powerful);
+    expect(restored.warnings).toContainEqual(expect.stringMatching(/^Demo's compose file was started exactly as it was backed up, with the settings you allowed: demo: runs privileged/));
+  });
+
+  it("refuses a file other than the one allowed", async () => {
+    const harness = await installedDemo();
+    const backup = await craftedBackup(harness, { compose: `${powerful}    pid: host\n` });
+    await expectNothingChanged(harness, harness.apps.restoreAppBackup({ id: "demo", backup, allowCompose: composeSha256(powerful) }), /It is not the compose file that was allowed/);
+  });
+
+  it("gates one with no saved settings, or settings that no longer fit, the same way", async () => {
+    for (const [state, reason, why] of [[null, "no-settings", "the backup holds no saved settings"], [{ id: "demo", installed: true, values: { ports: { web: "not a port" } } }, "unfit", "its saved settings no longer fit the catalog"], ["{not json", "no-settings", "the backup holds no saved settings"]]) {
+      const harness = await installedDemo();
+      const backup = await craftedBackup(harness, { state });
+      expect(await harness.apps.reviewAppBackup({ id: "demo", backup }), reason).toMatchObject({ verbatim: true, reason, needsAllow: true });
+      await expectNothingChanged(harness, harness.apps.restoreAppBackup({ id: "demo", backup }), why);
+    }
+  });
+
+  it("refuses outright a file that pulls in others, allowed or not", async () => {
+    const harness = await installedDemo();
+    const compose = "include:\n  - /etc/boxpilot/other.yaml\nservices:\n  demo:\n    image: nginx:1.27\n";
+    const backup = await craftedBackup(harness, { compose });
+    expect(await harness.apps.reviewAppBackup({ id: "demo", backup })).toMatchObject({ needsAllow: false, refusals: [expect.stringContaining("pulls in other compose files")] });
+    await expectNothingChanged(harness, harness.apps.restoreAppBackup({ id: "demo", backup, allowCompose: composeSha256(compose) }), /so BoxPilot cannot tell what it would start/);
+  });
+
+  it("asks nothing of a powerful file this server already runs", async () => {
+    // The owner's own edit, backed up and restored on the same server: it grants nothing new.
+    const harness = await installedDemo();
+    await harness.apps.editCompose({ id: "demo", compose: powerful }, { checkpoint: false });
+    const made = await harness.apps.backup({ id: "demo", keep: 5 });
+    expect(await harness.apps.reviewAppBackup({ id: "demo", backup: made.artifact })).toMatchObject({ verbatim: true, sameAsRunning: true, needsAllow: false });
+    harness.advance(60_000);
+    await expect(harness.apps.restoreAppBackup({ id: "demo", backup: made.artifact })).resolves.toMatchObject({ restored: true });
+    expect(await readFile(path.join(harness.live, "compose.yaml"), "utf8")).toBe(powerful);
+  });
+
+  it("asks again when a variable in that file is decided by a different .env", async () => {
+    const harness = await installedDemo();
+    const variable = "services:\n  demo:\n    image: nginx:1.27\n    volumes:\n      - ${LIBRARY:-./data}:/library\n";
+    await harness.apps.editCompose({ id: "demo", compose: variable }, { checkpoint: false });
+    const made = await harness.apps.backup({ id: "demo", keep: 5 });
+    // The same compose file, but its .env now names another folder.
+    await writeFile(path.join(harness.live, ".env"), `${await readFile(path.join(harness.live, ".env"), "utf8")}LIBRARY=/srv/films\n`);
+    expect(await harness.apps.reviewAppBackup({ id: "demo", backup: made.artifact })).toMatchObject({ sameAsRunning: false, needsAllow: true, findings: [expect.objectContaining({ setting: "volumes", variable: true })] });
+    harness.advance(60_000);
+    harness.compose = variable;
+    await expectNothingChanged(harness, harness.apps.restoreAppBackup({ id: "demo", backup: made.artifact }), /named by a variable/);
+  });
+
+  it("leaves a normal restore as it was: the catalog writes the file again, whatever the archive held", async () => {
+    const harness = await installedDemo();
+    const backup = await craftedBackup(harness, { state: { id: "demo", installed: true, values: { ports: {}, env: {}, volumes: {} } } });
+    expect(await harness.apps.reviewAppBackup({ id: "demo", backup })).toMatchObject({ verbatim: false, needsAllow: false, findings: [], sha256: null });
+    const restored = await harness.apps.restoreAppBackup({ id: "demo", backup });
+    expect(restored).toMatchObject({ restored: true });
+    expect(restored.warnings ?? []).toEqual([]);
+    const compose = await readFile(path.join(harness.live, "compose.yaml"), "utf8");
+    expect(compose).not.toContain("privileged");
+    expect(compose).not.toContain("/:/host");
+  });
+
+  it("refuses data folders an install would refuse, before anything changes", async () => {
+    const harness = await setup({ runCommand: withRealTar });
+    await writeFile(path.join(harness.catalogDirectory, "library.yaml"), libraryManifest);
+    for (const [folder, why] of [["/etc/cron.d", "points at a protected system location"], ["/srv/../etc", "must be a clean absolute path"], ["/srv//x", "must be a clean absolute path (no empty, . or .. segments)"], ["relative/path", "must be a clean absolute path"]]) {
+      for (const rawEdited of [false, true]) {
+        const backup = await craftedBackup(harness, { app: "library", compose: "services:\n  library:\n    image: x/library:1\n", state: { id: "library", installed: true, ...(rawEdited ? { rawEdited } : {}), values: { volumes: { media: folder } } } });
+        harness.calls.length = 0;
+        await expect(harness.apps.restoreAppBackup({ id: "library", backup }), folder).rejects.toThrow(`Library was not restored; nothing was changed. The backup's settings point Library at data folders an install would refuse: Media folder is set to ${JSON.stringify(folder)}, which ${why}`);
+        expect(harness.calls.filter((call) => / (stop|start|up)(?: |$)/.test(call))).toEqual([]);
+        expect(await readdir(harness.catalogRoot)).toEqual([]);
+        expect((await harness.apps.reviewAppBackup({ id: "library", backup })).refusals).toEqual([expect.stringContaining(why)]);
+      }
+    }
+    // The catalog's own default, as an install takes it.
+    const backup = await craftedBackup(harness, { app: "library", compose: "services:\n  library:\n    image: x/library:1\n", state: { id: "library", installed: true, values: { volumes: { media: "/srv/media" } } } });
+    await expect(harness.apps.restoreAppBackup({ id: "library", backup })).resolves.toMatchObject({ restored: true });
+  });
+
+  // Linux only: links, named pipes and GNU tar's listing, which the single-path restore reads.
+  describe.skipIf(onWindows)("on Linux", () => {
+    it("refuses a data folder reached through a link", async () => {
+      const harness = await setup({ runCommand: withRealTar });
+      await writeFile(path.join(harness.catalogDirectory, "library.yaml"), libraryManifest);
+      const real = await mkdtemp(path.join(os.tmpdir(), "boxpilot-films-")); directories.push(real);
+      const linked = `${real}-link`; directories.push(linked);
+      await symlink(real, linked);
+      const backup = await craftedBackup(harness, { app: "library", compose: "services:\n  library:\n    image: x/library:1\n", state: { id: "library", installed: true, values: { volumes: { media: `${linked}/films` } } } });
+      await expect(harness.apps.restoreAppBackup({ id: "library", backup })).rejects.toThrow(`Media folder is set to ${linked}/films, and ${linked} on the way there is a link to ${real}`);
+      expect(await readdir(harness.catalogRoot)).toEqual([]);
+    });
+
+    it("lists a mount of the app's folder that the archive made a link out of it", async () => {
+      const harness = await installedDemo();
+      const compose = "services:\n  demo:\n    image: nginx:1.27\n    volumes:\n      - ./data:/data\n      - ./evil:/host\n";
+      const backup = await craftedBackup(harness, { compose, extra: [{ name: "evil", type: "symlink", linkname: "/" }] });
+      await expectNothingChanged(harness, harness.apps.restoreAppBackup({ id: "demo", backup }), "demo: mounts evil from the app's folder, which in this backup is a link to /");
+    });
+
+    it("leaves out pipes, and says which", async () => {
+      const harness = await installedDemo();
+      const backup = await craftedBackup(harness, { compose: harness.compose, state: { id: "demo", installed: true, values: { ports: {}, env: {}, volumes: {} } }, extra: [{ name: "data/queue", type: "fifo" }, { name: "data/keep.txt", body: "kept" }] });
+      const restored = await harness.apps.restoreAppBackup({ id: "demo", backup });
+      expect(restored.warnings).toEqual([expect.stringMatching(/^Not restored: data\/queue, a pipe, socket or device in the backup/)]);
+      await expect(lstat(path.join(harness.live, "data", "queue"))).rejects.toMatchObject({ code: "ENOENT" });
+      expect(await readFile(path.join(harness.live, "data", "keep.txt"), "utf8")).toBe("kept");
+      // One folder restored on its own, the same.
+      const one = await harness.apps.restoreAppBackupPath({ id: "demo", backup, path: "data" });
+      expect(one.warnings).toEqual([expect.stringMatching(/^Not restored: data\/queue/)]);
+      await expect(lstat(path.join(harness.live, "data", "queue"))).rejects.toMatchObject({ code: "ENOENT" });
+    });
+
+    it("checks a compose file or settings restored on their own as a whole restore would", async () => {
+      const harness = await installedDemo();
+      const backup = await craftedBackup(harness);
+      await expect(harness.apps.restoreAppBackupPath({ id: "demo", backup, path: "compose.yaml" })).rejects.toThrow(/^compose\.yaml was not restored; nothing was changed\. Demo would be started with it exactly as it is, and it gives Demo more than the catalog does: demo: runs privileged/);
+      expect(await readFile(path.join(harness.live, "compose.yaml"), "utf8")).toBe(harness.compose);
+      await writeFile(path.join(harness.catalogDirectory, "library.yaml"), libraryManifest);
+      const films = await mkdtemp(path.join(os.tmpdir(), "boxpilot-films-")); directories.push(films);
+      await harness.apps.install({ id: "library", values: { volumes: { media: films } } });
+      const settings = await craftedBackup(harness, { app: "library", compose: null, state: { id: "library", installed: true, values: { volumes: { media: "/etc" } } } });
+      const before = await readFile(path.join(harness.catalogRoot, "library", "boxpilot.json"), "utf8");
+      await expect(harness.apps.restoreAppBackupPath({ id: "library", backup: settings, path: "boxpilot.json" })).rejects.toThrow(/^boxpilot\.json was not restored; nothing was changed\. The backup's settings point Library at data folders an install would refuse: Media folder is set to "\/etc"/);
+      expect(await readFile(path.join(harness.catalogRoot, "library", "boxpilot.json"), "utf8")).toBe(before);
+    });
+  });
+});
+
+// R5S2-1: a data folder that resolves somewhere other than where it says was mounted anyway. For a
+// manifest's own default (or the owner typing it) writeProject only skipped its mkdir and chown, and
+// a link to an ordinary folder was not looked at at all; the compose file still named the link and
+// Docker followed it. A download client that can write /srv/media could swap a folder inside it for
+// a link, and the next deploy of the app whose folder that was would mount the link's target.
+describe("a data folder that is not where it says it is", () => {
+  const tube = (hostPath) => ["schemaVersion: 2", "id: tube", "name: Tube", "category: T", "description: d", "image:", "  reference: x/tube:1",
+    "volumes:", "  - id: downloads", "    label: Downloads folder", "    container: /downloads", `    hostPath: ${hostPath}`, "    configurable: true", "    backup: false",
+    "health:", "  kind: running", "  stableSeconds: 1", "  timeoutSeconds: 30"].join("\n") + "\n";
+  const posix = (target) => String(target).replace(/\\/g, "/").replace(/^[A-Za-z]:/, "");
+  /**
+   * The server as Docker would find it: `from` a link to `to`, for the realpath the deployer is given.
+   * (Patching the builtin with syncBuiltinESMExports does not reach a module vitest loaded.)
+   */
+  const links = new Map();
+  async function withLink(from, to, run) {
+    links.set(from, to);
+    try { return await run(); } finally { links.delete(from); }
+  }
+  const realpathOf = async (target) => {
+    const at = posix(target);
+    for (const [from, to] of links) if (at === from || at.startsWith(`${from}/`)) return `${to}${at.slice(from.length)}`;
+    return realpath(target);
+  };
+  async function tubeHarness(hostPath, linked, options = {}) {
+    const chowned = [];
+    const harness = await setup({
+      ...options,
+      realpathOf,
+      chownDirectory: async (target) => { chowned.push(posix(target)); },
+      // The folder itself as lstat sees it: the link, or (when a folder above it is the link) a folder.
+      // Nothing under /srv is touched on the machine running the tests: every folder there is a folder.
+      lstatPath: async (target) => (posix(target) === linked ? { uid: 0, isSymbolicLink: () => true, isDirectory: () => false } : posix(target).startsWith("/srv/") ? { uid: 0, isSymbolicLink: () => false, isDirectory: () => true } : lstat(target)),
+    });
+    await writeFile(path.join(harness.catalogDirectory, "tube.yaml"), tube(hostPath));
+    return { ...harness, chowned };
+  }
+
+  for (const [what, values] of [["the manifest's default", {}], ["the default typed by the owner", { volumes: { downloads: "/srv/media/youtube" } }]]) {
+    it(`refuses ${what} when it is a link into a protected place`, async () => {
+      const harness = await tubeHarness("/srv/media/youtube", "/srv/media/youtube");
+      await withLink("/srv/media/youtube", "/etc/cron.d", async () => {
+        await expect(harness.apps.install({ id: "tube", values })).rejects.toThrow("Tube's Downloads folder /srv/media/youtube resolves to /etc/cron.d, a protected system location");
+      });
+      expect(harness.calls.filter((call) => / up /.test(call))).toEqual([]);
+      expect(harness.chowned).toEqual([]);
+    });
+
+    it(`refuses ${what} when it is a link to an ordinary folder`, async () => {
+      const harness = await tubeHarness("/srv/media/youtube", "/srv/media/youtube");
+      await withLink("/srv/media/youtube", "/srv/other-app/data", async () => {
+        await expect(harness.apps.install({ id: "tube", values })).rejects.toThrow("Tube's Downloads folder /srv/media/youtube is a link to /srv/other-app/data");
+      });
+      expect(harness.calls.filter((call) => / up /.test(call))).toEqual([]);
+      expect(harness.chowned).toEqual([]);
+    });
+  }
+
+  it("refuses one reached through a link further up", async () => {
+    const harness = await tubeHarness("/srv/media/youtube", "/srv/media");
+    await withLink("/srv/media", "/srv/other-app", async () => {
+      await expect(harness.apps.install({ id: "tube" })).rejects.toThrow("Tube's Downloads folder /srv/media/youtube goes through a link: it is /srv/other-app/youtube");
+    });
+    expect(harness.chowned).toEqual([]);
+  });
+
+  it("refuses a restore that would start the app on one, though a restore deploys nothing", async () => {
+    const harness = await tubeHarness("/srv/media/youtube", "/srv/nothing-linked", { runCommand: withRealTar });
+    const backup = "20260101T000000Z.tar.gz";
+    await mkdir(path.join(harness.backupRoot, "tube"), { recursive: true });
+    await writeFile(path.join(harness.backupRoot, "tube", backup), craftedTarGz([
+      { name: "boxpilot.json", body: JSON.stringify({ id: "tube", installed: true, values: { volumes: {} } }) },
+      { name: "compose.yaml", body: "services:\n  tube:\n    image: x/tube:1\n" },
+      { name: ".env", body: "" },
+    ]));
+    await withLink("/srv/media/youtube", "/srv/other-app/data", async () => {
+      await expect(harness.apps.restoreAppBackup({ id: "tube", backup })).rejects.toThrow("Tube was not restored; nothing was changed. The backup's settings point Tube at data folders an install would refuse: Downloads folder is set to /srv/media/youtube, which is /srv/other-app/data on this server: a link on the way leads somewhere else");
+    });
+    expect(await readdir(harness.catalogRoot)).toEqual([]);
+  });
+
+  it("refuses it at every deploy, not only the first", async () => {
+    const harness = await tubeHarness("/srv/media/youtube", "/srv/nothing-linked");
+    await harness.apps.install({ id: "tube" });
+    await withLink("/srv/media/youtube", "/srv/other-app/data", async () => {
+      await expect(harness.apps.reconfigure({ id: "tube", values: {} }, { checkpoint: false })).rejects.toThrow("/srv/media/youtube goes through a link: it is /srv/other-app/data");
+      await expect(harness.apps.update({ id: "tube" }, { checkpoint: false })).rejects.toThrow("/srv/media/youtube goes through a link: it is /srv/other-app/data");
+    });
+  });
+});
+
+// R5S2-2: a hard link is a regular file, so a crafted archive could make boxpilot.json, compose.yaml
+// or .env the same file as one in the app's data folder, and every check passed. Once restored, the
+// container could rewrite its own project through its volume: the settings the next update reads,
+// and the compose file the restore's own check had just looked at.
+// Linux only: GNU tar's hard links, and their link counts.
+describe.skipIf(onWindows)("a crafted backup that hard-links the app's own files into its data", () => {
+  async function withAlias(name, { state = { id: "demo", installed: true, values: { ports: {}, env: {}, volumes: {} } } } = {}) {
+    const harness = await setup({ runCommand: withRealTar });
+    await harness.apps.install({ id: "demo", values: { setup: [] } });
+    const live = path.join(harness.catalogRoot, "demo");
+    const compose = await readFile(path.join(live, "compose.yaml"), "utf8");
+    const files = { "boxpilot.json": JSON.stringify(state), "compose.yaml": compose, ".env": "ADMIN_PASSWORD='x'\n" };
+    const backup = "20260101T000000Z.tar.gz";
+    await mkdir(path.join(harness.backupRoot, "demo"), { recursive: true });
+    await writeFile(path.join(harness.backupRoot, "demo", backup), craftedTarGz([
+      { name: "data/", type: "dir" },
+      { name: "data/alias", body: files[name] },
+      ...Object.entries(files).map(([file, body]) => (file === name ? { name: file, type: "hardlink", linkname: "data/alias" } : { name: file, body })),
+    ]));
+    return { ...harness, live, compose, backup };
+  }
+
+  for (const name of ["boxpilot.json", "compose.yaml", ".env"]) {
+    it(`refuses one whose ${name} is the same file as one in its data`, async () => {
+      const harness = await withAlias(name, name === "compose.yaml" ? { state: { id: "demo", installed: true, rawEdited: true, values: {} } } : {});
+      harness.calls.length = 0;
+      await expect(harness.apps.restoreAppBackup({ id: "demo", backup: harness.backup })).rejects.toThrow(`Demo was not restored; nothing was changed. In this backup ${name} is a link`);
+      expect(await readFile(path.join(harness.live, "compose.yaml"), "utf8")).toBe(harness.compose);
+      expect(harness.calls.filter((call) => / (stop|start|up)(?: |$)/.test(call))).toEqual([]);
+      expect(await readdir(harness.catalogRoot)).toEqual(["demo"]);
+    });
+  }
+
+  it("restores the project as files of its own, never shared with anything the backup held", async () => {
+    // A hard link between two of the app's own data files is its own business and comes back.
+    const harness = await withAlias("none");
+    await writeFile(path.join(harness.backupRoot, "demo", harness.backup), craftedTarGz([
+      { name: "boxpilot.json", body: JSON.stringify({ id: "demo", installed: true, rawEdited: true, values: {} }) },
+      { name: "compose.yaml", body: harness.compose },
+      { name: ".env", body: "ADMIN_PASSWORD='x'\n" },
+      { name: "data/", type: "dir" },
+      { name: "data/a", body: "shared" },
+      { name: "data/b", type: "hardlink", linkname: "data/a" },
+    ]));
+    await expect(harness.apps.restoreAppBackup({ id: "demo", backup: harness.backup })).resolves.toMatchObject({ restored: true });
+    for (const name of ["boxpilot.json", "compose.yaml", ".env"]) expect((await stat(path.join(harness.live, name))).nlink, name).toBe(1);
+    expect((await stat(path.join(harness.live, "data", "b"))).nlink).toBe(2);
   });
 });

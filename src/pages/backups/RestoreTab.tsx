@@ -4,6 +4,7 @@ import { countOf } from "../../data";
 import { formatBytes } from "../../formatBytes";
 import { inspectOperation } from "../../operations";
 import { Button, Checkbox, CodeBlock, EmptyState, Notice, Panel, Sheet, StatusChip, Table, mayStart, riskOf, type TableColumn } from "../../ui";
+import { ComposeAllowance, ComposeRefusal } from "./ComposeReview";
 import { when, type DescribedSnapshot, type DiscoveredSnapshots, type RestoreReview, type SnapshotEntry, type SnapshotSources } from "./types";
 
 /*
@@ -11,6 +12,10 @@ import { when, type DescribedSnapshot, type DiscoveredSnapshots, type RestoreRev
  * backup drive's, and any found on a drive or share that is simply mounted, which is how a rebuilt
  * server finds the old one's. Restoring one is a sheet: the apps in it, which have data to bring
  * back, and what is staged for review instead of applied. What a restore staged follows.
+ *
+ * An app whose data archive would start its compose file exactly as it was backed up, giving the app
+ * more than the catalog does, is listed with those settings and must be allowed, app by app, before
+ * the restore is offered (sweep 4); one that cannot be restored at all says why, and is left out.
  */
 
 export interface RestoreTabProps {
@@ -61,6 +66,8 @@ export default function RestoreTab({ csrfToken, role, restores, onChanged }: Res
   const [describeError, setDescribeError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [restoreData, setRestoreData] = useState(true);
+  // Apps whose data archive's compose file the owner allowed to start as it was backed up.
+  const [allowed, setAllowed] = useState<Set<string>>(new Set());
 
   const refresh = useCallback(async () => {
     if (!canRead) return;
@@ -92,7 +99,7 @@ export default function RestoreTab({ csrfToken, role, restores, onChanged }: Res
   const opening = useRef(0);
   const open = async (option: Option) => {
     const ticket = ++opening.current;
-    setChosen(option); setDescribed(null); setDescribeError(null); setSelected(new Set()); setRestoreData(true);
+    setChosen(option); setDescribed(null); setDescribeError(null); setSelected(new Set()); setRestoreData(true); setAllowed(new Set());
     try {
       const parameters = { source: option.source, artifact: option.snapshot.artifact, ...(option.root ? { root: option.root } : {}) };
       const response = await fetch("/api/v1/operations/host.snapshot.describe/run", { method: "POST", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ parameters }) });
@@ -106,16 +113,25 @@ export default function RestoreTab({ csrfToken, role, restores, onChanged }: Res
       setDescribeError(requestError instanceof Error ? requestError.message : "The snapshot could not be read");
     }
   };
+  // What restoring each chosen app's data would start: those to allow, and those that cannot be restored.
+  const reviewed = restoreData ? (described?.apps ?? []).filter((app) => selected.has(app.id) && app.compose && !app.compose.error) : [];
+  const refusedApps = reviewed.filter((app) => app.compose!.refusals.length > 0);
+  const toAllow = reviewed.filter((app) => app.compose!.refusals.length === 0 && app.compose!.needsAllow && app.compose!.sha256);
+  const unresolved = refusedApps.length > 0 || toAllow.some((app) => !allowed.has(app.id));
   const restore = () => {
-    if (!chosen || selected.size === 0) return;
+    if (!chosen || selected.size === 0 || unresolved) return;
     const option = chosen;
     const apps = [...selected];
+    const allowCompose = Object.fromEntries(toAllow.map((app) => [app.id, app.compose!.sha256!]));
     setChosen(null);
     start({
       operationId: "host.snapshot.restore",
       title: `Restore ${countOf(apps.length, "app")} from snapshot`,
-      parameters: { source: option.source, artifact: option.snapshot.artifact, ...(option.root ? { root: option.root } : {}), apps, restoreData },
-      preview: <span>Reinstalls {apps.join(", ")} from <code>{option.snapshot.artifact}</code>{option.root ? <> on <code>{option.where}</code></> : null}{restoreData ? " and restores each one's newest data archive (a safety copy of any existing data is taken first)" : " without touching data"}. Apps already installed on this box are skipped.</span>,
+      parameters: { source: option.source, artifact: option.snapshot.artifact, ...(option.root ? { root: option.root } : {}), apps, restoreData, ...(toAllow.length ? { allowCompose } : {}) },
+      preview: <>
+        <span>Reinstalls {apps.join(", ")} from <code>{option.snapshot.artifact}</code>{option.root ? <> on <code>{option.where}</code></> : null}{restoreData ? " and restores each one's newest data archive (a safety copy of any existing data is taken first)" : " without touching data"}. Apps already installed on this box are skipped.</span>
+        {toAllow.map((app) => <ComposeAllowance key={app.id} name={app.id} review={app.compose!} />)}
+      </>,
     });
   };
 
@@ -218,7 +234,7 @@ export default function RestoreTab({ csrfToken, role, restores, onChanged }: Res
           onClose={() => setChosen(null)}
           footer={<>
             <Button variant="ghost" onClick={() => setChosen(null)}>{canRestore ? "Cancel" : "Close"}</Button>
-            {canRestore && <Button variant="primary" risk={riskOf("host.snapshot.restore")} disabled={!described || selected.size === 0} onClick={restore}>Restore {selected.size ? countOf(selected.size, "app") : "selected"}</Button>}
+            {canRestore && <Button variant="primary" risk={riskOf("host.snapshot.restore")} disabled={!described || selected.size === 0 || unresolved} title={unresolved ? "Allow each app's settings below, or leave it out" : undefined} onClick={restore}>Restore {selected.size ? countOf(selected.size, "app") : "selected"}</Button>}
           </>}
         >
           {describeError && <Notice tone="danger" live title="The snapshot could not be read">{describeError}</Notice>}
@@ -238,6 +254,12 @@ export default function RestoreTab({ csrfToken, role, restores, onChanged }: Res
                 empty={<EmptyState title="This snapshot has no apps" />}
               />
               <Checkbox label="Restore each app's newest data archive after installing it" description="A safety copy of any data already there is taken first." checked={restoreData} disabled={!canRestore} onChange={setRestoreData} />
+              {refusedApps.map((app) => <ComposeRefusal key={app.id} title={`${app.id} cannot be restored from this snapshot's data; leave it out`} review={app.compose!} />)}
+              {toAllow.map((app) => (
+                <ComposeAllowance key={app.id} name={app.id} review={app.compose!}>
+                  <Checkbox label={`Start ${app.id} with these settings`} checked={allowed.has(app.id)} disabled={!canRestore} onChange={(on) => setAllowed((current) => { const next = new Set(current); if (on) next.add(app.id); else next.delete(app.id); return next; })} />
+                </ComposeAllowance>
+              ))}
               <p className="backups-note">Network, firewall, fstab, VM definitions{described.vms?.domains?.length ? ` (${described.vms.domains.join(", ")})` : ""}, and the database copy are staged under the snapshot folder for you to review. They are never applied automatically.</p>
               {described.vms?.domains?.length ? (
                 <Notice tone={described.vms.diskRepositoryReachable ? "info" : "warning"} title={described.vms.diskRepositoryReachable ? "The VM disk repository is reachable" : "The VM disk repository is not reachable"}>

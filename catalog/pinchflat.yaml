@@ -23,7 +23,7 @@ volumes:
   - id: downloads
     label: Downloads folder
     container: /downloads
-    hostPath: /srv/media/youtube
+    hostPath: /srv/pinchflat
     configurable: true
     backup: false
 env:

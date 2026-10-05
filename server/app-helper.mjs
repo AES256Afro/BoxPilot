@@ -5,7 +5,7 @@
  */
 import { createHash, randomUUID } from "node:crypto";
 import { constants as fsConstants, createReadStream } from "node:fs";
-import { chmod, lchown, lstat, mkdir, open, readFile, readdir, rename, rm, stat, writeFile, realpath } from "node:fs/promises";
+import { chmod, lchown, lstat, mkdir, open, readFile, readdir, readlink, rename, rm, stat, unlink, writeFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import YAML from "yaml";
 import { mkdirWithoutFollowing, readFileWithoutFollowing, replaceFileWithoutFollowing, writeFileDurably } from "./durable-file.mjs";
@@ -24,6 +24,8 @@ import { dataScanCommand } from "./scan-resources.mjs";
 import { shared } from "./cache.mjs";
 import { formatDuration, keepTimeout, timedOut } from "./timeouts.mjs";
 import { snapshotBackupReferences } from "./machine-snapshot-helper.mjs";
+import { appFolderMounts, composeFindingsText, composeSha256, powerfulComposeSettings, sameCompose } from "./catalog/compose-review.mjs";
+import { readArchiveMembers } from "./archive-members.mjs";
 
 /**
  * A job given more time (M30.3) runs with `timeScale` above 1: its budget over the operation's
@@ -160,6 +162,8 @@ export function createAppHelper({
   chownDirectory = (target, uid, gid) => lchown(target, uid, gid),
   statPath = (target) => stat(target),
   lstatPath = (target) => lstat(target),
+  // Where a data folder really is, every link resolved (checkedDataFolders, dataFolderProblems).
+  realpathOf = (target) => realpath(target),
   tailscaleBinary = process.env.BOXPILOT_TAILSCALE_BINARY ?? "/usr/bin/tailscale",
   vpnProfile = null,
   // Whether Docker can give containers an NVIDIA GPU; asked only for apps marked `gpu: optional`.
@@ -731,8 +735,37 @@ export function createAppHelper({
     return resolved;
   }
 
+  /**
+   * The data folders a deploy mounts, each checked to be where it says it is, before anything is
+   * created or handed over (R5S2-1). Every link on the way is resolved (a not-yet-created leaf too),
+   * and a folder that is a link, goes through one, or resolves into a protected location is refused,
+   * the manifest's own default and the owner's choice alike: the compose file names the path, Docker
+   * follows whatever link is there, so a folder that is not where it says is mounted wherever the
+   * link points - another app's folder, or /etc. A default used to be let through with only its
+   * mkdir and chown skipped. The system mounts a manifest declares (Docker's socket, /proc) are on
+   * the deny list by name, are not data folders, and are not looked at here.
+   * `[{ volume, chosen, info }]`, `info` being what lstat found (null when nothing is there yet).
+   */
+  async function checkedDataFolders(manifest, values) {
+    const checked = [];
+    for (const volume of manifest.volumes) {
+      const chosen = values.volumes?.[volume.id] ?? volume.hostPath;
+      if (!chosen || isDeniedHostPath(chosen)) continue;
+      const named = `${manifest.name}'s ${volume.label ?? volume.id} ${chosen}`;
+      const real = await resolveExisting(chosen, { realpath: realpathOf });
+      if (isDeniedHostPath(real)) throw new Error(`${named} resolves to ${real}, a protected system location; pick a folder under /srv, /mnt, /media, or your home`);
+      const info = await lstatPath(chosen).catch(() => null);
+      const instead = `Docker would mount ${real} in its place, which may be another app's folder, so ${manifest.name} was not deployed`;
+      if (info?.isSymbolicLink?.()) throw new Error(`${named} is a link to ${real}. ${instead}: point it at a real folder in its settings, or make ${chosen} one.`);
+      if (real !== path.resolve(chosen)) throw new Error(`${named} goes through a link: it is ${real}. ${instead}: point it at ${real} itself in its settings, or make ${chosen} a real folder.`);
+      checked.push({ volume, chosen, info });
+    }
+    return checked;
+  }
+
   async function writeProject(manifest, values, { existingEnv = {}, devices: provided = null } = {}) {
     const directory = dirFor(manifest.id);
+    const dataFolders = await checkedDataFolders(manifest, values);
     await mkdir(directory, { recursive: true, mode: 0o700 });
     // Images that run as a fixed non-root user (declared with `user:`) must be able to write their
     // managed volumes, which the helper creates as root. Ownership is set on the directory only;
@@ -761,27 +794,13 @@ export function createAppHelper({
     // ownership means Docker or a default created it, never the owner's own library (which carries
     // their account's ownership). A folder owned by a real user is left alone, and so is a read-only
     // mount, which the app never writes to.
+    // Each one was checked above (checkedDataFolders) before anything here was created: root is never
+    // walked through a link, and nothing that is not where it says is mounted at all.
     const runsAs = managedOwner;
-    for (const volume of manifest.volumes) {
-      const chosen = values.volumes?.[volume.id] ?? volume.hostPath;
-      // Only folders meant to hold data: every system mount a manifest declares is on the deny list.
-      if (!chosen || isDeniedHostPath(chosen)) continue;
-      // Resolve symlinks (intermediate ones and a not-yet-created leaf) and re-check the deny list
-      // BEFORE creating or chowning anything. Root must never be walked through a symlink into a
-      // protected location; a curated manifest default that resolves into one is skipped, an
-      // owner-chosen path that does is refused. This is the invariant the subdirectory layout below
-      // already relied on, now enforced for the data folder itself and before any mutation.
-      const real = await resolveExisting(chosen);
-      if (isDeniedHostPath(real)) {
-        if (chosen === volume.hostPath) continue;
-        throw new Error(`${chosen} resolves to ${real}, a protected system location; pick a folder under /srv, /mnt, /media, or your home`);
-      }
-      const info = await lstatPath(chosen).catch(() => null);
+    for (const { volume, chosen, info } of dataFolders) {
       if (!info) {
         await mkdir(chosen, { recursive: true, mode: 0o755 }).catch(() => {});
         if (runsAs) await chownDirectory(chosen, runsAs.uid, runsAs.gid).catch(() => {});
-      } else if (info.isSymbolicLink?.()) {
-        continue; // a symlink where a data folder should be: never claim it, never chown through it
       } else if (runsAs && runsAs.uid !== 0 && !volume.readOnly && info.uid === 0) {
         await chownDirectory(chosen, runsAs.uid, runsAs.gid).catch(() => {});
       }
@@ -2027,30 +2046,46 @@ export function createAppHelper({
    * `--no-same-permissions`, which applies the helper's umask (0077) and takes group and other
    * access from files a container reads as another user. So owners and permissions stay as archived,
    * and only these two bits go. Links are never followed; folders keep set-group-id, which grants
-   * nothing. Returns what was changed, relative to `root`.
+   * nothing.
+   *
+   * And take out everything that is neither a regular file, a folder nor a link (sweep 4). tar as
+   * root makes the named pipes an archive lists (the helper's PrivateDevices stops device nodes, and
+   * an archive cannot hold a socket, but one is removed all the same): a pipe where BoxPilot or an
+   * app later reads waits for ever, and a backup BoxPilot made holds none, since the apps that use
+   * one make it again when they start. Removed with a warning naming each rather than refusing the
+   * restore, so an app's real data with a stray pipe in it still comes back. Every entry is looked
+   * at with lstat, and nothing is followed. Returns both lists, relative to `root`.
    */
-  async function clearSetIdBits(root) {
+  async function settleUnpacked(root, progress = null) {
     const cleared = [];
+    const removed = [];
     const walk = async (directory) => {
       for (const entry of await readdir(directory, { withFileTypes: true })) {
         const full = path.join(directory, entry.name);
+        if (entry.isSymbolicLink()) continue;
         if (entry.isDirectory()) { await walk(full); continue; }
-        if (!entry.isFile()) continue;
         const info = await lstat(full);
-        if (!info.isFile() || !(info.mode & 0o6000)) continue;
+        if (info.isSymbolicLink()) continue;
+        if (info.isDirectory()) { await walk(full); continue; }
+        const relative = path.relative(root, full).split(path.sep).join("/");
+        if (!info.isFile()) { await unlink(full); removed.push(relative); continue; }
+        if (!(info.mode & 0o6000)) continue;
         await chmod(full, info.mode & 0o1777);
-        cleared.push(path.relative(root, full).split(path.sep).join("/"));
+        cleared.push(relative);
       }
     };
     await walk(root);
-    return cleared.sort();
+    cleared.sort(); removed.sort();
+    const some = (list) => `${list.slice(0, 10).join(", ")}${list.length > 10 ? ", ..." : ""}`;
+    if (cleared.length) progress?.(`Cleared set-user-id and set-group-id from ${cleared.length} file${cleared.length === 1 ? "" : "s"} the backup marked so: ${some(cleared)}`, "stderr");
+    if (removed.length) progress?.(specialFilesWords(removed), "stderr");
+    return { cleared, removed };
   }
 
-  /** Clear set-id bits under a freshly unpacked `root` (clearSetIdBits), saying so when there were any. */
-  async function withoutSetIdBits(root, progress) {
-    const cleared = await clearSetIdBits(root);
-    if (cleared.length) progress?.(`Cleared set-user-id and set-group-id from ${cleared.length} file${cleared.length === 1 ? "" : "s"} the backup marked so: ${cleared.slice(0, 10).join(", ")}${cleared.length > 10 ? ", ..." : ""}`, "stderr");
-    return cleared;
+  /** The warning for what settleUnpacked took out of a restore. */
+  function specialFilesWords(removed) {
+    const one = removed.length === 1;
+    return `Not restored: ${removed.slice(0, 10).join(", ")}${removed.length > 10 ? `, and ${removed.length - 10} more` : ""}, ${one ? "a pipe, socket or device" : "pipes, sockets or devices"} in the backup, which BoxPilot does not unpack as root into a folder a container mounts. An app that uses one makes it again when it starts.`;
   }
 
   /** Whether `relative` is under `base` through real folders only: "present", "absent", or "unsafe" (a link or a file on the way). */
@@ -2071,7 +2106,8 @@ export function createAppHelper({
    * relative to `directory`, sorted: its project files and their temporary names, the folders it
    * makes and hands to the app's user, and the folders on the way to the config files it ships.
    * A file there that is not a regular file (a pipe, a device) is named too: every later read of it
-   * would wait or read a device.
+   * would wait or read a device. So is one with another name (a hard link, R5S2-2): the archive can
+   * make boxpilot.json or compose.yaml the same file as one in the app's data folder.
    *
    * A backup is only as trustworthy as whoever last held the file, and tar puts a link wherever the
    * archive says. One at `.env.tmp` made the restore's own rewrite of the project write `.env` over
@@ -2093,6 +2129,9 @@ export function createAppHelper({
         const name = parts.slice(0, index + 1).join("/");
         if (info.isSymbolicLink()) { found.add(name); break; }
         if ((projectFileNames.includes(name) || scratchFileNames.includes(name)) && !info.isFile()) { found.add(name); break; }
+        // A hard link is a regular file too (R5S2-2): boxpilot.json the same file as data/x is a file
+        // the container rewrites through its own volume, after every check here has looked at it.
+        if (index === parts.length - 1 && !volumes.includes(relative) && info.isFile() && info.nlink > 1) { found.add(name); break; }
       }
     }
     return [...found].sort();
@@ -2273,6 +2312,192 @@ export function createAppHelper({
   }
 
   /**
+   * Whether a backup's saved settings can write its compose file again for this server, or why it is
+   * started exactly as archived instead (`verbatim`): there are none ("no-settings"), the owner
+   * edited the file by hand ("edited"), or they no longer fit the catalog ("unfit", with `errors`).
+   * `{ values }` when they can. The restore and the review before it both decide here, so what the
+   * dialog says will be started verbatim is what the restore starts verbatim.
+   */
+  function archivedSettingsFit(manifest, state, existingEnv) {
+    if (!state || typeof state !== "object") return { verbatim: "no-settings" };
+    if (state.rawEdited) return { verbatim: "edited" };
+    const { values, errors } = resolveValues(manifest, withSavedSecrets(manifest, sanitizeStoredValues(manifest, state.values ?? {}), existingEnv));
+    if (errors.length) return { verbatim: "unfit", errors };
+    return { verbatim: null, values };
+  }
+
+  /** The first link on the way to `folder` from /, as `{ path, target }`, or null. Never follows one. */
+  async function linkOnTheWay(folder) {
+    let current = "/";
+    for (const part of folder.split("/").filter(Boolean)) {
+      current = path.posix.join(current, part);
+      const info = await lstat(current).catch(() => null);
+      if (!info) return null;
+      if (info.isSymbolicLink()) return { path: current, target: await readlink(current).catch(() => "somewhere else") };
+    }
+    return null;
+  }
+
+  /**
+   * Why the data folders saved settings point an app at cannot be used, as an install or a settings
+   * change would refuse them (sweep 4, writeProject's checkedDataFolders): not a clean absolute path,
+   * a `..` on the way, a protected system location, a link anywhere on the way, or a real location
+   * that is not the one named. Empty when they can. A restore takes these from boxpilot.json in the
+   * backup, which is only as trustworthy as whoever last held it, starts the app on them without a
+   * deploy, and every later deploy mounts them. The manifest's own defaults are checked for links too
+   * (R5S2-1); the system mounts a manifest declares by name (Docker's socket, /proc) are not folders
+   * of data and are left alone, as a deploy leaves them.
+   */
+  async function dataFolderProblems(manifest, storedValues) {
+    const chosen = sanitizeStoredValues(manifest, storedValues ?? {}).volumes;
+    const problems = [];
+    for (const volume of manifest.volumes) {
+      if (!volume.hostPath) continue;
+      const value = volume.configurable && Object.hasOwn(chosen, volume.id) ? chosen[volume.id] : volume.hostPath;
+      const label = volume.label ?? volume.id;
+      if (value !== volume.hostPath) {
+        const error = resolveValues(manifest, { volumes: { [volume.id]: value } }).errors.find((entry) => entry.startsWith(`values.volumes.${volume.id}:`));
+        if (error) { problems.push(`${label} is set to ${JSON.stringify(String(value).slice(0, 200))}, which ${error.replace(/^values\.volumes\.[^:]+:\s*/, "")}`); continue; }
+      }
+      if (isDeniedHostPath(value)) continue;
+      const folder = value.replace(/\/+$/, "") || "/";
+      const link = await linkOnTheWay(folder);
+      if (link) { problems.push(`${label} is set to ${folder}, and ${link.path} on the way there is a link to ${link.target}`); continue; }
+      const real = await resolveExisting(folder, { realpath: realpathOf });
+      if (isDeniedHostPath(real)) problems.push(`${label} is set to ${folder}, which is ${real} on this server, a protected system location`);
+      else if (real !== path.resolve(folder)) problems.push(`${label} is set to ${folder}, which is ${real} on this server: a link on the way leads somewhere else`);
+    }
+    return problems;
+  }
+
+  /** A path as the compose file names it: POSIX, and absolute (a Windows test run's C:\ becomes /C:/). */
+  const posixPath = (value) => {
+    const forward = value.split(path.sep).join("/");
+    return forward.startsWith("/") ? forward : `/${forward}`;
+  };
+
+  /** The data folders saved settings point the app at (the catalog's default where they name none). */
+  function chosenDataFolders(manifest, state) {
+    const chosen = sanitizeStoredValues(manifest, state && typeof state === "object" ? state.values ?? {} : {}).volumes;
+    return manifest.volumes.filter((volume) => volume.configurable && volume.hostPath).map((volume) => chosen[volume.id] ?? volume.hostPath).filter((folder) => typeof folder === "string" && folder.startsWith("/"));
+  }
+
+  /**
+   * What a compose file mounts from the app's own folder that is a link in what the backup unpacked
+   * (`staged`): `./data` there pointing at `/` is mounted as `/`, since Docker follows it. Listed as
+   * powerful settings, like a mount of what it points at.
+   */
+  async function linkedAppFolderMounts(compose, manifest, roots, staged) {
+    const findings = [];
+    for (const mount of appFolderMounts(compose, { manifest, managedRoots: roots })) {
+      const parts = path.posix.relative(roots[0], mount.path).split("/").filter(Boolean);
+      let current = staged;
+      for (const [index, part] of parts.entries()) {
+        current = path.join(current, part);
+        const info = await lstat(current).catch(() => null);
+        if (!info) break;
+        if (!info.isSymbolicLink()) continue;
+        const target = await readlink(current).catch(() => "somewhere else");
+        findings.push({ service: mount.service, setting: mount.setting, value: mount.shown, detail: `mounts ${parts.slice(0, index + 1).join("/")} from the app's folder, which in this backup is a link to ${target}`, system: true });
+        break;
+      }
+    }
+    return findings;
+  }
+
+  /**
+   * What a backup's project would do if restored (sweep 4): whether its compose file would be
+   * started exactly as archived (`verbatim`, `reason`), every setting in it that reaches past what
+   * the catalog grants the app (`findings`, catalog/compose-review.mjs), the file's `sha256`, and
+   * whether this server already runs that same file (`sameAsRunning`), in which case restoring it
+   * grants nothing new. `folderProblems` are data folders an install would refuse.
+   *
+   * `files` are the archive's compose.yaml, boxpilot.json and .env as text (null when absent);
+   * `staged`, when the archive has been unpacked, is where, so the app-folder paths the file mounts
+   * can be checked for links. Nothing here is returned to anyone but the helper's caller: no file
+   * contents, no secrets.
+   */
+  async function reviewArchivedProject(manifest, { compose = null, stateText = null, envText = null } = {}, { staged = null } = {}) {
+    let state = null;
+    try { state = stateText ? JSON.parse(stateText) : null; } catch { state = null; }
+    const folderProblems = await dataFolderProblems(manifest, state && typeof state === "object" ? state.values : null);
+    const fit = archivedSettingsFit(manifest, state, parseEnvFile(envText ?? ""));
+    const result = { verbatim: Boolean(fit.verbatim), reason: fit.verbatim ?? null, folderProblems, findings: [], sha256: null, sameAsRunning: false };
+    if (typeof compose !== "string" || !compose.trim()) return result;
+    const roots = [posixPath(dirFor(manifest.id)), ...chosenDataFolders(manifest, state)];
+    const findings = powerfulComposeSettings(compose, { manifest, appId: manifest.id, managedRoots: roots });
+    if (staged) findings.push(...await linkedAppFolderMounts(compose, manifest, roots, staged));
+    // The app as it runs now, before anything is replaced. A setting a variable decides is the same
+    // only when the .env that decides it is the same too.
+    const running = await readFileWithoutFollowing(path.join(dirFor(manifest.id), "compose.yaml")).catch(() => null);
+    const runningEnv = findings.some((finding) => finding.variable) ? await readFileWithoutFollowing(path.join(dirFor(manifest.id), ".env")).catch(() => null) : null;
+    const sameAsRunning = sameCompose(compose, running) && (!findings.some((finding) => finding.variable) || sameCompose(envText ?? "", runningEnv ?? ""));
+    return { ...result, findings, sha256: composeSha256(compose), sameAsRunning };
+  }
+
+  /** What the review says, for the restore dialogs: the review and whether the restore needs `allowCompose`. */
+  function reviewSummary(manifest, review) {
+    const refused = review.verbatim ? review.findings.filter((finding) => finding.refuse) : [];
+    const powerful = review.verbatim ? review.findings.filter((finding) => !finding.refuse) : [];
+    const refusals = [...review.folderProblems, ...refused.map((finding) => composeFindingsText([finding]))];
+    return {
+      id: manifest.id, name: manifest.name, verbatim: review.verbatim, reason: review.reason,
+      findings: powerful, refusals, sha256: review.verbatim ? review.sha256 : null, sameAsRunning: review.sameAsRunning,
+      needsAllow: refusals.length === 0 && powerful.length > 0 && !review.sameAsRunning,
+    };
+  }
+
+  const verbatimWhy = { edited: "it was edited by hand", "no-settings": "the backup holds no saved settings to write it again from", unfit: "its saved settings no longer fit the catalog" };
+
+  /**
+   * The restore's gate on a compose file it is about to start exactly as archived (sweep 4). Nothing
+   * to say when it grants nothing past the catalog, or this server already runs that very file. A
+   * file that pulls in others, or does not parse, is refused whatever was allowed. Otherwise it is
+   * refused unless `allowCompose` is its sha256: the restore dialogs list these settings and a
+   * typed confirmation stages the restore with that hash. Returns the warning an allowed one leaves.
+   */
+  function composeGate(manifest, review, allowCompose) {
+    const why = verbatimWhy[review.reason] ?? "it could not be written again from the catalog";
+    const refused = review.findings.filter((finding) => finding.refuse);
+    if (refused.length) throw Object.assign(new Error(`${manifest.name} was not restored; nothing was changed. Its compose file would be started exactly as it was backed up, since ${why}, and ${composeFindingsText(refused)}, so BoxPilot cannot tell what it would start.`), { code: "compose_refused" });
+    if (!review.findings.length || review.sameAsRunning) return null;
+    const list = composeFindingsText(review.findings);
+    if (allowCompose && allowCompose === review.sha256) return `${manifest.name}'s compose file was started exactly as it was backed up, with the settings you allowed: ${list}.`;
+    const next = allowCompose
+      ? "It is not the compose file that was allowed: the backup has changed since it was reviewed, so review it again."
+      : "To start it anyway, allow these settings in the restore dialog, which lists them.";
+    throw Object.assign(new Error(`${manifest.name} was not restored; nothing was changed. Its compose file would be started exactly as it was backed up, since ${why}, and it gives ${manifest.name} more than the catalog does: ${list}. ${next} (compose sha256 ${review.sha256})`), { code: "compose_not_allowed" });
+  }
+
+  /** Why a restore was refused for the data folders a backup's settings name (dataFolderProblems). */
+  const folderWords = (manifest, problems, what = manifest.name) => `${what} was not restored; nothing was changed. The backup's settings point ${manifest.name} at data folders an install would refuse: ${problems.join("; ")}.`;
+
+  /**
+   * The review of an app data archive at `archive` without unpacking it (archive-members.mjs): for
+   * the restore dialogs, and a machine snapshot's check before it changes anything. A preview: the
+   * restore checks what it actually unpacked.
+   */
+  async function reviewArchive({ id, archive }) {
+    const manifest = await ensureManifest(id);
+    const members = await readArchiveMembers(archive, ["compose.yaml", "boxpilot.json", ".env"], { maxBytes: 1024 * 1024 });
+    const text = (name) => (members.has(name) ? members.get(name).toString("utf8") : null);
+    return reviewSummary(manifest, await reviewArchivedProject(manifest, { compose: text("compose.yaml"), stateText: text("boxpilot.json"), envText: text(".env") }));
+  }
+
+  /** A machine snapshot's settings for one app, checked before the snapshot restore changes anything (dataFolderProblems). */
+  async function dataFoldersRefused({ id, values }) {
+    return dataFolderProblems(await ensureManifest(id), values);
+  }
+
+  /** app.backup.review: what restoring this backup would start, before it is restored. */
+  async function reviewAppBackup({ id, backup: backupName }) {
+    await ensureManifest(id);
+    const { artifact } = backupArtifactFor(id, backupName);
+    await stat(artifact).catch(() => { throw new Error(`Backup ${backupName} does not exist`); });
+    return { backup: backupName, ...await reviewArchive({ id, archive: artifact }) };
+  }
+
+  /**
    * The compose project of a backup unpacked into `directory`, written again for this server.
    *
    * A backup's compose file carries the server it was taken on: the tailnet address every
@@ -2290,11 +2515,12 @@ export function createAppHelper({
    */
   async function projectForThisServer(manifest, directory, archivedCompose, { progress = null } = {}) {
     const state = await readFileWithoutFollowing(path.join(directory, "boxpilot.json")).then(JSON.parse).catch(() => null);
-    if (!state || typeof state !== "object") return { rendered: null };
-    if (state.rawEdited) return { rendered: null, warning: `${manifest.name}'s compose file was edited by hand, so it was restored exactly as it was backed up. If it names an address, a device or a GPU this server does not have, ${manifest.name} will not start until it is edited again.` };
     const existingEnv = parseEnvFile(await readFileWithoutFollowing(path.join(directory, ".env")).catch(() => ""));
-    const { values, errors } = resolveValues(manifest, withSavedSecrets(manifest, sanitizeStoredValues(manifest, state.values ?? {}), existingEnv));
-    if (errors.length) return { rendered: null, warning: `${manifest.name}'s settings in this backup no longer fit the catalog (${errors.join("; ")}), so its compose file was restored exactly as it was backed up.` };
+    const fit = archivedSettingsFit(manifest, state, existingEnv);
+    if (fit.verbatim === "no-settings") return { rendered: null };
+    if (fit.verbatim === "edited") return { rendered: null, warning: `${manifest.name}'s compose file was edited by hand, so it was restored exactly as it was backed up. If it names an address, a device or a GPU this server does not have, ${manifest.name} will not start until it is edited again.` };
+    if (fit.verbatim === "unfit") return { rendered: null, warning: `${manifest.name}'s settings in this backup no longer fit the catalog (${fit.errors.join("; ")}), so its compose file was restored exactly as it was backed up.` };
+    const { values } = fit;
     const ran = deployedImages(archivedCompose);
     const pinned = {
       ...manifest,
@@ -2319,7 +2545,7 @@ export function createAppHelper({
   }
 
   /** Restore a backup over the app directory: checksum check, extract, port check, safety backup, stop, swap, start. */
-  async function restoreAppBackup({ id, backup: backupName }, { progress = null } = {}) {
+  async function restoreAppBackup({ id, backup: backupName, allowCompose = null }, { progress = null } = {}) {
     const manifest = await ensureManifest(id);
     if (typeof backupName !== "string" || !backupNamePattern.test(backupName)) throw new Error("Backup name is invalid");
     const kept = keptOutOfBackup(manifest);
@@ -2358,15 +2584,30 @@ export function createAppHelper({
     let deployed = { rendered: null };
     const warnings = [];
     try {
-      await withoutSetIdBits(staged, progress);
       // Names BoxPilot only writes under and renames away, and the marker of a backup in progress:
       // nothing a restore brings back, and a link at one would be written through. Then refuse a
       // backup with a link where BoxPilot writes (linksWhereBoxPilotWrites), before anything stops.
       for (const name of scratchFileNames) await rm(path.join(staged, name), { recursive: true, force: true });
       const planted = await linksWhereBoxPilotWrites(staged, manifest);
       if (planted.length) throw new Error(plantedWords(manifest, planted));
+      // Set-id bits off every file, and pipes, sockets and devices out of the tree (settleUnpacked).
+      const unpacked = await settleUnpacked(staged, progress);
+      if (unpacked.removed.length) warnings.push(specialFilesWords(unpacked.removed));
+      // The project's own files, which every later deploy reads and `up` starts, as new files of their
+      // own with the archived content (R5S2-2): whatever else the archive did, nothing in the data a
+      // container writes can be the same file as these. What the checks below read, and the compose
+      // gate hashes, is then exactly what is started.
+      for (const name of ["boxpilot.json", "compose.yaml", ".env"]) {
+        const content = await readFileWithoutFollowing(path.join(staged, name), { encoding: null }).catch(() => null);
+        if (content !== null) await replaceFileWithoutFollowing(path.join(staged, name), content, { mode: 0o600 });
+      }
       const stagedCompose = path.join(staged, "compose.yaml");
       let project = (await lstat(stagedCompose).catch(() => null))?.isFile() ? await readFile(stagedCompose, "utf8") : "";
+      // What the backup's settings point the app at, and what its compose file would hand the
+      // containers if it is started as archived, checked before anything stops (sweep 4).
+      const unpackedText = (name) => readFileWithoutFollowing(path.join(staged, name)).catch(() => null);
+      const review = await reviewArchivedProject(manifest, { compose: project, stateText: await unpackedText("boxpilot.json"), envText: await unpackedText(".env") }, { staged });
+      if (review.folderProblems.length) throw new Error(folderWords(manifest, review.folderProblems));
       // Written again for this server first: the port check and `up` are of what will be started.
       if (project) {
         try {
@@ -2376,6 +2617,11 @@ export function createAppHelper({
         }
         if (deployed.warning) { warnings.push(deployed.warning); progress?.(deployed.warning, "stderr"); }
         if (deployed.rendered) project = deployed.rendered.composeYaml;
+        else {
+          // Started exactly as archived: only what this server already runs, or what the owner allowed.
+          const allowed = composeGate(manifest, review, allowCompose);
+          if (allowed) { warnings.push(allowed); progress?.(allowed, "stderr"); }
+        }
       }
       ports = await assertPortsFree(manifest, project, { progress, refused: `${manifest.name} was not restored; nothing was changed.` });
     } catch (error) {
@@ -2553,15 +2799,34 @@ export function createAppHelper({
     const live = dirFor(id);
     const staged = `${live}.restoring-path`;
     let failure = null;
+    const warnings = [];
     try {
       await rm(staged, { recursive: true, force: true });
       await mkdir(staged, { mode: 0o700 });
       progress?.(`$ tar -xzf ${backupName} ${relativePath}`, "stdout");
       const extract = await runCommand(tarBinary, ["-xzf", artifact, "-C", staged, relativePath], { timeout: 60 * 60_000, maxBuffer: 4 * 1024 * 1024 });
       if (!extract.ok) throw new Error(`tar extraction failed: ${extract.stderr.split("\n").slice(-2).join(" ")}. The checkpoint ${saved.artifact} holds the pre-restore state.`);
-      await withoutSetIdBits(staged, progress);
       const planted = await linksWhereBoxPilotWrites(staged, manifest);
       if (planted.length) throw new Error(plantedWords(manifest, planted, relativePath));
+      const unpacked = await settleUnpacked(staged, progress);
+      if (unpacked.removed.length) warnings.push(specialFilesWords(unpacked.removed));
+      // Settings or a compose file brought back on their own are what every later deploy, start and
+      // update goes by, so they are checked as a whole restore checks them (sweep 4).
+      const liveText = (name) => readFileWithoutFollowing(path.join(live, name)).catch(() => null);
+      if (relativePath === "boxpilot.json") {
+        let state = null;
+        try { state = JSON.parse(await readFileWithoutFollowing(path.join(staged, "boxpilot.json"))); } catch { state = null; }
+        const problems = await dataFolderProblems(manifest, state && typeof state === "object" ? state.values : null);
+        if (problems.length) throw new Error(folderWords(manifest, problems, relativePath));
+      }
+      if (relativePath === "compose.yaml") {
+        const compose = await readFileWithoutFollowing(path.join(staged, "compose.yaml")).catch(() => null);
+        const review = compose === null ? null : await reviewArchivedProject(manifest, { compose, stateText: await liveText("boxpilot.json"), envText: await liveText(".env") }, { staged: live });
+        const refused = review?.findings.some((finding) => finding.refuse);
+        if (review && (refused || (review.findings.length && !review.sameAsRunning))) {
+          throw new Error(`compose.yaml was not restored; nothing was changed. ${manifest.name} would be started with it exactly as it is, and ${refused ? composeFindingsText(review.findings.filter((finding) => finding.refuse)) : `it gives ${manifest.name} more than the catalog does: ${composeFindingsText(review.findings)}`}. Restore the whole backup instead, which writes the compose file again from the catalog, or lists such settings and asks you to allow them.`);
+        }
+      }
       await placeWithoutFollowing(path.join(staged, relativePath), live, relativePath, path.join(staged, ".previous"));
     } catch (error) {
       failure = error;
@@ -2586,7 +2851,7 @@ export function createAppHelper({
     }
     if (failure) throw notStarted ? Object.assign(new Error(`${String(failure.message).replace(/[.\s]+$/, "")}. ${notStarted.message}`), { code: notStarted.code }) : failure;
     if (notStarted) throw notStarted;
-    return { restored: true, id, backup: backupName, path: relativePath, type: member.type, sizeBytes: member.sizeBytes, checkpoint: saved };
+    return { restored: true, id, backup: backupName, path: relativePath, type: member.type, sizeBytes: member.sizeBytes, checkpoint: saved, ...(warnings.length ? { warnings } : {}) };
   }
 
   async function deleteAppBackup({ id, backup: backupName }) {
@@ -2808,5 +3073,5 @@ export function createAppHelper({
     return installed;
   }
 
-  return { syncHomepage, inspect, installedIds, dataUsage: shared(dataUsage), reachabilityFacts, vpnKillSwitchDrill, foreignProjects, foreignProjectAction, foreignProjectLogs, vpnStatus, listModels, pullModel, removeModel, countAppBackups, backupProtection, install, uninstall, reinstall, backupMany, interruptedBackups, waitForDocker, resumeInterruptedBackup, update, reconfigure, action, execIn, logs, config, readComposeConfig, editCompose, secrets, setPassword, backup, listAppBackups, verifyAppBackup, restoreAppBackup, rollbackApp, listAppBackupFiles, restoreAppBackupPath, deleteAppBackup, checkUpdates, catalogRoot: root, internals: { imageDeclaredOwner, parseModelList, containerStatus, waitHealthy, writeProject, readState, parseEnvFile } };
+  return { syncHomepage, inspect, installedIds, dataUsage: shared(dataUsage), reachabilityFacts, vpnKillSwitchDrill, foreignProjects, foreignProjectAction, foreignProjectLogs, vpnStatus, listModels, pullModel, removeModel, countAppBackups, backupProtection, install, uninstall, reinstall, backupMany, interruptedBackups, waitForDocker, resumeInterruptedBackup, update, reconfigure, action, execIn, logs, config, readComposeConfig, editCompose, secrets, setPassword, backup, listAppBackups, verifyAppBackup, reviewAppBackup, reviewArchive, dataFoldersRefused, restoreAppBackup, rollbackApp, listAppBackupFiles, restoreAppBackupPath, deleteAppBackup, checkUpdates, catalogRoot: root, internals: { imageDeclaredOwner, parseModelList, containerStatus, waitHealthy, writeProject, readState, parseEnvFile } };
 }

@@ -173,6 +173,27 @@ describe("catalog loader", () => {
   });
 });
 
+// R5S2-1: an app's default folder inside another app's writable one is a folder that other app can
+// swap for a link, and the next deploy of the first would mount whatever the link names (MeTube's
+// /srv/media/youtube inside the download clients' /srv/media). Each shipped default stands on its own.
+describe("default data folders", () => {
+  it("never puts one app's default folder inside another app's writable one", async () => {
+    const { manifests } = await loadCatalog();
+    const folders = manifests.flatMap((manifest) => [
+      ...manifest.volumes.map((volume) => ({ app: manifest.id, path: volume.hostPath, writable: !volume.readOnly })),
+      ...(manifest.sidecars ?? []).flatMap((sidecar) => sidecar.volumes.map((volume) => ({ app: manifest.id, path: volume.hostPath, writable: false }))),
+    ]).filter((folder) => folder.path);
+    const nested = [];
+    for (const inner of folders) {
+      for (const outer of folders) {
+        if (!outer.writable || outer.app === inner.app) continue;
+        if (inner.path.startsWith(`${outer.path.replace(/\/+$/, "")}/`)) nested.push(`${inner.app} ${inner.path} is inside ${outer.app}'s writable ${outer.path}`);
+      }
+    }
+    expect(nested).toEqual([]);
+  });
+});
+
 describe("setup choices", () => {
   const base = { schemaVersion: 2, id: "lists", name: "Lists", category: "DNS", description: "d", image: { reference: "x/y:1" } };
   const setup = { title: "Blocklists", finalize: ["pihole", "-g"], choices: [
