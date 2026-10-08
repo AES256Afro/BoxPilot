@@ -71,7 +71,7 @@ trap cleanup EXIT
 section "Setting up BoxPilot's heartbeat as it ships"
 [ -x /usr/local/bin/node ] || ln -sf "$NODE" /usr/local/bin/node
 rm -rf /opt/boxpilot && install -d -m 0755 /opt/boxpilot
-cp -r "${ROOT}/server" "${ROOT}/scripts" "${ROOT}/package.json" /opt/boxpilot/
+cp -r "${ROOT}/server" "${ROOT}/scripts" "${ROOT}/packages" "${ROOT}/package.json" /opt/boxpilot/
 chmod -R a+rX /opt/boxpilot
 install -d -m 0700 /var/lib/boxpilot-managed
 "$NODE" --input-type=module -e "const m = await import('/opt/boxpilot/server/credentials.mjs'); await m.createCredentialStore({ file: '${STORE}' }).set({ name: 'heartbeat-url', value: process.argv[1] });" "$URL"
