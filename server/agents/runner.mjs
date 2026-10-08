@@ -38,7 +38,7 @@
  * server's /v1/embeddings, for memory search by meaning.
  */
 import { randomUUID } from "node:crypto";
-import { assistantTurn, createOpenAiCompatibleProvider, readChatResult } from "../../packages/harness/src/index.mjs";
+import { assistantTurn, createOpenAiCompatibleProvider, defineProvider, readChatResult } from "../../packages/harness/src/index.mjs";
 import { webPortOf } from "../env-file.mjs";
 import { stripWrapperBlocks } from "./guard.mjs";
 import { planMessage, plannerMessages, readUnderstanding, understandingFormatFor } from "./intent.mjs";
@@ -360,7 +360,7 @@ export function createRunner({ api, runtime, client, usage = null, now = () => D
       try {
         // Every call to act or plan goes through the harness's provider contract (M45.1): the local
         // provider binds this model server's address and key, and the answer is held to one shape.
-        const result = readChatResult(await providerFor(model).chat({
+        const result = readChatResult(await (model.provider ?? providerFor(model)).chat({
           model: model.model, temperature: claim.runtime.temperature ?? 0.2, messages: conversation.messages, tools: conversation.tools, toolChoice, maxTokens: tokens, extra: { ...extra, ...fields },
         }, { signal: controller.signal, timeoutMs: Math.max(1_000, left.ms) }));
         const took = now() - started;
@@ -387,7 +387,7 @@ export function createRunner({ api, runtime, client, usage = null, now = () => D
       } catch (error) {
         used.modelMs += now() - started;
         // Closing the connection stops llama-server at its next batch; Unsloth is also asked to stop.
-        if (cancelId) void providerFor(model).cancel?.(cancelId);
+        if (cancelId) void (model.provider ?? providerFor(model)).cancel?.(cancelId);
         if (controller.signal.aborted) throw error;
         if (!optional) degraded = /timed? ?out|aborted|TimeoutError/i.test(`${error?.name} ${error?.message}`) ? "timeout" : "model-error";
         await system("model", `The model stopped${optional ? ` during the ${purpose}` : ""}: ${String(error?.message ?? error).slice(0, 200)}`, "failed");
@@ -452,15 +452,21 @@ export function createRunner({ api, runtime, client, usage = null, now = () => D
       if (run.kind === "index") return await executeIndex(claim, controller, used, () => clearInterval(heartbeat));
       if (run.kind === "describe") return await executeDescribe(claim, controller, used, () => clearInterval(heartbeat), { ownDeadline: () => !stoppedBy && String(controller.signal.reason?.message) === "timeout" });
       let model = null;
-      try {
-        await system("model", "Starting the model");
-        model = await runtime.ensure(claim.runtime, { signal: controller.signal });
-        used.loadMs = model.loadMs ?? 0;
-        await system("model", model.loadMs ? `The model is ready (loaded in ${Math.round(model.loadMs / 1000)} s)` : "The model is ready");
-      } catch (error) {
-        if (controller.signal.aborted) throw error;
-        degraded = error instanceof ModelUnavailable ? error.reason : "model-unavailable";
-        await system("model", error.message, "failed");
+      if (driver === "claude") {
+        // A run on Claude (M45.3): no model server here. Each call goes to BoxPilot, which sends it to
+        // the model gateway with the house's names replaced, and turns the answer back.
+        model = { model: claim.runtime.model, loadMs: 0, provider: defineProvider({ id: "claude", kind: "remote", chat: (request, options = {}) => api.model(run.id, lease, request, options) }) };
+      } else {
+        try {
+          await system("model", "Starting the model");
+          model = await runtime.ensure(claim.runtime, { signal: controller.signal });
+          used.loadMs = model.loadMs ?? 0;
+          await system("model", model.loadMs ? `The model is ready (loaded in ${Math.round(model.loadMs / 1000)} s)` : "The model is ready");
+        } catch (error) {
+          if (controller.signal.aborted) throw error;
+          degraded = error instanceof ModelUnavailable ? error.reason : "model-unavailable";
+          await system("model", error.message, "failed");
+        }
       }
 
       const task = claim.messages.filter((message) => message.role === "user").map((message) => message.content).join("\n\n");
@@ -643,6 +649,8 @@ export function createRunnerApi({ base, token, runnerId, fetch: fetchImpl = glob
     vectors: (runId, lease, entries) => post(`/runs/${encodeURIComponent(runId)}/vectors`, { lease, entries }, { timeoutMs: 60_000 }),
     finish: (runId, lease, body) => post(`/runs/${encodeURIComponent(runId)}/finish`, { lease, ...body }),
     usage: (body) => post("/usage", body),
+    // M45.3: a run on Claude's model call, through BoxPilot to the model gateway; the answer on the contract.
+    model: (runId, lease, request, { signal = null, timeoutMs = 180_000 } = {}) => post(`/runs/${encodeURIComponent(runId)}/model`, { lease, request, timeoutMs }, { timeoutMs: timeoutMs + 15_000, signal }),
   };
 }
 
@@ -660,6 +668,7 @@ export function directRunnerApi(service, runnerId) {
     vectors: (runId, lease, entries) => Promise.resolve(service.runnerVectors(runId, lease, entries)),
     finish: (runId, lease, body) => service.runnerFinish(runId, lease, body),
     usage: (body) => Promise.resolve(service.runnerUsage(runnerId, body)),
+    model: (runId, lease, request, { timeoutMs = 180_000 } = {}) => service.runnerModel(runId, lease, { request, timeoutMs }),
   };
 }
 
