@@ -13,6 +13,7 @@ import { PasswordSheet } from "./PasswordSheet";
 import { SetupAction, chainSteps, runnerDetail, setupSteps, type RunnerWait } from "./setup";
 import { Usage } from "./Usage";
 import { ZulipPanel } from "./ZulipPanel";
+import { ClaudePanel } from "./ClaudePanel";
 import "./agents.css";
 
 /*
@@ -244,6 +245,8 @@ export default function AgentsPage({ csrfToken, role = "owner", now = Date.now }
               onStage={start} onProposalDecided={() => void refresh()} onTurnOn={owner ? () => setTurningOn(true) : null} />
             {/* The team chat (M38): Zulip, where agents report and the owner drops files for them. */}
             {staff && <ZulipPanel csrfToken={csrfToken} role={role} now={now()} onStart={start} refreshKey={jobsFinished} agents={overview.agents} />}
+            {/* Claude beside the local model (M45.3): the key stays with the model gateway. */}
+            {staff && <ClaudePanel role={role} now={now()} owner={owner} onStart={start} refreshKey={jobsFinished} />}
           </>;
         }}
       </Tabs>

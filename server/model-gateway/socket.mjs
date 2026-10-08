@@ -8,9 +8,10 @@
  */
 import { randomUUID } from "node:crypto";
 import net from "node:net";
-import { gatewayLimits } from "./gateway.mjs";
+import { gatewayLimits } from "./terms.mjs";
+import { defaultGatewaySocket } from "./paths.mjs";
 
-export const defaultGatewaySocket = "/run/boxpilot-model-gateway/gateway.sock";
+export { defaultGatewaySocket };
 
 /** Largest answer the client reads: a model's answer with its thinking blocks, well inside this. */
 export const maxReplyBytes = 4 * 1024 * 1024;
@@ -112,6 +113,7 @@ export function createGatewayClient({ socketPath = process.env.BOXPILOT_MODEL_GA
 
   return {
     status: () => send({ op: "status" }, { timeoutMs: statusTimeoutMs }),
+    check: () => send({ op: "check" }, { timeoutMs: 30_000 }),
     chat: (request, { signal, timeoutMs = gatewayLimits.defaultTimeoutMs } = {}) => send({ op: "chat", request, timeoutMs }, { signal, timeoutMs: timeoutMs + 15_000 }),
   };
 }

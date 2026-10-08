@@ -134,13 +134,25 @@ operation never runs except through the host's approvals.
 The runner keeps its sandbox: no network but loopback. The web service keeps holding no secrets. A
 third, small process holds the key and nothing else.
 
-- `boxpilot-model-gateway.service`: its own user, no capabilities, `ProtectSystem=strict`, the key
-  handed in by systemd `LoadCredential` from a root-owned 0600 file, listening on a Unix socket only
-  the web service's user may open.
-- It sends to one host, `api.anthropic.com`, and refuses redirects. It enforces the monthly dollar
-  cap a second time, so a bug in the web service cannot spend past it.
-- The owner sets the key with `agents.cloud.connect` (high, owner, password, typed confirmation),
-  which writes the file and restarts the gateway; `agents.cloud.disconnect` (medium) removes it.
+- `boxpilot-model-gateway.service` (`server/model-gateway/`): its own user in the web service's
+  group, no capabilities, `ProtectSystem=strict`, kept out of the web service's data, the helper's
+  credential store and every other root secret (`InaccessiblePaths`). The key is handed in by
+  systemd `LoadCredential` from `/etc/boxpilot/secrets/anthropic-api-key` (root, 0600); the unit runs
+  only while that file exists. It listens on `/run/boxpilot-model-gateway/gateway.sock` (0660, the
+  web service's group), one JSON line asked and one answered: `status`, `check` and `chat`.
+- It sends to one host, `api.anthropic.com`, and refuses redirects. It calls only the offered models
+  (Opus 5.5, Sonnet 5.5, Haiku 5.5), at most four at once, and logs nothing that was asked or
+  answered.
+- It enforces the monthly dollar cap a second time, from its own ledger, so a bug in the web service
+  cannot spend past it. Before a call it writes down the most the call could cost (every prompt
+  token at the dearer input rate, every token it may write, a fallback model's share); after, what
+  it did cost. A gateway stopped partway reads the month high, never low.
+- The owner sets the key with `agents.cloud.connect` (high, owner, password, the cap typed as
+  "$20 a month"), a root task that writes the key and the cap, starts the gateway, and proves the key
+  by reading one model's details, which costs nothing; a key Claude refuses is not kept, and the one
+  before comes back. `agents.cloud.cap` (medium) changes the cap, read on the next call;
+  `agents.cloud.disconnect` (medium) stops the gateway and deletes the key. An Anthropic key turns
+  up redacted anywhere else (`server/redaction.mjs`).
 - A model call goes: runner → web service (`POST /api/v1/agent-runner/runs/:id/model`, lease
   checked) → policy, budget and the data policy applied → gateway → Claude → the same way back.
 

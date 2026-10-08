@@ -76,6 +76,8 @@ export function laneFor(operation, parameters = {}) {
   // M40: the runner's processors are set at each run; a question never waits behind an upgrade for them.
   if (id === "agents.runtime.cpu") return ["agents:cpu"];
   if (id === "agents.zulip.connect") return [chatLane, "app:zulip"];
+  // M45.3: the Claude key, the cap and the gateway unit change one at a time, apart from everything else.
+  if (id.startsWith("agents.cloud.")) return ["agents:cloud"];
   // M42: BoxPilot's Cloudflare record is read, changed and written back by one change at a time.
   // Connecting and publishing may install or start the Cloudflare Tunnel app (and an install
   // rewrites the dashboard); unpublishing and disconnecting touch only Cloudflare and the record.

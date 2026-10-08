@@ -39,6 +39,18 @@ describe("the gateway's status", () => {
   });
 });
 
+describe("checking the key", () => {
+  it("says the key works when Claude reads it, and why not when it does not, spending nothing", async () => {
+    const ledger = memoryLedger();
+    const works = createGateway({ provider: { id: "anthropic", kind: "remote", chat: async () => ({}) }, ledger, settings: async () => ({ capUsd: 10 }), check: async () => ({}) });
+    expect(await works.handle({ version: 1, id: 1, op: "check" })).toEqual({ version: 1, id: 1, ok: true, result: { ok: true } });
+    const refused = createGateway({ provider: { id: "anthropic", kind: "remote", chat: async () => ({}) }, ledger, settings: async () => ({ capUsd: 10 }), check: async () => { throw Object.assign(new Error("Claude refused the API key"), { code: "auth", status: 401 }); } });
+    expect(await refused.handle({ version: 1, id: 2, op: "check" })).toMatchObject({ ok: false, code: "auth", status: 401 });
+    expect(await createGateway({ provider: null, ledger, settings: async () => ({}) }).handle({ version: 1, id: 3, op: "check" })).toMatchObject({ ok: false, code: "not-connected" });
+    expect((await ledger.current()).spentUsd).toBe(0);
+  });
+});
+
 describe("a call through the gateway", () => {
   it("answers on the contract and counts what it cost, logging none of what was said", async () => {
     const { gateway: made, ledger, logs } = gateway();

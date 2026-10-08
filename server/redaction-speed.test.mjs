@@ -102,6 +102,7 @@ const hostile = {
   "--a repeated": (n) => fill("--a ", n),
   "JWT starts": (n) => fill("eyJabcdefgh.", n),
   "tskey- repeated": (n) => fill("tskey-", n),
+  "sk-ant- repeated": (n) => fill("sk-ant-", n),
   "ghp_ repeated": (n) => fill("ghp_", n),
 };
 

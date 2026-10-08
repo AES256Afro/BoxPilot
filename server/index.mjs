@@ -39,6 +39,7 @@ import { createPeopleRouter } from "./routes/people.mjs";
 import { createRunbookRouter } from "./routes/runbook.mjs";
 import { createAssistantRouter } from "./routes/assistant.mjs";
 import { createAgentsRouter } from "./routes/agents.mjs";
+import { createAgentsCloud } from "./agents/cloud.mjs";
 import { createAgentRunnerRouter } from "./routes/agent-runner.mjs";
 import { apiRolePolicy } from "./routes/access.mjs";
 import { createAssistantService } from "./assistant/index.mjs";
@@ -242,6 +243,10 @@ const jobs = createJobService(state, helper, {
     // M38: where Zulip is and what Connect made; the bot's key stayed in the helper's credential store.
     "agents.zulip.connect": (job, result) => { agents.zulipConnected(result, { actorId: job.createdBy, boxpilotUrl: job.parameters?.boxpilotUrl ?? null }); },
     "agents.zulip.disconnect": (job) => { agents.zulipDisconnected({ actorId: job.createdBy }); },
+    // M45.3: Claude connected, its cap, or disconnected; the key went to the gateway, never here.
+    "agents.cloud.connect": (job, result) => { agentsCloud.connected(result, { actorId: job.createdBy }); },
+    "agents.cloud.cap": (job, result) => { agentsCloud.capSet(result, { actorId: job.createdBy }); },
+    "agents.cloud.disconnect": (job) => { agentsCloud.disconnected({ actorId: job.createdBy }); },
     // M39.2: whether the router kept answering with the DNS app here stopped. The DNS check reads it
     // (a job is pruned within weeks; the verdict holds for ninety days).
     "dns.fallback.rehearse": (job, result) => {
@@ -393,6 +398,8 @@ const assistant = createAssistantService({ state, registry, catalog: catalogServ
 // boxpilot-agents.service, which asks this process for work and for read-only tools. Off until the
 // owner turns Agents on; with none made, a minute's timer that finds nothing to do.
 const agentStore = createAgentStore({ databasePath: state.databasePath });
+// M45.3: Claude, as the web service knows it; the key stays with the model gateway.
+const agentsCloud = createAgentsCloud({ state });
 const agents = createAgentService({
   state, store: agentStore, registry, helper, inventory, knowledge: assistant.index, secretEnvNamesFor, healthAlerts, productVersion,
   // The daily look for a newer small Qwen reads Hugging Face's public model list; it never switches anything.
@@ -509,7 +516,7 @@ app.use("/api/v1", createOidcAdminRouter({ oidc, auth }));
 const runbook = createRunbookService({ store: state, helper, catalogService, inventory, network, notifications, autoReconnect, identity, secretEnvNamesFor, collect: storageRead, webHost: host, webPort: port, tlsDir });
 app.use("/api/v1", createRunbookRouter({ runbook, auth }));
 app.use("/api/v1", createAssistantRouter({ assistant, state, auth }));
-app.use("/api/v1", createAgentsRouter({ agents, state, auth }));
+app.use("/api/v1", createAgentsRouter({ agents, state, auth, cloud: agentsCloud }));
 
 // OIDC provider endpoints (M19.3) live at the site root, not under /api/v1: discovery, JWKS, token
 // and userinfo are public by design, and /oidc/authorize reads the owner's session itself.
