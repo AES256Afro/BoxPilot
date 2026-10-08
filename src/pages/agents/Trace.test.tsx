@@ -1,6 +1,6 @@
-import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
-import type { Run } from "./api";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { AgentPlan, Run } from "./api";
 import { RunView } from "./Trace";
 
 /*
@@ -39,5 +39,33 @@ describe("which model answered", () => {
     render(<RunView run={run({ state: "degraded", flags: { degraded: "model-error", secondOpinion: { runId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", reason: "The local model's answer was cut short (model-error)" } } })} />);
     expect(screen.getByText("Asked again on Claude")).toBeTruthy();
     expect(screen.getByText(/cut short \(model-error\)\. Claude answers it as a run of its own/)).toBeTruthy();
+  });
+});
+
+describe("a plan the run made (M45.6)", () => {
+  const plan: AgentPlan = {
+    id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc", title: "Restart and back up Jellyfin", state: "waiting", reason: null, cursor: 2, createdAt: "2026-09-29T16:00:00Z", deadlineAt: "2026-09-30T16:00:00Z",
+    steps: [
+      { kind: "operation", title: "Start, stop, pause, or restart application", operationId: "app.action", state: "done", note: "It finished.", jobId: "j1", grant: "run", risk: "low" },
+      { kind: "check", title: "Check: Jellyfin runs again", operationId: null, state: "done", note: "Jellyfin runs [T2].", jobId: null, grant: null, risk: null },
+      { kind: "operation", title: "Back up application data", operationId: "app.backup", state: "waiting", note: null, jobId: "j2", grant: "ask", risk: "medium" },
+    ],
+  };
+
+  it("shows each step and how it went, and stops the plan while it is going", () => {
+    const onStop = vi.fn();
+    render(<RunView run={run({ plan })} onStopPlan={onStop} />);
+    expect(screen.getByText("Restart and back up Jellyfin")).toBeTruthy();
+    expect(screen.getByText("waiting for a person")).toBeTruthy();
+    expect(screen.getByText("ran under its leave")).toBeTruthy();
+    expect(screen.getByText("Jellyfin runs [T2].")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Stop the plan" }));
+    expect(onStop).toHaveBeenCalledWith(plan.id);
+  });
+
+  it("offers no stop once it has ended, and says why it stopped", () => {
+    render(<RunView run={run({ plan: { ...plan, state: "failed", reason: "It stopped at step 3: Back up application data failed: disk full" } })} onStopPlan={() => undefined} />);
+    expect(screen.queryByRole("button", { name: "Stop the plan" })).toBeNull();
+    expect(screen.getByText(/disk full/)).toBeTruthy();
   });
 });

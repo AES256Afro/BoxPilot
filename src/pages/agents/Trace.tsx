@@ -1,6 +1,6 @@
 import { Fragment, useState } from "react";
 import { Button, Facts, KeyValue, Notice, StatusChip, Tag } from "../../ui";
-import type { Run, RunCheck, RunStep } from "./api";
+import type { AgentPlan, AgentPlanStep, Run, RunCheck, RunStep } from "./api";
 import { kindWords, runState, seconds, usd } from "./format";
 import { Prose, inline } from "./Prose";
 
@@ -164,8 +164,43 @@ function CheckLine({ check }: { check: RunCheck }) {
   );
 }
 
+const planStateWords: Record<AgentPlan["state"], { label: string; status: "good" | "warning" | "danger" | "neutral" }> = {
+  running: { label: "carrying out", status: "neutral" }, waiting: { label: "waiting", status: "neutral" }, done: { label: "finished", status: "good" },
+  failed: { label: "stopped", status: "danger" }, expired: { label: "ran out of time", status: "warning" }, cancelled: { label: "stopped by a person", status: "neutral" },
+};
+const planStepWords: Record<AgentPlanStep["state"], string> = { pending: "to do", running: "running", waiting: "waiting for a person", checking: "checking", done: "done", failed: "failed" };
+
+/**
+ * A plan the run made (M45.6): its steps, where it is and how each went, and a way to stop it while
+ * it is going. Each operation's job is in Activity like any other.
+ */
+export function PlanView({ plan, onStop }: { plan: AgentPlan; onStop?: (planId: string) => void }) {
+  const going = plan.state === "running" || plan.state === "waiting";
+  const shown = planStateWords[plan.state];
+  return (
+    <div className="agents-plan" aria-label={`The plan: ${plan.title}`}>
+      <div className="agents-plan__head">
+        <StatusChip status={shown.status}>{shown.label}</StatusChip>
+        <span className="agents-plan__title">{plan.title}</span>
+        {going && onStop && <Button variant="ghost" onClick={() => onStop(plan.id)}>Stop the plan</Button>}
+      </div>
+      <ol className="agents-plan__steps">
+        {plan.steps.map((step, index) => (
+          <li key={index} className={`agents-plan__step agents-plan__step--${step.state}`}>
+            <span>{step.title}</span>{" "}
+            <Tag tone={step.state === "done" ? "good" : step.state === "failed" ? "danger" : "neutral"}>{planStepWords[step.state]}</Tag>
+            {step.grant === "run" && <Tag>ran under its leave</Tag>}
+            {step.note && <span className="agents-plan__note">{step.note}</span>}
+          </li>
+        ))}
+      </ol>
+      {plan.reason && <p className="agents-run__reason">{plan.reason}</p>}
+    </div>
+  );
+}
+
 /** A run's outcome, its facts, its answer and its trace. */
-export function RunView({ run }: { run: Run }) {
+export function RunView({ run, onStopPlan }: { run: Run; onStopPlan?: (planId: string) => void }) {
   const state = runState(run.state);
   const usage = run.usage ?? {};
   return (
@@ -186,6 +221,7 @@ export function RunView({ run }: { run: Run }) {
       {run.flags?.injection && <Notice tone="warning" title="Something it read looked like an instruction">The agent was told to treat it as data. The step is marked in the trace.</Notice>}
       {run.reason && run.state !== "completed" && <p className="agents-run__reason">{run.reason}</p>}
       {run.answer && <AnswerText text={run.answer} />}
+      {run.plan && <PlanView plan={run.plan} onStop={onStopPlan} />}
       {run.flags?.check && <CheckLine check={run.flags.check} />}
       {(run.flags?.citations?.unknown?.length ?? 0) > 0 && <p className="agents-run__reason">It cited {run.flags.citations?.unknown.join(", ")}, which it was never shown.</p>}
       {usage.routeReason && <p className="agents-run__reason">Moved to Claude: {usage.routeReason}.</p>}

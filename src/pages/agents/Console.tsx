@@ -151,6 +151,13 @@ export function Console({ agents, agentId, runId, csrfToken, role, now, enabled,
       setRun((current) => (current?.id === stopped.id ? { ...current, ...stopped, steps: stopped.steps ?? current.steps, tree: stopped.tree ?? current.tree } : stopped));
     } catch (requestError) { setError(errorText(requestError, "The run could not be stopped")); }
   };
+  // M45.6: stopping a plan this run made; what waits on a person is withdrawn.
+  const stopPlan = async (planId: string) => {
+    try {
+      const plan = await agentsApi.cancelPlan(csrfToken, planId);
+      setRun((current) => (current?.plan?.id === plan.id ? { ...current, plan } : current));
+    } catch (requestError) { setError(errorText(requestError, "The plan could not be stopped")); }
+  };
   // Opening an earlier run shows it in the Run panel above, which is out of sight from the list.
   const open = (id: string) => {
     follow(id);
@@ -217,7 +224,7 @@ export function Console({ agents, agentId, runId, csrfToken, role, now, enabled,
                   </ol>
                 </nav>
               )}
-              <RunView run={run} />
+              <RunView run={run} onStopPlan={role === "viewer" ? undefined : (planId) => void stopPlan(planId)} />
               {/* Keyed by run: an open "Wrong" belongs to the run it was opened on. */}
               {finishedRunStates.has(run.state) && run.kind !== "index" && <Feedback key={run.id} run={run} csrfToken={csrfToken}
                 canAddQuestion={Boolean(run.question) && run.kind !== "eval" && Boolean(agents.find((entry) => entry.id === run.agentId)?.canEdit)}

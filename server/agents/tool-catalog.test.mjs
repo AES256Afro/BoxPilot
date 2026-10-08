@@ -16,9 +16,10 @@ describe("the tools catalog", () => {
   });
 
   it("writes on the server only through a job under a grant: the other tools that write keep notes, save a card or queue a notice", () => {
-    expect(toolCatalog.filter((tool) => tool.writes).map((tool) => [tool.id, tool.writes])).toEqual([["notes.write", "notes"], ["plan.propose", "proposal"], ["operations.run", "job"], ["notify.owner", "notification"], ["agents.handoff", "subtask"]]);
+    expect(toolCatalog.filter((tool) => tool.writes).map((tool) => [tool.id, tool.writes])).toEqual([["notes.write", "notes"], ["plan.propose", "proposal"], ["operations.run", "job"], ["operations.plan", "job"], ["notify.owner", "notification"], ["agents.handoff", "subtask"]]);
     // M45.5 (ADR-013): the one tool that changes the server is for runs a person who may change it stands behind.
     expect(toolById("operations.run").role).toBe("operator");
+    expect(toolById("operations.plan").role).toBe("operator");
   });
 
   it("gives an operator read (ADR-003) the operator role, as the registry does", () => {

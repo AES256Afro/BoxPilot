@@ -243,6 +243,16 @@ export const toolCatalog = Object.freeze([
     },
   },
   {
+    // M45.6: the same leave, carried out over hours, one step at a time, with checks between.
+    id: "operations.plan", title: "Carry out a plan", category: "action", role: "operator", cost: "moderate", writes: "job", always: true,
+    description: "Carry out a plan of up to 10 steps over as long as a day: operations you have leave to carry out, in order, with checks between them. BoxPilot carries it out one step at a time, waits for each job and any approval, and runs you to make each check; it stops at the first step that fails. Read the live facts first. End this run then; a follow-up run reports how it went.",
+    brief: "Carry out up to 10 steps over a day: operations you have leave for, with checks between. Read the live facts first, then end the run; a follow-up reports.",
+    params: {
+      title: { type: "string", maxLength: 120, required: true, description: "What the plan does, in a few words." },
+      steps: { type: "array", maxItems: 10, required: true, items: "planStep", description: "In order. An operation: { operationId, parameters, why }. A check before going on: { check } saying what to verify with a read." },
+    },
+  },
+  {
     id: "notify.owner", title: "Tell the owner (important only)", category: "action", role: "viewer", cost: "cheap", writes: "notification", always: true,
     description: "Send the owner a short notification. Only for something important that needs a person soon; at most one every few hours.",
     brief: "Send the owner a short notification: only for something important that needs a person soon.",
@@ -350,7 +360,7 @@ export function toModelTool(tool) {
     const property = { description: spec.description ?? name };
     if (spec.type === "integer") Object.assign(property, { type: "integer", ...(spec.min !== undefined ? { minimum: spec.min } : {}), ...(spec.max !== undefined ? { maximum: spec.max } : {}) });
     else if (spec.type === "object") Object.assign(property, { type: "object" });
-    else if (spec.type === "array") Object.assign(property, { type: "array", maxItems: spec.maxItems, items: spec.items === "step" ? { type: "object", properties: { operationId: { type: "string" }, parameters: { type: "object" }, why: { type: "string" } }, required: ["operationId"] } : {} });
+    else if (spec.type === "array") Object.assign(property, { type: "array", maxItems: spec.maxItems, items: spec.items === "step" ? { type: "object", properties: { operationId: { type: "string" }, parameters: { type: "object" }, why: { type: "string" } }, required: ["operationId"] } : spec.items === "planStep" ? { type: "object", properties: { operationId: { type: "string" }, parameters: { type: "object" }, why: { type: "string" }, check: { type: "string" } } } : {} });
     else Object.assign(property, { type: "string", ...(spec.enum ? { enum: spec.enum } : {}), ...(spec.maxLength ? { maxLength: spec.maxLength } : {}) });
     properties[name] = property;
     if (spec.required) required.push(name);
