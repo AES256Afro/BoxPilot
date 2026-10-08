@@ -227,6 +227,9 @@
 
 /* ---- the team chat (M38) ---- */
 .agents-zulip__body { display: grid; gap: 10px; min-width: 0; }
+/* Claude for the agents (M45.3): the key's form, the cap and the month so far. */
+.agents-cloud__body { display: grid; gap: 10px; min-width: 0; }
+.agents-cloud__form { display: grid; gap: 8px; min-width: 0; }
 .agents-zulip__channels { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
 .agents-zulip__channel { display: grid; grid-template-columns: minmax(9rem, max-content) minmax(0, 1fr); align-items: baseline; gap: 2px 12px; min-width: 0; }
 .agents-zulip__channel code { color: var(--text-strong); font-size: 12.5px; overflow-wrap: anywhere; }

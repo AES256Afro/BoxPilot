@@ -315,6 +315,8 @@ describe("more secret shapes (sweep 4)", () => {
     { const tail = `${fake.alnum(22)}_${fake.alnum(59)}`; addWith("github_pat_ token", `GH=github_pat_${tail}`, [tail]); }
     for (const prefix of ["xoxb-", "xoxp-"]) { const tail = fake.alnum(24); addWith(`${prefix} token`, `slack: ${prefix}123456789012-1234567890123-${tail}`, [tail]); }
     { const tail = `${fake.alnum(11)}CNTRL-${fake.alnum(33)}`; addWith("tskey- auth key", `tailscaled[901]: logging in with tskey-auth-${tail} as box`, [tail]); }
+    // M45.3: the key the model gateway holds, as the Anthropic Console issues it.
+    { const tail = `${fake.alnum(40)}-${fake.alnum(30)}_${fake.alnum(20)}`; addWith("sk-ant- API key", `export ANTHROPIC_API_KEY=sk-ant-api03-${tail}`, [tail]); addWith("sk-ant- key in a sentence", `the key sk-ant-api03-${tail} was rejected`, [tail]); }
     for (const prefix of ["AKIA", "ASIA"]) { const id = fake.upper(16); addWith(`${prefix} access key id`, `aws configure set aws_access_key_id ${prefix}${id}`, [id]); }
 
     // A PuTTY key's private lines, RSA and Ed25519.

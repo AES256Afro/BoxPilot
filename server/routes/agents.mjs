@@ -35,7 +35,10 @@ const handle = (fn) => async (request, response) => {
   }
 };
 
-export function createAgentsRouter({ agents, state, auth }) {
+/** Claude when no gateway is wired in (tests that do not ask about it): not connected. */
+const noCloud = { state: async () => ({ connected: false, model: null, models: [], capUsd: null, connectedAt: null, gateway: "off", month: null, spentUsd: null, calls: null, problem: null }) };
+
+export function createAgentsRouter({ agents, state, auth, cloud = noCloud }) {
   const router = Router();
 
   // ---- the module ----
@@ -48,6 +51,8 @@ export function createAgentsRouter({ agents, state, auth }) {
   router.get("/agents/knowledge", handle((request) => agents.knowledgeState(callerOf(request))));
   // M38: the team chat's panel, and "Check #agent-files now".
   router.get("/agents/zulip", handle((request) => agents.zulipState(callerOf(request))));
+  // M45.3: Claude - connected or not, the cap, the month so far. Never the key, which only the gateway holds.
+  router.get("/agents/cloud", handle(() => cloud.state()));
   router.post("/agents/zulip/poll", auth.requireCsrf, handle((request) => agents.zulipPollNow(callerOf(request))));
   router.post("/agents/module/pause", auth.requireCsrf, handle((request) => agents.pauseModule(callerOf(request), { until: request.body?.until ?? null })));
   router.post("/agents/module/resume", auth.requireCsrf, handle((request) => agents.resumeModule(callerOf(request))));

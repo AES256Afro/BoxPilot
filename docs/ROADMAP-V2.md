@@ -2709,12 +2709,18 @@ evaluation at 6/6 and every M37 to M44 agent test passing.
   through the real SDK with a scripted `fetch`; the response fixtures follow the documented shape,
   since no key was at hand to record them. CI never calls a real model. Nothing in BoxPilot calls
   Claude yet: that is the gateway (M45.3) and the router (M45.4).
-- **M45.3 The gateway and what may leave the box.** `boxpilot-model-gateway.service`, the only
-  process that holds the Claude key (`LoadCredential`, root-owned file), one destination host, a
-  Unix socket only the web service opens, the monthly cap enforced again. `agents.cloud.connect`
-  (high) and `agents.cloud.disconnect` (medium). The data policy per agent: Never, Redacted with
-  stand-ins kept on the box, or As is. Settings → Agents: the key, the model, the monthly cap, this
-  month's spend.
+- **M45.3 The gateway and what may leave the box.** In two parts.
+  - ✅ The gateway (unreleased, `feat/m45-3-model-gateway`). `boxpilot-model-gateway.service`, the
+    only process that holds the Claude key (`LoadCredential` from a root-owned file), one
+    destination host, a Unix socket only the web service's group opens, the monthly cap enforced
+    again from its own ledger, at most four calls at once, nothing asked or answered in its log.
+    `agents.cloud.connect` (high, the cap typed), `agents.cloud.cap` and `agents.cloud.disconnect`
+    (medium), as root tasks; connecting proves the key with Claude at no cost and keeps no key
+    Claude refuses. `GET /agents/cloud` and the Claude panel on the Agents page: connected or not,
+    the model, the month against the cap. Anthropic keys are redacted wherever they turn up.
+  - The run path: runner → web service → gateway, the data policy per agent (Never, Redacted with
+    stand-ins kept on the box, or As is), the first cap check in the web service, cost in the trace,
+    and a run on Claude end to end in the demo with a fake upstream.
 - **M45.4 The router.** Each agent local, Claude or auto; auto picks Claude for low planner
   confidence, runs that act and questions too big for the local context; a second opinion on Claude
   for a local run whose check ended unsure; local whenever Claude is not connected, not reachable,

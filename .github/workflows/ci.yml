@@ -166,6 +166,28 @@ jobs:
         if: ${{ !cancelled() }}
         run: sudo bash tests/ubuntu/env-file-parity.sh "$(command -v node)"
 
+  # M45.3: the model gateway's unit on real systemd: the key from LoadCredential, the socket only the
+  # web service's user opens, a sandbox without anyone else's secrets, and a call that reaches
+  # api.anthropic.com and is refused for its (fake) key, so nothing is billed.
+  model-gateway:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-26.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: The gateway holds the key alone and answers only the web service
+        run: sudo bash tests/ubuntu/model-gateway.sh "$(command -v node)"
+
   # M39.2: whether the house keeps its DNS with the server off, against real dnsmasq (the resolver
   # GL.iNet and OpenWrt routers run): each server asked directly, the canary through a "router"
   # found in a "Pi-hole"'s query log, and the rehearsal with that Pi-hole really stopped, for a
