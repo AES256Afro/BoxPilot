@@ -191,6 +191,20 @@ export type ChatKind = "findings" | "logs" | "knowledge";
 export interface ChatOutput { enabled: boolean; channel: string | null; topic: string | null }
 export type ChatOutputs = Record<ChatKind, ChatOutput>;
 export interface ChatPost { id: string; kind: ChatKind | "ack" | "reply"; channel: string; topic: string; direct?: boolean; state: "queued" | "sent" | "failed" | "dropped"; error: string | null; createdAt: string; sentAt: string | null; agentName: string | null; preview: string }
+/** Claude for the agents (M45.3): connected or not, the cap, and the month as the gateway counts it. Never the key. */
+export interface CloudState {
+  connected: boolean;
+  model: string | null;
+  models: string[];
+  capUsd: number | null;
+  connectedAt: string | null;
+  gateway: "off" | "answering" | "not answering";
+  month: string | null;
+  spentUsd: number | null;
+  calls: number | null;
+  problem: string | null;
+}
+
 export interface ZulipState {
   connected: boolean; site: string | null; realm: string | null; botEmail: string | null;
   channels: Record<ChatKind | "files", string>; notPrivate: string[]; connectedAt: string | null; boxpilotUrl: string | null;
@@ -274,6 +288,7 @@ export const agentsApi = {
   proposal: (proposalId: string) => get<Proposal>(`/proposals/${encodeURIComponent(proposalId)}`),
   knowledge: () => get<Knowledge>("/knowledge"),
   zulip: () => get<ZulipState>("/zulip"),
+  cloud: () => get<CloudState>("/cloud"),
   zulipPoll: (csrf: string) => send<{ messages?: number; added?: number; skipped?: string; error?: string; asked?: { asked?: number; refused?: number; skipped?: string; error?: string } }>("POST", "/zulip/poll", csrf),
   /** M40.5: who in Zulip may ask, as which account; with the owner's password. */
   zulipPeople: (csrf: string, body: { password: string; people: ZulipPerson[]; defaultAgentId: string | null; twoWay: boolean }) => send<ZulipState>("PUT", "/zulip/people", csrf, body),

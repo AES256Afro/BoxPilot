@@ -453,13 +453,15 @@ const stringRules = [
   // Whatever the scheme, the credential after it in an Authorization header, however short.
   ["authorization header", (text) => text.replace(authorizationHeader, redactAuthorizationHeader)],
   // Credentials that say what they are whatever surrounds them (sweep 4): a JWT, the token formats
-  // of GitHub, GitLab (sweep 5), Slack and Tailscale, an AWS access key id, a PEM block
+  // of GitHub, GitLab (sweep 5), Slack, Tailscale and Anthropic, an AWS access key id, a PEM block
   // base64-wrapped again, and a private key as one line of DER.
   ["jwt", (text) => text.replace(/(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]*/g, "[REDACTED_JWT]")],
   ["github token", (text) => text.replace(/(?<![A-Za-z0-9_])(gh[pousr]_)[A-Za-z0-9]{20,}/g, "$1[REDACTED]")],
   ["github fine-grained token", (text) => text.replace(/(?<![A-Za-z0-9_])(github_pat_)[A-Za-z0-9_]{20,}/g, "$1[REDACTED]")],
   ["gitlab token", (text) => text.replace(/(?<![A-Za-z0-9_-])(gl(?:pat|ptt|dt|rt|cbt|soat|ft|imt|oas|agent)-)[A-Za-z0-9_.-]{20,}/g, "$1[REDACTED]")],
   ["slack and tailscale token", (text) => text.replace(/(?<![A-Za-z0-9_-])(xox[abeoprs]-|xapp-|tskey-)[A-Za-z0-9-]{8,}/g, "$1[REDACTED]")],
+  // M45.3: an Anthropic API key, the one the model gateway holds, wherever else it turns up.
+  ["anthropic key", (text) => text.replace(/(?<![A-Za-z0-9_-])(sk-ant-)[A-Za-z0-9_-]{20,}/g, "$1[REDACTED]")],
   ["aws access key id", (text) => text.replace(/(?<![A-Za-z0-9])(AKIA|ASIA)[A-Z0-9]{16}(?![A-Za-z0-9])/g, "$1[REDACTED]")],
   ["wrapped pem", (text) => text.replace(/(?<![A-Za-z0-9+/])LS0tLS1CRUdJTi[A-Za-z0-9+/]*={0,2}/g, wrappedPem)],
   ["ed25519 key", (text) => text.replace(/(?<![A-Za-z0-9+/])MC4CAQAwBQYDK2V[uw]BCIEI[A-Za-z0-9+/]{20,}={0,2}/g, redactedKey)],

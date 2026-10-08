@@ -1,0 +1,67 @@
+[Unit]
+Description=BoxPilot model gateway (holds the Claude key; one destination, a monthly cap)
+Documentation=https://github.com/AES256Afro/BoxPilot/blob/main/docs/HARNESS.md
+After=network-online.target
+Wants=network-online.target
+# Installed with every other unit and enabled only when the owner connects Claude (agents.cloud.connect).
+ConditionPathExists=/etc/boxpilot/secrets/anthropic-api-key
+
+[Service]
+Type=simple
+User=boxpilot-model-gateway
+# The web service's group, so its user may open the socket and nothing else may. The gateway reads
+# none of the web service's files (below).
+Group=boxpilot
+WorkingDirectory=/opt/boxpilot
+Environment=NODE_ENV=production
+# The key, written root-only by agents.cloud.connect. systemd reads it as root and hands a copy to
+# this service alone; nothing else on the server can read it, the web service included.
+LoadCredential=anthropic-api-key:/etc/boxpilot/secrets/anthropic-api-key
+RuntimeDirectory=boxpilot-model-gateway
+RuntimeDirectoryMode=0750
+StateDirectory=boxpilot-model-gateway
+StateDirectoryMode=0700
+ExecStart=/usr/local/bin/node /opt/boxpilot/server/model-gateway/main.mjs
+Restart=on-failure
+RestartSec=10s
+TimeoutStopSec=30s
+UMask=0077
+
+# ---- Small: it relays model calls and holds no model ----
+MemoryMax=512M
+MemorySwapMax=0
+TasksMax=64
+LimitNOFILE=1024
+
+# ---- Network: Anthropic, over HTTPS ----
+# systemd cannot name a host, so the client does: it sends to api.anthropic.com alone, takes no
+# address from the environment, and refuses redirects (packages/harness/src/providers/anthropic.mjs).
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+# ---- Sandbox ----
+# Nothing of the web service's, the helper's or the root secrets but its own key, given above.
+InaccessiblePaths=-/var/lib/boxpilot -/var/lib/boxpilot-managed -/etc/boxpilot/secrets
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectClock=true
+ProtectControlGroups=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectHostname=true
+ProtectProc=invisible
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+[Install]
+WantedBy=multi-user.target
