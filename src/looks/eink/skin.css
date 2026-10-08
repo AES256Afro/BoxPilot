@@ -302,6 +302,8 @@
   :root[data-look="eink"] .ui-switch__control[aria-checked="true"] .ui-switch__thumb { background: #151515; box-shadow: 0 0 0 2px #e6e6e1; }
   :root[data-look="eink"] .ui-switch__state { color: #151515; font-family: "Literata", serif; font-style: italic; letter-spacing: 0; text-transform: none; }
   :root[data-look="eink"] .ui-check__mark { border: 1.5px solid #151515; background: #efefeb; }
+  :root[data-look="eink"] :is(.ui-check__input:checked, .ui-check__input:indeterminate) + .ui-check__mark { border-color: #151515; background: #151515; }
+  :root[data-look="eink"] .ui-check__mark::after { border-color: #e6e6e1; }
   :root[data-look="eink"] .ui-segmented { gap: 0; padding: 0; border: 1.5px solid #151515; background: none; }
   :root[data-look="eink"] .ui-segmented__option { color: #151515; font-family: "Literata", serif; font-weight: 400; }
   :root[data-look="eink"] .ui-segmented__option + .ui-segmented__option { border-left: 1.5px solid #151515; }

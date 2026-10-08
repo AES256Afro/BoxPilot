@@ -406,7 +406,7 @@
 :root[data-look="blueprint"] :is(.ui-input, .ui-textarea, .ui-select__control) { border: 1.4px solid var(--bp-ink); border-radius: 0; color: var(--bp-ink); background: rgba(10, 30, 66, 0.25); font-family: var(--font-mono); font-size: 12.5px; }
 :root[data-look="blueprint"] :is(.ui-input, .ui-textarea)::placeholder { color: var(--bp-dim); }
 :root[data-look="blueprint"] .ui-check__mark { border: 1.4px solid var(--bp-ink); border-radius: 0; background: transparent; }
-:root[data-look="blueprint"] .ui-check__input:checked + .ui-check__mark { background: var(--bp-ink); }
+:root[data-look="blueprint"] :is(.ui-check__input:checked, .ui-check__input:indeterminate) + .ui-check__mark { background: var(--bp-ink); }
 :root[data-look="blueprint"] .ui-check__mark::after { border-color: var(--bp-paper); }
 :root[data-look="blueprint"] .ui-kv--strip { border: 1.4px solid var(--bp-ink); border-radius: 0; background: transparent; }
 :root[data-look="blueprint"] .ui-kv--strip .ui-kv__item { border-right-color: var(--bp-faint); box-shadow: 0 1px 0 var(--bp-faint); }

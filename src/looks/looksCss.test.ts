@@ -107,6 +107,22 @@ describe("the looks' stylesheets", () => {
     }
   });
 
+  // A look's plain box rule outranks the shared ticked one unless the look draws ticked itself:
+  // in five looks a ticked checkbox looked exactly like an empty one.
+  it("draw a ticked and a half-ticked box, and a switch that is on, wherever they draw one", () => {
+    for (const [path, css] of Object.entries(sheets)) {
+      if (!path.endsWith("/skin.css")) continue;
+      const all = selectors(css);
+      if (all.some((selector) => selector.endsWith(".ui-check__mark"))) {
+        expect(all.some((selector) => selector.includes(":checked") && selector.endsWith(".ui-check__mark")), `${path}: ticked`).toBe(true);
+        expect(all.some((selector) => selector.includes(":indeterminate") && selector.endsWith(".ui-check__mark")), `${path}: half-ticked`).toBe(true);
+      }
+      if (all.some((selector) => selector.endsWith(".ui-switch__track"))) {
+        expect(all.some((selector) => selector.includes('[aria-checked="true"]') && selector.endsWith(".ui-switch__track")), `${path}: on`).toBe(true);
+      }
+    }
+  });
+
   it("key the shared sheet to the root element, and declare only faces in the fonts sheet", () => {
     const stray = selectors(sheets["./looks.css"]).filter((selector) => !selector.startsWith(":root"));
     expect(stray).toEqual([]);
