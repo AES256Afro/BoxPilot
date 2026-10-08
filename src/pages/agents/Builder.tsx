@@ -379,8 +379,28 @@ function SpecForm({ draft, setDraft, catalog, disabled, others, template = null 
               onChange={(checked) => setDraft((current) => ({ ...current, escalation: { ...current.escalation, [key]: checked } }))} />
           ))}
         </div>
-        <Switch label="Thinking" description="Off by default: on this processor a small model can spend minutes thinking and never answer. Turn it on only for hard tasks; it counts against the budget." checked={draft.model.thinking} disabled={disabled}
-          onChange={(checked) => setDraft((current) => ({ ...current, model: { thinking: checked } }))} />
+        <div className="agents-form__row">
+          <Field label="Model" hint="Claude runs only once it is connected on the Agents page, and never past its monthly cap; until then, and after, the local model answers.">
+            <Select value={draft.model.route ?? "local"} disabled={disabled} onValueChange={(value) => setDraft((current) => ({ ...current, model: { ...current.model, route: value === "claude" ? "claude" : "local" } }))}
+              options={[{ value: "local", label: "The local model, on this server" }, { value: "claude", label: "Claude, through the model gateway" }]} />
+          </Field>
+          {draft.model.route === "claude" && (
+            <Field label="What may leave this server" hint="Secrets never leave it, either way.">
+              <Select value={draft.model.dataPolicy ?? "redacted"} disabled={disabled} onValueChange={(value) => setDraft((current) => ({ ...current, model: { ...current.model, dataPolicy: value === "as-is" ? "as-is" : "redacted" } }))}
+                options={[{ value: "redacted", label: "Names replaced: hosts, addresses, accounts and local domains go as stand-ins" }, { value: "as-is", label: "As it is" }]} />
+            </Field>
+          )}
+        </div>
+        {draft.model.route === "claude" && (
+          <div className="agents-form__checks">
+            <Checkbox label="Claude may answer viewers" description="A viewer's question goes to Anthropic too. Off: a viewer's question is answered by the local model." checked={draft.model.claudeForViewers ?? false} disabled={disabled}
+              onChange={(checked) => setDraft((current) => ({ ...current, model: { ...current.model, claudeForViewers: checked } }))} />
+            <Checkbox label="Claude may read your documents" description="The library on the Knowledge tab, what came in from Notion or Slack, and files dropped in Zulip. Off: they stay on this server, and the agent answers without them." checked={draft.model.claudeReadsDocuments ?? false} disabled={disabled}
+              onChange={(checked) => setDraft((current) => ({ ...current, model: { ...current.model, claudeReadsDocuments: checked } }))} />
+          </div>
+        )}
+        <Switch label="Thinking" description={draft.model.route === "claude" ? "For the local model, when it answers instead. Claude always thinks, as hard as the run needs." : "Off by default: on this processor a small model can spend minutes thinking and never answer. Turn it on only for hard tasks; it counts against the budget."} checked={draft.model.thinking} disabled={disabled}
+          onChange={(checked) => setDraft((current) => ({ ...current, model: { ...current.model, thinking: checked } }))} />
       </FormSection>
 
       <FormSection id="memory" title="Memory" step={6}>

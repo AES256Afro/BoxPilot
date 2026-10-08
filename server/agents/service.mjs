@@ -46,6 +46,8 @@ import { ToolError, createToolRunner, readableSources } from "./tools.mjs";
 import { gradeFact } from "./grade.mjs";
 import { verifyAnswer } from "./verify.mjs";
 import { neutralizeLinks, questionFrom } from "./zulip.mjs";
+import { createStandIns, hideRequest, showResult } from "../../packages/harness/src/safety/stand-ins.mjs";
+import { houseNames } from "./cloud.mjs";
 
 export { gradeDrives, gradeFact } from "./grade.mjs";
 
@@ -236,6 +238,10 @@ export function createAgentService({
   physicalCoreCount = undefined,
   // What reads the owner's folder (connectors.mjs); a test hands in one that never answers.
   folderScan = scanFolder,
+  // Claude through the model gateway (M45.3, server/agents/cloud.mjs); null: every run is local.
+  cloud = null,
+  // The names a run on Claude replaces with stand-ins; a test hands in its own.
+  houseNamesFor = houseNames,
 } = {}) {
   const limits = { ...serviceLimits, ...overrides };
   const tools = createToolRunner({ state, store, registry, helper, inventory, knowledge, secretEnvNamesFor, now, webSearch: () => moduleSettings().webSearch, ...(fetcher ? { fetcher } : {}) });
@@ -613,7 +619,13 @@ export function createAgentService({
    * every agent both allow it, and the owner's documents only for the owner or an operator, as the
    * library's own page (2026-10 sweep: both were read regardless).
    */
-  const sourcesFor = (spec, readRole) => readableSources({ spec, sources: knowledgeSettings(), readRole });
+  const sourcesFor = (spec, readRole, run = null) => {
+    const sources = readableSources({ spec, sources: knowledgeSettings(), readRole });
+    // A run on Claude (M45.3) reads the owner's documents - the library, connector imports and
+    // Zulip files - only when its agent says so by name: they stay on the box otherwise.
+    return keepsDocumentsHome(spec, run) ? { ...sources, documents: false } : sources;
+  };
+  const keepsDocumentsHome = (spec, run) => Boolean(run && cloudRuns.has(run.id) && spec?.model?.claudeReadsDocuments !== true);
 
   /** The account that made an agent, while it has a role that reads anything. */
   const makerOf = (agent) => {
@@ -639,7 +651,7 @@ export function createAgentService({
   function offeredTools(run, spec, agent) {
     const settings = moduleSettings();
     const specialists = specialistsForRun(spec, agent, run.readRole);
-    const sources = sourcesFor(spec, run.readRole);
+    const sources = sourcesFor(spec, run.readRole, run);
     return toolCatalog.filter((tool) => {
       if (!toolAllowed(tool, spec.tools?.[tool.id], { kind: run.kind, readRole: run.readRole })) return false;
       if (tool.id === "docs.search") return sources.docs || sources.registry || sources.catalog || sources.documents;
@@ -749,10 +761,10 @@ export function createAgentService({
    * The facts are notes, read only while the notes switch, the agent's and the owner's, is on
    * (2026-10 sweep 2: memory search and recall read them regardless).
    */
-  function memoryItems(agent, spec, readRole) {
+  function memoryItems(agent, spec, readRole, run = null) {
     const items = [];
     const agents = new Map(store.listAgents().map((entry) => [entry.id, entry]));
-    const sources = sourcesFor(spec, readRole);
+    const sources = sourcesFor(spec, readRole, run);
     if (spec.memory?.enabled) {
       // `injectionHop`: a note kept by a run that had read something that looked like an instruction,
       // and how far from it, for this run (null for one that was not, or that someone whose word
@@ -1166,6 +1178,8 @@ export function createAgentService({
     const agent = store.getAgent(run.agentId, { includeDeleted: true });
     const version = store.getVersion(run.agentId, run.version) ?? { spec: agent.spec };
     const spec = version.spec;
+    // Which model runs it, decided first (M45.3): a run on Claude is offered and recalls less.
+    const runtime = claimedModel(spec, run, cpuInfo);
     const offered = offeredTools(run, spec, agent);
     // The specialists it is told of, when it may hand work on. Another account's words about one
     // that read like an instruction are read here, by this run itself (sweep 3).
@@ -1188,7 +1202,7 @@ export function createAgentService({
     // the runner, when the model searches memory itself). Recorded in the trace as a memory read.
     const query = [run.question, run.trigger?.title, spec.job].filter(Boolean).join(" ");
     const noteKeys = new Set(ownNotes(agent.id, run.readRole, { limit: limits.notesInPrompt }).map((note) => `note:${note.id}`));
-    const recalled = spec.memory?.enabled ? hybridSearch(memoryItems(agent, spec, run.readRole).filter((item) => !noteKeys.has(item.key)), { query, limit: limits.memoryInPrompt }) : [];
+    const recalled = spec.memory?.enabled ? hybridSearch(memoryItems(agent, spec, run.readRole, run).filter((item) => !noteKeys.has(item.key)), { query, limit: limits.memoryInPrompt }) : [];
     if (recalled.length) {
       const carried = rememberedFlag(recalled);
       const step = store.addStep(run.id, { kind: "recall", name: "recall", input: { query: clip(query, 200) }, output: recalled.map((item) => `${item.tier}: ${item.title} (${item.from}, ${String(item.at ?? "").slice(0, 10)}${stale(item) ? ", may be out of date" : ""})`).join("\n"), flags: { read: recalled.length, ...(carried.flagged ? { injection: true } : {}) } });
@@ -1267,7 +1281,7 @@ export function createAgentService({
       // Intent, then plan, then act: the runner asks for the structured understanding first.
       understand: understand ? { tools: offered.map((tool) => ({ fn: tool.fn, title: tool.title, ...(tool.use ? { use: tool.use } : {}) })) } : null,
       output: spec.prompt?.output ?? { format: "text", fields: [] },
-      runtime: runtimeClaim(spec, cpuInfo),
+      runtime,
       limits: {
         steps: spec.budget.stepsPerRun,
         tokens: spec.budget.tokensPerRun,
@@ -1497,6 +1511,87 @@ export function createAgentService({
     }
   }
 
+  // ---- runs on Claude (M45.3) ----
+
+  /** Runs given Claude, while they run: the model, how hard it thinks, the data policy, the stand-ins and the spend. */
+  const cloudRuns = new Map();
+  const lowEffortKinds = new Set(["schedule", "event", "webhook", "eval", "learn"]);
+  const cents = (value) => Math.round(Number(value) * 1_000_000) / 1_000_000;
+
+  /**
+   * The model a run gets: Claude when its agent says so, Claude is connected with the month not
+   * spent, and the asker may send their words to it; the local model otherwise, with a step saying
+   * why. A run on Claude needs no model server, so its claim names none.
+   */
+  function claimedModel(spec, run, cpuInfo) {
+    if (spec?.model?.route !== "claude") return runtimeClaim(spec, cpuInfo);
+    const local = (why) => {
+      const step = store.addStep(run.id, { kind: "system", name: "model", output: `${why}: this run uses the local model.` });
+      if (step) emit(run.id, "step", step);
+      return runtimeClaim(spec, cpuInfo);
+    };
+    if (!cloud) return local("Claude is not set up on this server");
+    if (run.readRole === "viewer" && !spec.model.claudeForViewers) return local("A viewer asked, and this agent does not send a viewer's words to Claude");
+    const usable = cloud.usable();
+    if (!usable.ok) return local(usable.reason);
+    for (const [runId] of cloudRuns) if (store.getRun(runId)?.state !== "running") cloudRuns.delete(runId);
+    const chosen = cloud.settings();
+    const effort = lowEffortKinds.has(run.kind) ? "low" : "medium";
+    const dataPolicy = spec.model.dataPolicy === "as-is" ? "as-is" : "redacted";
+    cloudRuns.set(run.id, { model: chosen.model, effort, dataPolicy, standIns: createStandIns(houseNamesFor()), costUsd: 0, calls: 0 });
+    const documents = spec.model.claudeReadsDocuments === true ? " Your documents may be read and sent." : " Your documents stay on this server.";
+    const step = store.addStep(run.id, { kind: "system", name: "model", output: `On ${chosen.model} through the model gateway, thinking at ${effort} effort. ${dataPolicy === "redacted" ? "Names that identify this house leave it as stand-ins; the answer is turned back here." : "What it reads leaves this server as it is, without secrets."}${documents}` });
+    if (step) emit(run.id, "step", step);
+    return {
+      driver: "claude", model: chosen.model, effort, dataPolicy, cpu: null, threads: null, extra: {}, embeddings: false, temperature: null,
+      maxTokens: runtimeSettings().maxTokens,
+      // What the runner works out a call's time from: Claude reads far faster than this server's model.
+      speed: { promptPerSecond: 5_000, generatePerSecond: 50 },
+    };
+  }
+
+  const roles = new Set(["system", "user", "assistant", "tool"]);
+  /** A runner's model request, held to what one may be: the conversation, its tools, and how it may answer. */
+  function readModelRequest(body) {
+    const request = body?.request;
+    if (!request || typeof request !== "object" || !Array.isArray(request.messages) || !request.messages.length || request.messages.length > 400) refuse(400, "A model request carries its messages", "bad_request");
+    if (request.messages.some((message) => !roles.has(message?.role))) refuse(400, "A message has no known role", "bad_request");
+    const tools = Array.isArray(request.tools) ? request.tools.slice(0, 64) : [];
+    const format = request.extra?.response_format?.type === "json_schema" ? request.extra.response_format : null;
+    return {
+      messages: request.messages,
+      tools,
+      toolChoice: request.toolChoice === "none" ? "none" : "auto",
+      maxTokens: Math.max(64, Math.min(64_000, Math.round(Number(request.maxTokens) || 1024))),
+      ...(format ? { extra: { response_format: format } } : {}),
+    };
+  }
+
+  /**
+   * One model call of a run on Claude (POST /agent-runner/runs/:id/model): the asker's words
+   * redacted, names replaced with stand-ins when the agent's data policy says so, the cap checked,
+   * the call made through the gateway, and the answer turned back before the runner reads it.
+   */
+  async function runnerModel(runId, lease, body = {}) {
+    heldRun(runId, lease);
+    const cloudRun = cloudRuns.get(runId);
+    if (!cloudRun || !cloud) refuse(409, "This run was not given Claude", "not_cloud");
+    const request = readModelRequest(body);
+    // The person's own words may hold a secret they typed; everything else was redacted where BoxPilot wrote or read it.
+    const messages = request.messages.map((message) => (message.role === "user" && typeof message.content === "string" ? { ...message, content: redact(message.content) } : message));
+    const outgoing = { ...request, model: cloudRun.model, effort: cloudRun.effort, messages };
+    const sent = cloudRun.dataPolicy === "redacted" ? hideRequest(outgoing, cloudRun.standIns) : outgoing;
+    let result;
+    try {
+      result = await cloud.chat(sent, { timeoutMs: Math.max(5_000, Math.min(10 * 60_000, Number(body?.timeoutMs) || 3 * 60_000)) });
+    } catch (error) {
+      refuse(502, clip(String(error?.message ?? error), 300), `model_${String(error?.code ?? "error").replace(/[^a-z-]/g, "")}`);
+    }
+    cloudRun.costUsd = cents(cloudRun.costUsd + (Number(result?.costUsd) || 0));
+    cloudRun.calls += 1;
+    return cloudRun.dataPolicy === "redacted" ? showResult(result, cloudRun.standIns) : result;
+  }
+
   /** Every runner call on a run proves it holds the run's lease; a finished run is told to stop. */
   function heldRun(runId, lease) {
     const run = store.getRun(runId);
@@ -1630,7 +1725,7 @@ export function createAgentService({
     const { value, problem } = readToolInput(tool, rawInput);
     if (problem) return answer("tool", { state: "refused", text: problem, input: { raw: redact(clip(typeof rawInput === "string" ? rawInput : JSON.stringify(rawInput ?? {}), 400)) }, flags: { refused: true } });
     // `sources`: the owner's knowledge switches for every agent, which the tools hold the agent's own to.
-    const context = { readRole: run.readRole, readAs: run.readAs, spec, run, sources: knowledgeSettings() };
+    const context = { readRole: run.readRole, readAs: run.readAs, spec, run, sources: keepsDocumentsHome(spec, run) ? { ...knowledgeSettings(), documents: false } : knowledgeSettings() };
     if (tool.id === "web.search" && !(moduleSettings().webSearch?.enabled && moduleSettings().webSearch?.endpoint)) return answer("tool", { state: "refused", text: "Web search is off on this server.", flags: { refused: true } });
     try {
       if (tool.id === "memory.search") {
@@ -1681,7 +1776,7 @@ export function createAgentService({
    */
   function searchMemory(run, spec, { query, tier = "any", limit = 5 }, vector) {
     const agent = store.getAgent(run.agentId, { includeDeleted: true });
-    let items = memoryItems(agent, spec, run.readRole);
+    let items = memoryItems(agent, spec, run.readRole, run);
     if (tier !== "any") items = items.filter((item) => item.tier === tier);
     if (!items.length) return { text: "Nothing is remembered yet.", flagged: false, hop: null };
     const queryVector = readVector(vector);
@@ -1894,7 +1989,12 @@ export function createAgentService({
     const findingsCited = citations.cited.filter((id) => id.startsWith("F")).length;
     if (runsSaved) usage.runsSaved = runsSaved;
     if (findingsCited) usage.findingsCited = findingsCited;
-    const measured = noteModelSpeed(result.usage?.speed);
+    // A run on Claude (M45.3): its model and what it cost, as this service counted it. Claude's
+    // speed is not this server's: it never teaches the local model's.
+    const cloudRun = cloudRuns.get(run.id);
+    cloudRuns.delete(run.id);
+    if (cloudRun) Object.assign(usage, { route: "claude", model: cloudRun.model, costUsd: cloudRun.costUsd, cloudCalls: cloudRun.calls, standIns: cloudRun.dataPolicy === "redacted" ? Object.values(cloudRun.standIns.counts()).reduce((sum, value) => sum + value, 0) : null });
+    const measured = cloudRun ? null : noteModelSpeed(result.usage?.speed);
     if (measured) usage.speed = { promptPerSecond: measured.promptPerSecond, generatePerSecond: measured.generatePerSecond, threads: measured.threads };
     const outputKind = clarify ? "question" : run.kind === "eval" ? "eval" : run.kind === "learn" ? "notes" : run.kind === "schedule" && spec.outputs?.digest ? "digest" : "answer";
     const degradedReason = typeof result.degradedReason === "string" ? result.degradedReason.slice(0, 40) : null;
@@ -3457,7 +3557,7 @@ export function createAgentService({
     noteRuntimeInstalled: (result, options) => noteRuntimeInstalled(result, options),
     currentModel: () => { const runtime = runtimeSettings(); return `${runtime.repo}/${runtime.file}`; },
     // the runner
-    runnerHello, runnerNext, runnerHeartbeat, runnerSteps, runnerTool, runnerFinish, runnerVectors,
+    runnerHello, runnerNext, runnerHeartbeat, runnerSteps, runnerTool, runnerFinish, runnerVectors, runnerModel,
     runnerUsage: (runnerId, value) => { noteRunner(runnerId, value?.usage ?? null, value?.hostBusy); return runnerAdvice(); },
     runnerAdvice: () => runnerAdvice(),
     verifyRunnerToken: (token) => verifyRunnerToken(token), ensureRunnerToken: () => ensureRunnerToken(),
