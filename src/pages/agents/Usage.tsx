@@ -44,7 +44,7 @@ export function Usage({ module, csrfToken, role, now, onStart, onModuleChanged, 
   const [usage, setUsage] = useState<UsageState | null>(null);
   const [runtime, setRuntime] = useState<RuntimeState | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [draft, setDraft] = useState<{ driver: RuntimeDriver; endpoint: string; idleStopMinutes: string; quietStart: string; quietEnd: string; notify: boolean; runsPerDay: string; modelSecondsPerDay: string; embeddings: boolean; waiting: string; background: string } | null>(null);
+  const [draft, setDraft] = useState<{ driver: RuntimeDriver; endpoint: string; idleStopMinutes: string; quietStart: string; quietEnd: string; notify: boolean; runsPerDay: string; modelSecondsPerDay: string; embeddings: boolean; waiting: string; background: string; compareNightly: boolean } | null>(null);
   const [confirm, setConfirm] = useState<null | "settings" | "off">(null);
   const [saved, setSaved] = useState<string | null>(null);
   const owner = role === "owner";
@@ -69,7 +69,7 @@ export function Usage({ module, csrfToken, role, now, onStart, onModuleChanged, 
     if (!runtime || draft) return;
     setDraft({
       driver: runtime.settings.driver, endpoint: runtime.settings.endpoint ?? "", idleStopMinutes: String(runtime.settings.idleStopMinutes ?? 60), quietStart: module.quietHours.start, quietEnd: module.quietHours.end, notify: module.notify,
-      runsPerDay: String(module.budget?.runsPerDay ?? 300), modelSecondsPerDay: String(module.budget?.modelSecondsPerDay ?? 10_800), embeddings: module.embeddings !== false,
+      runsPerDay: String(module.budget?.runsPerDay ?? 300), modelSecondsPerDay: String(module.budget?.modelSecondsPerDay ?? 10_800), embeddings: module.embeddings !== false, compareNightly: module.evaluation?.compareNightly === true,
       waiting: String(module.cores?.waiting ?? 8), background: String(module.cores?.background ?? 4),
     });
   }, [runtime, draft, module]);
@@ -140,7 +140,7 @@ export function Usage({ module, csrfToken, role, now, onStart, onModuleChanged, 
     if (!draft) return;
     const runtimeChange = { driver: draft.driver, idleStopMinutes: Number.parseInt(draft.idleStopMinutes, 10), ...(draft.driver === "external" ? { endpoint: draft.endpoint.trim() } : {}) };
     await agentsApi.saveSettings(csrfToken, {
-      password, quietHours: { start: draft.quietStart, end: draft.quietEnd }, notify: draft.notify, runtime: runtimeChange, embeddings: draft.embeddings,
+      password, quietHours: { start: draft.quietStart, end: draft.quietEnd }, notify: draft.notify, runtime: runtimeChange, embeddings: draft.embeddings, evaluation: { compareNightly: draft.compareNightly },
       budget: { runsPerDay: Number.parseInt(draft.runsPerDay, 10), modelSecondsPerDay: Number.parseInt(draft.modelSecondsPerDay, 10) },
       ...(cores ? { cores: { waiting: Number.parseInt(draft.waiting, 10), background: Number.parseInt(draft.background, 10) } } : {}),
     });
@@ -287,6 +287,7 @@ export function Usage({ module, csrfToken, role, now, onStart, onModuleChanged, 
           {cores && <p className="agents-dim">This server has {cores.processors} processors{cores.physical ? ` (${cores.physical} cores)` : ""}; agents never get the last {cores.limits.keepFree}. The model runs a thread for each processor{cores.physical ? `, ${cores.physical} at most` : ""}; a change of threads restarts it, which takes a few seconds.</p>}
           <Switch label="Agents may tell me what is important" description="Through BoxPilot's notifications, a few times a day at most." checked={draft.notify} onChange={(checked) => setDraft({ ...draft, notify: checked })} />
           <Switch label="Search memory by meaning" description="Embeddings from the model server, made in quiet hours; off, memory is searched by words only." checked={draft.embeddings} onChange={(checked) => setDraft({ ...draft, embeddings: checked })} />
+          <Switch label="Compare with Claude every night" description="The nightly evaluation asks each question on this server's model and on Claude, side by side on the Evaluation tab. Claude's answers cost money, within its monthly cap." checked={draft.compareNightly} onChange={(checked) => setDraft({ ...draft, compareNightly: checked })} />
           {draft.driver === "llama-server" && <Notice tone="info">llama.cpp's own server from the Unsloth install: no Python layer and no Studio, idle at nothing, but without Unsloth's tool-call repair. It was measured for embeddings, not yet for chat.</Notice>}
         </Panel>
       )}

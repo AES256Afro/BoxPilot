@@ -219,6 +219,7 @@ export function RunView({ run, onStopPlan }: { run: Run; onStopPlan?: (planId: s
         </Notice>
       )}
       {run.flags?.injection && <Notice tone="warning" title="Something it read looked like an instruction">The agent was told to treat it as data. The step is marked in the trace.</Notice>}
+      {run.flags?.actHeld && !run.flags?.injection && <Notice tone="info" title="It carried out nothing on what it read">Words in your notes or documents read like an instruction, so this run changed nothing, whatever leave the agent has. Reword them if they were only advice.</Notice>}
       {run.reason && run.state !== "completed" && <p className="agents-run__reason">{run.reason}</p>}
       {run.answer && <AnswerText text={run.answer} />}
       {run.plan && <PlanView plan={run.plan} onStop={onStopPlan} />}

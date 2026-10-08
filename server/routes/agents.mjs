@@ -146,7 +146,7 @@ export function createAgentsRouter({ agents, state, auth, cloud = noCloud }) {
   router.delete("/agents/:id/notes/:noteId", auth.requireCsrf, handle((request) => agents.deleteNote(callerOf(request), request.params.id, request.params.noteId)));
   router.get("/agents/:id/evaluation", handle((request) => agents.getEvaluation(callerOf(request), request.params.id)));
   router.put("/agents/:id/evaluation", auth.requireCsrf, handle((request) => agents.setEvaluation(callerOf(request), request.params.id, request.body ?? {})));
-  router.post("/agents/:id/evaluation/run", auth.requireCsrf, handle((request, response) => { response.status(202); return agents.runEvaluation(callerOf(request), request.params.id); }));
+  router.post("/agents/:id/evaluation/run", auth.requireCsrf, handle((request, response) => { response.status(202); return agents.runEvaluation(callerOf(request), request.params.id, { compare: request.body?.compare === true }); }));
 
   // ---- the owner's settings: on or off, quiet hours, the runtime ----
   // Owner only, whatever the casing: the role policy refuses /settings changes to anyone else, and
