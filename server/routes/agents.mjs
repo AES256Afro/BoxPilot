@@ -83,6 +83,8 @@ export function createAgentsRouter({ agents, state, auth, cloud = noCloud }) {
   // ---- runs ----
   router.get("/agents/runs/:runId", handle((request) => agents.getRun(callerOf(request), request.params.runId)));
   router.post("/agents/runs/:runId/cancel", auth.requireCsrf, handle((request) => agents.cancelRun(callerOf(request), request.params.runId)));
+  // M45.6: a person stops a plan an agent is carrying out.
+  router.post("/agents/plans/:planId/cancel", auth.requireCsrf, handle((request) => agents.cancelPlan(callerOf(request), request.params.planId)));
   // "Was this right?": anyone who may see the run says so, and it feeds the evaluation.
   router.post("/agents/runs/:runId/feedback", auth.requireCsrf, handle((request) => agents.giveFeedback(callerOf(request), request.params.runId, request.body ?? {})));
   // A run's trace as it happens: each step, then its end. A page closed mid-run just unsubscribes.

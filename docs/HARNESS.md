@@ -249,12 +249,32 @@ Fences that no grant opens:
   follow-up checks** the effect with a read and says what it found. A failed job is reported;
   nothing is retried by itself.
 
-### Jobs that take more than one run
+### Plans that take more than one run
 
-A job is a plan of steps (read, operation, check) kept in the store with a checkpoint after each,
-so it survives a restart and can wait hours on an approval. At most 10 steps and 24 hours. It runs
-on one model from start to end, Claude by default with a task budget, because a long plan is where
-the local model is weakest. The trace shows each step, its job and its outcome.
+An agent with leave to carry out operations may also make a plan (`operations.plan`): up to 10
+steps, each an operation it has leave for or a check to make before going on. The plan is kept in
+the agents store (`agent_plans`) with a checkpoint after each step, and BoxPilot carries it out, not
+the run that made it: that run ends at once, as one that acts does.
+
+- **An operation step** is staged through the same fences as `operations.run`, checked again at
+  that moment against the agent's current grants, its maker and the day's limit. Run starts it; Ask
+  waits for a person, as long as the plan's day lasts rather than an hour. The plan goes on when
+  the job ends, and stops if it failed or was not approved.
+- **A check step** is a run of the agent (a follow-up, as the person who asked) shown the plan so
+  far as tool output and told what to check. It reads with its tools and answers `passed` or
+  `failed` with what it found. A check that read something that looked like an instruction stops the
+  plan. One that never answered (a restart, the runner gone) is made again, once.
+- **The end:** done, stopped at the first failing step, out of time after 24 hours, or stopped by a
+  person (the run view's "Stop the plan") or the kill switch. Whatever still waits on a person is
+  withdrawn. Unless a person or the kill switch stopped it, a report run reads every step and
+  answers the original request.
+- **After a restart** it goes on from its last checkpoint; nothing about it lives only in memory.
+  While agents are paused it waits where it is.
+- **The model.** An auto agent's checks and report run on Claude with a task budget (40,000
+  tokens), since a long plan is where the local model is weakest; a local agent's stay local.
+
+One open plan per agent. The run view shows the plan, each step's state and what it found; each
+operation's job is in Activity like any other.
 
 ### Evaluation
 
@@ -287,7 +307,7 @@ model's evaluation at 6/6 and every existing agent test passing.
 | M45.3 | The gateway, `agents.cloud.connect`, the monthly cap, the data policy with stand-ins, Settings | A run on Claude end to end in the demo with a fake upstream; no key ever in the web process |
 | M45.4 | The router: per-agent route, auto rules, second opinion, offline fallback, route and cost in the trace | Router decisions tested for every rule; trace shows route, reason and cost |
 | M45.5 | Acting: grants, the fences, staging through `createOperationJob`, waiting on approval, check after acting | Granted low runs, Ask waits, high never runs, tainted only proposes, all tested |
-| M45.6 | Jobs: durable multi-step plans, checkpoints, resume after restart, task budgets | A three-step job survives a restart in the middle and finishes |
+| M45.6 | Plans: durable multi-step plans, checkpoints, resume after restart, task budgets | A three-step plan survives a restart in the middle and finishes |
 | M45.7 | Evaluation: route comparison, acting tasks, the red-team set, CI on fixtures | Red-team set stages nothing on both routes |
 | M45.8 | Standalone: the loop, check and safety moved fully into the core; the CLI host; docs | The CLI runs a task with the fake and local providers, without BoxPilot |
 
