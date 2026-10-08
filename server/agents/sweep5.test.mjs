@@ -7,7 +7,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createAgentsHarness } from "../../test/agents-harness.mjs";
-import { stripWrapperBlocks } from "./guard.mjs";
+import { stripWrapperBlocks } from "../../packages/harness/src/index.mjs";
 import { systemMessage } from "./prompt.mjs";
 import { normalizeSpec } from "./spec.mjs";
 import { templateById } from "./templates.mjs";

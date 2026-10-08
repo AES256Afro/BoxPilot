@@ -3,12 +3,12 @@
  * the agent's one job and how it knows it did it, its structured prompt (rules, steps, output,
  * what to escalate), and the owner's own words, boxed - none of which can lift the rules. Nothing
  * depends on the model obeying them anyway: its tools only read, and every change waits for a
- * person (guard.mjs) - but for the operations the owner gave it leave to carry out (M45.5), whose
- * fences the service holds whatever the model asks (grants.mjs).
+ * person (the harness's safety/guard.mjs) - but for the operations the owner gave it leave to
+ * carry out (M45.5), whose fences the service holds whatever the model asks (grants.mjs).
  *
  * Shared by the web process (the Builder shows it) and the runner (which sends it).
  */
-import { boxAttribute, boxLine, sanitizeUntrusted } from "./guard.mjs";
+import { boxAttribute, boxLine, sanitizeUntrusted } from "../../packages/harness/src/index.mjs";
 import { destinationFor } from "./zulip.mjs";
 
 export const agentRules = `You are an agent on a home server managed by BoxPilot. You run on a small local model.
@@ -133,7 +133,7 @@ export function systemMessage(spec, { specialists = [], chat = null, useFindings
 /**
  * The first user message: what started the run, the question if any, the conversation so far with
  * this person, the other agents' fresh findings (M44), and what the agent remembers - each boxed as
- * data. `findings` are already wrapped (guard.mjs, wrapFinding).
+ * data. `findings` are already wrapped (the harness's wrapFinding).
  */
 export function taskMessage({ kind, question = null, trigger = null, notes = [], memories = [], findings = [], thread = null, now = new Date() }) {
   const plan = kind === "continue" ? trigger?.plan : null;
@@ -197,29 +197,4 @@ export function fallbackAnswer({ reason, outputs }) {
     return `- [${output.id}] ${output.title}: ${first.length > 240 ? `${first.slice(0, 239)}…` : first}`;
   });
   return `${lead}\n\n${lines.join("\n")}`;
-}
-
-/**
- * The JSON a structured answer must be, for `response_format`: the fields the owner named, each a
- * string. Used on the final call only, so tool calls stay free.
- */
-export function answerFormat(fields) {
-  return {
-    type: "json_schema",
-    json_schema: { name: "answer", strict: true, schema: { type: "object", additionalProperties: false, required: fields.map((field) => field.name), properties: Object.fromEntries(fields.map((field) => [field.name, { type: "string", description: field.description || field.name }])) } },
-  };
-}
-
-/** A structured answer, checked against its fields: `{ value }` or `{ problem }`. */
-export function readStructuredAnswer(text, fields) {
-  let value;
-  try { value = JSON.parse(String(text ?? "").trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "")); } catch { return { problem: "The answer was not JSON" }; }
-  if (!value || typeof value !== "object" || Array.isArray(value)) return { problem: "The answer was not an object" };
-  const out = {};
-  for (const field of fields) {
-    const entry = value[field.name];
-    if (entry === undefined || entry === null) return { problem: `The answer had no ${field.name}` };
-    out[field.name] = typeof entry === "string" ? entry.slice(0, 2_000) : JSON.stringify(entry).slice(0, 2_000);
-  }
-  return { value: out };
 }

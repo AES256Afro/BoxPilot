@@ -5,10 +5,11 @@
  * conversation folding fit the model's context.
  */
 import { describe, expect, it } from "vitest";
+import { answerFormat, readStructuredAnswer } from "../../packages/harness/src/index.mjs";
 import { ExactError, calculate, convertUnits, extractJson, matchPattern, timeCalc } from "./deterministic.mjs";
 import { planMessage, plannerMessages, readUnderstanding, understandingFormatFor, understandingSchema } from "./intent.mjs";
 import { cosine, decodeVector, encodeVector, episodeOf, foldThread, hybridSearch, readVector, threadBudget } from "./memory.mjs";
-import { answerFormat, readStructuredAnswer, systemMessage } from "./prompt.mjs";
+import { systemMessage } from "./prompt.mjs";
 import { normalizeSpec } from "./spec.mjs";
 import { toolIdOf } from "./tool-catalog.mjs";
 
