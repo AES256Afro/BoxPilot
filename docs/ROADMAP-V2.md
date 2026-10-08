@@ -2681,7 +2681,7 @@ propose them; the local model and Claude, routed per task. The design is `docs/H
 decisions are ADR-013. Each item is its own pull request, and every one keeps the local model's
 evaluation at 6/6 and every M37 to M44 agent test passing.
 
-- ✅ **M45.1 The core** (unreleased, `feat/m45-1-harness-core`). `packages/harness/`: the message
+- ✅ **M45.1 The core** (1.166.0). `packages/harness/`: the message
   contract (the chat shape, plus `providerBlocks` kept only for the provider and model that wrote
   them), the provider interface (`defineProvider`, `readChatResult` holding every answer to one
   shape and its limits), the local OpenAI-compatible provider wrapping the host's own client so the
@@ -2690,7 +2690,7 @@ evaluation at 6/6 and every M37 to M44 agent test passing.
   through it; image descriptions and embeddings stay on the local client. Lint, the syntax check and
   the Docker image include `packages/`. Tests: the contract and the boundary
   (`packages/harness/test/`); every agent test unchanged, the stand-in evaluation still 6/6.
-- ✅ **M45.2 Claude as a provider** (unreleased, `feat/m45-2-claude-provider`).
+- ✅ **M45.2 Claude as a provider** (1.166.0).
   `packages/harness/src/providers/anthropic.mjs`, imported on its own
   (`@boxpilot/harness/anthropic`) so a host that never calls Claude never loads the SDK. The
   official `@anthropic-ai/sdk` (pinned 0.128.0), streamed. Messages and tools translated both ways:
@@ -2710,7 +2710,7 @@ evaluation at 6/6 and every M37 to M44 agent test passing.
   since no key was at hand to record them. CI never calls a real model. Nothing in BoxPilot calls
   Claude yet: that is the gateway (M45.3) and the router (M45.4).
 - **M45.3 The gateway and what may leave the box.** In two parts.
-  - ✅ The gateway (unreleased, `feat/m45-3-model-gateway`). `boxpilot-model-gateway.service`, the
+  - ✅ The gateway (1.166.0). `boxpilot-model-gateway.service`, the
     only process that holds the Claude key (`LoadCredential` from a root-owned file), one
     destination host, a Unix socket only the web service's group opens, the monthly cap enforced
     again from its own ledger, at most four calls at once, nothing asked or answered in its log.
@@ -2718,7 +2718,7 @@ evaluation at 6/6 and every M37 to M44 agent test passing.
     (medium), as root tasks; connecting proves the key with Claude at no cost and keeps no key
     Claude refuses. `GET /agents/cloud` and the Claude panel on the Agents page: connected or not,
     the model, the month against the cap. Anthropic keys are redacted wherever they turn up.
-  - ✅ The run path (unreleased, `feat/m45-3-run-path`). Each agent runs on the local model or on
+  - ✅ The run path (1.166.0). Each agent runs on the local model or on
     Claude (Builder → Model); on Claude, names replaced with stand-ins or sent as they are, viewers'
     questions only when allowed, the owner's documents only when named. The claim for a run on
     Claude names no model server; the runner sends each call to `POST /agent-runner/runs/:id/model`,
@@ -2740,7 +2740,7 @@ evaluation at 6/6 and every M37 to M44 agent test passing.
   gateway stops answering. The rules are pure functions in `packages/harness/src/router.mjs`; the
   run view shows which model answered, why it moved, and the cost. Tool call ids from the local
   model are made safe for Claude when a conversation moves.
-- ✅ **M45.5 Agents that act** (unreleased, `feat/m45-5-grants`). Grants per operation on the Build
+- ✅ **M45.5 Agents that act** (1.167.0). Grants per operation on the Build
   tab: Propose (a card), Ask (the agent stages the job and a person approves it at its tier; low and
   medium), Run (low only, under the maker's delegated consent as schedules and flows have it). The
   tool `operations.run` is offered only to an agent with a grant. The run that acts ends; when its
@@ -2751,7 +2751,7 @@ evaluation at 6/6 and every M37 to M44 agent test passing.
   approval; the kill switch withdraws what is staged; a run reads the server before it acts. The
   job's person is the maker, and the job and the audit name the agent. Rules in
   `server/agents/grants.mjs`, end to end in `server/agents/act-run.test.mjs`.
-- ✅ **M45.6 Plans** (unreleased, `feat/m45-6-jobs`). `operations.plan`: up to 10 steps, each an
+- ✅ **M45.6 Plans** (1.167.0). `operations.plan`: up to 10 steps, each an
   operation the agent has leave for or a check, kept in `agent_plans` with a checkpoint after each
   and carried out by BoxPilot one step at a time. Operations go through the M45.5 fences again as
   each is staged and may wait the plan's day on a person; checks are runs of the agent answering
@@ -2761,7 +2761,7 @@ evaluation at 6/6 and every M37 to M44 agent test passing.
   after a restart from its last checkpoint. An auto agent's checks and report run on Claude with a
   40,000-token task budget. One open plan per agent. `server/agents/plan-run.test.mjs`: a three-step
   plan survives a restart in the middle of its check and finishes.
-- ✅ **M45.7 Evaluation** (unreleased, `feat/m45-7-eval`). **Routes compared:** the owner's "Compare
+- ✅ **M45.7 Evaluation** (1.167.0). **Routes compared:** the owner's "Compare
   with Claude" asks every evaluation question on both models (a pair of evaluations, each held to its
   route), with right answers, seconds a question and dollars side by side; optionally every night.
   **Acting graded without a model** (`act-grade.mjs`): tasks in the test world graded on what a run
@@ -2772,7 +2772,7 @@ evaluation at 6/6 and every M37 to M44 agent test passing.
   an agent told what to change, a sweeping change demanded at once, skipping the approver), and
   instruction-like words in the owner's own documents or notes hold a run from acting without marking
   it. All of it on recorded responses; CI never calls a real model.
-- ✅ **M45.8 Standalone** (unreleased, `feat/m45-8-standalone`). Into the core: the run loop (act,
+- ✅ **M45.8 Standalone** (1.167.0). Into the core: the run loop (act,
   the JSON rewrite, the check with one correction), the model session that paces each call, the
   answer check and citations, injection defence, the redactor, the local endpoint rules and the
   OpenAI-compatible client. BoxPilot's runner is now a host built from them, with its planner, its
