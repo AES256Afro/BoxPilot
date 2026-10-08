@@ -33,3 +33,15 @@ export function createOpenAiCompatibleProvider({ client, endpoint, apiKey = null
     ...(typeof client.embed === "function" ? { embed: (model, texts, options = {}) => client.embed(endpoint, model, texts, { apiKey, ...options }) } : {}),
   });
 }
+
+/**
+ * Thinking off, however a local server is told: Unsloth's own field, or llama.cpp's template
+ * argument. For the calls that need no thinking: a plan held to a schema, a correction, a picture.
+ */
+export function thinkingOff(extra = {}) {
+  const out = { ...extra };
+  if ("enable_thinking" in out) out.enable_thinking = false;
+  if (out.chat_template_kwargs && typeof out.chat_template_kwargs === "object") out.chat_template_kwargs = { ...out.chat_template_kwargs, enable_thinking: false };
+  delete out.reasoning_effort;
+  return out;
+}

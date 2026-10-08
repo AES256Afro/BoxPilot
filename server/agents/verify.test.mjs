@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ownerLikeStorage, ownersWrongAnswer } from "../../test/fixtures/agents-storage.mjs";
 import { describeApps, describePlaces, describeStorage, locate } from "./tool-text.mjs";
-import { claimsOf, correctionMessages, entitiesIn, evidenceFor, unsureNote, valuesIn, verifyAnswer } from "./verify.mjs";
+import { claimsOf, correctionMessages, entitiesIn, evidenceFor, unsureNote, valuesIn, verifyAnswer } from "../../packages/harness/src/index.mjs";
 
 const storage = describeStorage({ storage: ownerLikeStorage() });
 const T1 = [{ id: "T1", title: "Drives, filesystems and SMART", text: storage }];

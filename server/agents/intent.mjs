@@ -19,7 +19,7 @@
  * "2" when it is unsure what a field is for) is named after its tool, or dropped when it has none.
  * A reply that does not parse is not fatal - the run goes on without a plan, and the trace says so.
  */
-import { boxLine, sanitizeUntrusted } from "./guard.mjs";
+import { boxLine, sanitizeUntrusted } from "../../packages/harness/src/index.mjs";
 import { toolById, toolIdOf } from "./tool-catalog.mjs";
 
 const stepText = { type: "string", minLength: 3, maxLength: 80, description: "What to do, in a few words." };
