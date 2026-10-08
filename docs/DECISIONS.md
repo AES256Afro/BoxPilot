@@ -1001,3 +1001,72 @@ is one switch or a permission.
   age and freshness - and can forget a finding there.
 - A finding is the specialist's conclusion at its own role and time: a supervisor's answer built on
   it is as fresh as the finding, and says how old it is.
+
+## ADR-013: agents may use Claude through a gateway, and may act under grants inside the approval tiers
+
+**Date:** 2026-10-08 · **Status:** Accepted (M45, in progress) · **Changes:** ADR-005 §9 ("local
+only") and ADR-005's "agents propose, never act". **Builds on:** ADR-001 (risk tiers), ADR-002
+(delegated consent for unattended jobs), ADR-003 (operator-gated reads), ADR-012 (live facts read
+again before any card). **Design:** `docs/HARNESS.md`.
+
+### Context
+
+The owner asked for an agent harness that works well with BoxPilot first and can be used on its
+own later, with agents that carry out multi-step jobs through the approval tiers, on the local
+model or on Claude, routed per task. The local model (Qwen 3.5 4B on four processors) answers
+grounded questions well since M40, but is slow (a survey takes minutes), holds 8,192 tokens, and is
+weakest at long plans. Two decisions stood in the way: agents reach no model off the box
+(ADR-005 §9), and agents only propose (ADR-005), so a person creates every job by hand.
+
+### Options weighed
+
+- **(a) Keep both walls; tune the local model.** Free and private, but the long plans the owner
+  asked for are where a 4B model fails, and no amount of tuning makes it act. Rejected as the whole
+  answer; the local model stays the default route.
+- **(b) Let the runner call Claude directly.** Simplest, but the runner would need the internet and
+  the key, undoing its sandbox (no network but loopback, no secrets but its own token). Rejected.
+- **(c) A gateway process that holds the key and alone reaches the API.** Chosen. The runner keeps
+  its sandbox; the web service applies policy, budget and the data policy and still holds no
+  secret; the gateway holds the key from a root-owned file through `LoadCredential`, sends to one
+  host, and enforces the monthly cap again.
+- **(d) Let agents run any operation their allowlist names.** Rejected: the allowlist says what an
+  agent may suggest, not what the owner is willing to have done without them.
+- **(e) Grants per operation, inside the tiers.** Chosen: Propose, Ask (low and medium) or Run (low
+  only), with fences no grant opens.
+
+### Decision
+
+1. **Models.** A run uses one model, chosen before it starts: the local model or Claude. Per agent,
+   local, Claude or auto (`docs/HARNESS.md` → The router). Claude is reached only through
+   `boxpilot-model-gateway.service`; the runner keeps `IPAddressDeny=any`. The key is set by
+   `agents.cloud.connect` (high, owner) and removed by `agents.cloud.disconnect` (medium). The
+   default model is Claude Opus 5.5; the owner may choose another in Settings.
+2. **Money.** A monthly cap in dollars, set when Claude is connected, enforced by the web service
+   and again by the gateway. A warning at 80%; at the cap every route is local until the month ends
+   or the owner raises it.
+3. **What leaves the box.** Per agent: Never (every agent made before M45), Redacted (the default
+   after: secrets removed, names that identify the house replaced with stand-ins mapped back on the
+   box), or As is. Owner documents and connector imports go only if named. A viewer's run goes to
+   Claude only if the agent allows it.
+4. **Agents act under grants, inside the tiers.** Per operation in the agent's allowlist: Propose (a
+   card), Ask (the agent stages the job and a person approves it at its tier; low and medium) or
+   Run (the job runs under the maker's delegated consent, as ADR-002's schedules and flows do; low
+   only). The job's person is the agent's maker; the audit names the agent.
+5. **Fences no grant opens.** High risk is always a card. A run that read something that looked like
+   an instruction stages nothing. A run a viewer started never acts. "Always ask for the password"
+   makes every grant at most Ask. Internal and elevated-only operations are never offered. At most
+   3 operations a run and 20 a day per agent; an approval not given within an hour drops the job.
+   Live facts are read again before acting (ADR-012) and the effect is checked after.
+6. **The harness is its own package.** `packages/harness/` imports nothing from BoxPilot, and a test
+   holds it to that; BoxPilot is its first host.
+
+### Consequences
+
+- The owner can let an agent do routine low-risk work (restart a stopped app, refresh package
+  lists, take a backup) without a click, and see every such job in Activity with the agent named.
+- Some of the house's facts, redacted, leave the box when the owner connects Claude and an agent
+  routes there; the trace of every Claude run says what policy applied and what it cost.
+- The local model keeps doing what it does well, privately and for free; Claude is used where the
+  router or the owner sends it.
+- Five places that refuse a remote model stay as they are for the local runtime; the remote path is
+  new code with its own tests, not a loosened guard.

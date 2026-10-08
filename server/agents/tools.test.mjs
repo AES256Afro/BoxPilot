@@ -41,7 +41,7 @@ describe("docs.search", () => {
   });
 
   it("knows which documents are the builders' own", () => {
-    for (const file of ["AGENTS.md", "docs/ROADMAP-V2.md", "docs/DECISIONS.md", "docs/ARCHITECTURE.md", "docs/UI-PAGES.md", "docs/spikes/2026-09-unsloth-headless.md"]) expect(internalDocument({ kind: "doc", ref: { path: file } }), file).toBe(true);
+    for (const file of ["AGENTS.md", "docs/ROADMAP-V2.md", "docs/DECISIONS.md", "docs/ARCHITECTURE.md", "docs/HARNESS.md", "docs/UI-PAGES.md", "docs/spikes/2026-09-unsloth-headless.md"]) expect(internalDocument({ kind: "doc", ref: { path: file } }), file).toBe(true);
     for (const file of ["docs/BACKUPS.md", "docs/RECOVERY.md", "docs/NETWORK.md"]) expect(internalDocument({ kind: "doc", ref: { path: file } }), file).toBe(false);
     expect(internalDocument({ kind: "operation", ref: { operationId: "app.backup" } })).toBe(false);
     expect(aboutBuildingBoxPilot("Most important server or platform issue to focus on within boxpilot.")).toBe(false);
