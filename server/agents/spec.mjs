@@ -42,8 +42,8 @@ export const scheduleCadences = Object.freeze(["hourly", "every-6-hours", "daily
 export const knowledgeSources = Object.freeze(["docs", "registry", "catalog", "notes", "documents"]);
 export const audiences = Object.freeze(["owner", "operator", "viewer"]);
 export const outputFormats = Object.freeze(["text", "json"]);
-/** Which model runs an agent (M45.3): the local one, or Claude through the model gateway. */
-export const modelRoutes = Object.freeze(["local", "claude"]);
+/** Which model runs an agent: the local one, Claude through the model gateway (M45.3), or the local one moving to Claude when the run needs it (M45.4). */
+export const modelRoutes = Object.freeze(["local", "claude", "auto"]);
 /** What may leave the box when Claude runs it: names replaced with stand-ins, or the text as it is. Secrets never. */
 export const dataPolicies = Object.freeze(["redacted", "as-is"]);
 const appIdPattern = /^[a-z0-9][a-z0-9-]{0,63}$/;

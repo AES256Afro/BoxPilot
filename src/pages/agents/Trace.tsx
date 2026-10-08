@@ -1,7 +1,7 @@
 import { Fragment, useState } from "react";
 import { Button, Facts, KeyValue, Notice, StatusChip, Tag } from "../../ui";
 import type { Run, RunCheck, RunStep } from "./api";
-import { kindWords, runState, seconds } from "./format";
+import { kindWords, runState, seconds, usd } from "./format";
 import { Prose, inline } from "./Prose";
 
 /*
@@ -173,6 +173,7 @@ export function RunView({ run }: { run: Run }) {
       <div className="agents-run__head">
         <StatusChip status={state.status}>{run.outputKind === "question" ? "asked back" : state.label}</StatusChip>
         <span className="agents-run__what">{run.question ?? run.trigger?.title ?? kindWords[run.kind]}</span>
+        {run.trigger?.secondOpinionOf && <Tag tone="accent">second opinion</Tag>}
       </div>
       {run.outputKind === "question" && <Notice tone="info" title="It asked rather than guess">Its question is below, and on a card on the Agents tab. Ask again with the answer.</Notice>}
       {run.flags?.degraded && (
@@ -187,9 +188,15 @@ export function RunView({ run }: { run: Run }) {
       {run.answer && <AnswerText text={run.answer} />}
       {run.flags?.check && <CheckLine check={run.flags.check} />}
       {(run.flags?.citations?.unknown?.length ?? 0) > 0 && <p className="agents-run__reason">It cited {run.flags.citations?.unknown.join(", ")}, which it was never shown.</p>}
+      {usage.routeReason && <p className="agents-run__reason">Moved to Claude: {usage.routeReason}.</p>}
+      {run.flags?.secondOpinion && <Notice tone="info" title="Asked again on Claude">{run.flags.secondOpinion.reason}. Claude answers it as a run of its own, marked second opinion in the list.</Notice>}
       <KeyValue layout="strip" className="agents-run__facts" items={[
         { id: "kind", label: "Started by", value: kindWords[run.kind] },
         { id: "read", label: "Read as", value: run.readRole, mono: true },
+        ...(usage.route ? [
+          { id: "on", label: "Answered by", value: usage.route === "both" ? `local, then ${usage.model ?? "Claude"}` : usage.model ?? "Claude", mono: true },
+          { id: "cost", label: "Cost", value: usd(usage.costUsd ?? null), mono: true },
+        ] : []),
         { id: "model", label: "Model", value: seconds(usage.modelMs ?? null), mono: true },
         { id: "load", label: "Load", value: seconds(usage.loadMs ?? null), mono: true },
         { id: "tokens", label: "Tokens", value: String((usage.promptTokens ?? 0) + (usage.completionTokens ?? 0)), mono: true },

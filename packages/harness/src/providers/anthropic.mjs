@@ -60,10 +60,16 @@ function input(argumentsText) {
   }
 }
 
+/**
+ * A tool call's id as Claude takes it: letters, digits, _ and -. Another model's ids (a run that
+ * moved to Claude partway, M45.4) may hold other characters; both ends of a call get the same one.
+ */
+const callId = (id) => String(id ?? "").replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 64) || "call";
+
 function assistantBlocks(message) {
   return [
     ...text(message.content),
-    ...(message.tool_calls ?? []).map((call) => ({ type: "tool_use", id: call.id, name: call.function.name, input: input(call.function.arguments) })),
+    ...(message.tool_calls ?? []).map((call) => ({ type: "tool_use", id: callId(call.id), name: call.function.name, input: input(call.function.arguments) })),
   ];
 }
 
@@ -96,7 +102,7 @@ function conversation(messages) {
       continue;
     }
     if (message.role === "user") add("user", text(message.content));
-    else if (message.role === "tool") add("user", [{ type: "tool_result", tool_use_id: message.tool_call_id, content: typeof message.content === "string" ? message.content : JSON.stringify(message.content ?? "") }]);
+    else if (message.role === "tool") add("user", [{ type: "tool_result", tool_use_id: callId(message.tool_call_id), content: typeof message.content === "string" ? message.content : JSON.stringify(message.content ?? "") }]);
     else if (message.role === "assistant") {
       const blocks = message.providerBlocks?.blocks ?? assistantBlocks(message);
       if (blocks.length) out.push({ role: "assistant", content: structuredClone(blocks) });

@@ -47,6 +47,7 @@ import { gradeFact } from "./grade.mjs";
 import { verifyAnswer } from "./verify.mjs";
 import { neutralizeLinks, questionFrom } from "./zulip.mjs";
 import { createStandIns, hideRequest, showResult } from "../../packages/harness/src/safety/stand-ins.mjs";
+import { routerDefaults, secondOpinion, startRoute } from "../../packages/harness/src/router.mjs";
 import { houseNames } from "./cloud.mjs";
 
 export { gradeDrives, gradeFact } from "./grade.mjs";
@@ -1178,8 +1179,8 @@ export function createAgentService({
     const agent = store.getAgent(run.agentId, { includeDeleted: true });
     const version = store.getVersion(run.agentId, run.version) ?? { spec: agent.spec };
     const spec = version.spec;
-    // Which model runs it, decided first (M45.3): a run on Claude is offered and recalls less.
-    const runtime = claimedModel(spec, run, cpuInfo);
+    // Which model runs it, decided first (M45.3): a run that may reach Claude is offered and recalls less.
+    const { runtime, router } = claimedModel(spec, run, cpuInfo);
     const offered = offeredTools(run, spec, agent);
     // The specialists it is told of, when it may hand work on. Another account's words about one
     // that read like an instruction are read here, by this run itself (sweep 3).
@@ -1282,6 +1283,8 @@ export function createAgentService({
       understand: understand ? { tools: offered.map((tool) => ({ fn: tool.fn, title: tool.title, ...(tool.use ? { use: tool.use } : {}) })) } : null,
       output: spec.prompt?.output ?? { format: "text", fields: [] },
       runtime,
+      // M45.4: both models, when the run may change from one to the other.
+      ...(router ? { router } : {}),
       limits: {
         steps: spec.budget.stepsPerRun,
         tokens: spec.budget.tokensPerRun,
@@ -1519,35 +1522,53 @@ export function createAgentService({
   const cents = (value) => Math.round(Number(value) * 1_000_000) / 1_000_000;
 
   /**
-   * The model a run gets: Claude when its agent says so, Claude is connected with the month not
-   * spent, and the asker may send their words to it; the local model otherwise, with a step saying
-   * why. A run on Claude needs no model server, so its claim names none.
+   * The model a run starts on, and the one it may change to (M45.3, M45.4). Claude when its agent
+   * says so (or the run is a second opinion), Claude is connected with the month not spent, and the
+   * asker may send their words to it; the local model otherwise, with a step saying why. An auto
+   * agent starts on the local model with Claude held ready: the runner moves when the plan says to,
+   * and what the run reads is held to Claude's rules from the start. A run on Claude names the local
+   * model too, to go on with if Claude stops answering.
    */
   function claimedModel(spec, run, cpuInfo) {
-    if (spec?.model?.route !== "claude") return runtimeClaim(spec, cpuInfo);
-    const local = (why) => {
-      const step = store.addStep(run.id, { kind: "system", name: "model", output: `${why}: this run uses the local model.` });
+    const route = spec?.model?.route ?? "local";
+    const secondOpinionOf = run.trigger?.secondOpinionOf ?? null;
+    const local = runtimeClaim(spec, cpuInfo);
+    if (route === "local" && !secondOpinionOf) return { runtime: local, router: null };
+    const said = (text) => {
+      const step = store.addStep(run.id, { kind: "system", name: "model", output: text });
       if (step) emit(run.id, "step", step);
-      return runtimeClaim(spec, cpuInfo);
     };
-    if (!cloud) return local("Claude is not set up on this server");
-    if (run.readRole === "viewer" && !spec.model.claudeForViewers) return local("A viewer asked, and this agent does not send a viewer's words to Claude");
-    const usable = cloud.usable();
-    if (!usable.ok) return local(usable.reason);
+    const start = startRoute({ route: route === "claude" ? "remote" : route, remote: claudeAllowed(spec, run), secondOpinion: Boolean(secondOpinionOf) });
+    if (start.start === "local" && !start.mayMove) {
+      // An auto agent says nothing while Claude is not connected: until then it is a local agent.
+      if (route === "claude" || secondOpinionOf || cloud?.settings().connected) said(`${start.reason}: this run uses the local model.`);
+      return { runtime: local, router: null };
+    }
     for (const [runId] of cloudRuns) if (store.getRun(runId)?.state !== "running") cloudRuns.delete(runId);
     const chosen = cloud.settings();
     const effort = lowEffortKinds.has(run.kind) ? "low" : "medium";
     const dataPolicy = spec.model.dataPolicy === "as-is" ? "as-is" : "redacted";
-    cloudRuns.set(run.id, { model: chosen.model, effort, dataPolicy, standIns: createStandIns(houseNamesFor()), costUsd: 0, calls: 0 });
+    const mode = start.start === "remote" ? "claude" : "auto";
+    cloudRuns.set(run.id, { mode, model: chosen.model, effort, dataPolicy, standIns: createStandIns(houseNamesFor()), costUsd: 0, calls: 0, reason: null });
+    const names = dataPolicy === "redacted" ? "Names that identify this house leave it as stand-ins; the answer is turned back here." : "What it reads leaves this server as it is, without secrets.";
     const documents = spec.model.claudeReadsDocuments === true ? " Your documents may be read and sent." : " Your documents stay on this server.";
-    const step = store.addStep(run.id, { kind: "system", name: "model", output: `On ${chosen.model} through the model gateway, thinking at ${effort} effort. ${dataPolicy === "redacted" ? "Names that identify this house leave it as stand-ins; the answer is turned back here." : "What it reads leaves this server as it is, without secrets."}${documents}` });
-    if (step) emit(run.id, "step", step);
-    return {
+    said(mode === "claude"
+      ? `${secondOpinionOf ? "A second opinion: " : ""}On ${chosen.model} through the model gateway, thinking at ${effort} effort. ${names}${documents}`
+      : `On the local model, with ${chosen.model} ready if the plan needs it. ${names}${documents}`);
+    const claude = {
       driver: "claude", model: chosen.model, effort, dataPolicy, cpu: null, threads: null, extra: {}, embeddings: false, temperature: null,
       maxTokens: runtimeSettings().maxTokens,
       // What the runner works out a call's time from: Claude reads far faster than this server's model.
       speed: { promptPerSecond: 5_000, generatePerSecond: 50 },
     };
+    return mode === "claude" ? { runtime: claude, router: { mode, local, claude } } : { runtime: local, router: { mode, local, claude, ...routerDefaults } };
+  }
+
+  /** Whether Claude may take this run now: set up, connected with the month not spent, and allowed for whoever asked. */
+  function claudeAllowed(spec, run) {
+    if (!cloud) return { ok: false, reason: "Claude is not set up on this server" };
+    if (run.readRole === "viewer" && !spec?.model?.claudeForViewers) return { ok: false, reason: "A viewer asked, and this agent does not send a viewer's words to Claude" };
+    return cloud.usable();
   }
 
   const roles = new Set(["system", "user", "assistant", "tool"]);
@@ -1589,6 +1610,8 @@ export function createAgentService({
     }
     cloudRun.costUsd = cents(cloudRun.costUsd + (Number(result?.costUsd) || 0));
     cloudRun.calls += 1;
+    // Why an auto run moved to Claude (M45.4), as the runner said it with its first call there.
+    if (!cloudRun.reason && typeof body?.reason === "string" && body.reason.trim()) cloudRun.reason = clip(redact(body.reason), 200);
     return cloudRun.dataPolicy === "redacted" ? showResult(result, cloudRun.standIns) : result;
   }
 
@@ -1989,12 +2012,20 @@ export function createAgentService({
     const findingsCited = citations.cited.filter((id) => id.startsWith("F")).length;
     if (runsSaved) usage.runsSaved = runsSaved;
     if (findingsCited) usage.findingsCited = findingsCited;
-    // A run on Claude (M45.3): its model and what it cost, as this service counted it. Claude's
-    // speed is not this server's: it never teaches the local model's.
+    // A run that reached Claude (M45.3): its model and what it cost, as this service counted it, and
+    // (M45.4) whether the local model answered part of it and why it moved. The runner reports the
+    // local model's speed only from the local model's own calls, so Claude's never teaches it.
     const cloudRun = cloudRuns.get(run.id);
     cloudRuns.delete(run.id);
-    if (cloudRun) Object.assign(usage, { route: "claude", model: cloudRun.model, costUsd: cloudRun.costUsd, cloudCalls: cloudRun.calls, standIns: cloudRun.dataPolicy === "redacted" ? Object.values(cloudRun.standIns.counts()).reduce((sum, value) => sum + value, 0) : null });
-    const measured = cloudRun ? null : noteModelSpeed(result.usage?.speed);
+    const reachedClaude = Boolean(cloudRun?.calls);
+    if (reachedClaude) {
+      Object.assign(usage, {
+        route: usage.modelCalls > cloudRun.calls ? "both" : "claude", model: cloudRun.model, costUsd: cloudRun.costUsd, cloudCalls: cloudRun.calls,
+        standIns: cloudRun.dataPolicy === "redacted" ? Object.values(cloudRun.standIns.counts()).reduce((sum, value) => sum + value, 0) : null,
+        ...(cloudRun.reason ? { routeReason: cloudRun.reason } : {}),
+      });
+    }
+    const measured = reachedClaude && usage.route === "claude" ? null : noteModelSpeed(result.usage?.speed);
     if (measured) usage.speed = { promptPerSecond: measured.promptPerSecond, generatePerSecond: measured.generatePerSecond, threads: measured.threads };
     const outputKind = clarify ? "question" : run.kind === "eval" ? "eval" : run.kind === "learn" ? "notes" : run.kind === "schedule" && spec.outputs?.digest ? "digest" : "answer";
     const degradedReason = typeof result.degradedReason === "string" ? result.degradedReason.slice(0, 40) : null;
@@ -2026,6 +2057,8 @@ export function createAgentService({
     rememberRun(agent, spec, finished);
     // What it found, for the other agents (M44).
     rememberFinding(agent, spec, finished);
+    // An auto agent's shaky answer from the local model, asked again on Claude (M45.4).
+    askSecondOpinion(agent, spec, finished, { clarify, checked, degradedReason, reachedClaude });
     await escalate(agent, spec, finished, { clarify, heldNotice });
     // Its end to whoever watches, its answer, cards, trace and notes to the team chat when Zulip is
     // connected (M38), and a supervisor's follow-up once every hand-off has ended.
@@ -2037,6 +2070,32 @@ export function createAgentService({
   }
 
   const outcomeIsAnswer = (outcome) => outcome === "completed";
+
+  /** The runs whose answer someone reads: a second opinion is worth its cost only there. */
+  const secondOpinionKinds = new Set(["ask", "manual", "schedule", "event", "webhook"]);
+
+  /**
+   * A second opinion (M45.4): an auto agent's run that stayed on the local model and ended cut short
+   * or with part of its answer not matching its tools is asked again on Claude, once, as a run of its
+   * own that names the first. Not when Claude may not take it, the agent cannot run again today, the
+   * queue is full, or the run read something that looked like an instruction: that is the owner's to
+   * look at, not a reason to read it again with a stronger model.
+   */
+  function askSecondOpinion(agent, spec, finished, { clarify, checked, degradedReason, reachedClaude }) {
+    if (spec?.model?.route !== "auto" || reachedClaude || !secondOpinionKinds.has(finished.kind) || finished.flags?.injection) return null;
+    const wanted = secondOpinion({ outcome: finished.state, degradedReason, check: checked, clarify: Boolean(clarify), secondOpinion: Boolean(finished.trigger?.secondOpinionOf) });
+    if (!wanted.ask || !claudeAllowed(spec, finished).ok) return null;
+    const settings = moduleSettings();
+    if (!settings.enabled || modulePaused(settings) || agentPaused(agent) || budgetOf(agent).refusal) return null;
+    const { queued } = queueCounts();
+    if (queued >= limits.queueMax) return null;
+    const trigger = { ...(finished.trigger ?? {}), secondOpinionOf: finished.id };
+    const again = store.enqueueRun({ agentId: finished.agentId, version: finished.version, kind: finished.kind, question: finished.question, trigger, requestedBy: finished.requestedBy, readRole: finished.readRole, readAs: finished.readAs, threadId: finished.threadId });
+    store.mergeRunFlags(finished.id, { secondOpinion: { runId: again.id, reason: wanted.reason } });
+    audit("agents.run.second-opinion", { actorId: finished.requestedBy, subjectId: again.id, details: { agentId: finished.agentId, of: finished.id, reason: wanted.reason } });
+    wake();
+    return again;
+  }
 
   /**
    * The check, from what BoxPilot kept: the run's tool outputs numbered as the model saw them, and
@@ -2425,7 +2484,11 @@ export function createAgentService({
     const base = template ? templateById(template) : null;
     if (template && !base) refuse(400, `There is no template called ${template}`, "invalid_agent");
     if (store.listAgents().length >= 30) refuse(409, "Thirty agents is the most BoxPilot keeps. Delete one first.", "agent_limit");
-    const normalized = wrapSpecError(() => normalizeSpec(spec ?? base?.spec ?? {}));
+    // A new agent moves to Claude when a run needs it, once Claude is connected (M45.4): one made from
+    // a template, or from a definition that names no model. The templates name none of their own.
+    const given = spec ?? base?.spec ?? {};
+    const routed = !spec?.model?.route && cloud?.settings().connected ? { ...given, model: { ...(given.model ?? {}), route: "auto" } } : given;
+    const normalized = wrapSpecError(() => normalizeSpec(routed));
     refuseReservedName(normalized.name);
     const agent = store.createAgent({ spec: normalized, template: base?.id ?? null, createdBy: person.id, nextRunAt: nextRunFor(normalized) });
     if (base && templateQuestions[base.id]?.length) store.setQuestions(agent.id, templateQuestions[base.id], { updatedBy: person.id });
