@@ -290,7 +290,7 @@
 :root[data-look="phosphor"] :is(.ui-input, .ui-textarea, .ui-select__control) { border: 1px solid var(--ph-faint); border-radius: 0; color: var(--ph-g); background: rgba(0, 0, 0, 0.35); caret-color: var(--ph-g); font-family: var(--font-mono); font-size: 15px; }
 :root[data-look="phosphor"] :is(.ui-input, .ui-textarea)::placeholder { color: var(--ph-dim); }
 :root[data-look="phosphor"] .ui-check__mark { border: 1px solid var(--ph-g); border-radius: 0; background: transparent; }
-:root[data-look="phosphor"] .ui-check__input:checked + .ui-check__mark { background: var(--ph-g); }
+:root[data-look="phosphor"] :is(.ui-check__input:checked, .ui-check__input:indeterminate) + .ui-check__mark { background: var(--ph-g); }
 :root[data-look="phosphor"] .ui-check__mark::after { border-color: var(--ph-ink); }
 :root[data-look="phosphor"] .ui-kv--strip { border: 1px dashed var(--ph-faint); border-radius: 0; background: transparent; }
 :root[data-look="phosphor"] .ui-kv--strip .ui-kv__item { border-right: 1px dashed var(--ph-faint); box-shadow: none; }

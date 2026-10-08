@@ -591,6 +591,8 @@
 :root[data-look="blend"] .ui-switch__control[aria-checked="true"] .ui-switch__thumb { background: #ffffff; transform: translateX(17px); }
 :root[data-look="blend"] .ui-switch__state { color: var(--lx-ink-muted); font-family: var(--font-sans); font-weight: 700; }
 :root[data-look="blend"] .ui-check__mark { border-color: var(--blend-line-strong); border-radius: 5px; background: var(--blend-inset); }
+:root[data-look="blend"] :is(.ui-check__input:checked, .ui-check__input:indeterminate) + .ui-check__mark { border-color: var(--look-accent); background: var(--look-accent); }
+:root[data-look="blend"] .ui-check__mark::after { border-color: var(--look-accent-ink); }
 :root[data-look="blend"] .ui-code { border-color: var(--lx-hairline); border-radius: 12px; }
 :root[data-look="blend"] .ui-code__bar { background: transparent; }
 :root[data-look="blend"] .ui-progress__track { height: 5.8px; border-radius: 999px; }

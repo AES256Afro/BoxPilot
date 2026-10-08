@@ -442,6 +442,8 @@
 :root[data-look="launcher"][data-shell="console"] .ui-switch__state { color: var(--lx-ink-muted); font-family: var(--font-sans); font-size: 12px; }
 :root[data-look="launcher"][data-shell="console"] .ui-switch__label { font-size: 14.5px; }
 :root[data-look="launcher"][data-shell="console"] .ui-check__mark { border-radius: 5px; background: var(--lx-glass-raised); }
+:root[data-look="launcher"][data-shell="console"] :is(.ui-check__input:checked, .ui-check__input:indeterminate) + .ui-check__mark { border-color: var(--lx-ink); background: var(--lx-ink); }
+:root[data-look="launcher"][data-shell="console"] .ui-check__mark::after { border-color: var(--lx-pill-ink); }
 
 /* ── Tables inside the glass: words in Figtree, figures and paths in mono ── */
 :root[data-look="launcher"][data-shell="console"] .ui-table { font-size: 14px; }
