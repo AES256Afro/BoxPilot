@@ -351,6 +351,8 @@
 :root[data-look="quest"] .ui-switch__control[aria-checked="true"] .ui-switch__thumb { background: var(--qs-deep); }
 :root[data-look="quest"] .ui-switch__state { font-family: var(--font-sans); }
 :root[data-look="quest"] .ui-check__mark { border: 2px solid var(--qs-bd); border-radius: 0; background: var(--qs-deep); }
+:root[data-look="quest"] :is(.ui-check__input:checked, .ui-check__input:indeterminate) + .ui-check__mark { border-color: var(--qs-gold); background: var(--qs-gold); }
+:root[data-look="quest"] .ui-check__mark::after { border-color: var(--qs-deep); }
 :root[data-look="quest"] :is(.ui-input, .ui-textarea, .ui-select__control) { border: 2px solid var(--qs-bd); border-radius: 0; color: var(--qs-tx); background: var(--qs-deep); font-family: var(--font-sans); }
 :root[data-look="quest"] :is(.ui-input, .ui-textarea, .ui-select__control):focus-visible { border-color: var(--qs-gold); outline-color: var(--qs-gold); }
 :root[data-look="quest"] .ui-kv__label { color: var(--qs-dim); font-family: var(--font-sans); }

@@ -395,7 +395,7 @@
 :root[data-look="rack"] .ui-switch__control[aria-checked="true"] .ui-switch__state { color: var(--rk-led-green); text-shadow: 0 0 6px rgba(46, 230, 90, 0.6); }
 :root[data-look="rack"] :is(.ui-input, .ui-textarea, .ui-select__control) { border: 0; border-radius: 2px; color: #eef0f2; background: #0e0f10; box-shadow: inset 0 0 0 1px #3a3d42, inset 0 2px 5px rgba(0, 0, 0, 0.8); font-family: var(--font-mono); }
 :root[data-look="rack"] .ui-check__mark { border-color: #555960; border-radius: 2px; background: #0e0f10; }
-:root[data-look="rack"] .ui-check__input:checked + .ui-check__mark { border-color: var(--rk-amber); background: var(--rk-amber); }
+:root[data-look="rack"] :is(.ui-check__input:checked, .ui-check__input:indeterminate) + .ui-check__mark { border-color: var(--rk-amber); background: var(--rk-amber); }
 :root[data-look="rack"] .ui-check__mark::after { border-color: #2a1a00; }
 :root[data-look="rack"] .ui-kv--strip { border: 0; background: var(--rk-module); box-shadow: var(--rk-module-shadow); }
 :root[data-look="rack"] .ui-kv--strip .ui-kv__item { border-right-color: #000000; box-shadow: none; }
