@@ -69,7 +69,7 @@ export function ClaudePanel({ role, now, owner, onStart, refreshKey }: ClaudePan
       operationId: "agents.cloud.connect",
       title: "Connect Claude",
       parameters: { key, capUsd: cap.value },
-      preview: <span>Stores the key root-only for the model gateway, the one process on this server that may use it, and starts the gateway. Claude checks the key first, which costs nothing; a key it refuses is not kept. Agents never spend more than <strong>{dollars(cap.value)} a month</strong> on Claude: BoxPilot holds them to it, and so does the gateway, from its own count. No agent uses Claude until you allow it for that agent.</span>,
+      preview: <span>Stores the key root-only for the model gateway, the one process on this server that may use it, and starts the gateway. Claude checks the key first, which costs nothing; a key it refuses is not kept. Agents never spend more than <strong>{dollars(cap.value)} a month</strong> on Claude: BoxPilot holds them to it, and so does the gateway, from its own count. Agents you already have stay on the local model until you change them; agents you make from now on move to Claude when a run needs it, which you change per agent.</span>,
     });
   };
   const setCap = () => {

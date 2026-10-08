@@ -38,7 +38,7 @@
  * server's /v1/embeddings, for memory search by meaning.
  */
 import { randomUUID } from "node:crypto";
-import { assistantTurn, createOpenAiCompatibleProvider, defineProvider, readChatResult } from "../../packages/harness/src/index.mjs";
+import { assistantTurn, createOpenAiCompatibleProvider, defineProvider, fallsBack, moveAfterPlan, readChatResult } from "../../packages/harness/src/index.mjs";
 import { webPortOf } from "../env-file.mjs";
 import { stripWrapperBlocks } from "./guard.mjs";
 import { planMessage, plannerMessages, readUnderstanding, understandingFormatFor } from "./intent.mjs";
@@ -74,6 +74,8 @@ const stripToolMarkup = (text) => String(text ?? "").replace(/<tool_call>[\s\S]*
 
 // Tools a degraded run may run itself: reads of the server that need no words from the model.
 const fallbackCategories = new Set(["boxpilot", "records", "app"]);
+/** The tools that propose a change: a plan that names one moves an auto run to Claude (M45.4). */
+const changingTools = new Set(toolCatalog.filter((tool) => tool.writes === "proposal").map((tool) => tool.id));
 const needsInput = (tool) => Object.values(tool.params ?? {}).some((spec) => spec.required);
 const howTo = /\b(how (do|can|to|should)|where (do|can) i|what does .{1,40} do|explain|boxpilot'?s? (roadmap|docs?|documentation|page|feature))\b/i;
 
@@ -294,16 +296,25 @@ export function createRunner({ api, runtime, client, usage = null, now = () => D
     // The run's work in tokens: what the model read (not what it had cached) and what it wrote.
     const tokensUsed = () => used.readTokens + used.completionTokens;
     const system = (name, detail, state = "done") => api.steps(run.id, lease, [{ kind: "system", name, detail, state }]).catch(() => {});
-    const driver = claim.runtime?.driver ?? null;
-    const speed = createSpeed(claim.runtime?.speed?.promptPerSecond > 0 && claim.runtime?.speed?.generatePerSecond > 0
-      ? { promptPerSecond: claim.runtime.speed.promptPerSecond, generatePerSecond: claim.runtime.speed.generatePerSecond, source: "stored" }
+    // The model the run is on, which may change while it runs (M45.4): an auto run moves to Claude
+    // after its plan, and a run on Claude goes on with the local model when Claude stops answering.
+    // Each has its own pace; only the local model's is this server's, and only it is reported back.
+    let driver = claim.runtime?.driver ?? null;
+    let current = claim.runtime ?? {};
+    const localRuntime = claim.router?.local ?? (driver === "claude" ? null : claim.runtime);
+    const claudeRuntime = claim.router?.claude ?? (driver === "claude" ? claim.runtime : null);
+    const speedOf = (runtimeClaim) => createSpeed(runtimeClaim?.speed?.promptPerSecond > 0 && runtimeClaim?.speed?.generatePerSecond > 0
+      ? { promptPerSecond: runtimeClaim.speed.promptPerSecond, generatePerSecond: runtimeClaim.speed.generatePerSecond, source: "stored" }
       : { promptPerSecond: settings.promptPerSecond, generatePerSecond: settings.generatePerSecond });
+    const speeds = { local: speedOf(localRuntime), claude: speedOf(claudeRuntime) };
+    let speed = driver === "claude" ? speeds.claude : speeds.local;
     let charsPerToken = settings.charsPerToken;
+    let model = null;
 
     const callTool = async (name, input, model) => {
       // Memory search by meaning: the query's embedding goes with the call, made here where the model is.
       let extras = {};
-      if (toolById(String(name))?.id === "memory.search" && claim.runtime?.embeddings && model) {
+      if (toolById(String(name))?.id === "memory.search" && current.embeddings && model) {
         let query = "";
         try { query = String((typeof input === "string" ? JSON.parse(input || "{}") : input ?? {}).query ?? ""); } catch { query = ""; }
         const vectors = query ? await embed(model, [query.slice(0, 1_000)], controller.signal) : null;
@@ -332,7 +343,10 @@ export function createRunner({ api, runtime, client, usage = null, now = () => D
      */
     // `optional`: a call the run can do without (the correction after the check): one that does not
     // fit, or fails, leaves the run as it was instead of ending it degraded.
-    const ask = async (model, conversation, { maxTokens, toolChoice = "auto", extra = claim.runtime.extra ?? {}, purpose = "call", optional = false, minTokens = settings.minAnswerTokens }) => {
+    // `extra` may be a function of the model's runtime, so a call tried again on another model gets that model's settings.
+    const ask = async (model, conversation, options) => {
+      const { maxTokens, toolChoice = "auto", extra: asked = null, purpose = "call", optional = false, minTokens = settings.minAnswerTokens } = options;
+      const extra = typeof asked === "function" ? asked(current) : asked ?? current.extra ?? {};
       const chars = promptChars(conversation);
       const newChars = conversation.last ? Math.max(0, chars - conversation.last.chars) : chars;
       const readTokens = Math.max(1, Math.ceil(newChars / charsPerToken));
@@ -361,7 +375,7 @@ export function createRunner({ api, runtime, client, usage = null, now = () => D
         // Every call to act or plan goes through the harness's provider contract (M45.1): the local
         // provider binds this model server's address and key, and the answer is held to one shape.
         const result = readChatResult(await (model.provider ?? providerFor(model)).chat({
-          model: model.model, temperature: claim.runtime.temperature ?? 0.2, messages: conversation.messages, tools: conversation.tools, toolChoice, maxTokens: tokens, extra: { ...extra, ...fields },
+          model: model.model, temperature: current.temperature ?? 0.2, messages: conversation.messages, tools: conversation.tools, toolChoice, maxTokens: tokens, extra: { ...extra, ...fields },
         }, { signal: controller.signal, timeoutMs: Math.max(1_000, left.ms) }));
         const took = now() - started;
         used.modelMs += took;
@@ -382,19 +396,69 @@ export function createRunner({ api, runtime, client, usage = null, now = () => D
           speed.learn({ readTokens: cached !== null || !conversation.last ? read : 0, readMs: result.firstTokenMs, writtenTokens: Math.max(0, completionTokens - 1), writeMs: Math.max(0, (result.elapsedMs ?? took) - result.firstTokenMs), from: "runner" });
         }
         conversation.last = { chars, promptTokens, completionTokens };
-        runtime.touch();
-        return { result, took, cached, read, maxTokens: tokens };
+        if (driver !== "claude") runtime.touch();
+        return { result, took, cached, read, maxTokens: tokens, model };
       } catch (error) {
         used.modelMs += now() - started;
         // Closing the connection stops llama-server at its next batch; Unsloth is also asked to stop.
         if (cancelId) void (model.provider ?? providerFor(model)).cancel?.(cancelId);
         if (controller.signal.aborted) throw error;
+        // Claude did not answer and the local model can (M45.4): the same call again, there.
+        const local = await fallBack(error);
+        if (local) { conversation.last = null; return ask(local, conversation, options); }
         if (!optional) degraded = /timed? ?out|aborted|TimeoutError/i.test(`${error?.name} ${error?.message}`) ? "timeout" : "model-error";
         await system("model", `The model stopped${optional ? ` during the ${purpose}` : ""}: ${String(error?.message ?? error).slice(0, 200)}`, "failed");
         return null;
       }
     };
-    const stepOf = (model, asked, text, toolCalls = []) => ({ kind: "model", name: model.model, text, toolCalls, durationMs: asked.took, tokensIn: asked.result.usage?.promptTokens, tokensOut: asked.result.usage?.completionTokens });
+    const stepOf = (model, asked, text, toolCalls = []) => ({ kind: "model", name: asked.model?.model ?? model.model, text, toolCalls, durationMs: asked.took, tokensIn: asked.result.usage?.promptTokens, tokensOut: asked.result.usage?.completionTokens });
+
+    /**
+     * Claude, as this run reaches it (M45.3): no model server here. Each call goes to BoxPilot, which
+     * sends it to the model gateway with the house's names replaced and turns the answer back.
+     * `reason` is why the run moved there, told to BoxPilot with each call (M45.4).
+     */
+    const claudeModel = (reason) => ({
+      model: claudeRuntime.model, loadMs: 0,
+      provider: defineProvider({ id: "claude", kind: "remote", chat: (request, options = {}) => api.model(run.id, lease, request, { ...options, ...(reason ? { reason } : {}) }) }),
+    });
+
+    /** An auto run moves to Claude (M45.4): what failed on the local model is Claude's to do now. */
+    const moveToClaude = async (reason) => {
+      model = claudeModel(reason);
+      driver = "claude";
+      current = claudeRuntime;
+      speed = speeds.claude;
+      if (degraded === "model-unavailable" || degraded === "model-error") degraded = null;
+      await system("model", `Moved to ${claudeRuntime.model}: ${reason}.`);
+    };
+
+    /**
+     * Claude stopped answering partway (M45.4): its gateway down, its cap spent, the key refused. The
+     * run goes on with the local model, from the same conversation, once: that model, when it can.
+     */
+    let fellBack = false;
+    const fallBack = async (error) => {
+      if (fellBack || driver !== "claude" || !localRuntime) return null;
+      const code = String(error?.code ?? "").replace(/^model_/, "");
+      if (!fallsBack(code === "not_cloud" ? "not-connected" : code)) return null;
+      fellBack = true;
+      await system("model", `Claude did not answer (${String(error?.message ?? error).slice(0, 160)}): going on with the local model.`, "failed");
+      try {
+        const loaded = await runtime.ensure(localRuntime, { signal: controller.signal });
+        used.loadMs += loaded.loadMs ?? 0;
+        model = loaded;
+        driver = localRuntime.driver;
+        current = localRuntime;
+        speed = speeds.local;
+        await system("model", loaded.loadMs ? `The local model is ready (loaded in ${Math.round(loaded.loadMs / 1000)} s)` : "The local model is ready");
+        return loaded;
+      } catch (failed) {
+        if (controller.signal.aborted) throw failed;
+        await system("model", failed.message, "failed");
+        return null;
+      }
+    };
 
     /**
      * The check before answering (M40). Every claim in the draft is held to the tool output it
@@ -420,8 +484,8 @@ export function createRunner({ api, runtime, client, usage = null, now = () => D
         const fixer = { tools: null, messages: correctionMessages(draft, first.issues, sources), last: null };
         const draftTokens = Math.ceil(draft.length / charsPerToken);
         const asked = await ask(model, fixer, {
-          maxTokens: Math.min(claim.runtime.maxTokens ?? 1024, draftTokens + settings.correctionExtraTokens),
-          minTokens: Math.min(draftTokens, 256), extra: thinkingOff(claim.runtime.extra ?? {}), purpose: "correction", optional: true,
+          maxTokens: Math.min(current.maxTokens ?? 1024, draftTokens + settings.correctionExtraTokens),
+          minTokens: Math.min(draftTokens, 256), extra: (runtimeClaim) => thinkingOff(runtimeClaim.extra ?? {}), purpose: "correction", optional: true,
         });
         if (asked?.result?.content) {
           check.correctionMs = asked.took;
@@ -451,11 +515,8 @@ export function createRunner({ api, runtime, client, usage = null, now = () => D
     try {
       if (run.kind === "index") return await executeIndex(claim, controller, used, () => clearInterval(heartbeat));
       if (run.kind === "describe") return await executeDescribe(claim, controller, used, () => clearInterval(heartbeat), { ownDeadline: () => !stoppedBy && String(controller.signal.reason?.message) === "timeout" });
-      let model = null;
       if (driver === "claude") {
-        // A run on Claude (M45.3): no model server here. Each call goes to BoxPilot, which sends it to
-        // the model gateway with the house's names replaced, and turns the answer back.
-        model = { model: claim.runtime.model, loadMs: 0, provider: defineProvider({ id: "claude", kind: "remote", chat: (request, options = {}) => api.model(run.id, lease, request, options) }) };
+        model = claudeModel(null);
       } else {
         try {
           await system("model", "Starting the model");
@@ -467,19 +528,28 @@ export function createRunner({ api, runtime, client, usage = null, now = () => D
           degraded = error instanceof ModelUnavailable ? error.reason : "model-unavailable";
           await system("model", error.message, "failed");
         }
+        // An auto run whose local model could not start plans and acts on Claude instead (M45.4).
+        if (!model && claim.router?.mode === "auto") {
+          const decided = moveAfterPlan({ localProblem: "model-unavailable" });
+          if (decided.move) await moveToClaude(decided.reason);
+        }
       }
 
       const task = claim.messages.filter((message) => message.role === "user").map((message) => message.content).join("\n\n");
       // The tools the question's own words point at (M40): "where does X run" is where.runs, whatever the plan says.
       const hinted = toolsForQuestion(claim.run?.question ?? "", (claim.tools ?? []).map((tool) => tool.id));
       // 1. Intent and plan, as JSON against a schema, before any tool is called: a small conversation of its own.
+      // What the router reads of it (M45.4): null when there was no plan to make or the call never answered.
+      let planned = null;
       if (model && claim.understand) {
         const tools = claim.understand.tools ?? [];
         const hints = hinted.map((id) => toolById(id)).filter((tool) => tool && tools.some((entry) => entry.fn === tool.fn)).map((tool) => ({ fn: tool.fn, title: tool.title }));
         const planner = { tools: null, messages: plannerMessages(claim.agent ?? {}, tools, task, { hints }), last: null };
-        const asked = await ask(model, planner, { maxTokens: settings.understandTokens, extra: { ...thinkingOff(claim.runtime.extra ?? {}), response_format: understandingFormatFor(tools.map((tool) => tool.fn)) }, purpose: "plan" });
+        const format = understandingFormatFor(tools.map((tool) => tool.fn));
+        const asked = await ask(model, planner, { maxTokens: settings.understandTokens, extra: (runtimeClaim) => ({ ...thinkingOff(runtimeClaim.extra ?? {}), response_format: format }), purpose: "plan" });
         if (asked) {
           const read = readUnderstanding(asked.result.content ?? "", { offered: tools.map((tool) => tool.fn) });
+          planned = read.understanding ? { read: true, confidence: read.understanding.confidence, changes: read.understanding.tools.some((id) => changingTools.has(id)) } : { read: false };
           await api.steps(run.id, lease, [{ kind: "intent", understanding: read.understanding ?? asked.result.content ?? "", durationMs: asked.took, tokensIn: asked.result.usage?.promptTokens, tokensOut: asked.result.usage?.completionTokens }]).catch(() => {});
           if (read.understanding?.clarify && ["ask", "manual"].includes(run.kind)) clarify = read.understanding.clarify;
           else if (read.understanding) understanding = read.understanding;
@@ -498,10 +568,19 @@ export function createRunner({ api, runtime, client, usage = null, now = () => D
         }
         const act = { tools: ids.map((id) => byId.get(id)).filter(Boolean), messages, last: null };
         if (!act.tools.length) act.tools = null;
+        // An auto run moves to Claude here when its plan says to (M45.4), and later, before any step
+        // whose conversation has grown past what the local model holds well; never back to a Claude
+        // it fell back from.
+        const mayMove = () => claim.router?.mode === "auto" && driver !== "claude" && !fellBack;
+        const tooLong = () => (mayMove() ? moveAfterPlan({ promptTokens: Math.ceil(promptChars(act) / charsPerToken), contextTokens: localRuntime?.contextTokens ?? null, contextShare: claim.router.contextShare }) : null);
+        if (mayMove()) {
+          const decided = moveAfterPlan({ plan: planned, localProblem: degraded, promptTokens: Math.ceil(promptChars(act) / charsPerToken), contextTokens: localRuntime?.contextTokens ?? null, unsureBelow: claim.router.unsureBelow, contextShare: claim.router.contextShare });
+          if (decided.move) await moveToClaude(decided.reason);
+        }
         const readChars = () => Math.max(1_200, Math.round(settings.toolReadSeconds * speed.get().promptPerSecond * charsPerToken));
         let toolCalls = 0;
         const structured = claim.output?.format === "json" && (claim.output.fields ?? []).length > 0;
-        const answerExtra = structured ? { ...(claim.runtime.extra ?? {}), response_format: answerFormat(claim.output.fields) } : claim.runtime.extra ?? {};
+        const answerExtra = (runtimeClaim) => (structured ? { ...(runtimeClaim.extra ?? {}), response_format: answerFormat(claim.output.fields) } : runtimeClaim.extra ?? {});
         for (let step = 0; step < limits.steps && !answer; step += 1) {
           if (controller.signal.aborted) break;
           const byTokens = tokensUsed() >= limits.tokens * 0.85;
@@ -516,8 +595,10 @@ export function createRunner({ api, runtime, client, usage = null, now = () => D
             if (last?.role === "tool") act.messages[act.messages.length - 1] = { ...last, content: `${last.content}${answerNowNote(structured)}` };
             else act.messages.push({ role: "user", content: answerNowNote(structured).trim() });
           }
+          const grown = tooLong();
+          if (grown?.move) await moveToClaude(grown.reason);
           const asked = await ask(model, act, {
-            maxTokens: Math.max(64, Math.min(claim.runtime.maxTokens ?? 1024, limits.tokens - tokensUsed())),
+            maxTokens: Math.max(64, Math.min(current.maxTokens ?? 1024, limits.tokens - tokensUsed())),
             toolChoice: final ? "none" : "auto",
             ...(final && structured ? { extra: answerExtra } : {}),
             purpose: final ? "last answer" : "next step",
@@ -537,7 +618,7 @@ export function createRunner({ api, runtime, client, usage = null, now = () => D
         }
         // 3. A structured answer that is not the owner's JSON: the same prompt again, held to the JSON.
         if (answer && structured && readStructuredAnswer(answer, claim.output.fields).problem && !degraded) {
-          const asked = await ask(model, act, { maxTokens: Math.max(128, Math.min(claim.runtime.maxTokens ?? 1024, limits.tokens - tokensUsed())), toolChoice: "none", extra: answerExtra, purpose: "JSON answer" });
+          const asked = await ask(model, act, { maxTokens: Math.max(128, Math.min(current.maxTokens ?? 1024, limits.tokens - tokensUsed())), toolChoice: "none", extra: answerExtra, purpose: "JSON answer" });
           if (asked?.result?.content) {
             await api.steps(run.id, lease, [stepOf(model, asked, asked.result.content)]);
             answer = stripToolMarkup(asked.result.content);
@@ -581,8 +662,8 @@ export function createRunner({ api, runtime, client, usage = null, now = () => D
 
     /** The run's usage for BoxPilot, with this server's speed when a call measured it. */
     function usageOf() {
-      const pace = speed.get();
-      return { ...used, ...(check.claims ? { check: { ...check } } : {}), ...(pace.samples > 0 ? { speed: { promptPerSecond: pace.promptPerSecond, generatePerSecond: pace.generatePerSecond, source: pace.source, samples: pace.samples, threads: claim.runtime?.threads ?? null } } : {}) };
+      const pace = speeds.local.get();
+      return { ...used, ...(check.claims ? { check: { ...check } } : {}), ...(pace.samples > 0 ? { speed: { promptPerSecond: pace.promptPerSecond, generatePerSecond: pace.generatePerSecond, source: pace.source, samples: pace.samples, threads: localRuntime?.threads ?? null } } : {}) };
     }
   }
 
@@ -650,7 +731,8 @@ export function createRunnerApi({ base, token, runnerId, fetch: fetchImpl = glob
     finish: (runId, lease, body) => post(`/runs/${encodeURIComponent(runId)}/finish`, { lease, ...body }),
     usage: (body) => post("/usage", body),
     // M45.3: a run on Claude's model call, through BoxPilot to the model gateway; the answer on the contract.
-    model: (runId, lease, request, { signal = null, timeoutMs = 180_000 } = {}) => post(`/runs/${encodeURIComponent(runId)}/model`, { lease, request, timeoutMs }, { timeoutMs: timeoutMs + 15_000, signal }),
+    // M45.4: with why an auto run moved there.
+    model: (runId, lease, request, { signal = null, timeoutMs = 180_000, reason = null } = {}) => post(`/runs/${encodeURIComponent(runId)}/model`, { lease, request, timeoutMs, ...(reason ? { reason } : {}) }, { timeoutMs: timeoutMs + 15_000, signal }),
   };
 }
 
@@ -668,7 +750,7 @@ export function directRunnerApi(service, runnerId) {
     vectors: (runId, lease, entries) => Promise.resolve(service.runnerVectors(runId, lease, entries)),
     finish: (runId, lease, body) => service.runnerFinish(runId, lease, body),
     usage: (body) => Promise.resolve(service.runnerUsage(runnerId, body)),
-    model: (runId, lease, request, { timeoutMs = 180_000 } = {}) => service.runnerModel(runId, lease, { request, timeoutMs }),
+    model: (runId, lease, request, { timeoutMs = 180_000, reason = null } = {}) => service.runnerModel(runId, lease, { request, timeoutMs, ...(reason ? { reason } : {}) }),
   };
 }
 

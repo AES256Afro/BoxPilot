@@ -2729,10 +2729,17 @@ evaluation at 6/6 and every M37 to M44 agent test passing.
     never teaches the local model's. The demo's IT Support helper answers on Claude, through the
     real gateway and SDK with the stand-in model behind a fake wire
     (`packages/harness/src/providers/anthropic-fake.mjs`).
-- **M45.4 The router.** Each agent local, Claude or auto; auto picks Claude for low planner
-  confidence, runs that act and questions too big for the local context; a second opinion on Claude
-  for a local run whose check ended unsure; local whenever Claude is not connected, not reachable,
-  not allowed or over budget. One model per run. Route, reason, tokens and dollars in every trace.
+- ✅ **M45.4 The router** (unreleased, `feat/m45-4-router`). Each agent local, Claude or auto (Builder
+  → Model); new agents are auto once Claude is connected. An auto run plans on the local model and
+  moves to Claude for the acting when the local model could not plan, the plan is unreadable, under
+  0.5 confidence or proposes a change, or the conversation passes 80% of the local context (checked
+  before each step). A run of an auto agent that stayed local and ended cut short or not matching
+  its tools gets a second opinion on Claude, once, as its own run. A run on Claude whose call fails
+  for want of Claude (gateway down, cap spent, unreachable, overloaded, key refused) goes on with
+  the local model from the same conversation, and new runs stay local for a minute after the
+  gateway stops answering. The rules are pure functions in `packages/harness/src/router.mjs`; the
+  run view shows which model answered, why it moved, and the cost. Tool call ids from the local
+  model are made safe for Claude when a conversation moves.
 - **M45.5 Agents that act.** Grants per operation: Propose (a card), Ask (the agent stages the job,
   a person approves it at its tier, the agent waits and carries on; low and medium), Run (low only,
   under the maker's delegated consent as schedules and flows have it). High risk is always a card;

@@ -8,6 +8,7 @@
 export { assistantTurn, checkMessage, messagesFor } from "./messages.mjs";
 export { defineProvider, readChatResult, resultLimits } from "./provider.mjs";
 export { strictSchema } from "./schema.mjs";
+export { fallbackCodes, fallsBack, moveAfterPlan, routerDefaults, routes, secondOpinion, startRoute } from "./router.mjs";
 export { createStandIns, hideRequest, showResult } from "./safety/stand-ins.mjs";
 export { createOpenAiCompatibleProvider } from "./providers/openai-compatible.mjs";
 export { createFakeProvider } from "./providers/fake.mjs";
