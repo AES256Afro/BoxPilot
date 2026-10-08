@@ -1,0 +1,16 @@
+{
+  "id": "msg_many_calls",
+  "type": "message",
+  "role": "assistant",
+  "model": "claude-opus-5-5",
+  "content": [
+    { "type": "thinking", "thinking": "", "signature": "sig-many-0003" },
+    { "type": "tool_use", "id": "toolu_a", "name": "storage_health", "input": { "mount": "/" } },
+    { "type": "tool_use", "id": "toolu_b", "name": "storage_health", "input": { "mount": "/mnt/media" } },
+    { "type": "tool_use", "id": "toolu_c", "name": "service_status", "input": { "unit": "boxpilot" } },
+    { "type": "tool_use", "id": "toolu_d", "name": "service_status", "input": { "unit": "docker" } }
+  ],
+  "stop_reason": "tool_use",
+  "stop_details": null,
+  "usage": { "input_tokens": 40, "output_tokens": 120, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 1200 }
+}

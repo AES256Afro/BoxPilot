@@ -5,9 +5,13 @@
   "description": "An agent harness: one model contract, local and remote providers, a router, and the checks around them. BoxPilot is its first host.",
   "type": "module",
   "exports": {
-    ".": "./src/index.mjs"
+    ".": "./src/index.mjs",
+    "./anthropic": "./src/providers/anthropic.mjs"
   },
   "engines": {
     "node": ">=24"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "0.128.0"
   }
 }
