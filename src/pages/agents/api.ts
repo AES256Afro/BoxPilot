@@ -48,8 +48,8 @@ export interface AgentSpec {
   sharing?: { shareFindings: boolean; useFindings: boolean };
   escalation: { lowConfidence: boolean; limits: boolean; actions: boolean; risk: boolean };
   allow: { apps: "*" | string[]; operations: "*" | string[] };
-  /** M45.3: which model runs it, and what may leave this server when Claude does. Older agents have only `thinking`. */
-  model: { thinking: boolean; route?: "local" | "claude"; dataPolicy?: "redacted" | "as-is"; claudeForViewers?: boolean; claudeReadsDocuments?: boolean };
+  /** M45.3: which model runs it (M45.4: or "auto"), and what may leave this server when Claude does. Older agents have only `thinking`. */
+  model: { thinking: boolean; route?: ModelRoute; dataPolicy?: "redacted" | "as-is"; claudeForViewers?: boolean; claudeReadsDocuments?: boolean };
   orchestration: { supervisor: boolean; delegates: "*" | string[]; maxDepth: number };
 }
 
@@ -127,7 +127,16 @@ export interface Proposal {
   expiresAt: string;
   jobIds: string[];
 }
-export interface RunUsage { modelMs?: number; loadMs?: number; promptTokens?: number; completionTokens?: number; modelCalls?: number; toolCalls?: number; wallMs?: number; checkMs?: number; correctionMs?: number; runsSaved?: number; findingsCited?: number }
+/** Which model runs an agent: the local one, Claude (M45.3), or the local one moving to Claude when a run needs it (M45.4). */
+export type ModelRoute = "local" | "claude" | "auto";
+/**
+ * What a run used. `route` is set when it reached Claude: "claude" alone, or "both" when the local
+ * model answered part of it first; `routeReason` is why it moved (M45.4).
+ */
+export interface RunUsage {
+  modelMs?: number; loadMs?: number; promptTokens?: number; completionTokens?: number; modelCalls?: number; toolCalls?: number; wallMs?: number; checkMs?: number; correctionMs?: number; runsSaved?: number; findingsCited?: number;
+  route?: "claude" | "both"; model?: string; costUsd?: number; cloudCalls?: number; standIns?: number | null; routeReason?: string;
+}
 /** M40: the check before answering - statements held to the tool output they cite. */
 export interface RunCheck { claims: number; checked: number; mismatches: number; corrected: boolean; found: number; unsure: boolean }
 export interface Run {
@@ -136,7 +145,7 @@ export interface Run {
   agentName: string;
   version: number;
   kind: RunKind;
-  trigger: { title?: string; event?: string; quietHours?: boolean };
+  trigger: { title?: string; event?: string; quietHours?: boolean; secondOpinionOf?: string };
   question: string | null;
   state: RunState;
   reason: string | null;
@@ -147,7 +156,7 @@ export interface Run {
   answer: string | null;
   outputKind: string | null;
   usage: RunUsage;
-  flags: { injection?: boolean; degraded?: string; citations?: { cited: number; unknown: string[] }; check?: RunCheck };
+  flags: { injection?: boolean; degraded?: string; citations?: { cited: number; unknown: string[] }; check?: RunCheck; secondOpinion?: { runId: string; reason: string } };
   eval?: { evalId: string; questionId: string } | null;
   parentRunId?: string | null;
   rootRunId?: string;

@@ -46,6 +46,14 @@ export function createAgentsCloud({ state, gateway = createGatewayClient(), now 
     state.setSetting(cloudSpendSetting, { month: month.month, spentUsd: cents(month.spentUsd + (Number(costUsd) || 0)), calls: month.calls + 1 });
   };
   const failure = (code, message) => Object.assign(new Error(message), { code });
+  // A gateway that just failed to answer (M45.4): runs are not given Claude for a minute after, so
+  // each does not wait on it in turn; the first call or status read that gets through clears it.
+  const quietMs = 60_000;
+  let downUntil = 0;
+  const heard = (error) => {
+    if (!error) downUntil = 0;
+    else if (["gateway-down", "unreachable"].includes(error?.code)) downUntil = now() + quietMs;
+  };
 
   return {
     settings,
@@ -56,6 +64,7 @@ export function createAgentsCloud({ state, gateway = createGatewayClient(), now 
       if (!chosen.connected) return { ok: false, reason: "Claude is not connected" };
       if (!(chosen.capUsd > 0)) return { ok: false, reason: "No monthly cap is set for Claude" };
       if (spend().spentUsd >= chosen.capUsd) return { ok: false, reason: `This month's cap of $${chosen.capUsd} for Claude is spent` };
+      if (now() < downUntil) return { ok: false, reason: "The model gateway stopped answering a moment ago" };
       return { ok: true, reason: null };
     },
     /** agents.cloud.connect finished: the gateway took the key and Claude accepted it. */
@@ -70,7 +79,14 @@ export function createAgentsCloud({ state, gateway = createGatewayClient(), now 
     async chat(request, { signal, timeoutMs } = {}) {
       const usable = this.usable();
       if (!usable.ok) throw failure(settings().connected ? "budget" : "not-connected", usable.reason);
-      const result = await gateway.chat(request, { signal, timeoutMs });
+      let result;
+      try {
+        result = await gateway.chat(request, { signal, timeoutMs });
+      } catch (error) {
+        heard(error);
+        throw error;
+      }
+      heard(null);
       count(result?.costUsd ?? 0);
       return result;
     },
@@ -83,7 +99,9 @@ export function createAgentsCloud({ state, gateway = createGatewayClient(), now 
       if (chosen.connected) {
         try {
           month = await gateway.status();
+          heard(null);
         } catch (error) {
+          heard(error);
           problem = error?.code === "gateway-down" ? "The model gateway is not answering; agents run on the local model until it does" : String(error?.message ?? error);
         }
       }
