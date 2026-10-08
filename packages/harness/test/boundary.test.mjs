@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { existsSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -48,5 +49,13 @@ describe("the harness package", () => {
       }
     }
     expect(stray).toEqual([]);
+  });
+
+  it("asks for the same versions as the project around it, when it sits in one", async () => {
+    const host = path.resolve(root, "../../package.json");
+    if (!existsSync(host)) return;
+    const manifest = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
+    const around = JSON.parse(await readFile(host, "utf8"));
+    for (const [name, version] of Object.entries(manifest.dependencies ?? {})) expect(`${name}@${around.dependencies?.[name]}`).toBe(`${name}@${version}`);
   });
 });
