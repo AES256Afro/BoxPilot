@@ -2718,9 +2718,17 @@ evaluation at 6/6 and every M37 to M44 agent test passing.
     (medium), as root tasks; connecting proves the key with Claude at no cost and keeps no key
     Claude refuses. `GET /agents/cloud` and the Claude panel on the Agents page: connected or not,
     the model, the month against the cap. Anthropic keys are redacted wherever they turn up.
-  - The run path: runner → web service → gateway, the data policy per agent (Never, Redacted with
-    stand-ins kept on the box, or As is), the first cap check in the web service, cost in the trace,
-    and a run on Claude end to end in the demo with a fake upstream.
+  - ✅ The run path (unreleased, `feat/m45-3-run-path`). Each agent runs on the local model or on
+    Claude (Builder → Model); on Claude, names replaced with stand-ins or sent as they are, viewers'
+    questions only when allowed, the owner's documents only when named. The claim for a run on
+    Claude names no model server; the runner sends each call to `POST /agent-runner/runs/:id/model`,
+    where the web service redacts the asker's words, replaces the names, holds the call to its own
+    count of the month (the first cap), sends it to the gateway (the second), and turns the answer
+    back. A run that may not use Claude, or a month spent, runs locally and says why. The run's
+    usage carries the route, the model, the cost and how many names were replaced; Claude's speed
+    never teaches the local model's. The demo's IT Support helper answers on Claude, through the
+    real gateway and SDK with the stand-in model behind a fake wire
+    (`packages/harness/src/providers/anthropic-fake.mjs`).
 - **M45.4 The router.** Each agent local, Claude or auto; auto picks Claude for low planner
   confidence, runs that act and questions too big for the local context; a second opinion on Claude
   for a local run whose check ended unsure; local whenever Claude is not connected, not reachable,

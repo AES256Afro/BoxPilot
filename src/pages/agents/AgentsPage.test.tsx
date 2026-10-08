@@ -198,9 +198,15 @@ describe("the builder", () => {
     expect(screen.getByRole("radiogroup", { name: "Logs: permission" })).toBeTruthy();
     expect(screen.getByRole("table", { name: "Tools and their permissions" }).textContent).toContain("operator");
     fireEvent.change(name, { target: { value: "Keeper" } });
+    // M45.3: Claude, with what may leave the server; the local model's thinking stays as it was.
+    expect(screen.queryByLabelText("What may leave this server")).toBeNull();
+    fireEvent.change(screen.getByLabelText("Model"), { target: { value: "claude" } });
+    fireEvent.change(screen.getByLabelText("What may leave this server"), { target: { value: "as-is" } });
     fireEvent.click(screen.getByRole("button", { name: "Save as version 3" }));
     expect(await screen.findByText("Saved as version 3.")).toBeTruthy();
-    expect((calls.find((call) => call.method === "PUT")?.body as { spec: AgentSpec }).spec.name).toBe("Keeper");
+    const saved = (calls.find((call) => call.method === "PUT")?.body as { spec: AgentSpec }).spec;
+    expect(saved.name).toBe("Keeper");
+    expect(saved.model).toMatchObject({ route: "claude", dataPolicy: "as-is", thinking: spec.model.thinking });
 
     fireEvent.click(screen.getByRole("button", { name: "Compare version 1" }));
     const sheet = await screen.findByRole("dialog", { name: "Version 1" });

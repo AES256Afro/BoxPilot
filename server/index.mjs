@@ -401,7 +401,7 @@ const agentStore = createAgentStore({ databasePath: state.databasePath });
 // M45.3: Claude, as the web service knows it; the key stays with the model gateway.
 const agentsCloud = createAgentsCloud({ state });
 const agents = createAgentService({
-  state, store: agentStore, registry, helper, inventory, knowledge: assistant.index, secretEnvNamesFor, healthAlerts, productVersion,
+  state, store: agentStore, registry, helper, inventory, knowledge: assistant.index, secretEnvNamesFor, healthAlerts, productVersion, cloud: agentsCloud,
   // The daily look for a newer small Qwen reads Hugging Face's public model list; it never switches anything.
   fetchJson: (url) => fetch(url, { headers: { Accept: "application/json", "User-Agent": `BoxPilot/${productVersion}` }, signal: AbortSignal.timeout(15_000), redirect: "error" }).then((response) => (response.ok ? response.json() : null)),
 });
@@ -409,7 +409,13 @@ agents.start({ subscribeJobs: (listener) => state.subscribeJobs(listener), after
 
 app.disable("x-powered-by");
 app.use(jsonGzip());
-app.use(express.json({ limit: "256kb", strict: true }));
+const jsonBody = express.json({ limit: "256kb", strict: true });
+// M45.3: a run on Claude sends its whole conversation with each model call, from the runner on this
+// machine alone; that one route takes up to 2 MiB, and only from loopback.
+const modelBody = express.json({ limit: "2mb", strict: true });
+const runnerModelPath = /^\/api\/v1\/agent-runner\/runs\/[^/]+\/model$/;
+const loopbackPeer = (request) => ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(request.socket?.remoteAddress ?? "");
+app.use((request, response, next) => (runnerModelPath.test(request.path) && loopbackPeer(request) ? modelBody : jsonBody)(request, response, next));
 // The policy's script hash comes from the shell as built, so the theme bootstrap that has always
 // been inline is allowed by its own digest rather than blocked - which is what `script-src 'self'`
 // alone had been doing to it.

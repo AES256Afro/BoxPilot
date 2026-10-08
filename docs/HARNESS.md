@@ -160,16 +160,23 @@ third, small process holds the key and nothing else.
 
 Per agent, chosen by the owner, shown in the agent's settings and in every Claude run's trace:
 
-- **Never** (the default for an agent made before M45): the agent runs on the local model only.
-- **Redacted** (the default once the owner connects Claude): secrets and credentials are removed
-  as today, and names that identify the house (hostnames, addresses, MAC addresses, user names,
-  paths under home folders, app domains) are replaced with stable stand-ins for the run
-  (`host-1`, `10.0.0.x`, `user-1`). The map stays on the box; the answer is translated back before
-  anyone reads it.
-- **As is:** the tool output goes unchanged, still without secrets.
+- **The local model** (every agent's default, and every agent made before M45): nothing leaves the
+  box.
+- **Claude, names replaced** (the default once an agent is put on Claude): secrets and credentials
+  are removed as today, and names that identify the house are replaced with stable stand-ins for the
+  run (`packages/harness/src/safety/stand-ins.mjs`): this server's host name and accounts
+  (`host-1`, `user-1`), its own domain and any tailnet, `.local`, `.lan`, `.home.arpa` or
+  `.internal` name (`site-1.example`), private addresses (from the documentation ranges,
+  `192.0.2.x`), and MAC addresses (locally administered, `02:00:00:00:00:01`). Stand-ins come from
+  ranges no real house uses, so turning them back cannot mistake a real value for one. The map
+  stays on the box; the answer and the tool calls are turned back before anything reads them.
+- **Claude, as it is:** what the run reads goes unchanged, still without secrets.
 
-Owner documents, connector imports and Zulip files are never sent unless the agent's settings say
-so by name. A run a viewer started goes to Claude only if the agent allows Claude for viewers.
+The owner's documents (the library, connector imports and Zulip files) are never sent unless the
+agent's settings say so by name ("Claude may read your documents"). A run a viewer started goes to
+Claude only if the agent allows Claude for viewers; otherwise it runs on the local model and its
+trace says why. Every run on Claude says so in its trace: the model, the effort, the data policy,
+whether documents may go, and at the end what it cost and how many names were replaced.
 
 ### The router
 

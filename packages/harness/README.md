@@ -57,3 +57,16 @@ the log level are never read from the environment.
 
 The tests run the real SDK against a scripted `fetch` (`test/anthropic-wire.mjs`). The response
 fixtures follow the documented shape; they are not recordings.
+
+## Stand-ins
+
+`createStandIns({ hosts, domains, users })` replaces what identifies a house before a conversation
+leaves for a remote model, the same way every time in a run, and turns the answer back:
+`hideRequest(request, standIns)` and `showResult(result, standIns)`. Private addresses, MACs and
+local domains are found by their shape. A provider's own blocks are never touched.
+
+## Claude without Claude
+
+`@boxpilot/harness/anthropic/fake` gives the SDK a `fetch` that answers from a function:
+`fakeAnthropicFetch(answer)`. `standInClaude(provider)` makes that answer come from any other
+provider, so a demo's local stand-in model can play Claude through the real SDK and provider.

@@ -73,7 +73,11 @@ describe("an agent's spec", () => {
   it("escalates, thinks and hands off only as the owner says, and touches only what it is allowed", () => {
     const spec = normalizeSpec(minimal);
     expect(spec.escalation).toEqual({ lowConfidence: true, limits: true, actions: true, risk: true });
-    expect(spec.model).toEqual({ thinking: false });
+    // M45.3: the local model unless the owner says Claude, and names replaced when it is.
+    expect(spec.model).toEqual({ thinking: false, route: "local", dataPolicy: "redacted", claudeForViewers: false, claudeReadsDocuments: false });
+    expect(normalizeSpec({ ...minimal, model: { route: "claude", dataPolicy: "as-is" } }).model).toMatchObject({ route: "claude", dataPolicy: "as-is" });
+    expect(() => normalizeSpec({ ...minimal, model: { route: "gpt" } })).toThrow(/local, claude/);
+    expect(() => normalizeSpec({ ...minimal, model: { dataPolicy: "everything" } })).toThrow(/redacted, as-is/);
     expect(spec.allow).toEqual({ apps: "*", operations: "*" });
     expect(spec.orchestration).toEqual({ supervisor: false, delegates: "*", maxDepth: 2 });
     expect(spec.memory).toMatchObject({ share: false, threads: true, turns: 6 });

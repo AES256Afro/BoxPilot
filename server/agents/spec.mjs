@@ -23,7 +23,8 @@
  *   escalation           when it hands the matter to the owner as a card: low confidence, a limit
  *                        reached, an action needed, something that looks risky
  *   allow                the apps its tools may look at and the operations it may propose
- *   model                thinking on or off (off by default: on a CPU it costs minutes)
+ *   model                thinking on or off (off by default: on a CPU it costs minutes); which model
+ *                        runs it, local or Claude (M45.3), and what may leave the box when Claude does
  *   orchestration        a supervisor that hands subtasks to other agents, and how deep
  *
  * normalizeSpec() is the one gate: anything else is refused with a sentence, never repaired.
@@ -41,6 +42,10 @@ export const scheduleCadences = Object.freeze(["hourly", "every-6-hours", "daily
 export const knowledgeSources = Object.freeze(["docs", "registry", "catalog", "notes", "documents"]);
 export const audiences = Object.freeze(["owner", "operator", "viewer"]);
 export const outputFormats = Object.freeze(["text", "json"]);
+/** Which model runs an agent (M45.3): the local one, or Claude through the model gateway. */
+export const modelRoutes = Object.freeze(["local", "claude"]);
+/** What may leave the box when Claude runs it: names replaced with stand-ins, or the text as it is. Secrets never. */
+export const dataPolicies = Object.freeze(["redacted", "as-is"]);
 const appIdPattern = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const operationIdPattern = /^[a-z][a-z0-9-]*(\.[a-z0-9-]+)+$/;
 const agentIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -228,7 +233,13 @@ export function normalizeSpec(input) {
   const allow = { apps: allowList(rawAllow.apps, appIdPattern, "The apps it may look at"), operations: allowList(rawAllow.operations, operationIdPattern, "The operations it may propose") };
 
   const rawModel = section(input.model, "The model's settings must be choices");
-  const model = { thinking: bool(rawModel.thinking, false) };
+  const route = rawModel.route ?? "local";
+  if (!modelRoutes.includes(route)) throw new SpecError(`The model is one of ${modelRoutes.join(", ")}`);
+  const dataPolicy = rawModel.dataPolicy ?? "redacted";
+  if (!dataPolicies.includes(dataPolicy)) throw new SpecError(`What may leave the box is one of ${dataPolicies.join(", ")}`);
+  // Claude for a viewer's question only when the owner says so: their words go to Anthropic.
+  // The owner's documents (the library, connector imports, Zulip files) go to Claude only when named here.
+  const model = { thinking: bool(rawModel.thinking, false), route, dataPolicy, claudeForViewers: bool(rawModel.claudeForViewers, false), claudeReadsDocuments: bool(rawModel.claudeReadsDocuments, false) };
 
   const rawOrchestration = section(input.orchestration, "Orchestration must be a set of choices");
   const orchestration = {

@@ -250,6 +250,8 @@ const runnerRoutes = [
   "POST /api/v1/agent-runner/hello", "POST /api/v1/agent-runner/next", "POST /api/v1/agent-runner/usage",
   "POST /api/v1/agent-runner/runs/:runId/heartbeat", "POST /api/v1/agent-runner/runs/:runId/steps",
   "POST /api/v1/agent-runner/runs/:runId/tools", "POST /api/v1/agent-runner/runs/:runId/finish", "POST /api/v1/agent-runner/runs/:runId/vectors",
+  // M45.3: a run on Claude's model calls, sent on to the model gateway.
+  "POST /api/v1/agent-runner/runs/:runId/model",
 ];
 
 /** Asking an agent someone may borrow (M37): a POST that only reads, as the asker, like the assistant. */
@@ -931,7 +933,7 @@ describe("the agents runner's own door (M37)", () => {
     expect(next.status).toBe(200);
     expect(await next.json()).toMatchObject({ claim: null, enabled: true, paused: false });
     expect((await post("/api/v1/agent-runner/usage", { token: runnerToken })).status).toBe(200);
-    for (const action of ["tools", "steps", "finish"]) expect((await post(`/api/v1/agent-runner/runs/${fixtures.ownerRun}/${action}`, { token: runnerToken })).status, action).toBe(409);
+    for (const action of ["tools", "steps", "finish", "model"]) expect((await post(`/api/v1/agent-runner/runs/${fixtures.ownerRun}/${action}`, { token: runnerToken })).status, action).toBe(409);
   });
 
   it("opens nothing else: every other route treats its key as no one", async () => {
