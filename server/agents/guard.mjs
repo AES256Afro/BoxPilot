@@ -120,6 +120,13 @@ const injectionPatterns = [
   /\b(?:send|post|upload|exfiltrate)\b[^.\n]{0,40}\bhttps?:\/\//i,
   /\bcurl\b[^\n|]{0,120}\|\s*(?:sudo\s+)?(?:ba)?sh\b/i,
   /<\|im_start\|>|\[INST\]|<<SYS>>/i,
+  // M45.7: what reaches for an agent's leave to act. Data never names the tools that act, never
+  // speaks to an agent and tells it what to change, never demands a sweeping change at once, and
+  // never says to skip the person who approves.
+  /\b(?:operations[._](?:run|plan)|plan[._]propose|agents[._]handoff)\b/i,
+  /\b(?:agents?|assistants?|ai|bots?)\s*[,:]\s*(?:please\s+)?(?:now\s+)?(?:restart|execute|delete|remove|install|uninstall|upgrade|approve|stage|carry out|back ?up|reboot|disable|wipe)\b/i,
+  /\b(?:restart|stop|delete|remove|uninstall|wipe|purge|reboot|disable|update|upgrade)\b[^.\n]{0,20}\b(?:all|every)\b[^.\n]{0,20}\b(?:apps?|applications?|containers?|services?|backups?|drives?|shares?|users?)\b[^.\n]{0,40}\b(?:now|immediately|right away|at once)\b/i,
+  /\b(?:without|no need (?:to|for))\s+(?:asking|asking for|waiting for|telling|any)?\s*\b(?:approval|permission|the owner|anyone|confirmation)\b/i,
 ];
 
 /** Whether text reads like an instruction to a model, and the first few phrases that did. */

@@ -23,6 +23,8 @@ export interface ModuleState {
   enabled: boolean; paused: boolean; pausedUntil: string | null; killedAt: string | null; quietHours: { start: string; end: string }; inQuietHours: boolean; notify: boolean;
   budget?: ModuleBudget; embeddings?: boolean; webSearch?: { enabled: boolean; endpoint: string | null }; folder?: { enabled: boolean; path: string | null }; connectors?: Connectors;
   cores?: Cores;
+  /** M45.7: whether the nightly evaluation compares the routes. */
+  evaluation?: { compareNightly: boolean };
 }
 export interface RunnerUsage { state: string; cpuPercent: number; memoryBytes: number; memoryPeakBytes: number | null; cpuQuotaPercent: number | null; memoryMaxBytes: number | null; throttledMs: number; modelLoaded: boolean; model: string | null; cgroup: boolean; readAt: string }
 export interface RunnerStatus { online: boolean; lastSeenAt: string | null; version: string | null; startedAt: string | null; hostBusy: boolean; usage: RunnerUsage | null }
@@ -165,7 +167,7 @@ export interface Run {
   answer: string | null;
   outputKind: string | null;
   usage: RunUsage;
-  flags: { injection?: boolean; degraded?: string; citations?: { cited: number; unknown: string[] }; check?: RunCheck; secondOpinion?: { runId: string; reason: string } };
+  flags: { injection?: boolean; degraded?: string; citations?: { cited: number; unknown: string[] }; check?: RunCheck; secondOpinion?: { runId: string; reason: string }; actHeld?: boolean };
   eval?: { evalId: string; questionId: string } | null;
   parentRunId?: string | null;
   rootRunId?: string;
@@ -272,8 +274,11 @@ export interface Memory {
 }
 export interface Accuracy { version: number; model: string | null; evaluations: number; score: number | null; up: number; down: number; since: string | null }
 export interface Note { id: string; title: string; body: string; source: { runId?: string; by?: string; tools?: string[]; injection?: boolean }; createdAt: string; updatedAt: string; freshUntil: string | null; stale: boolean }
-export interface EvalResult { questionId: string; question: string; expected: { fact?: string; value?: unknown; includes?: string[] }; runId: string | null; passed: boolean | null; found: string | null; skipped?: boolean }
-export interface EvalRun { id: string; version: number; model?: string | null; state: "running" | "done"; results: EvalResult[]; score: number | null; createdAt: string; finishedAt: string | null; createdBy?: string | null }
+export interface EvalResult { questionId: string; question: string; expected: { fact?: string; value?: unknown; includes?: string[] }; runId: string | null; passed: boolean | null; found: string | null; skipped?: boolean; seconds?: number; costUsd?: number; route?: "local" | "claude" }
+export interface EvalRun { id: string; version: number; model?: string | null; state: "running" | "done"; results: EvalResult[]; score: number | null; createdAt: string; finishedAt: string | null; createdBy?: string | null; route?: "local" | "claude" | null; pairId?: string | null }
+/** M45.7: one side of a comparison of the routes. */
+export interface ComparisonSide { evalId: string; state: "running" | "done"; model: string | null; score: number | null; right: number; questions: number; seconds: number | null; dollars: number; ranLocally: number }
+export interface Comparison { pairId: string; at: string; nightly: boolean; local: ComparisonSide | null; claude: ComparisonSide | null }
 /** M40: each finished evaluation's score, oldest first, and a drop worth flagging. */
 /** `questions`: those graded, as `score` counts them; `skipped`: those that were not (sweep 4). */
 export interface AccuracyPoint { id: string; at: string; score: number; version: number; model: string | null; nightly: boolean; right: number; questions: number; skipped?: number }
@@ -281,7 +286,9 @@ export interface AccuracyDrop { from: number; to: number; previous: number; at: 
 export interface Evaluation {
   questions: Question[]; runs: EvalRun[]; canEdit: boolean; successCriteria?: string[]; accuracy?: Accuracy[];
   builtIn?: Question[]; history?: AccuracyPoint[]; drop?: AccuracyDrop | null; people?: Array<{ day: string; up: number; down: number }>;
-  nightly?: { quietHours: { start: string; end: string }; next: string };
+  nightly?: { quietHours: { start: string; end: string }; next: string; compare?: boolean };
+  /** M45.7: the routes side by side, and whether this person may start a comparison now. */
+  comparisons?: Comparison[]; canCompare?: boolean;
 }
 export interface Glance { enabled: boolean; paused: boolean; runnerOnline: boolean; queued?: number; digest: { agentId: string; agentName: string; runId: string; at: string; excerpt: string; state: RunState } | null; cardsWaiting: number }
 
@@ -333,7 +340,7 @@ export const agentsApi = {
   cancelPlan: (csrf: string, planId: string) => send<AgentPlan>("POST", `/plans/${encodeURIComponent(planId)}/cancel`, csrf),
   deleteNote: (csrf: string, id: string, noteId: string) => send<{ deleted: boolean }>("DELETE", `/${encodeURIComponent(id)}/notes/${encodeURIComponent(noteId)}`, csrf),
   saveEvaluation: (csrf: string, id: string, questions: Question[]) => send<Evaluation>("PUT", `/${encodeURIComponent(id)}/evaluation`, csrf, { questions }),
-  runEvaluation: (csrf: string, id: string) => send<EvalRun>("POST", `/${encodeURIComponent(id)}/evaluation/run`, csrf),
+  runEvaluation: (csrf: string, id: string, compare = false) => send<EvalRun>("POST", `/${encodeURIComponent(id)}/evaluation/run`, csrf, compare ? { compare: true } : undefined),
   decide: (csrf: string, proposalId: string, decision: "dismissed" | "staged", jobIds: string[] = []) => send<Proposal>("POST", `/proposals/${encodeURIComponent(proposalId)}/decide`, csrf, { decision, jobIds }),
   /** Which job a card's step was staged as; the server decides the card once every step's job is approved. */
   stageStep: (csrf: string, proposalId: string, step: number, jobId: string) => send<Proposal>("POST", `/proposals/${encodeURIComponent(proposalId)}/steps/${step}/job`, csrf, { jobId }),
@@ -364,6 +371,7 @@ export const agentsApi = {
     password: string; enabled?: boolean; quietHours?: { start: string; end: string }; notify?: boolean; knowledge?: Partial<Record<KnowledgeSource["id"], boolean>>; runtime?: Partial<RuntimeSettings>;
     budget?: { runsPerDay?: number; modelSecondsPerDay?: number }; embeddings?: boolean; webSearch?: { enabled: boolean; endpoint: string | null }; folder?: { enabled: boolean; path: string | null };
     cores?: { waiting?: number; background?: number };
+    evaluation?: { compareNightly: boolean };
     connectors?: { notion?: { enabled: boolean; credential: string | null }; slack?: { enabled: boolean; credential: string | null; channels?: string[] } };
   }) =>
     send<{ module: ModuleState }>("PUT", "/api/v1/settings/agents", csrf, body),
