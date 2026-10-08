@@ -25,6 +25,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 COPY server ./server
+COPY packages ./packages
 COPY scripts ./scripts
 COPY --from=build /app/dist ./dist
 
