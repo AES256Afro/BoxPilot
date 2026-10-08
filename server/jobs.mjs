@@ -77,6 +77,16 @@ function recordAlertKey(job) {
   return `record.failed:${job.type.slice(3)}${typeof subject === "string" && subject ? `:${subject.slice(0, 64)}` : ""}`;
 }
 
+/** The agent that staged a job (M45.5), held to plain bounded text: a name another person chose. */
+function agentOrigin(origin) {
+  if (!origin || typeof origin !== "object") return null;
+  const text = (value, max) => (typeof value === "string" ? value.replace(/[\u0000-\u001f\u007f]+/g, " ").trim().slice(0, max) : "");
+  const agentId = text(origin.agentId, 64);
+  const runId = text(origin.runId, 64);
+  if (!agentId || !runId) return null;
+  return { agentId, agentName: text(origin.agentName, 80) || "An agent", runId };
+}
+
 export function createJobService(store, helper, {
   // Which of an app's environment values are secrets, from its manifest (catalog/index.mjs
   // secretEnvNamesLookup). An app's password or API token arrives nested inside values.env, where
@@ -454,7 +464,7 @@ export function createJobService(store, helper, {
    * and `rerunOf` / `retryOf` name the job this one runs again: after a restart cut it off (M30.2),
    * or after it ran out of time. They are kept on the record so each run links to the one before.
    */
-  async function createOperationJob(operationId, parameters, ownerId, { role = "owner", budgetMs = null, rerunOf = null, rerunNeverStarted = false, retryOf = null } = {}) {
+  async function createOperationJob(operationId, parameters, ownerId, { role = "owner", budgetMs = null, rerunOf = null, rerunNeverStarted = false, retryOf = null, origin = null } = {}) {
     const operation = registry.get(operationId);
     if (!operation) throw new Error("Operation not found");
     // BoxPilot's own plumbing runs through the helper when BoxPilot calls it, never as a job: not
@@ -486,6 +496,8 @@ export function createJobService(store, helper, {
         ...(budget !== operation.timeoutMs ? { budgetMs: budget } : {}),
         ...(typeof rerunOf === "string" && rerunOf ? { rerunOf } : {}),
         ...(typeof retryOf === "string" && retryOf ? { retryOf } : {}),
+        // M45.5: an agent staged it, in its maker's name; the record names the agent and its run.
+        ...(agentOrigin(origin) ? { agent: agentOrigin(origin) } : {}),
         reason: operation.description || `${operation.title} is ${operation.risk} risk.`,
         manual: "If verification fails, review the job log and the helper journal, then rerun or undo the operation.",
       },
@@ -495,6 +507,7 @@ export function createJobService(store, helper, {
         { name: "checkpoint", state: "completed", detail: `${tier} risk ·${operation.readOnly ? "read-only" : "changes host state"} · runs through the root task runner` },
         ...(typeof rerunOf === "string" && rerunOf ? [{ name: "rerun", state: "completed", detail: `Ran again after BoxPilot restarted. The first run, job ${rerunOf}, ${rerunNeverStarted ? "never started" : "was cut off"}.` }] : []),
         ...(typeof retryOf === "string" && retryOf ? [{ name: "retry", state: "completed", detail: `Trying again with more time. The last run, job ${retryOf}, ran out of time.` }] : []),
+        ...(agentOrigin(origin) ? [{ name: "agent", state: "completed", detail: `${agentOrigin(origin).agentName} asked for this in its run ${agentOrigin(origin).runId}` }] : []),
         ...(budget !== operation.timeoutMs ? [{ name: "budget", state: "completed", detail: `Allowed ${formatDuration(budget)} instead of the usual ${formatDuration(operation.timeoutMs)}` }] : []),
       ],
     });
