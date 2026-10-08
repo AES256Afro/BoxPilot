@@ -56,20 +56,29 @@ how a person approves a job.
 ## The shape
 
 ```
-packages/harness/            no imports from server/ or src/ (a test enforces it)
-  core/       messages, tools, the run loop, limits, traces
-  providers/  openai-compatible (local), anthropic (Claude, official SDK), fake (tests)
-  router/     which provider runs a task, and when to ask the other one
-  safety/     untrusted wrapping, injection detection, taint, redaction, pseudonyms
-  check/      claims held to their evidence (from verify.mjs)
-  eval/       datasets, deterministic graders, route comparison, recorded fixtures
-  host.mjs    the interface a host implements
+packages/harness/src/        no imports from server/ or src/ (a test enforces it)
+  messages.mjs, provider.mjs, schema.mjs   the chat shape, the provider contract, strict schemas
+  core/       the run loop: act then check (loop.mjs), the model session that paces each call
+              (session.mjs, pace.mjs), a host's own tools (tools.mjs), a whole run (run.mjs)
+  providers/  openai-compatible and its client (local), anthropic (Claude, official SDK), fake
+  router.mjs  which model runs a task, and when to move
+  safety/     untrusted wrapping and injection detection (guard.mjs), redaction, stand-ins
+  check/      claims held to their evidence (verify.mjs), citations
   cli/        the standalone host (M45.8)
 
-server/agents/               BoxPilot's host: tools, approvals, store, memory, audit
+server/agents/               BoxPilot's host: planner, tools, grants, jobs, store, memory, audit,
+                             the evaluation against BoxPilot's world
 server/model-gateway/        the one process that holds the Claude key and reaches the API
 deploy/boxpilot-model-gateway.service
 ```
+
+As built (M45.8): the host interface is the options of `runTask` and `act` rather than a file of
+its own. BoxPilot's runner (`server/agents/runner.mjs`) builds its runs from `createModelSession`
+and `act`, with its own planner and its tools reached over the web API; the CLI uses `runTask`
+with tools in the same process (`createToolbox`). The planner stays BoxPilot's (it names BoxPilot's
+tools), and so does taint that follows text through notes, hand-offs and findings, which are
+BoxPilot's memory. BoxPilot's evaluation, acting grader and red-team set grade against BoxPilot's
+world and stay in `server/agents/`; the CLI has a small evaluation runner of its own.
 
 ### The host interface
 
@@ -303,11 +312,35 @@ operation's job is in Activity like any other.
 
 ### Standalone
 
-`packages/harness` ships a CLI host (M45.8): a working folder, a small toolset (read and write
-files inside it, an allowlisted shell, fetch a URL), approvals asked in the terminal, a SQLite file
-for runs and memory, the same router, providers, checks and evaluation runner. When its interface
-has held still through two BoxPilot releases it is published as its own npm package at 0.x;
-until then it is versioned with BoxPilot.
+`boxpilot-harness` (`packages/harness/src/cli/`; `npm run harness --` in this repository) runs an
+agent in one folder with no BoxPilot anywhere. Built in M45.8:
+
+- **Models.** A local server that speaks the OpenAI chat API (`--endpoint`; the model it offers, or
+  `--model`), held to BoxPilot's address rules: this machine or the owner's network. Claude with
+  `--claude-key-file` (the key from a file, never the environment), this machine's host and account
+  names replaced with stand-ins unless `--names as-is`. Scripted turns (`--fake`) to try it and to
+  test it. `--route local|remote|auto` with the router's rules: auto starts local and moves when the
+  local model fails or the conversation passes 80% of `--context`; a remote call that fails for want
+  of the remote model goes on locally, once; a remote model that declines ends the run.
+- **Tools.** `files_list`, `files_read`, `files_write` (create, replace, append), `shell_run` (one
+  program from an allowlist, with arguments, no shell; git is not on the default list, since a
+  repository's own settings can make it start programs), `web_fetch` (public pages only, with
+  `--web`), `notes_save` and `notes_search`. Every path stays inside the folder after links are
+  followed, never touches the harness's own `.harness`, and nothing is written into `.git`.
+- **Approvals.** Each write and command is asked at the terminal with what it would do and the text
+  it would write; `--yes` approves all, `--read-only` none, and with no one at the terminal none is.
+  A run that read something that looked like an instruction writes nothing, runs nothing and
+  fetches nothing, without asking.
+- **What the model reads.** Every tool output redacted with BoxPilot's redactor, boxed and
+  numbered; the answer checked against what it cites, with one correction; an answer that cites an
+  output no tool returned is pointed out.
+- **Memory.** `.harness/harness.db` in the folder (SQLite, the owner's only): every run with its
+  trace (`runs`, `show`), the agent's notes, and each model's measured speed for the next run.
+- **Evaluation.** `eval cases.json` runs each case in a fresh copy of the folder and grades its
+  answer and the files it left against patterns; no model judges.
+
+When its interface has held still through two BoxPilot releases it is published as its own npm
+package at 0.x; until then it is versioned with BoxPilot.
 
 ## Milestones
 

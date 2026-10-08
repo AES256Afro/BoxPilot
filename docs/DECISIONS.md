@@ -1070,6 +1070,12 @@ Claude, their chat, their connectors), and leave never travels in an exported or
 definition. "Live facts read again" is held by the service: a run carries out nothing until it has
 read the server with one of its tools.
 
+**As built (M45.8).** The run loop, the answer check, injection defence, the redactor and the local
+model client live in the harness; BoxPilot's runner is a host built from them, and a command line
+is the second host, proving the package stands alone. What stays BoxPilot's: the planner (it names
+BoxPilot's tools), the tool catalog, taint that follows text through notes, hand-offs and findings,
+grants, jobs and plans, and the evaluation against BoxPilot's world.
+
 ### Consequences
 
 - The owner can let an agent do routine low-risk work (restart a stopped app, refresh package

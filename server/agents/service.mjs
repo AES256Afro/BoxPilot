@@ -23,7 +23,7 @@ import os from "node:os";
 import path from "node:path";
 import { validatePlan } from "../assistant/plan.mjs";
 import { finalRedaction } from "../assistant/prompt.mjs";
-import { boxAttribute, boxLine, detectInjection, isLocalAddress, isLoopbackAddress, normalizeEndpoint, readStructuredAnswer, sanitizeUntrusted, stripWrapperBlocks, verifyAnswer, wrapFinding, wrapNote, wrapToolOutput } from "../../packages/harness/src/index.mjs";
+import { boxAttribute, boxLine, checkCitations, detectInjection, isLocalAddress, isLoopbackAddress, normalizeEndpoint, readStructuredAnswer, sanitizeUntrusted, stripWrapperBlocks, verifyAnswer, wrapFinding, wrapNote, wrapToolOutput } from "../../packages/harness/src/index.mjs";
 import { createRedactor, loadRedactionPolicy } from "../redaction.mjs";
 import { budgetState, createRateLimit, defaultQuietHours, inQuietHours, nextQuietStart, nextScheduledRun, normalizeQuietHours, quietHoursStart, startOfLocalDay, tomorrowMorning } from "./budget.mjs";
 import { coreLimits, defaultCores, effectiveCores, physicalCores, runnerCaps, runnerUnit, threadsFor } from "./caps.mjs";
@@ -35,7 +35,7 @@ import { decodeVector, encodeVector, episodeOf, foldThread, hybridSearch, memory
 import { defaultModelId, downloadPreview, findNewerQwen, modelById, modelLibrary, testedUnslothVersion, unslothModelSpec } from "./models.mjs";
 import { agentsNamed, chainOf, checkHandoff, nameKey, reservedNameProblem, specialistsFor, treeOf } from "./orchestrator.mjs";
 import { exportDefinition, readDefinition } from "./portable.mjs";
-import { checkCitations, systemMessage, taskMessage } from "./prompt.mjs";
+import { systemMessage, taskMessage } from "./prompt.mjs";
 import { SpecError, agentEvents, budgetCeilings, diffSpecs, normalizeSpec, outputFormats, previousRunSecondsDefault, scopeWarnings, specText } from "./spec.mjs";
 import { digestToken, finishedStates } from "./store.mjs";
 import { agentTemplates, builtInQuestions, evaluationFacts, templateById, templateQuestions } from "./templates.mjs";
