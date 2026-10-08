@@ -43,7 +43,7 @@ export class ToolError extends Error {
  * BoxPilot's documents for the people building it rather than the owner running it: the roadmap,
  * the decision records, the architecture and page notes, hand-offs and the contributors' guide.
  */
-export const internalDocuments = /^(AGENTS\.md|docs\/(ROADMAP[^/]*|DECISIONS|ARCHITECTURE|UI-PAGES|HANDOFF[^/]*|spikes\/[^/]+)\.md)$/i;
+export const internalDocuments = /^(AGENTS\.md|docs\/(ROADMAP[^/]*|DECISIONS|ARCHITECTURE|HARNESS|UI-PAGES|HANDOFF[^/]*|spikes\/[^/]+)\.md)$/i;
 export const internalDocument = (chunk) => chunk?.kind === "doc" && internalDocuments.test(String(chunk.ref?.path ?? chunk.title?.split(" › ")[0] ?? ""));
 /** A question about how BoxPilot itself is planned or built, which those documents do answer. */
 export const aboutBuildingBoxPilot = (query) => /\b(roadmap|milestones?|M\d{2}(?:\.\d+)?|ADR-?\d+|decisions? records?|architecture|design decisions?|release plan|changelog|contribut\w*|hand-?off notes?|spike)\b/i.test(String(query ?? ""));

@@ -2673,6 +2673,48 @@ markdown, and the Server Keeper's budget.
   model agents run; on a CPU-only server agents keep the base model. Also: matching findings by
   meaning (the memory's embeddings) when words fall short, and findings from event runs.
 
+## M45: An agent harness, with Claude beside the local model and agents that act
+
+Asked for 2026-10-08: "build an AI harness", usable on its own later but tailored to BoxPilot
+first; agents that carry out multi-step jobs on the server through the approval tiers, not only
+propose them; the local model and Claude, routed per task. The design is `docs/HARNESS.md`; the
+decisions are ADR-013. Each item is its own pull request, and every one keeps the local model's
+evaluation at 6/6 and every M37 to M44 agent test passing.
+
+- **M45.1 The core.** `packages/harness/`: the message format, the tool contract, the provider
+  interface, the local OpenAI-compatible provider moved behind it, a scripted fake provider, and a
+  test that the package imports nothing from `server/` or `src/`. The runner calls models through
+  it, with no change in what it does.
+- **M45.2 Claude as a provider.** The official `@anthropic-ai/sdk`; messages and tools translated
+  both ways; strict tool schemas with `tool_choice: auto`; adaptive thinking with effort by run kind;
+  prompt caching on the stable system message and tools; refusal fallbacks on; stop reasons checked
+  before any tool runs; cost from usage, priced in one table. Contract tests run the same scripted
+  conversations through both providers on recorded responses; CI never calls a real model.
+- **M45.3 The gateway and what may leave the box.** `boxpilot-model-gateway.service`, the only
+  process that holds the Claude key (`LoadCredential`, root-owned file), one destination host, a
+  Unix socket only the web service opens, the monthly cap enforced again. `agents.cloud.connect`
+  (high) and `agents.cloud.disconnect` (medium). The data policy per agent: Never, Redacted with
+  stand-ins kept on the box, or As is. Settings → Agents: the key, the model, the monthly cap, this
+  month's spend.
+- **M45.4 The router.** Each agent local, Claude or auto; auto picks Claude for low planner
+  confidence, runs that act and questions too big for the local context; a second opinion on Claude
+  for a local run whose check ended unsure; local whenever Claude is not connected, not reachable,
+  not allowed or over budget. One model per run. Route, reason, tokens and dollars in every trace.
+- **M45.5 Agents that act.** Grants per operation: Propose (a card), Ask (the agent stages the job,
+  a person approves it at its tier, the agent waits and carries on; low and medium), Run (low only,
+  under the maker's delegated consent as schedules and flows have it). High risk is always a card;
+  a tainted run only proposes; a viewer's run never acts; the approval mode wins; 3 operations a
+  run, 20 a day; live facts read again before acting and the effect checked after.
+- **M45.6 Jobs.** A plan of steps kept with a checkpoint after each, so it survives a restart and
+  can wait on an approval; 10 steps, 24 hours; one model start to end, Claude by default with a
+  task budget.
+- **M45.7 Evaluation.** Route comparison (accuracy, seconds, dollars), acting tasks graded in the
+  demo world, a red-team set of hidden instructions that must stage nothing on either route, all of
+  it in CI on recorded responses.
+- **M45.8 Standalone.** The loop, the check and the safety pieces moved wholly into the core; a CLI
+  host with a working folder, an allowlisted shell, terminal approvals and a SQLite file; its own
+  README. Published to npm at 0.x once its interface holds still through two BoxPilot releases.
+
 ## App catalogue candidates
 
 Checked against the 164 manifests already in `catalog/`, so nothing here duplicates an existing
