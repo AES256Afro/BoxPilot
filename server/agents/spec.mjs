@@ -29,6 +29,7 @@
  *
  * normalizeSpec() is the one gate: anything else is refused with a sentence, never repaired.
  */
+import { actLimits, grantLevels } from "./grants.mjs";
 import { toolById, toolCatalog, toolPermissions } from "./tool-catalog.mjs";
 import { normalizeChatOutputs } from "./zulip.mjs";
 
@@ -230,7 +231,24 @@ export function normalizeSpec(input) {
   };
 
   const rawAllow = section(input.allow, "What it may touch must be lists");
-  const allow = { apps: allowList(rawAllow.apps, appIdPattern, "The apps it may look at"), operations: allowList(rawAllow.operations, operationIdPattern, "The operations it may propose") };
+  const allow = { apps: allowList(rawAllow.apps, appIdPattern, "The apps it may look at"), operations: allowList(rawAllow.operations, operationIdPattern, "The operations it may propose or carry out") };
+  // What it may do itself (M45.5): Ask or Run per operation on its list; Propose, the default, is not kept.
+  // The registry's rules for each (grants.mjs) are checked where the agent is saved, which knows the registry.
+  const rawGrants = section(rawAllow.grants, "What it may do itself must be a choice for each operation");
+  const grants = {};
+  for (const [operationId, level] of Object.entries(rawGrants)) {
+    if (!operationIdPattern.test(operationId)) throw new SpecError(`${operationId} is not an operation id`);
+    if (!grantLevels.includes(level)) throw new SpecError(`What it may do with ${operationId} is one of ${grantLevels.join(", ")}`);
+    if (level === "propose") continue;
+    if (allow.operations !== "*" && !allow.operations.includes(operationId)) throw new SpecError(`${operationId} is not on its list of operations, so it cannot carry it out`);
+    grants[operationId] = level;
+  }
+  if (Object.keys(grants).length > actLimits.perAgentGrants) throw new SpecError(`At most ${actLimits.perAgentGrants} operations it carries out itself`);
+  // Kept only when there are some, so an agent saved before M45.5 reads as it was saved.
+  if (Object.keys(grants).length) allow.grants = Object.fromEntries(Object.entries(grants).sort(([a], [b]) => a.localeCompare(b)));
+  // The acting tool follows the grants: off with none; with some, on, or only when a person asked if
+  // the owner set it so. Taking the grants away is how acting stops.
+  tools["operations.run"] = !Object.keys(grants).length ? "off" : (rawTools["operations.run"] ?? rawTools.operations_run) === "ask" ? "ask" : "auto";
 
   const rawModel = section(input.model, "The model's settings must be choices");
   const route = rawModel.route ?? "local";

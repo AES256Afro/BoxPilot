@@ -2729,7 +2729,7 @@ evaluation at 6/6 and every M37 to M44 agent test passing.
     never teaches the local model's. The demo's IT Support helper answers on Claude, through the
     real gateway and SDK with the stand-in model behind a fake wire
     (`packages/harness/src/providers/anthropic-fake.mjs`).
-- ✅ **M45.4 The router** (unreleased, `feat/m45-4-router`). Each agent local, Claude or auto (Builder
+- ✅ **M45.4 The router** (1.166.0). Each agent local, Claude or auto (Builder
   → Model); new agents are auto once Claude is connected. An auto run plans on the local model and
   moves to Claude for the acting when the local model could not plan, the plan is unreadable, under
   0.5 confidence or proposes a change, or the conversation passes 80% of the local context (checked
@@ -2740,11 +2740,17 @@ evaluation at 6/6 and every M37 to M44 agent test passing.
   gateway stops answering. The rules are pure functions in `packages/harness/src/router.mjs`; the
   run view shows which model answered, why it moved, and the cost. Tool call ids from the local
   model are made safe for Claude when a conversation moves.
-- **M45.5 Agents that act.** Grants per operation: Propose (a card), Ask (the agent stages the job,
-  a person approves it at its tier, the agent waits and carries on; low and medium), Run (low only,
-  under the maker's delegated consent as schedules and flows have it). High risk is always a card;
-  a tainted run only proposes; a viewer's run never acts; the approval mode wins; 3 operations a
-  run, 20 a day; live facts read again before acting and the effect checked after.
+- ✅ **M45.5 Agents that act** (unreleased, `feat/m45-5-grants`). Grants per operation on the Build
+  tab: Propose (a card), Ask (the agent stages the job and a person approves it at its tier; low and
+  medium), Run (low only, under the maker's delegated consent as schedules and flows have it). The
+  tool `operations.run` is offered only to an agent with a grant. The run that acts ends; when its
+  jobs end, a follow-up run reads what became of each, checks the effect with a read, and answers.
+  High risk is always a card; a tainted run only proposes; a viewer's run never acts; the approval
+  mode wins; nothing that changes how agents run is ever granted; only the owner gives or raises a
+  grant, and a definition file never carries one; 3 operations a run, 20 a day, an hour's wait on an
+  approval; the kill switch withdraws what is staged; a run reads the server before it acts. The
+  job's person is the maker, and the job and the audit name the agent. Rules in
+  `server/agents/grants.mjs`, end to end in `server/agents/act-run.test.mjs`.
 - **M45.6 Jobs.** A plan of steps kept with a checkpoint after each, so it survives a restart and
   can wait on an approval; 10 steps, 24 hours; one model start to end, Claude by default with a
   task budget.

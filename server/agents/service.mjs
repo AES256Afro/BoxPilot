@@ -49,6 +49,8 @@ import { neutralizeLinks, questionFrom } from "./zulip.mjs";
 import { createStandIns, hideRequest, showResult } from "../../packages/harness/src/safety/stand-ins.mjs";
 import { routerDefaults, secondOpinion, startRoute } from "../../packages/harness/src/router.mjs";
 import { houseNames } from "./cloud.mjs";
+import { actLimits, grantNow, grantProblem, grantsOf } from "./grants.mjs";
+import { normalizeApprovalMode } from "../ops/risk.mjs";
 
 export { gradeDrives, gradeFact } from "./grade.mjs";
 
@@ -243,6 +245,9 @@ export function createAgentService({
   cloud = null,
   // The names a run on Claude replaces with stand-ins; a test hands in its own.
   houseNamesFor = houseNames,
+  // M45.5: the job service, through which an agent with leave to act stages and starts operations;
+  // null: agents only propose.
+  jobs = null,
 } = {}) {
   const limits = { ...serviceLimits, ...overrides };
   const tools = createToolRunner({ state, store, registry, helper, inventory, knowledge, secretEnvNamesFor, now, webSearch: () => moduleSettings().webSearch, ...(fetcher ? { fetcher } : {}) });
@@ -273,7 +278,7 @@ export function createAgentService({
   const nightlySkipped = new Map();
   let issuing = null;   // the runner's key being issued, so two callers never make two keys
   // Step kinds whose output the model is given, numbered T1, T2 ... in the order they happened.
-  const outputKinds = ["tool", "memory", "proposal", "note", "notify", "handoff"];
+  const outputKinds = ["tool", "memory", "proposal", "note", "notify", "handoff", "action"];
   const outputsSoFar = (runId) => store.listSteps(runId).filter((step) => outputKinds.includes(step.kind) && step.state === "done").length;
 
   // ---- settings ----
@@ -663,6 +668,8 @@ export function createAgentService({
       if (tool.id === "notes.read") return sources.notes;
       // A follow-up run writes the answer; it hands nothing further.
       if (tool.id === "agents.handoff") return specialists.length > 0 && run.kind !== "continue" && (run.depth ?? 0) < (spec.orchestration?.maxDepth ?? 2);
+      // M45.5: only to an agent with leave to carry something out, on a run that may act.
+      if (tool.id === "operations.run") return mayAct(run, spec).ok && actable(spec).length > 0;
       return true;
     });
   }
@@ -1253,13 +1260,18 @@ export function createAgentService({
       }
       for (const child of children.filter((entry) => !shown.has(entry.id))) answered(child);
       if (tainted) flagInjection(run.id, { hop: taintHop, from: taintFrom?.length ? taintFrom : null, detail: "A specialist's answer it was given came from a run that read something that looked like an instruction." });
+      // What became of each job it staged (M45.5): read as tool output, then checked with a read of its own.
+      for (const act of store.actionSteps(run.parentRunId)) {
+        const job = state.getJob?.(act.flags.jobId) ?? null;
+        store.addStep(run.id, { kind: "tool", name: "operations.run", input: { operationId: act.flags.operationId, jobId: act.flags.jobId }, output: sanitizeUntrusted(jobOutcome(act, job), { maxChars: limits.toolOutputChars, redact }).text, flags: { jobId: act.flags.jobId, jobState: job?.state ?? null } });
+      }
     }
     // The specialists' answers, T1, T2 ...: in the prompt, and to the runner, which numbers its tool
     // outputs after them, checks the answer against them and falls back on them (sweep 3: it had
     // none, so an answer citing T1 was "not sure", and one with no words of its own lost them).
-    const handoffSteps = run.kind === "continue" ? store.listSteps(run.id).filter((step) => step.kind === "tool" && step.name === "agents.handoff") : [];
-    const handoffOutputs = handoffSteps.map((step, index) => wrapToolOutput({ index: index + 1, tool: "agents_handoff", text: step.output ?? "", flags: step.flags }));
-    const handoffs = handoffSteps.map((step, index) => ({ id: `T${index + 1}`, title: `${clip(String(step.input?.agent ?? "A specialist"), 60)}'s answer`, text: step.output ?? "" }));
+    const handoffSteps = run.kind === "continue" ? store.listSteps(run.id).filter((step) => step.kind === "tool" && ["agents.handoff", "operations.run"].includes(step.name)) : [];
+    const handoffOutputs = handoffSteps.map((step, index) => wrapToolOutput({ index: index + 1, tool: step.name === "operations.run" ? "operations_run" : "agents_handoff", text: step.output ?? "", flags: step.flags }));
+    const handoffs = handoffSteps.map((step, index) => ({ id: `T${index + 1}`, title: step.name === "operations.run" ? `What became of ${clip(String(step.input?.operationId ?? "a job"), 60)}` : `${clip(String(step.input?.agent ?? "A specialist"), 60)}'s answer`, text: step.output ?? "" }));
     const budget = budgetOf({ ...agent, spec });
     const deadlineAt = new Date(Date.parse(run.startedAt) + spec.budget.runSeconds * 1000).toISOString();
     // An evaluation plans too (M40): it measures what a person asking gets, and the plan is where
@@ -1278,7 +1290,7 @@ export function createAgentService({
       findings: findings.map(({ id, title, text }) => ({ id, title, text })),
       // A follow-up's specialists' answers, T1, T2 ...: tool output already, before any it reads (sweep 3).
       handoffs,
-      tools: offered.map((tool) => ({ id: tool.id, ...toModelTool(tool) })),
+      tools: offered.map((tool) => ({ id: tool.id, ...toModelTool(tool.id === "operations.run" ? actTool(tool, spec) : tool) })),
       // Intent, then plan, then act: the runner asks for the structured understanding first.
       understand: understand ? { tools: offered.map((tool) => ({ fn: tool.fn, title: tool.title, ...(tool.use ? { use: tool.use } : {}) })) } : null,
       output: spec.prompt?.output ?? { format: "text", fields: [] },
@@ -1762,6 +1774,7 @@ export function createAgentService({
       }
       if (tool.id === "notes.write") return writeNoteFor(run, spec, value, answer);
       if (tool.id === "plan.propose") return await proposeFor(run, spec, value, answer);
+      if (tool.id === "operations.run") return await actFor(run, spec, value, answer);
       if (tool.id === "notify.owner") return notifyFor(run, spec, value, answer);
       const result = await Promise.race([
         tools.run(tool.id, value, context),
@@ -1937,6 +1950,130 @@ export function createAgentService({
     return answer("proposal", { text: `Saved as an approval card: ${tiers}.${checked.dropped.length ? ` Left out: ${checked.dropped.map((entry) => `${entry.operationId ?? "a step"} - ${entry.reason}`).join("; ")}.` : ""} Nothing runs until a person approves each step.`, input: { title, steps: checked.steps.map((step) => step.operationId) }, flags: { proposalId: proposal.id, ...flags } });
   }
 
+  // ---- acting under grants (M45.5, ADR-013) ----
+
+  /**
+   * The runs that may act: a person's question or console run, or the agent's own schedule or a
+   * server event. Not a webhook's: its caller chooses when a run starts, never what it does (ADR-002),
+   * and what it sent is read by the run.
+   */
+  const actingKinds = new Set(["ask", "manual", "schedule", "event"]);
+  /** The tools that read this server's live state: what a run reads before it changes anything (ADR-012). */
+  const liveCategories = new Set(["boxpilot", "records", "app"]);
+
+  /** Whether this run may act at all, whatever it would act on: `{ ok, reason }`. */
+  function mayAct(run, spec) {
+    if (!jobs) return { ok: false, reason: "Acting is not set up on this server" };
+    if (!actingKinds.has(run.kind)) return { ok: false, reason: "This kind of run only reads and answers" };
+    if (!roleAtLeast(run.readRole, "operator")) return { ok: false, reason: "A run a viewer started never changes anything" };
+    if (!Object.keys(grantsOf(spec)).length) return { ok: false, reason: "This agent has leave to carry out nothing" };
+    return { ok: true, reason: null };
+  }
+
+  /** The operations this agent may carry out now: granted, and still allowed that grant by the registry. */
+  const actable = (spec) => Object.entries(grantsOf(spec)).filter(([operationId, level]) => level !== "propose" && !grantProblem(registry.get(operationId), level)).map(([operationId, level]) => ({ operationId, level, operation: registry.get(operationId) }));
+
+  /** The acting tool as this agent's runs see it: its operations named, each with its leave. */
+  function actTool(tool, spec) {
+    const list = actable(spec);
+    const named = list.map((entry) => `${entry.operationId} (${entry.level === "run" ? "runs at once" : "a person approves first"}, ${entry.operation.risk} risk)`).join("; ");
+    return { ...tool, brief: `${tool.brief} Yours: ${named}.`, params: { ...tool.params, operationId: { ...tool.params.operationId, enum: list.map((entry) => entry.operationId) } } };
+  }
+
+  const approvalModeNow = () => normalizeApprovalMode(state.getSetting?.("approvalMode", null) ?? process.env.BOXPILOT_APPROVAL_MODE ?? "tiered");
+
+  /**
+   * operations.run: one operation the agent has leave to carry out, staged as a job in its maker's
+   * name. Every fence is checked here, whatever the runner sent: the run may act, it read nothing
+   * that looked like an instruction, the operation is granted and still may be, the run read live
+   * facts first, the limits hold, and the maker may still change the server. Run starts the job at
+   * once under the maker's delegated consent, as a schedule does; Ask leaves it for a person. The
+   * run is told to end; a follow-up run reads what became of the job and checks its effect.
+   */
+  async function actFor(run, spec, { operationId, parameters = {}, why }, answer) {
+    const input = { operationId, parameters };
+    const refused = (text, flags = {}) => answer("action", { state: "refused", text, input, flags: { refused: true, ...flags } });
+    const may = mayAct(run, spec);
+    if (!may.ok) return refused(`${may.reason}. Propose it instead.`);
+    // A run that read something that looked like an instruction stages nothing (ADR-013).
+    if (store.getRun(run.id)?.flags?.injection) return refused("This run read something that looked like an instruction, so it changes nothing. Propose it instead: a person will look.", { tainted: true });
+    const level = grantsOf(spec)[operationId] ?? "propose";
+    const operation = registry.get(operationId);
+    if (level === "propose") return refused(`This agent has no leave to carry out ${operationId}. Propose it instead.`);
+    const problem = grantProblem(operation, level);
+    if (problem) return refused(`${problem}. Propose it instead.`);
+    // Live facts first (ADR-012): what it is about to change, read by a tool in this run.
+    const readLive = store.listSteps(run.id).some((step) => step.kind === "tool" && step.state === "done" && liveCategories.has(toolById(step.name)?.category));
+    if (!readLive) return refused("Read the live facts this changes with one of your tools first, then carry it out.");
+    if (store.countSteps(run.id, "action") >= actLimits.perRun * 2 || store.actionSteps(run.id).length >= actLimits.perRun) return refused(`A run carries out at most ${actLimits.perRun} operations, and this one has. Answer with what you have.`, { limit: true });
+    const agent = store.getAgent(run.agentId);
+    if (store.countActionsSince(run.agentId, startOfLocalDay(now()).toISOString()) >= actLimits.perDay) return refused(`${agent?.name ?? "This agent"} has carried out ${actLimits.perDay} operations today, its most. Propose it instead.`, { limit: true });
+    // The job is its maker's, as a schedule's is (ADR-002): someone who may still change the server.
+    const maker = agent?.createdBy ? state.findOwnerById?.(agent.createdBy) : null;
+    if (!maker || !["owner", "operator"].includes(maker.role)) return refused("The person who made this agent can no longer change the server, so it changes nothing. Propose it instead.");
+    if (operation.minimumRole === "owner" && maker.role !== "owner") return refused(`Only the owner may carry out ${operation.title}, and this agent was made by an operator. Propose it instead.`);
+    let job;
+    try {
+      job = await jobs.createOperationJob(operationId, parameters, maker.id, { role: maker.role, origin: { agentId: agent.id, agentName: agent.name, runId: run.id } });
+    } catch (error) {
+      return refused(`It could not be staged: ${clip(redact(String(error?.message ?? error)), 300)}`);
+    }
+    const now_ = grantNow(level, { risk: job.risk, mode: approvalModeNow(), confirms: Boolean(operation.confirm?.(job.parameters ?? {})) });
+    const withdraw = (reason) => { try { jobs.cancelJob(job.id, maker.id, { role: maker.role, reason }); } catch { /* already moved on */ } };
+    if (now_ === "propose") {
+      withdraw("An agent may not carry this out: it is high risk here");
+      return refused(`${operation.title} is high risk here, so it is a card, not something an agent carries out. Propose it instead.`);
+    }
+    if (now_ === "run") {
+      try {
+        await jobs.approveAndStart(job.id, maker.id, {});
+      } catch (error) {
+        withdraw(`It could not start: ${clip(String(error?.message ?? error), 200)}`);
+        return refused(`It could not start: ${clip(redact(String(error?.message ?? error)), 300)}`);
+      }
+    }
+    store.mergeRunFlags(run.id, { acted: true });
+    audit("agents.run.acted", { actorId: maker.id, subjectId: job.id, details: { agentId: agent.id, agentName: agent.name, runId: run.id, operationId, grant: now_, risk: job.risk, requestedBy: run.requestedBy } });
+    const what = `${operation.title} (${job.risk} risk), as job ${job.id}`;
+    const text = now_ === "run"
+      ? `Started ${what}, under your leave to run it. End this run now with what you did and why; a follow-up run reads how the job went and checks its effect.`
+      : `Staged ${what} for a person to approve. End this run now saying what you asked for and why; a follow-up run reads what became of it. If nobody approves it within an hour it is dropped.`;
+    return answer("action", { text, input: { operationId, parameters: job.parameters }, flags: { jobId: job.id, operationId, grant: now_, risk: job.risk, why: clip(why, 300) } });
+  }
+
+  /** What became of a job a run staged, as its follow-up reads it. */
+  function jobOutcome(act, job) {
+    const title = job?.title ?? act.flags.operationId;
+    if (!job) return `${title}: BoxPilot no longer has this job.`;
+    const how = act.flags.grant === "run" ? "It ran under the agent's leave." : job.approvals?.length ? "A person approved it." : "It waited for a person.";
+    const head = job.state === "completed" ? `${title} finished. ${how}`
+      : job.state === "failed" ? `${title} failed: ${clip(job.error ?? "no reason given", 400)}. ${how}`
+        : job.state === "cancelled" ? `${title} did not run: ${clip(job.error ?? "it was cancelled", 300)}.`
+          : `${title} is still ${job.state}.`;
+    const result = job.state === "completed" && job.result ? `\nWhat it reported: ${clip(JSON.stringify(job.result), 1_500)}` : "";
+    return `${head} Job ${job.id}, ${job.risk} risk.${result}`;
+  }
+
+  const terminalJobStates = new Set(["completed", "failed", "cancelled"]);
+  /** Whether every job a run staged has ended. */
+  const actsSettled = (runId) => store.actionSteps(runId).every((step) => terminalJobStates.has(state.getJob?.(step.flags.jobId)?.state ?? "cancelled"));
+
+  /**
+   * Jobs agents staged that no one approved within the hour are dropped (ADR-013); each drop ends
+   * the job, which brings its run's follow-up. With `all`, everything still waiting goes: the kill switch.
+   */
+  function dropUnapprovedActs({ all = false, reason = "Nobody approved it within an hour" } = {}) {
+    const since = new Date(now().getTime() - 24 * 3_600_000).toISOString();
+    let dropped = 0;
+    for (const act of store.actionsSince(since)) {
+      const job = state.getJob?.(act.jobId);
+      if (job?.state !== "awaiting_approval") continue;
+      if (!all && now().getTime() - Date.parse(job.createdAt) < actLimits.approvalWaitMs) continue;
+      try { jobs?.cancelJob(job.id, job.createdBy, { role: "owner", reason }); dropped += 1; } catch { /* approved or gone meanwhile */ }
+    }
+    return dropped;
+  }
+
   function notifyFor(run, spec, { title, message }, answer) {
     if (spec.outputs?.notify !== "important" || moduleSettings().notify === false) return answer("notify", { state: "refused", text: "This agent does not send notifications.", flags: { refused: true } });
     const history = state.getSetting?.("agentsNotified", {}) ?? {};
@@ -2082,7 +2219,8 @@ export function createAgentService({
    * look at, not a reason to read it again with a stronger model.
    */
   function askSecondOpinion(agent, spec, finished, { clarify, checked, degradedReason, reachedClaude }) {
-    if (spec?.model?.route !== "auto" || reachedClaude || !secondOpinionKinds.has(finished.kind) || finished.flags?.injection) return null;
+    // A run that carried something out is not asked again: the second could carry it out twice (M45.5).
+    if (spec?.model?.route !== "auto" || reachedClaude || !secondOpinionKinds.has(finished.kind) || finished.flags?.injection || finished.flags?.acted) return null;
     const wanted = secondOpinion({ outcome: finished.state, degradedReason, check: checked, clarify: Boolean(clarify), secondOpinion: Boolean(finished.trigger?.secondOpinionOf) });
     if (!wanted.ask || !claudeAllowed(spec, finished).ok) return null;
     const settings = moduleSettings();
@@ -2296,13 +2434,19 @@ export function createAgentService({
     const parent = store.getRun(parentId);
     if (!parent || parent.flags?.continued) return;
     const children = store.listChildren(parent.id).filter((entry) => entry.kind === "handoff");
-    if (!children.length || children.some((entry) => !handoffSettled(entry))) return;
+    // M45.5: a run that staged jobs is followed up too, once every one of them has ended.
+    const acted = store.actionSteps(parent.id).length > 0;
+    if (!children.length && !acted) return;
+    if (children.some((entry) => !handoffSettled(entry)) || (acted && !actsSettled(parent.id))) return;
     if (!["completed", "degraded"].includes(parent.state)) return;
+    // Nothing new after the kill switch, a follow-up of a job it dropped included.
+    if (moduleSettings().killedAt) return;
     const agent = store.getAgent(parent.agentId);
     if (!agent) return;
     store.mergeRunFlags(parent.id, { continued: true });
     store.enqueueRun({
-      agentId: agent.id, version: agent.version, kind: "continue", question: parent.question, trigger: { title: "The specialists answered" },
+      agentId: agent.id, version: agent.version, kind: "continue", question: parent.question,
+      trigger: acted ? { title: children.length ? "The specialists answered and its jobs ended" : "Its jobs ended", acted: true, ...(children.length ? { handedOff: true } : {}) } : { title: "The specialists answered" },
       requestedBy: parent.requestedBy, readRole: parent.readRole, readAs: parent.readAs, parentRunId: parent.id, rootRunId: parent.rootRunId ?? parent.id, depth: parent.depth ?? 0,
     });
     wake();
@@ -2447,7 +2591,9 @@ export function createAgentService({
       runEnded(ended, { tree: false });
     }
     stopModelRequested = true;
-    audit("agents.module.killed", { actorId: person.id, details: { cancelled, stopped } });
+    // Everything an agent staged that still waits on a person goes with it (ADR-013).
+    const withdrawn = dropUnapprovedActs({ all: true, reason: "Withdrawn by the agents' kill switch" });
+    audit("agents.module.killed", { actorId: person.id, details: { cancelled, stopped, withdrawn } });
     void settleCpu({ force: true }).catch(() => null);
     wake();
     return { module: presentModule(person), cancelled, stopped };
@@ -2489,6 +2635,7 @@ export function createAgentService({
     const given = spec ?? base?.spec ?? {};
     const routed = !spec?.model?.route && cloud?.settings().connected ? { ...given, model: { ...(given.model ?? {}), route: "auto" } } : given;
     const normalized = wrapSpecError(() => normalizeSpec(routed));
+    checkGrants(person, normalized, null);
     refuseReservedName(normalized.name);
     const agent = store.createAgent({ spec: normalized, template: base?.id ?? null, createdBy: person.id, nextRunAt: nextRunFor(normalized) });
     if (base && templateQuestions[base.id]?.length) store.setQuestions(agent.id, templateQuestions[base.id], { updatedBy: person.id });
@@ -2501,11 +2648,29 @@ export function createAgentService({
     const agent = agentFor(person, agentId, { edit: true });
     const normalized = wrapSpecError(() => normalizeSpec(spec));
     if (specText(normalized) === specText(agent.spec)) return { ...presentAgent(person, agent, { detail: true }), unchanged: true };
+    checkGrants(person, normalized, agent.spec);
     refuseReservedName(normalized.name, agent.spec.name);
     const version = store.addVersion(agent.id, { spec: normalized, note: typeof note === "string" ? clip(note.replace(/[\u0000-\u001f\u007f]/g, " ").trim(), 200) || null : null, createdBy: person.id, nextRunAt: nextRunFor(normalized) });
     audit("agents.updated", { actorId: person.id, subjectId: agent.id, details: { version, fields: diffSpecs(agent.spec, normalized).map((change) => change.field) } });
     forgetFindingsIfUnshared(agent, normalized);
     return presentAgent(person, store.getAgent(agent.id), { detail: true });
+  }
+
+  /**
+   * Grants (M45.5): each held to the registry's rules, and raised only by the owner. A grant lets the
+   * agent change the server in its maker's name without them, so it is the owner's to give; anyone
+   * who may edit the agent may take one away or lower it.
+   */
+  function checkGrants(person, next, previous) {
+    const grants = grantsOf(next);
+    for (const [operationId, level] of Object.entries(grants)) {
+      const problem = grantProblem(registry.get(operationId), level);
+      if (problem) refuse(400, `${operationId}: ${problem}`, "invalid_agent");
+    }
+    const before = grantsOf(previous);
+    const rank = { propose: 0, ask: 1, run: 2 };
+    const raised = Object.entries(grants).some(([operationId, level]) => rank[level] > rank[before[operationId] ?? "propose"]);
+    if (raised && person.role !== "owner") refuse(403, "Only the owner gives an agent leave to carry out operations", "forbidden");
   }
 
   /** Sharing turned off (M44): what it shared is forgotten, so nobody reads it after the owner said no. */
@@ -2519,6 +2684,7 @@ export function createAgentService({
     const target = store.getVersion(agent.id, Number(version));
     if (!target) refuse(404, "That version does not exist", "version_not_found");
     if (target.version === agent.version) refuse(409, "That is already the current version", "version_current");
+    checkGrants(person, target.spec, agent.spec);
     refuseReservedName(target.spec.name, agent.spec.name);
     const next = store.addVersion(agent.id, { spec: target.spec, note: `Rolled back to version ${target.version}`, createdBy: person.id, nextRunAt: nextRunFor(target.spec) });
     audit("agents.rolled-back", { actorId: person.id, subjectId: agent.id, details: { to: target.version, version: next } });
@@ -2665,6 +2831,8 @@ export function createAgentService({
       categories: toolCategories,
       outputFormats,
       memoryTiers,
+      // M45.5: the operations an agent may be given leave to carry out, each with the most it may have.
+      grantable: registry.list().filter((operation) => !grantProblem(operation, "ask")).map((operation) => ({ id: operation.id, title: operation.title, risk: operation.risk, most: grantProblem(operation, "run") ? "ask" : "run" })),
     };
   }
 
@@ -3836,6 +4004,8 @@ export function createAgentService({
       runEnded(store.finishRun(run.id, { state: "cancelled", reason: tooLongReason }));
     }
     store.expireProposals(at);
+    // What an agent staged that no one approved within the hour is dropped (ADR-013).
+    dropUnapprovedActs();
     if (at.getTime() - lastPrune > 86_400_000) { lastPrune = at.getTime(); try { store.prune({ at }); } catch { /* next day */ } }
     if (settings.enabled && at.getTime() - lastModelCheck > 86_400_000) { lastModelCheck = at.getTime(); await checkForNewerModel().catch(() => null); }
     // Background work in quiet hours: the folder the owner named, then meaning search's index.
@@ -3868,6 +4038,10 @@ export function createAgentService({
     // A card's step approved anywhere (its dialog, a push, Activity, Today) may finish the card (sweep 3).
     if (job?.id && job.state !== "awaiting_approval") {
       try { for (const proposal of store.listOpenProposalsForJob(job.id)) settleProposal(proposal); } catch { /* settled when the card is next read */ }
+    }
+    // A job an agent staged has ended (M45.5): its run's follow-up, once its other jobs have too.
+    if (job?.id && ["completed", "failed", "cancelled"].includes(job.state)) {
+      try { const runId = store.runForJob(job.id); if (runId) continueSupervisor(runId); } catch { /* followed up when the next job of the run ends */ }
     }
     if (job?.state !== "failed") return;
     onEvent("job.failed", { title: `A job failed: ${job.title ?? job.type ?? "a job"}` });

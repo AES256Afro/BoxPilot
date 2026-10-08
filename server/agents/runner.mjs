@@ -74,8 +74,8 @@ const stripToolMarkup = (text) => String(text ?? "").replace(/<tool_call>[\s\S]*
 
 // Tools a degraded run may run itself: reads of the server that need no words from the model.
 const fallbackCategories = new Set(["boxpilot", "records", "app"]);
-/** The tools that propose a change: a plan that names one moves an auto run to Claude (M45.4). */
-const changingTools = new Set(toolCatalog.filter((tool) => tool.writes === "proposal").map((tool) => tool.id));
+/** The tools that propose or make a change: a plan that names one moves an auto run to Claude (M45.4, M45.5). */
+const changingTools = new Set(toolCatalog.filter((tool) => tool.writes === "proposal" || tool.writes === "job").map((tool) => tool.id));
 const needsInput = (tool) => Object.values(tool.params ?? {}).some((spec) => spec.required);
 const howTo = /\b(how (do|can|to|should)|where (do|can) i|what does .{1,40} do|explain|boxpilot'?s? (roadmap|docs?|documentation|page|feature))\b/i;
 

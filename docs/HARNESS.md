@@ -211,29 +211,43 @@ reason it moved, the model and the cost; the run view shows them.
 
 ADR-013 replaces "agents propose, never act" with "agents act only through the approval tiers,
 under grants". The person a job runs for stays the agent's maker, with the agent named in the audit
-("Server Keeper, for alex").
+and on the job ("Server Keeper asked for this in its run …").
 
-Per agent, per operation in its allowlist, the owner grants one of:
+Per agent, per operation in its allowlist, the owner grants one of (Build tab → Data and tools):
 
 | Grant | What happens | Allowed for |
 |---|---|---|
-| **Propose** | A card, as today | Every tier |
-| **Ask** | The agent stages the job; a person approves it at its tier (push notification); the agent waits, then carries on | Low and medium |
-| **Run** | The job runs under the maker's delegated consent, as a schedule or flow does (ADR-002) | Low only |
+| **Propose** | A card, as before (the default) | Every tier |
+| **Ask** | The agent stages the job; a person approves it at its tier (push notification); the agent's follow-up run reads how it went | Low and medium |
+| **Run** | The job starts at once under the maker's delegated consent, as a schedule or flow does (ADR-002); a follow-up run reads how it went | Low only |
+
+The rules are `server/agents/grants.mjs`; the tool is `operations.run`, offered only to an agent
+with a grant, its operations listed by name. The run that acts ends there: when every job it staged
+has ended, a follow-up run (`kind: "continue"`) reads what became of each as tool output, checks
+the effect with a read of its own, and answers. A follow-up acts no further.
 
 Fences that no grant opens:
 
 - **High risk never runs for an agent.** It is always a card: a person, a password, the tag typed.
+  A job whose parameters raise it to high (an app whose manifest is high risk) is withdrawn.
 - **Tainted runs only propose.** A run that read something that looked like an instruction stages
   nothing, whatever its grants, and the owner is told.
 - **Only the maker's authority, only the maker's runs.** A run a viewer started never acts; a
-  run started from Zulip acts only for a person mapped to an owner or operator.
-- **The approval mode wins.** With "always ask for the password", every grant is at most Ask.
+  run started from Zulip acts only for a person mapped to an owner or operator. A maker who lost
+  the operator role stops being obeyed. Evaluations, learning runs, hand-offs, follow-ups and webhook
+  runs never act (a webhook's caller chooses when, never what), and a run that acted gets no second
+  opinion.
+- **The approval mode wins.** With "always ask for the password", every grant is at most Ask; so is
+  a job that asks for typed confirmation.
+- **Never granted:** BoxPilot's own plumbing, reads, anything that reveals or takes a secret, and
+  anything that changes how agents run (`agents.*`). Only the owner gives or raises a grant; anyone
+  who may edit the agent may lower or remove one. A definition file never carries grants.
 - **Limits:** at most 3 operations a run, 20 a day per agent, an hour's wait on an approval before
-  the job is dropped and the run ends. The kill switch cancels everything staged.
-- **Before acting, live facts are read again** (ADR-012's rule), and the operation's preview is
-  shown to the model. **After acting, the agent checks** the effect with a read and says what it
-  found. A failed step stops the job and is reported; nothing is retried by itself.
+  the job is dropped. The kill switch withdraws everything staged.
+- **Read first.** A run carries out nothing until it has read the server with one of its tools
+  (ADR-012's rule); the tool's answer says what was staged, at what tier. **After acting, the
+  follow-up checks** the effect with a read and says what it found. A failed job is reported;
+  nothing is retried by itself.
 
 ### Jobs that take more than one run
 

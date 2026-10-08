@@ -14,10 +14,10 @@ import { Prose, inline } from "./Prose";
  */
 
 const stepKindWords: Record<RunStep["kind"], string> = {
-  intent: "intent", plan: "plan", recall: "memory", memory: "memory", model: "model", tool: "tool", handoff: "hand-off", proposal: "card", note: "note", notify: "notice", system: "runner", finding: "finding",
+  intent: "intent", plan: "plan", recall: "memory", memory: "memory", model: "model", tool: "tool", handoff: "hand-off", proposal: "card", note: "note", notify: "notice", system: "runner", finding: "finding", action: "job",
 };
 const ago = (value: unknown) => (typeof value === "string" && value ? value : null);
-const citable = new Set<RunStep["kind"]>(["tool", "memory", "handoff", "proposal", "note", "notify"]);
+const citable = new Set<RunStep["kind"]>(["tool", "memory", "handoff", "proposal", "note", "notify", "action"]);
 
 interface Intent { goal?: string; subject?: string; constraints?: string[]; tools?: string[]; confidence?: number | null; clarify?: string | null }
 

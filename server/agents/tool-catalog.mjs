@@ -231,6 +231,18 @@ export const toolCatalog = Object.freeze([
     },
   },
   {
+    // M45.5 (ADR-013): offered only to an agent the owner gave leave to carry out an operation, on a
+    // run a person who may change the server started or the agent's own maker stands behind.
+    id: "operations.run", title: "Carry out an operation", category: "action", role: "operator", cost: "moderate", writes: "job", always: true,
+    description: "Carry out one registered BoxPilot operation the owner gave this agent leave to run. Read the live facts it changes with a tool first. With leave to run it starts at once; with leave to ask, a person approves it first. Either way, end this run then: a follow-up run reads how the job went and checks the effect. Anything else is a plan to propose.",
+    brief: "Carry out one operation you have leave to run, after reading the live facts it changes. End the run then; a follow-up reads how it went.",
+    params: {
+      operationId: { type: "string", maxLength: 120, required: true, description: "One of the operations you have leave to carry out." },
+      parameters: { type: "object", description: "Its parameters, as docs.search shows them for that operation." },
+      why: { type: "string", maxLength: 300, required: true, description: "Why, citing the tool output it is based on." },
+    },
+  },
+  {
     id: "notify.owner", title: "Tell the owner (important only)", category: "action", role: "viewer", cost: "cheap", writes: "notification", always: true,
     description: "Send the owner a short notification. Only for something important that needs a person soon; at most one every few hours.",
     brief: "Send the owner a short notification: only for something important that needs a person soon.",
@@ -337,6 +349,7 @@ export function toModelTool(tool) {
   for (const [name, spec] of Object.entries(tool.params ?? {})) {
     const property = { description: spec.description ?? name };
     if (spec.type === "integer") Object.assign(property, { type: "integer", ...(spec.min !== undefined ? { minimum: spec.min } : {}), ...(spec.max !== undefined ? { maximum: spec.max } : {}) });
+    else if (spec.type === "object") Object.assign(property, { type: "object" });
     else if (spec.type === "array") Object.assign(property, { type: "array", maxItems: spec.maxItems, items: spec.items === "step" ? { type: "object", properties: { operationId: { type: "string" }, parameters: { type: "object" }, why: { type: "string" } }, required: ["operationId"] } : {} });
     else Object.assign(property, { type: "string", ...(spec.enum ? { enum: spec.enum } : {}), ...(spec.maxLength ? { maxLength: spec.maxLength } : {}) });
     properties[name] = property;
@@ -373,6 +386,9 @@ export function readToolInput(tool, raw) {
       if (!Number.isInteger(number)) return { problem: `"${name}" must be a whole number` };
       if ((spec.min !== undefined && number < spec.min) || (spec.max !== undefined && number > spec.max)) return { problem: `"${name}" must be ${spec.min} to ${spec.max}` };
       value[name] = number;
+    } else if (spec.type === "object") {
+      if (typeof given !== "object" || Array.isArray(given)) return { problem: `"${name}" must be a set of named values` };
+      value[name] = given;
     } else if (spec.type === "array") {
       if (!Array.isArray(given)) return { problem: `"${name}" must be a list` };
       if (spec.maxItems && given.length > spec.maxItems) return { problem: `"${name}" holds at most ${spec.maxItems}` };

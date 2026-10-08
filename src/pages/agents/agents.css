@@ -105,6 +105,10 @@
 .agents-form__row > .ui-field { flex: 1 1 10rem; min-width: 0; }
 .agents-form__checks { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 15rem), 1fr)); gap: 6px 16px; }
 .agents-form__check { align-self: center; }
+/* M45.5: what it carries out itself, one operation a row: its name, its leave, and taking it away. */
+.agents-grants { display: grid; gap: 8px; }
+.agents-grants__row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+.agents-grants__what { flex: 1 1 14rem; min-width: 0; overflow-wrap: anywhere; }
 .agents-form__grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 12rem), 1fr)); gap: 8px 12px; }
 .agents-tool { display: grid; gap: 2px; min-width: 0; padding-block: 5px; white-space: normal; }
 .agents-tool__name { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; }
