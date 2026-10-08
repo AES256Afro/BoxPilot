@@ -222,7 +222,7 @@ export default function AgentsPage({ csrfToken, role = "owner", now = Date.now }
       <Tabs<Tab> label="Agents" tabs={tabs} value={shown} onChange={(next) => { setTab(next); if (next !== "test") setRunId(null); }}>
         {(current) => {
           if (current === "build") {
-            return <Builder agentId={selected} agents={agents} catalog={catalog} canCreate={can.create} csrfToken={csrfToken} now={now()}
+            return <Builder agentId={selected} agents={agents} catalog={catalog} canCreate={can.create} canGrant={can.configure} csrfToken={csrfToken} now={now()}
               onCreated={(id) => { setAgentId(id); setNotice("Made. Change anything below; each save is a version you can roll back."); void refresh(); }}
               onChanged={() => void refresh()} onDeleted={() => { setAgentId(null); setTab("agents"); setNotice("Deleted."); void refresh(); }}
               onTest={(id) => open(id, "test")} />;

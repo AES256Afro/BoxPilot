@@ -480,6 +480,19 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
   const listSteps = (runId) => prepare("SELECT * FROM agent_run_steps WHERE run_id = ? ORDER BY seq").all(runId).map(stepOf);
   const countSteps = (runId, kind) => Number(prepare("SELECT COUNT(*) AS count FROM agent_run_steps WHERE run_id = ? AND kind = ?").get(runId, kind).count);
 
+  // ---- acting (M45.5) ----
+
+  /** The steps where a run staged a job: each names the job in its flags. */
+  const actionSteps = (runId) => prepare("SELECT * FROM agent_run_steps WHERE run_id = ? AND kind = 'action' AND json_extract(flags_json, '$.jobId') IS NOT NULL ORDER BY seq").all(runId).map(stepOf);
+  /** The run that staged a job, when an agent's did. */
+  const runForJob = (jobId) => prepare("SELECT run_id FROM agent_run_steps WHERE kind = 'action' AND json_extract(flags_json, '$.jobId') = ? LIMIT 1").get(String(jobId ?? ""))?.run_id ?? null;
+  /** How many jobs an agent staged since `since`: its day's limit. */
+  const countActionsSince = (agentId, since) => Number(prepare(`SELECT COUNT(*) AS count FROM agent_run_steps s JOIN agent_runs r ON r.id = s.run_id
+    WHERE r.agent_id = ? AND s.kind = 'action' AND json_extract(s.flags_json, '$.jobId') IS NOT NULL AND s.started_at >= ?`).get(agentId, since).count);
+  /** The jobs agents staged since `since`, with their runs: whatever still waits on a person is among them. */
+  const actionsSince = (since) => prepare("SELECT run_id AS runId, json_extract(flags_json, '$.jobId') AS jobId, started_at AS startedAt FROM agent_run_steps WHERE kind = 'action' AND json_extract(flags_json, '$.jobId') IS NOT NULL AND started_at >= ? ORDER BY started_at")
+    .all(since).map((row) => ({ runId: row.runId, jobId: row.jobId, startedAt: row.startedAt }));
+
   // ---- notes ----
 
   const noteOf = (row) => ({
@@ -862,7 +875,7 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
     databasePath, transaction,
     createAgent, getAgent, listAgents, getVersion, listVersions, addVersion, setPaused, setNextRun, noteEvent, deleteAgent, setWebhook,
     enqueueRun, getRun, listRuns, listChildren, listTree, activeRuns, claimNext, holdsLease, extendLease, releaseRun, finishRun, mergeRunFlags, setEvalInfo, markAgentRan, usageSince, findingsUseSince,
-    addStep, listSteps, countSteps,
+    addStep, listSteps, countSteps, actionSteps, runForJob, countActionsSince, actionsSince,
     writeNote, listNotes, getNote, listSharedNotes, deleteNote, updateNote,
     writeFinding, listFindings, deleteFindings,
     getThread, saveThread, deleteThread,
