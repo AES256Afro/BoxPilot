@@ -438,7 +438,7 @@
 :root[data-look="cockpit"] .ui-switch__control[aria-checked="true"] .ui-switch__track { border-color: var(--ck-g); background: var(--ck-g); }
 :root[data-look="cockpit"] .ui-switch__control[aria-checked="true"] .ui-switch__thumb { background: #00140a; }
 :root[data-look="cockpit"] .ui-switch__control[aria-checked="true"] .ui-switch__state { color: var(--ck-g); }
-:root[data-look="cockpit"] .ui-check__input:checked + .ui-check__mark { border-color: var(--ck-c); background: var(--ck-c); }
+:root[data-look="cockpit"] :is(.ui-check__input:checked, .ui-check__input:indeterminate) + .ui-check__mark { border-color: var(--ck-c); background: var(--ck-c); }
 :root[data-look="cockpit"] :is(.ui-input, .ui-textarea, .ui-select__control) { border-color: var(--cc-line-strong); color: var(--ck-c); background: #000000; font-family: var(--font-mono); text-overflow: ellipsis; }
 /* A tile's caption on one line in B612, cut short rather than broken inside a figure ("6.1% · 1434 MiB"). */
 :root[data-look="cockpit"] .ui-tile__detail { display: block; max-width: 100%; overflow: hidden; font-family: var(--font-sans); font-size: 11px; letter-spacing: 0; text-overflow: ellipsis; white-space: nowrap; }

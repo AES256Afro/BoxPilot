@@ -332,7 +332,7 @@
   :root[data-look="transit"] .ui-segmented { border: 1.5px solid #c9c9c2; border-radius: 999px; background: #ffffff; }
   :root[data-look="transit"] .ui-segmented__option { border-radius: 999px; color: #13233f; font-family: "Overpass", sans-serif; font-weight: 700; }
   :root[data-look="transit"] .ui-segmented__option[aria-checked="true"] { color: #ffffff; background: #13233f; box-shadow: none; }
-  :root[data-look="transit"] .ui-check__input:checked + .ui-check__mark { border-color: #13233f; background: #13233f; }
+  :root[data-look="transit"] :is(.ui-check__input:checked, .ui-check__input:indeterminate) + .ui-check__mark { border-color: #13233f; background: #13233f; }
 
   /* Notices and needs: a coloured line down the edge, as a line on the map. */
   :root[data-look="transit"] .ui-notice { border: 0; border-radius: 6px; background: #ffffff; box-shadow: inset 5px 0 0 var(--mark), 0 0 0 1px #e2e2dc; }

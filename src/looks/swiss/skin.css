@@ -357,6 +357,8 @@
   :root[data-look="swiss"] .ui-switch__control[aria-checked="true"] .ui-switch__thumb { background: #ffffff; }
   :root[data-look="swiss"] .ui-switch__state { color: #111111; font-family: "Archivo", sans-serif; font-weight: 700; }
   :root[data-look="swiss"] .ui-check__mark { border: 2px solid #111111; background: #ffffff; }
+  :root[data-look="swiss"] :is(.ui-check__input:checked, .ui-check__input:indeterminate) + .ui-check__mark { border-color: #111111; background: #111111; }
+  :root[data-look="swiss"] .ui-check__mark::after { border-color: #ffffff; }
   :root[data-look="swiss"] .ui-segmented { gap: 0; padding: 0; border: 2px solid #111111; background: #ffffff; }
   :root[data-look="swiss"] .ui-segmented__option { min-height: 28px; color: #111111; font-family: "Archivo", sans-serif; font-weight: 700; }
   :root[data-look="swiss"] .ui-segmented__option + .ui-segmented__option { border-left: 2px solid #111111; }
