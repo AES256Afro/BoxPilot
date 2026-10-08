@@ -82,6 +82,13 @@ describe("a request to Claude", () => {
     expect(sent.messages[2].content).toEqual([{ type: "tool_result", tool_use_id: "call_1", content: "41%" }]);
   });
 
+  it("gives another model's tool call ids the characters Claude takes, the same at both ends", () => {
+    const turn = { role: "assistant", content: null, tool_calls: [{ id: "call:7/a b", type: "function", function: { name: "storage_health", arguments: "{}" } }] };
+    const sent = toAnthropicRequest({ model: "claude-opus-5-5", messages: [...opening, turn, { role: "tool", tool_call_id: "call:7/a b", content: "41%" }], maxTokens: 512 });
+    expect(sent.messages[1].content[0].id).toBe("call_7_a_b");
+    expect(sent.messages[2].content).toEqual([{ type: "tool_result", tool_use_id: "call_7_a_b", content: "41%" }]);
+  });
+
   it("goes to Anthropic with the key it was given, refusing redirects, whatever the environment says", async () => {
     vi.stubEnv("ANTHROPIC_BASE_URL", "https://somewhere-else.example");
     vi.stubEnv("ANTHROPIC_API_KEY", "sk-ant-from-the-environment");

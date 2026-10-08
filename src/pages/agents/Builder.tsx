@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from "react";
 import { relativeTime } from "../../home/format";
 import { Button, Checkbox, CodeBlock, CopyButton, Facts, Field, Notice, Panel, Segmented, Select, Sheet, StatusChip, Switch, Table, Tag, TextInput, Textarea, type TableColumn } from "../../ui";
-import { agentsApi, type AgentDetail, type AgentSpec, type AgentSummary, type AgentVersion, type Catalog, type ChatKind, type ChatOutput, type ChatOutputs, type OutputField, type Schedule, type SpecChange, type ToolInfo, type ToolPermission, type VersionDetail } from "./api";
+import { agentsApi, type AgentDetail, type AgentSpec, type AgentSummary, type AgentVersion, type Catalog, type ChatKind, type ChatOutput, type ChatOutputs, type ModelRoute, type OutputField, type Schedule, type SpecChange, type ToolInfo, type ToolPermission, type VersionDetail } from "./api";
 import { errorText, scheduleWords, triggerWords } from "./format";
 
 /*
@@ -59,6 +59,12 @@ const budgetWords: Record<keyof AgentSpec["budget"], { label: string; unit: stri
   stepsPerRun: { label: "Steps a run", unit: "steps" },
   tokensPerRun: { label: "Tokens a run", unit: "tokens" },
   runSeconds: { label: "Longest run", unit: "seconds" },
+};
+/** What each model choice does, said under it (M45.3, M45.4). */
+const routeHints: Record<ModelRoute, string> = {
+  local: "Every run stays on this server.",
+  auto: "It plans on this server and moves to Claude when its plan is unsure, proposes a change, or is too long for the local model. An answer that comes out cut short or not matching its tools is asked again on Claude. Needs Claude connected on the Agents page; until then, the local model answers.",
+  claude: "Claude runs only once it is connected on the Agents page, and never past its monthly cap; until then, and after, the local model answers.",
 };
 const weekdays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const permissionOptions = [{ value: "auto" as const, label: "On" }, { value: "ask" as const, label: "Asked" }, { value: "off" as const, label: "Off" }];
@@ -264,6 +270,8 @@ function SpecForm({ draft, setDraft, catalog, disabled, others, template = null 
   const setPrompt = (key: "rules" | "steps" | "escalate", value: string) => setDraft((current) => ({ ...current, prompt: { ...current.prompt, [key]: linesOf(value) } }));
   const allow = draft.allow;
   const delegates = draft.orchestration.delegates;
+  const route: ModelRoute = draft.model.route ?? "local";
+  const reachesClaude = route !== "local";
   return (
     <fieldset className="agents-form" disabled={disabled}>
       <FormSection id="scope" title="Its job" step={1}>
@@ -380,26 +388,26 @@ function SpecForm({ draft, setDraft, catalog, disabled, others, template = null 
           ))}
         </div>
         <div className="agents-form__row">
-          <Field label="Model" hint="Claude runs only once it is connected on the Agents page, and never past its monthly cap; until then, and after, the local model answers.">
-            <Select value={draft.model.route ?? "local"} disabled={disabled} onValueChange={(value) => setDraft((current) => ({ ...current, model: { ...current.model, route: value === "claude" ? "claude" : "local" } }))}
-              options={[{ value: "local", label: "The local model, on this server" }, { value: "claude", label: "Claude, through the model gateway" }]} />
+          <Field label="Model" hint={routeHints[route]}>
+            <Select value={route} disabled={disabled} onValueChange={(value) => setDraft((current) => ({ ...current, model: { ...current.model, route: value === "claude" || value === "auto" ? value : "local" } }))}
+              options={[{ value: "local", label: "The local model, on this server" }, { value: "auto", label: "The local model, moving to Claude when a run needs it" }, { value: "claude", label: "Claude, through the model gateway" }]} />
           </Field>
-          {draft.model.route === "claude" && (
+          {reachesClaude && (
             <Field label="What may leave this server" hint="Secrets never leave it, either way.">
               <Select value={draft.model.dataPolicy ?? "redacted"} disabled={disabled} onValueChange={(value) => setDraft((current) => ({ ...current, model: { ...current.model, dataPolicy: value === "as-is" ? "as-is" : "redacted" } }))}
                 options={[{ value: "redacted", label: "Names replaced: hosts, addresses, accounts and local domains go as stand-ins" }, { value: "as-is", label: "As it is" }]} />
             </Field>
           )}
         </div>
-        {draft.model.route === "claude" && (
+        {reachesClaude && (
           <div className="agents-form__checks">
             <Checkbox label="Claude may answer viewers" description="A viewer's question goes to Anthropic too. Off: a viewer's question is answered by the local model." checked={draft.model.claudeForViewers ?? false} disabled={disabled}
               onChange={(checked) => setDraft((current) => ({ ...current, model: { ...current.model, claudeForViewers: checked } }))} />
-            <Checkbox label="Claude may read your documents" description="The library on the Knowledge tab, what came in from Notion or Slack, and files dropped in Zulip. Off: they stay on this server, and the agent answers without them." checked={draft.model.claudeReadsDocuments ?? false} disabled={disabled}
+            <Checkbox label="Claude may read your documents" description={route === "auto" ? "The library on the Knowledge tab, what came in from Notion or Slack, and files dropped in Zulip. Off: they stay on this server, and since any run may move to Claude, the agent answers without them." : "The library on the Knowledge tab, what came in from Notion or Slack, and files dropped in Zulip. Off: they stay on this server, and the agent answers without them."} checked={draft.model.claudeReadsDocuments ?? false} disabled={disabled}
               onChange={(checked) => setDraft((current) => ({ ...current, model: { ...current.model, claudeReadsDocuments: checked } }))} />
           </div>
         )}
-        <Switch label="Thinking" description={draft.model.route === "claude" ? "For the local model, when it answers instead. Claude always thinks, as hard as the run needs." : "Off by default: on this processor a small model can spend minutes thinking and never answer. Turn it on only for hard tasks; it counts against the budget."} checked={draft.model.thinking} disabled={disabled}
+        <Switch label="Thinking" description={route === "claude" ? "For the local model, when it answers instead. Claude always thinks, as hard as the run needs." : "Off by default: on this processor a small model can spend minutes thinking and never answer. Turn it on only for hard tasks; it counts against the budget."} checked={draft.model.thinking} disabled={disabled}
           onChange={(checked) => setDraft((current) => ({ ...current, model: { ...current.model, thinking: checked } }))} />
       </FormSection>
 

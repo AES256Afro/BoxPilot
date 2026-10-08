@@ -180,19 +180,32 @@ whether documents may go, and at the end what it cost and how many names were re
 
 ### The router
 
-One model per run, chosen before the run starts, recorded in the trace with the reason:
+Where a run starts and when it changes model, decided by plain rules in
+`packages/harness/src/router.mjs` and written into the trace with the reason:
 
 - **Agent route:** `local`, `claude` or `auto`. New agents start `auto` once Claude is connected,
-  `local` before.
-- **Auto** picks Claude when the planner's confidence is under 0.5, when the run will act (a job
-  with operations), or when the question needs more than the local context holds. Otherwise local.
-- **Second opinion:** a local run whose check ended unsure, mismatched or degraded is run again, from
-  the start, on Claude, if the policy and budget allow. The trace shows both runs.
-- **Always local** when the data policy is Never, Claude is not connected, the gateway does not
-  answer, or the month's budget is spent. A run never waits on an unreachable model.
+  `local` before. Agents that already exist keep their route.
+- **Auto** plans on the local model, then moves to Claude for the acting when the local model could
+  not start or stopped while it planned, the conversation is past 80% of the local context (checked
+  again before each step), the plan could not be read, the plan's confidence is under 0.5, or the
+  plan proposes a change. Otherwise the run stays local. What an auto run reads is held to Claude's
+  rules from the start (documents stay home unless named), since any of its runs may move.
+- **Second opinion:** a run of an auto agent that stayed local and ended cut short, or with part of
+  its answer not matching its tools, is asked again on Claude, once, as a run of its own that names
+  the first (`trigger.secondOpinionOf`), when Claude may take it and the agent has runs left today.
+  Not for a run that read something that looked like an instruction.
+- **Fallback:** a run on Claude whose call fails because Claude is not there (the gateway down, not
+  connected, the cap spent, Anthropic unreachable, overloaded or rate-limiting, the key refused)
+  goes on with the local model from the same conversation, once. For a minute after the gateway
+  stops answering, new runs are not given Claude, so none waits on it in turn.
+- **Always local** when Claude is not connected, a viewer asked and the agent keeps viewers' words
+  on the box, or the month's cap is spent.
 
-Per run, not per turn: Claude's caches and thinking blocks belong to one model and one conversation,
-and switching mid-conversation would throw both away.
+The plan and the acting are separate conversations, so moving between them throws nothing away.
+Moving partway through acting (the context rule) carries the local model's conversation to Claude,
+which reads it fresh; falling back drops Claude's thinking blocks, which only Claude could read.
+The run records `usage.route` (`claude`, or `both` when the local model answered part of it), the
+reason it moved, the model and the cost; the run view shows them.
 
 ### Agents that act: grants and tiers
 
@@ -272,5 +285,5 @@ model's evaluation at 6/6 and every existing agent test passing.
 | Private data leaving the house | Never by default for old agents, Redacted with stand-ins by default for new ones, shown in every trace |
 | An agent doing harm | Grants per operation, high risk never, taint only proposes, limits per run and day, kill switch, every job in the audit |
 | The key leaking | Only the gateway holds it, by `LoadCredential`, root-owned file, one destination host |
-| Claude unreachable | Router falls back to local before the run starts; a run never waits on it |
+| Claude unreachable | Router falls back to local: mid-run on the call that failed, and before a run starts for a minute after the gateway stops answering |
 | Local agents getting worse during the refactor | Every step keeps the local evaluation at 6/6 and all agent tests green |
