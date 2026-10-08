@@ -13,6 +13,7 @@
     "doctor": "sh scripts/boxpilot-doctor.sh",
     "helper": "node server/helper-server.mjs",
     "agent": "node scripts/boxpilot-agent.mjs",
+    "harness": "node packages/harness/src/cli/bin.mjs",
     "owner:token": "node scripts/boxpilot-owner.mjs create-bootstrap-token",
     "start": "node server/index.mjs",
     "test": "vitest run",

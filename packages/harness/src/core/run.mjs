@@ -14,6 +14,7 @@
  * A remote model that declines the request ends the run as declined: it is never asked of the local
  * model instead.
  */
+import { checkCitations } from "../check/citations.mjs";
 import { fallsBack, moveAfterPlan, routerDefaults, startRoute } from "../router.mjs";
 import { act, answerNowNote } from "./loop.mjs";
 import { createSpeed, paceDefaults } from "./pace.mjs";
@@ -172,5 +173,6 @@ export async function runTask({
     const outputs = toolbox.outputs();
     return result("degraded", { degradedReason: reason, answer: answer ? `${answer}\n\n(${reason === "timeout" ? "The model took too long, so this may stop short." : "The model did not finish."})` : toolsAnswer(reason, outputs) });
   }
-  return result("completed", { answer });
+  // An answer that cites an output no tool returned (a change that was never made, say) is said to.
+  return result("completed", { answer, citations: checkCitations(answer, toolbox.outputs().length) });
 }

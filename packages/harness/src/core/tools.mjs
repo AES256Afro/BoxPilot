@@ -6,8 +6,11 @@
  * A tool declares a name the model calls it by, a plain description, a parameter schema, its kind
  * and `run`:
  * - `read` runs when the model asks;
- * - `write` and `operation` change something, so each call waits for the host's `approve`, and
- *   none runs once the run has read something that looked like an instruction (taint).
+ * - `write` and `operation` change something, so each call waits for the host's `approve` (unless
+ *   the tool says `asks: false`, as a host's own memory may), and none runs once the run has read
+ *   something that looked like an instruction (taint);
+ * - a read that `sends` something off the machine (fetching a URL can carry data in it) does not
+ *   run after taint either.
  *
  * Every input is checked against the schema before anything runs. Every output is data, never
  * instructions: redacted, made safe (safety/guard.mjs), numbered T1, T2 ... and boxed, and text that
@@ -28,6 +31,8 @@ const namePattern = /^[a-z][a-z0-9_]{0,63}$/;
  *   parameters?: object,
  *   run: (input: object, context: { signal: AbortSignal }) => Promise<string | { text: string, title?: string }> | string | { text: string, title?: string },
  *   describe?: (input: object) => string,
+ *   asks?: boolean,
+ *   sends?: boolean,
  * }} tool `describe` says what one call would do, for the person asked to approve it.
  */
 export function defineTool(tool) {
@@ -123,9 +128,10 @@ export function createToolbox({ tools, approve = async () => false, redact = (te
     try { input = typeof raw === "string" ? JSON.parse(raw || "{}") : raw ?? {}; } catch { return answer({ ...base, state: "failed", output: `The arguments for ${tool.name} were not JSON.` }); }
     const problem = checkInput(tool.parameters, input);
     if (problem) return answer({ ...base, input, state: "failed", output: `${tool.name} was not run: ${problem}.` });
-    if (tool.kind !== "read") {
-      // A run that read something that looked like an instruction changes nothing, whoever would approve.
-      if (taint) return answer({ ...base, input, state: "refused", output: `${tool.name} was not run: this run read something that looked like an instruction (${taint.at}), so it changes nothing. Say what you would have done instead.`, flags: { tainted: true } });
+    const changes = tool.kind !== "read";
+    // A run that read something that looked like an instruction changes nothing and sends nothing out, whoever would approve.
+    if (taint && (changes || tool.sends)) return answer({ ...base, input, state: "refused", output: `${tool.name} was not run: this run read something that looked like an instruction (${taint.at}), so it changes nothing and sends nothing out. Say what you would have done instead.`, flags: { tainted: true } });
+    if (changes && tool.asks !== false) {
       const summary = tool.describe ? String(tool.describe(input)) : `${tool.title} ${JSON.stringify(input)}`;
       let approved = false;
       try { approved = Boolean(await approve({ tool: tool.name, title: tool.title, kind: tool.kind, input, summary })); } catch { approved = false; }

@@ -2772,9 +2772,19 @@ evaluation at 6/6 and every M37 to M44 agent test passing.
   an agent told what to change, a sweeping change demanded at once, skipping the approver), and
   instruction-like words in the owner's own documents or notes hold a run from acting without marking
   it. All of it on recorded responses; CI never calls a real model.
-- **M45.8 Standalone.** The loop, the check and the safety pieces moved wholly into the core; a CLI
-  host with a working folder, an allowlisted shell, terminal approvals and a SQLite file; its own
-  README. Published to npm at 0.x once its interface holds still through two BoxPilot releases.
+- ✅ **M45.8 Standalone** (unreleased, `feat/m45-8-standalone`). Into the core: the run loop (act,
+  the JSON rewrite, the check with one correction), the model session that paces each call, the
+  answer check and citations, injection defence, the redactor, the local endpoint rules and the
+  OpenAI-compatible client. BoxPilot's runner is now a host built from them, with its planner, its
+  router moves and its tools over the web API; every agent test passed unchanged. New in the core:
+  a toolbox for tools that run in-process (input checked against the schema, output redacted and
+  boxed, taint, approvals) and `runTask`, a whole run with the router's start, move and fallback.
+  The second host is the CLI, `boxpilot-harness` (`npm run harness --`): a working folder, files,
+  an allowlisted shell without a shell, public web pages when asked, notes, approvals at the
+  terminal, every run and note in a SQLite file, and an evaluation runner on folder copies.
+  `packages/harness/test/cli.test.mjs` runs tasks on scripted turns and on a model server over
+  HTTP, without BoxPilot. Published to npm at 0.x once its interface holds still through two
+  BoxPilot releases.
 
 ## App catalogue candidates
 

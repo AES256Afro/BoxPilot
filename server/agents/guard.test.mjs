@@ -2,8 +2,8 @@
 import { describe, expect, it } from "vitest";
 import { createRedactor } from "../redaction.mjs";
 import { finalRedaction } from "../assistant/prompt.mjs";
-import { detectInjection, sanitizeUntrusted, stripWrapperBlocks, wrapNote, wrapToolOutput } from "../../packages/harness/src/index.mjs";
-import { agentRules, checkCitations, fallbackAnswer, systemMessage, taskMessage } from "./prompt.mjs";
+import { checkCitations, detectInjection, sanitizeUntrusted, stripWrapperBlocks, wrapNote, wrapToolOutput } from "../../packages/harness/src/index.mjs";
+import { agentRules, fallbackAnswer, systemMessage, taskMessage } from "./prompt.mjs";
 
 const redactor = createRedactor();
 const redact = (text) => finalRedaction(text, redactor);

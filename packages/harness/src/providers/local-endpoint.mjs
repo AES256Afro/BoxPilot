@@ -62,7 +62,7 @@ export function normalizeEndpoint(input) {
   if (url.search || url.hash || !["", "/"].includes(url.pathname)) throw new Error("Give the address only, like http://192.168.1.20:11434, with no path");
   const hostname = url.hostname.replace(/^\[|\]$/g, "");
   const literal = net.isIP(hostname) !== 0;
-  if (literal ? !isLocalAddress(hostname) : !isLocalName(hostname)) throw new Error("The assistant only talks to a model on this server or your own network: use a private, tailnet or loopback address");
+  if (literal ? !isLocalAddress(hostname) : !isLocalName(hostname)) throw new Error("Only a model on this server or your own network is used: give a private, tailnet or loopback address");
   return url.origin;
 }
 
