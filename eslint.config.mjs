@@ -1,12 +1,12 @@
 import js from "@eslint/js";
 import globals from "globals";
 
-/** Server and scripts are plain ESM JavaScript; the UI is type-checked by tsc in `npm run build`. */
+/** Server, scripts and packages are plain ESM JavaScript; the UI is type-checked by tsc in `npm run build`. */
 export default [
   { ignores: ["dist/**", "node_modules/**", "docs/**", "catalog/**"] },
   js.configs.recommended,
   {
-    files: ["server/**/*.mjs", "scripts/**/*.mjs", "eslint.config.mjs", "vite.config.*"],
+    files: ["server/**/*.mjs", "scripts/**/*.mjs", "packages/**/*.mjs", "eslint.config.mjs", "vite.config.*"],
     languageOptions: { ecmaVersion: 2025, sourceType: "module", globals: { ...globals.node } },
     rules: {
       "no-unused-vars": ["error", { argsIgnorePattern: "^_", varsIgnorePattern: "^_", caughtErrors: "none" }],

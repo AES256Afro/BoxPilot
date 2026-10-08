@@ -73,7 +73,8 @@ section "Setting up the runner as it ships"
 id -u boxpilot-agents >/dev/null 2>&1 || useradd --system --home-dir /var/lib/boxpilot-agents --no-create-home --shell /usr/sbin/nologin --user-group boxpilot-agents
 [ -x /usr/local/bin/node ] || ln -sf "$NODE" /usr/local/bin/node
 rm -rf /opt/boxpilot && install -d -m 0755 /opt/boxpilot
-cp -r "${ROOT}/server" "${ROOT}/package.json" /opt/boxpilot/
+# The runner imports the harness from packages/, which the release tarball carries beside server/.
+cp -r "${ROOT}/server" "${ROOT}/packages" "${ROOT}/package.json" /opt/boxpilot/
 chmod -R a+rX /opt/boxpilot
 install -d -m 0700 /var/lib/boxpilot /var/lib/boxpilot/agents
 printf '%s\n' "$TOKEN" >/var/lib/boxpilot/agents/runner.token && chmod 0600 /var/lib/boxpilot/agents/runner.token
