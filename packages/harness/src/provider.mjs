@@ -15,8 +15,13 @@
  *   toolChoice?: "auto" | "none",
  *   maxTokens: number,
  *   temperature?: number,
+ *   effort?: "low" | "medium" | "high" | "xhigh" | "max",
+ *   taskBudget?: number,
  *   extra?: Record<string, unknown>,
  * }} ChatRequest
+ *
+ * `effort` and `taskBudget` are for providers that think (Claude): how hard to think on this call,
+ * and how many tokens the whole job may take. A provider that does not think ignores both.
  *
  * @typedef {{
  *   promptTokens: number,

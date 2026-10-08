@@ -2690,11 +2690,25 @@ evaluation at 6/6 and every M37 to M44 agent test passing.
   through it; image descriptions and embeddings stay on the local client. Lint, the syntax check and
   the Docker image include `packages/`. Tests: the contract and the boundary
   (`packages/harness/test/`); every agent test unchanged, the stand-in evaluation still 6/6.
-- **M45.2 Claude as a provider.** The official `@anthropic-ai/sdk`; messages and tools translated
-  both ways; strict tool schemas with `tool_choice: auto`; adaptive thinking with effort by run kind;
-  prompt caching on the stable system message and tools; refusal fallbacks on; stop reasons checked
-  before any tool runs; cost from usage, priced in one table. Contract tests run the same scripted
-  conversations through both providers on recorded responses; CI never calls a real model.
+- ✅ **M45.2 Claude as a provider** (unreleased, `feat/m45-2-claude-provider`).
+  `packages/harness/src/providers/anthropic.mjs`, imported on its own
+  (`@boxpilot/harness/anthropic`) so a host that never calls Claude never loads the SDK. The
+  official `@anthropic-ai/sdk` (pinned 0.128.0), streamed. Messages and tools translated both ways:
+  leading system messages become the cached system prompt, tool results ride in the next user turn,
+  and a call the loop chose not to run is answered "not run" so Claude's turn goes back unchanged.
+  Thinking is adaptive at the request's `effort`, its blocks kept in `providerBlocks` and replayed
+  verbatim; a block the conversation no longer matches is dropped, not a failed request. Tools are
+  strict where `strictSchema` can rewrite the schema without changing it, `tool_choice` is `auto` or
+  `none`; a structured answer becomes `output_config.format`; a long job may set a task budget.
+  Declines are retried server-side (`fallbacks: "default"`, not on Haiku); a decline that survives
+  ends as `refusal`; a turn cut off at its token limit runs no tools. Cost is priced per attempt
+  from `anthropic-prices.mjs`. The client takes its key, address and log level only from the
+  caller, never the environment, and refuses redirects. Errors carry a code (`auth`,
+  `rate-limited`, `overloaded`, `timeout`, `unreachable`, …) for the router. Contract tests run the
+  same conversations through both providers (`packages/harness/test/contract.test.mjs`), Claude's
+  through the real SDK with a scripted `fetch`; the response fixtures follow the documented shape,
+  since no key was at hand to record them. CI never calls a real model. Nothing in BoxPilot calls
+  Claude yet: that is the gateway (M45.3) and the router (M45.4).
 - **M45.3 The gateway and what may leave the box.** `boxpilot-model-gateway.service`, the only
   process that holds the Claude key (`LoadCredential`, root-owned file), one destination host, a
   Unix socket only the web service opens, the monthly cap enforced again. `agents.cloud.connect`
