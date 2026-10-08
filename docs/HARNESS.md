@@ -87,10 +87,12 @@ A host gives the harness what only it can know. BoxPilot's implementation wraps 
 
 ### Messages and tools
 
-The harness has its own message format: a role, then blocks (text, tool call, tool result) plus,
-on assistant turns, the provider's own blocks kept untouched. Each provider translates both ways.
-Claude's thinking blocks must go back exactly as they came, and only to the model that wrote them,
-so a conversation never changes model halfway (below).
+Messages use the chat shape every local model server already speaks: system, user, assistant (with
+`tool_calls`) and tool messages, tools as function schemas. A provider that speaks something else
+translates both ways. One addition: an assistant message may carry `providerBlocks`, what the
+provider sent that the chat shape has no room for. Claude's thinking blocks must go back exactly as
+they came, and only to the model that wrote them, so a conversation never changes model halfway
+(below); every other provider gets the message without them.
 
 A tool declares: an id, plain-text description, a strict parameter schema, its kind (`read`,
 `write`, or `operation` with the registry's risk tier), and `run`. Reads may run in parallel; an

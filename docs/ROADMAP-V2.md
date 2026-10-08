@@ -2681,10 +2681,15 @@ propose them; the local model and Claude, routed per task. The design is `docs/H
 decisions are ADR-013. Each item is its own pull request, and every one keeps the local model's
 evaluation at 6/6 and every M37 to M44 agent test passing.
 
-- **M45.1 The core.** `packages/harness/`: the message format, the tool contract, the provider
-  interface, the local OpenAI-compatible provider moved behind it, a scripted fake provider, and a
-  test that the package imports nothing from `server/` or `src/`. The runner calls models through
-  it, with no change in what it does.
+- ✅ **M45.1 The core** (unreleased, `feat/m45-1-harness-core`). `packages/harness/`: the message
+  contract (the chat shape, plus `providerBlocks` kept only for the provider and model that wrote
+  them), the provider interface (`defineProvider`, `readChatResult` holding every answer to one
+  shape and its limits), the local OpenAI-compatible provider wrapping the host's own client so the
+  host keeps its address rules, a scripted fake provider, and a test that the package imports
+  nothing but Node, its own files and declared dependencies. The runner's calls to plan and act go
+  through it; image descriptions and embeddings stay on the local client. Lint, the syntax check and
+  the Docker image include `packages/`. Tests: the contract and the boundary
+  (`packages/harness/test/`); every agent test unchanged, the stand-in evaluation still 6/6.
 - **M45.2 Claude as a provider.** The official `@anthropic-ai/sdk`; messages and tools translated
   both ways; strict tool schemas with `tool_choice: auto`; adaptive thinking with effort by run kind;
   prompt caching on the stable system message and tools; refusal fallbacks on; stop reasons checked
