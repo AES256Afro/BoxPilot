@@ -47,7 +47,8 @@ export interface AgentSpec {
   /** M44: whether it shares its findings with the other agents, and uses theirs. Saved before M44, absent. */
   sharing?: { shareFindings: boolean; useFindings: boolean };
   escalation: { lowConfidence: boolean; limits: boolean; actions: boolean; risk: boolean };
-  allow: { apps: "*" | string[]; operations: "*" | string[] };
+  /** M45.5: `grants`, what it may carry out itself (Ask or Run), only when it has some. */
+  allow: { apps: "*" | string[]; operations: "*" | string[]; grants?: Record<string, GrantLevel> };
   /** M45.3: which model runs it (M45.4: or "auto"), and what may leave this server when Claude does. Older agents have only `thinking`. */
   model: { thinking: boolean; route?: ModelRoute; dataPolicy?: "redacted" | "as-is"; claudeForViewers?: boolean; claudeReadsDocuments?: boolean };
   orchestration: { supervisor: boolean; delegates: "*" | string[]; maxDepth: number };
@@ -94,13 +95,18 @@ export interface Overview {
 export interface ToolInfo { id: string; fn: string; title: string; description: string; category: string; categoryTitle: string; role: "viewer" | "operator"; cost: "cheap" | "moderate" | "heavy"; writes: string | null; defaultOff: boolean; params: Array<{ name: string; type: string; required: boolean; description: string }> }
 export interface Question { id: string; question: string; expect: { fact?: string; includes?: string[] }; tool?: string; builtIn?: boolean }
 export interface Template { id: string; title: string; summary: string; spec: AgentSpec; questions: Question[] }
+/** What an agent may do with one operation itself (M45.5): ask a person first, or run it at once (low risk only). */
+export type GrantLevel = "ask" | "run";
+export interface Grantable { id: string; title: string; risk: "low" | "medium"; most: GrantLevel }
 export interface Catalog {
+  /** M45.5: the operations an agent may be given leave to carry out. Older servers send none. */
+  grantable?: Grantable[];
   templates: Template[]; tools: ToolInfo[]; events: Array<{ id: string; title: string }>;
   limits: { budget: Record<keyof AgentSpec["budget"], { min: number; max: number; default: number }>; module: Record<"runsPerDay" | "modelSecondsPerDay", { min: number; max: number }> };
   categories: Record<string, string>; outputFormats: Array<"text" | "json">; memoryTiers: Record<string, string>;
 }
 
-export interface RunStep { seq: number; kind: "model" | "tool" | "proposal" | "note" | "notify" | "system" | "intent" | "plan" | "recall" | "memory" | "handoff" | "finding"; name: string | null; state: "done" | "failed" | "refused"; input: unknown; output: string | null; flags: Record<string, unknown>; startedAt: string; durationMs: number | null; tokensIn: number | null; tokensOut: number | null }
+export interface RunStep { seq: number; kind: "model" | "tool" | "proposal" | "note" | "notify" | "system" | "intent" | "plan" | "recall" | "memory" | "handoff" | "finding" | "action"; name: string | null; state: "done" | "failed" | "refused"; input: unknown; output: string | null; flags: Record<string, unknown>; startedAt: string; durationMs: number | null; tokensIn: number | null; tokensOut: number | null }
 /**
  * How a card's step stands, from the job it was staged as, as the server keeps it (sweep 3): ready to
  * stage (no job yet, or one cancelled or never started), waiting for approval, approved, or failed

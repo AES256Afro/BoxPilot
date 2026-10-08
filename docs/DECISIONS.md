@@ -1060,6 +1060,16 @@ weakest at long plans. Two decisions stood in the way: agents reach no model off
 6. **The harness is its own package.** `packages/harness/` imports nothing from BoxPilot, and a test
    holds it to that; BoxPilot is its first host.
 
+**As built (M45.5).** An agent never waits inside a run: the runner serves every agent, and an hour
+held for an approval would stop all of them. The run that stages a job ends there; when the job
+ends (it ran, a person approved and it ran, it failed, or it was dropped) a follow-up run reads
+what became of it, checks the effect with a read of its own, and answers, as a supervisor's
+follow-up does after its hand-offs. A follow-up acts no further. Two fences were added while
+building it: no grant covers an operation that changes how agents run (`agents.*`: their model,
+Claude, their chat, their connectors), and leave never travels in an exported or imported
+definition. "Live facts read again" is held by the service: a run carries out nothing until it has
+read the server with one of its tools.
+
 ### Consequences
 
 - The owner can let an agent do routine low-risk work (restart a stopped app, refresh package

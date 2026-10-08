@@ -402,6 +402,8 @@ const agentStore = createAgentStore({ databasePath: state.databasePath });
 const agentsCloud = createAgentsCloud({ state });
 const agents = createAgentService({
   state, store: agentStore, registry, helper, inventory, knowledge: assistant.index, secretEnvNamesFor, healthAlerts, productVersion, cloud: agentsCloud,
+  // M45.5: an agent with leave to act stages its jobs here, in its maker's name.
+  jobs,
   // The daily look for a newer small Qwen reads Hugging Face's public model list; it never switches anything.
   fetchJson: (url) => fetch(url, { headers: { Accept: "application/json", "User-Agent": `BoxPilot/${productVersion}` }, signal: AbortSignal.timeout(15_000), redirect: "error" }).then((response) => (response.ok ? response.json() : null)),
 });

@@ -283,7 +283,7 @@ function stepLine(step, tools) {
   }
   if (step.kind === "model") return `- model${step.durationMs ? ` ${seconds(step.durationMs)}` : ""}${step.tokensIn ? `, ${step.tokensIn} in / ${step.tokensOut ?? 0} out` : ""}${(step.input ?? []).length ? `, asked for ${(step.input ?? []).map((call) => call.name).join(", ")}` : ""}${step.output ? `: ${clipLine(step.output, 140)}` : ""}`;
   if (step.kind === "system") return `- ${step.state === "failed" ? "stopped" : "note"}: ${clipLine(step.flags?.detail ?? step.name ?? "", 160)}`;
-  if (["note", "proposal", "notify", "handoff", "memory", "recall"].includes(step.kind)) return `- ${step.kind}: ${clipLine(step.output ?? step.name ?? "", 160)}`;
+  if (["note", "proposal", "notify", "handoff", "memory", "recall", "action"].includes(step.kind)) return `- ${step.kind}: ${clipLine(step.output ?? step.name ?? "", 160)}`;
   return null;
 }
 
