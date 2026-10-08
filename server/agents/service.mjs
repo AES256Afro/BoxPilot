@@ -17,7 +17,7 @@
  * The audit trail records who started what, when, how long it took and how it ended; never a
  * question, an answer or a tool's output.
  */
-import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -1213,6 +1213,10 @@ export function createAgentService({
     const query = [run.question, run.trigger?.title, spec.job].filter(Boolean).join(" ");
     const noteKeys = new Set(ownNotes(agent.id, run.readRole, { limit: limits.notesInPrompt }).map((note) => `note:${note.id}`));
     const recalled = spec.memory?.enabled ? hybridSearch(memoryItems(agent, spec, run.readRole, run).filter((item) => !noteKeys.has(item.key)), { query, limit: limits.memoryInPrompt }) : [];
+    // Words it trusts by where they came from - the owner's own documents, its own notes - that read
+    // like an instruction (M45.7): not a mark on the run, which the owner's runbook would earn every
+    // time (sweep 3), but nothing is carried out on them.
+    if ([...recalled, ...promptNotes.map((note) => ({ title: note.title, text: note.body }))].some((item) => detectInjection(`${item.title ?? ""}\n${item.text ?? ""}`).suspected)) holdFromActing(run.id);
     if (recalled.length) {
       const carried = rememberedFlag(recalled);
       const step = store.addStep(run.id, { kind: "recall", name: "recall", input: { query: clip(query, 200) }, output: recalled.map((item) => `${item.tier}: ${item.title} (${item.from}, ${String(item.at ?? "").slice(0, 10)}${stale(item) ? ", may be out of date" : ""})`).join("\n"), flags: { read: recalled.length, ...(carried.flagged ? { injection: true } : {}) } });
@@ -1555,17 +1559,19 @@ export function createAgentService({
     const route = spec?.model?.route ?? "local";
     const secondOpinionOf = run.trigger?.secondOpinionOf ?? null;
     const local = runtimeClaim(spec, cpuInfo);
-    if (route === "local" && !secondOpinionOf) return { runtime: local, router: null };
+    // An evaluation held to one route (M45.7): the local side never reaches Claude, the Claude side always tries.
+    const evalRoute = run.kind === "eval" ? run.trigger?.route ?? null : null;
+    if (evalRoute === "local" || (route === "local" && !secondOpinionOf && evalRoute !== "claude")) return { runtime: local, router: null };
     const said = (text) => {
       const step = store.addStep(run.id, { kind: "system", name: "model", output: text });
       if (step) emit(run.id, "step", step);
     };
     // A plan's check and report (M45.6) run on Claude for an auto agent: a long plan is where the local model is weakest.
     const planRunOnClaude = route === "auto" && Boolean(run.trigger?.plan?.id);
-    const start = startRoute({ route: route === "claude" ? "remote" : route, remote: claudeAllowed(spec, run), secondOpinion: Boolean(secondOpinionOf) || planRunOnClaude });
+    const start = startRoute({ route: route === "claude" ? "remote" : route, remote: claudeAllowed(spec, run), secondOpinion: Boolean(secondOpinionOf) || planRunOnClaude || evalRoute === "claude" });
     if (start.start === "local" && !start.mayMove) {
       // An auto agent says nothing while Claude is not connected: until then it is a local agent.
-      if (route === "claude" || secondOpinionOf || cloud?.settings().connected) said(`${start.reason}: this run uses the local model.`);
+      if (route === "claude" || secondOpinionOf || evalRoute === "claude" || cloud?.settings().connected) said(`${start.reason}: this run uses the local model.`);
       return { runtime: local, router: null };
     }
     for (const [runId] of cloudRuns) if (store.getRun(runId)?.state !== "running") cloudRuns.delete(runId);
@@ -1752,6 +1758,8 @@ export function createAgentService({
     const answer = (stepKind, { state: stepState = "done", text, input = null, flags = {}, title = tool?.title ?? String(name), words = true, hop = null, from = null }) => {
       const cleaned = sanitizeUntrusted(text, { maxChars: limits.toolOutputChars, redact });
       const byWords = words && cleaned.flags.injection;
+      // Remembered words (its notes, the owner's documents) that read like an instruction: no mark, no acting (M45.7).
+      if (!words && cleaned.flags.injection) holdFromActing(run.id);
       const allFlags = { ...flags, ...(byWords ? { injection: true, matches: cleaned.flags.matches } : {}), ...(cleaned.flags.truncated ? { truncated: true } : {}) };
       const step = store.addStep(run.id, { kind: stepKind, name: tool?.id ?? clip(String(name), 80), state: stepState, input, output: cleaned.text, flags: allFlags, startedAt: started.toISOString(), durationMs: now().getTime() - started.getTime() });
       // What it read looked like an instruction (it read that itself), or came from a run that read such a thing.
@@ -2004,6 +2012,9 @@ export function createAgentService({
    * once under the maker's delegated consent, as a schedule does; Ask leaves it for a person. The
    * run is told to end; a follow-up run reads what became of the job and checks its effect.
    */
+  /** A run that read trusted words reading like an instruction carries out nothing (M45.7); the run view says so. */
+  const holdFromActing = (runId) => { try { if (!store.getRun(runId)?.flags?.actHeld) store.mergeRunFlags(runId, { actHeld: true }); } catch { /* the run goes on; acting is refused by the fence anyway */ } };
+
   /**
    * Whether this run may stage anything now, whatever it would stage: it may act, it read nothing
    * that looked like an instruction, and it read the server's live state first (ADR-012). The reason
@@ -2013,7 +2024,9 @@ export function createAgentService({
     const may = mayAct(run, spec);
     if (!may.ok) return { text: `${may.reason}. Propose it instead.` };
     // A run that read something that looked like an instruction stages nothing (ADR-013).
-    if (store.getRun(run.id)?.flags?.injection) return { text: "This run read something that looked like an instruction, so it changes nothing. Propose it instead: a person will look.", flags: { tainted: true } };
+    const flags = store.getRun(run.id)?.flags ?? {};
+    if (flags.injection) return { text: "This run read something that looked like an instruction, so it changes nothing. Propose it instead: a person will look.", flags: { tainted: true } };
+    if (flags.actHeld) return { text: "This run read words in your notes or the owner's documents that read like an instruction, so it carries out nothing on them. Propose it instead.", flags: { held: true } };
     const readLive = store.listSteps(run.id).some((step) => step.kind === "tool" && step.state === "done" && liveCategories.has(toolById(step.name)?.category));
     if (!readLive) return { text: "Read the live facts this changes with one of your tools first, then carry it out." };
     return null;
@@ -2713,6 +2726,8 @@ export function createAgentService({
       try { next.quietHours = normalizeQuietHours(input.quietHours); } catch (error) { refuse(400, error.message, "invalid_setting"); }
     }
     if (input.notify !== undefined) next.notify = input.notify === true;
+    // M45.7: the nightly evaluation compares the routes too, when Claude is connected. It costs money.
+    if (input.evaluation !== undefined) next.evaluation = { ...(current.evaluation ?? {}), compareNightly: input.evaluation?.compareNightly === true };
     if (input.embeddings !== undefined) next.embeddings = input.embeddings === true;
     if (input.budget !== undefined) {
       const raw = input.budget ?? {};
@@ -2975,6 +2990,8 @@ export function createAgentService({
       enabled: settings.enabled, paused: modulePaused(settings), pausedUntil: modulePaused(settings) ? settings.pausedUntil : null,
       killedAt: settings.killedAt, quietHours: settings.quietHours, inQuietHours: inQuietHours(now(), settings.quietHours), notify: settings.notify !== false,
       budget: moduleBudget(), embeddings: settings.embeddings !== false,
+      // M45.7: whether the nightly evaluation compares the routes.
+      evaluation: { compareNightly: settings.evaluation?.compareNightly === true },
       // M40: processors while someone waits and in the background, this machine's ceiling, and what is set now.
       cores: { ...effectiveCores(settings.cores, { processors }), processors, physical: physical ?? null, limits: coreLimits, now: cpuNow() },
       ...sources,
@@ -3770,8 +3787,38 @@ export function createAgentService({
       history,
       drop: accuracyDrop(history),
       people: peopleOf(agent),
-      nightly: { quietHours: moduleSettings().quietHours, next: nightlyDue(agent, last) ? "tonight" : "tomorrow night" },
+      nightly: { quietHours: moduleSettings().quietHours, next: nightlyDue(agent, last) ? "tonight" : "tomorrow night", compare: moduleSettings().evaluation?.compareNightly === true },
+      // M45.7: the routes side by side, newest first; and whether a comparison may be started now.
+      comparisons: comparisonsOf(runs),
+      canCompare: person.role === "owner" && claudeAllowed(agent.spec, { readRole: "owner" }).ok,
     };
+  }
+
+  /** One side of a comparison: how many it got right, how long each question took on average, what it cost. */
+  function sideOf(evaluation) {
+    if (!evaluation) return null;
+    const graded = evaluation.results.filter((result) => !result.skipped && result.passed !== null);
+    const timed = evaluation.results.filter((result) => Number.isFinite(result.seconds));
+    return {
+      evalId: evaluation.id, state: evaluation.state, model: evaluation.model, score: evaluation.score,
+      right: graded.filter((result) => result.passed).length, questions: graded.length,
+      seconds: timed.length ? Math.round((timed.reduce((sum, result) => sum + result.seconds, 0) / timed.length) * 10) / 10 : null,
+      dollars: Math.round(evaluation.results.reduce((sum, result) => sum + (Number(result.costUsd) || 0), 0) * 10_000) / 10_000,
+      // A Claude side whose questions ran locally (Claude could not take them) says so.
+      ranLocally: evaluation.route === "claude" ? evaluation.results.filter((result) => result.route === "local").length : 0,
+    };
+  }
+
+  /** The comparisons among an agent's evaluations: each pair, newest first, its local and Claude sides. */
+  function comparisonsOf(runs) {
+    const pairs = new Map();
+    for (const evaluation of runs) {
+      if (!evaluation.pairId) continue;
+      const pair = pairs.get(evaluation.pairId) ?? { pairId: evaluation.pairId, at: evaluation.createdAt, nightly: !evaluation.createdBy, local: null, claude: null };
+      pair[evaluation.route === "claude" ? "claude" : "local"] = sideOf(evaluation);
+      pairs.set(evaluation.pairId, pair);
+    }
+    return [...pairs.values()].slice(0, 10);
   }
 
   /**
@@ -3881,9 +3928,16 @@ export function createAgentService({
     };
   }
 
-  async function runEvaluation(caller, agentId) {
+  async function runEvaluation(caller, agentId, { compare = false } = {}) {
     const person = personOf(caller);
     const agent = agentFor(person, agentId, { edit: true });
+    // M45.7: every question on the local model and on Claude, side by side. Claude costs money, so
+    // it is the owner's to start, and only while Claude may take the owner's questions.
+    if (compare === true) {
+      if (person.role !== "owner") refuse(403, "Comparing with Claude spends money, so the owner starts it", "forbidden");
+      const allowed = claudeAllowed(agent.spec, { readRole: "owner" });
+      if (!allowed.ok) refuse(409, `${allowed.reason}, so there is nothing to compare with`, "claude_unavailable");
+    }
     const settings = moduleSettings();
     if (!settings.enabled) refuse(409, "Agents are off. Turn them on to run an evaluation.", "agents_off");
     if (modulePaused(settings) || agentPaused(agent)) refuse(409, "Resume the agent to run an evaluation", "agent_paused");
@@ -3891,7 +3945,14 @@ export function createAgentService({
     if (recent && (recent.state === "running" || now().getTime() - Date.parse(recent.createdAt) < limits.evalEveryMs)) refuse(429, "An evaluation ran in the last hour. Try again later.", "evaluation_recent");
     const questions = evaluationSet(agent).all;
     if (!questions.length) refuse(400, "Give this agent some golden questions first", "no_questions");
-    if (queueCounts().queued + questions.length > limits.queueMax) refuse(503, "Agents have too much waiting right now. Try again later.", "agents_backlog");
+    if (queueCounts().queued + questions.length * (compare === true ? 2 : 1) > limits.queueMax) refuse(503, "Agents have too much waiting right now. Try again later.", "agents_backlog");
+    if (compare === true) {
+      const pairId = randomUUID();
+      const local = await startEvaluation(agent, questions, { person, route: "local", pairId });
+      await startEvaluation(agent, questions, { person, route: "claude", pairId });
+      audit("agents.evaluation.started", { actorId: person.id, subjectId: agent.id, details: { questions: questions.length, compare: true } });
+      return local;
+    }
     const evaluation = await startEvaluation(agent, questions, { person });
     audit("agents.evaluation.started", { actorId: person.id, subjectId: agent.id, details: { questions: questions.length } });
     return evaluation;
@@ -3902,15 +3963,16 @@ export function createAgentService({
    * asked as them, now; the nightly one as the person who made the agent, in quiet hours, as
    * background work nobody waits on.
    */
-  async function startEvaluation(agent, questions, { person = null, reader = null } = {}) {
+  async function startEvaluation(agent, questions, { person = null, reader = null, route = null, pairId = null } = {}) {
     const asWho = person ?? reader;
     const facts = await resolveFacts(asWho);
     const results = questions.map((question) => ({ questionId: question.id, question: question.question, expected: question.expect.fact ? { fact: question.expect.fact, value: facts[question.expect.fact] ?? null } : { includes: question.expect.includes }, runId: null, passed: null, found: null }));
-    const evaluation = store.createEvalRun({ agentId: agent.id, version: agent.version, results, createdBy: person?.id ?? null, model: embedModelName() });
+    const model = route === "claude" ? cloud?.settings().model ?? "claude" : embedModelName();
+    const evaluation = store.createEvalRun({ agentId: agent.id, version: agent.version, results, createdBy: person?.id ?? null, model, route, pairId });
     for (const result of results) {
       const run = store.enqueueRun({
         agentId: agent.id, version: agent.version, kind: "eval", question: result.question, requestedBy: person?.id ?? null, readRole: asWho.role, readAs: asWho.id,
-        trigger: person ? {} : { title: "Nightly evaluation", quietHours: true },
+        trigger: { ...(person ? {} : { title: "Nightly evaluation", quietHours: true }), ...(route ? { route } : {}) },
         evalInfo: { evalId: evaluation.id, questionId: result.questionId, expected: result.expected },
       });
       result.runId = run.id;
@@ -3973,8 +4035,18 @@ export function createAgentService({
         if (nightlySkipped.get(agent.id) !== night) { nightlySkipped.set(agent.id, night); audit("agents.evaluation.skipped", { subjectId: agent.id, details: { reason: "budget", questions: questions.length } }); }
         continue;
       }
-      if (queueCounts().queued + questions.length > limits.queueMax) return null;
-      const evaluation = await startEvaluation(agent, questions, { reader: { id: creator.id, role: creator.role } });
+      // M45.7: both routes, when the owner asked for it and Claude may take the maker's questions now.
+      const compare = settings.evaluation?.compareNightly === true && claudeAllowed(agent.spec, { readRole: creator.role }).ok;
+      if (queueCounts().queued + questions.length * (compare ? 2 : 1) > limits.queueMax) return null;
+      const reader = { id: creator.id, role: creator.role };
+      if (compare) {
+        const pairId = randomUUID();
+        const evaluation = await startEvaluation(agent, questions, { reader, route: "local", pairId });
+        await startEvaluation(agent, questions, { reader, route: "claude", pairId });
+        audit("agents.evaluation.started", { subjectId: agent.id, details: { questions: questions.length, nightly: true, compare: true } });
+        return evaluation;
+      }
+      const evaluation = await startEvaluation(agent, questions, { reader });
       audit("agents.evaluation.started", { subjectId: agent.id, details: { questions: questions.length, nightly: true } });
       return evaluation;
     }
@@ -3995,7 +4067,9 @@ export function createAgentService({
     } else if (expected.fact) {
       ({ passed, found } = gradeFact(expected.fact, expected.value, answer));
     }
-    const graded = store.gradeEval(run.eval.evalId, run.eval.questionId, { passed, found, ...(skipped ? { skipped } : {}) });
+    // M45.7: how long it took and what it cost, for the routes side by side.
+    const measured = { seconds: Math.round(finite(run.usage?.wallMs, 86_400_000) / 100) / 10, costUsd: Math.round(finite(run.usage?.costUsd, 1_000) * 1_000_000) / 1_000_000, route: run.usage?.route ? "claude" : "local" };
+    const graded = store.gradeEval(run.eval.evalId, run.eval.questionId, { passed, found, ...measured, ...(skipped ? { skipped } : {}) });
     // The last answer is in: a drop against the evaluations before it is flagged (M40).
     if (graded?.state === "done") {
       const drop = accuracyDrop(historyOf(store.listEvalRuns(run.agentId, limits.evalHistory)));

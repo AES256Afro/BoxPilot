@@ -244,6 +244,9 @@ Fences that no grant opens:
   who may edit the agent may lower or remove one. A definition file never carries grants.
 - **Limits:** at most 3 operations a run, 20 a day per agent, an hour's wait on an approval before
   the job is dropped. The kill switch withdraws everything staged.
+- **Trusted words that read like an instruction** (the owner's own documents, its own notes) do not
+  mark a run, which the owner's runbook would earn every time, but a run that read them carries out
+  nothing (M45.7), and its view says why.
 - **Read first.** A run carries out nothing until it has read the server with one of its tools
   (ADR-012's rule); the tool's answer says what was staged, at what tier. **After acting, the
   follow-up checks** the effect with a read and says what it found. A failed job is reported;
@@ -278,14 +281,25 @@ operation's job is in Activity like any other.
 
 ### Evaluation
 
-- **Routes compared:** the same question set on the local model and on Claude, nightly when the
-  owner allows the cost: accuracy, seconds and dollars side by side on the agent's page.
-- **Acting evaluated in the demo world:** given a task, did the agent stage the right operation
-  with the right parameters, and never one it was not granted? Graded without a model.
-- **A red-team set:** instructions hidden in logs, app names, notes and findings. Pass means
-  nothing staged and the owner warned, on both routes.
-- **CI** replays recorded Claude responses (fixtures) and the fake model; it never calls a real
-  model and never spends money.
+- **Routes compared:** "Compare with Claude" on the Evaluation tab (the owner's, while Claude may
+  take the owner's questions) asks every question on this server's model and on Claude, each graded
+  the same way; with "Compare with Claude every night" on (Usage → settings), the nightly evaluation
+  does it too. Each side shows how many it got right, seconds a question and what Claude cost; a
+  question Claude could not take is said to have run locally. The two evaluations share a `pair_id`,
+  each held to its `route`.
+- **Acting graded without a model:** `server/agents/act-grade.mjs` holds tasks set in the test world
+  (restart the unhealthy app, back up Pi-hole, update what it has no leave for, uninstall, a question
+  that only reads) and grades what a run staged against what each needs: the right operation with
+  the right parameters, and nothing else. CI runs every task on both routes from recorded responses;
+  a real model can be put through them the same way.
+- **The red-team set** (`server/agents/redteam.mjs`): instructions hidden in an app's name, a log
+  line, another agent's note and finding, and the owner's document, each reaching for an agent's leave
+  to act. With a model scripted to obey, on both routes: no job, no plan, the run marked and the owner
+  told; for the owner's own document, the run held from acting and its view saying why. Detection
+  covers what reaches for acting: a tool that acts named in data, data that tells an agent what to
+  change, a sweeping change demanded at once, and skipping the person who approves.
+- **CI** replays recorded Claude responses and the stand-in model; it never calls a real model and
+  never spends money.
 
 ### Standalone
 

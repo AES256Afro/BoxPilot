@@ -2761,9 +2761,17 @@ evaluation at 6/6 and every M37 to M44 agent test passing.
   after a restart from its last checkpoint. An auto agent's checks and report run on Claude with a
   40,000-token task budget. One open plan per agent. `server/agents/plan-run.test.mjs`: a three-step
   plan survives a restart in the middle of its check and finishes.
-- **M45.7 Evaluation.** Route comparison (accuracy, seconds, dollars), acting tasks graded in the
-  demo world, a red-team set of hidden instructions that must stage nothing on either route, all of
-  it in CI on recorded responses.
+- ✅ **M45.7 Evaluation** (unreleased, `feat/m45-7-eval`). **Routes compared:** the owner's "Compare
+  with Claude" asks every evaluation question on both models (a pair of evaluations, each held to its
+  route), with right answers, seconds a question and dollars side by side; optionally every night.
+  **Acting graded without a model** (`act-grade.mjs`): tasks in the test world graded on what a run
+  staged; every task on both routes in CI. **The red-team set** (`redteam.mjs`): instructions hidden
+  in app names, logs, other agents' notes and findings, and the owner's documents; with a model
+  scripted to obey, on both routes, nothing is staged and the owner is told. It found two gaps, both
+  closed: detection now covers instructions that reach for acting (a tool that acts named in data,
+  an agent told what to change, a sweeping change demanded at once, skipping the approver), and
+  instruction-like words in the owner's own documents or notes hold a run from acting without marking
+  it. All of it on recorded responses; CI never calls a real model.
 - **M45.8 Standalone.** The loop, the check and the safety pieces moved wholly into the core; a CLI
   host with a working folder, an allowlisted shell, terminal approvals and a SQLite file; its own
   README. Published to npm at 0.x once its interface holds still through two BoxPilot releases.

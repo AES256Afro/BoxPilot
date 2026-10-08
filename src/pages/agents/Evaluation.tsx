@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { relativeTime } from "../../home/format";
 import { Button, EmptyState, Field, Notice, Panel, Progress, Select, StatusChip, Table, TextInput, type TableColumn } from "../../ui";
-import { agentsApi, type AccuracyPoint, type AgentSummary, type EvalResult, type EvalRun, type Evaluation as EvaluationState, type Question } from "./api";
-import { errorText } from "./format";
+import { agentsApi, type AccuracyPoint, type AgentSummary, type Comparison, type ComparisonSide, type EvalResult, type EvalRun, type Evaluation as EvaluationState, type Question } from "./api";
+import { errorText, usd } from "./format";
 
 /*
  * Evaluation (M37, M40): questions an agent should answer right, each with what right means - a
@@ -90,7 +90,7 @@ export function Evaluation({ agents, agentId, csrfToken, now, enabled, onSelectA
   const [drafts, setDrafts] = useState<Draft[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [busy, setBusy] = useState<"save" | "run" | null>(null);
+  const [busy, setBusy] = useState<"save" | "run" | "compare" | null>(null);
   const currentId = agent?.id ?? null;
   // The agent on show. A read for the one chosen before, still in flight when another was chosen
   // (the poll below keeps one in flight while an evaluation runs), used to land after the switch:
@@ -141,11 +141,11 @@ export function Evaluation({ agents, agentId, csrfToken, now, enabled, onSelectA
       setError(null);
     } catch (requestError) { setError(errorText(requestError, "The questions could not be saved")); } finally { setBusy(null); }
   };
-  const run = async () => {
-    setBusy("run");
+  const run = async (compare = false) => {
+    setBusy(compare ? "compare" : "run");
     try {
-      await agentsApi.runEvaluation(csrfToken, agent.id);
-      setNotice("The evaluation is running: each question is asked in turn, as you.");
+      await agentsApi.runEvaluation(csrfToken, agent.id, compare);
+      setNotice(compare ? "The comparison is running: each question is asked on the local model and on Claude, as you." : "The evaluation is running: each question is asked in turn, as you.");
       setError(null);
       await read(agent.id);
     } catch (requestError) { setError(errorText(requestError, "The evaluation could not start")); } finally { setBusy(null); }
@@ -178,6 +178,8 @@ export function Evaluation({ agents, agentId, csrfToken, now, enabled, onSelectA
         </Notice>
       )}
 
+      {(state.comparisons?.length ?? 0) > 0 && <Comparisons comparisons={state.comparisons!} now={now} nightly={state.nightly?.compare === true} />}
+
       {(state.successCriteria?.length ?? 0) > 0 && (
         <Panel className="agents-criteria" title="It did its job when" count={state.successCriteria!.length} padded meta="from the Build tab: write a question for each">
           <ul className="agents-criteria__list">{state.successCriteria!.map((line, index) => <li key={index}>{line}</li>)}</ul>
@@ -205,6 +207,7 @@ export function Evaluation({ agents, agentId, csrfToken, now, enabled, onSelectA
             <Button variant="ghost" disabled={drafts.length >= 10} onClick={() => setDrafts([...drafts, { id: freshId(drafts), question: "", kind: "includes", fact: "drives", includes: "" }])}>Add a question</Button>
             <Button busy={busy === "save"} onClick={() => void save()}>Save the questions</Button>
             <Button variant="primary" busy={busy === "run"} disabled={!enabled || !(state.questions.length + builtIn.length) || latest?.state === "running"} onClick={() => void run()}>Run the evaluation now</Button>
+            {state.canCompare && <Button busy={busy === "compare"} disabled={!enabled || !(state.questions.length + builtIn.length) || latest?.state === "running"} onClick={() => void run(true)}>Compare with Claude</Button>}
           </div>
         ) : undefined} padded>
         {drafts.length === 0 ? <EmptyState title="None of your own yet">Add up to ten, each with the answer you expect: a fact BoxPilot reads, or words a right answer holds. Saying "Wrong" on an answer in the Test tab can add one too.</EmptyState> : (
@@ -262,5 +265,37 @@ export function Evaluation({ agents, agentId, csrfToken, now, enabled, onSelectA
         </Panel>
       )}
     </div>
+  );
+}
+
+/** One side of a comparison as a cell: right of asked, seconds a question, and what it cost. */
+function Side({ side, dollars }: { side: ComparisonSide | null; dollars: boolean }) {
+  if (!side) return <span className="agents-dim">—</span>;
+  if (side.state === "running") return <StatusChip status="neutral">asking</StatusChip>;
+  return (
+    <span className="agents-name">
+      <span>{side.right} of {side.questions} right{side.score !== null ? ` (${Math.round(side.score * 100)}%)` : ""}</span>
+      <span className="agents-name__purpose">
+        {side.seconds !== null ? `${side.seconds} s a question` : "—"}{dollars ? ` · ${usd(side.dollars)}` : ""}{side.ranLocally ? ` · ${side.ranLocally} ran locally: Claude could not take them` : ""}
+      </span>
+    </span>
+  );
+}
+
+/**
+ * The routes side by side (M45.7): the same questions on this server's model and on Claude, each
+ * graded the same way, with how long a question took and what Claude cost. Started with "Compare
+ * with Claude", or each night when the owner turned that on with the other agent settings.
+ */
+export function Comparisons({ comparisons, now, nightly }: { comparisons: Comparison[]; now: number; nightly: boolean }) {
+  const columns: Array<TableColumn<Comparison>> = [
+    { id: "when", header: "When", cell: (entry) => <span className="agents-dim">{relativeTime(entry.at, now) ?? entry.at.slice(0, 10)}{entry.nightly ? " · nightly" : ""}</span> },
+    { id: "local", header: "This server's model", cell: (entry) => <Side side={entry.local} dollars={false} /> },
+    { id: "claude", header: "Claude", cell: (entry) => <Side side={entry.claude} dollars /> },
+  ];
+  return (
+    <Panel className="agents-comparisons" title="Local and Claude, side by side" count={comparisons.length} meta={nightly ? "compared every night" : "compared when you ask"}>
+      <Table caption="Each comparison: the same questions on both models" columns={columns} rows={comparisons} rowKey={(entry) => entry.pairId} />
+    </Panel>
   );
 }

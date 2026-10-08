@@ -235,6 +235,9 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
   // M44: a finding is a shared note of its own kind ("routine" or "answer"), one per agent and kind.
   ensureColumn("agent_notes", "finding", "TEXT");
   ensureColumn("agent_proposals", "kind", "TEXT NOT NULL DEFAULT 'plan'");
+  // M45.7: an evaluation held to one route, and the pair a comparison of the routes makes.
+  ensureColumn("agent_eval_runs", "route", "TEXT");
+  ensureColumn("agent_eval_runs", "pair_id", "TEXT");
   ensureColumn("agent_proposals", "question", "TEXT");
   ensureColumn("agent_documents", "source", "TEXT NOT NULL DEFAULT 'upload'");
   ensureColumn("agent_documents", "external_id", "TEXT");
@@ -841,11 +844,11 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
   }
   const getQuestions = (agentId) => { const row = prepare("SELECT questions_json FROM agent_evals WHERE agent_id = ?").get(agentId); return row ? parse(row.questions_json, []) : null; };
 
-  const evalRunOf = (row) => row && { id: row.id, agentId: row.agent_id, version: row.version, model: row.model ?? null, state: row.state, results: parse(row.results_json, []), score: row.score ?? null, createdBy: row.created_by, createdAt: row.created_at, finishedAt: row.finished_at ?? null };
+  const evalRunOf = (row) => row && { id: row.id, agentId: row.agent_id, version: row.version, model: row.model ?? null, state: row.state, results: parse(row.results_json, []), score: row.score ?? null, createdBy: row.created_by, createdAt: row.created_at, finishedAt: row.finished_at ?? null, route: row.route ?? null, pairId: row.pair_id ?? null };
   /** An evaluation, tied to the agent's version and the model in use, so accuracy can be followed over both. */
-  function createEvalRun({ agentId, version, results, createdBy, model = null }) {
+  function createEvalRun({ agentId, version, results, createdBy, model = null, route = null, pairId = null }) {
     const id = randomUUID();
-    prepare("INSERT INTO agent_eval_runs (id, agent_id, version, model, state, results_json, created_by, created_at) VALUES (?, ?, ?, ?, 'running', ?, ?, ?)").run(id, agentId, version, model, json(results), createdBy, iso());
+    prepare("INSERT INTO agent_eval_runs (id, agent_id, version, model, state, results_json, created_by, created_at, route, pair_id) VALUES (?, ?, ?, ?, 'running', ?, ?, ?, ?, ?)").run(id, agentId, version, model, json(results), createdBy, iso(), route, pairId);
     return getEvalRun(id);
   }
   const getEvalRun = (id) => evalRunOf(prepare("SELECT * FROM agent_eval_runs WHERE id = ?").get(id));
