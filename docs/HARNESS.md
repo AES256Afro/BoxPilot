@@ -108,9 +108,12 @@ operation never runs except through the host's approvals.
     Sonnet 5.5 and Haiku 5.5 are offered with their prices, and the choice is the owner's.
   - Thinking: adaptive, the model's default. Depth through `output_config.effort`: `low` for
     routine and scheduled runs, `medium` for questions, `high` for jobs that act.
-  - Tools: `strict: true` on every schema, `tool_choice: auto` (forced tool choice is refused on
-    current models), inputs parsed as JSON and checked against the schema before anything runs,
-    `stop_reason` checked for `refusal` and `max_tokens` before any tool call runs.
+  - Tools: `strict: true` on every schema that can take it without changing what it allows
+    (`strictSchema`: type lists become `anyOf`, length and number limits move into the description;
+    an object left open stays as it is, not strict), `tool_choice: auto` or `none` (forced tool
+    choice is refused on current models), `stop_reason` checked for `refusal` and `max_tokens`
+    before any tool call runs. A call the loop chose not to run (it keeps three a step) is answered
+    "not run", so Claude's own turn goes back unchanged and its thinking stays valid.
   - Refusals: server-side fallbacks on (`fallbacks: "default"`, beta
     `server-side-fallback-2026-07-01`); a refusal that survives them ends the run as declined, never
     retried on the local model.
@@ -118,7 +121,12 @@ operation never runs except through the host's approvals.
     the breakpoint. Conversations are append-only.
   - Long jobs: task budgets (beta) so the model paces itself; one model for the whole job.
   - Cost: every response's usage (input, output, cache write, cache read) priced from a table in
-    one file, recorded per run, summed per agent and per month.
+    one file, per attempt when a fallback model finished the answer, recorded per run, summed per
+    agent and per month.
+  - The client: the key, the address and the log level come from the host, never the environment
+    (the SDK would read `ANTHROPIC_API_KEY`, `ANTHROPIC_BASE_URL` and `ANTHROPIC_LOG`), and a
+    redirect is an error. Failures carry a code the router acts on (`auth`, `rate-limited`,
+    `overloaded`, `timeout`, `unreachable`).
 - **fake:** deterministic, scripted turns, for every test. CI never calls a real model.
 
 ### The gateway: where the key lives
