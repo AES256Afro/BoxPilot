@@ -1,0 +1,13 @@
+{
+  "name": "@boxpilot/harness",
+  "version": "0.0.0",
+  "private": true,
+  "description": "An agent harness: one model contract, local and remote providers, a router, and the checks around them. BoxPilot is its first host.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.mjs"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

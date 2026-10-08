@@ -38,6 +38,7 @@
  * server's /v1/embeddings, for memory search by meaning.
  */
 import { randomUUID } from "node:crypto";
+import { assistantTurn, createOpenAiCompatibleProvider, readChatResult } from "../../packages/harness/src/index.mjs";
 import { webPortOf } from "../env-file.mjs";
 import { stripWrapperBlocks } from "./guard.mjs";
 import { planMessage, plannerMessages, readUnderstanding, understandingFormatFor } from "./intent.mjs";
@@ -152,6 +153,9 @@ export function createRunner({ api, runtime, client, usage = null, now = () => D
     const model = runtime.status();
     return { ...(measured ?? {}), state: model.state === "running" ? "running" : model.state, modelLoaded: model.modelLoaded, model: model.model };
   };
+
+  /** The harness provider for a run's model server: the same client, bound to its address and key. */
+  const providerFor = (model) => createOpenAiCompatibleProvider({ client, endpoint: model.endpoint, apiKey: model.apiKey ?? null });
 
   /** Embed texts with the model server; null when it has no embeddings (meaning search then falls back to words). */
   async function embed(model, texts, signal) {
@@ -354,9 +358,11 @@ export function createRunner({ api, runtime, client, usage = null, now = () => D
       const fields = { cache_prompt: true, ...(driver === "llama-server" ? { id_slot: 0 } : {}), ...(cancelId ? { cancel_id: cancelId } : {}) };
       const started = now();
       try {
-        const result = await client.chat(model.endpoint, {
+        // Every call to act or plan goes through the harness's provider contract (M45.1): the local
+        // provider binds this model server's address and key, and the answer is held to one shape.
+        const result = readChatResult(await providerFor(model).chat({
           model: model.model, temperature: claim.runtime.temperature ?? 0.2, messages: conversation.messages, tools: conversation.tools, toolChoice, maxTokens: tokens, extra: { ...extra, ...fields },
-        }, { apiKey: model.apiKey, signal: controller.signal, timeoutMs: Math.max(1_000, left.ms) });
+        }, { signal: controller.signal, timeoutMs: Math.max(1_000, left.ms) }));
         const took = now() - started;
         used.modelMs += took;
         used.modelCalls += 1;
@@ -381,7 +387,7 @@ export function createRunner({ api, runtime, client, usage = null, now = () => D
       } catch (error) {
         used.modelMs += now() - started;
         // Closing the connection stops llama-server at its next batch; Unsloth is also asked to stop.
-        if (cancelId) void client.cancel?.(model.endpoint, cancelId, { apiKey: model.apiKey });
+        if (cancelId) void providerFor(model).cancel?.(cancelId);
         if (controller.signal.aborted) throw error;
         if (!optional) degraded = /timed? ?out|aborted|TimeoutError/i.test(`${error?.name} ${error?.message}`) ? "timeout" : "model-error";
         await system("model", `The model stopped${optional ? ` during the ${purpose}` : ""}: ${String(error?.message ?? error).slice(0, 200)}`, "failed");
@@ -515,7 +521,7 @@ export function createRunner({ api, runtime, client, usage = null, now = () => D
           const calls = final ? [] : (result.toolCalls ?? []).slice(0, limits.toolCallsPerStep ?? 3);
           await api.steps(run.id, lease, [stepOf(model, asked, result.content, calls)]);
           if (!calls.length) { answer = stripToolMarkup(result.content) || null; if (!answer) degraded = "model-error"; break; }
-          act.messages.push({ role: "assistant", content: result.content || null, tool_calls: calls.map((call) => ({ id: call.id, type: "function", function: { name: call.name, arguments: call.arguments || "{}" } })) });
+          act.messages.push(assistantTurn(result, calls));
           for (const call of calls) {
             if (controller.signal.aborted) break;
             toolCalls += 1;
