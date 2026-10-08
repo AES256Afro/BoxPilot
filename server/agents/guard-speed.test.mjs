@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { fill, slowness } from "../../test/hostile-text.mjs";
 import { finalRedaction } from "../assistant/prompt.mjs";
 import { createRedactor } from "../redaction.mjs";
-import { boxLine, detectInjection, sanitizeUntrusted, stripWrapperBlocks } from "./guard.mjs";
+import { boxLine, detectInjection, sanitizeUntrusted, stripWrapperBlocks } from "../../packages/harness/src/index.mjs";
 import { chatText, messageWords, questionFrom, uploadsIn } from "./zulip.mjs";
 
 /**

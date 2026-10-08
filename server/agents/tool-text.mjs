@@ -10,7 +10,7 @@
  * filesystem's line says its mountpoint, the drive and device under it, its type, its size, what
  * is used and what is free. A summary comes first, answering the plain question ("2 drives: ...").
  * The same shapes feed the evaluation's expected answers (drivesOf, stoppedAppsOf) and are what the
- * answer check (verify.mjs) holds a claim against, line by line.
+ * answer check (the harness's check/verify.mjs) holds a claim against, line by line.
  *
  * Everything is read from what BoxPilot already collects: lsblk (the web process runs it), the root
  * storage scan's mounts and SMART, statfs of /, and the helper's app and service reads.

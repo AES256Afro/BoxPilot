@@ -11,7 +11,7 @@
  * posts wait in the outbox, files wait in Zulip.
  */
 import { ConnectorError, cleanDocumentText, textOfUpload } from "./connectors.mjs";
-import { boxLine } from "./guard.mjs";
+import { boxLine } from "../../packages/harness/src/index.mjs";
 import { roleAtLeast } from "./tool-catalog.mjs";
 import { ackMessage, boxpilotLink, cardMessage, chatLimits, chatText, destinationFor, findingMessage, imageMediaType, messageWords, notSetUpMessage, noteMessage, replyMessage, traceMessage, zulipChannels } from "./zulip.mjs";
 

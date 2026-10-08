@@ -4,7 +4,8 @@
  * and the legacy Ollama one - goes through these rules: the address must be a loopback, private,
  * link-local or tailnet (100.64.0.0/10) address, or a name that resolves only to those, checked
  * when it is saved and again before every request, and a redirect is refused rather than followed
- * somewhere else.
+ * somewhere else. It lives in the harness since M45.8, so the CLI's local provider keeps the same
+ * rules as BoxPilot's.
  */
 import { lookup as dnsLookup } from "node:dns/promises";
 import net from "node:net";

@@ -90,7 +90,12 @@ jobs:
           cp test/agents-eval.mjs "$RUNNER_TEMP/baseline/test/"
           cp test/fixtures/agents-storage.mjs "$RUNNER_TEMP/baseline/test/fixtures/"
           cp tests/bench/agents-real.mjs "$RUNNER_TEMP/baseline/tests/bench/"
-          for file in grade.mjs verify.mjs tool-text.mjs; do [ -e "$RUNNER_TEMP/baseline/server/agents/$file" ] || cp "server/agents/$file" "$RUNNER_TEMP/baseline/server/agents/"; done
+          for file in grade.mjs tool-text.mjs; do [ -e "$RUNNER_TEMP/baseline/server/agents/$file" ] || cp "server/agents/$file" "$RUNNER_TEMP/baseline/server/agents/"; done
+          # The grader reads claims with the harness's check (M45.8); a baseline from before then has it as server/agents/verify.mjs.
+          if [ ! -e "$RUNNER_TEMP/baseline/packages/harness/src/check/verify.mjs" ]; then
+            [ -e "$RUNNER_TEMP/baseline/server/agents/verify.mjs" ] || cp packages/harness/src/check/verify.mjs "$RUNNER_TEMP/baseline/server/agents/"
+            sed -i 's#"../../packages/harness/src/index.mjs"#"./verify.mjs"#' "$RUNNER_TEMP/baseline/server/agents/grade.mjs"
+          fi
           git -C "$RUNNER_TEMP/baseline" log --oneline -1
 
       - name: Ask the built-in evaluation under each cap

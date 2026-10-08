@@ -9,7 +9,7 @@
  * reads as a chat-template token, and has its @-mentions broken, so an agent can never page the
  * whole organization. A card links back to BoxPilot: nothing is approved in chat.
  */
-import { readsAs, sanitizeUntrusted } from "./guard.mjs";
+import { readsAs, sanitizeUntrusted } from "../../packages/harness/src/index.mjs";
 
 /** The bot's key in the credential store, under one fixed name. */
 export const zulipCredentialName = "zulip-agents-bot";
