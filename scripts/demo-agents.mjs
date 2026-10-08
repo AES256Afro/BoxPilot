@@ -38,6 +38,12 @@ import { ModelUnavailable, createRuntime } from "../server/agents/runtime.mjs";
 import { agentsRuntimeKey, createAgentService, defaultRuntimeSettings } from "../server/agents/service.mjs";
 import { createAgentStore } from "../server/agents/store.mjs";
 import { appUpdatesOf, drivesOf, failedServicesOf, stoppedAppsOf, unhealthyAppsOf } from "../server/agents/tool-text.mjs";
+import { createOpenAiCompatibleProvider } from "../packages/harness/src/index.mjs";
+import { createAnthropicClient, createAnthropicProvider } from "../packages/harness/src/providers/anthropic.mjs";
+import { fakeAnthropicFetch, standInClaude } from "../packages/harness/src/providers/anthropic-fake.mjs";
+import { createAgentsCloud } from "../server/agents/cloud.mjs";
+import { createGateway } from "../server/model-gateway/gateway.mjs";
+import { createLedger } from "../server/model-gateway/ledger.mjs";
 import { registry } from "../server/ops/index.mjs";
 import { createRedactor } from "../server/redaction.mjs";
 import { createAgentsRouter } from "../server/routes/agents.mjs";
@@ -94,6 +100,25 @@ function helperFor(world, { apps, services }) {
   return { request: async (operation, parameters) => { const answer = answers[operation]; if (!answer) throw new Error(`${operation} is not in the demo`); return answer(parameters ?? {}); } };
 }
 
+/**
+ * Claude in the demo (M45.3): the real gateway, ledger, provider and SDK, with the stand-in model
+ * answering in Claude's place through a fake wire. Nothing leaves the machine and nothing is billed;
+ * the prices are Claude's own, so the cost a run shows is what it would have been.
+ */
+function demoCloud({ state, client, fakeUrl, now }) {
+  const local = createOpenAiCompatibleProvider({ client, endpoint: fakeUrl });
+  const claude = createAnthropicProvider({ client: createAnthropicClient({ apiKey: "demo-key-not-real", fetch: fakeAnthropicFetch(standInClaude(local)), maxRetries: 0 }) });
+  let spent = null;
+  const ledger = createLedger({ file: "demo", now: () => now().getTime(), read: async () => { if (spent === null) throw Object.assign(new Error("none yet"), { code: "ENOENT" }); return spent; }, write: async (_file, text) => { spent = text; } });
+  const gateway = createGateway({ provider: claude, ledger, settings: async () => ({ capUsd: 20 }), check: async () => ({}) });
+  const ask = async (message) => {
+    const reply = await gateway.handle({ version: 1, id: 1, ...message });
+    if (!reply.ok) throw Object.assign(new Error(reply.error), { code: reply.code });
+    return reply.result;
+  };
+  return createAgentsCloud({ state, now: () => now().getTime(), gateway: { status: () => ask({ op: "status" }), chat: (request, { timeoutMs } = {}) => ask({ op: "chat", request, timeoutMs }) } });
+}
+
 async function buildWorld(world, fixtures) {
   const directory = await mkdtemp(path.join(os.tmpdir(), `boxpilot-demo-agents-${world}-`));
   // The world's own clock, moved back to seed what happened earlier today, then the real time.
@@ -105,6 +130,10 @@ async function buildWorld(world, fixtures) {
   const owner = state.consumeBootstrapToken(state.createBootstrapToken().token, { username: "alex", passwordHash: "demo" });
   const caller = { id: owner.id, role: "owner" };
   const helper = helperFor(world, fixtures);
+  // The stand-in model is made first: Claude in the demo answers through it too.
+  const fake = await startFakeModel({ model: "unsloth/Qwen3.5-4B-GGUF" });
+  const client = createOpenAiClient({ loopbackOnly: true });
+  const cloud = demoCloud({ state, client, fakeUrl: fake.url, now });
   const service = createAgentService({
     state, store, registry, helper, inventory: { inspect: async () => fixtures.inventory() },
     knowledge: createKnowledgeIndex({ registry, catalog: null, now }),
@@ -115,10 +144,10 @@ async function buildWorld(world, fixtures) {
     fetchJson: async (url) => (url.includes("?author=") ? [{ id: "unsloth/Qwen3.6-4B-GGUF" }] : { siblings: [{ rfilename: "Qwen3.6-4B-UD-Q4_K_XL.gguf" }, { rfilename: "mmproj-F16.gguf" }] }),
     now, hostLoad: () => 0,
     limits: world === "trouble" ? { runnerOnlineMs: 1 } : {},
+    // The demo house's names, never those of the machine running the demo.
+    cloud, houseNamesFor: () => ({ hosts: ["homebox"], domains: ["homebox.tail0a1b.ts.net"], users: ["alex"] }),
   });
 
-  const fake = await startFakeModel({ model: "unsloth/Qwen3.5-4B-GGUF" });
-  const client = createOpenAiClient({ loopbackOnly: true });
   const base = createRuntime({ client });
   // The runner asks for Unsloth; the demo hands it the stand-in instead (or, in trouble, nothing).
   const runtime = {
@@ -140,7 +169,7 @@ async function buildWorld(world, fixtures) {
   };
   const script = (fn) => { fake.state.script = fn; };
 
-  if (world !== "fresh") await seed({ service, state, store, caller, at, runNext, script, world, fixtures, host: helper });
+  if (world !== "fresh") await seed({ service, state, store, caller, at, runNext, script, world, fixtures, host: helper, cloud });
   offset = 0;
   script(null);
 
@@ -151,7 +180,7 @@ async function buildWorld(world, fixtures) {
     void runner.loop({ signal: stop.signal });
   }
   const router = createAgentsRouter({
-    agents: service, state,
+    agents: service, state, cloud,
     auth: { requireCsrf: (_request, _response, next) => next(), requireRole: () => (_request, _response, next) => next(), checkPassword: async () => ({ ok: true }), rejectThrottled: (response) => response.status(429).end() },
   });
   return {
@@ -183,7 +212,7 @@ function seedNights({ service, store, caller, at, agents, facts, nights }) {
 }
 
 /** What happened before the demo opened: made with the real service, the runner and the stand-in model. */
-async function seed({ service, state, store, caller, at, runNext, script, world, fixtures, host }) {
+async function seed({ service, state, store, caller, at, runNext, script, world, fixtures, host, cloud }) {
   const today = new Date();
   const morning = (hour, minute = 0) => { const date = new Date(today); date.setHours(hour, minute, 0, 0); if (date > today) date.setDate(date.getDate() - 1); return date; };
   const nightsAgo = (count) => { const date = morning(2, 40); date.setDate(date.getDate() - count); return date; };
@@ -197,6 +226,10 @@ async function seed({ service, state, store, caller, at, runNext, script, world,
   const auditor = service.createAgent(caller, { template: "backup-auditor" });
   const helper = service.createAgent(caller, { template: "it-support" });
   service.updateAgent(caller, keeper.id, { spec: { ...keeper.spec, budget: { ...keeper.spec.budget, runsPerDay: 20 } }, note: "Fewer runs a day" });
+  // Claude, connected with a $20 monthly cap (M45.3); the IT Support helper answers on it, with the
+  // house's names sent as stand-ins. The others stay on the local model.
+  cloud.connected({ connected: true, capUsd: 20 }, { actorId: caller.id });
+  service.updateAgent(caller, helper.id, { spec: { ...helper.spec, model: { ...helper.spec.model, route: "claude", dataPolicy: "redacted" } }, note: "Answers on Claude" });
   service.addDocument(caller, { title: "How this network is laid out", text: "The router is at 192.168.50.1 and hands out homebox (192.168.50.20) as the DNS server, so Pi-hole answers for the whole house.\nThe media drive is the 4 TB USB disk at /mnt/media; the 2 TB one labelled Backup is for copies and sleeps most of the day.\nLeave Nextcloud's data alone on weekends: the family syncs photos then." });
   // The team chat (M38): Zulip was connected before these runs, so their outcomes were posted there.
   service.zulipConnected({

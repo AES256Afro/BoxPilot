@@ -6,7 +6,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.mjs",
-    "./anthropic": "./src/providers/anthropic.mjs"
+    "./anthropic": "./src/providers/anthropic.mjs",
+    "./anthropic/fake": "./src/providers/anthropic-fake.mjs"
   },
   "engines": {
     "node": ">=24"

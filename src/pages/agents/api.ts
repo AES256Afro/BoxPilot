@@ -48,7 +48,8 @@ export interface AgentSpec {
   sharing?: { shareFindings: boolean; useFindings: boolean };
   escalation: { lowConfidence: boolean; limits: boolean; actions: boolean; risk: boolean };
   allow: { apps: "*" | string[]; operations: "*" | string[] };
-  model: { thinking: boolean };
+  /** M45.3: which model runs it, and what may leave this server when Claude does. Older agents have only `thinking`. */
+  model: { thinking: boolean; route?: "local" | "claude"; dataPolicy?: "redacted" | "as-is"; claudeForViewers?: boolean; claudeReadsDocuments?: boolean };
   orchestration: { supervisor: boolean; delegates: "*" | string[]; maxDepth: number };
 }
 
