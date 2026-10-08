@@ -69,3 +69,10 @@ describe("a plan the run made (M45.6)", () => {
     expect(screen.getByText(/disk full/)).toBeTruthy();
   });
 });
+
+describe("a run held from acting (M45.7)", () => {
+  it("says it carried out nothing on words in the owner's notes or documents", () => {
+    render(<RunView run={run({ flags: { actHeld: true } })} />);
+    expect(screen.getByText("It carried out nothing on what it read")).toBeTruthy();
+  });
+});
