@@ -105,6 +105,13 @@
 .agents-form__row > .ui-field { flex: 1 1 10rem; min-width: 0; }
 .agents-form__checks { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 15rem), 1fr)); gap: 6px 16px; }
 .agents-form__check { align-self: center; }
+/* M45.6: a plan the run made, its steps one under another. */
+.agents-plan { display: grid; gap: 6px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-md); }
+.agents-plan__head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.agents-plan__title { flex: 1 1 12rem; min-width: 0; color: var(--text-strong); font-weight: 600; overflow-wrap: anywhere; }
+.agents-plan__steps { display: grid; gap: 4px; margin: 0; padding-inline-start: 1.4em; }
+.agents-plan__step { overflow-wrap: anywhere; }
+.agents-plan__note { display: block; color: var(--text-muted); font-size: 12.5px; }
 /* M45.5: what it carries out itself, one operation a row: its name, its leave, and taking it away. */
 .agents-grants { display: grid; gap: 8px; }
 .agents-grants__row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }

@@ -203,6 +203,21 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
       sent_at TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_agent_chat_posts_state ON agent_chat_posts(state, created_at);
+    -- M45.6: a plan an agent carries out over hours, one step at a time, with a checkpoint after each.
+    CREATE TABLE IF NOT EXISTS agent_plans (
+      id TEXT PRIMARY KEY,
+      agent_id TEXT NOT NULL,
+      run_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      steps_json TEXT NOT NULL,
+      cursor INTEGER NOT NULL DEFAULT 0,
+      state TEXT NOT NULL,
+      reason TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      deadline_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_plans_state ON agent_plans(state, agent_id);
   `);
   // Columns added after the first M37 tables: added in place where an older database lacks them.
   const ensureColumn = (table, column, definition) => {
@@ -480,18 +495,51 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
   const listSteps = (runId) => prepare("SELECT * FROM agent_run_steps WHERE run_id = ? ORDER BY seq").all(runId).map(stepOf);
   const countSteps = (runId, kind) => Number(prepare("SELECT COUNT(*) AS count FROM agent_run_steps WHERE run_id = ? AND kind = ?").get(runId, kind).count);
 
+  // ---- plans (M45.6) ----
+
+  const planOf = (row) => row && {
+    id: row.id, agentId: row.agent_id, runId: row.run_id, title: row.title, steps: parse(row.steps_json, []), cursor: row.cursor,
+    state: row.state, reason: row.reason ?? null, createdAt: row.created_at, updatedAt: row.updated_at, deadlineAt: row.deadline_at,
+  };
+  /** Plans still going: carrying out a step, or waiting on a job, a check or a person. */
+  const openPlanStates = ["running", "waiting"];
+
+  function createPlan({ agentId, runId, title, steps, deadlineAt }) {
+    const id = randomUUID();
+    const at = iso();
+    prepare("INSERT INTO agent_plans (id, agent_id, run_id, title, steps_json, cursor, state, created_at, updated_at, deadline_at) VALUES (?, ?, ?, ?, ?, 0, 'running', ?, ?, ?)")
+      .run(id, agentId, runId, title, json(steps), at, at, deadlineAt);
+    return getPlan(id);
+  }
+  const getPlan = (id) => planOf(prepare("SELECT * FROM agent_plans WHERE id = ?").get(String(id ?? "")));
+  const openPlans = (agentId = null) => (agentId
+    ? prepare(`SELECT * FROM agent_plans WHERE agent_id = ? AND state IN ('running', 'waiting') ORDER BY created_at`).all(agentId)
+    : prepare(`SELECT * FROM agent_plans WHERE state IN ('running', 'waiting') ORDER BY created_at`).all()).map(planOf);
+  /**
+   * A checkpoint: the plan's steps, where it is and its state, written together, only while the plan
+   * is still the one that was read (`expectedUpdatedAt`) and still open. Null when it moved meanwhile.
+   */
+  function savePlan(id, { steps, cursor, state, reason = null }, expectedUpdatedAt) {
+    const changed = prepare(`UPDATE agent_plans SET steps_json = ?, cursor = ?, state = ?, reason = ?, updated_at = ? WHERE id = ? AND updated_at = ? AND state IN (${openPlanStates.map(() => "?").join(", ")})`)
+      .run(json(steps), cursor, state, reason, iso(), id, expectedUpdatedAt, ...openPlanStates).changes;
+    return Number(changed) ? getPlan(id) : null;
+  }
+
   // ---- acting (M45.5) ----
 
-  /** The steps where a run staged a job: each names the job in its flags. */
-  const actionSteps = (runId) => prepare("SELECT * FROM agent_run_steps WHERE run_id = ? AND kind = 'action' AND json_extract(flags_json, '$.jobId') IS NOT NULL ORDER BY seq").all(runId).map(stepOf);
-  /** The run that staged a job, when an agent's did. */
-  const runForJob = (jobId) => prepare("SELECT run_id FROM agent_run_steps WHERE kind = 'action' AND json_extract(flags_json, '$.jobId') = ? LIMIT 1").get(String(jobId ?? ""))?.run_id ?? null;
+  /** The steps where a run staged a job itself: each names the job in its flags. A plan's steps (M45.6) are the plan's. */
+  const actionSteps = (runId) => prepare("SELECT * FROM agent_run_steps WHERE run_id = ? AND kind = 'action' AND json_extract(flags_json, '$.jobId') IS NOT NULL AND json_extract(flags_json, '$.planId') IS NULL ORDER BY seq").all(runId).map(stepOf);
+  /** The run that staged a job, and the plan it was a step of, when an agent's did: `{ runId, planId }`. */
+  const runForJob = (jobId) => {
+    const row = prepare("SELECT run_id, json_extract(flags_json, '$.planId') AS plan_id FROM agent_run_steps WHERE kind = 'action' AND json_extract(flags_json, '$.jobId') = ? LIMIT 1").get(String(jobId ?? ""));
+    return row ? { runId: row.run_id, planId: row.plan_id ?? null } : null;
+  };
   /** How many jobs an agent staged since `since`: its day's limit. */
   const countActionsSince = (agentId, since) => Number(prepare(`SELECT COUNT(*) AS count FROM agent_run_steps s JOIN agent_runs r ON r.id = s.run_id
     WHERE r.agent_id = ? AND s.kind = 'action' AND json_extract(s.flags_json, '$.jobId') IS NOT NULL AND s.started_at >= ?`).get(agentId, since).count);
   /** The jobs agents staged since `since`, with their runs: whatever still waits on a person is among them. */
-  const actionsSince = (since) => prepare("SELECT run_id AS runId, json_extract(flags_json, '$.jobId') AS jobId, started_at AS startedAt FROM agent_run_steps WHERE kind = 'action' AND json_extract(flags_json, '$.jobId') IS NOT NULL AND started_at >= ? ORDER BY started_at")
-    .all(since).map((row) => ({ runId: row.runId, jobId: row.jobId, startedAt: row.startedAt }));
+  const actionsSince = (since) => prepare("SELECT run_id AS runId, json_extract(flags_json, '$.jobId') AS jobId, json_extract(flags_json, '$.planId') AS planId, started_at AS startedAt FROM agent_run_steps WHERE kind = 'action' AND json_extract(flags_json, '$.jobId') IS NOT NULL AND started_at >= ? ORDER BY started_at")
+    .all(since).map((row) => ({ runId: row.runId, jobId: row.jobId, planId: row.planId ?? null, startedAt: row.startedAt }));
 
   // ---- notes ----
 
@@ -863,6 +911,7 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
     const cutoff = new Date(at.getTime() - runDays * 86_400_000).toISOString();
     const runs = prepare(`DELETE FROM agent_runs WHERE state NOT IN ('queued', 'running') AND queued_at < ? AND id NOT IN (SELECT id FROM agent_runs ORDER BY queued_at DESC, rowid DESC LIMIT ?)`).run(cutoff, keepRuns).changes;
     const proposals = prepare("DELETE FROM agent_proposals WHERE state != 'open' AND created_at < ?").run(cutoff).changes;
+    prepare("DELETE FROM agent_plans WHERE state NOT IN ('running', 'waiting') AND updated_at < ?").run(cutoff);
     const evals = prepare("DELETE FROM agent_eval_runs WHERE state = 'done' AND id NOT IN (SELECT id FROM agent_eval_runs e WHERE e.agent_id = agent_eval_runs.agent_id ORDER BY created_at DESC LIMIT ?)").run(keepEvals).changes;
     return { runs: Number(runs), proposals: Number(proposals), evals: Number(evals) };
   }
@@ -876,6 +925,7 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
     createAgent, getAgent, listAgents, getVersion, listVersions, addVersion, setPaused, setNextRun, noteEvent, deleteAgent, setWebhook,
     enqueueRun, getRun, listRuns, listChildren, listTree, activeRuns, claimNext, holdsLease, extendLease, releaseRun, finishRun, mergeRunFlags, setEvalInfo, markAgentRan, usageSince, findingsUseSince,
     addStep, listSteps, countSteps, actionSteps, runForJob, countActionsSince, actionsSince,
+    createPlan, getPlan, openPlans, savePlan,
     writeNote, listNotes, getNote, listSharedNotes, deleteNote, updateNote,
     writeFinding, listFindings, deleteFindings,
     getThread, saveThread, deleteThread,

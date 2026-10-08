@@ -248,7 +248,7 @@ export function normalizeSpec(input) {
   if (Object.keys(grants).length) allow.grants = Object.fromEntries(Object.entries(grants).sort(([a], [b]) => a.localeCompare(b)));
   // The acting tool follows the grants: off with none; with some, on, or only when a person asked if
   // the owner set it so. Taking the grants away is how acting stops.
-  tools["operations.run"] = !Object.keys(grants).length ? "off" : (rawTools["operations.run"] ?? rawTools.operations_run) === "ask" ? "ask" : "auto";
+  for (const id of ["operations.run", "operations.plan"]) tools[id] = !Object.keys(grants).length ? "off" : (rawTools[id] ?? rawTools[id.replace(".", "_")]) === "ask" ? "ask" : "auto";
 
   const rawModel = section(input.model, "The model's settings must be choices");
   const route = rawModel.route ?? "local";

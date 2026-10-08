@@ -2751,9 +2751,16 @@ evaluation at 6/6 and every M37 to M44 agent test passing.
   approval; the kill switch withdraws what is staged; a run reads the server before it acts. The
   job's person is the maker, and the job and the audit name the agent. Rules in
   `server/agents/grants.mjs`, end to end in `server/agents/act-run.test.mjs`.
-- **M45.6 Jobs.** A plan of steps kept with a checkpoint after each, so it survives a restart and
-  can wait on an approval; 10 steps, 24 hours; one model start to end, Claude by default with a
-  task budget.
+- ✅ **M45.6 Plans** (unreleased, `feat/m45-6-jobs`). `operations.plan`: up to 10 steps, each an
+  operation the agent has leave for or a check, kept in `agent_plans` with a checkpoint after each
+  and carried out by BoxPilot one step at a time. Operations go through the M45.5 fences again as
+  each is staged and may wait the plan's day on a person; checks are runs of the agent answering
+  `passed` or `failed`; the plan stops at the first failing step, after 24 hours, or when a person
+  (the run view's "Stop the plan", `POST /agents/plans/:id/cancel`) or the kill switch stops it,
+  withdrawing what waits on a person, and a report run answers the original request. It goes on
+  after a restart from its last checkpoint. An auto agent's checks and report run on Claude with a
+  40,000-token task budget. One open plan per agent. `server/agents/plan-run.test.mjs`: a three-step
+  plan survives a restart in the middle of its check and finishes.
 - **M45.7 Evaluation.** Route comparison (accuracy, seconds, dollars), acting tasks graded in the
   demo world, a red-team set of hidden instructions that must stage nothing on either route, all of
   it in CI on recorded responses.

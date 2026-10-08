@@ -145,6 +145,9 @@ export interface RunUsage {
 }
 /** M40: the check before answering - statements held to the tool output they cite. */
 export interface RunCheck { claims: number; checked: number; mismatches: number; corrected: boolean; found: number; unsure: boolean }
+/** M45.6: a plan an agent carries out over hours, one step at a time. */
+export interface AgentPlanStep { kind: "operation" | "check"; title: string; operationId: string | null; state: "pending" | "running" | "waiting" | "checking" | "done" | "failed"; note: string | null; jobId: string | null; grant: GrantLevel | null; risk: string | null }
+export interface AgentPlan { id: string; title: string; state: "running" | "waiting" | "done" | "failed" | "expired" | "cancelled"; reason: string | null; cursor: number; createdAt: string; deadlineAt: string; steps: AgentPlanStep[] }
 export interface Run {
   id: string;
   agentId: string;
@@ -170,6 +173,8 @@ export interface Run {
   feedback?: { verdict: "up" | "down"; note: string | null; mine: boolean } | null;
   tree?: Array<{ id: string; parentRunId: string | null; depth: number; agentId: string; agentName: string; kind: RunKind; state: RunState; question: string | null; finishedAt: string | null }>;
   proposals: Proposal[];
+  /** M45.6: the plan this run made, when it made one. */
+  plan?: AgentPlan | null;
   steps?: RunStep[];
 }
 
@@ -324,6 +329,8 @@ export const agentsApi = {
   test: (csrf: string, id: string, question: string | null) => send<Run>("POST", `/${encodeURIComponent(id)}/runs`, csrf, { question }),
   ask: (csrf: string, id: string, question: string) => send<Run>("POST", `/${encodeURIComponent(id)}/ask`, csrf, { question }),
   cancel: (csrf: string, runId: string) => send<Run>("POST", `/runs/${encodeURIComponent(runId)}/cancel`, csrf),
+  /** M45.6: stop a plan an agent is carrying out. */
+  cancelPlan: (csrf: string, planId: string) => send<AgentPlan>("POST", `/plans/${encodeURIComponent(planId)}/cancel`, csrf),
   deleteNote: (csrf: string, id: string, noteId: string) => send<{ deleted: boolean }>("DELETE", `/${encodeURIComponent(id)}/notes/${encodeURIComponent(noteId)}`, csrf),
   saveEvaluation: (csrf: string, id: string, questions: Question[]) => send<Evaluation>("PUT", `/${encodeURIComponent(id)}/evaluation`, csrf, { questions }),
   runEvaluation: (csrf: string, id: string) => send<EvalRun>("POST", `/${encodeURIComponent(id)}/evaluation/run`, csrf),

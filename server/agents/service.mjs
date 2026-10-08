@@ -49,7 +49,7 @@ import { neutralizeLinks, questionFrom } from "./zulip.mjs";
 import { createStandIns, hideRequest, showResult } from "../../packages/harness/src/safety/stand-ins.mjs";
 import { routerDefaults, secondOpinion, startRoute } from "../../packages/harness/src/router.mjs";
 import { houseNames } from "./cloud.mjs";
-import { actLimits, grantNow, grantProblem, grantsOf } from "./grants.mjs";
+import { actLimits, grantNow, grantProblem, grantsOf, planLimits, readPlanSteps } from "./grants.mjs";
 import { normalizeApprovalMode } from "../ops/risk.mjs";
 
 export { gradeDrives, gradeFact } from "./grade.mjs";
@@ -554,6 +554,8 @@ export function createAgentService({
       const agent = store.getAgent(run.agentId, { includeDeleted: true });
       chat.afterRun(agent, store.getVersion(run.agentId, run.version)?.spec ?? agent?.spec, store.getRun(run.id) ?? run);
       if (tree) continueTree(run);
+      // A plan's check that ended, however it ended, lets its plan go on (M45.6).
+      if (tree) planRunEnded(run);
     } catch { /* what follows a run's end is never a reason to fail the call that ended it */ }
   }
 
@@ -669,7 +671,7 @@ export function createAgentService({
       // A follow-up run writes the answer; it hands nothing further.
       if (tool.id === "agents.handoff") return specialists.length > 0 && run.kind !== "continue" && (run.depth ?? 0) < (spec.orchestration?.maxDepth ?? 2);
       // M45.5: only to an agent with leave to carry something out, on a run that may act.
-      if (tool.id === "operations.run") return mayAct(run, spec).ok && actable(spec).length > 0;
+      if (tool.id === "operations.run" || tool.id === "operations.plan") return mayAct(run, spec).ok && actable(spec).length > 0;
       return true;
     });
   }
@@ -1228,7 +1230,11 @@ export function createAgentService({
     // A supervisor's follow-up: what each specialist answered, as tool output it can cite, in the
     // order it handed them over - a hand-off a specialist's fresh finding answered (M44) as well as
     // one it ran for. A specialist's run that was flagged flags its answer, and so this run.
-    if (run.kind === "continue") {
+    // A plan's run (M45.6): the plan so far, step by step, as tool output; nothing of the hand-offs or acts.
+    const planRun = run.kind === "continue" && run.trigger?.plan?.id ? store.getPlan(run.trigger.plan.id) : null;
+    if (planRun) {
+      for (const entry of planOutputs(planRun)) store.addStep(run.id, { kind: "tool", name: entry.name, input: entry.input, output: sanitizeUntrusted(entry.output, { maxChars: limits.toolOutputChars, redact }).text, flags: {} });
+    } else if (run.kind === "continue") {
       const children = store.listChildren(run.parentRunId).filter((entry) => entry.kind === "handoff");
       let tainted = false;
       let taintHop = null;
@@ -1269,9 +1275,11 @@ export function createAgentService({
     // The specialists' answers, T1, T2 ...: in the prompt, and to the runner, which numbers its tool
     // outputs after them, checks the answer against them and falls back on them (sweep 3: it had
     // none, so an answer citing T1 was "not sure", and one with no words of its own lost them).
-    const handoffSteps = run.kind === "continue" ? store.listSteps(run.id).filter((step) => step.kind === "tool" && ["agents.handoff", "operations.run"].includes(step.name)) : [];
-    const handoffOutputs = handoffSteps.map((step, index) => wrapToolOutput({ index: index + 1, tool: step.name === "operations.run" ? "operations_run" : "agents_handoff", text: step.output ?? "", flags: step.flags }));
-    const handoffs = handoffSteps.map((step, index) => ({ id: `T${index + 1}`, title: step.name === "operations.run" ? `What became of ${clip(String(step.input?.operationId ?? "a job"), 60)}` : `${clip(String(step.input?.agent ?? "A specialist"), 60)}'s answer`, text: step.output ?? "" }));
+    const handoffSteps = run.kind === "continue" ? store.listSteps(run.id).filter((step) => step.kind === "tool" && ["agents.handoff", "operations.run", "operations.plan"].includes(step.name)) : [];
+    const handoffOutputs = handoffSteps.map((step, index) => wrapToolOutput({ index: index + 1, tool: step.name.replace(".", "_"), text: step.output ?? "", flags: step.flags }));
+    const titleOf = (step) => (step.name === "operations.run" ? `What became of ${clip(String(step.input?.operationId ?? "a job"), 60)}`
+      : step.name === "operations.plan" ? `Step ${step.input?.step ?? "?"} of the plan` : `${clip(String(step.input?.agent ?? "A specialist"), 60)}'s answer`);
+    const handoffs = handoffSteps.map((step, index) => ({ id: `T${index + 1}`, title: titleOf(step), text: step.output ?? "" }));
     const budget = budgetOf({ ...agent, spec });
     const deadlineAt = new Date(Date.parse(run.startedAt) + spec.budget.runSeconds * 1000).toISOString();
     // An evaluation plans too (M40): it measures what a person asking gets, and the plan is where
@@ -1290,10 +1298,10 @@ export function createAgentService({
       findings: findings.map(({ id, title, text }) => ({ id, title, text })),
       // A follow-up's specialists' answers, T1, T2 ...: tool output already, before any it reads (sweep 3).
       handoffs,
-      tools: offered.map((tool) => ({ id: tool.id, ...toModelTool(tool.id === "operations.run" ? actTool(tool, spec) : tool) })),
+      tools: offered.map((tool) => ({ id: tool.id, ...toModelTool(["operations.run", "operations.plan"].includes(tool.id) ? actTool(tool, spec) : tool) })),
       // Intent, then plan, then act: the runner asks for the structured understanding first.
       understand: understand ? { tools: offered.map((tool) => ({ fn: tool.fn, title: tool.title, ...(tool.use ? { use: tool.use } : {}) })) } : null,
-      output: spec.prompt?.output ?? { format: "text", fields: [] },
+      output: outputFor(spec, run),
       runtime,
       // M45.4: both models, when the run may change from one to the other.
       ...(router ? { router } : {}),
@@ -1531,6 +1539,8 @@ export function createAgentService({
   /** Runs given Claude, while they run: the model, how hard it thinks, the data policy, the stand-ins and the spend. */
   const cloudRuns = new Map();
   const lowEffortKinds = new Set(["schedule", "event", "webhook", "eval", "learn"]);
+  /** What a plan's run on Claude may spend in tokens, all its calls together (M45.6): Claude paces itself to it. */
+  const planTaskBudget = 40_000;
   const cents = (value) => Math.round(Number(value) * 1_000_000) / 1_000_000;
 
   /**
@@ -1550,7 +1560,9 @@ export function createAgentService({
       const step = store.addStep(run.id, { kind: "system", name: "model", output: text });
       if (step) emit(run.id, "step", step);
     };
-    const start = startRoute({ route: route === "claude" ? "remote" : route, remote: claudeAllowed(spec, run), secondOpinion: Boolean(secondOpinionOf) });
+    // A plan's check and report (M45.6) run on Claude for an auto agent: a long plan is where the local model is weakest.
+    const planRunOnClaude = route === "auto" && Boolean(run.trigger?.plan?.id);
+    const start = startRoute({ route: route === "claude" ? "remote" : route, remote: claudeAllowed(spec, run), secondOpinion: Boolean(secondOpinionOf) || planRunOnClaude });
     if (start.start === "local" && !start.mayMove) {
       // An auto agent says nothing while Claude is not connected: until then it is a local agent.
       if (route === "claude" || secondOpinionOf || cloud?.settings().connected) said(`${start.reason}: this run uses the local model.`);
@@ -1561,7 +1573,7 @@ export function createAgentService({
     const effort = lowEffortKinds.has(run.kind) ? "low" : "medium";
     const dataPolicy = spec.model.dataPolicy === "as-is" ? "as-is" : "redacted";
     const mode = start.start === "remote" ? "claude" : "auto";
-    cloudRuns.set(run.id, { mode, model: chosen.model, effort, dataPolicy, standIns: createStandIns(houseNamesFor()), costUsd: 0, calls: 0, reason: null });
+    cloudRuns.set(run.id, { mode, model: chosen.model, effort, dataPolicy, standIns: createStandIns(houseNamesFor()), costUsd: 0, calls: 0, reason: null, ...(run.trigger?.plan?.id ? { taskBudget: planTaskBudget } : {}) });
     const names = dataPolicy === "redacted" ? "Names that identify this house leave it as stand-ins; the answer is turned back here." : "What it reads leaves this server as it is, without secrets.";
     const documents = spec.model.claudeReadsDocuments === true ? " Your documents may be read and sent." : " Your documents stay on this server.";
     said(mode === "claude"
@@ -1612,7 +1624,7 @@ export function createAgentService({
     const request = readModelRequest(body);
     // The person's own words may hold a secret they typed; everything else was redacted where BoxPilot wrote or read it.
     const messages = request.messages.map((message) => (message.role === "user" && typeof message.content === "string" ? { ...message, content: redact(message.content) } : message));
-    const outgoing = { ...request, model: cloudRun.model, effort: cloudRun.effort, messages };
+    const outgoing = { ...request, model: cloudRun.model, effort: cloudRun.effort, messages, ...(cloudRun.taskBudget ? { taskBudget: cloudRun.taskBudget } : {}) };
     const sent = cloudRun.dataPolicy === "redacted" ? hideRequest(outgoing, cloudRun.standIns) : outgoing;
     let result;
     try {
@@ -1775,6 +1787,7 @@ export function createAgentService({
       if (tool.id === "notes.write") return writeNoteFor(run, spec, value, answer);
       if (tool.id === "plan.propose") return await proposeFor(run, spec, value, answer);
       if (tool.id === "operations.run") return await actFor(run, spec, value, answer);
+      if (tool.id === "operations.plan") return await planFor(run, spec, value, answer);
       if (tool.id === "notify.owner") return notifyFor(run, spec, value, answer);
       const result = await Promise.race([
         tools.run(tool.id, value, context),
@@ -1977,6 +1990,7 @@ export function createAgentService({
   function actTool(tool, spec) {
     const list = actable(spec);
     const named = list.map((entry) => `${entry.operationId} (${entry.level === "run" ? "runs at once" : "a person approves first"}, ${entry.operation.risk} risk)`).join("; ");
+    if (!tool.params.operationId) return { ...tool, brief: `${tool.brief} Yours: ${named}.` };
     return { ...tool, brief: `${tool.brief} Yours: ${named}.`, params: { ...tool.params, operationId: { ...tool.params.operationId, enum: list.map((entry) => entry.operationId) } } };
   }
 
@@ -1990,55 +2004,84 @@ export function createAgentService({
    * once under the maker's delegated consent, as a schedule does; Ask leaves it for a person. The
    * run is told to end; a follow-up run reads what became of the job and checks its effect.
    */
-  async function actFor(run, spec, { operationId, parameters = {}, why }, answer) {
-    const input = { operationId, parameters };
-    const refused = (text, flags = {}) => answer("action", { state: "refused", text, input, flags: { refused: true, ...flags } });
+  /**
+   * Whether this run may stage anything now, whatever it would stage: it may act, it read nothing
+   * that looked like an instruction, and it read the server's live state first (ADR-012). The reason
+   * it may not, or null.
+   */
+  function actFence(run, spec) {
     const may = mayAct(run, spec);
-    if (!may.ok) return refused(`${may.reason}. Propose it instead.`);
+    if (!may.ok) return { text: `${may.reason}. Propose it instead.` };
     // A run that read something that looked like an instruction stages nothing (ADR-013).
-    if (store.getRun(run.id)?.flags?.injection) return refused("This run read something that looked like an instruction, so it changes nothing. Propose it instead: a person will look.", { tainted: true });
+    if (store.getRun(run.id)?.flags?.injection) return { text: "This run read something that looked like an instruction, so it changes nothing. Propose it instead: a person will look.", flags: { tainted: true } };
+    const readLive = store.listSteps(run.id).some((step) => step.kind === "tool" && step.state === "done" && liveCategories.has(toolById(step.name)?.category));
+    if (!readLive) return { text: "Read the live facts this changes with one of your tools first, then carry it out." };
+    return null;
+  }
+
+  /**
+   * One operation staged in the agent's maker's name, every fence that is about the operation checked
+   * again now: granted by the agent's current definition and still allowed that grant, the day's
+   * limit, the maker still able to change the server and allowed this operation, and the job's own
+   * tier. Run starts it at once; Ask leaves it for a person.
+   * `{ job, grant, operation, maker }`, or `{ refused, flags }` with a sentence for the model.
+   */
+  async function stageOperation(agent, spec, { runId, operationId, parameters = {} }) {
     const level = grantsOf(spec)[operationId] ?? "propose";
     const operation = registry.get(operationId);
-    if (level === "propose") return refused(`This agent has no leave to carry out ${operationId}. Propose it instead.`);
+    if (level === "propose") return { refused: `This agent has no leave to carry out ${operationId}. Propose it instead.` };
     const problem = grantProblem(operation, level);
-    if (problem) return refused(`${problem}. Propose it instead.`);
-    // Live facts first (ADR-012): what it is about to change, read by a tool in this run.
-    const readLive = store.listSteps(run.id).some((step) => step.kind === "tool" && step.state === "done" && liveCategories.has(toolById(step.name)?.category));
-    if (!readLive) return refused("Read the live facts this changes with one of your tools first, then carry it out.");
-    if (store.countSteps(run.id, "action") >= actLimits.perRun * 2 || store.actionSteps(run.id).length >= actLimits.perRun) return refused(`A run carries out at most ${actLimits.perRun} operations, and this one has. Answer with what you have.`, { limit: true });
-    const agent = store.getAgent(run.agentId);
-    if (store.countActionsSince(run.agentId, startOfLocalDay(now()).toISOString()) >= actLimits.perDay) return refused(`${agent?.name ?? "This agent"} has carried out ${actLimits.perDay} operations today, its most. Propose it instead.`, { limit: true });
+    if (problem) return { refused: `${problem}. Propose it instead.` };
+    if (store.countActionsSince(agent.id, startOfLocalDay(now()).toISOString()) >= actLimits.perDay) return { refused: `${agent.name} has carried out ${actLimits.perDay} operations today, its most. Propose it instead.`, flags: { limit: true } };
     // The job is its maker's, as a schedule's is (ADR-002): someone who may still change the server.
-    const maker = agent?.createdBy ? state.findOwnerById?.(agent.createdBy) : null;
-    if (!maker || !["owner", "operator"].includes(maker.role)) return refused("The person who made this agent can no longer change the server, so it changes nothing. Propose it instead.");
-    if (operation.minimumRole === "owner" && maker.role !== "owner") return refused(`Only the owner may carry out ${operation.title}, and this agent was made by an operator. Propose it instead.`);
+    const maker = agent.createdBy ? state.findOwnerById?.(agent.createdBy) : null;
+    if (!maker || !["owner", "operator"].includes(maker.role)) return { refused: "The person who made this agent can no longer change the server, so it changes nothing. Propose it instead." };
+    if (operation.minimumRole === "owner" && maker.role !== "owner") return { refused: `Only the owner may carry out ${operation.title}, and this agent was made by an operator. Propose it instead.` };
     let job;
     try {
-      job = await jobs.createOperationJob(operationId, parameters, maker.id, { role: maker.role, origin: { agentId: agent.id, agentName: agent.name, runId: run.id } });
+      job = await jobs.createOperationJob(operationId, parameters, maker.id, { role: maker.role, origin: { agentId: agent.id, agentName: agent.name, runId } });
     } catch (error) {
-      return refused(`It could not be staged: ${clip(redact(String(error?.message ?? error)), 300)}`);
+      return { refused: `It could not be staged: ${clip(redact(String(error?.message ?? error)), 300)}` };
     }
-    const now_ = grantNow(level, { risk: job.risk, mode: approvalModeNow(), confirms: Boolean(operation.confirm?.(job.parameters ?? {})) });
+    const grant = grantNow(level, { risk: job.risk, mode: approvalModeNow(), confirms: Boolean(operation.confirm?.(job.parameters ?? {})) });
     const withdraw = (reason) => { try { jobs.cancelJob(job.id, maker.id, { role: maker.role, reason }); } catch { /* already moved on */ } };
-    if (now_ === "propose") {
+    if (grant === "propose") {
       withdraw("An agent may not carry this out: it is high risk here");
-      return refused(`${operation.title} is high risk here, so it is a card, not something an agent carries out. Propose it instead.`);
+      return { refused: `${operation.title} is high risk here, so it is a card, not something an agent carries out. Propose it instead.` };
     }
-    if (now_ === "run") {
+    if (grant === "run") {
       try {
         await jobs.approveAndStart(job.id, maker.id, {});
       } catch (error) {
         withdraw(`It could not start: ${clip(String(error?.message ?? error), 200)}`);
-        return refused(`It could not start: ${clip(redact(String(error?.message ?? error)), 300)}`);
+        return { refused: `It could not start: ${clip(redact(String(error?.message ?? error)), 300)}` };
       }
     }
+    return { job, grant, operation, maker };
+  }
+
+  /**
+   * operations.run: one operation the agent has leave to carry out, staged as a job in its maker's
+   * name. Every fence is checked here, whatever the runner sent. The run is told to end; a follow-up
+   * run reads what became of the job and checks its effect.
+   */
+  async function actFor(run, spec, { operationId, parameters = {}, why }, answer) {
+    const input = { operationId, parameters };
+    const refused = (text, flags = {}) => answer("action", { state: "refused", text, input, flags: { refused: true, ...flags } });
+    const fence = actFence(run, spec);
+    if (fence) return refused(fence.text, fence.flags);
+    if (store.countSteps(run.id, "action") >= actLimits.perRun * 2 || store.actionSteps(run.id).length >= actLimits.perRun) return refused(`A run carries out at most ${actLimits.perRun} operations, and this one has. Answer with what you have.`, { limit: true });
+    const agent = store.getAgent(run.agentId);
+    const staged = await stageOperation(agent, spec, { runId: run.id, operationId, parameters });
+    if (staged.refused) return refused(staged.refused, staged.flags);
+    const { job, grant, operation, maker } = staged;
     store.mergeRunFlags(run.id, { acted: true });
-    audit("agents.run.acted", { actorId: maker.id, subjectId: job.id, details: { agentId: agent.id, agentName: agent.name, runId: run.id, operationId, grant: now_, risk: job.risk, requestedBy: run.requestedBy } });
+    audit("agents.run.acted", { actorId: maker.id, subjectId: job.id, details: { agentId: agent.id, agentName: agent.name, runId: run.id, operationId, grant, risk: job.risk, requestedBy: run.requestedBy } });
     const what = `${operation.title} (${job.risk} risk), as job ${job.id}`;
-    const text = now_ === "run"
+    const text = grant === "run"
       ? `Started ${what}, under your leave to run it. End this run now with what you did and why; a follow-up run reads how the job went and checks its effect.`
       : `Staged ${what} for a person to approve. End this run now saying what you asked for and why; a follow-up run reads what became of it. If nobody approves it within an hour it is dropped.`;
-    return answer("action", { text, input: { operationId, parameters: job.parameters }, flags: { jobId: job.id, operationId, grant: now_, risk: job.risk, why: clip(why, 300) } });
+    return answer("action", { text, input: { operationId, parameters: job.parameters }, flags: { jobId: job.id, operationId, grant, risk: job.risk, why: clip(why, 300) } });
   }
 
   /** What became of a job a run staged, as its follow-up reads it. */
@@ -2066,12 +2109,192 @@ export function createAgentService({
     const since = new Date(now().getTime() - 24 * 3_600_000).toISOString();
     let dropped = 0;
     for (const act of store.actionsSince(since)) {
+      // A plan's step waits until the plan's own day is over (M45.6), unless everything goes.
+      if (act.planId && !all) continue;
       const job = state.getJob?.(act.jobId);
       if (job?.state !== "awaiting_approval") continue;
       if (!all && now().getTime() - Date.parse(job.createdAt) < actLimits.approvalWaitMs) continue;
       try { jobs?.cancelJob(job.id, job.createdBy, { role: "owner", reason }); dropped += 1; } catch { /* approved or gone meanwhile */ }
     }
     return dropped;
+  }
+
+  // ---- plans (M45.6) ----
+
+  /**
+   * operations.plan: a plan of steps the agent has leave to carry out, kept in the store and carried
+   * out by BoxPilot one step at a time (advancePlan), each operation under the same fences as
+   * operations.run, a check between them made by a run of the agent. One open plan per agent.
+   */
+  async function planFor(run, spec, { title, steps: raw }, answer) {
+    const input = { title, steps: raw };
+    const refused = (text, flags = {}) => answer("action", { state: "refused", text, input, flags: { refused: true, ...flags } });
+    const fence = actFence(run, spec);
+    if (fence) return refused(fence.text, fence.flags);
+    const agent = store.getAgent(run.agentId);
+    if (store.openPlans(agent.id).length) return refused(`${agent.name} is already carrying out a plan. Answer with what you have; propose anything else.`);
+    const read = readPlanSteps(raw, { grantOf: (id) => grantsOf(spec)[id], operationOf: (id) => registry.get(id), validate: (id, parameters) => registry.validate(id, parameters) });
+    if (read.problem) return refused(`${read.problem}. Propose it instead.`);
+    const named = clip(redact(String(title ?? "")), 120) || "A plan";
+    const plan = store.createPlan({ agentId: agent.id, runId: run.id, title: named, steps: read.steps, deadlineAt: new Date(now().getTime() + planLimits.hours * 3_600_000).toISOString() });
+    store.mergeRunFlags(run.id, { acted: true, planId: plan.id });
+    audit("agents.plan.started", { actorId: run.requestedBy, subjectId: plan.id, details: { agentId: agent.id, runId: run.id, steps: read.steps.map((step) => step.operationId ?? "check") } });
+    void advancePlan(plan.id).catch(() => {});
+    return answer("action", {
+      text: `Saved the plan "${named}": ${read.steps.length} steps. BoxPilot carries it out one step at a time, for up to ${planLimits.hours} hours, and runs you to make each check. End this run now saying what you planned and why; a follow-up run reports how it went.`,
+      input, flags: { planId: plan.id },
+    });
+  }
+
+  const stepWords = (plan, index) => `step ${index + 1} of the plan "${plan.title}"`;
+  /** What one of a plan's operation steps is called. */
+  const stepTitle = (step) => (step.kind === "check" ? `Check: ${step.check}` : registry.get(step.operationId)?.title ?? step.operationId);
+
+  /**
+   * A plan ended: its last checkpoint written, anything still waiting on a person withdrawn, and a
+   * follow-up run to report how it went - unless a person stopped it or the kill switch did.
+   */
+  function finishPlan(plan, steps, endState, reason, { report = true } = {}) {
+    const saved = store.savePlan(plan.id, { steps, cursor: plan.cursor, state: endState, reason: reason ? clip(reason, 300) : null }, plan.updatedAt);
+    if (!saved) return null;
+    for (const step of steps) {
+      const job = step.jobId ? state.getJob?.(step.jobId) : null;
+      if (job?.state === "awaiting_approval") { try { jobs?.cancelJob(job.id, job.createdBy, { role: "owner", reason: reason ?? "The plan ended" }); } catch { /* moved on */ } }
+    }
+    audit("agents.plan.ended", { subjectId: plan.id, details: { agentId: plan.agentId, state: endState, reason } });
+    const agent = store.getAgent(plan.agentId);
+    const origin = store.getRun(plan.runId);
+    if (report && agent && origin && !moduleSettings().killedAt) {
+      store.enqueueRun({
+        agentId: agent.id, version: agent.version, kind: "continue", question: origin.question,
+        trigger: { title: endState === "done" ? `The plan "${plan.title}" finished` : `The plan "${plan.title}" stopped`, plan: { id: plan.id, purpose: "report" } },
+        requestedBy: origin.requestedBy, readRole: origin.readRole, readAs: origin.readAs, parentRunId: origin.id, rootRunId: origin.rootRunId ?? origin.id, depth: origin.depth ?? 0,
+      });
+      wake();
+    }
+    return saved;
+  }
+
+  /**
+   * One step of a plan, from its last checkpoint: stage its operation, or read how its job went, or
+   * start a run to make its check, or read that run's verdict. True when it moved on to the next step
+   * (the caller takes that one too); false when it waits (on a job, a person, a run, a pause) or ended.
+   */
+  async function stepPlan(plan) {
+    const steps = plan.steps.map((step) => ({ ...step }));
+    const agent = store.getAgent(plan.agentId);
+    if (!agent) { finishPlan(plan, steps, "cancelled", "The agent was deleted", { report: false }); return false; }
+    if (now().getTime() > Date.parse(plan.deadlineAt)) { finishPlan(plan, steps, "expired", `It did not finish within ${planLimits.hours} hours`); return false; }
+    const settings = moduleSettings();
+    // Paused, by the owner or the kill switch: it waits where it is, and goes on at a tick once resumed.
+    if (!settings.enabled || modulePaused(settings) || agentPaused(agent)) return false;
+    if (plan.cursor >= steps.length) { finishPlan(plan, steps, "done", null); return false; }
+    const index = plan.cursor;
+    const step = steps[index];
+    const checkpoint = (changes) => store.savePlan(plan.id, { steps, cursor: plan.cursor, state: plan.state, reason: plan.reason, ...changes }, plan.updatedAt);
+    const fail = (why) => { step.state = "failed"; step.note = clip(why, 300); step.endedAt = now().toISOString(); finishPlan(plan, steps, "failed", `It stopped at ${stepWords(plan, index)}: ${clip(why, 240)}`); return false; };
+    const done = (note) => { step.state = "done"; step.note = note ? clip(note, 300) : null; step.endedAt = now().toISOString(); return Boolean(checkpoint({ cursor: index + 1, state: "running" })); };
+
+    if (step.kind === "operation") {
+      if (!step.jobId) {
+        const staged = await stageOperation(agent, agent.spec, { runId: plan.runId, operationId: step.operationId, parameters: step.parameters });
+        if (staged.refused) return fail(staged.refused.replace(/ Propose it instead\.$/, ""));
+        Object.assign(step, { jobId: staged.job.id, grant: staged.grant, risk: staged.job.risk, state: staged.grant === "run" ? "running" : "waiting", startedAt: now().toISOString() });
+        // On the run that made the plan, as an act of its own: the day's limit counts it, and its job leads back here.
+        store.addStep(plan.runId, { kind: "action", name: "operations.plan", input: { operationId: step.operationId, parameters: staged.job.parameters }, output: `${staged.grant === "run" ? "Started" : "Staged for a person to approve"}: ${staged.operation.title} (${staged.job.risk} risk), ${stepWords(plan, index)}, as job ${staged.job.id}.`, flags: { jobId: staged.job.id, planId: plan.id, operationId: step.operationId, grant: staged.grant, risk: staged.job.risk } });
+        audit("agents.run.acted", { actorId: staged.maker.id, subjectId: staged.job.id, details: { agentId: agent.id, agentName: agent.name, runId: plan.runId, planId: plan.id, step: index + 1, operationId: step.operationId, grant: staged.grant, risk: staged.job.risk } });
+        if (!checkpoint({ state: "waiting" })) return false;
+        return true;
+      }
+      const job = state.getJob?.(step.jobId);
+      if (!job) return fail("BoxPilot no longer has its job");
+      if (job.state === "completed") return done(job.result ? `It finished: ${redact(JSON.stringify(job.result))}` : "It finished.");
+      if (job.state === "failed") return fail(`${job.title} failed: ${job.error ?? "no reason given"}`);
+      if (job.state === "cancelled") return fail(`${job.title} did not run: ${job.error ?? "it was cancelled"}`);
+      return false;
+    }
+
+    // A check: a run of the agent reads what it should and answers passed or failed.
+    if (!step.runId) {
+      const origin = store.getRun(plan.runId);
+      if (!origin) return fail("The run that made the plan is gone");
+      const checking = store.enqueueRun({
+        agentId: agent.id, version: agent.version, kind: "continue", question: origin.question,
+        trigger: { title: `Checking ${stepWords(plan, index)}`, plan: { id: plan.id, purpose: "check", step: index, check: step.check } },
+        requestedBy: origin.requestedBy, readRole: origin.readRole, readAs: origin.readAs, parentRunId: origin.id, rootRunId: origin.rootRunId ?? origin.id, depth: origin.depth ?? 0,
+      });
+      Object.assign(step, { runId: checking.id, state: "checking", tries: (step.tries ?? 0) + 1, startedAt: now().toISOString() });
+      checkpoint({ state: "waiting" });
+      wake();
+      return false;
+    }
+    const checking = store.getRun(step.runId);
+    if (!checking || !finishedStates.has(checking.state)) return false;
+    if (checking.flags?.injection) return fail("The check read something that looked like an instruction, so the plan goes no further");
+    const verdict = checking.flags?.planCheck ?? null;
+    if (verdict?.passed) return done(verdict.found);
+    // A check that never gave a verdict (a restart, the runner gone) is made again, once.
+    if (!verdict && (step.tries ?? 1) < planLimits.checkTries) {
+      Object.assign(step, { runId: null, state: "pending" });
+      return Boolean(checkpoint({ state: "running" }));
+    }
+    return fail(verdict ? `The check failed: ${verdict.found}` : `The check did not finish (${checking.state})`);
+  }
+
+  /** Plans being carried out right now, and those asked to go on while they were. */
+  const advancing = new Set();
+  const advanceAgain = new Set();
+  /** Carry a plan on from its last checkpoint, as far as it can go now. One at a time per plan. */
+  async function advancePlan(planId) {
+    if (advancing.has(planId)) { advanceAgain.add(planId); return; }
+    advancing.add(planId);
+    try {
+      for (let guard = 0; guard <= planLimits.steps * 2 + 2; guard += 1) {
+        const plan = store.getPlan(planId);
+        if (!plan || !["running", "waiting"].includes(plan.state)) return;
+        if (!(await stepPlan(plan))) return;
+      }
+    } finally {
+      advancing.delete(planId);
+      if (advanceAgain.delete(planId)) void advancePlan(planId).catch(() => {});
+    }
+  }
+
+  /** A plan's run (a check or the report) ended, however it ended: the plan goes on. */
+  function planRunEnded(run) {
+    if (run?.trigger?.plan?.id && run.trigger.plan.purpose === "check") void advancePlan(run.trigger.plan.id).catch(() => {});
+  }
+
+  /** What a plan's run is shown of the plan: each step so far and how it went, as tool output. */
+  function planOutputs(plan) {
+    return plan.steps.slice(0, plan.state === "done" ? plan.steps.length : plan.cursor + 1).map((step, index) => {
+      const job = step.jobId ? state.getJob?.(step.jobId) : null;
+      const head = step.kind === "check" ? `Step ${index + 1}, a check: ${step.check}` : `Step ${index + 1}: ${stepTitle(step)}${job ? ` (job ${job.id}, ${job.risk} risk)` : ""}`;
+      return { name: "operations.plan", input: { planId: plan.id, step: index + 1 }, output: `${head}\n${step.state === "done" ? "Done." : step.state === "failed" ? "Failed." : `Not done (${step.state}).`}${step.note ? ` ${step.note}` : ""}` };
+    });
+  }
+
+  /** A person stops a plan: what waits on a person is withdrawn, and nothing more is staged. */
+  function cancelPlan(caller, planId) {
+    const person = personOf(caller);
+    const plan = store.getPlan(planId);
+    const origin = plan ? store.getRun(plan.runId) : null;
+    if (!plan || !origin || !canSeeRun(person, origin)) refuse(404, "There is no plan with that id", "plan_not_found");
+    if (!["owner", "operator"].includes(person.role)) refuse(403, "Viewers cannot stop a plan", "forbidden");
+    if (!["running", "waiting"].includes(plan.state)) refuse(409, `The plan has already ${plan.state === "done" ? "finished" : "ended"}`, "plan_ended");
+    const ended = finishPlan(plan, plan.steps, "cancelled", `Stopped by ${person.role === "owner" ? "the owner" : "an operator"}`, { report: false });
+    if (!ended) refuse(409, "The plan moved on just now; try again", "plan_moved");
+    audit("agents.plan.cancelled", { actorId: person.id, subjectId: plan.id, details: { agentId: plan.agentId } });
+    return presentPlan(ended);
+  }
+
+  /** A plan as a person sees it: its steps, where it is and how each went. */
+  function presentPlan(plan) {
+    if (!plan) return null;
+    return {
+      id: plan.id, title: plan.title, state: plan.state, reason: plan.reason, cursor: plan.cursor, createdAt: plan.createdAt, deadlineAt: plan.deadlineAt,
+      steps: plan.steps.map((step) => ({ kind: step.kind, title: stepTitle(step), operationId: step.operationId ?? null, state: step.state, note: step.note ? sanitizeUntrusted(step.note, { maxChars: 300, redact }).text : null, jobId: step.jobId ?? null, grant: step.grant ?? null, risk: step.risk ?? null })),
+    };
   }
 
   function notifyFor(run, spec, { title, message }, answer) {
@@ -2103,12 +2326,16 @@ export function createAgentService({
     const madeUpOnly = "The model's answer held only text written as if a tool or BoxPilot had written it, so it was left out.";
     let answer = clarify ?? (result.answer ? (unboxed.text ? redact(clip(unboxed.text, limits.answerChars)) : madeUpOnly) : null);
     // A structured answer is checked against the fields the owner named, and kept as their JSON.
-    const format = spec.prompt?.output?.format ?? "text";
+    const output = outputFor(spec, run);
+    const format = output.format ?? "text";
     let structured = null;
+    // A plan's check (M45.6): passed only when it said so, in the fields it was given.
+    let planCheck = null;
     if (!clarify && answer && format === "json" && outcomeIsAnswer(outcome)) {
-      const read = readStructuredAnswer(answer, spec.prompt.output.fields ?? []);
+      const read = readStructuredAnswer(answer, output.fields ?? []);
       structured = read.value ? { ok: true } : { ok: false, problem: read.problem };
       if (read.value) answer = JSON.stringify(read.value, null, 1);
+      if (read.value && run.trigger?.plan?.purpose === "check") planCheck = { passed: /^\s*pass/i.test(read.value.verdict), found: clip(redact(read.value.found), 300) };
     }
     const toolOutputs = outputsSoFar(run.id);
     const findings = offeredFindings(run.id);
@@ -2178,6 +2405,7 @@ export function createAgentService({
         ...(checked ? { check: checked } : {}), ...(fabricated.length ? { fabricated } : {}),
         ...(clarify ? { clarify: true } : {}), ...(structured ? { structured } : {}), ...(limitReached ? { limitReached: true } : {}), ...(limitKind ? { limit: limitKind } : {}),
         model: embedModelName(),
+        ...(planCheck ? { planCheck } : {}),
       },
     });
     if (!finished) refuse(409, "The run has already finished", "run_finished");
@@ -2207,6 +2435,11 @@ export function createAgentService({
   }
 
   const outcomeIsAnswer = (outcome) => outcome === "completed";
+
+  /** The answer a plan's check gives (M45.6): a verdict and what it found. */
+  const planCheckOutput = Object.freeze({ format: "json", fields: [{ name: "verdict", description: 'Exactly "passed" or "failed"' }, { name: "found", description: "What your read showed, citing it like [T2]" }] });
+  /** How a run answers: the owner's format, or a plan's check's. */
+  const outputFor = (spec, run) => (run?.trigger?.plan?.purpose === "check" ? planCheckOutput : spec?.prompt?.output ?? { format: "text", fields: [] });
 
   /** The runs whose answer someone reads: a second opinion is worth its cost only there. */
   const secondOpinionKinds = new Set(["ask", "manual", "schedule", "event", "webhook"]);
@@ -2591,8 +2824,9 @@ export function createAgentService({
       runEnded(ended, { tree: false });
     }
     stopModelRequested = true;
-    // Everything an agent staged that still waits on a person goes with it (ADR-013).
+    // Everything an agent staged that still waits on a person goes with it (ADR-013), and every plan stops (M45.6).
     const withdrawn = dropUnapprovedActs({ all: true, reason: "Withdrawn by the agents' kill switch" });
+    for (const plan of store.openPlans()) finishPlan(plan, plan.steps, "cancelled", "Stopped by the agents' kill switch", { report: false });
     audit("agents.module.killed", { actorId: person.id, details: { cancelled, stopped, withdrawn } });
     void settleCpu({ force: true }).catch(() => null);
     wake();
@@ -2795,6 +3029,8 @@ export function createAgentService({
       parentRunId: run.parentRunId, rootRunId: root, depth: run.depth ?? 0,
       feedback: feedback ? { verdict: feedback.verdict, note: feedback.note, mine: feedback.givenBy === caller.id } : null,
       proposals: store.listProposalsForRun(run.id).map((proposal) => presentProposal(caller, proposal)),
+      // M45.6: the plan it made, step by step.
+      ...(run.flags?.planId ? { plan: presentPlan(store.getPlan(run.flags.planId)) } : {}),
       ...(steps ? { steps } : {}),
       // An orchestrated request is one tree: every run under the same root, as the person may see them.
       ...(tree ? { tree: treeOf(store.listTree(root).filter((entry) => canSeeRun(caller, entry)), agentNameOf) } : {}),
@@ -3793,7 +4029,7 @@ export function createAgentService({
     runnerAdvice: () => runnerAdvice(),
     verifyRunnerToken: (token) => verifyRunnerToken(token), ensureRunnerToken: () => ensureRunnerToken(),
     // background
-    start, tick, recoverAtStartup, migrateDefaults, onJob, onHealthRound, moduleSettings, runtimeSettings,
+    start, tick, recoverAtStartup, migrateDefaults, onJob, onHealthRound, moduleSettings, runtimeSettings, cancelPlan,
     get limits() { return limits; },
   };
 
@@ -3968,6 +4204,8 @@ export function createAgentService({
       const ended = store.finishRun(run.id, { state: "interrupted", reason: "BoxPilot restarted while this run was going. It was not tried again." });
       if (ended) { count += 1; runEnded(ended); }
     }
+    // Plans carry on from their last checkpoint (M45.6): nothing about them was only in memory.
+    for (const plan of store.openPlans()) void advancePlan(plan.id).catch(() => {});
     return count;
   }
 
@@ -4006,6 +4244,8 @@ export function createAgentService({
     store.expireProposals(at);
     // What an agent staged that no one approved within the hour is dropped (ADR-013).
     dropUnapprovedActs();
+    // Plans go on (M45.6): past their day they end, and after a pause they pick up where they were.
+    for (const plan of store.openPlans()) void advancePlan(plan.id).catch(() => {});
     if (at.getTime() - lastPrune > 86_400_000) { lastPrune = at.getTime(); try { store.prune({ at }); } catch { /* next day */ } }
     if (settings.enabled && at.getTime() - lastModelCheck > 86_400_000) { lastModelCheck = at.getTime(); await checkForNewerModel().catch(() => null); }
     // Background work in quiet hours: the folder the owner named, then meaning search's index.
@@ -4039,9 +4279,14 @@ export function createAgentService({
     if (job?.id && job.state !== "awaiting_approval") {
       try { for (const proposal of store.listOpenProposalsForJob(job.id)) settleProposal(proposal); } catch { /* settled when the card is next read */ }
     }
-    // A job an agent staged has ended (M45.5): its run's follow-up, once its other jobs have too.
+    // A job an agent staged has ended (M45.5): its run's follow-up, once its other jobs have too; or,
+    // for a plan's step (M45.6), the plan's next step.
     if (job?.id && ["completed", "failed", "cancelled"].includes(job.state)) {
-      try { const runId = store.runForJob(job.id); if (runId) continueSupervisor(runId); } catch { /* followed up when the next job of the run ends */ }
+      try {
+        const staged = store.runForJob(job.id);
+        if (staged?.planId) void advancePlan(staged.planId).catch(() => {});
+        else if (staged?.runId) continueSupervisor(staged.runId);
+      } catch { /* followed up when the next job of the run ends, or at the next tick */ }
     }
     if (job?.state !== "failed") return;
     onEvent("job.failed", { title: `A job failed: ${job.title ?? job.type ?? "a job"}` });

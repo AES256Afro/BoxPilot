@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 import { registry } from "../ops/index.mjs";
-import { grantNow, grantProblem } from "./grants.mjs";
+import { grantNow, grantProblem, readPlanSteps } from "./grants.mjs";
 import { exportDefinition, readDefinition } from "./portable.mjs";
 import { normalizeSpec } from "./spec.mjs";
 
@@ -98,5 +98,27 @@ describe("grants in an agent's definition", () => {
     expect(() => normalizeSpec({ ...base, allow: { operations: ["app.restart"], grants: { "apt.refresh": "run" } } })).toThrow(/not on its list/);
     expect(() => normalizeSpec({ ...base, allow: { grants: { "apt.refresh": "always" } } })).toThrow(/one of propose, ask, run/);
     expect(() => normalizeSpec({ ...base, allow: { grants: { "Not An Id": "run" } } })).toThrow(/not an operation id/);
+  });
+});
+
+describe("a plan's steps (M45.6)", () => {
+  const context = (grants) => ({ grantOf: (id) => grants[id], operationOf: (id) => registry.get(id), validate: (id, parameters) => registry.validate(id, parameters) });
+
+  it("keeps operations it has leave for and checks between them, in order", () => {
+    const read = readPlanSteps([{ operationId: "app.action", parameters: { id: "jellyfin", action: "restart" }, why: "unhealthy" }, { check: "it runs" }, { operationId: "app.backup", parameters: { id: "jellyfin" } }], context({ "app.action": "run", "app.backup": "ask" }));
+    expect(read.steps.map((step) => [step.kind, step.operationId ?? step.check, step.state])).toEqual([["operation", "app.action", "pending"], ["check", "it runs", "pending"], ["operation", "app.backup", "pending"]]);
+  });
+
+  it("refuses a step without leave, parameters the registry refuses, a step that is two, and checks alone", () => {
+    expect(readPlanSteps([{ operationId: "app.backup", parameters: { id: "jellyfin" } }], context({})).problem).toMatch(/Step 1: this agent has no leave/);
+    expect(readPlanSteps([{ operationId: "app.action", parameters: { id: "jellyfin", action: "explode" } }], context({ "app.action": "run" })).problem).toMatch(/^Step 1:/);
+    expect(readPlanSteps([{ operationId: "app.action", check: "and this" }], context({ "app.action": "run" })).problem).toMatch(/both a check and an operation/);
+    expect(readPlanSteps([{ check: "it runs" }], context({})).problem).toMatch(/at least one operation/);
+    expect(readPlanSteps([], context({})).problem).toMatch(/list of steps/);
+    expect(readPlanSteps(Array.from({ length: 11 }, () => ({ check: "x" })), context({})).problem).toMatch(/at most 10 steps/);
+  });
+
+  it("never holds what no grant covers, whatever it was given leave for", () => {
+    expect(readPlanSteps([{ operationId: "agents.runtime.disable" }], context({ "agents.runtime.disable": "run" })).problem).toMatch(/changes how agents run/);
   });
 });
