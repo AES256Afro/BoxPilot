@@ -3,8 +3,9 @@
  * that holds the Claude key; the web service asks it for a model call and gets the answer back,
  * never the key.
  *
- * It answers two requests, each one JSON line:
+ * It answers three requests, each one JSON line:
  *   { version: 1, id, op: "status" }
+ *   { version: 1, id, op: "check" }                      the key works: Claude reads it, nothing is spent
  *   { version: 1, id, op: "chat", request, timeoutMs }   request: the harness's ChatRequest
  * and replies `{ version: 1, id, ok: true, result }` or `{ version: 1, id, ok: false, error, code }`.
  *
@@ -18,11 +19,9 @@
  */
 import { toAnthropicRequest } from "../../packages/harness/src/providers/anthropic.mjs";
 import { anthropicPrices, priceFor } from "../../packages/harness/src/providers/anthropic-prices.mjs";
+import { gatewayLimits, offeredModels } from "./terms.mjs";
 
-/** The models the owner may choose from (Settings), dearest first. */
-export const offeredModels = Object.freeze(["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"]);
-
-export const gatewayLimits = Object.freeze({ requestBytes: 2 * 1024 * 1024, running: 4, timeoutMs: 10 * 60_000, defaultTimeoutMs: 3 * 60_000 });
+export { gatewayLimits, offeredModels };
 
 /** Failures Claude answered before any token was billed: the reservation goes back. */
 const unbilled = new Set(["auth", "forbidden", "rate-limited", "overloaded", "bad-request", "not-found", "unreachable"]);
@@ -52,15 +51,30 @@ const failed = (id, code, error, extra = {}) => ({ version: 1, id, ok: false, co
 
 /**
  * `provider` is the Claude provider (null when no key is set), `ledger` the month's spend,
- * `settings()` what the owner set (`{ capUsd }`), read on every call so a new cap holds at once.
+ * `settings()` what the owner set (`{ capUsd }`), read on every call so a new cap holds at once,
+ * `check()` a request Claude answers without billing (it reads one model's details), rejecting with
+ * a coded Error when the key is refused or Claude cannot be reached.
  */
-export function createGateway({ provider, ledger, settings, log = () => {} }) {
+export function createGateway({ provider, ledger, settings, check = null, log = () => {} }) {
   let running = 0;
 
   async function status(id) {
     const month = await ledger.current();
     const { capUsd = 0 } = await settings().catch(() => ({}));
     return { version: 1, id, ok: true, result: { connected: Boolean(provider), models: offeredModels, month: month.month, spentUsd: month.spentUsd, calls: month.calls, capUsd: Number(capUsd) || 0 } };
+  }
+
+  async function verify(id) {
+    if (!provider || !check) return failed(id, "not-connected", "Claude is not connected: no API key is set");
+    try {
+      await check();
+      log({ op: "check", ok: true });
+      return { version: 1, id, ok: true, result: { ok: true } };
+    } catch (error) {
+      const code = typeof error?.code === "string" ? error.code : "error";
+      log({ op: "check", code });
+      return failed(id, code, String(error?.message ?? error).slice(0, 300), error?.status ? { status: error.status } : {});
+    }
   }
 
   async function chat(id, message, signal) {
@@ -100,8 +114,9 @@ export function createGateway({ provider, ledger, settings, log = () => {} }) {
       const id = typeof message?.id === "string" || typeof message?.id === "number" ? message.id : null;
       if (message?.version !== 1) return failed(id, "version", "The gateway speaks version 1");
       if (message.op === "status") return status(id);
+      if (message.op === "check") return verify(id);
       if (message.op === "chat") return chat(id, message, signal);
-      return failed(id, "op", "The gateway answers status and chat");
+      return failed(id, "op", "The gateway answers status, check and chat");
     },
   };
 }

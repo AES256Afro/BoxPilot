@@ -507,6 +507,8 @@ const dataRoutes = {
   }],
   "GET /api/v1/agents/catalog": [{ ...open, check: ({ role, body }) => expect(body.templates.length, role).toBe(10) }],
   "GET /api/v1/agents/usage": [{ ...open, check: ({ role, body }) => expect(body.caps.cpuQuotaPercent, role).toBe(400) }],
+  // M45.3: Claude's state is everyone's to read; it never holds the key.
+  "GET /api/v1/agents/cloud": [{ ...open, check: ({ role, body }) => { expect(body.connected, role).toBe(false); expect(JSON.stringify(body)).not.toMatch(/sk-ant-/); } }],
   "GET /api/v1/agents/runtime": [{
     ...open,
     check: ({ role, body, calls }) => {

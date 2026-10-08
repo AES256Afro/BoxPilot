@@ -11,14 +11,13 @@
  */
 import { chmod, readFile, unlink } from "node:fs/promises";
 import path from "node:path";
-import { createAnthropicClient, createAnthropicProvider } from "../../packages/harness/src/providers/anthropic.mjs";
+import { createAnthropicClient, createAnthropicProvider, explainError } from "../../packages/harness/src/providers/anthropic.mjs";
 import { productVersion } from "../version.mjs";
 import { createGateway } from "./gateway.mjs";
+import { offeredModels } from "./terms.mjs";
 import { createLedger } from "./ledger.mjs";
-import { createGatewayServer, defaultGatewaySocket } from "./socket.mjs";
-
-export const credentialName = "anthropic-api-key";
-export const settingsFile = "/etc/boxpilot/model-gateway.json";
+import { credentialName, defaultGatewaySocket, settingsFile } from "./paths.mjs";
+import { createGatewayServer } from "./socket.mjs";
 
 const socketPath = process.env.BOXPILOT_MODEL_GATEWAY_SOCKET ?? defaultGatewaySocket;
 const settingsPath = process.env.BOXPILOT_MODEL_GATEWAY_SETTINGS ?? settingsFile;
@@ -26,7 +25,10 @@ const stateDirectory = process.env.STATE_DIRECTORY ?? "/var/lib/boxpilot-model-g
 const credentials = process.env.CREDENTIALS_DIRECTORY ?? null;
 
 const key = credentials ? (await readFile(path.join(credentials, credentialName), "utf8").catch(() => "")).trim() : "";
-const provider = key ? createAnthropicProvider({ client: createAnthropicClient({ apiKey: key }) }) : null;
+const client = key ? createAnthropicClient({ apiKey: key }) : null;
+const provider = client ? createAnthropicProvider({ client }) : null;
+// Reading one model's details proves the key without spending anything.
+const check = client ? async () => { try { await client.models.retrieve(offeredModels[0], null, { timeout: 20_000 }); } catch (error) { throw explainError(error); } } : null;
 
 const ledger = createLedger({ file: path.join(stateDirectory, "spend.json") });
 const settings = async () => {
@@ -35,7 +37,7 @@ const settings = async () => {
 };
 const log = (entry) => console.log(JSON.stringify(entry));
 
-const gateway = createGateway({ provider, ledger, settings, log });
+const gateway = createGateway({ provider, ledger, settings, check, log });
 const server = createGatewayServer({ gateway });
 
 await unlink(socketPath).catch((error) => { if (error.code !== "ENOENT") throw error; });
