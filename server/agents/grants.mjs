@@ -59,3 +59,43 @@ export function grantNow(level, { risk, mode = "tiered", confirms = false } = {}
 
 /** An agent's grants as stored: `{ operationId: "ask" | "run" }`; Propose is the default and not stored. */
 export const grantsOf = (spec) => (spec?.allow?.grants && typeof spec.allow.grants === "object" ? spec.allow.grants : {});
+
+/** A plan (M45.6): at most 10 steps, over at most a day; a check that did not finish is tried once more. */
+export const planLimits = Object.freeze({ steps: 10, hours: 24, checkTries: 2 });
+
+const plainText = (value, max) => (typeof value === "string" ? value.replace(/[\u0000-\u001f\u007f]+/g, " ").trim().slice(0, max) : "");
+
+/**
+ * A plan's steps as the model wrote them, checked: each an operation this agent has leave to carry
+ * out (`grantOf(id)` its leave, `operationOf(id)` the registry's entry, `validate(id, parameters)` the
+ * registry's check of its parameters), or a check to make with a read before going on. A plan
+ * carries out at least one operation. `{ steps }` or `{ problem }`.
+ */
+export function readPlanSteps(raw, { grantOf, operationOf, validate }) {
+  if (!Array.isArray(raw) || !raw.length) return { problem: "A plan is a list of steps" };
+  if (raw.length > planLimits.steps) return { problem: `A plan has at most ${planLimits.steps} steps` };
+  const steps = [];
+  for (const [index, entry] of raw.entries()) {
+    const n = index + 1;
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return { problem: `Step ${n} is not a step` };
+    const check = plainText(entry.check, 300);
+    if (check) {
+      if (entry.operationId) return { problem: `Step ${n} is both a check and an operation: make it two steps` };
+      steps.push({ kind: "check", check, state: "pending" });
+      continue;
+    }
+    const operationId = typeof entry.operationId === "string" ? entry.operationId.slice(0, 120) : "";
+    if (!operationId) return { problem: `Step ${n} names no operation and no check` };
+    const level = grantOf(operationId) ?? "propose";
+    if (level === "propose") return { problem: `Step ${n}: this agent has no leave to carry out ${operationId}` };
+    const problem = grantProblem(operationOf(operationId), level);
+    if (problem) return { problem: `Step ${n}: ${problem}` };
+    const parameters = entry.parameters === undefined || entry.parameters === null ? {} : entry.parameters;
+    if (typeof parameters !== "object" || Array.isArray(parameters)) return { problem: `Step ${n}: its parameters are not a set of named values` };
+    const invalid = validate(operationId, parameters);
+    if (invalid) return { problem: `Step ${n}: ${invalid}` };
+    steps.push({ kind: "operation", operationId, parameters, why: plainText(entry.why, 300), state: "pending" });
+  }
+  if (!steps.some((step) => step.kind === "operation")) return { problem: "A plan carries out at least one operation; checks alone are an answer" };
+  return { steps };
+}

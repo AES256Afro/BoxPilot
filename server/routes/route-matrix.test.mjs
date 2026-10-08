@@ -227,7 +227,7 @@ const changeRoutes = [
   "POST /api/v1/agents", "PUT /api/v1/agents/:id", "DELETE /api/v1/agents/:id", "POST /api/v1/agents/:id/rollback",
   "POST /api/v1/agents/:id/pause", "POST /api/v1/agents/:id/resume", "POST /api/v1/agents/:id/runs",
   "DELETE /api/v1/agents/:id/notes/:noteId", "PUT /api/v1/agents/:id/evaluation", "POST /api/v1/agents/:id/evaluation/run",
-  "POST /api/v1/agents/proposals/:proposalId/decide", "POST /api/v1/agents/proposals/:proposalId/steps/:step/job", "POST /api/v1/agents/runs/:runId/cancel",
+  "POST /api/v1/agents/proposals/:proposalId/decide", "POST /api/v1/agents/proposals/:proposalId/steps/:step/job", "POST /api/v1/agents/runs/:runId/cancel", "POST /api/v1/agents/plans/:planId/cancel",
   "POST /api/v1/agents/module/pause", "POST /api/v1/agents/module/resume", "POST /api/v1/agents/module/kill",
   "POST /api/v1/agents/knowledge/documents", "PUT /api/v1/agents/knowledge/documents/:documentId", "DELETE /api/v1/agents/knowledge/documents/:documentId", "POST /api/v1/agents/knowledge/relearn",
   "PUT /api/v1/agents/knowledge/documents/:documentId/pin", "POST /api/v1/agents/knowledge/upload", "POST /api/v1/agents/knowledge/folder/sync", "POST /api/v1/agents/knowledge/reindex",
