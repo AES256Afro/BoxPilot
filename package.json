@@ -29,6 +29,7 @@
     "demo:publish": "npm run build && node scripts/demo-assets.mjs && node scripts/demo-bundle.mjs && cp demo-site/demo-data.json demo-site/public/demo-data.json"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "0.128.0",
     "express": "5.2.1",
     "react": "19.3.0",
     "react-dom": "19.3.0",
