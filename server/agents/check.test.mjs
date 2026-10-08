@@ -12,7 +12,7 @@ import { createAgentsHarness } from "../../test/agents-harness.mjs";
 import { ownerLikeStorage, ownersWrongAnswer } from "../../test/fixtures/agents-storage.mjs";
 import { runnerCaps } from "./caps.mjs";
 import { defaultRuntimeSettings, modelSpeedKey } from "./service.mjs";
-import { correctionSystem } from "./verify.mjs";
+import { correctionSystem } from "../../packages/harness/src/index.mjs";
 
 const rightAnswer = "Two drives are connected: /dev/nvme0n1, an NVMe SSD of 1.02 TB and the system disk, which holds / (528 GB, 31% used) [T1]; and /dev/sda, a 16.0 TB USB drive holding /mnt/archive, 15% used [T1].";
 const question = "List the drives connected to BoxPilot";

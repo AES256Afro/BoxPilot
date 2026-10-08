@@ -3,7 +3,7 @@
  * server when the evaluation began, allowing the ways a small model writes it - "43%", "two apps",
  * "Ubuntu 24.04" - and nothing more generous than that. No model is involved.
  */
-import { claimsOf } from "./verify.mjs";
+import { claimsOf } from "../../packages/harness/src/index.mjs";
 
 /**
  * "Which drives are connected" (M40): right when every drive is named, none is called the system

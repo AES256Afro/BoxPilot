@@ -4,7 +4,8 @@
  * and the legacy Ollama one - goes through these rules: the address must be a loopback, private,
  * link-local or tailnet (100.64.0.0/10) address, or a name that resolves only to those, checked
  * when it is saved and again before every request, and a redirect is refused rather than followed
- * somewhere else.
+ * somewhere else. It lives in the harness since M45.8, so the CLI's local provider keeps the same
+ * rules as BoxPilot's.
  */
 import { lookup as dnsLookup } from "node:dns/promises";
 import net from "node:net";
@@ -61,7 +62,7 @@ export function normalizeEndpoint(input) {
   if (url.search || url.hash || !["", "/"].includes(url.pathname)) throw new Error("Give the address only, like http://192.168.1.20:11434, with no path");
   const hostname = url.hostname.replace(/^\[|\]$/g, "");
   const literal = net.isIP(hostname) !== 0;
-  if (literal ? !isLocalAddress(hostname) : !isLocalName(hostname)) throw new Error("The assistant only talks to a model on this server or your own network: use a private, tailnet or loopback address");
+  if (literal ? !isLocalAddress(hostname) : !isLocalName(hostname)) throw new Error("Only a model on this server or your own network is used: give a private, tailnet or loopback address");
   return url.origin;
 }
 
