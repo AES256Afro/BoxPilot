@@ -454,6 +454,19 @@ describe("the Environment Scout's weekly survey on a busy server (M44)", () => {
     expect(h.store.listFindings({ agentId: scout.id })[0].source).toMatchObject({ partial: true });
     expect(h.store.listFindings({ agentId: scout.id })[0].body).toMatch(/^It reached a limit before it finished, so this may be incomplete\./);
   });
+
+  it("leaves no card when an evaluation question runs into the same limit: evaluations are read on their tab, never as cards", async () => {
+    const scout = h.service.createAgent(h.caller("owner"), { template: "environment-scout" });
+    const spec = h.store.getAgent(scout.id).spec;
+    h.service.updateAgent(h.caller("owner"), scout.id, { spec: { ...spec, budget: { ...spec.budget, stepsPerRun: 8, tokensPerRun: 16_000, runSeconds: 900 } } });
+    h.fake.state.script = oneAtATime;
+    await h.service.runEvaluation(h.caller("owner"), scout.id);
+    const runs = [];
+    for (let run = await h.runNext(); run; run = await h.runNext()) runs.push(run);
+    // At least one question made it read its five tools one a step and run into the limit, as on the owner's server.
+    expect(runs.filter((run) => run.kind === "eval" && run.flags?.limitReached).length).toBeGreaterThan(0);
+    expect(h.service.listProposals(h.caller("owner")).filter((card) => card.kind === "escalation")).toEqual([]);
+  });
 });
 
 describe("the budgets the templates ship with (M44)", () => {
