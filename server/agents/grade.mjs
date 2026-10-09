@@ -74,10 +74,13 @@ export function gradeFact(fact, value, answer) {
   }
   if (fact === "rebootRequired") {
     // M47.6: yes or no; "reboot required: no" (the tool's own words) and "does not need" say no.
-    const no = /\b(no reboot|not (required|needed|necessary)|does ?n[o']t need|doesn't need|no need|required: no|needed: no|reboot: no)\b/.test(text);
-    // "reboot required: no" holds the words of yes, so it is read as no before yes is looked for.
-    const rest = text.replace(/\b(reboot )?(required|needed): no\b/g, " ");
-    const yes = /\b(reboot (is )?(required|needed|pending|waiting)|needs? (a |to )?reboot|should (be )?reboot(ed)?|required: yes|needed: yes|reboot: yes)\b/.test(rest) || /^yes\b/.test(text.trim());
+    // The words of no, each of which holds the words of yes ("no reboot is currently required", "does
+    // not need a reboot to apply them", "reboot required: no"): they are read first and taken out
+    // before yes is looked for (bench run 37967892445: a right answer graded wrong for "need a reboot").
+    const negatives = /\b(no reboot\b[^.;:]*|does ?n[o']t need (a |to )?reboot|doesn't need (a |to )?reboot|no need (for a |to )?reboot|not (currently |yet )?(required|needed|necessary)|(reboot )?(required|needed): no|reboot: no)\b/g;
+    const no = negatives.test(text);
+    const rest = text.replace(negatives, " ");
+    const yes = /\b(reboot (is )?(currently |now )?(required|needed|pending|waiting)|needs? (a |to )?reboot|should (be )?reboot(ed)?|required: yes|needed: yes|reboot: yes)\b/.test(rest) || /^yes\b/.test(text.trim());
     const passed = value === "yes" ? yes && !no : value === "no" ? no && !yes : false;
     return { passed, found: passed ? `Says ${value}` : `Expected ${value}` };
   }
