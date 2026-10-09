@@ -29,7 +29,7 @@ You pick how it looks: thirteen looks in Settings → Appearance, from frosted g
 On a fresh Ubuntu Server (22.04 or newer):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/AES256Afro/BoxPilot/main/scripts/boxpilot-install.sh | sudo sh -s -- --ref v1.176.0
+curl -fsSL https://raw.githubusercontent.com/AES256Afro/BoxPilot/main/scripts/boxpilot-install.sh | sudo sh -s -- --ref v1.177.0
 ```
 
 The installer sets up Node 24, builds BoxPilot in `/opt/boxpilot`, starts its services, and prints the address to open with a one-time setup code. Create your account, say what the server is for (home server, media server, smart home, ad blocking, virtual machines, development, monitoring, or just the basics), and follow the checklist on Ops.
