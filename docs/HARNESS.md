@@ -18,7 +18,7 @@ BoxPilot already has most of a harness. It does not have a name, it is woven int
 - **A loop:** plan (`intent.mjs`, a schema-bound plan of up to eight steps with a confidence; five
   before M47.2) → act (one growing conversation, 3 tool calls a step, 12 steps) → check (`verify.mjs`, every claim held to the tool
   output it cites, one correction) → finish. Time per call comes from measured tokens a second.
-- **31 tools** (`tool-catalog.mjs`; 25 before M47): reads mapped onto read-only registry operations under ADR-003,
+- **34 tools** (`tool-catalog.mjs`; 25 before M47): reads mapped onto read-only registry operations under ADR-003,
   exact tools (calculator, units, regex), and four writes that never touch the host: notes, a card,
   a notification, a hand-off. Strict input checks, a 35 s timeout, output boxed and numbered.
 - **Safety:** prompt-injection defence (`guard.mjs`), taint that follows suspicious text through

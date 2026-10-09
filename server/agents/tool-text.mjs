@@ -502,3 +502,90 @@ export function describeRepair(scan) {
   if (Array.isArray(scan.unavailableChecks) && scan.unavailableChecks.length) lines.push(`Not checked this time: ${scan.unavailableChecks.join(", ")}.`);
   return lines.join("\n");
 }
+
+/** apps.usage: how hard the machine works and which apps do the working, busiest first (M47.6). */
+export function describeUsage(result) {
+  if (!result) return "Resource use could not be read.";
+  const cpu = result.cpu ?? {};
+  const memory = result.memory ?? {};
+  const swap = result.swap ?? {};
+  const busy = Number.isFinite(cpu.usagePercent) ? `${Math.round(cpu.usagePercent)}% busy` : "use unknown";
+  const load = [cpu.load1, cpu.load5, cpu.load15].every((value) => Number.isFinite(value)) ? ` (load ${cpu.load1.toFixed(2)} over 1 minute, ${cpu.load5.toFixed(2)} over 5, ${cpu.load15.toFixed(2)} over 15)` : "";
+  const swapWords = !swap.totalBytes ? "none" : swap.usedBytes ? `${sizeWords(swap.usedBytes)} of ${sizeWords(swap.totalBytes)} used (${swap.usedPercent ?? 0}%)` : `none of ${sizeWords(swap.totalBytes)} used`;
+  const lines = [`Machine: processor ${busy} across ${plural(cpu.cores ?? 0, "core")}${load}; memory ${sizeWords(memory.usedBytes)} of ${sizeWords(memory.totalBytes)} used (${memory.usedPercent ?? "?"}%), ${sizeWords(memory.availableBytes)} available; swap ${swapWords}.`];
+  const apps = Array.isArray(result.apps) ? result.apps : [];
+  if (result.statsAvailable === false) lines.push("Each app's own use could not be read: docker stats did not answer.");
+  const running = apps.filter((app) => app.running);
+  const stopped = apps.filter((app) => !app.running);
+  if (!running.length) lines.push("No app is running.");
+  else {
+    const sorted = [...running].sort((a, b) => ((b.cpuPercent ?? 0) - (a.cpuPercent ?? 0)) || ((b.memBytes ?? 0) - (a.memBytes ?? 0)));
+    lines.push(`${plural(running.length, "app")} running, busiest first (processor as a share of one core):`);
+    for (const app of sorted.slice(0, 25)) lines.push(`- ${app.id}: ${(app.cpuPercent ?? 0).toFixed(1)}% of a core, ${sizeWords(app.memBytes ?? 0)} memory${(app.containers ?? 0) > 1 ? ` (${app.containers} containers)` : ""}`);
+    if (sorted.length > 25) lines.push(`(${sorted.length - 25} more not shown.)`);
+  }
+  if (stopped.length) lines.push(`Not running, so using nothing: ${stopped.map((app) => app.id).join(", ")}.`);
+  return lines.join("\n");
+}
+
+/**
+ * backups.coverage: every installed app, whether it holds data worth keeping, how many backups it
+ * has, how old the newest is and whether a schedule backs it up; the ones never backed up first (M47.6).
+ */
+export function describeCoverage(result, { schedules = [], now = Date.now() } = {}) {
+  if (!result) return "Which apps have backups could not be read.";
+  const apps = Array.isArray(result.apps) ? result.apps : [];
+  const scheduled = new Set();
+  for (const schedule of Array.isArray(schedules) ? schedules : []) {
+    if (schedule?.enabled === false) continue;
+    if (schedule?.operationId === "app.backup" && typeof schedule.parameters?.id === "string") scheduled.add(schedule.parameters.id);
+    if (schedule?.operationId === "app.backup.many") for (const id of schedule.parameters?.ids ?? []) scheduled.add(id);
+  }
+  const worth = apps.filter((app) => app.protectable);
+  const never = worth.filter((app) => !(app.backups > 0));
+  const unscheduled = worth.filter((app) => !scheduled.has(app.id));
+  const ageOf = (app) => { const at = app.newestAt ? Date.parse(app.newestAt) : Number.NaN; return Number.isFinite(at) ? Math.max(0, Math.floor((now - at) / 86_400_000)) : null; };
+  const lines = [];
+  if (!worth.length) lines.push(`Backup coverage: ${apps.length ? "no installed app holds data worth backing up." : "no app is installed."}`);
+  else lines.push(`Backup coverage: ${plural(worth.length, "app holds", "apps hold")} data worth keeping; ${never.length ? `${never.length} never backed up` : "every one has been backed up"}; ${unscheduled.length ? `${unscheduled.length} with no backup schedule` : "each has a schedule"}.`);
+  if (result.available === false) lines.push("The backup folder could not all be read, so a count may be short.");
+  const order = (app) => (app.backups > 0 ? 1 : 0);
+  for (const app of [...worth].sort((a, b) => order(a) - order(b) || String(a.id).localeCompare(String(b.id))).slice(0, 40)) {
+    const age = ageOf(app);
+    const kept = app.backups > 0 ? `${plural(app.backups, "backup")}, newest ${age === null ? "of an unknown age" : age === 0 ? "today" : `${plural(age, "day")} old`}${app.newestAt ? ` (${String(app.newestAt).slice(0, 10)})` : ""}` : "never backed up";
+    lines.push(`- ${app.id}: ${kept}, ${scheduled.has(app.id) ? "scheduled" : "no schedule"}`);
+  }
+  if (worth.length > 40) lines.push(`(${worth.length - 40} more not shown.)`);
+  const caches = apps.filter((app) => !app.protectable);
+  if (caches.length) lines.push(`Keep no data worth backing up (caches only), so need no backup: ${caches.map((app) => app.id).join(", ")}.`);
+  return lines.join("\n");
+}
+
+/**
+ * space.reclaimable: what takes up room that nothing needs, as the Storage page's clean-up sees it,
+ * and Docker's own disk use with what it could reclaim (M47.6). Reads only.
+ */
+export function describeReclaimable(housekeeping, docker) {
+  if (!housekeeping && !docker) return "What space could be reclaimed could not be read.";
+  const lines = [];
+  if (housekeeping) {
+    const categories = Array.isArray(housekeeping.categories) ? housekeeping.categories : [];
+    const safe = categories.filter((category) => category.safe && category.bytes > 0);
+    lines.push(`Reclaimable by the Storage page's clean-up: ${housekeeping.totalHumanBytes ?? sizeWords(housekeeping.totalBytes ?? 0)} in ${plural(safe.length, "category", "categories")}.`);
+    for (const category of categories) {
+      if (!(category.bytes > 0) && !(category.items > 0)) continue;
+      const held = category.safe ? "" : ` (not removed by the clean-up${category.unavailable ? `: ${String(category.unavailable).replace(/\s+/g, " ").slice(0, 140)}` : ""})`;
+      lines.push(`- ${category.title}: ${plural(category.items ?? 0, "item")}, ${category.humanBytes ?? sizeWords(category.bytes ?? 0)}${held}`);
+    }
+  } else lines.push("BoxPilot's own leftovers could not be read.");
+  if (docker) {
+    if (docker.available === false) lines.push("Docker's disk use could not be read: docker system df did not answer.");
+    else {
+      lines.push("Docker (docker system df):");
+      for (const row of Array.isArray(docker.rows) ? docker.rows : []) lines.push(`- ${row.type}: ${row.total ?? "?"} in all, ${row.active ?? "?"} in use, ${row.size ?? "?"}, reclaimable ${row.reclaimable ?? "?"}`);
+      const logging = docker.logging ?? {};
+      lines.push(logging.configured ? `Container logs are capped at ${logging.maxSize} a file.` : "Container logs are not capped: a chatty container can fill the disk until Docker's log rotation is set (the Storage page offers it).");
+    }
+  }
+  return lines.join("\n");
+}

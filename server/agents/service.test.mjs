@@ -180,7 +180,7 @@ describe("asking an agent", () => {
     ask(helper, "viewer", "What do the logs say?");
     const claim = await h.service.runnerNext(h.runnerId, { waitMs: 0 });
     expect(claim.run.readRole).toBe("viewer");
-    expect(claim.tools.every((tool) => ["server.facts", "apps.list", "services.status", "storage.health", "docs.search", "document.read", "alerts.active", "where.runs", "firewall.status", "updates.status", "repair.findings", "protection.status", "calc", "time.calc", "units.convert"].includes(tool.id))).toBe(true);
+    expect(claim.tools.every((tool) => ["server.facts", "apps.list", "services.status", "storage.health", "docs.search", "document.read", "alerts.active", "where.runs", "firewall.status", "updates.status", "repair.findings", "protection.status", "apps.usage", "calc", "time.calc", "units.convert"].includes(tool.id))).toBe(true);
     await h.runner.execute(claim);
     const run = h.service.getRun(h.caller("viewer"), claim.run.id);
     expect(toolSteps(run)[0]).toMatchObject({ name: "logs.query", state: "refused" });

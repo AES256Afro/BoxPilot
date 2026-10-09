@@ -14,7 +14,7 @@ import { searxSearch } from "./connectors.mjs";
 import { exactTools } from "./deterministic.mjs";
 import { describePihole } from "./pihole.mjs";
 import { roleAtLeast } from "./tool-catalog.mjs";
-import { describeApps, describeFirewall, describePlaces, describeProtection, describeRepair, describeServer, describeStorage, describeTunnel, describeUpdates, describeUsers, locate } from "./tool-text.mjs";
+import { describeApps, describeCoverage, describeFirewall, describePlaces, describeProtection, describeReclaimable, describeRepair, describeServer, describeStorage, describeTunnel, describeUpdates, describeUsage, describeUsers, locate } from "./tool-text.mjs";
 
 /** Whether an agent's allowlist lets it look at this app (spec.allow.apps: "*" or ids). */
 export const appAllowed = (spec, appId) => !spec?.allow || spec.allow.apps === "*" || spec.allow.apps.includes(String(appId ?? "").replace(/^bp-/, ""));
@@ -134,6 +134,15 @@ export function createToolRunner({ state, store, registry, helper = null, invent
     async "protection.status"(_input, context) { return describeProtection(await read("fail2ban.inspect", {}, context)); },
     async "users.access"(_input, context) { return describeUsers(await read("users.inspect", {}, context)); },
     async "tunnel.exposure"(_input, context) { return describeTunnel(await read("cloudflare.tunnel.inspect", {}, context)); },
+    // M47.6: the three the templates still said they could not see. Each the registered read the
+    // Performance, Backups and Storage pages make; the clean-up's read is an operator's (ADR-003).
+    async "apps.usage"(_input, context) { return describeUsage(await read("system.performance.inspect", {}, context)); },
+    async "backups.coverage"(_input, context) { return describeCoverage(await read("app.backup.protection", {}, context), { schedules: state.listSchedules?.() ?? [], now: now().getTime() }); },
+    async "space.reclaimable"(_input, context) {
+      // Docker's figures are the second half: when they cannot be read the first half still answers.
+      const [housekeeping, docker] = await Promise.all([read("housekeeping.inspect", {}, context), read("docker.disk.inspect", {}, context).catch(() => null)]);
+      return describeReclaimable(housekeeping, docker);
+    },
     async "repair.findings"(_input, context) {
       if (!repairScan) throw new ToolError("Repair's findings are not available here");
       // The same scan the Repair page runs, as this run's person: the operator reads only for a run
