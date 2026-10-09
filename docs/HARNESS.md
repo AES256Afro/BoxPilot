@@ -50,8 +50,9 @@ The two walls:
 4. **Nothing gets worse.** Every M37 to M44 test passes at every step, and the local model's
    evaluation stays at 6/6.
 
-Out of scope: training or fine-tuning models, agents writing BoxPilot's own code, and any change to
-how a person approves a job.
+Out of scope: training or fine-tuning models on the box (M46 collects the owner's approvals as
+examples the planner is shown, and exports them as training data for a GPU machine elsewhere;
+ADR-014), agents writing BoxPilot's own code, and any change to how a person approves a job.
 
 ## The shape
 
@@ -59,7 +60,8 @@ how a person approves a job.
 packages/harness/src/        no imports from server/ or src/ (a test enforces it)
   messages.mjs, provider.mjs, schema.mjs   the chat shape, the provider contract, strict schemas
   core/       the run loop: act then check (loop.mjs), the model session that paces each call
-              (session.mjs, pace.mjs), a host's own tools (tools.mjs), a whole run (run.mjs)
+              (session.mjs, pace.mjs), a host's own tools (tools.mjs), a whole run (run.mjs),
+              which examples a model is shown (examples.mjs, M46)
   providers/  openai-compatible and its client (local), anthropic (Claude, official SDK), fake
   router.mjs  which model runs a task, and when to move
   safety/     untrusted wrapping and injection detection (guard.mjs), redaction, stand-ins
@@ -287,6 +289,39 @@ the run that made it: that run ends at once, as one that acts does.
 
 One open plan per agent. The run view shows the plan, each step's state and what it found; each
 operation's job is in Activity like any other.
+
+### Examples: what the planner is shown (M46, ADR-014)
+
+A host keeps an example book: requests and the plans that served them, kept when a person approved
+the work. BoxPilot's is `agent_examples` (`server/agents/store.mjs`), written when a card is staged,
+an answer gets a thumbs up, an answer is kept as a finding or an evaluation question is answered
+right, and taken back on a thumbs down; each template ships with examples of its own
+(`templateExamples`), chosen to sit on the boundaries a small model gets wrong. A run that read
+something like an instruction, asked back or made no plan leaves none; a request that itself reads
+like an instruction is never kept; requests are redacted. The memory index embeds the requests.
+
+Before a plan, the runner is sent a pool (all of an agent's examples while there are few, else the
+nearest by words and every seed, each with its vector when there is one) and picks up to three with
+`selectExamples` (`packages/harness/src/core/examples.mjs`), by geometry rather than volume:
+
+1. **Nearest.** Cosine between the request's embedding and the example's when both have one, else
+   the share of words they have in common (stop words out). The request is embedded on the local
+   model, where the runner is; on Claude the pick goes by words, so nothing is embedded off the box
+   for this.
+2. **Contrast.** One example with a different label (the first tool its plan read) from the nearest,
+   when it is relevant enough (at least 60% of the nearest's relevance): the model sees where the
+   decision falls ("where does Pi-hole run" is `where.runs`; "is Pi-hole blocking" is
+   `pihole.stats`), not one choice repeated.
+3. **Diverse.** The rest by maximal marginal relevance (λ 0.7): each next pick is the one with the
+   best relevance less its similarity to what is already picked. A near-copy of a pick (cosine at or
+   above 0.95, or the same words) is never added.
+
+They go into the planner's user message, after the request and the hints, as one line each under
+"Plans that worked for requests like this one:" (`demonstrationLines`, intent.mjs), with the tools as
+the model calls them; the system message stays the same bytes for the prompt cache. The intent
+step records which were shown and why ("planned with 3 examples"). `coverExamples` (k-center
+greedy) picks a set that covers a collection, for an export or a review. The CLI host has no book
+yet; the selector takes any host's candidates.
 
 ### Evaluation
 

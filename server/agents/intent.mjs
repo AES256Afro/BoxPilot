@@ -87,12 +87,34 @@ export function plannerSystem(agent = {}, tools = []) {
  * are the tools the request's own words point at (toolsForQuestion), as { fn, title }: said after
  * the request, so the system message above stays the same bytes for every run.
  */
-export function plannerMessages(agent, tools, task, { hints = [] } = {}) {
+export function plannerMessages(agent, tools, task, { hints = [], examples = [] } = {}) {
   const hint = hints.length ? `\n\nTools made for requests worded like this: ${hints.map((tool) => `${tool.fn} (${tool.title})`).join(", ")}.` : "";
+  const shown = demonstrationLines(examples, tools);
   return [
     { role: "system", content: plannerSystem(agent, tools) },
-    { role: "user", content: `${String(task ?? "").trim()}${hint}\n\nWork out what is asked and plan it. Answer only with the JSON.` },
+    { role: "user", content: `${String(task ?? "").trim()}${hint}${shown ? `\n\n${shown}` : ""}\n\nWork out what is asked and plan it. Answer only with the JSON.` },
   ];
+}
+
+/** The heading the demonstrations go under: the stand-in model and the tests read it too. */
+export const demonstrationsHeading = "Plans that worked for requests like this one:";
+
+/**
+ * Demonstrations for the planner (M46): a few requests a person approved the plan for, each with the
+ * tools that plan read, as the model is told them. `examples` are { text, tools } (tools as ids or
+ * fns, kept to the ones this run was offered); each request is one line, so nothing in it can
+ * pass for an instruction. Nothing when there are none.
+ */
+export function demonstrationLines(examples = [], tools = []) {
+  const offered = new Map(tools.map((tool) => [toolIdOf(tool.fn) ?? tool.fn, tool.fn]));
+  const lines = [];
+  for (const example of (Array.isArray(examples) ? examples : []).slice(0, 5)) {
+    const fns = [...new Set((example?.tools ?? []).map((tool) => offered.get(toolIdOf(String(tool)) ?? tool)).filter(Boolean))];
+    const text = boxLine(String(example?.text ?? "").replace(/["“”]/g, "'"), 140);
+    if (!text || !fns.length) continue;
+    lines.push(`- "${text}" -> ${fns.join(", ")}`);
+  }
+  return lines.length ? [demonstrationsHeading, ...lines].join("\n") : "";
 }
 
 const clip = (value, max) => {

@@ -2786,6 +2786,58 @@ evaluation at 6/6 and every M37 to M44 agent test passing.
   HTTP, without BoxPilot. Published to npm at 0.x once its interface holds still through two
   BoxPilot releases.
 
+## M46: Agents learn from what the owner approves, by geometry rather than volume
+
+Asked for 2026-10-09: "improve quality of training outcomes" and "look into applying geometric
+training options instead of focusing on brute force", after M45. The decision is ADR-014; the design
+is `docs/HARNESS.md` → Examples. This is the end of M44's "Next: learning from what the owner
+approves", built so the local model improves on the box, where nothing trains, and so the owner's
+approvals become training data for a GPU machine without any of the house's names leaving with
+them. Each item is its own pull request, every one keeping the local model's evaluation at 6/6 and
+every M37 to M45 agent test passing.
+
+- ✅ **M46.1 The example book and demonstrations** (unreleased, `feat/m46-examples`).
+  `agent_examples`: a request and the plan that served it, kept when a person approved the work (a
+  card staged, a thumbs up, an answer kept as a finding, an evaluation question answered right; a
+  thumbs down takes it back), redacted, never from a run that read something like an instruction
+  or a request that reads like one, at most 300 an agent besides its seeds. Every template ships
+  with examples chosen to sit where a small model slips (`templateExamples`: "where does Pi-hole
+  run" is `where.runs`, "is Pi-hole blocking" is `pihole.stats`, "which apps are stopped" is
+  `apps.list`); agents made before get them once (`migrateDefaults`). The memory index embeds the
+  requests like notes and episodes. **The pick is geometry in the harness core**
+  (`packages/harness/src/core/examples.mjs`, `selectExamples`): the nearest example (cosine when
+  both sides have vectors, else the share of words, stop words out), one from the other side of its
+  decision (a different tool, relevant enough), the rest by maximal marginal relevance (λ 0.7), a
+  near-copy (cosine 0.95, the same words) never twice; `coverExamples` (k-center greedy) picks a set
+  that covers a collection, for exports and reviews. The runner embeds the request on the local
+  model, picks three from the pool the web service sent (every example while there are at most 24;
+  past that the nearest by words and every seed), and puts them in the planner's user message under
+  "Plans that worked for requests like this one:", one line each, after the request and the hints
+  and never in the system message (its bytes stay cached). On Claude the pick goes by words. The
+  intent step says "planned with 3 examples" and keeps which and why. `GET /agents/:id/examples` and
+  `DELETE /agents/:id/examples/:exampleId` for the owner and the maker. The stand-in model follows
+  the nearest demonstration where the words alone name no tool, as a model shown examples does.
+  Tests: the rules (`packages/harness/test/examples.test.mjs`); seeds held to each template's
+  tools, the planner shown the nearest and one of another tool with the trace saying so, a model
+  following them, the thumbs up and down, the instruction-like request, the index embedding them
+  and the pick going by meaning after, the book's readers (`server/agents/examples.test.mjs`).
+- **M46.2 Diversity in recall.** Memory recall and `memory.search` rank by reciprocal-rank fusion
+  of words and meaning, then take the top k: the same fact as a note, an episode and a finding
+  fills three of four places. Apply the same maximal marginal relevance to what recall returns, and
+  match findings by meaning when words fall short (M44's "Next").
+- **M46.3 Training data and the recipe.** Export the example book as chat-shaped JSONL (the planner's
+  system message, the request, the plan as the model wrote it, the answer), the house's names
+  replaced with stand-ins (`createStandIns`) and secrets redacted, `coverExamples` offered to pick
+  a covering subset; plus `docs/TRAINING.md`: the Unsloth recipe for a GPU machine (Qwen 3.5 4B,
+  bf16 LoRA r=16 α=16 on every linear layer, the DoRA and orthogonal variants as the geometric
+  options, 75% reasoning-style examples kept, GGUF export) and the gate: the adapter ships only if
+  `tests/bench/agents-real.mjs eval` beats the base model. Nothing in BoxPilot calls a trainer; a
+  CPU-only server keeps the base model.
+- **M46.4 The Memory tab shows the book.** Each example with its signal, tools and vector state;
+  forget one; export (M46.3) from the same tab.
+- **Measured on the real model:** `agents-bench.yml` (mode `eval`, `baseline: main`) before and
+  after M46.1, so the demonstrations are held to the same six questions as everything else.
+
 ## App catalogue candidates
 
 Checked against the 164 manifests already in `catalog/`, so nothing here duplicates an existing

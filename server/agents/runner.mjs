@@ -42,7 +42,7 @@
  * server, the planner, the router's moves, the tools over the web API, the trace and the finish.
  */
 import { randomUUID } from "node:crypto";
-import { act, createModelSession, createOpenAiCompatibleProvider, createSpeed, defineProvider, fallsBack, moveAfterPlan, paceDefaults, thinkingOff } from "../../packages/harness/src/index.mjs";
+import { act, createModelSession, createOpenAiCompatibleProvider, createSpeed, defineProvider, fallsBack, moveAfterPlan, paceDefaults, selectExamples, thinkingOff } from "../../packages/harness/src/index.mjs";
 import { webPortOf } from "../env-file.mjs";
 import { planMessage, plannerMessages, readUnderstanding, understandingFormatFor } from "./intent.mjs";
 import { answerNowNote, fallbackAnswer } from "./prompt.mjs";
@@ -370,16 +370,33 @@ export function createRunner({ api, runtime, client, usage = null, now = () => D
       // 1. Intent and plan, as JSON against a schema, before any tool is called: a small conversation of its own.
       // What the router reads of it (M45.4): null when there was no plan to make or the call never answered.
       let planned = null;
+      let shown = [];
+      let queryVector = null;
       if (session.model && claim.understand) {
         const tools = claim.understand.tools ?? [];
         const hints = hinted.map((id) => toolById(id)).filter((tool) => tool && tools.some((entry) => entry.fn === tool.fn)).map((tool) => ({ fn: tool.fn, title: tool.title }));
-        const planner = { tools: null, messages: plannerMessages(claim.agent ?? {}, tools, task, { hints }), last: null };
+        // Demonstrations (M46): a few of the agent's approved examples near this request, picked by
+        // geometry (nearest, one from the other side of its decision, the rest spread) from the pool
+        // the web service sent. The request is embedded here, where the model is, when the local
+        // model has embeddings; without them the pick goes by words.
+        const pool = claim.understand.examples?.candidates ?? [];
+        // The request itself is what the examples are compared with: the question someone asked, or
+        // what the trigger asked for, not the task message with its notes and findings around it.
+        const request = String(claim.run?.question ?? claim.run?.trigger?.title ?? task).slice(0, 1_000);
+        if (pool.length && driver !== "claude" && current.embeddings && session.model) {
+          const started = now();
+          const vectors = await embed(session.model, [request], controller.signal);
+          used.modelMs += now() - started;
+          if (vectors?.[0]) queryVector = vectors[0];
+        }
+        shown = pool.length ? selectExamples({ query: request, queryVector, candidates: pool, limit: claim.understand.examples?.limit ?? 3 }) : [];
+        const planner = { tools: null, messages: plannerMessages(claim.agent ?? {}, tools, task, { hints, examples: shown }), last: null };
         const format = understandingFormatFor(tools.map((tool) => tool.fn));
         const asked = await session.ask(planner, { maxTokens: settings.understandTokens, extra: (runtimeClaim) => ({ ...thinkingOff(runtimeClaim.extra ?? {}), response_format: format }), purpose: "plan" });
         if (asked) {
           const read = readUnderstanding(asked.result.content ?? "", { offered: tools.map((tool) => tool.fn) });
           planned = read.understanding ? { read: true, confidence: read.understanding.confidence, changes: read.understanding.tools.some((id) => changingTools.has(id)) } : { read: false };
-          await api.steps(run.id, lease, [{ kind: "intent", understanding: read.understanding ?? asked.result.content ?? "", durationMs: asked.took, tokensIn: asked.result.usage?.promptTokens, tokensOut: asked.result.usage?.completionTokens }]).catch(() => {});
+          await api.steps(run.id, lease, [{ kind: "intent", understanding: read.understanding ?? asked.result.content ?? "", durationMs: asked.took, tokensIn: asked.result.usage?.promptTokens, tokensOut: asked.result.usage?.completionTokens, ...(shown.length ? { examples: shown.map((example) => ({ key: example.key, why: example.why })) } : {}) }]).catch(() => {});
           if (read.understanding?.clarify && ["ask", "manual"].includes(run.kind)) clarify = read.understanding.clarify;
           else if (read.understanding) understanding = read.understanding;
         }

@@ -237,6 +237,8 @@ const changeRoutes = [
   "PUT /api/v1/agents/zulip/people",
   "POST /api/v1/agents/import", "POST /api/v1/agents/:id/webhook", "DELETE /api/v1/agents/:id/webhook",
   "PUT /api/v1/agents/:id/memory/notes/:noteId", "DELETE /api/v1/agents/:id/memory/notes/:noteId", "DELETE /api/v1/agents/:id/memory/episodes/:episodeId",
+  // M46: the example book is pruned by the owner and the maker.
+  "DELETE /api/v1/agents/:id/examples/:exampleId",
   "PUT /api/v1/settings/agents",
   // Push approvals (M25.2): a device's subscription, its removal, a test push, and the owner's choices.
   "POST /api/v1/push/subscriptions", "DELETE /api/v1/push/subscriptions/:id", "POST /api/v1/push/test", "PUT /api/v1/settings/push",
@@ -551,6 +553,8 @@ const dataRoutes = {
   "GET /api/v1/agents/:id/evaluation": [{ viewer: 403, operator: 200, owner: 200, params: () => ({ id: fixtures.helper.id }) }],
   // What an agent remembers is for the owner and the person who made it; a definition to export too.
   "GET /api/v1/agents/:id/memory": [{ viewer: 404, operator: 403, owner: 200, params: () => ({ id: fixtures.keeper.id }), check: ({ body }) => expect(body.facts.map((note) => note.title)).toEqual(["Owner note"]) }],
+  // M46: the example book, the owner's and the maker's, seeded from the template.
+  "GET /api/v1/agents/:id/examples": [{ viewer: 404, operator: 403, owner: 200, params: () => ({ id: fixtures.keeper.id }), check: ({ body }) => expect(body.counts.seeds).toBeGreaterThan(0) }],
   "GET /api/v1/agents/:id/export": [{ viewer: 403, operator: 403, owner: 200, params: () => ({ id: fixtures.keeper.id }), check: ({ body }) => expect(body).toMatchObject({ format: "boxpilot-agent", version: 1 }) }],
 };
 
