@@ -2940,7 +2940,11 @@ Each item is its own pull request, released and deployed when green.
   drives, the apps, the backups, the firewall, the machine) with the budget that takes (12 steps,
   32,000 tokens, 25 minutes, 3,000 s a day), and the Security Reviewer reads updates too. A Scout
   still on the five-read survey, or on M47.1's on-request rule, is widened once (`migrateDefaults`,
-  "BoxPilot widened its weekly survey"); one whose maker rewrote its steps keeps them. Tests: the
+  "BoxPilot widened its weekly survey"); one whose maker rewrote its steps keeps them. On the
+  owner's server the first try widened nothing: its Scout, made in M43, worded step two differently
+  from the template of the day, and the migration matched words. It now matches the tools the steps
+  name (the five reads and neither new one), and seeds every templated agent's examples for the new
+  tools, which the examples migration had run before. Tests: the
   survey reading all seven within its steps and tokens, the M43 budget still reaching its limit at
   eight steps, the schema (`findings.test.mjs`, `templates.test.mjs`, `brain.test.mjs`). To measure
   on bigbox: the first widened survey's model time against its 25 minutes (Usage tab).

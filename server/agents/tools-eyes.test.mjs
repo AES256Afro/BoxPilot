@@ -136,6 +136,29 @@ describe("the templates and the evaluation", () => {
       expect(h.service.migrateDefaults()).toBe(1);
       expect(h.store.getAgent(keeper.id).spec.tools).toMatchObject({ "firewall.status": "auto", "repair.findings": "auto" });
       expect(h.service.migrateDefaults()).toBe(0);
+      // A Scout on the five-read survey as the owner's server has it (M43's wording of step two, the
+      // M43 budget, M47.1's tools and rule) is widened to the seven-read one by the tools its steps
+      // name, not their words; and every templated agent gets the seeds its template gained.
+      const scout = h.service.createAgent(h.caller("owner"), { template: "environment-scout" });
+      const template = templateById("environment-scout").spec;
+      const liveSteps = [
+        "Read what is wrong now with alerts.active: failed services and schedules, unhealthy apps, a reboot waiting, disks filling.",
+        "Read the drives with storage.health, and the apps with apps.list: stopped, unhealthy or with an update waiting.",
+        "Read backups.status for the copies off this server and which apps' backups were test-restored.",
+        "Read server.facts for processor load, memory and how long it has been up.",
+        "Rank what you found, say what changed since your last survey (in what you remember), and propose cards for the top two with plan.propose.",
+      ];
+      h.service.updateAgent(h.caller("owner"), scout.id, { spec: { ...template, prompt: { ...template.prompt, steps: liveSteps }, budget: { runsPerDay: 4, modelSecondsPerDay: 1_800, stepsPerRun: 8, tokensPerRun: 16_000, runSeconds: 900 } } });
+      for (const example of h.service.examplesOf(h.caller("owner"), keeper.id).examples.filter((entry) => entry.tools.includes("firewall.status"))) h.service.forgetExample(h.caller("owner"), keeper.id, example.id);
+      h.state.setSetting("agentsMigrations", { runSeconds: {}, sharing: {}, examples: {}, eyes: {} }, { updatedBy: null });
+      expect(h.service.migrateDefaults()).toBeGreaterThanOrEqual(2);
+      const widened = h.store.getAgent(scout.id).spec;
+      expect(widened.prompt.steps).toEqual(template.prompt.steps);
+      expect(widened.budget).toMatchObject({ stepsPerRun: 12, tokensPerRun: 32_000, runSeconds: 1_500, modelSecondsPerDay: 3_000 });
+      expect(h.service.getAgent(h.caller("owner"), scout.id).versions[0].note).toMatch(/^BoxPilot widened its weekly survey/);
+      expect(h.service.examplesOf(h.caller("owner"), keeper.id).examples.some((entry) => entry.tools.includes("firewall.status"))).toBe(true);
+      // Once; and a Scout whose maker rewrote its steps around other tools is left alone.
+      expect(h.service.migrateDefaults()).toBe(0);
     } finally {
       await h.close();
     }
