@@ -15,7 +15,11 @@ describe("the account menu (M41)", () => {
     const opened = vi.fn();
     window.addEventListener(openActivityEvent, opened);
     vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } }))));
-    // The menu is hidden until a look shows it; here it is rendered on its own.
+    // The menu is hidden until a look shows it (account.css: display none); here it is shown as a
+    // look would, since jsdom 30.1.2 and later focus nothing that is not rendered.
+    const shown = document.createElement("style");
+    shown.textContent = ".account-menu { display: flex; }";
+    document.head.appendChild(shown);
     render(<AccountMenu authStatus={authStatus} csrfToken="csrf" onNavigate={onNavigate} onSignedOut={onSignedOut} />);
     const button = document.querySelector<HTMLButtonElement>(".account-menu__button")!;
     expect(button.getAttribute("aria-label")).toBe("Account: alex");
