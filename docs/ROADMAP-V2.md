@@ -2853,8 +2853,14 @@ every M37 to M45 agent test passing.
   (the template, a card staged, a thumbs up, an answer kept as a finding, an evaluation question
   answered right) and when; Forget; and, for the owner, "Export as training data" (M46.3). An older
   server without the book shows no panel. Test: `AgentsPage.test.tsx` (memory).
-- **Measured on the real model:** `agents-bench.yml` (mode `eval`, `baseline: main`) before and
-  after M46.1, so the demonstrations are held to the same six questions as everything else.
+- ✅ **Measured on the real model** (`agents-bench.yml` run 37915276524, mode `eval`, `baseline:
+  main`, Qwen 3.5 4B at four threads under 400%, 2026-10-09): main and M46.1 both 6 of 6, the same
+  tool chosen for every question. The three demonstration lines cost 318 more prompt tokens over
+  the six questions (about 53 a question) and 394 s against 387 s of wall time, inside the noise
+  between two runs. The six questions never made the base model slip, so the set shows the cost of
+  the demonstrations and not their gain; the gain shows where the planner chose wrong before
+  (`apps.list` for "where does Pi-hole run", M40), which the owner's own approvals, not this set,
+  will keep measuring through the nightly evaluation's accuracy history.
 
 ## App catalogue candidates
 
