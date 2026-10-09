@@ -64,6 +64,56 @@ describe("someone the owner has not set up", () => {
   });
 });
 
+describe("feedback under an answer (M47.4)", () => {
+  it("takes +1 and wrong: ... under the agent's answer as a thumbs on that run, as the mapped account, and never asks a model", async () => {
+    const keeper = h.service.createAgent(h.caller("owner"), { template: "server-keeper" });
+    await mapTo([{ zulipId: 11, zulipEmail: "alex@example.com", zulipName: "Alex", boxpilotId: h.accounts.owner.id }]);
+    // Nothing to rate yet: told so, no run.
+    direct(alex, "+1");
+    await check();
+    expect(posted.at(-1).content).toMatch(/no agent's answer here to rate yet/);
+    expect(h.store.activeRuns()).toEqual([]);
+    // A question, answered in the thread; then the thumbs up under it.
+    direct(alex, "Which BoxPilot apps are stopped?");
+    await check();
+    const run = await h.runNext();
+    expect(run).toMatchObject({ kind: "ask", state: "completed", agentId: keeper.id });
+    await h.service.chat.drain();
+    const answered = posted.find((post) => post.to?.[0] === 11 && /stopped/i.test(post.content));
+    expect(answered).toBeTruthy();
+    const kept = () => h.service.examplesOf(h.caller("owner"), keeper.id).examples.some((example) => example.runId === run.id);
+    posted = [];
+    direct(alex, "@**BoxPilot agents** +1");
+    await check();
+    expect(h.store.getFeedback(run.id)).toMatchObject({ verdict: "up", givenBy: h.accounts.owner.id });
+    expect(posted.map((post) => post.content)).toEqual([expect.stringMatching(/^Noted: a thumbs up for Server Keeper's answer/)]);
+    expect(kept()).toBe(true);
+    expect(h.fake.prompts().filter((body) => JSON.stringify(body.messages).includes("+1"))).toEqual([]);
+    // A thumbs down with a note takes the example back and keeps the words.
+    posted = [];
+    direct(alex, "wrong: Nextcloud is stopped on purpose");
+    await check();
+    expect(h.store.getFeedback(run.id)).toMatchObject({ verdict: "down", note: "Nextcloud is stopped on purpose" });
+    expect(posted[0].content).toMatch(/^Noted: a thumbs down for Server Keeper's answer \(Nextcloud is stopped on purpose\)/);
+    expect(kept()).toBe(false);
+    // In a channel, the thumbs goes to the answer in that topic, not another's.
+    mention(alex, "general", "drives", "@**BoxPilot agents** which drives are connected?");
+    await check();
+    const inChannel = await h.runNext();
+    await h.service.chat.drain();
+    posted = [];
+    mention(alex, "general", "drives", "@**BoxPilot agents** right");
+    await check();
+    expect(h.store.getFeedback(inChannel.id)).toMatchObject({ verdict: "up" });
+    expect(posted[0]).toMatchObject({ channel: "general", topic: "drives" });
+    // Someone the owner has not set up gets the usual word, not a rating.
+    posted = [];
+    direct(rosa, "+1");
+    await check();
+    expect(posted.at(-1).content).toBe(notSetUpMessage);
+  });
+});
+
 describe("someone the owner mapped", () => {
   it("asks as their account, of an agent that takes their questions, and is answered in the direct message", async () => {
     h.service.createAgent(h.caller("owner"), { template: "server-keeper" });

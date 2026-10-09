@@ -368,6 +368,21 @@ export function replyMessage({ agentName, run, link = null, redact }) {
 }
 
 /** The polite answer to someone the owner has not set up to ask: no model ever sees their words. */
+/**
+ * Feedback in a reply (M47.4): "+1", "-1", a thumb, "right" or "wrong", on its own or with a note
+ * after a colon or a dash ("wrong: it is on the USB drive"), with or without the bot's mention
+ * first. Null for anything else, which is a question. The note is the person's own words, kept
+ * with the feedback as the Test tab's note is.
+ */
+export function feedbackIn(content) {
+  const text = String(content ?? "").replace(/@\*\*[^*]{1,80}\*\*/g, " ").replace(/\s+/g, " ").trim();
+  const match = /^(\+1|-1|👍|👎|right|correct|good|yes|wrong|incorrect|bad|no)\b[.!]?(?:\s*[:\-,]\s*(.{1,300}))?$/iu.exec(text);
+  if (!match) return null;
+  const word = match[1].toLowerCase();
+  const verdict = ["+1", "👍", "right", "correct", "good", "yes"].includes(word) ? "up" : "down";
+  return { verdict, note: match[2]?.trim() || null };
+}
+
 export const notSetUpMessage = "You are not set up to ask BoxPilot's agents here. The owner can let you ask, as your BoxPilot account, from BoxPilot's Agents page (Team chat).";
 
 /** The reply in #agent-files when a file was taken, or why not. */

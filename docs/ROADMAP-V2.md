@@ -2874,6 +2874,16 @@ every M37 to M45 agent test passing.
   bench workflow's `set` input, with `baseline` for a before and after. On the stand-in: 8 of 8,
   the right tool 8 of 8 (`evaluation.test.mjs`).
 
+- ✅ **M47.4 Feedback from Zulip** (unreleased, `feat/zulip-feedback`). Nobody on the owner's
+  server had ever pressed the Test tab's thumbs, so the example book grew only from cards and
+  evaluations. A reply under an agent's answer in Zulip - `+1`, `-1`, a thumb, `right`, `wrong`,
+  `wrong: what was expected` - from someone the owner mapped is now that run's feedback
+  (`feedbackIn` in zulip.mjs, `feedbackFromChat` in the service, the answer found as the newest
+  sent reply or finding in that topic or direct conversation, `latestAnsweredPost`), as the account
+  they are mapped to, never a question for a model. A thumbs up keeps the run as an example, a
+  thumbs down takes it back, and the bot says what it noted. Someone not set up gets the usual word.
+  Test: `chat-ask.test.mjs`.
+
 - **Fixed on the way (2026-10-09, from the owner's server):** the Environment Scout raised an
   "Environment Scout needs you to look" card every night its evaluation question ("Which parts of
   this server can your tools not check?") ran into its step limit, though the answer passed: the
