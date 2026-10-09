@@ -6,6 +6,7 @@ import { readJson } from "../http";
 import { offBoxVerdict, type OffBoxInputs, type OffBoxVerdict } from "../offBox";
 import { followJobs, inspectOperation, type Job } from "../operations";
 import { scanFrom, type RepairScan } from "../repair/types";
+import type { PowerEvent } from "../powerEvents";
 import { onRefresh } from "../shell/refresh";
 
 /*
@@ -115,6 +116,8 @@ export interface InventoryFacts {
   smart: SmartFacts | null;
   /** Null when the inventory said nothing about power. */
   ups: UpsFact | null;
+  /** The power-event log, newest first (M39.1): Home tells the outages as news. */
+  powerEvents: PowerEvent[];
   /** The key services, loaded ones only. */
   services: ServiceFact[];
   addresses: Array<{ interface: string; address: string }>;
@@ -264,7 +267,7 @@ type RawInventory = {
     filesystems?: { mounts?: RawMount[] };
     smart?: { available?: boolean; status?: string; reason?: string; generatedAt?: string | null; stale?: boolean; disks?: RawSmartDisk[] };
   };
-  power?: { ups?: RawUps };
+  power?: { ups?: RawUps; events?: Array<Partial<PowerEvent>> };
   services?: Array<{ unit?: string; load?: string; active?: string; sub?: string; enabled?: string }>;
   network?: { addresses?: Array<{ interface?: string; address?: string }>; tailscale?: { installed?: boolean; connected?: boolean; dnsName?: string | null } };
 };
@@ -327,6 +330,8 @@ export function inventoryFactsFrom(body: RawInventory): InventoryFacts {
     })).filter((mount) => mount.target),
     smart: smartFactsFrom(body.storage?.smart),
     ups: upsFactFrom(body.power?.ups),
+    powerEvents: list<Partial<PowerEvent>>(body.power?.events)
+      .filter((event): event is PowerEvent => typeof event?.at === "string" && typeof event.event === "string" && !Number.isNaN(Date.parse(event.at))),
     services: list<{ unit?: string; load?: string; active?: string; sub?: string; enabled?: string }>(body.services)
       .filter((service) => typeof service?.unit === "string" && service.load !== "not-found")
       .map((service) => ({ unit: service.unit as string, active: text(service.active, "unknown"), sub: text(service.sub), enabled: text(service.enabled) })),

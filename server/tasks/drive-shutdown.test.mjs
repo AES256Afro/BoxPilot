@@ -337,6 +337,30 @@ describe("getting the drives ready before a reboot", () => {
     expect(summary.drives[0].state).toBe("unmounted");
   });
 
+  // The UPS's shutdown on a low battery (M39.1): the same steps, every app, and its own words.
+  it("before a power-off, stops Docker for every app, not only those on a drive, and says the shutdown", async () => {
+    const server = rebootHost({ containers: [pihole] });
+    const summary = await prepareDrivesForReboot({}, { ...server.options, allContainers: true, occasion: "shutdown" });
+    expect(server.calls).toContain("systemctl stop docker.socket docker.service");
+    expect(summary).toMatchObject({ dockerStopped: true, containers: { stopped: ["bp-pihole"] } });
+    expect(summary.drives[0].state).toBe("unmounted");
+    expect(server.log).toHaveBeenCalledWith(expect.stringContaining("their restart policies start them again when the server starts"), "stdout");
+  });
+
+  it("before a power-off with no drive mounted, still stops the apps and syncs", async () => {
+    const server = rebootHost({ mounted: {}, containers: [pihole] });
+    const summary = await prepareDrivesForReboot({}, { ...server.options, allContainers: true, occasion: "shutdown" });
+    expect(server.calls).toEqual([
+      "findmnt --task 1 -n -o SOURCE,FSTYPE,MAJ:MIN --mountpoint /mnt/the-dump",
+      "docker ps -q --no-trunc",
+      expect.stringMatching(/^docker inspect c{64}$/),
+      "systemctl stop docker.socket docker.service",
+      "sync ",
+    ]);
+    expect(summary.containers.stopped).toEqual(["bp-pihole"]);
+    expect(server.log).toHaveBeenCalledWith("No BoxPilot drive is mounted; nothing to unmount before the shutdown", "stdout");
+  });
+
   it("stops Docker for a container bound to a folder above a drive, which carries the drive with it", async () => {
     // node-exporter binds / and File Browser /mnt: Docker's binds are recursive, so each holds
     // /mnt/the-dump in its own namespace however the host unmounts it.

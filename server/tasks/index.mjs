@@ -20,6 +20,9 @@ import { sambaApply, sambaDiscoverySet, sambaRecycleEmpty, sambaShareWritable, s
 import { fsSnapshotCreate, fsSnapshotDelete } from "./fs-snapshots.mjs";
 import { nfsApply } from "./nfs.mjs";
 import { upsSetup } from "./ups.mjs";
+import { powerHardware } from "./power.mjs";
+import { watchdogDisable, watchdogEnable } from "./watchdog.mjs";
+import { wakeOnLanSet } from "./wake-on-lan.mjs";
 import { fail2banApply } from "./fail2ban.mjs";
 import { backupCloudSetup, backupCloudSync, backupCloudTest } from "./backup-cloud.mjs";
 import { tailscaleSet } from "./tailscale.mjs";
@@ -101,6 +104,11 @@ export const tasks = Object.freeze({
   "samba.user.remove": sambaUserRemove,
   "nfs.apply": nfsApply,
   "ups.setup": upsSetup,
+  // Keeping the house running when the server does not (M39): the watchdog and Wake-on-LAN.
+  "power.hardware": (parameters, context) => powerHardware(parameters, context),
+  "power.watchdog.enable": (parameters, context) => watchdogEnable(parameters, context),
+  "power.watchdog.disable": (parameters, context) => watchdogDisable(parameters, context),
+  "power.wake-on-lan.set": (parameters, context) => wakeOnLanSet(parameters, context),
   "fail2ban.apply": fail2banApply,
   "backup.cloud.setup": backupCloudSetup,
   "backup.cloud.test": backupCloudTest,
