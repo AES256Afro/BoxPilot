@@ -76,3 +76,14 @@ describe("a run held from acting (M45.7)", () => {
     expect(screen.getByText("It carried out nothing on what it read")).toBeTruthy();
   });
 });
+
+describe("a finding offered by meaning (M47.3)", () => {
+  it("says so in the step's title, and nothing extra for one offered by words", () => {
+    const step = (by: string | undefined) => ({ seq: 1, kind: "finding", name: "Environment Scout", state: "done", input: { id: "F1", noteId: "n1", agentId: "22222222-2222-4222-8222-222222222222", agent: "Environment Scout", writtenAt: "2026-09-29T15:00:00Z", freshUntil: "2026-09-30T15:00:00Z", ...(by ? { by } : {}) }, output: "The backup drive sdb is failing.", flags: { finding: "F1" }, startedAt: "2026-09-29T16:00:01Z", durationMs: null, tokensIn: null, tokensOut: null });
+    render(<RunView run={run({ steps: [step("meaning")] as Run["steps"] })} />);
+    expect(screen.getByText(/Offered Environment Scout's finding by meaning/)).toBeTruthy();
+    cleanup();
+    render(<RunView run={run({ steps: [step(undefined)] as Run["steps"] })} />);
+    expect(screen.getByText(/^Offered Environment Scout's finding$/)).toBeTruthy();
+  });
+});
