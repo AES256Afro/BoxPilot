@@ -144,7 +144,7 @@ if [ -z "$ESP" ]; then
   note "this runner has no FAT /boot/efi: skipped"
 else
   install -d -m 0755 /opt/boxpilot
-  cp -r "${ROOT}/server" "${ROOT}/scripts" "${ROOT}/package.json" /opt/boxpilot/
+  cp -r "${ROOT}/server" "${ROOT}/scripts" "${ROOT}/packages" "${ROOT}/package.json" /opt/boxpilot/
   sed -e "s|/usr/local/bin/node|${NODE}|g" "${ROOT}/deploy/boxpilot-run@.service" > /etc/systemd/system/boxpilot-run@.service
   install -d -m 0700 /run/boxpilot /run/boxpilot/run
   systemctl daemon-reload
