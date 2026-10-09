@@ -394,6 +394,9 @@ agent in one folder with no BoxPilot anywhere. Built in M45.8:
   trace (`runs`, `show`), the agent's notes, and each model's measured speed for the next run.
 - **Evaluation.** `eval cases.json` runs each case in a fresh copy of the folder and grades its
   answer and the files it left against patterns; no model judges.
+- **The book (M47.5, M47.8).** `good <run>` keeps a finished run as an example shown before a task
+  like it (`bad` takes it back, `examples` lists them, a case graded right keeps itself), and
+  `export` writes each good run's whole conversation as training data, this machine's names hidden.
 
 When its interface has held still through two BoxPilot releases it is published as its own npm
 package at 0.x; until then it is versioned with BoxPilot.
