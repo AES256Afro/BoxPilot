@@ -251,9 +251,11 @@ export function createAgentService({
   // M45.5: the job service, through which an agent with leave to act stages and starts operations;
   // null: agents only propose.
   jobs = null,
+  // M47: the Repair Center's scan, for repair.findings; null where there is none (the tool then says so).
+  repairScan = null,
 } = {}) {
   const limits = { ...serviceLimits, ...overrides };
-  const tools = createToolRunner({ state, store, registry, helper, inventory, knowledge, secretEnvNamesFor, now, webSearch: () => moduleSettings().webSearch, ...(fetcher ? { fetcher } : {}) });
+  const tools = createToolRunner({ state, store, registry, helper, inventory, knowledge, secretEnvNamesFor, now, webSearch: () => moduleSettings().webSearch, ...(fetcher ? { fetcher } : {}), repairScan });
   const audit = (type, entry) => { try { state.recordAudit?.(type, entry); } catch { /* the audit never stops a run */ } };
   const askLimit = createRateLimit({ capacity: limits.asksPerHour, refillPerSecond: limits.asksPerHour / 3600, now: () => now().getTime() });
   let redactorReady = redactor ? Promise.resolve(redactor) : null;
@@ -4048,7 +4050,7 @@ export function createAgentService({
     // Each read within its time, or unknown: an inventory whose df or docker never answered held the
     // nightly evaluation, and with it every later tick, for good (2026-10 sweep 2).
     const read = (fn) => inTime(fn, limits.factsTimeoutMs, new Error("It did not answer in time")).catch(() => null);
-    const [snapshot, apps, pihole, placed, services] = await Promise.all([
+    const [snapshot, apps, pihole, placed, services, firewall] = await Promise.all([
       read(() => inventory?.inspect()),
       read(() => tools.readApps()),
       // An operator read (ADR-003); an evaluation is started by the owner or an operator anyway.
@@ -4056,6 +4058,8 @@ export function createAgentService({
       read(() => tools.whereRuns("pihole")),
       // The read services.status makes, open to every role.
       read(() => (helper ? helper.request("service.list", {}, { timeoutMs: 30_000 }) : null)),
+      // M47: the read firewall.status makes, open to every role.
+      read(() => (helper ? helper.request("firewall.inspect", {}, { timeoutMs: 30_000 }) : null)),
     ]);
     const applications = Array.isArray(apps?.applications) ? apps.applications : null;
     return {
@@ -4072,6 +4076,8 @@ export function createAgentService({
       unhealthyApps: unhealthyAppsOf(applications),
       appUpdates: appUpdatesOf(applications),
       failedServices: failedServicesOf(services?.units ?? null),
+      // M47: on, off, or absent when ufw is not installed.
+      firewallEnabled: firewall ? (firewall.installed === false ? "absent" : firewall.enabled === true ? "on" : firewall.enabled === false ? "off" : null) : null,
     };
   }
 
@@ -4417,6 +4423,27 @@ export function createAgentService({
       next.sharing = { at: now().toISOString(), added };
       changed += added;
     }
+    // M47: agents made from a template before it had eyes on the firewall, package updates, Repair and
+    // the rest get the template's new tools, once, and the Scout's rule that said it could not see them.
+    if (!done.eyes) {
+      const eyes = ["firewall.status", "updates.status", "repair.findings", "protection.status", "users.access", "tunnel.exposure"];
+      const oldRule = "Your tools cannot see the firewall, open ports, SSH settings, waiting system package updates or Repair's findings. List them under Not checked with the page to open: Firewall, Updates, Repair.";
+      let given = 0;
+      for (const agent of store.listAgents()) {
+        const template = agent.template ? templateById(agent.template) : null;
+        if (!template) continue;
+        const tools = { ...agent.spec.tools };
+        const added = eyes.filter((id) => template.spec.tools[id] === "auto" && (tools[id] ?? "off") === "off");
+        if (!added.length) continue;
+        for (const id of added) tools[id] = "auto";
+        const rules = (agent.spec.prompt?.rules ?? []).map((rule) => (rule === oldRule ? template.spec.prompt.rules.find((entry) => entry.startsWith("The firewall and Repair's findings")) ?? rule : rule));
+        let spec;
+        try { spec = normalizeSpec({ ...agent.spec, tools, prompt: { ...agent.spec.prompt, rules }, sharing: sharingFor(agent) }); } catch { continue; }
+        if (save(agent, spec, `BoxPilot gave it eyes on ${added.map((id) => toolById(id)?.title.toLowerCase() ?? id).join(", ")}`, added.map((id) => `tools.${id}`))) given += 1;
+      }
+      next.eyes = { at: now().toISOString(), given };
+      changed += given;
+    }
     // M46: agents made before the example book get their template's examples, once.
     if (!done.examples) {
       let seeded = 0;
@@ -4424,7 +4451,7 @@ export function createAgentService({
       next.examples = { at: now().toISOString(), seeded };
       changed += seeded;
     }
-    if (next.runSeconds !== done.runSeconds || next.sharing !== done.sharing || next.examples !== done.examples) state.setSetting?.(agentsMigrationsKey, next, { updatedBy: null });
+    if (next.runSeconds !== done.runSeconds || next.sharing !== done.sharing || next.examples !== done.examples || next.eyes !== done.eyes) state.setSetting?.(agentsMigrationsKey, next, { updatedBy: null });
     return changed;
   }
 

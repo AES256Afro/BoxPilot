@@ -26,7 +26,7 @@ describe("the tools each call carries", () => {
     const [plan, ...act] = result.requests;
     expect(plan.tools ?? null).toBeNull();
     // Always-on first, then the plan's, each in the catalog's order: 8 of the 22 Steve may use.
-    expect(result.claim.tools).toHaveLength(22);
+    expect(result.claim.tools).toHaveLength(26);
     for (const request of act) expect(names(request)).toEqual(["memory_search", "plan_propose", "notify_owner", "agents_handoff", "apps_list", "services_status", "storage_health", "alerts_active"]);
     for (let index = 1; index < act.length; index += 1) {
       expect(act[index].tools).toEqual(act[0].tools);
@@ -104,7 +104,7 @@ describe("each call's time", () => {
 
   it("is not started when it cannot fit in what the run has left, and the run answers from the tools the plan named", async () => {
     bench = await createBench({ promptPerSecond: 20, generatePerSecond: 4 });
-    withSpec(bench.keeper, (spec) => ({ ...spec, budget: { ...spec.budget, runSeconds: 160 } }));
+    withSpec(bench.keeper, (spec) => ({ ...spec, budget: { ...spec.budget, runSeconds: 180 } }));
     const result = await bench.ask(ownerQuestion);
     expect(result.run).toMatchObject({ state: "degraded", flags: { degraded: "timeout" } });
     // The plan fit (about 80 s at 20 and 4 tokens a second, its three example lines included); acting on it would not have, and the trace said so first.

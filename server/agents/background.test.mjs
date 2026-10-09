@@ -44,12 +44,12 @@ describe("the nightly evaluation and an agent's runs a day (B1-1)", { timeout: 6
     await setup({ start: new Date(2026, 9, 3, 10, 0, 0) });
     const scout = make("environment-scout");
     expect(new Date(scout.nextRunAt)).toEqual(new Date(2026, 9, 4, 4, 20));
-    // Sunday 02:00: its seven questions are queued, and answered.
+    // Sunday 02:00: its eight questions (the firewall's since M47) are queued, and answered.
     h.setTime(new Date(2026, 9, 4, 2, 0, 0));
     await h.service.tick();
-    expect(active("eval")).toHaveLength(7);
+    expect(active("eval")).toHaveLength(8);
     // (The memory index embeds the Scout's examples in the same quiet hours: not one of its runs.)
-    expect((await drain()).map((run) => run.kind).filter((kind) => kind !== "index")).toEqual(Array(7).fill("eval"));
+    expect((await drain()).map((run) => run.kind).filter((kind) => kind !== "index")).toEqual(Array(8).fill("eval"));
     // They took none of its four runs.
     expect(h.service.getAgent(h.caller("owner"), scout.id).budgetToday).toMatchObject({ runsUsed: 0, runsPerDay: 4 });
     // 04:20: its routine is queued, not refused, and runs.

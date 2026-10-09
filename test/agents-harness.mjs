@@ -36,6 +36,12 @@ export function defaultHelperAnswers() {
     "logs.read": (parameters) => ({ kind: parameters.kind, target: parameters.target, lines: ["2026-09-29T09:00:00 boxpilot: started", "2026-09-29T09:01:00 boxpilot: token=SENTINEL-LOG-1 refused"] }),
     "app.pihole.inspect": () => ({ placement: "boxpilot-app", container: "bp-pi-hole", running: true, available: true, blocking: true, last24h: { queries: 1000, blocked: 150, blockedPercent: 15 }, gravity: { domains: 90_000, updatedAt: "2026-09-27T00:00:00.000Z", ageDays: 2.4 }, upstreams: [{ upstream: "9.9.9.9#53", queries: 800, share: 100, averageReplyMs: 14 }], topBlocked: [{ domain: "ads.example.com", count: 40 }] }),
     "agents.runtime.inspect": () => ({ runtime: { installed: false, version: null }, service: { active: "inactive" }, models: [], diskFreeBytes: 100e9 }),
+    // M47: the reads behind firewall.status, updates.status, protection.status, users.access and tunnel.exposure, as a plain home server answers them.
+    "firewall.inspect": () => ({ installed: true, enabled: true, defaults: { incoming: "deny", outgoing: "allow", routed: "reject" }, rules: [{ action: "allow", direction: "in", port: "22", protocol: "tcp", source: null, interface: null, family: "v4", comment: "SSH" }, { action: "allow", direction: "in", port: "8787", protocol: "tcp", source: "192.0.2.0/24", interface: null, family: "v4", comment: "BoxPilot" }], dockerRules: true }),
+    "apt.upgradable.inspect": () => ({ upgradable: [{ name: "openssl", suite: "noble-security", candidate: "3.0.13-0ubuntu3.5", installed: "3.0.13-0ubuntu3.4" }, { name: "curl", suite: "noble-updates", candidate: "8.5.0-2ubuntu10.6", installed: "8.5.0-2ubuntu10.5" }], count: 2, securityCount: 1, rebootRequired: false, needrestartPresent: true, servicesNeedingRestart: ["ssh.service"] }),
+    "fail2ban.inspect": () => ({ installed: true, running: true, configured: true, config: { managed: true, maxRetry: 5, findTimeMinutes: 10, banTimeMinutes: 60, ignoreLan: true }, currentlyBanned: 1, totalBanned: 14 }),
+    "users.inspect": () => ({ users: [{ name: "root", uid: 0, shell: "/bin/bash", sudo: true, keyCount: 1 }, { name: "owner", uid: 1000, shell: "/bin/bash", sudo: true, keyCount: 2 }], sshd: { passwordAuthentication: false, keyboardInteractive: false, pubkeyAuthentication: true, permitRootLogin: "prohibit-password", port: 22 }, sshActive: true }),
+    "cloudflare.tunnel.inspect": () => ({ connected: true, tunnel: { id: "t-1", name: "boxpilot-testbox" }, routes: [{ hostname: "photos.example.org", appId: "immich", hostPort: 2283, publishedAt: "2026-10-01T00:00:00.000Z" }] }),
     // M40: the runner's processors, set at each run as the root helper does (server/agents/cpu.mjs).
     "agents.runtime.cpu": (parameters) => ({ processors: parameters.processors, background: parameters.background, quotaPercent: parameters.processors * 100, perSecond: `${parameters.processors}s`, resetAt: parameters.processors > parameters.background ? "2026-09-29T10:30:00.000Z" : null }),
   };
@@ -87,6 +93,8 @@ export async function createAgentsHarness({ limits = {}, runnerOptions = {}, ser
   const newerListing = { value: [] };
   const service = createAgentService({
     state, store, registry, helper, inventory, knowledge, healthAlerts, now,
+    // M47: Repair's scan, as a server with nothing to fix answers it; an operator's reads only for a run that may make them.
+    repairScan: async ({ operatorReads }) => ({ findings: [], dismissed: [], jobs: [], counts: { critical: 0, warning: 0, info: 0 }, checkedAt: now().toISOString(), sourceStatus: operatorReads ? "ready" : "partial", unavailableChecks: operatorReads ? [] : ["USB history (needs an operator)"] }),
     redactor: createRedactor({ additionalLiterals: ["SENTINEL-LITERAL-9"] }),
     tokenPath: path.join(directory, "agents", "runner.token"),
     fetchJson: async (url) => { fetched.push(url); return url.includes("?author=") ? newerListing.value : { siblings: [{ rfilename: "Qwen3.6-4B-UD-Q4_K_XL.gguf" }, { rfilename: "mmproj-F16.gguf" }] }; },
