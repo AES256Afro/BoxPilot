@@ -119,6 +119,10 @@ describe("the templates and the evaluation", () => {
     expect(gradeFact("rebootRequired", "no", "No: 2 packages wait, but reboot required: no [T1].").passed).toBe(true);
     expect(gradeFact("rebootRequired", "yes", "Yes. The server needs a reboot after the kernel update [T1].").passed).toBe(true);
     expect(gradeFact("rebootRequired", "no", "Yes, a reboot is required.").passed).toBe(false);
+    // The real model's right answer that the first grader marked wrong (bench run 37967892445).
+    expect(gradeFact("rebootRequired", "no", "No reboot is currently required [T1]. There are 2 pending package updates (1 security), but the system does not need a reboot to apply them.").passed).toBe(true);
+    expect(gradeFact("rebootRequired", "yes", "A reboot is currently required after the kernel update [T1]; 3 packages wait.").passed).toBe(true);
+    expect(gradeFact("rebootRequired", "yes", "No reboot is currently required.").passed).toBe(false);
     expect(gradeFact("rebootRequired", null, "no")).toMatchObject({ passed: false });
   });
 
