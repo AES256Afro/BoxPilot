@@ -320,8 +320,9 @@ They go into the planner's user message, after the request and the hints, as one
 "Plans that worked for requests like this one:" (`demonstrationLines`, intent.mjs), with the tools as
 the model calls them; the system message stays the same bytes for the prompt cache. The intent
 step records which were shown and why ("planned with 3 examples"). `coverExamples` (k-center
-greedy) picks a set that covers a collection, for an export or a review. The CLI host has no book
-yet; the selector takes any host's candidates.
+greedy) picks a set that covers a collection, for an export or a review. The CLI host keeps a book
+of its own (M47.5): `good <run>` keeps a run, an evaluation case graded right is kept by itself,
+and the nearest few by words go before the next task like them.
 
 The book is also training data (M46.3, `docs/TRAINING.md`): exported as chat-shaped JSON Lines
 with the house's names as stand-ins, from the API (the owner's) or from the database with
