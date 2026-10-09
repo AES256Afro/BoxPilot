@@ -877,6 +877,16 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
       return { post: chatPostOf(prepare("SELECT * FROM agent_chat_posts WHERE id = ?").get(id)), dropped };
     });
   }
+  /**
+   * The last post of an agent's answer where a reply arrived (M47.4): the newest sent reply or
+   * finding with a run, in that channel and topic, or in that direct conversation (every recipient
+   * the same), so "+1" rates the answer above it.
+   */
+  function latestAnsweredPost({ channel = null, topic = null, to = null } = {}) {
+    const rows = prepare("SELECT * FROM agent_chat_posts WHERE run_id IS NOT NULL AND kind IN ('reply', 'findings') AND state = 'sent' ORDER BY sent_at DESC, created_at DESC, rowid DESC LIMIT 100").all().map(chatPostOf);
+    const same = (a, b) => Array.isArray(a) && Array.isArray(b) && a.length === b.length && [...a].sort().every((value, index) => value === [...b].sort()[index]);
+    return rows.find((post) => (Array.isArray(to) && to.length ? same(post.to, to) : post.channel === String(channel ?? "") && post.topic === String(topic ?? ""))) ?? null;
+  }
   const listChatPosts = ({ state = null, limit = 50 } = {}) => (state
     ? prepare("SELECT * FROM agent_chat_posts WHERE state = ? ORDER BY created_at, rowid LIMIT ?").all(state, limit)
     : prepare("SELECT * FROM agent_chat_posts ORDER BY created_at DESC, rowid DESC LIMIT ?").all(limit)).map(chatPostOf);
@@ -1000,6 +1010,7 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
     addExample, listExamples, listAllExamples, countExamples, getExample, deleteExample, deleteExampleOfRun,
     setFeedback, getFeedback, listFeedback,
     createProposal, getProposal, listProposals, decideProposal, findOpenProposal, listProposalsForRun, setProposalStepJob, listOpenProposalsForJob,
+    latestAnsweredPost,
     addDocument, upsertDocument, listDocuments, getDocument, findDocument, setDocumentEnabled, setDocumentPinned, deleteDocument,
     getDocumentMedia, listUndescribed, describeDocument, countImageDocuments,
     queueChatPost, listChatPosts, getChatPost, markChatPost, chatPostsSince, countChatPosts, pruneChatPosts, dropQueuedChatPosts,
