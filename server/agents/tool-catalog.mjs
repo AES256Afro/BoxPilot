@@ -101,6 +101,50 @@ export const toolCatalog = Object.freeze([
     askedFor: [/\bwhere\b[^.?!]{0,50}\b(run|runs|running|installed|hosted|lives?|live|deployed)\b/i, /\b(container|docker|app)\b[^.?!]{0,30}\bor\b[^.?!]{0,30}\b(host|native\w*|systemd)\b/i, /\b(host|native\w*|systemd)\b[^.?!]{0,30}\bor\b[^.?!]{0,30}\b(container|docker)\b/i, /\bnatively\b/i],
     params: { name: { type: "string", maxLength: 64, pattern: /^[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}$/, required: true, description: "What to look for, such as pihole or postgres." } },
   },
+  // M47: eyes on what the agents said every night they could not see. Each a registered read under
+  // ADR-003; the operator- and owner-only ones are offered only to runs that may read as much.
+  {
+    id: "firewall.status", title: "Firewall", category: "boxpilot", role: "viewer", cost: "cheap",
+    description: "Whether ufw is on, its default policies, and every rule: which ports are allowed, denied or rate-limited, from where. Docker publishes its ports regardless, and it says so.",
+    use: "whether the firewall is on, which ports it allows or blocks",
+    askedFor: [/\b(firewall|ufw|allowed ports?|blocked ports?|open ports?|port \d+ (open|allowed|blocked))\b/i],
+    params: {},
+  },
+  {
+    id: "updates.status", title: "Package updates", category: "boxpilot", role: "viewer", cost: "moderate",
+    description: "How many system packages have an update waiting, how many are security updates, whether a reboot is required, and which services still run old libraries. For apps' updates, apps.list says which have one.",
+    use: "waiting system package updates, security patches, a reboot required",
+    askedFor: [/\b(package updates?|system updates?|security (updates?|patch\w*)|apt|upgradable|reboot (required|needed|waiting|pending)|pending (updates?|reboot))\b/i],
+    params: {},
+  },
+  {
+    id: "repair.findings", title: "Repair's findings", category: "boxpilot", role: "viewer", cost: "moderate",
+    description: "What the Repair Center found: dead or read-only mounts, drives needing a check, apps missing their container or a data folder, ports held while an app is stopped, backups never tested, worst first, each with the fix it offers or what to do by hand. The same list as the Repair page.",
+    use: "what Repair found, what needs fixing, the fixes BoxPilot offers",
+    askedFor: [/\b(repair|repair cent(er|re)|needs? (fixing|a fix)|to fix|fixes? (offered|available))\b/i],
+    params: {},
+  },
+  {
+    id: "protection.status", title: "Brute-force protection", category: "boxpilot", role: "viewer", cost: "cheap",
+    description: "Whether fail2ban is installed and running, the sshd jail's thresholds, and how many addresses are banned now and in all.",
+    use: "fail2ban, banned addresses, brute-force protection of SSH",
+    askedFor: [/\b(fail2ban|brute[- ]?force|banned (addresses|ips?)|bans?\b)/i],
+    params: {},
+  },
+  {
+    id: "users.access", title: "Users and SSH", category: "boxpilot", role: "operator", cost: "cheap",
+    description: "The accounts that can log in, which have sudo and how many SSH keys each has, and how SSH is set: its port, whether password login is allowed, whether root may log in. Never a key, a hash or a password.",
+    use: "which accounts exist, who has sudo or keys, whether SSH allows passwords or root",
+    askedFor: [/\b(ssh|sshd|sudo|user accounts?|which (users|accounts)|password (login|authentication)|root (log ?in|login))\b/i],
+    params: {},
+  },
+  {
+    id: "tunnel.exposure", title: "Tunnel exposure", category: "boxpilot", role: "owner", cost: "cheap",
+    description: "Which apps BoxPilot published to the internet through the Cloudflare tunnel, at which addresses, from BoxPilot's own record. Nothing is asked of Cloudflare and no token is read.",
+    use: "what is exposed to the internet, the Cloudflare tunnel, published addresses",
+    askedFor: [/\b(tunnel|cloudflare|exposed to the internet|published (apps?|to the internet)|reachable from (the internet|outside))\b/i],
+    params: {},
+  },
   {
     id: "jobs.recent", title: "BoxPilot jobs", category: "records", role: "viewer", cost: "cheap",
     description: "Recent BoxPilot jobs the run may see: what ran, whether it failed and its error.",

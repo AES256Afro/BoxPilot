@@ -14,7 +14,7 @@ import { searxSearch } from "./connectors.mjs";
 import { exactTools } from "./deterministic.mjs";
 import { describePihole } from "./pihole.mjs";
 import { roleAtLeast } from "./tool-catalog.mjs";
-import { describeApps, describePlaces, describeServer, describeStorage, locate } from "./tool-text.mjs";
+import { describeApps, describeFirewall, describePlaces, describeProtection, describeRepair, describeServer, describeStorage, describeTunnel, describeUpdates, describeUsers, locate } from "./tool-text.mjs";
 
 /** Whether an agent's allowlist lets it look at this app (spec.allow.apps: "*" or ids). */
 export const appAllowed = (spec, appId) => !spec?.allow || spec.allow.apps === "*" || spec.allow.apps.includes(String(appId ?? "").replace(/^bp-/, ""));
@@ -56,7 +56,7 @@ export function sinceWithinWeek(since) {
   return minutes >= 1 && minutes <= 7 * 1440;
 }
 
-export function createToolRunner({ state, store, registry, helper = null, inventory = null, knowledge = null, secretEnvNamesFor = null, now = () => new Date(), helperTimeoutMs = 30_000, webSearch = () => ({ enabled: false, endpoint: null }), fetcher = fetch }) {
+export function createToolRunner({ state, store, registry, helper = null, inventory = null, knowledge = null, secretEnvNamesFor = null, now = () => new Date(), helperTimeoutMs = 30_000, webSearch = () => ({ enabled: false, endpoint: null }), fetcher = fetch, repairScan = null }) {
   let appsRead = null;
   /** app.inspect, shared for fifteen seconds: a run asks several tools that all start from it. */
   function readApps() {
@@ -125,6 +125,23 @@ export function createToolRunner({ state, store, registry, helper = null, invent
       const snapshot = await inventory?.inspect().catch(() => null);
       if (!snapshot?.storage) return "Storage and drive health could not be read.";
       return describeStorage(snapshot);
+    },
+
+    // M47: eyes on what the agents said every night they could not see. Each is the registered
+    // read the matching page makes, held to the run's role by read().
+    async "firewall.status"(_input, context) { return describeFirewall(await read("firewall.inspect", {}, context)); },
+    async "updates.status"(_input, context) { return describeUpdates(await read("apt.upgradable.inspect", {}, context)); },
+    async "protection.status"(_input, context) { return describeProtection(await read("fail2ban.inspect", {}, context)); },
+    async "users.access"(_input, context) { return describeUsers(await read("users.inspect", {}, context)); },
+    async "tunnel.exposure"(_input, context) { return describeTunnel(await read("cloudflare.tunnel.inspect", {}, context)); },
+    async "repair.findings"(_input, context) {
+      if (!repairScan) throw new ToolError("Repair's findings are not available here");
+      // The same scan the Repair page runs, as this run's person: the operator reads only for a run
+      // that may read as an operator, the jobs only those its person may see.
+      const operatorReads = ["owner", "operator"].includes(context.readRole);
+      const request = asRequest({ id: context.readAs, role: context.readRole });
+      const visibleJobs = state.listJobs?.(200, seesEveryAccount(request) ? {} : { createdBy: context.readAs }) ?? [];
+      return describeRepair(await repairScan({ operatorReads, visibleJobs }));
     },
 
     async "docs.search"({ query, limit = 4 }, context) {

@@ -1,7 +1,7 @@
 import express from "express";
 import { randomUUID } from "node:crypto";
 import { createReadStream, readFileSync } from "node:fs";
-import { stat } from "node:fs/promises";
+import { access, stat } from "node:fs/promises";
 import { createDeviceResolver, createSnapshotDeviceResolver, deviceResolvingOperations } from "./catalog/devices.mjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -49,7 +49,9 @@ import { createRateLimit } from "./agents/budget.mjs";
 import { createHelperClient } from "./helper-client.mjs";
 import { createHelperLibvirtService } from "./helper-libvirt.mjs";
 import { createInventoryService } from "./inventory.mjs";
-import { createStorageReader } from "./storage-inventory.mjs";
+import { collectStorage, createStorageReader } from "./storage-inventory.mjs";
+import { listListeners } from "./ports.mjs";
+import { scanRemediations } from "./remediations-scan.mjs";
 import { createJobService, recordFailed } from "./jobs.mjs";
 import { planInterruptedReruns } from "./job-reruns.mjs";
 import { invalidateOperationEvidence } from "./diagnostic-invalidation.mjs";
@@ -404,6 +406,8 @@ const agents = createAgentService({
   state, store: agentStore, registry, helper, inventory, knowledge: assistant.index, secretEnvNamesFor, healthAlerts, productVersion, cloud: agentsCloud,
   // M45.5: an agent with leave to act stages its jobs here, in its maker's name.
   jobs,
+  // M47: repair.findings runs the Repair page's own scan, as the run's person.
+  repairScan: ({ operatorReads, visibleJobs }) => scanRemediations({ helper, state, catalogService, inventory, collect: collectStorage, fileExists: (file) => access(file).then(() => true, () => false), readListeners: listListeners, notifications, dnsResilience, operatorReadsWanted: operatorReads, visibleJobsGiven: visibleJobs }),
   // The daily look for a newer small Qwen reads Hugging Face's public model list; it never switches anything.
   fetchJson: (url) => fetch(url, { headers: { Accept: "application/json", "User-Agent": `BoxPilot/${productVersion}` }, signal: AbortSignal.timeout(15_000), redirect: "error" }).then((response) => (response.ok ? response.json() : null)),
 });

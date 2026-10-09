@@ -2869,6 +2869,41 @@ every M37 to M45 agent test passing.
   follow-up now leaves no card for a limit it reached, as the rule for low confidence already had
   it; evaluations are read on their tab. Test: `findings.test.mjs`.
 
+## M47: Eyes on what the agents could not see
+
+Asked for 2026-10-09 ("keep working until you cannot find any quality to add"), from the owner's
+server: every night the Environment Scout's top findings were "my tools cannot check the firewall,
+system updates or Repair's findings". M43 had left the Security Reviewer unbuilt for the same want.
+Each item is its own pull request, released and deployed when green.
+
+- ✅ **M47.1 Six read tools, the Security Reviewer, the firewall fact** (unreleased,
+  `feat/m47-eyes`). `firewall.status` (ufw: on or off, default policy, every rule; Docker's own
+  rules named), `updates.status` (packages waiting, how many security, a reboot required, services on
+  old libraries), `repair.findings` (the Repair page's own scan, worst first, each with its fix or
+  its manual step; `server/remediations-scan.mjs`, one function the page and the tool share),
+  `protection.status` (fail2ban and its bans), `users.access` (accounts, sudo, key counts, SSH's
+  port, password and root login; operator), `tunnel.exposure` (what the Cloudflare tunnel publishes;
+  owner). Each the registered read the matching page makes, held to the run's role by `read()`
+  (ADR-003); the words one fact a line in `tool-text.mjs`. The Keeper gets the firewall, updates,
+  Repair and fail2ban (the accounts and the tunnel are the Reviewer's: each tool line is read by the
+  planner on every run), IT Support the firewall, updates and Repair, the Scout the firewall and
+  Repair (ten tools is what a call that acts carries; package updates stay named under Not checked
+  with the Updates page). **The Security
+  Reviewer** template: a weekly Monday review of the firewall, fail2ban, SSH and accounts, the
+  tunnel and the apps that listen, ranked by exposure, two cards at most, with its seeds and golden
+  questions. Seeds for the new tools on every template that has them. `firewallEnabled` joins the
+  evaluation's facts (on, off, absent; read as the Firewall page reads it), the Scout's blind-spot
+  golden question becomes "Is the firewall turned on?". Agents made before get the template's new
+  tools once (`migrateDefaults`, "BoxPilot gave it eyes on ..."), and the Scout's old rule is
+  replaced. Tests: `tools-eyes.test.mjs` (the words, the roles, the hints, the templates, the
+  grader, a Keeper answering from the firewall, the migration), the Repair route's tests unchanged
+  through the shared scan.
+- **M47.2 A wider plan.** A plan holds five steps, so the Scout's survey reads five tools and the
+  firewall and Repair stay on request. Raise the plan to eight steps and the Scout's survey to read
+  them, measured on the real model: the survey's model time against its 20 minutes.
+- **M47.3 Findings by meaning** (M46's last open item): the runner embeds the request before it
+  plans; let it ask for other agents' findings by vector and add them as evidence.
+
 ## App catalogue candidates
 
 Checked against the 164 manifests already in `catalog/`, so nothing here duplicates an existing
