@@ -2,8 +2,9 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PendingOperation } from "../../shell/ApproveDialog";
 import { DatabaseCopies, type DatabaseCopiesReport } from "./DatabaseCopies";
-import { SystemHardware } from "./SystemHardware";
 import SystemPage from "./SystemPage";
+import { SystemPower, thresholdWords, watchdogWords, type SystemPowerProps } from "./SystemPower";
+import type { PowerHardware, PowerOverview } from "./systemTypes";
 import { updateLogFacts } from "./SystemUpdates";
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); window.history.replaceState(null, "", "/"); });
@@ -29,6 +30,33 @@ const housekeeping = {
   ],
 };
 
+const guidance = {
+  id: "power-on-after-outage", title: "Make the server start by itself when the power comes back",
+  summary: "Most boards stay off after a power cut until someone presses the button.",
+  why: ["\"Last State\" is not enough: after a clean shutdown, the last state is off, so the server stays off.", "With the UPS, BoxPilot shuts the server down when the battery runs low and the UPS then switches its outlets off."],
+  board: { vendor: "ASUSTeK COMPUTER INC.", maker: "asus" },
+  steps: [
+    { maker: "ASUS", id: "asus", key: "Del or F2", path: ["Advanced", "APM Configuration", "Restore AC Power Loss"], value: "Power On", text: "", thisBoard: true },
+    { maker: "Gigabyte", id: "gigabyte", key: "Del", path: ["Settings", "Platform Power", "AC BACK"], value: "Always On", text: "", thisBoard: false },
+  ],
+  other: "Another maker: look for \"AC power loss\".", alsoHelps: "Wake-on-LAN lets another device start the server after a clean shutdown.",
+};
+const overview: PowerOverview = {
+  ups: { installed: true, configured: true, available: true, state: "online", reason: "ok", batteryChargePercent: 100, estimatedRuntimeSeconds: 1260, loadPercent: 18, lowBatteryPercent: 20, lowRuntimeSeconds: 300 },
+  events: [
+    { at: "2026-09-29T18:44:40Z", event: "on-mains", charge: 96, runtime: 1180 },
+    { at: "2026-09-29T18:41:02Z", event: "on-battery", charge: 100, runtime: 1260 },
+  ],
+  eventsAvailable: "yes",
+  policy: { shutdownAtLowBattery: true, lowBatteryPercent: 20, lowRuntimeSeconds: 300, preparationSeconds: 60, configuredAt: "2026-09-29T10:00:00Z" },
+  guidance,
+};
+const hardware: PowerHardware = {
+  watchdog: { state: "loadable", usable: true, virtualization: "none", devices: [], driver: { name: "sp5100_tco", available: "module", loaded: false, blacklisted: true }, runtimeSeconds: 0, rebootSeconds: 600, managedByBoxPilot: false },
+  wakeOnLan: { ethtool: true, ports: [{ name: "enp5s0", mac: "02:00:00:00:00:01", driver: "r8169", up: true, supports: "pumbg", current: "d", supportsMagic: true, magicOn: false, linkFile: "/usr/lib/systemd/network/99-default.link", keptByBoxPilot: false }] },
+  boardVendor: "ASUSTeK COMPUTER INC.",
+};
+
 /** The page's reads, and any job it stages, recorded. */
 function serve(overrides: Record<string, (init?: RequestInit) => Response> = {}) {
   const staged: Record<string, unknown> = {};
@@ -41,6 +69,8 @@ function serve(overrides: Record<string, (init?: RequestInit) => Response> = {})
     if (url.endsWith("/operations/housekeeping.inspect/inspect")) return json({ operation: "housekeeping.inspect", result: housekeeping });
     if (url.endsWith("/api/v1/system/update")) return json({ ...release, updateAvailable: false, latest: { ...release.latest, tag: "v0.61.0", version: "0.61.0" } });
     if (url.endsWith("/api/v1/power/ups/detect")) return json({ devices: [], nutInstalled: false });
+    if (url.endsWith("/api/v1/power/overview")) return json(overview);
+    if (url.endsWith("/operations/power.hardware.inspect/inspect")) return json({ operation: "power.hardware.inspect", result: hardware });
     return json({ error: `unexpected ${url}` }, 500);
   }));
   return staged;
@@ -393,29 +423,116 @@ describe("the database copies updates took", () => {
   });
 });
 
-describe("the UPS", () => {
+describe("power", () => {
   const apc = { vendorId: "051d", productId: "0002", manufacturer: "American Power Conversion", product: "Back-UPS ES 700G", driver: "usbhid-ups", confidence: "vendor-id" as const, sysfs: "1-2" };
-  const props = { settings, loading: false, role: "owner", upsError: null, onLookAgain: vi.fn() };
-
-  it("explains when nothing is found", () => {
-    render(<SystemHardware {...props} start={vi.fn()} ups={{ devices: [], nutInstalled: false }} />);
-    expect(screen.getByText("No UPS found on USB")).toBeTruthy();
+  const notSetUp: PowerOverview = { ...overview, ups: { installed: false, configured: false, available: false, state: "unavailable", reason: "nut-client-not-installed", batteryChargePercent: null, estimatedRuntimeSeconds: null, loadPercent: null }, events: [], policy: null };
+  const props = (overrides: Partial<SystemPowerProps> = {}): SystemPowerProps => ({
+    role: "owner", start: vi.fn(), ups: { devices: [], nutInstalled: false }, upsError: null, onLookAgain: vi.fn(),
+    overview: notSetUp, overviewError: null, hardware, hardwareError: null, hardwareLoading: false, onReadHardware: vi.fn(), ...overrides,
   });
 
-  it("offers to install NUT, then sets up the detected UPS with the chosen shutdown behaviour", () => {
+  it("explains when nothing is found, and what is still to do", () => {
+    render(<SystemPower {...props()} />);
+    expect(screen.getByText("No UPS found on USB")).toBeTruthy();
+    expect(screen.getByText("No UPS found on USB yet")).toBeTruthy();
+    expect(screen.getByText("Not set up")).toBeTruthy();
+    expect(screen.getByText("No power events yet")).toBeTruthy();
+  });
+
+  it("offers to install NUT, then sets up the detected UPS with the chosen shutdown and thresholds", () => {
     const start = vi.fn<(operation: PendingOperation) => void>();
-    const { unmount } = render(<SystemHardware {...props} start={start} ups={{ devices: [apc], nutInstalled: false }} />);
+    const { unmount } = render(<SystemPower {...props({ start, ups: { devices: [apc], nutInstalled: false } })} />);
     fireEvent.click(screen.getByRole("button", { name: /Install NUT first/ }));
     expect(start).toHaveBeenCalledWith(expect.objectContaining({ operationId: "apt.install", parameters: { packages: ["nut"] } }));
     unmount();
 
     const setUp = vi.fn<(operation: PendingOperation) => void>();
-    render(<SystemHardware {...props} start={setUp} ups={{ devices: [apc], nutInstalled: true }} />);
-    expect(screen.getByText("American Power Conversion Back-UPS ES 700G")).toBeTruthy();
+    render(<SystemPower {...props({ start: setUp, ups: { devices: [apc], nutInstalled: true } })} />);
+    expect(screen.getByText("Found: American Power Conversion Back-UPS ES 700G")).toBeTruthy();
     fireEvent.click(screen.getByLabelText(/Shut this server down/));
+    fireEvent.change(screen.getByLabelText(/Low below/), { target: { value: "95" } });
+    expect(screen.getByText("A whole number from 10 to 90")).toBeTruthy();
     const button = screen.getByRole("button", { name: /Set up monitoring/ });
+    expect((button as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText(/Low below/), { target: { value: "30" } });
+    fireEvent.change(screen.getByLabelText(/Or under/), { target: { value: "5" } });
     expect(button.getAttribute("data-risk")).toBe("medium");
     fireEvent.click(button);
-    expect(setUp).toHaveBeenCalledWith(expect.objectContaining({ operationId: "ups.setup", parameters: { driver: "usbhid-ups", vendorId: "051d", productId: "0002", description: "American Power Conversion Back-UPS ES 700G", shutdownAtLowBattery: false } }));
+    expect(setUp).toHaveBeenCalledWith(expect.objectContaining({ operationId: "ups.setup", parameters: { driver: "usbhid-ups", vendorId: "051d", productId: "0002", description: "American Power Conversion Back-UPS ES 700G", shutdownAtLowBattery: false, lowBatteryPercent: 30, lowRuntimeSeconds: 300 } }));
+  });
+
+  it("with the UPS watched, says its state, when the shutdown starts, what it does, and the events in words", () => {
+    render(<SystemPower {...props({ overview, ups: { devices: [apc], nutInstalled: true } })} />);
+    expect(screen.getByText("Watching; shuts down on a low battery")).toBeTruthy();
+    expect(screen.getByText("below 20% or under 5 min left")).toBeTruthy();
+    expect(screen.getByText("Apps stop, drives unmount, power off")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Apply/ })).toBeTruthy();
+    const table = screen.getByRole("table", { name: "Power events, newest first" });
+    expect(within(table).getByText("The power came back after 4 min")).toBeTruthy();
+    expect(within(table).getByText("The power went out; the UPS took over")).toBeTruthy();
+    expect(thresholdWords(20, 300)).toBe("below 20% or under 5 min left");
+    expect(thresholdWords(null, null)).toBeNull();
+  });
+
+  it("turns the watchdog on with a preview that says a hang now reboots the server", () => {
+    const start = vi.fn<(operation: PendingOperation) => void>();
+    render(<SystemPower {...props({ start })} />);
+    expect(screen.getByText(/Ubuntu does not load its driver \(sp5100_tco\) by itself/)).toBeTruthy();
+    fireEvent.change(screen.getByLabelText(/Restart after the server is silent for/), { target: { value: "120" } });
+    const button = screen.getByRole("button", { name: /Turn on/ });
+    expect(button.getAttribute("data-risk")).toBe("medium");
+    fireEvent.click(button);
+    const staged = start.mock.calls[0][0];
+    expect(staged).toMatchObject({ operationId: "power.watchdog.enable", parameters: { runtimeSeconds: 120 } });
+    render(<>{staged.preview}</>);
+    expect(screen.getByText("From now on a hang causes an automatic reboot.")).toBeTruthy();
+  });
+
+  it("offers the watchdog's off switch when it is on, and says why it cannot be used elsewhere", () => {
+    const start = vi.fn<(operation: PendingOperation) => void>();
+    const on: PowerHardware = { ...hardware, watchdog: { ...hardware.watchdog, state: "on", runtimeSeconds: 60, devices: [{ device: "/dev/watchdog0", identity: "SP5100 TCO timer", software: false, state: "active", timeoutSeconds: 60, nowayout: false }] } };
+    render(<SystemPower {...props({ start, hardware: on })} />);
+    const off = screen.getByRole("button", { name: /Turn off/ });
+    expect(off.getAttribute("data-risk")).toBe("low");
+    fireEvent.click(off);
+    expect(start).toHaveBeenCalledWith(expect.objectContaining({ operationId: "power.watchdog.disable", parameters: {} }));
+    expect(watchdogWords({ state: "virtual-machine", usable: false, virtualization: "kvm" }).sentence).toContain("virtual machine (kvm)");
+    expect(watchdogWords({ state: "software-only", usable: false }).sentence).toContain("cannot restart a kernel that has frozen");
+    expect(watchdogWords(null).status).toBe("unknown");
+  });
+
+  it("puts this board's firmware setting first, and offers Wake-on-LAN with its address", () => {
+    const start = vi.fn<(operation: PendingOperation) => void>();
+    render(<SystemPower {...props({ start, overview })} />);
+    const panel = screen.getByRole("region", { name: "Power back on after an outage" });
+    expect(panel.id).toBe("power-on");
+    expect(within(panel).getByText("This board: ASUSTeK COMPUTER INC.")).toBeTruthy();
+    expect(within(panel).getByText("Advanced › APM Configuration › Restore AC Power Loss")).toBeTruthy();
+    expect(within(panel).getByText("02:00:00:00:00:01")).toBeTruthy();
+    const wake = within(panel).getByRole("switch", { name: /Wake-on-LAN for enp5s0/ });
+    fireEvent.click(wake);
+    expect(start).toHaveBeenCalledWith(expect.objectContaining({ operationId: "power.wake-on-lan.set", parameters: { interface: "enp5s0", enabled: true } }));
+  });
+
+  it("keeps the root reads from a viewer and offers them nothing to start", () => {
+    render(<SystemPower {...props({ role: "viewer", hardware: null, overview, ups: { devices: [apc], nutInstalled: true } })} />);
+    expect(screen.getByText("Reading the watchdog is for an operator")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Turn on|Apply|Set up monitoring/ })).toBeNull();
+    expect(screen.queryByRole("switch")).toBeNull();
+    // The firmware guidance is for everyone.
+    expect(screen.getByText("This board: ASUSTeK COMPUTER INC.")).toBeTruthy();
+  });
+
+  it("opens on the Power tab with the UPS, the watchdog read as an operator, and the Overview's Power figure", async () => {
+    serve();
+    window.history.replaceState(null, "", "/?tab=power");
+    render(<SystemPage csrfToken="csrf-token" role="operator" />);
+    expect(await screen.findByText("below 20% or under 5 min left")).toBeTruthy();
+    expect(await screen.findByText(/Ubuntu does not load its driver/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("tab", { name: "Overview" }));
+    const tile = await screen.findByRole("button", { name: /^Power/ });
+    expect(tile.textContent).toContain("On mains");
+    fireEvent.click(tile);
+    expect(window.location.search).toBe("?tab=power");
   });
 });

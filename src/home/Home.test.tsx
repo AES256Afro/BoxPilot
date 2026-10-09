@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { TopBarSlotProvider } from "../shell/TopBarSlot";
 import { FactsProvider } from "./facts";
 import Home from "./Home";
-import { stubFetch } from "./testData";
+import { answers, ago, stubFetch } from "./testData";
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
@@ -72,6 +72,29 @@ describe("Home", () => {
     fireEvent.click(jellyfin);
     fireEvent.click(within(screen.getByRole("dialog", { name: "Jellyfin" })).getByRole("button", { name: "Manage in the App catalog" }));
     expect(onNavigate).toHaveBeenCalledWith("catalog", { app: "jellyfin" });
+  });
+
+  it("tells the last week's power cuts as short news under the system figures (M39)", async () => {
+    const inventory = answers["/api/v1/inventory"] as Record<string, unknown>;
+    vi.stubGlobal("fetch", stubFetch({ "/api/v1/inventory": { ...inventory, power: { ups: { installed: true, configured: true, available: true, state: "online", batteryChargePercent: 100 }, events: [
+      { at: ago(1), event: "on-mains", charge: 96, runtime: 1180 },
+      { at: ago(1.05), event: "on-battery", charge: 100, runtime: 1260 },
+      { at: ago(2), event: "watching" },
+      { at: ago(24 * 10), event: "on-battery" },
+    ] } } }));
+    renderHome();
+    const news = await screen.findByRole("list", { name: "Power news" });
+    const items = within(news).getAllByRole("listitem").map((item) => item.textContent);
+    expect(items).toHaveLength(2);
+    expect(items[0]).toContain("The power came back after 3 min, battery 96%, about 20 min left");
+    expect(items[1]).toContain("The power went out; the UPS took over");
+  });
+
+  it("has no power news when there was none", async () => {
+    vi.stubGlobal("fetch", stubFetch());
+    renderHome();
+    await screen.findByText(/homebox needs you/);
+    expect(screen.queryByRole("list", { name: "Power news" })).toBeNull();
   });
 
   it("says it is checking while Check again reads, and that it has, even when nothing changed", async () => {
