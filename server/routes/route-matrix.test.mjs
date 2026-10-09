@@ -555,6 +555,8 @@ const dataRoutes = {
   "GET /api/v1/agents/:id/memory": [{ viewer: 404, operator: 403, owner: 200, params: () => ({ id: fixtures.keeper.id }), check: ({ body }) => expect(body.facts.map((note) => note.title)).toEqual(["Owner note"]) }],
   // M46: the example book, the owner's and the maker's, seeded from the template.
   "GET /api/v1/agents/:id/examples": [{ viewer: 404, operator: 403, owner: 200, params: () => ({ id: fixtures.keeper.id }), check: ({ body }) => expect(body.counts.seeds).toBeGreaterThan(0) }],
+  // M46.3: the book as training data leaves the box, so it is the owner's alone; JSON Lines, not JSON.
+  "GET /api/v1/agents/:id/examples/export": [{ viewer: 404, operator: 403, owner: 200, params: () => ({ id: fixtures.keeper.id }), check: ({ text }) => expect(text.split("\n")[0]).toContain('"messages"') }],
   "GET /api/v1/agents/:id/export": [{ viewer: 403, operator: 403, owner: 200, params: () => ({ id: fixtures.keeper.id }), check: ({ body }) => expect(body).toMatchObject({ format: "boxpilot-agent", version: 1 }) }],
 };
 

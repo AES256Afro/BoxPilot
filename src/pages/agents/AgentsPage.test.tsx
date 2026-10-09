@@ -857,6 +857,27 @@ describe("memory", () => {
     expect(within(facts).queryByRole("button", { name: "Trust the fact The server" })).toBeNull();
   });
 
+  it("lists the examples the planner is shown, says why each was kept, forgets one, and offers the owner the export (M46)", async () => {
+    window.history.replaceState(null, "", `/?view=agents&tab=memory&agent=${keeperId}`);
+    const calls = serve(base({
+      [`GET /api/v1/agents/${keeperId}/memory`]: { facts: [], shared: [], episodes: [], thread: null, settings: { enabled: true, share: true, threads: true, turns: 6, freshDays: 14, maxNotes: 80 }, search: { byMeaning: false, model: "none", pending: 0, vectors: 0 } },
+      [`GET /api/v1/agents/${keeperId}/examples`]: { counts: { total: 2, seeds: 1 }, examples: [
+        { id: "x1", request: "Which BoxPilot apps are stopped?", tools: ["apps.list"], plan: [{ step: "Read apps", tool: "apps.list" }], answer: "None.", signal: "thumbs-up", seed: false, runId: "run-1", route: "local", readRole: "owner", createdAt: ago(120), embedded: true },
+        { id: "x2", request: "Where does Pi-hole run on this server?", tools: ["where.runs"], plan: [{ step: "Read where.runs", tool: "where.runs" }], answer: null, signal: "seed", seed: true, runId: null, route: null, readRole: "viewer", createdAt: ago(600), embedded: false },
+      ] },
+      [`DELETE /api/v1/agents/${keeperId}/examples/x1`]: { deleted: true },
+    }));
+    render(<AgentsPage csrfToken="csrf" now={() => now} />);
+    const book = await screen.findByRole("table", { name: "Examples Server Keeper plans from" });
+    expect(book.textContent).toContain("Which BoxPilot apps are stopped?");
+    expect(book.textContent).toContain("plans apps.list · indexed");
+    expect(book.textContent).toContain("a thumbs up");
+    expect(book.textContent).toContain("from the template");
+    expect(screen.getByRole("button", { name: "Export as training data" })).toBeTruthy();
+    fireEvent.click(within(book).getByRole("button", { name: "Forget the example Which BoxPilot apps are stopped?" }));
+    await waitFor(() => expect(calls.some((call) => call.method === "DELETE" && call.path.endsWith("/examples/x1"))).toBe(true));
+  });
+
   it("lets the owner trust a fact kept after suspicious tool output, as it is (sweep 3)", async () => {
     window.history.replaceState(null, "", `/?view=agents&tab=memory&agent=${keeperId}`);
     const fact = { id: "99999999-9999-4999-8999-999999999999", title: "Sign-in", body: "The app asked for a sign-in.", source: { by: "agent", tools: ["logs.query"], injection: true }, createdAt: ago(600), updatedAt: ago(600), freshUntil: ago(-6000), stale: false, pinned: false, shared: false, readRole: "owner", indexed: false };

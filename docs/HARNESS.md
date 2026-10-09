@@ -323,6 +323,11 @@ step records which were shown and why ("planned with 3 examples"). `coverExample
 greedy) picks a set that covers a collection, for an export or a review. The CLI host has no book
 yet; the selector takes any host's candidates.
 
+The book is also training data (M46.3, `docs/TRAINING.md`): exported as chat-shaped JSON Lines
+with the house's names as stand-ins, from the API (the owner's) or from the database with
+`scripts/boxpilot-agents-examples.mjs`, for an adapter trained on a GPU machine elsewhere and gated
+by the same evaluation. Nothing in BoxPilot calls a trainer.
+
 The same spread applies to memory recall (M46.2, `diversify` in `server/agents/memory.mjs`): what
 the hybrid search returns to the prompt and to `memory.search` is the best few by fused score, then
 picked by maximal marginal relevance, so the same fact remembered as a note, an episode and a

@@ -39,6 +39,7 @@ import { systemMessage, taskMessage } from "./prompt.mjs";
 import { SpecError, agentEvents, budgetCeilings, diffSpecs, normalizeSpec, outputFormats, previousRunSecondsDefault, scopeWarnings, specText } from "./spec.mjs";
 import { digestToken, finishedStates } from "./store.mjs";
 import { agentTemplates, builtInQuestions, evaluationFacts, seedExamples, templateById, templateQuestions } from "./templates.mjs";
+import { toJsonl, trainingRecords } from "./examples-export.mjs";
 import { appUpdatesOf, drivesOf, failedServicesOf, placementOf, stoppedAppsOf, unhealthyAppsOf } from "./tool-text.mjs";
 import { describeTools, readToolInput, roleAtLeast, toModelTool, toolAllowed, toolById, toolCatalog, toolCategories } from "./tool-catalog.mjs";
 import { ToolError, createToolRunner, readableSources } from "./tools.mjs";
@@ -1181,14 +1182,18 @@ export function createAgentService({
     try {
       if (!run || !["ask", "manual", "eval", "schedule"].includes(run.kind) || run.state !== "completed") return null;
       if (run.flags?.injection || run.flags?.clarify) return null;
-      const plan = store.listSteps(run.id).find((step) => step.kind === "plan")?.input;
+      const steps = store.listSteps(run.id);
+      const plan = steps.find((step) => step.kind === "plan")?.input;
       const tools = [...new Set((Array.isArray(plan) ? plan : []).map((entry) => entry?.tool).filter((tool) => typeof tool === "string"))];
       if (!tools.length) return null;
+      // What the planner understood, for an export to carry the model's own answer (M46.3).
+      const understood = steps.find((step) => step.kind === "intent" && step.state === "done")?.input ?? null;
+      const intent = understood ? { goal: clip(String(understood.goal ?? ""), 300), subject: clip(String(understood.subject ?? ""), 120), constraints: (Array.isArray(understood.constraints) ? understood.constraints : []).slice(0, 5).map((entry) => clip(String(entry), 200)), confidence: typeof understood.confidence === "number" ? understood.confidence : null } : null;
       const spec = store.getVersion(run.agentId, run.version)?.spec ?? store.getAgent(run.agentId, { includeDeleted: true })?.spec;
       const request = clip(redact(String(run.question ?? run.trigger?.title ?? spec?.job ?? "").replace(/\s+/g, " ").trim()), 300);
       if (!request || detectInjection(request).suspected) return null;
       const kept = store.addExample({
-        agentId: run.agentId, source: run.id, signal, request,
+        agentId: run.agentId, source: run.id, signal, request, intent,
         plan: plan.slice(0, 6).map((entry) => ({ step: clip(String(entry?.step ?? ""), 200), tool: typeof entry?.tool === "string" ? entry.tool : null })),
         answer: run.answer ? clip(redact(String(run.answer)), 600) : null,
         route: run.usage?.route ? "claude" : "local", model: run.usage?.model ?? run.flags?.model ?? null, readRole: run.readRole,
@@ -1251,6 +1256,28 @@ export function createAgentService({
       })),
       counts: { total: Number(counts?.count ?? 0), seeds: Number(counts?.seeds ?? 0) },
     };
+  }
+
+  /**
+   * The book as training data (M46.3): the owner's alone, since it leaves the box. Chat-shaped JSON
+   * Lines with this house's names as stand-ins (`examples-export.mjs`); `cover` picks a covering
+   * subset of that many, `seeds: false` leaves the template's own examples out.
+   */
+  function exportExamples(caller, agentId, { cover = null, seeds = true } = {}) {
+    const person = personOf(caller);
+    const agent = agentFor(person, agentId);
+    if (person.role !== "owner") refuse(403, "Only the owner exports examples: they leave this server", "forbidden");
+    const vectors = store.vectorsOf(["example"]);
+    const model = embedModelName();
+    const examples = store.listExamples(agent.id, { limit: 1_000 }).map((example) => {
+      const stored = vectors.get(`example:${example.id}`);
+      return { ...example, vector: stored && stored.model === model ? decodeVector(stored.vector) : null };
+    });
+    const size = Number.isInteger(Number(cover)) && Number(cover) > 0 ? Math.min(Number(cover), 1_000) : null;
+    const records = trainingRecords({ agent: { name: agent.name, spec: agent.spec }, examples, names: houseNamesFor(), cover: size, seeds: seeds !== false && seeds !== "false" && seeds !== "0" });
+    audit("agents.examples.exported", { actorId: person.id, subjectId: agent.id, details: { records: records.length, cover: size, seeds: records.some((record) => record.meta.seed) } });
+    const slug = String(agent.name).replace(/[^A-Za-z0-9 _-]/g, "").trim().replace(/\s+/g, "-").toLowerCase() || "agent";
+    return { filename: `boxpilot-examples-${slug}-${now().toISOString().slice(0, 10)}.jsonl`, records: records.length, jsonl: toJsonl(records) };
   }
 
   function forgetExample(caller, agentId, exampleId) {
@@ -4202,7 +4229,7 @@ export function createAgentService({
     startRun, cancelRun, listRuns, getRun, subscribeRun,
     listNotes, deleteNote, listProposals, decideProposal, getProposal, stageProposalStep, glance, usage,
     memoryOf, editMemory, forgetMemory, giveFeedback, exportAgent, importAgent,
-    examplesOf, forgetExample,
+    examplesOf, forgetExample, exportExamples,
     mintAgentWebhook, clearAgentWebhook, fireAgentWebhook,
     knowledgeState, addDocument, uploadDocument, removeDocument, toggleDocument, pinDocument, relearn, reindexMemory, syncFolderNow,
     ingestConnector: (result, options) => ingestConnector(result, options),

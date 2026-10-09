@@ -133,6 +133,18 @@ export function createAgentsRouter({ agents, state, auth, cloud = noCloud }) {
   // M46: the example book, the work a person approved that the planner is shown.
   router.get("/agents/:id/examples", handle((request) => agents.examplesOf(callerOf(request), request.params.id)));
   router.delete("/agents/:id/examples/:exampleId", auth.requireCsrf, handle((request) => agents.forgetExample(callerOf(request), request.params.id, request.params.exampleId)));
+  // M46.3: the book as training data, JSON Lines with the house's names as stand-ins (the owner's: it leaves the box).
+  router.get("/agents/:id/examples/export", (request, response) => {
+    try {
+      const exported = agents.exportExamples(callerOf(request), request.params.id, { cover: typeof request.query.cover === "string" ? request.query.cover : null, seeds: request.query.seeds !== "false" });
+      response.setHeader("Cache-Control", "no-store");
+      response.setHeader("Content-Type", "application/x-ndjson; charset=utf-8");
+      response.setHeader("Content-Disposition", `attachment; filename="${exported.filename}"`);
+      response.send(exported.jsonl);
+    } catch (error) {
+      refuse(response, error);
+    }
+  });
   router.put("/agents/:id/memory/notes/:noteId", auth.requireCsrf, handle((request) => agents.editMemory(callerOf(request), request.params.id, request.params.noteId, request.body ?? {})));
   router.delete("/agents/:id/memory/notes/:noteId", auth.requireCsrf, handle((request) => agents.forgetMemory(callerOf(request), request.params.id, { kind: "note", id: request.params.noteId })));
   router.delete("/agents/:id/memory/episodes/:episodeId", auth.requireCsrf, handle((request) => agents.forgetMemory(callerOf(request), request.params.id, { kind: "episode", id: request.params.episodeId })));
