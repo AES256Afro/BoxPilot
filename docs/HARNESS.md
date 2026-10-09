@@ -294,8 +294,9 @@ operation's job is in Activity like any other.
 
 A host keeps an example book: requests and the plans that served them, kept when a person approved
 the work. BoxPilot's is `agent_examples` (`server/agents/store.mjs`), written when a card is staged,
-an answer gets a thumbs up, an answer is kept as a finding or an evaluation question is answered
-right, and taken back on a thumbs down; each template ships with examples of its own
+an answer gets a thumbs up (on the Test tab, or as "+1" under the answer in Zulip, M47.4), an
+answer is kept as a finding or an evaluation question is answered right, and taken back on a
+thumbs down; each template ships with examples of its own
 (`templateExamples`), chosen to sit on the boundaries a small model gets wrong. A run that read
 something like an instruction, asked back or made no plan leaves none; a request that itself reads
 like an instruction is never kept; requests are redacted. The memory index embeds the requests.
