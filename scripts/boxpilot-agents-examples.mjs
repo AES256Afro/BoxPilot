@@ -8,9 +8,12 @@
  *   boxpilot-agents-examples.mjs export <db> [--agent NAME] [--cover N] [--no-seeds]
  *                                            [--host NAME ...] [--domain NAME ...] [--user NAME ...]
  *   boxpilot-agents-examples.mjs pairs  <db> [--agent NAME] [--host NAME ...] [--domain NAME ...] [--user NAME ...]
+ *   boxpilot-agents-examples.mjs acting <db> [--agent NAME] [--host NAME ...] [--domain NAME ...] [--user NAME ...]
  *
  * `pairs` writes the preference pairs (M46.6): each thumbs down beside the approved example nearest
- * its request when their plans differ, for a DPO or ORPO stage after the fine-tune.
+ * its request when their plans differ, for a DPO or ORPO stage after the fine-tune. `acting` writes
+ * each approved run's whole conversation (M46.7): the task, the tool calls, each tool's boxed output
+ * and the answer, for the answer to be learned too.
  *
  * Run it as the database's owner (`runuser -u boxpilot -- node scripts/boxpilot-agents-examples.mjs
  * export /var/lib/boxpilot/boxpilot.sqlite3 > examples.jsonl`). The host's own name and the accounts
@@ -19,6 +22,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { houseNames } from "../server/agents/cloud.mjs";
 import { preferencePairs, toJsonl, trainingRecords } from "../server/agents/examples-export.mjs";
+import { actingRecords } from "../server/agents/acting-export.mjs";
 import { decodeVector } from "../server/agents/memory.mjs";
 
 const [action, databasePath, ...rest] = process.argv.slice(2);
@@ -43,11 +47,21 @@ function open(path) {
       return { id: row.run_id, request: String(row.question ?? "").replace(/\s+/g, " ").trim().slice(0, 300), understanding: intent && Array.isArray(plan) ? { ...intent, plan } : null, note: row.note ?? null, vector: null };
     })
     .filter((run) => run.request && run.understanding?.plan);
-  return { agents, examplesOf, rejectedOf, vectors, close: () => database.close() };
+  // The approved runs behind the book, each with its steps and the spec it ran as (M46.7).
+  const stepOf = (row) => ({ seq: row.seq, kind: row.kind, name: row.name ?? null, state: row.state, input: parse(row.input_json, null), output: row.output ?? null, flags: parse(row.flags_json, {}) });
+  const runOf = (row) => row && ({ id: row.id, agentId: row.agent_id, version: row.version, kind: row.kind, trigger: parse(row.trigger_json, {}), question: row.question ?? null, state: row.state, queuedAt: row.queued_at, startedAt: row.started_at ?? null, answer: row.answer ?? null, usage: parse(row.usage_json, {}), flags: parse(row.flags_json, {}), threadId: row.thread_id ?? null });
+  const approvedRunsOf = (agentId) => database.prepare("SELECT source, signal FROM agent_examples WHERE agent_id = ? AND source NOT LIKE 'seed:%' ORDER BY created_at").all(agentId).flatMap((example) => {
+    const run = runOf(database.prepare("SELECT * FROM agent_runs WHERE id = ?").get(example.source));
+    if (!run) return [];
+    const steps = database.prepare("SELECT * FROM agent_run_steps WHERE run_id = ? ORDER BY seq").all(run.id).map(stepOf);
+    const spec = parse(database.prepare("SELECT spec_json FROM agent_versions WHERE agent_id = ? AND version = ?").get(run.agentId, run.version)?.spec_json, null);
+    return [{ run, steps, spec, signal: example.signal }];
+  });
+  return { agents, examplesOf, rejectedOf, approvedRunsOf, vectors, close: () => database.close() };
 }
 
 try {
-  if (!["list", "export", "pairs"].includes(action) || !databasePath) throw new Error("usage: boxpilot-agents-examples.mjs list|export|pairs <db> [--agent NAME] [--cover N] [--no-seeds] [--host H] [--domain D] [--user U]");
+  if (!["list", "export", "pairs", "acting"].includes(action) || !databasePath) throw new Error("usage: boxpilot-agents-examples.mjs list|export|pairs|acting <db> [--agent NAME] [--cover N] [--no-seeds] [--host H] [--domain D] [--user U]");
   const book = open(databasePath);
   try {
     if (action === "list") {
@@ -67,11 +81,13 @@ try {
       let total = 0;
       for (const agent of chosen) {
         const examples = book.examplesOf(agent.id).map((example) => ({ ...example, vector: book.vectors.get(example.id) ?? null }));
-        const records = action === "pairs" ? preferencePairs({ agent, examples, rejected: book.rejectedOf(agent.id), names: extra }) : trainingRecords({ agent, examples, names: extra, cover, seeds });
+        const records = action === "pairs" ? preferencePairs({ agent, examples, rejected: book.rejectedOf(agent.id), names: extra })
+          : action === "acting" ? actingRecords({ agent, runs: book.approvedRunsOf(agent.id), names: extra })
+            : trainingRecords({ agent, examples, names: extra, cover, seeds });
         total += records.length;
         process.stdout.write(toJsonl(records));
       }
-      process.stderr.write(`${total} ${action === "pairs" ? "pairs" : "records"} from ${chosen.length} ${chosen.length === 1 ? "agent" : "agents"}\n`);
+      process.stderr.write(`${total} ${action === "pairs" ? "pairs" : action === "acting" ? "conversations" : "records"} from ${chosen.length} ${chosen.length === 1 ? "agent" : "agents"}\n`);
     }
   } finally {
     book.close();
