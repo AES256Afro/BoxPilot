@@ -3011,6 +3011,13 @@ every M37 to M45 agent test passing.
   right is kept by itself. Before a task, the nearest three by words (`selectExamples`; the CLI
   embeds nothing) go above it as "Tasks that went well in this folder, and the tools each used",
   and the trace says how many were shown and why. Test: `cli.test.mjs`.
+- ✅ **M47.8 The CLI's book as training data** (unreleased, `feat/cli-export`). The standalone host
+  kept a book (M47.5) with no way off the machine. `boxpilot-harness export` writes each good run's
+  whole conversation as the server's acting export does (M46.7): the rules it was given, the task,
+  each model turn with its tool calls, each tool's output boxed as the model read it, the answer;
+  JSON Lines on stdout, this machine's names through the same stand-ins Claude is given. A run whose
+  calls and outputs do not pair makes none; the demonstrations shown before the task are not kept
+  and are left out, and `meta.context` says so. Test: `cli.test.mjs`.
 - **Fixed on the way (2026-10-09, from the owner's server):** the Environment Scout raised an
   "Environment Scout needs you to look" card every night its evaluation question ("Which parts of
   this server can your tools not check?") ran into its step limit, though the answer passed: the
