@@ -38,7 +38,7 @@ import { exportDefinition, readDefinition } from "./portable.mjs";
 import { systemMessage, taskMessage } from "./prompt.mjs";
 import { SpecError, agentEvents, budgetCeilings, diffSpecs, normalizeSpec, outputFormats, previousRunSecondsDefault, scopeWarnings, specText } from "./spec.mjs";
 import { digestToken, finishedStates } from "./store.mjs";
-import { agentTemplates, builtInQuestions, evaluationFacts, templateById, templateQuestions } from "./templates.mjs";
+import { agentTemplates, builtInQuestions, evaluationFacts, seedExamples, templateById, templateQuestions } from "./templates.mjs";
 import { appUpdatesOf, drivesOf, failedServicesOf, placementOf, stoppedAppsOf, unhealthyAppsOf } from "./tool-text.mjs";
 import { describeTools, readToolInput, roleAtLeast, toModelTool, toolAllowed, toolById, toolCatalog, toolCategories } from "./tool-catalog.mjs";
 import { ToolError, createToolRunner, readableSources } from "./tools.mjs";
@@ -116,6 +116,10 @@ export const serviceLimits = Object.freeze({
   findingsInPrompt: 3,
   findingPromptChars: 900,
   findingChars: 2_000,
+  // Examples (M46): how many of the agent's examples go to the runner for it to choose from, and how
+  // many the planner is shown.
+  examplePool: 24,
+  examplesInPrompt: 3,
   // The longest the tick waits on a read outside this process (2026-10 sweep 2): a golden question's
   // fact (the inventory's df and docker, the helper) and a scan of the owner's folder (a NAS).
   factsTimeoutMs: 60_000,
@@ -1157,8 +1161,107 @@ export function createAgentService({
         },
       });
       audit("agents.finding.shared", { actorId: run.requestedBy, subjectId: agent.id, details: { runId: run.id, kind, unsure, partial, readRole: run.readRole } });
+      // An answer good enough to keep as a finding is a plan worth showing again (M46).
+      if (kind === "answer" && !unsure) rememberExample(run, "finding-kept");
       return finding;
     } catch { return null; /* a finding is a help, never a reason for a run to fail */ }
+  }
+
+  // ---- examples: the work a person approved (M46) ----
+
+  /**
+   * Keep a run as an example once a person approved what it did: the request and the plan the
+   * model made for it (the tools it read), with the answer. `signal` says what the approval was: a
+   * card staged, a thumbs up, an answer kept as a finding, an evaluation question answered right. A
+   * run that read something like an instruction, asked back, or made no plan leaves none. The
+   * request is redacted, and one that itself reads like an instruction is not kept: these lines go
+   * back into prompts.
+   */
+  function rememberExample(run, signal) {
+    try {
+      if (!run || !["ask", "manual", "eval", "schedule"].includes(run.kind) || run.state !== "completed") return null;
+      if (run.flags?.injection || run.flags?.clarify) return null;
+      const plan = store.listSteps(run.id).find((step) => step.kind === "plan")?.input;
+      const tools = [...new Set((Array.isArray(plan) ? plan : []).map((entry) => entry?.tool).filter((tool) => typeof tool === "string"))];
+      if (!tools.length) return null;
+      const spec = store.getVersion(run.agentId, run.version)?.spec ?? store.getAgent(run.agentId, { includeDeleted: true })?.spec;
+      const request = clip(redact(String(run.question ?? run.trigger?.title ?? spec?.job ?? "").replace(/\s+/g, " ").trim()), 300);
+      if (!request || detectInjection(request).suspected) return null;
+      const kept = store.addExample({
+        agentId: run.agentId, source: run.id, signal, request,
+        plan: plan.slice(0, 6).map((entry) => ({ step: clip(String(entry?.step ?? ""), 200), tool: typeof entry?.tool === "string" ? entry.tool : null })),
+        answer: run.answer ? clip(redact(String(run.answer)), 600) : null,
+        route: run.usage?.route ? "claude" : "local", model: run.usage?.model ?? run.flags?.model ?? null, readRole: run.readRole,
+      });
+      if (kept?.added) audit("agents.example.kept", { actorId: run.requestedBy, subjectId: run.agentId, details: { runId: run.id, signal, tools } });
+      return kept;
+    } catch { return null; /* an example is a help, never a reason for a run to fail */ }
+  }
+
+  /** A staged card's run, kept as an example. */
+  const rememberProposal = (proposal) => { if (proposal?.state === "staged" && proposal.runId) rememberExample(store.getRun(proposal.runId), "card-staged"); };
+
+  /** The examples an agent's template ships with (M46), each with every tool the agent may use when a person asks. */
+  function seedAgentExamples(agent) {
+    try {
+      let added = 0;
+      for (const seed of seedExamples(agent.template, agent.spec)) {
+        const kept = store.addExample({ agentId: agent.id, source: `seed:${seed.id}`, signal: "seed", request: seed.request, plan: seed.tools.map((tool) => ({ step: `Read ${toolById(tool)?.title ?? tool}`, tool })), readRole: "viewer" });
+        if (kept?.added) added += 1;
+      }
+      return added;
+    } catch { return 0; }
+  }
+
+  /**
+   * The examples the runner chooses the planner's demonstrations from (M46): this agent's, at the
+   * run's role, whose every tool the run was offered, each with its vector when the memory index has
+   * made one. All of them while there are few; past that, the ones nearest by words and every seed.
+   */
+  function exampleCandidates(agent, run, offered) {
+    const allowed = new Set(offered.map((tool) => tool.id));
+    const examples = store.listExamples(agent.id, { limit: 400 }).filter((example) => roleAtLeast(run.readRole, example.readRole) && example.plan.some((entry) => entry.tool) && example.plan.every((entry) => !entry.tool || allowed.has(entry.tool)));
+    if (!examples.length) return [];
+    const vectors = store.vectorsOf(["example"]);
+    const model = embedModelName();
+    const candidate = (example) => {
+      const stored = vectors.get(`example:${example.id}`);
+      const vector = stored && stored.model === model ? decodeVector(stored.vector) : null;
+      const tools = [...new Set(example.plan.map((entry) => entry.tool).filter(Boolean))];
+      return { key: example.id, text: example.request, tools, label: tools[0] ?? null, ...(vector ? { vector: Array.from(vector, (value) => Math.round(value * 1e4) / 1e4) } : {}) };
+    };
+    if (examples.length <= limits.examplePool) return examples.map(candidate);
+    const query = [run.question, run.trigger?.title].filter(Boolean).join(" ");
+    const chosen = new Set(hybridSearch(examples.map((example) => ({ key: example.id, title: "", text: example.request, weight: example.seed ? 1.1 : 1 })), { query, limit: limits.examplePool }).map((item) => item.key));
+    for (const example of examples) if (example.seed) chosen.add(example.id);
+    return examples.filter((example) => chosen.has(example.id)).slice(0, limits.examplePool * 2).map(candidate);
+  }
+
+  /** The example book as the Memory tab shows it: the owner's and the maker's to read and prune. */
+  function examplesOf(caller, agentId) {
+    const person = personOf(caller);
+    const agent = agentFor(person, agentId);
+    if (!canEdit(person, agent)) refuse(403, "An agent's examples are for the owner and the person who made it", "forbidden");
+    const vectors = store.vectorsOf(["example"]);
+    const counts = store.countExamples(agent.id);
+    return {
+      examples: store.listExamples(agent.id).map((example) => ({
+        id: example.id, request: example.request, tools: [...new Set(example.plan.map((entry) => entry.tool).filter(Boolean))], plan: example.plan, answer: example.answer,
+        signal: example.signal, seed: example.seed, runId: example.seed ? null : example.source, route: example.route, readRole: example.readRole, createdAt: example.createdAt, embedded: vectors.has(`example:${example.id}`),
+      })),
+      counts: { total: Number(counts?.count ?? 0), seeds: Number(counts?.seeds ?? 0) },
+    };
+  }
+
+  function forgetExample(caller, agentId, exampleId) {
+    const person = personOf(caller);
+    const agent = agentFor(person, agentId);
+    if (!canEdit(person, agent)) refuse(403, "An agent's examples are for the owner and the person who made it", "forbidden");
+    const example = store.getExample(agent.id, exampleId);
+    if (!example) refuse(404, "There is no such example", "example_not_found");
+    store.deleteExample(agent.id, example.id);
+    audit("agents.example.forgotten", { actorId: person.id, subjectId: agent.id, details: { exampleId: example.id, signal: example.signal } });
+    return { deleted: true };
   }
 
   /** A finding as the Memory tab shows it. */
@@ -1287,6 +1390,7 @@ export function createAgentService({
     // An evaluation plans too (M40): it measures what a person asking gets, and the plan is where
     // a tool is chosen. A supervisor's follow-up does not: it writes up what it was handed.
     const understand = run.kind !== "continue";
+    const candidates = understand ? exampleCandidates(agent, run, offered) : [];
     return {
       run: { id: run.id, kind: run.kind, question: run.question, trigger: run.trigger, readRole: run.readRole, startedAt: run.startedAt, deadlineAt },
       lease,
@@ -1301,8 +1405,9 @@ export function createAgentService({
       // A follow-up's specialists' answers, T1, T2 ...: tool output already, before any it reads (sweep 3).
       handoffs,
       tools: offered.map((tool) => ({ id: tool.id, ...toModelTool(["operations.run", "operations.plan"].includes(tool.id) ? actTool(tool, spec) : tool) })),
-      // Intent, then plan, then act: the runner asks for the structured understanding first.
-      understand: understand ? { tools: offered.map((tool) => ({ fn: tool.fn, title: tool.title, ...(tool.use ? { use: tool.use } : {}) })) } : null,
+      // Intent, then plan, then act: the runner asks for the structured understanding first, shown a
+      // few of the agent's examples (M46), which it picks from these where the model is.
+      understand: understand ? { tools: offered.map((tool) => ({ fn: tool.fn, title: tool.title, ...(tool.use ? { use: tool.use } : {}) })), ...(candidates.length ? { examples: { candidates, limit: limits.examplesInPrompt } } : {}) } : null,
       output: outputFor(spec, run),
       runtime,
       // M45.4: both models, when the run may change from one to the other.
@@ -1334,9 +1439,11 @@ export function createAgentService({
     for (const agent of store.listAgents()) {
       for (const note of store.listNotes(agent.id, { limit: 200 })) items.push({ key: `note:${note.id}`, text: `${note.title}\n${note.body}` });
       for (const episode of store.listEpisodes(agent.id, { limit: 200 })) items.push({ key: `episode:${episode.id}`, text: episode.text });
+      // The example book (M46): the request alone, which is what a new request is compared with.
+      for (const example of store.listExamples(agent.id, { limit: 400 })) items.push({ key: `example:${example.id}`, text: example.request });
     }
     for (const document of store.listDocuments().filter((entry) => entry.enabled)) chunksOf(document).forEach((text, index) => items.push({ key: `doc:${document.id}#${index}`, text: `${document.title}\n${text}` }));
-    const kinds = ["note", "episode", "doc"];
+    const kinds = ["note", "episode", "doc", "example"];
     const vectors = store.vectorsOf(kinds);
     return items.filter((item) => { const stored = vectors.get(item.key); return !stored || stored.model !== model || stored.textHash !== textHash(item.text); });
   }
@@ -1731,7 +1838,12 @@ export function createAgentService({
       const clean = (text) => sanitizeUntrusted(text, { maxChars: 400, redact }).text;
       const intent = { goal: clean(understanding.goal), subject: clean(understanding.subject), constraints: understanding.constraints.map(clean), tools: understanding.tools, confidence: understanding.confidence, clarify: understanding.clarify ? clean(understanding.clarify) : null };
       const plan = understanding.plan.map((entry) => ({ step: clean(entry.step), tool: entry.tool }));
-      const first = store.addStep(run.id, { kind: "intent", name: "understood", input: intent, output: understandingSummary(intent), flags: { confidence: intent.confidence, ...(read.dropped.length ? { dropped: read.dropped } : {}) }, ...timing });
+      // The examples the planner was shown (M46): which, and why each was picked.
+      const examples = (Array.isArray(step.examples) ? step.examples : []).slice(0, 5)
+        .filter((entry) => entry && typeof entry.key === "string")
+        .map((entry) => ({ key: entry.key.slice(0, 64), why: ["nearest", "contrast", "diverse"].includes(entry.why) ? entry.why : "nearest" }));
+      const shown = examples.length ? `; planned with ${examples.length} ${examples.length === 1 ? "example" : "examples"}` : "";
+      const first = store.addStep(run.id, { kind: "intent", name: "understood", input: intent, output: `${understandingSummary(intent)}${shown}`, flags: { confidence: intent.confidence, ...(read.dropped.length ? { dropped: read.dropped } : {}), ...(examples.length ? { examples } : {}) }, ...timing });
       // A question asked back ends the run before any plan is followed, so none is shown.
       const second = intent.clarify ? null : store.addStep(run.id, { kind: "plan", name: "plan", input: plan, output: plan.map((entry, index) => `${index + 1}. ${entry.step}${entry.tool ? ` (${entry.tool})` : ""}`).join("\n") || "No steps: answer from what it can read." });
       store.mergeRunFlags(run.id, { confidence: intent.confidence });
@@ -2886,6 +2998,7 @@ export function createAgentService({
     refuseReservedName(normalized.name);
     const agent = store.createAgent({ spec: normalized, template: base?.id ?? null, createdBy: person.id, nextRunAt: nextRunFor(normalized) });
     if (base && templateQuestions[base.id]?.length) store.setQuestions(agent.id, templateQuestions[base.id], { updatedBy: person.id });
+    if (base) seedAgentExamples(agent);
     audit("agents.created", { actorId: person.id, subjectId: agent.id, details: { template: base?.id ?? null, name: normalized.name } });
     return presentAgent(person, agent, { detail: true });
   }
@@ -3268,6 +3381,9 @@ export function createAgentService({
     }
     const given = store.setFeedback(run.id, { agentId: run.agentId, version: run.version, model: run.flags?.model ?? null, verdict, note: cleanNote, givenBy: person.id });
     audit("agents.feedback", { actorId: person.id, subjectId: run.id, details: { agentId: run.agentId, version: run.version, verdict } });
+    // A thumbs up keeps the run as an example (M46); a thumbs down takes one back.
+    if (verdict === "up") rememberExample(run, "thumbs-up");
+    else store.deleteExampleOfRun(run.agentId, run.id);
     return { verdict: given.verdict, note: given.note, mine: true, ...(added ? { addedToEvaluation: added } : {}) };
   }
 
@@ -3438,6 +3554,7 @@ export function createAgentService({
     const decided = store.decideProposal(proposal.id, { state: decision, decidedBy: person.id, jobIds: ids });
     if (!decided) refuse(409, "That card was already decided", "proposal_decided");
     audit("agents.proposal.decided", { actorId: person.id, subjectId: proposal.id, details: { decision, jobs: ids.length } });
+    rememberProposal(decided);
     return presentProposal(person, decided);
   }
 
@@ -3470,6 +3587,7 @@ export function createAgentService({
     const decided = store.decideProposal(proposal.id, { state: "staged", decidedBy, jobIds: jobs.map((job) => job.id) });
     if (!decided) return store.getProposal(proposal.id) ?? proposal;
     audit("agents.proposal.decided", { actorId: decidedBy, subjectId: proposal.id, details: { decision: "staged", jobs: jobs.length, automatic: true } });
+    rememberProposal(decided);
     return decided;
   }
 
@@ -4068,6 +4186,8 @@ export function createAgentService({
     // M45.7: how long it took and what it cost, for the routes side by side.
     const measured = { seconds: Math.round(finite(run.usage?.wallMs, 86_400_000) / 100) / 10, costUsd: Math.round(finite(run.usage?.costUsd, 1_000) * 1_000_000) / 1_000_000, route: run.usage?.route ? "claude" : "local" };
     const graded = store.gradeEval(run.eval.evalId, run.eval.questionId, { passed, found, ...measured, ...(skipped ? { skipped } : {}) });
+    // A question answered right is a plan worth showing again (M46).
+    if (passed === true) rememberExample(run, "eval-passed");
     // The last answer is in: a drop against the evaluations before it is flagged (M40).
     if (graded?.state === "done") {
       const drop = accuracyDrop(historyOf(store.listEvalRuns(run.agentId, limits.evalHistory)));
@@ -4082,6 +4202,7 @@ export function createAgentService({
     startRun, cancelRun, listRuns, getRun, subscribeRun,
     listNotes, deleteNote, listProposals, decideProposal, getProposal, stageProposalStep, glance, usage,
     memoryOf, editMemory, forgetMemory, giveFeedback, exportAgent, importAgent,
+    examplesOf, forgetExample,
     mintAgentWebhook, clearAgentWebhook, fireAgentWebhook,
     knowledgeState, addDocument, uploadDocument, removeDocument, toggleDocument, pinDocument, relearn, reindexMemory, syncFolderNow,
     ingestConnector: (result, options) => ingestConnector(result, options),
@@ -4265,7 +4386,14 @@ export function createAgentService({
       next.sharing = { at: now().toISOString(), added };
       changed += added;
     }
-    if (next.runSeconds !== done.runSeconds || next.sharing !== done.sharing) state.setSetting?.(agentsMigrationsKey, next, { updatedBy: null });
+    // M46: agents made before the example book get their template's examples, once.
+    if (!done.examples) {
+      let seeded = 0;
+      for (const agent of store.listAgents()) if (agent.template) seeded += seedAgentExamples(agent);
+      next.examples = { at: now().toISOString(), seeded };
+      changed += seeded;
+    }
+    if (next.runSeconds !== done.runSeconds || next.sharing !== done.sharing || next.examples !== done.examples) state.setSetting?.(agentsMigrationsKey, next, { updatedBy: null });
     return changed;
   }
 

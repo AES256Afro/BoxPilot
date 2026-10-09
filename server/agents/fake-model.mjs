@@ -85,7 +85,18 @@ const argumentsFor = (tool, question) => {
 
 // The request is in the first user message (the task); the plan and the planner's instruction the
 // runner adds after it, and later messages, are the runner's own words.
-const lastUserText = (messages) => textOf(messages.find((message) => message?.role === "user")?.content ?? "").split(/\n\n(?:Your plan:|Work out what is asked and plan it\.|Tools made for requests worded like this:)/)[0];
+const lastUserText = (messages) => textOf(messages.find((message) => message?.role === "user")?.content ?? "").split(/\n\n(?:Your plan:|Work out what is asked and plan it\.|Tools made for requests worded like this:|Plans that worked for requests like this one:)/)[0];
+
+/**
+ * The demonstrations the planner was shown (M46), as a model that reads its prompt would take them
+ * up: the tools of the first (nearest) example, as catalog ids. Empty when there were none.
+ */
+function demonstrated(messages) {
+  const text = textOf(messages.find((message) => message?.role === "user")?.content ?? "");
+  const block = text.split(/\n\nPlans that worked for requests like this one:\n/)[1]?.split(/\n\n/)[0] ?? "";
+  const first = block.split("\n")[0] ?? "";
+  return [...(first.split("->")[1] ?? "").matchAll(/\b([a-z]+_[a-z_]+)\b/g)].map((match) => match[1].replace(/_/g, "."));
+}
 const firstUserText = (messages) => textOf(messages.find((message) => message?.role === "user")?.content ?? "");
 
 /**
@@ -122,8 +133,10 @@ export function structuredReply(body) {
     const question = lastUserText(messages);
     const offered = plannerTools(body);
     const readable = offered.filter((toolName) => !["notes.write", "plan.propose", "notify.owner"].includes(toolName));
-    // The tools the runner pointed at first, then the ones the words suggest.
-    const tools = [...new Set([...pointedAt(messages).hinted.filter((toolName) => readable.includes(toolName)), ...pickTools(question, readable)])].slice(0, 2);
+    // The tools the runner pointed at first, then the ones the words suggest; when the words suggest
+    // nothing in particular, the nearest demonstration's tools (M46), as a model shown examples would.
+    const shown = topics.some(([pattern]) => pattern.test(question)) ? [] : demonstrated(messages).filter((toolName) => readable.includes(toolName));
+    const tools = [...new Set([...pointedAt(messages).hinted.filter((toolName) => readable.includes(toolName)), ...(shown.length ? shown : pickTools(question, readable))])].slice(0, 2);
     const asked = /<question>\s*([\s\S]*?)\s*<\/question>/.exec(question)?.[1]?.trim();
     const understanding = {
       goal: asked ? `Answer “${asked.slice(0, 160)}”` : "Do my job once and report",

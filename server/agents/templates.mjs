@@ -434,6 +434,83 @@ export const builtInEvaluation = Object.freeze([
   { id: "builtin-os", tool: "server.facts", question: "Which operating system and version does this server run?", expect: { fact: "operatingSystem" } },
 ].map((entry) => Object.freeze(entry)));
 
+/**
+ * The examples each template starts with (M46): a request as a person would word it and the tools
+ * a good plan reads for it. They are the first demonstrations the planner is shown, before the owner
+ * has approved anything, and they are chosen to sit on the boundaries a small model gets wrong:
+ * "where does Pi-hole run" is where.runs, "is Pi-hole blocking" is pihole.stats, "which apps are
+ * stopped" is apps.list. Only the ones whose every tool the agent may use are seeded.
+ */
+export const templateExamples = Object.freeze({
+  "server-keeper": [
+    { id: "where-pihole", request: "Where does Pi-hole run on this server?", tools: ["where.runs"] },
+    { id: "pihole-blocking", request: "Is Pi-hole blocking ads right now?", tools: ["pihole.stats"] },
+    { id: "where-app", request: "Is Jellyfin installed as a BoxPilot app, another container, or on the host?", tools: ["where.runs"] },
+    { id: "stopped", request: "Which BoxPilot apps are stopped or unhealthy?", tools: ["apps.list"] },
+    { id: "restarting", request: "Why does the Nextcloud container keep restarting?", tools: ["apps.list", "logs.query"] },
+    { id: "drives", request: "Which drives are connected, and how full is the root disk?", tools: ["storage.health"] },
+    { id: "os", request: "What operating system and version does this server run?", tools: ["server.facts"] },
+    { id: "services", request: "Have any system services failed?", tools: ["services.status"] },
+    { id: "overnight", request: "What went wrong on the server overnight?", tools: ["alerts.active", "jobs.recent"] },
+    { id: "backup-when", request: "When was Jellyfin last backed up?", tools: ["backups.status"] },
+    { id: "howto", request: "How do I restore an app from a backup?", tools: ["docs.search"] },
+  ],
+  "environment-scout": [
+    { id: "unhealthy", request: "Which BoxPilot apps are unhealthy or keep restarting?", tools: ["apps.list"] },
+    { id: "services", request: "Which system services have failed?", tools: ["services.status"] },
+    { id: "root", request: "How full is the root filesystem?", tools: ["storage.health"] },
+    { id: "wrong-now", request: "What is wrong on the server right now?", tools: ["alerts.active"] },
+    { id: "backups", request: "Which apps have no recent backup?", tools: ["backups.status"] },
+  ],
+  "pihole-watcher": [
+    { id: "where", request: "Where does Pi-hole run on this server?", tools: ["where.runs"] },
+    { id: "blocking", request: "Is Pi-hole blocking right now?", tools: ["pihole.stats"] },
+    { id: "blocked-today", request: "How many queries did Pi-hole block today?", tools: ["pihole.stats"] },
+    { id: "gravity", request: "Is Pi-hole's blocklist out of date?", tools: ["pihole.stats"] },
+  ],
+  "backup-auditor": [
+    { id: "missing", request: "Which apps have no recent backup?", tools: ["backups.status", "apps.list"] },
+    { id: "failed-job", request: "Did last night's backup job fail?", tools: ["jobs.recent"] },
+    { id: "room", request: "Is there room left on the backup drive?", tools: ["storage.health"] },
+  ],
+  "app-doctor": [
+    { id: "stopped", request: "Which BoxPilot apps are stopped?", tools: ["apps.list"] },
+    { id: "unhealthy-why", request: "Why is Jellyfin unhealthy?", tools: ["apps.list", "logs.query"] },
+    { id: "log", request: "What does the Nextcloud log say?", tools: ["logs.query"] },
+    { id: "backup-first", request: "Is there a backup of Nextcloud before I restart it?", tools: ["backups.status"] },
+  ],
+  "storage-watch": [
+    { id: "drives", request: "Which drives are connected to this server?", tools: ["storage.health"] },
+    { id: "root", request: "How full is the root filesystem, as a percentage?", tools: ["storage.health"] },
+    { id: "smart", request: "Is any drive failing its SMART checks?", tools: ["storage.health"] },
+    { id: "days-left", request: "How many days until the root disk is full at this rate?", tools: ["storage.health", "calc"] },
+  ],
+  "update-planner": [
+    { id: "updates", request: "Which BoxPilot apps have an update available?", tools: ["apps.list"] },
+    { id: "last-update", request: "Did the last update job succeed?", tools: ["jobs.recent"] },
+    { id: "count", request: "How many BoxPilot apps are installed?", tools: ["apps.list"] },
+  ],
+  "it-support": [
+    { id: "restore", request: "How do I restore an app from a backup?", tools: ["docs.search"] },
+    { id: "hostname", request: "What is this server called?", tools: ["server.facts"] },
+    { id: "where-pihole", request: "Where does Pi-hole run on this server?", tools: ["where.runs"] },
+    { id: "running", request: "Is Jellyfin running?", tools: ["apps.list"] },
+    { id: "unreachable", request: "Why can't I reach the dashboard?", tools: ["apps.list", "alerts.active"] },
+  ],
+  "house-guide": [
+    { id: "pihole-for", request: "What is Pi-hole for?", tools: ["docs.search"] },
+    { id: "hostname", request: "What is this server called?", tools: ["server.facts"] },
+    { id: "installed", request: "Which apps are installed on this server?", tools: ["apps.list"] },
+    { id: "where-jellyfin", request: "Where does Jellyfin run?", tools: ["where.runs"] },
+  ],
+  blank: [],
+});
+
+/** A template's examples whose every tool this spec lets the agent use when a person asks. */
+export function seedExamples(templateId, spec) {
+  return (templateExamples[templateId] ?? []).filter((entry) => entry.tools.every((tool) => ["auto", "ask"].includes(spec?.tools?.[tool])));
+}
+
 /** The built-in questions an agent's tools can answer: any tool it may use when a person asks. */
 export function builtInQuestions(spec) {
   return builtInEvaluation.filter((entry) => ["auto", "ask"].includes(spec?.tools?.[entry.tool])).map(({ id, question, expect, tool }) => ({ id, question, expect: { ...expect }, tool, builtIn: true }));
