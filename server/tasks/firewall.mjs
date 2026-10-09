@@ -1,7 +1,8 @@
 import { copyFile, readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import { fixedRun } from "../exec.mjs";
-import { buildPlan, defaultWebPort, isProtected, protectedRules } from "../firewall-profiles.mjs";
+import { webListenFromEnv } from "../env-file.mjs";
+import { buildPlan, isProtected, protectedRules } from "../firewall-profiles.mjs";
 import { syncDockerRules } from "./firewall-docker.mjs";
 
 /**
@@ -29,13 +30,14 @@ export function validateRule({ action, port, protocol, comment = null } = {}) {
   return null;
 }
 
-/** BOXPILOT_PORT / BOXPILOT_HOST from the service env file; defaults match server/index.mjs. */
+/**
+ * BOXPILOT_PORT / BOXPILOT_HOST from the service env file, read as systemd reads it (the last line
+ * for a key wins, blanks around "=" are allowed); defaults match server/index.mjs.
+ */
 export async function readWebEnv({ envPath = defaultEnvPath, read = (file) => readFile(file, "utf8") } = {}) {
   let content = "";
   try { content = await read(envPath); } catch { /* defaults below */ }
-  const value = (name) => content.match(new RegExp(`^${name}=["']?([^"'\\n]*)["']?\\s*$`, "m"))?.[1]?.trim();
-  const port = Number.parseInt(value("BOXPILOT_PORT") ?? "", 10);
-  return { webPort: Number.isInteger(port) && port > 0 && port <= 65535 ? port : defaultWebPort, webHost: value("BOXPILOT_HOST") || "127.0.0.1" };
+  return webListenFromEnv(content);
 }
 
 function ruleSpec({ port, protocol }) {

@@ -7,13 +7,19 @@ import type { RiskTier } from "./types";
  * a page built on src/ui starts a new operation.
  */
 export const operationRisk = {
+  "agents.cloud.cap": "medium",
+  "agents.cloud.connect": "high",
+  "agents.cloud.disconnect": "medium",
   "agents.connector.sync": "low",
   "agents.model.download": "medium",
   "agents.model.remove": "medium",
   "agents.model.switch": "medium",
+  "agents.runtime.cpu": "low",
   "agents.runtime.disable": "low",
   "agents.runtime.enable": "medium",
   "agents.runtime.install": "medium",
+  "agents.zulip.connect": "medium",
+  "agents.zulip.disconnect": "low",
   "app.action": "low",
   "app.backup": "medium",
   "app.backup.delete": "medium",
@@ -36,6 +42,7 @@ export const operationRisk = {
   "app.uninstall": "medium",
   "app.update": "medium",
   "app.vpn.killswitch.drill": "medium",
+  "app.zulip.organization.link": "medium",
   "apt.autoremove": "medium",
   "apt.install": "medium",
   "apt.refresh": "low",
@@ -50,12 +57,17 @@ export const operationRisk = {
   "backup.remote.sync": "medium",
   "backup.remote.test": "medium",
   "backup.sync": "medium",
+  "cloudflare.connect": "high",
+  "cloudflare.disconnect": "medium",
+  "cloudflare.publish": "high",
+  "cloudflare.unpublish": "medium",
   "compose.project.action": "medium",
   "controller.backup.create": "low",
   "controller.backup.protect": "medium",
   "controller.backup.retention.apply": "medium",
   "credentials.remove": "medium",
   "credentials.set": "medium",
+  "dns.fallback.rehearse": "medium",
   "dns.names.apply": "medium",
   "dns.names.clear": "medium",
   "docker.logging.set": "medium",
@@ -64,12 +76,15 @@ export const operationRisk = {
   "firewall.rule.add": "medium",
   "firewall.rule.delete": "medium",
   "firewall.set": "high",
+  "heartbeat.set": "medium",
+  "heartbeat.test": "low",
   "homepage.sync": "low",
   "host.snapshot.create": "medium",
   "host.snapshot.restore": "high",
   "host.snapshot.restores.discard": "medium",
   "housekeeping.database-copies.remove": "medium",
   "housekeeping.reclaim": "medium",
+  "housekeeping.unreadable-snapshot.remove": "medium",
   "network.wake": "low",
   "nfs.apply": "medium",
   "notifications.ntfy.connect": "high",
@@ -147,7 +162,7 @@ export type KnownOperation = keyof typeof operationRisk;
  * Operations whose registry entry says `minimumRole: "owner"`: an operator may not stage them
  * whatever their tier. The same test holds this list to the registry.
  */
-export const ownerOnlyOperations: ReadonlySet<string> = new Set<KnownOperation>(["agents.connector.sync", "agents.model.download", "agents.model.remove", "agents.model.switch", "agents.runtime.enable", "agents.runtime.install", "backup.cloud.setup", "backup.cloud.sync", "backup.cloud.test", "credentials.remove", "credentials.set", "housekeeping.database-copies.remove", "notifications.ntfy.connect", "router.connect", "system.web.lan.set", "system.web.tls.provision", "vm.backup.snapshot.forget", "vpn.profile.clear", "vpn.profile.set"]);
+export const ownerOnlyOperations: ReadonlySet<string> = new Set<KnownOperation>(["agents.cloud.cap", "agents.cloud.connect", "agents.cloud.disconnect", "agents.connector.sync", "agents.model.download", "agents.model.remove", "agents.model.switch", "agents.runtime.cpu", "agents.runtime.enable", "agents.runtime.install", "agents.zulip.connect", "agents.zulip.disconnect", "app.zulip.organization.link", "backup.cloud.setup", "backup.cloud.sync", "backup.cloud.test", "cloudflare.connect", "cloudflare.disconnect", "cloudflare.publish", "cloudflare.unpublish", "credentials.remove", "credentials.set", "heartbeat.set", "heartbeat.test", "housekeeping.database-copies.remove", "housekeeping.unreadable-snapshot.remove", "notifications.ntfy.connect", "router.connect", "system.web.lan.set", "system.web.tls.provision", "vm.backup.snapshot.forget", "vpn.profile.clear", "vpn.profile.set"]);
 
 /** The tier for an operation. An id missing from the table is high, as it is on the server. */
 export function riskOf(operationId: string): RiskTier {

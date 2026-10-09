@@ -58,7 +58,12 @@ Environment=BOXPILOT_LIBVIRT_URI=qemu:///system
 RuntimeDirectory=boxpilot
 RuntimeDirectoryMode=0750
 StateDirectory=boxpilot-managed boxpilot-migration
-StateDirectoryMode=0700
+# 0710 (root:boxpilot): the web service stages ISO uploads in its own vm-media-inbox inside
+# boxpilot-managed, so its group may pass through, never list or read; everything else in both
+# directories stays 0700 and root's own. systemd sets this mode on the directories each time it
+# starts a command of this unit, so it has to be said here: a chmod in ExecStartPre was undone
+# before ExecStart, and at 0700 every upload failed with EACCES.
+StateDirectoryMode=0710
 CacheDirectory=boxpilot-restic boxpilot-controller-restic boxpilot-application-restic
 CacheDirectoryMode=0700
 ExecStartPre=/usr/bin/install -d -o boxpilot -g boxpilot -m 0700 /var/lib/boxpilot-managed/vm-media-inbox

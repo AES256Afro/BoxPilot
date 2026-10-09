@@ -1,0 +1,1497 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!--
+  The looks study (M41), 2026-09-30: one look for the whole site, ten more directions, and the
+  Appearance page to choose between them. The owner chose to build all thirteen; each look in
+  src/looks/ is built to match its drawing here. Open this file in a browser (it loads its fonts
+  from Google Fonts). #only=<mockup> draws one mockup filling the window, which is how
+  scripts/look-check.mjs renders the reference pictures in 05-looks/refs/ at 1440x900.
+  Fictional data from the demo (homebox); nothing personal.
+-->
+<title>BoxPilot Looks</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;700;900&family=B612:wght@400;700&family=B612+Mono:wght@400;700&family=Barlow+Condensed:wght@500;600;700&family=Figtree:wght@400;500;600;700;800&family=Fredoka:wght@400;500;600;700&family=IBM+Plex+Sans+Condensed:wght@400;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Literata:ital,wght@0,400;0,600;1,400&family=Martian+Mono:wght@400;600&family=Overpass:wght@400;600;800&family=PT+Sans:wght@400;700&family=Pixelify+Sans:wght@400;600&family=Share+Tech+Mono&family=VT323&display=swap">
+<style>
+/* Layout: a review sheet. Each option is a labelled band of screen mockups on a quiet ground, so the screens carry the colour. */
+:root {
+  --bg: #edf1f4;
+  --panel: #ffffff;
+  --fg: #13212c;
+  --muted: #4f5f6c;
+  --line: #d3dbe2;
+  --accent: #17625f;
+  --accent-soft: rgba(23, 98, 95, 0.1);
+  --on-accent: #ffffff;
+  --f-ui: "Figtree", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-label: "IBM Plex Sans Condensed", "Arial Narrow", ui-sans-serif, sans-serif;
+  --f-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --show-light: block;
+  --show-dark: none;
+
+  /* Home, the Launcher: BoxPilot's own values (src/styles.css), daylight */
+  --wb1: #e4eef5; --wb2: #f6ece2;
+  --wg-sea: rgba(150, 200, 222, 0.8); --wg-sun: rgba(250, 190, 150, 0.75); --wg-deep: rgba(198, 212, 244, 0.9);
+  --lx-ink: #13212c; --lx-mute: rgba(19, 33, 44, 0.74);
+  --lx-glass: rgba(255, 255, 255, 0.5); --lx-glass2: rgba(255, 255, 255, 0.72); --lx-gb: rgba(255, 255, 255, 0.85);
+  --lx-hair: rgba(19, 33, 44, 0.1); --lx-track: rgba(19, 33, 44, 0.12); --lx-bar: #13212c;
+  --lx-pill: #13212c; --lx-pill-ink: #ffffff;
+  --lx-good: #15803d; --lx-warn: #b45309; --lx-good-text: #14532d; --lx-warn-text: #7c2d12;
+  --lx-good-bg: rgba(21, 128, 61, 0.14); --lx-warn-bg: rgba(217, 119, 6, 0.16);
+  --lx-ring: #eef3f6; --lx-shadow: 0 0.6em 1.6em rgba(40, 60, 80, 0.16);
+  --tier-med: #f59e0b;
+
+  /* Ops, the Command Center: BoxPilot's own values, on paper */
+  --cc-canvas: #f3f2ee; --cc-top: #fbfaf7; --cc-rail: #ebe9e3; --cc-panel: #ffffff; --cc-raised: #f1efe9; --cc-inset: #f7f6f2;
+  --cc-line: #dedbd2; --cc-hair: #ebe8e1; --cc-text: #2b3139; --cc-strong: #101418; --cc-muted: #59626d;
+  --cc-amber: #935700; --cc-amber-ink: #ffffff; --cc-amber-bg: rgba(154, 91, 0, 0.08); --cc-amber-bd: rgba(154, 91, 0, 0.4);
+  --cc-cyan: #0b7489; --cc-green: #147447; --cc-green-bd: rgba(22, 121, 74, 0.4); --cc-track: #e6e3dc;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0d151d; --panel: #131e28; --fg: #e4ebf1; --muted: #9aabb9; --line: #243342;
+    --accent: #6fd3c4; --accent-soft: rgba(111, 211, 196, 0.12); --on-accent: #06201d;
+    --show-light: none; --show-dark: block;
+    --wb1: #193240; --wb2: #161e2c;
+    --wg-sea: rgba(30, 110, 108, 0.7); --wg-sun: rgba(210, 108, 44, 0.46); --wg-deep: rgba(33, 60, 108, 0.95);
+    --lx-ink: #ffffff; --lx-mute: rgba(255, 255, 255, 0.8);
+    --lx-glass: rgba(255, 255, 255, 0.09); --lx-glass2: rgba(255, 255, 255, 0.15); --lx-gb: rgba(255, 255, 255, 0.16);
+    --lx-hair: rgba(255, 255, 255, 0.12); --lx-track: rgba(0, 0, 0, 0.3); --lx-bar: #ffffff;
+    --lx-pill: #ffffff; --lx-pill-ink: #16232e;
+    --lx-good: #4ade80; --lx-warn: #fbbf24; --lx-good-text: #86efac; --lx-warn-text: #fcd34d;
+    --lx-good-bg: rgba(4, 58, 30, 0.6); --lx-warn-bg: rgba(70, 46, 0, 0.6);
+    --lx-ring: #1d2e3c; --lx-shadow: 0 0.6em 1.6em rgba(0, 0, 0, 0.28);
+    --cc-canvas: #0a0d10; --cc-top: #0c1014; --cc-rail: #07090b; --cc-panel: #10151a; --cc-raised: #151b22; --cc-inset: #080b0e;
+    --cc-line: #1c232b; --cc-hair: #161c22; --cc-text: #c3cbd5; --cc-strong: #eef2f6; --cc-muted: #8a95a1;
+    --cc-amber: #ffb547; --cc-amber-ink: #1a1000; --cc-amber-bg: rgba(255, 181, 71, 0.08); --cc-amber-bd: rgba(255, 181, 71, 0.38);
+    --cc-cyan: #56c8e0; --cc-green: #3dd68c; --cc-green-bd: rgba(61, 214, 140, 0.35); --cc-track: #1c232b;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0d151d; --panel: #131e28; --fg: #e4ebf1; --muted: #9aabb9; --line: #243342;
+  --accent: #6fd3c4; --accent-soft: rgba(111, 211, 196, 0.12); --on-accent: #06201d;
+  --show-light: none; --show-dark: block;
+  --wb1: #193240; --wb2: #161e2c;
+  --wg-sea: rgba(30, 110, 108, 0.7); --wg-sun: rgba(210, 108, 44, 0.46); --wg-deep: rgba(33, 60, 108, 0.95);
+  --lx-ink: #ffffff; --lx-mute: rgba(255, 255, 255, 0.8);
+  --lx-glass: rgba(255, 255, 255, 0.09); --lx-glass2: rgba(255, 255, 255, 0.15); --lx-gb: rgba(255, 255, 255, 0.16);
+  --lx-hair: rgba(255, 255, 255, 0.12); --lx-track: rgba(0, 0, 0, 0.3); --lx-bar: #ffffff;
+  --lx-pill: #ffffff; --lx-pill-ink: #16232e;
+  --lx-good: #4ade80; --lx-warn: #fbbf24; --lx-good-text: #86efac; --lx-warn-text: #fcd34d;
+  --lx-good-bg: rgba(4, 58, 30, 0.6); --lx-warn-bg: rgba(70, 46, 0, 0.6);
+  --lx-ring: #1d2e3c; --lx-shadow: 0 0.6em 1.6em rgba(0, 0, 0, 0.28);
+  --cc-canvas: #0a0d10; --cc-top: #0c1014; --cc-rail: #07090b; --cc-panel: #10151a; --cc-raised: #151b22; --cc-inset: #080b0e;
+  --cc-line: #1c232b; --cc-hair: #161c22; --cc-text: #c3cbd5; --cc-strong: #eef2f6; --cc-muted: #8a95a1;
+  --cc-amber: #ffb547; --cc-amber-ink: #1a1000; --cc-amber-bg: rgba(255, 181, 71, 0.08); --cc-amber-bd: rgba(255, 181, 71, 0.38);
+  --cc-cyan: #56c8e0; --cc-green: #3dd68c; --cc-green-bd: rgba(61, 214, 140, 0.35); --cc-track: #1c232b;
+  color-scheme: dark;
+}
+
+/* ───────── page ───────── */
+body { background: var(--bg); color: var(--fg); font: 16px/1.55 var(--f-ui); }
+.wrap { max-width: 1320px; margin: 0 auto; padding-inline: clamp(16px, 4vw, 48px); padding-block: 44px 140px; }
+.top { display: grid; gap: 14px; max-width: 64ch; }
+.eyebrow { font: 600 12px/1 var(--f-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+h1.title { font: 800 clamp(36px, 5.4vw, 60px)/1 var(--f-ui); letter-spacing: -0.025em; margin: 0; text-wrap: balance; }
+.lede { font-size: 18px; color: var(--muted); margin: 0; }
+.jump { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.jump a { font: 600 14px/1 var(--f-ui); color: var(--fg); text-decoration: none; padding: 9px 14px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); }
+.jump a:hover { border-color: var(--accent); color: var(--accent); }
+.band { margin-top: 76px; display: grid; gap: 20px; scroll-margin-top: 20px; }
+.band > h2 { font: 800 clamp(26px, 3.2vw, 36px)/1.1 var(--f-ui); letter-spacing: -0.015em; margin: 0; text-wrap: balance; }
+.band > .intro { max-width: 70ch; color: var(--muted); margin: 0; font-size: 17px; }
+.dir { display: grid; gap: 16px; padding-top: 28px; border-top: 1px solid var(--line); }
+.dir__head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; }
+.dir__head h3, .theme__head h3 { font: 700 22px/1.2 var(--f-ui); margin: 0; letter-spacing: -0.01em; }
+.dir > p { margin: 0; max-width: 72ch; }
+.mine { font: 700 11px/1 var(--f-label); text-transform: uppercase; letter-spacing: 0.1em; color: var(--accent); background: var(--accent-soft); padding: 6px 9px; border-radius: 999px; }
+.pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.pair > .is-wide, .themes > .is-wide { grid-column: 1 / -1; }
+@media (max-width: 1080px) { .pair, .themes { grid-template-columns: minmax(0, 1fr) !important; } }
+figure { margin: 0; display: grid; gap: 8px; min-width: 0; align-content: start; }
+figcaption { display: flex; align-items: center; gap: 10px; font: 600 14px/1.3 var(--f-ui); }
+figcaption .grow { flex: 1; }
+.tag { font: 700 10.5px/1 var(--f-mono); text-transform: uppercase; letter-spacing: 0.07em; padding: 5px 7px; border-radius: 5px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
+.tag--new { color: var(--accent); border-color: var(--accent); }
+.frame { overflow-x: auto; border-radius: 12px; border: 1px solid var(--line); background: var(--panel); box-shadow: 0 1px 2px rgba(19, 33, 44, 0.05), 0 10px 28px -14px rgba(19, 33, 44, 0.35); }
+.screen { container-type: inline-size; min-width: 560px; }
+.frame img { display: block; width: 100%; height: auto; min-width: 560px; }
+.shot-light { display: var(--show-light) !important; }
+.shot-dark { display: var(--show-dark) !important; }
+.tradeoffs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 28px; font-size: 15px; max-width: 980px; }
+@media (max-width: 700px) { .tradeoffs { grid-template-columns: minmax(0, 1fr); } }
+.tradeoffs h4 { font: 700 11.5px/1 var(--f-label); text-transform: uppercase; letter-spacing: 0.1em; margin: 0 0 6px; color: var(--muted); }
+.tradeoffs ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+.btn { font: 600 13px/1 var(--f-ui); color: var(--fg); background: var(--panel); border: 1px solid var(--line); padding: 8px 13px; border-radius: 999px; cursor: pointer; white-space: nowrap; }
+.btn:hover { border-color: var(--accent); }
+.btn:focus-visible, .jump a:focus-visible, .st-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.pick[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+.themes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 44px 22px; }
+.theme { display: grid; gap: 10px; align-content: start; min-width: 0; }
+.theme__head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; }
+.theme__head h3 { margin-right: auto; }
+.theme > p { margin: 0; color: var(--muted); font-size: 15px; max-width: 62ch; }
+.theme > p b { color: var(--fg); font-weight: 600; }
+.notes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 28px 44px; max-width: 1100px; }
+@media (max-width: 860px) { .notes { grid-template-columns: minmax(0, 1fr); } }
+.notes h3 { font: 700 19px/1.25 var(--f-ui); margin: 0 0 10px; }
+.notes ol, .notes ul { margin: 0; padding-left: 22px; display: grid; gap: 10px; }
+.notes li::marker { color: var(--accent); font-weight: 700; }
+.picks { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); z-index: 10; display: flex; align-items: center; gap: 12px; max-width: calc(100% - 32px); padding: 8px 8px 8px 18px; border-radius: 999px; background: var(--fg); color: var(--bg); box-shadow: 0 12px 32px -8px rgba(0, 0, 0, 0.45); }
+.picks[hidden] { display: none; }
+.picks__list { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.picks__list b { font-weight: 700; }
+.picks .btn { background: var(--bg); color: var(--fg); border-color: transparent; }
+footer.end { margin-top: 64px; color: var(--muted); font-size: 14px; border-top: 1px solid var(--line); padding-top: 18px; }
+
+/* ───────── every mockup: one em is 1/74 of the screen's width ───────── */
+.s { aspect-ratio: 16 / 10; font-size: calc(100cqw / 74); position: relative; overflow: hidden; line-height: 1.3; isolation: isolate; }
+.s * { box-sizing: border-box; }
+.s .ic { width: 1.15em; height: 1.15em; flex: none; display: block; }
+.s kbd { font: 600 0.78em/1.2 var(--f-mono); border: 1px solid currentColor; border-radius: 0.3em; padding: 0.05em 0.4em; opacity: 0.75; }
+.s h5, .s h6, .s p { margin: 0; }
+.sq { --sz: 4.2em; width: var(--sz); height: var(--sz); border-radius: calc(var(--sz) * 0.24); background: linear-gradient(160deg, var(--a), var(--b)); display: grid; place-items: center; position: relative; flex: none; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), 0 0.35em 0.8em rgba(0, 0, 0, 0.2); }
+.sq > span { font-size: calc(var(--sz) * 0.44); line-height: 1; }
+.sq[data-st]::after { content: ""; position: absolute; top: -0.28em; right: -0.28em; width: 1.05em; height: 1.05em; border-radius: 50%; border: 0.16em solid var(--lx-ring); background: var(--lx-good); }
+.sq[data-st="warn"]::after { background: var(--lx-warn); }
+.sq[data-st="idle"]::after { background: var(--lx-mute); }
+
+/* Launcher pieces */
+.lxw { color: var(--lx-ink); font-family: var(--f-ui); background: radial-gradient(62% 82% at 10% 6%, var(--wg-sea), transparent 64%), radial-gradient(50% 68% at 94% 8%, var(--wg-sun), transparent 62%), radial-gradient(70% 70% at 62% 108%, var(--wg-deep), transparent 65%), linear-gradient(160deg, var(--wb1), var(--wb2)); }
+.glass { background: var(--lx-glass); border: 1px solid var(--lx-gb); border-radius: 1.1em; -webkit-backdrop-filter: blur(14px) saturate(1.3); backdrop-filter: blur(14px) saturate(1.3); box-shadow: var(--lx-shadow); }
+.lx-top { position: absolute; inset: 0 0 auto; height: 3.6em; display: flex; align-items: center; gap: 1em; padding: 0 1.6em; z-index: 2; }
+.lx-host { display: flex; align-items: baseline; gap: 0.45em; font: 700 0.95em var(--f-ui); white-space: nowrap; }
+.lx-host small { font-weight: 500; font-size: 0.85em; color: var(--lx-mute); }
+.lx-host i { font-style: normal; color: var(--lx-warn); font-size: 0.8em; }
+.seg { display: flex; gap: 0.1em; padding: 0.22em; border-radius: 999px; background: var(--lx-glass); border: 1px solid var(--lx-gb); }
+.seg b { display: flex; align-items: center; gap: 0.35em; font: 600 0.8em var(--f-ui); padding: 0.4em 0.85em; border-radius: 999px; white-space: nowrap; }
+.seg b.on { background: var(--lx-pill); color: var(--lx-pill-ink); }
+.seg .ic { width: 1.1em; height: 1.1em; }
+.lx-search { flex: 0 1 24em; display: flex; align-items: center; gap: 0.6em; height: 2.4em; padding: 0 0.9em; border-radius: 999px; background: var(--lx-glass2); border: 1px solid var(--lx-gb); font-size: 0.8em; color: var(--lx-mute); white-space: nowrap; }
+.lx-search kbd { margin-left: auto; }
+.lx-right { margin-left: auto; display: flex; align-items: center; gap: 0.9em; }
+.av { width: 1.9em; height: 1.9em; border-radius: 50%; background: #f2c49b; color: #4a2a12; display: grid; place-items: center; font: 700 0.8em var(--f-ui); }
+.chip { display: inline-flex; align-items: center; gap: 0.35em; font: 700 0.68em/1 var(--f-ui); padding: 0.42em 0.6em; border-radius: 0.45em; background: var(--lx-warn-bg); color: var(--lx-warn-text); white-space: nowrap; }
+.chip::before { content: "▲"; font-size: 0.85em; }
+.tier { display: inline-block; font: 700 0.58em/1 var(--f-mono); letter-spacing: 0.06em; text-transform: uppercase; padding: 0.32em 0.45em; border-radius: 0.3em; background: var(--lx-warn-bg); color: var(--lx-warn-text); vertical-align: middle; white-space: nowrap; }
+.tier.low { background: var(--lx-good-bg); color: var(--lx-good-text); }
+.pill { display: inline-flex; align-items: center; gap: 0.45em; background: var(--lx-pill); color: var(--lx-pill-ink); font: 600 0.74em/1 var(--f-ui); padding: 0.55em 0.95em; border-radius: 999px; white-space: nowrap; }
+.pill::before { content: ""; width: 0.22em; height: 1.05em; border-radius: 0.1em; background: var(--tier-med); }
+.pill.low::before, .pill.ghost::before { display: none; }
+.pill.ghost { background: var(--lx-glass2); color: var(--lx-ink); border: 1px solid var(--lx-gb); }
+.meter { height: 0.45em; border-radius: 1em; background: var(--lx-track); overflow: hidden; }
+.meter i { display: block; height: 100%; border-radius: inherit; background: var(--lx-bar); }
+.meter.warn i { background: var(--lx-warn); }
+.msw { width: 2.3em; height: 1.3em; border-radius: 1em; background: var(--lx-track); position: relative; flex: none; }
+.msw::after { content: ""; position: absolute; top: 0.15em; left: 0.15em; width: 1em; height: 1em; border-radius: 50%; background: #ffffff; box-shadow: 0 0.1em 0.25em rgba(0, 0, 0, 0.3); }
+.msw.on { background: var(--lx-good); }
+.msw.on::after { left: 1.15em; }
+.well { width: 2.6em; height: 2.6em; border-radius: 0.75em; background: var(--lx-glass2); border: 1px solid var(--lx-gb); display: grid; place-items: center; flex: none; }
+.well .ic { width: 1.3em; height: 1.3em; }
+.lx-dock { position: absolute; left: 50%; bottom: 0.9em; transform: translateX(-50%); display: flex; gap: 0.1em; padding: 0.4em 0.55em; border-radius: 1.1em; z-index: 3; }
+.lx-dock span { display: grid; justify-items: center; gap: 0.2em; padding: 0.2em 0.3em; min-width: 3.1em; }
+.lx-dock span i { display: grid; place-items: center; width: 2.2em; height: 2.2em; border-radius: 0.65em; background: var(--lx-glass2); }
+.lx-dock span small { font-size: 0.54em; font-weight: 600; }
+.lx-dock span.on i { background: var(--lx-pill); color: var(--lx-pill-ink); }
+.lx-dock hr { width: 1px; border: 0; background: var(--lx-hair); margin: 0.3em 0.25em; }
+.lx-pn { padding: 0.9em 1em; display: grid; gap: 0.6em; align-content: start; }
+.lx-pn h5 { display: flex; align-items: center; gap: 0.5em; font: 700 0.64em var(--f-ui); letter-spacing: 0.1em; text-transform: uppercase; color: var(--lx-mute); }
+.lx-pn h5 .ic { width: 1.35em; height: 1.35em; }
+.lx-pn h5 span { margin-left: auto; letter-spacing: 0; text-transform: none; }
+
+/* Home everywhere: Storage */
+.lx-page { position: absolute; inset: 3.9em 1.6em 5.2em; display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 1em; }
+.lx-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 0.35em 1em; }
+.lx-head h1 { margin: 0; font: 800 2.9em/1 var(--f-ui); letter-spacing: -0.025em; }
+.lx-head p { grid-column: 1; display: flex; align-items: center; gap: 0.6em; font-size: 0.92em; }
+.lx-head .pill { grid-row: 1 / 3; grid-column: 2; align-self: center; }
+.lx-cols { display: grid; grid-template-columns: 1.2fr 1fr; gap: 1em; min-height: 0; align-items: start; }
+.lx-stack { display: grid; gap: 0.9em; align-content: start; }
+.lx-drive { display: grid; grid-template-columns: 2.6em minmax(0, 1fr) auto; gap: 0.4em 0.8em; align-items: center; padding-top: 0.8em; border-top: 1px solid var(--lx-hair); }
+.lx-drive.first { border-top: 0; padding-top: 0.1em; }
+.lx-drive b { font-size: 0.95em; }
+.lx-drive small { display: block; font: 500 0.68em var(--f-mono); color: var(--lx-mute); margin-top: 0.2em; }
+.lx-drive .val { text-align: right; }
+.lx-drive .val b { font: 700 1.1em var(--f-mono); }
+.lx-drive .meter, .lx-drive .row { grid-column: 2 / -1; }
+.lx-drive .row { display: flex; align-items: center; justify-content: space-between; gap: 1em; font-size: 0.76em; }
+.lx-li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0.15em 0.8em; align-items: center; padding-top: 0.55em; border-top: 1px solid var(--lx-hair); }
+.lx-li.first { border-top: 0; padding-top: 0; }
+.lx-li b { font-size: 0.8em; font-weight: 600; }
+.lx-li small { grid-column: 1; font-size: 0.66em; color: var(--lx-mute); }
+.lx-li > :last-child { grid-row: 1 / 3; grid-column: 2; }
+.lx-need { display: grid; grid-template-columns: 2.6em minmax(0, 1fr); gap: 0.3em 0.8em; }
+.lx-need b { font-size: 0.82em; font-weight: 600; }
+.lx-need p { font-size: 0.68em; color: var(--lx-mute); }
+.lx-need .acts { display: flex; gap: 0.4em; margin-top: 0.3em; }
+
+/* Ops everywhere: Home in the console */
+.cc { background: var(--cc-canvas); color: var(--cc-text); font-family: var(--f-label); display: grid; grid-template-columns: 3.6em minmax(0, 1fr); }
+.cc-rail { background: var(--cc-rail); border-right: 1px solid var(--cc-line); display: flex; flex-direction: column; align-items: center; gap: 0.75em; padding: 0.8em 0; color: var(--cc-muted); }
+.cc-logo { width: 2.2em; height: 2.2em; border-radius: 0.4em; background: var(--cc-amber); color: var(--cc-amber-ink); font: 700 0.85em var(--f-label); display: grid; place-items: center; margin-bottom: 0.3em; }
+.cc-ri { padding: 0.3em; border-radius: 0.35em; }
+.cc-ri.on { color: var(--cc-amber); box-shadow: inset 0 0 0 1px var(--cc-amber-bd); background: var(--cc-amber-bg); }
+.cc-ri.end { margin-top: auto; }
+.cc-main { display: grid; grid-template-rows: auto auto auto minmax(0, 1fr); min-width: 0; }
+.cc-top { display: flex; align-items: center; gap: 0.9em; height: 3.1em; padding: 0 1.2em; border-bottom: 1px solid var(--cc-line); background: var(--cc-top); white-space: nowrap; }
+.cc-top b { color: var(--cc-strong); font-size: 0.95em; }
+.cc-top .path { color: var(--cc-muted); margin-left: -0.5em; }
+.cc-top .mono { font: 400 0.72em var(--f-mono); color: var(--cc-muted); overflow: hidden; text-overflow: ellipsis; }
+.cc-search { margin-left: auto; display: flex; align-items: center; gap: 0.6em; border: 1px solid var(--cc-line); border-radius: 0.3em; padding: 0.35em 0.7em; font-size: 0.74em; color: var(--cc-muted); background: var(--cc-inset); }
+.cc-bell { display: flex; align-items: center; gap: 0.3em; color: var(--cc-muted); }
+.cc-bell em { font: 700 0.62em var(--f-mono); font-style: normal; background: var(--cc-amber); color: var(--cc-amber-ink); border-radius: 1em; padding: 0.15em 0.45em; }
+.cc-verdict { display: flex; gap: 0.7em; align-items: center; padding: 0.75em 1.2em; font-size: 0.9em; color: var(--cc-strong); }
+.cc-verdict .go { margin-left: auto; color: var(--cc-amber); font-weight: 600; font-size: 0.9em; }
+.cc-chip { font: 600 0.74em/1 var(--f-label); color: var(--cc-amber); border: 1px solid var(--cc-amber-bd); background: var(--cc-amber-bg); padding: 0.3em 0.55em; border-radius: 999px; white-space: nowrap; }
+.cc-strip { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 0.55em; padding: 0 1.2em; }
+.cc-tile { background: var(--cc-panel); border: 1px solid var(--cc-line); border-radius: 0.25em; padding: 0.65em 0.8em; display: grid; gap: 0.15em; position: relative; min-width: 0; }
+.cc-tile .k { font: 600 0.58em var(--f-mono); letter-spacing: 0.12em; color: var(--cc-muted); text-transform: uppercase; white-space: nowrap; }
+.cc-tile .v { font: 500 1.55em/1.1 var(--f-mono); color: var(--cc-strong); white-space: nowrap; }
+.cc-tile .v small { font-size: 0.45em; color: var(--cc-muted); margin-left: 0.15em; }
+.cc-tile .d { font-size: 0.64em; color: var(--cc-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cc-tile .spark { position: absolute; right: 0.7em; bottom: 0.7em; width: 3.6em; height: 1.3em; color: var(--cc-cyan); }
+.cc-bar { height: 0.25em; background: var(--cc-track); border-radius: 1em; margin-top: 0.25em; overflow: hidden; }
+.cc-bar i { display: block; height: 100%; background: var(--cc-cyan); }
+.cc-grid { display: grid; grid-template-columns: 1.3fr 1fr; gap: 0.55em; padding: 0.55em 1.2em 1.1em; min-height: 0; }
+.cc-col { display: grid; gap: 0.55em; align-content: start; min-height: 0; }
+.cc-panel { background: var(--cc-panel); border: 1px solid var(--cc-line); border-radius: 0.25em; overflow: hidden; }
+.cc-panel h4 { margin: 0; display: flex; justify-content: space-between; gap: 1em; font: 600 0.62em var(--f-mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--cc-text); padding: 0.85em 0.9em; border-bottom: 1px solid var(--cc-line); white-space: nowrap; }
+.cc-panel h4 span { color: var(--cc-muted); letter-spacing: 0.02em; text-transform: none; font-weight: 400; }
+.cc-apps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.cc-app { display: grid; grid-template-columns: 2em minmax(0, 1fr); column-gap: 0.6em; align-items: center; padding: 0.5em 0.8em; border-bottom: 1px solid var(--cc-hair); border-right: 1px solid var(--cc-hair); }
+.cc-app .sq { --sz: 2em; grid-row: span 2; box-shadow: none; }
+.cc-app .sq::after { display: none; }
+.cc-app b { font: 600 0.74em var(--f-mono); color: var(--cc-strong); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cc-app small { font-size: 0.64em; color: var(--cc-green); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cc-app[data-st="warn"] small { color: var(--cc-amber); }
+.cc-app[data-st="idle"] small { color: var(--cc-muted); }
+.cc-app.add b { color: var(--cc-muted); font-family: var(--f-label); }
+.cc-app.add .sq { background: none; border: 1px dashed var(--cc-line); color: var(--cc-muted); }
+.cc-need { display: grid; grid-template-columns: 2.9em minmax(0, 1fr); gap: 0.2em 0.8em; padding: 0.7em 0.9em; border-bottom: 1px solid var(--cc-hair); }
+.cc-tier { font: 700 0.6em/1 var(--f-mono); border: 1px solid var(--cc-amber-bd); color: var(--cc-amber); background: var(--cc-amber-bg); padding: 0.45em 0; text-align: center; border-radius: 0.2em; align-self: start; grid-row: span 3; }
+.cc-tier.low { border-color: var(--cc-green-bd); color: var(--cc-green); background: none; }
+.cc-need b { font-weight: 600; font-size: 0.78em; color: var(--cc-strong); }
+.cc-need p { font-size: 0.66em; color: var(--cc-muted); }
+.cc-btns { display: flex; gap: 0.4em; margin-top: 0.25em; }
+.cc-btn { font: 600 0.66em/1 var(--f-label); border: 1px solid var(--cc-line); background: var(--cc-raised); color: var(--cc-strong); padding: 0.45em 0.75em 0.45em 0.6em; border-left: 0.25em solid var(--cc-amber); border-radius: 0.2em; white-space: nowrap; }
+.cc-btn.low { border-left-color: var(--cc-line); }
+.cc-jobs { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto auto; gap: 0; font: 400 0.66em var(--f-mono); }
+.cc-jobs > span { padding: 0.5em 0.9em; border-bottom: 1px solid var(--cc-hair); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cc-jobs .ok { color: var(--cc-green); }
+.cc-jobs .dim { color: var(--cc-muted); }
+.cc-kv { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0.1em 1em; padding: 0.6em 0.9em; border-bottom: 1px solid var(--cc-hair); font-size: 0.74em; }
+.cc-kv b { font: 600 1em var(--f-mono); color: var(--cc-strong); }
+.cc-kv .cc-bar { grid-column: 1 / -1; }
+.cc-kv .cc-bar i { background: var(--cc-amber); }
+
+/* Home + Ops */
+.bl { position: absolute; inset: 0; display: grid; grid-template-columns: 12.6em minmax(0, 1fr); gap: 1em; padding: 1em; }
+.bl-side { padding: 0.9em 0.6em; display: flex; flex-direction: column; gap: 0.08em; min-height: 0; }
+.bl-me { display: flex; align-items: center; gap: 0.6em; padding: 0.1em 0.5em 0.8em; border-bottom: 1px solid var(--lx-hair); margin-bottom: 0.2em; }
+.bl-me .mk { width: 2.2em; height: 2.2em; border-radius: 0.65em; background: linear-gradient(160deg, #2f6fe4, #1846b0); color: #ffffff; display: grid; place-items: center; font: 800 0.78em var(--f-ui); flex: none; }
+.bl-me b { display: block; font-size: 0.9em; }
+.bl-me small { display: flex; gap: 0.35em; align-items: center; font-size: 0.64em; color: var(--lx-mute); white-space: nowrap; }
+.bl-me small::before { content: ""; width: 0.6em; height: 0.6em; border-radius: 50%; background: var(--lx-warn); }
+.bl-g { font: 700 0.54em var(--f-label); letter-spacing: 0.13em; text-transform: uppercase; color: var(--lx-mute); padding: 0.95em 0.95em 0.35em; }
+.bl-i { display: flex; align-items: center; gap: 0.6em; padding: 0.34em 0.55em; border-radius: 0.55em; font: 500 0.76em var(--f-ui); white-space: nowrap; }
+.bl-i .ic { width: 1.2em; height: 1.2em; opacity: 0.85; }
+.bl-i.on { background: var(--lx-glass2); font-weight: 700; box-shadow: inset 0 0 0 1px var(--lx-gb); }
+.bl-i em { margin-left: auto; font: 700 0.78em var(--f-mono); font-style: normal; padding: 0.12em 0.45em; border-radius: 1em; background: var(--lx-warn-bg); color: var(--lx-warn-text); }
+.bl-side .foot { margin-top: auto; }
+.bl-main { display: grid; gap: 0.85em; min-width: 0; min-height: 0; align-content: start; }
+.bl-head { display: flex; align-items: center; gap: 1em; }
+.bl-head h1 { margin: 0; font: 800 2.3em/1 var(--f-ui); letter-spacing: -0.025em; }
+.bl-head p { margin-top: 0.35em; display: flex; gap: 0.5em; align-items: center; font-size: 0.8em; white-space: nowrap; }
+.bl-search { margin-left: auto; display: flex; align-items: center; gap: 0.5em; height: 2.3em; padding: 0 0.9em; border-radius: 999px; font-size: 0.76em; color: var(--lx-mute); min-width: 15em; white-space: nowrap; }
+.bl-search kbd { margin-left: auto; }
+.bl-strip { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); border-radius: 1em; overflow: hidden; }
+.bl-strip > div { padding: 0.65em 0.85em 0.7em; border-left: 1px solid var(--lx-hair); display: grid; gap: 0.15em; position: relative; min-width: 0; }
+.bl-strip > div:first-child { border-left: 0; }
+.bl-strip .k { font: 700 0.54em var(--f-label); letter-spacing: 0.12em; text-transform: uppercase; color: var(--lx-mute); white-space: nowrap; }
+.bl-strip .v { font: 600 1.3em/1.1 var(--f-mono); white-space: nowrap; }
+.bl-strip .v small { font-size: 0.5em; color: var(--lx-mute); margin-left: 0.15em; }
+.bl-strip .d { font-size: 0.6em; color: var(--lx-mute); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bl-strip .spark { position: absolute; right: 0.7em; top: 0.75em; width: 3.4em; height: 1.2em; color: var(--cc-cyan); }
+.bl-strip .meter { height: 0.3em; margin-top: 0.15em; }
+.bl-strip .meter i { background: var(--cc-cyan); }
+.bl-cols { display: grid; grid-template-columns: 1.15fr 1fr; gap: 0.85em; min-height: 0; }
+.bl-apps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.85em 0.3em; }
+.bl-app { display: grid; justify-items: center; gap: 0.18em; text-align: center; min-width: 0; }
+.bl-app .sq { --sz: 2.9em; margin-bottom: 0.15em; }
+.bl-app b { font-size: 0.62em; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.bl-app small { font: 500 0.52em var(--f-mono); color: var(--lx-mute); white-space: nowrap; }
+.bl-app[data-st="warn"] small { color: var(--lx-warn-text); }
+.bl-app.add .sq { background: none; border: 1px dashed var(--lx-mute); box-shadow: none; }
+.bl-need { display: grid; grid-template-columns: 3.9em minmax(0, 1fr); gap: 0.2em 0.6em; padding-top: 0.6em; border-top: 1px solid var(--lx-hair); }
+.bl-need.first { border-top: 0; padding-top: 0; }
+.bl-need .tier { justify-self: start; margin-top: 0.15em; }
+.bl-need b { font-size: 0.76em; font-weight: 600; line-height: 1.25; }
+.bl-need p { grid-column: 2; font-size: 0.62em; color: var(--lx-mute); }
+.bl-need .acts { grid-column: 2; display: flex; gap: 0.4em; margin-top: 0.2em; }
+.bl-need .pill { font-size: 0.64em; }
+.bl-jobs { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto auto; gap: 0.4em 1.2em; font: 500 0.64em var(--f-mono); align-items: center; }
+.bl-jobs .ok { color: var(--lx-good-text); }
+.bl-jobs .dim { color: var(--lx-mute); }
+.bl-map { display: grid; gap: 0.7em; }
+.bl-disk { display: grid; grid-template-columns: 9.5em minmax(0, 1fr); gap: 0.8em; align-items: center; }
+.bl-disk b { display: block; font: 600 0.72em var(--f-mono); }
+.bl-disk small { display: block; font-size: 0.6em; color: var(--lx-mute); white-space: nowrap; }
+.bl-bar { display: flex; gap: 1px; height: 2em; border-radius: 0.5em; overflow: hidden; background: var(--lx-track); }
+.bl-bar span { display: flex; align-items: center; padding: 0 0.55em; font: 600 0.56em var(--f-mono); white-space: nowrap; overflow: hidden; min-width: 0; }
+.bl-bar .sys { background: var(--cc-cyan); color: var(--cc-canvas); }
+.bl-bar .tiny { background: var(--lx-mute); }
+.bl-bar .snap { background: var(--lx-warn); color: var(--cc-canvas); }
+.bl-bar .free, .bl-bar .off { background: repeating-linear-gradient(135deg, var(--lx-hair) 0 0.4em, transparent 0.4em 0.8em); color: var(--lx-ink); }
+.bl-legend { display: flex; gap: 1.3em; font-size: 0.6em; color: var(--lx-mute); }
+.bl-legend i { display: inline-block; width: 0.9em; height: 0.9em; border-radius: 0.2em; vertical-align: -0.1em; margin-right: 0.35em; }
+.bl-table { width: 100%; border-collapse: collapse; font: 500 0.62em var(--f-mono); }
+.bl-table th { font: 700 0.86em var(--f-label); letter-spacing: 0.1em; text-transform: uppercase; color: var(--lx-mute); text-align: left; padding: 0 0.6em 0.5em; border-bottom: 1px solid var(--lx-hair); }
+.bl-table td { padding: 0.5em 0.6em; border-bottom: 1px solid var(--lx-hair); white-space: nowrap; }
+.bl-table tr:last-child td { border-bottom: 0; }
+.bl-table .n { text-align: right; }
+.bl-table .t { font-size: 0.88em; padding: 0.12em 0.45em; border-radius: 0.3em; background: var(--lx-glass2); margin-left: 0.4em; color: var(--lx-mute); }
+
+/* ── 1 Aqua ── */
+.aq { font-family: "Lucida Grande", "PT Sans", ui-sans-serif, sans-serif; color: #111111; background: radial-gradient(120% 95% at 28% 18%, #7cb8ff 0%, #2f70d6 45%, #0a3584 100%); }
+.aq-menu { position: absolute; inset: 0 0 auto; height: 1.75em; background: linear-gradient(#fdfdfd, #e3e3e3); border-bottom: 1px solid #9c9c9c; display: flex; gap: 1.4em; align-items: center; padding: 0 1em; font-size: 0.82em; }
+.aq-menu .apple { width: 0.95em; height: 0.95em; border-radius: 50% 50% 45% 45%; background: #2a73d8; }
+.aq-menu .r { margin-left: auto; }
+.aq-win { position: absolute; top: 3.2em; left: 3.8em; right: 3.8em; bottom: 7em; border-radius: 0.55em 0.55em 0.35em 0.35em; overflow: hidden; box-shadow: 0 1.4em 2.8em rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(0, 0, 0, 0.35); display: grid; grid-template-rows: auto minmax(0, 1fr); background: repeating-linear-gradient(0deg, #f5f5f5 0 0.12em, #e8e8e8 0.12em 0.24em); }
+.aq-bar { display: grid; grid-template-columns: 6em 1fr 6em; align-items: center; padding: 0.45em 0.8em 0.6em; background: repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.35) 0 0.12em, rgba(0, 0, 0, 0.03) 0.12em 0.24em), linear-gradient(#ececec, #c9c9c9); border-bottom: 1px solid #8f8f8f; }
+.aq-lights { display: flex; gap: 0.45em; }
+.aq-lights i { width: 1em; height: 1em; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.35), inset 0 0.35em 0.3em rgba(255, 255, 255, 0.6); }
+.aq-lights i:nth-child(1) { background: radial-gradient(circle at 50% 70%, #ff9d8f, #d1261a 70%); }
+.aq-lights i:nth-child(2) { background: radial-gradient(circle at 50% 70%, #ffe27a, #d69a00 70%); }
+.aq-lights i:nth-child(3) { background: radial-gradient(circle at 50% 70%, #a6ef85, #2f9b21 70%); }
+.aq-title { text-align: center; font-size: 0.85em; font-weight: 700; color: #1c1c1c; text-shadow: 0 1px 0 #ffffff; }
+.aq-tools { grid-column: 1 / -1; display: flex; gap: 0.7em; justify-content: center; margin-top: 0.45em; }
+.aq-body { display: grid; grid-template-columns: 10.5em minmax(0, 1fr); min-height: 0; }
+.aq-src { background: #e6ecf5; border-right: 1px solid #9eaabd; padding: 0.6em 0; font-size: 0.78em; }
+.aq-src h6 { margin: 0.7em 1em 0.25em; font-size: 0.78em; color: #56637a; text-transform: uppercase; letter-spacing: 0.05em; }
+.aq-src div { padding: 0.28em 1.1em; display: flex; gap: 0.5em; align-items: center; }
+.aq-src div i { width: 0.9em; height: 0.9em; border-radius: 0.2em; background: linear-gradient(#a9c8f5, #5b8fdc); }
+.aq-src .on { background: linear-gradient(#78aef2, #3574d6); color: #ffffff; text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.25); }
+.aq-src .on i { background: #ffffff; }
+.aq-main { padding: 0.9em 1.1em; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0.9em; align-content: start; }
+.aq-box { background: #ffffff; border: 1px solid #a3acb9; border-radius: 0.35em; box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.12); padding: 0.7em 0.8em; display: grid; gap: 0.55em; align-content: start; }
+.aq-box h6 { margin: 0; font-size: 0.74em; color: #333333; }
+.aq-box p { font-size: 0.68em; color: #444444; }
+.aq-need { display: grid; gap: 0.3em; padding-top: 0.5em; border-top: 1px solid #dadde3; }
+.aq-need.first { border-top: 0; padding-top: 0; }
+.aq-need b { font-size: 0.74em; }
+.aq-row { display: flex; gap: 0.45em; flex-wrap: wrap; }
+.aq-gel { display: inline-block; font-size: 0.66em; padding: 0.3em 1.15em; border-radius: 1em; border: 1px solid #6d6d6d; color: #111111; background: linear-gradient(#ffffff 0%, #f2f2f2 48%, #dcdcdc 50%, #f4f4f4 100%); box-shadow: 0 1px 1px rgba(0, 0, 0, 0.2); white-space: nowrap; }
+.aq-gel.blue { border-color: #2958a3; background: linear-gradient(#d6e9ff 0%, #8cc0ff 48%, #3d88ea 50%, #9ed0ff 100%); }
+.aq-icons { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 0.7em 0.3em; }
+.aq-icon { display: grid; justify-items: center; gap: 0.25em; text-align: center; }
+.aq-icon .sq { --sz: 3em; border-radius: 0.8em; box-shadow: 0 0.2em 0.4em rgba(0, 0, 0, 0.35), inset 0 1.2em 0.9em -0.6em rgba(255, 255, 255, 0.55); }
+.aq-icon .sq::after { display: none; }
+.aq-icon b { font-size: 0.64em; font-weight: 400; }
+.aq-icon small { font-size: 0.56em; color: #b8430a; }
+.aq-prog { height: 0.95em; border-radius: 0.5em; border: 1px solid #7a8aa3; background: linear-gradient(#e8e8e8, #ffffff); overflow: hidden; }
+.aq-prog i { display: block; height: 100%; background: linear-gradient(rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0) 50%, rgba(0, 0, 0, 0.08)), repeating-linear-gradient(-45deg, #3b82e8 0 0.45em, #7ab4ff 0.45em 0.9em); }
+.aq-kv { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0.25em 0.6em; font-size: 0.68em; align-items: center; }
+.aq-kv .aq-prog { grid-column: 1 / -1; }
+.aq-dock { position: absolute; bottom: 0.9em; left: 50%; transform: translateX(-50%); display: flex; gap: 0.5em; align-items: flex-end; padding: 0.5em 0.9em 0.6em; background: linear-gradient(rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0.18)); border: 1px solid rgba(255, 255, 255, 0.65); border-radius: 0.6em 0.6em 0.15em 0.15em; }
+.aq-dock .sq { --sz: 3.2em; border-radius: 0.8em; -webkit-box-reflect: below 0.15em linear-gradient(transparent 55%, rgba(255, 255, 255, 0.35)); box-shadow: 0 0.2em 0.4em rgba(0, 0, 0, 0.35), inset 0 1.2em 0.9em -0.6em rgba(255, 255, 255, 0.55); }
+.aq-dock .sq::after { display: none; }
+
+/* ── 2 Blueprint ── */
+.bpz { --paper: #1f4f98; --ink: #f2f6ff; background-color: var(--paper); background-image: linear-gradient(rgba(242, 246, 255, 0.13) 1px, transparent 1px), linear-gradient(90deg, rgba(242, 246, 255, 0.13) 1px, transparent 1px), linear-gradient(rgba(242, 246, 255, 0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(242, 246, 255, 0.05) 1px, transparent 1px); background-size: 5em 5em, 5em 5em, 1em 1em, 1em 1em; }
+.bpz svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+
+/* ── 3 Phosphor ── */
+.ph { --g: #62ff96; --glow: rgba(98, 255, 150, 0.4); --ink: #021006; background: radial-gradient(120% 110% at 50% 45%, #07301a 0%, #031509 62%, #000000 100%); color: var(--g); font-family: "VT323", ui-monospace, monospace; text-shadow: 0 0 0.35em var(--glow); padding: 1.4em 1.9em; display: grid; gap: 0.6em; align-content: start; }
+.ph::after { content: ""; position: absolute; inset: 0; background: repeating-linear-gradient(to bottom, rgba(0, 0, 0, 0.3) 0 1px, transparent 1px 3px); pointer-events: none; }
+.ph .l { font-size: 1.2em; line-height: 1.12; white-space: pre; display: flex; gap: 1ch; }
+.ph .inv { background: var(--g); color: var(--ink); text-shadow: none; padding: 0 0.4ch; }
+.ph .r { margin-left: auto; }
+.ph .h { display: flex; gap: 1ch; font-size: 1.2em; line-height: 1.12; }
+.ph .h::after { content: ""; flex: 1; border-bottom: 0.12em dashed currentColor; margin-bottom: 0.45em; opacity: 0.7; }
+.ph .grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 3ch; }
+.ph .need { display: grid; grid-template-columns: 6ch minmax(0, 1fr) auto; column-gap: 1.5ch; font-size: 1.2em; line-height: 1.15; }
+.ph .dim { opacity: 0.6; }
+.ph u { text-decoration: none; border-bottom: 0.1em solid currentColor; }
+.ph .cur { display: inline-block; width: 0.55em; height: 0.95em; background: var(--g); vertical-align: -0.1em; box-shadow: 0 0 0.4em var(--glow); }
+@media (prefers-reduced-motion: no-preference) { .ph .cur, .qs .blink { animation: blink 1.1s steps(1) infinite; } }
+@keyframes blink { 50% { opacity: 0; } }
+
+/* ── 4 Rack Panel ── */
+.rk { --metal: repeating-linear-gradient(90deg, #cdd0d4 0 2px, #c1c5ca 2px 3px, #d6d9dc 3px 5px); background: linear-gradient(#111213, #1c1d1f 30%, #111213); padding: 1.1em 1.8em; display: grid; gap: 0.6em; align-content: start; font-family: "Barlow Condensed", "Arial Narrow", sans-serif; color: #26282c; }
+.rk-u { position: relative; background: linear-gradient(180deg, rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0) 30%, rgba(0, 0, 0, 0.1)), var(--metal); border-radius: 0.25em; box-shadow: inset 0 1px 0 #ffffff, inset 0 -1px 0 #7f8389, 0 0.3em 0.7em rgba(0, 0, 0, 0.6); padding: 0.85em 3.3em; }
+.rk-u::before, .rk-u::after { content: ""; position: absolute; top: 50%; width: 1em; height: 1em; margin-top: -0.5em; border-radius: 50%; background: linear-gradient(45deg, transparent 44%, #55595e 44% 56%, transparent 56%), radial-gradient(circle at 35% 35%, #fafafa, #9a9ea4 60%, #5f6368); box-shadow: 0 0 0 0.15em rgba(0, 0, 0, 0.25); }
+.rk-u::before { left: 1.15em; }
+.rk-u::after { right: 1.15em; }
+.rk-eng { font: 700 0.72em/1 "Barlow Condensed", sans-serif; letter-spacing: 0.18em; text-transform: uppercase; color: #3b3e43; text-shadow: 0 1px 0 rgba(255, 255, 255, 0.8); }
+.rk-hd { display: flex; align-items: center; gap: 1.4em; }
+.rk-name b { display: block; font: 700 1.9em/1 "Barlow Condensed", sans-serif; letter-spacing: 0.12em; text-shadow: 0 1px 0 rgba(255, 255, 255, 0.8); }
+.led { display: inline-block; width: 0.7em; height: 0.7em; border-radius: 50%; background: #2c3a2f; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.5); vertical-align: middle; }
+.led.g { background: radial-gradient(circle at 40% 35%, #d8ffd9, #2ee65a 55%, #13862f); box-shadow: 0 0 0.5em #2ee65a; }
+.led.a { background: radial-gradient(circle at 40% 35%, #fff1c9, #ffb20f 55%, #b56a00); box-shadow: 0 0 0.5em #ffb20f; }
+.rk-segs { margin-left: auto; display: flex; gap: 0.7em; }
+.rk-seg { display: grid; gap: 0.3em; justify-items: center; }
+.rk-seg b { font: 400 1.7em/1 "Share Tech Mono", ui-monospace, monospace; color: #ff3b2f; background: #140404; padding: 0.15em 0.35em; border-radius: 0.1em; box-shadow: inset 0 0 0 0.12em #000000; text-shadow: 0 0 0.35em rgba(255, 59, 47, 0.8); letter-spacing: 0.05em; }
+.rk-lamp { display: grid; place-items: center; text-align: center; width: 10em; height: 4.6em; border-radius: 0.3em; font: 700 0.62em/1.1 "Barlow Condensed", sans-serif; letter-spacing: 0.08em; background: radial-gradient(circle, #ffe08a, #ffb20f 70%); color: #2a1a00; box-shadow: 0 0 1em rgba(255, 178, 15, 0.7), inset 0 0 0 0.15em #7a4b00; }
+.rk-ups { display: flex; align-items: center; gap: 1.4em; padding-block: 0.7em; }
+.rk-cells { display: flex; gap: 0.2em; }
+.rk-cells i { width: 0.9em; height: 1.1em; background: #2ee65a; box-shadow: 0 0 0.35em #2ee65a, inset 0 0 0 1px #13862f; }
+.rk-vent { flex: 1; align-self: stretch; background: radial-gradient(circle, #1b1c1e 0 0.22em, transparent 0.25em) 0 0 / 0.8em 0.8em; border-radius: 0.2em; opacity: 0.8; }
+.rk-mods { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 0.55em; }
+.rk-mod { background: linear-gradient(#2a2c30, #1d1f22); border-radius: 0.2em; padding: 0.55em 0.5em 0.5em; display: grid; gap: 0.45em; box-shadow: inset 0 0.1em 0.3em rgba(0, 0, 0, 0.8), 0 1px 0 rgba(255, 255, 255, 0.7); }
+.rk-mod .top { display: flex; align-items: center; justify-content: space-between; }
+.rk-tape { background: #111111; color: #f4f4f4; font: 600 0.66em/1 "Barlow Condensed", sans-serif; letter-spacing: 0.08em; text-transform: uppercase; padding: 0.35em 0.4em; border-radius: 0.1em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-shadow: 0 1px 0 rgba(255, 255, 255, 0.15); }
+.rk-sw { width: 0.7em; height: 1.4em; border-radius: 0.35em; background: linear-gradient(90deg, #8d9197, #e9eaec 50%, #8d9197); box-shadow: 0 0.15em 0 #000000; }
+.rk-sw.off { transform: rotate(180deg); opacity: 0.7; }
+.rk-note { font: 400 0.6em "Share Tech Mono", monospace; color: #b8bcc2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rk-note.a { color: #ffb20f; }
+.rk-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 1em; align-items: center; }
+.rk-lcd { background: linear-gradient(#b3cc72, #9db75d); color: #1b2a0c; font: 400 1em/1.25 "Share Tech Mono", monospace; padding: 0.45em 0.8em; border-radius: 0.2em; box-shadow: inset 0 0 0 0.25em #2b2d30, inset 0 0.45em 0.6em rgba(0, 0, 0, 0.25); white-space: pre; letter-spacing: 0.04em; }
+.rk-lcd div { font-size: 0.86em; }
+.rk-btns { display: flex; gap: 0.6em; }
+.rk-btn { display: grid; justify-items: center; gap: 0.35em; }
+.rk-btn i { width: 3.4em; height: 1.9em; border-radius: 0.3em; background: linear-gradient(#ffcf5a, #e39a00); box-shadow: 0 0.2em 0 #6e4600, inset 0 1px 0 rgba(255, 255, 255, 0.7); }
+.rk-btn.grey i { background: linear-gradient(#f2f3f4, #b8bcc1); box-shadow: 0 0.2em 0 #55595e, inset 0 1px 0 #ffffff; }
+.rk-btn.green i { background: linear-gradient(#8ef0a6, #2ca84a); box-shadow: 0 0.2em 0 #1a5a29, inset 0 1px 0 rgba(255, 255, 255, 0.7); }
+
+/* ── 5 Swiss Poster ── */
+.sw { --k: #111111; --r: #e3061b; --p: #ffffff; --m: #5f5f5f; background: var(--p); color: var(--k); font-family: "Archivo", "Helvetica Neue", Arial, sans-serif; padding: 1.5em 2em; display: grid; grid-template-columns: 22em minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); column-gap: 2em; }
+.sw-top { grid-column: 1 / -1; display: flex; gap: 2em; align-items: baseline; border-bottom: 0.18em solid var(--k); padding-bottom: 0.5em; margin-bottom: 1.2em; font-size: 0.8em; font-weight: 700; }
+.sw-top span:last-child { margin-left: auto; }
+.sw-left { display: grid; grid-template-rows: auto 1fr; gap: 1em; min-height: 0; }
+.sw-num { font: 900 19em/0.74 "Archivo", sans-serif; letter-spacing: -0.07em; color: var(--r); margin-left: -0.06em; }
+.sw-metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 0.9em 1em; align-content: end; }
+.sw-metrics div { border-top: 0.1em solid var(--k); padding-top: 0.35em; }
+.sw-metrics b { display: block; font: 900 2.2em/1 "Archivo", sans-serif; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+.sw-metrics span { font-size: 0.7em; font-weight: 700; }
+.sw-right { display: grid; grid-template-rows: auto auto auto minmax(0, 1fr); gap: 1em; min-width: 0; }
+.sw-h { font: 900 3.7em/0.95 "Archivo", sans-serif; letter-spacing: -0.035em; }
+.sw-sub { font-size: 1.25em; }
+.sw-list { display: grid; }
+.sw-item { display: grid; grid-template-columns: 5.5em minmax(0, 1fr) auto; gap: 0.2em 1em; align-items: baseline; border-top: 0.1em solid var(--k); padding: 0.75em 0; }
+.sw-item .t { font-size: 0.66em; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--r); }
+.sw-item .t.low { color: var(--m); }
+.sw-item b { font-size: 1.1em; font-weight: 700; }
+.sw-item .go { font-size: 0.8em; font-weight: 700; background: var(--k); color: var(--p); padding: 0.45em 0.8em; white-space: nowrap; }
+.sw-apps { align-self: end; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.35em 1.2em; border-top: 0.18em solid var(--k); padding-top: 0.6em; }
+.sw-apps div { font-size: 0.92em; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sw-apps span { font-weight: 400; color: var(--m); margin-left: 0.4em; font-size: 0.85em; }
+.sw-apps .w span { color: var(--r); font-weight: 700; }
+
+/* ── 6 Toybox ── */
+.ty { --ink: #2b2340; --sky: #dcefff; --paper: #ffffff; --y: #ffd84d; --pk: #ffb3d1; --gr: #9ee8bb; --bl: #a9d0ff; --li: #cfbcff; background: radial-gradient(circle at 8% 90%, #ffe6f2 0 9em, transparent 9.1em), radial-gradient(circle at 96% 6%, #fff4c7 0 7em, transparent 7.1em), var(--sky); color: var(--ink); font-family: "Fredoka", ui-rounded, "Nunito", sans-serif; padding: 1.4em 1.8em; display: grid; grid-template-columns: 1fr 1.25fr; gap: 1.2em; }
+.ty-c { background: var(--paper); border: 0.2em solid var(--ink); border-radius: 1.3em; box-shadow: 0 0.35em 0 var(--ink); padding: 0.9em 1em; }
+.ty-left { display: grid; gap: 0.9em; align-content: start; }
+.ty-hero { display: grid; grid-template-columns: 6.2em minmax(0, 1fr); gap: 1em; align-items: center; }
+.ty-bot { width: 6.2em; height: 5.4em; border-radius: 1.4em; background: var(--bl); border: 0.2em solid var(--ink); position: relative; box-shadow: 0 0.35em 0 var(--ink); }
+.ty-bot::before { content: ""; position: absolute; left: 1.35em; top: 1.6em; width: 0.8em; height: 0.8em; border-radius: 50%; background: var(--ink); box-shadow: 2.5em 0 0 var(--ink); }
+.ty-bot::after { content: ""; position: absolute; left: 2em; top: 2.7em; width: 1.8em; height: 0.9em; border: 0.22em solid var(--ink); border-top: 0; border-radius: 0 0 1em 1em; }
+.ty-bot i { position: absolute; left: 50%; top: -1.1em; width: 0.22em; height: 0.9em; background: var(--ink); }
+.ty-bot i::after { content: ""; position: absolute; left: -0.3em; top: -0.55em; width: 0.8em; height: 0.8em; border-radius: 50%; background: var(--y); border: 0.18em solid var(--ink); }
+.ty-say b { display: block; font: 600 1.35em/1.1 "Fredoka", sans-serif; }
+.ty-say p { font-size: 0.85em; margin-top: 0.3em; }
+.ty-h { font: 600 0.8em "Fredoka", sans-serif; letter-spacing: 0.04em; text-transform: uppercase; opacity: 0.75; margin-bottom: 0.4em; }
+.ty-need { display: grid; grid-template-columns: 2.6em minmax(0, 1fr); gap: 0.2em 0.8em; align-items: center; padding: 0.5em 0; }
+.ty-need + .ty-need { border-top: 0.12em dashed rgba(43, 35, 64, 0.25); }
+.ty-dot { width: 2.6em; height: 2.6em; border-radius: 50%; border: 0.18em solid var(--ink); display: grid; place-items: center; font: 700 1.2em "Fredoka", sans-serif; grid-row: span 2; }
+.ty-need b { font-weight: 600; font-size: 0.9em; line-height: 1.2; }
+.ty-acts { display: flex; gap: 0.4em; }
+.ty-btn { font: 600 0.72em/1 "Fredoka", sans-serif; background: var(--y); border: 0.16em solid var(--ink); border-radius: 999px; padding: 0.45em 1em; box-shadow: 0 0.22em 0 var(--ink); white-space: nowrap; }
+.ty-btn.w { background: var(--paper); }
+.ty-bars { display: grid; gap: 0.55em; }
+.ty-bars div { display: grid; grid-template-columns: 5.5em minmax(0, 1fr) 2.8em; gap: 0.6em; align-items: center; font-size: 0.8em; font-weight: 500; }
+.ty-bars span { height: 1.1em; border-radius: 1em; border: 0.14em solid var(--ink); background: var(--paper); overflow: hidden; }
+.ty-bars span i { display: block; height: 100%; background: repeating-linear-gradient(-45deg, var(--c) 0 0.5em, rgba(255, 255, 255, 0.45) 0.5em 0.8em), var(--c); border-right: 0.14em solid var(--ink); }
+.ty-bars em { font-style: normal; font-weight: 600; text-align: right; }
+.ty-apps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1.5em 0.5em; margin-top: 0.8em; }
+.ty-app { display: grid; justify-items: center; gap: 0.25em; text-align: center; position: relative; }
+.ty-app i { width: 4.6em; height: 4.6em; border-radius: 50%; background: var(--c); border: 0.18em solid var(--ink); display: grid; place-items: center; font-style: normal; font-size: 1em; box-shadow: 0 0.22em 0 var(--ink); }
+.ty-app i span { font-size: 2em; }
+.ty-app b { font-size: 0.82em; font-weight: 600; white-space: nowrap; }
+.ty-app small { font-size: 0.66em; opacity: 0.75; white-space: nowrap; }
+.ty-app .stk { position: absolute; top: -0.4em; right: 0.5em; background: var(--y); border: 0.14em solid var(--ink); border-radius: 0.4em; font: 700 0.55em/1 "Fredoka", sans-serif; padding: 0.25em 0.4em; transform: rotate(12deg); }
+
+/* ── 7 Glass Cockpit ── */
+.ck { --scr: #04070a; --g: #39e27d; --c: #3fd7f2; --a: #ffbf1f; --m: #ff5ce1; --w: #f1f4f6; --d: #7d8894; background: linear-gradient(#34363a, #1c1e21); padding: 0.9em 1.1em; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 0.6em; font-family: "B612", "Arial", sans-serif; color: var(--w); }
+.ck-ann { display: flex; gap: 0.5em; align-items: stretch; }
+.ck-lamp { font: 700 0.62em/1 "B612", sans-serif; letter-spacing: 0.08em; padding: 0.6em 0.8em; border-radius: 0.2em; background: #2a2418; color: #6e6450; box-shadow: inset 0 0 0 0.15em #111111; display: grid; place-items: center; text-align: center; }
+.ck-lamp.lit { background: var(--a); color: #1a1000; box-shadow: inset 0 0 0 0.15em #111111, 0 0 1em rgba(255, 191, 31, 0.6); }
+.ck-lamp.big { font-size: 0.78em; padding: 0.5em 1.2em; }
+.ck-lamp.ok { background: #102a18; color: #3a6b48; }
+.ck-ann .clock { margin-left: auto; font: 700 1.1em "B612 Mono", monospace; color: var(--g); background: #000000; padding: 0.2em 0.6em; border-radius: 0.2em; box-shadow: inset 0 0 0 0.12em #111111; }
+.ck-scr { background: var(--scr); border-radius: 0.5em; box-shadow: inset 0 0 0 0.3em #0b0d10, inset 0 0 3em rgba(63, 215, 242, 0.06); display: grid; grid-template-columns: 1.15fr 1fr; gap: 1em; padding: 1em 1.1em; min-height: 0; }
+.ck-gauges { display: grid; grid-template-columns: 1fr 1fr; gap: 0.2em 0.6em; }
+.ck-gauges svg { width: 100%; height: auto; display: block; }
+.ck-memo { font-family: "B612 Mono", ui-monospace, monospace; font-size: 0.78em; display: grid; gap: 0.1em; align-content: start; border-left: 0.12em solid #1c2530; padding-left: 1em; }
+.ck-memo .t { color: var(--w); font-weight: 700; margin-top: 0.55em; text-decoration: underline; text-underline-offset: 0.2em; }
+.ck-memo .t:first-child { margin-top: 0; }
+.ck-memo .a { color: var(--a); }
+.ck-memo .c { color: var(--c); }
+.ck-memo .g { color: var(--g); }
+.ck-memo .m { color: var(--m); }
+.ck-memo .d { color: var(--d); }
+.ck-keys { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 0.6em; }
+.ck-key { font: 700 0.66em/1 "B612", sans-serif; letter-spacing: 0.1em; text-align: center; padding: 0.9em 0 0.8em; border-radius: 0.3em; background: linear-gradient(#45484d, #2b2d31); box-shadow: 0 0.2em 0 #0d0e10, inset 0 1px 0 rgba(255, 255, 255, 0.2); color: #e9edf0; position: relative; }
+.ck-key.on::before { content: ""; position: absolute; left: 30%; right: 30%; top: 0.3em; height: 0.25em; border-radius: 1em; background: var(--g); box-shadow: 0 0 0.5em var(--g); }
+
+/* ── 8 E-Ink ── */
+.ei { --p: #e6e6e1; --k: #151515; --g: #555552; --l: #b0b0aa; background: var(--p); color: var(--k); font-family: "Literata", Georgia, "Times New Roman", serif; padding: 1.5em 2.4em; display: grid; grid-template-rows: auto auto minmax(0, 1fr); gap: 1.1em; }
+.ei-top { display: flex; justify-content: space-between; align-items: baseline; font-size: 0.78em; border-bottom: 0.1em solid var(--k); padding-bottom: 0.45em; }
+.ei-top i { color: var(--g); }
+.ei-lead h1 { margin: 0; font: 600 3.6em/1 "Literata", serif; letter-spacing: -0.015em; }
+.ei-lead p { font-size: 1.5em; line-height: 1.35; margin-top: 0.3em; max-width: 34em; }
+.ei-cols { display: grid; grid-template-columns: 1.15fr 1fr; gap: 2.6em; min-height: 0; }
+.ei-h { font: 600 0.74em "Literata", serif; letter-spacing: 0.16em; text-transform: uppercase; border-bottom: 0.08em solid var(--k); padding-bottom: 0.35em; margin-bottom: 0.6em; }
+.ei-need { display: grid; grid-template-columns: 1.2em minmax(0, 1fr); gap: 0.2em 0.5em; padding: 0.45em 0 0.7em; }
+.ei-need::before { content: ""; width: 0.6em; height: 0.6em; background: var(--k); margin-top: 0.4em; }
+.ei-need.soft::before { background: none; border: 0.1em solid var(--k); }
+.ei-need b { font-weight: 600; font-size: 1.08em; line-height: 1.3; }
+.ei-need p { grid-column: 2; font-size: 0.86em; color: var(--g); }
+.ei-need p i { color: var(--k); }
+.ei-acts { grid-column: 2; display: flex; gap: 0.5em; margin-top: 0.3em; }
+.ei-btn { font: 600 0.84em/1 "Literata", serif; border: 0.12em solid var(--k); padding: 0.4em 0.9em; border-radius: 0.2em; white-space: nowrap; }
+.ei-btn.fill { background: var(--k); color: var(--p); }
+.ei-rows { display: grid; gap: 0.75em; }
+.ei-row { display: grid; grid-template-columns: 6.5em minmax(0, 1fr) 3.6em; gap: 0.8em; align-items: center; font-size: 0.98em; font-variant-numeric: tabular-nums; }
+.ei-row em { font-style: normal; text-align: right; }
+.ei-bar { height: 0.85em; border: 0.1em solid var(--k); }
+.ei-bar i { display: block; height: 100%; background: repeating-conic-gradient(var(--k) 0 25%, transparent 0 50%) 0 0 / 0.26em 0.26em; }
+.ei-apps { display: grid; grid-template-columns: 1fr 1fr; gap: 0.35em 1.4em; font-size: 0.86em; margin-top: 1.2em; }
+.ei-apps div { display: flex; justify-content: space-between; gap: 0.6em; border-bottom: 0.06em dotted var(--l); padding-bottom: 0.15em; white-space: nowrap; }
+.ei-apps span { color: var(--g); font-style: italic; }
+.ei-apps .w span { color: var(--k); font-weight: 600; font-style: normal; }
+.ei-apps .w span::before { content: "■ "; font-size: 0.8em; }
+
+/* ── 9 Quest ── */
+.qs { --bg: #1d1838; --pn: #2c2554; --bd: #f3e6c4; --tx: #f7f1e3; --dim: #bdb2e6; --hp: #5ee27d; --hpw: #ffcc4d; --gold: #ffd166; --red: #ff7a8f; --deep: #0e0b20; background-color: var(--bg); background-image: radial-gradient(0.12em 0.12em at 12% 20%, #ffffff 99%, transparent), radial-gradient(0.1em 0.1em at 48% 8%, #ffffff 99%, transparent), radial-gradient(0.14em 0.14em at 83% 14%, #ffffff 99%, transparent), radial-gradient(0.1em 0.1em at 66% 92%, #ffffff 99%, transparent); font-family: "Pixelify Sans", ui-monospace, monospace; color: var(--tx); padding: 1.2em 1.4em; display: grid; grid-template-columns: 1.2fr 1fr; grid-template-rows: minmax(0, 1fr) auto; gap: 1em; }
+.qs-win { background: var(--pn); border: 0.25em solid var(--bd); box-shadow: 0 0 0 0.25em var(--deep), 0.4em 0.4em 0 0.25em var(--deep); padding: 0.7em 0.9em; min-height: 0; }
+.qs-win h5 { font: 600 0.9em "Pixelify Sans", monospace; color: var(--gold); letter-spacing: 0.06em; margin-bottom: 0.5em; display: flex; justify-content: space-between; }
+.qs-win h5 span { color: var(--dim); font-weight: 400; }
+.qs-party { display: grid; gap: 0.5em; }
+.qs-mem { display: grid; grid-template-columns: 2.4em minmax(0, 1fr) 8.5em; gap: 0.1em 0.7em; align-items: center; }
+.qs-av { width: 2.4em; height: 2.4em; background: var(--a); border: 0.15em solid var(--bd); display: grid; place-items: center; font: 600 0.95em "Pixelify Sans", monospace; grid-row: span 2; image-rendering: pixelated; }
+.qs-mem b { font-size: 0.86em; font-weight: 600; display: flex; gap: 0.5em; align-items: baseline; white-space: nowrap; }
+.qs-mem b small { color: var(--dim); font-weight: 400; font-size: 0.85em; }
+.qs-fx { font-size: 0.55em; color: var(--deep); background: var(--red); padding: 0.15em 0.35em; justify-self: start; white-space: nowrap; }
+.qs-fx.slp { background: var(--dim); }
+.qs-hp { grid-column: 3; grid-row: 1 / 3; display: grid; gap: 0.2em; font-size: 0.6em; color: var(--dim); }
+.qs-hp span { height: 0.9em; background: var(--deep); border: 0.15em solid var(--bd); }
+.qs-hp span i { display: block; height: 100%; background: var(--hp); }
+.qs-hp.w span i { background: var(--hpw); }
+.qs-hp.z span i { background: var(--dim); }
+.qs-right { display: grid; gap: 1em; align-content: start; min-height: 0; }
+.qs-quest { display: grid; gap: 0.25em; padding: 0.45em 0; }
+.qs-quest + .qs-quest { border-top: 0.12em dashed rgba(243, 230, 196, 0.3); }
+.qs-quest b { font-size: 0.82em; font-weight: 600; }
+.qs-quest p { font-size: 0.68em; color: var(--dim); }
+.qs-quest .rw { color: var(--gold); }
+.qs-acts { display: flex; gap: 0.5em; margin-top: 0.15em; }
+.qs-btn { font: 600 0.66em/1 "Pixelify Sans", monospace; background: var(--gold); color: var(--deep); padding: 0.45em 0.8em; box-shadow: 0.15em 0.15em 0 var(--deep); white-space: nowrap; }
+.qs-btn.o { background: var(--pn); color: var(--tx); box-shadow: inset 0 0 0 0.12em var(--bd), 0.15em 0.15em 0 var(--deep); }
+.qs-stats { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 0.4em 0.7em; align-items: center; font-size: 0.72em; }
+.qs-stats span { height: 0.8em; background: var(--deep); border: 0.15em solid var(--bd); }
+.qs-stats span i { display: block; height: 100%; background: var(--c); }
+.qs-say { grid-column: 1 / -1; font-size: 1.05em; display: flex; gap: 0.8em; align-items: center; }
+.qs-say b { color: var(--gold); font-weight: 600; }
+.qs-say .blink { margin-left: auto; color: var(--gold); }
+
+/* ── 10 Transit Map ── */
+.tm { --p: #f7f7f3; --k: #1d1d1f; --board: #13233f; background: var(--p); color: var(--k); font-family: "Overpass", "Helvetica Neue", Arial, sans-serif; display: grid; grid-template-columns: minmax(0, 1fr) 21em; }
+.tm-map { padding: 1.3em 1.2em 0.6em 1.6em; display: grid; grid-template-rows: auto minmax(0, 1fr); min-width: 0; }
+.tm-map h1 { margin: 0; font: 800 1.9em/1 "Overpass", sans-serif; letter-spacing: -0.01em; }
+.tm-map p { font-size: 0.8em; margin-top: 0.3em; color: #4a4a4f; }
+.tm-map svg { width: 100%; height: 100%; display: block; }
+.tm-board { background: var(--board); color: #ffffff; padding: 1.3em 1.2em; display: grid; gap: 0.5em; align-content: start; }
+.tm-board h5 { font: 800 0.95em "Overpass", sans-serif; display: flex; justify-content: space-between; border-bottom: 0.1em solid rgba(255, 255, 255, 0.3); padding-bottom: 0.5em; }
+.tm-board h5 span { font-weight: 600; opacity: 0.8; }
+.tm-line { display: grid; grid-template-columns: 0.55em minmax(0, 1fr); gap: 0.15em 0.7em; padding: 0.35em 0 0.55em; border-bottom: 0.06em solid rgba(255, 255, 255, 0.15); }
+.tm-line > i { grid-row: span 3; background: var(--c); border-radius: 0.1em; }
+.tm-line > i.dash { background: repeating-linear-gradient(var(--c) 0 0.5em, transparent 0.5em 0.8em); }
+.tm-line b { font-size: 0.8em; font-weight: 800; }
+.tm-st { font-size: 0.66em; font-weight: 600; justify-self: start; padding: 0.2em 0.45em; border-radius: 0.2em; background: #ffffff; color: var(--board); }
+.tm-st.warn { background: #ffcf33; color: #1d1600; }
+.tm-st.closed { background: #d3d7df; }
+.tm-line p { font-size: 0.64em; opacity: 0.88; }
+.tm-acts { display: flex; gap: 0.4em; margin-top: 0.25em; }
+.tm-btn { font: 800 0.62em/1 "Overpass", sans-serif; border: 0.12em solid #ffffff; padding: 0.4em 0.7em; border-radius: 0.2em; white-space: nowrap; }
+.tm-btn.fill { background: #ffffff; color: var(--board); }
+
+/* ── Settings: Appearance ── */
+.st-main { padding: 1.2em 1.5em; display: grid; gap: 0.9em; align-content: start; overflow: hidden; }
+.st-main h1 { margin: 0; font: 800 2.1em/1 var(--f-ui); letter-spacing: -0.02em; }
+.st-lead { font-size: 0.78em; color: var(--lx-mute); margin-top: -0.4em; }
+.st-label { display: flex; justify-content: space-between; font: 700 0.56em var(--f-label); letter-spacing: 0.13em; text-transform: uppercase; color: var(--lx-mute); }
+.st-looks { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 0.8em 0.7em; }
+.st-card { all: unset; display: grid; gap: 0.25em; cursor: pointer; min-width: 0; border-radius: 0.6em; }
+.st-card .th { aspect-ratio: 16 / 10; border-radius: 0.55em; position: relative; overflow: hidden; border: 1px solid var(--lx-gb); box-shadow: 0 0.2em 0.5em rgba(0, 0, 0, 0.12); }
+.st-card .th > i { position: absolute; display: block; }
+.st-card[aria-pressed="true"] .th { box-shadow: 0 0 0 0.2em var(--lx-pill), 0 0.2em 0.5em rgba(0, 0, 0, 0.12); }
+.st-card b { font: 600 0.64em var(--f-ui); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 0.3em; }
+.st-card small { font: 500 0.52em var(--f-ui); color: var(--lx-mute); white-space: nowrap; }
+.st-card.soon { cursor: default; opacity: 0.7; }
+.st-card.soon .th { border-style: dashed; border-color: var(--lx-mute); box-shadow: none; display: grid; place-items: center; font-size: 1.4em; color: var(--lx-mute); }
+.st-now { display: flex; align-items: center; gap: 0.7em; font-size: 0.74em; padding: 0.6em 0.8em; border-radius: 0.7em; background: var(--lx-glass2); border: 1px solid var(--lx-gb); }
+.st-now b { font-weight: 700; }
+.st-now .pill { font-size: 0.9em; }
+.st-now .pill:not(.ghost) { margin-left: auto; }
+.st-rows { display: grid; grid-template-columns: 1fr 1fr; gap: 0 2em; }
+.st-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0.15em 1em; align-items: center; padding: 0.6em 0; border-top: 1px solid var(--lx-hair); }
+.st-row b { font-size: 0.74em; font-weight: 600; }
+.st-row small { grid-column: 1; font-size: 0.6em; color: var(--lx-mute); }
+.st-row > :last-child { grid-row: 1 / 3; grid-column: 2; }
+.st-row .seg b { font-size: 0.64em; padding: 0.4em 0.7em; }
+.st-sw { display: flex; gap: 0.35em; }
+.st-sw i { width: 1.25em; height: 1.25em; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.15); }
+.st-sw i.on { box-shadow: 0 0 0 0.15em var(--lx-ring), 0 0 0 0.3em var(--lx-pill); }
+.st-walls { display: flex; gap: 0.35em; }
+.st-walls i { width: 2.4em; height: 1.5em; border-radius: 0.35em; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.15); }
+.st-walls i.on { box-shadow: 0 0 0 0.15em var(--lx-ring), 0 0 0 0.3em var(--lx-pill); }
+</style>
+
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="eyebrow">BoxPilot 1.148.0 · look study</div>
+    <h1 class="title">BoxPilot Looks</h1>
+    <p class="lede">Mockups only; none of this is built. Every screen shows the same fictional server, homebox, so you compare the look and not the data. Screens tagged <b>Today</b> are real screenshots from the demo. The Home, Ops and Home + Ops screens switch between light and dark with your device.</p>
+    <nav class="jump" aria-label="Sections">
+      <a href="#one-look">One look everywhere</a>
+      <a href="#ten">Ten directions</a>
+      <a href="#picker">Choosing a look</a>
+      <a href="#next">Suggestions</a>
+    </nav>
+  </header>
+
+  <section class="band" id="one-look">
+    <h2>One look for the whole site</h2>
+    <p class="intro">Today Home uses the Launcher look and every other page uses the Ops console. Here is each way of making it one look, shown on Home and on a busy page (Storage).</p>
+
+    <article class="dir" id="d-ops">
+      <div class="dir__head"><h3>Ops everywhere</h3><button type="button" class="btn pick" data-id="d-ops" aria-pressed="false">Shortlist</button></div>
+      <p>Home moves into the console. The rail replaces the dock, the six-number strip leads, apps become a compact grid with their state in words, and the inbox sits beside them. Home and Ops turn into one page.</p>
+      <div class="pair">
+        <figure>
+          <figcaption><span class="tag tag--new">New</span><span class="grow">Home</span><button type="button" class="btn big" aria-pressed="false">Enlarge</button></figcaption>
+          <div class="frame"><div class="screen" role="img" aria-label="Mockup: Home drawn in the Ops console look" data-mock="opsHome"></div></div>
+        </figure>
+        <figure>
+          <figcaption><span class="tag tag--today">Today</span><span class="grow">Storage, already in this look</span><button type="button" class="btn big" aria-pressed="false">Enlarge</button></figcaption>
+          <div class="frame"><img class="shot-light" alt="Screenshot: the Storage page today, light" src="05-looks/today-storage-light.jpg"><img class="shot-dark" alt="Screenshot: the Storage page today, dark" src="05-looks/today-storage-dark.jpg"></div>
+        </figure>
+      </div>
+      <div class="tradeoffs">
+        <div><h4>You gain</h4><ul><li>The most on one screen, at every size.</li><li>Nothing to redesign on the other 17 pages.</li></ul></div>
+        <div><h4>You give up</h4><ul><li>The wallpaper and the big app squares, the part you called charming.</li><li>Harder to read from across the room or at a glance on a phone.</li></ul></div>
+      </div>
+    </article>
+
+    <article class="dir" id="d-home">
+      <div class="dir__head"><h3>Home everywhere</h3><button type="button" class="btn pick" data-id="d-home" aria-pressed="false">Shortlist</button></div>
+      <p>Every page gets the wallpaper, frosted glass and the dock. Tables turn into lists: a plain name first and the device path under it, big bars for how full things are, and switches for anything on or off.</p>
+      <div class="pair">
+        <figure>
+          <figcaption><span class="tag tag--today">Today</span><span class="grow">Home, already in this look</span><button type="button" class="btn big" aria-pressed="false">Enlarge</button></figcaption>
+          <div class="frame"><img class="shot-light" alt="Screenshot: Home today, light" src="05-looks/today-home-light.jpg"><img class="shot-dark" alt="Screenshot: Home today, dark" src="05-looks/today-home-dark.jpg"></div>
+        </figure>
+        <figure>
+          <figcaption><span class="tag tag--new">New</span><span class="grow">Storage</span><button type="button" class="btn big" aria-pressed="false">Enlarge</button></figcaption>
+          <div class="frame"><div class="screen" role="img" aria-label="Mockup: the Storage page drawn in the Home look" data-mock="homeStorage"></div></div>
+        </figure>
+      </div>
+      <div class="tradeoffs">
+        <div><h4>You gain</h4><ul><li>Friendly and consistent; the whole site feels like a Mac app.</li><li>Easier for anyone else in the house to use.</li></ul></div>
+        <div><h4>You give up</h4><ul><li>Dense pages (jobs, disks, firewall rules) get about twice as long.</li><li>Glass everywhere is heavier on old phones; the reduced-transparency fallback has to cover every page.</li></ul></div>
+      </div>
+    </article>
+
+    <article class="dir" id="d-blend">
+      <div class="dir__head"><h3>Home + Ops</h3><span class="mine">My pick</span><button type="button" class="btn pick" data-id="d-blend" aria-pressed="false">Shortlist</button></div>
+      <p>The Launcher is the frame: wallpaper, glass, the big friendly titles and a Mac-style sidebar that replaces both the rail and the dock. Ops supplies what goes inside: the number strip, a tier tag on every action, monospace figures and compact tables. Cyan still means a measurement and the amber mark still means something to do.</p>
+      <div class="pair">
+        <figure>
+          <figcaption><span class="tag tag--new">New</span><span class="grow">Home</span><button type="button" class="btn big" aria-pressed="false">Enlarge</button></figcaption>
+          <div class="frame"><div class="screen" role="img" aria-label="Mockup: Home in a blend of the Home and Ops looks" data-mock="blendHome"></div></div>
+        </figure>
+        <figure>
+          <figcaption><span class="tag tag--new">New</span><span class="grow">Storage</span><button type="button" class="btn big" aria-pressed="false">Enlarge</button></figcaption>
+          <div class="frame"><div class="screen" role="img" aria-label="Mockup: the Storage page in a blend of the Home and Ops looks" data-mock="blendStorage"></div></div>
+        </figure>
+      </div>
+      <div class="tradeoffs">
+        <div><h4>You gain</h4><ul><li>Keeps what you like about both, on every page.</li><li>One way to get around instead of a dock on Home and a rail everywhere else.</li></ul></div>
+        <div><h4>You give up</h4><ul><li>The most work of the three: every page's frame changes, even though the insides mostly stay.</li><li>Slightly less room than Ops on a small laptop, because of the sidebar.</li></ul></div>
+      </div>
+    </article>
+  </section>
+
+  <section class="band" id="ten">
+    <h2>Ten other directions</h2>
+    <p class="intro">The same Home screen in ten very different looks. The tag says how much work each is: <b>Skin</b> changes colors, type and shapes; <b>Skin + art</b> also adds background art and styled controls; <b>New layout</b> needs its own Home screen. Tap Shortlist on the ones you like. Your picks collect in a bar at the bottom so you can copy them back to me.</p>
+    <div class="themes">
+      <article class="theme" id="t-aqua">
+        <div class="theme__head"><h3>1 · Aqua</h3><span class="tag">Skin + art</span><button type="button" class="btn big" aria-pressed="false">Enlarge</button><button type="button" class="btn pick" data-id="t-aqua" aria-pressed="false">Shortlist</button></div>
+        <p>Mac OS X, 2001. Pinstripes, gel buttons, traffic lights, a source list down the left and a dock with reflections. The most Mac-like option here. <b>Suits:</b> charm and nostalgia; pairs well with the Launcher.</p>
+        <div class="frame"><div class="screen" role="img" aria-label="Mockup: Home in the Aqua look" data-mock="aqua"></div></div>
+      </article>
+      <article class="theme" id="t-blueprint">
+        <div class="theme__head"><h3>2 · Blueprint</h3><span class="tag">Skin + art</span><button type="button" class="btn big" aria-pressed="false">Enlarge</button><button type="button" class="btn pick" data-id="t-blueprint" aria-pressed="false">Shortlist</button></div>
+        <p>The server as a technical drawing. Apps are labelled parts, problems are numbered notes, disks get dimension lines, and the title block holds the version and the last check. <b>Suits:</b> people who like to see how things fit together.</p>
+        <div class="frame"><div class="screen" role="img" aria-label="Mockup: Home as a blueprint" data-mock="blueprint"></div></div>
+      </article>
+      <article class="theme" id="t-phosphor">
+        <div class="theme__head"><h3>3 · Phosphor</h3><span class="tag">Skin</span><button type="button" class="btn big" aria-pressed="false">Enlarge</button><button type="button" class="btn pick" data-id="t-phosphor" aria-pressed="false">Shortlist</button></div>
+        <p>A green CRT terminal. A key letter beside every action, ASCII bars and one blinking prompt that takes typed commands. Dark only. <b>Suits:</b> keyboard-first use and a status screen on the wall.</p>
+        <div class="frame"><div class="screen" role="img" aria-label="Mockup: Home as a green phosphor terminal" data-mock="phosphor"></div></div>
+      </article>
+      <article class="theme" id="t-rack">
+        <div class="theme__head"><h3>4 · Rack Panel</h3><span class="tag">Skin + art</span><button type="button" class="btn big" aria-pressed="false">Enlarge</button><button type="button" class="btn pick" data-id="t-rack" aria-pressed="false">Shortlist</button></div>
+        <p>Brushed-metal rack units. Each app is a module with an LED and a strip of label-maker tape, the numbers sit in red segment displays, and an amber lamp lights when something needs you. <b>Suits:</b> tactile fun that still reads at a glance.</p>
+        <div class="frame"><div class="screen" role="img" aria-label="Mockup: Home as a server rack front panel" data-mock="rack"></div></div>
+      </article>
+      <article class="theme" id="t-swiss">
+        <div class="theme__head"><h3>5 · Swiss Poster</h3><span class="tag">Skin</span><button type="button" class="btn big" aria-pressed="false">Enlarge</button><button type="button" class="btn pick" data-id="t-swiss" aria-pressed="false">Shortlist</button></div>
+        <p>White, black and one red. The number of things that need you is the biggest thing on the screen. No boxes, only type and rules. <b>Suits:</b> calm, fast scanning, a screen in the hallway.</p>
+        <div class="frame"><div class="screen" role="img" aria-label="Mockup: Home as a Swiss typographic poster" data-mock="swiss"></div></div>
+      </article>
+      <article class="theme" id="t-toybox">
+        <div class="theme__head"><h3>6 · Toybox</h3><span class="tag">Skin + art</span><button type="button" class="btn big" aria-pressed="false">Enlarge</button><button type="button" class="btn pick" data-id="t-toybox" aria-pressed="false">Shortlist</button></div>
+        <p>Chunky pastel cards, a face on the server that says how it's doing, and buttons that press down. <b>Suits:</b> family members who only need to know that it's fine and what to tap.</p>
+        <div class="frame"><div class="screen" role="img" aria-label="Mockup: Home in a playful pastel look" data-mock="toybox"></div></div>
+      </article>
+      <article class="theme" id="t-cockpit">
+        <div class="theme__head"><h3>7 · Glass Cockpit</h3><span class="tag">New layout</span><button type="button" class="btn big" aria-pressed="false">Enlarge</button><button type="button" class="btn pick" data-id="t-cockpit" aria-pressed="false">Shortlist</button></div>
+        <p>Avionics: four round gauges, a master caution lamp, a checklist memo and soft keys along the bottom. Set in B612, the typeface drawn for Airbus cockpit screens. <b>Suits:</b> watching load and temperature live.</p>
+        <div class="frame"><div class="screen" role="img" aria-label="Mockup: Home as an aircraft glass cockpit display" data-mock="cockpit"></div></div>
+      </article>
+      <article class="theme" id="t-eink">
+        <div class="theme__head"><h3>8 · E-Ink</h3><span class="tag">Skin</span><button type="button" class="btn big" aria-pressed="false">Enlarge</button><button type="button" class="btn pick" data-id="t-eink" aria-pressed="false">Shortlist</button></div>
+        <p>No color at all. Serif text, dithered bars, and sentences before numbers. Made for an e-paper frame or an old Kindle on the fridge, so status is carried by shapes and words. <b>Suits:</b> a low-power screen that's always on.</p>
+        <div class="frame"><div class="screen" role="img" aria-label="Mockup: Home on an e-ink display" data-mock="eink"></div></div>
+      </article>
+      <article class="theme" id="t-quest">
+        <div class="theme__head"><h3>9 · Quest</h3><span class="tag">New layout</span><button type="button" class="btn big" aria-pressed="false">Enlarge</button><button type="button" class="btn pick" data-id="t-quest" aria-pressed="false">Shortlist</button></div>
+        <p>An RPG party screen. Apps are party members with health bars, problems are quests with a reward, and homebox talks to you in a dialog box. <b>Suits:</b> making upkeep feel less like a chore.</p>
+        <div class="frame"><div class="screen" role="img" aria-label="Mockup: Home as a role-playing game party screen" data-mock="quest"></div></div>
+      </article>
+      <article class="theme" id="t-transit">
+        <div class="theme__head"><h3>10 · Transit Map</h3><span class="tag">New layout</span><button type="button" class="btn big" aria-pressed="false">Enlarge</button><button type="button" class="btn pick" data-id="t-transit" aria-pressed="false">Shortlist</button></div>
+        <p>The box as a subway map. Lines are how apps are reached (your network, the tailnet) and protected (backups); a dashed line is a suspended service. The side panel reads like a line status board. <b>Suits:</b> seeing reach and backup coverage in one picture.</p>
+        <div class="frame"><div class="screen" role="img" aria-label="Mockup: Home as a transit map" data-mock="transit"></div></div>
+      </article>
+    </div>
+  </section>
+
+  <section class="band" id="picker">
+    <h2>Choosing a look</h2>
+    <p class="intro">A new Appearance page in Settings, drawn in the Home + Ops look. Click any look in it to select it.</p>
+    <div class="frame"><div class="screen" data-mock="settings"></div></div>
+    <div class="notes">
+      <div>
+        <h3>How it would work</h3>
+        <ul>
+          <li>A look is one set of values for the tokens the stylesheet already has: colors, fonts, corner radius, glass and textures. Page code doesn't change, so adding a look doesn't touch any page.</li>
+          <li>Light and dark stay a separate choice. A look that only comes one way (Phosphor, E-Ink) says so under its name.</li>
+          <li>Picking a look applies it at once, with Keep and Go back, the way a display resolution change works.</li>
+        </ul>
+      </div>
+      <div>
+        <h3>&nbsp;</h3>
+        <ul>
+          <li>The choice is saved to your account and follows you. A device can keep its own (a phone, a wall screen).</li>
+          <li>Risk tiers keep their meaning in every look. Each tier always shows its word too (low, medium, high), so a look without color stays safe.</li>
+          <li>Accent and Home wallpaper are small choices inside a look, so you can make Home + Ops yours without a new theme.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="band" id="next">
+    <h2>Suggestions</h2>
+    <div class="notes">
+      <div>
+        <h3>Suggested order</h3>
+        <ol>
+          <li>Build Home + Ops as the default for every page. Keep the current Launcher and Ops as two more choices for anyone who prefers either.</li>
+          <li>Ship the Appearance page with just those three. That proves the look switch on every page before anything new is drawn.</li>
+          <li>Add the cheap skins next: Phosphor, E-Ink and Swiss Poster are colors and type only. Aqua, Blueprint, Rack Panel and Toybox follow once their art is drawn.</li>
+          <li>Treat Glass Cockpit, Quest and Transit Map as other Home views, not themes, because each needs its own layout. Transit Map could also become the picture at the top of Network, which the redesign plan already wanted.</li>
+        </ol>
+      </div>
+      <div>
+        <h3>Other ideas</h3>
+        <ul>
+          <li><b>Wall screen mode.</b> Any look, full screen, no controls, refreshed every minute. E-Ink, Swiss Poster and Glass Cockpit suit it best.</li>
+          <li><b>Contrast check per look.</b> Run <code>scripts/check-contrast.mjs</code> over every look in both modes before one ships, the way it checks Home's wallpaper today.</li>
+          <li><b>Density stays separate.</b> Comfortable and Compact work under any look, as they do now.</li>
+          <li><b>Seasonal wallpapers</b> for Home + Ops are cheap: they're only the three glow colors.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <footer class="end">Fictional data from the BoxPilot demo. Nothing here touches a real machine.</footer>
+</div>
+
+<div class="picks" id="picks" hidden>
+  <span class="picks__list" id="picks-list"></span>
+  <button type="button" class="btn" id="picks-copy">Copy list</button>
+</div>
+
+<script>
+(() => {
+  const ICON = {
+    home: '<path d="M3 11l9-7 9 7v9h-6v-6H9v6H3z"/>',
+    pulse: '<path d="M3 12h4l3-7 4 14 3-7h4"/>',
+    updates: '<path d="M20 11a8 8 0 0 0-14.3-4.9L4 8M4 4v4h4M4 13a8 8 0 0 0 14.3 4.9L20 16M20 20v-4h-4"/>',
+    storage: '<ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>',
+    firewall: '<rect x="3" y="5" width="18" height="14" rx="1"/><path d="M3 10h18M3 15h18M9 5v5M15 10v5M9 15v4"/>',
+    network: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18"/>',
+    backups: '<rect x="3" y="4" width="18" height="5" rx="1"/><path d="M5 9v10h14V9M10 13h4"/>',
+    vms: '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>',
+    repair: '<path d="M15 4a5 5 0 0 0-4.6 6.9L4 17.3 6.7 20l6.4-6.4A5 5 0 0 0 20 9l-3 1-2-2 1-3z"/>',
+    logs: '<path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/>',
+    apps: '<rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><rect x="14" y="14" width="6" height="6" rx="1"/>',
+    automate: '<path d="M13 2L4 14h7l-1 8 9-12h-7z"/>',
+    settings: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9L7 7M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/>',
+    bell: '<path d="M6 16v-5a6 6 0 0 1 12 0v5l2 2H4zM10 20a2 2 0 0 0 4 0"/>',
+    search: '<circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/>',
+    metrics: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
+    users: '<circle cx="12" cy="8" r="4"/><path d="M4 21c1-4 4.5-6 8-6s7 2 8 6"/>',
+    plus: '<path d="M12 5v14M5 12h14"/>',
+    palette: '<circle cx="12" cy="12" r="9"/><circle cx="8" cy="10" r="1.2"/><circle cx="12" cy="7.5" r="1.2"/><circle cx="16" cy="10" r="1.2"/>',
+  };
+  const ic = (n) => `<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICON[n]}</g></svg>`;
+
+  const APPS = [
+    { n: "Homepage", e: "🏠", a: "#4b5b73", b: "#2a3444", st: "warn", note: "Never backed up", cpu: "0.3%", mem: "70 MB", port: 3000 },
+    { n: "Immich", e: "📷", a: "#5360d8", b: "#2e3799", st: "warn", note: "Backup 63 days old", cpu: "11.8%", mem: "1.4 GB", port: 2283 },
+    { n: "Jellyfin", e: "🎬", a: "#7b5cd6", b: "#4c35a8", st: "good", note: "Update ready", cpu: "34.2%", mem: "412 MB", port: 8096 },
+    { n: "Nextcloud", e: "☁️", a: "#1c8ad0", b: "#0b5b97", st: "warn", note: "Never backed up", cpu: "4.1%", mem: "620 MB", port: 8087 },
+    { n: "ntfy", e: "📬", a: "#13917f", b: "#0a5c51", st: "good", note: "On your network", cpu: "0.5%", mem: "64 MB", port: 8093 },
+    { n: "Open WebUI", e: "🤖", a: "#3f4654", b: "#1c2029", st: "idle", note: "Paused", cpu: "0.0%", mem: "6.0 GB", port: 8088 },
+    { n: "Pi-hole", e: "🛡️", a: "#d93a44", b: "#8e1520", st: "good", note: "On your network", cpu: "0.9%", mem: "96 MB", port: 53 },
+    { n: "qBittorrent", e: "🔒", a: "#0f8fa2", b: "#0a5c6c", st: "good", note: "Through a VPN", cpu: "0.5%", mem: "64 MB", port: 8095 },
+    { n: "Scrutiny", e: "🩺", a: "#9b45b8", b: "#62237a", st: "good", note: "On your network", cpu: "0.4%", mem: "110 MB", port: 8086 },
+    { n: "Uptime Kuma", e: "📈", a: "#2e8b57", b: "#17552f", st: "good", note: "On your network", cpu: "1.2%", mem: "120 MB", port: 3001 },
+    { n: "Vaultwarden", e: "🔐", a: "#2f6fe4", b: "#1846b0", st: "warn", note: "Never backed up", cpu: "0.2%", mem: "48 MB", port: 8222 },
+  ];
+  const sq = (a, extra = "") => `<span class="sq" style="--a:${a.a};--b:${a.b}"${extra}><span>${a.e}</span></span>`;
+  const spark = (pts) => {
+    const step = 60 / (pts.length - 1);
+    const p = pts.map((v, i) => `${(i * step).toFixed(1)},${(17 - v * 15).toFixed(1)}`).join(" ");
+    return `<svg class="spark" viewBox="0 0 60 18" preserveAspectRatio="none" aria-hidden="true"><polyline fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" points="${p}"/></svg>`;
+  };
+  const CPU = [0.3, 0.5, 0.35, 0.45, 0.2, 0.28, 0.4, 0.22, 0.15, 0.18];
+  const TEMP = [0.55, 0.6, 0.52, 0.66, 0.62, 0.56, 0.5, 0.52, 0.5, 0.48];
+
+  const lxTop = (on) => `<div class="lx-top"><span class="lx-host"><i>▲</i>homebox <small>Ubuntu 24.04.3 LTS · up 19d 4h</small></span><span class="seg"><b class="${on === "home" ? "on" : ""}">${ic("home")}Home</b><b class="${on === "ops" ? "on" : ""}">${ic("pulse")}Ops</b></span><span class="lx-search">${ic("search")}Search pages, apps and settings<kbd>Ctrl K</kbd></span><span class="lx-right">${ic("bell")}<span class="av">A</span></span></div>`;
+  const DOCK = [["updates", "Updates"], ["storage", "Storage"], ["firewall", "Firewall"], ["network", "Network"], ["backups", "Backups"], ["vms", "VMs"], ["repair", "Repair"], ["logs", "Logs"], null, ["apps", "Apps"], ["automate", "Automate"], ["metrics", "Metrics"], ["users", "Users"], null, ["settings", "Settings"]];
+  const lxDock = (on) => `<div class="lx-dock glass">${DOCK.map((d) => d ? `<span class="${d[0] === on ? "on" : ""}"><i>${ic(d[0])}</i><small>${d[1]}</small></span>` : "<hr>").join("")}</div>`;
+
+  const SIDE = (on) => `<aside class="bl-side glass">
+      <div class="bl-me"><span class="mk">BP</span><div><b>homebox</b><small>2 to look at · up 19 days</small></div></div>
+      <div class="bl-g">Overview</div>
+      <div class="bl-i ${on === "home" ? "on" : ""}">${ic("home")}Home</div>
+      <div class="bl-i">${ic("pulse")}Activity</div>
+      <div class="bl-g">Manage</div>
+      <div class="bl-i">${ic("apps")}Apps</div>
+      <div class="bl-i ${on === "storage" ? "on" : ""}">${ic("storage")}Storage</div>
+      <div class="bl-i">${ic("network")}Network</div>
+      <div class="bl-i">${ic("firewall")}Firewall</div>
+      <div class="bl-i">${ic("backups")}Backups</div>
+      <div class="bl-i">${ic("vms")}VMs</div>
+      <div class="bl-g">Keep it running</div>
+      <div class="bl-i">${ic("updates")}Updates<em>4</em></div>
+      <div class="bl-i">${ic("repair")}Repair<em>1</em></div>
+      <div class="bl-i">${ic("logs")}Logs</div>
+      <div class="bl-i foot">${ic("settings")}Settings</div>
+    </aside>`;
+
+  const M = {};
+
+  M.opsHome = () => {
+    const tiles = [
+      { k: "CPU", v: "11", u: "%", d: "load 0.84 · 8 cores", sp: CPU },
+      { k: "Memory", v: "11.0", u: "GB", d: "of 32.0 GB · 34%", bar: 34 },
+      { k: "System disk", v: "27", u: "%", d: "212 of 800 GB", bar: 27 },
+      { k: "/mnt/media", v: "68", u: "%", d: "2.6 of 3.9 TB", bar: 68 },
+      { k: "Network", v: "Tailnet", u: "up", d: "eno1 · LAN + tailnet" },
+      { k: "Hottest", v: "51", u: "°C", d: "k10temp", sp: TEMP },
+    ].map((t) => `<div class="cc-tile"><span class="k">${t.k}</span><span class="v">${t.v}<small>${t.u}</small></span><span class="d">${t.d}</span>${t.sp ? spark(t.sp) : ""}${t.bar ? `<span class="cc-bar"><i style="width:${t.bar}%"></i></span>` : ""}</div>`).join("");
+    const apps = APPS.map((a) => `<div class="cc-app" data-st="${a.st}">${sq(a)}<b>${a.n}</b><small>${a.st === "warn" ? "▲ " + a.note.toLowerCase() : a.st === "idle" ? "paused" : "● up · " + a.cpu}</small></div>`).join("")
+      + `<div class="cc-app add"><span class="sq"><span>${ic("plus")}</span></span><b>Add an app</b><small style="color:var(--cc-muted)">168 in the catalog</small></div>`;
+    const need = (t, title, d, btns) => `<div class="cc-need"><span class="cc-tier ${t === "LOW" ? "low" : ""}">${t}</span><b>${title}</b><p>${d}</p><div class="cc-btns">${btns.map((b) => `<span class="cc-btn ${t === "LOW" ? "low" : ""}">${b}</span>`).join("")}</div></div>`;
+    return `<div class="s cc">
+      <aside class="cc-rail"><span class="cc-logo">BP</span>${["home", "updates", "storage", "firewall", "network", "backups", "vms", "repair", "logs", "apps", "automate"].map((n, i) => `<span class="cc-ri ${i === 0 ? "on" : ""}">${ic(n)}</span>`).join("")}<span class="cc-ri end">${ic("settings")}</span></aside>
+      <div class="cc-main">
+        <div class="cc-top"><b>homebox</b><span class="path">/ home</span><span class="mono">Ubuntu 24.04.3 LTS · up 19d 4h · kernel 6.8.0-64</span><span class="cc-search">${ic("search")}Search pages, apps and settings<kbd>Ctrl K</kbd></span><span class="cc-bell">${ic("bell")}<em>2</em></span></div>
+        <div class="cc-verdict"><span class="cc-chip">▲ 2 to look at</span><span>Good morning. homebox is running. 2 things need a look, 2 more can wait.</span><span class="go">Read again</span></div>
+        <div class="cc-strip">${tiles}</div>
+        <div class="cc-grid">
+          <div class="cc-col">
+            <section class="cc-panel"><h4>Apps <span>11 installed · 10 up · 4 need a look</span></h4><div class="cc-apps">${apps}</div></section>
+            <section class="cc-panel"><h4>Last night <span>0 failed</span></h4><div class="cc-jobs">
+              <span class="dim">03:02</span><span>app.backup</span><span>jellyfin</span><span class="ok">● done</span><span class="dim">3m 00s</span>
+              <span class="dim">03:10</span><span>app.backup.verify</span><span>jellyfin</span><span class="ok">● passed</span><span class="dim">6m 00s</span>
+              <span class="dim">04:00</span><span>apt.upgrade</span><span>—</span><span class="ok">● done</span><span class="dim">1m 12s</span>
+            </div></section>
+          </div>
+          <div class="cc-col">
+            <section class="cc-panel"><h4>Action inbox <span>L one click · M preview · H password</span></h4>
+              ${need("MED", "Vaultwarden, Immich and 2 more have not been backed up recently", "Vaultwarden: never backed up, no schedule", ["Back up now", "Back up nightly"])}
+              ${need("MED", "4 updates available", "1 security fix among them", ["Install"])}
+              ${need("MED", "An update for Jellyfin", "The old image comes back if the new one is not healthy", ["Update"])}
+              ${need("LOW", "Open WebUI + Ollama is paused", "Paused on purpose: keeps its memory, uses no CPU", ["Resume"])}
+            </section>
+            <section class="cc-panel"><h4>Backups <span>drill passed 11 h ago</span></h4>
+              <div class="cc-kv"><span>Apps backed up</span><b>3 of 7</b><span class="cc-bar"><i style="width:43%"></i></span></div>
+              <div class="cc-kv"><span>Off this server</span><b>20 h ago</b></div>
+            </section>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  };
+
+  M.homeStorage = () => `<div class="s lxw">
+    ${lxTop("")}
+    <div class="lx-page">
+      <header class="lx-head"><h1>Storage</h1><p><span class="chip">Fills in about 11 days</span><span>3 drives, all where they should be. The media drive is 68% full.</span></p><span class="pill ghost">Check again</span></header>
+      <div class="lx-cols">
+        <section class="glass lx-pn"><h5>${ic("storage")}Drives<span>3</span></h5>
+          <div class="lx-drive first"><span class="well">${ic("storage")}</span><div><b>Media drive</b><small>/mnt/media · ext4 · USB 4 TB</small></div><div class="val"><b>68%</b><small>2.6 of 3.9 TB</small></div><div class="meter warn"><i style="width:68%"></i></div><div class="row"><span>Reconnect if it drops</span><span class="msw on"></span></div></div>
+          <div class="lx-drive"><span class="well">${ic("vms")}</span><div><b>System disk</b><small>/ · NVMe 1 TB · LVM</small></div><div class="val"><b>27%</b><small>212 of 800 GB</small></div><div class="meter"><i style="width:27%"></i></div><div class="row"><span>300 GB of the disk is not in use yet</span><span class="pill ghost">Details</span></div></div>
+          <div class="lx-drive"><span class="well">${ic("backups")}</span><div><b>Backup drive</b><small>/dev/sdb1 · exFAT · USB 2 TB</small></div><div class="val"><b>—</b><small>not mounted</small></div><div class="meter"><i style="width:0%"></i></div><div class="row"><span>Plug-in drive for off-box copies</span><span class="pill">Mount…</span></div></div>
+        </section>
+        <div class="lx-stack">
+          <section class="glass lx-pn"><h5>${ic("bell")}What needs you<span class="chip">1 to look at</span></h5>
+            <div class="lx-need"><span class="well">${ic("storage")}</span><div><b>300 GB of the system disk is not in use</b> <span class="tier">Medium</span><p>Claiming it happens while running. No reboot, nothing erased.</p><div class="acts"><span class="pill">Use the rest of the disk</span></div></div></div>
+          </section>
+          <section class="glass lx-pn"><h5>${ic("network")}Shared folders</h5>
+            <div class="lx-li first"><b>media</b><small>On your network (SMB) · 2 devices connected</small><span class="msw on"></span></div>
+            <div class="lx-li"><b>Backup share on nas-2</b><small>Connected · reconnects by itself</small><span class="msw on"></span></div>
+          </section>
+          <section class="glass lx-pn"><h5>${ic("backups")}Snapshots<span>3</span></h5>
+            <div class="lx-li first"><b>Before upgrade</b><small>21 Aug, 09:00 · 20 GB</small><span class="pill ghost">Restore…</span></div>
+            <div class="lx-li"><b>Nightly</b><small>Today, 03:00 · 4 GB</small><span class="pill ghost">Restore…</span></div>
+          </section>
+        </div>
+      </div>
+    </div>
+    ${lxDock("storage")}
+  </div>`;
+
+  const blNeed = (t, title, d, btns, first) => `<div class="bl-need ${first ? "first" : ""}"><span class="tier ${t === "Low" ? "low" : ""}">${t}</span><b>${title}</b><p>${d}</p><div class="acts">${btns.map((b) => `<span class="pill ${t === "Low" ? "low" : ""}">${b}</span>`).join("")}</div></div>`;
+
+  M.blendHome = () => {
+    const cells = [
+      { k: "CPU", v: "11", u: "%", d: "load 0.84 · 8 cores", sp: CPU },
+      { k: "Memory", v: "11.0", u: "GB", d: "of 32 GB · 34%", bar: 34 },
+      { k: "System disk", v: "27", u: "%", d: "212 of 800 GB", bar: 27 },
+      { k: "Media drive", v: "68", u: "%", d: "fills in ~11 days", bar: 68 },
+      { k: "Backups", v: "3/7", u: "apps", d: "off-box 20 h ago", bar: 43 },
+      { k: "Hottest", v: "51", u: "°C", d: "k10temp", sp: TEMP },
+    ].map((t) => `<div><span class="k">${t.k}</span><span class="v">${t.v}<small>${t.u}</small></span><span class="d">${t.d}</span>${t.sp ? spark(t.sp) : ""}${t.bar ? `<span class="meter"><i style="width:${t.bar}%"></i></span>` : ""}</div>`).join("");
+    const apps = APPS.map((a) => `<div class="bl-app" data-st="${a.st}">${sq(a, ` data-st="${a.st}"`)}<b>${a.n}</b><small>${a.st === "warn" ? a.note.replace("Never backed up", "no backup").replace("Backup 63 days old", "backup 63 d") : a.st === "idle" ? "paused" : a.cpu + " · " + a.mem}</small></div>`).join("")
+      + `<div class="bl-app add"><span class="sq"><span>${ic("plus")}</span></span><b>Add an app</b><small>168 to choose</small></div>`;
+    return `<div class="s lxw"><div class="bl">
+      ${SIDE("home")}
+      <main class="bl-main">
+        <div class="bl-head"><div><h1>Good morning</h1><p><span class="chip">2 to look at</span>homebox is running. 2 things need a look, 2 more can wait.</p></div><span class="bl-search glass">${ic("search")}Search, or say what you want<kbd>Ctrl K</kbd></span></div>
+        <div class="bl-strip glass">${cells}</div>
+        <div class="bl-cols">
+          <section class="glass lx-pn"><h5>${ic("apps")}Apps<span class="chip">4 need a look</span></h5><div class="bl-apps">${apps}</div></section>
+          <section class="glass lx-pn"><h5>${ic("bell")}Needs you<span>2 + 2 can wait</span></h5>
+            ${blNeed("Medium", "Vaultwarden, Immich and 2 more have not been backed up recently", "Vaultwarden: never backed up, no schedule", ["Back up now", "Back up nightly"], true)}
+            ${blNeed("Medium", "4 updates available", "1 security fix among them", ["Install"])}
+            ${blNeed("Medium", "An update for Jellyfin", "The old image comes back if the new one is not healthy", ["Update"])}
+            ${blNeed("Low", "Open WebUI + Ollama is paused", "Paused on purpose: keeps its memory, uses no CPU", ["Resume"])}
+          </section>
+        </div>
+        <section class="glass lx-pn"><h5>${ic("pulse")}Overnight<span>3 jobs · 0 failed</span></h5><div class="bl-jobs">
+          <span class="dim">03:02</span><span>Backed up Jellyfin</span><span class="dim">app.backup · 1.2 GB</span><span class="ok">● done</span><span class="dim">3m 00s</span>
+          <span class="dim">03:10</span><span>Test-restored Jellyfin</span><span class="dim">app.backup.verify</span><span class="ok">● passed</span><span class="dim">6m 00s</span>
+          <span class="dim">04:00</span><span>Installed security updates</span><span class="dim">apt.upgrade · 3 packages</span><span class="ok">● done</span><span class="dim">1m 12s</span>
+        </div></section>
+      </main>
+    </div></div>`;
+  };
+
+  M.blendStorage = () => `<div class="s lxw"><div class="bl">
+    ${SIDE("storage")}
+    <main class="bl-main">
+      <div class="bl-head"><div><h1>Storage</h1><p><span class="chip">Fills in about 11 days</span><span style="font-family:var(--f-mono);font-size:.92em">3 disks · 3 mounted · 1 share · 300 GiB free to claim</span></p></div><span class="bl-search glass">${ic("search")}Search, or say what you want<kbd>Ctrl K</kbd></span></div>
+      <section class="glass lx-pn"><h5>${ic("storage")}Disk map<span>drawn to scale per disk</span></h5>
+        <div class="bl-map">
+          <div class="bl-disk"><div><b>nvme0n1</b><small>System · NVMe 1 TB</small></div><div class="bl-bar"><span class="tiny" style="flex:1"></span><span class="tiny" style="flex:2"></span><span class="sys" style="flex:600">/ ubuntu-lv · 600 GiB · 27% used</span><span class="snap" style="flex:20"></span><span class="free" style="flex:300">300 GiB not in use</span></div></div>
+          <div class="bl-disk"><div><b>sda1</b><small>Media drive · USB 4 TB</small></div><div class="bl-bar"><span class="sys" style="flex:68">/mnt/media · 2.6 TiB used</span><span style="flex:32"></span></div></div>
+          <div class="bl-disk"><div><b>sdb1</b><small>Backup drive · USB 2 TB</small></div><div class="bl-bar"><span class="off" style="flex:1">exFAT · not mounted</span></div></div>
+          <div class="bl-legend"><span><i style="background:var(--cc-cyan)"></i>In use</span><span><i style="background:var(--lx-warn)"></i>Snapshot</span><span><i style="background:repeating-linear-gradient(135deg,var(--lx-mute) 0 2px,transparent 2px 4px)"></i>Not in use</span><span><i style="background:var(--lx-mute)"></i>Boot</span></div>
+        </div>
+      </section>
+      <div class="bl-cols">
+        <section class="glass lx-pn"><h5>${ic("logs")}Disks and partitions<span>2 removable</span></h5>
+          <table class="bl-table"><thead><tr><th>Device</th><th class="n">Size</th><th>Filesystem</th><th>Mounted at</th></tr></thead><tbody>
+            <tr><td>nvme0n1p1<span class="t">system</span></td><td class="n">1.0 GiB</td><td>vfat</td><td>/boot/efi</td></tr>
+            <tr><td>nvme0n1p2<span class="t">system</span></td><td class="n">2.0 GiB</td><td>ext4</td><td>/boot</td></tr>
+            <tr><td>ubuntu-lv<span class="t">system</span></td><td class="n">600 GiB</td><td>ext4</td><td>/</td></tr>
+            <tr><td>snap-before-upgrade</td><td class="n">20 GiB</td><td>ext4</td><td>—</td></tr>
+            <tr><td>sda1<span class="t">removable</span></td><td class="n">3.9 TiB</td><td>ext4</td><td>/mnt/media</td></tr>
+            <tr><td>sdb1<span class="t">removable</span></td><td class="n">2.0 TiB</td><td>exfat</td><td>—</td></tr>
+          </tbody></table>
+        </section>
+        <div class="lx-stack">
+          <section class="glass lx-pn"><h5>${ic("bell")}Needs you</h5>
+            ${blNeed("Medium", "300 GiB of the system disk is not in use", "Claiming it happens while running. No reboot, nothing erased.", ["Use the rest of the disk"], true)}
+          </section>
+          <section class="glass lx-pn"><h5>${ic("network")}If a drive drops</h5>
+            <div class="lx-li first"><b>/mnt/media</b><small>Reconnects by itself · 1 of 3 tries used today</small><span class="msw on"></span></div>
+          </section>
+        </div>
+      </div>
+    </main>
+  </div></div>`;
+
+  M.aqua = () => {
+    const icons = APPS.slice(0, 12).map((a) => `<div class="aq-icon">${sq(a)}<b>${a.n}</b>${a.st === "warn" ? `<small>${a.note}</small>` : ""}</div>`).join("");
+    return `<div class="s aq">
+      <div class="aq-menu"><span class="apple"></span><b>BoxPilot</b><span>File</span><span>Edit</span><span>View</span><span>Server</span><span>Window</span><span>Help</span><span class="r">Tue 7:41 AM</span></div>
+      <div class="aq-win">
+        <div class="aq-bar"><span class="aq-lights"><i></i><i></i><i></i></span><span class="aq-title">homebox</span><span></span><div class="aq-tools"><span class="aq-gel">Check Again</span><span class="aq-gel">App Catalog</span><span class="aq-gel">Activity</span></div></div>
+        <div class="aq-body">
+          <div class="aq-src"><h6>Server</h6><div class="on"><i></i>Home</div><div><i></i>Apps</div><div><i></i>Storage</div><div><i></i>Network</div><div><i></i>Backups</div><h6>Upkeep</h6><div><i></i>Updates (4)</div><div><i></i>Repair (1)</div><div><i></i>Logs</div><h6>Settings</h6><div><i></i>Appearance</div></div>
+          <div class="aq-main">
+            <div class="aq-box"><h6>What needs you</h6>
+              <div class="aq-need first"><b>Vaultwarden, Immich and 2 more have not been backed up recently.</b><p>Medium · Vaultwarden has never been backed up.</p><div class="aq-row"><span class="aq-gel blue">Back Up Now</span><span class="aq-gel">Back Up Nightly</span></div></div>
+              <div class="aq-need"><b>4 updates are available.</b><p>Medium · 1 security fix among them.</p><div class="aq-row"><span class="aq-gel blue">Install…</span></div></div>
+            </div>
+            <div class="aq-box"><h6>homebox</h6><p>Ubuntu 24.04.3 LTS, up 19 days. 2 things need a look.</p>
+              <div class="aq-kv"><span>Memory</span><span>11.0 of 32 GB</span><div class="aq-prog"><i style="width:34%"></i></div><span>Media drive</span><span>2.6 of 3.9 TB</span><div class="aq-prog"><i style="width:68%"></i></div><span>Processor</span><span>11%</span><div class="aq-prog"><i style="width:11%"></i></div></div>
+            </div>
+            <div class="aq-icons">${icons}</div>
+          </div>
+        </div>
+      </div>
+      <div class="aq-dock">${[APPS[2], APPS[1], APPS[3], APPS[6], APPS[10], APPS[9], APPS[4]].map((a) => sq(a)).join("")}</div>
+    </div>`;
+  };
+
+  M.blueprint = () => {
+    const W = "#f2f6ff", D = "rgba(242,246,255,.62)", F = "Martian Mono, ui-monospace, monospace";
+    const noteOf = { Homepage: 1, Immich: 1, Nextcloud: 1, Vaultwarden: 1, Jellyfin: 4, "Open WebUI": 3 };
+    const parts = APPS.map((a, i) => {
+      const x = 48 + (i % 4) * 102, y = 106 + Math.floor(i / 4) * 66;
+      const f = noteOf[a.n];
+      return `<rect x="${x}" y="${y}" width="92" height="52" fill="none" stroke="${W}" stroke-width="1"/>
+        <text x="${x + 7}" y="${y + 19}" font-size="8.6" font-weight="600" fill="${W}">${a.n.toUpperCase()}</text>
+        <text x="${x + 7}" y="${y + 33}" font-size="6.6" fill="${D}">:${a.port} · ${a.mem.replace(" ", "")}</text>
+        <text x="${x + 7}" y="${y + 44}" font-size="6.6" fill="${D}">CPU ${a.cpu}</text>
+        ${f ? `<path d="M${x + 80} ${y - 8} l9 15 h-18 z" fill="#1f4f98" stroke="${W}" stroke-width="1"/><text x="${x + 80}" y="${y + 4.5}" font-size="7" text-anchor="middle" fill="${W}" font-weight="600">${f}</text>` : ""}`;
+    }).join("");
+    const note = (n, y, lines, btns, tier) => `<path d="M486 ${y - 9} l8 13 h-16 z" fill="none" stroke="${W}"/><text x="486" y="${y + 1.5}" font-size="7" text-anchor="middle" fill="${W}" font-weight="600">${n}</text>
+      ${lines.map((l, i) => `<text x="502" y="${y + 1 + i * 11}" font-size="7.4" fill="${W}">${l}</text>`).join("")}
+      ${btns.map((b, i) => { const bx = 502 + i * 78; const by = y + lines.length * 11 - 2; return `<rect x="${bx}" y="${by}" width="72" height="14" fill="none" stroke="${W}" stroke-width="1.2"/><text x="${bx + 36}" y="${by + 9.6}" font-size="6.6" text-anchor="middle" fill="${W}" font-weight="600">${b}</text>`; }).join("")}
+      <text x="712" y="${y + 1}" font-size="6" text-anchor="end" fill="${D}">${tier}</text>`;
+    return `<div class="s bpz"><svg viewBox="0 0 740 462" font-family="${F}" aria-hidden="true">
+      <defs><pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="none"/><line x1="0" y1="0" x2="0" y2="6" stroke="${W}" stroke-width="1.4"/></pattern></defs>
+      <rect x="10" y="10" width="720" height="442" fill="none" stroke="${W}" stroke-width="2"/>
+      <rect x="16" y="16" width="708" height="430" fill="none" stroke="${W}" stroke-width=".7"/>
+      <text x="34" y="44" font-size="13" font-weight="600" fill="${W}" letter-spacing="1">HOMEBOX · GENERAL ARRANGEMENT</text>
+      <text x="34" y="60" font-size="7.4" fill="${D}">UBUNTU 24.04.3 LTS · UP 19 D 4 H · 2 NOTES NEED ACTION · 2 CAN WAIT</text>
+      <rect x="34" y="78" width="420" height="236" fill="rgba(242,246,255,.03)" stroke="${W}" stroke-width="1.6"/>
+      <text x="42" y="93" font-size="6.8" fill="${D}">ENCLOSURE: DOCKER · 11 PARTS</text>
+      ${parts}
+      <text x="34" y="336" font-size="7.6" fill="${W}" font-weight="600">/MNT/MEDIA · SDA1 · EXT4</text>
+      <line x1="34" y1="346" x2="454" y2="346" stroke="${W}" stroke-width=".9"/><line x1="34" y1="341" x2="34" y2="351" stroke="${W}"/><line x1="454" y1="341" x2="454" y2="351" stroke="${W}"/>
+      <text x="244" y="343" font-size="7" text-anchor="middle" fill="${W}">3.90 TB</text>
+      <rect x="34" y="354" width="420" height="14" fill="none" stroke="${W}"/><rect x="34" y="354" width="285.6" height="14" fill="url(#hatch)" stroke="${W}"/>
+      <text x="34" y="381" font-size="7" fill="${D}">2.65 TB USED (68 %) · FILLS IN ~11 DAYS</text>
+      <text x="34" y="404" font-size="7.6" fill="${W}" font-weight="600">SYSTEM · NVME0N1 · LVM</text>
+      <rect x="34" y="412" width="420" height="10" fill="none" stroke="${W}"/><rect x="34" y="412" width="113" height="10" fill="url(#hatch)" stroke="${W}"/>
+      <text x="454" y="404" font-size="7" text-anchor="end" fill="${D}">212 / 800 GB (27 %)</text>
+      <text x="480" y="94" font-size="9.4" font-weight="600" fill="${W}" letter-spacing="1">GENERAL NOTES</text>
+      <line x1="480" y1="100" x2="714" y2="100" stroke="${W}" stroke-width=".7"/>
+      ${note(1, 120, ["VAULTWARDEN, IMMICH, HOMEPAGE", "AND NEXTCLOUD: NO RECENT BACKUP."], ["BACK UP NOW", "NIGHTLY"], "MED")}
+      ${note(2, 176, ["4 PACKAGE UPDATES, 1 SECURITY."], ["INSTALL"], "MED")}
+      ${note(3, 218, ["OPEN WEBUI + OLLAMA PAUSED", "BY OWNER. HOLDS 6.0 GB."], ["RESUME"], "LOW")}
+      ${note(4, 272, ["JELLYFIN UPDATE READY. OLD", "IMAGE KEPT UNTIL NEW IS HEALTHY."], ["UPDATE"], "MED")}
+      <rect x="480" y="330" width="234" height="44" fill="none" stroke="${W}"/><line x1="597" y1="330" x2="597" y2="374" stroke="${W}"/><line x1="480" y1="352" x2="714" y2="352" stroke="${W}"/>
+      <text x="486" y="344" font-size="7" fill="${W}">CPU 11 %</text><text x="603" y="344" font-size="7" fill="${W}">MEM 11.0 / 32 GB</text>
+      <text x="486" y="366" font-size="7" fill="${W}">TEMP 51 °C</text><text x="603" y="366" font-size="7" fill="${W}">NET TAILNET UP</text>
+      <rect x="480" y="384" width="234" height="56" fill="none" stroke="${W}" stroke-width="1.4"/>
+      <line x1="480" y1="408" x2="714" y2="408" stroke="${W}"/><line x1="597" y1="408" x2="597" y2="440" stroke="${W}"/><line x1="480" y1="424" x2="714" y2="424" stroke="${W}"/>
+      <text x="488" y="401" font-size="11" font-weight="600" fill="${W}" letter-spacing="2">BOXPILOT</text><text x="706" y="401" font-size="6.6" text-anchor="end" fill="${D}">DWG HOME · SHEET 01 OF 17</text>
+      <text x="486" y="419" font-size="6.4" fill="${W}">REV 1.148.0</text><text x="603" y="419" font-size="6.4" fill="${W}">SCALE 1 : 1</text>
+      <text x="486" y="435" font-size="6.4" fill="${W}">DRAWN BY BOXPILOT</text><text x="603" y="435" font-size="6.4" fill="${W}">CHECKED 07:41</text>
+    </svg></div>`;
+  };
+
+  M.phosphor = () => {
+    const bar = (p, w = 40) => { const n = Math.round(p / 100 * w); return "[" + "#".repeat(n) + ".".repeat(w - n) + "]"; };
+    const row = (label, p, val, note) => `<div class="l">${label.padEnd(6)}${bar(p)} ${val.padStart(4)}  <span class="dim">${note}</span></div>`;
+    const appRow = (a) => {
+      const mark = a.st === "warn" ? "!" : a.st === "idle" ? "-" : "*";
+      const state = a.st === "warn" ? (a.note === "Never backed up" ? "no backup" : "backup 63d") : a.st === "idle" ? "paused" : "up";
+      const txt = `${mark} ${a.n.toLowerCase().replace(" ", "-").padEnd(12)} ${state.padEnd(11)}${(a.st === "idle" ? "" : a.cpu).padStart(6)} ${a.mem.replace(" ", "").padStart(6)}`;
+      return `<div class="l${a.st === "good" ? " dim" : ""}">${a.st === "warn" ? `<span class="inv">${txt}</span>` : txt}</div>`;
+    };
+    const apps = APPS.slice(0, 10);
+    return `<div class="s ph">
+      <div class="l"><span class="inv"> HOMEBOX </span><span>Ubuntu 24.04.3 LTS :: up 19d 04h</span><span class="r">boxpilot 1.148.0 :: 07:41</span></div>
+      <div class="l">STATUS  <span class="inv"> 2 NEED A LOOK </span>  2 can wait</div>
+      <div>${row("CPU", 11, "11%", "load 0.84 on 8 cores")}${row("MEM", 34, "34%", "11.0 of 32.0 GB")}${row("DISK", 27, "27%", "212 of 800 GB")}${row("MEDIA", 68, "68%", "2.6 of 3.9 TB, full in ~11 days")}</div>
+      <div class="h">NEEDS YOU</div>
+      <div class="need"><span class="inv">[MED]</span><span>Vaultwarden, Immich +2 not backed up</span><span>(<u>b</u>)ack up now  (<u>n</u>)ightly</span></div>
+      <div class="need"><span class="inv">[MED]</span><span>4 updates available, 1 security fix</span><span>(<u>i</u>)nstall</span></div>
+      <div class="h">CAN WAIT</div>
+      <div class="need"><span>[MED]</span><span>An update for Jellyfin</span><span>(<u>u</u>)pdate</span></div>
+      <div class="need"><span>[LOW]</span><span>Open WebUI + Ollama is paused</span><span>(<u>r</u>)esume</span></div>
+      <div class="h">APPS  11</div>
+      <div class="grid2"><div>${apps.slice(0, 5).map(appRow).join("")}</div><div>${apps.slice(5).map(appRow).join("")}</div></div>
+      <div class="l" style="margin-top:.4em">homebox:~$ back up vaultwarden<span class="cur"></span></div>
+    </div>`;
+  };
+
+  M.rack = () => {
+    const mods = APPS.slice(0, 12).map((a) => `<div class="rk-mod"><div class="top"><span class="led ${a.st === "good" ? "g" : a.st === "warn" ? "a" : ""}"></span><span class="rk-sw ${a.st === "idle" ? "off" : ""}"></span></div><span class="rk-tape">${a.n}</span><span class="rk-note ${a.st === "warn" ? "a" : ""}">${a.st === "warn" ? (a.note === "Never backed up" ? "NO BACKUP" : "BACKUP 63D") : a.st === "idle" ? "PAUSED" : ":" + a.port + " " + a.cpu}</span></div>`).join("");
+    const seg = (v, l) => `<div class="rk-seg"><b>${v}</b><span class="rk-eng">${l}</span></div>`;
+    return `<div class="s rk">
+      <div class="rk-u"><div class="rk-hd">
+        <div class="rk-name"><b>HOMEBOX</b><span class="rk-eng">BoxPilot 1.148.0 · Ubuntu 24.04.3</span></div>
+        <div style="display:grid;gap:.4em"><span class="rk-eng"><span class="led g"></span>&nbsp; Power</span><span class="rk-eng"><span class="led g"></span>&nbsp; Up 19D 04H</span></div>
+        <span class="rk-lamp">2 TO<br>LOOK AT</span>
+        <div class="rk-segs">${seg("011", "CPU %")}${seg("11.0", "MEM GB")}${seg("068", "MEDIA %")}${seg("051", "TEMP °C")}</div>
+      </div></div>
+      <div class="rk-u"><div class="rk-mods">${mods}</div></div>
+      <div class="rk-u"><div class="rk-row">
+        <span class="rk-eng" style="writing-mode:vertical-rl;transform:rotate(180deg)">Needs you</span>
+        <div class="rk-lcd"><div>1 VAULTWARDEN+3  NO BACKUP  MED</div><div>2 UPDATES 4     1 SECURITY MED</div></div>
+        <div class="rk-btns"><div class="rk-btn"><i></i><span class="rk-eng">Back up</span></div><div class="rk-btn grey"><i></i><span class="rk-eng">Nightly</span></div><div class="rk-btn"><i></i><span class="rk-eng">Install</span></div></div>
+      </div></div>
+      <div class="rk-u"><div class="rk-row">
+        <span class="rk-eng" style="writing-mode:vertical-rl;transform:rotate(180deg)">Can wait</span>
+        <div class="rk-lcd"><div>JELLYFIN UPDATE READY     MED</div><div>OPEN WEBUI PAUSED         LOW</div></div>
+        <div class="rk-btns"><div class="rk-btn grey"><i></i><span class="rk-eng">Update</span></div><div class="rk-btn green"><i></i><span class="rk-eng">Resume</span></div></div>
+      </div></div>
+      <div class="rk-u rk-ups"><span class="rk-eng">UPS</span><span class="rk-eng"><span class="led g"></span>&nbsp; On mains</span><span class="rk-cells">${"<i></i>".repeat(10)}</span><span class="rk-eng">Battery 100% · 41 min</span><span class="rk-vent"></span></div>
+    </div>`;
+  };
+
+  M.swiss = () => {
+    const apps = APPS.map((a) => `<div class="${a.st === "warn" ? "w" : ""}">${a.n}<span>${a.st === "warn" ? (a.note === "Never backed up" ? "no backup" : "backup 63 days") : a.st === "idle" ? "paused" : "running"}</span></div>`).join("");
+    const item = (t, title, go) => `<div class="sw-item"><span class="t ${t === "Low" ? "low" : ""}">${t}</span><b>${title}</b><span class="go">${go} →</span></div>`;
+    return `<div class="s sw">
+      <div class="sw-top"><span>BoxPilot</span><span>Home</span><span>homebox</span><span>Ubuntu 24.04.3 LTS</span><span>Tue 30.09.2026 07:41</span></div>
+      <div class="sw-left"><div class="sw-num">2</div>
+        <div class="sw-metrics"><div><b>11%</b><span>Processor</span></div><div><b>34%</b><span>Memory</span></div><div><b>68%</b><span>Media drive</span></div><div><b>3/7</b><span>Apps backed up</span></div></div>
+      </div>
+      <div class="sw-right">
+        <div class="sw-h">things need a look.</div>
+        <div class="sw-sub">homebox is running. 2 more can wait.</div>
+        <div class="sw-list">
+          ${item("Medium", "Vaultwarden, Immich and 2 more have no recent backup", "Back up now")}
+          ${item("Medium", "4 updates, 1 of them a security fix", "Install")}
+          ${item("Medium", "An update for Jellyfin", "Update")}
+          ${item("Low", "Open WebUI + Ollama is paused", "Resume")}
+        </div>
+        <div class="sw-apps">${apps}</div>
+      </div>
+    </div>`;
+  };
+
+  M.toybox = () => {
+    const pastel = ["#ffc9dc", "#cbd8ff", "#d8c8ff", "#bfe3ff", "#b8f0d2", "#e3e3ea", "#ffc2c2", "#bff0f3", "#f0c9ff", "#c9f5c0", "#c6d6ff", "#ffe7a6"];
+    const apps = APPS.slice(0, 11).map((a, i) => `<div class="ty-app"><i style="--c:${pastel[i]}"><span>${a.e}</span></i><b>${a.n}</b><small>${a.st === "warn" ? "needs a backup" : a.st === "idle" ? "napping" : "happy"}</small>${a.st === "warn" ? '<span class="stk">!</span>' : ""}</div>`).join("")
+      + `<div class="ty-app"><i style="--c:#ffffff;border-style:dashed"><span style="font-size:1.4em">+</span></i><b>Add an app</b><small>168 to pick from</small></div>`;
+    return `<div class="s ty">
+      <div class="ty-left">
+        <div class="ty-hero"><div class="ty-bot"><i></i></div><div class="ty-c ty-say"><b>Morning! I'm running fine.</b><p>2 things need you, and 2 can wait until later.</p></div></div>
+        <div class="ty-c"><div class="ty-h">Needs you</div>
+          <div class="ty-need"><span class="ty-dot" style="background:#ffd84d">!</span><b>Vaultwarden, Immich and 2 more haven't been backed up</b><div class="ty-acts"><span class="ty-btn">Back up now</span><span class="ty-btn w">Every night</span></div></div>
+          <div class="ty-need"><span class="ty-dot" style="background:#a9d0ff">4</span><b>4 updates are ready, 1 is a security fix</b><div class="ty-acts"><span class="ty-btn">Install</span></div></div>
+        </div>
+        <div class="ty-c"><div class="ty-h">Can wait</div>
+          <div class="ty-need"><span class="ty-dot" style="background:#e3e3ea">z</span><b>Open WebUI is napping, on purpose</b><div class="ty-acts"><span class="ty-btn w">Wake it up</span></div></div>
+          <div class="ty-need"><span class="ty-dot" style="background:#cfbcff">↑</span><b>Jellyfin has a new version</b><div class="ty-acts"><span class="ty-btn w">Update</span></div></div>
+        </div>
+        <div class="ty-c ty-bars">
+          <div>Memory<span><i style="--c:#cfbcff;width:34%"></i></span><em>34%</em></div>
+          <div>Media drive<span><i style="--c:#ffb3d1;width:68%"></i></span><em>68%</em></div>
+          <div>Busy-ness<span><i style="--c:#9ee8bb;width:11%"></i></span><em>11%</em></div>
+        </div>
+      </div>
+      <div class="ty-c"><div class="ty-h">Your apps</div><div class="ty-apps">${apps}</div></div>
+    </div>`;
+  };
+
+  M.cockpit = () => {
+    const pt = (a, r) => [60 + r * Math.cos(a * Math.PI / 180), 56 - r * Math.sin(a * Math.PI / 180)];
+    const arc = (v1, v2, r) => { const a1 = 210 - 2.4 * v1, a2 = 210 - 2.4 * v2; const [x1, y1] = pt(a1, r), [x2, y2] = pt(a2, r); return `M${x1.toFixed(1)} ${y1.toFixed(1)} A${r} ${r} 0 ${a1 - a2 > 180 ? 1 : 0} 1 ${x2.toFixed(1)} ${y2.toFixed(1)}`; };
+    const gauge = (label, v, shown, warn = 80) => {
+      const [nx, ny] = pt(210 - 2.4 * v, 33);
+      const col = v >= 95 ? "#ff4d4d" : v >= warn ? "#ffbf1f" : "#39e27d";
+      return `<svg viewBox="0 0 120 100" aria-hidden="true">
+        <path d="${arc(0, 100, 40)}" fill="none" stroke="#1b242c" stroke-width="6"/>
+        <path d="${arc(0, v, 40)}" fill="none" stroke="${col}" stroke-width="6"/>
+        <path d="${arc(warn, 95, 46)}" fill="none" stroke="#ffbf1f" stroke-width="2.2"/>
+        <path d="${arc(95, 100, 46)}" fill="none" stroke="#ff4d4d" stroke-width="2.2"/>
+        <line x1="60" y1="56" x2="${nx.toFixed(1)}" y2="${ny.toFixed(1)}" stroke="#f1f4f6" stroke-width="2.4" stroke-linecap="round"/>
+        <circle cx="60" cy="56" r="3.2" fill="#f1f4f6"/>
+        <rect x="37" y="66" width="46" height="17" fill="#000000" stroke="#f1f4f6" stroke-width="1"/>
+        <text x="60" y="79" text-anchor="middle" font-family="B612 Mono, monospace" font-size="12" fill="${col}">${shown}</text>
+        <text x="60" y="95" text-anchor="middle" font-family="B612, sans-serif" font-size="8" fill="#7d8894" letter-spacing="1">${label}</text>
+      </svg>`;
+    };
+    return `<div class="s ck">
+      <div class="ck-ann"><span class="ck-lamp lit big">MASTER<br>CAUTION</span><span class="ck-lamp lit">BKUP</span><span class="ck-lamp lit">UPD</span><span class="ck-lamp ok">NET</span><span class="ck-lamp ok">TEMP</span><span class="ck-lamp ok">DISK</span><span class="ck-lamp ok">UPS</span><span class="clock">07:41:22</span></div>
+      <div class="ck-scr">
+        <div class="ck-gauges">${gauge("CPU %", 11, "11")}${gauge("MEM %", 34, "34")}${gauge("MEDIA %", 68, "68", 85)}${gauge("TEMP °C", 51, "51", 75)}</div>
+        <div class="ck-memo">
+          <span class="t">HOMEBOX</span>
+          <span class="d">UBUNTU 24.04.3 · UP 19D 04H</span>
+          <span class="t">BACKUP</span>
+          <span class="a">4 APPS NOT PROTECTED</span>
+          <span class="c">- VAULTWARDEN ..... BACK UP</span>
+          <span class="c">- SCHEDULE ........ NIGHTLY</span>
+          <span class="m">NEXT RUN 03:00</span>
+          <span class="t">UPDATES</span>
+          <span class="a">4 AVAIL · 1 SECURITY</span>
+          <span class="c">- INSTALL ......... MED</span>
+          <span class="t">MEMO</span>
+          <span class="g">OPEN WEBUI PAUSED</span>
+          <span class="g">JELLYFIN UPD READY</span>
+          <span class="g">TAILNET UP · LAN UP</span>
+        </div>
+      </div>
+      <div class="ck-keys"><span class="ck-key on">HOME</span><span class="ck-key">APPS</span><span class="ck-key">STOR</span><span class="ck-key">NET</span><span class="ck-key">BKUP</span><span class="ck-key">UPD</span><span class="ck-key">SYS</span></div>
+    </div>`;
+  };
+
+  M.eink = () => {
+    const apps = APPS.map((a) => `<div class="${a.st === "warn" ? "w" : ""}">${a.n}<span>${a.st === "warn" ? (a.note === "Never backed up" ? "no backup" : "backup 63 days") : a.st === "idle" ? "paused" : "running"}</span></div>`).join("");
+    return `<div class="s ei">
+      <div class="ei-top"><span><b>homebox</b> · Home</span><i>Refreshed 7:41 · next refresh 7:46</i></div>
+      <div class="ei-lead"><h1>Good morning.</h1><p>homebox is running. Two things need a look; two more can wait.</p></div>
+      <div class="ei-cols">
+        <div>
+          <div class="ei-h">Needs you</div>
+          <div class="ei-need"><b>Vaultwarden, Immich and two more have not been backed up recently.</b><p><i>Medium.</i> Vaultwarden has never been backed up.</p><div class="ei-acts"><span class="ei-btn fill">Back up now</span><span class="ei-btn">Back up nightly</span></div></div>
+          <div class="ei-need"><b>Four updates are available.</b><p><i>Medium.</i> One is a security fix.</p><div class="ei-acts"><span class="ei-btn fill">Install</span></div></div>
+          <div class="ei-need soft"><b>Open WebUI is paused, and Jellyfin has an update.</b><p>These can wait.</p></div>
+        </div>
+        <div>
+          <div class="ei-h">At a glance</div>
+          <div class="ei-rows">
+            <div class="ei-row"><span>Processor</span><span class="ei-bar"><i style="width:11%"></i></span><em>11%</em></div>
+            <div class="ei-row"><span>Memory</span><span class="ei-bar"><i style="width:34%"></i></span><em>34%</em></div>
+            <div class="ei-row"><span>Media drive</span><span class="ei-bar"><i style="width:68%"></i></span><em>68%</em></div>
+            <div class="ei-row"><span>Backed up</span><span class="ei-bar"><i style="width:43%"></i></span><em>3 of 7</em></div>
+          </div>
+          <div class="ei-apps">${apps}</div>
+        </div>
+      </div>
+    </div>`;
+  };
+
+  M.quest = () => {
+    const party = APPS.map((a, i) => {
+      const hp = a.st === "warn" ? 55 : a.st === "idle" ? 100 : 100;
+      const cls = a.st === "warn" ? "w" : a.st === "idle" ? "z" : "";
+      const fx = a.st === "warn" ? `<span class="qs-fx">${a.note === "Never backed up" ? "UNPROTECTED" : "STALE SAVE"}</span>` : a.st === "idle" ? '<span class="qs-fx slp">ASLEEP</span>' : `<span style="font-size:.55em;color:var(--dim)">${a.cpu} · ${a.mem}</span>`;
+      return `<div class="qs-mem"><span class="qs-av" style="--a:${a.a}">${a.n[0]}</span><b>${a.n}<small>LV 19</small></b>${fx}<div class="qs-hp ${cls}"><span><i style="width:${hp}%"></i></span>HP ${hp}/100</div></div>`;
+    }).join("");
+    return `<div class="s qs">
+      <div class="qs-win"><h5>PARTY<span>11 members · 10 awake</span></h5><div class="qs-party">${party}</div></div>
+      <div class="qs-right">
+        <div class="qs-win"><h5>QUESTS<span>2 main · 2 side</span></h5>
+          <div class="qs-quest"><b>▶ Guard the vault</b><p>Back up Vaultwarden, Immich and 2 more.</p><p class="rw">Reward: sleep well · Risk: medium</p><div class="qs-acts"><span class="qs-btn">Accept</span><span class="qs-btn o">Every night</span></div></div>
+          <div class="qs-quest"><b>▶ Patch day</b><p>4 updates wait, 1 guards against an exploit.</p><p class="rw">Reward: +1 security · Risk: medium</p><div class="qs-acts"><span class="qs-btn">Accept</span></div></div>
+          <div class="qs-quest"><b style="color:var(--dim)">Side: wake Open WebUI · new gear for Jellyfin</b></div>
+        </div>
+        <div class="qs-win"><h5>HOMEBOX<span>LV 19 · Ubuntu</span></h5>
+          <div class="qs-stats"><span style="border:0;background:none;height:auto">MANA</span><span><i style="--c:#62a8ff;width:34%"></i></span>11/32 GB<span style="border:0;background:none;height:auto">BAG</span><span><i style="--c:#ffd166;width:68%"></i></span>2.6/3.9 TB<span style="border:0;background:none;height:auto">HEAT</span><span><i style="--c:#ff7a8f;width:51%"></i></span>51 °C</div>
+        </div>
+      </div>
+      <div class="qs-win qs-say"><b>HOMEBOX:</b> Good morning! Two quests are waiting for you.<span class="blink">▼</span></div>
+    </div>`;
+  };
+
+  M.transit = () => {
+    const K = "#1d1d1f", G = "#00843d", B = "#1f4fd1", O = "#f08a00", X = "#9b9b9b";
+    const st = (x, y) => `<circle cx="${x}" cy="${y}" r="5.5" fill="#ffffff" stroke="${K}" stroke-width="2.4"/>`;
+    const lab = (x, y, t, anchor = "middle") => `<text x="${x}" y="${y}" font-size="10.5" font-weight="600" text-anchor="${anchor}" fill="${K}">${t}</text>`;
+    const term = (x, y) => `<line x1="${x}" y1="${y - 9}" x2="${x}" y2="${y + 9}" stroke="${K}" stroke-width="4"/>`;
+    return `<div class="s tm">
+      <div class="tm-map"><div><h1>homebox</h1><p>Each line is a way in or a way out. Stations are your apps.</p></div>
+      <svg viewBox="0 0 520 380" font-family="Overpass, Arial, sans-serif" aria-hidden="true">
+        <path d="M40 70 H190 L230 110 H270 L310 70 H500" fill="none" stroke="${B}" stroke-width="8" stroke-linejoin="round"/>
+        <path d="M30 190 H500" fill="none" stroke="${G}" stroke-width="8"/>
+        <path d="M250 262 L290 302 H500" fill="none" stroke="${O}" stroke-width="8" stroke-linejoin="round"/>
+        <path d="M250 262 L210 302 H30" fill="none" stroke="${X}" stroke-width="8" stroke-dasharray="12 8" stroke-linejoin="round"/>
+        <rect x="236" y="98" width="28" height="182" rx="14" fill="#ffffff" stroke="${K}" stroke-width="3"/>
+        <text x="254" y="189" transform="rotate(-90 254 189)" font-size="11" font-weight="800" letter-spacing="2" text-anchor="middle" fill="${K}">HOMEBOX</text>
+        ${term(40, 70)}${lab(34, 56, "Your phone", "start")}
+        ${st(115, 70)}${lab(115, 56, "Laptop")}
+        ${st(370, 70)}${lab(370, 56, "Vaultwarden")}
+        ${st(435, 70)}${lab(435, 92, "ntfy")}
+        ${term(500, 70)}${lab(506, 56, "Anywhere", "end")}
+        ${term(30, 190)}
+        ${st(60, 190)}${lab(60, 176, "Jellyfin")}
+        ${st(120, 190)}${lab(120, 214, "Nextcloud")}
+        ${st(180, 190)}${lab(180, 176, "Homepage")}
+        ${st(320, 190)}${lab(320, 176, "Pi-hole")}
+        ${st(380, 190)}${lab(380, 214, "Uptime Kuma")}
+        ${st(440, 190)}${lab(440, 176, "Scrutiny")}
+        ${term(500, 190)}${lab(500, 214, "Immich")}
+        ${st(335, 302)}${lab(335, 322, "Jellyfin")}
+        ${st(390, 302)}${lab(390, 338, "Pi-hole")}
+        ${st(445, 302)}${lab(445, 322, "ntfy")}
+        ${term(500, 302)}${lab(506, 338, "Off-box copy", "end")}
+        <circle cx="180" cy="302" r="5.5" fill="#ffffff" stroke="${X}" stroke-width="2.4"/>${lab(180, 322, "Vaultwarden")}
+        <circle cx="130" cy="302" r="5.5" fill="#ffffff" stroke="${X}" stroke-width="2.4"/>${lab(130, 338, "Immich")}
+        <circle cx="80" cy="302" r="5.5" fill="#ffffff" stroke="${X}" stroke-width="2.4"/>${lab(80, 322, "Nextcloud")}
+        <line x1="30" y1="293" x2="30" y2="311" stroke="${X}" stroke-width="4"/>${lab(26, 338, "Homepage", "start")}
+        <g font-size="10" fill="${K}">
+          <line x1="30" y1="364" x2="54" y2="364" stroke="${G}" stroke-width="6"/><text x="60" y="368">Your network</text>
+          <line x1="150" y1="364" x2="174" y2="364" stroke="${B}" stroke-width="6"/><text x="180" y="368">Tailnet</text>
+          <line x1="250" y1="364" x2="274" y2="364" stroke="${O}" stroke-width="6"/><text x="280" y="368">Backups</text>
+          <line x1="360" y1="364" x2="384" y2="364" stroke="${X}" stroke-width="6" stroke-dasharray="6 4"/><text x="390" y="368">Not backed up</text>
+        </g>
+      </svg></div>
+      <div class="tm-board">
+        <h5>Line status<span>07:41</span></h5>
+        <div class="tm-line" style="--c:${G}"><i></i><b>Your network</b><span class="tm-st">Good service</span></div>
+        <div class="tm-line" style="--c:${B}"><i></i><b>Tailnet</b><span class="tm-st">Good service</span></div>
+        <div class="tm-line" style="--c:${O}"><i class="dash"></i><b>Backups</b><span class="tm-st warn">Part suspended</span><p>No recent backup for Vaultwarden, Immich, Homepage and Nextcloud. Medium risk.</p><div class="tm-acts"><span class="tm-btn fill">Back up now</span><span class="tm-btn">Every night</span></div></div>
+        <div class="tm-line" style="--c:#ffffff"><i></i><b>Updates</b><span class="tm-st warn">Planned works</span><p>4 updates, 1 security fix. Medium risk.</p><div class="tm-acts"><span class="tm-btn fill">Install</span></div></div>
+        <div class="tm-line" style="--c:#8c8c8c"><i></i><b>Open WebUI</b><span class="tm-st closed">Station closed</span><p>Paused on purpose.</p><div class="tm-acts"><span class="tm-btn">Resume</span></div></div>
+      </div>
+    </div>`;
+  };
+
+  // Tiny thumbnails for the Appearance page: rectangles in percent.
+  const r = (x, y, w, h, bg, extra = "") => `<i style="left:${x}%;top:${y}%;width:${w}%;height:${h}%;background:${bg};${extra}"></i>`;
+  const WALL = "radial-gradient(70% 90% at 10% 0%, var(--wg-sea), transparent 65%), radial-gradient(60% 80% at 100% 0%, var(--wg-sun), transparent 62%), linear-gradient(160deg, var(--wb1), var(--wb2))";
+  const LOOKS = [
+    { id: "blend", name: "Home + Ops", sub: "Light and dark", bg: WALL, parts: r(4, 8, 20, 84, "var(--lx-glass2)", "border-radius:12%") + r(28, 8, 68, 13, "var(--lx-glass2)", "border-radius:18%") + r(28, 26, 36, 66, "var(--lx-glass2)", "border-radius:10%") + r(67, 26, 29, 66, "var(--lx-glass2)", "border-radius:10%") + [0, 1, 2, 3].map((i) => r(32 + i * 7.5, 32, 5.5, 9, ["#7b5cd6", "#1c8ad0", "#d93a44", "#2e8b57"][i], "border-radius:25%")).join("") + r(40, 13, 18, 3, "var(--cc-cyan)") },
+    { id: "launcher", name: "Launcher", sub: "Today's Home", bg: WALL, parts: r(4, 10, 26, 36, "var(--lx-glass2)", "border-radius:10%") + r(4, 50, 26, 34, "var(--lx-glass2)", "border-radius:10%") + r(36, 8, 28, 6, "var(--lx-ink)", "opacity:.7") + [0, 1, 2, 3, 4, 5].map((i) => r(36 + (i % 3) * 13, 22 + Math.floor(i / 3) * 24, 9, 15, ["#4b5b73", "#5360d8", "#7b5cd6", "#1c8ad0", "#13917f", "#d93a44"][i], "border-radius:25%")).join("") + r(22, 87, 56, 9, "var(--lx-glass2)", "border-radius:30%") },
+    { id: "console", name: "Command Center", sub: "Today's Ops", bg: "var(--cc-canvas)", parts: r(0, 0, 8, 100, "var(--cc-rail)") + r(1.5, 4, 5, 8, "var(--cc-amber)") + [0, 1, 2, 3, 4].map((i) => r(11 + i * 17.6, 9, 16, 16, "var(--cc-panel)", "outline:1px solid var(--cc-line)")).join("") + r(11, 30, 50, 64, "var(--cc-panel)", "outline:1px solid var(--cc-line)") + r(63, 30, 33, 64, "var(--cc-panel)", "outline:1px solid var(--cc-line)") + r(66, 38, 7, 6, "var(--cc-amber)") + r(66, 54, 7, 6, "var(--cc-amber)") + r(14, 20, 10, 2, "var(--cc-cyan)") },
+    { id: "aqua", name: "Aqua", sub: "Light only", bg: "radial-gradient(120% 95% at 28% 18%, #7cb8ff, #2f70d6 45%, #0a3584)", parts: r(10, 10, 80, 66, "repeating-linear-gradient(0deg,#f5f5f5 0 1px,#e6e6e6 1px 2px)", "border-radius:6% 6% 3% 3%") + r(10, 10, 80, 11, "linear-gradient(#ececec,#c6c6c6)", "border-radius:6% 6% 0 0") + r(13, 13, 4, 6, "#e0443a", "border-radius:50%") + r(18.5, 13, 4, 6, "#e3a90d", "border-radius:50%") + r(24, 13, 4, 6, "#3fae2c", "border-radius:50%") + r(10, 21, 18, 55, "#e6ecf5") + r(32, 30, 22, 5, "linear-gradient(#d6e9ff,#3d88ea 50%,#9ed0ff)", "border-radius:9px") + r(22, 83, 56, 11, "rgba(255,255,255,.4)", "border-radius:12% 12% 0 0") },
+    { id: "blueprint", name: "Blueprint", sub: "Dark only", bg: "#1f4f98 linear-gradient(rgba(255,255,255,.12) 1px, transparent 1px) 0 0/10% 16%", parts: r(5, 7, 90, 86, "none", "outline:1px solid #f2f6ff") + r(10, 16, 52, 50, "none", "outline:1px solid #f2f6ff") + [0, 1, 2, 3].map((i) => r(13 + i * 12, 24, 10, 12, "none", "outline:1px solid rgba(242,246,255,.8)")).join("") + r(66, 72, 26, 17, "none", "outline:1px solid #f2f6ff") + r(10, 76, 40, 4, "repeating-linear-gradient(45deg,#f2f6ff 0 1px,transparent 1px 3px)") },
+    { id: "phosphor", name: "Phosphor", sub: "Dark only", bg: "radial-gradient(#07301a, #000 90%)", parts: [0, 1, 2, 3, 4, 5, 6, 7].map((i) => r(8, 10 + i * 10, [30, 60, 45, 70, 25, 55, 40, 20][i], 3.5, "#62ff96", "box-shadow:0 0 4px #62ff96;opacity:" + (i % 3 ? ".7" : "1"))).join("") },
+    { id: "rack", name: "Rack Panel", sub: "One look", bg: "#161718", parts: [[6, 24], [34, 34], [72, 20]].map(([y, h]) => r(5, y, 90, h, "repeating-linear-gradient(90deg,#cdd0d4 0 1px,#bfc3c8 1px 2px)", "border-radius:3px")).join("") + [0, 1, 2, 3, 4].map((i) => r(14 + i * 15, 42, 11, 18, "#222326")).join("") + [0, 1, 2].map((i) => r(58 + i * 11, 12, 9, 10, "#140404", "box-shadow:inset 0 0 0 1px #000")).join("") + r(40, 12, 12, 10, "#ffb20f", "box-shadow:0 0 6px #ffb20f") },
+    { id: "swiss", name: "Swiss Poster", sub: "Light only", bg: "#ffffff", parts: `<i style="left:6%;top:8%;font:900 5.4em/1 Archivo,sans-serif;color:#e3061b;letter-spacing:-.06em;font-style:normal">2</i>` + r(6, 6, 88, 1.5, "#111") + r(46, 18, 44, 7, "#111") + r(46, 28, 30, 7, "#111") + [0, 1, 2].map((i) => r(46, 44 + i * 12, 48, 0.8, "#111")).join("") + r(80, 46, 14, 5, "#111") },
+    { id: "toybox", name: "Toybox", sub: "Light only", bg: "#dcefff", parts: r(6, 10, 20, 28, "#a9d0ff", "border:2px solid #2b2340;border-radius:25%") + r(30, 10, 64, 28, "#fff", "border:2px solid #2b2340;border-radius:14px") + r(6, 46, 42, 46, "#fff", "border:2px solid #2b2340;border-radius:14px") + r(52, 46, 42, 46, "#fff", "border:2px solid #2b2340;border-radius:14px") + [0, 1, 2].map((i) => r(56 + i * 12, 54, 9, 14, ["#ffc9dc", "#cbd8ff", "#b8f0d2"][i], "border:2px solid #2b2340;border-radius:50%")).join("") + r(10, 76, 18, 8, "#ffd84d", "border:2px solid #2b2340;border-radius:20px") },
+    { id: "cockpit", name: "Glass Cockpit", sub: "Dark only", bg: "linear-gradient(#34363a,#1c1e21)", parts: r(5, 5, 22, 12, "#ffbf1f") + r(5, 22, 90, 60, "#04070a", "border-radius:6px") + [0, 1].map((i) => r(10 + i * 22, 28, 18, 26, "none", "border:2px solid #39e27d;border-bottom-color:transparent;border-radius:50%")).join("") + [0, 1].map((i) => r(10 + i * 22, 56, 18, 22, "none", "border:2px solid #39e27d;border-bottom-color:transparent;border-radius:50%")).join("") + r(58, 30, 30, 3, "#ffbf1f") + r(58, 40, 24, 3, "#3fd7f2") + r(58, 50, 28, 3, "#39e27d") + [0, 1, 2, 3, 4].map((i) => r(5 + i * 18.4, 86, 15, 9, "#3b3e43", "border-radius:3px")).join("") },
+    { id: "eink", name: "E-Ink", sub: "No color", bg: "#e6e6e1", parts: r(8, 8, 84, 1, "#151515") + r(8, 16, 46, 10, "#151515") + r(8, 30, 70, 3.5, "#555552") + [0, 1, 2].map((i) => r(8, 44 + i * 13, 36, 3, "#151515")).join("") + [0, 1, 2].map((i) => r(56, 44 + i * 13, 36, 5, "repeating-conic-gradient(#151515 0 25%, transparent 0 50%) 0 0/3px 3px", "outline:1px solid #151515")).join("") },
+    { id: "quest", name: "Quest", sub: "Dark only", bg: "#1d1838", parts: r(5, 6, 52, 70, "#2c2554", "outline:2px solid #f3e6c4") + r(62, 6, 33, 40, "#2c2554", "outline:2px solid #f3e6c4") + r(62, 52, 33, 24, "#2c2554", "outline:2px solid #f3e6c4") + r(5, 82, 90, 13, "#2c2554", "outline:2px solid #f3e6c4") + [0, 1, 2, 3].map((i) => r(9, 14 + i * 14, 6, 9, ["#7b5cd6", "#5360d8", "#d93a44", "#2e8b57"][i]) + r(38, 16 + i * 14, 15, 4, i === 1 ? "#ffcc4d" : "#5ee27d")).join("") },
+    { id: "transit", name: "Transit Map", sub: "Light only", bg: "#f7f7f3", parts: r(70, 0, 30, 100, "#13233f") + r(5, 26, 60, 3.5, "#1f4fd1") + r(5, 48, 62, 3.5, "#00843d") + r(36, 70, 30, 3.5, "#f08a00") + r(5, 70, 30, 3.5, "repeating-linear-gradient(90deg,#9b9b9b 0 5px,transparent 5px 8px)") + r(33, 18, 5, 58, "#fff", "border:2px solid #1d1d1f;border-radius:8px") + [0, 1, 2, 3].map((i) => r(74, 10 + i * 20, 22, 3, "#ffffff", "opacity:.8")).join("") },
+  ];
+
+  M.settings = () => `<div class="s lxw st"><div class="bl">
+    <aside class="bl-side glass">
+      <div class="bl-me"><span class="mk">BP</span><div><b>Settings</b><small>homebox · alex (owner)</small></div></div>
+      <div class="bl-g">You</div>
+      <div class="bl-i on">${ic("palette")}Appearance</div>
+      <div class="bl-i">${ic("bell")}Notifications</div>
+      <div class="bl-i">${ic("users")}Sign-in and passkeys</div>
+      <div class="bl-g">This server</div>
+      <div class="bl-i">${ic("home")}Name and time</div>
+      <div class="bl-i">${ic("network")}Who can reach BoxPilot</div>
+      <div class="bl-i">${ic("backups")}Backups and schedules</div>
+      <div class="bl-i">${ic("updates")}Updates</div>
+      <div class="bl-i">${ic("settings")}About BoxPilot</div>
+    </aside>
+    <main class="bl-main glass st-main">
+      <h1>Appearance</h1>
+      <p class="st-lead">How BoxPilot looks on every page. Saved to your account, so it follows you.</p>
+      <div class="st-label"><span>Look</span><span>13 looks</span></div>
+      <div class="st-looks">${LOOKS.map((l, i) => `<button type="button" class="st-card" data-look="${l.id}" aria-pressed="${i === 0}"><span class="th" style="background:${l.bg}">${l.parts}</span><b>${l.name}</b><small>${l.sub}</small></button>`).join("")}<div class="st-card soon" aria-hidden="true"><span class="th">+</span><b>More later</b><small>Or make your own</small></div></div>
+      <div class="st-now" id="st-now"><span>Selected: <b>Home + Ops</b> · light and dark · every page</span><span class="pill">Keep this look</span><span class="pill ghost">Go back</span></div>
+      <div class="st-rows">
+        <div class="st-row"><b>Light or dark</b><small>Follows this device unless you choose.</small><span class="seg"><b class="on">System</b><b>Light</b><b>Dark</b></span></div>
+        <div class="st-row"><b>Where it applies</b><small>Or keep today's Launcher on Home only.</small><span class="seg"><b class="on">Every page</b><b>Not Home</b></span></div>
+        <div class="st-row"><b>Accent</b><small>Buttons, selection and measured values.</small><span class="st-sw"><i class="on" style="background:#17625f"></i><i style="background:#b45309"></i><i style="background:#2f6fe4"></i><i style="background:#9b45b8"></i><i style="background:#c8408a"></i><i style="background:#3f4654"></i></span></div>
+        <div class="st-row"><b>Density</b><small>Compact fits more rows on a page.</small><span class="seg"><b class="on">Comfortable</b><b>Compact</b></span></div>
+        <div class="st-row"><b>Wallpaper</b><small>Behind the glass.</small><span class="st-walls"><i class="on" style="background:${WALL}"></i><i style="background:linear-gradient(160deg,#1c2a3c,#3d2a4f)"></i><i style="background:linear-gradient(160deg,#dfe9d8,#f3e3c8)"></i><i style="background:#8a939c"></i></span></div>
+        <div class="st-row"><b>Reduce transparency</b><small>Solid panels instead of glass.</small><span class="msw"></span></div>
+      </div>
+    </main>
+  </div></div>`;
+
+  // #only=<mockup>: that one mockup, filling the window (the reference pictures are drawn this way).
+  const only = /^#only=([A-Za-z]+)$/.exec(location.hash);
+  if (only && M[only[1]]) {
+    document.body.innerHTML = `<div class="screen" style="width:100vw;min-width:0">${M[only[1]]()}</div>`;
+    document.body.style.margin = "0";
+    document.body.style.overflow = "hidden";
+    return;
+  }
+
+  document.querySelectorAll("[data-mock]").forEach((el) => {
+    const make = M[el.dataset.mock];
+    if (make) el.innerHTML = make();
+  });
+
+  // Appearance page: pick a look
+  const now = document.getElementById("st-now");
+  document.querySelectorAll(".st-card[data-look]").forEach((card) => {
+    card.addEventListener("click", () => {
+      document.querySelectorAll(".st-card[data-look]").forEach((c) => c.setAttribute("aria-pressed", String(c === card)));
+      const look = LOOKS.find((l) => l.id === card.dataset.look);
+      const modes = look.sub === "Light and dark" || look.sub.startsWith("Today") ? "light and dark" : look.sub.toLowerCase();
+      now.querySelector("span").innerHTML = `Selected: <b>${look.name}</b> · ${modes} · every page`;
+    });
+  });
+
+  // Enlarge
+  document.querySelectorAll(".big").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const box = btn.closest("figure, .theme");
+      const wide = box.classList.toggle("is-wide");
+      btn.setAttribute("aria-pressed", String(wide));
+      btn.textContent = wide ? "Smaller" : "Enlarge";
+      if (wide) box.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    });
+  });
+
+  // Shortlist, kept in this browser only
+  const NAMES = { "d-ops": "Ops everywhere", "d-home": "Home everywhere", "d-blend": "Home + Ops", "t-aqua": "Aqua", "t-blueprint": "Blueprint", "t-phosphor": "Phosphor", "t-rack": "Rack Panel", "t-swiss": "Swiss Poster", "t-toybox": "Toybox", "t-cockpit": "Glass Cockpit", "t-eink": "E-Ink", "t-quest": "Quest", "t-transit": "Transit Map" };
+  const KEY = "boxpilot-looks-shortlist";
+  let picks = new Set();
+  try { picks = new Set(JSON.parse(localStorage.getItem(KEY) || "[]").filter((id) => id in NAMES)); } catch { picks = new Set(); }
+  const bar = document.getElementById("picks");
+  const list = document.getElementById("picks-list");
+  const copy = document.getElementById("picks-copy");
+  const ordered = () => Object.keys(NAMES).filter((id) => picks.has(id)).map((id) => NAMES[id]);
+  const render = () => {
+    document.querySelectorAll(".pick").forEach((btn) => {
+      const on = picks.has(btn.dataset.id);
+      btn.setAttribute("aria-pressed", String(on));
+      btn.textContent = on ? "On shortlist" : "Shortlist";
+    });
+    bar.hidden = picks.size === 0;
+    list.innerHTML = `<b>Shortlist:</b> ${ordered().join(", ")}`;
+    copy.textContent = "Copy list";
+  };
+  document.querySelectorAll(".pick").forEach((btn) => btn.addEventListener("click", () => {
+    const id = btn.dataset.id;
+    if (picks.has(id)) picks.delete(id); else picks.add(id);
+    try { localStorage.setItem(KEY, JSON.stringify([...picks])); } catch { /* this browser keeps nothing */ }
+    render();
+  }));
+  copy.addEventListener("click", () => {
+    const text = `My BoxPilot look shortlist: ${ordered().join(", ")}`;
+    const fallback = () => { const range = document.createRange(); range.selectNodeContents(list); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(range); copy.textContent = "Selected, press Ctrl C"; };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(() => { copy.textContent = "Copied"; }, fallback);
+    else fallback();
+  });
+  render();
+})();
+</script>
+</body>
+</html>

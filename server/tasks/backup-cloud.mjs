@@ -1,4 +1,5 @@
-import { access, mkdir, stat, writeFile } from "node:fs/promises";
+import { access, mkdir, stat } from "node:fs/promises";
+import { writeFileDurably as writeFile } from "../durable-file.mjs";
 import path from "node:path";
 import { fixedRun } from "../exec.mjs";
 import { cloudTarget, normalizeCloudDestination, parseRcloneStats, renderRcloneConfig } from "../backup-cloud.mjs";
@@ -77,6 +78,12 @@ export async function backupCloudTest(parameters = {}, { run = fixedRun, log = n
  * database and every app's .env unencrypted, so none of them leave the box.
  */
 const machineSnapshotExcludes = ["--exclude", "/.staging-*/**", "--exclude", "/.restore-*/**", "--exclude", "/restored/**"];
+/**
+ * An app backup still being written (`<stamp>.tar.gz.partial`, renamed once whole). Copied, it would
+ * stay in the bucket as a truncated archive, since rclone copy never deletes; growing or renamed
+ * mid-transfer, it is an rclone error.
+ */
+const inProgressExcludes = ["--exclude", "*.partial"];
 
 /** Copy every local backup root to the destination. rclone copy never deletes remotely. */
 export async function backupCloudSync(parameters = {}, { run = fixedRun, log = null, secretsDirectory = defaults.secretsDirectory, rclone = defaults.rclone, sources = defaults.sources, now = () => new Date() } = {}) {
@@ -92,7 +99,7 @@ export async function backupCloudSync(parameters = {}, { run = fixedRun, log = n
     if (!exists) continue;
     log?.(`$ rclone copy --checksum ${source.root} ${target}/${source.name}`, "stdout");
     const excludes = source.name === "machine-snapshots" ? machineSnapshotExcludes : [];
-    const result = await run(rclone, [...common, "copy", "--checksum", ...excludes, source.root, `${target}/${source.name}`], { timeout: 6 * 60 * 60_000, maxBuffer: 8 * 1024 * 1024 });
+    const result = await run(rclone, [...common, "copy", "--checksum", ...inProgressExcludes, ...excludes, source.root, `${target}/${source.name}`], { timeout: 6 * 60 * 60_000, maxBuffer: 8 * 1024 * 1024 });
     const stats = parseRcloneStats(`${result.stdout}\n${result.stderr}`);
     if (!result.ok) throw new Error(`rclone copy failed for ${source.name}: ${tail(result.stderr)}`);
     filesTransferred += stats.filesTransferred; errors += stats.errors;

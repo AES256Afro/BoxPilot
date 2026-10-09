@@ -4,7 +4,7 @@
  * step that survives carries the request that would stage it (or run it, for a read) through the
  * ordinary job path, where it is approved at its own tier like any other.
  */
-import { secretPaths, validateParameters } from "../ops/registry.mjs";
+import { confirmTextFor, riskTiers, secretPaths, validateParameters } from "../ops/registry.mjs";
 
 export const maxPlanSteps = 8;
 
@@ -68,16 +68,29 @@ export function refusalFor(operation, role) {
 
 const plainText = (value, max) => (typeof value === "string" ? value.replace(/[\u0000-\u001f\u007f]+/g, " ").trim().slice(0, max) : "");
 
+/** What approving a step takes, as the job layer will ask it: a typed confirmation only where this step has one. */
+const approvalFor = (tier, operation, parameters) => (tier === "high" && !confirmTextFor(operation, parameters) ? "The owner's password" : approvalByTier[tier]);
+
 /**
  * Check each step as written: the operation exists, its parameters pass the registry's own check,
  * the person asking could approve it, and it carries no secret (the assistant never handles one).
  * Steps that pass keep their order; the rest are dropped, each with the reason.
+ *
+ * A step's tier is the one the job layer will stage it at (sweep 3), which what it acts on can
+ * raise: installing Pi-hole is medium by the operation and high by the app. `effectiveRisk` is the
+ * job layer's own answer when the caller has it; otherwise the registry's, from the same hooks.
  */
-export async function validatePlan(rawSteps, { registry, role, secretEnvNamesFor = null } = {}) {
+export async function validatePlan(rawSteps, { registry, role, secretEnvNamesFor = null, effectiveRisk = null } = {}) {
   const steps = [];
   const dropped = [];
   const seen = new Map();
   const list = Array.isArray(rawSteps) ? rawSteps : [];
+  const lookup = typeof effectiveRisk === "function" ? effectiveRisk : typeof registry?.effectiveRisk === "function" ? (id, parameters) => registry.effectiveRisk(id, parameters) : null;
+  const tierOf = async (operation, parameters) => {
+    if (operation.readOnly) return "low";
+    const raised = lookup ? await lookup(operation.id, parameters) : null;
+    return riskTiers.indexOf(raised) > riskTiers.indexOf(operation.risk) ? raised : operation.risk;
+  };
   for (const [index, raw] of list.entries()) {
     const operationId = typeof raw?.operationId === "string" ? raw.operationId.slice(0, 120) : null;
     const drop = (reason) => dropped.push({ index, operationId, reason });
@@ -86,24 +99,27 @@ export async function validatePlan(rawSteps, { registry, role, secretEnvNamesFor
     if (!operationId) { drop("This step names no operation"); continue; }
     const operation = registry.get(operationId);
     if (!operation) { drop(`BoxPilot has no operation called ${operationId}`); continue; }
+    if (operation.internal) { drop(`${operation.title} is BoxPilot's own plumbing: BoxPilot runs it itself, and it is never proposed`); continue; }
     const parameters = raw.parameters === undefined || raw.parameters === null ? {} : raw.parameters;
     if (typeof parameters !== "object" || Array.isArray(parameters)) { drop("Its parameters are not a set of named values"); continue; }
     const refusal = refusalFor(operation, role);
     if (refusal) { drop(refusal); continue; }
     const problem = validateParameters(operation.parameters, parameters, operation.title);
     if (problem) { drop(problem); continue; }
+    let risk;
+    try { risk = await tierOf(operation, parameters); } catch { drop(`BoxPilot could not tell how risky ${operation.title} is here, so it is not suggested`); continue; }
+    if (risk === "high" && role !== "owner") { drop(`Only the owner can approve high-risk operations, and ${operation.title} is high risk here`); continue; }
     if ((await secretPaths(operation, parameters, { secretEnvNamesFor })).length) { drop("It carries a secret, which the assistant never handles; start it from its own page"); continue; }
     const key = `${operationId}\u0000${JSON.stringify(parameters)}`;
     if (seen.has(key)) { drop(`It repeats step ${seen.get(key) + 1}`); continue; }
     seen.set(key, steps.length);
-    const risk = operation.readOnly ? "low" : operation.risk;
     steps.push({
       operationId,
       title: operation.title,
       risk,
       readOnly: operation.readOnly,
-      approval: operation.readOnly ? "Runs at once; it only reads" : approvalByTier[risk],
-      typedConfirmation: typeof operation.confirm === "function",
+      approval: operation.readOnly ? "Runs at once; it only reads" : approvalFor(risk, operation, parameters),
+      typedConfirmation: Boolean(confirmTextFor(operation, parameters)),
       parameters,
       why: plainText(raw.why, 300),
       // What the page sends to take this step: a read runs directly, anything else is staged as a

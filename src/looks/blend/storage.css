@@ -1,0 +1,111 @@
+/*
+ * The disk map at the top of Storage in Home + Ops (src/looks/blend/StorageLead.tsx), sized from the
+ * drawing (blendStorage: .bl-map, .bl-disk, .bl-bar, .bl-legend; 1em = 19.46 px at 1440 wide).
+ * Every selector starts with .blend- (src/looks/looksCss.test.ts).
+ */
+
+.blend-map {
+  display: grid;
+  gap: 11.7px;
+  min-width: 0;
+  padding: 17.5px 19.5px;
+  border: 1px solid var(--lx-glass-border);
+  border-radius: 21px;
+  color: var(--lx-ink);
+  background: var(--lx-glass);
+  box-shadow: var(--blend-shadow);
+  -webkit-backdrop-filter: var(--blend-glass-filter);
+  backdrop-filter: var(--blend-glass-filter);
+  font-family: var(--font-sans);
+}
+.blend-map__head { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.blend-map__title { display: flex; align-items: center; gap: 6.2px; margin: 0; color: var(--lx-ink-muted); font: 700 12.45px/1.2 var(--font-sans); letter-spacing: 0.1em; text-transform: uppercase; white-space: nowrap; }
+.blend-map__title svg { width: 16.8px; height: 16.8px; flex: none; }
+.blend-map__meta { margin-left: auto; overflow: hidden; color: var(--lx-ink); font: 700 12.45px/1.2 var(--font-sans); text-overflow: ellipsis; white-space: nowrap; }
+.blend-map__quiet { margin: 0; color: var(--lx-ink-muted); font-size: 13.5px; }
+
+.blend-map__disks { display: grid; gap: 13.6px; margin: 0; padding: 0; list-style: none; }
+.blend-map__disk { display: grid; grid-template-columns: 185px minmax(0, 1fr); align-items: center; gap: 15.6px; min-width: 0; }
+.blend-map__name { display: grid; gap: 1px; min-width: 0; }
+.blend-map__name b { overflow: hidden; color: var(--lx-ink); font: 600 14px/1.25 var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }
+.blend-map__name small { overflow: hidden; color: var(--lx-ink-muted); font-size: 11.7px; line-height: 1.3; text-overflow: ellipsis; white-space: nowrap; }
+.blend-map__track { min-width: 0; }
+
+/* The bar: the disk's whole size, each segment to scale, 1 px between them. */
+.blend-map__bar { display: flex; gap: 1px; height: 38.9px; overflow: hidden; border-radius: 9.7px; background: var(--lx-track); }
+.blend-map__seg {
+  display: flex;
+  flex-basis: 0;
+  align-items: center;
+  min-width: 0;
+  padding: 0 6px;
+  overflow: hidden;
+  color: var(--lx-ink);
+  font: 600 10.9px/1 var(--font-mono);
+  white-space: nowrap;
+}
+.blend-map__seg[data-kind="used"] { color: var(--look-accent-ink); background: var(--look-accent); }
+.blend-map__seg[data-kind="snap"] { color: var(--lx-warning-ink); background: var(--lx-warning); }
+.blend-map__seg[data-kind="boot"] { color: var(--lx-badge-ring); background: var(--lx-ink-muted); }
+.blend-map__seg[data-kind="room"] { background: transparent; }
+.blend-map__seg:is([data-kind="free"], [data-kind="off"]) { background: repeating-linear-gradient(135deg, var(--blend-hatch) 0 4.4px, transparent 4.4px 8.8px); }
+.blend-map { --blend-hatch: var(--lx-hairline); }
+
+/* The key. */
+.blend-map__legend { display: flex; flex-wrap: wrap; gap: 4px 15.2px; margin: 0; padding: 0; color: var(--lx-ink-muted); font-size: 11.7px; list-style: none; }
+.blend-map__legend li { display: inline-flex; align-items: center; gap: 4px; }
+.blend-map__legend i { display: inline-block; width: 10.5px; height: 10.5px; border-radius: 2.3px; }
+.blend-map__legend i[data-kind="used"] { background: var(--look-accent); }
+.blend-map__legend i[data-kind="snap"] { background: var(--lx-warning); }
+.blend-map__legend i[data-kind="free"] { background: repeating-linear-gradient(135deg, var(--lx-ink-muted) 0 2px, transparent 2px 4px); }
+.blend-map__legend i[data-kind="boot"] { background: var(--lx-ink-muted); }
+
+/* ── The row under the map (drawing: .bl-cols): the partitions beside what needs you and the drives
+   that reconnect by themselves. ── */
+.blend-scols { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); align-items: start; gap: 16.5px; min-width: 0; }
+.blend-sstack { display: grid; align-content: start; gap: 17.5px; min-width: 0; }
+
+/* The partitions (drawing: .bl-table): mono rows, small-capital heads, hairlines. */
+.blend-table__wrap { min-width: 0; overflow-x: auto; }
+.blend-table { width: 100%; border-collapse: collapse; color: var(--lx-ink); font: 500 12.07px/1.3 var(--font-mono); }
+.blend-table th { padding: 0 7.2px 6px; border-bottom: 1px solid var(--lx-hairline); color: var(--lx-ink-muted); font: 700 10.4px/1.2 var(--blend-label); letter-spacing: 0.1em; text-align: left; text-transform: uppercase; white-space: nowrap; }
+.blend-table td { padding: 6px 7.2px; border-bottom: 1px solid var(--lx-hairline); white-space: nowrap; }
+.blend-table tr:last-child td { border-bottom: 0; }
+.blend-table .blend-table__num { text-align: right; }
+.blend-table__name { display: inline-block; max-width: 24ch; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
+.blend-table__tag { margin-left: 4.9px; padding: 1.3px 5.4px; border-radius: 3.6px; color: var(--lx-ink-muted); background: var(--lx-glass-raised); font-size: 10.6px; }
+
+/* What needs you here (drawing: .bl-need): the tier leads, then the words and the pill. */
+.blend-sneeds { display: grid; gap: 11.7px; margin: 0; padding: 0; list-style: none; }
+.blend-sneed { display: grid; grid-template-columns: 75.9px minmax(0, 1fr); align-items: start; gap: 3.9px 11.7px; }
+.blend-sneed + .blend-sneed { padding-top: 11.7px; border-top: 1px solid var(--lx-hairline); }
+.blend-sneed > .blend-sneed__tier { grid-row: 1 / span 3; justify-self: start; margin-top: 1.5px; padding: 3.6px 5.2px; }
+.blend-sneed__title { grid-column: 2; font-size: 14.8px; font-weight: 600; line-height: 1.25; }
+.blend-sneed__detail { grid-column: 2; color: var(--lx-ink-muted); font-size: 12.07px; line-height: 1.4; }
+.blend-sneed__acts { display: flex; flex-wrap: wrap; grid-column: 2; gap: 7.8px; margin-top: 3.9px; }
+.blend-sneed__acts .ui-button { min-height: 26px; padding-right: 11.8px; font-size: 12.45px; }
+.blend-sneed__acts .ui-button:is(.ui-button--risk-medium, .ui-button--risk-high) { padding-left: 20.5px; }
+
+/* If a drive drops (drawing: .lx-li): the drive, what happens, and the switch at the right. */
+.blend-drops { display: grid; gap: 10.7px; margin: 0; padding: 0; list-style: none; }
+.blend-drop + .blend-drop { padding-top: 10.7px; border-top: 1px solid var(--lx-hairline); }
+.blend-drop .blend-drop__switch { flex-direction: row-reverse; align-items: center; justify-content: space-between; gap: 16px; }
+.blend-drop .blend-drop__switch .ui-switch__text { display: grid; gap: 2.9px; padding: 0; }
+.blend-drop .blend-drop__switch .ui-switch__label { color: var(--lx-ink); font-size: 15.6px; font-weight: 600; line-height: 1.25; }
+.blend-drop .blend-drop__switch .ui-switch__description { color: var(--lx-ink-muted); font-size: 12.8px; line-height: 1.35; }
+.blend-drop .blend-drop__switch .ui-switch__track { width: 44.8px; height: 25.3px; }
+.blend-drop .blend-drop__switch .ui-switch__thumb { top: 3.2px; left: 3.2px; width: 19px; height: 19px; }
+.blend-drop .blend-drop__switch .ui-switch__control[aria-checked="true"] .ui-switch__thumb { transform: translateX(19.5px); }
+.blend-drop .blend-drop__switch .ui-switch__state { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.blend-drop__waiting { margin: 4px 0 0; color: var(--lx-warning-text); font-size: 12.5px; line-height: 1.35; }
+.blend-drop__error { margin: 4px 0 0; color: var(--lx-danger-text); font-size: 12.5px; font-weight: 600; }
+
+@media (max-width: 1100px) {
+  .blend-scols { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 760px) {
+  .blend-map { padding: 14px 16px; }
+  .blend-map__disk { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+  .blend-map__bar { height: 32px; }
+}

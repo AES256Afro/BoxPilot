@@ -8,10 +8,12 @@
  * Tailscale, one made on the LAN name is offered there. The UI says so plainly rather than pretending
  * one passkey covers every way in.
  *
- * The origin is taken from the browser (window.location.origin). Trusting it is safe: every security
- * check lives in material the authenticator signed — the single-use challenge, the origin inside the
- * signed client data, and the RP ID hash inside the signed authenticator data — so a caller that
- * lies about its origin simply cannot produce anything that verifies.
+ * The browser names its origin (window.location.origin), and the authenticator signs the origin
+ * it was asked from, but that alone is not enough: an RP ID is a host name without a port, so a page
+ * an app serves on another port of the same name can ask for an assertion that verifies against its
+ * own origin and relay it here. So every ceremony also needs the origin to be one BoxPilot itself
+ * is served at (`allowedOrigins`, which routes/passkeys.mjs works out from the request); any other
+ * is refused before a challenge is issued and again when an answer comes back (sweep 1, S1-4).
  *
  * Recovery codes are the way back in when every authenticator is lost: high-entropy, shown once,
  * stored only as hashes, each good for exactly one sign-in.
@@ -43,6 +45,17 @@ function codeGroup(length) {
   return out;
 }
 
+/** An origin written the one way a browser writes it (lower-case host, no default port), or null. */
+export function canonicalOrigin(value) {
+  if (typeof value !== "string") return null;
+  try {
+    const { origin } = new URL(value);
+    return origin === "null" ? null : origin;
+  } catch {
+    return null;
+  }
+}
+
 /** A recovery code: four groups of five characters, ~99 bits, formatted with dashes. */
 export function makeRecoveryCode() {
   return [codeGroup(5), codeGroup(5), codeGroup(5), codeGroup(5)].join("-");
@@ -67,10 +80,16 @@ export function createPasskeyService({
     if (challenges.size > 500) for (const key of [...challenges.keys()].slice(0, challenges.size - 500)) challenges.delete(key);
   }
 
-  /** Validate a browser-supplied origin and derive its RP ID, or throw a readable reason. */
-  function relyingParty(origin) {
+  /**
+   * Validate a browser-supplied origin and derive its RP ID, or throw a readable reason. The origin
+   * must be one of `allowedOrigins`, the addresses BoxPilot is served at: the same name on another
+   * port is somebody else's page.
+   */
+  function relyingParty(origin, allowedOrigins) {
     if (typeof origin !== "string" || origin.length > 253 + 16) throw new Error("a valid origin is required");
     if (!isSecureOrigin(origin)) throw new Error("Passkeys need a secure connection (HTTPS, or Tailscale). Set up HTTPS on the LAN first.");
+    const allowed = new Set([...(allowedOrigins ?? [])].map(canonicalOrigin).filter(Boolean));
+    if (!allowed.has(origin)) throw new Error(`${origin} is not an address BoxPilot is served at, so it cannot use BoxPilot's passkeys`);
     return { origin, rpId: relyingPartyId(origin) };
   }
 
@@ -92,8 +111,8 @@ export function createPasskeyService({
   }
 
   // ---- Registration --------------------------------------------------------------------------
-  function registerOptions({ owner, origin }) {
-    const rp = relyingParty(origin);
+  function registerOptions({ owner, origin, allowedOrigins }) {
+    const rp = relyingParty(origin, allowedOrigins);
     const challenge = issueChallenge({ type: "register", ownerId: owner.id, origin: rp.origin, rpId: rp.rpId });
     // Exclude the passkeys this owner already has *for this RP ID*, so the same authenticator is not
     // enrolled twice for the same way in.
@@ -112,8 +131,8 @@ export function createPasskeyService({
     };
   }
 
-  function registerVerify({ owner, origin, credential }) {
-    const rp = relyingParty(origin);
+  function registerVerify({ owner, origin, allowedOrigins, credential }) {
+    const rp = relyingParty(origin, allowedOrigins);
     takeChallenge(credential?.challenge, { type: "register", origin: rp.origin, rpId: rp.rpId });
     const label = typeof credential?.label === "string" && labelPattern.test(credential.label.trim()) ? credential.label.trim() : "Passkey";
     const id = credential?.id;
@@ -133,8 +152,8 @@ export function createPasskeyService({
   }
 
   // ---- Authentication ------------------------------------------------------------------------
-  function authenticateOptions({ origin }) {
-    const rp = relyingParty(origin);
+  function authenticateOptions({ origin, allowedOrigins }) {
+    const rp = relyingParty(origin, allowedOrigins);
     const challenge = issueChallenge({ type: "authenticate", origin: rp.origin, rpId: rp.rpId });
     // Empty allowCredentials: the discoverable passkeys are offered by the platform, so no credential
     // id is revealed to an anonymous caller, and the owner picks an account in the browser's own UI.
@@ -142,8 +161,8 @@ export function createPasskeyService({
   }
 
   /** Verify a sign-in assertion and return the owner it belongs to (never a disabled account). */
-  function authenticateVerify({ origin, response }) {
-    const rp = relyingParty(origin);
+  function authenticateVerify({ origin, allowedOrigins, response }) {
+    const rp = relyingParty(origin, allowedOrigins);
     takeChallenge(response?.challenge, { type: "authenticate", origin: rp.origin, rpId: rp.rpId });
     const id = response?.id;
     const credential = typeof id === "string" ? store.findPasskeyById(id) : null;

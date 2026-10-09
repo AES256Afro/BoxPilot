@@ -1,0 +1,58 @@
+/*
+ * The cockpit's annunciator row in the shell's bar (M41, the study's .ck-ann): the lamps lead the
+ * bar and the clock ends it, whatever the bar holds between (the page's name, the controls). Sizes
+ * are the drawing's em, --ck-em from the skin.
+ */
+
+.cockpit-ann {
+  display: flex;
+  flex: none;
+  align-items: stretch;
+  order: -1;
+  gap: calc(var(--ck-em, 19.46px) * 0.5);
+  font-size: var(--ck-em, 19.46px);
+}
+.cockpit-lamp {
+  display: grid;
+  place-content: center;
+  min-width: 0;
+  padding: 0.6em 0.8em;
+  border: 0;
+  border-radius: 0.2em;
+  color: #a0916f;
+  background: #2a2418;
+  box-shadow: inset 0 0 0 0.15em #111111;
+  font: 700 0.62em/1 "B612", "Arial", sans-serif;
+  letter-spacing: 0.08em;
+  text-align: center;
+  cursor: pointer;
+}
+.cockpit-lamp[data-state="good"] { color: #56a06d; background: #102a18; }
+.cockpit-lamp[data-state="warning"] { color: #1a1000; background: #ffbf1f; box-shadow: inset 0 0 0 0.15em #111111, 0 0 1em rgba(255, 191, 31, 0.6); }
+.cockpit-lamp[data-state="danger"] { color: #1a0000; background: #ff4d4d; box-shadow: inset 0 0 0 0.15em #111111, 0 0 1em rgba(255, 77, 77, 0.6); }
+.cockpit-lamp--master { gap: 0.1em; padding: 0.5em 1.2em; font-size: 0.78em; }
+.cockpit-lamp:hover { filter: brightness(1.12); }
+.cockpit-lamp:focus-visible { outline: 2px solid #3fd7f2; outline-offset: 2px; }
+
+.cockpit-clock {
+  display: flex;
+  flex: none;
+  align-items: center;
+  order: 99;
+  margin-left: calc(var(--ck-em, 19.46px) * 0.1);
+  padding: 0 0.6em;
+  border-radius: 0.2em;
+  color: #39e27d;
+  background: #000000;
+  box-shadow: inset 0 0 0 0.12em #111111;
+  font: 700 1.1em/1 "B612 Mono", ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A phone: the lamps share the first row between them; the clock gives way. */
+@media (max-width: 760px) {
+  .cockpit-ann { flex: 1 1 100%; gap: 4px; min-height: 40px; font-size: 14px; }
+  .cockpit-lamp { flex: 1 1 auto; padding: 0.5em 0.3em; }
+  .cockpit-lamp--master { flex-grow: 1.6; padding: 0.35em 0.4em; }
+  .cockpit-clock { display: none; }
+}

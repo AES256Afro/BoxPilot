@@ -8,6 +8,7 @@
 import { randomUUID } from "node:crypto";
 import { fixedRun } from "./exec.mjs";
 import { productVersion } from "./version.mjs";
+import { webPortOf } from "./env-file.mjs";
 
 const tailnetV4 = /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d{1,3}\.\d{1,3}$/;
 // Anchored at both ends: the old prefix-only test accepted the marker followed by anything at all,
@@ -56,12 +57,12 @@ export function createIdentityService({
   fetchImpl = globalThis.fetch,
   now = () => Date.now(),
   whoisTtlMs = 30_000,
-  webPort = Number.parseInt(process.env.BOXPILOT_PORT ?? "8787", 10),
+  webPort = webPortOf(process.env.BOXPILOT_PORT),
   serveTtlMs = 60_000,
 } = {}) {
   const whoisCache = new Map();
   const githubFlows = new Map();
-  let serveState = null; // { at, proxying }
+  let serveState = null; // { at, proxying, origins }
 
   /**
    * Is Tailscale Serve proxying this port? That is what makes a loopback request carrying
@@ -88,19 +89,33 @@ export function createIdentityService({
   }
 
   async function serveProxiesUs() {
-    if (serveState && now() - serveState.at < serveTtlMs) return serveState.proxying;
+    return (await serveFacts()).proxying;
+  }
+
+  async function serveFacts() {
+    if (serveState && now() - serveState.at < serveTtlMs) return serveState;
     let proxying = false;
+    let origins = [];
     const result = await run(tailscaleBinary, ["serve", "status", "--json"], { timeout: 5_000 }).catch(() => ({ ok: false }));
     if (result.ok) {
       try {
         const web = JSON.parse(result.stdout || "{}")?.Web ?? {};
         // The target has to be *this* service: a substring match also accepted another machine's
         // port, or a handler on some unrelated path, and either would have granted blanket trust.
-        proxying = Object.values(web).some((entry) => Object.values(entry?.Handlers ?? {}).some((handler) => proxiesThisService(handler?.Proxy)));
-      } catch { proxying = false; }
+        const ours = Object.entries(web).filter(([, entry]) => Object.values(entry?.Handlers ?? {}).some((handler) => proxiesThisService(handler?.Proxy)));
+        proxying = ours.length > 0;
+        // Each key is the name and port Serve answers on ("box.tail1234.ts.net:443"): over HTTPS,
+        // that is an address a browser reaches BoxPilot at.
+        origins = ours.flatMap(([hostPort]) => { try { return [new URL(`https://${hostPort}`).origin]; } catch { return []; } });
+      } catch { proxying = false; origins = []; }
     }
-    serveState = { at: now(), proxying };
-    return proxying;
+    serveState = { at: now(), proxying, origins };
+    return serveState;
+  }
+
+  /** The https:// origins Tailscale Serve publishes this service at; empty when it does not. */
+  async function servedOrigins() {
+    return [...(await serveFacts()).origins];
   }
 
   /** The login Tailscale Serve says a proxied request came from, when it says anything. */
@@ -347,5 +362,5 @@ export function createIdentityService({
     };
   }
 
-  return { clientAddress: addressFor, tailscaleIdentity, tailscaleAccountFor, githubAccountFor, githubOwnerFor, linkTailscale, unlinkTailscale, githubConfigured, setGithubClientId, githubStart, githubPoll, githubLinked, linkGithub, unlinkGithub, summary, servePublishesControlPlane: serveProxiesUs, internals: { whois, flows: githubFlows } };
+  return { clientAddress: addressFor, tailscaleIdentity, tailscaleAccountFor, githubAccountFor, githubOwnerFor, linkTailscale, unlinkTailscale, githubConfigured, setGithubClientId, githubStart, githubPoll, githubLinked, linkGithub, unlinkGithub, summary, servePublishesControlPlane: serveProxiesUs, servedOrigins, internals: { whois, flows: githubFlows } };
 }

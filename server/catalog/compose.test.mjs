@@ -5,7 +5,9 @@
  * can never reach into another setting, and that a password survives storage exactly as typed.
  */
 import { describe, expect, it } from "vitest";
-import { deployedImages, envFileLine, publishedPorts, renderCompose, securityOptFor } from "./compose.mjs";
+import { deployedImages, envFileLine, hostNetworkPorts, optionalPortsIn, publishedPorts, renderCompose, securityOptFor } from "./compose.mjs";
+import { createCatalogService } from "./index.mjs";
+import { resolveValues } from "./schema.mjs";
 
 describe("values the owner typed", () => {
   const manifest = {
@@ -28,6 +30,64 @@ describe("values the owner typed", () => {
     expect(envFile).toBe("ADMIN_PASSWORD='pa$$w0rd ${NOPE} it\\'s fine'\n");
     // The reader is the inverse: what comes back out is what the owner typed.
     expect(envFileLine("ADMIN_PASSWORD", password)).toBe(envFile.trimEnd());
+  });
+});
+
+/**
+ * A manifest's own fixed settings are template source on purpose: six apps reach their database
+ * with a URL that carries the database password as ${NAME}, for Compose to fill in from .env.
+ * Escaping those along with the owner's values (2026-08-22) handed each app the words
+ * "${..._DB_PASSWORD}" as its password, and none of them could log in to its own database.
+ */
+describe("the manifest's own fixed settings", () => {
+  const catalog = createCatalogService();
+  // A setting the owner must fill in (a tunnel token) gets a stand-in of the right shape.
+  const standIn = (entry) => entry.options?.[0] ?? { path: "/srv/stand-in", number: "1", boolean: "true" }[entry.type] ?? "stand-in";
+  const render = (manifest) => {
+    const required = manifest.env.filter((entry) => entry.required && (entry.default === null || entry.default === undefined) && !entry.generate && !entry.fixed);
+    const { values, errors } = resolveValues(manifest, { env: Object.fromEntries(required.map((entry) => [entry.name, standIn(entry)])) });
+    if (errors.length) throw new Error(`${manifest.id}: ${errors.join("; ")}`);
+    return renderCompose(manifest, values, { existingEnv: {}, devices: [] });
+  };
+
+  it.each([
+    ["docmost", "DATABASE_URL", "DOCMOST_DB_PASSWORD"],
+    ["hedgedoc", "CMD_DB_URL", "HEDGEDOC_DB_PASSWORD"],
+    ["linkwarden", "DATABASE_URL", "LINKWARDEN_DB_PASSWORD"],
+    ["mattermost", "MM_SQLSETTINGS_DATASOURCE", "MM_DB_PASSWORD"],
+    ["miniflux", "DATABASE_URL", "MINIFLUX_DB_PASSWORD"],
+    ["planka", "DATABASE_URL", "PLANKA_DB_PASSWORD"],
+  ])("gives %s a database URL Compose fills with the real password", async (id, name, secret) => {
+    const manifest = await catalog.get(id);
+    const { compose, envFile } = render(manifest);
+    const url = compose.services[id].environment[name];
+    expect(url).toContain(`:\${${secret}}@`);
+    expect(url).not.toContain("$${");
+    // The password itself lives in .env, which is what the reference above is filled from.
+    expect(envFile).toMatch(new RegExp(`^${secret}='.+'$`, "m"));
+  });
+
+  it("never escapes a fixed value anywhere in the catalog", async () => {
+    const { manifests } = await catalog.all();
+    const escaped = [];
+    for (const manifest of manifests) {
+      const { compose } = render(manifest);
+      const fixed = manifest.env.filter((entry) => entry.fixed).map((entry) => entry.name);
+      for (const [service, definition] of Object.entries(compose.services)) {
+        for (const name of fixed) {
+          if (String(definition.environment?.[name] ?? "").includes("$${")) escaped.push(`${manifest.id}/${service}/${name}`);
+        }
+      }
+    }
+    expect(escaped).toEqual([]);
+  });
+
+  it("still escapes what the owner types, even in an app with fixed references", async () => {
+    const manifest = await catalog.get("miniflux");
+    const { values } = resolveValues(manifest, { env: { ADMIN_USERNAME: "${MINIFLUX_DB_PASSWORD}" } });
+    const { compose } = renderCompose(manifest, values, { existingEnv: {}, devices: [] });
+    expect(compose.services.miniflux.environment.ADMIN_USERNAME).toBe("$${MINIFLUX_DB_PASSWORD}");
+    expect(compose.services.miniflux.environment.DATABASE_URL).toContain(":${MINIFLUX_DB_PASSWORD}@");
   });
 });
 
@@ -269,5 +329,34 @@ describe("the ports a deployed compose file publishes (the Dockge port trap, 202
       { service: "b", host: 8443, protocol: "tcp", bind: "192.168.1.10" },
     ]);
     expect(publishedPorts("not: [valid")).toEqual([]);
+  });
+});
+
+describe("the ports an app on the host's own network binds itself", () => {
+  const piHole = { id: "pi-hole", sha256: "x", image: { reference: "pihole/pihole:1" }, network: "bridge", networkModes: ["bridge", "host"], sidecars: [],
+    ports: [{ id: "dns-tcp", label: "DNS (TCP)", host: 53, container: 53, protocol: "tcp", exposure: "lan" }, { id: "dns-udp", label: "DNS (UDP)", host: 53, container: 53, protocol: "udp", exposure: "lan" }, { id: "web", label: "Admin UI", host: 8084, container: 80, protocol: "tcp", exposure: "lan" }],
+    volumes: [], env: [{ name: "FTLCONF_webserver_port", default: "80o", fixed: true }], capabilities: [], extraHosts: [], devices: [] };
+  const values = (networkMode) => ({ ports: { "dns-tcp": 53, "dns-udp": 53, web: 8084 }, env: { FTLCONF_webserver_port: "80o" }, volumes: {}, networkMode });
+
+  it("are each manifest port at its container port, on every address, the optional one marked", () => {
+    const host = renderCompose(piHole, values("host"), { lanAddress: "0.0.0.0" });
+    expect(publishedPorts(host.composeYaml)).toEqual([]);
+    expect(hostNetworkPorts(piHole, host.composeYaml)).toEqual([
+      { service: "pi-hole", id: "dns-tcp", label: "DNS (TCP)", host: 53, protocol: "tcp", bind: "", optional: false },
+      { service: "pi-hole", id: "dns-udp", label: "DNS (UDP)", host: 53, protocol: "udp", bind: "", optional: false },
+      { service: "pi-hole", id: "web", label: "Admin UI", host: 80, protocol: "tcp", bind: "", optional: true },
+    ]);
+  });
+
+  it("are none for the same app on its own network, or a file that does not parse", () => {
+    expect(hostNetworkPorts(piHole, renderCompose(piHole, values("bridge"), { lanAddress: "0.0.0.0" }).composeYaml)).toEqual([]);
+    expect(hostNetworkPorts(piHole, "not: [valid")).toEqual([]);
+    expect(hostNetworkPorts(piHole, "")).toEqual([]);
+  });
+
+  it("reads an environment written as a list, and only CivetWeb's port-and-o as optional", () => {
+    const text = "services:\n  pi-hole:\n    network_mode: host\n    environment:\n      - FTLCONF_webserver_port=8080,80o\n";
+    expect(hostNetworkPorts(piHole, text).find((entry) => entry.id === "web")).toMatchObject({ host: 80, optional: true });
+    expect([...optionalPortsIn(["80o,443os", "8o0", "on", 53])]).toEqual([80]);
   });
 });

@@ -74,6 +74,17 @@ describe("Home", () => {
     expect(onNavigate).toHaveBeenCalledWith("catalog", { app: "jellyfin" });
   });
 
+  it("says it is checking while Check again reads, and that it has, even when nothing changed", async () => {
+    vi.stubGlobal("fetch", stubFetch());
+    renderHome();
+    await screen.findByText(/homebox needs you/);
+    fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+    const busy = screen.getByRole("button", { name: "Checking…" });
+    expect(busy.getAttribute("aria-busy")).toBe("true");
+    expect(await screen.findByText(/^Checked again at /)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Check again" })).toBeTruthy();
+  });
+
   it("opens each figure's page", async () => {
     vi.stubGlobal("fetch", stubFetch());
     const onNavigate = renderHome();

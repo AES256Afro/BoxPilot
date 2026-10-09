@@ -43,15 +43,26 @@ export function AgentList({ overview, proposals, glance, csrfToken, role, now, o
 
   const columns: Array<TableColumn<AgentSummary>> = [
     {
-      id: "agent", header: "Agent", sortValue: (agent) => agent.name, cell: (agent) => (
+      id: "agent", header: "Agent", className: "agents-agent-cell", sortValue: (agent) => agent.name, cell: (agent) => (
         <span className="agents-name">
           <button type="button" className="agents-link" onClick={() => onOpen(agent.id, agent.canEdit ? "build" : "test")}>{agent.name}</button>
           <span className="agents-name__purpose">{agent.purpose}</span>
         </span>
       ),
     },
-    { id: "status", header: "Status", sortValue: (agent) => agent.status, cell: (agent) => { const state = stateOf(agent); return <StatusChip status={state.status}>{agent.paused && agent.pausedUntil ? `paused until ${new Date(agent.pausedUntil).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })}` : state.label}</StatusChip>; } },
-    { id: "starts", header: "Starts", hideOnPhone: true, cell: (agent) => <span className="agents-dim">{triggerWords(agent)}{agent.waitsForQuietHours ? " · quiet hours" : ""}</span> },
+    {
+      id: "status", header: "Status", sortValue: (agent) => agent.status, cell: (agent) => {
+        const state = stateOf(agent);
+        return (
+          <span className="agents-last">
+            <StatusChip status={state.status}>{agent.paused && agent.pausedUntil ? `paused until ${new Date(agent.pausedUntil).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })}` : state.label}</StatusChip>
+            {/* M40: its evaluation's latest score, flagged when it dropped. */}
+            {agent.accuracy?.dropped && <StatusChip status="warning">accuracy down to {Math.round(agent.accuracy.score * 100)}%</StatusChip>}
+          </span>
+        );
+      },
+    },
+    { id: "starts", header: "Starts", hideOnPhone: true, className: "agents-starts-cell", cell: (agent) => <span className="agents-dim">{triggerWords(agent)}{agent.waitsForQuietHours ? " · quiet hours" : ""}</span> },
     {
       id: "last", header: "Last run", sortValue: (agent) => agent.lastRun?.finishedAt ?? "", cell: (agent) => (agent.lastRun
         ? <span className="agents-last"><StatusChip status={runState(agent.lastRun.state).status}>{runState(agent.lastRun.state).label}</StatusChip><span className="agents-dim">{relativeTime(agent.lastRun.finishedAt, now) ?? ""}</span></span>

@@ -119,13 +119,16 @@ const prerequisiteStatus: Record<Prerequisite["status"], Status> = { ready: "goo
 const recoveryStatus: Record<RecoveryKit["checks"][number]["state"], Status> = { verified: "good", "action-required": "warning", "operator-check": "neutral", "not-applicable": "neutral", unavailable: "unknown" };
 const tierWord = (risk: string): RiskTier => (risk === "low" || risk === "medium" || risk === "high" ? risk : "high");
 
-export default function RepairCenter({ csrfToken, role = "owner", onNavigate = () => undefined }: { csrfToken: string; role?: string; onNavigate?: (view: ViewName) => void }) {
+export default function RepairCenter({ csrfToken, role = "owner", onNavigate = () => undefined }: { csrfToken: string; role?: string; onNavigate?: (view: ViewName, options?: { tab?: string }) => void }) {
   const [checks, setChecks] = useState<Prerequisite[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [recoveryKit, setRecoveryKit] = useState<RecoveryKit | null>(null);
   const [actionCenter, setActionCenter] = useState<ActionCenter | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Which panel a failed click came from, so its error is said there: a wrong approval password or a
+  // helper that did not answer used to be said at the top of a long page, out of sight of the button.
+  const [errorAt, setErrorAt] = useState<"page" | "prerequisites" | "desk">("page");
   const [prerequisiteError, setPrerequisiteError] = useState<string | null>(null);
   const [jobError, setJobError] = useState<string | null>(null);
   const [recoveryError, setRecoveryError] = useState<string | null>(null);
@@ -185,6 +188,7 @@ export default function RepairCenter({ csrfToken, role = "owner", onNavigate = (
         setRecoveryError(recoveryResult.status === "rejected" && recoveryResult.reason instanceof Error ? recoveryResult.reason.message : "The rebuild checklist returned incomplete data");
       }
     } catch (requestError) {
+      setErrorAt("page");
       setError(requestError instanceof Error ? requestError.message : "Unable to inspect prerequisites");
     } finally {
       setLoading(false);
@@ -217,15 +221,18 @@ export default function RepairCenter({ csrfToken, role = "owner", onNavigate = (
 
   const awaitingApproval = useMemo(() => jobs.find((job) => job.state === "awaiting_approval"), [jobs]);
 
+  // Read once per job waiting, not on every ten-second poll (each brings a new object for the same
+  // job): a poll whose read failed swapped the typed confirmation for a password field mid-entry.
+  const awaitingId = awaitingApproval?.id ?? null;
   useEffect(() => {
-    if (!awaitingApproval) { setApprovalPolicy(null); return; }
+    if (!awaitingId) { setApprovalPolicy(null); return; }
     let cancelled = false;
-    fetch(`/api/v1/jobs/${awaitingApproval.id}/approval`)
+    fetch(`/api/v1/jobs/${awaitingId}/approval`)
       .then((response) => (response.ok ? response.json() : null))
       .then((policy: ApprovalPolicy | null) => { if (!cancelled) setApprovalPolicy(policy); })
       .catch(() => { if (!cancelled) setApprovalPolicy(null); });
     return () => { cancelled = true; };
-  }, [awaitingApproval]);
+  }, [awaitingId]);
 
   // A reconnect done here by hand lifts an automatic reconnect's hold, so both are read again after it.
   const autoReconnect = useAutoReconnect(csrfToken);
@@ -275,6 +282,7 @@ export default function RepairCenter({ csrfToken, role = "owner", onNavigate = (
       const { result } = await inspectOperation<Record<string, unknown>>(definition.inspect);
       startOperation({ operationId: definition.install, ...definition.describe(result) });
     } catch (requestError) {
+      setErrorAt("prerequisites");
       setError(requestError instanceof Error ? requestError.message : "Unable to inspect the prerequisite");
     } finally {
       setPending(false);
@@ -289,6 +297,7 @@ export default function RepairCenter({ csrfToken, role = "owner", onNavigate = (
       const { result } = await inspectOperation<{ helperVersion: string }>("canary.verify");
       setCanaryResult(`Answered: the root side is running, version ${result.helperVersion}. Nothing on the server was changed.`);
     } catch (requestError) {
+      setErrorAt("desk");
       setError(requestError instanceof Error ? requestError.message : "The helper did not answer");
     } finally {
       setPending(false);
@@ -311,6 +320,7 @@ export default function RepairCenter({ csrfToken, role = "owner", onNavigate = (
       setConfirmTyped("");
       await refresh();
     } catch (requestError) {
+      setErrorAt("desk");
       setError(requestError instanceof Error ? requestError.message : "Job approval failed");
     } finally {
       setPending(false);
@@ -329,6 +339,7 @@ export default function RepairCenter({ csrfToken, role = "owner", onNavigate = (
       setConfirmTyped("");
       await refresh();
     } catch (requestError) {
+      setErrorAt("desk");
       setError(requestError instanceof Error ? requestError.message : "Could not withdraw the job");
     } finally {
       setPending(false);
@@ -373,7 +384,9 @@ export default function RepairCenter({ csrfToken, role = "owner", onNavigate = (
 
   const card = (finding: Finding, gone = false) => (
     <FindingCard key={finding.id} finding={finding} role={role} run={fixes.runs[finding.id]} gone={gone}
-      onFix={(fix) => fixes.start(finding, fix)} onDismiss={() => fixes.dismiss({ kind: "finding", finding })}
+      onFix={(fix) => fixes.start(finding, fix)} onDismiss={() => fixes.dismiss({ kind: "finding", finding })} onOpen={onNavigate}
+      onDismissTry={finding.lastAttempt ? () => fixes.dismiss({ kind: "job", jobId: finding.lastAttempt!.jobId, title: finding.lastAttempt!.title }) : undefined}
+      onMoreTime={() => fixes.moreTime(finding)}
       extra={droppedDrive(finding) && !gone ? <DriveAutoReconnect drive={droppedDrive(finding)!} control={autoReconnect} /> : undefined} />
   );
 
@@ -419,7 +432,7 @@ export default function RepairCenter({ csrfToken, role = "owner", onNavigate = (
       {(scanError || prerequisiteError || jobError) && !loading && <p className="rp-note" data-tone="warning" role="status"><StatusChip status="unknown">Checks incomplete</StatusChip><span>Some checks could not finish. What could be read is below; check again for the rest.</span></p>}
       {scanError && <p className="rp-note" data-tone="warning" role="status"><strong>Problem scan incomplete</strong><span>{scanError}</span></p>}
       {fixes.notice && <p className="rp-note" role="status">{fixes.notice}</p>}
-      {error && <p className="rp-note" data-tone="danger" role="alert">{error}</p>}
+      {error && errorAt === "page" && <p className="rp-note" data-tone="danger" role="alert">{error}</p>}
       {operationDialog}
       {fixes.dialog}
 
@@ -453,6 +466,7 @@ export default function RepairCenter({ csrfToken, role = "owner", onNavigate = (
           count={!loading && !prerequisiteError && checks.length > 0 ? { status: ready === checks.length ? "good" : "warning", label: `${ready}/${checks.length}` } : undefined}
           meta={loading ? "Checking..." : prerequisiteError ? "Prerequisites unavailable" : checks.length ? `${ready} of ${checks.length} ready` : "No prerequisite checks returned"}>
           {prerequisiteError && <p className="rp-note" data-tone="warning" role="status">{prerequisiteError}</p>}
+          {error && errorAt === "prerequisites" && <p className="rp-note" data-tone="danger" role="alert">{error}</p>}
           {checks.length > 0 && <Table caption="Prerequisites" columns={prerequisiteColumns} rows={checks} rowKey={(item) => item.id} />}
         </Panel>
 
@@ -460,6 +474,7 @@ export default function RepairCenter({ csrfToken, role = "owner", onNavigate = (
           count={awaitingApproval ? { status: "warning", label: "1 waiting" } : undefined}
           meta={awaitingApproval ? undefined : "connection and logging"}>
           <div className="rp-body">
+            {error && errorAt === "desk" && <p className="rp-note" data-tone="danger" role="alert">{error}</p>}
             {awaitingApproval ? (
               <>
                 <p className="rp-row__title">{awaitingApproval.title}</p>

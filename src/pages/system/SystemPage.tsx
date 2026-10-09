@@ -26,9 +26,11 @@ export interface SystemPageProps {
   csrfToken: string;
   /** Who is signed in: a viewer reads the settings and changes nothing; housekeeping is an operator's. */
   role?: string;
+  /** Opens Settings at Appearance: System is where people look for the look first. */
+  onOpenAppearance?: () => void;
 }
 
-export default function SystemPage({ csrfToken, role = "owner" }: SystemPageProps) {
+export default function SystemPage({ csrfToken, role = "owner", onOpenAppearance }: SystemPageProps) {
   const [settings, setSettings] = useState<SystemSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -118,24 +120,26 @@ export default function SystemPage({ csrfToken, role = "owner" }: SystemPageProp
       fetch("/api/v1/health").then((response) => (response.ok ? response.json() : null)).then((health: { version?: string } | null) => {
         if (health?.version === updating) { setUpdateOutcome("live"); window.clearInterval(timer); window.setTimeout(() => window.location.reload(), 1500); }
       }).catch(() => {});
-      if (Date.now() - started > 10 * 60 * 1000) { setUpdateOutcome("timeout"); window.clearInterval(timer); }
+      // No longer "updating" once it has stopped or run out of time: the verdict said so for good,
+      // and the Update button stayed hidden.
+      if (Date.now() - started > 10 * 60 * 1000) { setUpdateOutcome("timeout"); setUpdating(null); window.clearInterval(timer); window.clearInterval(watch); }
     }, 3000);
     // The update can stop before it restarts anything (a database copy that could not be made, a
     // build that failed) and health goes on answering the old version. Its own log says so at once.
     const watch = window.setInterval(() => {
       inspectOperation<UpdateStatus>("system.update.status").then(({ result }) => {
         if (result && Array.isArray(result.log)) setUpdateStatus(result);
-        if (result?.outcome === "failed") { setUpdateOutcome("failed"); window.clearInterval(timer); window.clearInterval(watch); }
+        if (result?.outcome === "failed") { setUpdateOutcome("failed"); setUpdating(null); window.clearInterval(timer); window.clearInterval(watch); }
       }).catch(() => {});
     }, 6000);
     return () => { window.clearInterval(timer); window.clearInterval(watch); };
   }, [updating]);
 
   const { start, dialog } = useOperation(csrfToken, (job) => {
-    if (job.type === "op:system.update" && job.state === "completed" && updateTarget.current) setUpdating(updateTarget.current);
+    if (job.type === "op:system.update" && job.state === "completed" && updateTarget.current) { setUpdateOutcome(null); setUpdating(updateTarget.current); }
     // A finished cleanup invalidates its own figures: leaving them up says gigabytes are still
-    // waiting when they have just gone.
-    if (job.type === "op:housekeeping.reclaim" && job.state === "completed") void scan();
+    // waiting when they have just gone, and a snapshot removed by name is still offered for removal.
+    if ((job.type === "op:housekeeping.reclaim" || job.type === "op:housekeeping.unreadable-snapshot.remove") && job.state === "completed") void scan();
     if (job.type === "op:ups.setup" || job.type === "op:apt.install") void lookForUps();
     void refresh();
   });
@@ -215,6 +219,11 @@ export default function SystemPage({ csrfToken, role = "owner" }: SystemPageProp
                 { id: "copy", label: "Last database copy", value: lastUpdate.databaseCopy ? lastUpdate.databaseCopy.split("/").at(-1) : "none recorded", mono: Boolean(lastUpdate.databaseCopy) },
               ]} />
             </Panel>
+            {onOpenAppearance && (
+              <p className="system-note system-elsewhere">
+                The look, light or dark, and the wallpaper are in Settings, under Appearance. <Button variant="ghost" onClick={onOpenAppearance}>Open Appearance</Button>
+              </p>
+            )}
           </>
         ) : current === "updates" ? (
           <SystemUpdates release={release} releaseError={releaseError} checking={checkingRelease} onCheck={() => void loadRelease(true)} status={updateStatus} updating={updating} outcome={updateOutcome} role={role} onUpdate={update} />

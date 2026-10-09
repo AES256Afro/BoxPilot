@@ -337,6 +337,22 @@ describe("getting the drives ready before a reboot", () => {
     expect(summary.drives[0].state).toBe("unmounted");
   });
 
+  it("stops Docker for a container bound to a folder above a drive, which carries the drive with it", async () => {
+    // node-exporter binds / and File Browser /mnt: Docker's binds are recursive, so each holds
+    // /mnt/the-dump in its own namespace however the host unmounts it.
+    const nodeExporter = { id: "d".repeat(64), name: "bp-node-exporter", pid: 4545, binds: ["/proc", "/sys", "/"] };
+    const fileBrowser = { id: "e".repeat(64), name: "bp-filebrowser", pid: 4646, binds: ["/mnt"] };
+    const sibling = { id: "f".repeat(64), name: "bp-backup", pid: 4747, binds: ["/mnt/the-dump-backup"] };
+    for (const holder of [nodeExporter, fileBrowser]) {
+      const server = rebootHost({ containers: [pihole, holder, sibling] });
+      const summary = await prepareDrivesForReboot({}, server.options);
+      expect(server.calls).toContain("systemctl stop docker.socket docker.service");
+      expect(summary.containers.stopped).toEqual([holder.name]);
+    }
+    const unrelated = rebootHost({ containers: [pihole, sibling] });
+    expect((await prepareDrivesForReboot({}, unrelated.options)).dockerStopped).toBe(false);
+  });
+
   it("does nothing at all when no BoxPilot drive is mounted", async () => {
     const server = rebootHost({ mounted: {}, containers: [plex] });
     const summary = await prepareDrivesForReboot({}, server.options);

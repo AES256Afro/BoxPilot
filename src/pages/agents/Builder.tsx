@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from "react";
 import { relativeTime } from "../../home/format";
 import { Button, Checkbox, CodeBlock, CopyButton, Facts, Field, Notice, Panel, Segmented, Select, Sheet, StatusChip, Switch, Table, Tag, TextInput, Textarea, type TableColumn } from "../../ui";
-import { agentsApi, type AgentDetail, type AgentSpec, type AgentSummary, type AgentVersion, type Catalog, type OutputField, type Schedule, type SpecChange, type ToolInfo, type ToolPermission, type VersionDetail } from "./api";
+import { agentsApi, type AgentDetail, type AgentSpec, type AgentSummary, type AgentVersion, type Catalog, type ChatKind, type ChatOutput, type ChatOutputs, type GrantLevel, type ModelRoute, type OutputField, type Schedule, type SpecChange, type ToolInfo, type ToolPermission, type VersionDetail } from "./api";
 import { errorText, scheduleWords, triggerWords } from "./format";
 
 /*
@@ -14,7 +14,8 @@ import { errorText, scheduleWords, triggerWords } from "./format";
  * 3. Data and tools: who may ask it, what it reads, each tool from the registry with its category,
  *    cost and permission, and the apps and operations it may touch.
  * 4. When it runs, 5. its guardrails (budget, outputs, escalation, thinking), 6. its memory, and
- *    7. its team (a supervisor that hands subtasks to specialists).
+ *    7. its team: whether it shares its findings with the other agents and uses theirs (M44), and
+ *    a supervisor that hands subtasks to specialists.
  * Then test it in the console. Saving makes a new version; every version compares field by field
  * and can be rolled back to. An agent exports as JSON and imports back.
  */
@@ -24,6 +25,8 @@ export interface BuilderProps {
   agents: AgentSummary[];
   catalog: Catalog | null;
   canCreate: boolean;
+  /** M45.5: whether this person may give an agent leave to carry out operations (the owner). */
+  canGrant?: boolean;
   csrfToken: string;
   now: number;
   onCreated: (agentId: string) => void;
@@ -35,6 +38,17 @@ export interface BuilderProps {
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 const knowledgeWords: Record<keyof AgentSpec["knowledge"], string> = { docs: "BoxPilot's documents", registry: "Registered operations", catalog: "The app catalog", notes: "Its own notes", documents: "Your documents" };
 const outputWords = { notes: "Notes about the server", digest: "A daily digest on Home and Ops", proposals: "Cards with a plan to approve" } as const;
+
+/** Its team chat (M38): each kind on by default, to the connection's channel under its own name. */
+const chatKinds: readonly ChatKind[] = ["findings", "logs", "knowledge"];
+const chatWords: Record<ChatKind, { label: string; description: string; channel: string }> = {
+  findings: { label: "Findings", description: "Answers, digests and cards", channel: "agent-findings" },
+  logs: { label: "Logs", description: "Each run's trace", channel: "agent-logs" },
+  knowledge: { label: "Knowledge", description: "The notes it keeps", channel: "agent-knowledge" },
+};
+const defaultChat: ChatOutputs = { findings: { enabled: true, channel: null, topic: null }, logs: { enabled: true, channel: null, topic: null }, knowledge: { enabled: true, channel: null, topic: null } };
+/** An agent saved before M38 has none stored: every output on, as the server reads it. */
+const chatOf = (spec: AgentSpec): ChatOutputs => ({ ...defaultChat, ...(spec.outputs.chat ?? {}) });
 const escalationWords: Record<keyof AgentSpec["escalation"], { label: string; description: string }> = {
   lowConfidence: { label: "When it is unsure what was meant", description: "A card when it is less than half sure it understood." },
   limits: { label: "When it reaches a limit", description: "A card when it runs out of steps, time or model time." },
@@ -47,6 +61,12 @@ const budgetWords: Record<keyof AgentSpec["budget"], { label: string; unit: stri
   stepsPerRun: { label: "Steps a run", unit: "steps" },
   tokensPerRun: { label: "Tokens a run", unit: "tokens" },
   runSeconds: { label: "Longest run", unit: "seconds" },
+};
+/** What each model choice does, said under it (M45.3, M45.4). */
+const routeHints: Record<ModelRoute, string> = {
+  local: "Every run stays on this server.",
+  auto: "It plans on this server and moves to Claude when its plan is unsure, proposes a change, or is too long for the local model. An answer that comes out cut short or not matching its tools is asked again on Claude. Needs Claude connected on the Agents page; until then, the local model answers.",
+  claude: "Claude runs only once it is connected on the Agents page, and never past its monthly cap; until then, and after, the local model answers.",
 };
 const weekdays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const permissionOptions = [{ value: "auto" as const, label: "On" }, { value: "ask" as const, label: "Asked" }, { value: "off" as const, label: "Off" }];
@@ -121,6 +141,18 @@ interface FormProps {
   catalog: Catalog;
   disabled: boolean;
   others: AgentSummary[];
+  /** The template it was made from: an agent saved before M44 shares findings as its template would. */
+  template?: string | null;
+  /** M45.5: whether this person may give or raise a grant (the owner); anyone who edits may lower one. */
+  canGrant?: boolean;
+}
+
+/** Its two findings switches (M44), as the server reads them for an agent saved before they existed. */
+function sharingOf(spec: AgentSpec, template: string | null = null): { shareFindings: boolean; useFindings: boolean } {
+  return {
+    shareFindings: typeof spec.sharing?.shareFindings === "boolean" ? spec.sharing.shareFindings : !["it-support", "house-guide"].includes(template ?? ""),
+    useFindings: typeof spec.sharing?.useFindings === "boolean" ? spec.sharing.useFindings : true,
+  };
 }
 
 function numberOf(text: string, fallback: number): number {
@@ -235,11 +267,61 @@ function OutputFields({ draft, setDraft, disabled }: Omit<FormProps, "catalog" |
   );
 }
 
-function SpecForm({ draft, setDraft, catalog, disabled, others }: FormProps) {
+const grantWords: Record<GrantLevel, string> = { ask: "Ask a person first", run: "Run it at once" };
+
+/**
+ * What it carries out itself (M45.5, ADR-013): per operation, leave to ask a person first or (low
+ * risk only) to run it at once, in the name of the person who made the agent. Only the owner gives
+ * or raises leave; anyone who edits the agent may lower or take it away.
+ */
+export function GrantFields({ draft, setDraft, catalog, disabled, canGrant }: Omit<FormProps, "others" | "template">) {
+  const grants = draft.allow.grants ?? {};
+  const grantable = catalog.grantable ?? [];
+  const [adding, setAdding] = useState("");
+  const listed = draft.allow.operations;
+  const open = grantable.filter((operation) => !grants[operation.id] && (listed === "*" || listed.includes(operation.id)));
+  const setGrants = (next: Record<string, GrantLevel>) => setDraft((current) => {
+    const { grants: _old, ...allow } = current.allow;
+    return { ...current, allow: Object.keys(next).length ? { ...allow, grants: next } : allow };
+  });
+  const without = (id: string) => Object.fromEntries(Object.entries(grants).filter(([key]) => key !== id));
+  if (!grantable.length && !Object.keys(grants).length) return null;
+  return (
+    <div className="agents-grants">
+      <p className="agents-form__note">
+        What it carries out itself, in the name of the person who made it, after reading what it changes: at most 3 a run and 20 a day. High risk is always a card. Ask: a person approves it first, and it is dropped after an hour. Run: low risk only, it starts at once. {canGrant ? "" : "Only the owner gives leave; you may lower or remove it."}
+      </p>
+      {Object.entries(grants).map(([id, level]) => {
+        const operation = grantable.find((entry) => entry.id === id);
+        const options = (["ask", "run"] as const).filter((choice) => choice === "ask" || operation?.most === "run").map((choice) => ({ value: choice, label: grantWords[choice] }));
+        return (
+          <div key={id} className="agents-grants__row">
+            <span className="agents-grants__what">{operation?.title ?? id} <span className="agents-mono agents-dim">{id}</span> {operation ? <Tag tone={operation.risk === "low" ? "neutral" : "warning"}>{operation.risk}</Tag> : null}</span>
+            <Select aria-label={`What it may do with ${id}`} value={level} disabled={disabled || (!canGrant && level === "ask")} options={canGrant ? options : options.filter((option) => option.value === "ask" || option.value === level)}
+              onValueChange={(value) => setGrants({ ...grants, [id]: value === "run" ? "run" : "ask" })} />
+            <Button variant="ghost" disabled={disabled} onClick={() => setGrants(without(id))}>Remove</Button>
+          </div>
+        );
+      })}
+      {canGrant && !disabled && open.length > 0 && (
+        <div className="agents-grants__row">
+          <Select aria-label="An operation to give it leave for" value={adding} placeholder="Choose an operation" options={open.map((operation) => ({ value: operation.id, label: `${operation.title} (${operation.risk})` }))} onValueChange={setAdding} />
+          <Button variant="secondary" disabled={!adding} onClick={() => { setGrants({ ...grants, [adding]: "ask" }); setAdding(""); }}>Give leave to ask</Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SpecForm({ draft, setDraft, catalog, disabled, others, template = null, canGrant = false }: FormProps) {
   const limits = catalog.limits.budget;
+  const sharing = sharingOf(draft, template);
+  const setSharing = (change: Partial<ReturnType<typeof sharingOf>>) => setDraft((current) => ({ ...current, sharing: { ...sharingOf(current, template), ...change } }));
   const setPrompt = (key: "rules" | "steps" | "escalate", value: string) => setDraft((current) => ({ ...current, prompt: { ...current.prompt, [key]: linesOf(value) } }));
   const allow = draft.allow;
   const delegates = draft.orchestration.delegates;
+  const route: ModelRoute = draft.model.route ?? "local";
+  const reachesClaude = route !== "local";
   return (
     <fieldset className="agents-form" disabled={disabled}>
       <FormSection id="scope" title="Its job" step={1}>
@@ -278,7 +360,7 @@ function SpecForm({ draft, setDraft, catalog, disabled, others }: FormProps) {
             <Checkbox key={source} label={`Reads ${knowledgeWords[source].toLowerCase()}`} checked={draft.knowledge[source]} onChange={(checked) => setDraft((current) => ({ ...current, knowledge: { ...current.knowledge, [source]: checked } }))} />
           ))}
         </div>
-        <p className="agents-form__note">Every tool reads; none changes the server. "Asked" means only when a person asked, never on a schedule, an event or a webhook. Tool output reaches the model as data, redacted, never as instructions.</p>
+        <p className="agents-form__note">Every tool reads. The one exception is carrying out the operations you give it leave for below. "Asked" means only when a person asked, never on a schedule, an event or a webhook. Tool output reaches the model as data, redacted, never as instructions.</p>
         <ToolTable draft={draft} setDraft={setDraft} catalog={catalog} disabled={disabled} others={others} />
         <div className="agents-form__row">
           <Field label="Apps it may look at" hint={allow.apps === "*" ? "Any app" : "App ids, separated by commas"}>
@@ -291,8 +373,9 @@ function SpecForm({ draft, setDraft, catalog, disabled, others }: FormProps) {
               ? <Button variant="ghost" onClick={() => setDraft((current) => ({ ...current, allow: { ...current.allow, operations: [] } }))}>Only some operations</Button>
               : <TextInput mono value={allow.operations.join(", ")} placeholder="app.backup, app.update" onValueChange={(value) => setDraft((current) => ({ ...current, allow: { ...current.allow, operations: idList(value) } }))} />}
           </Field>
-          {(allow.apps !== "*" || allow.operations !== "*") && <Button variant="ghost" onClick={() => setDraft((current) => ({ ...current, allow: { apps: "*", operations: "*" } }))}>Allow any again</Button>}
+          {(allow.apps !== "*" || allow.operations !== "*") && <Button variant="ghost" onClick={() => setDraft((current) => ({ ...current, allow: { ...current.allow, apps: "*", operations: "*" } }))}>Allow any again</Button>}
         </div>
+        <GrantFields draft={draft} setDraft={setDraft} catalog={catalog} disabled={disabled} canGrant={canGrant} />
       </FormSection>
 
       <FormSection id="when" title="When it runs" step={4}>
@@ -317,6 +400,7 @@ function SpecForm({ draft, setDraft, catalog, disabled, others }: FormProps) {
             </Field>
           ))}
         </div>
+        <p className="agents-form__note">A run on its schedule goes at about half the speed of a question you wait on. If its runs end with a card saying it ran out of time or reached a limit, raise the longest run, its steps or its tokens here.</p>
         <div className="agents-form__checks">
           {(Object.keys(outputWords) as Array<keyof typeof outputWords>).map((key) => (
             <Checkbox key={key} label={`Writes ${outputWords[key].toLowerCase()}`} checked={draft.outputs[key]} onChange={(checked) => setDraft((current) => ({ ...current, outputs: { ...current.outputs, [key]: checked } }))} />
@@ -328,6 +412,25 @@ function SpecForm({ draft, setDraft, catalog, disabled, others }: FormProps) {
               options={[{ value: "important", label: "Only what is important" }, { value: "never", label: "Never" }]} />
           </Field>
         </div>
+        <p className="agents-form__note">Its team chat, once Zulip is connected on the Agents tab. BoxPilot posts from each run's outcome, redacted; the model never posts, and nothing is approved there.</p>
+        <div className="agents-chat">
+          {chatKinds.map((kind) => {
+            const output = chatOf(draft)[kind];
+            const change = (patch: Partial<ChatOutput>) => setDraft((current) => ({ ...current, outputs: { ...current.outputs, chat: { ...chatOf(current), [kind]: { ...chatOf(current)[kind], ...patch } } } }));
+            return (
+              <div key={kind} className="agents-chat__row">
+                <span className="agents-name"><span>{chatWords[kind].label}</span><span className="agents-name__purpose">{chatWords[kind].description}</span></span>
+                <Switch label={<span className="ui-visually-hidden">Post {chatWords[kind].label.toLowerCase()}</span>} checked={output.enabled} disabled={disabled} onChange={(checked) => change({ enabled: checked })} />
+                <Field label={`${chatWords[kind].label} channel`} hint={`#${chatWords[kind].channel} unless you name one`}>
+                  <TextInput mono value={output.channel ?? ""} placeholder={chatWords[kind].channel} disabled={disabled || !output.enabled} spellCheck={false} autoCapitalize="off" onValueChange={(value) => change({ channel: value.trim() ? value.replace(/^#/, "") : null })} />
+                </Field>
+                <Field label={`${chatWords[kind].label} topic`} hint="its name unless you name one">
+                  <TextInput value={output.topic ?? ""} placeholder={draft.name || "its name"} disabled={disabled || !output.enabled} maxLength={60} onValueChange={(value) => change({ topic: value.trim() ? value : null })} />
+                </Field>
+              </div>
+            );
+          })}
+        </div>
         <p className="agents-form__note">It hands the matter to you as a card, and never acts:</p>
         <div className="agents-form__checks">
           {(Object.keys(escalationWords) as Array<keyof AgentSpec["escalation"]>).map((key) => (
@@ -335,8 +438,28 @@ function SpecForm({ draft, setDraft, catalog, disabled, others }: FormProps) {
               onChange={(checked) => setDraft((current) => ({ ...current, escalation: { ...current.escalation, [key]: checked } }))} />
           ))}
         </div>
-        <Switch label="Thinking" description="Off by default: on this processor a small model can spend minutes thinking and never answer. Turn it on only for hard tasks; it counts against the budget." checked={draft.model.thinking} disabled={disabled}
-          onChange={(checked) => setDraft((current) => ({ ...current, model: { thinking: checked } }))} />
+        <div className="agents-form__row">
+          <Field label="Model" hint={routeHints[route]}>
+            <Select value={route} disabled={disabled} onValueChange={(value) => setDraft((current) => ({ ...current, model: { ...current.model, route: value === "claude" || value === "auto" ? value : "local" } }))}
+              options={[{ value: "local", label: "The local model, on this server" }, { value: "auto", label: "The local model, moving to Claude when a run needs it" }, { value: "claude", label: "Claude, through the model gateway" }]} />
+          </Field>
+          {reachesClaude && (
+            <Field label="What may leave this server" hint="Secrets never leave it, either way.">
+              <Select value={draft.model.dataPolicy ?? "redacted"} disabled={disabled} onValueChange={(value) => setDraft((current) => ({ ...current, model: { ...current.model, dataPolicy: value === "as-is" ? "as-is" : "redacted" } }))}
+                options={[{ value: "redacted", label: "Names replaced: hosts, addresses, accounts and local domains go as stand-ins" }, { value: "as-is", label: "As it is" }]} />
+            </Field>
+          )}
+        </div>
+        {reachesClaude && (
+          <div className="agents-form__checks">
+            <Checkbox label="Claude may answer viewers" description="A viewer's question goes to Anthropic too. Off: a viewer's question is answered by the local model." checked={draft.model.claudeForViewers ?? false} disabled={disabled}
+              onChange={(checked) => setDraft((current) => ({ ...current, model: { ...current.model, claudeForViewers: checked } }))} />
+            <Checkbox label="Claude may read your documents" description={route === "auto" ? "The library on the Knowledge tab, what came in from Notion or Slack, and files dropped in Zulip. Off: they stay on this server, and since any run may move to Claude, the agent answers without them." : "The library on the Knowledge tab, what came in from Notion or Slack, and files dropped in Zulip. Off: they stay on this server, and the agent answers without them."} checked={draft.model.claudeReadsDocuments ?? false} disabled={disabled}
+              onChange={(checked) => setDraft((current) => ({ ...current, model: { ...current.model, claudeReadsDocuments: checked } }))} />
+          </div>
+        )}
+        <Switch label="Thinking" description={route === "claude" ? "For the local model, when it answers instead. Claude always thinks, as hard as the run needs." : "Off by default: on this processor a small model can spend minutes thinking and never answer. Turn it on only for hard tasks; it counts against the budget."} checked={draft.model.thinking} disabled={disabled}
+          onChange={(checked) => setDraft((current) => ({ ...current, model: { ...current.model, thinking: checked } }))} />
       </FormSection>
 
       <FormSection id="memory" title="Memory" step={6}>
@@ -355,6 +478,10 @@ function SpecForm({ draft, setDraft, catalog, disabled, others }: FormProps) {
       </FormSection>
 
       <FormSection id="team" title="Team" step={7}>
+        <Switch label="Shares its findings with the other agents" description="What it finds on its schedule, and in answers it checked against its tools, is kept for a while, so the other agents need not look again." checked={sharing.shareFindings} disabled={disabled}
+          onChange={(checked) => setSharing({ shareFindings: checked })} />
+        <Switch label="Uses the other agents' findings" description="Before it starts, it reads what the others found recently and answers from that when it can. It still looks for itself before it suggests a fix, or when you ask it to check now." checked={sharing.useFindings} disabled={disabled}
+          onChange={(checked) => setSharing({ useFindings: checked })} />
         <Switch label="A supervisor" description="Hands subtasks to specialists and answers from what they find, on the one queue, as the person who asked." checked={draft.orchestration.supervisor} disabled={disabled}
           onChange={(checked) => setDraft((current) => ({ ...current, orchestration: { ...current.orchestration, supervisor: checked }, tools: { ...current.tools, "agents.handoff": checked ? "auto" : "off" } }))} />
         {draft.orchestration.supervisor && (
@@ -465,7 +592,7 @@ function Webhook({ agent, csrfToken, onChanged }: { agent: AgentDetail; csrfToke
 
 // ---- the builder ----
 
-export function Builder({ agentId, agents, catalog, canCreate, csrfToken, now, onCreated, onChanged, onDeleted, onTest }: BuilderProps) {
+export function Builder({ agentId, agents, catalog, canCreate, canGrant = false, csrfToken, now, onCreated, onChanged, onDeleted, onTest }: BuilderProps) {
   const [agent, setAgent] = useState<AgentDetail | null>(null);
   const [draft, setDraftState] = useState<AgentSpec | null>(null);
   const [note, setNote] = useState("");
@@ -474,18 +601,25 @@ export function Builder({ agentId, agents, catalog, canCreate, csrfToken, now, o
   const [busy, setBusy] = useState(false);
   const [showPrompt, setShowPrompt] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  // "Test it" pressed with unsaved changes: the choice is shown instead of leaving.
+  const [leaving, setLeaving] = useState(false);
 
-  const load = useCallback(async (id: string) => {
+  // The agent on show: an answer for the one chosen before is dropped rather than drawn under this one.
+  const shown = useRef(agentId);
+  // `keepDraft`: read the agent again without throwing away what is being edited. Making or removing
+  // its webhook URL reads it again, and used to reset every unsaved change in the form.
+  const load = useCallback(async (id: string, { keepDraft = false }: { keepDraft?: boolean } = {}) => {
     try {
       const detail = await agentsApi.agent(id);
+      if (shown.current !== id) return;
       setAgent(detail);
-      setDraftState(clone(detail.spec));
+      setDraftState((current) => (keepDraft && current ? current : clone(detail.spec)));
       setError(null);
     } catch (requestError) {
-      setError(errorText(requestError, "The agent could not be read"));
+      if (shown.current === id) setError(errorText(requestError, "The agent could not be read"));
     }
   }, []);
-  useEffect(() => { setAgent(null); setDraftState(null); setSaved(null); if (agentId) void load(agentId); }, [agentId, load]);
+  useEffect(() => { shown.current = agentId; setAgent(null); setDraftState(null); setSaved(null); if (agentId) void load(agentId); }, [agentId, load]);
 
   const setDraft = useCallback((update: (draft: AgentSpec) => AgentSpec) => { setDraftState((current) => (current ? update(current) : current)); setSaved(null); }, []);
   const dirty = useMemo(() => Boolean(agent && draft && JSON.stringify(agent.spec) !== JSON.stringify(draft)), [agent, draft]);
@@ -504,12 +638,16 @@ export function Builder({ agentId, agents, catalog, canCreate, csrfToken, now, o
       setError(null);
       setSaved(result.unchanged ? { tone: "info", text: "Nothing changed, so no new version." } : { tone: "success", text: `Saved as version ${result.version}.` });
       onChanged();
+      return true;
     } catch (requestError) {
       setError(errorText(requestError, "The agent could not be saved"));
+      return false;
     } finally {
       setBusy(false);
     }
   };
+  // Testing runs the saved version, and leaving the tab drops what is not saved: with changes, ask first.
+  const testIt = () => { if (dirty) setLeaving(true); else onTest(agent.id); };
   const remove = async () => {
     try { await agentsApi.remove(csrfToken, agent.id); onDeleted(); } catch (requestError) { setError(errorText(requestError, "The agent could not be deleted")); setConfirmDelete(false); }
   };
@@ -534,7 +672,7 @@ export function Builder({ agentId, agents, catalog, canCreate, csrfToken, now, o
         title={agent.name}
         count={`v${agent.version}`}
         meta={agent.template ? `from the ${catalog.templates.find((template) => template.id === agent.template)?.title ?? agent.template} template` : "made from scratch"}
-        actions={<><Button variant="ghost" onClick={() => void exportIt()}>Export</Button><Button variant="ghost" onClick={() => onTest(agent.id)}>Test it</Button></>}
+        actions={<><Button variant="ghost" onClick={() => void exportIt()}>Export</Button><Button variant="ghost" onClick={testIt}>Test it</Button></>}
         padded
         footer={agent.canEdit ? (
           <div className="agents-editor__foot">
@@ -546,14 +684,20 @@ export function Builder({ agentId, agents, catalog, canCreate, csrfToken, now, o
       >
         {!agent.canEdit && <Notice tone="info">Only the owner and the person who made it change it. You can read it and test it.</Notice>}
         {agent.warnings?.length > 0 && <Notice tone="warning" title="About its scope">{agent.warnings.join(" ")}</Notice>}
+        {leaving && dirty && (
+          <Notice tone="warning" live title="Your changes are not saved"
+            action={<><Button variant="ghost" onClick={() => setLeaving(false)}>Keep editing</Button><Button variant="primary" busy={busy} onClick={() => void save().then((ok) => { setLeaving(false); if (ok) onTest(agent.id); })}>Save, then test</Button></>}>
+            Testing runs the saved version, v{agent.version}, and leaving this tab drops the changes.
+          </Notice>
+        )}
         {error && <Notice tone="danger" live title="Not saved">{error}</Notice>}
         {saved && <Notice tone={saved.tone} live>{saved.text}</Notice>}
-        <SpecForm draft={draft} setDraft={setDraft} catalog={catalog} disabled={!agent.canEdit} others={others} />
+        <SpecForm draft={draft} setDraft={setDraft} catalog={catalog} disabled={!agent.canEdit} others={others} template={agent.template} canGrant={canGrant} />
       </Panel>
 
       <div className="agents-builder__side">
         <Versions agent={agent} csrfToken={csrfToken} now={now} onRolledBack={(next) => { setAgent(next); setDraftState(clone(next.spec)); setSaved({ tone: "success", text: `Rolled back: version ${next.version} is the old one again.` }); onChanged(); }} />
-        <Webhook agent={agent} csrfToken={csrfToken} onChanged={() => void load(agent.id)} />
+        <Webhook agent={agent} csrfToken={csrfToken} onChanged={() => void load(agent.id, { keepDraft: true })} />
         <Panel className="agents-prompt" title="What the model is told" meta="BoxPilot's rules, then yours" actions={<Button variant="ghost" aria-expanded={showPrompt} onClick={() => setShowPrompt((value) => !value)}>{showPrompt ? "Hide" : "Show"}</Button>}>
           {showPrompt && <CodeBlock label="The system prompt" maxHeight="420px">{agent.prompt}</CodeBlock>}
         </Panel>

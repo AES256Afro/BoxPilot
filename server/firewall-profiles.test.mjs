@@ -144,6 +144,21 @@ describe("a rule left holding a port open for nothing", () => {
     expect(orphans(advice)).toEqual([]);
   });
 
+  it("never offers to remove a rule that only lets one address or range in", () => {
+    // "Remove the rule" runs `ufw delete allow 3306/tcp`, which matches only the rule from anywhere:
+    // for `allow from 192.168.8.20 to any port 3306` it failed with "does not exist any more", and
+    // the advice came back on every visit.
+    const fromOne = { action: "allow", port: 3306, protocol: "tcp", direction: "in", comment: null, source: "192.168.8.20" };
+    const fromLan = { action: "allow", port: 9999, protocol: "tcp", direction: "in", comment: "something old", source: "192.168.8.0/24" };
+    const advice = adviseFirewall({ ...base, report: { ...base.report, rules: [fromOne, fromLan] } });
+    expect(advice.filter((entry) => entry.operationId === "firewall.rule.delete")).toEqual([]);
+    expect(advice.some((entry) => entry.id === "risky-allow-3306-tcp")).toBe(false);
+    expect(orphans(advice)).toEqual([]);
+    // The same port allowed from anywhere is still flagged, and its removal still offered.
+    const anywhere = adviseFirewall({ ...base, report: { ...base.report, rules: [fromOne, { ...fromOne, source: null }] } });
+    expect(anywhere.find((entry) => entry.id === "risky-allow-3306-tcp")).toMatchObject({ operationId: "firewall.rule.delete", parameters: { action: "allow", port: 3306, protocol: "tcp" } });
+  });
+
   it("never offers to remove a rule that keeps you able to log in", () => {
     const advice = adviseFirewall({
       ...base,

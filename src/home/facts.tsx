@@ -6,6 +6,7 @@ import { readJson } from "../http";
 import { offBoxVerdict, type OffBoxInputs, type OffBoxVerdict } from "../offBox";
 import { followJobs, inspectOperation, type Job } from "../operations";
 import { scanFrom, type RepairScan } from "../repair/types";
+import { onRefresh } from "../shell/refresh";
 
 /*
  * What Home and Ops know about this server (M33.2, M33.3). One provider gathers it, from the
@@ -393,7 +394,7 @@ async function loadProtection(): Promise<AppProtection[]> {
   return result.apps;
 }
 
-type MachineAnswer = { sync?: { mount?: { mounted?: boolean }; lastSync?: { completedAt?: string } | null } };
+type MachineAnswer = { sync?: { mount?: { mounted?: boolean }; lastSync?: { completedAt?: string; skippedCount?: number } | null } };
 type DestinationAnswer = { destination?: unknown; lastSync?: unknown };
 async function loadOffBox(): Promise<OffBoxFacts> {
   // A destination that cannot be read is unknown, not absent: if none of the three answers, the
@@ -410,7 +411,7 @@ async function loadOffBox(): Promise<OffBoxFacts> {
   const inputs: OffBoxInputs = {
     cloud: { configured: Boolean(cloud.body?.destination), lastSyncAt: at(cloud.body?.lastSync) },
     ssh: { configured: Boolean(ssh.body?.destination), lastSyncAt: at(ssh.body?.lastSync) },
-    drive: { configured: Boolean(machine?.sync?.mount?.mounted), lastSyncAt: machine?.sync?.lastSync?.completedAt ?? null },
+    drive: { configured: Boolean(machine?.sync?.mount?.mounted), lastSyncAt: machine?.sync?.lastSync?.completedAt ?? null, skipped: machine?.sync?.lastSync?.skippedCount ?? 0 },
   };
   const newestLocalBackupAt = backups.reduce<string | null>((newest, backup) => (backup.createdAt && (newest === null || backup.createdAt > newest) ? backup.createdAt : newest), null);
   return { verdict: offBoxVerdict(inputs, { newestLocalBackupAt }), inputs };
@@ -482,8 +483,8 @@ function upsertJob(jobs: Job[], job: Job): Job[] {
 
 interface FactsContextValue {
   facts: Facts;
-  /** Read these sources again now (every source when none are named). */
-  refresh: (keys?: Array<keyof Facts>) => void;
+  /** Read these sources again now (every source when none are named); settles when every one has answered. */
+  refresh: (keys?: Array<keyof Facts>) => Promise<void>;
   /** Take a source's answer read elsewhere, as if its loader had read it (a fix re-reading Repair's scan). */
   accept: <K extends keyof Facts>(key: K, value: NonNullable<Facts[K]["value"]>) => void;
   /** A view that shows facts calls this while it is open; the returned function says it closed. */
@@ -496,7 +497,7 @@ export function FactsProvider({ children }: { children: ReactNode }) {
   const [facts, setFacts] = useState<Facts>(emptyFacts);
   const [viewers, setViewers] = useState(0);
   const mounted = useRef(true);
-  const inFlight = useRef(new Set<keyof Facts>());
+  const inFlight = useRef(new Map<keyof Facts, Promise<void>>());
   const lastFullLoad = useRef(0);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
 
@@ -504,21 +505,25 @@ export function FactsProvider({ children }: { children: ReactNode }) {
     if (mounted.current) setFacts((current) => ({ ...current, [key]: source }));
   }, []);
 
-  const load = useCallback((key: LoadedKey) => {
-    if (inFlight.current.has(key)) return;
-    inFlight.current.add(key);
+  const load = useCallback((key: LoadedKey): Promise<void> => {
+    const running = inFlight.current.get(key);
+    if (running) return running;
     // Keep the last answer on screen while it is read again; only a first read shows "loading".
     setFacts((current) => (current[key].value === null ? { ...current, [key]: { state: "loading", value: null, error: null } } : current));
-    (loaders[key] as () => Promise<unknown>)()
+    const reading = (loaders[key] as () => Promise<unknown>)()
       .then((value) => set(key, { state: "ready", value, error: null } as Facts[typeof key]))
       .catch((error: unknown) => set(key, { state: "failed", value: null, error: error instanceof Error ? error.message : "Could not be read" } as Facts[typeof key]))
       .finally(() => inFlight.current.delete(key));
+    inFlight.current.set(key, reading);
+    return reading;
   }, [set]);
 
-  const refresh = useCallback((keys?: Array<keyof Facts>) => {
+  // Settles once every source asked for has answered, so a "Check again" can say it is checking and
+  // then that it has: it used to change nothing on screen when nothing had changed on the server.
+  const refresh = useCallback(async (keys?: Array<keyof Facts>) => {
     const chosen = (keys ?? allKeys).filter((key): key is LoadedKey => key in loaders);
     if (!keys) lastFullLoad.current = Date.now();
-    for (const key of chosen) load(key);
+    await Promise.all(chosen.map((key) => load(key)));
   }, [load]);
 
   const demand = useCallback(() => {
@@ -530,16 +535,18 @@ export function FactsProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!active) return undefined;
     // Switching between Home and Ops within half a minute reuses what was just read.
-    if (Date.now() - lastFullLoad.current > 30_000) refresh();
+    if (Date.now() - lastFullLoad.current > 30_000) void refresh();
     const visible = () => typeof document === "undefined" || document.visibilityState !== "hidden";
-    const quick = window.setInterval(() => { if (visible()) refresh(quickKeys); }, 60_000);
-    const slow = window.setInterval(() => { if (visible()) refresh(slowKeys); }, 300_000);
+    const quick = window.setInterval(() => { if (visible()) void refresh(quickKeys); }, 60_000);
+    const slow = window.setInterval(() => { if (visible()) void refresh(slowKeys); }, 300_000);
     const stopJobs = followJobs({
       onSnapshot: (jobs) => set("jobs", { state: "ready", value: [...jobs].sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? "")), error: null }),
       onJob: (job) => setFacts((current) => (mounted.current ? { ...current, jobs: { state: "ready", value: upsertJob(current.jobs.value ?? [], job), error: null } } : current)),
       onStatus: (status) => { if (status === "unavailable") setFacts((current) => (current.jobs.value ? current : { ...current, jobs: { state: "failed", value: null, error: "Job history could not be read" } })); },
     });
-    return () => { window.clearInterval(quick); window.clearInterval(slow); stopJobs(); };
+    // The bar's Refresh (M25) reads every source again in place rather than loading the page again.
+    const stopRefresh = onRefresh(() => refresh());
+    return () => { window.clearInterval(quick); window.clearInterval(slow); stopJobs(); stopRefresh(); };
   }, [active, refresh, set]);
 
   // Only a server nobody has set up goes looking for a rebuild: an established one restoring a

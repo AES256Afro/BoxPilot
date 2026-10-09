@@ -73,8 +73,9 @@ export function NetworkVpn({ role, start, refreshKey, now }: NetworkVpnProps) {
       setError(requestError instanceof Error ? requestError.message : "The VPN profile could not be read");
     }
   }, [isOwner]);
-  // A finished save or removal bumps refreshKey: the secrets typed for it are forgotten then.
-  useEffect(() => { setWgKey(""); setOvpnPass(""); void refresh(); }, [refresh, refreshKey]);
+  // A finished job bumps refreshKey. The secrets typed are forgotten once a save completes (below),
+  // not on any job's end: a failed save used to empty the key along with it.
+  useEffect(() => { void refresh(); }, [refresh, refreshKey]);
 
   if (!isOwner) return <Notice tone="info" title="The VPN profile is the owner's">It holds the VPN's key, so only the owner reads or changes it.</Notice>;
 
@@ -120,6 +121,11 @@ export function NetworkVpn({ role, start, refreshKey, now }: NetworkVpnProps) {
       title: "Save the VPN profile",
       parameters,
       preview: <span>Saves this VPN connection to a root-owned file on the server. Apps you route through the profile use it at their next deploy; the key never appears in a job record or the database.</span>,
+      // The sheet closes for the approval. It comes back as it was filled in, key and all, unless the
+      // save completed; then the key typed for it is forgotten.
+      onClosed: (job) => {
+        if (job?.state === "completed") { setWgKey(""); setOvpnPass(""); } else setEditing(true);
+      },
     });
   };
 

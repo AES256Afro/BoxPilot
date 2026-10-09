@@ -1,7 +1,25 @@
 import { describe, expect, it, vi } from "vitest";
+import { checkpointCeilingMs } from "../app-helper.mjs";
 import { aggregateAppStats, appOperations, parseDockerStats, parseServeStatus } from "./apps.mjs";
 
 const operations = Object.fromEntries(appOperations().map((operation) => [operation.id, operation]));
+
+describe("operations that take a checkpoint first", () => {
+  // A checkpoint is a whole app backup. With a 15- or 40-minute budget, a 60-minute archive alone
+  // outlasted the job: it was recorded failed ("may still be running") while the helper finished
+  // the backup, and then the change, with nobody watching.
+  const minutes = (value) => value * 60_000;
+  const ownSteps = { "app.update": minutes(40), "app.rollback": minutes(40), "app.reconfigure": minutes(15), "app.compose.edit": minutes(20), "app.backup.restore-path": minutes(60), "app.backup.restore": minutes(90) };
+
+  it("budget the checkpoint's whole ceiling on top of their own steps", () => {
+    expect(checkpointCeilingMs).toBeGreaterThanOrEqual(minutes(60));
+    for (const [id, own] of Object.entries(ownSteps)) expect(operations[id].timeoutMs, id).toBeGreaterThanOrEqual(checkpointCeilingMs + own);
+  });
+
+  it("still offer more time where they did, as several times the larger budget", () => {
+    for (const id of ["app.update", "app.rollback"]) expect(operations[id].maxTimeoutMs, id).toBe(4 * operations[id].timeoutMs);
+  });
+});
 
 const serveJson = JSON.stringify({
   TCP: { 8093: { HTTPS: true } },
@@ -170,5 +188,64 @@ describe("operations that re-render an app's compose file carry the devices the 
     expect(apps.setPassword).toHaveBeenCalledWith(expect.objectContaining({ id: "jellyfin", devices: ["/dev/dri/renderD128"] }), expect.anything());
     await operations["app.exposure.set"].run({ id: "jellyfin", mode: "lan", devices: ["/dev/dri/renderD128"] }, { apps, run: vi.fn() });
     expect(apps.reconfigure).toHaveBeenCalledWith(expect.objectContaining({ id: "jellyfin", devices: ["/dev/dri/renderD128"] }), expect.anything());
+  });
+});
+
+describe("installing an app for the tailnet only (M38)", () => {
+  const zulipServe = JSON.stringify({ TCP: { 8543: { HTTPS: true } }, Web: { "homebox.tail1234.ts.net:8543": { Handlers: { "/": { Proxy: "http://127.0.0.1:8543" } } } } });
+  const installed = (exposure) => ({ install: vi.fn(async () => ({ installed: true, id: "zulip", name: "Zulip", exposure, hostPorts: [{ id: "web", host: 8543, protocol: "tcp", exposure: exposure === "tailnet" ? "loopback" : "lan", tailnet: "serve" }] })) });
+
+  it("publishes its web port with Tailscale Serve once it is up, and says where", async () => {
+    const run = vi.fn(async (_binary, args) => (args[1] === "status" ? { ok: true, stdout: zulipServe, stderr: "" } : { ok: true, stdout: "", stderr: "" }));
+    const result = await operations["app.install"].run({ id: "zulip", values: {} }, { apps: installed("tailnet"), run });
+    expect(run).toHaveBeenCalledWith(expect.stringContaining("tailscale"), ["serve", "--bg", "--yes", "--https=8543", "http://127.0.0.1:8543"], expect.anything());
+    expect(result).toMatchObject({ installed: true, served: true, urls: ["https://homebox.tail1234.ts.net:8543"] });
+    expect(result.warnings).toBeUndefined();
+  });
+
+  it("keeps the install and says how to publish it when Serve fails", async () => {
+    const run = vi.fn(async (_binary, args) => (args[0] === "serve" && args[1] === "--bg" ? { ok: false, stdout: "", stderr: "serve: Tailscale is stopped" } : { ok: true, stdout: "{}", stderr: "" }));
+    const result = await operations["app.install"].run({ id: "zulip", values: {} }, { apps: installed("tailnet"), run });
+    expect(result).toMatchObject({ installed: true, served: false });
+    expect(result.warnings[0]).toMatch(/publishing it with Tailscale Serve failed \(8543: serve: Tailscale is stopped\).*choose Publish on the tailnet/);
+  });
+
+  it("leaves an app on the home network alone", async () => {
+    const run = vi.fn();
+    const result = await operations["app.install"].run({ id: "zulip", values: { exposure: "lan" } }, { apps: installed("lan"), run });
+    expect(run).not.toHaveBeenCalled();
+    expect(result.served).toBeUndefined();
+  });
+});
+
+// R4B3-6: a restore writes the backup's compose file again for this server and says who can reach the
+// app and on which ports (exposure, hostPorts), as an install does; app.backup.restore ignored that,
+// so restoring a tailnet-only backup left its web port on 127.0.0.1 with nothing publishing it.
+describe("restoring a tailnet-only app's backup", () => {
+  const serving = JSON.stringify({ Web: { "homebox.tail1234.ts.net:8384": { Handlers: { "/": { Proxy: "http://127.0.0.1:8384" } } } } });
+  const restoring = (exposure, extra = {}) => ({ restoreAppBackup: vi.fn(async () => ({ restored: true, id: "relay", name: "Relay", backup: "20260819T120000Z.tar.gz", exposure, hostPorts: [{ id: "web", host: 8384, protocol: "tcp", exposure: exposure === "tailnet" ? "loopback" : "lan", tailnet: "serve" }], ...extra })) });
+  const parameters = { id: "relay", backup: "20260819T120000Z.tar.gz" };
+
+  it("publishes its web port with Tailscale Serve once it is back, and says where", async () => {
+    const run = vi.fn(async (_binary, args) => (args[1] === "status" ? { ok: true, stdout: serving, stderr: "" } : { ok: true, stdout: "", stderr: "" }));
+    const result = await operations["app.backup.restore"].run(parameters, { apps: restoring("tailnet"), run });
+    expect(run).toHaveBeenCalledWith(expect.stringContaining("tailscale"), ["serve", "--bg", "--yes", "--https=8384", "http://127.0.0.1:8384"], expect.anything());
+    expect(result).toMatchObject({ restored: true, served: true, urls: ["https://homebox.tail1234.ts.net:8384"] });
+    expect(result.warnings).toBeUndefined();
+  });
+
+  it("keeps the restore, with its own warnings, and says how to publish it when Serve fails", async () => {
+    const run = vi.fn(async (_binary, args) => (args[1] === "--bg" ? { ok: false, stdout: "", stderr: "serve: Tailscale is stopped" } : { ok: true, stdout: "{}", stderr: "" }));
+    const result = await operations["app.backup.restore"].run(parameters, { apps: restoring("tailnet", { warnings: ["an earlier warning"] }), run });
+    expect(result).toMatchObject({ restored: true, served: false });
+    expect(result.warnings[0]).toBe("an earlier warning");
+    expect(result.warnings[1]).toMatch(/^Relay is installed for your tailnet only, but publishing it with Tailscale Serve failed \(8384: serve: Tailscale is stopped\).*choose Publish on the tailnet\.$/);
+  });
+
+  it("leaves an app on the home network alone", async () => {
+    const run = vi.fn();
+    const result = await operations["app.backup.restore"].run(parameters, { apps: restoring("lan"), run });
+    expect(run).not.toHaveBeenCalled();
+    expect(result.served).toBeUndefined();
   });
 });

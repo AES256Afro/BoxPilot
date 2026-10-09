@@ -2,6 +2,45 @@ import { randomUUID } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
 import { defineOperation } from "./registry.mjs";
 import { destinationPatterns } from "../backup-destination.mjs";
+import { serveTailnetOnly } from "./apps.mjs";
+
+const appIdPattern = /^[a-z0-9][a-z0-9-]{1,62}$/;
+/**
+ * The devices the web process found for each app a snapshot restore installs (catalog/devices.mjs,
+ * the operation's prepare hook): the helper's sandbox has no real /dev. The deployer still keeps only
+ * the paths an app's manifest asks for.
+ */
+const devicesByAppField = {
+  type: "object", optional: true,
+  validate: (value) => {
+    const entries = Object.entries(value);
+    if (entries.length > 64) return "may name at most 64 apps";
+    for (const [id, devices] of entries) {
+      if (!appIdPattern.test(id)) return "must be keyed by app id";
+      if (!Array.isArray(devices) || devices.length > 32 || devices.some((entry) => typeof entry !== "string" || !/^\/dev\/[A-Za-z0-9._/-]{1,64}$/.test(entry))) return `${id} must list up to 32 /dev paths`;
+    }
+    return null;
+  },
+};
+
+/**
+ * Per app id, the sha256 of the data archive's compose file the owner allowed to be started exactly
+ * as it was archived (sweep 4; app-helper composeGate).
+ */
+const allowComposeByAppField = {
+  type: "object", optional: true,
+  validate: (value) => {
+    const entries = Object.entries(value);
+    if (entries.length > 64) return "may name at most 64 apps";
+    for (const [id, hash] of entries) {
+      if (!appIdPattern.test(id)) return "must be keyed by app id";
+      if (typeof hash !== "string" || !/^[a-f0-9]{64}$/.test(hash)) return `${id} must be a compose file's sha256`;
+    }
+    return null;
+  },
+};
+/** The apps a snapshot restore allows a compose file for, sorted, as its typed confirmation names them. */
+const allowedApps = (parameters) => Object.keys(parameters?.allowCompose && typeof parameters.allowCompose === "object" ? parameters.allowCompose : {}).sort();
 
 /** Machine snapshots and the off-box backup mirror (Phase 6). */
 export function hostBackupOperations() {
@@ -33,7 +72,8 @@ export function hostBackupOperations() {
       // holds, and inflating one to answer is minutes of work per call.
       id: "host.snapshot.describe", title: "Inspect a machine snapshot", risk: "low", readOnly: true, minimumRole: "operator", timeoutMs: 10 * 60_000,
       parameters: { fields: { source: { type: "string", enum: ["local", "mirror", "discovered"] }, artifact: { type: "string", pattern: /^machine-snapshot-\d{8}T\d{6}Z-[a-f0-9]{8}\.tar\.gz$/ }, root: { type: "string", maxLength: 4096, optional: true } } },
-      run: (parameters, { machineSnapshot }) => machineSnapshot.describe(parameters),
+      // With the deployer, each app's data archive says what restoring it would start (sweep 4).
+      run: (parameters, { machineSnapshot, apps }) => machineSnapshot.describe(parameters, { apps }),
     }),
     defineOperation({
       // operator (ADR-003): inlines the contents of root-only files a restore staged for review - netplan (which can carry Wi-Fi passwords), fstab, VM definitions.
@@ -48,10 +88,12 @@ export function hostBackupOperations() {
       run: (parameters, { machineSnapshot }) => machineSnapshot.discardRestore(parameters),
     }),
     defineOperation({
-      id: "host.snapshot.restore", title: "Restore from a machine snapshot", risk: "high", confirm: () => "restore", timeoutMs: 6 * 60 * 60_000,
-      description: "Reinstalls the selected apps with the settings and secrets in the snapshot, then restores each app's newest data archive (from the local store or the mirror). Network, firewall, fstab, VM definitions, and the database copy are staged for review, never applied automatically.",
-      parameters: { fields: { source: { type: "string", enum: ["local", "mirror", "discovered"] }, artifact: { type: "string", pattern: /^machine-snapshot-\d{8}T\d{6}Z-[a-f0-9]{8}\.tar\.gz$/ }, root: { type: "string", maxLength: 4096, optional: true }, apps: { type: "array", optional: true, validate: (value) => (value.every((id) => typeof id === "string" && /^[a-z0-9][a-z0-9-]{1,62}$/.test(id)) ? null : "must list app ids") }, restoreData: { type: "boolean", optional: true } } },
-      run: (parameters, { machineSnapshot, apps, progress }) => machineSnapshot.restore({ ...parameters, apps: parameters.apps ?? "all", restoreData: parameters.restoreData ?? true }, { apps, progress }),
+      // Allowing data archives' own compose files is typed out, naming each app (sweep 4).
+      id: "host.snapshot.restore", title: "Restore from a machine snapshot", risk: "high", confirm: (parameters) => (allowedApps(parameters).length ? `allow ${allowedApps(parameters).join(" ")}` : "restore"), timeoutMs: 6 * 60 * 60_000,
+      description: "Reinstalls the selected apps with the settings and secrets in the snapshot, then restores each app's newest data archive (from the local store or the mirror). Network, firewall, fstab, VM definitions, and the database copy are staged for review, never applied automatically. A data archive whose compose file would be started exactly as it was backed up, giving the app more than the catalog does, is restored only when allowCompose names that file's sha256 for the app; otherwise nothing is restored.",
+      parameters: { fields: { source: { type: "string", enum: ["local", "mirror", "discovered"] }, artifact: { type: "string", pattern: /^machine-snapshot-\d{8}T\d{6}Z-[a-f0-9]{8}\.tar\.gz$/ }, root: { type: "string", maxLength: 4096, optional: true }, apps: { type: "array", optional: true, validate: (value) => (value.every((id) => typeof id === "string" && appIdPattern.test(id)) ? null : "must list app ids") }, restoreData: { type: "boolean", optional: true }, devicesByApp: devicesByAppField, allowCompose: allowComposeByAppField } },
+      // A tailnet-only app it brings back is published with Tailscale Serve, as app.install does.
+      run: (parameters, { machineSnapshot, apps, run, progress }) => machineSnapshot.restore({ ...parameters, apps: parameters.apps ?? "all", restoreData: parameters.restoreData ?? true }, { apps, progress, serve: run ? (deployed) => serveTailnetOnly(deployed, { run, progress }) : null }),
     }),
     defineOperation({
       id: "backup.remote.inspect", title: "Read the off-box SSH destination state", risk: "low", readOnly: true, timeoutMs: 30_000,

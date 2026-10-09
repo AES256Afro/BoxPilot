@@ -2,6 +2,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import type { Plugin } from "vite";
 import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
+import { serviceWorkerSource } from "./src/pwa/serviceWorkerSource.ts";
 
 const { version } = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")) as { version: string };
 // Counted from the catalog rather than typed into the copy, which drifted every time the catalog
@@ -35,21 +36,52 @@ const catalogSize = manifestCount >= 10 ? `${Math.floor(manifestCount / 10) * 10
 // build also writes each package's LICENSE next to them, from the installed package so it cannot
 // fall out of step with the files it covers.
 const fontPackages = ["@fontsource-variable/figtree", "@fontsource/ibm-plex-sans-condensed", "@fontsource-variable/jetbrains-mono"];
+// The looks' typefaces (src/looks/fonts.css), fetched only by a page in the look that draws them.
+const lookFontPackages = [
+  "@fontsource-variable/archivo", "@fontsource/b612", "@fontsource/b612-mono", "@fontsource/barlow-condensed", "@fontsource-variable/fredoka",
+  "@fontsource-variable/literata", "@fontsource-variable/martian-mono", "@fontsource-variable/overpass", "@fontsource/pt-sans",
+  "@fontsource-variable/pixelify-sans", "@fontsource/share-tech-mono", "@fontsource/vt323",
+];
 function fontLicences(): Plugin {
   return {
     name: "boxpilot-font-licences",
     apply: "build",
     generateBundle() {
-      for (const name of fontPackages) {
+      for (const name of [...fontPackages, ...lookFontPackages]) {
         this.emitFile({ type: "asset", fileName: `licenses/${name.split("/")[1]}-OFL.txt`, source: readFileSync(new URL(`./node_modules/${name}/LICENSE`, import.meta.url)) });
       }
     },
   };
 }
 
+// The service worker (M25.1): the shell, the entry bundle and stylesheet, the fonts and the icons,
+// kept so the installed app opens without a network. Written after the bundle is known, so its list
+// names this build's hashed files; the rules live in src/pwa, where they are tested.
+function serviceWorker(): Plugin {
+  return {
+    name: "boxpilot-service-worker",
+    apply: "build",
+    generateBundle(_options, bundle) {
+      const precache = ["/", "/manifest.webmanifest", "/icons/icon-192.png", "/icons/apple-touch-icon.png"];
+      for (const output of Object.values(bundle)) {
+        if (output.type === "chunk" && output.isEntry) {
+          precache.push(`/${output.fileName}`, ...output.imports.map((name) => `/${name}`));
+          precache.push(...[...(output.viteMetadata?.importedCss ?? [])].map((name) => `/${name}`));
+        }
+        // The entry's stylesheet, whether or not the bundler said the entry imports it; and the
+        // interface's own fonts. A look's typefaces are cached when that look first draws them.
+        if (output.type === "asset" && /^assets\/index-[\w-]+\.css$/.test(output.fileName)) precache.push(`/${output.fileName}`);
+        if (output.type === "asset" && /^assets\/(figtree|ibm-plex-sans-condensed|jetbrains-mono)-[\w-]+\.woff2$/.test(output.fileName)) precache.push(`/${output.fileName}`);
+      }
+      const source = (file: string) => readFileSync(new URL(`./src/pwa/${file}`, import.meta.url), "utf8");
+      this.emitFile({ type: "asset", fileName: "sw.js", source: serviceWorkerSource({ rules: source("swRules.js"), worker: source("sw.js"), precache, version }) });
+    },
+  };
+}
+
 export default defineConfig({
   define: { __BOXPILOT_VERSION__: JSON.stringify(version), __BOXPILOT_CATALOG_SIZE__: JSON.stringify(catalogSize), __BOXPILOT_CATALOG_CATEGORIES__: JSON.stringify(categoryCount) },
-  plugins: [react(), fontLicences()],
+  plugins: [react(), fontLicences(), serviceWorker()],
   server: {
     host: "127.0.0.1",
     port: 5173,

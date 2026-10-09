@@ -60,8 +60,32 @@ describe("the last try at a fix (M35)", () => {
     // The owner's "Failed: Reconnect a drive" stayed on Home after four refused attempts.
     const refused = job("j1");
     const { findings, jobs } = applyLedger([readOnly], { jobs: [refused] });
-    expect(findings[0].lastAttempt).toMatchObject({ jobId: "j1", state: "failed", error: "target is busy", label: "Reconnect the drive" });
+    expect(findings[0].lastAttempt).toMatchObject({ jobId: "j1", state: "failed", error: "target is busy", label: "Reconnect the drive", timeout: null });
     expect(jobs.attached).toEqual(["j1"]);
+  });
+
+  it("carries a try's timeout, so Repair does not offer it again while it may still be running (sweep 4)", () => {
+    const timeout = { scope: "step", budgetMs: 540_000, elapsedMs: 600_000, phase: "running", step: "Root task storage.remount", lastOutput: null, moreTimeMs: null, stillRunning: true };
+    const { findings } = applyLedger([readOnly], { jobs: [job("j1", { timeout })], now });
+    expect(findings[0].lastAttempt).toMatchObject({ jobId: "j1", state: "failed", timeout });
+    expect(findings[0].lastAttempt.timeout.settled).toBeUndefined();
+  });
+
+  it("stops calling a try possibly still running 12 hours after it ran out, or its budget again if longer (sweep 5)", () => {
+    // One timeout hid the drive's Reconnect for weeks: nothing aged the "may still be running".
+    const timeout = { scope: "step", budgetMs: 540_000, elapsedMs: 600_000, phase: "running", step: "Root task storage.remount", lastOutput: null, moreTimeMs: null, stillRunning: true };
+    const lastTimeout = (fields, options = {}) => applyLedger([readOnly], { jobs: [job("j1", { timeout, ...fields })], now, ...options }).findings[0].lastAttempt.timeout;
+    expect(lastTimeout({ updatedAt: "2026-08-30T12:00:00.000Z" })).toEqual({ ...timeout, settled: true });   // 30 days ago
+    expect(lastTimeout({ updatedAt: "2026-09-28T23:30:00.000Z" })).toEqual({ ...timeout, settled: true });   // 12.5 hours ago
+    expect(lastTimeout({ updatedAt: "2026-09-29T01:00:00.000Z" })).toEqual(timeout);                          // 11 hours ago: it may be
+    // A whole operation that had longer than 12 hours may run on for as long again.
+    const long = { ...timeout, scope: "operation", stillRunning: undefined, budgetMs: 18 * 3_600_000 };
+    expect(applyLedger([readOnly], { jobs: [job("j1", { timeout: long, updatedAt: "2026-09-28T20:00:00.000Z" })], now }).findings[0].lastAttempt.timeout).toEqual(long);
+    expect(applyLedger([readOnly], { jobs: [job("j1", { timeout: long, updatedAt: "2026-09-28T17:00:00.000Z" })], now }).findings[0].lastAttempt.timeout).toEqual({ ...long, settled: true });
+    // Let go with M36's mark on the job (Dismiss this try on Repair): settled at once.
+    expect(lastTimeout({ steps: [{ name: "dismissed", state: "completed" }] })).toEqual({ ...timeout, settled: true });
+    // One that only waited in the queue never started; nothing to settle.
+    expect(lastTimeout({ timeout: { ...timeout, phase: "queued", stillRunning: undefined }, updatedAt: "2026-08-30T12:00:00.000Z" })).toEqual({ ...timeout, phase: "queued", stillRunning: undefined });
   });
 
   it("prefers the newest try, whether it was recorded against the finding or only ran the same fix", () => {
@@ -80,6 +104,26 @@ describe("the last try at a fix (M35)", () => {
     const dismissed = applyLedger([], { jobs: [job("j9", { type: "op:app.update", steps: [{ name: "dismissed", state: "completed", detail: "Dismissed by owner." }] }), job("j10")] });
     expect(dismissed.jobs.dismissed).toEqual(["j9"]);
     expect(applyLedger([], { jobs: [] }).jobs.dismissed).toEqual([]);
+  });
+
+  it("lets a failed reconnect go once its drive or share is mounted and well, wherever it was started", () => {
+    // The owner's backup share was mounted and readable while Home still said "Failed: Reconnect a
+    // drive": that try was started from Home's Try again, not from a finding, so nothing let it go.
+    const busy = job("j1");
+    const share = job("j2", { parameters: { name: "share-boxpilot-backup" } });
+    const byShare = job("j3", { type: "op:share.reconnect", parameters: { name: "nas-public" } });
+    const mounts = [
+      { target: "/mnt/the-dump", source: "/dev/sdb2", managedName: "the-dump", readOnly: false, options: "defaults,nofail" },
+      { target: "/mnt/boxpilot/backup", source: "//nas/backup", managedName: "share-boxpilot-backup", readOnly: false, options: "credentials=x,nofail" },
+    ];
+    expect(applyLedger([], { jobs: [busy, share, byShare], mounts }).jobs.resolved.sort()).toEqual(["j1", "j2"]);
+    // Still read-only, still found by the scan, not mounted at all, or the mounts not read: kept.
+    expect(applyLedger([], { jobs: [busy], mounts: [{ ...mounts[0], readOnly: true }] }).jobs.resolved).toEqual([]);
+    expect(applyLedger([readOnly], { jobs: [busy, job("j0", { updatedAt: "2026-09-29T09:00:00.000Z" })], mounts }).jobs.resolved).toEqual([]);
+    expect(applyLedger([], { jobs: [byShare], mounts }).jobs.resolved).toEqual([]);
+    expect(applyLedger([], { jobs: [busy] }).jobs.resolved).toEqual([]);
+    // A drive fstab itself mounts read-only is as it should be.
+    expect(applyLedger([], { jobs: [busy], mounts: [{ ...mounts[0], readOnly: true, options: "ro,nofail" }] }).jobs.resolved).toEqual(["j1"]);
   });
 
   it("remembers a bounded number of attempts", () => {

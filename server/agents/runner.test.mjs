@@ -8,6 +8,7 @@
  */
 import { afterEach, describe, expect, it } from "vitest";
 import { createBench, ownerQuestion, ownerScript } from "../../test/agents-bench.mjs";
+import { runnerApiBase } from "./runner.mjs";
 import { agentsRuntimeKey, defaultRuntimeSettings } from "./service.mjs";
 import { toolCatalog } from "./tool-catalog.mjs";
 
@@ -25,7 +26,7 @@ describe("the tools each call carries", () => {
     const [plan, ...act] = result.requests;
     expect(plan.tools ?? null).toBeNull();
     // Always-on first, then the plan's, each in the catalog's order: 8 of the 22 Steve may use.
-    expect(result.claim.tools).toHaveLength(22);
+    expect(result.claim.tools).toHaveLength(26);
     for (const request of act) expect(names(request)).toEqual(["memory_search", "plan_propose", "notify_owner", "agents_handoff", "apps_list", "services_status", "storage_health", "alerts_active"]);
     for (let index = 1; index < act.length; index += 1) {
       expect(act[index].tools).toEqual(act[0].tools);
@@ -41,8 +42,9 @@ describe("the tools each call carries", () => {
     const everything = toolCatalog.filter((tool) => !["web.search"].includes(tool.id)).map((tool) => ({ step: `Use ${tool.title}`, tool: tool.fn }));
     bench = await createBench({ promptPerSecond: 1_000, generatePerSecond: 100, script: { ...ownerScript, understanding: { ...ownerScript.understanding, plan: everything.slice(0, 5) } } });
     const planned = await bench.ask(ownerQuestion);
-    // The plan's schema holds five steps: server.facts, apps.list, services.status, logs.query, storage.health.
-    expect(names(planned.requests[1])).toEqual(["memory_search", "plan_propose", "notify_owner", "agents_handoff", "server_facts", "apps_list", "services_status", "logs_query", "storage_health"]);
+    // The plan's schema holds five steps: server.facts, apps.list, services.status, logs.query, storage.health;
+    // the question's own words ("issue") point at alerts.active too, which is carried beside them (M40).
+    expect(names(planned.requests[1])).toEqual(["memory_search", "plan_propose", "notify_owner", "agents_handoff", "server_facts", "apps_list", "services_status", "logs_query", "storage_health", "alerts_active"]);
     await bench.close();
     // An old reply with a long "tools" list is capped too.
     bench = await createBench({ promptPerSecond: 1_000, generatePerSecond: 100, script: { ...ownerScript, understanding: { ...ownerScript.understanding, tools: everything.map((entry) => entry.tool), plan: [] } } });
@@ -90,20 +92,22 @@ describe("each call's time", () => {
   it("is worked out from the speed BoxPilot measured before, and the new measurement is kept for the Usage tab and the next run", async () => {
     bench = await createBench({ promptPerSecond: 25, generatePerSecond: 5, stored: { promptPerSecond: 20, generatePerSecond: 4 } });
     const first = await bench.ask(ownerQuestion);
-    expect(first.claim.runtime.speed).toMatchObject({ promptPerSecond: 20, generatePerSecond: 4, threads: 4 });
+    // A person's question runs at eight threads (M40); with nothing measured at eight yet, the
+    // four threads' speed plans its first call: slower, so no call is planned too short.
+    expect(first.claim.runtime).toMatchObject({ threads: 8, speed: { promptPerSecond: 20, generatePerSecond: 4, threads: 4 } });
     // llama-server's own timings, as Unsloth passes them on: 25 read and 5 written a second.
-    expect(first.run.usage.speed).toMatchObject({ promptPerSecond: 25, generatePerSecond: 5, threads: 4 });
-    expect(bench.usage().modelSpeed).toMatchObject({ promptPerSecond: 25, generatePerSecond: 5, source: "server", model: "unsloth/Qwen3.5-4B-GGUF", threads: 4, runs: 2 });
+    expect(first.run.usage.speed).toMatchObject({ promptPerSecond: 25, generatePerSecond: 5, threads: 8 });
+    expect(bench.usage().modelSpeed).toMatchObject({ promptPerSecond: 25, generatePerSecond: 5, source: "server", model: "unsloth/Qwen3.5-4B-GGUF", threads: 8, runs: 2, byThreads: { 4: { promptPerSecond: 20 }, 8: { promptPerSecond: 25 } } });
     const second = await bench.ask(ownerQuestion);
-    expect(second.claim.runtime.speed).toMatchObject({ promptPerSecond: 25, generatePerSecond: 5 });
+    expect(second.claim.runtime.speed).toMatchObject({ promptPerSecond: 25, generatePerSecond: 5, threads: 8 });
   });
 
   it("is not started when it cannot fit in what the run has left, and the run answers from the tools the plan named", async () => {
     bench = await createBench({ promptPerSecond: 20, generatePerSecond: 4 });
-    withSpec(bench.keeper, (spec) => ({ ...spec, budget: { ...spec.budget, runSeconds: 120 } }));
+    withSpec(bench.keeper, (spec) => ({ ...spec, budget: { ...spec.budget, runSeconds: 180 } }));
     const result = await bench.ask(ownerQuestion);
     expect(result.run).toMatchObject({ state: "degraded", flags: { degraded: "timeout" } });
-    // The plan fit (65 s at 20 and 4 tokens a second); acting on it would not have, and the trace said so first.
+    // The plan fit (about 80 s at 20 and 4 tokens a second, its three example lines included); acting on it would not have, and the trace said so first.
     expect(result.requests).toHaveLength(1);
     expect(result.run.steps.find((step) => step.kind === "system" && step.state === "failed").flags.detail).toMatch(/^Not starting the next step: it needs about \d+ s \(\d+ tokens to read at 20 a second, then a short answer\) and the run has \d+ s left\.$/);
     // Alerts, storage, services and apps, as the plan said; not memory, and not BoxPilot's own documents.
@@ -151,5 +155,23 @@ describe("a structured answer", () => {
     expect(rewrite).toMatchObject({ toolChoice: "none", extra: { response_format: { json_schema: { name: "answer" } } } });
     // Read again: only the last few tokens, from the checkpoint llama-server keeps just before a prompt's end.
     expect(bench.h.fake.calls().at(-1).readTokens).toBeLessThanOrEqual(5);
+  });
+});
+
+// boxpilot-agents.service reads BoxPilot's port from the same EnvironmentFile= as the web service,
+// which keeps `9000   # moved off 8787` whole. The web service takes it with parseInt and listens on
+// 9000; the runner built `http://127.0.0.1:9000   # moved off 8787`, refused it, and restarted every 30 s.
+describe("where the runner finds BoxPilot", () => {
+  it("takes the port the way the web service does", () => {
+    expect(runnerApiBase({})).toBe("http://127.0.0.1:8787");
+    expect(runnerApiBase({ BOXPILOT_PORT: "9000" })).toBe("http://127.0.0.1:9000");
+    expect(runnerApiBase({ BOXPILOT_PORT: "9000   # moved off 8787" })).toBe("http://127.0.0.1:9000");
+    expect(runnerApiBase({ BOXPILOT_PORT: "9000# web" })).toBe("http://127.0.0.1:9000");
+    expect(runnerApiBase({ BOXPILOT_PORT: "" })).toBe("http://127.0.0.1:8787");
+    expect(runnerApiBase({ BOXPILOT_PORT: "70000" })).toBe("http://127.0.0.1:8787");
+  });
+
+  it("takes BOXPILOT_AGENTS_API as given, without a trailing slash", () => {
+    expect(runnerApiBase({ BOXPILOT_AGENTS_API: "http://127.0.0.1:18787/", BOXPILOT_PORT: "9000" })).toBe("http://127.0.0.1:18787");
   });
 });

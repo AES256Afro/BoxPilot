@@ -1,0 +1,95 @@
+/*
+ * What every look shares (M41): where the areas sit for each way around (data-nav on .app-shell),
+ * and the small choices the glass looks take from Settings → Appearance: the accent (data-accent),
+ * the wallpaper (data-wallpaper) and solid panels (data-solid). A look's own skin is in
+ * src/looks/<id>/skin.css. Every selector here starts with :root[data-…].
+ */
+
+/* ── Where the areas sit ── */
+@media (min-width: 761px) {
+  /* The sidebar's width beside the page, instead of the rail's. */
+  :root[data-shell="console"] .app-shell[data-nav="sidebar"] { padding-left: var(--sidebar-width, 232px); }
+  /* The dock, the soft keys and a line of words take no room at the side. */
+  :root[data-shell="console"] .app-shell:is([data-nav="dock"], [data-nav="keys"], [data-nav="top"]) { padding-left: 0; }
+  :root[data-shell="console"] .app-shell:is([data-nav="dock"], [data-nav="keys"]) .content { padding-bottom: calc(var(--shell-bottom-inset, 0px) + 112px); }
+}
+
+/* The sidebar is the wide screen's way around; on a phone the dock under it takes over. */
+@media (min-width: 761px) {
+  :root .look-phone-dock { display: none; }
+}
+
+/* ── The accent: measured values, selection and the current area, in the looks that take it ── */
+:root { --look-accent: #0b7489; --look-accent-ink: #ffffff; }
+:root[data-accent="amber"] { --look-accent: #9a4a07; --look-accent-ink: #ffffff; }
+:root[data-accent="blue"] { --look-accent: #2459c9; --look-accent-ink: #ffffff; }
+:root[data-accent="violet"] { --look-accent: #8a3aa8; --look-accent-ink: #ffffff; }
+:root[data-accent="rose"] { --look-accent: #b0306b; --look-accent-ink: #ffffff; }
+:root[data-accent="graphite"] { --look-accent: #3f4654; --look-accent-ink: #ffffff; }
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --look-accent: #56c8e0; --look-accent-ink: #06202a; }
+  :root[data-accent="amber"]:not([data-theme="light"]) { --look-accent: #fbbf24; --look-accent-ink: #241300; }
+  :root[data-accent="blue"]:not([data-theme="light"]) { --look-accent: #82aaff; --look-accent-ink: #0a1a3d; }
+  :root[data-accent="violet"]:not([data-theme="light"]) { --look-accent: #cf9df0; --look-accent-ink: #2a0d3a; }
+  :root[data-accent="rose"]:not([data-theme="light"]) { --look-accent: #f59ac4; --look-accent-ink: #3a0a22; }
+  :root[data-accent="graphite"]:not([data-theme="light"]) { --look-accent: #c5ccd6; --look-accent-ink: #151a21; }
+}
+:root[data-theme="dark"] { --look-accent: #56c8e0; --look-accent-ink: #06202a; }
+:root[data-theme="dark"][data-accent="amber"] { --look-accent: #fbbf24; --look-accent-ink: #241300; }
+:root[data-theme="dark"][data-accent="blue"] { --look-accent: #82aaff; --look-accent-ink: #0a1a3d; }
+:root[data-theme="dark"][data-accent="violet"] { --look-accent: #cf9df0; --look-accent-ink: #2a0d3a; }
+:root[data-theme="dark"][data-accent="rose"] { --look-accent: #f59ac4; --look-accent-ink: #3a0a22; }
+:root[data-theme="dark"][data-accent="graphite"] { --look-accent: #c5ccd6; --look-accent-ink: #151a21; }
+
+/* ── The wallpaper behind the glass: the three glows over a two-colour base (--wall-*) ── */
+:root[data-wallpaper="dusk"] {
+  --wall-base-start: #e9e2f1; --wall-base-end: #f5e4df;
+  --wall-glow-sea: rgba(196, 176, 232, 0.75); --wall-glow-sun: rgba(246, 176, 150, 0.7); --wall-glow-deep: rgba(210, 196, 238, 0.9);
+}
+:root[data-wallpaper="meadow"] {
+  --wall-base-start: #e1ecdb; --wall-base-end: #f4e8cf;
+  --wall-glow-sea: rgba(168, 210, 170, 0.75); --wall-glow-sun: rgba(246, 214, 150, 0.7); --wall-glow-deep: rgba(206, 226, 190, 0.9);
+}
+:root[data-wallpaper="plain"] {
+  --wall-base-start: #e8ecef; --wall-base-end: #e2e7eb;
+  --wall-glow-sea: transparent; --wall-glow-sun: transparent; --wall-glow-deep: transparent;
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-wallpaper="dusk"]:not([data-theme="light"]) {
+    --wall-base-start: #1f2940; --wall-base-end: #33243f;
+    --wall-glow-sea: rgba(92, 70, 150, 0.65); --wall-glow-sun: rgba(190, 90, 70, 0.42); --wall-glow-deep: rgba(40, 44, 100, 0.95);
+  }
+  :root[data-wallpaper="meadow"]:not([data-theme="light"]) {
+    --wall-base-start: #182a22; --wall-base-end: #262618;
+    --wall-glow-sea: rgba(40, 110, 70, 0.62); --wall-glow-sun: rgba(170, 130, 40, 0.4); --wall-glow-deep: rgba(24, 70, 52, 0.95);
+  }
+  :root[data-wallpaper="plain"]:not([data-theme="light"]) {
+    --wall-base-start: #1b232b; --wall-base-end: #161d24;
+    --wall-glow-sea: transparent; --wall-glow-sun: transparent; --wall-glow-deep: transparent;
+  }
+}
+:root[data-theme="dark"][data-wallpaper="dusk"] {
+  --wall-base-start: #1f2940; --wall-base-end: #33243f;
+  --wall-glow-sea: rgba(92, 70, 150, 0.65); --wall-glow-sun: rgba(190, 90, 70, 0.42); --wall-glow-deep: rgba(40, 44, 100, 0.95);
+}
+:root[data-theme="dark"][data-wallpaper="meadow"] {
+  --wall-base-start: #182a22; --wall-base-end: #262618;
+  --wall-glow-sea: rgba(40, 110, 70, 0.62); --wall-glow-sun: rgba(170, 130, 40, 0.4); --wall-glow-deep: rgba(24, 70, 52, 0.95);
+}
+:root[data-theme="dark"][data-wallpaper="plain"] {
+  --wall-base-start: #1b232b; --wall-base-end: #161d24;
+  --wall-glow-sea: transparent; --wall-glow-sun: transparent; --wall-glow-deep: transparent;
+}
+
+/* ── Solid panels: the glass looks read --look-blur; with data-solid every glass is opaque ── */
+:root { --look-blur: 14px; }
+:root[data-solid] {
+  --look-blur: 0px;
+  --lx-glass: var(--lx-glass-solid);
+  --lx-glass-raised: var(--lx-glass-solid);
+}
+:root[data-solid] :is(.lx-panel, .ui-dock.shell-dock ul, .view-switch, .ui-theme-switch, .command-trigger) {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}

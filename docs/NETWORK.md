@@ -51,6 +51,58 @@ front a web interface:
 The confirmation names which ports fall into the last two rows before you commit, so switching
 Pi-hole to tailnet-only moves its admin page and leaves the house's DNS answering.
 
+## Publishing an app to the internet
+
+Home network and Tailnet only both keep an app among your own devices. To let someone outside
+open it, say a friend picking up a file from Pingvin Share, BoxPilot can publish it through
+**Cloudflare Tunnel**: the tunnel connects out from this server to Cloudflare, Cloudflare serves the
+app over HTTPS at a name on your own domain, and no port is opened on your router. Your domain has
+to be on Cloudflare (its free plan is enough).
+
+Everything happens on the **Tunnel** tab of the Cloudflare Tunnel app, in the App catalog. Only the
+owner sees it.
+
+1. **Make an API token.** On Cloudflare's [API tokens page](https://dash.cloudflare.com/profile/api-tokens),
+   choose Create Token, then Create Custom Token, and give it these three permissions, for your
+   account and the domain you want to use:
+   - Account · Cloudflare Tunnel · Edit
+   - Zone · DNS · Edit
+   - Zone · Zone · Read
+2. **Connect.** Paste the token and choose **Connect Cloudflare** (high risk: your password). BoxPilot
+   checks the token, makes a tunnel called `boxpilot-<this server's name>` in your account (or uses
+   the one it made before), and installs the Cloudflare Tunnel app with that tunnel's key. If the
+   app was already installed with a token of your own, it now runs BoxPilot's tunnel instead.
+   Nothing is published yet.
+3. **Publish an app.** Choose the app (and its port, if it has more than one), one of your domains,
+   and a name such as `share`; the form shows the address it will have, `https://share.<your
+   domain>`. Tick "This port speaks HTTPS" only for an app that serves HTTPS itself. **Publish** is
+   high risk and asks you to type the full name. Cloudflare adds the name to your domain and sends
+   visitors through the tunnel to the app's port on this server.
+4. **Check it.** The app is listed under Published apps with its link. **Check with Cloudflare**
+   says whether the tunnel is healthy and how many connectors hold it up, and marks a name that was
+   removed in the Cloudflare dashboard.
+
+Things to know:
+
+- **Anyone with the address can open a published app.** There is no extra login in front of it yet,
+  so the app's own sign-in is the only lock: publish only apps that have one, and turn it on.
+  Cloudflare Access (a login in front) is the next step.
+- **Pingvin Share** needs two settings so the links it hands out use the new address: set **Behind a
+  reverse proxy** to Yes in its Settings in BoxPilot, and its **App URL** to the new address in
+  Pingvin Share's own configuration, as its administrator.
+- **BoxPilot never replaces a name that already points somewhere else.** If `share.<your domain>`
+  already has a DNS record, Publish refuses; choose another name or remove that record yourself.
+  Routes and names you add in the Cloudflare dashboard are left alone, and **Unpublish** removes only
+  what BoxPilot made.
+- **An app on this server only can be published too.** The Cloudflare Tunnel app shares the
+  server's own network, so it reaches every app at `127.0.0.1`, whether the app is on the home
+  network or Tailnet only. A port that listens only on the tailnet address cannot be reached; switch
+  the app's Reach first.
+- **Disconnect** forgets the API token and nothing else: the tunnel and the published apps keep
+  working. Unpublish first if you want an app off the internet; connect again to change anything.
+- The token and the tunnel's key are kept in BoxPilot's root-only credential store and never shown
+  again; what BoxPilot published is recorded in `/var/lib/boxpilot-managed/cloudflare-tunnel.json`.
+
 ## Wake-on-LAN
 
 Each device in the neighbour list has a **Wake** button, which sends a magic packet. The device
@@ -67,9 +119,129 @@ not change your router. That step is yours, and it is the one to undo first if t
 misbehaves.
 
 Before you switch, the page can record an assessment of the current resolver path so you have a
-written note of what it looked like beforehand. Keep a second resolver configured on the router
-where possible: if this server is the only DNS on the network, it is a single point of failure for
-every device in the house.
+written note of what it looked like beforehand. Do not hand this server out as the only DNS server:
+if it is, it is a single point of failure for every device in the house. The next section is how.
+
+## When this server is off
+
+If Pi-hole on this server is the only DNS server your devices know, then while this server is off
+(a power cut, a reboot, a crash) no device in the house can look a name up, and the whole internet
+looks down. The shape that avoids it (ADR-008): **the router is the one DNS server devices are
+given, it asks this server first, and it asks a public resolver only when this server does not
+answer.** Blocking and app names keep working while the server is up; names keep resolving while
+it is down.
+
+Network, Names & DNS, **If this server is off** checks it, read-only:
+
+| It reads | From |
+| --- | --- |
+| What the router hands out | this server's own DHCP lease (`networkctl`, networkd's lease file, NetworkManager, dhclient), since the router gives every device the same DNS options |
+| The same, on a server with a hand-set address | who asks Pi-hole, from its own query database (read-only, no admin password): three or more devices asking it directly means the router hands this server out; only the router asking means the router passes lookups on. Counts only; no device's address or domain is kept or shown |
+| Whether each of those answers without this server | a lookup sent straight to each one, as a device sends it when this server is off |
+| Whether the router passes lookups here | a made-up name asked of the router, looked for in Pi-hole's query log |
+| Whether the router falls back | the last rehearsal (below) |
+
+It says "If this server goes down, every device on your network loses the internet" (on Network, and
+on Home through Repair) only when the lease names nothing but this server, devices ask Pi-hole
+directly on a server with no lease, a second server does not answer, or a rehearsal showed the
+router answering nothing. A router nobody has rehearsed is "not known yet". When neither the lease
+nor Pi-hole's log can tell (no Pi-hole of BoxPilot's, its log unreadable, too few askers), the answer
+is "not known": look on a device instead (Windows: `ipconfig /all`; iPhone: Settings, Wi-Fi, the (i)).
+
+**Rehearse** (medium risk) proves the fallback: it stops the DNS app for about half a minute, asks the
+router three names it cannot have cached, starts the app again and waits until it answers. A
+transient systemd timer starts the app within three minutes if the job is cut off. With a fallback
+nothing on the network notices more than a slower lookup; without one, nothing resolves for up to a
+minute. The verdict stands for ninety days.
+
+### The router's steps
+
+BoxPilot does not sign in to the router for this. **Router steps…** on the panel shows these with
+your addresses filled in; below, `<server>` is this server's LAN address and `<router>` the router's.
+
+**GL.iNet (firmware 4.x)**, in the admin page at `<router>`:
+
+1. If BoxPilot's app names end in `.lan`, switch them to `.home.arpa` first (Local names on the same
+   tab): the router answers `.lan` itself and never passes it on.
+2. **NETWORK, LAN, DHCP Server, Advanced**: empty *DNS Server 1* and *DNS Server 2*, Apply. Devices
+   are then given the router.
+3. **NETWORK, DNS**: mode *Manual DNS*, *DNS Server 1* `<server>`, *DNS Server 2* `9.9.9.9`.
+4. On the same page: *Override DNS Settings for All Clients* off (it would send this server's own
+   lookups back to itself); *DNS Rebinding Attack Protection* off if you use app names.
+5. GL.iNet does not promise an order between its two servers, so make this server first:
+   `ssh root@<router>`, then
+   ```sh
+   uci set dhcp.@dnsmasq[0].strictorder='1'
+   uci commit dhcp && /etc/init.d/dnsmasq restart
+   ```
+6. Reconnect a device (or wait for its lease), run `sudo networkctl renew <interface>` on this
+   server, press **Check again**: blocking should still work through the router (if not, swap the two
+   servers in step 3). Then **Rehearse**.
+
+Using the router's AdGuard Home instead: leave *Handle Client Requests* off, and in AdGuard Home's
+DNS settings put only `<server>` under *Upstream DNS servers* and `9.9.9.9` under *Fallback DNS
+servers*.
+
+**OpenWrt (LuCI, 21.02 and later)**:
+
+1. **Network, Interfaces, LAN, Edit, DHCP Server, Advanced Settings**: remove any *DHCP-Options* entry
+   starting `6,`.
+2. **Network, DHCP and DNS**: *DNS Forwards* (Forwards tab; *DNS forwardings* on General Settings in
+   21.02) lists `<server>` then `9.9.9.9`.
+3. Tick *Strict order* and *Ignore resolv file* (Resolv & Hosts Files tab; Advanced Settings in
+   21.02). If you use app names, add `home.arpa` to the rebind protection's *Domain whitelist*.
+4. Save & Apply, reconnect a device, **Check again**, **Rehearse**. Over SSH instead:
+   ```sh
+   uci del_list dhcp.lan.dhcp_option='6,<server>'
+   uci add_list dhcp.@dnsmasq[0].server='<server>'
+   uci add_list dhcp.@dnsmasq[0].server='9.9.9.9'
+   uci set dhcp.@dnsmasq[0].noresolv='1'
+   uci set dhcp.@dnsmasq[0].strictorder='1'
+   uci add_list dhcp.@dnsmasq[0].rebind_domain='/home.arpa/'
+   uci commit dhcp && /etc/init.d/dnsmasq restart
+   ```
+   dnsmasq 2.88 or later switches faster with `fast-dns-retry` in `/etc/dnsmasq.conf`.
+
+**Any other router**: if it lets you set its own (WAN) DNS and hands itself out to devices, set
+`<server>` first and a public resolver second, then check that blocking still works (routers that ask
+both at once let ads through). Otherwise hand out two DNS servers in its DHCP settings: this server
+and a second one. Best is a second blocker that is always on; a public resolver keeps names working
+but devices use it some of the time and skip the blocking, and the check says so.
+
+### After a power cut
+
+A few minutes after a boot that followed an unclean end (the power-loss check says which), BoxPilot
+asks the DNS app on the LAN address and resolves a name through the system's resolver, as updates
+and image pulls do. Both lines go on the outage's record and on this panel.
+
+## Hearing that this server is down
+
+Nothing on a server that is off can say so, and ntfy on the same server goes down with it. Settings,
+Notifications, **Heartbeat** (off until you turn it on, owner only) has this server send a bare
+request every few minutes to a dead man's switch you choose; the switch alerts your phone when the
+requests stop.
+
+- **healthchecks.io** (free plan): make a check, set its *Period* to the heartbeat's interval and its
+  *Grace Time* to at least as long again, add your phone as an integration (ntfy, Pushover, Telegram
+  and more), and paste the check's ping URL (`https://hc-ping.com/<uuid>`) into Settings.
+- **Healthchecks** or **Uptime Kuma** on another machine (not this one: it would go down with it). In
+  Uptime Kuma make a *Push* monitor with a heartbeat interval a little longer than the heartbeat's,
+  and paste its push URL (`http://<host>:3001/api/push/<token>?status=up&msg=OK&ping=`).
+
+What is sent: one `GET` to that address, no body, no header of BoxPilot's, no hostname or status; the
+switch sees the time and the address it came from. One try each tick, ten seconds at most, never
+retried in a loop. The address is kept in the root-only credential store and never shown again, only
+its host. It runs from `boxpilot-heartbeat.timer`, so a BoxPilot restart or upgrade does not trip
+your alarm. **Send a test ping** sends one at once, through the same unit.
+
+Tailscale cannot do this: its webhooks have no "device offline" event. Its admin console does show
+when this server was last seen, and Network, Tailnet shows the same for your other devices.
+
+An alternative with no account at all is a cron line on an OpenWrt router (`/etc/crontabs/root`)
+that pings this server's address with the router's own `ping` and, when it gets no answer, posts
+to an ntfy.sh topic you keep secret (`wget -q -O /dev/null --post-data "<server> is not answering"
+https://ntfy.sh/<topic>`). BoxPilot does not install or check it, and without a state file it
+alerts every time it runs while the server is down.
 
 ## Firewall interaction
 

@@ -10,7 +10,7 @@ sudo sh /opt/boxpilot/scripts/boxpilot-doctor.sh --json
 sudo sh /opt/boxpilot/scripts/boxpilot-doctor.sh --control-plane --database
 ```
 
-The command-line version also probes the loopback health endpoint and the helper's resource inspector, and compares both reported versions with the installed release. It does not require Express to start in order to collect file, service and capacity evidence. Each network request has a deadline and response-size bound. An older helper without the resource-inspection operation reports unavailable version evidence.
+The command-line version also probes the web health endpoint (on the port and address `/etc/boxpilot/boxpilot.env` gives the service; reading that file takes sudo, and without it the doctor assumes 8787 on loopback) and the helper's resource inspector, and compares both reported versions with the installed release. It does not require Express to start in order to collect file, service and capacity evidence. Each network request has a deadline and response-size bound. An older helper without the resource-inspection operation reports unavailable version evidence.
 
 ## Optional database inspection
 

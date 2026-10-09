@@ -86,6 +86,13 @@
 .approve-more summary:hover { color: var(--text-strong); }
 .approve-more[open] summary { margin-bottom: 6px; }
 
+/* A result shown once (M38): the value on its own line, wrapping rather than scrolling at 375 px. */
+.approve-once { display: grid; gap: 8px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface-muted); }
+.approve-once__row { display: grid; gap: 6px; min-width: 0; }
+.approve-once__label { color: var(--text-muted); font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; }
+.approve-once__value { min-width: 0; color: var(--text-strong); font-size: 12.5px; overflow-wrap: anywhere; word-break: break-all; }
+.approve-once__actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
 .approve-form { gap: 12px; }
 .approve-note { margin: 0; color: var(--text-muted); font-size: 13px; line-height: 1.45; }
 .approve-form .ui-field__hint code { color: var(--text-strong); font-size: 12.5px; font-weight: 600; }
@@ -100,4 +107,14 @@
   .approve-dialog { width: 100%; max-height: 94vh; border-width: 1px 0 0; border-radius: 8px 8px 0 0; }
   .approve-title { font-size: 18px; }
   .approve-foot .ui-button { flex: 1 1 auto; }
+  /* On a phone it rises from the bottom edge (M25): the buttons stay above the home indicator. */
+  .approve-foot { padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px)); }
+}
+
+/* A finger, not a pointer (M25): Close, Cancel and Approve at least 44 px to tap, and the password
+   and typed confirmation fields as tall. */
+@media (pointer: coarse) {
+  .approve-close { width: 44px; height: 44px; }
+  .approve-foot .ui-button { min-height: 44px; }
+  .approve-form .ui-input { min-height: 44px; }
 }

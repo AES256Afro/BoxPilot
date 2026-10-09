@@ -154,6 +154,14 @@ function ruleAllows(rule, port, protocol) {
 }
 
 /**
+ * A rule that lets in only one address or range (ufw's `from`). firewall.rule.delete removes the
+ * rule from anywhere (`ufw delete allow 3306/tcp`), which is not this one: offered its removal, the
+ * owner got "does not exist any more" and the same advice on every visit. So the advice that
+ * removes rules leaves these alone; the owner who wrote one meant it.
+ */
+const fromOneSource = (rule) => typeof rule.source === "string" && rule.source.length > 0;
+
+/**
  * Suggestions for the Firewall page. Every entry has a stable id, a level, copy, and where
  * possible a one-click action (`operationId` + `parameters`) or a `focus` hint for the UI.
  *
@@ -204,10 +212,11 @@ export function adviseFirewall({ report, listeners = [], apps = [], current = nu
   }
 
   for (const entry of riskyPorts) {
-    const open = rules.some((rule) => ruleAllows(rule, entry.port, entry.protocol));
+    const fromAnywhere = (rule) => ruleAllows(rule, entry.port, entry.protocol) && !fromOneSource(rule);
+    const open = rules.some(fromAnywhere);
     const listening = exposed.some((listener) => listener.port === entry.port && listener.protocol === entry.protocol);
     if (open && !isProtected(entry, protectedList)) {
-      const rule = rules.find((candidate) => ruleAllows(candidate, entry.port, entry.protocol));
+      const rule = rules.find(fromAnywhere);
       advice.push({
         id: `risky-allow-${entry.port}-${entry.protocol}`, level: "warn", title: `${entry.label} is open to the whole LAN`,
         detail: `Port ${entry.port}/${entry.protocol} has an allow rule. Services like this should only be reached from this server or over Tailscale.`,
@@ -243,7 +252,7 @@ export function adviseFirewall({ report, listeners = [], apps = [], current = nu
   // said, so it read as a broken app rather than a rule left behind.
   for (const rule of rules) {
     if (!["allow", "limit"].includes(rule.action) || rule.direction === "out") continue;
-    if (!Number.isInteger(rule.port) || isProtected(rule, protectedList)) continue;
+    if (!Number.isInteger(rule.port) || isProtected(rule, protectedList) || fromOneSource(rule)) continue;
     if (listeners.some((entry) => entry.port === rule.port && (rule.protocol === "any" || entry.protocol === rule.protocol))) continue;
     if (apps.some((app) => (app.ports ?? []).some((port) => port.port === rule.port))) continue;
 

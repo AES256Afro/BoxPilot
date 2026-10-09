@@ -6,7 +6,8 @@ import { ConfigTab } from "./ConfigTab";
 import { LogsTab } from "./LogsTab";
 import { ModelsTab } from "./ModelsTab";
 import { ReachTab, reachOf } from "./ReachTab";
-import { appStatus, drillFailed, isPaused, isRunning, troubledSidecar } from "./appState";
+import { TunnelTab } from "./TunnelTab";
+import { appStatus, drillFailed, installTier, isPaused, isRunning, troubledSidecar } from "./appState";
 import type { CatalogContext, Entry } from "./types";
 
 /*
@@ -17,7 +18,7 @@ import type { CatalogContext, Entry } from "./types";
  * action closes the sheet and goes through the approval dialog at its tier, as before.
  */
 
-export type SheetTab = "overview" | "reach" | "backups" | "vpn" | "logs" | "config" | "models" | "signin" | "secrets";
+export type SheetTab = "overview" | "tunnel" | "reach" | "backups" | "vpn" | "logs" | "config" | "models" | "signin" | "secrets";
 
 export interface AppSheetProps {
   entry: Entry;
@@ -50,6 +51,8 @@ export function AppSheet({ entry, ctx, tab: firstTab = "overview", onTab, onClos
   const status = appStatus(live);
   const tabs: Array<TabItem<SheetTab>> = [
     { id: "overview", label: "Overview" },
+    // M42: publishing apps to the internet lives with the app that runs the tunnel, installed or not.
+    ...(manifest.id === "cloudflared" && owner ? [{ id: "tunnel" as const, label: "Tunnel" }] : []),
     ...(installed ? [{ id: "reach" as const, label: "Reach" }] : []),
     ...((installed || live?.dataPresent) && canRead ? [{ id: "backups" as const, label: "Backups", status: live?.backupVerification && !live.backupVerification.verified ? "danger" as const : undefined, statusLabel: live?.backupVerification && !live.backupVerification.verified ? "last rehearsal failed" : undefined }] : []),
     ...(installed && manifest.networkVia ? [{ id: "vpn" as const, label: "VPN", status: live?.killSwitchDrill?.leaked ? "danger" as const : undefined, statusLabel: live?.killSwitchDrill?.leaked ? "leaked" : undefined }] : []),
@@ -63,6 +66,7 @@ export function AppSheet({ entry, ctx, tab: firstTab = "overview", onTab, onClos
   const setTab = (next: SheetTab) => { setOpenTab(next); onTab?.(next); };
 
   const content = (current: SheetTab): ReactNode => {
+    if (current === "tunnel") return <TunnelTab entry={entry} ctx={ctx} />;
     if (current === "reach") return <ReachTab entry={entry} ctx={ctx} />;
     if (current === "backups") return <BackupsTab entry={entry} ctx={ctx} />;
     if (current === "vpn") return <VpnTab entry={entry} ctx={ctx} />;
@@ -159,7 +163,7 @@ function Overview({ entry, ctx, onTab }: { entry: Entry; ctx: CatalogContext; on
         {installed && live && live.urls.map((port, index) => (
           <a key={port.id} className={`ui-button ui-button--${index === 0 ? "primary" : "secondary"}`} href={ctx.openUrl(port, manifest)} target="_blank" rel="noreferrer"><span className="ui-button__label">Open {port.label}</span></a>
         ))}
-        {!installed && may("app.install") && <Button variant="primary" onClick={() => ctx.configure(entry, "install")}>Install</Button>}
+        {!installed && may("app.install") && <Button variant="primary" risk={installTier(manifest)} onClick={() => ctx.configure(entry, "install")}>Install</Button>}
         {installed && may("app.action") && (paused
           ? <>
             <Button risk={riskOf("app.action")} onClick={() => lifecycle("unpause", `Resume ${name}`, <span>Thaws {name} exactly where it left off.</span>)}>Resume</Button>
@@ -181,6 +185,26 @@ function Overview({ entry, ctx, onTab }: { entry: Entry; ctx: CatalogContext; on
           <Button risk={riskOf("app.backup")} onClick={() => act({ operationId: "app.backup", title: `Back up ${name}`, parameters: { id: manifest.id }, preview: <span>Stops {name} briefly, archives its data and configuration, restarts it, and keeps the newest 5 copies.{ownFolders ? <> Your own folders ({ownFolders}) are <strong>not</strong> included.</> : null}</span> })}>Back up</Button>
         )}
       </div>
+
+      {/* What the app's manifest offers to do inside it (M38: Zulip's "Create your organization"),
+          each a registered operation approved at its own tier. It runs inside the container, so
+          only while the app is running. */}
+      {installed && (manifest.actions ?? []).some((action) => may(action.operation)) && (
+        <Panel level={3} title={`In ${name}`} className="catalog-app-actions">
+          <ul className="catalog-rows">
+            {(manifest.actions ?? []).filter((action) => may(action.operation)).map((action) => (
+              <li key={action.id} className="catalog-row">
+                <span className="catalog-row__main">
+                  <strong>{action.label}</strong>
+                  {action.description && <span className="catalog-row__dim">{action.description}</span>}
+                </span>
+                <Button risk={riskOf(action.operation)} disabled={!running} onClick={() => act({ operationId: action.operation, title: `${action.label} (${name})`, parameters: { id: manifest.id }, preview: <span>{action.description ?? action.label}</span> })}>{action.label}</Button>
+              </li>
+            ))}
+          </ul>
+          {!running && <p className="catalog-note">{name} is not running; start it first.</p>}
+        </Panel>
+      )}
 
       <KeyValue layout="rows" className="catalog-facts" items={facts} />
 

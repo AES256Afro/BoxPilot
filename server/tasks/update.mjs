@@ -22,6 +22,16 @@ export const upgradeLockPath = process.env.BOXPILOT_UPGRADE_LOCK ?? "/run/boxpil
  * it is held. Null when none is. Anything else (no flock) says nothing either way and is left to the
  * script, which takes the same lock before it changes anything.
  */
+/**
+ * The web service's health check as this machine reaches it: the port its env file gives it, on
+ * loopback unless it listens on one other address. The upgrade's check (and the doctor's) used to
+ * be 127.0.0.1:8787 whatever the port.
+ */
+export function localHealthUrl({ webHost, webPort }) {
+  const host = ["", "0.0.0.0", "::"].includes(webHost ?? "") ? "127.0.0.1" : webHost.includes(":") ? `[${webHost}]` : webHost;
+  return `http://${host}:${webPort}/api/v1/health`;
+}
+
 export async function runningUpgrade({ run = fixedRun, lockPath = upgradeLockPath, read = readFile } = {}) {
   const probe = await run("/usr/bin/flock", ["-n", lockPath, "/bin/true"], { timeout: 10_000 });
   if (probe.ok || probe.code !== 1) return null;
@@ -65,6 +75,12 @@ export async function systemUpdate({ tag, expectedCommit } = {}, {
   await chmod(scriptCopy, 0o700);
 
   const unit = `boxpilot-update-${stamp}`;
+  // Where the new version must answer is the script's to work out: it reads the service's env file
+  // as systemd does. The copy above is always the installed tree's own script, and every script that
+  // shipped beside this task reads that file (it came in the same change that first handed the
+  // script a BOXPILOT_HEALTH_URL from here). Handing one over as well only overrode its reading
+  // with a second one that could disagree, and an update checked on the wrong port rolls back after
+  // the new version has already started on the database.
   // The script downloads by the reviewed commit, not the tag, so a moved tag cannot swap the code in.
   log?.(`$ systemd-run --unit ${unit} /bin/sh ${scriptCopy} ${expectedCommit}`, "stdout");
   const started = await run("/usr/bin/systemd-run", ["--quiet", "--unit", unit, "--description", `BoxPilot update to ${tag}`, `--setenv=BOXPILOT_NODE_BIN=${nodeBinary}`, `--setenv=BOXPILOT_UPDATE_UNIT=${unit}`, "/bin/sh", scriptCopy, expectedCommit], { timeout: 30_000 });

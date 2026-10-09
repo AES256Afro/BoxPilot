@@ -9,9 +9,16 @@ const approvalPath = "/run/boxpilot/docker-approval.json";
 const versionPattern = /^[0-9A-Za-z.+:~_-]{1,64}$/;
 const fixedEnvironment = { PATH: "/usr/sbin:/usr/bin:/sbin:/bin", LANG: "C.UTF-8", LC_ALL: "C.UTF-8", DEBIAN_FRONTEND: "noninteractive" };
 
-async function fixedRun(binary, args, { timeout = 30000 } = {}) {
+/**
+ * needrestart's hook is suspended for the install (NEEDRESTART_SUSPEND, its documented off switch),
+ * as server/tasks/apt.mjs does for every package change: Ubuntu server runs it in automatic mode, and a
+ * dependency that moves libc or openssl had it restart BoxPilot and its helper mid-install.
+ */
+const aptEnvironment = { NEEDRESTART_SUSPEND: "1" };
+
+async function fixedRun(binary, args, { timeout = 30000, env = {} } = {}) {
   try {
-    const result = await execFile(binary, args, { timeout, maxBuffer: 256 * 1024, encoding: "utf8", env: fixedEnvironment });
+    const result = await execFile(binary, args, { timeout, maxBuffer: 256 * 1024, encoding: "utf8", env: { ...fixedEnvironment, ...env } });
     return { ok: true, stdout: result.stdout.trim() };
   } catch (error) {
     return { ok: false, stdout: typeof error.stdout === "string" ? error.stdout.trim() : "" };
@@ -61,7 +68,7 @@ export async function installApprovedDocker({
   const policy = await run("/usr/bin/apt-cache", ["policy", "docker.io"], { timeout: 10000 });
   const candidate = policy.ok ? candidateVersion(policy.stdout) : null;
   if (!candidate || candidate !== approval.expectedVersion) throw new Error("APT metadata changed after approval; no package was installed");
-  const installation = await run("/usr/bin/apt-get", ["install", "--yes", "--no-install-recommends", `docker.io=${approval.expectedVersion}`], { timeout: 14 * 60 * 1000 });
+  const installation = await run("/usr/bin/apt-get", ["install", "--yes", "--no-install-recommends", `docker.io=${approval.expectedVersion}`], { timeout: 14 * 60 * 1000, env: aptEnvironment });
   if (!installation.ok) throw new Error("The exact approved docker.io installation failed");
   const packageAfter = await run("/usr/bin/dpkg-query", ["--show", "--showformat=${Status}\\t${Version}", "docker.io"], { timeout: 10000 });
   if (!packageAfter.ok || installedVersion(packageAfter.stdout) !== approval.expectedVersion) throw new Error("The installed docker.io version does not match approval");

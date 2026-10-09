@@ -8,6 +8,7 @@
  */
 import { defineOperation } from "./registry.mjs";
 import { categoryIds, databaseCopyLimits, databaseCopyPattern } from "../housekeeping.mjs";
+import { snapshotNamePattern } from "../machine-snapshot-helper.mjs";
 
 /** A whole number within the rule's limits, for the keep and keepDays parameters. */
 const within = (name) => (value) => {
@@ -47,6 +48,15 @@ export function housekeepingOperations() {
       description: "Deletes exactly the database copies listed, each only if the same rule still lets it go when the job runs. The newest copies, recent ones and the live database are never touched.",
       parameters: { fields: { ...rule, names: { type: "array", validate: (value) => (value.length >= 1 && value.length <= 500 && value.every((name) => typeof name === "string" && databaseCopyPattern.test(name)) ? null : "must list 1 to 500 copies named boxpilot-rollback-*.sqlite3") } } },
       run: (parameters, { housekeeping, progress }) => housekeeping.removeDatabaseCopies({ keep: parameters.keep, keepDays: parameters.keepDays, names: parameters.names, progress }),
+    }),
+    defineOperation({
+      // Owner only, like the database copies: a machine snapshot holds the database and every app's
+      // secrets, and deleting one is the owner's call. One that cannot be read stops every app's
+      // older backups from being pruned (R4B3-5), and nothing else removes it.
+      id: "housekeeping.unreadable-snapshot.remove", title: "Remove an unreadable machine snapshot", risk: "medium", minimumRole: "owner", timeoutMs: 5 * 60_000,
+      description: "Deletes one machine snapshot BoxPilot cannot open, and its description beside it, only if it still cannot be read when the job runs. Nothing else in the snapshot folder is touched, and a link is never followed.",
+      parameters: { fields: { name: { type: "string", maxLength: 80, pattern: snapshotNamePattern } } },
+      run: (parameters, { housekeeping, progress }) => housekeeping.removeUnreadableSnapshot({ name: parameters.name, progress }),
     }),
   ];
 }

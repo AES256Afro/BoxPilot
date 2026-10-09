@@ -94,6 +94,16 @@ export function bindingFor(port, appExposure, { lanAddress, tailnetAddress }) {
 }
 
 /**
+ * Whether these settings name the server's tailnet machine name (${TAILNET_HOST}) anywhere it is
+ * filled in: an env value (the manifest's default or the owner's own) or a shipped file. Such an
+ * app cannot be deployed without one, since it would be told an address nobody can open.
+ */
+export function usesTailnetHost(manifest, values) {
+  const mentions = (value) => /\$\{TAILNET_HOST\}/.test(String(value ?? ""));
+  return Object.values(values?.env ?? {}).some(mentions) || (manifest.files ?? []).some((file) => mentions(file.content));
+}
+
+/**
  * `no-new-privileges` for everything, except where it makes the app impossible to run.
  *
  * An image that binds a privileged port as a non-root user does it with a file capability, which is
@@ -114,7 +124,7 @@ export function securityOptFor(manifest, hostNetwork) {
   return needsPrivilegedBind ? [] : ["no-new-privileges:true"];
 }
 
-export function renderCompose(manifest, values, { existingEnv = {}, lanAddress = "0.0.0.0", tailnetAddress = null, devices = manifest.devices, sidecarEnvOverrides = {}, gpu = false } = {}) {
+export function renderCompose(manifest, values, { existingEnv = {}, lanAddress = "0.0.0.0", tailnetAddress = null, tailnetHost = null, devices = manifest.devices, sidecarEnvOverrides = {}, gpu = false } = {}) {
   const env = { ...values.env };
   for (const entry of manifest.env) {
     // A secret the request does not re-enter keeps its stored value. Secrets never live in the
@@ -151,8 +161,13 @@ export function renderCompose(manifest, values, { existingEnv = {}, lanAddress =
   // inbound firewall) can follow the owner's choice instead of hardcoding the default.
   // (A cross-project reference like Grafana->Prometheus uses host.docker.internal:host-gateway,
   // not this server's LAN address, which the helper cannot resolve behind its PrivateNetwork.)
-  const serverVariables = Object.fromEntries(hostPorts.map((port) => [`PORT_${port.id.toUpperCase().replace(/-/g, "_")}`, String(port.host)]));
-  const withPortVariables = (value) => String(value).replace(/\$\{(PORT_[A-Z0-9_]+)\}/g, (match, name) => serverVariables[name] ?? match);
+  // ${TAILNET_HOST} is this server's tailnet machine name, for an app that must know the HTTPS
+  // address Tailscale Serve publishes it at; the deployer refuses to deploy one without it.
+  const serverVariables = {
+    ...Object.fromEntries(hostPorts.map((port) => [`PORT_${port.id.toUpperCase().replace(/-/g, "_")}`, String(port.host)])),
+    ...(tailnetHost ? { TAILNET_HOST: tailnetHost } : {}),
+  };
+  const withPortVariables = (value) => String(value).replace(/\$\{(PORT_[A-Z0-9_]+|TAILNET_HOST)\}/g, (match, name) => serverVariables[name] ?? match);
   // With networkVia the app lives inside the sidecar's network namespace (a VPN container), so
   // the ports are published on the sidecar and the app has no network of its own.
   if (manifest.networkVia) service.network_mode = `service:${manifest.networkVia}`;
@@ -169,10 +184,14 @@ export function renderCompose(manifest, values, { existingEnv = {}, lanAddress =
   const files = (manifest.files ?? []).map((file) => ({ path: file.path, content: fileSubstitute(file.content) }));
   for (const file of manifest.files ?? []) volumeMounts.push(`${composeLiteral(`./${file.path}`)}:${file.container}${file.readOnly === false ? "" : ":ro"}`);
   if (volumeMounts.length) service.volumes = volumeMounts;
+  // A fixed setting is the manifest's own text, never the owner's (resolveValues always takes the
+  // default), and its ${NAME} is meant: six apps build their database URL around ${..._DB_PASSWORD}
+  // for Compose to fill in from .env. Escaped with the owner's values, each app was handed those
+  // words as its password and could not log in to its own database.
   const environment = {};
   for (const entry of manifest.env) {
     if (!(entry.name in env)) continue;
-    environment[entry.name] = entry.secret ? `\${${entry.name}}` : composeLiteral(withPortVariables(env[entry.name]));
+    environment[entry.name] = entry.secret ? `\${${entry.name}}` : entry.fixed ? withPortVariables(env[entry.name]) : composeLiteral(withPortVariables(env[entry.name]));
   }
   if (Object.keys(environment).length) service.environment = environment;
   if (manifest.capabilities.length) { service.cap_drop = ["ALL"]; service.cap_add = [...manifest.capabilities]; }
@@ -196,7 +215,8 @@ export function renderCompose(manifest, values, { existingEnv = {}, lanAddress =
     // Sidecar env may reference the app's settings as ${NAME}: secrets stay references (resolved
     // from .env at compose time); plain settings are substituted here since they never reach .env.
     const secretNames = new Set(manifest.env.filter((entry) => entry.secret).map((entry) => entry.name));
-    const substitute = (value) => String(value).replace(/\$\{([A-Z][A-Za-z0-9_]*)\}/g, (match, name) => (secretNames.has(name) ? match : name in serverVariables ? serverVariables[name] : name in env ? composeLiteral(withPortVariables(env[name])) : ""));
+    const fixedNames = new Set(manifest.env.filter((entry) => entry.fixed).map((entry) => entry.name));
+    const substitute = (value) => String(value).replace(/\$\{([A-Z][A-Za-z0-9_]*)\}/g, (match, name) => (secretNames.has(name) ? match : name in serverVariables ? serverVariables[name] : name in env ? (fixedNames.has(name) ? withPortVariables(env[name]) : composeLiteral(withPortVariables(env[name]))) : ""));
     if (Object.keys(sidecar.env ?? {}).length) sidecarService.environment = Object.fromEntries(Object.entries(sidecar.env).map(([name, value]) => [name, substitute(value)]));
     // A caller (the app helper, for an app routed through the shared VPN profile) can add or override
     // this sidecar's env with already-resolved plain values: the profile's security options land on
@@ -293,4 +313,41 @@ export function publishedPorts(composeText) {
     }
   }
   return published;
+}
+
+/**
+ * The port numbers an app's own settings say it can start without: CivetWeb's `80o`, which
+ * Pi-hole's webserver reads (FTLCONF_webserver_port). Pi-hole on the host's network finds port 80
+ * taken, starts without its admin page, and answers DNS as before.
+ */
+export function optionalPortsIn(envValues) {
+  const optional = new Set();
+  for (const value of envValues ?? []) {
+    for (const token of String(value ?? "").split(",")) {
+      const match = /^(\d{1,5})o$/.exec(token.trim());
+      if (match) optional.add(Number(match[1]));
+    }
+  }
+  return optional;
+}
+
+/**
+ * The ports an app on the host's own network binds itself, which `publishedPorts` cannot see: such
+ * an app publishes nothing, and Docker binds nothing for it, so a port something else holds was
+ * found only when the app crash-looped on it (or, for Pi-hole's optional admin port, not at all).
+ * Each manifest port at its container port, on every address (`bind` ""), the way these apps bind;
+ * `optional` marks one its environment says it can start without (optionalPortsIn). Empty when the
+ * app's service in this compose file is not on the host network.
+ */
+export function hostNetworkPorts(manifest, composeText) {
+  let parsed = null;
+  try { parsed = YAML.parse(String(composeText ?? "")); } catch { return []; }
+  const service = parsed?.services?.[manifest.id];
+  if (!service || typeof service !== "object" || service.network_mode !== "host") return [];
+  const environment = service.environment;
+  const values = Array.isArray(environment)
+    ? environment.map((line) => String(line).split("=").slice(1).join("="))
+    : Object.values(environment && typeof environment === "object" ? environment : {});
+  const optional = optionalPortsIn(values);
+  return (manifest.ports ?? []).map((port) => ({ service: manifest.id, id: port.id, label: port.label ?? port.id, host: port.container, protocol: port.protocol === "udp" ? "udp" : "tcp", bind: "", optional: optional.has(port.container) }));
 }

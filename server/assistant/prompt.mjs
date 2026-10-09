@@ -5,6 +5,7 @@
  * cite by those ids; afterwards each id it used is checked against the set it was given, and every
  * sentence that states something without one is listed, so a wrong answer can be caught.
  */
+import { redactText } from "../../packages/harness/src/index.mjs";
 import { createRedactor } from "../redaction.mjs";
 
 export const systemPrompt = `You are BoxPilot's assistant. You run on a local model on this server and help the people who look after it understand BoxPilot and fix problems on this Ubuntu home server.
@@ -37,19 +38,13 @@ const kindLabels = { doc: "Document", operation: "Operation", app: "Catalog app"
 /**
  * The final redaction pass: every piece of text that reaches the model goes through the same
  * redactor the support bundle uses, after secretPaths masking has already been applied upstream.
- * The redactor works on at most 4 KiB at a time, so longer text is fed to it line-aligned.
+ * The redactor works on at most 4 KiB at a time, so longer text is fed to it line-aligned. Private
+ * keys go first, from the whole text: a key the pieces would split has its BEGIN in one and its END
+ * in the next, and the redactor sees each piece alone (sweep 3). So does every other secret that
+ * spans lines - a key's body without its BEGIN and END, a PuTTY key, a YAML block (sweep 4). The
+ * pass is the harness's `redactText` (M45.8).
  */
-export function finalRedaction(text, redactor) {
-  const value = String(text ?? "");
-  const out = [];
-  let segment = "";
-  for (const line of value.split("\n")) {
-    if (segment && segment.length + line.length + 1 > 3500) { out.push(redactor.redact(segment)); segment = ""; }
-    segment = segment ? `${segment}\n${line}` : line.slice(0, 3500);
-  }
-  if (segment || !out.length) out.push(redactor.redact(segment));
-  return out.join("\n");
-}
+export const finalRedaction = (text, redactor) => redactText(text, redactor);
 
 /**
  * The messages for the model, and the sources as they were given. Sources go in the order given

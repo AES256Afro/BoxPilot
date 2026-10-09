@@ -41,13 +41,13 @@ export default function AppsTab({ csrfToken, role, protection, protectionError, 
     {
       id: "keeps", header: "Keeps happening", sortValue: (verdict) => Number(verdict.scheduled), cell: (verdict) => (verdict.scheduled
         ? <span className="backups-mono">nightly</span>
-        : canBackUp ? <Button variant="ghost" disabled={scheduling?.busy} aria-label={`Back up ${verdict.name} nightly`} onClick={() => onSchedule([verdict])}>Schedule it</Button> : <span className="backups-dim">not scheduled</span>),
+        : canBackUp ? <Button variant="ghost" disabled={scheduling?.busy} aria-label={`Schedule it: back up ${verdict.name} nightly`} onClick={() => onSchedule([verdict])}>Schedule it</Button> : <span className="backups-dim">not scheduled</span>),
     },
     {
       id: "actions", header: <span className="ui-visually-hidden">Back up now</span>, label: "Back up now", className: "backups-actions-cell", cell: (verdict) => (
         <span className="backups-actions">
           {canBackUp && (
-            <Button risk={riskOf("app.backup")} variant={verdict.state === "ok" ? "ghost" : "secondary"} aria-label={`Back up ${verdict.name} now`}
+            <Button risk={riskOf("app.backup")} variant={verdict.state === "ok" ? "ghost" : "secondary"} aria-label={`Back up now: ${verdict.name}`}
               onClick={() => start({ operationId: "app.backup", title: `Back up ${verdict.name}`, parameters: { id: verdict.id }, preview: <span>Stops {verdict.name} briefly, archives its data and configuration, restarts it, and keeps the newest 5 copies.</span> })}>Back up now</Button>
           )}
         </span>

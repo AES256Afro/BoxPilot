@@ -143,6 +143,64 @@ describe("an interrupted job whose operation is safe to repeat (M30.2)", () => {
   });
 });
 
+describe("a job BoxPilot restarted before it began (sweep 4)", () => {
+  // After a libc upgrade both units restart and systemd stops the web side first. Jobs still queued
+  // in the helper were marked "BoxPilot restarted while this job was running... may still have
+  // finished", though the helper never starts a queued request once it is stopping: no rerun, an
+  // interrupted alert each, and the automations they were steps of interrupted.
+  async function queuedWhenRestarted(store, jobs, operationId, parameters, ownerId, { started = false } = {}) {
+    const job = await interrupt(store, jobs, operationId, parameters, ownerId);
+    store.addJobStep(job.id, "queue", "waiting", "Waiting for earlier work on the server to finish; its time limit starts when it begins");
+    if (started) store.addJobStep(job.id, "queue", "completed", "Started once the earlier work had finished");
+    return job;
+  }
+
+  it("is said never to have started, and runs once now, whatever its operation", async () => {
+    const { store, owner, jobs, helper } = await setup();
+    try {
+      const waited = await queuedWhenRestarted(store, jobs, "app.backup", { id: "jellyfin" }, owner.id);
+      const began = await queuedWhenRestarted(store, jobs, "app.update", { id: "immich" }, owner.id, { started: true });
+      const interrupted = store.recoverInterruptedJobs();
+      expect(interrupted.find((entry) => entry.id === waited.id)).toMatchObject({ neverStarted: true });
+      expect(interrupted.find((entry) => entry.id === began.id).neverStarted).toBeFalsy();
+      expect(store.getJob(waited.id)).toMatchObject({ state: "failed", error: expect.stringMatching(/^BoxPilot restarted before this job began.*nothing was changed/) });
+      expect(store.getJob(waited.id).steps.slice(-2)).toMatchObject([
+        { name: "apply", state: "failed", detail: "Never started: BoxPilot restarted while it waited for earlier work" },
+        { name: "recovery", state: "required", detail: "BoxPilot restarted before the operation began; nothing was changed" },
+      ]);
+      expect(store.getJob(began.id).error).toMatch(/may still have finished/);
+
+      const plan = planInterruptedReruns(interrupted, { store, jobs });
+      expect(plan.has(waited.id)).toBe(true);
+      expect(plan.has(began.id)).toBe(false);
+      const [rerun] = await plan.start();
+      expect(rerun).toMatchObject({ type: "op:app.backup", recovery: { rerunOf: waited.id } });
+      await finished(store, rerun.id);
+      expect(helper.request).toHaveBeenCalledWith("app.backup", { id: "jellyfin" }, expect.objectContaining({ jobId: rerun.id }));
+      expect(rerun.steps.find((step) => step.name === "rerun").detail).toBe(`Ran again after BoxPilot restarted. The first run, job ${waited.id}, never started.`);
+    } finally { store.close(); }
+  });
+
+  it("is not run on its own where a person has to say so again", () => {
+    const creator = { role: "owner" };
+    const job = (type) => ({ type, parameters: {}, recovery: {} });
+    expect(rerunRefusal(job("op:app.install"), { creator, neverStarted: true })).toBeNull();
+    expect(rerunRefusal(job("op:apt.purge"), { creator, neverStarted: true })).toBe("it is high risk, and approving it again takes the owner's password");
+    expect(rerunRefusal(job("op:storage.fs-snapshot.delete"), { creator, neverStarted: true })).toBe("it asks for a typed confirmation, which is given each time");
+    expect(rerunRefusal(job("op:apt.upgrade"), { creator, neverStarted: true })).toBe("it can restart BoxPilot, so a person starts it again");
+  });
+
+  it("is not run on its own when it restarts BoxPilot's own unit from Services (sweep 5)", () => {
+    // A queued Services restart of boxpilot.service, never started when a crash restarted BoxPilot,
+    // ran itself again at startup: a restart that restarts BoxPilot.
+    const creator = { role: "owner" };
+    const restart = (unit) => ({ type: "op:service.action", parameters: { unit, action: "restart" }, recovery: {} });
+    expect(rerunRefusal(restart("boxpilot.service"), { creator, neverStarted: true })).toBe("it can restart BoxPilot, so a person starts it again");
+    expect(rerunRefusal(restart("boxpilot-helper.service"), { creator, neverStarted: true })).toBe("it can restart BoxPilot, so a person starts it again");
+    expect(rerunRefusal(restart("jellyfin.service"), { creator, neverStarted: true })).toBeNull();
+  });
+});
+
 describe("what makes a job safe to run again", () => {
   const job = (overrides = {}) => ({ type: "op:homepage.sync", parameters: {}, recovery: {}, ...overrides });
   const creator = { role: "owner" };

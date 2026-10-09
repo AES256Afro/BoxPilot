@@ -37,6 +37,37 @@ describe("service operations", () => {
   });
 });
 
+describe("units that change the state of the whole machine", () => {
+  // Powering off or rebooting is system.reboot's, which is high risk; stopping sysinit.target, or
+  // starting shutdown.target, stops SSH, BoxPilot and Tailscale along with everything else, which is
+  // exactly what the protected-unit guard refuses to do one unit at a time. None of them is a
+  // medium-risk "control a service".
+  const cases = [
+    ["poweroff.target", "start"], ["reboot.target", "start"], ["halt.target", "start"], ["kexec.target", "start"],
+    ["shutdown.target", "start"], ["rescue.target", "start"], ["emergency.target", "start"], ["sysinit.target", "stop"],
+    ["multi-user.target", "stop"], ["basic.target", "restart"], ["graphical.target", "disable"],
+    ["systemd-poweroff.service", "start"], ["systemd-reboot.service", "start"], ["systemd-halt.service", "restart"],
+    ["systemd-kexec.service", "start"], ["systemd-soft-reboot.service", "start"], ["systemd-suspend.service", "start"],
+    ["systemd-hibernate.service", "start"],
+    // A root shell on the console with no password, now or at every boot, and loading a kernel module.
+    ["debug-shell.service", "start"], ["debug-shell.service", "enable"], ["emergency.service", "start"], ["rescue.service", "start"],
+    ["modprobe@dummy.service", "start"],
+  ];
+
+  it.each(cases)("refuses %s %s before staging, and never runs systemctl", async (unit, action) => {
+    expect(registry.validate("service.action", { unit, action })).toMatch(/whole machine|power/i);
+    const run = vi.fn(async () => ({ ok: true, stdout: "", stderr: "" }));
+    await expect(registry.execute("service.action", { unit, action }, { run })).rejects.toThrow();
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("still controls ordinary services and timers", () => {
+    expect(registry.validate("service.action", { unit: "docker.service", action: "restart" })).toBeNull();
+    expect(registry.validate("service.action", { unit: "fstrim.timer", action: "enable" })).toBeNull();
+    expect(registry.validate("service.action", { unit: "cron.service", action: "start" })).toBeNull();
+  });
+});
+
 describe("units with a high-risk equivalent", () => {
   it("refuses to stop or disable ufw and fail2ban from the Services page", async () => {
     const { registry } = await import("./index.mjs");
@@ -47,5 +78,24 @@ describe("units with a high-risk equivalent", () => {
     await expect(run("ssh.service", "stop")).rejects.toThrow("protected");
     // Restarting them is still fine — that is not a way around the firewall's own approval.
     await expect(run("ufw.service", "restart")).resolves.toBeTruthy();
+  });
+
+  it("leaves a drive or share under /mnt to Storage, whose operations prove the mount and stop its apps", async () => {
+    const { registry } = await import("./index.mjs");
+    const action = registry.get("service.action");
+    const calls = [];
+    const run = async (unit, act) => action.run({ unit, action: act }, { run: async (binary, args) => { calls.push(args.join(" ")); return { ok: true, stdout: "ActiveState=active\n", stderr: "" }; }, progress: () => {} });
+    for (const act of ["start", "stop", "restart"]) await expect(run("mnt-media.mount", act)).rejects.toThrow("Reconnect or unmount it from Storage or Repair");
+    await expect(run("mnt-boxpilot-backup.mount", "stop")).rejects.toThrow("drive or share under /mnt");
+    expect(calls).toEqual([]);
+    await expect(run("var-lib-docker.mount", "restart")).resolves.toMatchObject({ activeState: "active" });
+  });
+
+  it("fails a start that systemd reports failed, which systemctl start of a simple service does not", async () => {
+    const { registry } = await import("./index.mjs");
+    const action = registry.get("service.action");
+    const run = async (binary, args) => (args[0] === "show" ? { ok: true, stdout: "ActiveState=failed\nSubState=failed\nResult=exit-code\n", stderr: "" } : { ok: true, stdout: "", stderr: "" });
+    await expect(action.run({ unit: "gitea.service", action: "start" }, { run, progress: () => {} })).rejects.toThrow("gitea.service did not stay up after the start: systemd reports it failed (exit-code)");
+    await expect(action.run({ unit: "gitea.service", action: "stop" }, { run, progress: () => {} })).resolves.toMatchObject({ activeState: "failed" });
   });
 });

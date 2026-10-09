@@ -13,7 +13,8 @@
  *
  * Runs inside boxpilot-run@ (host network namespace); the helper cannot see iptables.
  */
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
+import { writeFileDurably as writeFile } from "../durable-file.mjs";
 import { fixedRun } from "../exec.mjs";
 
 export const afterRulesPath = "/etc/ufw/after.rules";

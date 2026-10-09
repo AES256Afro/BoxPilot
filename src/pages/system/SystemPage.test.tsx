@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PendingOperation } from "../../shell/ApproveDialog";
 import { DatabaseCopies, type DatabaseCopiesReport } from "./DatabaseCopies";
@@ -60,6 +60,14 @@ describe("System page", () => {
     expect(screen.getByRole("tab", { name: "Time & name" }).getAttribute("aria-selected")).toBe("true");
   });
 
+  it("says the look is in Settings, and opens Appearance from here", async () => {
+    serve();
+    const onOpenAppearance = vi.fn();
+    render(<SystemPage csrfToken="csrf-token" onOpenAppearance={onOpenAppearance} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Open Appearance" }));
+    expect(onOpenAppearance).toHaveBeenCalledTimes(1);
+  });
+
   it("stages a time zone change through the dialog, and keeps what was typed when the page reads again", async () => {
     const staged = serve();
     window.history.replaceState(null, "", "/?tab=time");
@@ -80,6 +88,48 @@ describe("System page", () => {
     expect(staged["system.timezone.set"]).toEqual({ parameters: { timezone: "Europe/Berlin" } });
   });
 
+  it("keeps a typed value through a read that changes nothing, and shows a new value in force once it changes", async () => {
+    let current = { ...settings };
+    serve({ "/operations/system.settings.inspect/inspect": () => json({ operation: "system.settings.inspect", result: current }) });
+    window.history.replaceState(null, "", "/?tab=hardware");
+    render(<SystemPage csrfToken="csrf-token" />);
+    const field = () => screen.getByLabelText("Swappiness") as HTMLInputElement;
+    await waitFor(() => expect(field().value).toBe("60"));
+    fireEvent.change(field(), { target: { value: "15" } });
+    const readAgain = async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Read again" }));
+      await waitFor(() => expect((screen.getByRole("button", { name: "Read again" }) as HTMLButtonElement).disabled).toBe(false));
+    };
+    await readAgain();
+    expect(field().value).toBe("15");
+    // Set to 10 elsewhere (another tab, the command line): the form starts over from what is in force,
+    // rather than keeping an old draft whose Apply would undo that change.
+    current = { ...settings, swappiness: 10 };
+    await readAgain();
+    await waitFor(() => expect(field().value).toBe("10"));
+  });
+
+  it("keeps a half-typed hostname through a time zone change, and shows a rename done elsewhere", async () => {
+    let current = { ...settings };
+    serve({ "/operations/system.settings.inspect/inspect": () => json({ operation: "system.settings.inspect", result: current }) });
+    window.history.replaceState(null, "", "/?tab=time");
+    render(<SystemPage csrfToken="csrf-token" />);
+    const name = () => screen.getByLabelText("Rename this server") as HTMLInputElement;
+    await waitFor(() => expect(name().value).toBe("shiny-box"));
+    fireEvent.change(name(), { target: { value: "new-na" } });
+    const readAgain = async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Read again" }));
+      await waitFor(() => expect((screen.getByRole("button", { name: "Read again" }) as HTMLButtonElement).disabled).toBe(false));
+    };
+    current = { ...settings, timezone: "Europe/Berlin" };
+    await readAgain();
+    await waitFor(() => expect((screen.getByLabelText("Set the time zone") as HTMLSelectElement).value).toBe("Europe/Berlin"));
+    expect(name().value).toBe("new-na");
+    current = { ...current, hostname: { static: "renamed-box", live: "renamed-box" } };
+    await readAgain();
+    await waitFor(() => expect(name().value).toBe("renamed-box"));
+  });
+
   it("offers the newer GitHub release and stages the high-risk update with only the tag, the tag typed out", async () => {
     const staged = serve({
       "/api/v1/system/update": () => json(release),
@@ -96,6 +146,51 @@ describe("System page", () => {
     expect(screen.getByLabelText("Typed confirmation")).toBeTruthy();
     expect(staged["system.update"]).toEqual({ parameters: { tag: "v0.62.0" } });
     expect(screen.getByText("Last update log, live")).toBeTruthy();
+  });
+
+  // "Updating to X" was never cleared when the update stopped or ran past ten minutes: the verdict
+  // said it was updating for good, and the Update button stayed hidden.
+  describe("an update that does not go live", () => {
+    afterEach(() => { vi.useRealTimers(); });
+    /** Approves the update and waits until the page follows it; `outcome` is what its log says. */
+    async function runUpdate(outcome: () => string) {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      serve({
+        "/api/v1/system/update": () => json(release),
+        "/api/v1/health": () => json({ status: "ok", version: "0.61.0" }),
+        "/operations/system.update.status/inspect": () => json({ operation: "system.update.status", result: { units: [], outcome: outcome(), log: outcome() === "failed" ? ["[boxpilot-upgrade] ERROR: the build failed. Nothing was changed."] : ["[boxpilot-upgrade] building"] } }),
+        "/jobs/job-system.update/approve": () => json({ job: { id: "job-system.update", state: "applying" }, elevatedUntil: null }, 202),
+        "/jobs/job-system.update/output": () => json({ jobId: "job-system.update", state: "completed", output: "", live: false }),
+        "/jobs/job-system.update": () => json({ job: { id: "job-system.update", type: "op:system.update", title: "Update", state: "completed", risk: "high", error: null, result: {}, steps: [], approvals: [] } }),
+      });
+      render(<SystemPage csrfToken="csrf-token" />);
+      fireEvent.click(await screen.findByRole("tab", { name: /Updates/ }));
+      fireEvent.click(await screen.findByRole("button", { name: /Update to v0.62.0/ }));
+      fireEvent.change(await screen.findByLabelText("Typed confirmation"), { target: { value: "v0.62.0" } });
+      fireEvent.change(screen.getByLabelText("Approval password"), { target: { value: "correct horse battery" } });
+      fireEvent.click(screen.getByRole("button", { name: "Approve and run" }));
+      fireEvent.click(await screen.findByRole("button", { name: "Close" }, { timeout: 4000 }));
+      await waitFor(() => expect(document.querySelector(".ui-page-header__verdict")?.textContent).toBe("Updating to 0.62.0"));
+      expect(screen.queryByRole("button", { name: /Update to v0.62.0/ })).toBeNull();
+    }
+
+    it("stops saying it is updating once the update's log says it stopped, and offers it again", async () => {
+      let outcome = "running";
+      await runUpdate(() => outcome);
+      outcome = "failed";
+      await act(async () => { vi.advanceTimersByTime(6500); });
+      await waitFor(() => expect(document.querySelector(".ui-page-header__verdict")?.textContent).toBe("Last update failed"));
+      expect(screen.getByText("The last update stopped")).toBeTruthy();
+      expect(screen.getByRole("button", { name: /Update to v0.62.0/ })).toBeTruthy();
+    });
+
+    it("stops saying it is updating after ten minutes without the new version, says so, and offers it again", async () => {
+      await runUpdate(() => "running");
+      await act(async () => { vi.advanceTimersByTime(10 * 60 * 1000 + 6000); });
+      await waitFor(() => expect(document.querySelector(".ui-page-header__verdict")?.textContent).not.toBe("Updating to 0.62.0"));
+      expect(screen.getByText("The update is taking longer than ten minutes")).toBeTruthy();
+      expect(screen.getByRole("button", { name: /Update to v0.62.0/ })).toBeTruthy();
+    });
   });
 
   it("says the last update stopped, and why, in the verdict and on its tab", async () => {
@@ -125,6 +220,49 @@ describe("System page", () => {
     fireEvent.click(screen.getByRole("button", { name: /Reclaim 1.0 GiB/ }));
     expect(await screen.findByText("Medium risk")).toBeTruthy();
     expect(staged["housekeeping.reclaim"]).toEqual({ parameters: { targets: ["docker-unused"] } });
+  });
+
+  // R4B3-5: a machine snapshot that cannot be read stops every app's older backups from being pruned,
+  // and nothing could remove it. Housekeeping names it, and the owner removes it by name.
+  it("offers the owner the removal of each unreadable machine snapshot, by name", async () => {
+    const damaged = "machine-snapshot-20260811T000000Z-abcdef01.tar.gz";
+    const unreadable = { id: "unreadable-snapshots", title: "Unreadable machine snapshots", summary: "Machine snapshots BoxPilot cannot open.", items: 1, bytes: 8, humanBytes: "8 B", detail: [damaged], keeping: [], safe: false, unavailable: "The owner removes these one at a time." };
+    const report = { ...housekeeping, categories: [...housekeeping.categories, unreadable] };
+    const staged = serve({ "/operations/housekeeping.inspect/inspect": () => json({ operation: "housekeeping.inspect", result: report }) });
+    window.history.replaceState(null, "", "/?tab=housekeeping");
+    render(<SystemPage csrfToken="csrf-token" />);
+    expect((await screen.findByRole("checkbox", { name: /Unreadable machine snapshots/ }) as HTMLInputElement).disabled).toBe(true);
+    const remove = screen.getByRole("button", { name: `Remove ${damaged}` });
+    expect(remove.getAttribute("data-risk")).toBe("medium");
+    fireEvent.click(remove);
+    expect(await screen.findByText("Medium risk")).toBeTruthy();
+    expect(staged["housekeeping.unreadable-snapshot.remove"]).toEqual({ parameters: { name: damaged } });
+    cleanup();
+
+    // An operator sees the name, and no way to remove it.
+    serve({ "/operations/housekeeping.inspect/inspect": () => json({ operation: "housekeeping.inspect", result: report }) });
+    render(<SystemPage csrfToken="csrf-token" role="operator" />);
+    expect(await screen.findByRole("checkbox", { name: /Unreadable machine snapshots/ })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: `Remove ${damaged}` })).toBeNull();
+  });
+
+  // R5B4-3: Housekeeping read itself again only after a reclaim; a snapshot removed by name stayed
+  // listed, with its Remove button, until the page was read again by hand.
+  it("reads Housekeeping again once an unreadable snapshot has been removed", async () => {
+    const damaged = "machine-snapshot-20260811T000000Z-abcdef01.tar.gz";
+    const unreadable = { id: "unreadable-snapshots", title: "Unreadable machine snapshots", summary: "Machine snapshots BoxPilot cannot open.", items: 1, bytes: 8, humanBytes: "8 B", detail: [damaged], keeping: [], safe: false, unavailable: "The owner removes these one at a time." };
+    let removed = false;
+    const jobId = "job-housekeeping.unreadable-snapshot.remove";
+    serve({
+      "/operations/housekeeping.inspect/inspect": () => json({ operation: "housekeeping.inspect", result: removed ? housekeeping : { ...housekeeping, categories: [...housekeeping.categories, unreadable] } }),
+      [`/jobs/${jobId}/approve`]: () => json({ job: { id: jobId, state: "applying" }, elevatedUntil: null }, 202),
+      [`/jobs/${jobId}`]: () => { removed = true; return json({ job: { id: jobId, type: "op:housekeeping.unreadable-snapshot.remove", title: "Remove", state: "completed", risk: "medium", error: null, result: { removed: damaged }, steps: [], approvals: [] } }); },
+    });
+    window.history.replaceState(null, "", "/?tab=housekeeping");
+    render(<SystemPage csrfToken="csrf-token" />);
+    fireEvent.click(await screen.findByRole("button", { name: `Remove ${damaged}` }));
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm and run" }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: `Remove ${damaged}` })).toBeNull(), { timeout: 4000 });
   });
 
   it("switches the weekly trim through its own tiered switch", async () => {

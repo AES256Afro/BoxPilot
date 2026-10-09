@@ -25,6 +25,15 @@ export const exposures = Object.freeze(["loopback", "lan"]);
  */
 export const appExposures = Object.freeze(["lan", "tailnet"]);
 /**
+ * The variables a manifest's env values may use besides its ports' ${PORT_<ID>}: ${TAILNET_HOST}
+ * is this server's tailnet machine name (box.tail1234.ts.net), filled in at every deploy. An app
+ * that must know the HTTPS address Tailscale Serve publishes it at (Zulip's EXTERNAL_HOST) says
+ * `${TAILNET_HOST}:${PORT_WEB}` instead of asking the owner to type it.
+ */
+export const serverVariableNames = Object.freeze(["TAILNET_HOST"]);
+/** An action on an installed app's sheet: a registered operation that takes only the app's id. */
+const operationIdPattern = /^[a-z][a-z0-9-]*(\.[a-z0-9-]+)+$/;
+/**
  * How an app attaches to the network, when the owner is allowed to choose.
  *
  * "bridge" is the default: the container has its own address behind Docker's NAT, and BoxPilot
@@ -58,6 +67,24 @@ export const envTypes = Object.freeze(["string", "password", "number", "boolean"
 export const riskTiers = Object.freeze(["low", "medium", "high"]);
 
 function fail(errors, path, message) { errors.push(`${path}: ${message}`); }
+
+/**
+ * The secret settings a command line names. Compose fills ${NAME}, ${NAME:-x} and $NAME in from the
+ * project's .env before the container starts, and a value on a command line sits in
+ * /proc/<pid>/cmdline, which every process on the server can read; the environment cannot be read
+ * that way. `$$` is compose's literal dollar sign, not a reference.
+ */
+function secretsOnCommandLine(command, secretNames) {
+  const found = new Set();
+  for (const part of Array.isArray(command) ? command : []) {
+    if (typeof part !== "string") continue;
+    for (const match of part.matchAll(/\$\$|\$\{([A-Za-z_][A-Za-z0-9_]*)|\$([A-Za-z_][A-Za-z0-9_]*)/g)) {
+      const name = match[1] ?? match[2];
+      if (name && secretNames.has(name)) found.add(name);
+    }
+  }
+  return [...found];
+}
 function isObject(value) { return value !== null && typeof value === "object" && !Array.isArray(value); }
 function checkKeys(errors, path, value, allowed, required = []) {
   for (const key of Object.keys(value)) if (!allowed.includes(key)) fail(errors, `${path}.${key}`, "is not a recognised field");
@@ -78,8 +105,31 @@ export function keepsBackupData(manifest) {
 export function validateManifest(raw) {
   const errors = [];
   if (!isObject(raw)) return { manifest: null, errors: ["manifest: must be a mapping"] };
-  checkKeys(errors, "manifest", raw, ["schemaVersion", "id", "name", "category", "description", "website", "icon", "risk", "image", "ports", "volumes", "env", "health", "capabilities", "devices", "extraHosts", "command", "user", "network", "notes", "uninstall", "sidecars", "setup", "networkVia", "sysctls", "shmSize", "optionalDevices", "signIn", "networkModes", "modelRunner", "connections", "files", "usesVpnProfile", "gpu"], ["schemaVersion", "id", "name", "category", "description", "image"]);
+  checkKeys(errors, "manifest", raw, ["schemaVersion", "id", "name", "category", "description", "website", "icon", "risk", "image", "ports", "volumes", "env", "health", "capabilities", "devices", "extraHosts", "command", "user", "network", "notes", "uninstall", "sidecars", "setup", "networkVia", "sysctls", "shmSize", "optionalDevices", "signIn", "networkModes", "modelRunner", "connections", "files", "usesVpnProfile", "gpu", "defaultExposure", "actions"], ["schemaVersion", "id", "name", "category", "description", "image"]);
   if (raw.schemaVersion !== 2) fail(errors, "manifest.schemaVersion", "must be 2");
+  // defaultExposure: who can reach the app when the owner installs it without choosing. "tailnet"
+  // binds its web ports to 127.0.0.1 and publishes them with Tailscale Serve (HTTPS, a real
+  // certificate); for an app that must never face the home network by default. The owner can still
+  // change it on the app's Reach tab.
+  if (raw.defaultExposure !== undefined && !appExposures.includes(raw.defaultExposure)) fail(errors, "manifest.defaultExposure", `must be one of ${appExposures.join(", ")}`);
+  if (raw.defaultExposure === "tailnet" && raw.network === "host") fail(errors, "manifest.defaultExposure", "cannot be tailnet for a host-network app: it publishes no ports to bind to this server");
+  // actions: buttons on an installed app's sheet, each a registered operation run with { id }
+  // (Zulip's "Create your organization"). The operation's own tier and role decide the approval.
+  if (raw.actions !== undefined) {
+    if (!Array.isArray(raw.actions) || raw.actions.length > 4) fail(errors, "manifest.actions", "must list up to 4 actions");
+    else {
+      const actionIds = new Set();
+      raw.actions.forEach((action, index) => {
+        const path = `manifest.actions[${index}]`;
+        if (!isObject(action)) return fail(errors, path, "must be a mapping");
+        checkKeys(errors, path, action, ["id", "label", "description", "operation"], ["id", "label", "operation"]);
+        if (typeof action.id !== "string" || !keyPattern.test(action.id) || actionIds.has(action.id)) fail(errors, `${path}.id`, "must be a unique short slug"); else actionIds.add(action.id);
+        if (typeof action.label !== "string" || !action.label.trim() || action.label.length > 60) fail(errors, `${path}.label`, "must be a short string");
+        if (action.description !== undefined && !(typeof action.description === "string" && action.description.length <= 600)) fail(errors, `${path}.description`, "must be a string of at most 600 characters");
+        if (typeof action.operation !== "string" || !operationIdPattern.test(action.operation)) fail(errors, `${path}.operation`, "must be a registered operation id");
+      });
+    }
+  }
   // Docker gives a container 64 MB of shared memory. Anything decoding video wants far more, and
   // runs out in ways that look like the app is broken rather than out of a resource.
   // `gpu: optional`: use an NVIDIA GPU when the server has one set up for Docker (driver + NVIDIA
@@ -196,6 +246,8 @@ export function validateManifest(raw) {
   // so content that references a secret env var by ${NAME} is refused; non-secret settings and
   // ${PORT_<ID>} are interpolated at deploy time.
   const secretEnvNames = new Set(env.filter((entry) => entry?.secret || entry?.type === "password").map((entry) => entry.name));
+  // Nor on a command line, the app's or a sidecar's (below): the image reads it from the environment.
+  for (const name of secretsOnCommandLine(raw.command, secretEnvNames)) fail(errors, "manifest.command", `must not put the secret ${name} on the command line; pass it in the environment`);
   const files = Array.isArray(raw.files) ? raw.files : raw.files === undefined ? [] : (fail(errors, "manifest.files", "must be a list"), []);
   if (files.length > 16) fail(errors, "manifest.files", "at most 16 files");
   const filePaths = new Set();
@@ -274,6 +326,7 @@ export function validateManifest(raw) {
     if (typeof sidecar.id !== "string" || !keyPattern.test(sidecar.id) || sidecarIds.has(sidecar.id) || sidecar.id === raw.id) fail(errors, `${path}.id`, "must be a unique short slug distinct from the app id"); else sidecarIds.add(sidecar.id);
     if (typeof sidecar.image !== "string" || !imagePattern.test(sidecar.image)) fail(errors, `${path}.image`, "must be a valid image reference");
     if (sidecar.command !== undefined && !(Array.isArray(sidecar.command) && sidecar.command.every((part) => typeof part === "string"))) fail(errors, `${path}.command`, "must be an array of strings");
+    for (const name of secretsOnCommandLine(sidecar.command, secretEnvNames)) fail(errors, `${path}.command`, `must not put the secret ${name} on the command line; pass it in the environment`);
     if (sidecar.env !== undefined && !(isObject(sidecar.env) && Object.entries(sidecar.env).every(([name, value]) => envNamePattern.test(name) && typeof value === "string" && value.length <= 512))) fail(errors, `${path}.env`, "must map variable names to strings");
     const sidecarVolumes = Array.isArray(sidecar.volumes) ? sidecar.volumes : sidecar.volumes === undefined ? [] : (fail(errors, `${path}.volumes`, "must be a list"), []);
     sidecarVolumes.forEach((volume, volumeIndex) => {
@@ -375,6 +428,8 @@ export function validateManifest(raw) {
     icon: raw.icon ?? null,
     risk: raw.risk ?? "medium",
     notes: raw.notes ?? null,
+    defaultExposure: raw.defaultExposure ?? "lan",
+    actions: (Array.isArray(raw.actions) ? raw.actions : []).map((action) => ({ id: action.id, label: action.label.trim(), description: action.description ?? null, operation: action.operation })),
     connections: (Array.isArray(raw.connections) ? raw.connections : []).map((connection) => ({ app: connection.app, role: connection.role, where: connection.where, note: connection.note ?? null })),
     image: { reference: raw.image.reference, version: raw.image.version ?? null, digestPinned: raw.image.reference.includes("@sha256:") },
     // A TCP port is assumed to be the app's web interface unless the manifest says otherwise; a
@@ -423,10 +478,13 @@ export function validateManifest(raw) {
 
 const hostPathDenyPrefixes = ["/etc", "/proc", "/sys", "/dev", "/boot", "/root", "/run", "/var/run", "/var/lib/boxpilot", "/var/lib/boxpilot-managed", "/usr", "/bin", "/sbin", "/lib", "/lib64", "/var/lib/docker", "/var/lib/libvirt", "/opt/boxpilot", "/snap", "/var/lib/snapd"];
 
-/** True when a (resolved) host path is one the deployer must never bind-mount. */
+/**
+ * True when a (resolved) host path is one the deployer must never bind-mount: a protected location,
+ * something inside one, or a folder that holds one - /var hands the app /var/lib/boxpilot with it.
+ */
 export function isDeniedHostPath(candidate) {
   const normalized = String(candidate ?? "").replace(/\/+$/, "") || "/";
-  return normalized === "/" || hostPathDenyPrefixes.some((prefix) => normalized === prefix || normalized.startsWith(`${prefix}/`));
+  return normalized === "/" || hostPathDenyPrefixes.some((prefix) => normalized === prefix || normalized.startsWith(`${prefix}/`) || prefix.startsWith(`${normalized}/`));
 }
 
 /**
