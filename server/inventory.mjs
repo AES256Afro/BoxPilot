@@ -7,6 +7,7 @@ import { promisify } from "node:util";
 import { normalizeMountEvidence, normalizeSmartEvidence, parseBlockInventory } from "./storage-evidence.mjs";
 import { createMaintenanceService, unavailableMaintenanceEvidence } from "./maintenance.mjs";
 import { createUpsService, unavailableUpsEvidence } from "./ups.mjs";
+import { readPowerEvents, readPowerPolicy } from "./power-events.mjs";
 
 const execFile = promisify(execFileCallback);
 const serviceUnits = ["boxpilot.service", "boxpilot-helper.service", "docker.service", "tailscaled.service", "libvirtd.service", "virtqemud.service"];
@@ -45,6 +46,9 @@ export function createInventoryService({
   readStorageHealth = () => readFile(process.env.BOXPILOT_STORAGE_HEALTH_PATH ?? storageHealthPath, "utf8"),
   maintenance = createMaintenanceService(),
   ups = createUpsService(),
+  // The power-event log and what BoxPilot set up for the UPS (M39.1): Home's news and System's panel.
+  powerEvents = () => readPowerEvents({ limit: 20 }),
+  powerPolicy = () => readPowerPolicy(),
   now = () => new Date(),
   // When this (web) process started: a web unit owed a restart since then has had it.
   webStartedAt = () => new Date(Date.now() - process.uptime() * 1000),
@@ -115,13 +119,15 @@ export function createInventoryService({
 
     let docker = { available: false, containers: [], images: [], networks: [], volumes: [], projects: [] };
     try { docker = await helper.request("container.docker.inventory", {}); } catch { docker = { ...docker, error: "Docker inventory is unavailable through the restricted helper" }; }
-    const [services, tailscale, blockResult, smartResult, maintenanceResult, upsResult, boxpilot] = await Promise.all([
+    const [services, tailscale, blockResult, smartResult, maintenanceResult, upsResult, eventsResult, policyResult, boxpilot] = await Promise.all([
       inspectServices(serviceUnits),
       inspectTailscale(),
       runCommand("lsblk", ["--json", "--bytes", "--paths", "--output", "NAME,TYPE,FSTYPE,SIZE,MOUNTPOINTS,ROTA,RO,TRAN,MODEL"]),
       readStorageHealth().then((contents) => ({ ok: true, contents })).catch(() => ({ ok: false, contents: "" })),
       maintenance.inspect().catch(() => unavailableMaintenanceEvidence()),
       ups.inspect().catch(() => unavailableUpsEvidence()),
+      powerEvents().catch(() => ({ available: "unreadable", events: [] })),
+      powerPolicy().catch(() => null),
       inspectSelfRestart(),
     ]);
     const blockDevices = blockResult.ok ? parseBlockInventory(blockResult.stdout) : parseBlockInventory("");
@@ -154,7 +160,7 @@ export function createInventoryService({
       },
       storage: { root: rootStorage, filesystems, blockDevices, smart },
       maintenance: maintenanceResult,
-      power: { ups: upsResult },
+      power: { ups: upsResult, events: eventsResult.events, eventsAvailable: eventsResult.available, policy: policyResult },
       network: { addresses, tailscale },
       services,
       docker,

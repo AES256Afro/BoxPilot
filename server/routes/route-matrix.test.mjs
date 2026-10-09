@@ -412,6 +412,7 @@ const dataRoutes = {
     },
   }],
   "GET /api/v1/power/ups/detect": [open],
+  "GET /api/v1/power/overview": [{ ...open, check: ({ role, body }) => expect(body.guidance.steps.length, role).toBeGreaterThan(3) }],
   "GET /api/v1/setup/checklist": [{ ...open, check: ({ role, body }) => expect(body.items.find((item) => item.id === "shares").done, role).toBe(true) }],
   "GET /api/v1/diagnostics/runtime": [open],
   "GET /api/v1/catalog": [{
@@ -609,7 +610,7 @@ beforeAll(async () => {
     run: async () => ({ ok: true, stdout: "[]", stderr: "" }), probe: async () => false, reverse: async () => [],
     collect: async () => ({ devices: [], mounts: [], fstab: [], snapshots: [{ path: "/dev/vg0/data-snap", name: "data-snap" }] }),
   });
-  routers.createPowerRouter = createPowerRouter({ detect: async () => [], exists: async () => false });
+  routers.createPowerRouter = createPowerRouter({ detect: async () => [], exists: async () => false, events: async () => ({ available: "none", events: [] }), policy: async () => null, boardVendor: async () => null, ups: { inspect: async () => ({ configured: false, state: "unavailable" }) } });
   routers.createChecklistRouter = createChecklistRouter({ state, helper, notifications, inventory, network, driveChecks: async () => null });
   routers.createHostRouter = createHostRouter({
     state, helper, catalogService, inventory, network, notifications,
