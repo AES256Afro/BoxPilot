@@ -6,7 +6,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createAgentsHarness } from "../../test/agents-harness.mjs";
-import { describeEval, runEvalSet } from "../../test/agents-eval.mjs";
+import { boundarySet, describeEval, runEvalSet } from "../../test/agents-eval.mjs";
 import { ownerLikeStorage, ownersWrongAnswer } from "../../test/fixtures/agents-storage.mjs";
 import { gradeDrives, gradeFact } from "./service.mjs";
 import { builtInQuestions } from "./templates.mjs";
@@ -40,6 +40,17 @@ describe("grading the built-in questions", () => {
     expect(outcome.results.filter((result) => !result.passed)).toEqual([]);
     expect(outcome.results.find((result) => result.id === "pihole").tools[0]).toBe("where.runs");
   }, 60_000);
+
+  it("scores the boundary set right too, the planner naming the tool between two plausible ones (M46)", async () => {
+    const outcome = await runEvalSet({ questions: boundarySet });
+    console.log(describeEval(outcome, "The boundary evaluation on the stand-in model"));
+    expect(outcome.results.filter((result) => !result.passed)).toEqual([]);
+    expect(outcome).toMatchObject({ toolsRight: boundarySet.length, toolsGraded: boundarySet.length });
+    // The wording that tripped the owner's model (M40) is planned as where.runs, with the Keeper's examples shown.
+    const kind = outcome.results.find((result) => result.id === "pihole-kind");
+    expect(kind).toMatchObject({ toolRight: true, tool: "where.runs" });
+    expect(kind.examples).toBeGreaterThan(0);
+  }, 90_000);
 
   it("asks an agent only what its own tools answer", () => {
     const tools = (on) => Object.fromEntries(on.map((id) => [id, "auto"]));

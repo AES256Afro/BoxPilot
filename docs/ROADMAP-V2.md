@@ -2862,6 +2862,18 @@ every M37 to M45 agent test passing.
   (`apps.list` for "where does Pi-hole run", M40), which the owner's own approvals, not this set,
   will keep measuring through the nightly evaluation's accuracy history.
 
+- ✅ **M46.5 The boundary set** (unreleased, `feat/boundary-eval`). The built-in six never trip
+  the base model, so they measure the demonstrations' cost, not their gain. `boundarySet` in
+  `test/agents-eval.mjs`: eight questions worded between two plausible tools ("Is Pi-hole a BoxPilot
+  app, another container, or running on the host?", "Did Pi-hole block anything today?", "Is
+  anything on this server not running that should be?", "Has any service on the box died?", "Is the
+  main disk close to full?", "What's the name of this machine, and what does it run?", "Which of my
+  apps need a restart?", "Which drive holds the media, and is it the system disk?"), each graded on
+  the fact and on whether the plan named the right tool, with how many examples were shown. `node
+  test/agents-eval.mjs --set boundary`; `tests/bench/agents-real.mjs --eval --set boundary`; the
+  bench workflow's `set` input, with `baseline` for a before and after. On the stand-in: 8 of 8,
+  the right tool 8 of 8 (`evaluation.test.mjs`).
+
 - **Fixed on the way (2026-10-09, from the owner's server):** the Environment Scout raised an
   "Environment Scout needs you to look" card every night its evaluation question ("Which parts of
   this server can your tools not check?") ran into its step limit, though the answer passed: the

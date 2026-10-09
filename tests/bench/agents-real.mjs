@@ -77,16 +77,20 @@ if (process.argv.includes("--image")) {
     await runtime.stop("bench over");
   }
 } else if (process.argv.includes("--eval")) {
-  const { describeEval, runEvalSet } = await import("../../test/agents-eval.mjs");
+  const { describeEval, evalSets, runEvalSet } = await import("../../test/agents-eval.mjs");
+  // --set boundary (M46): the questions worded between two tools, graded on the tool as well as the fact.
+  const which = argument("set", "builtin");
+  if (!evalSets?.[which]) { console.error(`There is no evaluation set called ${which}; sets: ${Object.keys(evalSets ?? { builtin: 1 }).join(", ")}`); process.exit(2); }
   let outcome = null;
   try {
     outcome = await runEvalSet({
+      questions: evalSets[which],
       real: { runtime, threads },
       log: (result) => console.log(`${result.passed ? "right" : "WRONG"}  ${result.id}: ${result.found} (${result.seconds} s; tools ${result.tools.join(", ") || "none"}${result.check ? `; check ${JSON.stringify(result.check)}` : ""})\n  answer: ${String(result.answer ?? "").slice(0, 700).replace(/\n/g, " | ")}`),
     });
-    console.log(`\n${describeEval(outcome, `The built-in evaluation on the real model (${threads} thread${threads === 1 ? "" : "s"})`)}`);
+    console.log(`\n${describeEval(outcome, `The ${which} evaluation on the real model (${threads} thread${threads === 1 ? "" : "s"})`)}`);
   } finally {
-    if (out) await writeFile(out, `${JSON.stringify({ threads, eval: outcome }, null, 1)}\n`);
+    if (out) await writeFile(out, `${JSON.stringify({ threads, set: which, eval: outcome }, null, 1)}\n`);
     await runtime.stop("bench over");
   }
 } else {
