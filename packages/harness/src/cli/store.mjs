@@ -1,8 +1,10 @@
 /**
  * The CLI's memory (M45.8): one SQLite file, by default `.harness/harness.db` in the working folder,
  * readable by its owner only. It keeps every run with its trace, the notes the agent saved for
- * later runs, and how fast each model has been, so the next run's pacing starts from what was
- * measured rather than a guess.
+ * later runs, how fast each model has been, so the next run's pacing starts from what was measured
+ * rather than a guess, and the example book (M47.5): the runs the person said were good, or an
+ * evaluation graded right, each as the task and the tools it used, shown to the model before a
+ * task like it.
  */
 import { randomUUID } from "node:crypto";
 import { chmodSync, mkdirSync } from "node:fs";
@@ -21,6 +23,9 @@ CREATE TABLE IF NOT EXISTS steps (
 CREATE TABLE IF NOT EXISTS notes (
   id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, body TEXT NOT NULL, run_id TEXT, created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS examples (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT UNIQUE, task TEXT NOT NULL, tools TEXT NOT NULL, answer TEXT, signal TEXT NOT NULL, created_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS speeds (
   model TEXT PRIMARY KEY, prompt_per_second REAL NOT NULL, generate_per_second REAL NOT NULL, samples INTEGER NOT NULL, updated_at TEXT NOT NULL
 );
@@ -29,6 +34,7 @@ CREATE TABLE IF NOT EXISTS speeds (
 const json = (value) => (value === undefined || value === null ? null : JSON.stringify(value));
 const parsed = (text) => { try { return text ? JSON.parse(text) : null; } catch { return null; } };
 
+const exampleOf = (row) => row && ({ id: row.id, runId: row.run_id, task: row.task, tools: parsed(row.tools) ?? [], answer: row.answer, signal: row.signal, createdAt: row.created_at });
 const runOf = (row) => row && ({
   id: row.id, task: row.task, folder: row.folder, route: row.route, model: row.model, outcome: row.outcome, answer: row.answer,
   degradedReason: row.degraded_reason, error: row.error, usage: parsed(row.usage), taint: parsed(row.taint), startedAt: row.started_at, finishedAt: row.finished_at,
@@ -59,6 +65,10 @@ export function openStore(file, { now = () => Date.now() } = {}) {
     saveNote: db.prepare("INSERT INTO notes (title, body, run_id, created_at) VALUES (?, ?, ?, ?)"),
     notes: db.prepare("SELECT * FROM notes ORDER BY id DESC LIMIT ?"),
     speed: db.prepare("SELECT * FROM speeds WHERE model = ?"),
+    keepExample: db.prepare("INSERT INTO examples (run_id, task, tools, answer, signal, created_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(run_id) DO UPDATE SET signal = excluded.signal, created_at = excluded.created_at"),
+    forgetExample: db.prepare("DELETE FROM examples WHERE run_id = ?"),
+    examples: db.prepare("SELECT * FROM examples ORDER BY id DESC LIMIT ?"),
+    exampleOfRun: db.prepare("SELECT * FROM examples WHERE run_id = ?"),
     saveSpeed: db.prepare("INSERT INTO speeds (model, prompt_per_second, generate_per_second, samples, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(model) DO UPDATE SET prompt_per_second = excluded.prompt_per_second, generate_per_second = excluded.generate_per_second, samples = speeds.samples + excluded.samples, updated_at = excluded.updated_at"),
   };
 
@@ -80,6 +90,20 @@ export function openStore(file, { now = () => Date.now() } = {}) {
       statements.finishRun.run(result.route ?? null, result.model ?? null, result.outcome, result.answer ?? null, result.degradedReason ?? null, result.error ?? null, json(result.usage), json(result.taint), iso(), runId);
     },
     listRuns(limit = 20) { return statements.runs.all(Math.max(1, Math.min(200, limit))).map(runOf); },
+    /**
+     * Keep a finished run as an example (M47.5): its task, the tools it ran in order (each once),
+     * and its answer. `signal` says why: "good" (the person said so) or "eval" (a case graded right).
+     * A run kept again is kept once, under the newer signal; one that never answered is not kept.
+     */
+    keepExample(runId, signal = "good") {
+      const run = this.getRun(runId);
+      if (!run || !run.answer || !["completed", "degraded"].includes(run.outcome)) return null;
+      const tools = [...new Set(run.steps.filter((step) => step.kind === "tool" && step.state === "done" && step.name).map((step) => String(step.name)))];
+      statements.keepExample.run(run.id, run.task, JSON.stringify(tools), String(run.answer).slice(0, 600), signal, iso());
+      return exampleOf(statements.exampleOfRun.get(run.id));
+    },
+    forgetExample(runId) { return statements.forgetExample.run(String(runId)).changes > 0; },
+    listExamples(limit = 200) { return statements.examples.all(Math.max(1, Math.min(1_000, limit))).map(exampleOf); },
     /** A run by its id or the start of it (as `runs` prints it), with its trace; null when none or more than one match. */
     getRun(idOrPrefix) {
       const key = String(idOrPrefix ?? "").trim();
