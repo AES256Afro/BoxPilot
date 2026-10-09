@@ -2891,6 +2891,12 @@ every M37 to M45 agent test passing.
   thumbs down takes it back, and the bot says what it noted. Someone not set up gets the usual word.
   Test: `chat-ask.test.mjs`.
 
+- ✅ **M47.5 The CLI's example book** (unreleased, `feat/cli-examples`). The standalone host had no
+  book. `boxpilot-harness good <run>` keeps a finished run as an example (its task, the tools it ran,
+  its answer), `bad <run>` takes it back, `examples` lists the book, and an evaluation case graded
+  right is kept by itself. Before a task, the nearest three by words (`selectExamples`; the CLI
+  embeds nothing) go above it as "Tasks that went well in this folder, and the tools each used",
+  and the trace says how many were shown and why. Test: `cli.test.mjs`.
 - **Fixed on the way (2026-10-09, from the owner's server):** the Environment Scout raised an
   "Environment Scout needs you to look" card every night its evaluation question ("Which parts of
   this server can your tools not check?") ran into its step limit, though the answer passed: the

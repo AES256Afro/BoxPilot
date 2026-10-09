@@ -135,6 +135,30 @@ describe("a run on scripted turns", () => {
     expect((await cli(["notes", "backup"], { cwd: folder })).stdout).toMatch(/Backup day\n {2}Backups run on Sundays\./);
   });
 
+  it("keeps a good run as an example, shows it before a task like it, and takes it back on bad (M47.5)", async () => {
+    const folder = await folderWith({ "shopping.txt": "milk\neggs\n" });
+    const fake = await turnsFile(listReadAppend);
+    const first = await cli(["Add bread to my shopping list", "--fake", fake, "--yes"], { cwd: folder });
+    expect(first.code).toBe(0);
+    expect(first.stderr).not.toMatch(/examples:/);
+    const id = (await cli(["runs"], { cwd: folder })).stdout.slice(0, 8);
+    expect((await cli(["examples"], { cwd: folder })).stdout).toMatch(/^No examples yet/);
+    const good = await cli(["good", id], { cwd: folder });
+    expect(good.code).toBe(0);
+    expect(good.stdout).toMatch(/^Kept as an example: "Add bread to my shopping list" -> files_list, files_read, files_write\./);
+    expect((await cli(["examples"], { cwd: folder })).stdout).toMatch(new RegExp(`^${id} {2}good {2}Add bread to my shopping list`));
+    // The next task like it is shown the example, and the trace says so.
+    const second = await cli(["Add butter to my shopping list", "--fake", fake, "--yes"], { cwd: folder });
+    expect(second.code).toBe(0);
+    expect(second.stderr).toMatch(/· examples: 1 shown \(nearest\)/);
+    // A task that shares no words with it is shown nothing.
+    const other = await cli(["What is the weather?", "--fake", fake, "--yes"], { cwd: folder });
+    expect(other.stderr).not.toMatch(/examples:/);
+    expect((await cli(["bad", id], { cwd: folder })).stdout).toMatch(/^Taken back: /);
+    expect((await cli(["examples"], { cwd: folder })).stdout).toMatch(/^No examples yet/);
+    expect((await cli(["good", "nope"], { cwd: folder })).code).toBe(64);
+  });
+
   it("goes on with the local model when the remote one is overloaded", async () => {
     const folder = await folderWith({ "a.txt": "alpha" });
     const remote = await turnsFile([{ error: "Claude is overloaded", code: "overloaded" }]);
@@ -253,6 +277,10 @@ describe("the evaluation runner", () => {
     expect(run.stdout).toMatch(/^PASS {2}adds\nFAIL {2}read-only: todo.md does not match \/buy milk\/\n1 of 2 passed\n$/);
     // The folder itself was never touched.
     expect(await readFile(path.join(folder, "todo.md"), "utf8")).toBe("- call the plumber\n");
+    // The case graded right is in the example book; the failed one is not.
+    const book = (await cli(["examples"], { cwd: folder })).stdout.trim().split("\n");
+    expect(book).toHaveLength(1);
+    expect(book[0]).toMatch(/^[0-9a-f]{8} {2}eval {2}Add a task/);
   });
 });
 

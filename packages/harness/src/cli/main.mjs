@@ -11,6 +11,7 @@ import { cp, mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { parseArgs } from "node:util";
+import { selectExamples } from "../core/examples.mjs";
 import { runDefaults, runTask } from "../core/run.mjs";
 import { createToolbox } from "../core/tools.mjs";
 import { createFakeProvider } from "../providers/fake.mjs";
@@ -31,6 +32,9 @@ Usage:
   boxpilot-harness runs [--limit N]         The latest runs
   boxpilot-harness show <run>               One run's answer and trace
   boxpilot-harness notes [words]            The notes the agent saved
+  boxpilot-harness good <run>               Keep a run as an example the agent is shown before a task like it
+  boxpilot-harness bad <run>                Take that back
+  boxpilot-harness examples                 The example book: good runs, and evaluation cases graded right
   boxpilot-harness eval <cases.json>        Run cases, each in a copy of the folder, and grade them
 
 The model, one or more of:
@@ -65,7 +69,7 @@ const optionSpec = {
   json: { type: "boolean" }, quiet: { type: "boolean" }, limit: { type: "string" },
   help: { type: "boolean", short: "h" }, version: { type: "boolean" },
 };
-const commands = new Set(["run", "runs", "show", "notes", "eval", "help"]);
+const commands = new Set(["run", "runs", "show", "notes", "good", "bad", "examples", "eval", "help"]);
 // Before a model has been measured here: a modest machine's local speeds, and a hosted model's.
 const firstSpeeds = { local: { promptPerSecond: 30, generatePerSecond: 6 }, remote: { promptPerSecond: 1_000, generatePerSecond: 50 } };
 
@@ -127,6 +131,8 @@ export async function main(argv, io) {
       if (command === "runs") return listRuns(store, opts, out);
       if (command === "show") return showRun(store, rest[0], opts, out);
       if (command === "notes") return listNotes(store, rest.join(" "), opts, out);
+      if (command === "good" || command === "bad") return rateRun(store, rest[0], command, out);
+      if (command === "examples") return listExamples(store, opts, out);
       const models = await modelsFrom(opts, io);
       if (command === "eval") return await evaluate(rest[0], { opts, io, store, models, folderPath, out });
       const result = await runOnce({ task: rest.join(" "), opts, io, store, models, folderPath });
@@ -208,8 +214,12 @@ async function runOnce({ task, opts, io, store, models, folderPath, approveMode 
   const sides = { local: models.local && { ...models.local, ...(turns ? { provider: createFakeProvider({ script: readTurns(JSON.stringify(turns)), id: "fake" }).provider } : {}) }, remote: models.remote };
   const speedKey = (side) => `${side}:${sides[side]?.model}`;
   for (const side of ["local", "remote"]) if (sides[side]) sides[side] = { ...sides[side], speed: store.speedOf(speedKey(side)) ?? firstSpeeds[side] };
+  // The example book (M47.5): the nearest few good runs, picked by the words they share with this
+  // task (the CLI embeds nothing), shown before it as one line each.
+  const shown = selectExamples({ query: task, candidates: store.listExamples(200).map((example) => ({ key: example.runId, text: example.task, label: example.tools[0] ?? null, tools: example.tools })), limit: 3 });
+  if (shown.length) print(`· examples: ${shown.length} shown (${shown.map((example) => example.why).join(", ")})`);
   const result = await runTask({
-    task, toolbox, route: models.route, now, signal: io.signal ?? null,
+    task: shown.length ? `${demonstrationLines(shown)}\n\n${task}` : task, toolbox, route: models.route, now, signal: io.signal ?? null,
     system: cliRules({ folder: folderPath, today: new Date(now()).toISOString().slice(0, 10), tools: tools.map((tool) => tool.name), web: Boolean(opts.web) }),
     models: { local: sides.local, remote: sides.remote },
     limits: { ...(opts.steps ? { steps: whole(opts.steps, "steps", { max: 50 }) } : {}), ...(opts.seconds ? { seconds: whole(opts.seconds, "seconds", { min: 5, max: 86_400 }) } : {}), ...(opts["tool-calls"] ? { maxToolCalls: whole(opts["tool-calls"], "tool-calls", { max: 200 }) } : {}) },
@@ -223,6 +233,29 @@ async function runOnce({ task, opts, io, store, models, folderPath, approveMode 
   store.finishRun(runId, result);
   for (const side of ["local", "remote"]) if (sides[side] && result.speeds?.[side]?.samples > 0) store.saveSpeed(speedKey(side), result.speeds[side]);
   return { runId, ...result };
+}
+
+/** The demonstrations as the model reads them: tasks that went well here, each with the tools it used. */
+export function demonstrationLines(examples) {
+  const line = (text) => String(text ?? "").replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim().slice(0, 140);
+  return ["Tasks that went well in this folder, and the tools each used:", ...examples.map((example) => `- "${line(example.text).replace(/"/g, "'")}" -> ${example.tools.length ? example.tools.join(", ") : "no tool"}`)].join("\n");
+}
+
+function rateRun(store, key, command, out) {
+  const run = store.getRun(key);
+  if (!run) { out(key ? `No run matches ${key}; "runs" lists them.` : "Say which run: boxpilot-harness good <run>"); return 64; }
+  if (command === "bad") { out(store.forgetExample(run.id) ? `Taken back: ${run.id.slice(0, 8)} is no longer an example.` : `${run.id.slice(0, 8)} was not an example.`); return 0; }
+  const kept = store.keepExample(run.id, "good");
+  if (!kept) { out(`${run.id.slice(0, 8)} did not answer, so it is nothing to learn from.`); return 1; }
+  out(`Kept as an example: "${terminalSafe(kept.task).slice(0, 80)}" -> ${kept.tools.join(", ") || "no tool"}. The agent is shown it before a task like it.`);
+  return 0;
+}
+
+function listExamples(store, opts, out) {
+  const examples = store.listExamples(whole(opts.limit, "limit", { max: 1_000 }) ?? 50);
+  if (!examples.length) { out("No examples yet. After a run that went well: boxpilot-harness good <run>"); return 0; }
+  for (const example of examples) out(`${example.runId.slice(0, 8)}  ${example.signal.padEnd(5)} ${terminalSafe(example.task).slice(0, 60).padEnd(60)} -> ${example.tools.join(", ") || "no tool"}`);
+  return 0;
 }
 
 function listRuns(store, opts, out) {
@@ -288,6 +321,8 @@ async function evaluate(file, { opts, io, store, models, folderPath, out }) {
         else if (!new RegExp(String(pattern), "iu").test(text)) problems.push(`${name} does not match /${pattern}/`);
       }
       graded.push({ id: String(entry.id ?? graded.length + 1), passed: !problems.length, problems, runId: result.runId, outcome: result.outcome });
+      // A case graded right is a task that went well: kept as an example (M47.5), as "good" keeps one.
+      if (!problems.length) store.keepExample(result.runId, "eval");
     } finally {
       await rm(copy, { recursive: true, force: true });
     }
