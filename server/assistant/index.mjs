@@ -5,7 +5,7 @@
  * anything; a plan's steps go through the ordinary job path, approved one by one at their tier.
  *
  * Guardrails, in the order they apply:
- * - Only a local model (local-endpoint.mjs): an address on this server or the owner's network, set
+ * - Only a local model (the harness's local-endpoint.mjs): an address on this server or the owner's network, set
  *   by the owner, or the catalog's Ollama when it is installed. With none, the answer is the
  *   sources. It is reached through model-client.mjs (M37): the OpenAI-compatible API that Unsloth,
  *   llama.cpp and Ollama all serve, or Ollama's own API for settings saved before M37.

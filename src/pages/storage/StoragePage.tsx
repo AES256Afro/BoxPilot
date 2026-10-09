@@ -12,6 +12,7 @@ import SharesTab from "./SharesTab";
 import SnapshotsTab from "./SnapshotsTab";
 import { gib, percentUsed, shareableFolders, type Forecast, type FsSnapshots, type LastMeasured, type StorageReport, type Usage } from "./types";
 import { useNfs, useSamba } from "./useSharing";
+import { StorageLead } from "../../looks/StorageLead";
 import "./storage.css";
 
 /*
@@ -159,6 +160,9 @@ export default function StoragePage({ csrfToken, role = "owner", onNavigate }: S
       />
 
       {error && <Notice tone="danger" live title="The storage state could not be read" action={<Button onClick={refreshAll}>Try again</Button>}>{error}</Notice>}
+
+      {/* What the look puts above the tabs (M41): the disks to scale, or a glance at the drives. */}
+      <StorageLead csrfToken={csrfToken} role={role} report={report} loading={loading} forecasts={forecasts} fsSnapshots={fsSnapshots} sambaShares={mapShares} shareHost={shareHost} autoReconnect={autoReconnect} onTab={setTab} onNavigate={onNavigate} onChanged={refreshAll} />
 
       <Tabs<TabId> label="Storage" tabs={tabs} value={tab} onChange={setTab}>
         {(current) => {

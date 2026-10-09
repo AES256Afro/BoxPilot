@@ -34,11 +34,17 @@ import { agentsOperations } from "./agents.mjs";
 import { zulipOperations } from "./zulip.mjs";
 import { dnsResilienceOperations } from "./dns-resilience.mjs";
 import { heartbeatOperations } from "./heartbeat.mjs";
+import { cloudflareOperations } from "./cloudflare.mjs";
+import { agentsCloudOperations } from "./agents-cloud.mjs";
 
 /** The default registry used by the helper and the web service. Add new operation modules here. */
 export const operationModules = [prerequisiteOperations, aptOperations, systemOperations, appOperations, serviceOperations, userOperations, firewallOperations, storageOperations, controllerOperations, vmOperations, hostBackupOperations, logOperations, updateOperations, networkOperations, shareOperations, sambaOperations, nfsOperations, upsOperations, powerOperations, fail2banOperations, backupCloudOperations, tailscaleOperations, housekeepingOperations, spaceOperations, performanceOperations, localDnsOperations, routerOperations, connectorOperations, vpnOperations, notificationOperations, agentsOperations, zulipOperations,
   // M39: DNS that survives this server being off, and the heartbeat that says it is up.
-  dnsResilienceOperations, heartbeatOperations];
+  dnsResilienceOperations, heartbeatOperations,
+  // M42: publish an app to the internet through Cloudflare Tunnel.
+  cloudflareOperations,
+  // M45.3: Claude for the agents, through the model gateway.
+  agentsCloudOperations];
 export const registry = createRegistry(operationModules);
 setRegistryLookup((id) => registry.get(id));
 export { createRegistry, defineOperation, validateParameters, riskTiers } from "./registry.mjs";

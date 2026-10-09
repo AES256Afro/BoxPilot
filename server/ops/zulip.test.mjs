@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { describe, expect, it, vi } from "vitest";
+import { validatePlan } from "../assistant/plan.mjs";
 import { loadCatalog } from "../catalog/index.mjs";
 import { laneFor } from "../helper-lanes.mjs";
 import { registry } from "./index.mjs";
@@ -133,11 +134,44 @@ describe("connecting the agents to Zulip (M38)", () => {
     expect(readConnectResult("")).toBeNull();
   });
 
+  it("sends the bot's key only to Zulip's own port, and is never a step an agent may propose (R2S3-4)", async () => {
+    const at = { host: "homebox.tail1234.ts.net:8543", botEmail: "boxpilot-agents-bot@homebox.tail1234.ts.net" };
+    const post = { id: "00000000-0000-4000-8000-000000000001", channel: "agent-findings", topic: "Server Keeper", content: "Hello" };
+    const elsewhere = "http://127.0.0.1:3022";
+    // Where Zulip is, is not a parameter: an address of another container's port is refused...
+    expect(registry.validate("agents.zulip.post", { ...at, base: elsewhere, posts: [post] })).toMatch(/does not accept parameter "base"/);
+    expect(registry.validate("agents.zulip.events", { ...at, base: elsewhere })).toMatch(/does not accept parameter "base"/);
+    expect(registry.validate("agents.zulip.poll", { ...at, base: elsewhere, channel: "agent-files", after: null })).toMatch(/does not accept parameter "base"/);
+    // ...and a card naming any of the three is dropped, with or without one.
+    const card = await validatePlan([
+      { operationId: "agents.zulip.post", parameters: { ...at, base: elsewhere, posts: [post] } },
+      { operationId: "agents.zulip.post", parameters: { ...at, posts: [post] } },
+      { operationId: "agents.zulip.events", parameters: { ...at } },
+      { operationId: "agents.zulip.poll", parameters: { ...at, channel: "agent-files", after: null } },
+    ], { registry, role: "owner" });
+    expect(card.steps).toEqual([]);
+    expect(card.dropped.map((entry) => entry.reason)).toEqual(Array(4).fill(expect.stringMatching(/BoxPilot's own|never proposed/)));
+    for (const id of ["agents.zulip.post", "agents.zulip.events", "agents.zulip.poll"]) expect(registry.get(id).internal, id).toBe(true);
+    // Run however it is reached, each task is given the port Zulip itself publishes, never one it was handed.
+    const context = setup();
+    for (const [id, parameters] of [["agents.zulip.post", { ...at, posts: [post] }], ["agents.zulip.events", { ...at }], ["agents.zulip.poll", { ...at, channel: "agent-files", after: null }]]) {
+      await operations[id].run({ ...parameters, base: elsewhere }, context);
+    }
+    expect(context.runUnit.runTask.mock.calls.map(([task, parameters]) => [task, parameters.base])).toEqual([
+      ["agents.zulip.post", "http://127.0.0.1:8543"], ["agents.zulip.events", "http://127.0.0.1:8543"], ["agents.zulip.poll", "http://127.0.0.1:8543"],
+    ]);
+    expect(JSON.stringify(context.runUnit.runTask.mock.calls)).not.toContain("3022");
+    // Zulip gone, nothing is sent anywhere.
+    const gone = setup({ installed: false });
+    await expect(operations["agents.zulip.post"].run({ ...at, posts: [post] }, gone)).rejects.toThrow("Zulip is not installed");
+    expect(gone.runUnit.runTask).not.toHaveBeenCalled();
+  });
+
   it("posts only well-formed, bounded batches, in a lane of their own", () => {
     const post = { id: "00000000-0000-4000-8000-000000000001", channel: "agent-findings", topic: "Server Keeper", content: "Hello" };
-    const at = { base: "http://127.0.0.1:8543", host: "homebox.tail1234.ts.net:8543", botEmail: "boxpilot-agents-bot@homebox.tail1234.ts.net" };
+    const at = { host: "homebox.tail1234.ts.net:8543", botEmail: "boxpilot-agents-bot@homebox.tail1234.ts.net" };
     expect(registry.validate("agents.zulip.post", { ...at, posts: [post] })).toBeNull();
-    expect(registry.validate("agents.zulip.post", { ...at, base: "http://192.168.1.10:8543", posts: [post] })).toMatch(/base/);
+    expect(registry.validate("agents.zulip.post", { ...at, botEmail: "not an address", posts: [post] })).toMatch(/botEmail/);
     expect(registry.validate("agents.zulip.post", { ...at, posts: [] })).toMatch(/1 to 10 posts/);
     expect(registry.validate("agents.zulip.post", { ...at, posts: [{ ...post, content: "x".repeat(9_001) }] })).toMatch(/1 to 9,000/);
     expect(registry.validate("agents.zulip.post", { ...at, posts: [{ ...post, topic: "line\nbreak".padEnd(70, "x") }] })).toMatch(/topic/);
@@ -149,6 +183,22 @@ describe("connecting the agents to Zulip (M38)", () => {
     expect(laneFor("agents.zulip.post", {})).toEqual(["chat:zulip"]);
     expect(laneFor("agents.zulip.connect", {})).toEqual(["chat:zulip", "app:zulip"]);
     expect(laneFor("app.zulip.organization.link", { id: "zulip" })).toEqual(["app:zulip"]);
+    // M40.5: a reply to a direct message goes to one to eight people, by their Zulip ids, and nowhere else.
+    const reply = { id: "00000000-0000-4000-8000-000000000002", to: [11], content: "The answer." };
+    expect(registry.validate("agents.zulip.post", { ...at, posts: [reply] })).toBeNull();
+    expect(registry.validate("agents.zulip.post", { ...at, posts: [{ ...reply, to: [] }] })).toMatch(/one to eight people/);
+    expect(registry.validate("agents.zulip.post", { ...at, posts: [{ ...reply, to: ["alex@example.com"] }] })).toMatch(/one to eight people/);
+    expect(registry.validate("agents.zulip.post", { ...at, posts: [{ ...reply, to: Array.from({ length: 9 }, (_value, index) => index + 1) }] })).toMatch(/one to eight people/);
+  });
+
+  it("reads what was asked of the bot as the owner's read, with bounded parameters (M40.5)", () => {
+    const at = { host: "homebox.tail1234.ts.net:8543", botEmail: "boxpilot-agents-bot@homebox.tail1234.ts.net" };
+    expect(registry.get("agents.zulip.events")).toMatchObject({ risk: "low", minimumRole: "owner", readOnly: true });
+    expect(registry.validate("agents.zulip.events", { ...at, queueId: "1727-abc:2", lastEventId: 4, after: 1000, catchUpMinutes: 15 })).toBeNull();
+    expect(registry.validate("agents.zulip.events", { ...at, queueId: null, lastEventId: null, after: null })).toBeNull();
+    expect(registry.validate("agents.zulip.events", { ...at, queueId: "../../etc" })).toMatch(/queueId/);
+    expect(registry.validate("agents.zulip.events", { ...at, catchUpMinutes: 600 })).toMatch(/1 to 120/);
+    expect(registry.validate("agents.zulip.events", { ...at, host: "evil.example/path" })).toMatch(/host/);
   });
 
   // The script runs inside Zulip's own Python; here it is only parsed. zulip-host.yml runs it for real.

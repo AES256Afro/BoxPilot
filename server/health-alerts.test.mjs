@@ -97,6 +97,22 @@ describe("health alerts", () => {
     expect(evaluateHealth({})).toEqual([]);
   });
 
+  it("says BoxPilot needs a restart when its own restart gave up or failed, and where to make it (sweep 5)", () => {
+    // It used to be only a journal line, which named the System page; the restart button is on Services.
+    const owed = (restart) => ({ boxpilot: { available: true, restart } });
+    const [gaveUp] = evaluateHealth(owed({ outcome: "gave-up", units: ["boxpilot.service", "boxpilot-helper.service"], reason: "it is running libraries the package change replaced", at: "2026-10-05T09:00:00.000Z", error: null }));
+    expect(gaveUp).toMatchObject({ key: "boxpilot.restart", priority: "default", title: "BoxPilot needs a restart" });
+    expect(gaveUp.message).toMatch(/^BoxPilot could not restart boxpilot\.service and boxpilot-helper\.service after it was asked to \(it is running libraries the package change replaced\): the server was never idle long enough, so nothing was stopped\./);
+    expect(gaveUp.message).toMatch(/Restart them from Services when nothing is running; the Updates page lists what still runs old libraries\.$/);
+    const [failed] = evaluateHealth(owed({ outcome: "failed", units: ["boxpilot-helper.service"], reason: "KVM was installed", at: "2026-10-05T09:00:00.000Z", error: "Failed to restart boxpilot-helper.service: Access denied" }));
+    expect(failed.message).toMatch(/^BoxPilot could not restart boxpilot-helper\.service \(KVM was installed\): Failed to restart boxpilot-helper\.service: Access denied\. Restart it from Services/);
+    expect(evaluateHealth(owed(null))).toEqual([]);
+    // Read, it can clear; not read, it is not taken as cleared.
+    expect(collectorAvailability(owed(null))["boxpilot.restart"]).toBe(true);
+    expect(collectorAvailability({ boxpilot: { available: false, restart: null } })["boxpilot.restart"]).toBe(false);
+    expect(collectorAvailability({})["boxpilot.restart"]).toBe(false);
+  });
+
   it("keeps a failing disk's alert while the scan leaves it asleep, and raises none for a healthy one (M36)", () => {
     const asleep = (lastHealth) => ({ storage: { smart: { disks: [{ device: "/dev/sdb", health: "unavailable", reason: "asleep", lastHealth, lastReadAt: "2026-09-28T06:00:00.000Z" }] } } });
     const [alert] = evaluateHealth(asleep("critical"));
@@ -337,6 +353,26 @@ describe("failures BoxPilot reports on its own work (M27.2)", () => {
     expect((await alerts.check()).sent).toEqual([]); // announced now; the next round is quiet
   });
 
+  it("keeps who ran the run its words describe, through a later delivery, here and in the notification centre (sweep 3)", async () => {
+    const recorded = [];
+    const settings = new Map();
+    const store = { getSetting: (key, fallback) => settings.get(key) ?? fallback, setSetting: (key, value) => settings.set(key, value), recordAudit: vi.fn() };
+    let target = null;
+    const alerts = createHealthAlerts({ inventory: { inspect: async () => ({}) }, notifications: { getTarget: () => target, send: vi.fn(async () => ({ sent: true })) }, store, now: at, history: { record: (entry) => recorded.push(entry), resolve: () => {} } });
+    const automation = { key: "flow.failed:f1", title: "Automation stopped: Tidy", message: "Tidy stopped at step 2: the owner's error", actorId: "owner-1" };
+    await alerts.raise(automation);
+    expect(settings.get("healthAlertsState")[automation.key]).toMatchObject({ notified: false, actorId: "owner-1" });
+    target = { kind: "ntfy" };
+    await alerts.check();
+    expect(settings.get("healthAlertsState")[automation.key]).toEqual({ since: "2026-09-27T03:00:00.000Z", title: automation.title, notified: true, actorId: "owner-1" });
+    expect(recorded.map((entry) => [entry.delivered, entry.actorId])).toEqual([[false, "owner-1"], [true, "owner-1"]]);
+    // A failure raised with nobody to name keeps that too; one raised without saying keeps nothing.
+    await alerts.raise({ ...automation, key: "flow.failed:f2", actorId: null });
+    await alerts.raise({ ...failure });
+    expect(settings.get("healthAlertsState")["flow.failed:f2"]).toMatchObject({ actorId: null });
+    expect(settings.get("healthAlertsState")[failure.key]).not.toHaveProperty("actorId");
+  });
+
   it("keeps a failure whose delivery failed as not announced, and tries again", async () => {
     const send = vi.fn().mockRejectedValueOnce(new Error("The notification target answered 502")).mockResolvedValue({ sent: true });
     const { alerts, state, store } = ledger({ send });
@@ -503,5 +539,16 @@ describe("jobs a restart cut off (M27.2)", () => {
     expect(state["job.interrupted:apt.upgrade"]).toMatchObject({ title: "Install all package updates was interrupted", notified: false, priority: "high" });
     expect(state["job.interrupted:app.backup:immich"].title).toBe("Back up application data (immich) was interrupted");
     expect(jobNoticeKey("job.interrupted", jobsById.backup)).toBe("job.interrupted:app.backup:immich");
+  });
+
+  it("says a job BoxPilot restarted before it began changed nothing (sweep 4)", async () => {
+    const settings = new Map();
+    const store = { getSetting: (key, fallback) => settings.get(key) ?? fallback, setSetting: (key, value) => settings.set(key, value), recordAudit: vi.fn(), getJob: () => ({ id: "queued", type: "op:apt.upgrade", title: "Install package updates", parameters: {} }), listFlows: () => [] };
+    const alerts = createHealthAlerts({ inventory: { inspect: async () => ({}) }, notifications: { getTarget: () => null, send: vi.fn() }, store, now: () => new Date("2026-09-27T03:00:00Z") });
+    await tellInterrupted({ alerts, store, interrupted: [{ id: "queued", title: "Install package updates", neverStarted: true }] });
+    expect(settings.get("healthAlertsState")["job.interrupted:apt.upgrade"]).toMatchObject({
+      title: "Install package updates did not start",
+      message: "BoxPilot restarted before it began, so nothing was changed. Run it again when you are ready.",
+    });
   });
 });

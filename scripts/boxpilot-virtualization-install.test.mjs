@@ -37,6 +37,9 @@ describe("fixed virtualization installer", () => {
     await expect(installApprovedVirtualization({ run, loadApproval: async () => approval(), now: () => new Date("2026-08-16T12:01:00.000Z") })).resolves.toEqual({
       installed: true, packages: approvedPackages, serviceActive: true, connectionUri: "qemu:///system", qemuVerified: true, kvmDeviceVerified: true,
     });
+    // needrestart's hook stays off for the install, as for every package change (server/tasks/apt.mjs):
+    // in automatic mode it restarted BoxPilot and its helper mid-install when libc or openssl moved.
+    expect(run).toHaveBeenCalledWith("/usr/bin/apt-get", expect.any(Array), expect.objectContaining({ env: expect.objectContaining({ NEEDRESTART_SUSPEND: "1" }) }));
     expect(run).toHaveBeenCalledWith("/usr/bin/systemctl", ["enable", "libvirtd.service"], { timeout: 30000 });
     expect(run).toHaveBeenCalledWith("/usr/bin/systemctl", ["start", "libvirtd.service"], { timeout: 120000 });
   });

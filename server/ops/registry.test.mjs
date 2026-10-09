@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { OperationRegistry, budgetFor, createRegistry, defineOperation, maskSecrets, moreTimeCeilingMs, nextBudgetMs, placeholderPaths, rerunsAfterInterrupt, restoreSecrets, secretPaths, secretPlaceholder, splitSecrets, validateParameters } from "./registry.mjs";
+import { OperationRegistry, budgetFor, confirmTextFor, createRegistry, defineOperation, maskSecrets, moreTimeCeilingMs, nextBudgetMs, placeholderPaths, rerunsAfterInterrupt, restoreSecrets, secretPaths, secretPlaceholder, splitSecrets, validateParameters } from "./registry.mjs";
 import { registry } from "./index.mjs";
 import { helperOperations, legacyHelperOperations, validateHelperRequest } from "../helper-protocol.mjs";
 
@@ -189,6 +189,21 @@ describe("more time for an operation that ran out of it (M30.3)", () => {
   });
 });
 
+// Sweep 4: a typed confirmation some requests ask for and others do not, said as such.
+describe("a typed confirmation for some requests", () => {
+  it("is said by a clause, and only for an operation with a confirm", () => {
+    const sometimes = defineOperation({ id: "a.b", title: "x", risk: "high", confirm: (parameters) => (parameters.allow ? "allow" : null), confirmWhen: "it allows something", run() {} });
+    expect(sometimes.confirmWhen).toBe("it allows something");
+    expect(confirmTextFor(sometimes, {})).toBeNull();
+    expect(confirmTextFor(sometimes, { allow: true })).toBe("allow");
+    expect(confirmTextFor(defineOperation({ id: "a.c", title: "x", risk: "high", confirm: () => { throw new Error("x"); }, run() {} }), {})).toBeNull();
+    expect(confirmTextFor(null, {})).toBeNull();
+    expect(() => defineOperation({ id: "a.b", title: "x", risk: "high", confirmWhen: "it allows something", run() {} })).toThrow("confirmWhen");
+    expect(() => defineOperation({ id: "a.b", title: "x", risk: "high", confirm: () => "x", confirmWhen: "", run() {} })).toThrow("confirmWhen");
+    expect(registry.get("app.backup.restore").confirmWhen).toMatch(/compose file/);
+  });
+});
+
 describe("running an interrupted job again (M30.2)", () => {
   it("is declared, and cannot be declared where a second run is not safe", () => {
     expect(rerunsAfterInterrupt(defineOperation({ id: "a.read", title: "x", risk: "low", readOnly: true, run() {} }))).toBe(true);
@@ -197,6 +212,8 @@ describe("running an interrupted job again (M30.2)", () => {
     expect(() => defineOperation({ id: "a.b", title: "x", risk: "high", rerunAfterInterrupt: true, run() {} })).toThrow("high risk");
     expect(() => defineOperation({ id: "a.b", title: "x", risk: "medium", confirm: () => "yes", rerunAfterInterrupt: true, run() {} })).toThrow("typed confirmation");
     expect(() => defineOperation({ id: "a.b", title: "x", risk: "medium", restartsService: true, rerunAfterInterrupt: true, run() {} })).toThrow("restarts BoxPilot");
+    expect(() => defineOperation({ id: "a.b", title: "x", risk: "medium", restartsService: "drained", rerunAfterInterrupt: true, run() {} })).toThrow("restarts BoxPilot");
+    expect(() => defineOperation({ id: "a.b", title: "x", risk: "medium", restartsService: "sometimes", run() {} })).toThrow('true, false or "drained"');
     expect(() => defineOperation({ id: "a.b", title: "x", risk: "medium", rerunAfterInterrupt: true, parameters: { fields: { password: { type: "string", secret: true } } }, run() {} })).toThrow("secrets");
     expect(() => defineOperation({ id: "a.b", title: "x", risk: "medium", rerunAfterInterrupt: true, parameters: { fields: { id: { type: "string" }, values: { type: "object", secretEnvOf: "id" } } }, run() {} })).toThrow("secrets");
   });

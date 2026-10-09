@@ -1,4 +1,4 @@
-import { writeFile } from "node:fs/promises";
+import { writeFileDurably as writeFile } from "../durable-file.mjs";
 import { fixedRun } from "../exec.mjs";
 
 /**

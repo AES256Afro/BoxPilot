@@ -5,6 +5,8 @@
 
 export interface FlowStep { operationId: string; parameters?: Record<string, unknown>; name?: string; onFailure?: "stop" | "continue"; when?: { value: string; equals?: unknown }; retry?: number }
 
+export interface OwnerStepToKeep { step: number; title: string; reads?: string[] }
+
 export interface Flow {
   // createdBy is null for someone else's flow unless you are the owner; so is a run another account
   // started, which comes with lastRunElsewhere, its outcome, and none of its jobs (M29.4).
@@ -15,6 +17,10 @@ export interface Flow {
   enabled: boolean; nextDueAt: string | null; triggerFlowId: string | null; webhookEnabled: boolean;
   // Armed from a drive's row or its Repair notice (M26.5): the managed drive whose loss runs it.
   triggerDrive?: string | null;
+  // Each step only the owner may run that someone else put in this flow and the owner has not kept,
+  // with the names of the steps whose results it uses: the flow does not run until the owner keeps
+  // every one, one at a time (Keep step N).
+  ownerToKeep?: OwnerStepToKeep[] | null;
 }
 
 export interface PaletteField { name: string; type: "string" | "number" | "boolean"; optional: boolean; enum: string[] | null; default: string | number | boolean | null }
@@ -31,6 +37,9 @@ export function cadenceLabel(flow: Pick<Flow, "frequency" | "minute" | "hour" | 
   if (flow.frequency === "daily") return `every day at ${two(flow.hour ?? 3)}:${two(flow.minute ?? 0)}`;
   return `every ${weekdays[flow.weekday ?? 0]} at ${two(flow.hour ?? 3)}:${two(flow.minute ?? 0)}`;
 }
+
+/** A step's setting as the page shows it: words as they are, anything else as JSON. */
+export const settingText = (value: unknown): string => (typeof value === "string" ? value : JSON.stringify(value) ?? String(value));
 
 /** A field's name as words: "credentialName" is "Credential name". */
 export const humanize = (name: string) => name.replace(/([A-Z])/g, " $1").replace(/[._]/g, " ").replace(/^./, (c) => c.toUpperCase()).trim().replace(/\s(\w)/g, (_, c: string) => ` ${c.toLowerCase()}`);

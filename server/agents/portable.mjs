@@ -3,12 +3,20 @@
  * another BoxPilot; import one back as a new agent. What travels is the spec and the golden
  * questions - never runs, notes, memory, webhooks or anything about this server - and an import
  * goes through the same gate as the Builder (normalizeSpec), so a file can say nothing a person
- * could not.
+ * could not. Leave to carry out operations (M45.5) never travels either way: the owner gives it on
+ * each server, by name.
  */
 import { normalizeSpec } from "./spec.mjs";
 
 export const definitionFormat = "boxpilot-agent";
 export const definitionVersion = 1;
+
+/** What it may touch, without its leave to carry out operations. */
+function withoutGrants(allow) {
+  if (!allow || typeof allow !== "object" || Array.isArray(allow)) return allow;
+  const { grants: _grants, ...rest } = allow;
+  return rest;
+}
 
 export function exportDefinition(agent, { questions = [], productVersion = null, now = new Date() } = {}) {
   return {
@@ -18,7 +26,7 @@ export function exportDefinition(agent, { questions = [], productVersion = null,
     ...(productVersion ? { boxpilot: productVersion } : {}),
     template: agent.template ?? null,
     // Agent ids mean nothing on another server: a supervisor's list of delegates travels as "*".
-    spec: { ...agent.spec, orchestration: { ...agent.spec.orchestration, delegates: "*" } },
+    spec: { ...agent.spec, allow: withoutGrants(agent.spec.allow), orchestration: { ...agent.spec.orchestration, delegates: "*" } },
     questions,
   };
 }
@@ -38,7 +46,7 @@ export function readDefinition(input) {
   if (value.format !== definitionFormat) throw new DefinitionError(`That is not a BoxPilot agent (format "${String(value.format ?? "").slice(0, 40)}")`);
   if (value.version !== definitionVersion) throw new DefinitionError(`This BoxPilot reads agent definitions of version ${definitionVersion}, not ${String(value.version).slice(0, 10)}`);
   let spec;
-  try { spec = normalizeSpec({ ...value.spec, orchestration: { ...(value.spec?.orchestration ?? {}), delegates: "*" } }); } catch (error) { throw new DefinitionError(`The agent in that file is not valid: ${error.message}`); }
+  try { spec = normalizeSpec({ ...value.spec, allow: withoutGrants(value.spec?.allow), orchestration: { ...(value.spec?.orchestration ?? {}), delegates: "*" } }); } catch (error) { throw new DefinitionError(`The agent in that file is not valid: ${error.message}`); }
   const template = typeof value.template === "string" && /^[a-z0-9-]{1,40}$/.test(value.template) ? value.template : null;
   return { spec, template, questions: Array.isArray(value.questions) ? value.questions.slice(0, 20) : [] };
 }

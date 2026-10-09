@@ -9,14 +9,17 @@ describe("the tools catalog", () => {
     expect(new Set(ids).size).toBe(ids.length);
     for (const tool of toolCatalog) {
       expect(tool.fn, tool.id).toMatch(/^[a-z_]{1,64}$/);
-      expect(["viewer", "operator"], tool.id).toContain(tool.role);
+      expect(["viewer", "operator", "owner"], tool.id).toContain(tool.role);
       expect(["cheap", "moderate", "heavy"], tool.id).toContain(tool.cost);
       expect(toolById(tool.fn)).toBe(tool);
     }
   });
 
-  it("writes nothing on the server: the only tools that write keep notes, save a card or queue a notice", () => {
-    expect(toolCatalog.filter((tool) => tool.writes).map((tool) => [tool.id, tool.writes])).toEqual([["notes.write", "notes"], ["plan.propose", "proposal"], ["notify.owner", "notification"], ["agents.handoff", "subtask"]]);
+  it("writes on the server only through a job under a grant: the other tools that write keep notes, save a card or queue a notice", () => {
+    expect(toolCatalog.filter((tool) => tool.writes).map((tool) => [tool.id, tool.writes])).toEqual([["notes.write", "notes"], ["plan.propose", "proposal"], ["operations.run", "job"], ["operations.plan", "job"], ["notify.owner", "notification"], ["agents.handoff", "subtask"]]);
+    // M45.5 (ADR-013): the one tool that changes the server is for runs a person who may change it stands behind.
+    expect(toolById("operations.run").role).toBe("operator");
+    expect(toolById("operations.plan").role).toBe("operator");
   });
 
   it("gives an operator read (ADR-003) the operator role, as the registry does", () => {

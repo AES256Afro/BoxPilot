@@ -1,7 +1,8 @@
 import { useState, type CSSProperties } from "react";
 import { useOperation } from "../../shell/ApproveDialog";
 import { autoReconnectRule, type AutoReconnectControl } from "../../AutoReconnect";
-import { mountpointFor } from "../../mountpoints";
+import { BACKUP_MOUNT_NAME, BACKUP_MOUNTPOINT, mountpointFor } from "../../mountpoints";
+import { mayServe } from "../../servedFolder";
 import type { MapApp, MapSambaShare } from "../../storageMap";
 import { Button, Checkbox, EmptyState, Field, KeyValue, Notice, Panel, Sheet, Table, Tag, TextInput, mayStart, riskOf, type TableColumn } from "../../ui";
 import { ReconnectSwitch, UsageMeter } from "./parts";
@@ -37,7 +38,8 @@ const snapshotReserveBytes = 32 * 1024 ** 3;
 
 const canMount = (device: DeviceRow) => Boolean(!device.protected && device.uuid && device.fstype && device.fstype !== "swap" && device.mountpoints.length === 0 && !device.readOnly);
 const canFormat = (device: DeviceRow) => Boolean(!device.protected && device.path && !device.readOnly && ["disk", "part"].includes(device.type ?? "") && device.mountpoints.length === 0);
-const dataMountpoint = (device: DeviceRow) => device.mountpoints.find((point) => point.startsWith("/mnt/") || point.startsWith("/srv/"));
+// A folder the file servers would serve: never one under /mnt/boxpilot, the backup destination.
+const dataMountpoint = (device: DeviceRow) => device.mountpoints.find((point) => (point.startsWith("/mnt/") || point.startsWith("/srv/")) && mayServe(point));
 
 function filesystemOf(device: DeviceRow) {
   if (device.type === "lvm" && device.volumeGroup) return <>LVM volume <code>{device.volumeGroup}/{device.logicalVolume}</code>{device.fstype ? ` · ${device.fstype}` : ""}</>;
@@ -231,7 +233,11 @@ export default function DrivesTab({ csrfToken, role, report, loading, autoReconn
           ]} />
           <Field
             label="Mount name"
-            hint={<>Mounts at <code>{nameValid(form.name) ? mountpointFor(form.name) : "/mnt/<name>"}</code> and again at every boot; a missing drive never blocks it.</>}
+            // The same shortcut Shares has: Backups' Off-box tab sends the owner here to mount "a NAS or
+            // a second drive" for its backups, and only the share's sheet offered the one exact name.
+            hint={form.name === BACKUP_MOUNT_NAME
+              ? <>Mounts at <code>{BACKUP_MOUNTPOINT}</code>: BoxPilot copies its backups there. A missing drive never blocks boot.</>
+              : <>Mounts at <code>{nameValid(form.name) ? mountpointFor(form.name) : "/mnt/<name>"}</code> and again at every boot; a missing drive never blocks it. <Button variant="ghost" className="storage-inline" onClick={() => setForm({ ...form, name: BACKUP_MOUNT_NAME })}>Use this for BoxPilot's backups</Button></>}
             error={form.name && !nameValid(form.name) ? (form.name === "boxpilot" ? "boxpilot is the backup destination's folder." : "Lower case letters, digits and dashes, starting with a letter or digit.") : undefined}
           >
             <TextInput mono placeholder="data" autoComplete="off" value={form.name} onValueChange={(value) => setForm({ ...form, name: value.toLowerCase() })} />

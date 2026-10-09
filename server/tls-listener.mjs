@@ -10,6 +10,19 @@
 import { createServer as createHttpsServer } from "node:https";
 import { readFileSync } from "node:fs";
 
+export const defaultTlsPort = 8443;
+
+/**
+ * The HTTPS port for a BOXPILOT_TLS_PORT value: parseInt's reading of it, as BOXPILOT_PORT is read
+ * (env-file.mjs webPortOf), so `9443   # https` is 9443; 8443 when there is none or it is no port.
+ * A hand-edited value that is no port used to reach listen(), which throws at once rather than
+ * emitting "error"; index.mjs runs this at load, so the whole web service crash-looped (sweep 5).
+ */
+export function tlsPortOf(value) {
+  const port = Number.parseInt(value ?? "", 10);
+  return Number.isInteger(port) && port > 0 && port <= 65535 ? port : defaultTlsPort;
+}
+
 /**
  * Start the HTTPS listener if a certificate is configured and readable. Injectable for tests.
  * Returns the server, or null when TLS is not set up (the normal default) or cannot start.
@@ -28,7 +41,10 @@ export function startTlsListener(
   const certPath = env.BOXPILOT_TLS_CERT;
   const keyPath = env.BOXPILOT_TLS_KEY;
   if (!certPath || !keyPath) return null;
-  const port = Number.parseInt(env.BOXPILOT_TLS_PORT ?? "8443", 10);
+  const port = tlsPortOf(env.BOXPILOT_TLS_PORT);
+  if (env.BOXPILOT_TLS_PORT !== undefined && port !== Number.parseInt(env.BOXPILOT_TLS_PORT, 10)) {
+    log.warn?.(`BOXPILOT_TLS_PORT=${JSON.stringify(env.BOXPILOT_TLS_PORT)} is not a port; HTTPS listens on ${port} instead.`);
+  }
   let cert;
   let key;
   try {
@@ -50,6 +66,12 @@ export function startTlsListener(
     log.warn?.(`The HTTPS listener on ${host}:${port} failed (${error.message}); HTTP is still serving.`);
     onError(error);
   });
-  server.listen(port, host, () => log.log?.(`BoxPilot listening on https://${host}:${port}`));
+  try {
+    server.listen(port, host, () => log.log?.(`BoxPilot listening on https://${host}:${port}`));
+  } catch (error) {
+    log.warn?.(`The HTTPS listener on ${host}:${port} could not start (${error.message}); HTTP is still serving.`);
+    try { server.close?.(); } catch { /* it never listened */ }
+    return null;
+  }
   return server;
 }

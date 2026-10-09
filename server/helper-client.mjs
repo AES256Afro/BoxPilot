@@ -31,11 +31,13 @@ const sharedReadCeilingMs = 30_000;
  * web side gives up. The longest registered operations run for twelve hours, so a request queued
  * behind one of those must not be failed by its own (much shorter) budget.
  */
-const queuedCeilingMs = 24 * 60 * 60_000;
+export const queuedCeilingMs = 24 * 60 * 60_000;
 
 export function createHelperClient({ socketPath = process.env.BOXPILOT_HELPER_SOCKET ?? "/run/boxpilot/helper.sock", timeoutMs = 5000, queueTimeoutMs = queuedCeilingMs, maxResponseBytes = maxHelperResponseBytes, setTimeout: schedule = globalThis.setTimeout, clearTimeout: cancel = globalThis.clearTimeout } = {}) {
   const transport = { active: 0, completed: 0, failed: 0 };
-  function send(operation, parameters = {}, { timeoutMs: requestTimeoutMs = timeoutMs, jobId = null, budgetMs = null } = {}) {
+  // onQueued and onStarted tell the caller, once each, that the request is waiting behind other
+  // work and that it has left the queue: a job says so, and a flow's step counts its time from then.
+  function send(operation, parameters = {}, { timeoutMs: requestTimeoutMs = timeoutMs, jobId = null, budgetMs = null, onQueued = null, onStarted = null } = {}) {
     return new Promise((resolve, reject) => {
       const connection = net.createConnection(socketPath);
       transport.active += 1;
@@ -65,6 +67,7 @@ export function createHelperClient({ socketPath = process.env.BOXPILOT_HELPER_SO
         deadline.unref?.();
       }
       const ranOut = (message, ms) => timedOut(message, { scope: "operation", budgetMs: ms, ...(queued && !started ? { phase: "queued" } : {}) });
+      const notify = (callback) => { try { callback?.(); } catch { /* the request's own outcome stands */ } };
       // The operation's budget is measured from when the helper starts it. A request the helper says
       // is queued behind earlier work waits under the queue ceiling instead, and gets its full budget
       // back when the helper reports that it left the queue.
@@ -76,11 +79,13 @@ export function createHelperClient({ socketPath = process.env.BOXPILOT_HELPER_SO
           arm(queueTimeoutMs, "Helper request timed out while queued behind earlier operations (overall deadline reached)");
           // Heartbeats arrive every 20 seconds; a short budget must not read the queue as a dead peer.
           connection.setTimeout(Math.max(requestTimeoutMs, 60_000));
+          notify(onQueued);
         },
         onStarted: () => {
           started = true;
           arm(requestTimeoutMs, "Helper request timed out (overall deadline reached)");
           connection.setTimeout(requestTimeoutMs);
+          notify(onStarted);
         },
       });
       arm(requestTimeoutMs, "Helper request timed out (overall deadline reached)");
@@ -89,23 +94,30 @@ export function createHelperClient({ socketPath = process.env.BOXPILOT_HELPER_SO
       // budgetMs goes only with a job given more time: an older helper refuses any context key but
       // jobId, and every other request must keep working against it for a release.
       const context = { ...(jobId ? { jobId } : {}), ...(Number.isInteger(budgetMs) ? { budgetMs } : {}) };
-      connection.on("connect", () => connection.write(`${JSON.stringify({ version: 1, id, operation, parameters, ...(Object.keys(context).length ? { context } : {}) })}\n`));
-      connection.on("data", (chunk) => { if (!settled) { try { reader.push(chunk); } catch (error) { fail(error); } } });
-      connection.on("end", () => {
+      // Until it connects, nothing has been sent: a helper that is not there (stopped and not yet
+      // started again, mid restart) ran nothing, which the job layer may send again (sweep 5).
+      let sent = false;
+      connection.on("connect", () => { sent = true; connection.write(`${JSON.stringify({ version: 1, id, operation, parameters, ...(Object.keys(context).length ? { context } : {}) })}\n`); });
+      function succeed() {
         if (settled) return;
         try {
           const result = reader.finish();
           settled = true;
           transport.active -= 1; transport.completed += 1;
           cancel(deadline);
+          connection.destroy();
           resolve(result);
         } catch (error) {
           fail(error);
         }
-      });
+      }
+      // The reply is whole once its line has arrived. The socket's end can follow later under load,
+      // and a deadline between the two reported a finished operation as a timeout.
+      connection.on("data", (chunk) => { if (!settled) { try { reader.push(chunk); if (reader.stats().complete) succeed(); } catch (error) { fail(error); } } });
+      connection.on("end", succeed);
       // Nothing heard for the whole budget: the same timeout, reached through the idle timer.
       connection.on("timeout", () => fail(ranOut("Helper request timed out", connection.timeout ?? requestTimeoutMs)));
-      connection.on("error", (error) => fail(new Error(`Helper unavailable: ${error.message}`)));
+      connection.on("error", (error) => fail(Object.assign(new Error(`Helper unavailable: ${error.message}`), sent ? {} : { code: "helper_unavailable" })));
       connection.on("close", () => { if (!settled) fail(new Error("Helper connection closed before sending a result")); });
     });
   }

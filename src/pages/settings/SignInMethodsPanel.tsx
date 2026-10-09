@@ -96,6 +96,8 @@ export default function SignInMethodsPanel({ csrfToken }: { csrfToken: string })
   };
 
   const passwordOk = password.length >= 12;
+  // Why every button below waits, said with each of them as well as once above the lot.
+  const needPassword = passwordOk ? undefined : "Type your password above first";
   const here = links?.currentTailscale ?? null;
   const tailscaleLinked = links?.tailscaleLogins.length ?? 0;
   const githubLinked = links?.githubLogins.length ?? 0;
@@ -115,8 +117,8 @@ export default function SignInMethodsPanel({ csrfToken }: { csrfToken: string })
         <p className="settings-quiet">{here ? <>This connection is <code>{here.login}</code> ({here.displayName}) from <code>{here.node}</code>.</> : "You are not connected over Tailscale right now; open BoxPilot through its Tailscale address to link that identity."}</p>
         {(here && !here.linked) || tailscaleLinked ? (
           <div className="settings-actions">
-            {here && !here.linked && <Button variant="primary" disabled={busy || !passwordOk} onClick={() => void linkTailscale()}>Link {here.login}</Button>}
-            {links?.tailscaleLogins.map((login) => <Button key={login} disabled={busy || !passwordOk} onClick={() => void unlinkTailscale(login)}>Unlink {login}</Button>)}
+            {here && !here.linked && <Button variant="primary" disabled={busy || !passwordOk} title={needPassword} onClick={() => void linkTailscale()}>Link {here.login}</Button>}
+            {links?.tailscaleLogins.map((login) => <Button key={login} disabled={busy || !passwordOk} title={needPassword} onClick={() => void unlinkTailscale(login)}>Unlink {login}</Button>)}
           </div>
         ) : null}
       </section>
@@ -131,9 +133,9 @@ export default function SignInMethodsPanel({ csrfToken }: { csrfToken: string })
           <Field label="GitHub OAuth App client ID">
             <TextInput mono placeholder="Ov23li... or Iv1..." value={clientId} onValueChange={setClientId} autoComplete="off" spellCheck={false} />
           </Field>
-          <Button disabled={busy || !passwordOk || clientId === (links?.githubClientId ?? "")} onClick={() => void saveClientId()}>Save client ID</Button>
+          <Button disabled={busy || !passwordOk || clientId === (links?.githubClientId ?? "")} title={needPassword ?? (clientId === (links?.githubClientId ?? "") ? "This client ID is the one saved" : undefined)} onClick={() => void saveClientId()}>Save client ID</Button>
         </div>
-        {links?.githubConfigured && !flow && <div className="settings-actions"><Button variant="primary" disabled={busy || !passwordOk} onClick={() => void linkGithub()}>Link a GitHub account</Button></div>}
+        {links?.githubConfigured && !flow && <div className="settings-actions"><Button variant="primary" disabled={busy || !passwordOk} title={needPassword} onClick={() => void linkGithub()}>Link a GitHub account</Button></div>}
         {flow && (
           <div className="settings-device" aria-live="polite">
             <span>Open <a href={flow.verificationUri} target="_blank" rel="noreferrer">{flow.verificationUri}</a> and enter</span>
@@ -142,7 +144,7 @@ export default function SignInMethodsPanel({ csrfToken }: { csrfToken: string })
             <Button variant="ghost" onClick={cancelGithub}>Cancel</Button>
           </div>
         )}
-        {githubLinked ? <div className="settings-actions">{links!.githubLogins.map((login) => <Button key={login} disabled={busy || !passwordOk} onClick={() => void unlinkGithub(login)}>Unlink {login}</Button>)}</div> : null}
+        {githubLinked ? <div className="settings-actions">{links!.githubLogins.map((login) => <Button key={login} disabled={busy || !passwordOk} title={needPassword} onClick={() => void unlinkGithub(login)}>Unlink {login}</Button>)}</div> : null}
         {relink.length ? (
           <Notice tone="warning" title={`Link ${relink.length === 1 ? "it" : "them"} again`}>
             {relink.join(", ")} {relink.length === 1 ? "was" : "were"} linked before BoxPilot recorded GitHub's account number. A GitHub name can be released and taken by somebody else, so a name on its own no longer signs anyone in. Link {relink.length === 1 ? "it" : "them"} again to use GitHub sign-in.

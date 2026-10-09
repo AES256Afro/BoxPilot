@@ -1,13 +1,15 @@
 import express from "express";
 import { randomUUID } from "node:crypto";
 import { createReadStream, readFileSync } from "node:fs";
-import { stat } from "node:fs/promises";
-import { createDeviceResolver, deviceResolvingOperations } from "./catalog/devices.mjs";
+import { access, stat } from "node:fs/promises";
+import { createDeviceResolver, createSnapshotDeviceResolver, deviceResolvingOperations } from "./catalog/devices.mjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { startTlsListener } from "./tls-listener.mjs";
 import { productVersion } from "./version.mjs";
-import { createCatalogService, secretEnvNamesLookup } from "./catalog/index.mjs";
+import { webHostOf, webPortOf } from "./env-file.mjs";
+import { createCatalogService, installRiskLookup, secretEnvNamesLookup } from "./catalog/index.mjs";
+import { archivedComposeRisk } from "./ops/apps.mjs";
 import { createJobLogReader } from "./job-log.mjs";
 import { createActionCenterService } from "./action-center.mjs";
 import { createAuditLog } from "./audit.mjs";
@@ -25,6 +27,9 @@ import { createOperationsRouter } from "./routes/operations.mjs";
 import { createJobsRouter } from "./routes/jobs.mjs";
 import { createVirtualizationRouter } from "./routes/virtualization.mjs";
 import { createSettingsRouter } from "./routes/settings.mjs";
+import { createPushRouter } from "./routes/push.mjs";
+import { createPushApprovals, defaultMayApprove } from "./push-approvals.mjs";
+import { loadVapidKey } from "./web-push.mjs";
 import { createHostRouter } from "./routes/host.mjs";
 import { createFirewallRouter } from "./routes/firewall.mjs";
 import { createStorageRouter } from "./routes/storage.mjs";
@@ -34,6 +39,7 @@ import { createPeopleRouter } from "./routes/people.mjs";
 import { createRunbookRouter } from "./routes/runbook.mjs";
 import { createAssistantRouter } from "./routes/assistant.mjs";
 import { createAgentsRouter } from "./routes/agents.mjs";
+import { createAgentsCloud } from "./agents/cloud.mjs";
 import { createAgentRunnerRouter } from "./routes/agent-runner.mjs";
 import { apiRolePolicy } from "./routes/access.mjs";
 import { createAssistantService } from "./assistant/index.mjs";
@@ -43,7 +49,9 @@ import { createRateLimit } from "./agents/budget.mjs";
 import { createHelperClient } from "./helper-client.mjs";
 import { createHelperLibvirtService } from "./helper-libvirt.mjs";
 import { createInventoryService } from "./inventory.mjs";
-import { createStorageReader } from "./storage-inventory.mjs";
+import { collectStorage, createStorageReader } from "./storage-inventory.mjs";
+import { listListeners } from "./ports.mjs";
+import { scanRemediations } from "./remediations-scan.mjs";
 import { createJobService, recordFailed } from "./jobs.mjs";
 import { planInterruptedReruns } from "./job-reruns.mjs";
 import { invalidateOperationEvidence } from "./diagnostic-invalidation.mjs";
@@ -86,11 +94,13 @@ import { createVmRestoreDrillService } from "./vm-restore-drill.mjs";
 import { foldVerdict, verdictFrom } from "./backup-verdicts.mjs";
 import { appStopClearingOperations, foldAppStop, seedAppStops } from "./app-stops.mjs";
 import { jsonGzip, precompressedAssets } from "./compress.mjs";
-import { securityHeaders } from "./security-headers.mjs";
+import { rootFileHeaders, securityHeaders } from "./security-headers.mjs";
 
 const app = express();
-const host = process.env.BOXPILOT_HOST ?? "127.0.0.1";
-const port = Number.parseInt(process.env.BOXPILOT_PORT ?? "8787", 10);
+// As every reader of the env file takes them (server/env-file.mjs): the port with parseInt, since
+// systemd hands over `9000   # moved off 8787` whole; loopback for an empty address, not every one.
+const host = webHostOf(process.env.BOXPILOT_HOST);
+const port = webPortOf(process.env.BOXPILOT_PORT);
 const tlsDir = process.env.BOXPILOT_TLS_DIR ?? "/etc/boxpilot/tls";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const dist = path.join(root, "dist");
@@ -138,6 +148,7 @@ const supportBundle = createSupportBundleService({ inventory, prerequisites, act
 const catalogService = createCatalogService();
 // Device globs in manifests are resolved by this process: the helper's sandbox has no real /dev.
 const withResolvedDevices = createDeviceResolver({ catalog: catalogService });
+const withSnapshotDevices = createSnapshotDeviceResolver({ catalog: catalogService });
 const jobLogReader = createJobLogReader();
 function pinnedBackupDestination() {
   const destination = state.getSetting("backupDestination", null);
@@ -157,6 +168,13 @@ function markProfileEdited(job) {
 }
 
 const secretEnvNamesFor = secretEnvNamesLookup(catalogService);
+// Installing an app its manifest calls high risk (the house's DNS, the VPN) is staged and approved
+// as high: the owner, with the password. The registry has the same hooks, so a card an agent or the
+// assistant proposes says the tier the job will be staged at (sweep 3).
+// A restore that allows a backup's own compose file to start as archived is high, owner only, typed
+// out (sweep 4): both already are, and stay so whatever their own tier becomes.
+const operationRiskHooks = { "app.install": installRiskLookup(catalogService), "app.backup.restore": archivedComposeRisk, "host.snapshot.restore": archivedComposeRisk };
+registry.useRiskHooks(operationRiskHooks);
 // Where alerts go, and the one ledger of what was announced and what could not be (M27.2). A failed
 // scheduled run, an automation's step, or a result that could not be saved is announced through the
 // health alerts, once per condition, so the notifier leaves those jobs alone. scheduler and flows are
@@ -209,7 +227,7 @@ const jobs = createJobService(state, helper, {
     "firewall.profile.apply": (job, result) => state.setSetting("firewallProfile", { id: result.profile, services: result.services ?? [], sshRateLimit: result.sshRateLimit ?? false, appliedAt: result.appliedAt, appliedBy: job.createdBy }, { updatedBy: job.createdBy }),
     // Editing rules by hand moves the box away from the profile, so the page stops claiming one is
     // in force rather than naming a profile whose rules are no longer what is loaded.
-    "firewall.rule.set": (job) => markProfileEdited(job),
+    "firewall.rule.add": (job) => markProfileEdited(job),
     "firewall.rule.delete": (job) => markProfileEdited(job),
     "backup.cloud.setup": (job, result) => state.setSetting("cloudDestination", result.destination, { updatedBy: job.createdBy }),
     "backup.cloud.sync": (job, result) => state.setSetting("cloudDestinationLastSync", { completedAt: result.completedAt, filesTransferred: result.filesTransferred, bytesTransferred: result.bytesTransferred, destination: result.destination, errors: result.errors ?? 0 }, { updatedBy: job.createdBy }),
@@ -227,6 +245,10 @@ const jobs = createJobService(state, helper, {
     // M38: where Zulip is and what Connect made; the bot's key stayed in the helper's credential store.
     "agents.zulip.connect": (job, result) => { agents.zulipConnected(result, { actorId: job.createdBy, boxpilotUrl: job.parameters?.boxpilotUrl ?? null }); },
     "agents.zulip.disconnect": (job) => { agents.zulipDisconnected({ actorId: job.createdBy }); },
+    // M45.3: Claude connected, its cap, or disconnected; the key went to the gateway, never here.
+    "agents.cloud.connect": (job, result) => { agentsCloud.connected(result, { actorId: job.createdBy }); },
+    "agents.cloud.cap": (job, result) => { agentsCloud.capSet(result, { actorId: job.createdBy }); },
+    "agents.cloud.disconnect": (job) => { agentsCloud.disconnected({ actorId: job.createdBy }); },
     // M39.2: whether the router kept answering with the DNS app here stopped. The DNS check reads it
     // (a job is pruned within weeks; the verdict holds for ninety days).
     "dns.fallback.rehearse": (job, result) => {
@@ -234,10 +256,13 @@ const jobs = createJobService(state, helper, {
       dnsResilience.forget();
     },
   },
+  operationRiskHooks,
   // Prepare hooks pin server-derived expectations into the staged parameters.
   operationPrepareHooks: {
     // Device globs (/dev/sd?, /dev/ttyUSB?) resolve here against the real /dev; the helper runs with PrivateDevices.
     ...Object.fromEntries(deviceResolvingOperations.map((id) => [id, (parameters) => withResolvedDevices(parameters)])),
+    // A snapshot restore installs apps too: each one that wants a device gets the ones found here.
+    "host.snapshot.restore": (parameters) => withSnapshotDevices(parameters),
     "controller.backup.protect": (parameters) => controllerProtection.prepareOperation(parameters),
     "system.update": (parameters) => releaseUpdates.prepareOperation(parameters),
     // Dashboard links need the address the browser uses; fall back to the LAN address for scheduled runs.
@@ -265,6 +290,11 @@ const jobs = createJobService(state, helper, {
     },
     // M37: the model agents use now is pinned into the job, so the root task can refuse to remove it.
     "agents.model.remove": (parameters) => ({ repo: parameters?.repo, file: parameters?.file, projector: parameters?.projector ?? null, current: agents.currentModel() }),
+  },
+  // Pinned again as the job is approved: what was pinned at staging may have changed since.
+  operationApprovalHooks: {
+    // A switch to the model a staged removal names, before it is approved, makes it the one in use.
+    "agents.model.remove": (parameters) => ({ ...parameters, current: agents.currentModel() }),
   },
 });
 state.deleteExpiredSessions();
@@ -305,12 +335,28 @@ const flows = createFlowService({ store: state, jobs, secretEnvNamesFor, library
 // through its own flow and within a cooldown, a daily cap and a hold after any failure.
 const autoReconnect = createAutoReconnect({ store: state, flows, alerts: healthAlerts });
 notifications.start();
-flows.start();
+// A run the restart stopped between two steps goes on from the step that had not begun (sweep 5).
+flows.start({ interrupted: interruptedJobs });
 autoReconnect.start();
 scheduler.start();
 // Once the notifier listens, so a rerun that fails at once is still announced.
 void interruptedReruns.start().catch(() => {});
-const setup = createSetupService({ helper, scheduler });
+// Push approvals (M25.2): a job left waiting for a person is pushed to the phones of whoever may
+// approve it, as a title and a link to the approval - never the approval itself. The app's name in
+// the title comes from the catalog, never from what the job was given.
+let catalogNames = new Map();
+const readCatalogNames = () => catalogService.all().then(({ manifests }) => { catalogNames = new Map(manifests.map((manifest) => [manifest.id, manifest.name])); }).catch(() => {});
+void readCatalogNames();
+setInterval(readCatalogNames, 3600_000).unref?.();
+const pushApprovals = createPushApprovals({
+  store: state, notifications, history: notificationHistory,
+  loadVapid: () => loadVapidKey(process.env.BOXPILOT_PUSH_DIR ?? path.join(process.env.BOXPILOT_STATE_DIRECTORY ?? path.dirname(state.databasePath), "push")),
+  subjectOf: (job) => (String(job?.type).startsWith("op:app.") && typeof job?.parameters?.id === "string" ? catalogNames.get(job.parameters.id) ?? null : null),
+  mayApprove: (store, job) => defaultMayApprove(store, job, { minimumRole: jobs.approvalPolicy(job).minimumRole }),
+  contact: process.env.BOXPILOT_PUSH_CONTACT ?? null,
+});
+pushApprovals.start();
+const setup = createSetupService({ helper, scheduler, installRisk: installRiskLookup(catalogService) });
 createUpdateNotifier({ releaseUpdates, notifications, alerts: healthAlerts, store: state }).start();
 // The weekly self-report (M30.4). "Not covered yet" asks what the Overview's checklist asks, plus
 // which apps with data worth keeping have no backup schedule; either may fail, and is then left out.
@@ -354,8 +400,14 @@ const assistant = createAssistantService({ state, registry, catalog: catalogServ
 // boxpilot-agents.service, which asks this process for work and for read-only tools. Off until the
 // owner turns Agents on; with none made, a minute's timer that finds nothing to do.
 const agentStore = createAgentStore({ databasePath: state.databasePath });
+// M45.3: Claude, as the web service knows it; the key stays with the model gateway.
+const agentsCloud = createAgentsCloud({ state });
 const agents = createAgentService({
-  state, store: agentStore, registry, helper, inventory, knowledge: assistant.index, secretEnvNamesFor, healthAlerts, productVersion,
+  state, store: agentStore, registry, helper, inventory, knowledge: assistant.index, secretEnvNamesFor, healthAlerts, productVersion, cloud: agentsCloud,
+  // M45.5: an agent with leave to act stages its jobs here, in its maker's name.
+  jobs,
+  // M47: repair.findings runs the Repair page's own scan, as the run's person.
+  repairScan: ({ operatorReads, visibleJobs }) => scanRemediations({ helper, state, catalogService, inventory, collect: collectStorage, fileExists: (file) => access(file).then(() => true, () => false), readListeners: listListeners, notifications, dnsResilience, operatorReadsWanted: operatorReads, visibleJobsGiven: visibleJobs }),
   // The daily look for a newer small Qwen reads Hugging Face's public model list; it never switches anything.
   fetchJson: (url) => fetch(url, { headers: { Accept: "application/json", "User-Agent": `BoxPilot/${productVersion}` }, signal: AbortSignal.timeout(15_000), redirect: "error" }).then((response) => (response.ok ? response.json() : null)),
 });
@@ -363,7 +415,13 @@ agents.start({ subscribeJobs: (listener) => state.subscribeJobs(listener), after
 
 app.disable("x-powered-by");
 app.use(jsonGzip());
-app.use(express.json({ limit: "256kb", strict: true }));
+const jsonBody = express.json({ limit: "256kb", strict: true });
+// M45.3: a run on Claude sends its whole conversation with each model call, from the runner on this
+// machine alone; that one route takes up to 2 MiB, and only from loopback.
+const modelBody = express.json({ limit: "2mb", strict: true });
+const runnerModelPath = /^\/api\/v1\/agent-runner\/runs\/[^/]+\/model$/;
+const loopbackPeer = (request) => ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(request.socket?.remoteAddress ?? "");
+app.use((request, response, next) => (runnerModelPath.test(request.path) && loopbackPeer(request) ? modelBody : jsonBody)(request, response, next));
 // The policy's script hash comes from the shell as built, so the theme bootstrap that has always
 // been inline is allowed by its own digest rather than blocked - which is what `script-src 'self'`
 // alone had been doing to it.
@@ -445,7 +503,7 @@ app.use("/api/v1", (request, response, next) => {
     next();
     return;
   }
-  auth.requireCsrf(request, response, next);
+  return auth.requireCsrf(request, response, next); // async: Express 5 handles what it returns
 });
 
 // Roles (M5.4): viewers may only look (plus read-only operation runs); operators may not change
@@ -459,6 +517,7 @@ app.use("/api/v1", createOperationsRouter({ state, helper, jobs, prerequisites, 
 app.use("/api/v1", createJobsRouter({ state, jobs, scheduler, flows, autoReconnect, helper, jobLogReader, auth }));
 app.use("/api/v1", createVirtualizationRouter({ libvirt, libvirtFoundation, vmPlanner, vmMedia, vmCreation, vmExports, vmProtection, vmRetention, vmRecoveries, audit }));
 app.use("/api/v1", createSettingsRouter({ state, notifications, notificationHistory, weeklyReport, auth }));
+app.use("/api/v1", createPushRouter({ push: pushApprovals, auth }));
 app.use("/api/v1", createFirewallRouter({ state, helper, catalogService, webPort: port, webHost: host }));
 app.use("/api/v1", createStorageRouter({ auth, helper, inventory, state }));
 app.use("/api/v1", createPowerRouter());
@@ -469,7 +528,7 @@ app.use("/api/v1", createOidcAdminRouter({ oidc, auth }));
 const runbook = createRunbookService({ store: state, helper, catalogService, inventory, network, notifications, autoReconnect, identity, secretEnvNamesFor, collect: storageRead, webHost: host, webPort: port, tlsDir });
 app.use("/api/v1", createRunbookRouter({ runbook, auth }));
 app.use("/api/v1", createAssistantRouter({ assistant, state, auth }));
-app.use("/api/v1", createAgentsRouter({ agents, state, auth }));
+app.use("/api/v1", createAgentsRouter({ agents, state, auth, cloud: agentsCloud }));
 
 // OIDC provider endpoints (M19.3) live at the site root, not under /api/v1: discovery, JWKS, token
 // and userinfo are public by design, and /oidc/authorize reads the owner's session itself.
@@ -478,7 +537,7 @@ app.use(createOidcRouter({ oidc, auth, store: state }));
 const assets = path.join(dist, "assets");
 app.use("/assets", precompressedAssets(assets));
 app.use("/assets", express.static(assets, { index: false, maxAge: "365d", immutable: true }));
-app.use(express.static(dist, { index: false }));
+app.use(express.static(dist, { index: false, setHeaders: rootFileHeaders }));
 app.use((request, response, next) => {
   if (request.method !== "GET" || request.path.startsWith("/api/")) {
     next();

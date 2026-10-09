@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { Button, EmptyState, Field, KeyValue, Panel, Switch, Table, TextInput, mayStart, riskOf } from "../../ui";
 import { gib, type StartOperation, type SystemSettings } from "./systemTypes";
 
@@ -14,10 +14,17 @@ export function SystemHardware({ settings, loading, role, start }: {
   role: string;
   start: StartOperation;
 }) {
-  const [swappiness, setSwappiness] = useState("");
+  // What the owner typed, over the value in force. A re-read that says the same keeps it (every job on
+  // the page reads the settings again); a new value in force, from here or anywhere else, starts over
+  // from it. An "edited" flag used to hold the first thing typed for as long as the tab was open.
+  const saved = settings?.swappiness ?? null;
+  const [draft, setDraft] = useState<string | null>(null);
+  // Started over in the render that shows the new value, not in an effect after it: an effect runs
+  // once the value is on screen, and wiped anything typed in between (CI caught it under load).
+  const [draftFor, setDraftFor] = useState(saved);
+  if (draftFor !== saved) { setDraftFor(saved); setDraft(null); }
+  const swappiness = draft ?? (saved === null ? "" : String(saved));
   const [swapFileGiB, setSwapFileGiB] = useState("4");
-  const edited = useRef(false);
-  useEffect(() => { if (settings && !edited.current) setSwappiness(settings.swappiness === null ? "" : String(settings.swappiness)); }, [settings]);
 
   const swappinessValue = Number.parseInt(swappiness, 10);
   const swappinessValid = /^\d+$/.test(swappiness.trim()) && swappinessValue >= 0 && swappinessValue <= 100;
@@ -58,10 +65,10 @@ export function SystemHardware({ settings, loading, role, start }: {
           empty={settings ? <EmptyState title="No swap">A swap file gives the server room when memory runs short.</EmptyState> : "Reading…"}
         />
         <div className="system-pad system-forms">
-          {mayStart(role, "system.swappiness.set") && (
+          {settings && mayStart(role, "system.swappiness.set") && (
             <form className="system-form" onSubmit={(event) => { event.preventDefault(); if (swappinessValid && swappinessValue !== settings?.swappiness) applySwappiness(); }}>
               <Field label="Swappiness" hint="Lower keeps more in RAM; 10 suits most servers." error={swappiness && !swappinessValid ? "A whole number from 0 to 100" : undefined}>
-                <TextInput mono inputMode="numeric" value={swappiness} onValueChange={(value) => { edited.current = true; setSwappiness(value); }} placeholder="10" />
+                <TextInput mono inputMode="numeric" value={swappiness} onValueChange={setDraft} placeholder="10" />
               </Field>
               <Button type="submit" risk={riskOf("system.swappiness.set")} disabled={loading || !swappinessValid || swappinessValue === settings?.swappiness}>Apply</Button>
             </form>

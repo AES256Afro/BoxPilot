@@ -18,6 +18,7 @@ import path from "node:path";
 import { fixedRun } from "./exec.mjs";
 import { shared } from "./cache.mjs";
 import { createTreeScanBudget, listTreeEntries, measureTreeBytes } from "./tree-scan.mjs";
+import { snapshotBackupReferences, snapshotLeftoverKind, snapshotNamePattern } from "./machine-snapshot-helper.mjs";
 
 /**
  * Directories in /opt left behind by past upgrades, under every naming scheme BoxPilot has used.
@@ -30,11 +31,18 @@ import { createTreeScanBudget, listTreeEntries, measureTreeBytes } from "./tree-
  *
  * The upgrade script prunes just two of its own `.prev.` trees and has never known about the
  * others, so on a box updated as often as this one they pile up unseen: nothing lists /opt.
+ *
+ * A `.staging.` tree is spent too: a build an update never swapped in, left when it was stopped part
+ * way (an SSH session dropping, a power cut). It is no one's evidence, so it is never the spent tree
+ * kept; but one changed in the last few hours may be the build of an update running now, and stays.
  */
 const previousTreeKinds = [
   { kind: "revert", pattern: /^boxpilot(?:\.prev\.|\.rollback-|-prev-|-live-before-)/ },
-  { kind: "spent", pattern: /^boxpilot(?:-candidate-|\.failed\.)/ },
+  { kind: "spent", pattern: /^boxpilot(?:-candidate-|\.failed\.|\.staging\.)/ },
 ];
+const stagingTreePattern = /^boxpilot\.staging\./;
+/** How long a staging tree may belong to an update still building: far longer than any build takes. */
+const stagingBuildHours = 6;
 
 /** Which kind of leftover a directory name is, or null if it is not one. */
 function previousTreeKind(name) {
@@ -43,7 +51,7 @@ function previousTreeKind(name) {
 
 /** Every category `inspect` reports and `reclaim` accepts, in the order they are shown. */
 export const categoryIds = Object.freeze([
-  "boxpilot-versions", "docker-unused", "docker-unreferenced-images", "app-backups", "restore-leftovers", "job-logs",
+  "boxpilot-versions", "docker-unused", "docker-unreferenced-images", "app-backups", "restore-leftovers", "snapshot-leftovers", "unreadable-snapshots", "job-logs",
 ]);
 
 export const humanBytes = (bytes) => {
@@ -260,8 +268,11 @@ export function createHousekeepingService({
     found.sort((left, right) => right.at - left.at);
     // The newest of each kind stays: the version you would revert to by hand, and the last failed
     // upgrade's tree, which is the evidence for why it failed. Everything behind them is finished
-    // with — several of these naming schemes belong to updaters BoxPilot no longer ships.
-    const keep = previousTreeKinds.map(({ kind }) => found.find((entry) => entry.kind === kind)).filter(Boolean);
+    // with — several of these naming schemes belong to updaters BoxPilot no longer ships. A staging
+    // tree is never that evidence, and one recent enough to be an update's build in progress stays.
+    const staging = (entry) => stagingTreePattern.test(entry.name);
+    const building = found.filter((entry) => staging(entry) && now().getTime() - entry.at < stagingBuildHours * 3_600_000);
+    const keep = [...previousTreeKinds.map(({ kind }) => found.find((entry) => entry.kind === kind && !staging(entry))).filter(Boolean), ...building];
     return { keep, remove: found.filter((entry) => !keep.includes(entry)) };
   }
 
@@ -307,30 +318,81 @@ export function createHousekeepingService({
 
   /**
    * The application backups each retained machine snapshot would restore from: the newest one each
-   * app had when the snapshot was taken, which is usually older than the newest few kept here.
-   * Throws when a snapshot cannot be read, so nothing is offered that a restore might still need.
+   * app had when the snapshot was taken, which is usually older than the newest few kept here. The
+   * same reading an app backup's own pruning asks (machine-snapshot-helper.mjs). Throws when a
+   * snapshot cannot be read, so nothing is offered that a restore might still need.
    */
   async function machineSnapshotReferences({ budget }) {
-    const references = new Map();
-    const snapshots = (await listTreeEntries(machineSnapshotRoot, { budget }))
-      .filter((entry) => entry.isFile() && /^machine-snapshot-\d{8}T\d{6}Z-[a-f0-9]{8}\.tar\.gz$/.test(entry.name));
-    const readMember = async (artifactPath, member) => {
-      const result = await run(tarBinary, ["-xzf", artifactPath, "--no-same-owner", "--no-same-permissions", "-O", member], { timeout: 5 * 60_000, maxBuffer: 16 * 1024 * 1024 });
-      if (!result.ok) throw new Error(`Machine snapshot ${path.basename(artifactPath)} could not be read, so no application backup is offered for removal`);
-      return JSON.parse(result.stdout);
-    };
-    for (const snapshot of snapshots) {
-      const artifactPath = path.join(machineSnapshotRoot, snapshot.name);
-      const manifest = await readMember(artifactPath, "./manifest.json");
-      for (const app of manifest.contents?.apps ?? []) {
-        if (typeof app?.id !== "string" || !/^[a-z0-9][a-z0-9-]{1,62}$/.test(app.id)) continue;
-        const newest = (await readMember(artifactPath, `./apps/${app.id}/backups.json`)).backups?.[0]?.artifact;
-        if (typeof newest !== "string") continue;
-        if (!references.has(app.id)) references.set(app.id, new Set());
-        references.get(app.id).add(newest);
+    const names = (await listTreeEntries(machineSnapshotRoot, { budget })).filter((entry) => entry.isFile()).map((entry) => entry.name);
+    try {
+      return await snapshotBackupReferences({ snapshotRoot: machineSnapshotRoot, names, run, tarBinary });
+    } catch (error) {
+      // Each one is named, and where to remove it: until then no app's own backups prune either.
+      if (Array.isArray(error.unreadable)) {
+        throw Object.assign(new Error(`${error.message}, so no application backup is offered for removal, and no app's own backups remove their older copies either. If ${error.unreadable.length === 1 ? "it is" : "they are"} damaged, remove ${error.unreadable.length === 1 ? "it" : "them"} under Unreadable machine snapshots.`), { unreadable: error.unreadable });
       }
+      throw new Error(`${error.message}, so no application backup is offered for removal`);
     }
-    return references;
+  }
+
+  /**
+   * Machine snapshots that cannot be read (snapshotBackupReferences), each with its size. While one
+   * is there nothing prunes an application backup, here or in an app's own keep-N, since it could
+   * name any of them. Real files only: a link with a snapshot's name is never followed.
+   */
+  async function unreadableSnapshots({ budget = createTreeScanBudget(treeScanLimits) } = {}) {
+    const found = [];
+    for (const entry of await listTreeEntries(machineSnapshotRoot, { budget })) {
+      if (!entry.isFile() || !snapshotNamePattern.test(entry.name)) continue;
+      const readable = await snapshotBackupReferences({ snapshotRoot: machineSnapshotRoot, names: [entry.name], run, tarBinary }).then(() => true, () => false);
+      if (readable) continue;
+      const full = path.join(machineSnapshotRoot, entry.name);
+      const info = await lstat(full).catch(() => null);
+      if (info?.isFile()) found.push({ path: full, name: entry.name, bytes: info.size });
+    }
+    return found.sort((left, right) => left.name.localeCompare(right.name));
+  }
+
+  /**
+   * Remove one machine snapshot that cannot be read, and its description, at the owner's word. Only a
+   * snapshot's own name directly in the snapshot folder, only a real file (never through a link), and
+   * only when it still cannot be read as the job runs: one that reads now is a snapshot a restore can
+   * use, whatever the list said when the owner chose it.
+   */
+  async function removeUnreadableSnapshot({ name, progress = null } = {}) {
+    if (typeof name !== "string" || !snapshotNamePattern.test(name)) throw new Error("That is not a machine snapshot's name");
+    const root = path.resolve(machineSnapshotRoot);
+    const full = path.join(root, name);
+    const info = await lstat(full).catch((error) => { if (error.code === "ENOENT") return null; throw error; });
+    if (!info) throw new Error(`${name} is no longer there`);
+    if (!info.isFile()) throw new Error(`${name} is not a plain file, so it was left alone`);
+    const readable = await snapshotBackupReferences({ snapshotRoot: root, names: [name], run, tarBinary }).then(() => true, () => false);
+    if (readable) throw new Error(`${name} can be read now, so it was not removed.`);
+    await rm(full);
+    const removed = [name];
+    let freedBytes = info.size;
+    const meta = `${full}.meta.json`;
+    const metaInfo = await lstat(meta).catch(() => null);
+    if (metaInfo?.isFile()) {
+      await rm(meta);
+      removed.push(`${name}.meta.json`);
+      freedBytes += metaInfo.size;
+    }
+    progress?.(`removed ${name}${removed.length > 1 ? " and its description" : ""} (${humanBytes(freedBytes)})`, "stdout");
+    return { removed, freedBytes, freedHumanBytes: humanBytes(freedBytes) };
+  }
+
+  /** What a machine snapshot or a restore of one left when it was cut off (snapshotLeftoverKind). */
+  async function snapshotLeftovers({ budget = createTreeScanBudget(treeScanLimits) } = {}) {
+    const found = [];
+    for (const entry of await listTreeEntries(machineSnapshotRoot, { budget })) {
+      const kind = snapshotLeftoverKind(entry.name);
+      if (!kind || entry.isSymbolicLink() || (kind === "partial" ? !entry.isFile() : !entry.isDirectory())) continue;
+      const full = path.join(machineSnapshotRoot, entry.name);
+      const bytes = kind === "partial" ? (await lstat(full).catch(() => null))?.size ?? 0 : await measureTreeBytes(full, { budget });
+      found.push({ path: full, name: entry.name, kind, bytes });
+    }
+    return found;
   }
 
   /**
@@ -402,16 +464,19 @@ export function createHousekeepingService({
     const budget = createTreeScanBudget(treeScanLimits);
     const scans = await Promise.allSettled([
       previousTrees({ budget }), imageInventory(), oldApplicationBackups({ budget }), restoreLeftovers({ budget }),
-      orphanedJobLogs({ budget }), docker(["system", "df", "--format", "json"]), danglingLayers(),
+      orphanedJobLogs({ budget }), docker(["system", "df", "--format", "json"]), danglingLayers(), snapshotLeftovers({ budget }),
+      unreadableSnapshots({ budget }),
     ]);
-    const defaults = [{ keep: [], remove: [] }, null, [], [], [], { ok: false, stdout: "" }, null];
-    const [trees, images, backups, leftovers, logs, df, dangling] = scans.map((result, index) => result.status === "fulfilled" ? result.value : defaults[index]);
-    const categoryForScan = ["boxpilot-versions", "docker-unreferenced-images", "app-backups", "restore-leftovers", "job-logs", "docker-unused", "docker-unused"];
+    const defaults = [{ keep: [], remove: [] }, null, [], [], [], { ok: false, stdout: "" }, null, [], []];
+    const [trees, images, backups, leftovers, logs, df, dangling, snapshotScraps, unreadable] = scans.map((result, index) => result.status === "fulfilled" ? result.value : defaults[index]);
+    const categoryForScan = ["boxpilot-versions", "docker-unreferenced-images", "app-backups", "restore-leftovers", "job-logs", "docker-unused", "docker-unused", "snapshot-leftovers", "unreadable-snapshots"];
     const unavailable = new Map();
     scans.forEach((result, index) => {
       if (result.status === "rejected") unavailable.set(categoryForScan[index], result.reason?.code === "TREE_SCAN_BUDGET"
         ? "Folder measurement reached its entry, depth or time budget. This category needs further review before cleanup."
-        : "This category could not be fully inspected. Retry after checking access and the source.");
+        // A machine snapshot that cannot be read is named, with where to remove it.
+        : Array.isArray(result.reason?.unreadable) ? result.reason.message
+          : "This category could not be fully inspected. Retry after checking access and the source.");
     });
 
     const unusedImages = (images ?? []).filter((image) => !image.used);
@@ -477,6 +542,28 @@ export function createHousekeepingService({
         keeping: leftovers.map((entry) => path.basename(entry.path)),
         safe: false,
         unavailable: "Recovery evidence. General cleanup cannot remove these folders.",
+      },
+      {
+        id: "snapshot-leftovers",
+        title: "Unfinished machine snapshots",
+        summary: "What a machine snapshot or a restore of one left when it was cut off part way: a half-written archive, or the folder it was assembled or unpacked in. The folders hold an unencrypted copy of BoxPilot's database and every app's secrets, and nothing reads them again; BoxPilot clears them when it starts. A snapshot or restore running now is finished before these are cleared.",
+        items: snapshotScraps.length,
+        bytes: snapshotScraps.reduce((sum, entry) => sum + entry.bytes, 0),
+        detail: snapshotScraps.map((entry) => entry.name),
+        keeping: [],
+        safe: true,
+      },
+      {
+        id: "unreadable-snapshots",
+        title: "Unreadable machine snapshots",
+        summary: "Machine snapshots BoxPilot cannot open. Each could name any application backup as the one it restores from, so while one is here no older application backup is removed, by this page or by an app's own backups. A damaged snapshot cannot be restored from either. Check it is not a copy you still need, then remove it by name.",
+        items: unreadable.length,
+        bytes: unreadable.reduce((sum, entry) => sum + entry.bytes, 0),
+        detail: unreadable.map((entry) => entry.name),
+        keeping: [],
+        // Never part of a general clean-up: removeUnreadableSnapshot takes them one by one.
+        safe: unreadable.length === 0,
+        unavailable: unreadable.length ? "The owner removes these one at a time, each only if it still cannot be read." : null,
       },
       {
         id: "job-logs",
@@ -584,6 +671,21 @@ export function createHousekeepingService({
       throw new Error("Unfinished restore folders may contain the only original data or an active restore. Review the restore job and backups; general cleanup preserves them.");
     });
 
+    if (chosen.has("unreadable-snapshots")) await attempt("unreadable-snapshots", async () => {
+      throw new Error("A machine snapshot that cannot be read is removed by the owner, one at a time, and only if it still cannot be read then; general cleanup leaves them.");
+    });
+
+    if (chosen.has("snapshot-leftovers")) await attempt("snapshot-leftovers", async () => {
+      // A snapshot or a restore holds the exclusive lane, so none is running beside this.
+      const scraps = await snapshotLeftovers();
+      say(`Removing ${scraps.length} unfinished machine snapshot${scraps.length === 1 ? "" : "s"} or restore folder${scraps.length === 1 ? "" : "s"}.`);
+      for (const entry of scraps) {
+        await rm(entry.path, { recursive: entry.kind !== "partial", force: true });
+        freedBytes += entry.bytes;
+        removed.push({ category: "snapshot-leftovers", what: entry.name, bytes: entry.bytes });
+      }
+    });
+
     if (chosen.has("job-logs")) await attempt("job-logs", async () => {
       const logs = await orphanedJobLogs();
       say(`Removing ${logs.length} log${logs.length === 1 ? "" : "s"} for jobs nothing lists any more.`);
@@ -598,5 +700,5 @@ export function createHousekeepingService({
     return { reclaimed: failures.length === 0, targets: [...chosen], removed, failures, freedBytes, freedHumanBytes: humanBytes(freedBytes) };
   }
 
-  return { inspect: shared(inspect), reclaim, databaseCopies, removeDatabaseCopies, internals: { listDatabaseCopies, previousTrees, imageInventory, danglingLayers, oldApplicationBackups, restoreLeftovers, orphanedJobLogs, humanBytes } };
+  return { inspect: shared(inspect), reclaim, databaseCopies, removeDatabaseCopies, removeUnreadableSnapshot, internals: { listDatabaseCopies, previousTrees, imageInventory, danglingLayers, oldApplicationBackups, restoreLeftovers, snapshotLeftovers, unreadableSnapshots, orphanedJobLogs, humanBytes } };
 }

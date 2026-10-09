@@ -37,6 +37,10 @@ export interface JobTimeout {
   step: string | null;
   lastOutput: string | null;
   moreTimeMs: number | null;
+  /** True when the step that ran out was left running on the server (a root task past its own limit). */
+  stillRunning?: boolean;
+  /** On a finding's last try: what it may have left running can no longer be (12 hours on, or let go). */
+  settled?: boolean;
 }
 
 export interface Job {

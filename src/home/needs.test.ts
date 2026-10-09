@@ -56,6 +56,9 @@ describe("what needs you", () => {
     expect(repair.view).toBe("repairs");
     expect(needs.find((need) => need.id === "approval:s1")).toMatchObject({ risk: "medium", view: "repairs", action: { operationId: "storage.remount", label: "Review", risk: "medium", existingJobId: "s1", parameters: {} } });
     expect(needs.find((need) => need.id === "alert:flow.failed:0")).toMatchObject({ view: "automations", detail: "Since 30 hours ago" });
+    // BoxPilot's own restart that gave up or failed is made from Services (sweep 5).
+    const [restart] = buildNeeds(facts({ watch: { targetConfigured: true, alerts: [{ family: "boxpilot.restart", title: "BoxPilot needs a restart", since: hoursAgo(2), announced: true }], notices: [] } }), { now, role: "owner" });
+    expect(restart).toMatchObject({ id: "alert:boxpilot.restart:0", view: "services" });
     expect(needs.find((need) => need.id === "updates")).toMatchObject({ title: "4 updates available", detail: "1 security fix among them", action: { operationId: "apt.upgrade", risk: "medium" } });
   });
 
@@ -92,7 +95,34 @@ describe("what needs you", () => {
       schedules: [{ id: "s1", operationId: "app.backup", title: "Back up application data", parameters: { subject: "immich" }, enabled: true, overdue: false, cadence: "daily at 03:00", lastRunAt: hoursAgo(16), lastOutcome: "failed", lastReason: "tar failed" }],
     }), { now, role: "owner" });
     expect(ids(needs)).toEqual(["backup-failed:immich"]);
-    expect(needs[0]).toMatchObject({ title: "The last backup of Immich failed", detail: "tar failed: No space left on device", appId: "immich", action: { operationId: "app.backup", parameters: { id: "immich" }, label: "Back up again" } });
+    // No space left fails the same way every time: the button frees space rather than backing up again.
+    expect(needs[0]).toMatchObject({ title: "The last backup of Immich failed", detail: "tar failed: No space left on device", appId: "immich", action: { kind: "open", label: "Free up space", open: { view: "system", tab: "housekeeping" } } });
+    const flaky = buildNeeds(facts({ catalog: { apps: [app({ id: "immich", name: "Immich" })], total: 1, liveKnown: true }, jobs: [job({ id: "b2", type: "op:app.backup", state: "failed", parameters: { id: "immich" }, error: "tar failed: file changed as we read it" })] }), { now, role: "owner" });
+    expect(flaky[0].action).toMatchObject({ operationId: "app.backup", parameters: { id: "immich" }, label: "Back up again" });
+  });
+
+  it("lets a failed backup go once the app has been backed up since, however that happened", () => {
+    const failed = job({ id: "b2", type: "op:app.backup", state: "failed", parameters: { id: "immich" }, error: "tar failed: No space left on device", createdAt: hoursAgo(16) });
+    const schedule = { id: "s1", operationId: "app.backup", title: "Back up application data", parameters: { subject: "immich" }, enabled: true, overdue: false, cadence: "daily at 03:00", lastRunAt: hoursAgo(16), lastOutcome: "failed", lastReason: "tar failed" };
+    const listed = (overrides: Partial<FactValues>) => ids(buildNeeds(facts({ catalog: { apps: [app({ id: "immich", name: "Immich" })], total: 1, liveKnown: true }, jobs: [failed], schedules: [schedule], ...overrides }), { now, role: "owner" }));
+    expect(listed({})).toEqual(["backup-failed:immich"]);
+    // Repair's "Back up now" for several apps is one app.backup.many; the backups list knows the newest copy.
+    expect(listed({ jobs: [job({ id: "m", type: "op:app.backup.many", state: "completed", parameters: { ids: ["immich", "jellyfin"] }, createdAt: hoursAgo(2) }), failed] })).toEqual([]);
+    expect(listed({ protection: [{ id: "immich", name: "Immich", protectable: true, backups: 3, newestAt: hoursAgo(1) }] })).toEqual([]);
+    // A copy older than the failure, or another app's, settles nothing.
+    expect(listed({ protection: [{ id: "immich", name: "Immich", protectable: true, backups: 3, newestAt: hoursAgo(20) }] })).toEqual(["backup-failed:immich"]);
+    expect(listed({ jobs: [job({ id: "m", type: "op:app.backup.many", state: "completed", parameters: { ids: ["jellyfin"] }, createdAt: hoursAgo(2) }), failed] })).toEqual(["backup-failed:immich"]);
+    // "The backup succeeded, but it did not start again": the copy is made; the app being down is its own line.
+    expect(listed({ jobs: [{ ...failed, error: "The backup succeeded (immich-20260928.tar.zst), but Immich did not start again: port busy" }], schedules: [] })).toEqual([]);
+  });
+
+  it("lets a failed scheduled backup go once the same backup has worked since, rather than waiting for the next night", () => {
+    const schedule = { id: "s1", operationId: "backup.remote.sync", title: "Copy backups to another machine", parameters: null, enabled: true, overdue: false, cadence: "daily at 04:00", lastRunAt: hoursAgo(8), lastOutcome: "failed" as const, lastReason: "Mount an independent filesystem at /mnt/boxpilot/backup" };
+    const listed = (jobs: Job[]) => ids(buildNeeds(facts({ schedules: [schedule], jobs }), { now, role: "owner" })).filter((id) => id.startsWith("schedule:"));
+    expect(listed([])).toEqual(["schedule:s1"]);
+    expect(listed([job({ id: "c", type: "op:backup.remote.sync", state: "completed", createdAt: hoursAgo(1) })])).toEqual([]);
+    expect(listed([job({ id: "c", type: "op:backup.remote.sync", state: "failed", createdAt: hoursAgo(1) })])).toEqual(["schedule:s1"]);
+    expect(listed([job({ id: "c", type: "op:backup.remote.sync", state: "completed", createdAt: hoursAgo(9) })])).toEqual(["schedule:s1"]);
   });
 
   it("carries over what the Classic overview warned about: backups, the database, a failed job, setup", () => {
@@ -158,6 +188,12 @@ describe("what needs you", () => {
     expect(needs[0]).toMatchObject({ id: "off-box", title: "The off-box copy of your backups is 10 days old", action: { operationId: "backup.remote.sync", label: "Copy now", risk: "medium" } });
   });
 
+  // R5B4-7: a recent copy that left files out said nothing on Home.
+  it("says when the last copy off the box left files out", () => {
+    const needs = buildNeeds(facts({ offBox: { verdict: { configured: true, lastSyncAt: hoursAgo(2), ageDays: 0, where: ["a backup drive"], state: "ok", behindHours: null, skipped: 2 }, inputs: { drive: { configured: true, lastSyncAt: hoursAgo(2), skipped: 2 } } } }), { now, role: "owner" });
+    expect(needs[0]).toMatchObject({ id: "off-box", title: "The last copy off this server left 2 files out", action: { operationId: "backup.sync", label: "Copy now" } });
+  });
+
   it("leaves an app's folder problem to Repair's finding when the scan answered", () => {
     const folder = app({ id: "qbittorrent", name: "qBittorrent", folderProblems: 1 });
     expect(ids(buildNeeds(facts({ catalog: { apps: [folder], total: 1, liveKnown: true } }), { now, role: "owner" }))).toEqual(["app-folder:qbittorrent"]);
@@ -185,7 +221,7 @@ describe("what needs you", () => {
 });
 
 describe("apps that are not running, on the owner's real server", () => {
-  // Home on bigbox the evening it shipped: three apps the owner had stopped from BoxPilot, and six
+  // Home on the owner's server the evening it shipped: three apps the owner had stopped from BoxPilot, and six
   // listed as installed with no container, each called a problem of its own.
   const catalog = (apps: AppFact[]) => facts({ catalog: { apps, total: 160, liveKnown: true } });
 
@@ -251,6 +287,72 @@ describe("Repair's fixes on Home and Ops (M35)", () => {
     const needs = buildNeeds(facts({ repairs: { findings: [finding], unavailableChecks: [], jobs: { attached: ["r4"], resolved: [], dismissed: [] } }, jobs: [refused] }), { now, role: "owner" });
     expect(ids(needs)).toEqual(["repair:read-only-remount:media"]);
     expect(needs[0]).toMatchObject({ detail: "Last try failed: target is busy", action: { label: "Try again", operationId: "storage.remount" } });
+    // A last try that may still be running is offered nothing that would start beside it (sweep 4).
+    const running = { ...finding, lastAttempt: { ...finding.lastAttempt, timeout: { scope: "step" as const, budgetMs: 1, elapsedMs: 1, phase: "running" as const, step: "Root task storage.remount", lastOutput: null, moreTimeMs: null, stillRunning: true } } };
+    const [left] = buildNeeds(facts({ repairs: { findings: [running], unavailableChecks: [], jobs: { attached: ["r4"], resolved: [], dismissed: [] } }, jobs: [refused] }), { now, role: "owner" });
+    expect(left.action).toBeNull();
+    // Only letting that try go, which opens the fix again (sweep 5); its title opens the job.
+    expect(left).toMatchObject({ jobId: "r4", actions: [{ kind: "dismiss", label: "Dismiss this try" }] });
+    expect(buildNeeds(facts({ repairs: { findings: [running], unavailableChecks: [] } }), { now, role: "viewer" })[0].actions).toBeUndefined();
+  });
+
+  it("offers a finding's fix again once its try can no longer be running: 12 hours on, or let go (sweep 5)", () => {
+    // One timeout hid the drive's Reconnect for weeks.
+    const remount = { operationId: "storage.remount", parameters: { name: "media" }, label: "Reconnect the drive", preview: "", risk: "medium" as const };
+    const timeout = { scope: "step" as const, budgetMs: 540_000, elapsedMs: 600_000, phase: "running" as const, step: "Root task storage.remount", lastOutput: null, moreTimeMs: null, stillRunning: true };
+    const tried = (at: string, extra: Record<string, unknown> = {}) => ({ id: "stale-mount:media", severity: "critical" as const, title: "/mnt/media is mounted from a drive that is gone", detail: "", evidence: [], fix: remount, fixes: [remount], manual: null,
+      lastAttempt: { jobId: "r4", state: "failed", error: "Reconnect a drive stopped waiting: Root task storage.remount did not finish within 9 minutes.", at, title: "Reconnect a drive", operationId: "storage.remount", label: "Reconnect the drive", timeout: { ...timeout, ...extra } } });
+    const actionOf = (finding: ReturnType<typeof tried>) => buildNeeds(facts({ repairs: { findings: [finding], unavailableChecks: [] } }), { now, role: "owner" })[0].action;
+    expect(actionOf(tried(hoursAgo(30 * 24)))).toMatchObject({ label: "Try again", operationId: "storage.remount" });
+    expect(actionOf(tried(hoursAgo(13)))).toMatchObject({ label: "Try again", operationId: "storage.remount" });
+    expect(actionOf(tried(hoursAgo(11)))).toBeNull();
+    expect(actionOf(tried(hoursAgo(1), { settled: true }))).toMatchObject({ label: "Try again" });
+    // A failed job of its own the same: run again once it can no longer be running.
+    const failed = job({ id: "x1", type: "op:storage.check", title: "Check a drive", state: "failed", error: "Check a drive stopped waiting.", parameters: { name: "media" }, createdAt: hoursAgo(40), updatedAt: hoursAgo(39), timeout: { ...timeout, step: "Root task storage.check" } });
+    expect(buildNeeds(facts({ jobs: [failed] }), { now, role: "owner" })[0].action).toMatchObject({ label: "Try again", operationId: "storage.check" });
+  });
+
+  it("offers the fix's own place, not Try again, when its last failure names one, and keeps what the error says to do", () => {
+    const check = { operationId: "storage.check", parameters: { name: "media" }, label: "Check the drive", preview: "", risk: "medium" as const };
+    const finding = { id: "unclean:media", severity: "warning" as const, title: "/mnt/media was not unmounted cleanly", detail: "", evidence: [], fix: check, fixes: [check], manual: null,
+      lastAttempt: { jobId: "c1", state: "failed", error: "fsck.exfat is not installed, so nothing was stopped or unmounted. Install the drive check tools from Repair first.", at: hoursAgo(1), title: "Check a drive", operationId: "storage.check", label: "Check the drive" } };
+    const [need] = buildNeeds(facts({ repairs: { findings: [finding], unavailableChecks: [] } }), { now, role: "owner" });
+    expect(need.actions?.map((action) => [action.kind, action.label])).toEqual([["open", "Open Repair"], ["operation", "Check the drive"]]);
+    // It still runs something, so Ops puts it in by the fix's tier, not with what is only looked at.
+    expect(groupByTier([need]).medium).toHaveLength(1);
+    // A drive that was unplugged: Try again is right once it is back, and the row says to plug it in.
+    const remount = { operationId: "storage.remount", parameters: { name: "media" }, label: "Reconnect the drive", preview: "", risk: "medium" as const };
+    const unplugged = { ...finding, id: "stale-mount:media", fix: remount, fixes: [remount], lastAttempt: { ...finding.lastAttempt, error: "The drive for /mnt/media (UUID=77aa-media-0000-0000-0000-000000000000) is not connected to this server right now, so nothing was stopped or unmounted. Check that it is plugged in and powered on, then try again." } };
+    const [back] = buildNeeds(facts({ repairs: { findings: [unplugged], unavailableChecks: [] } }), { now, role: "owner" });
+    expect(back.action).toMatchObject({ label: "Try again", operationId: "storage.remount" });
+    expect(back.detail).toMatch(/Check that it is plugged in and powered on, then try again\.$/);
+  });
+
+  it("does not offer Try again on a failed job whose error names another fix, only the way there and Dismiss", () => {
+    const refused = job({ id: "x1", type: "op:app.start", title: "Start Uptime Kuma", state: "failed", error: "Port 3001 is already in use by tailscaled. Move Uptime Kuma to a free port in its Settings, or stop what holds it.", parameters: { id: "uptime-kuma" } });
+    const [need] = buildNeeds(facts({ jobs: [refused] }), { now, role: "owner" });
+    expect(need.actions?.map((action) => [action.kind, action.label])).toEqual([["open", "Open Repair"], ["dismiss", "Dismiss"]]);
+    expect(groupByTier([need]).look).toHaveLength(1);
+    expect(buildNeeds(facts({ jobs: [refused] }), { now, role: "viewer" })[0].actions).toBeUndefined();
+  });
+
+  it.each([
+    ["op:app.backup.restore", "Restore application data from a backup", { id: "immich", backup: "20260901T030000Z.tar.gz" },
+      "Immich was not restored; nothing was changed. In this backup .env.tmp is a link, or not a plain file, where BoxPilot writes Immich's own files as root, which a backup BoxPilot made never holds: restored, the next change to Immich would have written through it to somewhere else on this server."],
+    ["op:host.snapshot.restore", "Restore from a machine snapshot", { name: "boxpilot-machine-20260901-030000.tar.zst" },
+      "The snapshot holds srv/data/link, links or special files, which a snapshot BoxPilot made never does. Nothing was changed."],
+    ["op:housekeeping.unreadable-snapshot.remove", "Remove an unreadable machine snapshot", { name: "boxpilot-machine-20260901-030000.tar.zst" },
+      "boxpilot-machine-20260901-030000.tar.zst can be read now, so it was not removed."],
+    ["op:housekeeping.unreadable-snapshot.remove", "Remove an unreadable machine snapshot", { name: "boxpilot-machine-20260901-030000.tar.zst" },
+      "boxpilot-machine-20260901-030000.tar.zst is no longer there"],
+    ["op:app.backup.restore", "Restore application data from a backup", { id: "immich", backup: "20260901T030000Z.tar.gz" },
+      "Backup 20260901T030000Z.tar.gz failed its checksum; it may be damaged. Nothing was changed."],
+  ])("offers only Dismiss on %s refused for what its file holds or whether it is there (sweep 5)", (type, title, parameters, error) => {
+    // Try again on the high-risk restore asked for the password, then refused the same way.
+    const refused = job({ id: "x1", type, title, state: "failed", error, parameters });
+    const [need] = buildNeeds(facts({ jobs: [refused] }), { now, role: "owner" });
+    expect(need).toMatchObject({ id: "job:x1", action: null });
+    expect(need.actions?.map((action) => [action.kind, action.label])).toEqual([["dismiss", "Dismiss"]]);
   });
 
   it("lets a failed job go once its finding is gone, it was dismissed, or the same thing later worked", () => {
@@ -264,6 +366,10 @@ describe("Repair's fixes on Home and Ops (M35)", () => {
     expect(withJobs([later, failed])).toEqual([]);
     // Another drive's reconnect working says nothing about this one.
     expect(withJobs([{ ...later, parameters: { name: "backup" } }, failed])).toEqual(["job:x1"]);
+    // Reconnect a drive given a share reconnects it as the share: either one working settles the other.
+    const share = { ...failed, parameters: { name: "share-boxpilot-backup" } };
+    expect(withJobs([job({ id: "x3", type: "op:share.reconnect", state: "completed", parameters: { name: "boxpilot-backup" }, createdAt: hoursAgo(1) }), share])).toEqual([]);
+    expect(withJobs([job({ id: "x3", type: "op:share.reconnect", state: "completed", parameters: { name: "nas-public" }, createdAt: hoursAgo(1) }), share])).toEqual(["job:x1"]);
   });
 
   it("offers Try again and Dismiss on a failed job, more time for one that ran out of it, and neither to a viewer", () => {
@@ -280,6 +386,22 @@ describe("Repair's fixes on Home and Ops (M35)", () => {
     const [viewed] = buildNeeds(facts({ jobs: [failed] }), { now, role: "viewer" });
     expect(viewed.action).toBeNull();
     expect(viewed.actions).toBeUndefined();
+  });
+
+  it("offers no run again of a job that may still be running on the server, only Dismiss (sweep 4)", () => {
+    // The server refused it more time; "Try again" then staged it afresh, and a second check of the
+    // drive started beside the first, still running. The row itself opens the job in Activity.
+    const check = job({ id: "x1", type: "op:storage.check", title: "Check a drive", state: "failed", error: "Check a drive stopped waiting: Root task storage.check did not finish within 33 minutes. It may still be running on the server; Activity shows how far it got.", parameters: { name: "media" } });
+    const stepLeft = { ...check, timeout: { scope: "step" as const, budgetMs: 1, elapsedMs: 1, phase: "running" as const, step: "Root task storage.check", lastOutput: null, moreTimeMs: null, stillRunning: true } };
+    const wholeLeft = { ...check, timeout: { scope: "operation" as const, budgetMs: 1, elapsedMs: 1, phase: "running" as const, step: null, lastOutput: null, moreTimeMs: null } };
+    for (const failed of [stepLeft, wholeLeft]) {
+      const [need] = buildNeeds(facts({ jobs: [failed] }), { now, role: "owner" });
+      expect(need).toMatchObject({ id: "job:x1", jobId: "x1", action: null });
+      expect(need.actions?.map((action) => [action.kind ?? "operation", action.operationId])).toEqual([["dismiss", ""]]);
+    }
+    // One that only waited in the queue never started: running it again is safe.
+    const queued = { ...check, timeout: { ...wholeLeft.timeout, phase: "queued" as const } };
+    expect(buildNeeds(facts({ jobs: [queued] }), { now, role: "owner" })[0].action).toMatchObject({ operationId: "storage.check", label: "Try again" });
   });
 });
 

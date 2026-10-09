@@ -20,7 +20,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { runnerUnit } from "../agents/caps.mjs";
 import { boundSync, connectors } from "../agents/connectors.mjs";
-import { createCredentialStore } from "../credentials.mjs";
+import { createCredentialStore, headerUnsafe, managedCredentialProblem } from "../credentials.mjs";
 import { agentsPaths, readModelParameters } from "../agents/host.mjs";
 import { embedderModel, testedUnslothVersion } from "../agents/models.mjs";
 
@@ -48,7 +48,7 @@ async function ensureStateDirectory(run, paths) {
 const asRunner = (run, paths, command, args, options = {}) => run(runuser, ["-u", paths.user, "--", "/usr/bin/env", "-i", "PATH=/usr/local/bin:/usr/bin:/bin", "LANG=C.UTF-8", `HOME=${paths.state}`, ...(options.env ?? []), command, ...args], { timeout: options.timeout ?? 60_000, maxBuffer: 16 * 1024 * 1024, ...(options.onLine ? { onLine: options.onLine } : {}) });
 
 export async function agentsInstall(_parameters = {}, { log = () => {}, run, fetcher = fetch, paths = agentsPaths } = {}) {
-  const apt = await run("/usr/bin/apt-get", ["install", "-y", "--no-install-recommends", "libgomp1", "ca-certificates", "curl"], { timeout: 10 * 60_000, env: { DEBIAN_FRONTEND: "noninteractive" } });
+  const apt = await run("/usr/bin/apt-get", ["install", "-y", "--no-install-recommends", "libgomp1", "ca-certificates", "curl"], { timeout: 10 * 60_000, env: { DEBIAN_FRONTEND: "noninteractive", NEEDRESTART_SUSPEND: "1" } });
   if (!apt.ok) throw new Error("Could not install the OpenMP library Unsloth's llama.cpp needs (libgomp1)");
   const created = await ensureUser(run, paths);
   log(created ? `Created the ${paths.user} user` : `The ${paths.user} user exists`, "stdout");
@@ -139,8 +139,13 @@ export async function agentsModelDownload(parameters = {}, { log = () => {}, run
 export async function agentsConnectorSync(parameters = {}, { log = () => {}, credentials = createCredentialStore(), fetcher = fetch } = {}) {
   const connector = connectors[parameters.connector];
   if (!connector) throw new Error("The connector is notion or slack");
+  // Only a token the owner saved for this connector: never one BoxPilot keeps for itself.
+  const reserved = managedCredentialProblem(parameters.credentialName);
+  if (reserved) throw new Error(reserved);
   const token = await credentials.read(parameters.credentialName);
   if (token === null || token === undefined) throw new Error(`No credential is named ${parameters.credentialName}; save it under Settings first`);
+  // fetch refuses such a header with an error that quotes the token; say so here, without it.
+  if (headerUnsafe.test(String(token))) throw new Error(`The credential ${parameters.credentialName} holds a line break, which no request header can carry; save it again as one line`);
   log(`Reading ${connector.title} with the credential ${parameters.credentialName}`, "stdout");
   const documents = await connector.fetch({ token, channels: parameters.channels ?? [] }, { fetcher });
   const bounded = boundSync(documents);

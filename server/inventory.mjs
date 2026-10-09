@@ -50,7 +50,25 @@ export function createInventoryService({
   powerEvents = () => readPowerEvents({ limit: 20 }),
   powerPolicy = () => readPowerPolicy(),
   now = () => new Date(),
+  // When this (web) process started: a web unit owed a restart since then has had it.
+  webStartedAt = () => new Date(Date.now() - process.uptime() * 1000),
 } = {}) {
+  /**
+   * What BoxPilot's own drained restart still owes, from the helper's runtime read (sweep 5): one that
+   * gave up after hours of a busy server, or failed. The helper says it for both units; the web unit is
+   * owed only while this process is older than that. Not available when the helper did not say.
+   */
+  async function inspectSelfRestart() {
+    const runtime = await helper.request("system.runtime.inspect", {}, { timeoutMs: 10_000 }).catch(() => null);
+    const status = runtime?.selfRestart;
+    if (!status || typeof status !== "object") return { available: false, restart: null };
+    const owed = status.unfinished;
+    if (!owed || !Array.isArray(owed.units)) return { available: true, restart: null };
+    const since = Date.parse(owed.at ?? "");
+    const units = owed.units.filter((unit) => unit !== "boxpilot.service" || !Number.isFinite(since) || webStartedAt().getTime() < since);
+    return { available: true, restart: units.length ? { ...owed, units } : null };
+  }
+
   /**
    * One `systemctl show` for every unit rather than one per unit. systemctl answers several units in
    * a single call, separating them with a blank line and naming each with Id=, so six processes
@@ -101,7 +119,7 @@ export function createInventoryService({
 
     let docker = { available: false, containers: [], images: [], networks: [], volumes: [], projects: [] };
     try { docker = await helper.request("container.docker.inventory", {}); } catch { docker = { ...docker, error: "Docker inventory is unavailable through the restricted helper" }; }
-    const [services, tailscale, blockResult, smartResult, maintenanceResult, upsResult, eventsResult, policyResult] = await Promise.all([
+    const [services, tailscale, blockResult, smartResult, maintenanceResult, upsResult, eventsResult, policyResult, boxpilot] = await Promise.all([
       inspectServices(serviceUnits),
       inspectTailscale(),
       runCommand("lsblk", ["--json", "--bytes", "--paths", "--output", "NAME,TYPE,FSTYPE,SIZE,MOUNTPOINTS,ROTA,RO,TRAN,MODEL"]),
@@ -110,6 +128,7 @@ export function createInventoryService({
       ups.inspect().catch(() => unavailableUpsEvidence()),
       powerEvents().catch(() => ({ available: "unreadable", events: [] })),
       powerPolicy().catch(() => null),
+      inspectSelfRestart(),
     ]);
     const blockDevices = blockResult.ok ? parseBlockInventory(blockResult.stdout) : parseBlockInventory("");
     let smartValue = null;
@@ -145,6 +164,7 @@ export function createInventoryService({
       network: { addresses, tailscale },
       services,
       docker,
+      boxpilot,
     };
   }
 

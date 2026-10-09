@@ -11,3 +11,6 @@ coverage/
 # Private, filled-in copies of the install runbook
 UBUNTU-SERVER-INSTALL-RUNBOOK.local.md
 *.local.md
+
+# Screenshots taken to compare a look with its drawing (scripts/look-check.mjs)
+look-shots/

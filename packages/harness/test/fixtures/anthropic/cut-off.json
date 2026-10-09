@@ -1,0 +1,13 @@
+{
+  "id": "msg_cut_off",
+  "type": "message",
+  "role": "assistant",
+  "model": "claude-opus-5-5",
+  "content": [
+    { "type": "thinking", "thinking": "", "signature": "sig-cut-0004" },
+    { "type": "tool_use", "id": "toolu_cut", "name": "storage_health", "input": { "mou": "/mn" } }
+  ],
+  "stop_reason": "max_tokens",
+  "stop_details": null,
+  "usage": { "input_tokens": 300, "output_tokens": 16000, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0 }
+}

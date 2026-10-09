@@ -6,7 +6,8 @@ import { ConfigTab } from "./ConfigTab";
 import { LogsTab } from "./LogsTab";
 import { ModelsTab } from "./ModelsTab";
 import { ReachTab, reachOf } from "./ReachTab";
-import { appStatus, drillFailed, isPaused, isRunning, troubledSidecar } from "./appState";
+import { TunnelTab } from "./TunnelTab";
+import { appStatus, drillFailed, installTier, isPaused, isRunning, troubledSidecar } from "./appState";
 import type { CatalogContext, Entry } from "./types";
 
 /*
@@ -17,7 +18,7 @@ import type { CatalogContext, Entry } from "./types";
  * action closes the sheet and goes through the approval dialog at its tier, as before.
  */
 
-export type SheetTab = "overview" | "reach" | "backups" | "vpn" | "logs" | "config" | "models" | "signin" | "secrets";
+export type SheetTab = "overview" | "tunnel" | "reach" | "backups" | "vpn" | "logs" | "config" | "models" | "signin" | "secrets";
 
 export interface AppSheetProps {
   entry: Entry;
@@ -50,6 +51,8 @@ export function AppSheet({ entry, ctx, tab: firstTab = "overview", onTab, onClos
   const status = appStatus(live);
   const tabs: Array<TabItem<SheetTab>> = [
     { id: "overview", label: "Overview" },
+    // M42: publishing apps to the internet lives with the app that runs the tunnel, installed or not.
+    ...(manifest.id === "cloudflared" && owner ? [{ id: "tunnel" as const, label: "Tunnel" }] : []),
     ...(installed ? [{ id: "reach" as const, label: "Reach" }] : []),
     ...((installed || live?.dataPresent) && canRead ? [{ id: "backups" as const, label: "Backups", status: live?.backupVerification && !live.backupVerification.verified ? "danger" as const : undefined, statusLabel: live?.backupVerification && !live.backupVerification.verified ? "last rehearsal failed" : undefined }] : []),
     ...(installed && manifest.networkVia ? [{ id: "vpn" as const, label: "VPN", status: live?.killSwitchDrill?.leaked ? "danger" as const : undefined, statusLabel: live?.killSwitchDrill?.leaked ? "leaked" : undefined }] : []),
@@ -63,6 +66,7 @@ export function AppSheet({ entry, ctx, tab: firstTab = "overview", onTab, onClos
   const setTab = (next: SheetTab) => { setOpenTab(next); onTab?.(next); };
 
   const content = (current: SheetTab): ReactNode => {
+    if (current === "tunnel") return <TunnelTab entry={entry} ctx={ctx} />;
     if (current === "reach") return <ReachTab entry={entry} ctx={ctx} />;
     if (current === "backups") return <BackupsTab entry={entry} ctx={ctx} />;
     if (current === "vpn") return <VpnTab entry={entry} ctx={ctx} />;
@@ -159,7 +163,7 @@ function Overview({ entry, ctx, onTab }: { entry: Entry; ctx: CatalogContext; on
         {installed && live && live.urls.map((port, index) => (
           <a key={port.id} className={`ui-button ui-button--${index === 0 ? "primary" : "secondary"}`} href={ctx.openUrl(port, manifest)} target="_blank" rel="noreferrer"><span className="ui-button__label">Open {port.label}</span></a>
         ))}
-        {!installed && may("app.install") && <Button variant="primary" onClick={() => ctx.configure(entry, "install")}>Install</Button>}
+        {!installed && may("app.install") && <Button variant="primary" risk={installTier(manifest)} onClick={() => ctx.configure(entry, "install")}>Install</Button>}
         {installed && may("app.action") && (paused
           ? <>
             <Button risk={riskOf("app.action")} onClick={() => lifecycle("unpause", `Resume ${name}`, <span>Thaws {name} exactly where it left off.</span>)}>Resume</Button>

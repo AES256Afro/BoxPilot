@@ -179,6 +179,25 @@ describe("Repair Center", () => {
     expect(button.disabled).toBe(false);
   });
 
+  it("says a refused approval in the approval desk, beside the button, not at the top of the page", async () => {
+    const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+    const job = { id: "job-high", title: "Reboot the server", type: "op:system.reboot", state: "awaiting_approval", risk: "high", error: null, steps: [], recovery: { reason: "Reconnect when it is back." } };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url.includes("prerequisites")) return json({ checks: [] });
+      if (url.includes("action-center") || url.includes("recovery-kit")) return json({ error: "unavailable" }, 503);
+      if (url.endsWith("/approval")) return json({ jobId: "job-high", tier: "high", passwordRequired: true, elevated: false, mode: "tiered", reason: "high risk" });
+      if (url.endsWith("/approve")) return json({ error: "That password is not right." }, 401);
+      return json({ jobs: [job] });
+    }));
+    render(<RepairCenter csrfToken="csrf-token" />);
+    fireEvent.change(await screen.findByLabelText("Approval password"), { target: { value: "not the right one" } });
+    fireEvent.click(screen.getByRole("button", { name: "Approve and run" }));
+    const said = await screen.findByText("That password is not right.");
+    expect(said.getAttribute("role")).toBe("alert");
+    expect(screen.getByRole("region", { name: "Approval desk" }).contains(said)).toBe(true);
+  });
+
   it("shows what a waiting job will run, and lets it be withdrawn instead", async () => {
     const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
     const job = { id: "job-fmt", title: "Erase and format a disk", type: "op:storage.format", state: "awaiting_approval", risk: "high", error: null, steps: [], parameters: { device: "/dev/sdb", filesystem: "ext4" } };
@@ -312,6 +331,8 @@ describe("Repair Center", () => {
 
 describe("Repair that fixes (M35)", () => {
   const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+  /** A moment `ms` before now: a try's age is read against the clock. */
+  const ago = (ms: number) => new Date(Date.now() - ms).toISOString();
   const writable = { operationId: "storage.writable", parameters: { name: "the-dump" }, label: "Let apps write to the drive", preview: "Adds uid=1000,gid=1000 to /mnt/the-dump's fstab entry, then reconnects it.", risk: "medium" };
   const exfat = { id: "permissionless-mount:the-dump", severity: "warning", title: "Only root can write to /mnt/the-dump", detail: "exfat does not store owners.", evidence: ["exfat mounted without uid="], fix: writable, fixes: [writable], manual: null, fingerprint: "0123456789abcdef", lastAttempt: null };
   const scan = (findings: unknown[], extra: Record<string, unknown> = {}) => ({ findings, dismissed: [], counts: { critical: 0, warning: findings.length, info: 0 }, jobs: { attached: [], resolved: [], dismissed: [] }, sourceStatus: "ready", unavailableChecks: [], ...extra });
@@ -333,6 +354,7 @@ describe("Repair that fixes (M35)", () => {
       const stage = url.match(/^\/api\/v1\/operations\/([^/]+)\/jobs$/);
       if (stage) return staged(`job-${requests.filter((entry) => /\/jobs$/.test(entry.url) && entry.method === "POST").length}`, stage[1], stage[1] === "app.action" ? "low" : "medium");
       if (/\/approve$/.test(url)) return json({ job: { id: url.split("/")[4], state: "applying" }, elevatedUntil: null }, 202);
+      if (/\/more-time$/.test(url)) return staged("job-9", "storage.remount");
       const job = url.match(/^\/api\/v1\/jobs\/([^/?]+)$/);
       if (job && method === "GET") return json({ job: { id: job[1], type: "op:storage.writable", title: "Let apps write to a drive", risk: "medium", steps: [], approvals: [], ...finished(job[1]) } });
       if (job && method === "DELETE") return json({ job: { id: job[1], state: "cancelled" } });
@@ -378,6 +400,79 @@ describe("Repair that fixes (M35)", () => {
     render(<RepairCenter csrfToken="csrf-token" />);
     expect(await screen.findByText(/umount: \/mnt\/the-dump: target is busy/)).toBeTruthy();
     expect(screen.getByRole("button", { name: /^Try again: Let apps write to the drive: / })).toBeTruthy();
+  });
+
+  it("offers no fix while the last try may still be running on the server, and shows its log (sweep 4)", async () => {
+    // Try again staged it afresh, and the helper started a second root task beside the first.
+    const timeout = { scope: "step", budgetMs: 540_000, elapsedMs: 600_000, phase: "running", step: "Root task storage.writable", lastOutput: null, moreTimeMs: null, stillRunning: true };
+    const tried = { ...exfat, lastAttempt: { jobId: "job-0", state: "failed", error: "Let apps write to a drive stopped waiting: Root task storage.writable did not finish within 9 minutes. It may still be running on the server; Activity shows how far it got.", at: ago(60_000), title: "Let apps write to a drive", operationId: "storage.writable", label: "Let apps write to the drive", timeout } };
+    server({ scans: [scan([tried])], finished: () => ({ state: "failed" }) });
+    render(<RepairCenter csrfToken="csrf-token" />);
+    expect(await screen.findByText(/It may still be running on the server, so it is not offered again until it has finished/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Try again: / })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Let apps write to the drive: / })).toBeNull();
+    expect(screen.getByRole("button", { name: /^Dismiss: / })).toBeTruthy();
+    expect(screen.getByText("Job log")).toBeTruthy();
+  });
+
+  describe("a critical finding whose last try ran out of time (sweep 5)", () => {
+    const remount = { operationId: "storage.remount", parameters: { name: "the-dump" }, label: "Reconnect the drive", preview: "Mounts it again from fstab.", risk: "medium" };
+    const stale = { id: "stale-mount:the-dump", severity: "critical", title: "/mnt/the-dump is mounted from a drive that is gone", detail: "The mount still points at /dev/sda2, which no longer exists.", evidence: ["mounted from /dev/sda2"], fix: remount, fixes: [remount], manual: null, fingerprint: "0123456789abcdef" };
+    const timeout = { scope: "step", budgetMs: 540_000, elapsedMs: 600_000, phase: "running", step: "Root task storage.remount", lastOutput: null, moreTimeMs: null, stillRunning: true };
+    const tried = (at: string, overrides: Record<string, unknown> = {}) => ({ ...stale, lastAttempt: { jobId: "job-0", state: "failed", error: "Reconnect a drive stopped waiting: Root task storage.remount did not finish within 9 minutes. It may still be running on the server; Activity shows how far it got.", at, title: "Reconnect a drive", operationId: "storage.remount", label: "Reconnect the drive", timeout, ...overrides } });
+
+    it("renders its Reconnect action again once the try timed out 30 days ago", async () => {
+      // One timeout hid the fix for as long as the job was among the newest 200: weeks.
+      server({ scans: [scan([tried(ago(30 * 86_400_000))], { counts: { critical: 1, warning: 0, info: 0 } })], finished: () => ({ state: "failed" }) });
+      render(<RepairCenter csrfToken="csrf-token" />);
+      expect(await screen.findByRole("button", { name: /^Try again: Reconnect the drive: \/mnt\/the-dump is mounted from a drive that is gone$/ })).toBeTruthy();
+      expect(screen.queryByText(/so it is not offered again until it has finished/)).toBeNull();
+    });
+
+    it("keeps a way to let a try that may still be running go, where the finding cannot be dismissed", async () => {
+      // A critical finding cannot be set aside, so it showed no button at all.
+      const { requests } = server({ scans: [scan([tried(ago(60_000))], { counts: { critical: 1, warning: 0, info: 0 } }), scan([tried(ago(60_000), { timeout: { ...timeout, settled: true } })], { counts: { critical: 1, warning: 0, info: 0 } })], finished: () => ({ state: "failed" }) });
+      render(<RepairCenter csrfToken="csrf-token" />);
+      expect(await screen.findByText(/It may still be running on the server, so it is not offered again until it has finished/)).toBeTruthy();
+      expect(screen.queryByRole("button", { name: /^Try again: / })).toBeNull();
+      expect(screen.queryByRole("button", { name: /^Dismiss: / })).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Dismiss this try: /mnt/the-dump is mounted from a drive that is gone" }));
+      await waitFor(() => expect(requests.some((entry) => entry.method === "POST" && entry.url === "/api/v1/jobs/job-0/dismiss")).toBe(true));
+      // Let go, the server says it is settled, and the fix is offered again.
+      expect(await screen.findByRole("button", { name: /^Try again: Reconnect the drive: / })).toBeTruthy();
+    });
+
+    it("offers more time where the server does, as Activity does", async () => {
+      // A whole operation's budget ran out on one that is not a root task: Activity offered "Try again
+      // with more time" and Repair offered nothing.
+      const whole = { scope: "operation", budgetMs: 900_000, elapsedMs: 900_000, phase: "running", step: null, lastOutput: null, moreTimeMs: 1_800_000 };
+      const { requests } = server({ scans: [scan([tried(ago(60_000), { timeout: whole })], { counts: { critical: 1, warning: 0, info: 0 } })], finished: () => ({ state: "completed" }) });
+      render(<RepairCenter csrfToken="csrf-token" />);
+      fireEvent.click(await screen.findByRole("button", { name: "Try again with more time: /mnt/the-dump is mounted from a drive that is gone" }));
+      await waitFor(() => expect(requests.some((entry) => entry.method === "POST" && entry.url === "/api/v1/jobs/job-0/more-time")).toBe(true));
+    });
+  });
+
+  it("offers the place a failed try names, not Try again, when the same fix would stop the same way", async () => {
+    const tried = { ...exfat, lastAttempt: { jobId: "job-0", state: "failed", error: "tar failed: No space left on device", at: "2026-09-29T10:00:00.000Z", title: "Let apps write to a drive", operationId: "storage.writable", label: "Let apps write to the drive" } };
+    server({ scans: [scan([tried])], finished: () => ({ state: "failed" }) });
+    const onNavigate = vi.fn();
+    render(<RepairCenter csrfToken="csrf-token" onNavigate={onNavigate} />);
+    expect(await screen.findByText(/Trying again would stop the same way/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Try again: / })).toBeNull();
+    // The fix itself stays, under its own name; the way to what comes first leads.
+    expect(screen.getByRole("button", { name: /^Let apps write to the drive: / })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /^Free up space: / }));
+    expect(onNavigate).toHaveBeenCalledWith("system", { tab: "housekeeping" });
+  });
+
+  it("says the fix is on this page when a failed try names Repair itself, rather than a button that goes nowhere", async () => {
+    const tried = { ...exfat, lastAttempt: { jobId: "job-0", state: "failed", error: "fsck.exfat is not installed, so nothing was stopped or unmounted. Install the drive check tools from Repair first.", at: "2026-09-29T10:00:00.000Z", title: "Let apps write to a drive", operationId: "storage.writable", label: "Let apps write to the drive" } };
+    server({ scans: [scan([tried])], finished: () => ({ state: "failed" }) });
+    render(<RepairCenter csrfToken="csrf-token" onNavigate={vi.fn()} />);
+    expect(await screen.findByText(/the fix it names is on this page/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Open Repair/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Try again: / })).toBeNull();
   });
 
   it("runs every low-risk fix after one confirmation that lists them, and leaves the rest to their own buttons", async () => {

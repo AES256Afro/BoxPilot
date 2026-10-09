@@ -153,7 +153,7 @@ export default function BackupsPage({ csrfToken, role = "owner", onNavigate }: B
   const inputs: OffBoxInputs = {
     cloud: { configured: Boolean(cloudSettings?.destination), lastSyncAt: syncedAt(cloudSettings?.lastSync) },
     ssh: { configured: Boolean(remoteSettings?.destination), lastSyncAt: syncedAt(remoteSettings?.lastSync) },
-    drive: { configured: machine?.sync.mount.mounted ?? false, lastSyncAt: machine?.sync.lastSync?.completedAt ?? null },
+    drive: { configured: machine?.sync.mount.mounted ?? false, lastSyncAt: machine?.sync.lastSync?.completedAt ?? null, skipped: machine?.sync.lastSync?.skippedCount ?? 0 },
   };
   const wanted = mirrorOperations(inputs);
   const offVerdict = offBoxVerdict(inputs, { newestLocalBackupAt: newestLocalAt });
@@ -175,7 +175,7 @@ export default function BackupsPage({ csrfToken, role = "owner", onNavigate }: B
   const verdict: { status: Status; label: string } = !loaded ? { status: "unknown", label: "Reading…" }
     : behind.length ? { status: "danger", label: `${behind.length} backup${behind.length === 1 ? "" : "s"} stopped running` }
       : never.length ? { status: "warning", label: `${never.length} ${never.length === 1 ? "app" : "apps"} never backed up` }
-        : summary?.warning ? { status: "warning", label: offVerdict.state === "none" ? "Only on this server" : offVerdict.state === "never" ? "Never copied off" : "Off-box copy behind" }
+        : summary?.warning ? { status: "warning", label: offVerdict.state === "none" ? "Only on this server" : offVerdict.state === "never" ? "Never copied off" : offVerdict.state === "ok" && offVerdict.skipped ? "Off-box copy incomplete" : "Off-box copy behind" }
           : stale.length ? { status: "warning", label: `${stale.length} not backed up recently` }
             : !appProtection?.available ? { status: "unknown", label: "Not read" }
               : { status: "good", label: "Protected" };

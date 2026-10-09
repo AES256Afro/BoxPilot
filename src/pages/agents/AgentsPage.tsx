@@ -13,6 +13,7 @@ import { PasswordSheet } from "./PasswordSheet";
 import { SetupAction, chainSteps, runnerDetail, setupSteps, type RunnerWait } from "./setup";
 import { Usage } from "./Usage";
 import { ZulipPanel } from "./ZulipPanel";
+import { ClaudePanel } from "./ClaudePanel";
 import "./agents.css";
 
 /*
@@ -221,7 +222,7 @@ export default function AgentsPage({ csrfToken, role = "owner", now = Date.now }
       <Tabs<Tab> label="Agents" tabs={tabs} value={shown} onChange={(next) => { setTab(next); if (next !== "test") setRunId(null); }}>
         {(current) => {
           if (current === "build") {
-            return <Builder agentId={selected} agents={agents} catalog={catalog} canCreate={can.create} csrfToken={csrfToken} now={now()}
+            return <Builder agentId={selected} agents={agents} catalog={catalog} canCreate={can.create} canGrant={can.configure} csrfToken={csrfToken} now={now()}
               onCreated={(id) => { setAgentId(id); setNotice("Made. Change anything below; each save is a version you can roll back."); void refresh(); }}
               onChanged={() => void refresh()} onDeleted={() => { setAgentId(null); setTab("agents"); setNotice("Deleted."); void refresh(); }}
               onTest={(id) => open(id, "test")} />;
@@ -231,7 +232,7 @@ export default function AgentsPage({ csrfToken, role = "owner", now = Date.now }
               onSelectAgent={(id) => { setAgentId(id); setRunId(null); }} onStage={start} onRunFinished={() => void refresh()} />;
           }
           if (current === "memory") return <Memory agents={agents} agentId={selected} csrfToken={csrfToken} role={role} now={now()} onSelectAgent={setAgentId} />;
-          if (current === "knowledge") return <Knowledge csrfToken={csrfToken} role={role} now={now()} onStart={start} />;
+          if (current === "knowledge") return <Knowledge csrfToken={csrfToken} role={role} now={now()} onStart={start} refreshKey={jobsFinished} />;
           if (current === "usage") return <Usage module={module} csrfToken={csrfToken} role={role} now={now()} onStart={start} onModuleChanged={() => void refresh()} refreshKey={jobsFinished} />;
           if (current === "evaluation") {
             return <Evaluation agents={agents} agentId={selected} csrfToken={csrfToken} now={now()} enabled={module.enabled && !module.paused} onSelectAgent={setAgentId} onOpenRun={(id, run) => open(id, "test", run)} />;
@@ -243,7 +244,9 @@ export default function AgentsPage({ csrfToken, role = "owner", now = Date.now }
               onResume={(agent) => void agentAction(() => agentsApi.resume(csrfToken, agent.id), `${agent.name} is running again.`)}
               onStage={start} onProposalDecided={() => void refresh()} onTurnOn={owner ? () => setTurningOn(true) : null} />
             {/* The team chat (M38): Zulip, where agents report and the owner drops files for them. */}
-            {staff && <ZulipPanel csrfToken={csrfToken} role={role} now={now()} onStart={start} refreshKey={jobsFinished} />}
+            {staff && <ZulipPanel csrfToken={csrfToken} role={role} now={now()} onStart={start} refreshKey={jobsFinished} agents={overview.agents} />}
+            {/* Claude beside the local model (M45.3): the key stays with the model gateway. */}
+            {staff && <ClaudePanel role={role} now={now()} owner={owner} onStart={start} refreshKey={jobsFinished} />}
           </>;
         }}
       </Tabs>

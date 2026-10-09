@@ -14,9 +14,17 @@ export type Cadence = "hourly" | "every-6-hours" | "daily" | "weekly";
 
 export interface ModuleBudget { runsUsed: number; runsPerDay: number; modelMsUsed: number; modelSecondsPerDay: number; modelMsLeft: number; refusal: string | null }
 export interface Connectors { notion: { enabled: boolean; credential: string | null }; slack: { enabled: boolean; credential: string | null; channels: string[] } }
+/** M40: processors while someone waits and in the background, this machine's ceiling, and what is set now. */
+export interface Cores {
+  waiting: number; background: number; ceiling: number; processors: number; physical: number | null; limits: { min: number; max: number; keepFree: number };
+  now: { processors: number | null; burst: boolean; at: string | null; resetAt: string | null; error: { at: string; message: string } | null };
+}
 export interface ModuleState {
   enabled: boolean; paused: boolean; pausedUntil: string | null; killedAt: string | null; quietHours: { start: string; end: string }; inQuietHours: boolean; notify: boolean;
   budget?: ModuleBudget; embeddings?: boolean; webSearch?: { enabled: boolean; endpoint: string | null }; folder?: { enabled: boolean; path: string | null }; connectors?: Connectors;
+  cores?: Cores;
+  /** M45.7: whether the nightly evaluation compares the routes. */
+  evaluation?: { compareNightly: boolean };
 }
 export interface RunnerUsage { state: string; cpuPercent: number; memoryBytes: number; memoryPeakBytes: number | null; cpuQuotaPercent: number | null; memoryMaxBytes: number | null; throttledMs: number; modelLoaded: boolean; model: string | null; cgroup: boolean; readAt: string }
 export interface RunnerStatus { online: boolean; lastSeenAt: string | null; version: string | null; startedAt: string | null; hostBusy: boolean; usage: RunnerUsage | null }
@@ -38,9 +46,13 @@ export interface AgentSpec {
   /** chat (M38): each kind of output to its Zulip channel, on by default; saved before M38, absent. */
   outputs: { notes: boolean; digest: boolean; notify: "important" | "never"; proposals: boolean; chat?: ChatOutputs };
   memory: { enabled: boolean; freshDays: number; maxNotes: number; share: boolean; threads: boolean; turns: number };
+  /** M44: whether it shares its findings with the other agents, and uses theirs. Saved before M44, absent. */
+  sharing?: { shareFindings: boolean; useFindings: boolean };
   escalation: { lowConfidence: boolean; limits: boolean; actions: boolean; risk: boolean };
-  allow: { apps: "*" | string[]; operations: "*" | string[] };
-  model: { thinking: boolean };
+  /** M45.5: `grants`, what it may carry out itself (Ask or Run), only when it has some. */
+  allow: { apps: "*" | string[]; operations: "*" | string[]; grants?: Record<string, GrantLevel> };
+  /** M45.3: which model runs it (M45.4: or "auto"), and what may leave this server when Claude does. Older agents have only `thinking`. */
+  model: { thinking: boolean; route?: ModelRoute; dataPolicy?: "redacted" | "as-is"; claudeForViewers?: boolean; claudeReadsDocuments?: boolean };
   orchestration: { supervisor: boolean; delegates: "*" | string[]; maxDepth: number };
 }
 
@@ -64,6 +76,8 @@ export interface AgentSummary {
   toolsOn: number;
   triggers: AgentSpec["triggers"];
   audience: AgentSpec["audience"];
+  /** M40: its latest evaluation score and whether it dropped; the owner's and operators' only. */
+  accuracy?: { score: number; at: string; dropped: boolean };
 }
 
 export interface AgentVersion { version: number; note: string | null; createdBy: string | null; createdAt: string }
@@ -81,16 +95,27 @@ export interface Overview {
 }
 
 export interface ToolInfo { id: string; fn: string; title: string; description: string; category: string; categoryTitle: string; role: "viewer" | "operator"; cost: "cheap" | "moderate" | "heavy"; writes: string | null; defaultOff: boolean; params: Array<{ name: string; type: string; required: boolean; description: string }> }
-export interface Question { id: string; question: string; expect: { fact?: string; includes?: string[] } }
+export interface Question { id: string; question: string; expect: { fact?: string; includes?: string[] }; tool?: string; builtIn?: boolean }
 export interface Template { id: string; title: string; summary: string; spec: AgentSpec; questions: Question[] }
+/** What an agent may do with one operation itself (M45.5): ask a person first, or run it at once (low risk only). */
+export type GrantLevel = "ask" | "run";
+export interface Grantable { id: string; title: string; risk: "low" | "medium"; most: GrantLevel }
 export interface Catalog {
+  /** M45.5: the operations an agent may be given leave to carry out. Older servers send none. */
+  grantable?: Grantable[];
   templates: Template[]; tools: ToolInfo[]; events: Array<{ id: string; title: string }>;
   limits: { budget: Record<keyof AgentSpec["budget"], { min: number; max: number; default: number }>; module: Record<"runsPerDay" | "modelSecondsPerDay", { min: number; max: number }> };
   categories: Record<string, string>; outputFormats: Array<"text" | "json">; memoryTiers: Record<string, string>;
 }
 
-export interface RunStep { seq: number; kind: "model" | "tool" | "proposal" | "note" | "notify" | "system" | "intent" | "plan" | "recall" | "memory" | "handoff"; name: string | null; state: "done" | "failed" | "refused"; input: unknown; output: string | null; flags: Record<string, unknown>; startedAt: string; durationMs: number | null; tokensIn: number | null; tokensOut: number | null }
-export interface PlanStep { operationId: string; title: string; risk: RiskTier; readOnly: boolean; approval: string; typedConfirmation: boolean; parameters: Record<string, unknown>; why: string }
+export interface RunStep { seq: number; kind: "model" | "tool" | "proposal" | "note" | "notify" | "system" | "intent" | "plan" | "recall" | "memory" | "handoff" | "finding" | "action"; name: string | null; state: "done" | "failed" | "refused"; input: unknown; output: string | null; flags: Record<string, unknown>; startedAt: string; durationMs: number | null; tokensIn: number | null; tokensOut: number | null }
+/**
+ * How a card's step stands, from the job it was staged as, as the server keeps it (sweep 3): ready to
+ * stage (no job yet, or one cancelled or never started), waiting for approval, approved, or failed
+ * after it started. `jobId` is given to the owner and whoever staged it.
+ */
+export type StepStatus = "ready" | "waiting" | "approved" | "failed";
+export interface PlanStep { operationId: string; title: string; risk: RiskTier; readOnly: boolean; approval: string; typedConfirmation: boolean; parameters: Record<string, unknown>; why: string; jobId?: string | null; jobState?: string | null; status?: StepStatus }
 export interface Proposal {
   id: string;
   kind: "plan" | "question" | "escalation";
@@ -110,14 +135,28 @@ export interface Proposal {
   expiresAt: string;
   jobIds: string[];
 }
-export interface RunUsage { modelMs?: number; loadMs?: number; promptTokens?: number; completionTokens?: number; modelCalls?: number; toolCalls?: number; wallMs?: number }
+/** Which model runs an agent: the local one, Claude (M45.3), or the local one moving to Claude when a run needs it (M45.4). */
+export type ModelRoute = "local" | "claude" | "auto";
+/**
+ * What a run used. `route` is set when it reached Claude: "claude" alone, or "both" when the local
+ * model answered part of it first; `routeReason` is why it moved (M45.4).
+ */
+export interface RunUsage {
+  modelMs?: number; loadMs?: number; promptTokens?: number; completionTokens?: number; modelCalls?: number; toolCalls?: number; wallMs?: number; checkMs?: number; correctionMs?: number; runsSaved?: number; findingsCited?: number;
+  route?: "claude" | "both"; model?: string; costUsd?: number; cloudCalls?: number; standIns?: number | null; routeReason?: string;
+}
+/** M40: the check before answering - statements held to the tool output they cite. */
+export interface RunCheck { claims: number; checked: number; mismatches: number; corrected: boolean; found: number; unsure: boolean }
+/** M45.6: a plan an agent carries out over hours, one step at a time. */
+export interface AgentPlanStep { kind: "operation" | "check"; title: string; operationId: string | null; state: "pending" | "running" | "waiting" | "checking" | "done" | "failed"; note: string | null; jobId: string | null; grant: GrantLevel | null; risk: string | null }
+export interface AgentPlan { id: string; title: string; state: "running" | "waiting" | "done" | "failed" | "expired" | "cancelled"; reason: string | null; cursor: number; createdAt: string; deadlineAt: string; steps: AgentPlanStep[] }
 export interface Run {
   id: string;
   agentId: string;
   agentName: string;
   version: number;
   kind: RunKind;
-  trigger: { title?: string; event?: string; quietHours?: boolean };
+  trigger: { title?: string; event?: string; quietHours?: boolean; secondOpinionOf?: string };
   question: string | null;
   state: RunState;
   reason: string | null;
@@ -128,7 +167,7 @@ export interface Run {
   answer: string | null;
   outputKind: string | null;
   usage: RunUsage;
-  flags: { injection?: boolean; degraded?: string; citations?: { cited: number; unknown: string[] } };
+  flags: { injection?: boolean; degraded?: string; citations?: { cited: number; unknown: string[] }; check?: RunCheck; secondOpinion?: { runId: string; reason: string }; actHeld?: boolean };
   eval?: { evalId: string; questionId: string } | null;
   parentRunId?: string | null;
   rootRunId?: string;
@@ -136,14 +175,19 @@ export interface Run {
   feedback?: { verdict: "up" | "down"; note: string | null; mine: boolean } | null;
   tree?: Array<{ id: string; parentRunId: string | null; depth: number; agentId: string; agentName: string; kind: RunKind; state: RunState; question: string | null; finishedAt: string | null }>;
   proposals: Proposal[];
+  /** M45.6: the plan this run made, when it made one. */
+  plan?: AgentPlan | null;
   steps?: RunStep[];
 }
 
-export interface Caps { cpuQuotaPercent: number; cpuWeight: string; nice: number; ioSchedulingClass: string; memoryMaxBytes: number; memorySwapMaxBytes: number; tasksMax: number; modelThreads: number; unit: string }
+/** The runner's caps; `cpuQuotaPercent` is the background quota, `waitingQuotaPercent` the raised one (M40). */
+export interface Caps { cpuQuotaPercent: number; waitingQuotaPercent?: number; cpuWeight: string; nice: number; ioSchedulingClass: string; memoryMaxBytes: number; memorySwapMaxBytes: number; tasksMax: number; modelThreads: number; unit: string }
 export interface Usage {
   runner: RunnerStatus;
   caps: Caps;
   today: { runs: number; modelSeconds: number; tokens: number; perAgent: Array<{ agentId: string; name: string; runs: number; runsPerDay: number; modelSeconds: number; modelSecondsPerDay: number; tokens: number }> };
+  /** M44: over the last `days`, runs not started because a specialist's finding answered, and answers that cited a finding. */
+  findings?: { days: number; runsSaved: number; answers: number };
   queue: { queued: number; running: number; dropped: number };
   module: ModuleState;
 }
@@ -169,7 +213,21 @@ export interface OwnerDocument { id: string; title: string; enabled: boolean; cr
 export type ChatKind = "findings" | "logs" | "knowledge";
 export interface ChatOutput { enabled: boolean; channel: string | null; topic: string | null }
 export type ChatOutputs = Record<ChatKind, ChatOutput>;
-export interface ChatPost { id: string; kind: ChatKind | "ack"; channel: string; topic: string; state: "queued" | "sent" | "failed" | "dropped"; error: string | null; createdAt: string; sentAt: string | null; agentName: string | null; preview: string }
+export interface ChatPost { id: string; kind: ChatKind | "ack" | "reply"; channel: string; topic: string; direct?: boolean; state: "queued" | "sent" | "failed" | "dropped"; error: string | null; createdAt: string; sentAt: string | null; agentName: string | null; preview: string }
+/** Claude for the agents (M45.3): connected or not, the cap, and the month as the gateway counts it. Never the key. */
+export interface CloudState {
+  connected: boolean;
+  model: string | null;
+  models: string[];
+  capUsd: number | null;
+  connectedAt: string | null;
+  gateway: "off" | "answering" | "not answering";
+  month: string | null;
+  spentUsd: number | null;
+  calls: number | null;
+  problem: string | null;
+}
+
 export interface ZulipState {
   connected: boolean; site: string | null; realm: string | null; botEmail: string | null;
   channels: Record<ChatKind | "files", string>; notPrivate: string[]; connectedAt: string | null; boxpilotUrl: string | null;
@@ -177,6 +235,14 @@ export interface ZulipState {
   files: { lastPollAt: string | null; lastIngest: { at: string; title: string } | null; lastError: string | null };
   counts: Partial<Record<ChatPost["state"], number>>; recent: ChatPost[]; active: boolean;
   app: { installed: boolean; running: boolean; port: number | null } | null; canChange: boolean;
+  /** M40.5: asking the agents in Zulip. The lists are the owner's only. */
+  asking?: ZulipAsking;
+}
+export interface ZulipPerson { zulipId: number | null; zulipEmail: string | null; zulipName: string | null; boxpilotId: string }
+export interface ZulipAsker { zulipId: number | null; zulipEmail: string; zulipName: string; lastAt: string; count: number }
+export interface ZulipAsking {
+  on: boolean; lastPollAt: string | null; lastError: string | null; lastAsk: { at: string; agentName: string | null; kind: string } | null;
+  defaultAgentId: string | null; people: ZulipPerson[]; askers: ZulipAsker[]; accounts: Array<{ id: string; username: string; role: string }>;
 }
 export interface Knowledge {
   sources: KnowledgeSource[]; documents: OwnerDocument[];
@@ -184,21 +250,49 @@ export interface Knowledge {
   learning: { quietHours: { start: string; end: string }; agents: Array<{ agentId: string; name: string; state: RunState | null; at: string | null }> };
   canChange: boolean;
   connectors?: Connectors; folder?: { enabled: boolean; path: string | null }; webSearch?: { enabled: boolean; endpoint: string | null };
+  /** M40.6: whether the model can see images, as the model server last said. */
+  vision?: { vision: boolean; reason: string | null; at: string } | null;
 }
-export interface MemoryNote { id: string; title: string; body: string; source: Note["source"]; createdAt: string; updatedAt: string; freshUntil: string | null; stale: boolean; pinned: boolean; shared: boolean; readRole: string; indexed: boolean }
+/** `othersWords`: its words are another account's, held to them by the runs of whoever looks (sweep 4). */
+export interface MemoryNote { id: string; title: string; body: string; source: Note["source"]; createdAt: string; updatedAt: string; freshUntil: string | null; stale: boolean; pinned: boolean; shared: boolean; readRole: string; indexed: boolean; othersWords?: boolean }
+/** M46: an example the planner is shown, as the Memory tab lists it: a request and the tools a good plan read for it. */
+export interface Example { id: string; request: string; tools: string[]; plan: Array<{ step: string; tool: string | null }>; answer: string | null; signal: "seed" | "card-staged" | "thumbs-up" | "finding-kept" | "eval-passed"; seed: boolean; runId: string | null; route: string | null; readRole: string; createdAt: string; embedded: boolean }
+export interface Examples { examples: Example[]; counts: { total: number; seeds: number } }
+/** M44: a finding, as the Memory tab lists it. */
+export interface Finding { id: string; kind: "routine" | "answer"; title: string; body: string; from: string; agentId: string; updatedAt: string; freshUntil: string | null; stale: boolean; readRole: string; runId: string | null; unsure: boolean; partial: boolean }
 export interface Memory {
+  /** M44: what it shared, and the other agents' fresh findings it can use. Absent from an older server. */
+  findings?: { shared: Finding[]; usable: Finding[] };
   facts: MemoryNote[];
-  shared: Array<{ id: string; title: string; body: string; from: string; updatedAt: string; stale: boolean }>;
+  /**
+   * Other agents' shared facts, as this agent's runs read them: `injection` when one flags them,
+   * `othersWords` when its words are another account's, held to them; Trust goes to `agentId`, for
+   * whoever may change that agent (`canTrust`). The last four are absent from an older server.
+   */
+  shared: Array<{ id: string; title: string; body: string; from: string; updatedAt: string; stale: boolean; agentId?: string; injection?: boolean; othersWords?: boolean; canTrust?: boolean }>;
   episodes: Array<{ id: string; runId: string | null; text: string; createdAt: string; indexed: boolean }>;
   thread: { summary: string; turns: Array<{ role: "user" | "agent"; text: string; at?: string }>; updatedAt: string } | null;
-  settings: { enabled: boolean; share: boolean; threads: boolean; turns: number; freshDays: number; maxNotes: number };
+  settings: { enabled: boolean; share: boolean; threads: boolean; turns: number; freshDays: number; maxNotes: number; shareFindings?: boolean; useFindings?: boolean };
   search: { byMeaning: boolean; model: string; pending: number; vectors: number };
 }
 export interface Accuracy { version: number; model: string | null; evaluations: number; score: number | null; up: number; down: number; since: string | null }
 export interface Note { id: string; title: string; body: string; source: { runId?: string; by?: string; tools?: string[]; injection?: boolean }; createdAt: string; updatedAt: string; freshUntil: string | null; stale: boolean }
-export interface EvalResult { questionId: string; question: string; expected: { fact?: string; value?: unknown; includes?: string[] }; runId: string | null; passed: boolean | null; found: string | null }
-export interface EvalRun { id: string; version: number; model?: string | null; state: "running" | "done"; results: EvalResult[]; score: number | null; createdAt: string; finishedAt: string | null }
-export interface Evaluation { questions: Question[]; runs: EvalRun[]; canEdit: boolean; successCriteria?: string[]; accuracy?: Accuracy[] }
+export interface EvalResult { questionId: string; question: string; expected: { fact?: string; value?: unknown; includes?: string[] }; runId: string | null; passed: boolean | null; found: string | null; skipped?: boolean; seconds?: number; costUsd?: number; route?: "local" | "claude" }
+export interface EvalRun { id: string; version: number; model?: string | null; state: "running" | "done"; results: EvalResult[]; score: number | null; createdAt: string; finishedAt: string | null; createdBy?: string | null; route?: "local" | "claude" | null; pairId?: string | null }
+/** M45.7: one side of a comparison of the routes. */
+export interface ComparisonSide { evalId: string; state: "running" | "done"; model: string | null; score: number | null; right: number; questions: number; seconds: number | null; dollars: number; ranLocally: number }
+export interface Comparison { pairId: string; at: string; nightly: boolean; local: ComparisonSide | null; claude: ComparisonSide | null }
+/** M40: each finished evaluation's score, oldest first, and a drop worth flagging. */
+/** `questions`: those graded, as `score` counts them; `skipped`: those that were not (sweep 4). */
+export interface AccuracyPoint { id: string; at: string; score: number; version: number; model: string | null; nightly: boolean; right: number; questions: number; skipped?: number }
+export interface AccuracyDrop { from: number; to: number; previous: number; at: string; evalId: string; version: number; previousVersion: number; model: string | null; previousModel: string | null }
+export interface Evaluation {
+  questions: Question[]; runs: EvalRun[]; canEdit: boolean; successCriteria?: string[]; accuracy?: Accuracy[];
+  builtIn?: Question[]; history?: AccuracyPoint[]; drop?: AccuracyDrop | null; people?: Array<{ day: string; up: number; down: number }>;
+  nightly?: { quietHours: { start: string; end: string }; next: string; compare?: boolean };
+  /** M45.7: the routes side by side, and whether this person may start a comparison now. */
+  comparisons?: Comparison[]; canCompare?: boolean;
+}
 export interface Glance { enabled: boolean; paused: boolean; runnerOnline: boolean; queued?: number; digest: { agentId: string; agentName: string; runId: string; at: string; excerpt: string; state: RunState } | null; cardsWaiting: number }
 
 const base = "/api/v1/agents";
@@ -222,9 +316,13 @@ export const agentsApi = {
   runtime: () => get<RuntimeState>("/runtime"),
   glance: () => get<Glance>("/glance"),
   proposals: () => get<{ proposals: Proposal[] }>("/proposals"),
+  proposal: (proposalId: string) => get<Proposal>(`/proposals/${encodeURIComponent(proposalId)}`),
   knowledge: () => get<Knowledge>("/knowledge"),
   zulip: () => get<ZulipState>("/zulip"),
-  zulipPoll: (csrf: string) => send<{ messages?: number; added?: number; skipped?: string; error?: string }>("POST", "/zulip/poll", csrf),
+  cloud: () => get<CloudState>("/cloud"),
+  zulipPoll: (csrf: string) => send<{ messages?: number; added?: number; skipped?: string; error?: string; asked?: { asked?: number; refused?: number; skipped?: string; error?: string } }>("POST", "/zulip/poll", csrf),
+  /** M40.5: who in Zulip may ask, as which account; with the owner's password. */
+  zulipPeople: (csrf: string, body: { password: string; people: ZulipPerson[]; defaultAgentId: string | null; twoWay: boolean }) => send<ZulipState>("PUT", "/zulip/people", csrf, body),
   agent: (id: string) => get<AgentDetail>(`/${encodeURIComponent(id)}`),
   version: (id: string, version: number) => get<VersionDetail>(`/${encodeURIComponent(id)}/versions/${version}`),
   runs: (id: string) => get<{ runs: Run[] }>(`/${encodeURIComponent(id)}/runs?limit=30`),
@@ -241,15 +339,24 @@ export const agentsApi = {
   test: (csrf: string, id: string, question: string | null) => send<Run>("POST", `/${encodeURIComponent(id)}/runs`, csrf, { question }),
   ask: (csrf: string, id: string, question: string) => send<Run>("POST", `/${encodeURIComponent(id)}/ask`, csrf, { question }),
   cancel: (csrf: string, runId: string) => send<Run>("POST", `/runs/${encodeURIComponent(runId)}/cancel`, csrf),
+  /** M45.6: stop a plan an agent is carrying out. */
+  cancelPlan: (csrf: string, planId: string) => send<AgentPlan>("POST", `/plans/${encodeURIComponent(planId)}/cancel`, csrf),
   deleteNote: (csrf: string, id: string, noteId: string) => send<{ deleted: boolean }>("DELETE", `/${encodeURIComponent(id)}/notes/${encodeURIComponent(noteId)}`, csrf),
   saveEvaluation: (csrf: string, id: string, questions: Question[]) => send<Evaluation>("PUT", `/${encodeURIComponent(id)}/evaluation`, csrf, { questions }),
-  runEvaluation: (csrf: string, id: string) => send<EvalRun>("POST", `/${encodeURIComponent(id)}/evaluation/run`, csrf),
+  runEvaluation: (csrf: string, id: string, compare = false) => send<EvalRun>("POST", `/${encodeURIComponent(id)}/evaluation/run`, csrf, compare ? { compare: true } : undefined),
   decide: (csrf: string, proposalId: string, decision: "dismissed" | "staged", jobIds: string[] = []) => send<Proposal>("POST", `/proposals/${encodeURIComponent(proposalId)}/decide`, csrf, { decision, jobIds }),
+  /** Which job a card's step was staged as; the server decides the card once every step's job is approved. */
+  stageStep: (csrf: string, proposalId: string, step: number, jobId: string) => send<Proposal>("POST", `/proposals/${encodeURIComponent(proposalId)}/steps/${step}/job`, csrf, { jobId }),
   memory: (id: string) => get<Memory>(`/${encodeURIComponent(id)}/memory`),
-  editMemory: (csrf: string, id: string, noteId: string, patch: { title?: string; body?: string; freshDays?: number | null; pinned?: boolean; shared?: boolean }) => send<MemoryNote>("PUT", `/${encodeURIComponent(id)}/memory/notes/${encodeURIComponent(noteId)}`, csrf, patch),
+  editMemory: (csrf: string, id: string, noteId: string, patch: { title?: string; body?: string; freshDays?: number | null; pinned?: boolean; shared?: boolean; trusted?: boolean }) => send<MemoryNote>("PUT", `/${encodeURIComponent(id)}/memory/notes/${encodeURIComponent(noteId)}`, csrf, patch),
   forget: (csrf: string, id: string, kind: "notes" | "episodes", itemId: string) => send<{ forgotten: boolean }>("DELETE", `/${encodeURIComponent(id)}/memory/${kind}/${encodeURIComponent(itemId)}`, csrf),
   forgetThread: (csrf: string, id: string) => send<{ forgotten: boolean }>("DELETE", `/${encodeURIComponent(id)}/memory/thread`, csrf),
-  feedback: (csrf: string, runId: string, verdict: "up" | "down", note?: string) => send<{ verdict: "up" | "down"; note: string | null; mine: boolean }>("POST", `/runs/${encodeURIComponent(runId)}/feedback`, csrf, { verdict, note: note || null }),
+  // M46: the example book, and the owner's export of it as training data (a file, so a link rather than a call).
+  examples: (id: string) => get<Examples>(`/${encodeURIComponent(id)}/examples`),
+  forgetExample: (csrf: string, id: string, exampleId: string) => send<{ deleted: boolean }>("DELETE", `/${encodeURIComponent(id)}/examples/${encodeURIComponent(exampleId)}`, csrf),
+  examplesExportUrl: (id: string, { cover = null, seeds = true }: { cover?: number | null; seeds?: boolean } = {}) => `${base}/${encodeURIComponent(id)}/examples/export${[cover ? `cover=${cover}` : null, seeds ? null : "seeds=false"].filter(Boolean).length ? `?${[cover ? `cover=${cover}` : null, seeds ? null : "seeds=false"].filter(Boolean).join("&")}` : ""}`,
+  /** A verdict; a "wrong" with `expect` (words the right answer holds) also becomes a golden question (M40). */
+  feedback: (csrf: string, runId: string, verdict: "up" | "down", note?: string, expect?: string[]) => send<{ verdict: "up" | "down"; note: string | null; mine: boolean; addedToEvaluation?: { questionId: string | null } }>("POST", `/runs/${encodeURIComponent(runId)}/feedback`, csrf, { verdict, note: note || null, ...(expect?.length ? { expect } : {}) }),
   exportAgent: (id: string) => get<Record<string, unknown>>(`/${encodeURIComponent(id)}/export`),
   importAgent: (csrf: string, definition: string) => send<AgentDetail>("POST", "/import", csrf, { definition }),
   mintWebhook: (csrf: string, id: string) => send<{ token: string; path: string }>("POST", `/${encodeURIComponent(id)}/webhook`, csrf),
@@ -270,6 +377,8 @@ export const agentsApi = {
   saveSettings: (csrf: string, body: {
     password: string; enabled?: boolean; quietHours?: { start: string; end: string }; notify?: boolean; knowledge?: Partial<Record<KnowledgeSource["id"], boolean>>; runtime?: Partial<RuntimeSettings>;
     budget?: { runsPerDay?: number; modelSecondsPerDay?: number }; embeddings?: boolean; webSearch?: { enabled: boolean; endpoint: string | null }; folder?: { enabled: boolean; path: string | null };
+    cores?: { waiting?: number; background?: number };
+    evaluation?: { compareNightly: boolean };
     connectors?: { notion?: { enabled: boolean; credential: string | null }; slack?: { enabled: boolean; credential: string | null; channels?: string[] } };
   }) =>
     send<{ module: ModuleState }>("PUT", "/api/v1/settings/agents", csrf, body),
@@ -286,6 +395,8 @@ export function followRun(runId: string, onEvent: (event: RunEvent) => void): ()
   let source: EventSource | null = null;
   let timer: ReturnType<typeof setTimeout> | null = null;
   let streamed = false;
+  // The stream said the run is over. The server then closes it, which reaches here as an error.
+  let ended = false;
   const finished = new Set<RunState>(["completed", "degraded", "failed", "cancelled", "killed", "interrupted", "refused", "timeout"]);
   const poll = async () => {
     if (stopped || streamed) return;
@@ -303,12 +414,23 @@ export function followRun(runId: string, onEvent: (event: RunEvent) => void): ()
       if (stopped) return;
       streamed = true;
       if (timer) clearTimeout(timer);
-      try { onEvent({ event: name, data: JSON.parse((event as MessageEvent).data) } as RunEvent); } catch { /* ignore a malformed frame */ }
+      let data: { state?: RunState } | null = null;
+      try { data = JSON.parse((event as MessageEvent).data); } catch { return; /* ignore a malformed frame */ }
+      if ((name === "snapshot" || name === "state") && data?.state && finished.has(data.state)) ended = true;
+      try { onEvent({ event: name, data } as RunEvent); } catch { /* the page's own trouble; the stream goes on */ }
     };
     source.addEventListener("snapshot", handle("snapshot"));
     source.addEventListener("step", handle("step"));
     source.addEventListener("state", handle("state"));
-    source.onerror = () => { source?.close(); if (!stopped) { streamed = false; void poll(); } };
+    // Falling back to reading the run: once, and not for a run the stream already saw end. The
+    // fallback's own first read was still pending when the stream failed early, so both started a
+    // chain of reads; and the close that follows a run's end read it again and reported it finished twice.
+    source.onerror = () => {
+      source?.close();
+      if (timer) clearTimeout(timer);
+      timer = null;
+      if (!stopped && !ended) { streamed = false; void poll(); }
+    };
     timer = setTimeout(() => void poll(), 2_500);
   } else {
     void poll();

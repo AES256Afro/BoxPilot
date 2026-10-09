@@ -182,4 +182,37 @@ describe("the notification centre (M36)", () => {
       local.close();
     }
   });
+
+  it("gives an automation's failure in full only to the owner and to whoever ran the run it describes (sweeps 2 and 3)", async () => {
+    // The message carries the step's job error, which GET /flows keeps from anyone but the owner and
+    // the account whose run it was; the notification centre handed it to every role. Who ran it is
+    // recorded with the words, so a later run by someone else does not hand them over (sweep 3).
+    const stored = new Map();
+    const store = { getSetting: (key, fallback) => stored.get(key) ?? fallback, setSetting: (key, value) => stored.set(key, value), getJob: () => null, getFlow: () => null, getSchedule: () => null };
+    const history = createNotificationHistory({ store, now: () => new Date("2026-10-05T03:00:00Z") });
+    const said = history.record({ key: "flow.failed:flow-1", kind: "alert", title: "Automation stopped: Tidy", message: "Tidy stopped at step 2 (Back up application data): tar failed: /srv/private/ledger.db changed as we read it", delivered: true, actorId: "operator-1" });
+    const app = express();
+    app.use(express.json());
+    app.use((request, _response, next) => { request.boxpilotSession = { owner: { id: request.headers["x-test-owner"] ?? "owner-1", role: request.headers["x-test-role"] ?? "owner" } }; next(); });
+    app.use("/api/v1", createSettingsRouter({ state: store, notifications: { describe: () => ({ configured: true }) }, notificationHistory: history, auth }));
+    const local = app.listen(0);
+    await new Promise((resolve) => local.once("listening", resolve));
+    const url = `http://127.0.0.1:${local.address().port}/api/v1`;
+    const entryFor = async (owner, role) => (await (await fetch(`${url}/notifications`, { headers: { "x-test-owner": owner, "x-test-role": role } })).json()).entries[0];
+    const full = { key: "flow.failed:flow-1", title: "Automation stopped: Tidy", message: expect.stringContaining("ledger.db") };
+    const label = { key: "flow.failed", title: "An automation stopped or did not run", message: null };
+    try {
+      expect(await entryFor("owner-1", "owner")).toMatchObject(full);
+      expect(await entryFor("viewer-1", "viewer")).toMatchObject(label);
+      expect(await entryFor("operator-2", "operator")).toMatchObject(label);
+      expect(await entryFor("operator-1", "operator")).toMatchObject(full);   // whose run it was
+      // The response never says who ran it.
+      expect(JSON.stringify(await entryFor("owner-1", "owner"))).not.toContain("operator-1");
+      said.actorId = "owner-1";                                                // the owner's run
+      stored.set("notificationHistory", [said]);
+      expect(await entryFor("operator-1", "operator")).toMatchObject(label);
+    } finally {
+      local.close();
+    }
+  });
 });

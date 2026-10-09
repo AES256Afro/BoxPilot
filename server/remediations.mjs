@@ -20,6 +20,7 @@ import { createHash } from "node:crypto";
 import { backupMountpoint, legacyBackupMountpoint, mountpointFor } from "./backup-mount.mjs";
 import { coversEveryAddress, findPortConflicts, freePortNear, holderWords, portHolders, serveTargetPort, serveUrl } from "./ports.mjs";
 import { dnsAppIds } from "./dns-resilience.mjs";
+import { checkableFilesystems } from "./tasks/storage.mjs";
 
 export const severities = Object.freeze(["critical", "warning", "info"]);
 
@@ -258,6 +259,9 @@ export function drivesNeedingCheck(facts = {}) {
       const drop = droppedWith(mount);
       const evidence = uncleanEvidence(uncleanByDevice.get(mount.source) ?? null, volumeByTarget.get(mount.target) ?? null);
       const checkerMissing = mount.fstype === "exfat" && tools?.fsckExfat === false;
+      // storage.check has no read-only checker for NTFS, XFS or btrfs and refuses them, so offering
+      // it there gave the finding one fix that failed the same way every time it was pressed.
+      const checkable = checkableFilesystems.includes(mount.fstype);
       const lastCheck = last ? `last check ${new Date(last.checkedAt).toLocaleString()}${last.clean ? (last.markedDirty ? " (clean, still marked)" : " (clean)") : " (problems found)"}` : "never checked";
       // The exFAT mark a clean check already found: Linux keeps it until a repairing check and
       // repeats its warning at every mount, so a later warning is that mark again, not news, and a
@@ -276,11 +280,13 @@ export function drivesNeedingCheck(facts = {}) {
           title: unclean ? `${mount.target} was not unmounted cleanly and has not been checked since` : `${mount.target} has not been checked since its drive dropped`,
           detail: `${unclean
             ? "This drive was not unmounted cleanly before it was last mounted - after a power cut, a reboot that did not wait for it, or an unplug - and its filesystem says so. Whatever was being written then may have left the directory table damaged, which shows up later as files that vanish or a folder that will not open."
-            : "A drive that drops off USB mid-write can be left with a damaged directory table that only shows up later, as files that vanish or a folder that will not open."} The filesystem's own checker can read the whole table without changing anything. ${checkerMissing
-            ? "This drive is exFAT and fsck.exfat is not installed, so the checker comes first: install it, and this becomes the check itself."
-            : "The apps using the drive are paused for the check and started again after it."}`,
+            : "A drive that drops off USB mid-write can be left with a damaged directory table that only shows up later, as files that vanish or a folder that will not open."} ${!checkable
+            ? `BoxPilot has no read-only checker for ${mount.fstype ?? "this"} filesystems. Check it on a computer that has one (Windows' chkdsk for NTFS), with the drive unmounted here first.`
+            : `The filesystem's own checker can read the whole table without changing anything. ${checkerMissing
+              ? "This drive is exFAT and fsck.exfat is not installed, so the checker comes first: install it, and this becomes the check itself."
+              : "The apps using the drive are paused for the check and started again after it."}`}`,
           evidence: [...(uncleanDue ? evidence.lines : []), ...(drop ? [`last drop ${new Date(drop).toLocaleString()}`] : []), lastCheck, ...(checkerMissing ? ["fsck.exfat not found in /usr/sbin or /sbin"] : [])],
-          fixes: [checkerMissing
+          fixes: !checkable ? [] : [checkerMissing
             ? installDriveToolsFix(driveTools)
             : { operationId: "storage.check", parameters: { name }, label: "Check the drive", preview: `${pauses}, runs the read-only checker, mounts it again and starts ${apps.length ? listOf(apps) : "them"} again. Nothing is repaired or written.` }],
         })];
@@ -414,6 +420,21 @@ export function unwritableShares(facts = {}) {
     .filter((share) => !share.readOnly && share.ownerUid === 0 && !share.forceUser)
     .map((share) => {
       const drive = ownerlessDriveUnder(share.path, mounts);
+      // An exFAT, FAT or NTFS drive BoxPilot did not mount: the folder cannot be handed over (the
+      // drive keeps no owners, and samba.share.writable refuses it) and storage.writable changes only
+      // drives BoxPilot mounted, so either fix failed every time it was pressed. Said instead.
+      const onMount = mountFor(share.path, mounts);
+      const foreignOwnerless = !drive && onMount && ownerless.includes(String(onMount.fstype ?? "").toLowerCase()) ? onMount : null;
+      if (foreignOwnerless) {
+        return finding({
+          id: `share-unwritable:${share.name}`,
+          severity: "warning",
+          title: `Nobody can write to the ${share.name} share`,
+          detail: `${share.path} is on ${foreignOwnerless.target}, a ${foreignOwnerless.fstype} drive mounted without an owner and not by BoxPilot, so everything on it belongs to root and everyone connecting is read-only there. BoxPilot changes only the drives it mounted: add uid=${appUser},gid=${appUser} to its line in /etc/fstab and mount it again, or unmount it and mount it from Storage with "apps can write".`,
+          evidence: [`${share.path} is owned by root`, "the share is set read-write", `${foreignOwnerless.target} is ${foreignOwnerless.fstype}, mounted without uid=, and not by BoxPilot`],
+          fixes: [],
+        });
+      }
       return finding({
         id: `share-unwritable:${share.name}`,
         severity: "warning",
@@ -568,11 +589,39 @@ export function vpnLeaks({ apps = [] } = {}) {
     }));
 }
 
-/** A backup whose last restore rehearsal failed: it would not restore if it were needed. */
-export function failedRehearsals({ apps = [] } = {}) {
+/**
+ * A backup whose last restore rehearsal failed: it would not restore if it were needed. Once a newer
+ * backup exists (its fix, "Take a fresh backup", worked), the problem is no longer that the backup
+ * is bad but that the new one has not been rehearsed: the finding used to stay critical, offering
+ * the backup that had just succeeded, until someone rehearsed it by hand from the app's card.
+ */
+export function failedRehearsals({ apps = [], protection = null } = {}) {
+  const newestOf = (id) => {
+    const entry = protection?.available && Array.isArray(protection.apps) ? protection.apps.find((app) => app.id === id) : null;
+    const at = entry?.newestAt ? Date.parse(entry.newestAt) : Number.NaN;
+    return Number.isFinite(at) ? at : null;
+  };
   return apps
     .filter((app) => app.backupVerification && app.backupVerification.verified === false)
-    .map((app) => finding({
+    .map((app) => {
+      const newest = newestOf(app.id);
+      const checked = Date.parse(app.backupVerification.checkedAt ?? "");
+      if (newest !== null && Number.isFinite(checked) && newest > checked) {
+        return finding({
+          id: `backup-rehearsal:${app.id}`,
+          severity: "warning",
+          title: `${app.name}'s new backup has not been rehearsed yet`,
+          detail: `The last rehearsal could not unpack an older backup (${app.backupVerification.reason}), and a fresh one has been taken since. Rehearse it to know it would restore.`,
+          evidence: [`${app.backupVerification.backup} failed on ${app.backupVerification.checkedAt}`, `a newer backup was taken on ${new Date(newest).toISOString()}`],
+          fixes: [{
+            operationId: "app.backup.verify",
+            parameters: { id: app.id },
+            label: "Rehearse the new backup",
+            preview: `Checks ${app.name}'s newest backup against its checksum and unpacks the whole archive into scratch space, then deletes the scratch copy. ${app.name} keeps running and nothing it holds is changed.`,
+          }],
+        });
+      }
+      return finding({
       id: `backup-rehearsal:${app.id}`,
       severity: "critical",
       title: `${app.name}'s backup would not restore`,
@@ -584,7 +633,8 @@ export function failedRehearsals({ apps = [] } = {}) {
         label: "Take a fresh backup",
         preview: `Stops ${app.name} briefly, archives its data and configuration, and starts it again. Rehearse the new copy afterwards to confirm it opens.`,
       }],
-    }));
+      });
+    });
 }
 
 /**

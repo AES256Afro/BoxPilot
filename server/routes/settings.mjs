@@ -37,7 +37,8 @@ export function createSettingsRouter({ state, notifications, notificationHistory
   });
 
   /** An entry's words as this caller may read them (M29.4); access.mjs holds the rule, which the assistant shares. */
-  const titleFor = (request, key, entry, label) => watchEntryFor(request, key, entry, label, (id) => state.getSchedule?.(id)?.createdBy ?? null).title;
+  const scheduleOwner = (id) => state.getSchedule?.(id)?.createdBy ?? null;
+  const titleFor = (request, key, entry, label) => watchEntryFor(request, key, entry, label, scheduleOwner).title;
 
   // What BoxPilot watches for on its own, and which conditions are live right now. The active set is
   // the health-alert watcher's own persisted state, grouped back to its condition families.
@@ -68,18 +69,23 @@ export function createSettingsRouter({ state, notifications, notificationHistory
    * apart from "mark seen", which is the caller's own. Every role reads it, with the words cut back
    * as the watch list cuts them (M29.4): another account's job, schedule or sign-in is its kind only.
    */
-  const labelFor = (family) => healthConditions[family] ?? noticeKinds[family] ?? (family === "job.failed" ? "A job failed" : family);
+  const labelFor = (family) => healthConditions[family] ?? noticeKinds[family] ?? (family === "job.failed" ? "A job failed" : family === "approval.waiting" ? "A job waited for approval" : family);
   function historyEntryFor(request, entry, live) {
     const family = String(entry.key).split(":")[0];
     let visible;
-    if (entry.kind === "job") {
-      const job = state.getJob?.(String(entry.key).slice("job.failed:".length));
+    if (entry.kind === "job" || entry.kind === "approval") {
+      // A failed job's push, or an approval's (M25.2): the owner's, and the job's own creator's.
+      // Several approvals said at once name no one job, so they are the owner's alone.
+      const jobId = String(entry.key).includes(":") ? String(entry.key).slice(String(entry.key).indexOf(":") + 1) : null;
+      const job = jobId ? state.getJob?.(jobId) : null;
       const theirs = request.boxpilotSession?.owner?.role === "owner" || (job && job.createdBy === request.boxpilotSession?.owner?.id);
-      visible = theirs ? { title: entry.title, key: entry.key } : { title: labelFor(family), key: family };
+      visible = theirs ? { title: entry.title, key: entry.key, full: true } : { title: labelFor(family), key: family, full: false };
     } else {
-      visible = watchEntryFor(request, entry.key, entry, labelFor(family), (id) => state.getSchedule?.(id)?.createdBy ?? null);
+      visible = watchEntryFor(request, entry.key, entry, labelFor(family), scheduleOwner);
     }
-    const masked = visible.key !== entry.key;
+    // Cut by whether the caller may read it, not by whether the key got shorter: the weekly report's
+    // key has no subject to cut, and its words were handed to every role (sweep 3).
+    const masked = !visible.full;
     return {
       id: entry.id, kind: entry.kind, key: visible.key, family, title: visible.title, message: masked ? null : entry.message ?? null,
       at: entry.at, delivered: entry.delivered === true, reason: entry.reason ?? null, deliveredAt: entry.deliveredAt ?? null,

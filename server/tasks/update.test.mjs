@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { runningUpgrade, systemUpdate } from "./update.mjs";
+import { localHealthUrl, runningUpgrade, systemUpdate } from "./update.mjs";
 
 const directories = [];
 const sha = "a".repeat(40);
@@ -12,9 +12,10 @@ async function fixture() {
   directories.push(root);
   await mkdir(path.join(root, "install", "scripts"), { recursive: true });
   await writeFile(path.join(root, "install", "scripts", "boxpilot-upgrade.sh"), "#!/bin/sh\necho upgrade \"$1\"\n");
+  await writeFile(path.join(root, "boxpilot.env"), "BOXPILOT_HOST=127.0.0.1\nBOXPILOT_PORT=8787\n");
   const run = vi.fn(async () => ({ ok: true, stdout: "", stderr: "" }));
   const fetchImpl = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ sha }) }));
-  const options = { run, fetchImpl, installDir: path.join(root, "install"), stagingDirectory: path.join(root, "run"), nodeBinary: "/usr/local/bin/node", now: () => new Date("2026-08-21T15:00:00.000Z"), lockPath: path.join(root, "boxpilot-upgrade.lock") };
+  const options = { run, fetchImpl, installDir: path.join(root, "install"), stagingDirectory: path.join(root, "run"), nodeBinary: "/usr/local/bin/node", now: () => new Date("2026-08-21T15:00:00.000Z"), lockPath: path.join(root, "boxpilot-upgrade.lock"), envPath: path.join(root, "boxpilot.env") };
   return { root, run, fetchImpl, options };
 }
 
@@ -35,6 +36,37 @@ describe("system.update root task", () => {
     // It looked at the upgrade lock first, and found it free.
     expect(run.mock.calls[0]).toEqual(["/usr/bin/flock", ["-n", options.lockPath, "/bin/true"], expect.anything()]);
     expect(log).toHaveBeenCalledWith(expect.stringContaining("rolls back"), "stdout");
+  });
+
+  // A box installed with --port 9000: the script's health check asked 8787, failed, and rolled
+  // every update back - after the new version had already started on the database. This task then
+  // handed the script a health URL of its own, from a reader that took the first `^BOXPILOT_PORT=`
+  // line literally, and it overrode the script's own reading: `BOXPILOT_PORT = 9000`, or 8787 with
+  // 9000 appended below it, rolled every update back the same way. The script the System page runs is
+  // always the installed tree's own copy, and that script reads the env file as systemd does.
+  it("leaves the health check to the installed script, which reads the env file itself", async () => {
+    const { root, run, options } = await fixture();
+    await writeFile(options.envPath, "BOXPILOT_PORT=8787\nBOXPILOT_PORT = 9000\n");
+    await systemUpdate({ tag: "v0.62.0", expectedCommit: sha }, options);
+    const started = run.mock.calls.find(([binary]) => binary === "/usr/bin/systemd-run")[1];
+    expect(started.filter((arg) => arg.includes("BOXPILOT_HEALTH_URL"))).toEqual([]);
+    // The copy it runs is the installed tree's own script, not one downloaded with the release.
+    expect(await readFile(path.join(root, "run", "update-20260821T150000Z.sh"), "utf8")).toBe(await readFile(path.join(options.installDir, "scripts", "boxpilot-upgrade.sh"), "utf8"));
+    // ...and the script shipped beside this task reads the port and address from the env file with
+    // systemd's own parser (tests/ubuntu/env-file-parity.sh holds it to systemd), the port as the
+    // service takes it.
+    const script = (await readFile("scripts/boxpilot-upgrade.sh", "utf8")).replaceAll("\r\n", "\n");
+    expect(script).toContain("ENV_FILE=/etc/boxpilot/boxpilot.env");
+    expect(script).toContain('env_file_value "$ENV_FILE" "$1"');
+    expect(script).toContain("WEB_PORT=\"$(port_of \"$(env_value BOXPILOT_PORT)\")\"");
+    expect(script).toContain("WEB_HOST=\"$(env_value BOXPILOT_HOST)\"");
+  });
+
+  it("builds the health address the way the web service binds", () => {
+    expect(localHealthUrl({ webHost: "127.0.0.1", webPort: 8787 })).toBe("http://127.0.0.1:8787/api/v1/health");
+    expect(localHealthUrl({ webHost: "::", webPort: 9000 })).toBe("http://127.0.0.1:9000/api/v1/health");
+    expect(localHealthUrl({ webHost: "", webPort: 9000 })).toBe("http://127.0.0.1:9000/api/v1/health");
+    expect(localHealthUrl({ webHost: "::1", webPort: 9000 })).toBe("http://[::1]:9000/api/v1/health");
   });
 
   it("refuses when the tag moved, when GitHub cannot resolve it, or when input is malformed", async () => {

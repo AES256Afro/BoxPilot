@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { bootstrapOwner, fetchAuthStatus, forgetSession, rememberSession, signedOutReason } from "./auth";
+import { bootstrapOwner, fetchAuthStatus, forgetSession, rememberSession, signedOutReason, signedOutReasonFor } from "./auth";
 
 afterEach(() => { vi.unstubAllGlobals(); window.localStorage.clear(); });
 
@@ -39,6 +39,13 @@ describe("why a browser is back at sign-in", () => {
     expect(signedOutReason(now)).toBe("expired");
     signedIn("2026-09-30T06:00:00Z");
     expect(signedOutReason(now)).toBe("ended");
+  });
+
+  it("says what the server said when it ended the session for coming from another address", () => {
+    signedIn("2026-09-30T06:00:00Z");
+    expect(signedOutReasonFor({ signedOut: "address-changed" }, now)).toBe("address-changed");
+    expect(signedOutReasonFor({}, now)).toBe("ended");
+    expect(signedOutReasonFor(null, now)).toBe("ended");
   });
 
   it("forgets on signing out, so signing out on purpose says nothing", () => {

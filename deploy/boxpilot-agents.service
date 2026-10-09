@@ -34,7 +34,14 @@ UMask=0077
 # ---- Hard caps (server/agents/caps.mjs holds these values; caps.test.mjs keeps them equal) ----
 # Agents must never make the server run hot. These cover the runner and the model server together:
 # four processors at most (the model runs four threads), and only time nothing else wants.
+# While a person waits on an answer, the root helper raises the quota of the running unit to the
+# owner's "while you wait" number (eight unless changed, never more than all processors but two)
+# with `systemctl set-property --runtime`, and a timer set with it puts this one back (ADR-009).
 CPUQuota=400%
+# "idle" is systemd 252's. Ubuntu 22.04's systemd 249 rejects it ("Invalid weight, ignoring") and
+# keeps the line before, so there the runner gets the lowest weight instead; newer systemd takes the
+# later line.
+CPUWeight=1
 CPUWeight=idle
 Nice=19
 IOSchedulingClass=idle

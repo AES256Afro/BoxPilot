@@ -62,9 +62,20 @@ export function prerequisiteOperations() {
     defineOperation({ id: "prerequisite.nvidia.inspect", title: "Inspect NVIDIA GPU support", risk: "low", readOnly: true, parameters: noParameters, run: (_p, { prerequisites }) => prerequisites.inspectNvidia() }),
     defineOperation({ id: "prerequisite.virtualization.inspect", title: "Inspect KVM/QEMU/libvirt", risk: "low", readOnly: true, parameters: noParameters, run: (_p, { prerequisites }) => prerequisites.inspectVirtualization() }),
     defineOperation({
-      id: "prerequisite.virtualization.install", title: "Install KVM/QEMU/libvirt", risk: "medium", description: "Installs KVM, QEMU and libvirt from Ubuntu's archive, which is what virtual machines run on. Existing applications and containers are unaffected.", timeoutMs: minutes(15),
+      // apt-get may take 20 minutes, its unit 21 (TimeoutStartSec), and the helper waits 21 for that
+      // unit; the budget covers all of it and the checks after. The helper then restarts, once the
+      // work beside this job has finished, so VM work can write to /var/lib/libvirt.
+      id: "prerequisite.virtualization.install", title: "Install KVM/QEMU/libvirt", risk: "medium", description: "Installs KVM, QEMU and libvirt from Ubuntu's archive, which is what virtual machines run on. Existing applications and containers are unaffected.", timeoutMs: minutes(23), restartsService: "drained",
       parameters: { fields: { expectedPackages: { type: "object", validate: validExpectedPackages } } },
-      run: (parameters, { prerequisites }) => prerequisites.installVirtualization(parameters),
+      run: async (parameters, { prerequisites, selfRestart, progress }) => {
+        const { helperRestartNeeded = false, ...result } = await prerequisites.installVirtualization(parameters);
+        if (!helperRestartNeeded) return result;
+        const scheduled = selfRestart?.request(["boxpilot-helper.service"], { reason: "KVM was installed, and the helper must restart to write to /var/lib/libvirt" }) === true;
+        progress?.(scheduled
+          ? "BoxPilot's helper restarts once this job and any work running beside it have finished, so virtual machine work can write to /var/lib/libvirt."
+          : "BoxPilot's helper needs a restart before virtual machines can be created, and none could be arranged. Restart boxpilot-helper.service from the Services page.", scheduled ? "stdout" : "stderr");
+        return { ...result, helperRestartScheduled: scheduled };
+      },
     }),
     defineOperation({ id: "prerequisite.apt-metadata.inspect", title: "Inspect APT metadata", risk: "low", readOnly: true, parameters: noParameters, run: (_p, { prerequisites }) => prerequisites.inspectAptMetadata() }),
     defineOperation({

@@ -1,0 +1,13 @@
+{
+  "id": "msg_answer",
+  "type": "message",
+  "role": "assistant",
+  "model": "claude-opus-5-5",
+  "content": [
+    { "type": "thinking", "thinking": "", "signature": "sig-answer-0002" },
+    { "type": "text", "text": "The media drive is 68% full." }
+  ],
+  "stop_reason": "end_turn",
+  "stop_details": null,
+  "usage": { "input_tokens": 30, "output_tokens": 24, "cache_creation_input_tokens": 90, "cache_read_input_tokens": 1200 }
+}

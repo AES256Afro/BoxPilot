@@ -37,6 +37,17 @@ describe("the heartbeat", () => {
     expect((screen.getByRole("button", { name: "Turn on" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
+  // Turned off without forgetting the address, it said "Leave empty to keep the saved one" and then
+  // would not turn on until the address was pasted again.
+  it("turns back on with the saved address when it was turned off and kept", async () => {
+    const staged = serve({ ...off, configured: true, host: "hc-ping.com" });
+    expect(await screen.findByText(/Leave empty to keep the saved one \(hc-ping\.com\)/)).toBeTruthy();
+    const turnOn = screen.getByRole("button", { name: "Turn on" }) as HTMLButtonElement;
+    expect(turnOn.disabled).toBe(false);
+    fireEvent.click(turnOn);
+    await waitFor(() => expect(staged["heartbeat.set"]).toEqual({ parameters: { enabled: true, intervalMinutes: 5 } }));
+  });
+
   it("stages turning it on with the address as the secret it is, and the interval", async () => {
     const staged = serve(off);
     fireEvent.change(await screen.findByLabelText("Ping address"), { target: { value: url } });
@@ -44,6 +55,27 @@ describe("the heartbeat", () => {
     fireEvent.change(screen.getByLabelText("How often"), { target: { value: "10" } });
     fireEvent.click(screen.getByRole("button", { name: "Turn on" }));
     await waitFor(() => expect(staged["heartbeat.set"]).toEqual({ parameters: { enabled: true, intervalMinutes: 10, url } }));
+  });
+
+  it("keeps the address and the interval typed when turning it on fails, and when the page reads again", async () => {
+    let reads = 0;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const target = input.toString();
+      if (target === "/api/v1/operations/heartbeat.inspect/inspect") { reads += 1; return json({ operation: "heartbeat.inspect", result: off }); }
+      if (target === "/api/v1/network/topology") return json(topology);
+      if (target.endsWith("/operations/heartbeat.set/jobs")) return json({ job: { id: "j1", type: "op:heartbeat.set", state: "awaiting_approval", title: "Turn the heartbeat on", risk: "medium", error: null, result: null, steps: [], approvals: [] }, approval: { tier: "medium", passwordRequired: false, elevated: false, mode: "tiered", reason: "medium risk" } }, 201);
+      if (target.endsWith("/jobs/j1/approve")) return json({ job: { id: "j1", state: "applying" }, elevatedUntil: null }, 202);
+      if (target.endsWith("/jobs/j1")) return json({ job: { id: "j1", type: "op:heartbeat.set", title: "Turn the heartbeat on", state: "failed", risk: "medium", error: "curl: (6) Could not resolve host", result: null, steps: [], approvals: [] } });
+      return json({ error: `unexpected ${target}` }, 500);
+    }));
+    render(<HeartbeatPanel csrfToken="csrf" now={now} />);
+    fireEvent.change(await screen.findByLabelText("Ping address"), { target: { value: url } });
+    fireEvent.change(screen.getByLabelText("How often"), { target: { value: "10" } });
+    fireEvent.click(screen.getByRole("button", { name: "Turn on" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm and run" }));
+    await waitFor(() => expect(reads).toBeGreaterThan(1), { timeout: 4000 });
+    expect((screen.getByLabelText("Ping address") as HTMLInputElement).value).toBe(url);
+    expect((screen.getByLabelText("How often") as HTMLSelectElement).value).toBe("10");
   });
 
   it("refuses an address it cannot use, and warns about one on this very server", async () => {

@@ -17,7 +17,7 @@
  */
 import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
-import { createEndpointGuard, normalizeEndpoint, readBounded } from "../assistant/local-endpoint.mjs";
+import { createEndpointGuard, normalizeEndpoint, readBounded } from "../../packages/harness/src/index.mjs";
 import { extractPdfText } from "./pdf.mjs";
 
 export class ConnectorError extends Error {

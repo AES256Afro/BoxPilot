@@ -27,6 +27,9 @@ describe("fixed Docker Engine installer", () => {
       now: () => new Date("2026-08-16T12:01:00.000Z"),
     });
     expect(result).toEqual({ installed: true, version: "28.2.2-0ubuntu1", engineVersion: "29.1.3", packageChanged: true, serviceActive: true, engineVerified: true });
+    // needrestart's hook stays off for the install, as for every package change (server/tasks/apt.mjs):
+    // in automatic mode it restarted BoxPilot and its helper mid-install when libc or openssl moved.
+    expect(run).toHaveBeenCalledWith("/usr/bin/apt-get", expect.any(Array), expect.objectContaining({ env: expect.objectContaining({ NEEDRESTART_SUSPEND: "1" }) }));
     expect(run).toHaveBeenCalledWith("/usr/bin/systemctl", ["enable", "docker.service"], { timeout: 30000 });
     expect(run).toHaveBeenCalledWith("/usr/bin/systemctl", ["start", "docker.service"], { timeout: 120000 });
   });

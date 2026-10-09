@@ -55,6 +55,24 @@ The owner's goal for the product is the opposite: open the app on a fresh Ubuntu
 - Existing guarded workflows keep working during the transition; they are ported to the registry and re-tiered rather than rewritten from scratch.
 - `README.md` was rewritten around the new goal; `docs/ROADMAP-V2.md` is the authoritative plan, and the pre-pivot roadmap moved to `docs/legacy/ROADMAP.md`.
 - Anyone (human or agent) adding a feature should add a registry entry or a catalog manifest, not a new named systemd unit, a new per-workflow SQLite ledger, or a new paragraph of boundary prose.
+- **Addendum (2026-10-05, sweep 1): a session answers only to the address it was signed in from.**
+  The `__Host-` prefix pins the session cookie to this host, but a cookie has no port: the browser
+  sends it to every app the owner opens on another port of the server (Home links them by this very
+  host), and the sweep proved an app's container could replay it and get the owner's account and a
+  CSRF token back. A session already recorded the client address it was issued to - the tailnet peer
+  Tailscale Serve vouches for, otherwise the socket - and now it is honoured only from that address,
+  worked out by the same descriptor at both ends (IPv4-mapped, zoned and long IPv6 forms compare as
+  the address they are; every loopback form is one). Presented from anywhere else it is ended, not
+  merely refused, audited as `session.address-changed` with both addresses, and the browser is told
+  "You were signed out because this sign-in came from a different network address." A browser
+  remembered for Tailscale sign-in is bound the same way: its cookie from another address asks for
+  the password again. **The trade, accepted:** a phone or laptop that changes networks (Wi-Fi to
+  mobile data, another Wi-Fi, a new IPv6 privacy address, or IPv4 and IPv6 in turn to a name that has
+  both) signs in again; over the tailnet a device keeps its address, so there it rarely happens.
+  Devices remembered before this ask for the password once. **What an address cannot separate:** anything on this server that reaches BoxPilot over
+  loopback - an app on the host's network - looks like a browser on the server itself and can write
+  the headers Serve writes, as `server/identity.mjs` already says of loopback. Apps on Docker's
+  bridge networks, nearly all of the catalog, cannot.
 
 ## ADR-002: Flows compose registered operations; a chain answers for its riskiest step
 
@@ -531,6 +549,15 @@ may open a port to the internet or send data out without the owner saying so.
 - Two-way chat - asking an agent from a DM or an @mention - needs each Zulip user mapped to a
   BoxPilot account and runs as that person; it is specified as M38.3 and not built yet.
 
+**Update, 2026-09-29 (M40.5):** two-way chat is built within this decision, not beside it. Still no
+inbound exposure: a third root task, `agents.zulip.events` (read-only, owner), reads the bot's own
+event queue without waiting (`dont_block`), once a minute while Agents are on and two-way chat is,
+narrowed to direct messages and mentions; an expired queue is registered again and the last 15
+minutes read back from history. A question runs as the BoxPilot account the owner mapped its sender
+to, exactly as that person's Ask in the Test tab (tools, reads, rate limit); anyone unmapped is
+refused once an hour. Point 6 holds: the model's words are posted through the same redaction and
+code-wrapping as findings, and a card is a link to BoxPilot, where it is decided.
+
 ## ADR-008: the router is the house's DNS and asks this server first; a heartbeat elsewhere says when it is down
 
 **Date:** 2026-09-29 · **Status:** Accepted (M39.2, M39.3, unreleased) · **Builds on:** ADR-001 (the
@@ -667,3 +694,463 @@ tick, ten seconds at most, never retried in a loop.
   the units as shipped on real systemd.
 - Left for later: syncing a second Pi-hole (b) once there is a second box; reading the router's DNS
   settings over GL.iNet's API through the existing router connection.
+
+## ADR-009: agents get more processors while a person waits, set per run by the root helper
+
+**Date:** 2026-09-29 · **Status:** Accepted (M40.4, unreleased) · **Refines:** ADR-005's caps and
+ADR-006's four processors.
+
+### Context
+
+On the owner's server (Ryzen 7 7800X3D: 8 cores, 16 processors) Unsloth with Qwen 3.5 4B at four
+threads under `CPUQuota=400%` read prompts at 52 tokens a second and wrote at 10; the owner's
+question about the drives took 99 s. Asked how many cores to give agents, the owner chose **eight
+while a person waits** (a question, the Test tab, a Zulip message) and **four for background work**
+(schedules, events, webhooks, learning, indexing, image descriptions, the nightly evaluation). The
+standing requirements stay: kernel-enforced caps, idle priority and idle I/O, the memory cap, no
+processor at all when idle, everything pausable.
+
+Two facts shape the design. The quota is the unit's (`CPUQuota=` on `boxpilot-agents.service`), and
+only root changes a unit; the runner has no privilege and reads untrusted text all day. And
+llama-server's `--threads` is fixed when it starts: the spike found threads above the quota spend it
+and sit throttled.
+
+### Options weighed
+
+- **(a) One model server at eight threads; only the quota changes per run.** No restarts and the
+  prompt cache survives, but background runs put eight threads under a four-processor quota: every
+  100 ms period they spend the quota in half the time and all stop together, and llama.cpp's threads
+  meet at a barrier for every layer. Measured below as four threads under 200% against two (the same
+  ratio on a four-processor runner).
+- **(b) A thread for each processor the run was given, and the quota set per run.** Chosen. A change
+  of class restarts the model server (the owner measured about 5 s, and llama-server's prompt cache
+  goes with it); runs of the same class keep it. A background run can never use more than its four
+  threads, so even a quota left raised would not let it run hot.
+- **(c) Two model servers, one at each thread count.** Twice the model in memory (2.6 GB each, plus
+  the page cache) inside the 8 GB cap, and two loads. Rejected.
+- **(d) Delegate the cgroup to the runner** (`Delegate=cpu`, the model server in a child cgroup whose
+  `cpu.max` the runner sets itself within an 800% unit). No root per run, but the unit's quota becomes
+  the burst, and the background limit a promise kept by the unprivileged process that reads model
+  output; it also means the runner moving itself into a leaf cgroup, against
+  `ProtectControlGroups=true`. Rejected.
+- **(e) Pin CPUs instead** (`AllowedCPUs=`). Still root per run, and eight threads time-sliced on four
+  pinned processors is worse for llama.cpp's barriers than a quota. Rejected.
+
+### Decision
+
+1. **The shipped unit holds the background quota** (`CPUQuota=400%`, unchanged; `caps.test.mjs`
+   holds it). The owner's two numbers live in the Agents settings (`cores: { waiting, background }`,
+   saved with the owner's password on the Usage tab), each **2 to 8, never more than this machine's
+   processors less two** (what CPUQuota counts; a four-processor machine gives agents two), the
+   background never more than while someone waits.
+2. **The web service decides the class** when it hands a run out: a person waits on it (their own
+   question or console run, or a hand-off or follow-up made for one), or nobody does. It then asks
+   the helper for the registered operation **`agents.runtime.cpu`** (low, owner, run by BoxPilot
+   itself like the TLS renewal, on a lane of its own so a question never waits behind an upgrade),
+   which runs `systemctl set-property --runtime boxpilot-agents.service CPUQuota=<n×100>%` - a
+   drop-in under `/run`, gone at the next boot - and holds the numbers to the machine's ceiling again,
+   whatever it was asked (`server/agents/cpu.mjs`).
+3. **A raise never goes without its way back.** It arms a transient timer (`systemd-run --on-active`,
+   `boxpilot-agents-cpu-reset`, collected once it has run) that sets the background quota after the
+   run's longest time plus two minutes; each raise re-arms it for its own run. A raise whose timer
+   cannot be set is taken back at once and the run goes at the background number. The web service
+   also lowers it as soon as nobody waits (after the run, on the tick, after the kill switch, at
+   start after a restart of BoxPilot).
+4. **Threads follow the processors**, one each, never more than the physical cores (sysfs); a run
+   whose raise could not be set gets the background number's threads. The runtime already restarts
+   the model server when its threads change. Speeds are measured and kept per thread count, and a
+   run at a count not yet measured plans with the next lower one's (slower, so never too short).
+5. The trace says what each run was given ("with 8 processors and 8 model threads while you wait"),
+   the Usage tab shows the quota set now and both numbers, and the audit records each change.
+
+### Consequences
+
+- A question after background work costs a model restart (a few seconds) and a cold prompt cache;
+  background work in quiet hours usually finds the model server stopped by its idle timer anyway.
+- Nothing else about the unit moves: idle weight, `Nice=19`, idle I/O, `MemoryMax=8G`, no swap,
+  loopback only. Idle is still no model server at all, whatever the quota.
+- A helper call per class change (tens of milliseconds); none between runs of the same class.
+- `agents-caps` (both LTS releases) now sets the background quota, raises it with the helper's own
+  code while the fake model burns three threads, reads it in the cgroup and in the load, checks idle
+  priority and the memory cap while raised, and watches the timer put it back with nobody asking.
+- The owner's bound "never more than physical cores minus 2" is read as processors minus two: on
+  their 8-core, 16-processor server a literal physical-cores bound would be 6 and forbid the eight
+  they chose. Threads are what is held to the physical cores.
+- **Measured** (`agents-bench.yml` run 36657859664: Qwen 3.5 4B under Unsloth, the owner's first
+  question twice and a typical one, on a four-processor GitHub runner, an AMD EPYC 7763 with two
+  cores): two threads under 200% read 14.1-14.7 tokens a second and wrote 5.3-6.9; **four threads
+  under the same 200% read 7.5-7.8 and wrote 2.9-3.9, about half**, and the owner's question took
+  436 s against 257 s. That is option (a)'s cost, and why threads follow the processors. Four threads
+  under 400% read 14.6-15.4 and wrote 6.2-8.4, little more than two under 200%: the runner's two
+  cores give two threads what four processors would. What eight threads under 800% gain on the
+  owner's eight cores is not measurable on a four-processor runner; the owner's Usage tab keeps
+  speeds per thread count, so their first questions at eight will show it.
+
+## ADR-010: thirteen looks, each built to match its drawing
+
+### Context
+
+ADR-004 gave BoxPilot one design with two views, the Launcher on Home and the Command Center
+everywhere else. The owner liked both and asked how one of them could cover the whole site. The
+study `docs/design-directions/05-looks.html` (2026-09-30) drew three ways to make it one look and
+ten more directions; the owner chose to have all thirteen, picked in a new Appearance page, and
+asked that each built look match its drawing, not resemble it.
+
+### Decision
+
+- **A look is a skin and a Home.** The skin is one set of values for the tokens every page already
+  reads (the Command Center's `--cc-*` family, the fonts, the radii) plus the look's own surfaces,
+  textures, top bar and way around, in `src/looks/<id>/skin.css`, every selector under
+  `:root[data-look="<id>"]`. The Home is `src/looks/<id>/Home.tsx`, reading the same facts and the
+  same list of what needs you as every other Home, with every fix going through the approval
+  dialog at its tier. No page carries look code; a page that draws something of its own per look
+  does it through a slot (Storage's lead).
+- **The looks:** Home + Ops (the default: Home's wallpaper and glass as the frame, the console's
+  figures inside), Launcher (Home's world on every page), Command Center (the console on every
+  page, Home included), Aqua, Blueprint, Phosphor, Rack Panel, Swiss Poster, Toybox, Glass
+  Cockpit, E-Ink, Quest and Transit Map. Each says whether it has light and dark or one of them.
+- **The way around is the look's:** a glass sidebar, the Launcher's dock, the console's rail,
+  soft keys along the bottom, or a line of words across the top (`data-nav`). A phone always gets
+  the dock.
+- **Kept per browser**, beside light and dark (`localStorage`, applied before first paint), so a
+  phone and a wall screen can each keep their own. "Where it applies" can keep today's Launcher on
+  Home only; Command Center with "Not Home" is exactly the interface before this decision. The
+  glass looks also take an accent, a wallpaper and solid panels.
+- **Measured against the drawing.** `scripts/look-check.mjs refs` draws the study's reference
+  pictures (`docs/design-directions/05-looks/refs/`); `look-check.mjs look <id>` scores the demo's
+  screenshots against them (colour block by block, edges, palette) and writes side-by-side
+  pictures for a person to judge.
+- **The looks' typefaces** (Archivo, B612, B612 Mono, Barlow Condensed, Fredoka, Literata, Martian
+  Mono, Overpass, PT Sans, Pixelify Sans, Share Tech Mono, VT323; all OFL-1.1) are served by
+  BoxPilot like the first three, fetched only when a look draws them and cached then, not on
+  install.
+
+### Consequences
+
+A page restyled in one look is restyled in all of them, because they share its classes; a change
+to a shared component is checked against every look's screenshots, not one. Status and risk keep
+their meaning in every look, and a look without colour (E-Ink) carries them in shapes and words.
+The skins ride in the first stylesheet so a page never paints in one look and then another; each
+Home is its own chunk.
+
+## ADR-011: apps reach the internet through a Cloudflare tunnel BoxPilot manages with an API token
+
+**Date:** 2026-10-03 · **Status:** Accepted (M42, unreleased) · **Builds on:** ADR-001 (one
+registry, risk tiers), ADR-003 (owner reads), M13.7's credential store.
+
+### Context
+
+The owner wants to share things with people who are not on the tailnet, first Pingvin Share for
+sending large files. Everything BoxPilot publishes today is on the home network or the tailnet.
+Opening a port on the router would put the server's address on the internet and is not something
+BoxPilot can see or change (ADR-008: the router stays the owner's). The catalog has had Cloudflare
+Tunnel (`cloudflared`) for a while, but using it meant the Cloudflare Zero Trust dashboard: make a
+tunnel, copy its token into the app's settings, then add each public hostname by hand with this
+server's address and the app's port. BoxPilot could not see any of it (the runbook said so).
+
+Cloudflare's API can do every one of those steps with one API token: list the owner's domains,
+make a tunnel whose routes Cloudflare keeps ("remotely managed", `config_src: cloudflare`), read
+its run token, set its routes (`ingress`), and add the DNS name. The helper has no network
+(`PrivateNetwork=true`); the root task runner (`boxpilot-run@`) does.
+
+### Decision
+
+1. **One tunnel per server, made and managed by BoxPilot.** The owner pastes an API token with
+   exactly *Account · Cloudflare Tunnel · Edit*, *Zone · DNS · Edit* and *Zone · Zone · Read*.
+   Connect (`cloudflare.connect`, high, owner) checks it by listing the active domains, takes the
+   account they belong to, finds the tunnel `boxpilot-<this server's name>` or makes it (remotely
+   managed), saves its run token, and installs the catalog's Cloudflare Tunnel app with it (or gives
+   an installed one the new key: the preview says it replaces the token it runs with). Nothing is
+   published by connecting. A token Cloudflare refuses is not kept; the one saved before stays.
+2. **Secrets stay in the credential store.** `cloudflare-api-token` and `cloudflare-tunnel-token`
+   live in the root-only store. The API token rides the ordinary secret-parameter path once (staged
+   in memory, `[secret]` in every record) and is read afterwards only by the root tasks, which put
+   it in one `Authorization` header, never follow a redirect with it, and scrub it from any error.
+   Neither token is in a log line, a job result, an answer to the page, or the state file.
+3. **The network calls are tasks; the helper does the rest.** `server/tasks/cloudflare.mjs`
+   (connect, publish, unpublish, check) talks to Cloudflare through `server/cloudflare-api.mjs`.
+   The helper reads the record, works out which port an app listens on, and installs or starts the
+   tunnel app. BoxPilot's record of what it made is `/var/lib/boxpilot-managed/cloudflare-tunnel.json`
+   (0600): the account, the tunnel, the domains, and each published name with its DNS record id.
+4. **Publish one name per app, at a tier that matches what it does.** `cloudflare.publish` (high,
+   owner, the full name typed to confirm) takes an installed app, one of its TCP ports, a domain
+   and one DNS label (never the bare domain). The tunnel app shares the host's network
+   (`network: host` in its manifest), so every app is `http://127.0.0.1:<port>` (or `https://`, its
+   own certificate unchecked, when the owner says the port speaks HTTPS), whether it listens on the
+   home network or on this server only; a port bound only to the tailnet address is refused with the
+   way to change it. The route goes in first, every route BoxPilot did not make is kept in its
+   order, and the catch-all stays last; then the CNAME (`<tunnel id>.cfargotunnel.com`, proxied,
+   commented `BoxPilot: <app>`) is added, or BoxPilot's own is kept.
+5. **Never touch what BoxPilot did not make.** A name that already has any DNS record other than a
+   CNAME to this tunnel is refused ("already points somewhere else; BoxPilot will not replace it").
+   Unpublishing (`cloudflare.unpublish`, medium) removes only BoxPilot's rule for that name and
+   deletes the DNS record only when it is the one BoxPilot recorded and it still points at the
+   tunnel. Disconnecting (`cloudflare.disconnect`, medium) forgets the API token only: the tunnel and
+   what is published keep working, because the tunnel app runs with the tunnel's own key.
+6. **Reads.** `cloudflare.tunnel.inspect` (owner) answers from the record and the credential names
+   with no network; `cloudflare.tunnel.check` (owner) asks Cloudflare for the tunnel's health, its
+   connectors and the names it routes, so the Tunnel tab shows a name missing there or one added in
+   the dashboard.
+7. **Login walls are not part of this.** Cloudflare Access (a sign-in in front of a published app)
+   is the next step. Until then the preview, the tab and the runbook say plainly that anyone with the
+   address can open a published app, and that the app's own sign-in is the only lock.
+
+### Consequences
+
+- The owner never opens the Cloudflare dashboard or the router to share an app; the runbook lists
+  what BoxPilot published, and says that names added in the dashboard are not in its record.
+- The API token can change the owner's DNS for the zones it covers, so it is owner-only, high to
+  save, and can be forgotten in one click without taking anything down.
+- The Cloudflare Tunnel app moves to the host's network. An installed copy picks it up when it is
+  next reconfigured, which Connect does. A tunnel the owner made by hand in the dashboard keeps
+  working: hostnames sent to this server's LAN address still reach it, and `http://127.0.0.1:<port>`
+  now reaches every app, including one that listens on this server only.
+- One tunnel and one account per server: a token covering several accounts uses the account of the
+  first domain listed, and domains in the others are not offered.
+- BoxPilot's record can drift from Cloudflare when the owner edits the tunnel in the dashboard;
+  Check with Cloudflare shows it, and publishing again repairs a missing route.
+- **Addendum (2026-10-05, sweep 1): BoxPilot's own credentials are not the owner's to send.**
+  `http.request` (medium, M13.7) sends a saved credential by name, in any header, to any address,
+  so a session that never gave the password, or an agent's proposed step, could have posted
+  `cloudflare-api-token` anywhere at a tier below the one that saved it. The names BoxPilot writes
+  itself (`managedCredentialNames` in `server/credentials.mjs`: the two Cloudflare tokens,
+  `heartbeat-url`, `zulip-agents-bot`) are refused by `http.request`'s parameter check (where an
+  agent's plan is checked too) and again in its root task, by `agents.connector.sync`, and by Save
+  and Remove a credential, so only their own operations write or remove them. The tunnel's run token
+  has no remove of its own, so it stays until Connect replaces it.
+
+## ADR-012: agents share their findings, by a permission each, and re-read live facts before any card
+
+**Date:** 2026-10-04 · **Status:** Accepted (M44, unreleased) · **Builds on:** ADR-005 (agents read
+through the web service and only propose), ADR-006 (prompts built for the cache), ADR-009 (four
+processors in the background).
+
+### Context
+
+The owner asked: when an agent needs some data, check with the other agents first; no agent
+should spend a CPU's minutes gathering what another gathered an hour ago. On the owner's server a
+question costs minutes (the Environment Scout's survey needed about 200 s of model time at eight
+threads, twice that in the background), and the Server Keeper, the default supervisor, started a
+specialist's run for every subtask it handed over, whatever that specialist had found since. Agents
+could already share notes (`memory.share`), but only notes an agent chose to write, offered by
+word-matching recall alongside everything else it remembered, with no freshness the reader could
+rely on and no way for a supervisor to take one instead of a run. The owner left open whether this
+is one switch or a permission.
+
+### Options weighed
+
+- **(a) One switch for every agent.** Simple, but the IT Support helper and the House Guide answer
+  people who may read less than the owner, and an owner may want one agent's conclusions kept to
+  itself (one being tuned, say). Rejected.
+- **(b) A permission each way, per agent, on by default.** Chosen: "Shares its findings with the
+  other agents" and "Uses the other agents' findings" on each agent's Build tab.
+- **(c) Cache the tools' outputs, not the agents' conclusions.** Reads are cheap (milliseconds);
+  what costs minutes is the model reading them and writing a conclusion. A cache of tool output
+  saves nothing that matters, and stale facts would look current. Rejected.
+- **(d) Let the model ask another agent with a new tool.** One more tool for a small model to choose
+  between, and a call per question. Rejected: the findings come with the request instead.
+
+### Decision
+
+1. **A finding is a conclusion, kept as one shared note per agent and kind.** When an agent that
+   shares finishes its routine run (its schedule, or the console's run without a question), or an
+   answer it checked against its tools (M40's check ran) to a question, a hand-off or a supervisor's
+   follow-up, its answer is kept as its "routine" or "answer" finding, replacing the last one: never
+   a pile. Its words without the run's [T] citations, whole up to a note's 2,000 characters, else its
+   lead and the first sentence of each item, said to be shortened. Never from a run whose tools read
+   something that looked like an instruction, a run that ended degraded, or one that asked back; one
+   whose check was not sure says so ("unsure"), as does one cut short by a limit ("partial"). An
+   evaluation, a learning run, an event or a webhook leaves none.
+2. **Freshness is the agent's own cadence, in one helper** (`findingFreshMs`): weekly 7 days, daily
+   26 hours, every six hours 7, hourly 2, an agent that only answers 24; an answer never more than a
+   day. A stale finding is offered to nobody.
+3. **The run's role goes with it.** A finding carries the role of the run that found it; another
+   agent's run is offered it only if it reads at least as much (`roleAtLeast`), the same rule as
+   shared notes. A viewer asking the House Guide is never offered what the Scout's owner run found.
+4. **Offered before planning, as data.** An agent that uses findings gets the other agents' fresh
+   ones it may read that share words with what it was asked (or with its job, for routine work), at
+   most three, each cut to 900 characters, in the request as `<finding id="F1" from=... age=...
+   trust="untrusted">`, sanitized and boxed like tool output. It cites them as [F1]; the check
+   before answering holds such a claim to the finding's words. The planner and the system message
+   say, in the same words every run (ADR-006): if a finding answers it, answer from it, say how old
+   it is, and do not read the same facts again or hand the question to that agent.
+5. **Live facts are re-read before any card.** A finding is a conclusion, not evidence for a
+   change: the rules say to read live facts with a tool before proposing a plan, when the request
+   asks for a fresh check ("check now", "check again", "a fresh look", "right now"), or when no
+   finding answers it. A request that asks for a fresh check is offered no findings at all, and the
+   trace says so.
+6. **A supervisor takes a fresh finding instead of a run.** When it hands a subtask to a specialist
+   that shares, and that specialist's fresh finding answers it (two of the subtask's words, or half
+   of a short one; never an unsure or partial one), the finding is the specialist's answer, at once,
+   cited like any tool output; no specialist run, no follow-up run. The trace says "Used X's finding
+   from 3 hours ago instead of running it again"; the run's usage counts it (`runsSaved`), and the
+   Usage tab shows the runs saved this week. A fresh-check request runs the specialist as before.
+7. **Turning sharing off forgets** what the agent shared. Agents saved before keep their budgets and
+   everything else, and get the two switches as their template would give them, once, as a version
+   BoxPilot made and said so.
+
+### Consequences
+
+- A finding costs no model time to keep: it is the answer the run already wrote. Offering costs at
+  most three findings' worth of prompt (about 700 tokens, read by the planner and the first call to
+  act) only when something bears on the request; a stale or unrelated finding costs nothing.
+- Word-matching decides relevance, so a finding can be offered that does not quite answer; the
+  model is told to read with a tool when it does not, and the check holds what it took from one.
+  Matching by meaning (the embeddings memory already has) is the next step if words fall short.
+- The owner sees both lists on each agent's Memory tab - what it shared and what it can use, with
+  age and freshness - and can forget a finding there.
+- A finding is the specialist's conclusion at its own role and time: a supervisor's answer built on
+  it is as fresh as the finding, and says how old it is.
+
+## ADR-013: agents may use Claude through a gateway, and may act under grants inside the approval tiers
+
+**Date:** 2026-10-08 · **Status:** Accepted (M45, in progress) · **Changes:** ADR-005 §9 ("local
+only") and ADR-005's "agents propose, never act". **Builds on:** ADR-001 (risk tiers), ADR-002
+(delegated consent for unattended jobs), ADR-003 (operator-gated reads), ADR-012 (live facts read
+again before any card). **Design:** `docs/HARNESS.md`.
+
+### Context
+
+The owner asked for an agent harness that works well with BoxPilot first and can be used on its
+own later, with agents that carry out multi-step jobs through the approval tiers, on the local
+model or on Claude, routed per task. The local model (Qwen 3.5 4B on four processors) answers
+grounded questions well since M40, but is slow (a survey takes minutes), holds 8,192 tokens, and is
+weakest at long plans. Two decisions stood in the way: agents reach no model off the box
+(ADR-005 §9), and agents only propose (ADR-005), so a person creates every job by hand.
+
+### Options weighed
+
+- **(a) Keep both walls; tune the local model.** Free and private, but the long plans the owner
+  asked for are where a 4B model fails, and no amount of tuning makes it act. Rejected as the whole
+  answer; the local model stays the default route.
+- **(b) Let the runner call Claude directly.** Simplest, but the runner would need the internet and
+  the key, undoing its sandbox (no network but loopback, no secrets but its own token). Rejected.
+- **(c) A gateway process that holds the key and alone reaches the API.** Chosen. The runner keeps
+  its sandbox; the web service applies policy, budget and the data policy and still holds no
+  secret; the gateway holds the key from a root-owned file through `LoadCredential`, sends to one
+  host, and enforces the monthly cap again.
+- **(d) Let agents run any operation their allowlist names.** Rejected: the allowlist says what an
+  agent may suggest, not what the owner is willing to have done without them.
+- **(e) Grants per operation, inside the tiers.** Chosen: Propose, Ask (low and medium) or Run (low
+  only), with fences no grant opens.
+
+### Decision
+
+1. **Models.** A run uses one model, chosen before it starts: the local model or Claude. Per agent,
+   local, Claude or auto (`docs/HARNESS.md` → The router). Claude is reached only through
+   `boxpilot-model-gateway.service`; the runner keeps `IPAddressDeny=any`. The key is set by
+   `agents.cloud.connect` (high, owner) and removed by `agents.cloud.disconnect` (medium). The
+   default model is Claude Opus 5.5; the owner may choose another in Settings.
+2. **Money.** A monthly cap in dollars, set when Claude is connected, enforced by the web service
+   and again by the gateway. A warning at 80%; at the cap every route is local until the month ends
+   or the owner raises it.
+3. **What leaves the box.** Per agent: Never (every agent made before M45), Redacted (the default
+   after: secrets removed, names that identify the house replaced with stand-ins mapped back on the
+   box), or As is. Owner documents and connector imports go only if named. A viewer's run goes to
+   Claude only if the agent allows it.
+4. **Agents act under grants, inside the tiers.** Per operation in the agent's allowlist: Propose (a
+   card), Ask (the agent stages the job and a person approves it at its tier; low and medium) or
+   Run (the job runs under the maker's delegated consent, as ADR-002's schedules and flows do; low
+   only). The job's person is the agent's maker; the audit names the agent.
+5. **Fences no grant opens.** High risk is always a card. A run that read something that looked like
+   an instruction stages nothing. A run a viewer started never acts. "Always ask for the password"
+   makes every grant at most Ask. Internal and elevated-only operations are never offered. At most
+   3 operations a run and 20 a day per agent; an approval not given within an hour drops the job.
+   Live facts are read again before acting (ADR-012) and the effect is checked after.
+6. **The harness is its own package.** `packages/harness/` imports nothing from BoxPilot, and a test
+   holds it to that; BoxPilot is its first host.
+
+**As built (M45.5).** An agent never waits inside a run: the runner serves every agent, and an hour
+held for an approval would stop all of them. The run that stages a job ends there; when the job
+ends (it ran, a person approved and it ran, it failed, or it was dropped) a follow-up run reads
+what became of it, checks the effect with a read of its own, and answers, as a supervisor's
+follow-up does after its hand-offs. A follow-up acts no further. Two fences were added while
+building it: no grant covers an operation that changes how agents run (`agents.*`: their model,
+Claude, their chat, their connectors), and leave never travels in an exported or imported
+definition. "Live facts read again" is held by the service: a run carries out nothing until it has
+read the server with one of its tools.
+
+**As built (M45.8).** The run loop, the answer check, injection defence, the redactor and the local
+model client live in the harness; BoxPilot's runner is a host built from them, and a command line
+is the second host, proving the package stands alone. What stays BoxPilot's: the planner (it names
+BoxPilot's tools), the tool catalog, taint that follows text through notes, hand-offs and findings,
+grants, jobs and plans, and the evaluation against BoxPilot's world.
+
+### Consequences
+
+- The owner can let an agent do routine low-risk work (restart a stopped app, refresh package
+  lists, take a backup) without a click, and see every such job in Activity with the agent named.
+- Some of the house's facts, redacted, leave the box when the owner connects Claude and an agent
+  routes there; the trace of every Claude run says what policy applied and what it cost.
+- The local model keeps doing what it does well, privately and for free; Claude is used where the
+  router or the owner sends it.
+- Five places that refuse a remote model stay as they are for the local runtime; the remote path is
+  new code with its own tests, not a loosened guard.
+
+## ADR-014: agents learn from what the owner approves by geometry, not by volume
+
+**Date:** 2026-10-09 · **Status:** Accepted (M46, in progress) · **Builds on:** ADR-012 (findings and
+live facts), ADR-013 (the harness, the router, grants). **Design:** `docs/HARNESS.md` → Examples.
+
+### Context
+
+After M45 the owner asked to improve the agent platform and the quality of what the local model
+learns, and to look at "geometric training options instead of brute force". BoxPilot's agents run
+on a 4B model on a CPU-only server that must run cool (M37), so no training runs on the box. What
+the model is shown is the only lever there, and until now it was shown no example of a good plan:
+the planner had one synthetic JSON skeleton, and its known failures are choices between near
+neighbours (`apps.list` for "where does Pi-hole run", twice, M40). Memory recall ranked by
+similarity alone, so the nearest k items were mostly the same item k times.
+
+The roadmap already asked, at the end of M44, for the owner's approvals to be collected as
+examples and, only if it beats the base model on the evaluations, for a GPU fine-tune of a small
+"BoxPilot skills" adapter.
+
+### Options weighed
+
+- **(a) More context and more tries.** Show the planner every approved example, raise the step
+  and retry limits, ask Claude for a second opinion more often. Rejected: a 4B model holds 8,192
+  tokens and reads about 50 a second on four processors; every example shown costs seconds, and
+  repeats teach nothing new. This is the brute force the owner asked to move away from.
+- **(b) Geometric selection of what is shown.** Chosen. Examples carry embeddings (the memory
+  index already makes them, 384 dimensions, 26 ms each). Before a plan, a few are picked by where
+  they sit around the request: the nearest, one from the other side of the nearest decision (a
+  different tool for a request that looks alike), and the rest by maximal marginal relevance, with
+  near-duplicates never shown twice. Three lines, about 60 tokens, chosen in the runner where the
+  model is. The rules are pure arithmetic in the harness core (`core/examples.mjs`), tested on
+  their own; the stand-in model reads them as a model would.
+- **(c) Fine-tune on the box.** Rejected: there is no GPU, and the server must never run hot.
+- **(d) Fine-tune elsewhere, geometrically.** Kept for M46.3 as an export and a recipe, not a
+  feature: the example book exported as training data with the house's names replaced by
+  stand-ins, and a recipe that prefers adapters which preserve the base model's geometry (DoRA's
+  magnitude-direction split, orthogonal fine-tuning's rotations that keep the angles between
+  neurons) over a full fine-tune, trained on a GPU machine and brought back as a GGUF only if it
+  beats the base model on the evaluations. Nothing in BoxPilot calls a trainer.
+
+### Decision
+
+1. **The example book.** `agent_examples`: a request and the plan that served it (the tools it
+   read), with the answer, kept when a person approved the work: a card staged, a thumbs up, an
+   answer kept as a finding, an evaluation question answered right. A thumbs down takes it back.
+   Each template ships with examples of its own, chosen to sit on the boundaries a small model gets
+   wrong; agents made before get them once. A run that read something like an instruction, asked
+   back, or made no plan leaves none; a request that itself reads like an instruction is never
+   kept. Requests are redacted. At most 300 kept per agent besides the seeds.
+2. **Demonstrations by geometry.** The web service sends the runner a pool (all of them while there
+   are few; the nearest by words and every seed past that), each with its vector when the index has
+   made one. The runner embeds the request on the local model, picks up to three (nearest,
+   contrast, diverse), and puts them in the planner's user message after the request, never in the
+   system message, which stays the same bytes for the prompt cache. The trace says which were shown
+   and why. On Claude the pick goes by words: the request is not embedded off the box for this.
+3. **The book is the owner's and the maker's.** Read and pruned from the API (`GET
+   /agents/:id/examples`, `DELETE /agents/:id/examples/:exampleId`); the Memory tab shows it. No
+   example leaves the box unless the owner exports it (M46.3), with stand-ins.
+
+### Consequences
+
+- The planner's tool choice improves where it was weakest, for the cost of three short lines a run,
+  and keeps improving as the owner approves work; what the owner marks wrong is unlearned at once.
+- The memory index embeds examples in quiet hours like notes and episodes: tens of short texts, a
+  few seconds of model time once.
+- Training stays off the box. If the owner trains an adapter elsewhere, the gate is the same
+  evaluation that gates everything else: it ships only if it beats the base model.

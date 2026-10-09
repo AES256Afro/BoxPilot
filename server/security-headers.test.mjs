@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import express from "express";
 import { describe, expect, it } from "vitest";
-import { contentSecurityPolicy, inlineSources, securityHeaders } from "./security-headers.mjs";
+import { contentSecurityPolicy, inlineSources, rootFileHeaders, securityHeaders } from "./security-headers.mjs";
 
 const sha = (text) => `'sha256-${createHash("sha256").update(text).digest("base64")}'`;
 
@@ -34,6 +34,32 @@ describe("the policy", () => {
 
   it("does not allow inline anything when there is nothing to allow", () => {
     expect(contentSecurityPolicy()).toContain("script-src 'self'; style-src 'self';");
+  });
+
+  it("lets the service worker and the manifest come from this origin only (M25.1)", () => {
+    const policy = contentSecurityPolicy();
+    expect(policy).toContain("worker-src 'self';");
+    expect(policy).toContain("manifest-src 'self';");
+    expect(policy).toContain("font-src 'self';");
+    expect(policy).toContain("img-src 'self' data:;");
+  });
+});
+
+describe("the files at the root of the build (M25.1)", () => {
+  const headersFor = (file) => {
+    const set = {};
+    rootFileHeaders({ setHeader: (name, value) => { set[name.toLowerCase()] = value; } }, file);
+    return set;
+  };
+
+  it("asks the browser to check the service worker and the manifest before each use", () => {
+    expect(headersFor("/srv/boxpilot/dist/sw.js")["cache-control"]).toBe("no-cache");
+    expect(headersFor("C:\\boxpilot\\dist\\manifest.webmanifest")).toEqual({ "cache-control": "no-cache", "content-type": "application/manifest+json; charset=utf-8" });
+  });
+
+  it("leaves every other file to express.static", () => {
+    expect(headersFor("/srv/boxpilot/dist/icons/icon-192.png")).toEqual({});
+    expect(headersFor("/srv/boxpilot/dist/index.html")).toEqual({});
   });
 });
 

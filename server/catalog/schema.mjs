@@ -67,6 +67,24 @@ export const envTypes = Object.freeze(["string", "password", "number", "boolean"
 export const riskTiers = Object.freeze(["low", "medium", "high"]);
 
 function fail(errors, path, message) { errors.push(`${path}: ${message}`); }
+
+/**
+ * The secret settings a command line names. Compose fills ${NAME}, ${NAME:-x} and $NAME in from the
+ * project's .env before the container starts, and a value on a command line sits in
+ * /proc/<pid>/cmdline, which every process on the server can read; the environment cannot be read
+ * that way. `$$` is compose's literal dollar sign, not a reference.
+ */
+function secretsOnCommandLine(command, secretNames) {
+  const found = new Set();
+  for (const part of Array.isArray(command) ? command : []) {
+    if (typeof part !== "string") continue;
+    for (const match of part.matchAll(/\$\$|\$\{([A-Za-z_][A-Za-z0-9_]*)|\$([A-Za-z_][A-Za-z0-9_]*)/g)) {
+      const name = match[1] ?? match[2];
+      if (name && secretNames.has(name)) found.add(name);
+    }
+  }
+  return [...found];
+}
 function isObject(value) { return value !== null && typeof value === "object" && !Array.isArray(value); }
 function checkKeys(errors, path, value, allowed, required = []) {
   for (const key of Object.keys(value)) if (!allowed.includes(key)) fail(errors, `${path}.${key}`, "is not a recognised field");
@@ -228,6 +246,8 @@ export function validateManifest(raw) {
   // so content that references a secret env var by ${NAME} is refused; non-secret settings and
   // ${PORT_<ID>} are interpolated at deploy time.
   const secretEnvNames = new Set(env.filter((entry) => entry?.secret || entry?.type === "password").map((entry) => entry.name));
+  // Nor on a command line, the app's or a sidecar's (below): the image reads it from the environment.
+  for (const name of secretsOnCommandLine(raw.command, secretEnvNames)) fail(errors, "manifest.command", `must not put the secret ${name} on the command line; pass it in the environment`);
   const files = Array.isArray(raw.files) ? raw.files : raw.files === undefined ? [] : (fail(errors, "manifest.files", "must be a list"), []);
   if (files.length > 16) fail(errors, "manifest.files", "at most 16 files");
   const filePaths = new Set();
@@ -306,6 +326,7 @@ export function validateManifest(raw) {
     if (typeof sidecar.id !== "string" || !keyPattern.test(sidecar.id) || sidecarIds.has(sidecar.id) || sidecar.id === raw.id) fail(errors, `${path}.id`, "must be a unique short slug distinct from the app id"); else sidecarIds.add(sidecar.id);
     if (typeof sidecar.image !== "string" || !imagePattern.test(sidecar.image)) fail(errors, `${path}.image`, "must be a valid image reference");
     if (sidecar.command !== undefined && !(Array.isArray(sidecar.command) && sidecar.command.every((part) => typeof part === "string"))) fail(errors, `${path}.command`, "must be an array of strings");
+    for (const name of secretsOnCommandLine(sidecar.command, secretEnvNames)) fail(errors, `${path}.command`, `must not put the secret ${name} on the command line; pass it in the environment`);
     if (sidecar.env !== undefined && !(isObject(sidecar.env) && Object.entries(sidecar.env).every(([name, value]) => envNamePattern.test(name) && typeof value === "string" && value.length <= 512))) fail(errors, `${path}.env`, "must map variable names to strings");
     const sidecarVolumes = Array.isArray(sidecar.volumes) ? sidecar.volumes : sidecar.volumes === undefined ? [] : (fail(errors, `${path}.volumes`, "must be a list"), []);
     sidecarVolumes.forEach((volume, volumeIndex) => {
@@ -457,10 +478,13 @@ export function validateManifest(raw) {
 
 const hostPathDenyPrefixes = ["/etc", "/proc", "/sys", "/dev", "/boot", "/root", "/run", "/var/run", "/var/lib/boxpilot", "/var/lib/boxpilot-managed", "/usr", "/bin", "/sbin", "/lib", "/lib64", "/var/lib/docker", "/var/lib/libvirt", "/opt/boxpilot", "/snap", "/var/lib/snapd"];
 
-/** True when a (resolved) host path is one the deployer must never bind-mount. */
+/**
+ * True when a (resolved) host path is one the deployer must never bind-mount: a protected location,
+ * something inside one, or a folder that holds one - /var hands the app /var/lib/boxpilot with it.
+ */
 export function isDeniedHostPath(candidate) {
   const normalized = String(candidate ?? "").replace(/\/+$/, "") || "/";
-  return normalized === "/" || hostPathDenyPrefixes.some((prefix) => normalized === prefix || normalized.startsWith(`${prefix}/`));
+  return normalized === "/" || hostPathDenyPrefixes.some((prefix) => normalized === prefix || normalized.startsWith(`${prefix}/`) || prefix.startsWith(`${normalized}/`));
 }
 
 /**
