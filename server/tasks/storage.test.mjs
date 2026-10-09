@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { registry } from "../ops/index.mjs";
-import { assertNotProtected, bindHolds, parseManagedFstab, parseSmbstatusShares, processesUsing, removeManagedEntry, sharesOnMount, storageClearMark, storageFormat, storageLvmExtend, storageLvmSnapshotCreate, storageLvmSnapshotDelete, storageLvmSnapshotRollback, storageMount, storageUnmount, swapFileSet, storageRemount, storageCheck } from "./storage.mjs";
+import { assertNotProtected, bindHolds, parseManagedFstab, parseSmbstatusShares, processesUsing, removeManagedEntry, sharesOnMount, smbConnections, storageClearMark, storageFormat, storageLvmExtend, storageLvmSnapshotCreate, storageLvmSnapshotDelete, storageLvmSnapshotRollback, storageMount, storageUnmount, swapFileSet, storageRemount, storageCheck } from "./storage.mjs";
 
 const BASE_FSTAB = "# /etc/fstab\nUUID=root-uuid / ext4 defaults 0 1\n";
 // Every drive entry is ordered around Docker (M26): mounted before it starts, unmounted after it stops.
@@ -620,19 +620,44 @@ describe("a drive that is also a file share (M26)", () => {
     expect(sharesOnMount("", "/mnt/the-dump")).toEqual([]);
   });
 
+  // `smbstatus -S` from Samba 4.15.13 on the ubuntu-22.04 runner, a client holding files on two
+  // shares; 4.19 (24.04) and 4.23 (26.04) print the same table. 4.15 has no --json.
+  const samba415Table = [
+    "",
+    "Service      pid     Machine       Connected at                     Encryption   Signing     ",
+    "---------------------------------------------------------------------------------------------",
+    "My Films     13320   127.0.0.1     Tue Sep 29 23:15:44 2026 UTC     -            -           ",
+    "IPC$         13320   127.0.0.1     Tue Sep 29 23:15:44 2026 UTC     -            -           ",
+    "Media        13320   127.0.0.1     Tue Sep 29 23:15:44 2026 UTC     -            -           ",
+    "",
+  ].join("\n");
+  const samba415RefusesJson = { ok: false, code: 1, stdout: "", stderr: "Invalid option --json: unknown option\n\nUsage: [-?pvLSNbPRBnfV] [-?|--help] [--usage] [-p|--processes]" };
+
   it("reads who is connected to what from smbstatus, as JSON or as its table", () => {
     const json = JSON.stringify({ timestamp: "x", tcons: { 7: { service: "Media", machine: "192.168.8.23", server_id: { pid: "5678" } }, 9: { service: "IPC$", machine: "192.168.8.23" } } });
     expect(parseSmbstatusShares(json)).toEqual([{ service: "Media", machine: "192.168.8.23" }, { service: "IPC$", machine: "192.168.8.23" }]);
-    const table = [
-      "Service      pid     Machine       Connected at                     Encryption   Signing",
-      "---------------------------------------------------------------------------------------------",
-      "Media        5678    192.168.8.23  Mon Sep 28 18:00:00 2026 UTC     -            -",
-      "My Films     5679    192.168.8.40  Mon Sep 28 18:01:00 2026 UTC     -            -",
-    ].join("\n");
-    expect(parseSmbstatusShares(table)).toEqual([{ service: "Media", machine: "192.168.8.23" }, { service: "My Films", machine: "192.168.8.40" }]);
+    expect(parseSmbstatusShares(samba415Table)).toEqual([{ service: "My Films", machine: "127.0.0.1" }, { service: "IPC$", machine: "127.0.0.1" }, { service: "Media", machine: "127.0.0.1" }]);
+    // The zone is the server's: the same table with TZ=Europe/Berlin.
+    expect(parseSmbstatusShares(samba415Table.replaceAll("Tue Sep 29 23:15:44 2026 UTC ", "Wed Sep 30 01:15:44 2026 CEST"))).toHaveLength(3);
   });
 
-  function sharedDrive({ reconnectsForever = false } = {}) {
+  it("asks for the table when Samba is older than 4.17 and refuses --json", async () => {
+    const calls = [];
+    const run = vi.fn(async (binary, args) => {
+      calls.push(`${binary.split("/").pop()} ${args.join(" ")}`);
+      return args.includes("--json") ? samba415RefusesJson : { ok: true, code: 0, stdout: samba415Table, stderr: "" };
+    });
+    expect(await smbConnections(run)).toEqual([{ service: "My Films", machine: "127.0.0.1" }, { service: "IPC$", machine: "127.0.0.1" }, { service: "Media", machine: "127.0.0.1" }]);
+    expect(calls).toEqual(["smbstatus -S --json", "smbstatus -S"]);
+    // A Samba with JSON is asked once.
+    const json = vi.fn(async () => ({ ok: true, code: 0, stdout: JSON.stringify({ tcons: { 1: { service: "Media", machine: "127.0.0.1" } } }), stderr: "" }));
+    expect(await smbConnections(json)).toEqual([{ service: "Media", machine: "127.0.0.1" }]);
+    expect(json).toHaveBeenCalledTimes(1);
+    // smbd not answering at all: nobody to name, and nothing thrown.
+    expect(await smbConnections(async () => ({ ok: false, code: 1, stdout: "", stderr: "failed to connect" }))).toEqual([]);
+  });
+
+  function sharedDrive({ reconnectsForever = false, samba415 = false } = {}) {
     const calls = [];
     let closed = false;
     let mounted = "/dev/sda2";
@@ -641,6 +666,7 @@ describe("a drive that is also a file share (M26)", () => {
       if (name === "findmnt" && args.includes(HOST_TABLE)) return hostTable(mounted);
       if (name === "findmnt") return { ok: true, stdout: "/dev/sda2 exfat 8:2\n", stderr: "" };
       if (name === "docker" && args[0] === "ps") return { ok: true, stdout: "", stderr: "" };
+      if (name === "smbstatus" && samba415) return args.includes("--json") ? samba415RefusesJson : { ok: true, code: 0, stdout: samba415Table, stderr: "" };
       if (name === "smbstatus") return { ok: true, stdout: JSON.stringify({ tcons: { 1: { service: "Media", machine: "192.168.8.23" } } }), stderr: "" };
       if (name === "smbcontrol") { closed = !reconnectsForever; return { ok: true, stdout: "", stderr: "" }; }
       if (name === "umount") { if (!closed) return { ok: false, stdout: "", stderr: "umount: /mnt/the-dump: target is busy." }; mounted = null; return { ok: true, stdout: "", stderr: "" }; }
@@ -663,6 +689,15 @@ describe("a drive that is also a file share (M26)", () => {
     expect(calls[close + 2]).toBe("umount -N /proc/1/ns/mnt /mnt/the-dump");   // Everything, then the unmount at once
     expect(log).toHaveBeenCalledWith("Closed file-sharing connections from 192.168.8.23 to Media, Everything so /mnt/the-dump could be unmounted", "stdout");
     expect(calls.indexOf("fsck.exfat -n /dev/sda2")).toBeGreaterThan(close);
+  });
+
+  it("names whom it disconnected on Ubuntu 22.04 too, whose Samba has no --json", async () => {
+    const { run, calls, files, processes } = sharedDrive({ samba415: true });
+    const log = vi.fn();
+    const result = await storageCheck({ name: "the-dump" }, { run, files, log, sleep: async () => {}, processes });
+    expect(result.clean).toBe(true);
+    expect(calls).toContain("smbstatus -S");
+    expect(log).toHaveBeenCalledWith("Closed file-sharing connections from 127.0.0.1 to Media, Everything so /mnt/the-dump could be unmounted", "stdout");
   });
 
   it("gives up after thirty tries, starts the apps again, and names what holds the drive, from /proc", async () => {

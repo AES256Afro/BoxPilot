@@ -350,15 +350,29 @@ export function parseExtState(text) {
 }
 
 /**
+ * A timestamp property from `systemctl show --timestamp=utc` ("Tue 2026-09-29 16:53:05 UTC"), as
+ * an ISO string; null when the unit has never been active (systemd 249 says "n/a", later ones
+ * nothing) or for anything else.
+ *
+ * Not --timestamp=unix, which is systemd 251's: Ubuntu 22.04's 249 refuses it ("Invalid value:
+ * unix."). utc reads the same on 249, 255 and 259, whatever the server's time zone.
+ */
+export function parseSystemdUtcTimestamp(text) {
+  const match = String(text ?? "").trim().match(/^[A-Z][a-z]{2} (\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2}) UTC$/);
+  return match ? new Date(`${match[1]}T${match[2]}Z`).toISOString() : null;
+}
+
+/**
  * What each managed drive's own filesystem says about how it was last unmounted, read without
  * writing anything: the exFAT VolumeDirty mark from the boot sector, and an ext2/3/4 superblock's
  * state from dumpe2fs -h. With when each drive's current mount began, so a kernel warning can be
  * told apart from one printed at a mount that has since been undone (a check, a repair by hand, a
  * reconnect): this boot's log keeps every warning it ever printed.
  *
- * On a mounted exFAT drive a set mark is not conclusive: the first write after mounting sets it
- * and it stays set until the unmount (tests/ubuntu/drive-shutdown-order.sh, part 3). A clear one
- * is: nothing marked the drive, and nothing has written to it since it was mounted.
+ * On a mounted exFAT drive a set mark is not conclusive: a write sets it, and it stays set until
+ * the unmount (before Linux 6.16, until the next sync). A clear one is conclusive: a mark the drive
+ * carried when it was mounted stays set through writes and syncs, on every kernel, until a
+ * repairing check clears it (tests/ubuntu/drive-shutdown-order.sh, part 3).
  */
 export async function storageVolumeState(_parameters = {}, { run = fixedRun, files = { readFile }, readSector = readBootSector, now = () => new Date() } = {}) {
   const content = await files.readFile(fstabPath, "utf8").catch(() => "");
@@ -374,9 +388,8 @@ export async function storageVolumeState(_parameters = {}, { run = fixedRun, fil
     const fstype = mountedType ?? entry.fstype;
     let mountedAt = null;
     if (mountedFrom) {
-      const shown = await run(binaries.systemctl, ["show", "--timestamp=unix", "--property=ActiveEnterTimestamp", "--value", mountUnitName(entry.mountpoint)], { timeout: 15_000 });
-      const seconds = shown.ok ? shown.stdout.trim().match(/^@(\d+)$/)?.[1] : null;
-      mountedAt = seconds ? new Date(Number(seconds) * 1000).toISOString() : null;
+      const shown = await run(binaries.systemctl, ["show", "--timestamp=utc", "--property=ActiveEnterTimestamp", "--value", mountUnitName(entry.mountpoint)], { timeout: 15_000 });
+      mountedAt = shown.ok ? parseSystemdUtcTimestamp(shown.stdout) : null;
     }
     let exfat = null;
     let ext = null;

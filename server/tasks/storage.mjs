@@ -828,6 +828,16 @@ export function sharesOnMount(smbConf, mountpoint) {
 }
 
 /** Who is connected to which share, from `smbstatus -S --json`, or its table when JSON is not on offer. */
+export async function smbConnections(run) {
+  // --json is Samba 4.17's. 4.15 (Ubuntu 22.04) refuses it, "Invalid option --json: unknown
+  // option", and prints nothing on stdout, so the table is asked for then.
+  const asJson = await run(binaries.smbstatus, ["-S", "--json"], { timeout: 15_000 });
+  if (asJson.ok && asJson.stdout.trim().startsWith("{")) return parseSmbstatusShares(asJson.stdout);
+  const table = await run(binaries.smbstatus, ["-S"], { timeout: 15_000 });
+  return table.ok ? parseSmbstatusShares(table.stdout) : [];
+}
+
+/** The service and machine of each connection in smbstatus's JSON, or in its table (the same layout in 4.15, 4.19 and 4.23). */
 export function parseSmbstatusShares(text) {
   const raw = String(text ?? "").trim();
   try {
@@ -857,8 +867,7 @@ export async function unmountFromHost(mountpoint, { run = fixedRun, log = null, 
   if (first.ok) return { ok: true, result: first, clients: [] };
   const shares = sharesOnMount(await files.readFile(smbConfPath, "utf8").catch(() => ""), mountpoint);
   if (!shares.length) return { ok: false, result: first, clients: [] };
-  const status = await run(binaries.smbstatus, ["-S", "--json"], { timeout: 15_000 });
-  const clients = [...new Set(parseSmbstatusShares(status.stdout).filter((row) => shares.includes(row.service)).map((row) => row.machine))];
+  const clients = [...new Set((await smbConnections(run)).filter((row) => shares.includes(row.service)).map((row) => row.machine))];
   let result = first;
   for (let attempt = 1; attempt <= tries; attempt += 1) {
     for (const share of shares) await run(binaries.smbcontrol, ["smbd", "close-share", share], { timeout: 10_000 });
@@ -913,10 +922,11 @@ export async function readBootSector(device) {
 /**
  * The exFAT boot sector's VolumeFlags. VolumeDirty (bit 1) is what the kernel reads at mount to
  * print "Volume was not properly unmounted". It is set by the first write and cleared by a clean
- * unmount (not by sync) - unless it was already set when the volume was mounted: then Linux leaves
- * it set, as the exFAT specification asks, until a checker has repaired the volume. So a drive that
- * once dropped off mid-write reports an unclean unmount at every mount, however cleanly it has been
- * unmounted since. Measured on real exFAT in tests/ubuntu/drive-shutdown-order.sh.
+ * unmount (before Linux 6.16 by a sync as well) - unless it was already set when the volume was
+ * mounted: then Linux leaves it set, as the exFAT specification asks, until a checker has repaired
+ * the volume. So a drive that once dropped off mid-write reports an unclean unmount at every mount,
+ * however cleanly it has been unmounted since. Measured on real exFAT in
+ * tests/ubuntu/drive-shutdown-order.sh.
  */
 export function exfatVolumeFlags(bootSector) {
   if (!bootSector || bootSector.length < 512 || bootSector.toString("latin1", 3, 11) !== "EXFAT   ") return null;

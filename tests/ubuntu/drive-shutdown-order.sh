@@ -134,6 +134,12 @@ mount_drive() {
   findmnt -n "$MNT" >/dev/null || { fail "could not mount $MNT"; journalctl -n 20 --no-pager -u "$UNIT" | sed 's/^/   /'; exit 1; }
 }
 majmin() { lsblk -dno MAJ:MIN "$PART" | tr -d ' '; }
+# Linux 6.16 moved the clearing of the exFAT mark a write sets from every sync to the unmount
+# ("exfat: do not clear volume dirty flag during sync"); before it, the 6.8 kernels of Ubuntu 22.04
+# and 24.04 among them, a sync clears it while the drive stays mounted. A mark the drive had when
+# it was mounted is kept either way.
+KERNEL="$(uname -r)"
+sync_keeps_mark() { local major minor; IFS=. read -r major minor _ <<< "$KERNEL"; minor="${minor%%[!0-9]*}"; [ "$major" -gt 6 ] || { [ "$major" -eq 6 ] && [ "${minor:-0}" -ge 16 ]; }; }
 dirty() { local byte; byte="$(od -An -tu1 -j106 -N1 "$PART" | tr -d ' ')"; echo $(( byte & 2 ? 1 : 0 )); }
 set_dirty() { local byte; byte="$(od -An -tu1 -j106 -N1 "$PART" | tr -d ' ')"; printf "\\$(printf '%03o' $(( byte | 2 )))" | dd of="$PART" bs=1 seek=106 conv=notrunc status=none; sync; }
 # Mount namespaces other than the host's that still have the filesystem, one process each.
@@ -295,7 +301,12 @@ fresh_drive; fstab_line "$NEW"
 mount_drive; note "mounted: dirty=$(dirty)"
 echo hello > "${MNT}/a.txt"; note "after creating a file: dirty=$(dirty)"
 head -c 1048576 /dev/urandom >> "${MNT}/a.txt"; note "after appending 1 MiB: dirty=$(dirty)"
-sync; note "after sync: dirty=$(dirty)"
+sync; synced="$(dirty)"; note "after sync: dirty=${synced}"
+if sync_keeps_mark; then
+  check "Linux ${KERNEL} keeps the mark a write set through a sync, until the unmount" test "$synced" -eq 1
+else
+  check "Linux ${KERNEL} clears the mark a write set at a sync, with the drive still mounted (6.16 moved that to the unmount)" test "$synced" -eq 0
+fi
 check "while it is mounted, the filesystem holds its device, which is what wait_released waits on" still_held
 unmount_drive; check "a clean unmount leaves the flag clear" test "$(dirty)" -eq 0
 set_dirty; note "flag set by hand, as a drive pulled mid-write leaves it: dirty=$(dirty)"
@@ -304,6 +315,9 @@ check "fsck.exfat -n calls a consistent volume clean, dirty flag or not (exit $r
 kmark; mount_drive; kernel_since
 check "the kernel warns at mount" warned
 echo more > "${MNT}/b.txt"; sync
+# What storage.volume-state relies on, on every kernel: a clear mark on a mounted drive means the
+# drive was not marked when it was mounted.
+check "a mark the drive had at mount stays set through a write and a sync while it is mounted" test "$(dirty)" -eq 1
 unmount_drive; note "after writing and a clean unmount of a volume mounted dirty: dirty=$(dirty)"
 check "Linux keeps the flag set when the volume was dirty at mount, however cleanly it is unmounted" test "$(dirty)" -eq 1
 kmark; mount_drive; kernel_since; unmount_drive
@@ -661,7 +675,11 @@ in_runner "
 volumes="$(tail -1 "${WORK}/volumes.out")"
 check "storage.volume-state reads both drives (exit $rc)" bash -c "grep -q '\"mountpoint\":\"/mnt/the-dump\"' <<< '$volumes' && grep -q '\"mountpoint\":\"/mnt/media\"' <<< '$volumes'"
 check "ext4's superblock state is read" grep -q '"ext":{"state":"clean"}' <<< "$volumes"
-check "a mounted exFAT drive written since mounting reads as marked, which is why a set mark alone decides nothing" grep -q '"exfat":{"dirty":true}' <<< "$volumes"
+if sync_keeps_mark; then
+  check "a mounted exFAT drive written since mounting reads as marked, which is why a set mark alone decides nothing" grep -q '"exfat":{"dirty":true}' <<< "$volumes"
+else
+  check "a mounted exFAT drive written and synced reads as not marked: Linux ${KERNEL} clears a write's mark at a sync" grep -q '"exfat":{"dirty":false}' <<< "$volumes"
+fi
 check "and each mount's start is known, to place the kernel's warnings" grep -q '"mountedAt":"20' <<< "$volumes"
 umount /mnt/media; losetup -d "$EXT_LOOP"
 cp "${WORK}/fstab.orig" /etc/fstab; printf '# boxpilot:%s\nUUID=%s %s exfat %s 0 0\n' "$NAME" "$UUID" "$MNT" "$NEW" >> /etc/fstab; systemctl daemon-reload
