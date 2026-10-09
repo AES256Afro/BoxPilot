@@ -4185,12 +4185,20 @@ export function createAgentService({
     return getEvaluation(person, agent.id);
   }
 
+  /** The running app using the most processor, or null when none runs or the stats could not be read. */
+  function busiestAppOf(usage) {
+    if (!usage || usage.statsAvailable === false || !Array.isArray(usage.apps)) return null;
+    const running = usage.apps.filter((app) => app?.running);
+    if (!running.length) return null;
+    return [...running].sort((a, b) => ((b.cpuPercent ?? 0) - (a.cpuPercent ?? 0)) || ((b.memBytes ?? 0) - (a.memBytes ?? 0)))[0].id ?? null;
+  }
+
   /** What a golden question's fact is on this server right now, read as `role` reads. */
   async function resolveFacts({ role }) {
     // Each read within its time, or unknown: an inventory whose df or docker never answered held the
     // nightly evaluation, and with it every later tick, for good (2026-10 sweep 2).
     const read = (fn) => inTime(fn, limits.factsTimeoutMs, new Error("It did not answer in time")).catch(() => null);
-    const [snapshot, apps, pihole, placed, services, firewall, protection, updates] = await Promise.all([
+    const [snapshot, apps, pihole, placed, services, firewall, protection, updates, usage] = await Promise.all([
       read(() => inventory?.inspect()),
       read(() => tools.readApps()),
       // An operator read (ADR-003); an evaluation is started by the owner or an operator anyway.
@@ -4203,6 +4211,8 @@ export function createAgentService({
       // M47.6: the reads backups.coverage and updates.status make, open to every role.
       read(() => (helper ? helper.request("app.backup.protection", {}, { timeoutMs: 30_000 }) : null)),
       read(() => (helper ? helper.request("apt.upgradable.inspect", {}, { timeoutMs: 30_000 }) : null)),
+      // M47.9: the read apps.usage makes, open to every role.
+      read(() => (helper ? helper.request("system.performance.inspect", {}, { timeoutMs: 30_000 }) : null)),
     ]);
     const applications = Array.isArray(apps?.applications) ? apps.applications : null;
     return {
@@ -4225,6 +4235,8 @@ export function createAgentService({
       // folder could not be read: zero would call every app unprotected), and whether apt wants a reboot.
       neverBackedUp: protection?.available && Array.isArray(protection.apps) ? protection.apps.filter((app) => app.protectable && !(app.backups > 0)).map((app) => app.id) : null,
       rebootRequired: updates ? (updates.rebootRequired === true ? "yes" : updates.rebootRequired === false ? "no" : null) : null,
+      // M47.9: the running app with the largest share of a core, as apps.usage lists it first; unknown when docker stats did not answer.
+      busiestApp: busiestAppOf(usage),
     };
   }
 
