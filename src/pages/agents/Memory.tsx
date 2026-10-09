@@ -223,7 +223,8 @@ export function Memory({ agents, agentId, csrfToken, role, now, onSelectAgent }:
           actions={role === "owner" && examples.counts.total > 0 ? (
             <>
               <Button onClick={() => window.location.assign(agentsApi.examplesExportUrl(agent.id))}>Export as training data</Button>
-              {examples.counts.pairs > 0 && <Button variant="secondary" onClick={() => window.location.assign(agentsApi.examplesExportUrl(agent.id, { pairs: true }))}>Export {examples.counts.pairs} preference {examples.counts.pairs === 1 ? "pair" : "pairs"}</Button>}
+              {examples.counts.acting > 0 && <Button onClick={() => window.location.assign(agentsApi.examplesExportUrl(agent.id, { acting: true }))}>Export {examples.counts.acting} {examples.counts.acting === 1 ? "answer" : "answers"} with their tool output</Button>}
+              {examples.counts.pairs > 0 && <Button onClick={() => window.location.assign(agentsApi.examplesExportUrl(agent.id, { pairs: true }))}>Export {examples.counts.pairs} preference {examples.counts.pairs === 1 ? "pair" : "pairs"}</Button>}
             </>
           ) : undefined}>
           <Table caption={`Examples ${agent.name} plans from`} columns={exampleColumns} rows={examples.examples} rowKey={(example) => example.id}

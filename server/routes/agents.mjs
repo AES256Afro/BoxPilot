@@ -136,7 +136,7 @@ export function createAgentsRouter({ agents, state, auth, cloud = noCloud }) {
   // M46.3: the book as training data, JSON Lines with the house's names as stand-ins (the owner's: it leaves the box).
   router.get("/agents/:id/examples/export", (request, response) => {
     try {
-      const exported = agents.exportExamples(callerOf(request), request.params.id, { cover: typeof request.query.cover === "string" ? request.query.cover : null, seeds: request.query.seeds !== "false", pairs: request.query.pairs === "true" });
+      const exported = agents.exportExamples(callerOf(request), request.params.id, { cover: typeof request.query.cover === "string" ? request.query.cover : null, seeds: request.query.seeds !== "false", pairs: request.query.pairs === "true", acting: request.query.acting === "true" });
       response.setHeader("Cache-Control", "no-store");
       response.setHeader("Content-Type", "application/x-ndjson; charset=utf-8");
       response.setHeader("Content-Disposition", `attachment; filename="${exported.filename}"`);

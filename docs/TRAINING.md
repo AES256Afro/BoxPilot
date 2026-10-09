@@ -155,8 +155,9 @@ the file with one), and switched to the way any model is: through an approval ca
 ## What is not here
 
 - No trainer runs on the box, and BoxPilot calls none. A CPU-only server keeps the base model.
-- Records for the acting conversation (request, tool output, answer) are not exported yet: the book
-  keeps the request, the plan and the answer, not the tool outputs the answer was checked against.
+- The acting conversation's records (section 6) leave out what the prompt held beside the task:
+  the agent's notes, what it recalled, the other agents' findings, the specialists it could hand
+  to. A run does not keep them, so a record that showed them would be made up.
 - Reinforcement learning on the acting conversation (GRPO on the answer against the tool output)
   is not here; the preference pairs below train the planner alone.
 
@@ -184,3 +185,28 @@ ORPOTrainer(model=model, args=ORPOConfig(output_dir="orpo", beta=0.1, learning_r
 A few dozen pairs is a signal, not a dataset: keep `beta` small and one epoch, and the gate in
 section 4 decides as before. Pairs are few by design - each is a person's judgement - so the
 fine-tune on the book comes first and the pairs correct it.
+
+## 6. The acting conversation (M46.7)
+
+The book trains the planner; the answer is the other half. For every approved run behind an example
+(a thumbs up, a card staged, an evaluation question graded right) the conversation it held is rebuilt
+from the steps it kept: the system message as `prompt.mjs` words it, the task as the runner was
+given it with the plan it carried, each model turn with its tool calls, each tool's output boxed as
+the model read it (`<tool_output id="T1" ...>`), and the answer with its [T] citations. The check
+held every claim of that answer to the output it cites, so the record teaches: from these outputs,
+this answer, cited. A run that would not be faithful makes none: a follow-up run, part of a
+conversation, a JSON answer, an answer the check doubted or that cites a finding, a run that read
+something that looked like an instruction, steps whose calls and outputs do not pair.
+
+The Memory tab offers "Export N answers with their tool output"; the API is
+`GET /api/v1/agents/<id>/examples/export?acting=true`; the script is
+`boxpilot-agents-examples.mjs acting <db>`. The same stand-ins hide the house's names; `meta.context`
+says what the record leaves out.
+
+Train it with the book, in the same run (section 3): the records are the same chat shape, with
+`tool` turns and `tool_calls` the chat template renders as the model saw them. Keep the loss on the
+assistant turns only (`train_on_responses_only` in Unsloth, or TRL's `assistant_only_loss`), so the
+model learns to call and to answer, never to write a tool's output. The acting records are long
+(the system message, several tool outputs of up to 4,000 characters): `max_seq_length` 8192 holds
+them, and they are few, so one epoch over the book and the conversations together is the recipe,
+then the gate.
