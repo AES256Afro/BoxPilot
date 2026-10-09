@@ -1,4 +1,6 @@
-import { readdir, readFile, readlink, rm, writeFile } from "node:fs/promises";
+import { readdir, readFile, readlink, rm } from "node:fs/promises";
+// udev's link file is read at boot: written durably, never truncated in place.
+import { writeFileDurably as writeFile } from "../durable-file.mjs";
 import path from "node:path";
 import { fixedRun } from "../exec.mjs";
 
