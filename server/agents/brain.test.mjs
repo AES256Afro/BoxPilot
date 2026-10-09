@@ -60,7 +60,7 @@ describe("the understanding a model returns", () => {
     const step = format.json_schema.schema.properties.plan.items.properties;
     expect(step.tool.enum).toEqual(["alerts_active", "server_facts", null]);
     expect(step.step).toMatchObject({ type: "string", minLength: 3, maxLength: 80 });
-    expect(format.json_schema.schema.properties.plan.maxItems).toBe(5);
+    expect(format.json_schema.schema.properties.plan.maxItems).toBe(8);
     expect(format.json_schema.schema.required).not.toContain("tools");
   });
 

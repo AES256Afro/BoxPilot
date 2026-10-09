@@ -2898,9 +2898,17 @@ Each item is its own pull request, released and deployed when green.
   replaced. Tests: `tools-eyes.test.mjs` (the words, the roles, the hints, the templates, the
   grader, a Keeper answering from the firewall, the migration), the Repair route's tests unchanged
   through the shared scan.
-- **M47.2 A wider plan.** A plan holds five steps, so the Scout's survey reads five tools and the
-  firewall and Repair stay on request. Raise the plan to eight steps and the Scout's survey to read
-  them, measured on the real model: the survey's model time against its 20 minutes.
+- ✅ **M47.2 A wider plan** (unreleased, `feat/m47-wider-plan`). A plan held five steps, so the
+  Scout's survey read five tools and the firewall and Repair stayed on request. The planner's plan
+  now holds eight (`understandingSchema`, "name only the tools the request needs: one or two for a
+  plain question"), the Scout's survey reads seven one a step (alerts, Repair's findings, the
+  drives, the apps, the backups, the firewall, the machine) with the budget that takes (12 steps,
+  32,000 tokens, 25 minutes, 3,000 s a day), and the Security Reviewer reads updates too. A Scout
+  still on the five-read survey, or on M47.1's on-request rule, is widened once (`migrateDefaults`,
+  "BoxPilot widened its weekly survey"); one whose maker rewrote its steps keeps them. Tests: the
+  survey reading all seven within its steps and tokens, the M43 budget still reaching its limit at
+  eight steps, the schema (`findings.test.mjs`, `templates.test.mjs`, `brain.test.mjs`). To measure
+  on bigbox: the first widened survey's model time against its 25 minutes (Usage tab).
 - **M47.3 Findings by meaning** (M46's last open item): the runner embeds the request before it
   plans; let it ask for other agents' findings by vector and add them as evidence.
 

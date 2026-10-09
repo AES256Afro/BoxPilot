@@ -15,8 +15,8 @@ BoxPilot already has most of a harness. It does not have a name, it is woven int
 - **Two processes (ADR-005).** The web service holds the agents, their store and every tool. A
   capped runner (`boxpilot-agents.service`, 400% CPU, 8 GB, no network but loopback) runs the model
   and the loop, and claims queued runs over a token-authenticated loopback API.
-- **A loop:** plan (`intent.mjs`, a schema-bound plan with a confidence) → act (one growing
-  conversation, 3 tool calls a step, 12 steps) → check (`verify.mjs`, every claim held to the tool
+- **A loop:** plan (`intent.mjs`, a schema-bound plan of up to eight steps with a confidence; five
+  before M47.2) → act (one growing conversation, 3 tool calls a step, 12 steps) → check (`verify.mjs`, every claim held to the tool
   output it cites, one correction) → finish. Time per call comes from measured tokens a second.
 - **31 tools** (`tool-catalog.mjs`; 25 before M47): reads mapped onto read-only registry operations under ADR-003,
   exact tools (calculator, units, regex), and four writes that never touch the host: notes, a card,

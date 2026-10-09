@@ -9,7 +9,7 @@
  * the App Doctor, the Update Planner, Storage Watch and the House Guide. Each uses only the read
  * tools the runtime has, and says plainly what those tools cannot see - the firewall, open ports,
  * system package updates, Repair's findings - rather than guessing at it. Each one's routine work
- * names at most five tools in its steps, because a plan holds five steps and a call that acts
+ * names at most eight tools in its steps, because a plan holds eight steps (M47.2) and a call that acts
  * carries only the plan's tools and the always-on ones (intent.mjs, actToolIds); its own notes come
  * with every request, so none spends a step reading them. Each one's budget holds its own nightly
  * evaluation, which runs only when it leaves half the day's model time free (240 s a question).
@@ -92,17 +92,20 @@ export const agentTemplates = Object.freeze([
           "A drive storage.health says was spun down to save power is normal and not a problem: BoxPilot leaves an idle disk asleep rather than wake it to read its health. List it under Fine, with its last reading.",
           "Use the numbers and dates the tools give, as they give them. Do not work out new ones.",
           "backups.status lists BoxPilot's own database backups, the copies off this server and which apps' backups were test-restored, not every app's backups. Name the apps that hold data with no test restore; for which have a backup at all, point to the Backups page.",
-          "The firewall and Repair's findings are read on request: firewall.status and repair.findings. The weekly survey does not read them: list what this run did not read under Not checked, with the page to open (Firewall, Repair).",
+          "Asked about the firewall or Repair alone, read firewall.status or repair.findings for it; the weekly survey reads both.",
           "Open ports, SSH settings and waiting system package updates no tool of yours sees: name them under Not checked, with the page to open (Updates).",
           "If apps.list shows the Cloudflare Tunnel app (cloudflared), some apps may be open to the internet: say so, and that its Tunnel tab lists them.",
           "Read every tool in your plan before you propose anything. Then propose at most two cards, for the two most important items a registered operation fixes; for the rest, name the operation or the page.",
           "Asked about one area, read the tool for it: services.status for which services failed, jobs.recent for jobs that failed, firewall.status for the firewall, repair.findings for what Repair found.",
         ],
-        // Five reads: the most a plan holds (intent.mjs), so the weekly survey reads all of them.
+        // Seven reads, one a step: a plan holds eight steps (intent.mjs, M47.2), so the weekly survey reads all of them.
         steps: [
           "Read what is wrong now with alerts.active: failed services and schedules, unhealthy apps, a reboot waiting, disks filling.",
-          "Read the drives with storage.health, and the apps with apps.list: unhealthy, restarting, stopped (on purpose or not) or with an update waiting.",
+          "Read repair.findings: what Repair wants fixed, worst first, and the fixes it offers.",
+          "Read the drives with storage.health.",
+          "Read the apps with apps.list: unhealthy, restarting, stopped (on purpose or not) or with an update waiting.",
           "Read backups.status for the copies off this server and which apps' backups were test-restored.",
+          "Read firewall.status: whether it is on and which ports it allows.",
           "Read server.facts for processor load, memory and how long it has been up.",
           "Rank what you found, say what changed since your last survey (in what you remember), and propose cards for the top two with plan.propose.",
         ],
@@ -118,12 +121,12 @@ export const agentTemplates = Object.freeze([
       triggers: { ask: true, schedule: { every: "weekly", weekday: 0, hour: 4, minute: 20, quietHours: true }, events: [] },
       // Its first survey on a real server (M44) used all eight of its steps - the eighth only to
       // answer - after reading three of the five tools its plan named; its tokens stood at about
-      // 12,300 of the 13,600 that end a run early. A survey that reads one tool a step needs five
-      // steps to read, two to propose its cards and one to answer: ten steps leave two to spare,
-      // 24,000 tokens hold all five outputs, and 20 minutes hold it at the background's four threads,
-      // about half the speed of the eight it had then (200 s of model time). 2,400 s a day hold a
-      // survey, its nightly evaluation (seven questions) and a question or two.
-      budget: { runsPerDay: 4, modelSecondsPerDay: 2_400, stepsPerRun: 10, tokensPerRun: 24_000, runSeconds: 1_200 },
+      // 12,300 of the 13,600 that end a run early. Since M47.2 the survey reads seven tools one a
+      // step, two more to propose its cards and one to answer: twelve steps (the most a spec may
+      // give) leave two to spare, 32,000 tokens hold all seven outputs, and 25 minutes hold it at
+      // the background's four threads. 3,000 s a day hold a survey, its nightly evaluation (eight
+      // questions) and a question or two.
+      budget: { runsPerDay: 4, modelSecondsPerDay: 3_000, stepsPerRun: 12, tokensPerRun: 32_000, runSeconds: 1_500 },
       // It keeps no notes: each survey is remembered as it ran, the next one recalls it, and the
       // other agents read it as its finding (M44).
       outputs: { notes: false, digest: false, notify: "never", proposals: true },
@@ -374,12 +377,13 @@ export const agentTemplates = Object.freeze([
           "Read every tool in your plan before you propose anything. Then propose at most two cards, for the two most important items a registered operation fixes; for the rest, name the operation or the page.",
           "Asked about one area, read the tool for it: firewall.status for the firewall, protection.status for fail2ban, users.access for SSH and the accounts, tunnel.exposure for the internet, updates.status for package updates.",
         ],
-        // Five reads: the most a plan holds (intent.mjs), so the weekly review reads all of them.
+        // Six reads, one a step, within the eight a plan holds (intent.mjs).
         steps: [
           "Read firewall.status: whether it is on, the default policy, and which ports it allows.",
           "Read protection.status and users.access: fail2ban, password and root login over SSH, who has sudo and keys.",
           "Read tunnel.exposure: what is published to the internet.",
           "Read apps.list: which apps listen on a web port, and which are stopped or unhealthy.",
+          "Read updates.status: security updates waiting, and whether a reboot is required.",
           "Rank what to tighten, say what changed since your last review (in what you remember), and propose cards for the top two with plan.propose.",
         ],
         output: { format: "text", style: "A numbered list headed \"What to tighten\", most important first. Each item: what it is, why it matters, the evidence with its [T] citation, and the next step. Then a line \"Sound:\" and a line \"Not checked:\"." },
