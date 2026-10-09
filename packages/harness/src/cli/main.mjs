@@ -22,6 +22,7 @@ import { createRedactor, redactText } from "../safety/redaction.mjs";
 import { createStandIns, hideRequest, showResult } from "../safety/stand-ins.mjs";
 import { createApprover, terminalSafe } from "./approve.mjs";
 import { cliRules } from "./prompt.mjs";
+import { exportRecords, toJsonl } from "./export.mjs";
 import { openStore } from "./store.mjs";
 import { createFolder, defaultPrograms, folderTools } from "./tools.mjs";
 
@@ -35,6 +36,7 @@ Usage:
   boxpilot-harness good <run>               Keep a run as an example the agent is shown before a task like it
   boxpilot-harness bad <run>                Take that back
   boxpilot-harness examples                 The example book: good runs, and evaluation cases graded right
+  boxpilot-harness export                   The book as training data (JSON Lines, each run's whole conversation)
   boxpilot-harness eval <cases.json>        Run cases, each in a copy of the folder, and grade them
 
 The model, one or more of:
@@ -69,7 +71,7 @@ const optionSpec = {
   json: { type: "boolean" }, quiet: { type: "boolean" }, limit: { type: "string" },
   help: { type: "boolean", short: "h" }, version: { type: "boolean" },
 };
-const commands = new Set(["run", "runs", "show", "notes", "good", "bad", "examples", "eval", "help"]);
+const commands = new Set(["run", "runs", "show", "notes", "good", "bad", "examples", "export", "eval", "help"]);
 // Before a model has been measured here: a modest machine's local speeds, and a hosted model's.
 const firstSpeeds = { local: { promptPerSecond: 30, generatePerSecond: 6 }, remote: { promptPerSecond: 1_000, generatePerSecond: 50 } };
 
@@ -133,6 +135,7 @@ export async function main(argv, io) {
       if (command === "notes") return listNotes(store, rest.join(" "), opts, out);
       if (command === "good" || command === "bad") return rateRun(store, rest[0], command, out);
       if (command === "examples") return listExamples(store, opts, out);
+      if (command === "export") return exportBook(store, opts, io);
       const models = await modelsFrom(opts, io);
       if (command === "eval") return await evaluate(rest[0], { opts, io, store, models, folderPath, out });
       const result = await runOnce({ task: rest.join(" "), opts, io, store, models, folderPath });
@@ -255,6 +258,14 @@ function listExamples(store, opts, out) {
   const examples = store.listExamples(whole(opts.limit, "limit", { max: 1_000 }) ?? 50);
   if (!examples.length) { out("No examples yet. After a run that went well: boxpilot-harness good <run>"); return 0; }
   for (const example of examples) out(`${example.runId.slice(0, 8)}  ${example.signal.padEnd(5)} ${terminalSafe(example.task).slice(0, 60).padEnd(60)} -> ${example.tools.join(", ") || "no tool"}`);
+  return 0;
+}
+
+/** The book as training data (M47.8): one conversation a good run, this machine's names hidden, on stdout. */
+function exportBook(store, opts, io) {
+  const records = exportRecords(store, { limit: whole(opts.limit, "limit", { max: 1_000 }) ?? 1_000 });
+  io.stdout.write(toJsonl(records));
+  if (!opts.quiet) io.stderr.write(`${records.length} ${records.length === 1 ? "conversation" : "conversations"} from the example book\n`);
   return 0;
 }
 

@@ -154,8 +154,22 @@ describe("a run on scripted turns", () => {
     // A task that shares no words with it is shown nothing.
     const other = await cli(["What is the weather?", "--fake", fake, "--yes"], { cwd: folder });
     expect(other.stderr).not.toMatch(/examples:/);
+    // The book as training data (M47.8): the run's whole conversation, each tool's output boxed as the model read it.
+    const exported = await cli(["export"], { cwd: folder });
+    expect(exported.code).toBe(0);
+    expect(exported.stderr).toMatch(/^1 conversation from the example book/);
+    const [record] = exported.stdout.trim().split("\n").map((line) => JSON.parse(line));
+    expect(record.meta).toMatchObject({ runId: expect.stringMatching(new RegExp(`^${id}`)), signal: "good", outcome: "completed", toolOutputs: 3 });
+    expect(record.messages.map((message) => message.role)).toEqual(["system", "user", "assistant", "tool", "assistant", "tool", "assistant", "tool", "assistant"]);
+    expect(record.messages[0].content).toMatch(/^You are an agent working in one folder on this computer: /);
+    expect(record.messages[1].content).toBe("Add bread to my shopping list");
+    expect(record.messages[2].tool_calls[0].function.name).toBe("files_list");
+    expect(record.messages[3].content).toMatch(/^<tool_output id="T1" tool="files_list" trust="untrusted">/);
+    expect(record.messages[3].tool_call_id).toBe(record.messages[2].tool_calls[0].id);
+    expect(record.messages.at(-1).content).toBe(first.stdout.trim());
     expect((await cli(["bad", id], { cwd: folder })).stdout).toMatch(/^Taken back: /);
     expect((await cli(["examples"], { cwd: folder })).stdout).toMatch(/^No examples yet/);
+    expect((await cli(["export"], { cwd: folder })).stdout).toBe("");
     expect((await cli(["good", "nope"], { cwd: folder })).code).toBe(64);
   });
 
