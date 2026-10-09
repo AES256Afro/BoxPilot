@@ -20,6 +20,11 @@ on:
         description: "For eval: also ask it of this ref (for example main), with the same model, for a before and after"
         default: ""
         type: string
+      set:
+        description: "For eval: builtin (the six questions, M40) or boundary (eight worded between two tools, graded on the tool too, M46)"
+        default: "builtin"
+        type: choice
+        options: [builtin, boundary]
   push:
     branches: [fix/agents-first-run]
     paths: [".github/workflows/agents-bench.yml", "tests/bench/**"]
@@ -103,6 +108,7 @@ jobs:
         env:
           THREADS: ${{ inputs.threads || '4' }}
           BASELINE: ${{ inputs.baseline }}
+          SET: ${{ inputs.set || 'builtin' }}
         run: |
           mkdir -p "$RUNNER_TEMP/bench"
           { echo '## Agents evaluation on the real model'; echo; echo "$(lscpu | grep '^Model name' | sed 's/  */ /g'), $(nproc) processors"; echo; } >>"$GITHUB_STEP_SUMMARY"
@@ -111,9 +117,9 @@ jobs:
               dir="$GITHUB_WORKSPACE"; [ "$tree" = baseline ] && dir="$RUNNER_TEMP/baseline"
               sudo systemd-run --scope --quiet -p "CPUQuota=$((threads * 100))%" -p CPUWeight=idle -- \
                 sudo -u "$(id -un)" env PATH="$PATH" HOME="$HOME" \
-                nice -n 19 ionice -c 3 node "$dir/tests/bench/agents-real.mjs" --eval --runtime "$RUNNER_TEMP/unsloth" --state "$RUNNER_TEMP/agents-state" --threads "$threads" --out "$RUNNER_TEMP/bench/eval-$tree-$threads.json" \
+                nice -n 19 ionice -c 3 node "$dir/tests/bench/agents-real.mjs" --eval --set "$SET" --runtime "$RUNNER_TEMP/unsloth" --state "$RUNNER_TEMP/agents-state" --threads "$threads" --out "$RUNNER_TEMP/bench/eval-$tree-$threads.json" \
                 2>"$RUNNER_TEMP/bench/eval-$tree-$threads.log" | tee "$RUNNER_TEMP/bench/eval-$tree-$threads.txt"
-              { echo "### ${tree}${BASELINE:+ ($([ "$tree" = baseline ] && echo "$BASELINE" || echo "${GITHUB_REF_NAME}"))}, ${threads} thread(s) under CPUQuota=$((threads * 100))%"; echo; echo '```'; tail -n 8 "$RUNNER_TEMP/bench/eval-$tree-$threads.txt"; echo '```'; echo; } >>"$GITHUB_STEP_SUMMARY"
+              { echo "### ${tree}${BASELINE:+ ($([ "$tree" = baseline ] && echo "$BASELINE" || echo "${GITHUB_REF_NAME}"))}, the $SET set, ${threads} thread(s) under CPUQuota=$((threads * 100))%"; echo; echo '```'; tail -n 10 "$RUNNER_TEMP/bench/eval-$tree-$threads.txt"; echo '```'; echo; } >>"$GITHUB_STEP_SUMMARY"
             done
           done
 
