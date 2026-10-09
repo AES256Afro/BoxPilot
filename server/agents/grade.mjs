@@ -64,6 +64,14 @@ export function gradeFact(fact, value, answer) {
     const passed = value === "on" ? /\b(on|enabled|active|is blocking)\b/.test(text) && !/\b(off|disabled|not blocking)\b/.test(text) : /\b(off|disabled|not blocking)\b/.test(text);
     return { passed, found: passed ? `Says ${value}` : `Expected ${value}` };
   }
+  if (fact === "firewallEnabled") {
+    // M47: on, off, or not installed at all; "not enabled" says off, so the words of off are read first.
+    const off = /\b(off|disabled|inactive|not (enabled|on|active|turned on))\b/.test(text);
+    const passed = value === "on" ? /\b(on|enabled|active|turned on)\b/.test(text) && !off
+      : value === "off" ? off && !/\bnot installed\b/.test(text)
+        : /\b(not installed|isn't installed|no (host )?firewall|ufw is (missing|absent))\b/.test(text);
+    return { passed, found: passed ? `Says ${value}` : `Expected ${value}` };
+  }
   if (fact === "drives") return gradeDrives(value, answer);
   if (Object.hasOwn(namedFacts, fact)) return gradeNames(namedFacts[fact], value, text);
   const passed = text.includes(String(value).toLowerCase());

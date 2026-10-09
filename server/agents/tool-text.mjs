@@ -419,3 +419,86 @@ export function describePlaces(name, places, { unread = false } = {}) {
   }
   return lines.join("\n");
 }
+
+// ---- M47: eyes on what the agents could not see - the firewall, package updates, brute-force protection, accounts, the tunnel, Repair ----
+
+const plural = (count, word, words = `${word}s`) => `${count} ${count === 1 ? word : words}`;
+
+/** firewall.status: whether ufw is on, its default policies, and each rule on a line. */
+export function describeFirewall(result) {
+  if (!result) return "The firewall could not be read.";
+  if (!result.installed) return "Firewall: ufw is not installed on this server, so no host firewall is in place (Docker publishes its ports regardless).";
+  const state = result.enabled === true ? "on" : result.enabled === false ? "off" : "state unknown";
+  const defaults = result.defaults ? ` Default policy: incoming ${result.defaults.incoming ?? "?"}, outgoing ${result.defaults.outgoing ?? "?"}, routed ${result.defaults.routed ?? "?"}.` : "";
+  const rules = Array.isArray(result.rules) ? result.rules : [];
+  const lines = [`Firewall: ufw is installed and ${state}.${defaults} ${plural(rules.length, "rule")} configured.${result.dockerRules ? " Docker's own rules are in place, so a published container port is reachable whatever ufw says." : ""}`];
+  for (const rule of rules.slice(0, 40)) {
+    if (rule.raw && !rule.action) { lines.push(`- ${rule.raw}`); continue; }
+    const what = rule.app ? rule.app : rule.port ? `${rule.port}${rule.protocol && rule.protocol !== "any" ? `/${rule.protocol}` : ""}` : "anything";
+    lines.push(`- ${rule.action ?? "?"} ${rule.direction === "out" ? "out to" : "in to"} ${what}${rule.source ? ` from ${rule.source}` : " from anywhere"}${rule.interface ? ` on ${rule.interface}` : ""}${rule.family === "v6" ? " (IPv6)" : ""}${rule.comment ? ` - ${rule.comment}` : ""}`);
+  }
+  if (rules.length > 40) lines.push(`(${rules.length - 40} more rules not shown.)`);
+  if (!rules.length && result.enabled) lines.push("No rules: with the default policy above, that is what applies to every port.");
+  return lines.join("\n");
+}
+
+/** updates.status: how many packages wait, how many of them security, whether a reboot waits, which services run old libraries. */
+export function describeUpdates(result) {
+  if (!result) return "Package updates could not be read.";
+  const items = Array.isArray(result.upgradable) ? result.upgradable : [];
+  const count = Number.isInteger(result.count) ? result.count : items.length;
+  const security = Number.isInteger(result.securityCount) ? result.securityCount : items.filter((item) => /security/i.test(item.suite ?? "")).length;
+  const lines = [`Package updates waiting: ${count === 0 ? "none" : plural(count, "package")}${count ? `, ${security} of them security updates` : ""}. Reboot required: ${result.rebootRequired ? "yes" : "no"}.`];
+  if (Array.isArray(result.servicesNeedingRestart)) lines.push(result.servicesNeedingRestart.length ? `Services still running old libraries (needrestart): ${result.servicesNeedingRestart.slice(0, 15).join(", ")}.` : "No service is running old libraries (needrestart).");
+  else if (result.needrestartPresent === false) lines.push("Which services run old libraries is not known: needrestart is not installed.");
+  for (const item of items.slice(0, 30)) lines.push(`- ${item.name}: ${item.installed ?? "?"} -> ${item.candidate ?? "?"}${item.suite ? ` (${item.suite})` : ""}`);
+  if (items.length > 30) lines.push(`(${items.length - 30} more not shown.)`);
+  return lines.join("\n");
+}
+
+/** protection.status: fail2ban, as the Firewall page shows it. */
+export function describeProtection(result) {
+  if (!result) return "Brute-force protection could not be read.";
+  if (!result.installed) return "Brute-force protection: fail2ban is not installed, so repeated failed SSH logins are not banned.";
+  const config = result.config ?? {};
+  const settings = result.configured ? ` BoxPilot's sshd jail: ban after ${config.maxRetry ?? "?"} failures within ${config.findTimeMinutes ?? "?"} minutes, for ${config.banTimeMinutes ?? "?"} minutes${config.ignoreLan ? ", the home network never banned" : ""}.` : " BoxPilot has not written its sshd jail; fail2ban runs with whatever jails it has.";
+  const banned = Number.isInteger(result.currentlyBanned) ? ` Banned right now: ${result.currentlyBanned}; banned in all: ${result.totalBanned ?? "?"}.` : "";
+  return `Brute-force protection: fail2ban is installed and ${result.running === true ? "running" : result.running === false ? "not running" : "in an unknown state"}.${settings}${banned}`;
+}
+
+/** users.access: the accounts, who has sudo and keys, and how SSH is set. No key, hash or secret is in it. */
+export function describeUsers(result) {
+  if (!result) return "Users and SSH access could not be read.";
+  const users = Array.isArray(result.users) ? result.users : [];
+  const lines = [`${plural(users.length, "account")} that can log in${users.length ? `: ${users.map((user) => `${user.name}${user.sudo ? " (sudo)" : ""}${Number.isInteger(user.keyCount) ? `, ${plural(user.keyCount, "SSH key")}` : ""}`).join("; ")}` : ""}.`];
+  const sshd = result.sshd;
+  if (sshd) lines.push(`SSH (${result.sshActive === false ? "not running" : "running"}) on port ${sshd.port ?? 22}: password login ${sshd.passwordAuthentication ? "allowed" : "off"}, keys ${sshd.pubkeyAuthentication === false ? "off" : "allowed"}, root login ${sshd.permitRootLogin ?? "unknown"}.`);
+  else lines.push(`SSH settings could not be read${result.sshActive === false ? "; the SSH service is not running" : ""}.`);
+  return lines.join("\n");
+}
+
+/** tunnel.exposure: what the Cloudflare tunnel publishes to the internet, from BoxPilot's own record. */
+export function describeTunnel(result) {
+  if (!result) return "The Cloudflare tunnel could not be read.";
+  if (!result.connected && !result.tunnel) return "Cloudflare is not connected: nothing is published to the internet through a tunnel from BoxPilot.";
+  const routes = Array.isArray(result.routes) ? result.routes : [];
+  const lines = [`Cloudflare tunnel ${result.tunnel?.name ?? "(unnamed)"}: ${result.connected ? "connected" : "the API token is gone; what is published keeps working"}. Published to the internet: ${routes.length ? plural(routes.length, "address", "addresses") : "nothing"}.`];
+  for (const route of routes.slice(0, 30)) lines.push(`- ${route.hostname}: ${route.appId ?? route.service ?? "?"}${route.hostPort ? ` (port ${route.hostPort})` : ""}${route.publishedAt ? `, since ${String(route.publishedAt).slice(0, 10)}` : ""}`);
+  return lines.join("\n");
+}
+
+/** repair.findings: the Repair Center's list, as the page shows it, worst first; each with its fix or what to do by hand. */
+export function describeRepair(scan) {
+  if (!scan) return "Repair's findings could not be read.";
+  const findings = Array.isArray(scan.findings) ? scan.findings : [];
+  const counts = scan.counts ?? {};
+  const lines = [`Repair: ${findings.length === 0 ? "nothing to fix" : `${plural(findings.length, "finding")} (${counts.critical ?? 0} critical, ${counts.warning ?? 0} warning, ${counts.info ?? 0} info)`}${Array.isArray(scan.dismissed) && scan.dismissed.length ? `; ${scan.dismissed.length} set aside by the owner` : ""}.`];
+  const order = { critical: 0, warning: 1, info: 2 };
+  for (const finding of [...findings].sort((a, b) => (order[a.severity] ?? 3) - (order[b.severity] ?? 3)).slice(0, 20)) {
+    const fix = finding.fix ? ` Fix offered: ${finding.fix.label ?? finding.fix.operationId}${finding.fix.risk ? ` (${finding.fix.risk} risk)` : ""}.` : finding.manual ? ` By hand: ${String(finding.manual).slice(0, 200)}` : finding.view ? ` Page: ${finding.view}.` : "";
+    lines.push(`- [${finding.severity}] ${finding.title}${finding.detail ? `: ${String(finding.detail).replace(/\s+/g, " ").slice(0, 300)}` : ""}${fix}`);
+  }
+  if (findings.length > 20) lines.push(`(${findings.length - 20} more not shown.)`);
+  if (Array.isArray(scan.unavailableChecks) && scan.unavailableChecks.length) lines.push(`Not checked this time: ${scan.unavailableChecks.join(", ")}.`);
+  return lines.join("\n");
+}

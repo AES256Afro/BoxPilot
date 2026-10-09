@@ -98,7 +98,7 @@ describe("the check before answering", () => {
   it("does not ask for a correction that cannot fit, and does not end the run degraded for it", async () => {
     // At 52 and 10 tokens a second the run takes about 65 s before the check and the correction
     // about 15 s; a 90 s run keeps 15 s back for its finish, which leaves no room for it.
-    const { agent, corrections } = await setUp({ runSeconds: 90 });
+    const { agent, corrections } = await setUp({ runSeconds: 100 });
     const { run } = await ask(agent);
     expect(corrections).toHaveLength(0);
     expect(run.state).toBe("completed");

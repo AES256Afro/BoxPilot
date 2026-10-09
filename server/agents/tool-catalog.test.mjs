@@ -9,7 +9,7 @@ describe("the tools catalog", () => {
     expect(new Set(ids).size).toBe(ids.length);
     for (const tool of toolCatalog) {
       expect(tool.fn, tool.id).toMatch(/^[a-z_]{1,64}$/);
-      expect(["viewer", "operator"], tool.id).toContain(tool.role);
+      expect(["viewer", "operator", "owner"], tool.id).toContain(tool.role);
       expect(["cheap", "moderate", "heavy"], tool.id).toContain(tool.cost);
       expect(toolById(tool.fn)).toBe(tool);
     }

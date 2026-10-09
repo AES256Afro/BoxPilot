@@ -30,6 +30,7 @@ const readTools = createToolRunner({ state: {}, store: {}, registry });
 const factTool = {
   hostname: "server.facts", operatingSystem: "server.facts", installedApps: "apps.list", stoppedApps: "apps.list", unhealthyApps: "apps.list", appUpdates: "apps.list",
   rootDiskPercent: "storage.health", drives: "storage.health", piholePlacement: "where.runs", piholeBlocking: "pihole.stats", failedServices: "services.status",
+  firewallEnabled: "firewall.status",
 };
 /** Every question the evaluation asks an agent made from this template: its built-in ones not covered, then its own. */
 const evaluationOf = (template) => {
@@ -137,7 +138,9 @@ describe("the templates added in M43", () => {
   });
 
   it("say what their tools cannot see instead of guessing at it", () => {
-    expect(promptText(templateById("environment-scout").spec)).toMatch(/cannot see the firewall, open ports, SSH settings, waiting system package updates or Repair's findings/);
+    // M47: the firewall and Repair are read on request; open ports, SSH settings and package updates still are not.
+    expect(promptText(templateById("environment-scout").spec)).toMatch(/The firewall and Repair's findings are read on request: firewall\.status and repair\.findings/);
+    expect(promptText(templateById("environment-scout").spec)).toMatch(/Open ports, SSH settings and waiting system package updates no tool of yours sees/);
     expect(promptText(templateById("environment-scout").spec)).toMatch(/Cloudflare Tunnel app/);
     expect(promptText(templateById("update-planner").spec)).toMatch(/cannot see how many system packages are waiting/);
     expect(promptText(templateById("storage-watch").spec)).toMatch(/cannot see what takes up the space/);
@@ -230,7 +233,8 @@ describe("making agents from them", () => {
       [/unhealthy/, "apps_list", "Jellyfin is unhealthy [T1]."],
       [/services have failed/, "services_status", "smartd.service has failed [T1]."],
       [/root filesystem/, "storage_health", "42% [T1]."],
-      [/not check/, null, "The firewall, open ports, SSH settings, system package updates and Repair's findings."],
+      [/firewall turned on/, "firewall_status", "The firewall (ufw) is on, incoming denied by default [T1]."],
+      [/not check/, null, "Open ports, SSH settings and system package updates."],
     ];
     h.fake.state.script = (body) => {
       const found = route.find(([pattern]) => pattern.test(String(body.messages?.[1]?.content ?? "")));
@@ -246,7 +250,8 @@ describe("making agents from them", () => {
       ["unhealthy", { fact: "unhealthyApps", value: ["jellyfin"] }],
       ["failed-services", { fact: "failedServices", value: ["smartd.service"] }],
       ["root-disk", { fact: "rootDiskPercent", value: 42 }],
-      ["not-checked", { includes: ["firewall"] }],
+      ["firewall", { fact: "firewallEnabled", value: "on" }],
+      ["not-checked", { includes: ["ports"] }],
     ]);
     for (let asked = 0; asked < started.results.length; asked += 1) await h.runNext();
     const [done] = h.service.getEvaluation(h.caller("owner"), scout.id).runs;
@@ -365,6 +370,6 @@ describe("the catalog over HTTP", () => {
       expect(made.body, id).toMatchObject({ template: id, spec: templateById(id).spec });
     }
     expect((await request("POST", "/api/v1/agents", { role: "viewer", body: { template: "environment-scout" } })).status).toBe(403);
-    expect((await request("POST", "/api/v1/agents", { body: { template: "security-reviewer" } }))).toMatchObject({ status: 400, body: { code: "invalid_agent" } });
+    expect((await request("POST", "/api/v1/agents", { body: { template: "security-auditor" } }))).toMatchObject({ status: 400, body: { code: "invalid_agent" } });
   });
 });
