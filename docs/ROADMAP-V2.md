@@ -2862,6 +2862,13 @@ every M37 to M45 agent test passing.
   (`apps.list` for "where does Pi-hole run", M40), which the owner's own approvals, not this set,
   will keep measuring through the nightly evaluation's accuracy history.
 
+- **Fixed on the way (2026-10-09, from the owner's server):** the Environment Scout raised an
+  "Environment Scout needs you to look" card every night its evaluation question ("Which parts of
+  this server can your tools not check?") ran into its step limit, though the answer passed: the
+  limit rule in `escalate` held every run kind. An evaluation, a learning run, a hand-off or a
+  follow-up now leaves no card for a limit it reached, as the rule for low confidence already had
+  it; evaluations are read on their tab. Test: `findings.test.mjs`.
+
 ## App catalogue candidates
 
 Checked against the 164 manifests already in `catalog/`, so nothing here duplicates an existing
