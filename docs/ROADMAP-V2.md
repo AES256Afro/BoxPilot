@@ -3018,6 +3018,16 @@ every M37 to M45 agent test passing.
   JSON Lines on stdout, this machine's names through the same stand-ins Claude is given. A run whose
   calls and outputs do not pair makes none; the demonstrations shown before the task are not kept
   and are left out, and `meta.context` says so. Test: `cli.test.mjs`.
+- ✅ **M47.9 Resource Watch** (unreleased, `feat/resource-watch`). The Resource Tuner M43 wished for,
+  now that `apps.usage` reads each app's share of the machine: a template that looks every evening
+  (19:40, when the house uses the server; a night reading would show it idle) at the processor,
+  memory and swap and which apps use the most, keeps a Readings note to say what changed, tells an
+  app busy because it is working from one looping hot, and proposes at most one card: `app.action`
+  restart for an app above a core that apps.list says is restarting, a pause only for an app the
+  owner's instructions say may pause. Four seeds; one golden question ("Which app is using the most
+  processor right now?") on the new fact `busiestApp`, read from `system.performance.inspect` as the
+  Performance page reads it. Twelve templates. Tests: `resource-watch.test.mjs`, the template and
+  route counts.
 - **Fixed on the way (2026-10-09, from the owner's server):** the Environment Scout raised an
   "Environment Scout needs you to look" card every night its evaluation question ("Which parts of
   this server can your tools not check?") ran into its step limit, though the answer passed: the
