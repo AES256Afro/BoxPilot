@@ -2909,8 +2909,17 @@ Each item is its own pull request, released and deployed when green.
   survey reading all seven within its steps and tokens, the M43 budget still reaching its limit at
   eight steps, the schema (`findings.test.mjs`, `templates.test.mjs`, `brain.test.mjs`). To measure
   on bigbox: the first widened survey's model time against its 25 minutes (Usage tab).
-- **M47.3 Findings by meaning** (M46's last open item): the runner embeds the request before it
-  plans; let it ask for other agents' findings by vector and add them as evidence.
+- ✅ **M47.3 Findings by meaning** (unreleased, `feat/m47-findings-by-meaning`; M44's and M46's
+  last open item). Findings were offered before the plan by word overlap alone, and the memory
+  index never embedded them (they are notes kept apart from the notes list). Now the index embeds
+  each agent's findings, and once the runner has embedded the request (M46) it asks
+  `POST /agent-runner/runs/:id/findings` with the vector; the web service ranks the other agents'
+  fresh findings it may read by cosine (at least 0.55), leaves out the ones words already offered,
+  fills the places left (three in all), and offers each as the next F through the same box, trace
+  step (`by: "meaning"`) and instruction check as before. The runner adds them to the prompt the
+  calls that act read and to what the check holds citations to; the trace says "2 more findings
+  offered by meaning: F2, F3". None for an agent that does not use findings, a run that does not
+  read them, or a person who asked for a fresh check. Test: `findings-meaning.test.mjs`.
 
 ## App catalogue candidates
 

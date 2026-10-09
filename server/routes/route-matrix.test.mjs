@@ -251,7 +251,7 @@ const changeRoutes = [
 const runnerRoutes = [
   "POST /api/v1/agent-runner/hello", "POST /api/v1/agent-runner/next", "POST /api/v1/agent-runner/usage",
   "POST /api/v1/agent-runner/runs/:runId/heartbeat", "POST /api/v1/agent-runner/runs/:runId/steps",
-  "POST /api/v1/agent-runner/runs/:runId/tools", "POST /api/v1/agent-runner/runs/:runId/finish", "POST /api/v1/agent-runner/runs/:runId/vectors",
+  "POST /api/v1/agent-runner/runs/:runId/tools", "POST /api/v1/agent-runner/runs/:runId/finish", "POST /api/v1/agent-runner/runs/:runId/vectors", "POST /api/v1/agent-runner/runs/:runId/findings",
   // M45.3: a run on Claude's model calls, sent on to the model gateway.
   "POST /api/v1/agent-runner/runs/:runId/model",
 ];
