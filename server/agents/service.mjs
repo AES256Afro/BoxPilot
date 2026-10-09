@@ -4493,29 +4493,30 @@ export function createAgentService({
       next.eyes = { at: now().toISOString(), given };
       changed += given;
     }
-    // M47.2: a Scout still on the five-read survey (or M47.1's rule) gets the seven-read one and the
-    // budget it needs, once; a Scout whose maker rewrote its steps keeps them.
-    if (!done.survey) {
+    // M47.2: a Scout still on the five-read survey gets the seven-read one and the budget it needs,
+    // once. The survey is known by the tools its steps name - the five reads and neither of the
+    // new ones - not by their words: the owner's Scout (made in M43) worded a step differently from
+    // the template of the day, and the first try matched nothing. A Scout whose maker rewrote its
+    // steps around other tools keeps them. Every templated agent also gets the seeds its template
+    // gained for the new tools (the examples migration ran before those tools existed).
+    if (!done.surveyWide) {
       const scout = templateById("environment-scout");
-      const fiveReads = [
-        "Read what is wrong now with alerts.active: failed services and schedules, unhealthy apps, a reboot waiting, disks filling.",
-        "Read the drives with storage.health, and the apps with apps.list: unhealthy, restarting, stopped (on purpose or not) or with an update waiting.",
-        "Read backups.status for the copies off this server and which apps' backups were test-restored.",
-        "Read server.facts for processor load, memory and how long it has been up.",
-        "Rank what you found, say what changed since your last survey (in what you remember), and propose cards for the top two with plan.propose.",
-      ];
       const onRequestRule = "The firewall and Repair's findings are read on request: firewall.status and repair.findings. The weekly survey does not read them: list what this run did not read under Not checked, with the page to open (Firewall, Repair).";
       const newRule = scout?.spec.prompt.rules.find((entry) => entry.startsWith("Asked about the firewall or Repair alone")) ?? null;
+      const fiveReads = ["alerts.active", "storage.health", "apps.list", "backups.status", "server.facts"];
+      const mentions = (steps, id) => steps.some((step) => String(step).includes(id));
       let widened = 0;
+      let seeded = 0;
       for (const agent of store.listAgents()) {
+        if (agent.template) seeded += seedAgentExamples(agent);
         if (agent.template !== "environment-scout" || !scout) continue;
         const steps = agent.spec.prompt?.steps ?? [];
-        const sameSteps = steps.length === fiveReads.length && steps.every((step, index) => step === fiveReads[index]);
+        const fiveReadSurvey = fiveReads.every((id) => mentions(steps, id)) && !mentions(steps, "firewall.status") && !mentions(steps, "repair.findings");
         const hasOldRule = (agent.spec.prompt?.rules ?? []).includes(onRequestRule);
-        if (!sameSteps && !hasOldRule) continue;
+        if (!fiveReadSurvey && !hasOldRule) continue;
         const prompt = {
           ...agent.spec.prompt,
-          steps: sameSteps ? scout.spec.prompt.steps : steps,
+          steps: fiveReadSurvey ? scout.spec.prompt.steps : steps,
           rules: (agent.spec.prompt?.rules ?? []).map((rule) => (rule === onRequestRule && newRule ? newRule : rule)),
         };
         const budget = { ...agent.spec.budget };
@@ -4526,8 +4527,8 @@ export function createAgentService({
         try { spec = normalizeSpec({ ...agent.spec, prompt, budget, tools, sharing: sharingFor(agent) }); } catch { continue; }
         if (save(agent, spec, "BoxPilot widened its weekly survey: it reads Repair's findings and the firewall too, with the steps, tokens and time that takes", ["prompt.steps", "budget"])) widened += 1;
       }
-      next.survey = { at: now().toISOString(), widened };
-      changed += widened;
+      next.surveyWide = { at: now().toISOString(), widened, seeded };
+      changed += widened + seeded;
     }
     // M46: agents made before the example book get their template's examples, once.
     if (!done.examples) {
@@ -4536,7 +4537,7 @@ export function createAgentService({
       next.examples = { at: now().toISOString(), seeded };
       changed += seeded;
     }
-    if (next.runSeconds !== done.runSeconds || next.sharing !== done.sharing || next.examples !== done.examples || next.eyes !== done.eyes || next.survey !== done.survey) state.setSetting?.(agentsMigrationsKey, next, { updatedBy: null });
+    if (next.runSeconds !== done.runSeconds || next.sharing !== done.sharing || next.examples !== done.examples || next.eyes !== done.eyes || next.surveyWide !== done.surveyWide) state.setSetting?.(agentsMigrationsKey, next, { updatedBy: null });
     return changed;
   }
 
