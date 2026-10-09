@@ -69,6 +69,10 @@ const result = await runTask({
 - `act` is the loop on its own, for a host with its own planner or tools (BoxPilot's runner).
 - `createModelSession` paces each call from the model's measured speed, within what the run has
   left, and can move a run to another model.
+- `selectExamples` picks which of a host's examples (a request, what was done for it, its vector when
+  there is one) a model is shown before a task like it: the nearest, one from the other side of its
+  decision, the rest spread by maximal marginal relevance, never a near-copy twice. `coverExamples`
+  picks a set that covers a collection. Both are arithmetic; neither calls a model (M46).
 - `createToolbox` runs a host's own tools: input checked against each schema, output redacted,
   boxed and numbered, a `write` or `operation` asked of `approve`, nothing changed after taint.
 
