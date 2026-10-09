@@ -270,6 +270,8 @@ export function createAgentService({
     state, store, helper, now, redact, audit: (type, entry) => audit(type, entry), active: () => { const settings = moduleSettings(); return Boolean(settings.enabled) && !modulePaused(settings) && !settings.killedAt; },
     // M40.5: a question asked of the bot in Zulip, by someone the owner mapped to an account.
     ask: (input) => askFromChat(input),
+    // M47.4: "+1" or "wrong: ..." under an agent's answer there is feedback on that run.
+    feedback: (input) => feedbackFromChat(input),
     ...(chatOptions ?? {}),
   });
   // Kept across the service's life: when housekeeping last ran, and the alerts the last round saw.
@@ -3844,6 +3846,35 @@ export function createAgentService({
    * conversation - of the agent the message names, or the default one. The answer goes back to the
    * thread it was asked in; nothing is approved in chat. A refusal is said in the thread.
    */
+  /**
+   * Feedback from Zulip (M47.4): a reply of "+1", "-1", "right" or "wrong: ..." under an agent's
+   * answer rates the run that answer came from, as the Test tab's thumbs do, by the account the
+   * owner mapped the sender to. A thumbs up keeps the run as an example (M46); a thumbs down takes
+   * one back. The reply says what was noted, or that there is no answer above to rate.
+   */
+  function feedbackFromChat({ message, person, where, rating }) {
+    const account = state.findOwnerById?.(person.boxpilotId);
+    if (!account || !["owner", "operator", "viewer"].includes(account.role)) return { reply: "Your BoxPilot account cannot rate answers any more. The owner can set you up again." };
+    const post = store.latestAnsweredPost(where);
+    const run = post?.runId ? store.getRun(post.runId) : null;
+    if (!run) return { reply: "There is no agent's answer here to rate yet. Reply under one with +1 or -1, or wrong: what was expected." };
+    const agent = store.getAgent(run.agentId, { includeDeleted: true });
+    try {
+      giveFeedback({ id: account.id, role: account.role }, run.id, { verdict: rating.verdict, note: rating.note });
+    } catch (error) {
+      if (error instanceof AgentError) return { reply: error.message };
+      throw error;
+    }
+    audit("agents.feedback.chat", { actorId: account.id, subjectId: run.id, details: { verdict: rating.verdict, messageId: message.id } });
+    const whose = agent?.name ?? "the agent";
+    return {
+      noted: true,
+      reply: rating.verdict === "up"
+        ? `Noted: a thumbs up for ${whose}'s answer. It is kept as an example its planner learns from.`
+        : `Noted: a thumbs down for ${whose}'s answer${rating.note ? ` (${rating.note})` : ""}. It is no longer an example. Say what was expected on the Test tab to make it a golden question.`,
+    };
+  }
+
   function askFromChat({ message, person, where }) {
     const account = state.findOwnerById?.(person.boxpilotId);
     if (!account) return { refused: "Your BoxPilot account is gone; the owner can set you up again." };

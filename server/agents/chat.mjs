@@ -13,7 +13,7 @@
 import { ConnectorError, cleanDocumentText, textOfUpload } from "./connectors.mjs";
 import { boxLine } from "../../packages/harness/src/index.mjs";
 import { roleAtLeast } from "./tool-catalog.mjs";
-import { ackMessage, boxpilotLink, cardMessage, chatLimits, chatText, destinationFor, findingMessage, imageMediaType, messageWords, notSetUpMessage, noteMessage, replyMessage, traceMessage, zulipChannels } from "./zulip.mjs";
+import { ackMessage, boxpilotLink, cardMessage, chatLimits, chatText, destinationFor, feedbackIn, findingMessage, imageMediaType, messageWords, notSetUpMessage, noteMessage, replyMessage, traceMessage, zulipChannels } from "./zulip.mjs";
 
 export const zulipSettingKey = "agentsZulip";
 
@@ -29,7 +29,7 @@ const originPattern = /^https?:\/\/[A-Za-z0-9.-]{1,180}(?::\d{1,5})?$/;
 const findingKinds = new Set(["ask", "manual", "schedule", "event", "webhook", "continue"]);
 const answered = new Set(["completed", "degraded"]);
 
-export function createAgentChat({ state, store, helper = null, now = () => new Date(), redact = (text) => text, audit = () => {}, active = () => true, ask = null, limits: overrides = {}, schedule = (task, ms) => { const timer = setTimeout(task, ms); timer.unref?.(); return timer; } } = {}) {
+export function createAgentChat({ state, store, helper = null, now = () => new Date(), redact = (text) => text, audit = () => {}, active = () => true, ask = null, feedback = null, limits: overrides = {}, schedule = (task, ms) => { const timer = setTimeout(task, ms); timer.unref?.(); return timer; } } = {}) {
   const limits = { ...chatLimits, pollEveryMs: 3 * 60_000, drainDelayMs: 1_500, askPollEveryMs: askLimits.pollEveryMs, ...overrides };
   let draining = null;
   let polling = null;
@@ -379,6 +379,14 @@ export function createAgentChat({ state, store, helper = null, now = () => new D
           else askers.unshift({ zulipId: message.senderId ?? null, zulipEmail: String(message.senderEmail ?? "").toLowerCase(), zulipName: clip(message.senderName ?? "", 80), lastAt: at, lastRefusedAt: at, count: 1 });
           replyTo(message, notSetUpMessage);
           refused += 1;
+          continue;
+        }
+        // "+1", "-1", "wrong: ..." under an agent's answer is feedback on it (M47.4), never a question for a model.
+        const rating = feedbackIn(message.content);
+        if (rating && feedback) {
+          const rated = await Promise.resolve(feedback({ message, person, where: whereAsked(message), rating })).catch((error) => ({ reply: clip(error?.message ?? "That could not be noted", 300) }));
+          if (rated?.reply) replyTo(message, chatText(clip(rated.reply, 600), { redact, maxChars: 800 }));
+          if (rated?.noted) asked += 1;
           continue;
         }
         const outcome = await Promise.resolve(ask({ message, person, where: whereAsked(message) })).catch((error) => ({ refused: clip(error?.message ?? "It could not be asked", 300) }));
